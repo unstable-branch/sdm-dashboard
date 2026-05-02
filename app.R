@@ -49,18 +49,32 @@ ui <- fluidPage(
   theme = bslib::bs_theme(version = 5, bootswatch = "flatly", primary = "#0B6E69"),
   tags$head(
     tags$style(HTML("\n      body { background:#f4f7fb; color:#102a43; }\n      .container-fluid { max-width:1680px; }\n      .hero { background:radial-gradient(circle at top right,rgba(255,255,255,.18),transparent 28%),linear-gradient(135deg,#083f3c 0%,#0B6E69 48%,#174A7C 100%); color:white; border-radius:22px; padding:30px 34px; margin:18px 0 22px; box-shadow:0 16px 38px rgba(15,36,58,.18);}\n      .hero h1 { font-weight:800; margin:0 0 8px; letter-spacing:-.02em; } .hero p { margin:0; opacity:.93; font-size:1.08rem; max-width:780px; }\n      .control-panel,.content-card,.metric-card { background:white; border:1px solid #e7edf4; border-radius:18px; box-shadow:0 10px 26px rgba(15,36,58,.07); }\n      .control-panel { padding:18px; position:sticky; top:14px; max-height:calc(100vh - 28px); overflow:auto; }\n      .control-panel h4 { color:#0B4F4A; font-size:1rem; font-weight:800; margin-top:6px; }\n      .content-card { padding:20px; margin-bottom:16px; } .content-card h4 { font-weight:800; margin-top:0; color:#16324f; }\n      .metric-grid { display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:14px; margin-bottom:16px; }\n      .metric-card { border-left:5px solid #0B6E69; padding:16px; } .metric-label { color:#5d6d7e; font-size:.78rem; text-transform:uppercase; letter-spacing:.07em; font-weight:700; }\n      .metric-value { color:#102a43; font-size:1.8rem; font-weight:800; line-height:1.2; } .metric-note { color:#6c7a89; font-size:.85rem; margin-top:4px; }\n      .status-ok,.status-warn,.status-error,.status-info { border-radius:14px; padding:13px 15px; margin-bottom:16px; }\n      .status-ok { background:#e8f7f4; border:1px solid #b7e4db; color:#0b594f; } .status-warn { background:#fff7e6; border:1px solid #ffd591; color:#7a4b00; } .status-error { background:#fff1f0; border:1px solid #ffa39e; color:#8c1d18; } .status-info { background:#eef6ff; border:1px solid #b9dafb; color:#174A7C; }\n      .readiness-grid { display:grid; grid-template-columns:repeat(2,minmax(220px,1fr)); gap:12px; }\n      .readiness-item { border:1px solid #e7edf4; border-radius:14px; padding:13px 14px; background:#fbfcfe; }\n      .readiness-title { display:flex; align-items:center; gap:8px; font-weight:800; margin-bottom:4px; } .readiness-detail { color:#5d6d7e; font-size:.92rem; }\n      .pill { display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; border-radius:999px; font-size:.78rem; font-weight:900; }\n      .pill-ok { background:#d9f3ed; color:#08705f; } .pill-warn { background:#ffedc2; color:#8a5a00; } .pill-error { background:#ffd8d6; color:#9f1f1a; } .pill-info { background:#dceeff; color:#174A7C; }\n      .run-button-wrap .btn { font-weight:800; padding:.8rem 1rem; }\n      pre { background:#0b1020; color:#d6e4ff; border-radius:12px; padding:14px; max-height:460px; overflow:auto; } .small-muted { color:#6c7a89; font-size:.9rem; }\n      .tab-content { padding-top:4px; }\n      @media(max-width:1100px){.metric-grid,.readiness-grid{grid-template-columns:repeat(2,minmax(150px,1fr));}.control-panel{position:static;max-height:none;}} @media(max-width:700px){.metric-grid,.readiness-grid{grid-template-columns:1fr;}.hero{padding:24px 22px;}}\n    ")),
-    tags$script(HTML("\n      Shiny.addCustomMessageHandler('setRunState', function(x) {\n        var btn = document.getElementById('run_model');\n        if (!btn) return;\n        btn.disabled = !!x.running;\n        btn.classList.toggle('disabled', !!x.running);\n        btn.textContent = x.running ? 'Running SDM...' : 'Run SDM';\n      });\n    "))
+    tags$script(HTML("\n      Shiny.addCustomMessageHandler('setRunState', function(x) {\n        var btn = document.getElementById('run_model');\n        if (!btn) return;\n        btn.disabled = !!x.running;\n        btn.classList.toggle('disabled', !!x.running);\n        btn.textContent = x.running ? 'Running SDM...' : 'Run SDM';\n      });\n      (function() {\n        function setTheme(dark) {\n          document.body.classList.toggle('sdm-dark', dark);\n          document.body.classList.toggle('sdm-light', !dark);\n          try { window.localStorage.setItem('sdm-dashboard-theme', dark ? 'dark' : 'light'); } catch (e) {}\n        }\n        function initialTheme() {\n          try {\n            var saved = window.localStorage.getItem('sdm-dashboard-theme');\n            if (saved === 'dark' || saved === 'light') return saved === 'dark';\n          } catch (e) {}\n          return true;\n        }\n        function wireToggle() {\n          var toggle = document.getElementById('dark_mode');\n          var dark = initialTheme();\n          setTheme(dark);\n          if (!toggle || toggle.dataset.themeBound === '1') return;\n          toggle.checked = dark;\n          toggle.dataset.themeBound = '1';\n          toggle.addEventListener('change', function() { setTheme(toggle.checked); });\n        }\n        document.addEventListener('DOMContentLoaded', wireToggle);\n        document.addEventListener('shiny:connected', wireToggle);\n      })();\n    "))
   ),
 
   tags$style(HTML("\n    .hero { padding:12px 20px; margin:8px 0 10px; border-radius:16px; }\n    .hero h1 { font-size:1.55rem; margin-bottom:1px; } .hero p { font-size:.92rem; }\n    .control-panel { display:flex; flex-direction:column; height:calc(100vh - 94px); max-height:calc(100vh - 94px); padding:12px; overflow:hidden; }\n    .control-scroll { flex:1 1 auto; min-height:0; overflow:auto; padding-right:3px; }\n    .control-panel .form-group { margin-bottom:.62rem; }\n    .control-section { border:1px solid #e7edf4; border-radius:14px; padding:10px 12px; margin-bottom:10px; background:#fbfdff; }\n    .control-section h4 { margin:0 0 8px; }\n    details.control-section { padding:0; overflow:hidden; }\n    details.control-section > summary { cursor:pointer; padding:10px 12px; font-weight:800; color:#0B4F4A; list-style:none; }\n    details.control-section > summary::-webkit-details-marker { display:none; }\n    details.control-section > summary:after { content:'+'; float:right; color:#5d6d7e; }\n    details.control-section[open] > summary:after { content:'-'; }\n    .details-body { padding:0 12px 10px; }\n    .run-button-wrap { flex:0 0 auto; position:static; bottom:auto; background:white; border-top:1px solid #e7edf4; margin-top:8px; padding-top:10px; }\n    .main-panel { padding-top:0; }\n    .content-card { padding:14px; margin-bottom:12px; }\n    .metric-grid { grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px; margin-bottom:10px; }\n    .metric-card { padding:12px; }\n    .metric-value { font-size:1.45rem; }\n    .status-ok,.status-warn,.status-error,.status-info { margin-bottom:10px; padding:10px 12px; }\n    .preflight-compact .readiness-grid { display:none; }\n    .preflight-compact { padding:10px 12px; }\n    .summary-list { display:grid; gap:6px; }\n    .summary-row { display:grid; grid-template-columns:minmax(105px,38%) 1fr; gap:8px; padding:6px 0; border-bottom:1px solid #edf2f7; }\n    .summary-row:last-child { border-bottom:0; }\n    .summary-label { color:#5d6d7e; font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; font-weight:800; }\n    .summary-value { color:#102a43; font-weight:650; overflow-wrap:anywhere; }\n    .downloads-row .btn { margin:0 8px 8px 0; }\n    @media (max-width: 991px) { .control-panel { position:static; height:auto; max-height:none; overflow:visible; } .control-scroll { overflow:visible; } .metric-grid { grid-template-columns:repeat(2,minmax(140px,1fr)); } }\n  ")),
 
   tags$style(HTML("\n    .status-ok,.status-warn,.status-error,.status-info { overflow-wrap:anywhere; }\n    .status-ok:focus,.status-warn:focus,.status-error:focus,.status-info:focus,\n    .btn:focus-visible,.form-control:focus,.form-select:focus,input[type='radio']:focus-visible,input[type='checkbox']:focus-visible,summary:focus-visible { outline:3px solid #4cc9b0; outline-offset:2px; box-shadow:0 0 0 .2rem rgba(76,201,176,.25); }\n    @media (max-width: 991px) {\n      .control-panel { position:static; height:auto; max-height:none; margin-bottom:12px; }\n      .control-scroll { overflow:visible; }\n      .run-button-wrap { position:sticky; bottom:0; z-index:10; padding-bottom:8px; }\n      .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }\n      .main-panel .content-card { overflow-x:auto; }\n    }\n    @media (max-width: 575px) {\n      .hero { padding:14px; }\n      .metric-grid,.summary-row { grid-template-columns:1fr; }\n      .metric-value { font-size:1.3rem; }\n      .content-card { padding:12px; }\n    }\n  ")),
 
-  div(class = "hero", h1("Species Distribution Model"), p("Configure inputs, run the model, and review habitat suitability outputs.")),
+  tags$link(rel = "stylesheet", href = "sdm-theme.css"),
+
+  div(class = "hero",
+    div(class = "hero-kicker", "Experimental multi-model SDM workbench"),
+    h1("Species Distribution Model"),
+    p("Clean occurrence records, compare model backends, and export habitat suitability maps from one local-first dashboard."),
+    div(class = "hero-badges",
+      span("GLM stable"), span("GAM experimental"), span("Rangebagging experimental"), span("Ensemble outputs")
+    )
+  ),
 
   sidebarLayout(
     sidebarPanel(width = 3, class = "control-panel",
       div(class = "control-scroll",
+      div(class = "control-section display-section",
+        h4("Display"),
+        checkboxInput("dark_mode", "Dark professional mode", value = TRUE),
+        div(class = "small-muted", "Presentation-only setting. It does not change model inputs or outputs.")
+      ),
       div(class = "control-section",
         h4("Input data"),
         textInput("species", "Species/model label", value = sdm_initial_species),
@@ -123,7 +137,13 @@ ui <- fluidPage(
           fluidRow(column(6, numericInput("xmin", "xmin", sdm_default_projection_extent[1])), column(6, numericInput("xmax", "xmax", sdm_default_projection_extent[2]))),
           fluidRow(column(6, numericInput("ymin", "ymin", sdm_default_projection_extent[3])), column(6, numericInput("ymax", "ymax", sdm_default_projection_extent[4])))
         ),
-        sliderInput("threshold", "High-suitability threshold", min = 0.05, max = 0.95, value = sdm_default_threshold, step = 0.05)
+        sliderInput("threshold", "High-suitability threshold", min = 0.05, max = 0.95, value = sdm_default_threshold, step = 0.05),
+        checkboxInput("future_projection", "Project a future climate scenario", value = FALSE),
+        conditionalPanel("input.future_projection == true",
+          textInput("future_worldclim_dir", "Future/CMIP6 BIO folder", value = sdm_default_future_worldclim_dir),
+          textInput("future_label", "Scenario label", value = "Future climate"),
+          div(class = "small-muted", "Provide future BIO GeoTIFFs with matching BIO variable numbers. The model backend is reused; only climate layers are swapped, while static elevation/soil covariates are reused.")
+        )
       ),
       ),
       div(class = "run-button-wrap", actionButton("run_model", "Run SDM", class = "btn-primary btn-lg", width = "100%"))
@@ -133,9 +153,10 @@ ui <- fluidPage(
       uiOutput("status_banner"), uiOutput("preflight_panel"), uiOutput("metric_cards"),
       tabsetPanel(id = "tabs",
         tabPanel("Dashboard", br(), fluidRow(column(8, div(class = "content-card", plotOutput("suitability_plot", height = "52vh"))), column(4, div(class = "content-card", h4("Projection summary"), uiOutput("summary_panel"))))),
+        tabPanel("Future projection", br(), fluidRow(column(6, div(class = "content-card", h4("Future suitability"), plotOutput("future_plot", height = "48vh"))), column(6, div(class = "content-card", h4("Suitability delta"), plotOutput("delta_plot", height = "48vh"))))),
         tabPanel("Observation records", br(), fluidRow(column(7, div(class = "content-card", plotOutput("occurrence_plot", height = "50vh"))), column(5, div(class = "content-card", h4("Top observation sources"), tableOutput("source_table"))))),
         tabPanel("Model diagnostics", br(), fluidRow(column(7, div(class = "content-card", h4("Coefficient summary"), tableOutput("coef_table"))), column(5, div(class = "content-card", h4("Run log"), p(class = "small-muted", "Warnings and progress messages from the latest run."), verbatimTextOutput("run_log"))))),
-        tabPanel("Downloads", br(), div(class = "content-card", h4("Export results"), p("Downloads are enabled after a successful run."), div(class = "downloads-row", downloadButton("download_tif", "Download GeoTIFF"), downloadButton("download_png", "Download PNG map"), downloadButton("download_occ", "Download cleaned observation records"), downloadButton("download_report", "Download text report"), downloadButton("download_sidecars", "Download sidecar rasters")), uiOutput("sidecar_download_note")))
+        tabPanel("Downloads", br(), div(class = "content-card", h4("Export results"), p("Downloads are enabled after a successful run."), div(class = "downloads-row", downloadButton("download_tif", "Download GeoTIFF"), downloadButton("download_png", "Download PNG map"), downloadButton("download_future_tif", "Download future GeoTIFF"), downloadButton("download_delta_tif", "Download delta GeoTIFF"), downloadButton("download_occ", "Download cleaned observation records"), downloadButton("download_report", "Download text report"), downloadButton("download_sidecars", "Download sidecar rasters")), uiOutput("sidecar_download_note")))
       )
     )
   )
@@ -273,6 +294,28 @@ server <- function(input, output, session) {
       if (identical(overlap_state, "warn")) warnings <- c(warnings, paste("Projection extent has little or no overlap with the observation records:", overlap_detail))
     }
 
+    future_state <- "info"
+    future_detail <- "Future climate projection is off."
+    if (isTRUE(input$future_projection)) {
+      future_dir <- trimws(input$future_worldclim_dir %||% "")
+      if (!nzchar(future_dir)) {
+        future_state <- "error"
+        future_detail <- "Future projection is on, but no future climate folder is set."
+        issues <- c(issues, future_detail)
+      } else {
+        future_files <- future_projection_files(future_dir, biovars)
+        missing_future <- names(future_files)[is.na(future_files)]
+        if (length(missing_future) > 0) {
+          future_state <- "error"
+          future_detail <- paste0("Missing future BIO", paste(missing_future, collapse = ", BIO"), " in ", future_dir, ".")
+          issues <- c(issues, "Add matching future BIO GeoTIFFs or turn future projection off.")
+        } else {
+          future_state <- "ok"
+          future_detail <- paste(length(future_files), "matching future BIO layers found in", future_dir)
+        }
+      }
+    }
+
     elevation_count <- if (isTRUE(input$use_elevation) && identical(elevation_state, "ok")) 1L else 0L
     soil_count <- if (isTRUE(input$use_soil) && identical(soil_state, "ok")) length(input$soil_vars) else 0L
     selected_count <- length(biovars) + elevation_count + soil_count
@@ -288,7 +331,8 @@ server <- function(input, output, session) {
         readiness_item("HWSD soil", soil_detail, soil_state),
         readiness_item("Selected covariates", paste(selected_count, "total covariates selected; BIO", paste(biovars, collapse = ", BIO")), if (selected_count >= 2) "ok" else "error"),
         readiness_item("Projection extent", extent_detail, extent_state),
-        readiness_item("Observation/projection overlap", overlap_detail, overlap_state)
+        readiness_item("Observation/projection overlap", overlap_detail, overlap_state),
+        readiness_item("Future climate projection", future_detail, future_state)
       )
     )
   })
@@ -356,6 +400,9 @@ server <- function(input, output, session) {
             opentopo_api_key = input$opentopo_api_key,
             use_soil = isTRUE(input$use_soil), soil_path = input$soil_path, selected_soil_vars = input$soil_vars,
             covariate_cache_dir = sdm_default_covariate_cache_dir,
+            future_projection = isTRUE(input$future_projection),
+            future_worldclim_dir = input$future_worldclim_dir,
+            future_label = input$future_label,
             output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = occurrence$detail, log_fun = append_log,
             progress_fun = function(amount, detail) incProgress(amount, detail = detail)
           ),
@@ -374,6 +421,8 @@ server <- function(input, output, session) {
   })
 
   output$suitability_plot <- renderPlot({ if (is.null(rv$result)) return(placeholder_plot("No suitability map yet.")); r <- rv$result; plot_suitability_map(r$suitability, r$occurrence, r$config$projection_extent, r$config$species, r$config$threshold, TRUE) })
+  output$future_plot <- renderPlot({ if (is.null(rv$result) || is.null(rv$result$future)) return(placeholder_plot("Run with future projection enabled to view a future suitability map.")); r <- rv$result; plot_suitability_map(r$future$suitability, r$occurrence, r$config$projection_extent, paste(r$config$species, r$config$future_label), r$config$threshold, TRUE) })
+  output$delta_plot <- renderPlot({ if (is.null(rv$result) || is.null(rv$result$future)) return(placeholder_plot("Run with future projection enabled to view current-to-future change.")); plot_delta_map(rv$result$future$delta, rv$result$config$future_label) })
   output$occurrence_plot <- renderPlot({ if (is.null(rv$result)) return(placeholder_plot("No occurrence map yet.")); plot_occurrence_map(rv$result$occurrence, rv$result$config$species) })
   output$summary_panel <- renderUI({
     r <- rv$result
@@ -391,7 +440,11 @@ server <- function(input, output, session) {
       row("Covariates", paste(r$environment$names, collapse = ", ")),
       row("CPU cores used", r$metrics$n_cores),
       row("Elapsed time", paste(fmt_num(r$metrics$elapsed_seconds, 1), "sec")),
-      row("Output TIFF", r$paths$tif)
+      row("Output TIFF", r$paths$tif),
+      if (!is.null(r$future)) row("Future scenario", r$config$future_label %||% "Future climate"),
+      if (!is.null(r$future)) row("Future mean suitability", fmt_num(r$future$summary$mean, 3)),
+      if (!is.null(r$future)) row("Future output TIFF", r$paths$future_tif %||% "not available"),
+      if (!is.null(r$future)) row("Delta output TIFF", r$paths$delta_tif %||% "not available")
     )
   })
   output$source_table <- renderTable({ r <- rv$result; if (is.null(r)) return(data.frame(Message = "Run the model to view observation source counts.")); head(data.frame(Source = names(r$source_counts), Records = as.integer(r$source_counts), row.names = NULL), 25) }, striped = TRUE, hover = TRUE, spacing = "s")
@@ -409,7 +462,7 @@ server <- function(input, output, session) {
   output$sidecar_download_note <- renderUI({
     r <- rv$result
     if (is.null(r)) return(NULL)
-    sidecars <- unlist(r$paths[c("glm_tif", "rangebag_tif", "disagreement_tif")], use.names = FALSE)
+    sidecars <- unlist(r$paths[c("glm_tif", "rangebag_tif", "disagreement_tif", "future_tif", "delta_tif")], use.names = FALSE)
     sidecars <- sidecars[!is.na(sidecars) & nzchar(sidecars) & file.exists(sidecars)]
     if (length(sidecars) == 0) return(p(class = "small-muted", "No model sidecar rasters were produced for this run."))
     tags$ul(class = "small-muted", lapply(sidecars, function(path) tags$li(basename(path))))
@@ -417,13 +470,15 @@ server <- function(input, output, session) {
 
   output$download_tif <- downloadHandler(filename = function() { req(rv$result); basename(rv$result$paths$tif) }, content = function(file) { req(rv$result, file.exists(rv$result$paths$tif)); file.copy(rv$result$paths$tif, file, overwrite = TRUE) })
   output$download_png <- downloadHandler(filename = function() { req(rv$result); basename(rv$result$paths$png) }, content = function(file) { req(rv$result, file.exists(rv$result$paths$png)); file.copy(rv$result$paths$png, file, overwrite = TRUE) })
+  output$download_future_tif <- downloadHandler(filename = function() { req(rv$result, rv$result$paths$future_tif); basename(rv$result$paths$future_tif) }, content = function(file) { req(rv$result, rv$result$paths$future_tif, file.exists(rv$result$paths$future_tif)); file.copy(rv$result$paths$future_tif, file, overwrite = TRUE) })
+  output$download_delta_tif <- downloadHandler(filename = function() { req(rv$result, rv$result$paths$delta_tif); basename(rv$result$paths$delta_tif) }, content = function(file) { req(rv$result, rv$result$paths$delta_tif, file.exists(rv$result$paths$delta_tif)); file.copy(rv$result$paths$delta_tif, file, overwrite = TRUE) })
   output$download_occ <- downloadHandler(filename = function() { req(rv$result); paste0(safe_slug(rv$result$config$species), "_cleaned_occurrences.csv") }, content = function(file) { req(rv$result); utils::write.csv(rv$result$occurrence, file, row.names = FALSE) })
   output$download_report <- downloadHandler(filename = function() { req(rv$result); paste0(safe_slug(rv$result$config$species), "_sdm_report.txt") }, content = function(file) { req(rv$result); write_summary_report(rv$result, file) })
   output$download_sidecars <- downloadHandler(
     filename = function() { req(rv$result); paste0(safe_slug(rv$result$config$species), "_model_sidecars.zip") },
     content = function(file) {
       req(rv$result)
-      sidecars <- unlist(rv$result$paths[c("glm_tif", "rangebag_tif", "disagreement_tif")], use.names = FALSE)
+      sidecars <- unlist(rv$result$paths[c("glm_tif", "rangebag_tif", "disagreement_tif", "future_tif", "delta_tif")], use.names = FALSE)
       sidecars <- sidecars[!is.na(sidecars) & nzchar(sidecars) & file.exists(sidecars)]
       validate(need(length(sidecars) > 0, "No sidecar rasters are available for this run."))
       oldwd <- getwd()

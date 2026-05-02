@@ -20,8 +20,7 @@ plot_suitability_map <- function(suitability, occ = NULL, projection_extent = NU
   on.exit(graphics::par(old_par), add = TRUE)
   graphics::par(mar = c(3.9, 4.3, 4.5, 5.5), bg = "#EEF5F8", fg = "#263238")
   terra::plot(suitability_plot, col = cols, range = c(0, 1), main = "", axes = TRUE,
-              colNA = "#F6F4EF", xlab = "Longitude", ylab = "Latitude",
-              plg = list(title = "Suitability", title.cex = 0.88, cex = 0.78), box = FALSE)
+              colNA = "#F6F4EF", xlab = "Longitude", ylab = "Latitude", box = FALSE)
   graphics::grid(col = grDevices::adjustcolor("#FFFFFF", 0.42), lwd = 0.7)
   graphics::title(main = paste0(species, " suitability"), line = 2.2, cex.main = 1.08, font.main = 2)
   graphics::mtext(sprintf("Predicted suitability (0-1); reporting threshold %.2f", threshold),
@@ -47,6 +46,22 @@ plot_suitability_map <- function(suitability, occ = NULL, projection_extent = NU
                        bty = "n", cex = 0.74, y.intersp = 1.15)
     }
   }
+}
+
+plot_delta_map <- function(delta, scenario_label = "Future climate") {
+  delta_plot <- plot_downsample_raster(delta)
+  max_abs <- tryCatch(max(abs(terra::values(delta_plot)), na.rm = TRUE), error = function(e) NA_real_)
+  if (!is.finite(max_abs) || max_abs <= 0) max_abs <- 1
+  cols <- grDevices::colorRampPalette(c("#2C4C9C", "#9FC5E8", "#F7F7F7", "#F6B26B", "#B94E48"))(160)
+  old_par <- graphics::par(no.readonly = TRUE)
+  on.exit(graphics::par(old_par), add = TRUE)
+  graphics::par(mar = c(3.9, 4.3, 4.5, 5.5), bg = "#EEF5F8", fg = "#263238")
+  terra::plot(delta_plot, col = cols, range = c(-max_abs, max_abs), main = "", axes = TRUE,
+              colNA = "#F6F4EF", xlab = "Longitude", ylab = "Latitude", box = FALSE)
+  graphics::grid(col = grDevices::adjustcolor("#FFFFFF", 0.42), lwd = 0.7)
+  graphics::title(main = paste0(scenario_label, " suitability delta"), line = 2.2, cex.main = 1.08, font.main = 2)
+  graphics::mtext("Future suitability minus current suitability; warm tones indicate increases and blue tones decreases.",
+                  side = 3, line = 0.7, adj = 0, cex = 0.72, col = "#4C5A5F")
 }
 
 plot_occurrence_map <- function(occ, species = "Species") {

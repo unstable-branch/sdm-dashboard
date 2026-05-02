@@ -20,7 +20,8 @@ expected <- c(
   "scripts/make_release_zip.R", "scripts/smoke_test.R", "scripts/windows_setup.R",
   "README.md", "README_WINDOWS.md", "LICENSE", "CONTRIBUTING.md", "CITATION.cff",
   "CODE_OF_CONDUCT.md", "SECURITY.md", "Dockerfile", ".dockerignore",
-  ".github/workflows/r-quality.yml", "data/examples/synthetic_presence_data.csv"
+  ".github/workflows/r-quality.yml", "data/examples/synthetic_presence_data.csv",
+  "www/sdm-theme.css"
 )
 missing <- expected[!file.exists(expected)]
 if (length(missing) > 0) fail("Missing expected release file(s): ", paste(missing, collapse = ", "))
@@ -46,7 +47,7 @@ assert_no_match <- function(paths, pattern, label) {
 source_files <- make_release_env$release_included_paths(include_worldclim = FALSE)
 blocked <- source_files[make_release_env$release_should_exclude(source_files, include_worldclim = FALSE)]
 if (length(blocked) > 0) fail("Source release includes blocked file(s): ", paste(blocked, collapse = ", "))
-assert_no_match(source_files, "^Worldclim(/|$)|^outputs(/|$)|^covariates(/|$)|^logs(/|$)", "Source release includes generated output/cache files")
+assert_no_match(source_files, "^Worldclim(/|$)|^worldclim(/|$)|^WorldClim(/|$)|^Worldclim_future(/|$)|^worldclim_future(/|$)|^WorldClim_future(/|$)|^outputs(/|$)|^covariates(/|$)|^logs(/|$)", "Source release includes generated output/cache files")
 assert_no_match(source_files, "(^|/)AGENTS[.]md$|^docs(/|$)|^Main[.]R$|^prepare_windows[.]bat$", "Source release includes public clutter")
 
 ready_files <- make_release_env$ready_release_paths(include_worldclim = dir.exists(sdm_default_worldclim_dir))

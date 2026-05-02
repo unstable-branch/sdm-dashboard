@@ -46,6 +46,18 @@ write_summary_report <- function(result, path) {
   if (!is.null(result$paths$disagreement_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Model disagreement GeoTIFF: ", fmt_chr(result$paths$disagreement_tif)))
   if (!is.null(result$paths$glm_tif)) extra_output_lines <- c(extra_output_lines, paste0("- GLM component GeoTIFF: ", fmt_chr(result$paths$glm_tif)))
   if (!is.null(result$paths$rangebag_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Rangebag component GeoTIFF: ", fmt_chr(result$paths$rangebag_tif)))
+  if (!is.null(result$paths$future_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Future suitability GeoTIFF: ", fmt_chr(result$paths$future_tif)))
+  if (!is.null(result$paths$delta_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Future delta GeoTIFF: ", fmt_chr(result$paths$delta_tif)))
+  future_lines <- character()
+  if (!is.null(result$future)) {
+    future_lines <- c(
+      "", "Future projection",
+      paste0("- Scenario label: ", fmt_chr(result$config$future_label, "Future climate")),
+      paste0("- Future climate directory: ", fmt_chr(result$config$future_worldclim_dir)),
+      paste0("- Mean future suitability: ", fmt_num(result$future$summary$mean, 3)),
+      paste0("- Cells above threshold ", fmt_num(result$future$summary$threshold, 2), ": ", fmt_num(result$future$summary$cells_above_threshold))
+    )
+  }
   lines <- c(
     paste0("Species Distribution Model Report: ", fmt_chr(result$config$species, "Species")),
     paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
@@ -79,6 +91,7 @@ write_summary_report <- function(result, path) {
     paste0("- Maximum suitability: ", fmt_num(result$summary$max, 3)),
     paste0("- Cells above threshold ", fmt_num(result$summary$threshold, 2), ": ", fmt_num(result$summary$cells_above_threshold), " (", percent_text, ")"),
     paste0("- Estimated high-suitability area (km2): ", fmt_num(result$summary$high_risk_area_km2)),
+    future_lines,
     "", "Outputs",
     paste0("- Suitability GeoTIFF: ", fmt_chr(result$paths$tif)),
     paste0("- Suitability PNG: ", fmt_chr(result$paths$png)),

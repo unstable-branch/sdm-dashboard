@@ -17,14 +17,15 @@ Implemented and tested in the current beta:
 - Selected WorldClim BIO covariates with optional local download/cache.
 - Optional OpenTopography elevation covariate.
 - Optional local HWSD v2 soil covariate.
-- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, and summary report.
+- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, summary report, and sidecar raster bundle when available.
+- Optional model-aware future-climate projection from user-provided future BIO GeoTIFFs, including future suitability and delta rasters.
+- Dark/professional dashboard presentation mode for public demos.
 - Windows launcher, command-line pipeline, Docker scaffold, smoke tests, release audit, and testthat checks.
 
 Planned or experimental ideas from Jacob/Rando's spike, not integrated unless a later release explicitly says so:
 
-- Dark mode UI.
 - SoilGrids helper/download flow.
-- CMIP6 future climate projections, multi-GCM averaging, and delta maps.
+- Automated CMIP6 download/selection and multi-GCM averaging.
 - Boundary/mask UI and spatial thinning.
 - Additional model backends such as MaxEnt/maxnet, Random Forest, BRT/GBM, BART, NSDM, JSDM, or hybrid/mechanistic models.
 
@@ -36,7 +37,9 @@ Do not treat planned/experimental items as available until they have UI support,
 - Presence/background SDM workflow with configurable extent, threshold, cross-validation folds, and CPU use.
 - WorldClim BIO climate layers with optional local download/cache.
 - Optional OpenTopography elevation and local HWSD v2 soil covariates.
-- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, and summary report.
+- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, summary report, and model sidecar raster bundle when available.
+- Optional future-climate projection for matching BIO GeoTIFF scenarios, including suitability-change delta exports.
+- Dark/professional presentation mode for public demos.
 - Windows one-click runner, command-line pipeline, Docker scaffold, and lightweight checks for maintainers.
 
 ## Which Download
@@ -103,8 +106,9 @@ Use `data/presence_data_template.csv` as the input template. Use `data/examples/
 - WorldClim: selected BIO layers are downloaded/cached under `Worldclim/` when requested. Cite and use WorldClim according to its terms before redistributing rasters or derived products.
 - Elevation: optional OpenTopography Global DEM access. Set `OPENTOPOGRAPHY_API_KEY` or enter a key in the app. Keys are not saved by the app and should never be committed.
 - Soil: optional HWSD v2 GeoTIFF at `covariates/hwsd_v2/HWSD_V2_SMU_selected.tif`. Check HWSD licensing and citation requirements before redistributing derived files.
+- Future climate: optional projection uses a local folder such as `Worldclim_future/` containing future BIO GeoTIFFs with the same selected BIO variable numbers as the current-climate run. It reuses the fitted backend and static elevation/soil covariates, then exports future suitability and current-to-future delta rasters.
 
-Generated working folders such as `outputs/`, `checkpoints/`, `logs/`, `Worldclim/`, and `covariates/` can contain large files or sensitive project data and are ignored by git.
+Generated working folders such as `outputs/`, `checkpoints/`, `logs/`, `Worldclim/`, `Worldclim_future/`, and `covariates/` can contain large files or sensitive project data and are ignored by git.
 
 ## Docker
 

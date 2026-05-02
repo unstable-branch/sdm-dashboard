@@ -43,7 +43,7 @@ if (!grepl("^v[0-9]+[.][0-9]+[.][0-9]+([-.][A-Za-z0-9._-]+)?$", release_version)
 }
 
 release_exclude_patterns <- function(include_worldclim = FALSE) {
-  worldclim_pattern <- if (include_worldclim) character() else "^Worldclim(/|$)"
+  worldclim_pattern <- if (include_worldclim) "^Worldclim_future(/|$)|^worldclim_future(/|$)|^WorldClim_future(/|$)" else "^Worldclim(/|$)|^worldclim(/|$)|^WorldClim(/|$)|^Worldclim_future(/|$)|^worldclim_future(/|$)|^WorldClim_future(/|$)"
   c(
     "(^|/)presence_data\\.csv$",
     "^outputs(/|$)", "^screenshots(/|$)", "^logs(/|$)", "^docs(/|$)",
@@ -74,7 +74,7 @@ source_release_paths <- function() {
     "README.md", "README_WINDOWS.md", "install_packages.R", "pipeline.R",
     "optimized_sdm.R", "SDM.Rproj", ".gitignore", ".dockerignore",
     "DESCRIPTION", "LICENSE", "CITATION.cff", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
-    "Dockerfile", "docker-compose.yml", ".github", "R", "scripts", "data", "tests"
+    "Dockerfile", "docker-compose.yml", ".github", "R", "scripts", "data", "tests", "www"
   ), include_worldclim = FALSE)
 }
 
@@ -83,7 +83,7 @@ ready_release_paths <- function(include_worldclim = TRUE) {
     "app.R", "launch_app.R", "run_app_windows.bat",
     "README.md", "README_WINDOWS.md", "install_packages.R", "pipeline.R",
     "optimized_sdm.R", "DESCRIPTION", "LICENSE", "CITATION.cff", "SECURITY.md",
-    "R", "data", file.path("scripts", "windows_setup.R")
+    "R", "data", "www", file.path("scripts", "windows_setup.R")
   ), include_worldclim = include_worldclim)
 
   if (include_worldclim) {

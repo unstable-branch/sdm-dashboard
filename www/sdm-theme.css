@@ -1,0 +1,190 @@
+/* Public-demo polish for SDM Dashboard Workbench.
+   Presentation only: model inputs/outputs stay unchanged. */
+:root {
+  color-scheme: light dark;
+  --sdm-bg: #edf3f8;
+  --sdm-surface: #ffffff;
+  --sdm-surface-soft: #f8fbfd;
+  --sdm-border: #dce6ef;
+  --sdm-text: #102033;
+  --sdm-muted: #66768a;
+  --sdm-heading: #132f4d;
+  --sdm-accent: #0b6e69;
+  --sdm-accent-2: #2aa889;
+  --sdm-accent-blue: #174a7c;
+  --sdm-shadow: 0 16px 40px rgba(15, 36, 58, 0.10);
+  --sdm-glow: 0 0 0 1px rgba(42, 168, 137, 0.14), 0 18px 55px rgba(9, 25, 50, 0.20);
+}
+
+body.sdm-dark {
+  --sdm-bg: #07111d;
+  --sdm-surface: #0f1c2b;
+  --sdm-surface-soft: #132235;
+  --sdm-border: #26384d;
+  --sdm-text: #e6eef7;
+  --sdm-muted: #a8b6c7;
+  --sdm-heading: #f2f7fb;
+  --sdm-accent: #37d0b2;
+  --sdm-accent-2: #71e0c8;
+  --sdm-accent-blue: #7cb7ff;
+  --sdm-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  --sdm-glow: 0 0 0 1px rgba(55, 208, 178, 0.22), 0 22px 70px rgba(0, 0, 0, 0.42);
+}
+
+body.sdm-light,
+body.sdm-dark {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(42, 168, 137, 0.16), transparent 28rem),
+    radial-gradient(circle at 88% 12%, rgba(23, 74, 124, 0.16), transparent 30rem),
+    var(--sdm-bg) !important;
+  color: var(--sdm-text) !important;
+}
+
+body.sdm-dark a { color: var(--sdm-accent-2); }
+body.sdm-dark .container-fluid { max-width: 1720px; }
+
+body.sdm-dark .hero {
+  background:
+    radial-gradient(circle at top right, rgba(113, 224, 200, 0.20), transparent 24rem),
+    linear-gradient(135deg, #091827 0%, #0d2d34 48%, #173d68 100%) !important;
+  border: 1px solid rgba(113, 224, 200, 0.22);
+  box-shadow: var(--sdm-glow) !important;
+}
+
+.hero-kicker {
+  display: inline-flex;
+  margin-bottom: 0.45rem;
+  padding: 0.28rem 0.62rem;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+}
+
+.hero-badges span {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.34rem 0.66rem;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.90);
+  font-size: 0.78rem;
+  font-weight: 750;
+  backdrop-filter: blur(8px);
+}
+
+body.sdm-dark .control-panel,
+body.sdm-dark .content-card,
+body.sdm-dark .metric-card {
+  background: color-mix(in srgb, var(--sdm-surface) 92%, transparent) !important;
+  border-color: var(--sdm-border) !important;
+  box-shadow: var(--sdm-shadow) !important;
+}
+
+body.sdm-dark .control-section,
+body.sdm-dark .readiness-item {
+  background: var(--sdm-surface-soft) !important;
+  border-color: var(--sdm-border) !important;
+}
+
+body.sdm-dark .control-panel h4,
+body.sdm-dark details.control-section > summary,
+body.sdm-dark .content-card h4,
+body.sdm-dark .summary-value,
+body.sdm-dark .metric-value {
+  color: var(--sdm-heading) !important;
+}
+
+body.sdm-dark .small-muted,
+body.sdm-dark .metric-label,
+body.sdm-dark .metric-note,
+body.sdm-dark .readiness-detail,
+body.sdm-dark .summary-label,
+body.sdm-dark label,
+body.sdm-dark .form-text,
+body.sdm-dark .help-block {
+  color: var(--sdm-muted) !important;
+}
+
+body.sdm-dark .metric-card {
+  border-left-color: var(--sdm-accent) !important;
+}
+
+body.sdm-dark .form-control,
+body.sdm-dark .form-select,
+body.sdm-dark input[type='number'],
+body.sdm-dark input[type='text'],
+body.sdm-dark input[type='password'],
+body.sdm-dark select,
+body.sdm-dark textarea {
+  background-color: #0b1726 !important;
+  border-color: #32475f !important;
+  color: var(--sdm-text) !important;
+}
+
+body.sdm-dark .selectize-input,
+body.sdm-dark .selectize-control.multi .selectize-input,
+body.sdm-dark .selectize-dropdown {
+  background: #0b1726 !important;
+  border-color: #32475f !important;
+  color: var(--sdm-text) !important;
+}
+
+body.sdm-dark .selectize-input input,
+body.sdm-dark .selectize-dropdown .option,
+body.sdm-dark .selectize-dropdown .optgroup-header { color: var(--sdm-text) !important; }
+body.sdm-dark .selectize-dropdown .active { background: #17324c !important; }
+
+body.sdm-dark .nav-tabs { border-bottom-color: var(--sdm-border); }
+body.sdm-dark .nav-tabs .nav-link { color: var(--sdm-muted); border-color: transparent; }
+body.sdm-dark .nav-tabs .nav-link.active {
+  background: var(--sdm-surface) !important;
+  border-color: var(--sdm-border) var(--sdm-border) var(--sdm-surface) !important;
+  color: var(--sdm-heading) !important;
+}
+
+body.sdm-dark .table,
+body.sdm-dark table { color: var(--sdm-text) !important; }
+body.sdm-dark .table-striped > tbody > tr:nth-of-type(odd) > * { color: var(--sdm-text); background-color: rgba(255, 255, 255, 0.035); }
+body.sdm-dark .table-hover > tbody > tr:hover > * { color: var(--sdm-text); background-color: rgba(55, 208, 178, 0.09); }
+
+body.sdm-dark .status-ok { background:#0f332c !important; border-color:#1f6f61 !important; color:#c6fff2 !important; }
+body.sdm-dark .status-warn { background:#33250e !important; border-color:#8d6825 !important; color:#ffe1a6 !important; }
+body.sdm-dark .status-error { background:#3a1718 !important; border-color:#8e3437 !important; color:#ffd2d4 !important; }
+body.sdm-dark .status-info { background:#10283e !important; border-color:#285d8a !important; color:#c9e4ff !important; }
+
+body.sdm-dark .run-button-wrap {
+  background: var(--sdm-surface) !important;
+  border-top-color: var(--sdm-border) !important;
+}
+
+body.sdm-dark .btn-primary {
+  background: linear-gradient(135deg, #17a589, #2c7be5) !important;
+  border: 0 !important;
+  box-shadow: 0 12px 28px rgba(23, 165, 137, 0.22);
+}
+
+body.sdm-dark pre {
+  background: #050b14 !important;
+  border: 1px solid var(--sdm-border);
+  color: #d7e7ff !important;
+}
+
+.display-section .form-check { margin-bottom: 0.25rem; }
+.display-section .form-check-label { font-weight: 750; }
+
+@media (max-width: 700px) {
+  .hero-badges { display: none; }
+  .hero-kicker { font-size: 0.66rem; }
+}

@@ -30,6 +30,9 @@ dist/
 Worldclim/
 worldclim/
 WorldClim/
+Worldclim_future/
+worldclim_future/
+WorldClim_future/
 covariates/
 *.tif
 *.tiff

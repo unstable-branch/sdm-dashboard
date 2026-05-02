@@ -20,7 +20,8 @@ required_functions <- c(
   "write_summary_report", "detect_available_cores", "validate_extent",
   "normalize_threshold", "safe_slug", "detect_column", "read_occurrence_file", "infer_species_label",
   "clean_occurrences", "make_training_extent", "make_sdm_formula",
-  "sdm_model_choices", "validate_sdm_model_id", "get_sdm_model", "fit_sdm_model", "predict_sdm_model"
+  "sdm_model_choices", "validate_sdm_model_id", "get_sdm_model", "fit_sdm_model", "predict_sdm_model",
+  "future_projection_files", "future_projection_ready", "project_future_suitability"
 )
 missing <- required_functions[!vapply(required_functions, exists, logical(1), mode = "function")]
 if (length(missing) > 0) {

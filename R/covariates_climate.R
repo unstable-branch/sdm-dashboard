@@ -9,6 +9,7 @@ find_worldclim_files <- function(worldclim_dir, selected_biovars) {
     hit <- files[grepl(pattern, basename(files), ignore.case = TRUE, perl = TRUE)]
     if (length(hit) == 0) NA_character_ else hit[1]
   }, character(1))
+  names(matched) <- as.character(selected_biovars)
   matched
 }
 

@@ -9,6 +9,8 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                          use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
                          use_soil = FALSE, soil_path = sdm_default_soil_path,
                          selected_soil_vars = sdm_default_soil_vars, covariate_cache_dir = sdm_default_covariate_cache_dir,
+                         future_projection = FALSE, future_worldclim_dir = sdm_default_future_worldclim_dir,
+                         future_label = "Future climate",
                          output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = NULL, log_fun = NULL, progress_fun = NULL) {
   ensure_sdm_packages("terra", n_cores = n_cores)
   n_cores <- configure_parallel(n_cores, log_fun = log_fun)
@@ -69,6 +71,7 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
   output_png <- file.path(output_dir, paste0(base_name, "_suitability.png"))
   output_report <- file.path(output_dir, paste0(base_name, "_report.txt"))
   suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
+  future <- NULL
   extra_paths <- list()
   if (identical(model_id, "ensemble_glm_rangebag")) {
     extra_paths <- list(
@@ -78,8 +81,27 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
     )
   }
 
+  if (isTRUE(future_projection)) {
+    progress_step(progress_fun, 0.10, "Projecting future climate scenario")
+    future <- project_future_suitability(
+      fit = fit,
+      current_suitability = suit,
+      env = env,
+      future_worldclim_dir = future_worldclim_dir,
+      selected_biovars = selected_biovars,
+      projection_extent = projection_extent,
+      aggregation_factor = aggregation_factor,
+      output_future_tif = file.path(output_dir, paste0(base_name, "_future_suitability.tif")),
+      output_delta_tif = file.path(output_dir, paste0(base_name, "_future_delta.tif")),
+      n_cores = n_cores,
+      log_fun = log_fun
+    )
+    extra_paths <- c(extra_paths, future$paths)
+  }
+
   progress_step(progress_fun, 0.08, "Summarising outputs")
   suitability_summary <- summarise_suitability(suit, threshold)
+  if (!is.null(future)) future$summary <- summarise_suitability(future$suitability, threshold)
   save_suitability_png(suit, occ, projection_extent, species, threshold, output_png)
 
   elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
@@ -97,7 +119,9 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                   aggregation_factor = aggregation_factor, cv_folds = cv_folds, n_cores = n_cores,
                   use_elevation = isTRUE(use_elevation), elevation_demtype = elevation_demtype,
                   use_soil = isTRUE(use_soil), soil_path = soil_path, selected_soil_vars = selected_soil_vars,
-                  covariate_cache_dir = covariate_cache_dir),
+                  covariate_cache_dir = covariate_cache_dir,
+                  future_projection = isTRUE(future_projection), future_worldclim_dir = future_worldclim_dir,
+                  future_label = future_label),
     occurrence = occ, occurrence_used = fit$occurrence_used, source_counts = sort(table(occ$source), decreasing = TRUE),
     cleaning = cleaned[c("removed_bad_coordinates", "removed_duplicates", "original_rows", "columns")],
     environment = list(names = names(env$env_train_scaled), means = env$means, sds = env$sds,
@@ -106,7 +130,7 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                       packages = model_spec$packages, maturity = model_spec$maturity,
                       diagnostics = model_spec$diagnostics),
     model = fit$model, formula = fit$formula, coefficients = fit$coefficients, cv = fit$cv,
-    suitability = suit, summary = suitability_summary, metrics = metrics,
+    suitability = suit, future = future, summary = suitability_summary, metrics = metrics,
     paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)
   )
   result$report_text <- output_report
