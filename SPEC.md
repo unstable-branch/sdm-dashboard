@@ -193,8 +193,8 @@ Rscript scripts/audit_release.R
 
 ### Release builds
 ```bash
-Rscript scripts/make_release_zip.R source --version=v0.3.0-beta
-Rscript scripts/make_release_zip.R ready --version=v0.3.0-beta
+Rscript scripts/make_release_zip.R source --version=v0.4.0-beta
+Rscript scripts/make_release_zip.R ready --version=v0.4.0-beta
 ```
 
 ---
@@ -225,14 +225,15 @@ Rscript scripts/make_release_zip.R ready --version=v0.3.0-beta
 |-----|------|-------|
 | `v0.1.0-beta` | — | First public beta |
 | `v0.2.0-beta` | — | Dark UI, Australia-first view |
-| `v0.3.0-beta` | target | Distance thinning, spatial-block CV, expanded diagnostics |
+| `v0.3.0-beta` | — | Distance thinning, spatial-block CV, expanded diagnostics |
+| `v0.4.0-beta` | target | Optional MaxEnt, VIF, MESS, ODMAP report export, dependency gating |
 
 ---
 
 ## 10. Known Issues & Limitations
 
-- `R/load.R` currently loads extended modules (biomod2, DNN) that are **not wired to the app UI** — they load without error but the app only exposes GLM controls. Extended modules are functional but not user-accessible from the dashboard.
+- biomod2 and DNN modules remain experimental and optional; they load without forcing heavyweight dependency installs and should not be treated as stable UI workflows yet.
 - MaxEnt backend requires the maxnet package (`install.packages('maxnet')`); not installed by default to keep setup minimal. Enable by installing maxnet and glmnet.
-- Spatial-block CV is implemented for GLM only; experimental backends use their own default CV.
+- Spatial-block CV is implemented for GLM and MaxEnt; other experimental backends use their own default CV.
 - Future projection requires user-provided future BIO GeoTIFFs; no automated CMIP6 download.
 - DNN models require PyTorch with ≥50 records; warnings issued at 50–100 records.

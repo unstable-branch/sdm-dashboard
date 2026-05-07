@@ -7,8 +7,8 @@ authors:
 abstract: "A local R/Shiny workbench for species distribution modelling from presence-only occurrence records with climate, elevation, and soil covariates."
 license: MIT
 repository-code: "https://github.com/5p00kyy/sdm-dashboard"
-date-released: "2026-05-02"
-version: "0.2.0-beta"
+date-released: "2026-05-07"
+version: "0.4.0-beta"
 keywords:
   - species distribution modelling
   - Shiny
