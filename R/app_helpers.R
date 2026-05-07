@@ -7,7 +7,6 @@ biovar_choices <- sdm_biovar_choices
 }
 
 extent_from_inputs <- function(input, occurrence = NULL) {
-<<<<<<< HEAD
   switch(input$extent_preset,
          occurrence = if (!is.null(occurrence) && !is.null(occurrence$occ)) make_training_extent(occurrence$occ, buffer = 1) else sdm_default_projection_extent,
          aus_full = sdm_extent_presets$aus_full,
@@ -15,42 +14,6 @@ extent_from_inputs <- function(input, occurrence = NULL) {
          aus_east = sdm_extent_presets$aus_east,
          custom = c(input$xmin, input$xmax, input$ymin, input$ymax),
          sdm_default_projection_extent)
-=======
-  preset <- tolower(input$extent_preset %||% "aus_full")
-  switch(preset,
-         occurrence = if (!is.null(occurrence) && !is.null(occurrence$occ)) make_training_extent(occurrence$occ, buffer = 1) else sdm_default_projection_extent,
-         world = c(-180, 180, -90, 90),
-         aus_full = sdm_extent_presets$aus_full,
-         aus_north = sdm_extent_presets$aus_north,
-         aus_east = sdm_extent_presets$aus_east,
-         boundary_file = {
-           # Handle custom boundary file upload
-           bf <- input$boundary_file
-           if (!is.null(bf) && !is.null(bf$datapath) && file.exists(bf$datapath)) {
-             tryCatch({
-               b <- terra::vect(bf$datapath)
-               ext <- terra::ext(b)
-               c(ext$xmin, ext$xmax, ext$ymin, ext$ymax)
-             }, error = function(e) {
-               sdm_default_projection_extent
-             })
-           } else {
-             sdm_default_projection_extent
-           }
-         },
-         custom = {
-           xmin <- input$xmin %||% sdm_default_projection_extent[1]
-           xmax <- input$xmax %||% sdm_default_projection_extent[2]
-           ymin <- input$ymin %||% sdm_default_projection_extent[3]
-           ymax <- input$ymax %||% sdm_default_projection_extent[4]
-           c(as.numeric(xmin), as.numeric(xmax), as.numeric(ymin), as.numeric(ymax))
-         },
-         # Try to get from boundary registry
-         {
-           ext <- get_boundary_extent(preset)
-           if (!is.null(ext)) ext else sdm_default_projection_extent
-         })
->>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
 }
 
 fmt_num <- function(x, digits = 0) {

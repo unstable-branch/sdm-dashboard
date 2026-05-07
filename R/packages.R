@@ -1,13 +1,5 @@
-<<<<<<< HEAD
 # Runtime and dependency helpers for the SDM project.
 
-sdm_required_packages <- c("terra")
-sdm_app_packages <- c("shiny", "bslib", "terra")
-=======
-
-# ---------------------------------------------------------------------------
-# Version‑pinning guard used by run_fast_sdm()
-# ---------------------------------------------------------------------------
 check_sdm_versions <- function() {
   min_versions <- list(
     biomod2 = "4.0.0",
@@ -33,7 +25,6 @@ sdm_app_packages <- c(
   "cito", "R.utils",
   "torch", "reticulate"
 )
->>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
 sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata")
 
 detect_available_cores <- function(logical = TRUE) {
@@ -103,19 +94,7 @@ configure_parallel <- function(n_cores = NULL, log_fun = NULL) {
   log_message(log_fun, "Using ", n_cores, " CPU core(s) for package compilation, cross-validation, and raster prediction")
   n_cores
 }
-<<<<<<< HEAD
-=======
 
-#' Setup torch CUDA/GPU support
-#'
-#' Checks and configures torch for GPU acceleration.
-#' On Windows with NVIDIA GPU and CUDA 12.8 + cuDNN installed,
-#' automatically configures GPU-enabled torch.
-#'
-#' @param force_gpu Logical - force GPU mode check (default FALSE)
-#' @param log_fun Optional logging function
-#' @return List with device, gpu_available, cuda_version, torch_version
-#' @export
 setup_torch_cuda <- function(force_gpu = FALSE, log_fun = NULL) {
   result <- list(
     device = "cpu",
@@ -125,43 +104,36 @@ setup_torch_cuda <- function(force_gpu = FALSE, log_fun = NULL) {
     installation_status = "not_checked",
     message = "torch not checked"
   )
-  
-  # Check torch package
+
   if (!requireNamespace("torch", quietly = TRUE)) {
     result$message <- "torch package not installed"
     return(result)
   }
-  
-  # Get versions
+
   tryCatch({
     result$torch_version <- as.character(packageVersion("torch"))
   }, error = function(e) NULL)
-  
-  # Check LibTorch installation
+
   result$installation_status <- tryCatch({
     if (torch::torch_is_installed()) "ok" else "not_installed"
   }, error = function(e) "error")
-  
+
   if (result$installation_status != "ok") {
     result$message <- "LibTorch not installed - run torch::install_torch()"
     return(result)
   }
-  
+
   result$message <- "LibTorch installed"
-  
-  # Check GPU availability
+
   tryCatch({
     has_cuda <- torch::cuda_is_available()
     has_mps <- torch::mps_is_available()
-    
-    # Get CUDA version if available
+
     if (has_cuda) {
       cuda_ver <- Sys.getenv("CUDA", NA_character_)
-      if (nzchar(cuda_ver)) {
-        result$cuda_version <- cuda_ver
-      }
+      if (nzchar(cuda_ver)) result$cuda_version <- cuda_ver
     }
-    
+
     if (force_gpu || has_cuda) {
       result$gpu_available <- TRUE
       result$device <- if (has_cuda) "cuda" else "cpu"
@@ -178,11 +150,10 @@ setup_torch_cuda <- function(force_gpu = FALSE, log_fun = NULL) {
   }, error = function(e) {
     result$message <- paste("GPU detection error:", conditionMessage(e))
   })
-  
+
   if (!is.null(log_fun)) {
     log_fun(paste("torch:", result$message, "| Device:", result$device))
   }
-  
+
   result
 }
->>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)

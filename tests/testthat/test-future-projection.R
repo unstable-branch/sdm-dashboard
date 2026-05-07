@@ -36,12 +36,7 @@ test_that("future projection reuses model dispatch and writes delta rasters", {
       selected_biovars = c(1, 12),
       training_extent = c(140, 142, -24, -22),
       projection_extent = c(140, 142, -24, -22),
-<<<<<<< HEAD
       allow_download = FALSE
-=======
-      allow_download = FALSE,
-      use_soil = FALSE
->>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
     )
     occ <- data.frame(
       species = "Synthetic species",

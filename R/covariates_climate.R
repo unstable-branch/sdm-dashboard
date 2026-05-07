@@ -29,11 +29,7 @@ download_worldclim_layers <- function(worldclim_dir, selected_biovars, res = 10,
   invisible(find_worldclim_files(worldclim_dir, selected_biovars))
 }
 
-<<<<<<< HEAD
 crop_and_optionally_aggregate <- function(r, extent_vec, aggregation_factor = 1) {
-=======
-crop_and_optionally_aggregate <- function(r, extent_vec, aggregation_factor = sdm_default_aggregation_factor) {
->>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   cropped <- terra::crop(r, terra::ext(extent_vec[1], extent_vec[2], extent_vec[3], extent_vec[4]), snap = "out")
   aggregation_factor <- as.integer(aggregation_factor)
   if (is.na(aggregation_factor) || aggregation_factor < 1) aggregation_factor <- 1
@@ -49,11 +45,7 @@ scale_raster_stack <- function(r, means, sds) {
 }
 
 load_climate_covariates <- function(worldclim_dir, selected_biovars, training_extent, projection_extent,
-<<<<<<< HEAD
                                     aggregation_factor = 1, allow_download = TRUE, worldclim_res = 10,
-=======
-                                    aggregation_factor = sdm_default_aggregation_factor, allow_download = TRUE, worldclim_res = sdm_default_worldclim_res,
->>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
                                     log_fun = NULL, n_cores = NULL) {
   ensure_sdm_packages("terra", n_cores = n_cores)
   selected_biovars <- validate_biovars(selected_biovars)
