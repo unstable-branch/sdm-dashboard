@@ -33,10 +33,125 @@ if (is.na(engine_file)) {
 }
 source(engine_file)
 default_cores <- normalize_core_count(NULL, reserve_one = TRUE)
+<<<<<<< HEAD
 ensure_sdm_packages(c("shiny", "bslib", "terra"), n_cores = default_cores)
 
 suppressPackageStartupMessages({
   library(shiny)
+=======
+ensure_sdm_packages(sdm_app_packages, n_cores = default_cores)
+
+# PyTorch setup with automatic GPU detection
+source("R/torch_setup.R", local = TRUE)
+
+pytorch_available <- FALSE
+gpu_info <- NULL
+gpu_device <- "cpu"
+
+# First check Conda PyTorch (Python), then R torch package
+if (requireNamespace("reticulate", quietly = TRUE)) {
+  tryCatch({
+    reticulate::py_run_string("import torch; print(torch.__version__)")
+    pytorch_available <- TRUE
+    cat("PyTorch available via Conda\n")
+  }, error = function(e) NULL)
+}
+
+# If not via Conda, use R torch with auto-detection
+if (!pytorch_available && requireNamespace("torch", quietly = TRUE)) {
+  tryCatch({
+    # Run automatic detection
+    setup_result <- setup_torch_auto()
+    
+    if (setup_result$status == "ok_gpu") {
+      pytorch_available <- TRUE
+      gpu_device <- "cuda"
+      gpu_info <- setup_result$gpu_info
+      cat("PyTorch (GPU) available via R package\n")
+    } else if (setup_result$status == "ok_cpu") {
+      pytorch_available <- TRUE
+      gpu_device <- "cpu"
+      cat("PyTorch (CPU) available via R package\n")
+    } else if (setup_result$status == "needs_install") {
+      # GPU detected but needs different torch
+      gpu_info <- setup_result$gpu_info
+      cat("PyTorch needs installation for GPU\n")
+    } else if (setup_result$status == "no_gpu") {
+      pytorch_available <- TRUE
+      gpu_device <- "cpu"
+      cat("PyTorch available (CPU mode)\n")
+    }
+  }, error = function(e) {
+    cat("torch setup error:", conditionMessage(e), "\n")
+  })
+}
+
+# Store availability
+config$pytorch_available <- pytorch_available
+config$gpu_info <- gpu_info
+config$gpu_device <- gpu_device
+
+# ------------------------------------------------------------
+# Ensure required boundary files are present (download once if missing)
+# ------------------------------------------------------------
+ensure_boundary_files <- function() {
+  world_url <- "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson"
+
+  # World boundary first — Australia falls back to filtering this file.
+  if (!file.exists(config$sdm_world_boundary_path)) {
+    dir.create(dirname(config$sdm_world_boundary_path), recursive = TRUE, showWarnings = FALSE)
+    message("Downloading world boundary GeoJSON from Natural Earth...")
+    ok <- tryCatch({
+      utils::download.file(world_url, destfile = config$sdm_world_boundary_path, mode = "wb", quiet = TRUE)
+      TRUE
+    }, error = function(e) {
+      message("World boundary download failed: ", conditionMessage(e))
+      if (file.exists(config$sdm_world_boundary_path)) unlink(config$sdm_world_boundary_path)
+      FALSE
+    })
+    if (!ok) stop(
+      "Could not download world boundary file to ",
+      config$sdm_world_boundary_path,
+      ".\nCheck your internet connection, or place a Natural Earth countries GeoJSON there manually:\n  ",
+      world_url
+    )
+  }
+
+  # Australia boundary — ships in the release zip. If missing, derive it from
+  # the world file using terra (already a required package) so we don't depend
+  # on a third-party AU-specific URL.
+  if (!file.exists(config$sdm_australia_boundary_path)) {
+    dir.create(dirname(config$sdm_australia_boundary_path), recursive = TRUE, showWarnings = FALSE)
+    message("Australia boundary missing — deriving from world boundary file...")
+    ok <- tryCatch({
+      world_v <- terra::vect(config$sdm_world_boundary_path)
+      name_col <- intersect(c("ADMIN", "NAME", "NAME_LONG", "SOVEREIGNT"), names(world_v))[1]
+      if (is.na(name_col)) stop("World GeoJSON has no recognisable country name field.")
+      au <- world_v[world_v[[name_col]][, 1] == "Australia", ]
+      if (nrow(au) == 0) stop("No 'Australia' feature found in world boundary file.")
+      terra::writeVector(au, config$sdm_australia_boundary_path, filetype = "GeoJSON", overwrite = TRUE)
+      TRUE
+    }, error = function(e) {
+      message("Australia boundary derivation failed: ", conditionMessage(e))
+      FALSE
+    })
+    if (!ok) stop(
+      "Could not produce ", config$sdm_australia_boundary_path, ".\n",
+      "Restore it from the release zip (data/examples/geo/australia.geojson)."
+    )
+  }
+}
+ensure_boundary_files()
+
+
+
+
+
+suppressPackageStartupMessages({
+  library(shiny)
+
+
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   library(bslib)
 })
 
@@ -50,11 +165,19 @@ sdm_theme_css <- if (file.exists(sdm_theme_css_file)) paste(readLines(sdm_theme_
 ui <- fluidPage(
   theme = bslib::bs_theme(version = 5, bootswatch = "flatly", primary = "#0B6E69"),
   tags$head(
+<<<<<<< HEAD
     tags$style(HTML("\n      body { background:#f4f7fb; color:#102a43; }\n      .container-fluid { max-width:1680px; }\n      .hero { background:radial-gradient(circle at top right,rgba(255,255,255,.18),transparent 28%),linear-gradient(135deg,#083f3c 0%,#0B6E69 48%,#174A7C 100%); color:white; border-radius:22px; padding:30px 34px; margin:18px 0 22px; box-shadow:0 16px 38px rgba(15,36,58,.18);}\n      .hero h1 { font-weight:800; margin:0 0 8px; letter-spacing:-.02em; } .hero p { margin:0; opacity:.93; font-size:1.08rem; max-width:780px; }\n      .control-panel,.content-card,.metric-card { background:white; border:1px solid #e7edf4; border-radius:18px; box-shadow:0 10px 26px rgba(15,36,58,.07); }\n      .control-panel { padding:18px; position:sticky; top:14px; max-height:calc(100vh - 28px); overflow:auto; }\n      .control-panel h4 { color:#0B4F4A; font-size:1rem; font-weight:800; margin-top:6px; }\n      .content-card { padding:20px; margin-bottom:16px; } .content-card h4 { font-weight:800; margin-top:0; color:#16324f; }\n      .metric-grid { display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:14px; margin-bottom:16px; }\n      .metric-card { border-left:5px solid #0B6E69; padding:16px; } .metric-label { color:#5d6d7e; font-size:.78rem; text-transform:uppercase; letter-spacing:.07em; font-weight:700; }\n      .metric-value { color:#102a43; font-size:1.8rem; font-weight:800; line-height:1.2; } .metric-note { color:#6c7a89; font-size:.85rem; margin-top:4px; }\n      .status-ok,.status-warn,.status-error,.status-info { border-radius:14px; padding:13px 15px; margin-bottom:16px; }\n      .status-ok { background:#e8f7f4; border:1px solid #b7e4db; color:#0b594f; } .status-warn { background:#fff7e6; border:1px solid #ffd591; color:#7a4b00; } .status-error { background:#fff1f0; border:1px solid #ffa39e; color:#8c1d18; } .status-info { background:#eef6ff; border:1px solid #b9dafb; color:#174A7C; }\n      .readiness-grid { display:grid; grid-template-columns:repeat(2,minmax(220px,1fr)); gap:12px; }\n      .readiness-item { border:1px solid #e7edf4; border-radius:14px; padding:13px 14px; background:#fbfcfe; }\n      .readiness-title { display:flex; align-items:center; gap:8px; font-weight:800; margin-bottom:4px; } .readiness-detail { color:#5d6d7e; font-size:.92rem; }\n      .pill { display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; border-radius:999px; font-size:.78rem; font-weight:900; }\n      .pill-ok { background:#d9f3ed; color:#08705f; } .pill-warn { background:#ffedc2; color:#8a5a00; } .pill-error { background:#ffd8d6; color:#9f1f1a; } .pill-info { background:#dceeff; color:#174A7C; }\n      .run-button-wrap .btn { font-weight:800; padding:.8rem 1rem; }\n      pre { background:#0b1020; color:#d6e4ff; border-radius:12px; padding:14px; max-height:460px; overflow:auto; } .small-muted { color:#6c7a89; font-size:.9rem; }\n      .tab-content { padding-top:4px; }\n      @media(max-width:1100px){.metric-grid,.readiness-grid{grid-template-columns:repeat(2,minmax(150px,1fr));}.control-panel{position:static;max-height:none;}} @media(max-width:700px){.metric-grid,.readiness-grid{grid-template-columns:1fr;}.hero{padding:24px 22px;}}\n    ")),
     tags$script(HTML("\n      Shiny.addCustomMessageHandler('setRunState', function(x) {\n        var btn = document.getElementById('run_model');\n        if (!btn) return;\n        btn.disabled = !!x.running;\n        btn.classList.toggle('disabled', !!x.running);\n        btn.textContent = x.running ? 'Running SDM...' : 'Run SDM';\n      });\n      (function() {\n        function setTheme(dark) {\n          document.body.classList.toggle('sdm-dark', dark);\n          document.body.classList.toggle('sdm-light', !dark);\n          try { window.localStorage.setItem('sdm-dashboard-theme', dark ? 'dark' : 'light'); } catch (e) {}\n        }\n        function initialTheme() {\n          try {\n            var saved = window.localStorage.getItem('sdm-dashboard-theme');\n            if (saved === 'dark' || saved === 'light') return saved === 'dark';\n          } catch (e) {}\n          return true;\n        }\n        function wireToggle() {\n          var toggle = document.getElementById('dark_mode');\n          var dark = initialTheme();\n          setTheme(dark);\n          if (!toggle || toggle.dataset.themeBound === '1') return;\n          toggle.checked = dark;\n          toggle.dataset.themeBound = '1';\n          toggle.addEventListener('change', function() { setTheme(toggle.checked); });\n        }\n        document.addEventListener('DOMContentLoaded', wireToggle);\n        document.addEventListener('shiny:connected', wireToggle);\n      })();\n    "))
   ),
 
   tags$style(HTML("\n    .hero { padding:12px 20px; margin:8px 0 10px; border-radius:16px; }\n    .hero h1 { font-size:1.55rem; margin-bottom:1px; } .hero p { font-size:.92rem; }\n    .control-panel { display:flex; flex-direction:column; height:calc(100vh - 94px); max-height:calc(100vh - 94px); padding:12px; overflow:hidden; }\n    .control-scroll { flex:1 1 auto; min-height:0; overflow:auto; padding-right:3px; }\n    .control-panel .form-group { margin-bottom:.62rem; }\n    .control-section { border:1px solid #e7edf4; border-radius:14px; padding:10px 12px; margin-bottom:10px; background:#fbfdff; }\n    .control-section h4 { margin:0 0 8px; }\n    details.control-section { padding:0; overflow:hidden; }\n    details.control-section > summary { cursor:pointer; padding:10px 12px; font-weight:800; color:#0B4F4A; list-style:none; }\n    details.control-section > summary::-webkit-details-marker { display:none; }\n    details.control-section > summary:after { content:'+'; float:right; color:#5d6d7e; }\n    details.control-section[open] > summary:after { content:'-'; }\n    .details-body { padding:0 12px 10px; }\n    .run-button-wrap { flex:0 0 auto; position:static; bottom:auto; background:white; border-top:1px solid #e7edf4; margin-top:8px; padding-top:10px; }\n    .main-panel { padding-top:0; }\n    .content-card { padding:14px; margin-bottom:12px; }\n    .metric-grid { grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px; margin-bottom:10px; }\n    .metric-card { padding:12px; }\n    .metric-value { font-size:1.45rem; }\n    .status-ok,.status-warn,.status-error,.status-info { margin-bottom:10px; padding:10px 12px; }\n    .preflight-compact .readiness-grid { display:none; }\n    .preflight-compact { padding:10px 12px; }\n    .summary-list { display:grid; gap:6px; }\n    .summary-row { display:grid; grid-template-columns:minmax(105px,38%) 1fr; gap:8px; padding:6px 0; border-bottom:1px solid #edf2f7; }\n    .summary-row:last-child { border-bottom:0; }\n    .summary-label { color:#5d6d7e; font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; font-weight:800; }\n    .summary-value { color:#102a43; font-weight:650; overflow-wrap:anywhere; }\n    .downloads-row .btn { margin:0 8px 8px 0; }\n    @media (max-width: 991px) { .control-panel { position:static; height:auto; max-height:none; overflow:visible; } .control-scroll { overflow:visible; } .metric-grid { grid-template-columns:repeat(2,minmax(140px,1fr)); } }\n  ")),
+=======
+    tags$style(HTML("\n      body { background:#f4f7fb; color:#102a43; }\n      .container-fluid { max-width:1680px; }\n      .hero { background:radial-gradient(circle at top right,rgba(255,255,255,.18),transparent 28%),linear-gradient(135deg,#083f3c 0%,#0B6E69 48%,#174A7C 100%); color:white; border-radius:22px; padding:30px 34px; margin:18px 0 22px; box-shadow:0 16px 38px rgba(15,36,58,.18);}\n      .hero h1 { font-weight:800; margin:0 0 8px; letter-spacing:-.02em; } .hero p { margin:0; opacity:.93; font-size:1.08rem; max-width:780px; }\n      .control-panel,.content-card,.metric-card { background:white; border:1px solid #e7edf4; border-radius:18px; box-shadow:0 10px 26px rgba(15,36,58,.07); }\n      .control-panel { padding:18px; position:sticky; top:14px; max-height:calc(100vh - 28px); overflow:auto; }\n      .control-panel h4 { color:#0B4F4A; font-size:1rem; font-weight:800; margin-top:6px; }\n      .content-card { padding:20px; margin-bottom:16px; } .content-card h4 { font-weight:800; margin-top:0; color:#16324f; }\n      .metric-grid { display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:14px; margin-bottom:16px; }\n      .metric-card { border-left:5px solid #0B6E69; padding:16px; } .metric-label { color:#5d6d7e; font-size:.78rem; text-transform:uppercase; letter-spacing:.07em; font-weight:700; }\n      .metric-value { color:#102a43; font-size:1.8rem; font-weight:800; line-height:1.2; } .metric-note { color:#6c7a89; font-size:.85rem; margin-top:4px; }\n      .status-ok,.status-warn,.status-error,.status-info { border-radius:14px; padding:13px 15px; margin-bottom:16px; }\n      .status-ok { background:#e8f7f4; border:1px solid #b7e4db; color:#0b594f; } .status-warn { background:#fff7e6; border:1px solid #ffd591; color:#7a4b00; } .status-error { background:#fff1f0; border:1px solid #ffa39e; color:#8c1d18; } .status-info { background:#eef6ff; border:1px solid #b9dafb; color:#174A7C; }\n      .readiness-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }\n      .readiness-item { display:flex; flex-direction:column; gap:3px; }\n      .readiness-title { font-size:.85rem; font-weight:700; color:#102a43; }\n      .readiness-detail { font-size:.78rem; color:#5d6d7e; }\n      .pill { display:inline-block; width:18px; height:18px; line-height:18px; border-radius:50%; text-align:center; font-size:.75rem; font-weight:800; color:white; margin-right:6px; }\n      .pill-ok { background:#0B6E69; } .pill-warn { background:#e6a23c; } .pill-error { background:#f56c6c; } .pill-info { background:#174A7C; }\n      .map-card { position:relative; }\n      .map-title-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }\n      .map-title-row h4 { margin:0; }\n      .hero-kicker { font-size:.85rem; opacity:.85; letter-spacing:.04em; text-transform:uppercase; }\n      .hero-badges { margin-top:12px; font-size:.78rem; opacity:.9; }\n      .hero-badges span { display:inline-block; background:rgba(255,255,255,.2); padding:4px 10px; border-radius:20px; margin-right:8px; }\n      .small-muted { font-size:.8rem; color:#5d6d7e; margin-top:4px; }\n      .details-body .form-group { margin-bottom:12px; }\n      .downloads-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }\n      .downloads-row .btn { flex:0 0 auto; }\n    ")),
+    tags$script(HTML("\n      Shiny.addCustomMessageHandler('setRunState', function(x) {\n        var btn = document.getElementById('run_model');\n        if (!btn) return;\n        btn.disabled = !!x.running;\n        btn.classList.toggle('disabled', !!x.running);\n        btn.textContent = x.running ? 'Running SDM...' : 'Run SDM';\n      });\n      (function() {\n        function setTheme(dark) {\n          document.body.classList.toggle('sdm-dark', dark);\n          document.body.classList.toggle('sdm-light', !dark);\n          try { window.localStorage.setItem('sdm-dashboard-theme', dark ? 'dark' : 'light'); } catch (e) {}\n        }\n        function initialTheme() {\n          try {\n            var saved = window.localStorage.getItem('sdm-dashboard-theme');\n            if (saved === 'dark' || saved === 'light') return saved === 'dark';\n          } catch (e) {}\n          return true;\n        }\n        function wireToggle() {\n          var toggle = document.getElementById('dark_mode');\n          var dark = initialTheme();\n          setTheme(dark);\n          if (!toggle || toggle.dataset.themeBound === '1') return;\n          toggle.checked = dark;\n          toggle.dataset.themeBound = '1';\n          toggle.addEventListener('change', function() { setTheme(toggle.checked); });\n        }\n        document.addEventListener('DOMContentLoaded', wireToggle);\n        document.addEventListener('shiny:connected', wireToggle);\n      })();\n    "))
+  ),
+
+  tags$style(HTML("\n    .hero { padding:12px 20px; margin:8px 0 10px; border-radius:16px; }\n    .hero h1 { font-size:1.55rem; margin-bottom:1px; } .hero p { font-size:.92rem; }\n    .control-panel { display:flex; flex-direction:column; height:calc(100vh - 94px); max-height:calc(100vh - 94px); padding:12px; overflow:hidden; }\n    .control-scroll { flex:1 1 auto; min-height:0; overflow:auto; padding-right:3px; }\n    .control-panel .form-group { margin-bottom:.62rem; }\n    .control-section { border:1px solid #e7edf4; border-radius:14px; padding:10px 12px; margin-bottom:10px; background:#fbfdff; }\n    .control-section h4 { margin:0 0 8px; }\n    details.control-section { padding:0; overflow:hidden; }\n    details.control-section > summary { cursor:pointer; padding:10px 12px; font-weight:800; color:#0B4F4A; list-style:none; }\n    details.control-section > summary::-webkit-details-marker { display:none; }\n    details.control-section > summary:after { content:'+'; float:right; color:#5d6d7e; }\n    details.control-section[open] > summary:after { content:'-'; }\n    .details-body { padding:0 12px 10px; }\n    .run-button-wrap { flex:0 0 auto; position:static; bottom:auto; background:white; border-top:1px solid #e7edf4; margin-top:8px; padding-top:10px; }\n    .main-panel { padding-top:0; }\n    .content-card { padding:14px; margin-bottom:12px; }\n    .metric-grid { grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px; margin-bottom:10px; }\n    .metric-card { padding:12px; }\n    .metric-value { font-size:1.45rem; }\n    .status-ok,.status-warn,.status-error,.status-info { margin-bottom:10px; padding:10px 12px; }\n    .preflight-compact .readiness-grid { display:none; }\n    .preflight-compact { padding:10px 12px; }\n    .summary-list { display:grid; gap:6px; }\n    .summary-row { display:grid; grid-template-columns:minmax(105px,38%) 1fr; gap:8px; padding:6px 0; border-bottom:1px solid #edf2f7; }\n    .summary-row:last-child { border-bottom:0; }\n    .summary-label { color:#5d6d7e; font-size:.85rem; }\n    .summary-value { color:#102a43; font-weight:600; }\n    .map-card .bslib-box-shadow { border:1px solid #e7edf4; }\n    .map-card .leaflet { border-radius:14px; }\n  ")),
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
 
   tags$style(HTML("\n    .status-ok,.status-warn,.status-error,.status-info { overflow-wrap:anywhere; }\n    .status-ok:focus,.status-warn:focus,.status-error:focus,.status-info:focus,\n    .btn:focus-visible,.form-control:focus,.form-select:focus,input[type='radio']:focus-visible,input[type='checkbox']:focus-visible,summary:focus-visible { outline:3px solid #4cc9b0; outline-offset:2px; box-shadow:0 0 0 .2rem rgba(76,201,176,.25); }\n    @media (max-width: 991px) {\n      .control-panel { position:static; height:auto; max-height:none; margin-bottom:12px; }\n      .control-scroll { overflow:visible; }\n      .run-button-wrap { position:sticky; bottom:0; z-index:10; padding-bottom:8px; }\n      .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }\n      .main-panel .content-card { overflow-x:auto; }\n    }\n    @media (max-width: 575px) {\n      .hero { padding:14px; }\n      .metric-grid,.summary-row { grid-template-columns:1fr; }\n      .metric-value { font-size:1.3rem; }\n      .content-card { padding:12px; }\n    }\n  ")),
 
@@ -84,7 +207,11 @@ ui <- fluidPage(
           choices = stats::setNames(c("upload", "project", "demo"), c("Upload file", paste0("Project ", sdm_default_occurrence_file), "Synthetic demo")),
           selected = if (file.exists(sdm_default_occurrence_file)) "project" else "demo"
         ),
+<<<<<<< HEAD
         conditionalPanel("input.data_source == 'upload'", fileInput("occ_file", "Observation record CSV/TSV", accept = c(".csv", ".tsv", ".txt"))),
+=======
+         conditionalPanel("input.data_source == 'upload'", fileInput("occ_file", "Observation record CSV/TSV", accept = c(".csv", ".tsv", ".txt"))),
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
         uiOutput("occurrence_source_status"),
         div(class = "small-muted", "If the selected source is unavailable, the app falls back to project data, then demo data when possible.")
       ),
@@ -92,6 +219,7 @@ ui <- fluidPage(
         h4("Climate data"),
         textInput("worldclim_dir", "WorldClim folder", value = sdm_default_worldclim_dir),
         checkboxInput("download_worldclim", "Download missing WorldClim/elevation layers", value = TRUE),
+<<<<<<< HEAD
         selectInput("worldclim_res", "WorldClim resolution", choices = c("10 arc-min" = "10", "5 arc-min" = "5", "2.5 arc-min" = "2.5"), selected = as.character(sdm_default_worldclim_res))
       ),
       tags$details(class = "control-section", open = TRUE,
@@ -100,6 +228,13 @@ ui <- fluidPage(
           checkboxGroupInput("biovars", NULL, choices = biovar_choices, selected = as.character(sdm_default_biovars))
         )
       ),
+=======
+        selectInput("worldclim_res", "WorldClim resolution", choices = c("10 arc-min" = "10", "5 arc-min" = "5", "2.5 arc-min" = "2.5"), selected = as.character(sdm_default_worldclim_res)),
+         checkboxGroupInput("biovars", "BIO variables", choices = biovars_choices, selected = sdm_default_biovars, inline = TRUE),
+         div(class = "small-muted", "Select at least 2 BIO variables for modelling.")
+      ),
+
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
       tags$details(class = "control-section",
         tags$summary("Optional covariates"),
         div(class = "details-body",
@@ -109,11 +244,55 @@ ui <- fluidPage(
             passwordInput("opentopo_api_key", "OpenTopography API key (optional)", value = ""),
             div(class = "small-muted", "Leave blank to use OPENTOPOGRAPHY_API_KEY from your environment. Keys are not saved in outputs.")
           ),
+<<<<<<< HEAD
           checkboxInput("use_soil", "Add HWSD v2 soil covariates", value = FALSE),
           conditionalPanel("input.use_soil == true",
             checkboxGroupInput("soil_vars", "Soil properties", choices = hwsd_soil_choices, selected = sdm_default_soil_vars),
             textInput("soil_path", "HWSD v2 soil GeoTIFF", value = sdm_default_soil_path),
             div(class = "small-muted", "Use a local GeoTIFF exported from the HWSD v2 GEE asset. Missing files are skipped with an informational warning.")
+=======
+           checkboxInput("use_soil", "Add SoilGrids covariates", value = FALSE),
+            conditionalPanel("input.use_soil == true",
+              checkboxGroupInput("soil_vars", "Soil properties", choices = config$soil_vars_default, selected = config$soil_vars_default),
+              checkboxGroupInput("soil_depths", "Soil depth layers", choices = c("0-30 cm","0-60 cm"), selected = c("0-30 cm")),
+              div(class = "small-muted", "SoilGrids provides continuous covariates at two depth intervals. 0-30cm is on by default; you can also enable 0-60cm.")
+            )
+        )
+      ),
+      tags$details(class = "control-section", open = TRUE,
+        tags$summary("Modelling algorithms"),
+        div(class = "details-body",
+          checkboxGroupInput("biomod2_models", "Select modelling algorithms", choices = biomod2_choices, selected = config$biomod2_default)
+        )
+      ),
+      tags$details(class = "control-section", open = FALSE,
+        tags$summary("Neural Networks"),
+        div(class = "details-body",
+          h5("Shallow Networks (biomod2)"),
+          checkboxGroupInput("biomod2_nn_models", "Select shallow networks",
+              choices = biomod2_nn_choices, selected = character(0)),
+          hr(),
+          h5("Deep Networks (cito/torch)"),
+          checkboxGroupInput("dnn_models", "Select deep networks",
+              choices = dnn_choices, selected = character(0)),
+          div(class = "small-muted", "DNN requires PyTorch. Install via Conda: conda install pytorch cpuonly -c pytorch"),
+          selectInput("dnn_device", "Compute device",
+              choices = dnn_device_choices, selected = config$dnn_device_default),
+          tags$details(class = "control-section", open = FALSE,
+            tags$summary("DNN Ensemble Settings"),
+            div(class = "details-body",
+              sliderInput("dnn_weight", "DNN weight in ensemble", value = config$dnn_weight_default, min = 0, max = 1, step = 0.05),
+              div(class = "small-muted", "Higher weight gives DNN models more influence in final prediction."),
+              selectInput("ensemble_method", "Ensemble combination method",
+                choices = c(
+                  "Weighted average (recommended)" = "weighted_average",
+                  "Simple mean" = "simple_mean",
+                  "Consensus binary" = "consensus_binary"
+       ),
+
+                selected = config$ensemble_method_default)
+            )
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
           )
         )
       ),
@@ -121,6 +300,7 @@ ui <- fluidPage(
         tags$summary("Model settings"),
         div(class = "details-body",
           selectInput("model_id", "Model backend", choices = sdm_model_choices(), selected = sdm_default_model_id),
+<<<<<<< HEAD
           div(class = "small-muted", "Rangebagging is experimental; GLM remains the stable default."),
           numericInput("background_n", "Background points", value = sdm_default_background_n, min = 500, max = 100000, step = 500),
           numericInput("min_source_records", "Merge sources with fewer than", value = sdm_default_min_source_records, min = 1, max = 100, step = 1),
@@ -131,6 +311,15 @@ ui <- fluidPage(
           selectInput("cv_folds", "Cross-validation", choices = c("Off" = "0", "3-fold" = "3", "5-fold" = "5"), selected = as.character(sdm_default_cv_folds)),
           selectInput("cv_strategy", "CV strategy", choices = c("Random" = "random", "Spatial blocks" = "spatial_blocks"), selected = sdm_default_cv_strategy),
           conditionalPanel("input.cv_strategy == 'spatial_blocks'", numericInput("cv_block_size_km", "Spatial block size (km; blank/0 = auto)", value = 0, min = 0, max = 2000, step = 10)),
+=======
+           div(class = "small-muted", "Rangebagging is experimental; GLM remains the stable default."),
+          checkboxInput("use_rangebag", "Include Range-Bagging (recommended for <=30 records)", value = FALSE),
+          numericInput("background_n", "Background points", value = sdm_default_background_n, min = 500, max = 100000, step = 500),
+          numericInput("min_source_records", "Merge sources with fewer than", value = sdm_default_min_source_records, min = 1, max = 100, step = 1),
+          checkboxInput("thin_by_cell", "Thin duplicate records in the same climate cell", value = TRUE),
+          checkboxInput("quadratic", "Include quadratic climate responses", value = TRUE),
+          selectInput("cv_folds", "Cross-validation", choices = c("Off" = "0", "3-fold" = "3", "5-fold" = "5"), selected = as.character(sdm_default_cv_folds)),
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
           numericInput("n_cores", "CPU cores for compile/predict/CV", value = default_cores, min = 1, max = detect_available_cores(TRUE), step = 1),
           div(class = "small-muted", "Also sets MAKEFLAGS=-jN for source package compilation."),
           numericInput("aggregation_factor", "Raster aggregation for speed (1 = native)", value = sdm_default_aggregation_factor, min = 1, max = 8, step = 1)
@@ -143,7 +332,15 @@ ui <- fluidPage(
           fluidRow(column(6, numericInput("xmin", "xmin", sdm_default_projection_extent[1])), column(6, numericInput("xmax", "xmax", sdm_default_projection_extent[2]))),
           fluidRow(column(6, numericInput("ymin", "ymin", sdm_default_projection_extent[3])), column(6, numericInput("ymax", "ymax", sdm_default_projection_extent[4])))
         ),
+<<<<<<< HEAD
         sliderInput("threshold", "High-suitability threshold", min = 0.05, max = 0.95, value = sdm_default_threshold, step = 0.05),
+=======
+        conditionalPanel("input.boundary_type == 'custom'",
+          fileInput("boundary_file", "Custom boundary file (shp, kml, geojson)", accept = c(".shp", ".kml", ".geojson", ".json", ".tif")),
+          div(class = "small-muted", "Upload a boundary shapefile, KML, or GeoJSON. The extent will be calculated from the file.")
+        ),
+         sliderInput("threshold", "High-suitability threshold", min = 0.05, max = 0.95, value = sdm_default_threshold, step = 0.05),
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
         checkboxInput("future_projection", "Project a future climate scenario", value = FALSE),
         conditionalPanel("input.future_projection == true",
           textInput("future_worldclim_dir", "Future/CMIP6 BIO folder", value = sdm_default_future_worldclim_dir),
@@ -170,6 +367,28 @@ ui <- fluidPage(
 
 server <- function(input, output, session) {
   rv <- reactiveValues(result = NULL, log = "Ready.\n", error = NULL, running = FALSE)
+<<<<<<< HEAD
+=======
+
+  # Handle custom boundary file upload
+  observeEvent(input$boundary_file, {
+    req(input$boundary_file)
+    # Copy uploaded file to a permanent location
+    custom_path <- file.path("data", "examples", "geo", "custom_boundary.geojson")
+    dir.create(dirname(custom_path), recursive = TRUE, showWarnings = FALSE)
+    # Determine extension and copy appropriately
+    ext <- tolower(tools::file_ext(input$boundary_file$name))
+    if (ext %in% c("shp", "kml", "json", "geojson")) {
+      file.copy(input$boundary_file$datapath, custom_path, overwrite = TRUE)
+      config$custom_boundary_path <- custom_path
+    } else if (ext == "tif") {
+      # For GeoTIFF, copy as is
+      custom_tif <- sub("\\.tif$", ".tif", custom_path)
+      file.copy(input$boundary_file$datapath, custom_tif, overwrite = TRUE)
+      config$custom_boundary_path <- custom_tif
+    }
+  })
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   append_log <- function(message) rv$log <- paste0(rv$log, format(Sys.time(), "%H:%M:%S"), "  ", message, "\n")
   last_auto_species <- reactiveVal(sdm_initial_species)
   species_manually_set <- reactiveVal(FALSE)
@@ -269,6 +488,7 @@ server <- function(input, output, session) {
     }
 
     soil_state <- "info"
+<<<<<<< HEAD
     soil_detail <- "HWSD soil covariates are off."
     if (isTRUE(input$use_soil)) {
       if (length(input$soil_vars) == 0) {
@@ -281,12 +501,33 @@ server <- function(input, output, session) {
       } else {
         soil_state <- "ok"
         soil_detail <- paste(length(input$soil_vars), "HWSD properties selected from", input$soil_path)
+=======
+    soil_detail <- "SoilGrids covariates are off."
+    if (isTRUE(input$use_soil)) {
+      if (length(input$soil_vars) == 0) {
+        soil_state <- "error"
+        soil_detail <- "Soil is on, but no SoilGrids properties are selected."
+        issues <- c(issues, "Select at least one SoilGrids property, or turn soil covariates off.")
+      } else {
+        soil_state <- "ok"
+        soil_detail <- paste(length(input$soil_vars), "SoilGrids properties selected across", paste(input$soil_depths, collapse = ", "))
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
       }
     }
 
     extent_state <- "ok"
+<<<<<<< HEAD
     extent_detail <- paste0("xmin ", extent[1], ", xmax ", extent[2], ", ymin ", extent[3], ", ymax ", extent[4])
     if (any(!is.finite(extent)) || extent[1] >= extent[2] || extent[3] >= extent[4]) {
+=======
+    extent_valid <- is.numeric(extent) && length(extent) == 4 && all(is.finite(extent))
+    extent_detail <- if (extent_valid) {
+      paste0("xmin ", extent[1], ", xmax ", extent[2], ", ymin ", extent[3], ", ymax ", extent[4])
+    } else {
+      "Projection extent is unset or invalid."
+    }
+    if (!extent_valid || extent[1] >= extent[2] || extent[3] >= extent[4]) {
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
       extent_state <- "error"
       extent_detail <- "Projection extent is invalid. xmin/xmax and ymin/ymax must define a positive area."
       issues <- c(issues, "Fix the projection extent values.")
@@ -300,6 +541,7 @@ server <- function(input, output, session) {
       if (identical(overlap_state, "warn")) warnings <- c(warnings, paste("Projection extent has little or no overlap with the observation records:", overlap_detail))
     }
 
+<<<<<<< HEAD
     thinning_mode <- tryCatch(normalize_thinning_mode(input$thinning_mode %||% sdm_default_thinning_mode, thin_by_cell = isTRUE(input$thin_by_cell)), error = function(e) "raster_cell")
     thinning_detail <- switch(thinning_mode,
       none = "Occurrence thinning is off.",
@@ -311,6 +553,8 @@ server <- function(input, output, session) {
     cv_detail <- if (identical(cv_strategy, "spatial_blocks")) "Spatial block CV selected for GLM; other experimental backends use their default CV." else "Random CV selected; can be optimistic with spatial autocorrelation."
     if (identical(cv_strategy, "random")) warnings <- c(warnings, "Random CV can overestimate SDM performance when records are spatially autocorrelated.")
 
+=======
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
     future_state <- "info"
     future_detail <- "Future climate projection is off."
     if (isTRUE(input$future_projection)) {
@@ -345,12 +589,39 @@ server <- function(input, output, session) {
         readiness_item("Observation records", occurrence$detail, occurrence$state),
         readiness_item("WorldClim layers", climate_detail, climate_state),
         readiness_item("Elevation", elevation_detail, elevation_state),
+<<<<<<< HEAD
         readiness_item("HWSD soil", soil_detail, soil_state),
         readiness_item("Selected covariates", paste(selected_count, "total covariates selected; BIO", paste(biovars, collapse = ", BIO")), if (selected_count >= 2) "ok" else "error"),
         readiness_item("Projection extent", extent_detail, extent_state),
         readiness_item("Observation/projection overlap", overlap_detail, overlap_state),
         readiness_item("Thinning", thinning_detail, "info"),
         readiness_item("Cross-validation", cv_detail, if (identical(cv_strategy, "random")) "warn" else "info"),
+=======
+        readiness_item("SoilGrids soil", soil_detail, soil_state),
+        readiness_item("DNN models", if (length(input$dnn_models) > 0) {
+          if (!isTRUE(config$pytorch_available)) {
+            "PyTorch not available"
+          } else {
+            n_occ <- sum(!is.na(cleaned$latitude))
+            if (n_occ < config$dnn_hard_block) {
+              paste("Insufficient records for DNN (minimum", config$dnn_hard_block, "required)")
+            } else if (n_occ < config$dnn_warning_threshold) {
+              "Warning: DNN with limited data may underperform"
+            } else {
+              # Show GPU info if available
+              device_info <- if (!is.null(config$gpu_info)) {
+                paste0(" [", config$gpu_info$gpu_name, ", ", config$gpu_device, "]")
+              } else {
+                ""
+              }
+              paste(length(input$dnn_models), "DNN models selected", device_info)
+            }
+          }
+        } else {"No DNN models selected"}, if (length(input$dnn_models) > 0 && !isTRUE(config$pytorch_available)) "error" else if (length(input$dnn_models) > 0 && sum(!is.na(cleaned$latitude)) < config$dnn_hard_block) "error" else "ok"),
+        readiness_item("Selected covariates", paste(selected_count, "total covariates selected; BIO", paste(biovars, collapse = ", BIO")), if (selected_count >= 2) "ok" else "error"),
+        readiness_item("Projection extent", extent_detail, extent_state),
+        readiness_item("Observation/projection overlap", overlap_detail, overlap_state),
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
         readiness_item("Future climate projection", future_detail, future_state)
       )
     )
@@ -397,7 +668,21 @@ server <- function(input, output, session) {
       append_log(rv$error); return(invisible(NULL))
     }
     if (isTRUE(input$use_soil) && length(input$soil_vars) == 0) {
+<<<<<<< HEAD
       rv$error <- "Select at least one HWSD soil property, or turn soil covariates off."
+=======
+      rv$error <- "Select at least one SoilGrids property, or turn soil covariates off."
+      append_log(rv$error); return(invisible(NULL))
+    }
+    # Check if DNN models selected but PyTorch not available
+    if (length(input$dnn_models) > 0 && !isTRUE(config$pytorch_available)) {
+      msg <- "DNN models require PyTorch"
+      if (!is.null(config$gpu_info)) {
+        msg <- paste0(msg, ". GPU detected: ", config$gpu_info$gpu_name)
+      }
+      msg <- paste0(msg, ". Install torch package or use CPU-only mode.")
+      rv$error <- msg
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
       append_log(rv$error); return(invisible(NULL))
     }
     projection_extent <- extent_from_inputs(input, cleaned_occurrence())
@@ -411,6 +696,7 @@ server <- function(input, output, session) {
             species = species_label, occurrence_file = occurrence_file, worldclim_dir = input$worldclim_dir,
             selected_biovars = as.integer(input$biovars), projection_extent = projection_extent,
             background_n = input$background_n, min_source_records = input$min_source_records,
+<<<<<<< HEAD
             merge_small_sources = TRUE, thin_by_cell = isTRUE(input$thin_by_cell),
             thinning_mode = input$thinning_mode, thinning_distance_km = input$thinning_distance_km %||% sdm_default_thinning_distance_km,
             model_id = input$model_id,
@@ -421,13 +707,34 @@ server <- function(input, output, session) {
             use_elevation = isTRUE(input$use_elevation), elevation_demtype = input$elevation_demtype,
             opentopo_api_key = input$opentopo_api_key,
             use_soil = isTRUE(input$use_soil), soil_path = input$soil_path, selected_soil_vars = input$soil_vars,
+=======
+            merge_small_sources = TRUE, thin_by_cell = isTRUE(input$thin_by_cell), model_id = input$model_id,
+            include_quadratic = isTRUE(input$quadratic),
+            threshold = input$threshold, aggregation_factor = input$aggregation_factor, cv_folds = as.integer(input$cv_folds),
+            n_cores = input$n_cores, allow_download = isTRUE(input$download_worldclim), worldclim_res = as.numeric(input$worldclim_res),
+            use_elevation = isTRUE(input$use_elevation), elevation_demtype = input$elevation_demtype,
+            opentopo_api_key = input$opentopo_api_key,
+            use_soil = isTRUE(input$use_soil), selected_soil_vars = input$soil_vars,
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
             covariate_cache_dir = sdm_default_covariate_cache_dir,
             future_projection = isTRUE(input$future_projection),
             future_worldclim_dir = input$future_worldclim_dir,
             future_label = input$future_label,
             output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = occurrence$detail, log_fun = append_log,
+<<<<<<< HEAD
             progress_fun = function(amount, detail) incProgress(amount, detail = detail)
           ),
+=======
+            progress_fun = function(amount, detail) incProgress(amount, detail = detail),
+            selected_models = c(input$biomod2_models, input$biomod2_nn_models),
+            selected_depths = input$soil_depths,
+            use_rangebag = isTRUE(input$use_rangebag),
+            selected_dnn_models = input$dnn_models,
+            dnn_device = input$dnn_device,
+            dnn_weight = input$dnn_weight,
+            ensemble_method = input$ensemble_method
+),
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
           warning = function(w) { append_log(paste("Warning:", conditionMessage(w))); invokeRestart("muffleWarning") }
         ),
         error = function(e) { rv$error <- conditionMessage(e); append_log(paste("ERROR:", conditionMessage(e))); NULL }
@@ -439,7 +746,11 @@ server <- function(input, output, session) {
   output$metric_cards <- renderUI({
     r <- rv$result
     if (is.null(r)) return(div(class = "metric-grid", metric_card("Observation records", "-", "waiting for run"), metric_card("Covariates", "-", "waiting for run"), metric_card("AUC", "-", "cross-validation"), metric_card("High-suitability area", "-", "km2 above threshold")))
+<<<<<<< HEAD
     div(class = "metric-grid", metric_card("Observation records used", fmt_num(r$metrics$presence_records), "after cleaning/thinning"), metric_card("Model", r$config$model_label %||% "GLM", "backend"), metric_card("CV AUC", fmt_num(r$metrics$auc_mean, 3), paste0(r$metrics$cv_folds, " folds; ", r$metrics$cv_strategy %||% "random")), metric_card("CV TSS", fmt_num(r$metrics$tss_mean, 3), "thresholded skill"), metric_card("Sensitivity", fmt_num(r$metrics$sensitivity_mean, 3), "CV mean"), metric_card("High-suitability area", fmt_num(r$summary$high_risk_area_km2), "km2 above threshold"))
+=======
+    div(class = "metric-grid", metric_card("Observation records used", fmt_num(r$metrics$presence_records), "after cleaning/thinning"), metric_card("Model", r$config$model_label %||% "GLM", "backend"), metric_card("CV AUC", fmt_num(r$metrics$auc_mean, 3), paste0(r$metrics$cv_folds, " folds; ", r$metrics$n_cores, " cores")), metric_card("High-suitability area", fmt_num(r$summary$high_risk_area_km2), "km2 above threshold"))
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   })
 
   output$suitability_plot <- renderPlot({ if (is.null(rv$result)) return(placeholder_plot("No suitability map yet.")); r <- rv$result; plot_suitability_map(r$suitability, r$occurrence, r$config$projection_extent, r$config$species, r$config$threshold, TRUE) })
@@ -460,8 +771,11 @@ server <- function(input, output, session) {
       row("Observation source", r$config$occurrence_source),
       row("Observation file", r$config$occurrence_file),
       row("Covariates", paste(r$environment$names, collapse = ", ")),
+<<<<<<< HEAD
       row("Thinning", paste0(r$config$thinning_mode %||% "legacy", if (identical(r$config$thinning_mode, "distance")) paste0(" (", r$config$thinning_distance_km, " km)") else "")),
       row("Cross-validation", paste0(r$metrics$cv_folds, " folds; ", r$metrics$cv_strategy %||% "random")),
+=======
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
       row("CPU cores used", r$metrics$n_cores),
       row("Elapsed time", paste(fmt_num(r$metrics$elapsed_seconds, 1), "sec")),
       row("Output TIFF", r$paths$tif),
@@ -492,10 +806,53 @@ server <- function(input, output, session) {
     tags$ul(class = "small-muted", lapply(sidecars, function(path) tags$li(basename(path))))
   })
 
+<<<<<<< HEAD
   output$download_tif <- downloadHandler(filename = function() { req(rv$result); basename(rv$result$paths$tif) }, content = function(file) { req(rv$result, file.exists(rv$result$paths$tif)); file.copy(rv$result$paths$tif, file, overwrite = TRUE) })
   output$download_png <- downloadHandler(filename = function() { req(rv$result); basename(rv$result$paths$png) }, content = function(file) { req(rv$result, file.exists(rv$result$paths$png)); file.copy(rv$result$paths$png, file, overwrite = TRUE) })
   output$download_future_tif <- downloadHandler(filename = function() { req(rv$result, rv$result$paths$future_tif); basename(rv$result$paths$future_tif) }, content = function(file) { req(rv$result, rv$result$paths$future_tif, file.exists(rv$result$paths$future_tif)); file.copy(rv$result$paths$future_tif, file, overwrite = TRUE) })
   output$download_delta_tif <- downloadHandler(filename = function() { req(rv$result, rv$result$paths$delta_tif); basename(rv$result$paths$delta_tif) }, content = function(file) { req(rv$result, rv$result$paths$delta_tif, file.exists(rv$result$paths$delta_tif)); file.copy(rv$result$paths$delta_tif, file, overwrite = TRUE) })
+=======
+  output$download_tif <- downloadHandler(filename = function() { 
+    req(rv$result)
+    req(rv$result$paths$tif)
+    basename(rv$result$paths$tif) 
+  }, content = function(file) { 
+    req(rv$result)
+    req(rv$result$paths$tif)
+    req(file.exists(rv$result$paths$tif))
+    file.copy(rv$result$paths$tif, file, overwrite = TRUE) 
+  })
+  output$download_png <- downloadHandler(filename = function() { 
+    req(rv$result)
+    req(rv$result$paths$png)
+    basename(rv$result$paths$png) 
+  }, content = function(file) { 
+    req(rv$result)
+    req(rv$result$paths$png)
+    req(file.exists(rv$result$paths$png))
+    file.copy(rv$result$paths$png, file, overwrite = TRUE) 
+  })
+  output$download_future_tif <- downloadHandler(filename = function() { 
+    req(rv$result)
+    req(rv$result$paths$future_tif)
+    basename(rv$result$paths$future_tif) 
+  }, content = function(file) { 
+    req(rv$result)
+    req(rv$result$paths$future_tif)
+    req(file.exists(rv$result$paths$future_tif))
+    file.copy(rv$result$paths$future_tif, file, overwrite = TRUE) 
+  })
+  output$download_delta_tif <- downloadHandler(filename = function() { 
+    req(rv$result)
+    req(rv$result$paths$delta_tif)
+    basename(rv$result$paths$delta_tif) 
+  }, content = function(file) { 
+    req(rv$result)
+    req(rv$result$paths$delta_tif)
+    req(file.exists(rv$result$paths$delta_tif))
+    file.copy(rv$result$paths$delta_tif, file, overwrite = TRUE) 
+  })
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   output$download_occ <- downloadHandler(filename = function() { req(rv$result); paste0(safe_slug(rv$result$config$species), "_cleaned_occurrences.csv") }, content = function(file) { req(rv$result); utils::write.csv(rv$result$occurrence, file, row.names = FALSE) })
   output$download_report <- downloadHandler(filename = function() { req(rv$result); paste0(safe_slug(rv$result$config$species), "_sdm_report.txt") }, content = function(file) { req(rv$result); write_summary_report(rv$result, file) })
   output$download_sidecars <- downloadHandler(
@@ -516,4 +873,8 @@ server <- function(input, output, session) {
 if (sys.nframe() == 0) {
   port <- as.integer(Sys.getenv("PORT", "3838"))
   shiny::runApp(shiny::shinyApp(ui, server), host = "0.0.0.0", port = port)
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)

@@ -1,14 +1,32 @@
 # Plotting helpers used by the Shiny app and output writer.
 
 
+<<<<<<< HEAD
 load_australia_boundary <- function(path = sdm_australia_boundary_path) {
   if (!exists("sdm_australia_boundary_path", inherits = TRUE) || is.null(path) || !file.exists(path)) {
+=======
+load_boundary <- function(type = "australia") {
+  # Resolve the file path based on the requested boundary type.
+  # Paths are stored in the global config environment.
+  path <- switch(type,
+                 australia = config$sdm_australia_boundary_path,
+                 world     = config$sdm_world_boundary_path,
+                 custom    = if (!is.null(config$custom_boundary_path)) config$custom_boundary_path else NULL,
+                 NULL)
+  if (is.null(path) || !file.exists(path)) {
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
     return(NULL)
   }
   tryCatch(terra::vect(path), error = function(e) NULL)
 }
 
 plot_downsample_raster <- function(x, max_cells = 220000) {
+<<<<<<< HEAD
+=======
+  if (!inherits(x, "SpatRaster")) {
+    stop("x must be a SpatRaster object")
+  }
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   cells <- terra::ncell(x)
   if (is.na(cells) || cells <= max_cells) {
     return(x)
@@ -18,6 +36,12 @@ plot_downsample_raster <- function(x, max_cells = 220000) {
 }
 
 plot_suitability_map <- function(suitability, occ = NULL, projection_extent = NULL, species = "Species", threshold = sdm_default_threshold, add_points = TRUE) {
+<<<<<<< HEAD
+=======
+  if (!inherits(suitability, "SpatRaster")) {
+    stop("suitability must be a SpatRaster object")
+  }
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   threshold <- normalize_threshold(threshold)
   suitability_plot <- plot_downsample_raster(suitability)
   cols <- grDevices::colorRampPalette(c(
@@ -33,7 +57,11 @@ plot_suitability_map <- function(suitability, occ = NULL, projection_extent = NU
               colNA = "#07111D", xlab = "Longitude", ylab = "Latitude",
               plg = list(title = "Suitability", title.cex = 0.88, cex = 0.78,
                          shrink = 0.82, mar = 3.4), box = FALSE)
+<<<<<<< HEAD
   australia_boundary <- load_australia_boundary()
+=======
+  australia_boundary <- load_boundary("australia")
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   if (!is.null(australia_boundary)) {
     try(terra::plot(australia_boundary, add = TRUE,
                     border = grDevices::adjustcolor("#E9F7EF", 0.86),
@@ -73,6 +101,12 @@ plot_suitability_map <- function(suitability, occ = NULL, projection_extent = NU
 }
 
 plot_delta_map <- function(delta, scenario_label = "Future climate") {
+<<<<<<< HEAD
+=======
+  if (!inherits(delta, "SpatRaster")) {
+    stop("delta must be a SpatRaster object")
+  }
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   delta_plot <- plot_downsample_raster(delta)
   max_abs <- tryCatch(max(abs(terra::values(delta_plot)), na.rm = TRUE), error = function(e) NA_real_)
   if (!is.finite(max_abs) || max_abs <= 0) max_abs <- 1
@@ -89,6 +123,15 @@ plot_delta_map <- function(delta, scenario_label = "Future climate") {
 }
 
 plot_occurrence_map <- function(occ, species = "Species") {
+<<<<<<< HEAD
+=======
+  if (!is.data.frame(occ) || !"longitude" %in% names(occ) || !"latitude" %in% names(occ)) {
+    stop("occ must be a data.frame with longitude and latitude columns")
+  }
+  if (nrow(occ) == 0) {
+    stop("occ has no rows")
+  }
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   old_par <- graphics::par(no.readonly = TRUE)
   on.exit(graphics::par(old_par), add = TRUE)
   graphics::par(mar = c(4, 4, 3, 1), bg = "white")
@@ -104,4 +147,8 @@ save_suitability_png <- function(suitability, occ, projection_extent, species, t
   on.exit(grDevices::dev.off(), add = TRUE)
   plot_suitability_map(suitability, occ = occ, projection_extent = projection_extent, species = species, threshold = threshold, add_points = TRUE)
   invisible(output_png)
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)

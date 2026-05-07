@@ -31,6 +31,7 @@ normalize_threshold <- function(threshold = sdm_default_threshold) {
   }
   threshold
 }
+<<<<<<< HEAD
 
 normalize_thinning_mode <- function(thinning_mode = sdm_default_thinning_mode, thin_by_cell = TRUE) {
   mode <- tolower(trimws(as.character(thinning_mode[1] %||% sdm_default_thinning_mode)))
@@ -64,3 +65,5 @@ normalize_cv_block_size_km <- function(block_size_km = sdm_default_cv_block_size
   if (!is.finite(block_size_km) || block_size_km <= 0) return(NA_real_)
   block_size_km
 }
+=======
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)

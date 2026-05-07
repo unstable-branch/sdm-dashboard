@@ -2,7 +2,11 @@
 
 `Rscript.exe` is included when you install normal R for Windows. It is not downloaded separately.
 
+<<<<<<< HEAD
 Use the latest Windows-ready GitHub Release zip. For `v0.3.0-beta`, use `sdm-dashboard-v0.3.0-beta-windows-ready.zip`; it includes the Windows launcher and default BIOCLIM cache for a faster first launch. Source downloads remain available for developers and users who prefer a smaller archive.
+=======
+Use the latest Windows-ready GitHub Release zip. For `v0.2.0-beta`, use `sdm-dashboard-v0.2.0-beta-windows-ready.zip`; it includes the Windows launcher and default BIOCLIM cache for a faster first launch. Source downloads remain available for developers and users who prefer a smaller archive.
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
 
 ## One-Click Method
 

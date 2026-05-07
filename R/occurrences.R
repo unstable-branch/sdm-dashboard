@@ -22,7 +22,11 @@ read_occurrence_file <- function(path, log_fun = NULL) {
   }
 }
 
+<<<<<<< HEAD
 clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE, log_fun = NULL) {
+=======
+clean_occurrences <- function(path, min_source_records = sdm_default_min_source_records, merge_small_sources = TRUE, log_fun = NULL) {
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   raw <- read_occurrence_file(path, log_fun = log_fun)
   original_n <- nrow(raw)
   if (original_n == 0) stop("Occurrence file is empty.", call. = FALSE)
@@ -100,7 +104,10 @@ make_training_extent <- function(occ, buffer = 2, latitude_limits = c(-60, 60)) 
 }
 
 thin_occurrences_by_cell <- function(occ, raster_template, by_source = FALSE, log_fun = NULL) {
+<<<<<<< HEAD
   original_n <- nrow(occ)
+=======
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   cells <- terra::cellFromXY(raster_template, occ[, c("longitude", "latitude")])
   inside <- !is.na(cells)
   removed_outside <- sum(!inside)
@@ -113,6 +120,7 @@ thin_occurrences_by_cell <- function(occ, raster_template, by_source = FALSE, lo
   if (removed_outside > 0 || removed_duplicates > 0) {
     log_message(log_fun, "Raster thinning removed ", removed_outside, " records outside raster extent and ", removed_duplicates, " duplicate cell records")
   }
+<<<<<<< HEAD
   attr(occ, "thinning_stats") <- list(original_n = original_n, final_n = nrow(occ), removed_outside = removed_outside, removed_duplicates = removed_duplicates, removed_total = original_n - nrow(occ))
   occ
 }
@@ -188,3 +196,7 @@ apply_occurrence_thinning <- function(occ, raster_template, thinning_mode = sdm_
   }
   stop("Unsupported thinning mode: ", mode, call. = FALSE)
 }
+=======
+  occ
+}
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)

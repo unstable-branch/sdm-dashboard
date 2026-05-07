@@ -52,7 +52,15 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   future_project <- future_project[[required_names]]
   future_scaled <- scale_raster_stack(future_project, env$means[required_names], env$sds[required_names])
 
+<<<<<<< HEAD
   future_suitability <- predict_sdm_model(fit, future_scaled, output_future_tif, n_cores, log_fun)
+=======
+  if (!is.null(fit$biomod2)) {
+    future_suitability <- predict_biomod2_suitability(fit$biomod2, future_scaled, output_future_tif, n_cores, log_fun)
+  } else {
+    future_suitability <- predict_sdm_model(fit, future_scaled, output_future_tif, n_cores, log_fun)
+  }
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   delta <- future_suitability - current_suitability
   names(delta) <- "suitability_delta"
   terra::writeRaster(delta, output_delta_tif, overwrite = TRUE,

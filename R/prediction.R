@@ -1,5 +1,57 @@
 # Raster prediction and suitability summary helpers.
 
+<<<<<<< HEAD
+=======
+predict_biomod2_suitability <- function(biomod_model, env_raster, output_tif, n_cores = 1, log_fun = NULL) {
+  dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+  log_message(log_fun, "Running biomod2 projection with ", n_cores, " core(s)")
+
+  proj_dir <- file.path(dirname(output_tif), "current")
+  dir.create(proj_dir, recursive = TRUE, showWarnings = FALSE)
+
+  tryCatch({
+    proj_res <- biomod2::BIOMOD_Projection(
+      bm.mod = biomod_model,
+      new.env = env_raster,
+      models.chosen = "all",
+      proj.name = "current",
+      binary.metrics = NULL,
+      doNE = FALSE,
+      output.format = ".tif",
+      output.dir = dirname(output_tif),
+      do.stack = FALSE,
+      compress = TRUE,
+      overwrite = TRUE,
+      by = if (n_cores > 1) n_cores else 1
+    )
+
+    tif_files <- list.files(proj_dir, pattern = "\\.tif$", full.names = TRUE)
+    if (length(tif_files) == 0) {
+      tif_files <- list.files(dirname(output_tif), pattern = "\\.tif$", full.names = TRUE)
+    }
+    if (length(tif_files) == 0) {
+      stop("BIOMOD_Projection did not produce any .tif files")
+    }
+
+    suit <- terra::rast(tif_files[1])
+    names(suit) <- "suitability"
+
+    if (length(tif_files) > 1) {
+      for (f in tif_files[-1]) {
+        suit <- terra::app(c(suit, terra::rast(f)), fun = mean, na.rm = TRUE)
+      }
+    }
+
+    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    log_message(log_fun, "Biomod2 projection saved to ", output_tif)
+    suit
+  }, error = function(e) {
+    log_message(log_fun, "Biomod2 projection failed: ", conditionMessage(e))
+    stop(e)
+  })
+}
+
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
 predict_suitability <- function(model, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
   n_cores <- normalize_core_count(n_cores)

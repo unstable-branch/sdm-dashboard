@@ -33,6 +33,7 @@ release/
 releases/
 dist/
 
+<<<<<<< HEAD
 # Downloaded/cached covariates can be large and recreated
 Worldclim/
 worldclim/
@@ -86,3 +87,12 @@ Screenshots/
 !data/examples/**
 !docs/
 !docs/**
+=======
+# VS Code
+.vscode/
+
+# Model outputs (generated files)
+outputs/
+species/
+temp*.R
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)

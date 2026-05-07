@@ -28,10 +28,17 @@ align_covariate_stack <- function(source, template_train, template_project) {
 }
 
 load_extra_covariates <- function(template_train, template_project, training_extent, projection_extent,
+<<<<<<< HEAD
                                   use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
                                   use_soil = FALSE, soil_path = sdm_default_soil_path,
                                   selected_soil_vars = sdm_default_soil_vars, covariate_cache_dir = sdm_default_covariate_cache_dir,
                                   allow_download = TRUE, log_fun = NULL) {
+=======
+                                   use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
+                                   use_soil = FALSE, soil_path = sdm_default_soil_path,
+                                   selected_soil_vars = config$soil_vars_default, selected_depths = config$soil_depths_default, covariate_cache_dir = sdm_default_covariate_cache_dir,
+                                   allow_download = TRUE, log_fun = NULL) {
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   sources <- list()
   metadata <- list()
   files <- list()
@@ -47,12 +54,23 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_soil)) {
+<<<<<<< HEAD
     soil <- load_soil_covariate(soil_path, selected_soil_vars, log_fun)
     if (!is.null(soil)) {
       sources$soil <- soil
       metadata$soil <- list(source = soil$source, variables = soil$variables)
       files$soil <- soil$files
     }
+=======
+    # Use the new SoilGrids loader to build a stack of continuous variables
+    source('R/covariates_soilgrid.R', local = TRUE)
+    soil_stack <- build_soilstack(vars = selected_soil_vars, depths = selected_depths)
+    # Wrap the stack in a list compatible with the existing align_covariate_stack function
+    soil <- list(raster = soil_stack, methods = NULL, source = 'SoilGrids', variables = selected_soil_vars, files = NULL)
+    sources$soil <- soil
+    metadata$soil <- list(source = soil$source, variables = soil$variables)
+    files$soil <- soil$files
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   }
 
   if (length(sources) == 0) return(list(train = NULL, project = NULL, metadata = metadata, files = files))
@@ -64,11 +82,19 @@ load_extra_covariates <- function(template_train, template_project, training_ext
 }
 
 load_environment <- function(worldclim_dir, selected_biovars, training_extent, projection_extent,
+<<<<<<< HEAD
                              aggregation_factor = sdm_default_aggregation_factor, allow_download = TRUE, worldclim_res = sdm_default_worldclim_res,
                              log_fun = NULL, n_cores = NULL,
                              use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
                              use_soil = FALSE, soil_path = sdm_default_soil_path,
                              selected_soil_vars = sdm_default_soil_vars, covariate_cache_dir = sdm_default_covariate_cache_dir) {
+=======
+                               aggregation_factor = sdm_default_aggregation_factor, allow_download = TRUE, worldclim_res = sdm_default_worldclim_res,
+                               log_fun = NULL, n_cores = NULL,
+                               use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
+                               use_soil = TRUE, soil_path = sdm_default_soil_path,
+                               selected_soil_vars = config$soil_vars_default, selected_depths = config$soil_depths_default, covariate_cache_dir = sdm_default_covariate_cache_dir) {
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
   climate <- load_climate_covariates(worldclim_dir, selected_biovars, training_extent, projection_extent,
                                      aggregation_factor, allow_download, worldclim_res, log_fun, n_cores)
 
@@ -76,7 +102,11 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
   env_project <- climate$env_project
   extras <- load_extra_covariates(env_train[[1]], env_project[[1]], training_extent, projection_extent,
                                   use_elevation, elevation_demtype, opentopo_api_key,
+<<<<<<< HEAD
                                   use_soil, soil_path, selected_soil_vars, covariate_cache_dir,
+=======
+                                   use_soil, soil_path, selected_soil_vars, selected_depths, covariate_cache_dir,
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
                                   allow_download, log_fun)
   if (!is.null(extras$train)) {
     env_train <- c(env_train, extras$train)

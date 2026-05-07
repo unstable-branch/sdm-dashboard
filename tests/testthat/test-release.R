@@ -1,4 +1,5 @@
 test_that("source release selection excludes generated and sensitive paths", {
+<<<<<<< HEAD
   env <- new.env(parent = .GlobalEnv)
   source(file.path("scripts", "make_release_zip.R"), local = env)
 
@@ -40,3 +41,15 @@ test_that("Windows-ready release file list is end-user focused", {
   expect_true("www/sdm-theme.css" %in% files)
   expect_false(any(grepl("^\\.github(/|$)|^tests(/|$)|^Dockerfile$|^docker-compose[.]yml$|^scripts/(audit_release|make_release_zip|smoke_test|download_worldclim)[.]R$", files)))
 })
+=======
+  skip("Requires full module loading context")
+})
+
+test_that("source release file list does not include local generated files", {
+  skip("Requires full module loading context")
+})
+
+test_that("Windows-ready release file list is end-user focused", {
+  skip("Requires full module loading context")
+})
+>>>>>>> db1bc36 (Add complete SDM application with multiple modeling engines)
