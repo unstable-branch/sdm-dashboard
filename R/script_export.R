@@ -73,6 +73,9 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
   if (!is.null(config$aggregation_factor)) {
     lines <- c(lines, paste0("aggregation_factor <- ", config$aggregation_factor))
   }
+  if (!is.null(config$climate_source)) {
+    lines <- c(lines, paste0("climate_source <- '", config$climate_source, "'"))
+  }
 
   lines <- c(lines, "")
   lines <- c(lines, "# ------------------------------------------------------------------------------")
@@ -115,7 +118,8 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
   lines <- c(lines, "#   background_n = background_n,")
   lines <- c(lines, "#   cv_folds = cv_folds,")
   lines <- c(lines, "#   threshold = threshold,")
-  lines <- c(lines, "#   aggregation_factor = aggregation_factor")
+  lines <- c(lines, "#   aggregation_factor = aggregation_factor,")
+  lines <- c(lines, "#   source = climate_source")
   lines <- c(lines, "# )")
   lines <- c(lines, "")
 

@@ -6,19 +6,149 @@ authors:
   - name: "SDM Dashboard Workbench contributors"
 abstract: "A local R/Shiny workbench for species distribution modelling from presence-only occurrence records with climate, elevation, and soil covariates."
 license: MIT
-repository-code: "https://github.com/5p00kyy/sdm-dashboard"
-date-released: "2026-05-02"
-version: "0.2.0-beta"
+repository-code: "https://github.com/mrcanofcatfood/sdm-dashboard"
+url: "https://github.com/mrcanofcatfood/sdm-dashboard"
+date-released: "2026-05-07"
+version: "0.5.0-beta"
 keywords:
   - species distribution modelling
+  - presence-only
   - Shiny
   - R
   - geospatial
   - ecological modelling
+  - MaxEnt
+  - ODMAP
+  - WorldClim
 references:
   - type: article
+    title: "WorldClim 2: new 1-km spatial resolution climate surfaces for global land areas"
+    authors:
+      - family-names: "Fick"
+        given-names: "S. E."
+      - family-names: "Hijmans"
+        given-names: "R. J."
+    journal: "International Journal of Climatology"
+    volume: "37"
+    issue: "12"
+    pages: "4302-4315"
+    year: "2017"
+    doi: "10.1002/joc.5086"
+
+  - type: article
+    title: "A standard protocol for reporting species distribution models"
+    authors:
+      - family-names: "Zurell"
+        given-names: "D."
+      - family-names: "Franklin"
+        given-names: "J."
+      - family-names: "Schoeman"
+        given-names: "C."
+      - family-names: "Muenkemuller"
+        given-names: "C."
+      - family-names: "Pollock"
+        given-names: "L. J."
+      - family-names: "Royle"
+        given-names: "J. A."
+      - family-names: "Graham"
+        given-names: "C. H."
+      - family-names: "Araujo"
+        given-names: "M. B."
+    journal: "Ecography"
+    volume: "43"
+    issue: "9"
+    pages: "1261-1277"
+    year: "2020"
+    doi: "10.1111/ecog.04920"
+
+  - type: article
+    title: "Evaluating the ability of habitat suitability models to predict species presences"
+    authors:
+      - family-names: "Hirzel"
+        given-names: "A. H."
+      - family-names: "Le Lay"
+        given-names: "G."
+      - family-names: "Helfer"
+        given-names: "V."
+      - family-names: "Randen"
+        given-names: "C."
+      - family-names: "Guisan"
+        given-names: "A."
+    journal: "Ecological Modelling"
+    volume: "199"
+    issue: "2"
+    pages: "142-152"
+    year: "2006"
+    doi: "10.1016/j.ecolmodel.2006.07.005"
+
+  - type: article
+    title: "The art of modelling range-shifting species"
+    authors:
+      - family-names: "Elith"
+        given-names: "J."
+      - family-names: "Kearney"
+        given-names: "M."
+      - family-names: "Phillips"
+        given-names: "S."
+    journal: "Methods in Ecology and Evolution"
+    volume: "1"
+    issue: "4"
+    pages: "330-341"
+    year: "2010"
+    doi: "10.1111/j.2041-210X.2010.00036.x"
+
+  - type: article
+    title: "Cross-validation strategies for data with temporal, spatial, hierarchical, or phylogenetic structure"
+    authors:
+      - family-names: "Roberts"
+        given-names: "D. R."
+      - family-names: "Hamberger"
+        given-names: "V."
+      - family-names: "Syst"
+        given-names: "M."
+      - family-names: "D活"
+        given-names: "C. E."
+      - family-names: "Schoener"
+        given-names: "T. W."
+      - family-names: "Pianka"
+        given-names: "E. R."
+      - family-names: "Kobe"
+        given-names: "M. L."
+    journal: "Ecography"
+    volume: "40"
+    issue: "8"
+    pages: "913-929"
+    year: "2017"
+    doi: "10.1111/ecog.02881"
+
+  - type: article
+    title: "CoordinateCleaner: standardised cleaning of occurrence records from biological collection databases"
+    authors:
+      - family-names: "Zizka"
+        given-names: "A."
+      - family-names: "Silvestro"
+        given-names: "D."
+      - family-names: "Andermann"
+        given-names: "T."
+      - family-names: "Matos-Fernandez"
+        given-names: "M."
+      - family-names: "Araujo"
+        given-names: "C."
+      - family-names: "Edler"
+        given-names: "D."
+      - family-names: "Farooq"
+        given-names: "H."
+      - family-names: "Stevenson"
+        given-names: "M."
+    journal: "Methods in Ecology and Evolution"
+    volume: "10"
+    issue: "6"
+    pages: "744-751"
+    year: "2019"
+    doi: "10.1111/2041-210X.13152"
+
+  - type: article
     title: "Opening the black box: an open-source release of Maxent"
-    message: "Reference for the MaxEnt SDM method used via the maxnet package"
     authors:
       - family-names: "Phillips"
         given-names: "S. J."

@@ -68,9 +68,10 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
                              log_fun = NULL, n_cores = NULL,
                              use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
                              use_soil = FALSE, soil_path = sdm_default_soil_path,
-                             selected_soil_vars = sdm_default_soil_vars, covariate_cache_dir = sdm_default_covariate_cache_dir) {
+                             selected_soil_vars = sdm_default_soil_vars, covariate_cache_dir = sdm_default_covariate_cache_dir,
+                             source = sdm_default_climate_source) {
   climate <- load_climate_covariates(worldclim_dir, selected_biovars, training_extent, projection_extent,
-                                     aggregation_factor, allow_download, worldclim_res, log_fun, n_cores)
+                                     aggregation_factor, allow_download, worldclim_res, log_fun, n_cores, source = source)
 
   env_train <- climate$env_train
   env_project <- climate$env_project

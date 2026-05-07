@@ -49,6 +49,7 @@ make_cv_folds_spatial_blocks <- function(x, y, presence, k = sdm_default_cv_fold
   unique_blocks <- unique(block_id)
   if (length(unique_blocks) < k) {
     fold_id <- make_cv_folds_random(presence, k = k, seed = seed)
+    warning("Spatial-block CV: only ", length(unique_blocks), " block(s) for ", k, " folds. Falling back to random CV.", call. = FALSE)
     return(list(fold_id = fold_id, block_size_km = block_size_km, block_size_mode = paste0(block_size_mode, "+random-fallback"), block_id = block_id))
   }
   set.seed(seed)

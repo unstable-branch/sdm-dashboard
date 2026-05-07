@@ -19,7 +19,8 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                           use_cc = FALSE, cc_tests = "all",
                           cleaned_occurrence = NULL,
                           output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = NULL,
-                          gbif_doi = NULL, log_fun = NULL, progress_fun = NULL) {
+                          gbif_doi = NULL, log_fun = NULL, progress_fun = NULL,
+                          source = sdm_default_climate_source) {
   ensure_sdm_packages("terra", n_cores = n_cores)
   n_cores <- configure_parallel(n_cores, log_fun = log_fun)
   projection_extent <- validate_extent(as.numeric(projection_extent), "projection_extent")
@@ -68,7 +69,8 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
     use_soil = use_soil,
     soil_path = soil_path,
     selected_soil_vars = selected_soil_vars,
-    covariate_cache_dir = covariate_cache_dir
+    covariate_cache_dir = covariate_cache_dir,
+    source = source
   )
 
   if (thin_by_cell) {
@@ -228,7 +230,7 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                   future_projection = isTRUE(future_projection), future_worldclim_dir = future_worldclim_dir,
                   future_label = future_label,
                   bias_method = bias_method, thickening_distance_km = thickening_distance_km,
-                   gbif_doi = gbif_doi),
+                  gbif_doi = gbif_doi, climate_source = source),
     occurrence = occ, occurrence_used = fit$occurrence_used, source_counts = sort(table(occ$source), decreasing = TRUE),
     cleaning = cleaned[c("removed_bad_coordinates", "removed_duplicates", "original_rows", "columns")],
     environment = list(names = names(env$env_train_scaled), means = env$means, sds = env$sds,

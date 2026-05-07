@@ -29,6 +29,7 @@ sdm_default_cv_block_size_km <- NA_real_
 sdm_default_thinning_mode <- "auto"
 sdm_default_thinning_distance_km <- 10
 sdm_default_worldclim_res <- 10
+sdm_default_climate_source <- "worldclim"
 sdm_default_seed <- 42L
 sdm_default_n_perm <- 5L
 sdm_default_model_id <- "glm"
