@@ -14,7 +14,7 @@ if (!file.exists("app.R")) {
 source("app.R")
 
 port <- as.integer(Sys.getenv("PORT", "3838"))
-host <- Sys.getenv("HOST", "127.0.0.1")
+host <- Sys.getenv("HOST", "0.0.0.0")
 
 message("Starting SDM Web Interface...")
 message("If the browser does not open, go to: http://127.0.0.1:", port)
