@@ -1,5 +1,7 @@
 # Central defaults for the SDM project. Keep secrets out of this file.
 
+config <- new.env()
+
 sdm_default_species <- "Untitled species"
 sdm_default_occurrence_file <- "presence_data.csv"
 sdm_demo_occurrence_file <- file.path("data", "examples", "synthetic_presence_data.csv")
@@ -8,9 +10,15 @@ sdm_default_future_worldclim_dir <- "Worldclim_future"
 sdm_default_output_dir <- "outputs"
 sdm_default_covariate_cache_dir <- "covariates"
 sdm_default_soil_path <- file.path(sdm_default_covariate_cache_dir, "hwsd_v2", "HWSD_V2_SMU_selected.tif")
-sdm_australia_boundary_path <- file.path("data", "examples", "geo", "australia.geojson")
+
+config$sdm_australia_boundary_path <- file.path("data", "examples", "geo", "australia.geojson")
+config$sdm_world_boundary_path     <- file.path("data", "examples", "geo", "world_boundary.geojson")
+config$custom_boundary_path         <- NULL
+sdm_australia_boundary_path <- config$sdm_australia_boundary_path
+sdm_world_boundary_path     <- config$sdm_world_boundary_path
 
 sdm_default_biovars <- c(1, 4, 6, 12, 15, 18)
+
 sdm_default_background_n <- 10000L
 sdm_default_min_source_records <- 15L
 sdm_default_threshold <- 0.5
@@ -30,10 +38,52 @@ sdm_default_ensemble_weighting <- "auc"
 sdm_default_elevation_demtype <- "COP90"
 sdm_default_soil_vars <- c("BULK_DENSITY", "DRAINAGE", "ROOT_DEPTH", "AWC")
 
+config$biomod2_default <- c('GLM','RF','GBM','MAXNET')
+config$biomod2_all <- c(
+  'GLM','GAM','FDA','MARS',
+  'RF','GBM','BRT','MAXNET',
+  'SRE','CTA','ANN','XGBOOST'
+)
+biomod2_choices <- c(
+  config$biomod2_default,
+  setdiff(config$biomod2_all, c(config$biomod2_default, 'ANN'))
+)
+biomod2_nn_choices <- c('ANN' = 'ANN')
+
+config$dnn_default <- c('DNN_Medium')
+config$dnn_arch <- list(
+  'DNN_Small'   = list(hidden = c(64L),    epochs = 150L, lr = 0.05,  dropout = 0.3),
+  'DNN_Medium'  = list(hidden = c(100L, 100L), epochs = 150L, lr = 0.05, dropout = 0.3),
+  'DNN_Large'   = list(hidden = c(100L, 100L, 100L), epochs = 200L, lr = 0.05, dropout = 0.3)
+)
+dnn_choices <- c(
+  "DNN Small (64 units, 1 hidden layer)" = "DNN_Small",
+  "DNN Medium (100->100 units, 2 hidden layers)" = "DNN_Medium",
+  "DNN Large (100->100->100 units, 3 hidden layers)" = "DNN_Large"
+)
+config$dnn_hard_block <- 50L
+config$dnn_warning_threshold <- 100L
+config$dnn_soft_warning <- 250L
+config$dnn_device_default <- "auto"
+dnn_device_choices <- c(
+  "Auto-detect (Recommended)" = "auto",
+  "CPU only (slower)" = "cpu",
+  "GPU if available (faster)" = "gpu"
+)
+config$dnn_weight_default <- 0.3
+config$ensemble_method_default <- "weighted_average"
+config$use_rangebag <- FALSE
+
+config$soil_vars_default <- c(
+  'Sand','Silt','Clay','OC','PHH2O','BD','CF','CEC','N','EC','WHC'
+)
+config$soil_depths_default <- c('0-30cm','0-60cm')
+
 sdm_extent_presets <- list(
-  aus_full = c(112, 155, -45, -10),
-  aus_north = c(112, 155, -30, -10),
-  aus_east = c(140, 155, -38, -10)
+  "aus_full"   = c(112, 154, -44, -10),
+  "aus_north"  = c(112, 154, -26, -10),
+  "aus_east"   = c(138, 154, -44, -10),
+  "world"      = c(-180, 180, -90, 90)
 )
 sdm_default_extent_preset <- "aus_full"
 sdm_default_projection_extent <- sdm_extent_presets[[sdm_default_extent_preset]]
@@ -63,8 +113,10 @@ sdm_biovar_choices <- c(
 
 sdm_extent_choices <- c(
   "Occurrence extent" = "occurrence",
+  "Full world" = "world",
   "Australia - full" = "aus_full",
   "Northern Australia" = "aus_north",
   "Eastern Australia" = "aus_east",
-  "Custom" = "custom"
+  "Custom extent" = "custom",
+  "Custom boundary file" = "boundary_file"
 )

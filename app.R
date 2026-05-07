@@ -121,6 +121,17 @@ ui <- fluidPage(
         tags$summary("Model settings"),
         div(class = "details-body",
           selectInput("model_id", "Model backend", choices = sdm_model_choices(), selected = sdm_default_model_id),
+          uiOutput("maxnet_install_hint"),
+          conditionalPanel("input.model_id == 'maxnet'",
+            selectInput("maxnet_features", "MaxEnt features",
+              choices = c("Linear" = "l", "Linear + Quadratic" = "lq",
+                          "Linear + Quadratic + Product" = "lqp",
+                          "Linear + Quadratic + Hinge" = "lqh",
+                          "All" = "lqpht"),
+              selected = "lqp"),
+            numericInput("maxnet_regmult", "Regularization multiplier",
+              value = 1.0, min = 0.1, max = 10, step = 0.1)
+          ),
           div(class = "small-muted", "Rangebagging is experimental; GLM remains the stable default."),
           numericInput("background_n", "Background points", value = sdm_default_background_n, min = 500, max = 100000, step = 500),
           numericInput("min_source_records", "Merge sources with fewer than", value = sdm_default_min_source_records, min = 1, max = 100, step = 1),
@@ -128,6 +139,7 @@ ui <- fluidPage(
           selectInput("thinning_mode", "Thinning mode", choices = c("Follow legacy checkbox" = "auto", "No thinning" = "none", "Raster cell" = "raster_cell", "Distance" = "distance"), selected = sdm_default_thinning_mode),
           conditionalPanel("input.thinning_mode == 'distance'", numericInput("thinning_distance_km", "Minimum thinning distance (km)", value = sdm_default_thinning_distance_km, min = 0.1, max = 500, step = 1)),
           checkboxInput("quadratic", "Include quadratic climate responses", value = TRUE),
+          checkboxInput("vif_reduction", "Drop collinear covariates (VIF > 10)", value = FALSE),
           selectInput("cv_folds", "Cross-validation", choices = c("Off" = "0", "3-fold" = "3", "5-fold" = "5"), selected = as.character(sdm_default_cv_folds)),
           selectInput("cv_strategy", "CV strategy", choices = c("Random" = "random", "Spatial blocks" = "spatial_blocks"), selected = sdm_default_cv_strategy),
           conditionalPanel("input.cv_strategy == 'spatial_blocks'", numericInput("cv_block_size_km", "Spatial block size (km; blank/0 = auto)", value = 0, min = 0, max = 2000, step = 10)),
@@ -162,7 +174,7 @@ ui <- fluidPage(
         tabPanel("Future projection", br(), fluidRow(column(6, div(class = "content-card", h4("Future suitability"), plotOutput("future_plot", height = "48vh"))), column(6, div(class = "content-card", h4("Suitability delta"), plotOutput("delta_plot", height = "48vh"))))),
         tabPanel("Observation records", br(), fluidRow(column(7, div(class = "content-card", plotOutput("occurrence_plot", height = "50vh"))), column(5, div(class = "content-card", h4("Top observation sources"), tableOutput("source_table"))))),
         tabPanel("Model diagnostics", br(), fluidRow(column(7, div(class = "content-card", h4("Coefficient summary"), tableOutput("coef_table"))), column(5, div(class = "content-card", h4("Run log"), p(class = "small-muted", "Warnings and progress messages from the latest run."), verbatimTextOutput("run_log"))))),
-        tabPanel("Downloads", br(), div(class = "content-card", h4("Export results"), p("Downloads are enabled after a successful run."), div(class = "downloads-row", downloadButton("download_tif", "Download GeoTIFF"), downloadButton("download_png", "Download PNG map"), downloadButton("download_future_tif", "Download future GeoTIFF"), downloadButton("download_delta_tif", "Download delta GeoTIFF"), downloadButton("download_occ", "Download cleaned observation records"), downloadButton("download_report", "Download text report"), downloadButton("download_sidecars", "Download sidecar rasters")), uiOutput("sidecar_download_note")))
+        tabPanel("Downloads", br(), div(class = "content-card", h4("Export results"), p("Downloads are enabled after a successful run."), div(class = "downloads-row", downloadButton("download_tif", "Download GeoTIFF"), downloadButton("download_png", "Download PNG map"), downloadButton("download_future_tif", "Download future GeoTIFF"), downloadButton("download_delta_tif", "Download delta GeoTIFF"), downloadButton("download_occ", "Download cleaned observation records"), downloadButton("download_report", "Download text report"), downloadButton("download_sidecars", "Download sidecar rasters")), div(class = "downloads-row", downloadButton("download_odmap_csv", "Download ODMAP report (CSV)"), downloadButton("download_odmap_md", "Download ODMAP report (Markdown)")), uiOutput("sidecar_download_note")))
       )
     )
   )
@@ -308,7 +320,7 @@ server <- function(input, output, session) {
       "Occurrence thinning configured."
     )
     cv_strategy <- tryCatch(normalize_cv_strategy(input$cv_strategy %||% sdm_default_cv_strategy), error = function(e) "random")
-    cv_detail <- if (identical(cv_strategy, "spatial_blocks")) "Spatial block CV selected for GLM; other experimental backends use their default CV." else "Random CV selected; can be optimistic with spatial autocorrelation."
+    cv_detail <- if (identical(cv_strategy, "spatial_blocks")) "Spatial block CV selected for GLM/MaxEnt; other experimental backends use their default CV." else "Random CV selected; can be optimistic with spatial autocorrelation."
     if (identical(cv_strategy, "random")) warnings <- c(warnings, "Random CV can overestimate SDM performance when records are spatially autocorrelated.")
 
     future_state <- "info"
@@ -358,6 +370,15 @@ server <- function(input, output, session) {
 
   observe({
     session$sendCustomMessage("setRunState", list(running = isTRUE(rv$running)))
+  })
+
+  output$maxnet_install_hint <- renderUI({
+    if (!requireNamespace("maxnet", quietly = TRUE)) {
+      div(class = "small-muted",
+          "MaxEnt unavailable. Install with: ",
+          tags$code("install.packages('maxnet')"),
+          " then restart the app.")
+    }
   })
 
   output$status_banner <- renderUI({
@@ -422,9 +443,12 @@ server <- function(input, output, session) {
             opentopo_api_key = input$opentopo_api_key,
             use_soil = isTRUE(input$use_soil), soil_path = input$soil_path, selected_soil_vars = input$soil_vars,
             covariate_cache_dir = sdm_default_covariate_cache_dir,
+            vif_reduction = isTRUE(input$vif_reduction),
             future_projection = isTRUE(input$future_projection),
             future_worldclim_dir = input$future_worldclim_dir,
             future_label = input$future_label,
+            maxnet_features = input$maxnet_features %||% sdm_default_maxnet_features,
+            maxnet_regmult = input$maxnet_regmult %||% sdm_default_maxnet_regmult,
             output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = occurrence$detail, log_fun = append_log,
             progress_fun = function(amount, detail) incProgress(amount, detail = detail)
           ),
@@ -498,6 +522,8 @@ server <- function(input, output, session) {
   output$download_delta_tif <- downloadHandler(filename = function() { req(rv$result, rv$result$paths$delta_tif); basename(rv$result$paths$delta_tif) }, content = function(file) { req(rv$result, rv$result$paths$delta_tif, file.exists(rv$result$paths$delta_tif)); file.copy(rv$result$paths$delta_tif, file, overwrite = TRUE) })
   output$download_occ <- downloadHandler(filename = function() { req(rv$result); paste0(safe_slug(rv$result$config$species), "_cleaned_occurrences.csv") }, content = function(file) { req(rv$result); utils::write.csv(rv$result$occurrence, file, row.names = FALSE) })
   output$download_report <- downloadHandler(filename = function() { req(rv$result); paste0(safe_slug(rv$result$config$species), "_sdm_report.txt") }, content = function(file) { req(rv$result); write_summary_report(rv$result, file) })
+  output$download_odmap_csv <- downloadHandler(filename = function() { req(rv$result); paste0(safe_slug(rv$result$config$species), "_odmap_report.csv") }, content = function(file) { req(rv$result); write_odmap_report(rv$result, file) })
+  output$download_odmap_md <- downloadHandler(filename = function() { req(rv$result); paste0(safe_slug(rv$result$config$species), "_odmap_report.md") }, content = function(file) { req(rv$result); write_odmap_report(rv$result, tempfile(fileext = ".csv"), file) })
   output$download_sidecars <- downloadHandler(
     filename = function() { req(rv$result); paste0(safe_slug(rv$result$config$species), "_model_sidecars.zip") },
     content = function(file) {

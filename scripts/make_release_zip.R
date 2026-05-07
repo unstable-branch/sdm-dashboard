@@ -3,16 +3,29 @@
 
 cmd_args <- commandArgs(FALSE)
 file_arg <- grep("^--file=", cmd_args, value = TRUE)
-script_path <- if (length(file_arg) > 0) {
-  normalizePath(sub("^--file=", "", file_arg[1]), winslash = "/", mustWork = TRUE)
+ofiles <- vapply(sys.frames(), function(frame) {
+  if (!is.null(frame$ofile)) frame$ofile else NA_character_
+}, character(1))
+ofiles <- ofiles[!is.na(ofiles)]
+script_path <- if (length(ofiles) > 0) {
+  normalizePath(ofiles[length(ofiles)], winslash = "/", mustWork = FALSE)
+} else if (length(file_arg) > 0) {
+  script <- sub("^--file=", "", file_arg[1])
+  normalizePath(script, winslash = "/", mustWork = file.exists(script))
 } else {
   normalizePath(file.path("scripts", "make_release_zip.R"), winslash = "/", mustWork = FALSE)
 }
 project_root <- dirname(dirname(script_path))
-direct_execution <- identical(
-  normalizePath(script_path, winslash = "/", mustWork = FALSE),
-  normalizePath(file.path(project_root, "scripts", "make_release_zip.R"), winslash = "/", mustWork = FALSE)
-)
+direct_execution <- FALSE
+if (length(file_arg) > 0) {
+  invoked_script <- sub("^--file=", "", file_arg[1])
+  if (file.exists(invoked_script)) {
+    direct_execution <- identical(
+      normalizePath(invoked_script, winslash = "/", mustWork = TRUE),
+      normalizePath(script_path, winslash = "/", mustWork = FALSE)
+    )
+  }
+}
 source(file.path(project_root, "R", "bootstrap.R"))
 sdm_set_project_root(project_root)
 source("R/optimized_sdm.R")
@@ -71,7 +84,7 @@ expand_release_paths <- function(include_paths, include_worldclim = FALSE) {
 source_release_paths <- function() {
   expand_release_paths(c(
     "app.R", "launch_app.R", "run_app_windows.bat",
-    "README.md", "README_WINDOWS.md", "BIOMOD2_ADAPTER_NOTES.md", "install_packages.R", "pipeline.R",
+    "README.md", "README_WINDOWS.md", "install_packages.R", "pipeline.R",
     "optimized_sdm.R", "SDM.Rproj", ".gitignore", ".dockerignore",
     "DESCRIPTION", "LICENSE", "CITATION.cff", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
     "Dockerfile", "docker-compose.yml", ".github", "R", "scripts", "data", "tests", "www"

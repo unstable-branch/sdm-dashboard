@@ -15,3 +15,24 @@ keywords:
   - R
   - geospatial
   - ecological modelling
+references:
+  - type: article
+    title: "Opening the black box: an open-source release of Maxent"
+    message: "Reference for the MaxEnt SDM method used via the maxnet package"
+    authors:
+      - family-names: "Phillips"
+        given-names: "S. J."
+      - family-names: "Anderson"
+        given-names: "R. P."
+      - family-names: "Dudik"
+        given-names: "M."
+      - family-names: "Schapire"
+        given-names: "R. E."
+      - family-names: "Blair"
+        given-names: "M. E."
+    journal: "Ecography"
+    volume: "40"
+    issue: "7"
+    pages: "887-893"
+    year: "2017"
+    doi: "10.1111/ecog.03049"
