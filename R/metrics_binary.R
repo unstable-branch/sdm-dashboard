@@ -65,3 +65,67 @@ metric_sd <- function(x) {
   if (length(x) < 2 || sum(is.finite(x)) < 2) return(NA_real_)
   stats::sd(x, na.rm = TRUE)
 }
+
+continuous_boyce_index <- function(pres_suit, bg_suit, n_bins = 101, win = 0.1) {
+  pres_suit <- as.numeric(pres_suit)
+  bg_suit <- as.numeric(bg_suit)
+  pres_suit <- pres_suit[is.finite(pres_suit)]
+  bg_suit <- bg_suit[is.finite(bg_suit)]
+  n_pres <- length(pres_suit)
+  n_bg <- length(bg_suit)
+
+  if (n_pres < 5) {
+    return(list(cbi = NA_real_, bins = data.frame(), pe_ratio = NA_real_,
+                note = "Insufficient presence points (< 5)"))
+  }
+  if (n_bg < 50) {
+    return(list(cbi = NA_real_, bins = data.frame(), pe_ratio = NA_real_,
+                note = "Insufficient background points (< 50)"))
+  }
+
+  all_vals <- c(pres_suit, bg_suit)
+  min_v <- min(all_vals)
+  max_v <- max(all_vals)
+  value_range <- max_v - min_v
+  if (!is.finite(value_range) || value_range <= 1e-10) {
+    return(list(cbi = NA_real_, bins = data.frame(), pe_ratio = NA_real_,
+                note = "No variance in predictions"))
+  }
+
+  bin_mid <- seq(min_v, max_v, length.out = n_bins)
+  half_window <- max(value_range * win / 2, value_range / (2 * n_bins))
+
+  pe_ratio <- vapply(bin_mid, function(center) {
+    lo <- center - half_window
+    hi <- center + half_window
+    pres_prop <- sum(pres_suit >= lo & pres_suit <= hi) / n_pres
+    expected_prop <- sum(all_vals >= lo & all_vals <= hi) / length(all_vals)
+    if (!is.finite(expected_prop) || expected_prop <= 0) return(NA_real_)
+    pres_prop / expected_prop
+  }, numeric(1))
+
+  valid <- is.finite(pe_ratio)
+  cbi_value <- if (min(pres_suit) > max(bg_suit)) {
+    1
+  } else if (max(pres_suit) < min(bg_suit)) {
+    -1
+  } else if (sum(valid) >= 3 && length(unique(pe_ratio[valid])) >= 2) {
+    suppressWarnings(stats::cor(bin_mid[valid], pe_ratio[valid], method = "spearman"))
+  } else {
+    NA_real_
+  }
+
+  bins <- data.frame(
+    bin_mid = bin_mid,
+    ratio = pe_ratio,
+    smoothed = pe_ratio,
+    stringsAsFactors = FALSE
+  )
+
+  list(
+    cbi = as.numeric(cbi_value),
+    bins = bins,
+    pe_ratio = mean(pe_ratio, na.rm = TRUE),
+    note = character(0)
+  )
+}

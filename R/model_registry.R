@@ -141,3 +141,41 @@ register_sdm_model(
   diagnostics = list(coefficients = FALSE, cv_auc = TRUE, cv_tss = TRUE, component_weights = TRUE),
   notes = "Experimental ensemble backend combining standardized GLM and Rangebagging predictions."
 )
+
+if (requireNamespace("biomod2", quietly = TRUE) && isTRUE(getOption("sdm.enable_biomod2", FALSE))) {
+  register_sdm_model(
+    id = "biomod2",
+    label = "biomod2 (multi-algorithm)",
+    method = "Ensemble SDM via biomod2 package (GLM, GAM, RF, MAXNET, etc.)",
+    packages = c("biomod2", "PresenceAbsence", "pROC"),
+    maturity = "experimental",
+    fit_fun = function(...) run_biomod2(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_biomod2_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = TRUE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    diagnostics = list(coefficients = TRUE, cv_auc = TRUE, cv_tss = TRUE, per_algorithm = TRUE),
+    notes = "Experimental biomod2 backend. Enable with: options(sdm.enable_biomod2 = TRUE)"
+  )
+}
+
+if (requireNamespace("maxnet", quietly = TRUE)) {
+  register_sdm_model(
+    id = "maxnet",
+    label = "MaxEnt (maxnet)",
+    method = "Maximum entropy presence/background SDM via maxnet/glmnet",
+    packages = c("maxnet", "glmnet"),
+    maturity = "experimental",
+    fit_fun = function(...) fit_maxnet_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_maxnet_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = TRUE,
+    supports_uncertainty = FALSE,
+    supports_future = TRUE,
+    diagnostics = list(coefficients = TRUE, cv_auc = TRUE, cv_tss = TRUE),
+    notes = "MaxEnt via the maxnet package (glmnet backend, no Java required)."
+  )
+}

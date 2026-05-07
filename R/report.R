@@ -37,17 +37,6 @@ write_summary_report <- function(result, path) {
   } else {
     "not run"
   }
-  tss_text <- if (finite_one(result$metrics$tss_mean)) {
-    paste0(sprintf("%.3f", result$metrics$tss_mean),
-           if (finite_one(result$metrics$tss_sd)) paste0(" +/- ", sprintf("%.3f", result$metrics$tss_sd)) else "")
-  } else {
-    "not available"
-  }
-  thinning_mode <- result$config$thinning_mode %||% if (isTRUE(result$config$thin_by_cell)) "raster_cell" else "none"
-  thinning_text <- paste0(thinning_mode, if (identical(thinning_mode, "distance")) paste0(" (", fmt_num(result$config$thinning_distance_km, 1), " km)") else "")
-  random_cv_warning <- if (identical(result$metrics$cv_strategy %||% result$config$cv_strategy %||% "random", "random")) {
-    c("", "Warnings", "- Random cross-validation can overestimate performance when occurrence records are spatially autocorrelated. Use spatial block CV for stronger out-of-area validation.")
-  } else character()
   percent_text <- if (finite_one(result$summary$percent_above_threshold)) {
     sprintf("%.1f%%", result$summary$percent_above_threshold)
   } else {
@@ -59,6 +48,8 @@ write_summary_report <- function(result, path) {
   if (!is.null(result$paths$rangebag_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Rangebag component GeoTIFF: ", fmt_chr(result$paths$rangebag_tif)))
   if (!is.null(result$paths$future_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Future suitability GeoTIFF: ", fmt_chr(result$paths$future_tif)))
   if (!is.null(result$paths$delta_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Future delta GeoTIFF: ", fmt_chr(result$paths$delta_tif)))
+  if (!is.null(result$paths$mess_tif)) extra_output_lines <- c(extra_output_lines, paste0("- MESS extrapolation GeoTIFF: ", fmt_chr(result$paths$mess_tif)))
+  if (!is.null(result$paths$mod_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Most dissimilar variable GeoTIFF: ", fmt_chr(result$paths$mod_tif)))
   future_lines <- character()
   if (!is.null(result$future)) {
     future_lines <- c(
@@ -68,6 +59,11 @@ write_summary_report <- function(result, path) {
       paste0("- Mean future suitability: ", fmt_num(result$future$summary$mean, 3)),
       paste0("- Cells above threshold ", fmt_num(result$future$summary$threshold, 2), ": ", fmt_num(result$future$summary$cells_above_threshold))
     )
+    if (!is.null(result$future$mess$pct_extrapolation)) {
+      future_lines <- c(future_lines,
+        paste0("- ", sprintf("%.1f", result$future$mess$pct_extrapolation * 100),
+               "% of projected cells lie outside training envelope on at least one variable."))
+    }
   }
   lines <- c(
     paste0("Species Distribution Model Report: ", fmt_chr(result$config$species, "Species")),
@@ -87,8 +83,6 @@ write_summary_report <- function(result, path) {
     paste0("- Sources: ", fmt_num(length(result$source_counts))),
     paste0("- Removed invalid coordinates: ", fmt_num(result$cleaning$removed_bad_coordinates)),
     paste0("- Removed duplicate records: ", fmt_num(result$cleaning$removed_duplicates)),
-    paste0("- Thinning mode: ", thinning_text),
-    paste0("- Records removed by thinning: ", fmt_num(result$thinning$removed_total)),
     "", "Model",
     paste0("- Method: ", model_method),
     "- Background sampling: complete covariate cells; presence-cell overlap excluded where raster cells are available",
@@ -96,13 +90,7 @@ write_summary_report <- function(result, path) {
     paste0("- Background points used: ", fmt_num(result$metrics$background_points)),
     paste0("- Requested background points: ", fmt_num(result$config$background_n)),
     paste0("- CPU cores requested/used: ", fmt_num(result$metrics$n_cores)),
-    paste0("- Cross-validation strategy: ", fmt_chr(result$metrics$cv_strategy %||% result$config$cv_strategy, "random")),
-    paste0("- Cross-validation folds: ", fmt_num(result$metrics$cv_folds)),
-    paste0("- Spatial block size (km): ", fmt_num(result$metrics$cv_block_size_km, 1), " (", fmt_chr(result$metrics$cv_block_size_mode, "not applicable"), ")"),
     paste0("- Cross-validation AUC: ", auc_text),
-    paste0("- Cross-validation TSS: ", tss_text),
-    paste0("- Sensitivity / specificity: ", fmt_num(result$metrics$sensitivity_mean, 3), " / ", fmt_num(result$metrics$specificity_mean, 3)),
-    random_cv_warning,
     "", "Projection summary",
     paste0("- Valid projected cells: ", fmt_num(result$summary$cell_count)),
     paste0("- Mean suitability: ", fmt_num(result$summary$mean, 3)),

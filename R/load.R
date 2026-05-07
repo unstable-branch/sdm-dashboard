@@ -1,4 +1,4 @@
-# Source all SDM modules in dependency order.
+# Source all SDM modules in deterministic dependency order.
 
 sdm_module_dir <- if (exists(".__sdm_module_dir", inherits = TRUE)) {
   get(".__sdm_module_dir", inherits = TRUE)
@@ -6,32 +6,54 @@ sdm_module_dir <- if (exists(".__sdm_module_dir", inherits = TRUE)) {
   file.path(getwd(), "R")
 }
 
-source_sdm_module <- function(filename) {
-  source(file.path(sdm_module_dir, filename), local = FALSE)
+source_sdm_module <- function(filename, required = TRUE) {
+  path <- file.path(sdm_module_dir, filename)
+  if (!file.exists(path)) {
+    if (isTRUE(required)) {
+      stop("Missing SDM module: ", filename, call. = FALSE)
+    }
+    return(invisible(FALSE))
+  }
+  source(path, local = FALSE)
+  invisible(TRUE)
 }
 
-source_sdm_module("bootstrap.R")
-source_sdm_module("config.R")
-source_sdm_module("packages.R")
-source_sdm_module("logging.R")
-source_sdm_module("validation.R")
-source_sdm_module("metrics_binary.R")
-source_sdm_module("cv_folds.R")
-source_sdm_module("occurrences.R")
-source_sdm_module("covariates_climate.R")
-source_sdm_module("covariates_elevation.R")
-source_sdm_module("covariates_soil.R")
-source_sdm_module("covariates_stack.R")
-source_sdm_module("model_glm.R")
-source_sdm_module("model_gam.R")
-source_sdm_module("model_rangebag.R")
-source_sdm_module("model_ensemble.R")
-source_sdm_module("model_registry.R")
-source_sdm_module("prediction.R")
-source_sdm_module("future_projection.R")
-source_sdm_module("plots.R")
-source_sdm_module("report.R")
-source_sdm_module("run_sdm.R")
-source_sdm_module("app_helpers.R")
+sdm_modules <- c(
+  "bootstrap.R",
+  "config.R",
+  "packages.R",
+  "logging.R",
+  "validation.R",
+  "metrics_binary.R",
+  "metrics_helper.R",
+  "cv_folds.R",
+  "occurrences.R",
+  "covariates_climate.R",
+  "covariates_elevation.R",
+  "covariates_soil.R",
+  "covariates_stack.R",
+  "predictor_selection.R",
+  "boundary.R",
+  "model_glm.R",
+  "model_gam.R",
+  "model_rangebag.R",
+  "model_ensemble.R",
+  "model_maxnet.R",
+  "biomod2_compat.R",
+  "model_biomod2.R",
+  "model_dnn.R",
+  "torch_setup.R",
+  "model_registry.R",
+  "prediction.R",
+  "future_projection.R",
+  "extrapolation.R",
+  "plots.R",
+  "report.R",
+  "report_odmap.R",
+  "run_sdm.R",
+  "app_helpers.R"
+)
 
-rm(source_sdm_module)
+for (module in sdm_modules) source_sdm_module(module)
+
+rm(source_sdm_module, sdm_modules, sdm_module_dir)

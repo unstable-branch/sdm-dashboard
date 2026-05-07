@@ -79,11 +79,15 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
   cv_strategy <- normalize_cv_strategy(cv_strategy)
   threshold <- normalize_threshold(threshold)
   if (is.na(k) || k < 2) {
-    return(list(k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_, tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(), fold_metrics = data.frame(), fold_sizes = data.frame()))
+    return(list(k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_,
+                tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
+                fold_metrics = data.frame(), fold_sizes = data.frame()))
   }
   k <- min(k, sum(model_data$presence == 1), sum(model_data$presence == 0))
   if (k < 2) {
-    return(list(k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_, tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(), fold_metrics = data.frame(), fold_sizes = data.frame()))
+    return(list(k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_,
+                tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
+                fold_metrics = data.frame(), fold_sizes = data.frame()))
   }
   n_cores <- min(normalize_core_count(n_cores), k)
 
@@ -91,7 +95,8 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
   block_size_mode <- "not_applicable"
   block_size_used <- NA_real_
   if (identical(cv_strategy, "spatial_blocks") && all(c(".x", ".y") %in% names(model_data))) {
-    folds <- make_cv_folds_spatial_blocks(model_data$.x, model_data$.y, model_data$presence, k = k, block_size_km = normalize_cv_block_size_km(cv_block_size_km), seed = seed)
+    folds <- make_cv_folds_spatial_blocks(model_data$.x, model_data$.y, model_data$presence, k = k,
+                                          block_size_km = normalize_cv_block_size_km(cv_block_size_km), seed = seed)
     fold_id <- folds$fold_id
     block_id <- folds$block_id
     block_size_mode <- folds$block_size_mode
@@ -114,13 +119,16 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
     n <- length(y)
     w <- if (n1 == 0 || n0 == 0) rep(1, n) else ifelse(y == 1, n / (2 * n1), n / (2 * n0))
     train_model$case_weight_sdm <- w
-    fit <- stats::glm(formula_arg, data = train_model, family = stats::binomial(), weights = case_weight_sdm, control = stats::glm.control(maxit = 60))
+    fit <- stats::glm(formula_arg, data = train_model, family = stats::binomial(),
+                      weights = case_weight_sdm, control = stats::glm.control(maxit = 60))
     pred <- stats::predict(fit, newdata = test_model, type = "response")
     metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold_arg), fold = i)
   }
 
   run_single_core_cv <- function() {
-    do.call(rbind, lapply(seq_len(k), fit_one_fold, model_data_arg = model_data, fold_id_arg = fold_id, formula_arg = formula, threshold_arg = threshold))
+    do.call(rbind, lapply(seq_len(k), fit_one_fold,
+                          model_data_arg = model_data, fold_id_arg = fold_id,
+                          formula_arg = formula, threshold_arg = threshold))
   }
 
   fold_metrics <- if (n_cores > 1 && k > 1) {
@@ -128,7 +136,9 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
       cl <- parallel::makeCluster(n_cores)
       on.exit(parallel::stopCluster(cl), add = TRUE)
       parallel::clusterExport(cl, c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "normalize_threshold"), envir = environment(cross_validate_glm))
-      rows <- parallel::parLapply(cl, seq_len(k), fit_one_fold, model_data_arg = model_data, fold_id_arg = fold_id, formula_arg = formula, threshold_arg = threshold)
+      rows <- parallel::parLapply(cl, seq_len(k), fit_one_fold,
+                                   model_data_arg = model_data, fold_id_arg = fold_id,
+                                   formula_arg = formula, threshold_arg = threshold)
       do.call(rbind, rows)
     }, error = function(e) e)
     if (inherits(parallel_result, "error")) {
@@ -194,7 +204,8 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   log_message(log_fun, "Fitting fast GLM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   model_fit_data <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
   model_fit_data$case_weight_sdm <- class_balance_weights(model_fit_data$presence)
-  model <- stats::glm(formula, data = model_fit_data, family = stats::binomial(), weights = case_weight_sdm, control = stats::glm.control(maxit = 80))
+  model <- stats::glm(formula, data = model_fit_data, family = stats::binomial(),
+                      weights = case_weight_sdm, control = stats::glm.control(maxit = 80))
 
   train_pred <- stats::predict(model, newdata = model_fit_data, type = "response")
   train_metrics <- compute_binary_metrics(model_fit_data$presence, train_pred, threshold = threshold)
@@ -202,7 +213,18 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   cv <- cross_validate_glm(model_data, formula, k = cv_folds, seed = seed, n_cores = n_cores,
                            cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km, threshold = threshold)
   if (is.finite(cv$auc_mean)) {
-    log_message(log_fun, "Cross-validation (", cv$strategy, ") AUC: ", sprintf("%.3f", cv$auc_mean), if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
+    log_message(log_fun, "Cross-validation (", cv$strategy, ") AUC: ", sprintf("%.3f", cv$auc_mean),
+                if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
+  }
+
+  pres_vals_for_cbi <- model_fit_data$presence
+  bg_vals_for_cbi <- train_pred[model_fit_data$presence == 0]
+  cbi_result <- continuous_boyce_index(
+    pres_suit = train_pred[model_fit_data$presence == 1],
+    bg_suit = bg_vals_for_cbi
+  )
+  if (is.finite(cbi_result$cbi)) {
+    log_message(log_fun, "Continuous Boyce Index (CBI): ", sprintf("%.3f", cbi_result$cbi))
   }
 
   coefficients <- as.data.frame(summary(model)$coefficients)
@@ -219,5 +241,9 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   model$call <- base::call("glm", formula = formula, family = stats::binomial())
 
   list(model = model, formula = formula, coefficients = coefficients, model_data = model_fit_data,
-       occurrence_used = occ_used, background_xy = bg_xy, cv = cv, binary_metrics = train_metrics, covariates = covariates)
+       occurrence_used = occ_used, background_xy = bg_xy, cv = cv, binary_metrics = train_metrics,
+       metrics = list(auc = train_metrics$auc, tss = train_metrics$tss,
+                      sensitivity = train_metrics$sensitivity, specificity = train_metrics$specificity,
+                      cbi = cbi_result$cbi, cbi_pe_ratio = cbi_result$pe_ratio, cbi_note = cbi_result$note),
+       cbi_detail = cbi_result, covariates = covariates)
 }

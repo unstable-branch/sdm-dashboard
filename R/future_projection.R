@@ -58,11 +58,30 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   terra::writeRaster(delta, output_delta_tif, overwrite = TRUE,
                      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
 
+  log_message(log_fun, "Computing MESS extrapolation surface")
+  mess_result <- compute_mess(env$env_train, future_project)
+
+  output_mess_tif <- sub("_future_suitability\\.tif$", "_future_mess.tif", output_future_tif)
+  output_mod_tif <- sub("_future_suitability\\.tif$", "_future_mod.tif", output_future_tif)
+
+  terra::writeRaster(mess_result$mess, output_mess_tif, overwrite = TRUE,
+                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+
+  mod_raster <- compute_mod(mess_result$per_variable)
+  terra::writeRaster(mod_raster, output_mod_tif, overwrite = TRUE,
+                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"), datatype = "INT1U"))
+
+  log_message(log_fun, sprintf("MESS: %.1f%% of cells extrapolate beyond training envelope", mess_result$pct_extrapolation * 100))
+
   list(
     suitability = future_suitability,
     delta = delta,
     summary = summarise_suitability(future_suitability),
     files = future_files,
-    paths = list(future_tif = output_future_tif, delta_tif = output_delta_tif)
+    paths = list(future_tif = output_future_tif, delta_tif = output_delta_tif,
+                 mess_tif = output_mess_tif, mod_tif = output_mod_tif),
+    mess = list(
+      pct_extrapolation = mess_result$pct_extrapolation
+    )
   )
 }
