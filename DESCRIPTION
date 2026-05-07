@@ -1,11 +1,11 @@
 Package: SDMDashboardWorkbench
 Type: Shiny
 Title: Local Species Distribution Modelling Dashboard Workbench
-Version: 0.2.0
+Version: 0.3.0
 Authors@R: c(
     person("SDM Dashboard Workbench contributors", role = c("aut", "cre"))
   )
-Description: A local R/Shiny workbench for species distribution modelling from presence-only observation records with WorldClim climate layers, optional OpenTopography elevation, and optional HWSD v2 soil covariates.
+Description: A local R/Shiny workbench for species distribution modelling from presence-only observation records with WorldClim climate layers, optional OpenTopography elevation, optional HWSD v2 soil covariates, spatial thinning, and spatial-block cross-validation diagnostics.
 License: MIT
 Encoding: UTF-8
 Depends: R (>= 4.3)
