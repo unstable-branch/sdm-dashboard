@@ -36,7 +36,7 @@ if (is.na(engine_file)) {
 }
 source(engine_file)
 default_cores <- normalize_core_count(NULL, reserve_one = TRUE)
-ensure_sdm_packages(c("shiny", "bslib", "terra"), n_cores = default_cores)
+ensure_sdm_packages(c("shiny", "bslib", "terra", "leaflet", "sf", "DT"), n_cores = default_cores)
 
 suppressPackageStartupMessages({
   library(shiny)
@@ -638,7 +638,7 @@ server <- function(input, output, session) {
   )
 }
 
-if (sys.nframe() == 0) {
+if (!interactive()) {
   port <- as.integer(Sys.getenv("PORT", "3838"))
   shiny::runApp(shiny::shinyApp(ui, server), host = "0.0.0.0", port = port)
 }
