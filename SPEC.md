@@ -100,14 +100,15 @@ model_biomod2, model_dnn
 | Rangebagging | Experimental | Behind model registry |
 | GLM + Rangebag ensemble | Experimental | Behind model registry |
 | MaxEnt (maxnet) | Experimental | Direct via maxnet/glmnet, no Java required, regmult + features configurable |
-| biomod2 | Extended module | Not wired to app UI |
-| DNN (cito/torch) | Extended module | Not wired to app UI |
+| biomod2 | Experimental | Gated behind `getOption("sdm.enable_biomod2", FALSE)`, enable to use |
+| DNN (cito/torch) | Dormant | Not wired, do not use |
 
 ### Cross-validation
 
 - **Random k-fold** CV (default: 3-fold)
 - **Spatial-block** CV with auto-calculated block size
-- Metrics: AUC, TSS, sensitivity, specificity, confusion counts
+- Metrics: AUC, TSS, sensitivity, specificity, Continuous Boyce Index (CBI), confusion counts
+- Permutation importance (algorithm-agnostic, stored in result$variable_importance)
 
 ### Output products
 
@@ -115,8 +116,10 @@ model_biomod2, model_dnn
 - PNG preview map
 - Cleaned occurrence CSV
 - Text summary report
+- ODMAP report (CSV + Markdown, Zurell et al. 2020)
+- Reproducible R script export
 - Sidecar raster bundle (when multiple models run)
-- Future suitability GeoTIFF + current-to-future delta raster
+- Future suitability GeoTIFF + current-to-future delta raster + MESS extrapolation rasters
 
 ### Projection
 
@@ -231,8 +234,10 @@ Rscript scripts/make_release_zip.R ready --version=v0.3.0-beta
 
 ## 10. Known Issues & Limitations
 
-- `R/load.R` currently loads extended modules (biomod2, DNN) that are **not wired to the app UI** — they load without error but the app only exposes GLM controls. Extended modules are functional but not user-accessible from the dashboard.
-- MaxEnt backend requires the maxnet package (`install.packages('maxnet')`); not installed by default to keep setup minimal. Enable by installing maxnet and glmnet.
-- Spatial-block CV is implemented for GLM only; experimental backends use their own default CV.
-- Future projection requires user-provided future BIO GeoTIFFs; no automated CMIP6 download.
-- DNN models require PyTorch with ≥50 records; warnings issued at 50–100 records.
+- biomod2 backend requires `options(sdm.enable_biomod2 = TRUE)` to enable; not installed by default
+- MaxEnt backend requires the maxnet package (`install.packages('maxnet')`); not installed by default
+- Spatial-block CV is implemented for GLM only; experimental backends use their own default CV
+- Future projection requires user-provided future BIO GeoTIFFs or automated CMIP6 download (planned)
+- DNN models (cito/torch) are dormant and not wired to the app UI
+- CoordinateCleaner is optional; requires `install.packages('CoordinateCleaner')` if use_cc = TRUE
+- GBIF integration requires `install.packages('rgbif')` for data fetching

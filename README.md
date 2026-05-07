@@ -17,11 +17,15 @@ Implemented and tested in the current beta:
 - Selected WorldClim BIO covariates with optional local download/cache.
 - Optional OpenTopography elevation covariate.
 - Optional local HWSD v2 soil covariate.
-- GLM random or spatial-block cross-validation, with AUC, TSS, sensitivity, specificity, and confusion-count diagnostics.
-- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, summary report, and sidecar raster bundle when available.
-- Optional model-aware future-climate projection from user-provided future BIO GeoTIFFs, including future suitability and delta rasters.
+- GLM random or spatial-block cross-validation, with AUC, TSS, sensitivity, specificity, CBI, and confusion-count diagnostics.
+- Permutation importance (algorithm-agnostic) and marginal response curves.
+- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, summary report, ODMAP report, reproducible R script, and sidecar raster bundle when available.
+- Optional future-climate projection from user-provided future BIO GeoTIFFs, including future suitability, delta, and MESS extrapolation rasters.
+- Interactive Leaflet map with layer toggles, CoordinateCleaner integration (optional), and map-based occurrence cleaning (click to flag/remove).
 - Dark/professional dashboard presentation mode with an Australia-first workbench map view.
 - Windows launcher, command-line pipeline, Docker scaffold, smoke tests, release audit, and testthat checks.
+- Optional GBIF occurrence ingestion (public API or authenticated download with DOI capture).
+- VIF-based collinearity reduction and bias correction (target-group / thickened background sampling).
 
 Planned research extensions, not integrated unless a later release explicitly says so:
 
@@ -55,9 +59,9 @@ Most users should use the latest GitHub Release rather than cloning the reposito
 
 Latest beta release:
 
-- Repository: `https://github.com/5p00kyy/sdm-dashboard`
-- Release tag: `v0.3.0-beta`
-- Source asset: `sdm-dashboard-v0.3.0-beta-source.zip`
+- Repository: `https://github.com/mrcanofcatfood/sdm-dashboard`
+- Release tag: `v0.5.0-beta`
+- Source asset: `sdm-dashboard-v0.5.0-beta-source.zip`
 - Windows-ready asset: `sdm-dashboard-v0.3.0-beta-windows-ready.zip`
 
 Previous beta release:
