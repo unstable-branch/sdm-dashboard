@@ -99,6 +99,7 @@ model_biomod2, model_dnn
 | GAM | Experimental | Behind model registry |
 | Rangebagging | Experimental | Behind model registry |
 | GLM + Rangebag ensemble | Experimental | Behind model registry |
+| MaxEnt (maxnet) | Experimental | Direct via maxnet/glmnet, no Java required, regmult + features configurable |
 | biomod2 | Extended module | Not wired to app UI |
 | DNN (cito/torch) | Extended module | Not wired to app UI |
 
@@ -231,6 +232,7 @@ Rscript scripts/make_release_zip.R ready --version=v0.3.0-beta
 ## 10. Known Issues & Limitations
 
 - `R/load.R` currently loads extended modules (biomod2, DNN) that are **not wired to the app UI** — they load without error but the app only exposes GLM controls. Extended modules are functional but not user-accessible from the dashboard.
+- MaxEnt backend requires the maxnet package (`install.packages('maxnet')`); not installed by default to keep setup minimal. Enable by installing maxnet and glmnet.
 - Spatial-block CV is implemented for GLM only; experimental backends use their own default CV.
 - Future projection requires user-provided future BIO GeoTIFFs; no automated CMIP6 download.
 - DNN models require PyTorch with ≥50 records; warnings issued at 50–100 records.

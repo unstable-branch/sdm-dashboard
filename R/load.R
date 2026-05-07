@@ -1,35 +1,54 @@
-# Source all SDM modules in dependency order.
+# SDM Module Loader - sources all modules in dependency order
 
-sdm_module_dir <- if (exists(".__sdm_module_dir", inherits = TRUE)) {
-  get(".__sdm_module_dir", inherits = TRUE)
-} else {
-  file.path(getwd(), "R")
+mod_dir <- file.path(getwd(), "R")
+
+modules <- c(
+  "bootstrap.R",
+  "config.R",
+  "packages.R",
+  "logging.R",
+  "validation.R",
+  "occurrences.R",
+  "covariates_climate.R",
+  "covariates_elevation.R",
+  "covariates_soil.R",
+  "covariates_stack.R",
+  "predictor_selection.R",
+  "metrics_binary.R",
+  "cv_folds.R",
+  "boundary.R",
+  "model_glm.R",
+  "model_gam.R",
+  "model_rangebag.R",
+  "model_ensemble.R",
+  "model_maxnet.R",
+  "model_registry.R",
+  "prediction.R",
+  "future_projection.R",
+  "extrapolation.R",
+  "plots.R",
+  "report.R",
+  "report_odmap.R",
+  "run_sdm.R",
+  "app_helpers.R"
+)
+
+for (m in modules) {
+  p <- file.path(mod_dir, m)
+  if (file.exists(p)) {
+    tryCatch(source(p, local = FALSE), error = function(e) {
+      warning("Failed to source ", m, ": ", e$message, call. = FALSE)
+    })
+  }
 }
 
-source_sdm_module <- function(filename) {
-  source(file.path(sdm_module_dir, filename), local = FALSE)
+extra <- setdiff(list.files(mod_dir, pattern = "\\.R$"), c(modules, "load.R", "optimized_sdm.R"))
+if (length(extra) > 0) {
+  warning("Auto-sourced modules: ", paste(sort(extra), collapse = ", "))
+  for (m in sort(extra)) {
+    p <- file.path(mod_dir, m)
+    tryCatch(source(p, local = FALSE), error = function(e) {
+      warning("Failed to source ", m, ": ", e$message, call. = FALSE)
+    })
+  }
 }
-
-source_sdm_module("bootstrap.R")
-source_sdm_module("config.R")
-source_sdm_module("packages.R")
-source_sdm_module("logging.R")
-source_sdm_module("validation.R")
-source_sdm_module("occurrences.R")
-source_sdm_module("covariates_climate.R")
-source_sdm_module("covariates_elevation.R")
-source_sdm_module("covariates_soil.R")
-source_sdm_module("covariates_stack.R")
-source_sdm_module("model_glm.R")
-source_sdm_module("model_gam.R")
-source_sdm_module("model_rangebag.R")
-source_sdm_module("model_ensemble.R")
-source_sdm_module("model_registry.R")
-source_sdm_module("prediction.R")
-source_sdm_module("future_projection.R")
-source_sdm_module("plots.R")
-source_sdm_module("report.R")
-source_sdm_module("run_sdm.R")
-source_sdm_module("app_helpers.R")
-
-rm(source_sdm_module)

@@ -9,8 +9,10 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                          use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
                          use_soil = FALSE, soil_path = sdm_default_soil_path,
                          selected_soil_vars = sdm_default_soil_vars, covariate_cache_dir = sdm_default_covariate_cache_dir,
+                         vif_reduction = FALSE, vif_threshold = 10,
                          future_projection = FALSE, future_worldclim_dir = sdm_default_future_worldclim_dir,
                          future_label = "Future climate",
+                         maxnet_features = sdm_default_maxnet_features, maxnet_regmult = sdm_default_maxnet_regmult,
                          output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = NULL, log_fun = NULL, progress_fun = NULL) {
   ensure_sdm_packages("terra", n_cores = n_cores)
   n_cores <- configure_parallel(n_cores, log_fun = log_fun)
@@ -61,9 +63,49 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
     occ <- thin_occurrences_by_cell(occ, env$env_train_scaled[[1]], by_source = FALSE, log_fun = log_fun)
   }
 
+  dropped_vars <- character(0)
+  vif_result <- NULL
+  if (isTRUE(vif_reduction) && terra::nlyr(env$env_train_scaled) >= 3) {
+    progress_step(progress_fun, 0.05, "Running VIF collinearity reduction")
+    set.seed(seed)
+    sample_size <- min(5000, terra::ncell(env$env_train_scaled))
+    sample_cells <- sample(terra::ncell(env$env_train_scaled), size = sample_size)
+    sample_xy <- terra::xyFromCell(env$env_train_scaled[[1]], sample_cells)
+    covar_samples <- terra::extract(env$env_train_scaled, sample_xy)
+    covar_samples <- covar_samples[complete.cases(covar_samples), ]
+    if (nrow(covar_samples) >= 100) {
+      vif_selection <- apply_vif_selection(covar_samples, threshold = vif_threshold, log_fun = log_fun)
+      dropped_vars <- vif_selection$dropped
+      vif_result <- vif_selection$vif_result
+      if (length(dropped_vars) > 0) {
+        keep_vars <- setdiff(names(env$env_train_scaled), dropped_vars)
+        if (length(keep_vars) >= 2) {
+          env$env_train_scaled <- env$env_train_scaled[[keep_vars]]
+          env$env_project_scaled <- env$env_project_scaled[[keep_vars]]
+          env$means <- env$means[keep_vars]
+          env$sds <- env$sds[keep_vars]
+          log_message(log_fun, "VIF reduction applied: ", terra::nlyr(env$env_train_scaled), " covariates remaining")
+        } else {
+          dropped_vars <- character(0)
+          vif_result <- NULL
+          log_message(log_fun, "VIF reduction skipped: not enough variables would remain")
+        }
+      }
+    } else {
+      log_message(log_fun, "VIF reduction skipped: insufficient sample points")
+    }
+  }
+
   progress_step(progress_fun, 0.22, "Fitting model")
   log_message(log_fun, "Model backend: ", model_spec$label)
-  fit <- fit_sdm_model(model_id, occ, env$env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun)
+  extra_args <- if (identical(model_id, "maxnet")) {
+    list(maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
+  } else {
+    character(0)
+  }
+  fit <- do.call(fit_sdm_model, c(list(model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
+                                       background_n = background_n, include_quadratic = include_quadratic,
+                                       cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun), extra_args))
 
   progress_step(progress_fun, 0.24, "Predicting projection raster")
   base_name <- paste0(safe_slug(species), "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
@@ -120,12 +162,14 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                   use_elevation = isTRUE(use_elevation), elevation_demtype = elevation_demtype,
                   use_soil = isTRUE(use_soil), soil_path = soil_path, selected_soil_vars = selected_soil_vars,
                   covariate_cache_dir = covariate_cache_dir,
+                  vif_reduction = isTRUE(vif_reduction), vif_threshold = vif_threshold,
                   future_projection = isTRUE(future_projection), future_worldclim_dir = future_worldclim_dir,
                   future_label = future_label),
     occurrence = occ, occurrence_used = fit$occurrence_used, source_counts = sort(table(occ$source), decreasing = TRUE),
     cleaning = cleaned[c("removed_bad_coordinates", "removed_duplicates", "original_rows", "columns")],
     environment = list(names = names(env$env_train_scaled), means = env$means, sds = env$sds,
-                       files = env$files, extra_covariates = env$extra_covariates),
+                       files = env$files, extra_covariates = env$extra_covariates,
+                       dropped_vars = dropped_vars, vif_result = vif_result),
     model_info = list(id = model_spec$id, label = model_spec$label, method = model_spec$method,
                       packages = model_spec$packages, maturity = model_spec$maturity,
                       diagnostics = model_spec$diagnostics),

@@ -48,6 +48,8 @@ write_summary_report <- function(result, path) {
   if (!is.null(result$paths$rangebag_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Rangebag component GeoTIFF: ", fmt_chr(result$paths$rangebag_tif)))
   if (!is.null(result$paths$future_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Future suitability GeoTIFF: ", fmt_chr(result$paths$future_tif)))
   if (!is.null(result$paths$delta_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Future delta GeoTIFF: ", fmt_chr(result$paths$delta_tif)))
+  if (!is.null(result$paths$mess_tif)) extra_output_lines <- c(extra_output_lines, paste0("- MESS extrapolation GeoTIFF: ", fmt_chr(result$paths$mess_tif)))
+  if (!is.null(result$paths$mod_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Most dissimilar variable GeoTIFF: ", fmt_chr(result$paths$mod_tif)))
   future_lines <- character()
   if (!is.null(result$future)) {
     future_lines <- c(
@@ -57,6 +59,11 @@ write_summary_report <- function(result, path) {
       paste0("- Mean future suitability: ", fmt_num(result$future$summary$mean, 3)),
       paste0("- Cells above threshold ", fmt_num(result$future$summary$threshold, 2), ": ", fmt_num(result$future$summary$cells_above_threshold))
     )
+    if (!is.null(result$future$mess$pct_extrapolation)) {
+      future_lines <- c(future_lines,
+        paste0("- ", sprintf("%.1f", result$future$mess$pct_extrapolation * 100),
+               "% of projected cells lie outside training envelope on at least one variable."))
+    }
   }
   lines <- c(
     paste0("Species Distribution Model Report: ", fmt_chr(result$config$species, "Species")),

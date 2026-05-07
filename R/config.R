@@ -19,28 +19,6 @@ sdm_world_boundary_path     <- config$sdm_world_boundary_path
 
 sdm_default_biovars <- c(1, 4, 6, 12, 15, 18)
 
-biovars_choices <- c(
-  "BIO1: Annual Mean Temperature" = 1,
-  "BIO2: Mean Diurnal Range" = 2,
-  "BIO3: Isothermality" = 3,
-  "BIO4: Temperature Seasonality" = 4,
-  "BIO5: Max Temperature of Warmest Month" = 5,
-  "BIO6: Min Temperature of Coldest Month" = 6,
-  "BIO7: Temperature Annual Range" = 7,
-  "BIO8: Mean Temperature of Wettest Quarter" = 8,
-  "BIO9: Mean Temperature of Driest Quarter" = 9,
-  "BIO10: Mean Temperature of Warmest Quarter" = 10,
-  "BIO11: Mean Temperature of Coldest Quarter" = 11,
-  "BIO12: Annual Precipitation" = 12,
-  "BIO13: Precipitation of Wettest Month" = 13,
-  "BIO14: Precipitation of Driest Month" = 14,
-  "BIO15: Precipitation Seasonality" = 15,
-  "BIO16: Precipitation of Wettest Quarter" = 17,
-  "BIO17: Precipitation of Driest Quarter" = 17,
-  "BIO18: Precipitation of Warmest Quarter" = 18,
-  "BIO19: Precipitation of Coldest Quarter" = 19
-)
-
 sdm_default_background_n <- 10000L
 sdm_default_min_source_records <- 15L
 sdm_default_threshold <- 0.5
@@ -105,9 +83,7 @@ sdm_extent_presets <- list(
   "aus_full"   = c(112, 154, -44, -10),
   "aus_north"  = c(112, 154, -26, -10),
   "aus_east"   = c(138, 154, -44, -10),
-  "world"      = c(-180, 180, -90, 90),
-  "Australia"  = c(112, 154, -44, -10),
-  "World"      = c(-180, 180, -90, 90)
+  "world"      = c(-180, 180, -90, 90)
 )
 sdm_default_extent_preset <- "aus_full"
 sdm_default_projection_extent <- sdm_extent_presets[[sdm_default_extent_preset]]

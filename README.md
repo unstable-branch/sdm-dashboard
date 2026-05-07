@@ -12,7 +12,7 @@ The public repository contains source code, documentation, scripts, templates, a
 Implemented and tested in the current beta:
 
 - GLM presence/background workflow for presence-only occurrence records.
-- Experimental GAM, Rangebagging, and GLM + Rangebagging ensemble backends behind the model registry.
+- Experimental GAM, Rangebagging, GLM + Rangebagging ensemble, and MaxEnt (maxnet) backends behind the model registry.
 - Occurrence cleaning, duplicate removal, source summaries, synthetic example data, raster-cell thinning, and deterministic distance thinning.
 - Selected WorldClim BIO covariates with optional local download/cache.
 - Optional OpenTopography elevation covariate.

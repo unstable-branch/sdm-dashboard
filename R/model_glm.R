@@ -217,6 +217,16 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
                 if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
   }
 
+  pres_vals_for_cbi <- model_fit_data$presence
+  bg_vals_for_cbi <- train_pred[model_fit_data$presence == 0]
+  cbi_result <- continuous_boyce_index(
+    pres_suit = train_pred[model_fit_data$presence == 1],
+    bg_suit = bg_vals_for_cbi
+  )
+  if (is.finite(cbi_result$cbi)) {
+    log_message(log_fun, "Continuous Boyce Index (CBI): ", sprintf("%.3f", cbi_result$cbi))
+  }
+
   coefficients <- as.data.frame(summary(model)$coefficients)
   coefficients$term <- rownames(coefficients)
   rownames(coefficients) <- NULL
@@ -231,5 +241,9 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   model$call <- base::call("glm", formula = formula, family = stats::binomial())
 
   list(model = model, formula = formula, coefficients = coefficients, model_data = model_fit_data,
-       occurrence_used = occ_used, background_xy = bg_xy, cv = cv, binary_metrics = train_metrics, covariates = covariates)
+       occurrence_used = occ_used, background_xy = bg_xy, cv = cv, binary_metrics = train_metrics,
+       metrics = list(auc = train_metrics$auc, tss = train_metrics$tss,
+                      sensitivity = train_metrics$sensitivity, specificity = train_metrics$specificity,
+                      cbi = cbi_result$cbi, cbi_pe_ratio = cbi_result$pe_ratio, cbi_note = cbi_result$note),
+       cbi_detail = cbi_result, covariates = covariates)
 }

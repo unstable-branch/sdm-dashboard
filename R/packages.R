@@ -27,6 +27,11 @@ sdm_app_packages <- c(
 )
 sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata")
 
+sdm_optional_packages <- list(
+  maxnet = c("maxnet", "glmnet"),
+  biomod2 = c("biomod2", "PresenceAbsence", "pROC")
+)
+
 detect_available_cores <- function(logical = TRUE) {
   cores <- tryCatch(parallel::detectCores(logical = logical), error = function(e) NA_integer_)
   if (is.na(cores) || cores < 1) 1L else as.integer(cores)

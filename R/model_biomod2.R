@@ -27,15 +27,10 @@ run_biomod2 <- function(occ_df, pred_stack, models = NULL,
     models <- config$biomod2_default
   }
 
-  # ---------------------------------------------------------------
-  # 1. Prepare data for biomod2 - with manual pseudo-absences
-  # ---------------------------------------------------------------
-  library(biomod2)
-
   sp_name <- if (!is.null(occ_df$species)) occ_df$species[1] else 'species'
 
   # Generate pseudo-absences using terra (manual approach for biomod2 4.x compatibility)
-  set.seed(background_n)
+  set.seed(sdm_default_seed)
   pa_points <- terra::spatSample(pred_stack, size = background_n,
                                   method = "random", na.rm = TRUE,
                                   as.points = TRUE, xy = TRUE)
@@ -61,7 +56,7 @@ run_biomod2 <- function(occ_df, pred_stack, models = NULL,
   all_xy <- rbind(pres_xy, pa_xy)
   all_response <- c(rep(1, nrow(occ_df)), rep(0, nrow(pa_xy)))
 
-  biomod_data <- BIOMOD_FormatingData(
+  biomod_data <- biomod2::BIOMOD_FormatingData(
     resp.var = all_response,
     expl.var = pred_stack,
     resp.name = sp_name,
