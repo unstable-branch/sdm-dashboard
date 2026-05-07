@@ -6,7 +6,10 @@ sdm_normalize_path <- function(path, mustWork = FALSE) {
 
 sdm_script_path <- function() {
   file_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
-  if (length(file_arg) > 0) return(sdm_normalize_path(sub("^--file=", "", file_arg[1]), mustWork = TRUE))
+  if (length(file_arg) > 0) {
+    script <- sub("^--file=", "", file_arg[1])
+    return(sdm_normalize_path(script, mustWork = file.exists(script)))
+  }
 
   ofiles <- vapply(sys.frames(), function(frame) {
     if (!is.null(frame$ofile)) frame$ofile else NA_character_

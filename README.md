@@ -12,14 +12,14 @@ The public repository contains source code, documentation, scripts, templates, a
 Implemented and tested in the current beta:
 
 - GLM presence/background workflow for presence-only occurrence records.
-- Experimental GAM, Rangebagging, and GLM + Rangebagging ensemble backends behind the model registry.
+- Experimental GAM, Rangebagging, GLM + Rangebagging ensemble, and optional MaxEnt (maxnet) backends behind the model registry.
 - Occurrence cleaning, duplicate removal, source summaries, synthetic example data, raster-cell thinning, and deterministic distance thinning.
 - Selected WorldClim BIO covariates with optional local download/cache.
 - Optional OpenTopography elevation covariate.
 - Optional local HWSD v2 soil covariate.
-- GLM random or spatial-block cross-validation, with AUC, TSS, sensitivity, specificity, and confusion-count diagnostics.
-- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, summary report, and sidecar raster bundle when available.
-- Optional model-aware future-climate projection from user-provided future BIO GeoTIFFs, including future suitability and delta rasters.
+- GLM random or spatial-block cross-validation, with AUC, TSS, sensitivity, specificity, confusion-count diagnostics, and optional VIF predictor collinearity reduction.
+- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, summary report, ODMAP report, and sidecar raster bundle when available.
+- Optional model-aware future-climate projection from user-provided future BIO GeoTIFFs, including future suitability, delta rasters, and MESS extrapolation diagnostics.
 - Dark/professional dashboard presentation mode with an Australia-first workbench map view.
 - Windows launcher, command-line pipeline, Docker scaffold, smoke tests, release audit, and testthat checks.
 
@@ -38,9 +38,9 @@ Do not treat planned/experimental items as available until they have UI support,
 - Presence/background SDM workflow with configurable extent, threshold, thinning mode, cross-validation folds/strategy, and CPU use.
 - WorldClim BIO climate layers with optional local download/cache.
 - Optional OpenTopography elevation and local HWSD v2 soil covariates.
-- Random or spatial-block GLM cross-validation with AUC, TSS, sensitivity, specificity, and confusion-count diagnostics.
-- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, summary report, and model sidecar raster bundle when available.
-- Optional future-climate projection for matching BIO GeoTIFF scenarios, including suitability-change delta exports.
+- Random or spatial-block GLM cross-validation with AUC, TSS, sensitivity, specificity, confusion-count diagnostics, and optional VIF predictor collinearity reduction.
+- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, summary report, ODMAP report, and model sidecar raster bundle when available.
+- Optional future-climate projection for matching BIO GeoTIFF scenarios, including suitability-change delta exports and MESS extrapolation diagnostics.
 - Dark/professional presentation mode with an Australia-first map view and real Australia boundary overlay.
 - Windows one-click runner, command-line pipeline, Docker scaffold, and lightweight checks for maintainers.
 
@@ -56,14 +56,21 @@ Most users should use the latest GitHub Release rather than cloning the reposito
 Latest beta release:
 
 - Repository: `https://github.com/5p00kyy/sdm-dashboard`
+- Release tag: `v0.4.0-beta`
+- Source asset: `sdm-dashboard-v0.4.0-beta-source.zip`
+- Windows-ready asset: `sdm-dashboard-v0.4.0-beta-windows-ready.zip`
+
+Previous beta release:
+
+- Release tag: `v0.3.0-beta`
+- Source asset: `sdm-dashboard-v0.3.0-beta-source.zip`
+- Windows-ready asset: `sdm-dashboard-v0.3.0-beta-windows-ready.zip`
+
+Earlier beta release:
+
 - Release tag: `v0.2.0-beta`
 - Source asset: `sdm-dashboard-v0.2.0-beta-source.zip`
 - Windows-ready asset: `sdm-dashboard-v0.2.0-beta-windows-ready.zip`
-
-Next beta candidate:
-
-- Target tag: `v0.3.0-beta`
-- Adds distance thinning, spatial-block CV, and expanded threshold diagnostics.
 
 First public beta release:
 
@@ -164,8 +171,8 @@ Rscript scripts/audit_release.R
 Build release assets with explicit versions:
 
 ```bash
-Rscript scripts/make_release_zip.R source --version=v0.3.0-beta
-Rscript scripts/make_release_zip.R ready --version=v0.3.0-beta
+Rscript scripts/make_release_zip.R source --version=v0.4.0-beta
+Rscript scripts/make_release_zip.R ready --version=v0.4.0-beta
 ```
 
 ## Contributing And Citation

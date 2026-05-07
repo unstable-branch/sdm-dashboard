@@ -7,11 +7,32 @@ authors:
 abstract: "A local R/Shiny workbench for species distribution modelling from presence-only occurrence records with climate, elevation, and soil covariates."
 license: MIT
 repository-code: "https://github.com/5p00kyy/sdm-dashboard"
-date-released: "2026-05-02"
-version: "0.2.0-beta"
+date-released: "2026-05-07"
+version: "0.4.0-beta"
 keywords:
   - species distribution modelling
   - Shiny
   - R
   - geospatial
   - ecological modelling
+references:
+  - type: article
+    title: "Opening the black box: an open-source release of Maxent"
+    message: "Reference for the MaxEnt SDM method used via the maxnet package"
+    authors:
+      - family-names: "Phillips"
+        given-names: "S. J."
+      - family-names: "Anderson"
+        given-names: "R. P."
+      - family-names: "Dudik"
+        given-names: "M."
+      - family-names: "Schapire"
+        given-names: "R. E."
+      - family-names: "Blair"
+        given-names: "M. E."
+    journal: "Ecography"
+    volume: "40"
+    issue: "7"
+    pages: "887-893"
+    year: "2017"
+    doi: "10.1111/ecog.03049"
