@@ -13,28 +13,26 @@ if (is.na(app_path)) {
 }
 app_dir <- if (!is.na(app_path)) dirname(normalizePath(app_path, winslash = "/", mustWork = TRUE)) else getwd()
 source(file.path(app_dir, "R", "bootstrap.R"))
-source(file.path(app_dir, "R", "ui_header.R"))
-source(file.path(app_dir, "R", "ui_sidebar_controls.R"))
-source(file.path(app_dir, "R", "ui_main_tabs.R"))
 sdm_set_project_root(app_dir)
 
-# Load the modelling engine. R/optimized_sdm.R is now a compatibility loader
-# for the refactored modules; the root file remains as an older launch fallback.
 engine_candidates <- unique(c(
-  file.path("R", "optimized_sdm.R"),
-  "optimized_sdm.R",
-  file.path(dirname(normalizePath("app.R", winslash = "/", mustWork = FALSE)), "R", "optimized_sdm.R"),
-  file.path(dirname(normalizePath("app.R", winslash = "/", mustWork = FALSE)), "optimized_sdm.R")
+  file.path(app_dir, "R", "optimized_sdm.R"),
+  file.path(getwd(), "R", "optimized_sdm.R"),
+  "optimized_sdm.R"
 ))
 engine_file <- engine_candidates[file.exists(engine_candidates)][1]
 if (is.na(engine_file)) {
   stop(
     "Could not find the modelling engine file optimized_sdm.R.\n",
-    "Expected either R/optimized_sdm.R or optimized_sdm.R in the same folder as app.R.\n",
-    "Your zip/extraction is incomplete. Re-extract the full SDM folder or copy the missing R folder."
+    "Expected either R/optimized_sdm.R or optimized_sdm.R in the project folder.\n",
+    "Your zip/extraction may be incomplete."
   )
 }
 source(engine_file)
+
+source(file.path(app_dir, "R", "ui_header.R"))
+source(file.path(app_dir, "R", "ui_sidebar_controls.R"))
+source(file.path(app_dir, "R", "ui_main_tabs.R"))
 default_cores <- normalize_core_count(NULL, reserve_one = TRUE)
 ensure_sdm_packages(c("shiny", "bslib", "terra", "leaflet", "sf", "DT"), n_cores = default_cores)
 

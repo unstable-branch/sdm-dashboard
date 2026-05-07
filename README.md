@@ -99,6 +99,26 @@ Rscript pipeline.R
 
 The pipeline uses `presence_data.csv` in the project root when present, otherwise it falls back to `data/examples/synthetic_presence_data.csv`.
 
+## WSL2 Run
+
+WSL2 does not have a GUI browser. The app runs inside WSL2 but you access it from your **Windows browser**.
+
+**One-time setup** (from Windows PowerShell as Administrator):
+
+```powershell
+cd C:\path\to\sdm-dashboard-main
+.\scripts\wsl_setup.ps1
+```
+
+This configures a Windows port proxy so `http://127.0.0.1:3838` in your Windows browser routes to the app running in WSL2.
+
+**Every time you want to use the app:**
+
+1. In WSL2 terminal: `Rscript app.R` — wait for "Listening on http://0.0.0.0:3838"
+2. In Windows browser: `http://127.0.0.1:3838`
+
+If the browser shows a blank page after the WSL setup, verify the app is running in WSL (`Test-NetConnection 127.0.0.1 3838` from PowerShell should show `TcpTestSucceeded: True`). If TCP test fails but the app is running, re-run `.\scripts\wsl_setup.ps1` to refresh the port proxy.
+
 ## Windows Run
 
 On Windows, extract the Windows-ready zip and double-click:

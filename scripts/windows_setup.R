@@ -13,7 +13,23 @@ source(file.path("R", "optimized_sdm.R"))
 n_cores <- normalize_core_count(NULL, reserve_one = TRUE)
 cat("Preparing SDM app with ", n_cores, " worker(s).\n", sep = "")
 
-ensure_sdm_packages(sdm_app_packages, n_cores = n_cores)
+already_current_file <- file.path(project_root, ".packages_installed")
+last_install_hash <- NULL
+tryCatch({
+  last_install_hash <- readLines(already_current_file, warn = FALSE)[1]
+}, error = function(e) NULL)
+
+current_hash <- digest::digest(sort(sdm_setup_packages), algo = "md5")
+packages_current <- identical(last_install_hash, current_hash)
+
+if (packages_current) {
+  cat("All core packages are installed (already set up).\n")
+} else {
+  cat("Installing/updating core packages...\n")
+  ensure_sdm_packages(sdm_setup_packages, n_cores = n_cores)
+  tryCatch(writeLines(current_hash, already_current_file), error = function(e) NULL)
+  cat("Core packages ready.\n")
+}
 
 sdm_ensure_project_dirs()
 
