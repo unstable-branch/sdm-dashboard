@@ -25,7 +25,7 @@ sdm_app_packages <- c(
   "cito", "R.utils",
   "torch", "reticulate"
 )
-sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf")
+sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf", "DT")
 
 sdm_optional_packages <- list(
   maxnet = c("maxnet", "glmnet"),
