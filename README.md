@@ -56,14 +56,15 @@ Most users should use the latest GitHub Release rather than cloning the reposito
 Latest beta release:
 
 - Repository: `https://github.com/5p00kyy/sdm-dashboard`
+- Release tag: `v0.3.0-beta`
+- Source asset: `sdm-dashboard-v0.3.0-beta-source.zip`
+- Windows-ready asset: `sdm-dashboard-v0.3.0-beta-windows-ready.zip`
+
+Previous beta release:
+
 - Release tag: `v0.2.0-beta`
 - Source asset: `sdm-dashboard-v0.2.0-beta-source.zip`
 - Windows-ready asset: `sdm-dashboard-v0.2.0-beta-windows-ready.zip`
-
-Next beta candidate:
-
-- Target tag: `v0.3.0-beta`
-- Adds distance thinning, spatial-block CV, and expanded threshold diagnostics.
 
 First public beta release:
 
