@@ -74,7 +74,12 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
   assumptions <- paste0(algorithm_label, " assumes presence locations are representative")
 
   taxon <- .fmt(.get_config("species"), "Not specified")
-  occurrence_source <- .fmt(.get_config("occurrence_source"), "uploaded CSV")
+  gbif_doi <- .get_config("gbif_doi")
+  occurrence_source <- if (!is.null(gbif_doi) && !is.na(gbif_doi) && nzchar(gbif_doi)) {
+    paste0("GBIF (", gbif_doi, ")")
+  } else {
+    .fmt(.get_config("occurrence_source"), "uploaded CSV")
+  }
   raw_n <- .get_config("occurrence_raw_n")
   if (is.null(raw_n)) {
     raw_n <- nrow(result$occurrence)

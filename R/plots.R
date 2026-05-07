@@ -105,3 +105,130 @@ save_suitability_png <- function(suitability, occ, projection_extent, species, t
   plot_suitability_map(suitability, occ = occ, projection_extent = projection_extent, species = species, threshold = threshold, add_points = TRUE)
   invisible(output_png)
 }
+
+plotVariableImportance <- function(importance_df) {
+  if (!is.data.frame(importance_df) || nrow(importance_df) == 0) {
+    return(NULL)
+  }
+  cols_required <- c("variable", "importance")
+  if (!all(cols_required %in% names(importance_df))) {
+    return(NULL)
+  }
+  df <- importance_df
+  if ("sd" %in% names(df)) {
+    df$se <- df$sd / sqrt(max(1, n_perm_default(df)))
+  }
+  ggplot2::ggplot(df, ggplot2::aes(x = stats::reorder(variable, importance), y = importance)) +
+    ggplot2::geom_bar(stat = "identity", fill = "steelblue", alpha = 0.85) +
+    ggplot2::coord_flip() +
+    ggplot2::labs(x = "Covariate", y = "Importance (AUC drop)", title = "Variable Importance (Permutation)") +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      panel.grid.minor = ggplot2::element_blank(),
+      axis.text = ggplot2::element_text(colour = "#263238"),
+      title = ggplot2::element_text(colour = "#1A2634", face = "bold")
+    )
+}
+
+n_perm_default <- function(df) {
+  if (!"sd" %in% names(df) || !("importance" %in% names(df))) return(5)
+  1
+}
+
+render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
+                                      background_df = NULL, mess_raster = NULL,
+                                      threshold = 0.5) {
+  map <- leaflet::leaflet()
+
+  if (!is.null(suitability_raster)) {
+    r_wgs84 <- terra::project(suitability_raster, "EPSG:4326")
+    map <- map %>%
+      leaflet::addTiles() %>%
+      leaflet::addRasterImage(r_wgs84, opacity = 0.7, layerId = "suitability",
+                              project = FALSE) %>%
+      leaflet::addLegend(position = "bottomright",
+                          colors = c("#0A1624", "#59C174", "#F3C45A", "#E34B35", "#A51E3B"),
+                          labels = c("0", "0.25", "0.5", "0.75", "1"),
+                          title = "Suitability")
+  } else {
+    map <- map %>% leaflet::addTiles()
+  }
+
+  if (!is.null(presence_df) && nrow(presence_df) > 0) {
+    if ("longitude" %in% names(presence_df) && "latitude" %in% names(presence_df)) {
+      pres_sf <- sf::st_as_sf(presence_df, coords = c("longitude", "latitude"), crs = 4326)
+      map <- map %>%
+        leaflet::addCircleMarkers(data = pres_sf, color = "red", radius = 4,
+                                  fillOpacity = 0.7, layerId = "presence",
+                                  group = "presence")
+    }
+  }
+
+  if (!is.null(background_df) && nrow(background_df) > 0) {
+    if ("longitude" %in% names(background_df) && "latitude" %in% names(background_df)) {
+      bg_sf <- sf::st_as_sf(background_df, coords = c("longitude", "latitude"), crs = 4326)
+      map <- map %>%
+        leaflet::addCircleMarkers(data = bg_sf, color = "gray", radius = 3,
+                                  fillOpacity = 0.5, layerId = "background",
+                                  group = "background")
+    }
+  }
+
+  if (!is.null(mess_raster) && !is.null(terra::sources(mess_raster))) {
+    r_mess <- terra::project(mess_raster, "EPSG:4326")
+    mess_binary <- r_mess
+    terra::values(mess_binary) <- ifelse(terra::values(r_mess) < 0, 1, 0)
+    map <- map %>%
+      leaflet::addRasterImage(mess_binary, opacity = 0.5, layerId = "mess",
+                              project = FALSE, colors = "red") %>%
+      leaflet::addLegend(position = "bottomright", colors = "red",
+                          labels = "Extrapolation (MESS<0)", title = "MESS")
+  }
+
+  map
+}
+
+add_suitability_layer <- function(map, raster, type = c("continuous", "binary"),
+                                   threshold = 0.5, pal = NULL) {
+  type <- match.arg(type)
+  if (is.null(raster)) return(map)
+
+  r_wgs84 <- terra::project(raster, "EPSG:4326")
+
+  if (type == "binary") {
+    r_bin <- r_wgs84
+    terra::values(r_bin) <- ifelse(terra::values(r_wgs84) >= threshold, 1, 0)
+    colors <- c("#FFFFFF00", "#E34B35")
+    map <- map %>% leaflet::addRasterImage(r_bin, opacity = 0.6,
+                                            layerId = "suitability_binary",
+                                            project = FALSE, colors = colors)
+  } else {
+    cols <- grDevices::colorRampPalette(c("#0A1624", "#123247", "#15545D",
+                                           "#1F8A70", "#59C174", "#C6D65B",
+                                           "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"))(180)
+    map <- map %>% leaflet::addRasterImage(r_wgs84, opacity = 0.7,
+                                            layerId = "suitability_continuous",
+                                            project = FALSE)
+  }
+  map
+}
+
+add_presence_markers <- function(map, df, color = "red") {
+  if (is.null(df) || nrow(df) == 0) return(map)
+  if (!("longitude" %in% names(df) && "latitude" %in% names(df))) return(map)
+  pres_sf <- sf::st_as_sf(df, coords = c("longitude", "latitude"), crs = 4326)
+  map %>%
+    leaflet::addCircleMarkers(data = pres_sf, color = color, radius = 4,
+                               fillOpacity = 0.7, layerId = "presence",
+                               group = "presence")
+}
+
+add_background_markers <- function(map, df, color = "gray") {
+  if (is.null(df) || nrow(df) == 0) return(map)
+  if (!("longitude" %in% names(df) && "latitude" %in% names(df))) return(map)
+  bg_sf <- sf::st_as_sf(df, coords = c("longitude", "latitude"), crs = 4326)
+  map %>%
+    leaflet::addCircleMarkers(data = bg_sf, color = color, radius = 3,
+                              fillOpacity = 0.5, layerId = "background",
+                              group = "background")
+}

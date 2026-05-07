@@ -1,6 +1,10 @@
 # Presence/background GLM fitting and diagnostics.
 
-sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy = NULL) {
+sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy = NULL,
+                                     bias_method = c("uniform", "target_group", "thickened"),
+                                     target_group_occ = NULL,
+                                     thickening_distance_km = NULL) {
+  bias_method <- match.arg(bias_method)
   set.seed(seed)
   n <- as.integer(n)
   if (is.na(n) || n < 100) n <- 100
@@ -9,6 +13,68 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
   if (!is.null(presence_xy) && nrow(presence_xy) > 0) {
     presence_cells <- tryCatch(terra::cellFromXY(env_train_scaled[[1]], presence_xy), error = function(e) integer())
     presence_cells <- unique(stats::na.omit(as.integer(presence_cells)))
+  }
+
+  if (identical(bias_method, "target_group")) {
+    if (is.null(target_group_occ) || nrow(target_group_occ) == 0) {
+      stop("bias_method = 'target_group' requires target_group_occ (data.frame with longitude and latitude columns).", call. = FALSE)
+    }
+    tg_xy <- target_group_occ[, c("longitude", "latitude"), drop = FALSE]
+    names(tg_xy) <- c("x", "y")
+    target_cells <- tryCatch(terra::cellFromXY(env_train_scaled[[1]], tg_xy), error = function(e) integer())
+    target_cells <- unique(stats::na.omit(as.integer(target_cells)))
+    if (length(target_cells) == 0) {
+      stop("No target-group occurrence cells fall within the training raster.", call. = FALSE)
+    }
+    valid_mask <- terra::init(env_train_scaled[[1]], value = NA)
+    valid_mask[target_cells] <- 1
+    if (length(presence_cells) > 0) valid_mask[presence_cells] <- NA
+    pts <- try(terra::spatSample(valid_mask, size = n, method = "random", na.rm = TRUE,
+                                 xy = TRUE, cells = TRUE, as.points = FALSE), silent = TRUE)
+    if (inherits(pts, "try-error") || is.null(pts) || nrow(pts) == 0) {
+      stop("Could not sample background points from target-group cells.", call. = FALSE)
+    }
+    pts <- as.data.frame(pts)
+    value_cols <- setdiff(names(pts), c("cell", "x", "y"))
+    if (length(value_cols) > 0) pts <- pts[stats::complete.cases(pts[, value_cols, drop = FALSE]), , drop = FALSE]
+    if (nrow(pts) > n) pts <- pts[sample.int(nrow(pts), n), , drop = FALSE]
+    return(pts[, c("x", "y"), drop = FALSE])
+  }
+
+  if (identical(bias_method, "thickened")) {
+    if (is.null(presence_xy) || nrow(presence_xy) < 2) {
+      stop("bias_method = 'thickened' requires at least 2 presence points.", call. = FALSE)
+    }
+    sigma_km <- if (is.numeric(thickening_distance_km) && thickening_distance_km > 0) {
+      thickening_distance_km
+    } else {
+      10
+    }
+    sigma_deg <- sigma_km / 111
+    all_cell_idx <- tryCatch(terra::valid-cells(env_train_scaled[[1]]), error = function(e) integer())
+    if (length(all_cell_idx) == 0) {
+      all_cell_idx <- seq_len(terra::ncell(env_train_scaled[[1]]))
+    }
+    cell_xy <- terra::xyFromCell(env_train_scaled[[1]], all_cell_idx)
+    pres_df <- data.frame(x = presence_xy$x, y = presence_xy$y)
+    weights <- numeric(nrow(cell_xy))
+    for (j in seq_len(nrow(pres_df))) {
+      dist_sq <- (cell_xy[, "x"] - pres_df$x[j])^2 + (cell_xy[, "y"] - pres_df$y[j])^2
+      weights <- weights + exp(-dist_sq / (2 * sigma_deg^2))
+    }
+    weights <- weights / max(weights)
+    weights[is.na(weights)] <- 0
+    exclude_idx <- which(all_cell_idx %in% presence_cells)
+    if (length(exclude_idx) > 0) weights[exclude_idx] <- 0
+    valid_w <- which(weights > 0)
+    if (length(valid_w) < n) {
+      stop("Not enough valid cells for thickened background sampling (", length(valid_w), " available, ", n, " requested).", call. = FALSE)
+    }
+    probs <- weights[valid_w]
+    probs <- probs / sum(probs)
+    sel_idx <- sample(length(valid_w), size = n, replace = TRUE, prob = probs)
+    selected_xy <- cell_xy[valid_w[sel_idx], , drop = FALSE]
+    return(data.frame(x = selected_xy[, "x"], y = selected_xy[, "y"], check.names = FALSE))
   }
 
   sample_from <- function(r, size, check_values = FALSE) {
@@ -169,9 +235,13 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
 }
 
 fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n, include_quadratic = TRUE,
-                         cv_folds = 3, seed = 42, n_cores = 1, log_fun = NULL,
-                         cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
-                         threshold = sdm_default_threshold) {
+                          cv_folds = 3, seed = 42, n_cores = 1, log_fun = NULL,
+                          cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
+                          threshold = sdm_default_threshold,
+                          bias_method = c("uniform", "target_group", "thickened"),
+                          target_group_occ = NULL,
+                          thickening_distance_km = NULL) {
+  bias_method <- match.arg(bias_method)
   covariates <- names(env_train_scaled)
   if (length(covariates) < 2) stop("At least two covariates are required for modelling.", call. = FALSE)
 
@@ -185,7 +255,9 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   occ_used <- occ[pres_keep, , drop = FALSE]
   if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
 
-  bg_xy <- sample_background_points(env_train_scaled, background_n, seed = seed, presence_xy = pres_xy_used)
+  bg_xy <- sample_background_points(env_train_scaled, background_n, seed = seed, presence_xy = pres_xy_used,
+                                      bias_method = bias_method, target_group_occ = target_group_occ,
+                                      thickening_distance_km = thickening_distance_km)
   bg_vals <- extract_covariates(env_train_scaled, bg_xy)
   bg_keep <- stats::complete.cases(bg_vals)
   bg_vals <- bg_vals[bg_keep, , drop = FALSE]
@@ -245,5 +317,7 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
        metrics = list(auc = train_metrics$auc, tss = train_metrics$tss,
                       sensitivity = train_metrics$sensitivity, specificity = train_metrics$specificity,
                       cbi = cbi_result$cbi, cbi_pe_ratio = cbi_result$pe_ratio, cbi_note = cbi_result$note),
-       cbi_detail = cbi_result, covariates = covariates)
+       cbi_detail = cbi_result, covariates = covariates,
+       bias_method = bias_method,
+       thickening_distance_km = if (identical(bias_method, "thickened")) thickening_distance_km else NULL)
 }

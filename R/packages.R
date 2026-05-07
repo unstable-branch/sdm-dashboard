@@ -29,7 +29,8 @@ sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata")
 
 sdm_optional_packages <- list(
   maxnet = c("maxnet", "glmnet"),
-  biomod2 = c("biomod2", "PresenceAbsence", "pROC")
+  biomod2 = c("biomod2", "PresenceAbsence", "pROC"),
+  leaflet = c("leaflet", "mapview", "sf")
 )
 
 detect_available_cores <- function(logical = TRUE) {

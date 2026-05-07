@@ -22,7 +22,8 @@ read_occurrence_file <- function(path, log_fun = NULL) {
   }
 }
 
-clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE, log_fun = NULL) {
+clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE,
+                              use_cc = FALSE, cc_tests = "all", log_fun = NULL) {
   raw <- read_occurrence_file(path, log_fun = log_fun)
   original_n <- nrow(raw)
   if (original_n == 0) stop("Occurrence file is empty.", call. = FALSE)
@@ -77,6 +78,27 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   source_counts <- sort(table(occ$source), decreasing = TRUE)
   if (nrow(occ) < 20) stop("Too few valid occurrence records after cleaning (", nrow(occ), ").", call. = FALSE)
 
+  if (use_cc && requireNamespace("CoordinateCleaner", quietly = TRUE)) {
+    cc_result <- CoordinateCleaner::clean_coordinates(
+      occ,
+      lon = "longitude",
+      lat = "latitude",
+      tests = cc_tests,
+      value = "flagged"
+    )
+    occ$cc_flag <- cc_result$.summary
+    occ$cc_test_sea <- cc_result$tests$sea
+    occ$cc_test_capitals <- cc_result$tests$capitals
+    occ$cc_test_institutions <- cc_result$tests$institutions
+    occ$cc_test_centroids <- cc_result$tests$centroids
+    occ$cc_test_urban <- cc_result$tests$urban
+    occ$cc_test_zero <- cc_result$tests$zero
+    n_flagged <- sum(cc_result$.summary, na.rm = TRUE)
+    log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", nrow(occ), " records")
+  } else if (use_cc && !requireNamespace("CoordinateCleaner", quietly = TRUE)) {
+    warning("CoordinateCleaner not installed. Install with: install.packages('CoordinateCleaner')")
+  }
+
   log_message(log_fun, "Cleaned occurrences: ", format(nrow(occ), big.mark = ","),
               " valid records from ", length(source_counts), " sources; removed ",
               format(removed_bad, big.mark = ","), " invalid coordinates and ",
@@ -113,4 +135,124 @@ thin_occurrences_by_cell <- function(occ, raster_template, by_source = FALSE, lo
     log_message(log_fun, "Raster thinning removed ", removed_outside, " records outside raster extent and ", removed_duplicates, " duplicate cell records")
   }
   occ
+}
+
+#' Fetch GBIF occurrence records via public API (occ_search)
+#'
+#' @param taxon Species name to search for (e.g., "Acacia mearnsii")
+#' @param country Optional country code filter (e.g., "AU")
+#' @param max_records Maximum number of records to fetch (up to 10,000 for public API)
+#' @param token Optional GBIF API token (not required for public searches)
+#' @param log_fun Optional logging function
+#' @return data.frame with columns: longitude, latitude, species, source, gbif_key, gbif_doi
+#' @examples
+#' \dontrun{
+#' records <- read_gbif_records("Acacia mearnsii", country = "AU", max_records = 100)
+#' }
+read_gbif_records <- function(taxon, country = NULL, max_records = 100,
+                              token = NULL, log_fun = NULL) {
+  if (!requireNamespace("rgbif", quietly = TRUE)) {
+    stop("rgbif package required for GBIF fetching. Install with: install.packages('rgbif')")
+  }
+
+  log_message(log_fun, "Fetching GBIF records for: ", taxon)
+
+  taxon_key <- rgbif::name_backbone(taxon)$speciesKey
+
+  result <- rgbif::occ_search(
+    taxonKey = taxon_key,
+    country = country,
+    limit = min(max_records, 10000),
+    hasCoordinate = TRUE,
+    decimalLatitude = "present",
+    decimalLongitude = "present"
+  )
+
+  if (is.null(result$data) || nrow(result$data) == 0) {
+    log_message(log_fun, "No GBIF records found for: ", taxon)
+    return(data.frame(
+      longitude = numeric(),
+      latitude = numeric(),
+      species = character(),
+      source = character(),
+      gbif_key = character(),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  doi <- result$meta$doi
+  if (is.null(doi)) doi <- NA_character_
+
+  data.frame(
+    longitude = result$data$decimalLongitude,
+    latitude = result$data$decimalLatitude,
+    species = if (!is.null(result$data$species)) result$data$species else taxon,
+    source = "GBIF",
+    gbif_key = as.character(result$data$key),
+    gbif_doi = doi,
+    stringsAsFactors = FALSE
+  )
+}
+
+#' Download GBIF occurrence records via authenticated API (occ_download)
+#'
+#' @param taxon Species name to search for
+#' @param country Optional country code filter
+#' @param token GBIF API token for authenticated downloads
+#' @param max_attempts Maximum polling attempts for download completion
+#' @param poll_interval Seconds between status polls
+#' @param ... Additional arguments passed to rgbif::occ_download
+#' @return list with occurrences data.frame, doi character, and gbif_key
+#' @examples
+#' \dontrun{
+#' result <- read_gbif_download("Acacia mearnsii", token = "YOUR_TOKEN")
+#' }
+read_gbif_download <- function(taxon, country = NULL, token,
+                               max_attempts = 30, poll_interval = 10, ...) {
+  if (!requireNamespace("rgbif", quietly = TRUE)) {
+    stop("rgbif package required for GBIF downloading. Install with: install.packages('rgbif')")
+  }
+
+  Sys.setenv(GBIF_API_KEY = token)
+
+  taxon_key <- rgbif::name_backbone(taxon)$speciesKey
+
+  pred_list <- list(
+    rgbif::pred("taxonKey", taxon_key),
+    rgbif::pred("hasCoordinate", TRUE)
+  )
+  if (!is.null(country)) {
+    pred_list <- c(pred_list, rgbif::pred("country", country))
+  }
+
+  download_key <- rgbif::occ_download(
+    !!!pred_list,
+    user = "token",
+    pwd = token,
+    email = "user@example.com"
+  )
+
+  status <- "running"
+  attempts <- 0
+  while (status == "running" && attempts < max_attempts) {
+    Sys.sleep(poll_interval)
+    status_info <- rgbif::occ_download_meta(download_key)
+    status <- status_info$status
+    attempts <- attempts + 1
+    log_message(NULL, "GBIF download status: ", status, " (attempt ", attempts, "/", max_attempts, ")")
+  }
+
+  if (status != "succeeded") {
+    stop("GBIF download failed or timed out after ", max_attempts, " attempts")
+  }
+
+  doi <- rgbif::occ_download_meta(download_key)$doi
+
+  occ_data <- rgbif::occ_download_get(download_key, path = tempdir())
+
+  list(
+    occurrences = occ_data,
+    doi = doi,
+    gbif_key = download_key
+  )
 }

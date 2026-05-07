@@ -175,6 +175,10 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
     model = model,
     formula = NULL,
     coefficients = data.frame(Message = "Rangebagging does not produce GLM-style coefficients."),
+    model_data = rbind(
+      data.frame(presence = 1L, pres_vals, check.names = FALSE),
+      data.frame(presence = 0L, bg_vals, check.names = FALSE)
+    ),
     occurrence_used = occ_used,
     background_xy = bg_xy,
     cv = cv,

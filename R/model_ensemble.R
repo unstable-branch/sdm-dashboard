@@ -61,6 +61,7 @@ fit_ensemble_glm_rangebag_sdm <- function(occ, env_train_scaled, background_n = 
       AUC = c(glm_fit$cv$auc_mean %||% NA_real_, rangebag_fit$cv$auc_mean %||% NA_real_),
       stringsAsFactors = FALSE
     ),
+    model_data = glm_fit$model_data,
     occurrence_used = glm_fit$occurrence_used,
     background_xy = glm_fit$background_xy,
     cv = list(

@@ -1,19 +1,25 @@
 # Public orchestration API for the SDM workflow.
 
 run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_default_occurrence_file, worldclim_dir = sdm_default_worldclim_dir,
-                         selected_biovars = sdm_default_biovars, projection_extent = sdm_default_projection_extent,
-                         training_extent = NULL, background_n = sdm_default_background_n, min_source_records = sdm_default_min_source_records, merge_small_sources = TRUE,
-                         thin_by_cell = TRUE, model_id = sdm_default_model_id,
-                         include_quadratic = TRUE, threshold = sdm_default_threshold, aggregation_factor = sdm_default_aggregation_factor,
-                         cv_folds = sdm_default_cv_folds, n_cores = NULL, allow_download = TRUE, worldclim_res = sdm_default_worldclim_res,
-                         use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
-                         use_soil = FALSE, soil_path = sdm_default_soil_path,
-                         selected_soil_vars = sdm_default_soil_vars, covariate_cache_dir = sdm_default_covariate_cache_dir,
-                         vif_reduction = FALSE, vif_threshold = 10,
-                         future_projection = FALSE, future_worldclim_dir = sdm_default_future_worldclim_dir,
-                         future_label = "Future climate",
-                         maxnet_features = sdm_default_maxnet_features, maxnet_regmult = sdm_default_maxnet_regmult,
-                         output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = NULL, log_fun = NULL, progress_fun = NULL) {
+                          selected_biovars = sdm_default_biovars, projection_extent = sdm_default_projection_extent,
+                          training_extent = NULL, background_n = sdm_default_background_n, min_source_records = sdm_default_min_source_records, merge_small_sources = TRUE,
+                          thin_by_cell = TRUE, model_id = sdm_default_model_id,
+                          include_quadratic = TRUE, threshold = sdm_default_threshold, aggregation_factor = sdm_default_aggregation_factor,
+                          cv_folds = sdm_default_cv_folds, n_cores = NULL, allow_download = TRUE, worldclim_res = sdm_default_worldclim_res,
+                          use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
+                          use_soil = FALSE, soil_path = sdm_default_soil_path,
+                          selected_soil_vars = sdm_default_soil_vars, covariate_cache_dir = sdm_default_covariate_cache_dir,
+                          vif_reduction = FALSE, vif_threshold = 10,
+                          future_projection = FALSE, future_worldclim_dir = sdm_default_future_worldclim_dir,
+                          future_label = "Future climate",
+                          maxnet_features = sdm_default_maxnet_features, maxnet_regmult = sdm_default_maxnet_regmult,
+                          bias_method = c("uniform", "target_group", "thickened"),
+                          target_group_occ = NULL,
+                          thickening_distance_km = NULL,
+                          use_cc = FALSE, cc_tests = "all",
+                          cleaned_occurrence = NULL,
+                          output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = NULL,
+                          gbif_doi = NULL, log_fun = NULL, progress_fun = NULL) {
   ensure_sdm_packages("terra", n_cores = n_cores)
   n_cores <- configure_parallel(n_cores, log_fun = log_fun)
   projection_extent <- validate_extent(as.numeric(projection_extent), "projection_extent")
@@ -32,8 +38,15 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
 
   progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   if (!is.null(occurrence_source) && nzchar(occurrence_source)) log_message(log_fun, "Observation record source: ", occurrence_source)
-  cleaned <- clean_occurrences(occurrence_file, min_source_records = min_source_records, merge_small_sources = merge_small_sources, log_fun = log_fun)
-  occ <- cleaned$occ
+  if (!is.null(cleaned_occurrence) && is.data.frame(cleaned_occurrence) && nrow(cleaned_occurrence) > 0) {
+    log_message(log_fun, "Using pre-cleaned occurrence data with ", nrow(cleaned_occurrence), " records (user-cleaned map)")
+    occ <- cleaned_occurrence
+    cleaned <- list(occ = occ, removed_bad_coordinates = 0, removed_duplicates = 0, original_rows = nrow(occ), columns = colnames(occ))
+    if (is.null(occ$cc_flag)) occ$cc_flag <- FALSE
+  } else {
+    cleaned <- clean_occurrences(occurrence_file, min_source_records = min_source_records, merge_small_sources = merge_small_sources, use_cc = use_cc, cc_tests = cc_tests, log_fun = log_fun)
+    occ <- cleaned$occ
+  }
   if (is.null(training_extent)) training_extent <- make_training_extent(occ, buffer = 2)
   log_message(log_fun, "Training extent: ", paste(training_extent, collapse = ", "))
   log_message(log_fun, "Projection extent: ", paste(projection_extent, collapse = ", "))
@@ -103,9 +116,58 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
   } else {
     character(0)
   }
+  bias_method <- match.arg(bias_method)
   fit <- do.call(fit_sdm_model, c(list(model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
                                        background_n = background_n, include_quadratic = include_quadratic,
-                                       cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun), extra_args))
+                                       cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun,
+                                       bias_method = bias_method, target_group_occ = target_group_occ,
+                                       thickening_distance_km = thickening_distance_km), extra_args))
+
+  importance_result <- NULL
+  if (isTRUE(model_spec$supports_importance) && !is.null(fit$cv) && is.finite(fit$cv$auc_mean)) {
+    pred_fun <- switch(model_id,
+      glm = function(mod, newdata) {
+        df <- as.data.frame(newdata)
+        if (nrow(df) == 0) return(numeric(0))
+        stats::predict.glm(mod$model, newdata = df, type = "response")
+      },
+      gam = function(mod, newdata) {
+        df <- as.data.frame(newdata)
+        if (nrow(df) == 0) return(numeric(0))
+        predict(mod$model, newdata = df, type = "response")
+      },
+      rangebag = function(mod, newdata) {
+        df <- as.data.frame(newdata)
+        if (nrow(df) == 0) return(numeric(0))
+        predict_rangebag_model(mod, df)
+      },
+      maxnet = function(mod, newdata) {
+        df <- as.data.frame(newdata)
+        if (nrow(df) == 0) return(numeric(0))
+        as.numeric(maxnet::predict.maxnet(mod$model, df, clamp = TRUE, type = "link"))
+      },
+      function(mod, newdata) stop("No importance prediction defined for model: ", model_id)
+    )
+    importance_result <- permutation_importance(
+      fit = fit,
+      model_data = fit$model_data,
+      predict_fun = pred_fun,
+      metric_fun = auc_rank,
+      n_perm = getOption("sdm.n_perm", sdm_default_n_perm),
+      seed = seed,
+      n_cores = n_cores
+    )
+    log_message(log_fun, "Permutation importance computed for ", nrow(importance_result), " variables")
+  } else if (!is.null(fit$variable_importance) && is.data.frame(fit$variable_importance)) {
+    importance_result <- fit$variable_importance
+  }
+
+  response_curves <- compute_response_curves(
+    fit = fit,
+    model_data = fit$model_data,
+    env_train = env$env_train,
+    n_points = 50
+  )
 
   progress_step(progress_fun, 0.24, "Predicting projection raster")
   base_name <- paste0(safe_slug(species), "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
@@ -164,7 +226,9 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                   covariate_cache_dir = covariate_cache_dir,
                   vif_reduction = isTRUE(vif_reduction), vif_threshold = vif_threshold,
                   future_projection = isTRUE(future_projection), future_worldclim_dir = future_worldclim_dir,
-                  future_label = future_label),
+                  future_label = future_label,
+                  bias_method = bias_method, thickening_distance_km = thickening_distance_km,
+                   gbif_doi = gbif_doi),
     occurrence = occ, occurrence_used = fit$occurrence_used, source_counts = sort(table(occ$source), decreasing = TRUE),
     cleaning = cleaned[c("removed_bad_coordinates", "removed_duplicates", "original_rows", "columns")],
     environment = list(names = names(env$env_train_scaled), means = env$means, sds = env$sds,
@@ -174,6 +238,8 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                       packages = model_spec$packages, maturity = model_spec$maturity,
                       diagnostics = model_spec$diagnostics),
     model = fit$model, formula = fit$formula, coefficients = fit$coefficients, cv = fit$cv,
+    variable_importance = importance_result,
+    response_curves = response_curves,
     suitability = suit, future = future, summary = suitability_summary, metrics = metrics,
     paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)
   )

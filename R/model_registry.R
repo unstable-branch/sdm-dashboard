@@ -101,7 +101,7 @@ register_sdm_model(
   predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
     predict_gam_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
   },
-  supports_importance = FALSE,
+  supports_importance = TRUE,
   supports_uncertainty = FALSE,
   supports_future = TRUE,
   diagnostics = list(coefficients = TRUE, cv_auc = TRUE),
@@ -118,7 +118,7 @@ register_sdm_model(
   predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
     predict_rangebag_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
   },
-  supports_importance = FALSE,
+  supports_importance = TRUE,
   supports_uncertainty = FALSE,
   supports_future = TRUE,
   diagnostics = list(coefficients = FALSE, cv_auc = TRUE, cv_tss = TRUE),

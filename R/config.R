@@ -30,6 +30,7 @@ sdm_default_thinning_mode <- "auto"
 sdm_default_thinning_distance_km <- 10
 sdm_default_worldclim_res <- 10
 sdm_default_seed <- 42L
+sdm_default_n_perm <- 5L
 sdm_default_model_id <- "glm"
 sdm_default_rangebag_n_bags <- 100L
 sdm_default_rangebag_fraction <- 0.5

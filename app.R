@@ -38,6 +38,8 @@ ensure_sdm_packages(c("shiny", "bslib", "terra"), n_cores = default_cores)
 suppressPackageStartupMessages({
   library(shiny)
   library(bslib)
+  library(leaflet)
+  library(sf)
 })
 
 options(shiny.maxRequestSize = 300 * 1024^2)
@@ -56,7 +58,9 @@ ui <- fluidPage(
 
   tags$style(HTML("\n    .hero { padding:12px 20px; margin:8px 0 10px; border-radius:16px; }\n    .hero h1 { font-size:1.55rem; margin-bottom:1px; } .hero p { font-size:.92rem; }\n    .control-panel { display:flex; flex-direction:column; height:calc(100vh - 94px); max-height:calc(100vh - 94px); padding:12px; overflow:hidden; }\n    .control-scroll { flex:1 1 auto; min-height:0; overflow:auto; padding-right:3px; }\n    .control-panel .form-group { margin-bottom:.62rem; }\n    .control-section { border:1px solid #e7edf4; border-radius:14px; padding:10px 12px; margin-bottom:10px; background:#fbfdff; }\n    .control-section h4 { margin:0 0 8px; }\n    details.control-section { padding:0; overflow:hidden; }\n    details.control-section > summary { cursor:pointer; padding:10px 12px; font-weight:800; color:#0B4F4A; list-style:none; }\n    details.control-section > summary::-webkit-details-marker { display:none; }\n    details.control-section > summary:after { content:'+'; float:right; color:#5d6d7e; }\n    details.control-section[open] > summary:after { content:'-'; }\n    .details-body { padding:0 12px 10px; }\n    .run-button-wrap { flex:0 0 auto; position:static; bottom:auto; background:white; border-top:1px solid #e7edf4; margin-top:8px; padding-top:10px; }\n    .main-panel { padding-top:0; }\n    .content-card { padding:14px; margin-bottom:12px; }\n    .metric-grid { grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px; margin-bottom:10px; }\n    .metric-card { padding:12px; }\n    .metric-value { font-size:1.45rem; }\n    .status-ok,.status-warn,.status-error,.status-info { margin-bottom:10px; padding:10px 12px; }\n    .preflight-compact .readiness-grid { display:none; }\n    .preflight-compact { padding:10px 12px; }\n    .summary-list { display:grid; gap:6px; }\n    .summary-row { display:grid; grid-template-columns:minmax(105px,38%) 1fr; gap:8px; padding:6px 0; border-bottom:1px solid #edf2f7; }\n    .summary-row:last-child { border-bottom:0; }\n    .summary-label { color:#5d6d7e; font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; font-weight:800; }\n    .summary-value { color:#102a43; font-weight:650; overflow-wrap:anywhere; }\n    .downloads-row .btn { margin:0 8px 8px 0; }\n    @media (max-width: 991px) { .control-panel { position:static; height:auto; max-height:none; overflow:visible; } .control-scroll { overflow:visible; } .metric-grid { grid-template-columns:repeat(2,minmax(140px,1fr)); } }\n  ")),
 
-  tags$style(HTML("\n    .status-ok,.status-warn,.status-error,.status-info { overflow-wrap:anywhere; }\n    .status-ok:focus,.status-warn:focus,.status-error:focus,.status-info:focus,\n    .btn:focus-visible,.form-control:focus,.form-select:focus,input[type='radio']:focus-visible,input[type='checkbox']:focus-visible,summary:focus-visible { outline:3px solid #4cc9b0; outline-offset:2px; box-shadow:0 0 0 .2rem rgba(76,201,176,.25); }\n    @media (max-width: 991px) {\n      .control-panel { position:static; height:auto; max-height:none; margin-bottom:12px; }\n      .control-scroll { overflow:visible; }\n      .run-button-wrap { position:sticky; bottom:0; z-index:10; padding-bottom:8px; }\n      .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }\n      .main-panel .content-card { overflow-x:auto; }\n    }\n    @media (max-width: 575px) {\n      .hero { padding:14px; }\n      .metric-grid,.summary-row { grid-template-columns:1fr; }\n      .metric-value { font-size:1.3rem; }\n      .content-card { padding:12px; }\n    }\n  ")),
+  tags$style(HTML("\n    .status-ok,.status-warn,.status-error,.status-info { overflow-wrap:anywhere; }\n    .status-ok:focus,.status-warn:focus,.status-error:focus,.status-info:focus,\n    .btn:focus-visible,.form-control:focus,.form-select:focus,input[type='radio']:focus-visible,input[type='checkbox']:focus-visible,summary:focus-visible { outline:3px solid #4cc9b0; outline-offset:2px; box-shadow:0 0 0 .2rem rgba(76,201,176,.25); }\n    @media (max-width: 991px) {\n      .control-panel { position:static; height:auto; max-height:none; margin-bottom:12px; }\n      .control-scroll { overflow:visible; }\n      .run-button-wrap { position:sticky; bottom:0; z-index:10; padding-bottom:8px; }\n      .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }\n      .main-panel .content-card { overflow-x:auto; }\n    }\n    @media (max-width: 575px) {\n      .hero { padding:14px; }\n      .metric-grid,.summary-row { grid-template-columns:1fr; }\n      .metric-value { font-size:1.3rem; }\n      .content-card { padding:12px; }
+    .map-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:8px; padding:8px 0; border-top:1px solid #e7edf4; }
+    .map-controls .form-group { margin-bottom:0; }\n    }\n  ")),
 
   tags$style(HTML(sdm_theme_css)),
 
@@ -81,12 +85,33 @@ ui <- fluidPage(
         h4("Input data"),
         textInput("species", "Species/model label", value = sdm_initial_species),
         radioButtons("data_source", "Observation record source",
-          choices = stats::setNames(c("upload", "project", "demo"), c("Upload file", paste0("Project ", sdm_default_occurrence_file), "Synthetic demo")),
+          choices = stats::setNames(c("upload", "gbif", "project", "demo"), c("Upload file", "GBIF", paste0("Project ", sdm_default_occurrence_file), "Synthetic demo")),
           selected = if (file.exists(sdm_default_occurrence_file)) "project" else "demo"
         ),
         conditionalPanel("input.data_source == 'upload'", fileInput("occ_file", "Observation record CSV/TSV", accept = c(".csv", ".tsv", ".txt"))),
+        conditionalPanel("input.data_source == 'gbif'",
+          textInput("gbif_taxon", "Species name", placeholder = "e.g., Acacia mearnsii"),
+          textInput("gbif_country", "Country filter (optional)", placeholder = "e.g., AU"),
+          numericInput("gbif_max_records", "Max records to fetch", value = 100, min = 10, max = 10000),
+          actionButton("fetch_gbif", "Fetch from GBIF"),
+          tags$details(
+            tags$summary("Use GBIF API token for unlimited access"),
+            p("Get a free token at ",
+              a("gbif.org/user/settings", href = "https://www.gbif.org/user/settings", target = "_blank")),
+            textInput("gbif_token", "GBIF API token (optional)"),
+            p(class = "small-muted", "Tokens allow downloading >10,000 records and capture DOI for reproducibility")
+          ),
+          uiOutput("gbif_status")
+        ),
         uiOutput("occurrence_source_status"),
-        div(class = "small-muted", "If the selected source is unavailable, the app falls back to project data, then demo data when possible.")
+        div(class = "small-muted", "If the selected source is unavailable, the app falls back to project data, then demo data when possible."),
+        checkboxInput("use_coordinatecleaner", "Advanced cleaning (CoordinateCleaner)"),
+        conditionalPanel("input.use_coordinatecleaner == true",
+          p(class = "small-muted",
+            "Flags: sea coordinates, biodiversity institutions, capital cities,",
+            "country centroids, urban areas, zero coordinates."),
+          actionButton("view_flagged", "View flagged records (opens in table)")
+        )
       ),
       div(class = "control-section",
         h4("Climate data"),
@@ -133,6 +158,13 @@ ui <- fluidPage(
               value = 1.0, min = 0.1, max = 10, step = 0.1)
           ),
           div(class = "small-muted", "Rangebagging is experimental; GLM remains the stable default."),
+          conditionalPanel("input.model_id == 'biomod2'",
+            checkboxGroupInput("biomod2_models", "biomod2 algorithms",
+              choices = c("GLM" = "GLM", "GAM" = "GAM", "MaxEnt (MAXNET)" = "MAXNET", "Random Forest" = "RF"),
+              selected = c("GLM", "MAXNET", "RF")),
+            checkboxInput("biomod2_ensemble", "Build ensemble forecast", value = TRUE),
+            div(class = "small-muted", "Note: biomod2 backend requires options(sdm.enable_biomod2 = TRUE) and restart.")
+          ),
           numericInput("background_n", "Background points", value = sdm_default_background_n, min = 500, max = 100000, step = 500),
           numericInput("min_source_records", "Merge sources with fewer than", value = sdm_default_min_source_records, min = 1, max = 100, step = 1),
           checkboxInput("thin_by_cell", "Thin duplicate records in the same climate cell", value = TRUE),
@@ -141,7 +173,20 @@ ui <- fluidPage(
           selectInput("cv_folds", "Cross-validation", choices = c("Off" = "0", "3-fold" = "3", "5-fold" = "5"), selected = as.character(sdm_default_cv_folds)),
           numericInput("n_cores", "CPU cores for compile/predict/CV", value = default_cores, min = 1, max = detect_available_cores(TRUE), step = 1),
           div(class = "small-muted", "Also sets MAKEFLAGS=-jN for source package compilation."),
-          numericInput("aggregation_factor", "Raster aggregation for speed (1 = native)", value = sdm_default_aggregation_factor, min = 1, max = 8, step = 1)
+          numericInput("aggregation_factor", "Raster aggregation for speed (1 = native)", value = sdm_default_aggregation_factor, min = 1, max = 8, step = 1),
+          selectInput("bias_method", "Background sampling bias correction",
+            choices = c("Uniform random (default)" = "uniform",
+                        "Target-group (requires related species CSV)" = "target_group",
+                        "Thickened (concentrate around presences)" = "thickened")),
+          conditionalPanel("input.bias_method == 'target_group'",
+            fileInput("target_group_file", "Upload related species occurrences (CSV)",
+              accept = c(".csv")),
+            div(class = "small-muted", "One record per row with longitude and latitude columns.")
+          ),
+          conditionalPanel("input.bias_method == 'thickened'",
+            numericInput("thickening_distance_km", "Kernel distance (km)",
+              value = 10, min = 1, max = 100)
+          )
         )
       ),
       div(class = "control-section",
@@ -166,9 +211,41 @@ ui <- fluidPage(
     mainPanel(width = 9,
       uiOutput("status_banner"), uiOutput("preflight_panel"), uiOutput("metric_cards"),
       tabsetPanel(id = "tabs",
-        tabPanel("Dashboard", br(), fluidRow(column(8, div(class = "content-card map-card", div(class = "map-title-row", h4("Current suitability"), span("Australia-first map view")), plotOutput("suitability_plot", height = "56vh"))), column(4, div(class = "content-card", h4("Projection summary"), uiOutput("summary_panel"))))),
+        tabPanel("Dashboard", br(), fluidRow(column(8, div(class = "content-card map-card",
+          div(class = "map-title-row", h4("Current suitability"), span("Interactive map view")),
+          leafletOutput("suitability_map", height = "56vh"),
+          div(class = "map-controls",
+            checkboxInput("show_presence", "Show presence points", value = TRUE),
+            checkboxInput("show_background", "Show background points", value = FALSE),
+            checkboxInput("show_mess", "Show MESS extrapolation", value = FALSE),
+            selectInput("suitability_display", "Suitability display",
+              choices = c("Continuous" = "continuous", "Binary (threshold)" = "binary"),
+              selected = "continuous")
+          )), column(4, div(class = "content-card", h4("Projection summary"), uiOutput("summary_panel"))))),
         tabPanel("Future projection", br(), fluidRow(column(6, div(class = "content-card", h4("Future suitability"), plotOutput("future_plot", height = "48vh"))), column(6, div(class = "content-card", h4("Suitability delta"), plotOutput("delta_plot", height = "48vh"))))),
-        tabPanel("Observation records", br(), fluidRow(column(7, div(class = "content-card", plotOutput("occurrence_plot", height = "50vh"))), column(5, div(class = "content-card", h4("Top observation sources"), tableOutput("source_table"))))),
+        tabPanel("Observation records", br(),
+  fluidRow(
+    column(7,
+      div(class = "content-card",
+        h4("Occurrence map"),
+        p("Click a marker to flag for removal. Flagged records shown in red."),
+        leafletOutput("occurrence_cleaning_map", height = "45vh"),
+        br(),
+        actionButton("remove_flagged_map", "Remove flagged records"),
+        actionButton("clear_flags", "Clear flags")
+      )
+    ),
+    column(5,
+      div(class = "content-card",
+        h4("Observation sources"),
+        tableOutput("source_table"),
+        hr(),
+        h4("Flagged records"),
+        DT::dataTableOutput("flagged_records_table")
+      )
+    )
+  )
+),
         tabPanel("Model diagnostics", br(), fluidRow(column(7, div(class = "content-card", h4("Coefficient summary"), tableOutput("coef_table"))), column(5, div(class = "content-card", h4("Run log"), p(class = "small-muted", "Warnings and progress messages from the latest run."), verbatimTextOutput("run_log"))))),
         tabPanel("Downloads", br(), div(class = "content-card", h4("Export results"), p("Downloads are enabled after a successful run."), div(class = "downloads-row", downloadButton("download_tif", "Download GeoTIFF"), downloadButton("download_png", "Download PNG map"), downloadButton("download_future_tif", "Download future GeoTIFF"), downloadButton("download_delta_tif", "Download delta GeoTIFF"), downloadButton("download_occ", "Download cleaned observation records"), downloadButton("download_report", "Download text report"), downloadButton("download_sidecars", "Download sidecar rasters")), div(class = "downloads-row", downloadButton("download_odmap_csv", "Download ODMAP report (CSV)"), downloadButton("download_odmap_md", "Download ODMAP report (Markdown)")), uiOutput("sidecar_download_note")))
       )
@@ -177,7 +254,7 @@ ui <- fluidPage(
 )
 
 server <- function(input, output, session) {
-  rv <- reactiveValues(result = NULL, log = "Ready.\n", error = NULL, running = FALSE)
+  rv <- reactiveValues(result = NULL, log = "Ready.\n", error = NULL, running = FALSE, gbif_temp_file = NULL, gbif_doi = NULL, cleaned_occurrence = NULL)
   append_log <- function(message) rv$log <- paste0(rv$log, format(Sys.time(), "%H:%M:%S"), "  ", message, "\n")
   last_auto_species <- reactiveVal(sdm_initial_species)
   species_manually_set <- reactiveVal(FALSE)
@@ -185,13 +262,66 @@ server <- function(input, output, session) {
     symbol <- switch(state, ok = "OK", warn = "!", error = "!", "i")
     div(class = "readiness-item", div(class = "readiness-title", span(class = paste("pill", paste0("pill-", state)), symbol), title), div(class = "readiness-detail", detail))
   }
+
+  observeEvent(input$fetch_gbif, {
+    req(input$gbif_taxon)
+    output$gbif_status <- renderUI(p("Fetching from GBIF..."))
+    tryCatch({
+      if (nzchar(input$gbif_token)) {
+        result <- read_gbif_download(
+          taxon = input$gbif_taxon,
+          country = if (nzchar(input$gbif_country)) input$gbif_country else NULL,
+          token = input$gbif_token
+        )
+        occ_df <- result$occurrences
+        rv$gbif_doi <- result$doi
+      } else {
+        occ_df <- read_gbif_records(
+          taxon = input$gbif_taxon,
+          country = if (nzchar(input$gbif_country)) input$gbif_country else NULL,
+          max_records = input$gbif_max_records,
+          log_fun = append_log
+        )
+        rv$gbif_doi <- if (!is.null(occ_df$gbif_doi[1]) && !is.na(occ_df$gbif_doi[1])) occ_df$gbif_doi[1] else NULL
+      }
+      if (nrow(occ_df) == 0) {
+        output$gbif_status <- renderUI(p(style = "color: red", "No GBIF records found for this species."))
+        return()
+      }
+      temp_file <- tempfile(fileext = ".csv")
+      write.csv(occ_df, temp_file, row.names = FALSE)
+      rv$gbif_temp_file <- temp_file
+      n <- nrow(occ_df)
+      msg <- paste0("Loaded ", n, " records from GBIF")
+      if (!is.null(rv$gbif_doi) && nzchar(rv$gbif_doi)) {
+        msg <- paste0(msg, ". GBIF DOI: ", rv$gbif_doi)
+      }
+      output$gbif_status <- renderUI(p(msg))
+      append_log(msg)
+    }, error = function(e) {
+      output$gbif_status <- renderUI(p(style = "color: red", paste0("Error: ", conditionMessage(e))))
+      append_log(paste0("GBIF fetch error: ", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$data_source, {
+    if (!identical(input$data_source, "gbif")) {
+      rv$gbif_temp_file <- NULL
+      rv$gbif_doi <- NULL
+    }
+  }, ignoreInit = TRUE)
+
   occurrence_source <- function() {
     selected <- if (is.null(input$data_source)) "project" else input$data_source
     uploaded <- !is.null(input$occ_file)
     project_exists <- file.exists(sdm_default_occurrence_file)
     demo_exists <- file.exists(sdm_demo_occurrence_file)
+    gbif_path <- if (!is.null(rv$gbif_temp_file)) rv$gbif_temp_file else NULL
     if (identical(selected, "upload") && uploaded) {
       return(list(path = input$occ_file$datapath, detail = paste("Using uploaded observation records:", input$occ_file$name), state = "ok", issue = NULL))
+    }
+    if (identical(selected, "gbif") && !is.null(gbif_path) && file.exists(gbif_path)) {
+      return(list(path = gbif_path, detail = paste("Using GBIF records for:", input$gbif_taxon), state = "ok", issue = NULL))
     }
     if (identical(selected, "project") && project_exists) {
       return(list(path = sdm_default_occurrence_file, detail = paste("Using project observation records:", sdm_default_occurrence_file), state = "ok", issue = NULL))
@@ -224,11 +354,25 @@ server <- function(input, output, session) {
     }
   })
 
-  cleaned_occurrence <- reactive({
+  observe({
     occurrence <- occurrence_source()
-    if (is.null(occurrence$path)) return(NULL)
-    clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records)
+    if (is.null(occurrence$path)) {
+      rv$cleaned_occurrence <- NULL
+      return()
+    }
+    use_cc <- isTRUE(input$use_coordinatecleaner)
+    cleaned <- clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records, use_cc = use_cc)
+    if (!is.null(cleaned$error)) {
+      rv$cleaned_occurrence <- NULL
+      return()
+    }
+    if (is.null(cleaned$cc_flag)) {
+      cleaned$cc_flag <- FALSE
+    }
+    rv$cleaned_occurrence <- cleaned
   })
+
+  cleaned_occurrence <- reactive(rv$cleaned_occurrence)
 
   output$occurrence_source_status <- renderUI({
     occurrence <- occurrence_source()
@@ -429,7 +573,14 @@ server <- function(input, output, session) {
             future_label = input$future_label,
             maxnet_features = input$maxnet_features %||% sdm_default_maxnet_features,
             maxnet_regmult = input$maxnet_regmult %||% sdm_default_maxnet_regmult,
-            output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = occurrence$detail, log_fun = append_log,
+            bias_method = input$bias_method %||% "uniform",
+            target_group_occ = if (isTRUE(input$bias_method == "target_group") && !is.null(input$target_group_file)) {
+              tryCatch(read.csv(input$target_group_file$datapath, header = TRUE), error = function(e) NULL)
+            } else NULL,
+            thickening_distance_km = if (isTRUE(input$bias_method == "thickened")) input$thickening_distance_km else NULL,
+            cleaned_occurrence = rv$cleaned_occurrence,
+            output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = occurrence$detail,
+            gbif_doi = rv$gbif_doi, log_fun = append_log,
             progress_fun = function(amount, detail) incProgress(amount, detail = detail)
           ),
           warning = function(w) { append_log(paste("Warning:", conditionMessage(w))); invokeRestart("muffleWarning") }
@@ -447,6 +598,68 @@ server <- function(input, output, session) {
   })
 
   output$suitability_plot <- renderPlot({ if (is.null(rv$result)) return(placeholder_plot("No suitability map yet.")); r <- rv$result; plot_suitability_map(r$suitability, r$occurrence, r$config$projection_extent, r$config$species, r$config$threshold, TRUE) })
+
+  output$suitability_map <- renderLeaflet({
+    req(rv$result)
+    r <- rv$result
+
+    map <- render_suitability_leaflet(
+      suitability_raster = terra::rast(r$paths$tif),
+      presence_df = r$occurrence_used %||% r$occurrence,
+      background_df = r$background_used %||% NULL,
+      mess_raster = if (!is.null(r$mess)) terra::rast(r$mess) else NULL,
+      threshold = r$config$threshold %||% 0.5
+    )
+
+    if (!isTRUE(input$show_presence)) {
+      map <- leaflet::hideGroup(map, "presence")
+    }
+    if (!isTRUE(input$show_background)) {
+      map <- leaflet::hideGroup(map, "background")
+    }
+
+    map
+  })
+
+  observeEvent(input$show_presence, {
+    req(output$suitability_map)
+    map <- leaflet::leafletProxy("suitability_map")
+    if (isTRUE(input$show_presence)) {
+      map <- leaflet::showGroup(map, "presence")
+    } else {
+      map <- leaflet::hideGroup(map, "presence")
+    }
+  })
+
+  observeEvent(input$show_background, {
+    req(output$suitability_map)
+    map <- leaflet::leafletProxy("suitability_map")
+    if (isTRUE(input$show_background)) {
+      map <- leaflet::showGroup(map, "background")
+    } else {
+      map <- leaflet::hideGroup(map, "background")
+    }
+  })
+
+  observeEvent(list(input$suitability_display, input$threshold), {
+    req(rv$result, output$suitability_map)
+    r <- rv$result
+    map <- leaflet::leafletProxy("suitability_map")
+
+    if (isTRUE(input$suitability_display == "binary")) {
+      r_wgs84 <- terra::project(terra::rast(r$paths$tif), "EPSG:4326")
+      r_bin <- r_wgs84
+      terra::values(r_bin) <- ifelse(terra::values(r_wgs84) >= input$threshold, 1, 0)
+      colors <- c("#FFFFFF00", "#E34B35")
+      map <- map %>% leaflet::addRasterImage(r_bin, opacity = 0.6,
+                                              layerId = "suitability",
+                                              project = FALSE, colors = colors)
+    } else {
+      r_wgs84 <- terra::project(terra::rast(r$paths$tif), "EPSG:4326")
+      map <- map %>% leaflet::addRasterImage(r_wgs84, opacity = 0.7,
+                                              layerId = "suitability", project = FALSE)
+    }
+  })
   output$future_plot <- renderPlot({ if (is.null(rv$result) || is.null(rv$result$future)) return(placeholder_plot("Run with future projection enabled to view a future suitability map.")); r <- rv$result; plot_suitability_map(r$future$suitability, r$occurrence, r$config$projection_extent, paste(r$config$species, r$config$future_label), r$config$threshold, TRUE) })
   output$delta_plot <- renderPlot({ if (is.null(rv$result) || is.null(rv$result$future)) return(placeholder_plot("Run with future projection enabled to view current-to-future change.")); plot_delta_map(rv$result$future$delta, rv$result$config$future_label) })
   output$occurrence_plot <- renderPlot({ if (is.null(rv$result)) return(placeholder_plot("No occurrence map yet.")); plot_occurrence_map(rv$result$occurrence, rv$result$config$species) })
@@ -474,6 +687,77 @@ server <- function(input, output, session) {
     )
   })
   output$source_table <- renderTable({ r <- rv$result; if (is.null(r)) return(data.frame(Message = "Run the model to view observation source counts.")); head(data.frame(Source = names(r$source_counts), Records = as.integer(r$source_counts), row.names = NULL), 25) }, striped = TRUE, hover = TRUE, spacing = "s")
+
+  output$occurrence_cleaning_map <- renderLeaflet({
+    req(rv$cleaned_occurrence)
+
+    occ <- rv$cleaned_occurrence
+
+    colors <- ifelse(is.na(occ$cc_flag) | occ$cc_flag == FALSE, "blue", "red")
+
+    leaflet::leaflet(occ) %>%
+      leaflet::addTiles() %>%
+      leaflet::addCircleMarkers(
+        lng = ~longitude, lat = ~latitude,
+        color = colors,
+        fillOpacity = 0.7,
+        radius = 5,
+        layerId = ~seq_len(nrow(occ)),
+        popup = ~paste0("Row ", seq_len(nrow(occ)), "<br>",
+                        "Species: ", species, "<br>",
+                        "Source: ", source)
+      )
+  })
+
+  observeEvent(input$occurrence_cleaning_map_marker_click, {
+    req(rv$cleaned_occurrence)
+
+    click <- input$occurrence_cleaning_map_marker_click
+    row_idx <- as.integer(click$id)
+
+    if (!is.na(row_idx) && row_idx <= nrow(rv$cleaned_occurrence)) {
+      current_flag <- rv$cleaned_occurrence$cc_flag[row_idx]
+      rv$cleaned_occurrence$cc_flag[row_idx] <- !current_flag
+    }
+  })
+
+  observeEvent(input$remove_flagged_map, {
+    req(rv$cleaned_occurrence)
+
+    keep <- is.na(rv$cleaned_occurrence$cc_flag) | rv$cleaned_occurrence$cc_flag == FALSE
+    rv$cleaned_occurrence <- rv$cleaned_occurrence[keep, ]
+
+    leaflet::leafletProxy("occurrence_cleaning_map") %>%
+      leaflet::clearMarkers() %>%
+      leaflet::addCircleMarkers(
+        data = rv$cleaned_occurrence,
+        lng = ~longitude, lat = ~latitude,
+        color = "blue", fillOpacity = 0.7, radius = 5,
+        layerId = ~seq_len(nrow(rv$cleaned_occurrence))
+      )
+  })
+
+  observeEvent(input$clear_flags, {
+    req(rv$cleaned_occurrence)
+
+    rv$cleaned_occurrence$cc_flag <- FALSE
+  })
+
+  output$flagged_records_table <- DT::renderDataTable({
+    req(rv$cleaned_occurrence)
+
+    flagged <- rv$cleaned_occurrence[!is.na(rv$cleaned_occurrence$cc_flag) & rv$cleaned_occurrence$cc_flag == TRUE, ]
+
+    if (nrow(flagged) == 0) {
+      return(DT::datatable(data.frame(Message = "No flagged records"), options = list(dom = "t")))
+    }
+
+    DT::datatable(
+      flagged[, c("longitude", "latitude", "species", "source", "cc_flag")],
+      options = list(dom = "t", pageLength = 10),
+      rownames = FALSE
+    )
+  })
   output$coef_table <- renderTable({
     r <- rv$result
     if (is.null(r)) return(data.frame(Message = "Run the model to view diagnostics."))
@@ -485,6 +769,15 @@ server <- function(input, output, session) {
     co
   }, striped = TRUE, hover = TRUE, spacing = "s")
   output$run_log <- renderText(rv$log)
+  observeEvent(input$remove_flagged, {
+    req(rv$result)
+    occ <- rv$result$occurrence
+    if (!is.null(occ$cc_flag)) {
+      rv$result$occurrence <- occ[is.na(occ$cc_flag) | occ$cc_flag == FALSE, ]
+      rv$result$occurrence_used <- rv$result$occurrence
+      append_log("Removed CoordinateCleaner-flagged records from current result.")
+    }
+  })
   output$sidecar_download_note <- renderUI({
     r <- rv$result
     if (is.null(r)) return(NULL)

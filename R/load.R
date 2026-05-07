@@ -16,6 +16,7 @@ modules <- c(
   "predictor_selection.R",
   "metrics_binary.R",
   "cv_folds.R",
+  "importance.R",
   "boundary.R",
   "model_glm.R",
   "model_gam.R",
