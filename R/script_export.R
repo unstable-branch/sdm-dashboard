@@ -152,12 +152,4 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
   invisible(path)
 }
 
-safe_slug <- function(x) {
-  if (is.null(x) || !nzchar(x)) return("untitled")
-  x <- gsub("[^a-zA-Z0-9]", "_", x)
-  x <- gsub("_+", "_", x)
-  x <- gsub("^_|_$", "", x)
-  tolower(x)
-}
-
 `%||%` <- function(x, y) if (is.null(x)) y else x

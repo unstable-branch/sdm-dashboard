@@ -12,7 +12,9 @@ progress_step <- function(progress_fun = NULL, amount = 0, detail = NULL) {
 }
 
 safe_slug <- function(x) {
-  x <- tolower(trimws(as.character(x)))
+  x <- as.character(x)[1]
+  if (is.na(x) || !nzchar(trimws(x))) return("sdm")
+  x <- tolower(trimws(x))
   x <- gsub("[^a-z0-9]+", "_", x)
   x <- gsub("(^_+|_+$)", "", x)
   ifelse(nchar(x) == 0, "sdm", x)

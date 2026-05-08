@@ -213,8 +213,6 @@ read_gbif_download <- function(taxon, country = NULL, token,
     stop("rgbif package required for GBIF downloading. Install with: install.packages('rgbif')")
   }
 
-  Sys.setenv(GBIF_API_KEY = token)
-
   taxon_key <- rgbif::name_backbone(taxon)$speciesKey
 
   pred_list <- list(

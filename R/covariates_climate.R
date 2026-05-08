@@ -11,10 +11,12 @@ find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("wo
       pattern <- sprintf("bio_?%d\\.tif$", bv)
       hit <- files[grepl(pattern, basename(files), ignore.case = TRUE, perl = TRUE)]
     } else {
-      pattern1 <- sprintf("CHELSA_bio%d_.*\\.tif$", bv)
-      pattern2 <- sprintf("CHELSA_bio0%d_.*\\.tif$", bv)
+      if (bv < 10) {
+        pattern1 <- sprintf("CHELSA_bio0%d_.*\\.tif$", bv)
+      } else {
+        pattern1 <- sprintf("CHELSA_bio%d_.*\\.tif$", bv)
+      }
       hit <- files[grepl(pattern1, basename(files), ignore.case = TRUE)]
-      if (length(hit) == 0) hit <- files[grepl(pattern2, basename(files), ignore.case = TRUE)]
     }
     if (length(hit) == 0) NA_character_ else hit[1]
   }, character(1))

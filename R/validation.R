@@ -31,3 +31,17 @@ normalize_threshold <- function(threshold = sdm_default_threshold) {
   }
   threshold
 }
+
+normalize_cv_strategy <- function(x) {
+  x <- tolower(as.character(x)[1])
+  if (x %in% c("spatial_blocks", "spatial_block", "spatial blocks", "spatial block")) {
+    "spatial_blocks"
+  } else {
+    "random"
+  }
+}
+
+normalize_cv_block_size_km <- function(x) {
+  v <- suppressWarnings(as.numeric(x)[1])
+  if (is.finite(v) && v > 0) v else NA_real_
+}
