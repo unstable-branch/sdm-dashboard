@@ -74,7 +74,8 @@ cross_validate_maxnet <- function(model_data, covariates, maxnet_features, maxne
     parallel_result <- tryCatch({
       cl <- parallel::makeCluster(n_cores)
       on.exit(parallel::stopCluster(cl), add = TRUE)
-      parallel::clusterExport(cl, c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "normalize_threshold", "maxnet"), envir = globalenv())
+      parallel::clusterEvalQ(cl, library(maxnet, quietly = TRUE))
+      parallel::clusterExport(cl, c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "make.names"), envir = environment())
       rows <- parallel::parLapply(cl, seq_len(k), fit_one_fold,
                                    model_data_arg = model_data, fold_id_arg = fold_id,
                                    covariates_arg = covariates, maxnet_features_arg = maxnet_features,

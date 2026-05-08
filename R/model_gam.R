@@ -1,7 +1,6 @@
 # Generalized Additive Model SDM backend.
 
 make_gam_formula <- function(covariates, data = NULL, max_k = 5) {
-  covariates <- make.names(covariates)
   terms <- vapply(covariates, function(covariate) {
     unique_n <- if (!is.null(data) && covariate %in% names(data)) {
       length(unique(stats::na.omit(data[[covariate]])))
