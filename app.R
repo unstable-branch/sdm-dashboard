@@ -231,8 +231,20 @@ server <- function(input, output, session) {
       warnings <- c(warnings, "WorldClim download is enabled for missing BIO layers.")
     } else if (length(missing_climate) > 0) {
       climate_state <- "error"
-      climate_detail <- paste0(climate_detail, "; missing BIO", paste(missing_climate, collapse = ", BIO"), ".")
-      issues <- c(issues, "Enable WorldClim download or add the missing BIO layers.")
+      missing_biovars <- paste(missing_climate, collapse = ", BIO")
+      climate_detail <- paste0(climate_detail, "; missing BIO", missing_biovars, ".")
+      clim_src <- if (is.null(input$climate_source)) "worldclim" else input$climate_source
+      if (identical(clim_src, "chelsa")) {
+        expected_patterns <- vapply(as.integer(missing_climate), function(bv) {
+          if (bv < 10) sprintf("CHELSA_bio0%d_*.tif", bv) else sprintf("CHELSA_bio%d_*.tif", bv)
+        }, character(1))
+        issues <- c(issues, paste0("Add missing CHELSA v2.1 BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), ")."))
+      } else {
+        expected_patterns <- vapply(as.integer(missing_climate), function(bv) {
+          sprintf("bio_%d.tif  or  wc2.1_%sm_bio_%d.tif", bv, input$worldclim_res, bv)
+        }, character(1))
+        issues <- c(issues, paste0("Add missing WorldClim BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), "), or check 'Download missing WorldClim/elevation layers'."))
+      }
     }
 
     elevation_state <- "info"
