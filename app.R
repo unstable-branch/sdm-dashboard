@@ -384,15 +384,15 @@ server <- function(input, output, session) {
     occurrence_file <- occurrence$path
     if (is.null(occurrence_file)) {
       rv$error <- paste("No observation record file found. Upload a CSV/TSV, add", sdm_default_occurrence_file, "to the project folder, or restore the demo dataset.")
-      append_log(rv$error); return(invisible(NULL))
+      append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
     }
     if (length(input$biovars) < 2) {
       rv$error <- "Select at least two BIOCLIM variables."
-      append_log(rv$error); return(invisible(NULL))
+      append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
     }
     if (isTRUE(input$use_soil) && length(input$soil_vars) == 0) {
       rv$error <- "Select at least one HWSD soil property, or turn soil covariates off."
-      append_log(rv$error); return(invisible(NULL))
+      append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
     }
     projection_extent <- extent_from_inputs(input, cleaned_occurrence())
     species_label <- trimws(input$species %||% "")
