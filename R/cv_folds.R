@@ -36,6 +36,13 @@ make_cv_folds_spatial_blocks <- function(x, y, presence, k = sdm_default_cv_fold
   k <- as.integer(k)
   presence <- as.integer(presence)
   if (is.na(k) || k < 2) return(list(fold_id = rep(0L, length(presence)), block_size_km = NA_real_, block_size_mode = "off", block_id = character(length(presence))))
+  unique_vals <- unique(presence)
+  if (length(setdiff(unique_vals, 0:1)) > 0) {
+    warning("make_cv_folds_spatial_blocks: 'presence' must be 0/1; falling back to random CV.", call. = FALSE)
+    return(list(fold_id = make_cv_folds_random(presence, k = k, seed = seed),
+                block_size_km = NA_real_, block_size_mode = "off+invalid-presence",
+                block_id = character(length(presence))))
+  }
   if (!is.finite(block_size_km) || block_size_km <= 0) {
     block_size_km <- estimate_cv_block_size_km(x, y, k)
     block_size_mode <- "auto"
