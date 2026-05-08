@@ -92,21 +92,6 @@ compute_mod <- function(per_variable_mess) {
 
   mod <- terra::app(all_rasts, function(x) {
     if (all(is.na(x))) return(NA)
-    which.min(x) - 1L
-  })
-
-  mod <- mod + 1
-
-  mod <- terra::classify(mod, rcl = matrix(0:1, ncol = 2), right = FALSE)
-
-  if (n_vars <= 1) {
-    mod[] <- 1
-    names(mod) <- "MOD"
-    return(mod)
-  }
-
-  mod <- terra::app(all_rasts, function(x) {
-    if (all(is.na(x))) return(NA)
     which.min(x)
   })
   names(mod) <- "MOD"
