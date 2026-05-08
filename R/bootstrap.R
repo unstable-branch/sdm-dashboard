@@ -43,7 +43,11 @@ sdm_find_project_root <- function(start = NULL) {
 }
 
 sdm_set_project_root <- function(start = NULL) {
-  root <- sdm_find_project_root(start)
+  if (!is.null(start) && length(start) > 0 && !is.na(start) && nzchar(start)) {
+    root <- normalizePath(start, winslash = "/", mustWork = TRUE)
+  } else {
+    root <- sdm_find_project_root(start)
+  }
   setwd(root)
   assign(".__sdm_project_root", root, envir = .GlobalEnv)
   invisible(root)

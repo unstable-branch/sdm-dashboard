@@ -61,7 +61,9 @@ ui <- fluidPage(
 
   tags$style(HTML("\n    .status-ok,.status-warn,.status-error,.status-info { overflow-wrap:anywhere; }\n    .status-ok:focus,.status-warn:focus,.status-error:focus,.status-info:focus,\n    .btn:focus-visible,.form-control:focus,.form-select:focus,input[type='radio']:focus-visible,input[type='checkbox']:focus-visible,summary:focus-visible { outline:3px solid #4cc9b0; outline-offset:2px; box-shadow:0 0 0 .2rem rgba(76,201,176,.25); }\n    @media (max-width: 991px) {\n      .control-panel { position:static; height:auto; max-height:none; margin-bottom:12px; }\n      .control-scroll { overflow:visible; }\n      .run-button-wrap { position:sticky; bottom:0; z-index:10; padding-bottom:8px; }\n      .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }\n      .main-panel .content-card { overflow-x:auto; }\n    }\n    @media (max-width: 575px) {\n      .hero { padding:14px; }\n      .metric-grid,.summary-row { grid-template-columns:1fr; }\n      .metric-value { font-size:1.3rem; }\n      .content-card { padding:12px; }
     .map-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:8px; padding:8px 0; border-top:1px solid #e7edf4; }
-    .map-controls .form-group { margin-bottom:0; }\n    }\n  ")),
+    .map-controls .form-group { margin-bottom:0; }
+    .btn-primary:disabled, .btn-primary.disabled { background:#6c757d !important; cursor:not-allowed; opacity:0.6; }
+  ")),
 
   tags$style(HTML(sdm_theme_css)),
 
@@ -69,10 +71,7 @@ ui <- fluidPage(
 
   sidebarLayout(
     sidebarPanel(width = 3, class = "control-panel",
-      div(class = "control-scroll",
-        ui_sidebar_controls()
-      ),
-      div(class = "run-button-wrap", actionButton("run_model", "Run SDM", class = "btn-primary btn-lg", width = "100%"))
+      ui_sidebar_controls()
     ),
 
     ui_main_tabs()
@@ -322,7 +321,11 @@ server <- function(input, output, session) {
   })
 
   observe({
-    session$sendCustomMessage("setRunState", list(running = isTRUE(rv$running)))
+    tryCatch({
+      session$sendCustomMessage("setRunState", list(running = isTRUE(rv$running)))
+    }, error = function(e) {
+      message("Warning: setRunState message failed: ", conditionMessage(e))
+    })
   })
 
   output$maxnet_install_hint <- renderUI({
@@ -357,9 +360,14 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$run_model, {
-    if (isTRUE(rv$running)) return(invisible(NULL))
+    message("SDM: Run SDM button clicked")
+    if (isTRUE(rv$running)) {
+      message("SDM: Already running, ignoring click")
+      return(invisible(NULL))
+    }
     rv$error <- NULL; rv$running <- TRUE; rv$log <- ""
-    on.exit({ rv$running <- FALSE }, add = TRUE)
+    message("SDM: Starting model run")
+    on.exit({ rv$running <- FALSE; message("SDM: Model run finished") }, add = TRUE)
     occurrence <- occurrence_source()
     occurrence_file <- occurrence$path
     if (is.null(occurrence_file)) {
@@ -428,6 +436,7 @@ server <- function(input, output, session) {
   output$suitability_map <- renderLeaflet({
     req(rv$result)
     r <- rv$result
+    req(file.exists(r$paths$tif), "Output TIFF not found")
 
     map <- render_suitability_leaflet(
       suitability_raster = terra::rast(r$paths$tif),
@@ -530,8 +539,8 @@ server <- function(input, output, session) {
         radius = 5,
         layerId = ~seq_len(nrow(occ)),
         popup = ~paste0("Row ", seq_len(nrow(occ)), "<br>",
-                        "Species: ", species, "<br>",
-                        "Source: ", source)
+                         "Species: ", if("species" %in% names(occ)) species else "N/A", "<br>",
+                         "Source: ", source)
       )
   })
 
@@ -541,10 +550,11 @@ server <- function(input, output, session) {
     click <- input$occurrence_cleaning_map_marker_click
     row_idx <- as.integer(click$id)
 
-    if (!is.na(row_idx) && row_idx <= nrow(rv$cleaned_occurrence)) {
-      current_flag <- rv$cleaned_occurrence$cc_flag[row_idx]
-      rv$cleaned_occurrence$cc_flag[row_idx] <- !current_flag
+    if (is.na(row_idx) || row_idx < 1 || row_idx > nrow(rv$cleaned_occurrence)) {
+      return()
     }
+    current_flag <- rv$cleaned_occurrence$cc_flag[row_idx]
+    rv$cleaned_occurrence$cc_flag[row_idx] <- !current_flag
   })
 
   observeEvent(input$remove_flagged_map, {
@@ -638,5 +648,33 @@ server <- function(input, output, session) {
 
 if (!interactive()) {
   port <- as.integer(Sys.getenv("PORT", "3838"))
+
+  wsl_ip <- NULL
+  if (file.exists("/proc/version") && grepl("microsoft|WSL", readLines("/proc/version", warn = FALSE)[1], ignore.case = TRUE)) {
+    wsl_ip <- tryCatch({
+      con <- pipe("hostname -I 2>/dev/null", open = "r")
+      ip_out <- readLines(con, warn = FALSE)
+      close(con)
+      if (length(ip_out) > 0) {
+        parts <- strsplit(trimws(ip_out[1]), " ")[[1]]
+        parts[nzchar(parts)][1]
+      } else NULL
+    }, error = function(e) NULL)
+  }
+
+  message("")
+  message("========================================")
+  message("SDM Dashboard is running!")
+  message("========================================")
+  message("")
+  message(paste0("Local WSL access: http://localhost:", port))
+  if (!is.null(wsl_ip) && nzchar(wsl_ip)) {
+    message(paste0("Windows browser access: http://", wsl_ip, ":", port))
+  } else {
+    message("Windows browser: Use WSL IP address on port ", port)
+  }
+  message("========================================")
+  message("")
+
   shiny::runApp(shiny::shinyApp(ui, server), host = "0.0.0.0", port = port)
 }

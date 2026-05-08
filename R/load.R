@@ -1,6 +1,10 @@
 # SDM Module Loader - sources all modules in dependency order
 
-mod_dir <- file.path(getwd(), "R")
+mod_dir <- file.path(sdm_project_root(), "R")
+
+if (!dir.exists(mod_dir)) {
+  stop("Module directory not found: ", mod_dir, call. = FALSE)
+}
 
 modules <- c(
   "bootstrap.R",
@@ -38,18 +42,19 @@ for (m in modules) {
   p <- file.path(mod_dir, m)
   if (file.exists(p)) {
     tryCatch(source(p, local = FALSE), error = function(e) {
-      warning("Failed to source ", m, ": ", e$message, call. = FALSE)
+      stop("Failed to source ", m, ": ", e$message, call. = FALSE)
     })
+  } else {
+    stop("Missing required module: ", m, call. = FALSE)
   }
 }
 
 extra <- setdiff(list.files(mod_dir, pattern = "\\.R$"), c(modules, "load.R", "optimized_sdm.R"))
 if (length(extra) > 0) {
-  warning("Auto-sourced modules: ", paste(sort(extra), collapse = ", "))
   for (m in sort(extra)) {
     p <- file.path(mod_dir, m)
     tryCatch(source(p, local = FALSE), error = function(e) {
-      warning("Failed to source ", m, ": ", e$message, call. = FALSE)
+      stop("Failed to auto-source ", m, ": ", e$message, call. = FALSE)
     })
   }
 }
