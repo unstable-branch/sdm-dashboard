@@ -132,6 +132,9 @@ ui_sidebar_controls <- function() {
       div(class = "small-muted", "Provide future BIO GeoTIFFs with matching BIO variable numbers. The model backend is reused; only climate layers are swapped, while static elevation/soil covariates are reused.")
     )
   ),
-  div(class = "run-button-wrap", tags$button(id = "run_model_direct", type = "button", class = "btn btn-primary btn-lg shiny-bound-input", style = "display: block; width: 100%;", onclick = "Shiny.setInputValue('run_model', Date.now())", "Run SDM"))
+  div(class = "run-button-wrap",
+    actionButton("run_model", "Run SDM", class = "btn-primary btn-lg", width = "100%"),
+    div(style = "margin-top: 6px;", actionButton("cancel_model", "Cancel", class = "btn-outline-secondary btn-sm", width = "100%"))
+  )
   )
 }

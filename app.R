@@ -136,6 +136,14 @@ server <- function(input, output, session) {
     }
   }, ignoreInit = TRUE)
 
+  observeEvent(input$cancel_model, {
+    if (!isTRUE(rv$running)) return()
+    message("SDM: Run cancelled by user")
+    rv$running <- FALSE
+    rv$error <- "Run cancelled."
+    append_log("Run cancelled by user.")
+  })
+
   occurrence_source <- function() {
     selected <- if (is.null(input$data_source)) "project" else input$data_source
     uploaded <- !is.null(input$occ_file)
