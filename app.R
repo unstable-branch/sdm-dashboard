@@ -139,6 +139,7 @@ server <- function(input, output, session) {
   observeEvent(input$cancel_model, {
     if (!isTRUE(rv$running)) return()
     message("SDM: Run cancelled by user")
+    options(sdm_cancelled = TRUE)
     rv$running <- FALSE
     rv$error <- "Run cancelled."
     append_log("Run cancelled by user.")
@@ -385,7 +386,7 @@ server <- function(input, output, session) {
       message("SDM: Already running, ignoring click")
       return(invisible(NULL))
     }
-    rv$error <- NULL; rv$running <- TRUE; rv$log <- ""
+    rv$error <- NULL; options(sdm_cancelled = FALSE); rv$running <- TRUE; rv$log <- ""
     message("SDM: Starting model run")
     on.exit({ rv$running <- FALSE; message("SDM: Model run finished") }, add = TRUE)
     occurrence <- occurrence_source()

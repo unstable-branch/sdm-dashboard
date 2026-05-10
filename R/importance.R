@@ -51,6 +51,7 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
 
     drops <- numeric(n_perm)
     for (p in seq_len(n_perm)) {
+      if (isTRUE(getOption("sdm_cancelled"))) break
       shuffled <- model_data
       shuffled[[var]] <- sample(col_vals, size = nrow(model_data), replace = FALSE)
       pred_shuffled <- predict_fun(fit, shuffled)
