@@ -9,6 +9,7 @@ predict_suitability <- function(model, env_project_scaled, output_tif, n_cores =
                        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
   if (n_cores > 1) predict_args$cores <- n_cores
   suit <- tryCatch(do.call(terra::predict, predict_args), error = function(e) {
+    log_message(log_fun, "Prediction error: ", conditionMessage(e))
     if (n_cores > 1) {
       log_message(log_fun, "Parallel terra prediction fell back to single-core mode: ", conditionMessage(e))
       predict_args$cores <- NULL
