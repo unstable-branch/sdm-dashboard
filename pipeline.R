@@ -26,7 +26,7 @@ projection_extent <- sdm_default_projection_extent
 if (identical(sdm_default_extent_preset, "occurrence")) {
   preview <- clean_occurrence_preview(occ_file)
   if (!is.null(preview$error)) stop("Could not derive occurrence extent: ", preview$error, call. = FALSE)
-  projection_extent <- make_training_extent(preview$occ, buffer = 1)
+  projection_extent <- make_training_extent(preview$occ, buffer = 2)
 }
 
 cat("═══════════════════════════════════════════════════════════════\n")

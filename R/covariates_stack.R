@@ -29,8 +29,10 @@ align_covariate_stack <- function(source, template_train, template_project) {
 
 load_extra_covariates <- function(template_train, template_project, training_extent, projection_extent,
                                   use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
-                                  use_soil = FALSE, soil_path = sdm_default_soil_path,
-                                  selected_soil_vars = sdm_default_soil_vars, covariate_cache_dir = sdm_default_covariate_cache_dir,
+                                  use_soil = FALSE,
+                                  selected_soil_vars = sdm_default_soil_vars,
+                                  selected_soil_depths = sdm_default_soil_depths,
+                                  covariate_cache_dir = sdm_default_covariate_cache_dir,
                                   allow_download = TRUE, log_fun = NULL) {
   sources <- list()
   metadata <- list()
@@ -47,7 +49,7 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_soil)) {
-    soil <- load_soil_covariate(soil_path, selected_soil_vars, log_fun)
+    soil <- load_soil_covariate(soil_path = NULL, selected_soil_vars, selected_soil_depths, covariate_cache_dir, allow_download, log_fun)
     if (!is.null(soil)) {
       sources$soil <- soil
       metadata$soil <- list(source = soil$source, variables = soil$variables)
@@ -67,8 +69,10 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
                              aggregation_factor = sdm_default_aggregation_factor, allow_download = TRUE, worldclim_res = sdm_default_worldclim_res,
                              log_fun = NULL, n_cores = NULL,
                              use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
-                             use_soil = FALSE, soil_path = sdm_default_soil_path,
-                             selected_soil_vars = sdm_default_soil_vars, covariate_cache_dir = sdm_default_covariate_cache_dir,
+                             use_soil = FALSE,
+                             selected_soil_vars = sdm_default_soil_vars,
+                             selected_soil_depths = sdm_default_soil_depths,
+                             covariate_cache_dir = sdm_default_covariate_cache_dir,
                              source = sdm_default_climate_source) {
   climate <- load_climate_covariates(worldclim_dir, selected_biovars, training_extent, projection_extent,
                                      aggregation_factor, allow_download, worldclim_res, log_fun, n_cores, source = source)
@@ -77,7 +81,7 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
   env_project <- climate$env_project
   extras <- load_extra_covariates(env_train[[1]], env_project[[1]], training_extent, projection_extent,
                                   use_elevation, elevation_demtype, opentopo_api_key,
-                                  use_soil, soil_path, selected_soil_vars, covariate_cache_dir,
+                                  use_soil, selected_soil_vars, selected_soil_depths, covariate_cache_dir,
                                   allow_download, log_fun)
   if (!is.null(extras$train)) {
     env_train <- c(env_train, extras$train)

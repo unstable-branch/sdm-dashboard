@@ -59,11 +59,16 @@ ui_sidebar_controls <- function() {
         passwordInput("opentopo_api_key", "OpenTopography API key (optional)", value = ""),
         div(class = "small-muted", "Leave blank to use OPENTOPOGRAPHY_API_KEY from your environment. Keys are not saved in outputs.")
       ),
-      checkboxInput("use_soil", "Add HWSD v2 soil covariates", value = FALSE),
+      checkboxInput("use_soil", "Add SoilGrids covariates", value = FALSE),
       conditionalPanel("input.use_soil == true",
-        checkboxGroupInput("soil_vars", "Soil properties", choices = hwsd_soil_choices, selected = sdm_default_soil_vars),
-        textInput("soil_path", "HWSD v2 soil GeoTIFF", value = sdm_default_soil_path),
-        div(class = "small-muted", "Use a local GeoTIFF exported from the HWSD v2 GEE asset. Missing files are skipped with an informational warning.")
+        checkboxGroupInput("soil_vars", "Soil variables",
+                           choices = c("Bulk density" = "bdod", "Coarse fragments" = "cfvo", "Clay content" = "clay",
+                                       "Nitrogen" = "nitrogen", "Soil organic carbon" = "soc", "pH (water)" = "phh2o",
+                                       "Sand content" = "sand", "Silt content" = "silt", "CEC" = "cec"),
+                           selected = sdm_default_soil_vars),
+        checkboxGroupInput("soil_depths", "Depths", choices = c("0-5cm" = "0-5cm", "5-15cm" = "5-15cm", "15-30cm" = "15-30cm", "30-60cm" = "30-60cm", "60-100cm" = "60-100cm", "100-200cm" = "100-200cm"),
+                           selected = c("0-5cm", "30-60cm")),
+        div(class = "small-muted", "SoilGrids (ISRIC) variables downloaded on demand. SoilGrids uses WGS84; reprojection happens automatically.")
       )
     )
   ),
@@ -120,6 +125,12 @@ ui_sidebar_controls <- function() {
     conditionalPanel("input.extent_preset == 'custom'",
       fluidRow(column(6, numericInput("xmin", "xmin", sdm_default_projection_extent[1])), column(6, numericInput("xmax", "xmax", sdm_default_projection_extent[2]))),
       fluidRow(column(6, numericInput("ymin", "ymin", sdm_default_projection_extent[3])), column(6, numericInput("ymax", "ymax", sdm_default_projection_extent[4])))
+    ),
+    conditionalPanel("input.extent_preset == 'boundary_file'",
+      fileInput("boundary_shp", "Upload boundary shapefile or GeoJSON",
+                accept = c(".shp", ".shx", ".dbf", ".prj", ".geojson", ".json"),
+                multiple = FALSE),
+      div(class = "small-muted", "Upload a polygon boundary file to define the projection extent automatically. The bounding box of the geometry is used.")
     )
   ),
   div(class = "control-section",
