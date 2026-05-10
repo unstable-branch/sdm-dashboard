@@ -33,11 +33,21 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
   if (is.na(aggregation_factor) || aggregation_factor < 1) aggregation_factor <- 1
   selected_soil_vars <- unique(as.character(selected_soil_vars))
   selected_soil_vars <- selected_soil_vars[nzchar(selected_soil_vars)]
-  start_time <- Sys.time()
-  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-  dir.create(covariate_cache_dir, recursive = TRUE, showWarnings = FALSE)
+check_cancelled <- function(log_fun = NULL) {
+  if (isTRUE(getOption("sdm_cancelled"))) {
+    log_message(log_fun, "Run cancelled by user")
+    return(TRUE)
+  }
+  FALSE
+}
 
-  progress_step(progress_fun, 0.08, "Cleaning occurrence data")
+start_time <- Sys.time()
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(covariate_cache_dir, recursive = TRUE, showWarnings = FALSE)
+
+if (check_cancelled(log_fun)) return(invisible(NULL))
+
+progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   if (!is.null(occurrence_source) && nzchar(occurrence_source)) log_message(log_fun, "Observation record source: ", occurrence_source)
   if (!is.null(cleaned_occurrence) && is.data.frame(cleaned_occurrence) && nrow(cleaned_occurrence) > 0) {
     log_message(log_fun, "Using pre-cleaned occurrence data with ", nrow(cleaned_occurrence), " records (user-cleaned map)")
@@ -73,11 +83,14 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
     source = source
   )
 
+  if (check_cancelled(log_fun)) return(invisible(NULL))
+
   if (thin_by_cell) {
     progress_step(progress_fun, 0.08, "Thinning duplicate raster-cell records")
     occ <- thin_occurrences_by_cell(occ, env$env_train_scaled[[1]], by_source = FALSE, log_fun = log_fun)
   }
 
+  if (check_cancelled(log_fun)) return(invisible(NULL))
   dropped_vars <- character(0)
   vif_result <- NULL
   if (isTRUE(vif_reduction) && terra::nlyr(env$env_train_scaled) >= 3) {
@@ -111,6 +124,7 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
     }
   }
 
+  if (check_cancelled(log_fun)) return(invisible(NULL))
   progress_step(progress_fun, 0.22, "Fitting model")
   log_message(log_fun, "Model backend: ", model_spec$label)
   extra_args <- if (identical(model_id, "maxnet")) {
@@ -164,6 +178,7 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
     importance_result <- fit$variable_importance
   }
 
+  if (check_cancelled(log_fun)) return(invisible(NULL))
   response_curves <- compute_response_curves(
     fit = fit,
     model_data = fit$model_data,
@@ -171,12 +186,15 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
     n_points = 50
   )
 
+  if (check_cancelled(log_fun)) return(invisible(NULL))
+
   progress_step(progress_fun, 0.24, "Predicting projection raster")
   base_name <- paste0(safe_slug(species), "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
   output_tif <- file.path(output_dir, paste0(base_name, "_suitability.tif"))
   output_png <- file.path(output_dir, paste0(base_name, "_suitability.png"))
   output_report <- file.path(output_dir, paste0(base_name, "_report.txt"))
   suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
+  if (check_cancelled(log_fun)) return(invisible(NULL))
   future <- NULL
   extra_paths <- list()
   if (identical(model_id, "ensemble_glm_rangebag")) {
@@ -205,6 +223,7 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
     extra_paths <- c(extra_paths, future$paths)
   }
 
+  if (check_cancelled(log_fun)) return(invisible(NULL))
   progress_step(progress_fun, 0.08, "Summarising outputs")
   suitability_summary <- summarise_suitability(suit, threshold)
   if (!is.null(future)) future$summary <- summarise_suitability(future$suitability, threshold)
