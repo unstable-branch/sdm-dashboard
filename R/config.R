@@ -9,7 +9,8 @@ sdm_default_worldclim_dir <- "Worldclim"
 sdm_default_future_worldclim_dir <- "Worldclim_future"
 sdm_default_output_dir <- "outputs"
 sdm_default_covariate_cache_dir <- "covariates"
-sdm_default_soil_path <- file.path(sdm_default_covariate_cache_dir, "hwsd_v2", "HWSD_V2_SMU_selected.tif")
+sdm_default_soil_vars <- c("sand", "clay", "phh2o")
+sdm_default_soil_depths <- c("0-5cm", "30-60cm")
 
 config$sdm_australia_boundary_path <- file.path("data", "examples", "geo", "australia.geojson")
 config$sdm_world_boundary_path     <- file.path("data", "examples", "geo", "world_boundary.geojson")
@@ -76,11 +77,6 @@ config$dnn_weight_default <- 0.3
 config$ensemble_method_default <- "weighted_average"
 config$use_rangebag <- FALSE
 
-config$soil_vars_default <- c(
-  'Sand','Silt','Clay','OC','PHH2O','BD','CF','CEC','N','EC','WHC'
-)
-config$soil_depths_default <- c('0-30cm','0-60cm')
-
 sdm_extent_presets <- list(
   "aus_full"   = c(112, 154, -44, -10),
   "aus_north"  = c(112, 154, -26, -10),
@@ -95,7 +91,7 @@ sdm_default_dirs <- c(
   sdm_default_output_dir,
   sdm_default_covariate_cache_dir,
   file.path(sdm_default_covariate_cache_dir, "opentopo"),
-  file.path(sdm_default_covariate_cache_dir, "hwsd_v2"),
+  file.path(sdm_default_covariate_cache_dir, "soilgrids"),
   file.path(sdm_default_worldclim_dir, "climate", "wc2.1_10m"),
   sdm_default_future_worldclim_dir
 )

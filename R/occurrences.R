@@ -110,14 +110,13 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
        columns = list(longitude = lon_col, latitude = lat_col, source = src_col, country = country_col))
 }
 
-make_training_extent <- function(occ, buffer = 2, latitude_limits = c(-60, 60)) {
-  latitude_limits <- sort(as.numeric(latitude_limits))[1:2]
+make_training_extent <- function(occ, buffer = 2) {
   xmin <- max(-180, floor(min(occ$longitude, na.rm = TRUE) - buffer))
   xmax <- min(180, ceiling(max(occ$longitude, na.rm = TRUE) + buffer))
-  ymin <- max(latitude_limits[1], floor(min(occ$latitude, na.rm = TRUE) - buffer))
-  ymax <- min(latitude_limits[2], ceiling(max(occ$latitude, na.rm = TRUE) + buffer))
+  ymin <- max(-90, floor(min(occ$latitude, na.rm = TRUE) - buffer))
+  ymax <- min(90, ceiling(max(occ$latitude, na.rm = TRUE) + buffer))
   if ((xmax - xmin) < 1) { xmin <- max(-180, xmin - 0.5); xmax <- min(180, xmax + 0.5) }
-  if ((ymax - ymin) < 1) { ymin <- max(latitude_limits[1], ymin - 0.5); ymax <- min(latitude_limits[2], ymax + 0.5) }
+  if ((ymax - ymin) < 1) { ymin <- max(-90, ymin - 0.5); ymax <- min(90, ymax + 0.5) }
   c(xmin, xmax, ymin, ymax)
 }
 

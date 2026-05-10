@@ -267,18 +267,17 @@ server <- function(input, output, session) {
     }
 
     soil_state <- "info"
-    soil_detail <- "HWSD soil covariates are off."
+    soil_detail <- "SoilGrids covariates are off."
     if (isTRUE(input$use_soil)) {
       if (length(input$soil_vars) == 0) {
         soil_state <- "error"
-        soil_detail <- "Soil is on, but no HWSD properties are selected."
-        issues <- c(issues, "Select at least one HWSD soil property, or turn soil covariates off.")
-      } else if (!file.exists(input$soil_path)) {
-        soil_state <- "info"
-        soil_detail <- paste("Soil file not found; HWSD layers will be skipped:", input$soil_path)
+        soil_detail <- "Soil is on, but no SoilGrids variables are selected."
+        issues <- c(issues, "Select at least one SoilGrids variable, or turn soil covariates off.")
       } else {
         soil_state <- "ok"
-        soil_detail <- paste(length(input$soil_vars), "HWSD properties selected from", input$soil_path)
+        n_depths <- length(input$soil_depths %||% character(0))
+        n_vars <- length(input$soil_vars)
+        soil_detail <- paste(n_vars, "variable(s) ×", n_depths, "depth(s) =", n_vars * n_depths, "soil layer(s) from SoilGrids")
       }
     }
 
@@ -286,7 +285,7 @@ server <- function(input, output, session) {
     extent_detail <- paste0("xmin ", extent[1], ", xmax ", extent[2], ", ymin ", extent[3], ", ymax ", extent[4])
     if (any(!is.finite(extent)) || extent[1] >= extent[2] || extent[3] >= extent[4]) {
       extent_state <- "error"
-      extent_detail <- "Projection extent is invalid. xmin/xmax and ymin/ymax must define a positive area."
+      extent_detail <- "Projection extent is invalid. Ensure xmin < xmax, ymin < ymax, all values are numeric, and within longitude [-180,180] and latitude [-90,90]."
       issues <- c(issues, "Fix the projection extent values.")
     }
     overlap_state <- "info"
@@ -321,7 +320,7 @@ server <- function(input, output, session) {
     }
 
     elevation_count <- if (isTRUE(input$use_elevation) && identical(elevation_state, "ok")) 1L else 0L
-    soil_count <- if (isTRUE(input$use_soil) && identical(soil_state, "ok")) length(input$soil_vars) else 0L
+    soil_count <- if (isTRUE(input$use_soil) && identical(soil_state, "ok")) length(input$soil_vars) * length(input$soil_depths %||% 1L) else 0L
     selected_count <- length(biovars) + elevation_count + soil_count
     list(
       ready = length(issues) == 0,
@@ -332,7 +331,7 @@ server <- function(input, output, session) {
         readiness_item("Observation records", occurrence$detail, occurrence$state),
         readiness_item("WorldClim layers", climate_detail, climate_state),
         readiness_item("Elevation", elevation_detail, elevation_state),
-        readiness_item("HWSD soil", soil_detail, soil_state),
+        readiness_item("SoilGrids", soil_detail, soil_state),
         readiness_item("Selected covariates", paste(selected_count, "total covariates selected; BIO", paste(biovars, collapse = ", BIO")), if (selected_count >= 2) "ok" else "error"),
         readiness_item("Projection extent", extent_detail, extent_state),
         readiness_item("Observation/projection overlap", overlap_detail, overlap_state),
@@ -400,7 +399,7 @@ server <- function(input, output, session) {
       append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
     }
     if (isTRUE(input$use_soil) && length(input$soil_vars) == 0) {
-      rv$error <- "Select at least one HWSD soil property, or turn soil covariates off."
+      rv$error <- "Select at least one SoilGrids variable, or turn soil covariates off."
       append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
     }
     projection_extent <- extent_from_inputs(input, cleaned_occurrence())
@@ -420,7 +419,7 @@ server <- function(input, output, session) {
             n_cores = input$n_cores, allow_download = isTRUE(input$download_worldclim), worldclim_res = as.numeric(input$worldclim_res),
             use_elevation = isTRUE(input$use_elevation), elevation_demtype = input$elevation_demtype,
             opentopo_api_key = input$opentopo_api_key,
-            use_soil = isTRUE(input$use_soil), soil_path = input$soil_path, selected_soil_vars = input$soil_vars,
+            use_soil = isTRUE(input$use_soil), selected_soil_vars = input$soil_vars, selected_soil_depths = input$soil_depths,
             covariate_cache_dir = sdm_default_covariate_cache_dir,
             vif_reduction = isTRUE(input$vif_reduction),
             future_projection = isTRUE(input$future_projection),

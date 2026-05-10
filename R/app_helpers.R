@@ -7,13 +7,24 @@ biovar_choices <- sdm_biovar_choices
 }
 
 extent_from_inputs <- function(input, occurrence = NULL) {
-  switch(input$extent_preset,
-         occurrence = if (!is.null(occurrence) && !is.null(occurrence$occ)) make_training_extent(occurrence$occ, buffer = 1) else sdm_default_projection_extent,
-         aus_full = sdm_extent_presets$aus_full,
-         aus_north = sdm_extent_presets$aus_north,
-         aus_east = sdm_extent_presets$aus_east,
-         custom = c(input$xmin, input$xmax, input$ymin, input$ymax),
-         sdm_default_projection_extent)
+  preset <- input$extent_preset
+  if (identical(preset, "occurrence")) {
+    if (!is.null(occurrence) && !is.null(occurrence$occ) && nrow(occurrence$occ) > 0) {
+      return(make_training_extent(occurrence$occ, buffer = 2))
+    }
+    return(sdm_default_projection_extent)
+  }
+  if (identical(preset, "custom")) {
+    return(c(input$xmin, input$xmax, input$ymin, input$ymax))
+  }
+  if (identical(preset, "boundary_file")) {
+    if (!is.null(input$boundary_shp) && !is.null(input$boundary_shp$datapath) && nzchar(input$boundary_shp$datapath)) {
+      ext <- compute_extent_from_file(input$boundary_shp$datapath)
+      if (!is.null(ext)) return(ext)
+    }
+    return(sdm_default_projection_extent)
+  }
+  sdm_extent_presets[[preset]] %||% sdm_default_projection_extent
 }
 
 fmt_num <- function(x, digits = 0) {

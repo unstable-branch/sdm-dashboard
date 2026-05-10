@@ -123,6 +123,20 @@ get_extent_choices <- function() {
   choices
 }
 
+#' Compute bounding box extent from a boundary file.
+#' @param file_path Path to shapefile directory, GeoJSON, or any file sf can read
+#' @return numeric vector c(xmin, xmax, ymin, ymax) or NULL on failure
+compute_extent_from_file <- function(file_path) {
+  if (is.null(file_path) || !nzchar(file_path) || !file.exists(file_path)) {
+    return(NULL)
+  }
+  tryCatch({
+    sf_obj <- sf::st_read(file_path, quiet = TRUE, geometry_column = sf::st_geometry_column_names(file_path)[1])
+    bb <- sf::st_bbox(sf_obj)
+    c(as.numeric(bb["xmin"]), as.numeric(bb["xmax"]), as.numeric(bb["ymin"]), as.numeric(bb["ymax"]))
+  }, error = function(e) NULL)
+}
+
 #' Validate boundary extent coordinates
 #' @param extent numeric vector c(xmin, xmax, ymin, ymax)
 #' @return TRUE if valid
