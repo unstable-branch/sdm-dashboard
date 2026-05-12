@@ -1,0 +1,310 @@
+# Multi-model ensemble SDM backend.
+# Allows combining any number of standalone models (GLM, GAM, MaxNet, Rangebagging)
+# and biomod2 algorithms into a single weighted ensemble.
+
+multi_ensemble_component_path <- function(output_tif, model_id) {
+  model_id <- gsub("[^a-zA-Z0-9]", "_", model_id)
+  if (grepl("[.]tif$", output_tif, ignore.case = TRUE)) {
+    sub("[.]tif$", paste0("_", model_id, ".tif"), output_tif, ignore.case = TRUE)
+  } else {
+    paste0(output_tif, "_", model_id, ".tif")
+  }
+}
+
+compute_multi_ensemble_weights <- function(cv_list, weighting = "auc") {
+  weighting <- match.arg(weighting, c("equal", "auc", "tss"))
+  n <- length(cv_list)
+  if (n == 0) return(numeric(0))
+  if (identical(weighting, "equal")) {
+    w <- rep(1, n)
+    return(w / sum(w))
+  }
+  metric <- if (identical(weighting, "auc")) "auc_mean" else "tss_mean"
+  vals <- vapply(cv_list, function(x) {
+    v <- suppressWarnings(as.numeric(x[[metric]][1]))
+    if (is.finite(v)) v else 0.5
+  }, numeric(1))
+  vals[vals < 0.5] <- 0.5
+  if (identical(weighting, "auc")) {
+    vals <- vals - 0.5
+  }
+  vals[vals < 0] <- 0
+  total <- sum(vals)
+  if (total > 0) vals / total else rep(1/n, n)
+}
+
+extract_biomod2_algorithm_files <- function(modeling_id, proj_name, algo_names) {
+  tif_dir <- file.path(tempdir(), modeling_id, proj_name)
+  if (!dir.exists(tif_dir)) return(list())
+  tif_files <- list.files(tif_dir, pattern = "[.]tif$", full.names = TRUE)
+  tif_files <- tif_files[!grepl("clamping", tif_files)]
+  preds <- list()
+  for (algo in algo_names) {
+    pattern <- paste0("_", algo, "[^a-zA-Z]")
+    matches <- grep(pattern, tif_files, value = TRUE, ignore.case = TRUE)
+    if (length(matches) > 0) {
+      preds[[paste0("biomod2.", algo)]] <- terra::rast(matches[length(matches)])
+    }
+  }
+  preds
+}
+
+predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
+                                         n_cores = 1, log_fun = NULL,
+                                         export_components = TRUE) {
+  if (!is.list(fit) || is.null(fit$model) || is.null(fit$model$components)) {
+    stop("fit must be a multi_model_ensemble fit result.", call. = FALSE)
+  }
+  components <- fit$model$components
+  weights <- fit$model$weights
+  methods <- fit$model$methods
+  if (length(components) < 2) {
+    stop("At least 2 component models are required for multi-model ensemble.", call. = FALSE)
+  }
+  dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+
+  preds <- list()
+  component_paths <- list()
+  for (m in names(components)) {
+    comp_fit <- components[[m]]
+    method <- methods[[m]]
+    log_message(log_fun, "Predicting component: ", m)
+    comp_tif <- multi_ensemble_component_path(output_tif, m)
+    preds[[m]] <- if (identical(method, "biomod2")) {
+      pred_biomod2_component(comp_fit, env_project_scaled, comp_tif, n_cores, log_fun)
+    } else {
+      predict_single_component(method, comp_fit, env_project_scaled, comp_tif, n_cores, log_fun)
+    }
+    if (export_components) {
+      component_paths[[paste0("multi_ens_comp_", m)]] <- comp_tif
+    }
+  }
+
+  ensemble_suit <- NULL
+  for (m in names(preds)) {
+    w <- weights[[m]]
+    if (is.null(ensemble_suit)) {
+      ensemble_suit <- preds[[m]] * w
+    } else {
+      ensemble_suit <- ensemble_suit + preds[[m]] * w
+    }
+  }
+  names(ensemble_suit) <- "suitability"
+  terra::writeRaster(ensemble_suit, output_tif, overwrite = TRUE,
+                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  log_message(log_fun, "Ensemble raster written to: ", output_tif)
+
+  disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
+  pred_stack <- terra::rast(preds)
+  range_suit <- terra::app(pred_stack, fun = function(x) max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+  names(range_suit) <- "model_disagreement"
+  terra::writeRaster(range_suit, disagreement_tif, overwrite = TRUE,
+                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  component_paths$multi_ens_disagreement_tif <- disagreement_tif
+
+  attr(ensemble_suit, "component_paths") <- component_paths
+  ensemble_suit
+}
+
+predict_single_component <- function(method, comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+  switch(method,
+    "glm" = {
+      log_message(log_fun, "  Predicting GLM component")
+      predict_suitability(comp_fit$model, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    "gam" = {
+      log_message(log_fun, "  Predicting GAM component")
+      predict_gam_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    "maxnet" = {
+      log_message(log_fun, "  Predicting MaxNet component")
+      predict_maxnet_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    "rangebag" = {
+      log_message(log_fun, "  Predicting Rangebagging component")
+      predict_rangebag_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    stop("Unknown ensemble component method: ", method, call. = FALSE)
+  )
+}
+
+pred_biomod2_component <- function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+  modeling_id <- comp_fit$modeling_id
+  algo <- comp_fit$algorithm
+  proj_name <- paste0("proj_", modeling_id)
+  proj_dir <- file.path(tempdir(), modeling_id)
+  proj <- biomod2::BIOMOD_Projection(
+    bm.mod = comp_fit$model,
+    new.env = env_project_scaled,
+    proj.name = proj_name,
+    output.dir = proj_dir,
+    build.clamping.mask = TRUE
+  )
+  proj_files <- list.files(file.path(proj_dir, proj_name), pattern = "[.]tif$", full.names = TRUE)
+  proj_files <- proj_files[!grepl("clamping", proj_files)]
+  if (length(proj_files) == 0) {
+    stop("No projection files generated by biomod2 for component prediction.", call. = FALSE)
+  }
+  algo_tif <- proj_files[length(proj_files)]
+  r <- terra::rast(algo_tif)
+  if (!is.null(output_tif)) {
+    terra::writeRaster(r, output_tif, overwrite = TRUE,
+                       wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  }
+  r
+}
+
+fit_multi_model_ensemble <- function(occ, env_train_scaled,
+                                     selected_models = NULL,
+                                     ensemble_weighting = "auc",
+                                     background_n = sdm_default_background_n,
+                                     include_quadratic = TRUE,
+                                     cv_folds = sdm_default_cv_folds,
+                                     seed = sdm_default_seed,
+                                     n_cores = 1,
+                                     log_fun = NULL,
+                                     bias_method = c("uniform", "target_group", "thickened"),
+                                     target_group_occ = NULL,
+                                     thickening_distance_km = NULL,
+                                     maxnet_features = sdm_default_maxnet_features,
+                                     maxnet_regmult = sdm_default_maxnet_regmult,
+                                     biomod2_models = NULL) {
+  bias_method <- match.arg(bias_method)
+  if (is.null(selected_models) || length(selected_models) == 0) {
+    stop("At least one model must be selected for multi-model ensemble.", call. = FALSE)
+  }
+  selected_models <- unique(as.character(selected_models))
+  if (length(selected_models) < 2) {
+    stop("At least 2 models must be selected for multi-model ensemble. Got: ", paste(selected_models, collapse = ", "), call. = FALSE)
+  }
+
+  if (isTRUE(biomod2_models) || identical(biomod2_models, "auto")) {
+    biomod2_models <- config$biomod2_default
+  }
+  has_biomod2 <- requireNamespace("biomod2", quietly = TRUE) && isTRUE(getOption("sdm.enable_biomod2", FALSE))
+
+  if (!has_biomod2 && any(grepl("biomod2", selected_models, ignore.case = TRUE))) {
+    selected_models <- setdiff(selected_models, "biomod2")
+    log_message(log_fun, "biomod2 not available; removed from ensemble selection.")
+  }
+
+  standalone_ids <- c("glm", "gam", "maxnet", "rangebag")
+  standalone_selected <- intersect(selected_models, standalone_ids)
+  biomod2_selected <- if ("biomod2" %in% selected_models && has_biomod2) biomod2_models else character()
+
+  components <- list()
+  cv_list <- list()
+  methods <- character()
+  component_k <- integer()
+  component_auc <- numeric()
+  component_tss <- numeric()
+
+  for (m in standalone_selected) {
+    log_message(log_fun, "Fitting ensemble component: ", toupper(m))
+    comp_fit <- switch(m,
+      "glm" = fit_fast_sdm(occ = occ, env_train_scaled = env_train_scaled,
+                           background_n = background_n, include_quadratic = include_quadratic,
+                           cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+                           log_fun = log_fun, bias_method = bias_method,
+                           target_group_occ = target_group_occ,
+                           thickening_distance_km = thickening_distance_km),
+      "gam" = fit_gam_sdm(occ = occ, env_train_scaled = env_train_scaled,
+                          background_n = background_n, cv_folds = cv_folds,
+                          seed = seed, n_cores = n_cores, log_fun = log_fun),
+      "maxnet" = fit_maxnet_sdm(occ = occ, env_train_scaled = env_train_scaled,
+                                background_n = background_n, include_quadratic = include_quadratic,
+                                cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+                                log_fun = log_fun, maxnet_features = maxnet_features,
+                                maxnet_regmult = maxnet_regmult),
+      "rangebag" = fit_rangebag_sdm(occ = occ, env_train_scaled = env_train_scaled,
+                                    background_n = background_n, include_quadratic = FALSE,
+                                    cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+                                    log_fun = log_fun),
+      stop("Unknown standalone model: ", m, call. = FALSE)
+    )
+    components[[m]] <- comp_fit
+    methods[[m]] <- m
+    cv_list[[m]] <- comp_fit$cv
+    component_k <- c(component_k, comp_fit$cv$k %||% NA_integer_)
+    component_auc <- c(component_auc, comp_fit$cv$auc_mean %||% NA_real_)
+    component_tss <- c(component_tss, comp_fit$cv$tss_mean %||% NA_real_)
+  }
+
+  biomod2_fit <- NULL
+  if (length(biomod2_selected) > 0) {
+    log_message(log_fun, "Fitting ensemble component: biomod2 (", paste(biomod2_selected, collapse = ", "), ")")
+    biomod2_fit <- run_biomod2(occ_df = occ, pred_stack = env_train_scaled,
+                               models = biomod2_selected, background_n = background_n,
+                               cv_folds = cv_folds, seed = seed, output_dir = tempdir(),
+                               log_fun = log_fun)
+    eval_df <- biomod2_fit$cv$per_algorithm
+    if (is.data.frame(eval_df) && nrow(eval_df) > 0) {
+      for (i in seq_len(nrow(eval_df))) {
+        algo <- eval_df$algorithm[i]
+        m <- paste0("biomod2.", algo)
+        components[[m]] <- list(
+          modeling_id = biomod2_fit$modeling_id,
+          algorithm = algo,
+          cv = list(auc_mean = eval_df$auc[i], tss_mean = eval_df$tss[i], k = cv_folds)
+        )
+        methods[[m]] <- "biomod2"
+        cv_list[[m]] <- list(auc_mean = eval_df$auc[i], tss_mean = eval_df$tss[i], k = cv_folds)
+        component_k <- c(component_k, as.integer(cv_folds))
+        component_auc <- c(component_auc, eval_df$auc[i])
+        component_tss <- c(component_tss, eval_df$tss[i])
+      }
+    }
+  }
+
+  weights <- compute_multi_ensemble_weights(cv_list, ensemble_weighting)
+  names(weights) <- names(cv_list)
+
+  auc_weighted <- ensemble_weighted_metric(component_auc, weights)
+  tss_weighted <- ensemble_weighted_metric(component_tss, weights)
+
+  component_metrics_df <- data.frame(
+    model = names(cv_list),
+    method = unname(methods),
+    auc = as.numeric(component_auc),
+    tss = as.numeric(component_tss),
+    weight = as.numeric(weights),
+    stringsAsFactors = FALSE
+  )
+
+  log_message(log_fun, "Ensemble weights: ", paste(names(weights), sprintf("%.3f", weights), sep = "=", collapse = ", "))
+
+  first_component <- components[[1]]
+  list(
+    model = list(
+      components = components,
+      weights = weights,
+      methods = methods,
+      weighting = ensemble_weighting
+    ),
+    formula = NULL,
+    coefficients = component_metrics_df,
+    occurrence_used = first_component$occurrence_used %||% occ,
+    background_xy = first_component$background_xy %||% NULL,
+    cv = list(
+      k = if (length(component_k) > 0) max(component_k, na.rm = TRUE) else NA_integer_,
+      auc_mean = auc_weighted,
+      auc_sd = NA_real_,
+      tss_mean = tss_weighted,
+      tss_sd = NA_real_,
+      component_metrics = component_metrics_df,
+      component_k = component_k
+    ),
+    covariates = first_component$covariates %||% names(env_train_scaled),
+    variable_importance = NULL,
+    biomod2_fit = biomod2_fit
+  )
+}
+
+ensemble_weighted_metric <- function(values, weights) {
+  values <- suppressWarnings(as.numeric(values))
+  weights <- suppressWarnings(as.numeric(weights))
+  ok <- is.finite(values) & is.finite(weights) & weights > 0
+  if (!any(ok)) return(NA_real_)
+  weights <- weights[ok] / sum(weights[ok])
+  sum(values[ok] * weights)
+}

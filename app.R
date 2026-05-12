@@ -63,6 +63,9 @@ ui <- fluidPage(
     .map-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:8px; padding:8px 0; border-top:1px solid #e7edf4; }
     .map-controls .form-group { margin-bottom:0; }
     .btn-primary:disabled, .btn-primary.disabled { background:#6c757d !important; cursor:not-allowed; opacity:0.6; }
+    .checkbox-parent .form-group label { display:flex; align-items:center; }
+    .checkbox-parent .form-group label::after { content:'+'; margin-left:auto; padding-left:6px; font-weight:700; color:#0B6E69; font-size:1.05em; line-height:1; }
+    .checkbox-parent .form-group label:has(input:checked)::after { content:'-'; }
   ")),
 
   tags$style(HTML(sdm_theme_css)),
@@ -357,6 +360,36 @@ server <- function(input, output, session) {
     }
   })
 
+  output$multi_ensemble_biomod2_section <- renderUI({
+    has_biomod2 <- requireNamespace("biomod2", quietly = TRUE) && isTRUE(getOption("sdm.enable_biomod2", FALSE))
+    if (!has_biomod2) {
+      return(div(class = "small-muted",
+        "biomod2 algorithms available when options(sdm.enable_biomod2 = TRUE) is set and biomod2 is installed."))
+    }
+    checkboxGroupInput("multi_ensemble_biomod2_models", "biomod2 algorithms",
+      choices = c(
+        "GAM" = "GAM", "FDA" = "FDA", "MARS" = "MARS",
+        "Random Forest" = "RF", "GBM" = "GBM", "BRT" = "BRT",
+        "MaxEnt (MAXNET)" = "MAXNET", "SRE" = "SRE", "CTA" = "CTA",
+        "XGBoost" = "XGBOOST"
+      ),
+      selected = character(0)
+    )
+  })
+
+  output$multi_ensemble_validation <- renderUI({
+    req(input$model_id == "multi_ensemble")
+    total_models <- length(input$multi_ensemble_standalone %||% character(0)) +
+                    length(input$multi_ensemble_biomod2_models %||% character(0))
+    if (total_models < 2) {
+      div(style = "color: #8c1d18; font-size: 0.85rem;",
+        "Select at least 2 models to run the ensemble.")
+    } else {
+      div(style = "color: #0b594f; font-size: 0.85rem;",
+        paste("Ensemble of", total_models, "model(s) ready."))
+    }
+  })
+
   output$status_banner <- renderUI({
     attrs <- list(role = "status", `aria-live` = "polite")
     if (isTRUE(rv$running)) do.call(div, c(attrs, list(class = "status-warn", strong("Running model... "), "Large rasters/downloads can take several minutes.")))
@@ -402,6 +435,46 @@ server <- function(input, output, session) {
       rv$error <- "Select at least one SoilGrids variable, or turn soil covariates off."
       append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
     }
+    if (isTRUE(input$use_uv) && length(input$uv_vars) == 0 && length(input$uv_months) == 0) {
+      rv$error <- "Select at least one UV-B variable or month, or turn UV covariates off."
+      append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
+    }
+    if (isTRUE(input$use_vegetation)) {
+      veg_products <- input$veg_products
+      if (length(veg_products) == 0) {
+        rv$error <- "Select at least one vegetation product, or turn vegetation covariates off."
+        append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
+      }
+      has_lai_gpp <- any(c("lai", "gpp") %in% veg_products)
+      if (has_lai_gpp && !requireNamespace("rgee", quietly = TRUE)) {
+        rv$error <- "LAI/GPP selected but rgee is not installed. Run: install.packages('rgee') and then rgee::ee_initialize()"
+        append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
+      }
+      veg_year_val <- as.integer(input$veg_year)
+      current_year <- as.integer(format(Sys.Date(), "%Y"))
+      if (is.na(veg_year_val) || veg_year_val < 2000 || veg_year_val > current_year - 1) {
+        rv$error <- paste0("Vegetation year must be between 2000 and ", current_year - 1, ".")
+        append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
+      }
+    }
+    if (isTRUE(input$use_hfp)) {
+      hfp_year_val <- as.integer(input$hfp_year)
+      if (is.na(hfp_year_val) || hfp_year_val < 2001 || hfp_year_val > 2020) {
+        rv$error <- "Human Footprint year must be between 2001 and 2020."
+        append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
+      }
+    }
+    if (isTRUE(input$use_lulc)) {
+      lulc_year_val <- as.integer(input$lulc_year)
+      if (is.na(lulc_year_val) || lulc_year_val < 2001 || lulc_year_val > 2023) {
+        rv$error <- "LULC year must be between 2001 and 2023."
+        append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
+      }
+    }
+    if (isTRUE(input$use_drought) && length(input$drought_periods) == 0) {
+      rv$error <- "Select at least one drought period, or turn drought covariates off."
+      append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
+    }
     projection_extent <- extent_from_inputs(input, cleaned_occurrence())
     species_label <- trimws(input$species %||% "")
     if (!nzchar(species_label)) species_label <- sdm_default_species
@@ -420,6 +493,15 @@ server <- function(input, output, session) {
             use_elevation = isTRUE(input$use_elevation), elevation_demtype = input$elevation_demtype,
             opentopo_api_key = input$opentopo_api_key,
             use_soil = isTRUE(input$use_soil), selected_soil_vars = input$soil_vars, selected_soil_depths = input$soil_depths,
+            use_uv = isTRUE(input$use_uv), selected_uv_vars = input$uv_vars, selected_uv_months = input$uv_months,
+            use_vegetation = isTRUE(input$use_vegetation),
+            veg_year = as.integer(input$veg_year),
+            veg_products = input$veg_products,
+            use_lulc = isTRUE(input$use_lulc), lulc_year = as.integer(input$lulc_year),
+            use_hfp = isTRUE(input$use_hfp), hfp_year = as.integer(input$hfp_year),
+            use_bioclim_season = isTRUE(input$use_bioclim_season),
+            use_drought = isTRUE(input$use_drought), selected_drought_periods = input$drought_periods,
+            selected_chelsa_extras = if (identical(input$climate_source, "chelsa")) input$chelsa_extras else NULL,
             covariate_cache_dir = sdm_default_covariate_cache_dir,
             vif_reduction = isTRUE(input$vif_reduction),
             future_projection = isTRUE(input$future_projection),
@@ -435,7 +517,16 @@ server <- function(input, output, session) {
             cleaned_occurrence = rv$cleaned_occurrence,
             output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = occurrence$detail,
             gbif_doi = rv$gbif_doi, source = input$climate_source, log_fun = append_log,
-            progress_fun = function(amount, detail) incProgress(amount, detail = detail)
+            progress_fun = function(amount, detail) incProgress(amount, detail = detail),
+            multi_ensemble_models = if (identical(input$model_id, "multi_ensemble")) {
+              selected <- c(input$multi_ensemble_standalone %||% character(0))
+              if (isTRUE(input$multi_ensemble_biomod2_models %||% length(.) > 0)) {
+                c(selected, "biomod2")
+              } else selected
+            } else NULL,
+            multi_ensemble_weighting = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_weighting %||% "auc" else "auc",
+            multi_ensemble_export = isTRUE(input$multi_ensemble_export),
+            biomod2_models = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_biomod2_models %||% NULL else NULL
           ),
           warning = function(w) { append_log(paste("Warning:", conditionMessage(w))); invokeRestart("muffleWarning") }
         ),
@@ -661,6 +752,8 @@ server <- function(input, output, session) {
     content = function(file) {
       req(rv$result)
       sidecars <- unlist(rv$result$paths[c("glm_tif", "rangebag_tif", "disagreement_tif", "future_tif", "delta_tif")], use.names = FALSE)
+      multi_ens_keys <- grep("^multi_ens_comp_|^multi_ens_disagreement_tif$", names(rv$result$paths), value = TRUE)
+      if (length(multi_ens_keys) > 0) sidecars <- c(sidecars, unlist(rv$result$paths[multi_ens_keys], use.names = FALSE))
       sidecars <- sidecars[!is.na(sidecars) & nzchar(sidecars) & file.exists(sidecars)]
       validate(need(length(sidecars) > 0, "No sidecar rasters are available for this run."))
       oldwd <- getwd()

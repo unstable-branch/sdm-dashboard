@@ -36,6 +36,7 @@ if (!identical(sdm_default_extent_preset, "aus_full")) stop("The app should defa
 if (!identical(validate_sdm_model_id(NULL), sdm_default_model_id)) stop("Default model validation failed.", call. = FALSE)
 if (!identical(validate_sdm_model_id("glm"), "glm")) stop("GLM model validation failed.", call. = FALSE)
 if (!"glm" %in% unname(sdm_model_choices())) stop("GLM backend missing from model registry.", call. = FALSE)
+if (!"multi_ensemble" %in% unname(sdm_model_choices())) stop("multi_ensemble backend missing from model registry.", call. = FALSE)
 
 formula <- make_sdm_formula(c("bio1", "bio12", "elevation_m"), include_quadratic = TRUE)
 if (!inherits(formula, "formula")) stop("Formula helper failed.", call. = FALSE)
