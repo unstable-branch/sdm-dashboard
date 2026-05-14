@@ -132,7 +132,7 @@ plotVariableImportance <- function(importance_df) {
 
 n_perm_default <- function(df) {
   if (!"sd" %in% names(df) || !("importance" %in% names(df))) return(5)
-  1
+  5
 }
 
 render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,

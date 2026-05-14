@@ -481,7 +481,7 @@ server <- function(input, output, session) {
     if (identical(occurrence$state, "warn")) warnings <- c(warnings, occurrence$detail)
     if (!is.null(cleaned$error)) issues <- c(issues, paste("Observation records cannot be read:", cleaned$error))
 
-    climate_files <- find_worldclim_files(input$worldclim_dir, biovars)
+    climate_files <- find_worldclim_files(input$worldclim_dir, biovars, source = input$climate_source %||% "worldclim")
     missing_climate <- names(climate_files)[is.na(climate_files)]
     climate_state <- "ok"
     climate_detail <- paste(length(climate_files) - length(missing_climate), "of", length(climate_files), "selected BIO layers found in", input$worldclim_dir)
@@ -600,8 +600,8 @@ if (isTRUE(input$future_projection)) {
     })
   })
   output$esm_recommendation <- renderUI({
-    req(rv$cleaned_occ)
-    n_pres <- sum(rv$cleaned_occ$presence == 1, na.rm = TRUE)
+    req(rv$cleaned_occurrence)
+    n_pres <- sum(rv$cleaned_occurrence$presence == 1, na.rm = TRUE)
     esm_available <- "esm_glm" %in% sdm_model_ids()
 
     if (n_pres < 10 && esm_available) {

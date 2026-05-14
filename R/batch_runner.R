@@ -31,7 +31,7 @@ parse_comma_ints <- function(x) {
 #' @return character vector, or character(0) if empty/NA.
 parse_comma_strings <- function(x) {
   if (is.null(x) || is.na(x) || !nzchar(trimws(x))) return(character(0))
-  trimws(unlist(strsplit(trimws(x), "\\s*,\\s*")))
+  trimws(unlist(strsplit(trimws(x), ",\\s*")))
 }
 
 #' Parse a logical value from a string ("TRUE", "FALSE", "true", "false", "1", "0").

@@ -96,11 +96,7 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
   if (length(all_valid) < n) {
     warning("Sampled fewer background points than requested after excluding ",
             "incomplete and presence cells.", call. = FALSE)
-    all_valid <- get_valid_cell_indices()
-    all_valid <- setdiff(all_valid, presence_cells)
-    if (length(all_valid) == 0) {
-      stop("No valid background cells available in the training raster.", call. = FALSE)
-    }
+    n <- length(all_valid)
   }
   sampled <- sample.int(length(all_valid), n, replace = FALSE)
   xy <- terra::xyFromCell(template_rast, all_valid[sampled])

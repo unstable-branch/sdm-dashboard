@@ -69,9 +69,8 @@ run_biomod2 <- function(occ_df, pred_stack, models = NULL,
     OPT.user = bm_opts,
     output.dir = file.path(output_dir, modeling_id)
   )
-  validated_args <- biomod2_modeling_args(user_args)
   if (check_cancelled(log_fun)) return(invisible(NULL))
-  biomod_mod <- do.call(biomod2::BIOMOD_Modeling, validated_args)
+  biomod_mod <- do.call(biomod2::BIOMOD_Modeling, user_args)
 
   evaluations <- biomod2::get_evaluations(biomod_mod)
   var_importance <- biomod2::get_variables_importance(biomod_mod)

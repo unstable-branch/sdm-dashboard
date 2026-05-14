@@ -218,7 +218,7 @@ progress_step(progress_fun, 0.10, "Cleaning occurrence data")
       rangebag = function(mod, newdata) {
         df <- as.data.frame(newdata)
         if (nrow(df) == 0) return(numeric(0))
-        predict_rangebag_model(mod, df)
+        predict_rangebag_values(mod$model, df)
       },
       maxnet = function(mod, newdata) {
         df <- as.data.frame(newdata)
