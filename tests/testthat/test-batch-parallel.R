@@ -131,6 +131,51 @@ test_that("batch_run_parallel runs two species with n_cores=1 (sequential)", {
   unlink(tmp_dir, recursive = TRUE)
 })
 
+test_that("batch_run_parallel parallel mode (n_cores=2)", {
+  skip_if_not_installed("future.apply")
+
+  if (!requireNamespace("terra", quietly = TRUE)) {
+    message("Skipping batch parallel test: terra not available")
+    return(invisible(NULL))
+  }
+
+  tmp_dir <- tempfile()
+  dir.create(tmp_dir, recursive = TRUE)
+
+  demo_csv_1 <- file.path(tmp_dir, "sp1_occ.csv")
+  demo_csv_2 <- file.path(tmp_dir, "sp2_occ.csv")
+
+  occ_source <- file.path(project_root, "data", "examples", "synthetic_presence_data.csv")
+  if (!file.exists(occ_source)) {
+    message("Skipping: synthetic demo file not found at ", occ_source)
+    return(invisible(NULL))
+  }
+  occ <- read.csv(occ_source, stringsAsFactors = FALSE)
+  write.csv(occ, demo_csv_1, row.names = FALSE)
+  write.csv(occ, demo_csv_2, row.names = FALSE)
+
+  configs <- list(
+    list(species = "Parallel test species 1", occurrences_csv = demo_csv_1,
+         model_id = "glm", biovars = "1,4,12",
+         worldclim_dir = normalizePath(file.path(project_root, "Worldclim")),
+         cv_folds = "3", aggregation_factor = "4"),
+    list(species = "Parallel test species 2", occurrences_csv = demo_csv_2,
+         model_id = "glm", biovars = "1,4,12",
+         worldclim_dir = normalizePath(file.path(project_root, "Worldclim")),
+         cv_folds = "3", aggregation_factor = "4")
+  )
+
+  results <- batch_run_parallel(configs, n_cores = 2, output_dir = tmp_dir, seed = 42)
+
+  expect_length(results, 2)
+  expect_false(is.null(results[[1]]))
+  expect_false(is.null(results[[2]]))
+  expect_true(results[[1]]$metrics$auc_mean > 0.5)
+  expect_true(results[[2]]$metrics$auc_mean > 0.5)
+
+  unlink(tmp_dir, recursive = TRUE)
+})
+
 test_that("batch_run_parallel returns NULL for errored species without crashing batch", {
   if (!requireNamespace("terra", quietly = TRUE)) {
     message("Skipping batch error test: terra not available")

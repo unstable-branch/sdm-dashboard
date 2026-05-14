@@ -172,4 +172,77 @@ test_esm_smoke <- function() {
 test_multi_ensemble_smoke()
 test_esm_smoke()
 
+test_batch_runner_smoke <- function() {
+  cat("[batch_runner smoke] starting...\n")
+  if (!requireNamespace("terra", quietly = TRUE)) {
+    cat("[batch_runner smoke] skipped: terra not installed\n")
+    return(invisible(NULL))
+  }
+
+  demo_csv <- file.path(project_root, "data", "examples", "synthetic_presence_data.csv")
+  if (!file.exists(demo_csv)) {
+    stop("[batch_runner smoke] demo CSV not found at ", demo_csv, call. = FALSE)
+  }
+
+  tmp_occ <- tempfile(fileext = ".csv")
+  file.copy(demo_csv, tmp_occ, overwrite = TRUE)
+  tmp_dir <- tempfile()
+  dir.create(tmp_dir, showWarnings = FALSE)
+  out_dir <- tempfile()
+  dir.create(out_dir, showWarnings = FALSE)
+
+  on.exit({
+    unlink(tmp_occ, force = TRUE)
+    unlink(tmp_dir, recursive = TRUE, force = TRUE)
+    unlink(out_dir, recursive = TRUE, force = TRUE)
+  })
+
+  wc_dir <- normalizePath(file.path(project_root, "Worldclim"))
+  if (!dir.exists(wc_dir)) {
+    cat("[batch_runner smoke] skipped: Worldclim dir not found\n")
+    return(invisible(NULL))
+  }
+
+  configs <- list(list(
+    species = "Test species",
+    occurrences_csv = tmp_occ,
+    model_id = "glm",
+    biovars = "1,4,12",
+    cv_folds = "3",
+    aggregation_factor = "4",
+    background_n = "200",
+    worldclim_dir = wc_dir,
+    thinning_distance_km = "20"
+  ))
+
+  set.seed(42)
+  result <- tryCatch(
+    batch_run_parallel(configs, n_cores = 1, output_dir = out_dir, seed = 42L),
+    error = function(e) {
+      message("[batch_runner smoke] caught error: ", conditionMessage(e))
+      NULL
+    }
+  )
+
+  if (is.null(result)) {
+    stop("[batch_runner smoke] batch_run_parallel returned NULL", call. = FALSE)
+  }
+  if (!is.list(result) || length(result) == 0) {
+    stop("[batch_runner smoke] batch_run_parallel returned empty result", call. = FALSE)
+  }
+  if (is.null(result[[1]])) {
+    stop("[batch_runner smoke] first species result is NULL", call. = FALSE)
+  }
+  if (is.null(result[[1]]$cv) || is.null(result[[1]]$cv$auc_mean)) {
+    stop("[batch_runner smoke] missing cv$auc_mean in result", call. = FALSE)
+  }
+  if (result[[1]]$cv$auc_mean <= 0.5) {
+    stop("[batch_runner smoke] auc_mean <= 0.5: ", result[[1]]$cv$auc_mean, call. = FALSE)
+  }
+
+  cat("[batch_runner smoke] passed (auc_mean=", round(result[[1]]$cv$auc_mean, 3), ")\n", sep = "")
+}
+
+test_batch_runner_smoke()
+
 cat("All smoke tests passed.\n")

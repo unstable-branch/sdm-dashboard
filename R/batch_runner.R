@@ -121,6 +121,18 @@ build_run_args <- function(row) {
   args
 }
 
+normalize_core_count <- function(n_cores = NULL, reserve_one = FALSE) {
+  if (is.null(n_cores)) {
+    n <- parallel::detectCores()
+    if (is.na(n)) n <- 2L
+    if (reserve_one) n <- max(1, n - 1)
+    return(as.integer(n))
+  }
+  n <- as.integer(n_cores[1])
+  if (is.na(n) || n < 1) n <- 1
+  n
+}
+
 #' Run multiple species SDM models in parallel.
 #'
 #' @param species_configs list of named lists, each containing per-species configuration.
