@@ -70,6 +70,7 @@ run_biomod2 <- function(occ_df, pred_stack, models = NULL,
     output.dir = file.path(output_dir, modeling_id)
   )
   validated_args <- biomod2_modeling_args(user_args)
+  if (check_cancelled(log_fun)) return(invisible(NULL))
   biomod_mod <- do.call(biomod2::BIOMOD_Modeling, validated_args)
 
   evaluations <- biomod2::get_evaluations(biomod_mod)

@@ -632,16 +632,30 @@ if (isTRUE(input$future_projection)) {
   output$esm_complexity_warning <- renderUI({
     req(input$model_id %in% c("esm_glm", "esm_maxnet"))
     n_vars <- length(input$biovars %||% sdm_default_biovars)
+    n_pres <- length(input$occurrence_file %||% "")
     n_pairs <- n_vars * (n_vars - 1) / 2
-    if (n_vars > 10) {
-      div(class = "alert alert-warning small-padded",
-          icon("clock"),
-          sprintf("ESM will fit %d bivariate models (%d variables). ", n_pairs, n_vars),
-          "Consider reducing to 6-8 variables to keep runtime under 5 minutes.")
-    } else if (n_vars > 0) {
-      div(class = "small-muted",
-          sprintf("ESM will fit %d bivariate models — manageable.", n_pairs))
-    }
+    tags$div(
+      div(class = "alert alert-info small-padded",
+          icon("flask"),
+          strong("ESM is experimental."),
+          " Expect longer run times and occasional convergence issues."),
+      if (n_vars > 10) {
+        div(class = "alert alert-warning small-padded",
+            icon("triangle-exclamation"),
+            sprintf("ESM will fit %d bivariate models (%d variables). ", n_pairs, n_vars),
+            "Consider reducing to 6-8 variables to keep runtime manageable.")
+      },
+      if (n_pres > 0 && n_pres < 20) {
+        div(class = "alert alert-warning small-padded",
+            icon("circle-exclamation"),
+            sprintf("Only %d occurrence records — ESM validation is unreliable below ~20 records. ", n_pres),
+            "Consider GLM or MaxNet for small samples.")
+      },
+      if (n_vars > 0) {
+        div(class = "small-muted",
+            sprintf("ESM will fit %d bivariate models.", n_pairs))
+      }
+    )
   })
 
   output$maxnet_install_hint <- renderUI({
@@ -653,17 +667,40 @@ if (isTRUE(input$future_projection)) {
     }
   })
 
+  output$biomod2_install_hint <- renderUI({
+    if (!isTRUE(getOption("sdm.enable_biomod2")) || !requireNamespace("biomod2", quietly = TRUE)) {
+      div(class = "alert alert-warning small-padded",
+          icon("triangle-exclamation"),
+          strong("biomod2 not enabled/installed. "),
+          "Enable with: ",
+          tags$code("options(sdm.enable_biomod2 = TRUE)"),
+          " then restart the app.")
+    }
+  })
+
   output$multi_ensemble_validation <- renderUI({
     req(input$model_id == "multi_ensemble")
     total_models <- length(input$multi_ensemble_standalone %||% character(0)) +
                     length(input$multi_ensemble_biomod2 %||% character(0))
-    if (total_models < 2) {
-      div(style = "color: #8c1d18; font-size: 0.85rem;",
-        "Select at least 2 models to run the ensemble.")
-    } else {
-      div(style = "color: #0b594f; font-size: 0.85rem;",
-        paste("Ensemble of", total_models, "model(s) ready."))
-    }
+    biomod2_enabled <- isTRUE(getOption("sdm.enable_biomod2")) && requireNamespace("biomod2", quietly = TRUE)
+    biomod2_selected <- length(input$multi_ensemble_biomod2 %||% character(0)) > 0
+    tags$div(
+      if (!biomod2_enabled && biomod2_selected) {
+        div(class = "alert alert-warning small-padded",
+            icon("triangle-exclamation"),
+            strong("biomod2 not enabled. "),
+            "Set ",
+            tags$code("options(sdm.enable_biomod2 = TRUE)"),
+            " before using biomod2 algorithms in ensemble.")
+      },
+      if (total_models < 2) {
+        div(style = "color: #8c1d18; font-size: 0.85rem;",
+          "Select at least 2 models to run the ensemble.")
+      } else {
+        div(style = "color: #0b594f; font-size: 0.85rem;",
+          paste("Ensemble of", total_models, "model(s) ready."))
+      }
+    )
   })
 
   output$status_banner <- renderUI({
