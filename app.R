@@ -839,6 +839,16 @@ if (isTRUE(input$future_projection)) {
 
   output$suitability_plot <- renderPlot({ if (is.null(rv$result)) return(placeholder_plot("No suitability map yet.")); r <- rv$result; plot_suitability_map(r$suitability, r$occurrence, r$config$projection_extent, r$config$species, r$config$threshold, TRUE) })
 
+  output$suitability_map_ui <- renderUI({
+    if (is.null(rv$result) || is.null(rv$result$paths$tif) || !file.exists(rv$result$paths$tif)) {
+      return(div(class = "content-card map-card",
+        div(class = "map-title-row", h4("Current suitability"), span("Interactive map view")),
+        plotOutput("suitability_placeholder", height = "56vh")
+      ))
+    }
+    leafletOutput("suitability_map", height = "56vh")
+  })
+
   output$suitability_map <- renderLeaflet({
     req(rv$result)
     r <- rv$result
@@ -860,6 +870,36 @@ if (isTRUE(input$future_projection)) {
     }
 
     map
+  })
+
+  output$suitability_placeholder <- renderPlot({
+    placeholder_plot("No suitability map yet. Configure options on the left, then click Run SDM.")
+  })
+
+  observeEvent(input$show_mess, {
+    req(rv$result)
+    r <- rv$result
+    map <- leaflet::leafletProxy("suitability_map")
+    if (isTRUE(input$show_mess)) {
+      if (!is.null(r$mess) && !is.na(terra::sources(r$mess)) && nchar(terra::sources(r$mess)) > 0) {
+        mess_raster <- terra::rast(r$mess)
+        r_mess <- terra::project(mess_raster, "EPSG:4326")
+        mess_binary <- r_mess
+        terra::values(mess_binary) <- ifelse(terra::values(r_mess) < 0, 1, 0)
+        map <- map %>%
+          leaflet::addRasterImage(mess_binary, opacity = 0.5, layerId = "mess",
+                                  project = FALSE, colors = "red") %>%
+          leaflet::addLegend(position = "bottomright", colors = "red",
+                              labels = "Extrapolation (MESS<0)", title = "MESS")
+      } else {
+        showNotification("No MESS layer available for this model run.", type = "message")
+        updateCheckboxInput(session, "show_mess", value = FALSE)
+      }
+    } else {
+      if (!is.null(map$dependencies)) {
+        map <- map %>% leaflet::removeImages(layerId = "mess")
+      }
+    }
   })
 
   observeEvent(input$show_presence, {
@@ -1277,7 +1317,7 @@ gd_append_log <- function(target, msg) {
   # -------------------------------------------------------------------------
   gd_status_dots <- function(v) {
     cls <- switch(v$status, ok = "status-ok", warn = "status-warn", error = "status-error", "status-unknown")
-    span(class = paste("status-dot", cls), title = v$detail)
+    span(class = paste("status-dot", cls), style = "width:3px;height:3px;border-radius:50%;display:inline-block;margin-right:5px;", title = v$detail)
   }
 
   output$gd_worldclim_status <- renderUI({
@@ -1297,6 +1337,25 @@ gd_append_log <- function(target, msg) {
     tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
   })
   outputOptions(output, "gd_cmip6_status", suspendWhenHidden = FALSE)
+
+  output$gd_cmip6_scenarios <- renderUI({
+    v <- verify_future_cache()
+    if (v$status != "ok" || nrow(v$scenarios) == 0) {
+      return(p("No CMIP6 scenarios downloaded yet."))
+    }
+    rows <- lapply(seq_len(nrow(v$scenarios)), function(i) {
+      r <- v$scenarios[i, ]
+      div(
+        style = "padding:4px 0;border-bottom:1px solid #eee;",
+        strong(r$GCM), " / ", r$SSP, " / ", r$Period,
+        span(style = "float:right;color:#888;", paste0(r$Files, " files, ", r$SizeMB, " MB"))
+      )
+    })
+    tagList(
+      div(style = "font-size:0.85em;", rows)
+    )
+  })
+  outputOptions(output, "gd_cmip6_scenarios", suspendWhenHidden = FALSE)
 
   output$gd_elevation_status <- renderUI({
     v <- verify_elevation_cache()
@@ -1832,6 +1891,27 @@ gd_append_log <- function(target, msg) {
     }, error = function(e) {
       gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
     })
+  })
+
+  observeEvent(input$gd_download_all, {
+    s <- get_data_summary()
+    missing_items <- character()
+    if (s$worldclim$status != "ok") missing_items <- c(missing_items, "WorldClim")
+    if (s$chelsa_extras$status != "ok") missing_items <- c(missing_items, "CHELSA extras")
+    if (s$elevation$status != "ok") missing_items <- c(missing_items, "Elevation")
+    if (s$soil$status != "ok") missing_items <- c(missing_items, "Soil")
+    if (s$uv$status != "ok") missing_items <- c(missing_items, "UV-B")
+    if (s$vegetation$status != "ok") missing_items <- c(missing_items, "Vegetation")
+    if (s$lulc$status != "ok") missing_items <- c(missing_items, "LULC")
+    if (s$hfp$status != "ok") missing_items <- c(missing_items, "HFP")
+    if (s$drought$status != "ok") missing_items <- c(missing_items, "Drought")
+    if (s$bioclim_season$status != "ok") missing_items <- c(missing_items, "Bioclim seasonality")
+    if (length(missing_items) == 0) {
+      gd_append_log("gd_env_log", "All covariate layers already present.")
+      return()
+    }
+    gd_append_log("gd_env_log", paste("Missing layers:", paste(missing_items, collapse = ", ")))
+    gd_append_log("gd_env_log", "Use individual download buttons for targeted downloads. Full batch download requires API keys (OpenTopography).")
   })
 
   observeEvent(input$gd_verify_all, {
