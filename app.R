@@ -843,7 +843,14 @@ if (isTRUE(input$future_projection)) {
             cc_tests = input$cc_tests %||% "all",
             output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = occurrence$detail,
             gbif_doi = rv$gbif_doi, source = input$climate_source, log_fun = append_log,
-            progress_fun = function(amount, detail) incProgress(amount, detail = detail),
+            progress_fun = function(p) {
+              if (is.list(p) && !is.null(p$detail)) {
+                incProgress(p$value - getOption("sdm_last_progress", 0), detail = p$detail)
+                options(sdm_last_progress = p$value)
+              } else {
+                incProgress(as.numeric(p))
+              }
+            },
             multi_ensemble_models = if (identical(input$model_id, "multi_ensemble")) {
               standalone <- input$multi_ensemble_standalone %||% character(0)
               if (length(input$multi_ensemble_biomod2 %||% character(0)) > 0) c(standalone, "biomod2") else standalone
@@ -1357,6 +1364,11 @@ gd_append_log <- function(target, msg) {
     span(class = paste("status-dot", cls), style = "width:3px;height:3px;border-radius:50%;display:inline-block;margin-right:5px;", title = v$detail)
   }
 
+  output$gd_worldclim_log <- renderText(rv$gd_worldclim_log %||% "")
+  output$gd_cmip6_log <- renderText(rv$gd_cmip6_log %||% "")
+  output$gd_terrain_log <- renderText(rv$gd_terrain_log %||% "")
+  output$gd_env_log <- renderText(rv$gd_env_log %||% "")
+
   output$gd_worldclim_status <- renderUI({
     v <- verify_worldclim_cache("Worldclim", source = input$gd_climate_source %||% "worldclim")
     tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
@@ -1368,12 +1380,6 @@ gd_append_log <- function(target, msg) {
     tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
   })
   outputOptions(output, "gd_chelsa_status", suspendWhenHidden = FALSE)
-
-  output$gd_cmip6_status <- renderUI({
-    v <- verify_future_cache()
-    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
-  })
-  outputOptions(output, "gd_cmip6_status", suspendWhenHidden = FALSE)
 
   output$gd_cmip6_scenarios <- renderUI({
     v <- verify_future_cache()
@@ -1491,7 +1497,7 @@ gd_append_log <- function(target, msg) {
           training_extent = NULL, projection_extent = NULL,
           aggregation_factor = 1,
           allow_download = TRUE,
-          worldclim_res = 10,
+          worldclim_res = res,
           source = "worldclim",
           selected_chelsa_extras = NULL,
           log_fun = function(...) message(paste(...))
@@ -1514,9 +1520,17 @@ gd_append_log <- function(target, msg) {
         if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_worldclim_log", ln)
         v <- verify_worldclim_cache("Worldclim", source = source)
         gd_append_log("gd_worldclim_log", paste("Verification:", v$detail))
+        shiny::showNotification(
+          paste0("WorldClim downloaded to ", file.path(sdm_project_root(), "Worldclim")),
+          type = "message", duration = 5
+        )
       }
     }, error = function(e) {
       gd_append_log("gd_worldclim_log", paste("ERROR:", conditionMessage(e)))
+      shiny::showNotification(
+        paste0("WorldClim download failed: ", conditionMessage(e)),
+        type = "error", duration = 8
+      )
     })
   })
 
@@ -1552,8 +1566,16 @@ gd_append_log <- function(target, msg) {
       if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_worldclim_log", ln)
       v <- verify_chelsa_extras_cache("Worldclim")
       gd_append_log("gd_worldclim_log", paste("Verification:", v$detail))
+      shiny::showNotification(
+        paste0("CHELSA extras downloaded to ", file.path(sdm_project_root(), "Worldclim")),
+        type = "message", duration = 5
+      )
     }, error = function(e) {
       gd_append_log("gd_worldclim_log", paste("ERROR:", conditionMessage(e)))
+      shiny::showNotification(
+        paste0("CHELSA extras download failed: ", conditionMessage(e)),
+        type = "error", duration = 8
+      )
     })
   })
 

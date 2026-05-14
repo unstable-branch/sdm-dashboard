@@ -174,3 +174,116 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
 
   list(dir = out_path, cached = FALSE, raster = averaged_stack, averaged = TRUE)
 }
+
+discover_gcm_dirs <- function(future_worldclim_dir) {
+  if (!dir.exists(future_worldclim_dir)) {
+    return(character(0))
+  }
+
+  all_entries <- list.dirs(future_worldclim_dir, recursive = FALSE, full.names = FALSE)
+  gcm_pattern <- "^[^_]+"  # GCM name is before first underscore
+
+  gcm_dirs <- character()
+  for (entry in all_entries) {
+    if (dir.exists(file.path(future_worldclim_dir, entry))) {
+      gcm_dirs <- c(gcm_dirs, entry)
+    }
+  }
+
+  gcm_dirs
+}
+
+average_gcm_layers <- function(gcm_names, future_worldclim_dir, bio_variables,
+                                output_dir, include_sd = FALSE, log_fun = NULL) {
+  available_dirs <- discover_gcm_dirs(future_worldclim_dir)
+
+  if (length(available_dirs) == 0) {
+    log_message(log_fun, "No GCM directories found in ", future_worldclim_dir)
+    return(list(
+      averaged_raster = NULL,
+      sd_raster = NULL,
+      gcms_found = character(0),
+      n_gcms_averaged = 0
+    ))
+  }
+
+  gcm_pattern <- "^[^_]+"
+  gcms_found <- character()
+
+  for (gcm in gcm_names) {
+    matched <- available_dirs[grepl(paste0("^", gcm, "_"), available_dirs)]
+    if (length(matched) > 0) {
+      gcms_found <- c(gcms_found, matched[1])
+    }
+  }
+
+  if (length(gcms_found) == 0) {
+    log_message(log_fun, "No matching GCM directories found for: ",
+                paste(gcm_names, collapse = ", "))
+    return(list(
+      averaged_raster = NULL,
+      sd_raster = NULL,
+      gcms_found = character(0),
+      n_gcms_averaged = 0
+    ))
+  }
+
+  log_message(log_fun, "Averaging ", length(gcms_found), " GCMs: ",
+              paste(gcms_found, collapse = ", "))
+
+  all_bio_vars <- if (missing(bio_variables)) paste0("bio", 1:19) else paste0("bio", bio_variables)
+
+  averaged_stack <- NULL
+  sd_stack <- NULL
+
+  for (bio in all_bio_vars) {
+    bio_pattern <- paste0("_(", bio, ")[^0-9]|[_]", bio, "\\.tif$")
+    bio_files <- character()
+    gcm_dirs_used <- character()
+
+    for (gcm_dir in gcms_found) {
+      gcm_path <- file.path(future_worldclim_dir, gcm_dir)
+      gcm_files <- list.files(gcm_path, pattern = "\\.tif$", full.names = TRUE)
+      matched <- gcm_files[grepl(bio_pattern, gcm_files, ignore.case = TRUE)]
+      if (length(matched) > 0) {
+        bio_files <- c(bio_files, matched[1])
+        gcm_dirs_used <- c(gcm_dirs_used, gcm_dir)
+      }
+    }
+
+    if (length(bio_files) >= 2) {
+      stacked <- terra::rast(bio_files)
+      avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
+      if (is.null(averaged_stack)) {
+        averaged_stack <- avg
+      } else {
+        averaged_stack <- terra::add(averaged_stack, avg)
+      }
+
+      if (include_sd) {
+        sd_val <- terra::app(stacked, fun = "sd", na.rm = TRUE)
+        if (is.null(sd_stack)) {
+          sd_stack <- sd_val
+        } else {
+          sd_stack <- terra::add(sd_stack, sd_val)
+        }
+      }
+    }
+  }
+
+  if (!is.null(averaged_stack) && terra::nlyr(averaged_stack) > 0) {
+    out_name <- paste0("bioc_avg_", paste(gcms_found, collapse = "_"), ".tif")
+    out_tif <- file.path(output_dir, out_name)
+    if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+    terra::writeRaster(averaged_stack, out_tif, overwrite = TRUE,
+                       wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    log_message(log_fun, "Averaged raster written to: ", out_tif)
+  }
+
+  list(
+    averaged_raster = averaged_stack,
+    sd_raster = if (include_sd) sd_stack else NULL,
+    gcms_found = gcms_found,
+    n_gcms_averaged = length(gcms_found)
+  )
+}

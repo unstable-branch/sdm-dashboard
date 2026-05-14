@@ -9,7 +9,9 @@ log_message <- function(log_fun = NULL, ...) {
 }
 
 progress_step <- function(progress_fun = NULL, amount = 0, detail = NULL) {
-  if (is.function(progress_fun)) progress_fun(amount, detail)
+  if (is.function(progress_fun)) {
+    progress_fun(list(value = amount, detail = detail))
+  }
   invisible(NULL)
 }
 

@@ -326,7 +326,7 @@ get_data_tab <- function() {
                 selected = "COP90"),
               passwordInput("gd_opentopo_key", "OpenTopography API key",
                 placeholder = "Get from OpenTopography.org"),
-              p(class = "small-muted", "API key required. Get free key atopentography.org"),
+              p(class = "small-muted", "API key required. Get free key opentopography.org"),
               actionButton("gd_download_elevation", "Download elevation tiles", icon = icon("download"), class = "btn-outline-primary btn-sm")
             ),
             column(8,
