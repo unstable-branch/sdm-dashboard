@@ -57,7 +57,8 @@ run_biomod2 <- function(occ_df, pred_stack, models = NULL,
 
   bm_opts <- biomod2::bm_ModelingOptions(bm.format = biomod_data, strategy = "default")
 
-  biomod_mod <- biomod2::BIOMOD_Modeling(
+  # Use compat layer to validate/filter arguments against installed biomod2 signature
+  user_args <- list(
     bm.format = biomod_data,
     models = models,
     modeling.id = modeling_id,
@@ -68,6 +69,8 @@ run_biomod2 <- function(occ_df, pred_stack, models = NULL,
     OPT.user = bm_opts,
     output.dir = file.path(output_dir, modeling_id)
   )
+  validated_args <- biomod2_modeling_args(user_args)
+  biomod_mod <- do.call(biomod2::BIOMOD_Modeling, validated_args)
 
   evaluations <- biomod2::get_evaluations(biomod_mod)
   var_importance <- biomod2::get_variables_importance(biomod_mod)

@@ -15,7 +15,7 @@ ui_main_tabs <- function() {
                 h4("Current suitability"),
                 span("Interactive map view")
               ),
-              leafletOutput("suitability_map", height = "56vh"),
+              uiOutput("suitability_map_ui"),
               div(class = "map-controls",
                 checkboxInput("show_presence", "Show presence points", value = TRUE),
                 checkboxInput("show_background", "Show background points", value = FALSE),
@@ -285,7 +285,7 @@ get_data_tab <- function() {
                 ),
                 column(4,
                   br(),
-                  actionButton("gd_average_gcms", "Average GCMs", icon = icon("calculate"), class = "btn-outline-primary btn-sm")
+                  actionButton("gd_average_gcms", "Average GCMs", icon = icon("calculator"), class = "btn-outline-primary btn-sm")
                 )
               )
             )

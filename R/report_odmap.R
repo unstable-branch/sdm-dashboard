@@ -242,6 +242,33 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
         paste0("esm_min_auc,", esm$min_auc))
     } else character(),
     "",
+    if (identical(.get_config("model_id"), "multi_ensemble")) {
+      ens <- result$model
+      cv_df <- result$cv$component_metrics
+      n_total <- length(ens$components)
+      n_succeeded <- nrow(cv_df)
+      n_failed <- n_total - n_succeeded
+      weight_lines <- if (!is.null(ens$weights) && length(ens$weights) > 0) {
+        paste0("ensemble_weight,", paste(names(ens$weights), sprintf("%.4f", ens$weights), sep = "=", collapse = "; "))
+      } else character()
+      disagreement_tif <- result$paths$multi_ens_sd_tif %||% NA_character_
+      c(
+        "# Ensemble",
+        paste0("ensemble_components_attempted,", n_total),
+        paste0("ensemble_components_succeeded,", n_succeeded),
+        paste0("ensemble_components_failed,", n_failed),
+        paste0("ensemble_disagreement_raster,", disagreement_tif),
+        weight_lines,
+        if (!is.null(cv_df) && nrow(cv_df) > 0) {
+          comp_header <- c(paste0("ensemble_component,", paste(names(cv_df), collapse = ",")))
+          comp_rows <- apply(cv_df, 1, function(row) {
+            paste0("ensemble_component,", paste(as.character(row), collapse = ","))
+          })
+          c(comp_header, comp_rows)
+        } else character()
+      )
+    } else character(),
+    "",
     "# Assessment",
     paste0("CV_strategy,", cv_strategy),
     paste0("AUC,", auc_text),
@@ -295,6 +322,32 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
                  " models (AUC-weighted; ", esm$n_pairs_dropped, " dropped, AUC < ", esm$min_auc, ")"))
       } else character(),
       "",
+      if (identical(.get_config("model_id"), "multi_ensemble")) {
+        ens <- result$model
+        cv_df <- result$cv$component_metrics
+        n_total <- length(ens$components)
+        n_succeeded <- nrow(cv_df)
+        n_failed <- n_total - n_succeeded
+        disagreement_tif <- result$paths$multi_ens_sd_tif %||% NA_character_
+        weight_lines <- if (!is.null(ens$weights) && length(ens$weights) > 0) {
+          paste0("- **Component weights:** ", paste(names(ens$weights), sprintf("%.4f", ens$weights), sep = " = ", collapse = ", "))
+        } else character()
+        comp_rows <- if (!is.null(cv_df) && nrow(cv_df) > 0) {
+          paste0("- **", cv_df$model_id, ":** AUC = ", sprintf("%.3f", cv_df$auc_mean),
+                 ", TSS = ", sprintf("%.3f", cv_df$tss_mean),
+                 ", weight = ", sprintf("%.4f", cv_df$weight))
+        } else character()
+        c(
+          "## Ensemble",
+          paste0("- **Components attempted:** ", n_total),
+          paste0("- **Components succeeded:** ", n_succeeded),
+          paste0("- **Components failed:** ", n_failed),
+          paste0("- **Disagreement raster:** ", disagreement_tif),
+          weight_lines,
+          comp_rows,
+          ""
+        )
+      } else character(),
       "## Assessment",
       paste0("- **CV strategy:** ", cv_strategy),
       paste0("- **AUC:** ", auc_text),

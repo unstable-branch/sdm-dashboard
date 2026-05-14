@@ -217,3 +217,34 @@ test_that("response curves work without env_train (fallback to model_data ranges
     expect_true("suitability" %in% names(curves[[cov]]))
   }
 })
+
+test_that("MaxNet response curves use type='response' via explicit predict.maxnet call", {
+  skip_if_not_installed("mockery")
+  if (!requireNamespace("maxnet", quietly = TRUE)) {
+    skip("maxnet not installed")
+  }
+
+  model_env <- new.env()
+  assign("predict_called_with_type", NULL, envir = model_env)
+
+  mock_predict_maxnet <- function(model, newdata, clamp, type) {
+    assign("predict_called_with_type", type, envir = model_env)
+    if (!identical(type, "response")) {
+      stop("predict.maxnet was called with type='", type, "', expected 'response'")
+    }
+    rep(0.5, nrow(newdata))
+  }
+
+  mockery::stub("compute_response_curves", "maxnet::predict.maxnet", mock_predict_maxnet)
+
+  fit_mock <- list(
+    model = structure(list(), class = "maxnet"),
+    model_data = data.frame(bio1 = seq(0, 1, length.out = 30), bio12 = seq(0, 1, length.out = 30))
+  )
+
+  curves <- compute_response_curves(fit_mock, fit_mock$model_data, env_train = NULL, n_points = 30)
+
+  expect_false(is.null(model_env$predict_called_with_type))
+  expect_equal(model_env$predict_called_with_type, "response")
+  expect_true(is.list(curves))
+})

@@ -70,19 +70,39 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
 
   preds <- list()
   component_paths <- list()
+  failed_components <- character()
   for (m in names(components)) {
     comp_fit <- components[[m]]
     method <- methods[[m]]
     log_message(log_fun, "Predicting component: ", m)
     comp_tif <- multi_ensemble_component_path(output_tif, m)
-    preds[[m]] <- if (identical(method, "biomod2")) {
-      pred_biomod2_component(comp_fit, env_project_scaled, comp_tif, n_cores, log_fun)
-    } else {
-      predict_single_component(method, comp_fit, env_project_scaled, comp_tif, n_cores, log_fun)
+    pred_result <- tryCatch(
+      if (identical(method, "biomod2")) {
+        pred_biomod2_component(comp_fit, env_project_scaled, comp_tif, n_cores, log_fun)
+      } else {
+        predict_single_component(method, comp_fit, env_project_scaled, comp_tif, n_cores, log_fun)
+      },
+      error = function(e) {
+        log_message(log_fun, "Component '", m, "' prediction failed: ", conditionMessage(e))
+        NULL
+      }
+    )
+    if (is.null(pred_result)) {
+      failed_components <- c(failed_components, m)
+      next
     }
+    preds[[m]] <- pred_result
     if (export_components) {
       component_paths[[paste0("multi_ens_comp_", m)]] <- comp_tif
     }
+  }
+
+  if (length(failed_components) > 0) {
+    log_message(log_fun, "Warning: ", length(failed_components), " component(s) failed prediction: ", paste(failed_components, collapse = ", "))
+  }
+
+  if (length(preds) == 0) {
+    stop("All ensemble components failed; cannot compute ensemble prediction.", call. = FALSE)
   }
 
   pred_stack <- terra::rast(preds)
@@ -386,11 +406,3 @@ comp_fit <- if (!is.null(spec) && is.function(spec$fit_component_fun)) {
   )
 }
 
-ensemble_weighted_metric <- function(values, weights) {
-  values <- suppressWarnings(as.numeric(values))
-  weights <- suppressWarnings(as.numeric(weights))
-  ok <- is.finite(values) & is.finite(weights) & weights > 0
-  if (!any(ok)) return(NA_real_)
-  weights <- weights[ok] / sum(weights[ok])
-  sum(values[ok] * weights)
-}
