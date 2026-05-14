@@ -11,6 +11,16 @@ sdm_default_output_dir <- "outputs"
 sdm_default_covariate_cache_dir <- "covariates"
 sdm_default_soil_vars <- c("sand", "clay", "phh2o")
 sdm_default_soil_depths <- c("0-5cm", "30-60cm")
+sdm_default_uv_vars <- c("UVB1", "UVB2")
+sdm_default_ndvi_enabled <- FALSE
+sdm_default_ndvi_year <- as.integer(format(Sys.Date(), "%Y")) - 1L
+sdm_default_ndvi_periods <- "annual_mean"
+sdm_default_veg_year <- as.integer(format(Sys.Date(), "%Y")) - 1L
+sdm_default_veg_products <- c("ndvi_annual_mean")
+sdm_default_veg_include_lai <- FALSE
+sdm_default_veg_include_gpp <- FALSE
+sdm_default_lulc_year <- 2020L
+sdm_default_hfp_year <- 2020L
 
 config$sdm_australia_boundary_path <- file.path("data", "examples", "geo", "australia.geojson")
 config$sdm_world_boundary_path     <- file.path("data", "examples", "geo", "world_boundary.geojson")
@@ -33,12 +43,16 @@ sdm_default_worldclim_res <- 10
 sdm_default_climate_source <- "worldclim"
 sdm_default_seed <- 42L
 sdm_default_n_perm <- 5L
-sdm_default_model_id <- "glm"
+sdm_default_model_id <- "multi_ensemble"
 sdm_default_rangebag_n_bags <- 100L
 sdm_default_rangebag_fraction <- 0.5
 sdm_default_rangebag_vars_per_bag <- 1L
 sdm_default_ensemble_weighting <- "auc"
+sdm_default_multi_ensemble_models <- c("glm")
+sdm_default_multi_ensemble_weighting <- "auc"
+sdm_default_multi_ensemble_export_components <- TRUE
 sdm_default_elevation_demtype <- "COP90"
+sdm_default_terrain_complexity_enabled <- FALSE
 sdm_default_soil_vars <- c("BULK_DENSITY", "DRAINAGE", "ROOT_DEPTH", "AWC")
 
 config$biomod2_default <- c('GLM','RF','GBM','MAXNET')
@@ -92,6 +106,12 @@ sdm_default_dirs <- c(
   sdm_default_covariate_cache_dir,
   file.path(sdm_default_covariate_cache_dir, "opentopo"),
   file.path(sdm_default_covariate_cache_dir, "soilgrids"),
+  file.path(sdm_default_covariate_cache_dir, "gluv"),
+  file.path(sdm_default_covariate_cache_dir, "gimms"),
+  file.path(sdm_default_covariate_cache_dir, "lulc"),
+  file.path(sdm_default_covariate_cache_dir, "human_footprint"),
+  file.path(sdm_default_covariate_cache_dir, "drought"),
+  file.path(sdm_default_covariate_cache_dir, "bioclim_season"),
   file.path(sdm_default_worldclim_dir, "climate", "wc2.1_10m"),
   sdm_default_future_worldclim_dir
 )

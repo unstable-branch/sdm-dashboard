@@ -10,6 +10,20 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                           use_soil = FALSE,
                           selected_soil_vars = sdm_default_soil_vars,
                           selected_soil_depths = sdm_default_soil_depths,
+                          use_uv = FALSE,
+                          selected_uv_vars = sdm_default_uv_vars,
+                          selected_uv_months = NULL,
+                          use_vegetation = FALSE,
+                          veg_year = sdm_default_veg_year,
+                          veg_products = sdm_default_veg_products,
+                          use_lulc = FALSE,
+                          lulc_year = 2020,
+                          use_hfp = FALSE,
+                          hfp_year = 2020,
+                          use_bioclim_season = FALSE,
+                          use_drought = FALSE,
+                          selected_drought_periods = "annual_mean",
+                          selected_chelsa_extras = NULL,
                           covariate_cache_dir = sdm_default_covariate_cache_dir,
                           vif_reduction = FALSE, vif_threshold = 10,
                           future_projection = FALSE, future_worldclim_dir = sdm_default_future_worldclim_dir,
@@ -22,7 +36,11 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                           cleaned_occurrence = NULL,
                           output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = NULL,
                           gbif_doi = NULL, log_fun = NULL, progress_fun = NULL,
-                          source = sdm_default_climate_source) {
+                          source = sdm_default_climate_source,
+                          multi_ensemble_models = NULL,
+                          multi_ensemble_weighting = sdm_default_multi_ensemble_weighting,
+                          multi_ensemble_export = TRUE,
+                          biomod2_models = NULL) {
   ensure_sdm_packages("terra", n_cores = n_cores)
   n_cores <- configure_parallel(n_cores, log_fun = log_fun)
   projection_extent <- validate_extent(as.numeric(projection_extent), "projection_extent")
@@ -81,8 +99,22 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
     use_soil = use_soil,
     selected_soil_vars = selected_soil_vars,
     selected_soil_depths = selected_soil_depths,
+    use_uv = use_uv,
+    selected_uv_vars = selected_uv_vars,
+    selected_uv_months = selected_uv_months,
+    use_vegetation = isTRUE(use_vegetation),
+                           veg_year = veg_year,
+                           veg_products = veg_products,
+    use_lulc = use_lulc,
+    lulc_year = lulc_year,
+    use_hfp = use_hfp,
+    hfp_year = hfp_year,
+    use_bioclim_season = use_bioclim_season,
+    use_drought = use_drought,
+    selected_drought_periods = selected_drought_periods,
     covariate_cache_dir = covariate_cache_dir,
-    source = source
+    source = source,
+    selected_chelsa_extras = selected_chelsa_extras
   )
 
   if (check_cancelled(log_fun)) return(invisible(NULL))
@@ -131,6 +163,9 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   log_message(log_fun, "Model backend: ", model_spec$label)
   extra_args <- if (identical(model_id, "maxnet")) {
     list(maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
+  } else if (identical(model_id, "multi_ensemble")) {
+    list(selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,
+         biomod2_models = biomod2_models)
   } else {
     character(0)
   }
@@ -195,7 +230,12 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   output_tif <- file.path(output_dir, paste0(base_name, "_suitability.tif"))
   output_png <- file.path(output_dir, paste0(base_name, "_suitability.png"))
   output_report <- file.path(output_dir, paste0(base_name, "_report.txt"))
-  suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
+  if (identical(model_id, "multi_ensemble")) {
+    suit <- predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
+                                          export_components = isTRUE(multi_ensemble_export))
+  } else {
+    suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
+  }
   if (check_cancelled(log_fun)) return(invisible(NULL))
   future <- NULL
   extra_paths <- list()
@@ -205,6 +245,12 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
       rangebag_tif = ensemble_component_path(output_tif, "rangebag"),
       disagreement_tif = ensemble_component_path(output_tif, "disagreement")
     )
+  } else if (identical(model_id, "multi_ensemble")) {
+    comp_paths <- fit$model$components
+    for (m in names(comp_paths)) {
+      extra_paths[[paste0("multi_ens_comp_", m)]] <- multi_ensemble_component_path(output_tif, m)
+    }
+    extra_paths$multi_ens_disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
   }
 
   if (isTRUE(future_projection)) {
@@ -246,6 +292,13 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
                   aggregation_factor = aggregation_factor, cv_folds = cv_folds, n_cores = n_cores,
                   use_elevation = isTRUE(use_elevation), elevation_demtype = elevation_demtype,
                   use_soil = isTRUE(use_soil), selected_soil_vars = selected_soil_vars, selected_soil_depths = selected_soil_depths,
+                  use_uv = isTRUE(use_uv), selected_uv_vars = selected_uv_vars, selected_uv_months = selected_uv_months,
+                  use_vegetation = isTRUE(use_vegetation), veg_year = veg_year, veg_products = veg_products,
+                  use_lulc = isTRUE(use_lulc), lulc_year = lulc_year,
+                  use_hfp = isTRUE(use_hfp), hfp_year = hfp_year,
+                  use_bioclim_season = isTRUE(use_bioclim_season),
+                  use_drought = isTRUE(use_drought), selected_drought_periods = selected_drought_periods,
+                  selected_chelsa_extras = selected_chelsa_extras,
                   covariate_cache_dir = covariate_cache_dir,
                   vif_reduction = isTRUE(vif_reduction), vif_threshold = vif_threshold,
                   future_projection = isTRUE(future_projection), future_worldclim_dir = future_worldclim_dir,

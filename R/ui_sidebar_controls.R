@@ -35,6 +35,24 @@ ui_sidebar_controls <- function() {
         "Flags: sea coordinates, biodiversity institutions, capital cities,",
         "country centroids, urban areas, zero coordinates."),
       actionButton("view_flagged", "View flagged records (opens in table)")
+    ),
+    div(class = "checkbox-parent", checkboxInput("batch_mode", "Run batch of multiple species", value = FALSE)),
+    conditionalPanel("input.batch_mode == true",
+      div(class = "batch-controls",
+        p(class = "small-muted", "Upload a CSV with one row per species."),
+        fileInput("batch_config_file", "Batch config CSV", accept = c(".csv", ".tsv")),
+        div(class = "small-muted batch-template",
+          "Required: species, occurrences_csv | Optional: model_id, biovars, worldclim_dir, cv_folds...",
+          tags$a("Download template", href = "#", onclick = "Shiny.setInputValue('batch_download_template', Date.now())")
+        ),
+        numericInput("batch_n_cores", "Parallel workers",
+          value = default_cores, min = 1, max = detect_available_cores(TRUE), step = 1),
+        div(class = "batch-action",
+          actionButton("batch_run", "Run batch", class = "btn-primary btn-sm"),
+          actionButton("batch_cancel", "Cancel", class = "btn-outline-secondary btn-sm")
+        ),
+        uiOutput("batch_progress_ui")
+      )
     )
   ),
   div(class = "control-section",
@@ -175,16 +193,19 @@ ui_sidebar_controls <- function() {
         div(class = "small-muted", "Note: biomod2 backend requires options(sdm.enable_biomod2 = TRUE) and restart.")
       ),
       conditionalPanel("input.model_id == 'multi_ensemble'",
-        checkboxGroupInput("multi_ensemble_standalone", "Models to ensemble",
+        tags$strong("Standalone models"),
+        checkboxGroupInput("multi_ensemble_standalone", NULL,
+          choices = c("GLM" = "glm", "Rangebagging" = "rangebag"),
+          selected = "glm"),
+        tags$strong("biomod2 algorithms"),
+        checkboxGroupInput("multi_ensemble_biomod2", NULL,
           choices = c(
-            "GLM" = "glm",
-            "Rangebagging" = "rangebag"
+            "GAM" = "GAM", "FDA" = "FDA", "MARS" = "MARS",
+            "Random Forest" = "RF", "GBM" = "GBM", "BRT" = "BRT",
+            "MaxEnt (MAXNET)" = "MAXNET", "SRE" = "SRE", "CTA" = "CTA",
+            "XGBoost" = "XGBOOST"
           ),
-          selected = c("glm")),
-        div(class = "checkbox-parent", checkboxInput("multi_ensemble_include_biomod2", "Include biomod2 algorithms", value = FALSE)),
-        conditionalPanel("input.multi_ensemble_include_biomod2 == true",
-          uiOutput("multi_ensemble_biomod2_section")
-        ),
+          selected = c("RF", "MAXNET")),
         selectInput("multi_ensemble_weighting", "Ensemble weighting",
           choices = c("Equal average" = "equal", "AUC-weighted" = "auc", "TSS-weighted" = "tss"),
           selected = "auc"),
@@ -201,10 +222,13 @@ ui_sidebar_controls <- function() {
       numericInput("n_cores", "CPU cores for compile/predict/CV", value = default_cores, min = 1, max = detect_available_cores(TRUE), step = 1),
       div(class = "small-muted", "Also sets MAKEFLAGS=-jN for source package compilation."),
       numericInput("aggregation_factor", "Raster aggregation for speed (1 = native)", value = sdm_default_aggregation_factor, min = 1, max = 8, step = 1),
-      selectInput("bias_method", "Background sampling bias correction",
-        choices = c("Uniform random (default)" = "uniform",
-                    "Target-group (requires related species CSV)" = "target_group",
-                    "Thickened (concentrate around presences)" = "thickened")),
+      div(class = "bias-dropdown",
+        selectInput("bias_method", "Background sampling bias correction",
+          choices = c("Uniform random (default)" = "uniform",
+                      "Target-group (requires related species CSV)" = "target_group",
+                      "Thickened (concentrate around presences)" = "thickened"))
+      ),
+      div(class = "bias-conditional",
       conditionalPanel("input.bias_method == 'target_group'",
         fileInput("target_group_file", "Upload related species occurrences (CSV)",
           accept = c(".csv")),
@@ -213,6 +237,7 @@ ui_sidebar_controls <- function() {
       conditionalPanel("input.bias_method == 'thickened'",
         numericInput("thickening_distance_km", "Kernel distance (km)",
           value = 10, min = 1, max = 100)
+      )
       )
     )
   ),

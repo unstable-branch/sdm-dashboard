@@ -1,5 +1,23 @@
 # OpenTopography elevation covariate support.
 
+compute_terrain_metrics <- function(dem) {
+  neighbors <- 8
+  tri <- terra::terrain(dem, v = "TRI", unit = "degrees", neighbors = neighbors)
+  names(tri) <- "terrain_ruggedness"
+  slope <- terra::terrain(dem, v = "slope", unit = "degrees", neighbors = neighbors)
+  names(slope) <- "terrain_slope"
+  aspect <- terra::terrain(dem, v = "aspect", unit = "degrees", neighbors = neighbors)
+  names(aspect) <- "terrain_aspect"
+  aspect_sin <- sin(pi * aspect / 180)
+  aspect_cos <- cos(pi * aspect / 180)
+  names(aspect_sin) <- "terrain_aspect_sin"
+  names(aspect_cos) <- "terrain_aspect_cos"
+  k <- matrix(c(0, 1, 0, 1, -4, 1, 0, 1, 0), nrow = 3)
+  curv <- terra::focal(dem, w = k, na_only = FALSE)
+  names(curv) <- "terrain_curvature"
+  c(tri, slope, aspect, aspect_sin, aspect_cos, curv)
+}
+
 opentopo_dem_choices <- c(
   "Copernicus 90m" = "COP90",
   "SRTM 90m" = "SRTMGL3",
@@ -127,5 +145,17 @@ load_elevation_covariate <- function(training_extent, projection_extent, cache_d
   }
   dem <- terra::rast(cache_file)
   names(dem) <- "elevation_m"
-  list(raster = dem, files = cache_file, source = paste0("OpenTopography ", demtype), methods = c(elevation_m = "bilinear"))
+  log_message(log_fun, "Computing terrain complexity derivatives from DEM")
+  terrain <- compute_terrain_metrics(dem)
+  all_rasters <- c(dem, terrain)
+  methods_vec <- c(
+    elevation_m = "bilinear",
+    terrain_ruggedness = "bilinear",
+    terrain_slope = "bilinear",
+    terrain_aspect = "bilinear",
+    terrain_aspect_sin = "bilinear",
+    terrain_aspect_cos = "bilinear",
+    terrain_curvature = "bilinear"
+  )
+  list(raster = all_rasters, files = cache_file, source = paste0("OpenTopography ", demtype), methods = methods_vec)
 }

@@ -142,6 +142,23 @@ register_sdm_model(
   notes = "Experimental ensemble backend combining standardized GLM and Rangebagging predictions."
 )
 
+register_sdm_model(
+  id = "multi_ensemble",
+  label = "Multi-Model Ensemble",
+  method = "User-selected ensemble of multiple SDM algorithms (GLM, GAM, MaxNet, Rangebagging, biomod2) with configurable weighting",
+  packages = c("terra"),
+  maturity = "experimental",
+  fit_fun = function(...) fit_multi_model_ensemble(...),
+  predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+    predict_multi_model_ensemble(fit, env_project_scaled, output_tif, n_cores, log_fun)
+  },
+  supports_importance = FALSE,
+  supports_uncertainty = TRUE,
+  supports_future = TRUE,
+  diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, component_metrics = TRUE, component_weights = TRUE),
+  notes = "Select 2+ models from GLM, GAM, MaxNet, Rangebagging, and biomod2 algorithms. biomod2 requires options(sdm.enable_biomod2 = TRUE)."
+)
+
 if (requireNamespace("biomod2", quietly = TRUE) && isTRUE(getOption("sdm.enable_biomod2", FALSE))) {
   register_sdm_model(
     id = "biomod2",

@@ -23,14 +23,16 @@ sdm_app_packages <- c(
   "mgcv", "earth", "rpart", "mda", "gam", "xgboost",
   "httr", "jsonlite",
   "cito", "R.utils",
-  "torch", "reticulate"
+  "torch", "reticulate",
+  "future", "future.apply", "progressr"
 )
 sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf", "DT", "marginaleffects")
 
 sdm_optional_packages <- list(
   maxnet = c("maxnet", "glmnet"),
   biomod2 = c("biomod2", "PresenceAbsence", "pROC"),
-  leaflet = c("leaflet", "mapview", "sf")
+  leaflet = c("leaflet", "mapview", "sf"),
+  rgee = c("rgee", "reticulate")
 )
 
 detect_available_cores <- function(logical = TRUE) {

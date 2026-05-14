@@ -50,6 +50,14 @@ write_summary_report <- function(result, path) {
   if (!is.null(result$paths$delta_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Future delta GeoTIFF: ", fmt_chr(result$paths$delta_tif)))
   if (!is.null(result$paths$mess_tif)) extra_output_lines <- c(extra_output_lines, paste0("- MESS extrapolation GeoTIFF: ", fmt_chr(result$paths$mess_tif)))
   if (!is.null(result$paths$mod_tif)) extra_output_lines <- c(extra_output_lines, paste0("- Most dissimilar variable GeoTIFF: ", fmt_chr(result$paths$mod_tif)))
+  multi_ens_comp <- grep("^multi_ens_comp_", names(result$paths), value = TRUE)
+  for (p in multi_ens_comp) {
+    label <- sub("^multi_ens_comp_", "", p)
+    extra_output_lines <- c(extra_output_lines, paste0("- ", label, " component GeoTIFF: ", fmt_chr(result$paths[[p]])))
+  }
+  if (!is.null(result$paths$multi_ens_disagreement_tif)) {
+    extra_output_lines <- c(extra_output_lines, paste0("- Ensemble disagreement GeoTIFF: ", fmt_chr(result$paths$multi_ens_disagreement_tif)))
+  }
   future_lines <- character()
   if (!is.null(result$future)) {
     future_lines <- c(

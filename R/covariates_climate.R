@@ -24,6 +24,63 @@ find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("wo
   matched
 }
 
+# CHELSA bioclim-plus extra variables (gdd5, gsl, fcf, npp, etc.)
+# These are available as separate GeoTIFF downloads from CHELSA v2.1.
+chelsa_extra_vars <- c(
+  "gdd5"  = "gdd5",   # Growing degree days above 5C
+  "gdd10" = "gdd10",  # Growing degree days above 10C
+  "gsl"   = "gsl",    # Growing season length
+  "fcf"   = "fcf",    # Frost change frequency
+  "npp"   = "npp",    # Net primary productivity
+  "scd"   = "scd"     # Snow cover days
+)
+
+find_chelsa_extra_files <- function(worldclim_dir, selected_extras = names(chelsa_extra_vars)) {
+  if (!dir.exists(worldclim_dir)) return(setNames(rep(NA_character_, length(selected_extras)), selected_extras))
+  files <- list.files(worldclim_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  if (length(files) == 0) return(setNames(rep(NA_character_, length(selected_extras)), selected_extras))
+
+  matched <- vapply(selected_extras, function(var) {
+    pattern <- sprintf("CHELSA_%s_.*\\.tif$", var)
+    hit <- files[grepl(pattern, basename(files), ignore.case = TRUE)]
+    if (length(hit) == 0) NA_character_ else hit[1]
+  }, character(1))
+  names(matched) <- as.character(selected_extras)
+  matched
+}
+
+download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa_extra_vars),
+                                   log_fun = NULL, n_cores = NULL) {
+  ensure_sdm_packages(c("terra", "geodata"), n_cores = n_cores)
+  dir.create(worldclim_dir, recursive = TRUE, showWarnings = FALSE)
+  log_message(log_fun, "Downloading CHELSA bioclim-plus extra variables to ", worldclim_dir)
+
+  base_url <- "https://envicloud.wsl.ch/links/chelsaV21/climatologies/"
+  for (var in selected_extras) {
+    fname <- sprintf("CHELSA_%s_1981-2010_V.2.1.tif", var)
+    dest <- file.path(worldclim_dir, fname)
+    if (file.exists(dest)) {
+      log_message(log_fun, "CHELSA extra already exists: ", var)
+      next
+    }
+    url <- paste0(base_url, fname)
+    tmp <- tempfile(fileext = ".tif")
+    ok <- tryCatch({
+      curl::curl_fetch_disk(url, tmp)
+      fi <- file.info(tmp)
+      !is.na(fi$size) && fi$size > 1024
+    }, error = function(e) FALSE)
+    if (ok && file.exists(tmp) && file.info(tmp)$size > 1024) {
+      file.rename(tmp, dest)
+      log_message(log_fun, "Downloaded CHELSA extra: ", var)
+    } else {
+      log_message(log_fun, "Failed to download CHELSA extra: ", var, " — URL: ", url)
+      if (file.exists(tmp)) unlink(tmp, force = TRUE)
+    }
+  }
+  invisible(find_chelsa_extra_files(worldclim_dir, selected_extras))
+}
+
 download_worldclim_layers <- function(worldclim_dir, selected_biovars, res = 10, log_fun = NULL, n_cores = NULL) {
   ensure_sdm_packages(c("terra", "geodata"), n_cores = n_cores)
   dir.create(worldclim_dir, recursive = TRUE, showWarnings = FALSE)
@@ -56,9 +113,10 @@ scale_raster_stack <- function(r, means, sds) {
 }
 
 load_climate_covariates <- function(worldclim_dir, selected_biovars, training_extent, projection_extent,
-                                    aggregation_factor = 1, allow_download = TRUE, worldclim_res = 10,
-                                    log_fun = NULL, n_cores = NULL,
-                                    source = c("worldclim", "chelsa")) {
+                                     aggregation_factor = 1, allow_download = TRUE, worldclim_res = 10,
+                                     log_fun = NULL, n_cores = NULL,
+                                     source = c("worldclim", "chelsa"),
+                                     selected_chelsa_extras = NULL) {
   source <- match.arg(source)
   ensure_sdm_packages("terra", n_cores = n_cores)
   selected_biovars <- validate_biovars(selected_biovars)
@@ -78,10 +136,28 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
   env_global <- terra::rast(unname(files))
   names(env_global) <- paste0("bio", selected_biovars)
 
+  extra_files <- character(0)
+  if (identical(source, "chelsa") && !is.null(selected_chelsa_extras) && length(selected_chelsa_extras) > 0) {
+    chelsa_files <- find_chelsa_extra_files(worldclim_dir, selected_chelsa_extras)
+    missing_extras <- names(chelsa_files)[is.na(chelsa_files)]
+    if (length(missing_extras) > 0 && allow_download) {
+      downloaded <- download_chelsa_extras(worldclim_dir, missing_extras, log_fun, n_cores)
+      chelsa_files <- find_chelsa_extra_files(worldclim_dir, selected_chelsa_extras)
+    }
+    valid_extras <- chelsa_files[!is.na(chelsa_files)]
+    if (length(valid_extras) > 0) {
+      log_message(log_fun, "Loading CHELSA extra variables: ", paste(names(valid_extras), collapse = ", "))
+      extra_rast <- terra::rast(unname(valid_extras))
+      names(extra_rast) <- names(valid_extras)
+      env_global <- c(env_global, extra_rast)
+      extra_files <- valid_extras
+    }
+  }
+
   list(
     env_train = crop_and_optionally_aggregate(env_global, training_extent, aggregation_factor),
     env_project = crop_and_optionally_aggregate(env_global, projection_extent, aggregation_factor),
     selected_biovars = selected_biovars,
-    files = files
+    files = c(files, extra_files)
   )
 }

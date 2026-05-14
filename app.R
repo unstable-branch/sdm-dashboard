@@ -57,7 +57,7 @@ ui <- fluidPage(
     tags$script(HTML("\n      console.log('SDM Dashboard JS loaded');\n      Shiny.addCustomMessageHandler('setRunState', function(x) {\n        var btn = document.getElementById('run_model');\n        if (!btn) { console.log('setRunState: run_model btn not found'); return; }\n        console.log('setRunState called, running=', x.running);\n        btn.disabled = !!x.running;\n        btn.classList.toggle('disabled', !!x.running);\n        btn.textContent = x.running ? 'Running SDM...' : 'Run SDM';\n      });\n      (function() {\n        function setTheme(dark) {\n          document.body.classList.toggle('sdm-dark', dark);\n          document.body.classList.toggle('sdm-light', !dark);\n          try { window.localStorage.setItem('sdm-dashboard-theme', dark ? 'dark' : 'light'); } catch (e) {}\n        }\n        function initialTheme() {\n          try {\n            var saved = window.localStorage.getItem('sdm-dashboard-theme');\n            if (saved === 'dark' || saved === 'light') return saved === 'dark';\n          } catch (e) {}\n          return true;\n        }\n        function wireToggle() {\n          var toggle = document.getElementById('dark_mode');\n          var dark = initialTheme();\n          setTheme(dark);\n          if (!toggle || toggle.dataset.themeBound === '1') return;\n          toggle.checked = dark;\n          toggle.dataset.themeBound = '1';\n          toggle.addEventListener('change', function() { setTheme(toggle.checked); });\n        }\n        document.addEventListener('DOMContentLoaded', wireToggle);\n        document.addEventListener('shiny:connected', function() { console.log('Shiny connected'); wireToggle(); });\n      })();\n    "))
   ),
 
-  tags$style(HTML("\n    .hero { padding:12px 20px; margin:8px 0 10px; border-radius:16px; }\n    .hero h1 { font-size:1.55rem; margin-bottom:1px; } .hero p { font-size:.92rem; }\n    .control-panel { display:flex; flex-direction:column; height:calc(100vh - 94px); max-height:calc(100vh - 94px); padding:12px; overflow:hidden; }\n    .control-scroll { flex:1 1 auto; min-height:0; overflow:auto; padding-right:3px; }\n    .control-panel .form-group { margin-bottom:.62rem; }\n    .control-section { border:1px solid #e7edf4; border-radius:14px; padding:10px 12px; margin-bottom:10px; background:#fbfdff; }\n    .control-section h4 { margin:0 0 8px; }\n    details.control-section { padding:0; overflow:hidden; }\n    details.control-section > summary { cursor:pointer; padding:10px 12px; font-weight:800; color:#0B4F4A; list-style:none; }\n    details.control-section > summary::-webkit-details-marker { display:none; }\n    details.control-section > summary:after { content:'+'; float:right; color:#5d6d7e; }\n    details.control-section[open] > summary:after { content:'-'; }\n    .details-body { padding:0 12px 10px; }\n    .run-button-wrap { flex:0 0 auto; position:static; bottom:auto; background:white; border-top:1px solid #e7edf4; margin-top:8px; padding-top:10px; }\n    .main-panel { padding-top:0; }\n    .content-card { padding:14px; margin-bottom:12px; }\n    .metric-grid { grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px; margin-bottom:10px; }\n    .metric-card { padding:12px; }\n    .metric-value { font-size:1.45rem; }\n    .status-ok,.status-warn,.status-error,.status-info { margin-bottom:10px; padding:10px 12px; }\n    .preflight-compact .readiness-grid { display:none; }\n    .preflight-compact { padding:10px 12px; }\n    .summary-list { display:grid; gap:6px; }\n    .summary-row { display:grid; grid-template-columns:minmax(105px,38%) 1fr; gap:8px; padding:6px 0; border-bottom:1px solid #edf2f7; }\n    .summary-row:last-child { border-bottom:0; }\n    .summary-label { color:#5d6d7e; font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; font-weight:800; }\n    .summary-value { color:#102a43; font-weight:650; overflow-wrap:anywhere; }\n    .downloads-row .btn { margin:0 8px 8px 0; }\n    @media (max-width: 991px) { .control-panel { position:static; height:auto; max-height:none; overflow:visible; } .control-scroll { overflow:visible; } .metric-grid { grid-template-columns:repeat(2,minmax(140px,1fr)); } }\n  ")),
+  tags$style(HTML("\n    .hero { padding:12px 20px; margin:8px 0 10px; border-radius:16px; }\n    .hero h1 { font-size:1.55rem; margin-bottom:1px; } .hero p { font-size:.92rem; }\n    .control-panel { display:flex; flex-direction:column; height:calc(100vh - 94px); max-height:calc(100vh - 94px); padding:12px; overflow:hidden; }\n    .control-scroll { flex:1 1 auto; min-height:0; overflow:auto; padding-right:3px; }\n    .control-panel .form-group { margin-bottom:.62rem; }\n    .control-section { border:1px solid #e7edf4; border-radius:14px; padding:10px 12px; margin-bottom:10px; background:#fbfdff; }\n    .control-section h4 { margin:0 0 8px; }\n    details.control-section { padding:0; overflow:visible; }\n    details.control-section > summary { cursor:pointer; padding:10px 12px; font-weight:800; color:#0B4F4A; list-style:none; }\n    details.control-section > summary::-webkit-details-marker { display:none; }\n    details.control-section > summary:after { content:'+'; float:right; color:#5d6d7e; }\n    details.control-section[open] > summary:after { content:'-'; }\n    .details-body { padding:0 12px 10px; }\n    .run-button-wrap { flex:0 0 auto; position:static; bottom:auto; background:white; border-top:1px solid #e7edf4; margin-top:8px; padding-top:10px; }\n    .main-panel { padding-top:0; }\n    .content-card { padding:14px; margin-bottom:12px; }\n    .metric-grid { grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px; margin-bottom:10px; }\n    .metric-card { padding:12px; }\n    .metric-value { font-size:1.45rem; }\n    .status-ok,.status-warn,.status-error,.status-info { margin-bottom:10px; padding:10px 12px; }\n    .preflight-compact .readiness-grid { display:none; }\n    .preflight-compact { padding:10px 12px; }\n    .summary-list { display:grid; gap:6px; }\n    .summary-row { display:grid; grid-template-columns:minmax(105px,38%) 1fr; gap:8px; padding:6px 0; border-bottom:1px solid #edf2f7; }\n    .summary-row:last-child { border-bottom:0; }\n    .summary-label { color:#5d6d7e; font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; font-weight:800; }\n    .summary-value { color:#102a43; font-weight:650; overflow-wrap:anywhere; }\n    .downloads-row .btn { margin:0 8px 8px 0; }\n    @media (max-width: 991px) { .control-panel { position:static; height:auto; max-height:none; overflow:visible; } .control-scroll { overflow:visible; } .metric-grid { grid-template-columns:repeat(2,minmax(140px,1fr)); } }\n  ")),
 
   tags$style(HTML("\n    .status-ok,.status-warn,.status-error,.status-info { overflow-wrap:anywhere; }\n    .status-ok:focus,.status-warn:focus,.status-error:focus,.status-info:focus,\n    .btn:focus-visible,.form-control:focus,.form-select:focus,input[type='radio']:focus-visible,input[type='checkbox']:focus-visible,summary:focus-visible { outline:3px solid #4cc9b0; outline-offset:2px; box-shadow:0 0 0 .2rem rgba(76,201,176,.25); }\n    @media (max-width: 991px) {\n      .control-panel { position:static; height:auto; max-height:none; margin-bottom:12px; }\n      .control-scroll { overflow:visible; }\n      .run-button-wrap { position:sticky; bottom:0; z-index:10; padding-bottom:8px; }\n      .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }\n      .main-panel .content-card { overflow-x:auto; }\n    }\n    @media (max-width: 575px) {\n      .hero { padding:14px; }\n      .metric-grid,.summary-row { grid-template-columns:1fr; }\n      .metric-value { font-size:1.3rem; }\n      .content-card { padding:12px; }
     .map-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:8px; padding:8px 0; border-top:1px solid #e7edf4; }
@@ -66,6 +66,22 @@ ui <- fluidPage(
     .checkbox-parent .form-group label { display:flex; align-items:center; }
     .checkbox-parent .form-group label::after { content:'+'; margin-left:auto; padding-left:6px; font-weight:700; color:#0B6E69; font-size:1.05em; line-height:1; }
     .checkbox-parent .form-group label:has(input:checked)::after { content:'-'; }
+    .batch-controls { padding:8px 4px 4px; }
+    .batch-controls .form-group { margin-bottom:.5rem; }
+    .batch-template { font-size:.75rem; color:#6c7a89; margin-bottom:6px; }
+    .batch-action { display:flex; gap:8px; margin-top:6px; }
+    .bias-dropdown { position:relative; z-index:200; overflow:visible; }
+    .bias-dropdown select { overflow:visible; }
+    .bias-dropdown .shiny-input-container { overflow:visible; position:relative; z-index:200; }
+    .bias-dropdown .selectize-dropdown { z-index:9999 !important; }
+    .bias-dropdown .selectize-dropdown { position:absolute !important; }
+    .bias-conditional { position:relative; z-index:200; }
+    .control-section { position:relative; z-index:1; }
+    details.control-section[open] { z-index:10; }
+    .details-body { position:relative; z-index:5; }
+    .bias-dropdown .shiny-options-group { position:relative; z-index:200; overflow:visible; }
+    .form-group { overflow:visible; }
+    .shiny-input-container { overflow:visible; }
   ")),
 
   tags$style(HTML(sdm_theme_css)),
@@ -82,7 +98,8 @@ ui <- fluidPage(
 )
 
 server <- function(input, output, session) {
-  rv <- reactiveValues(result = NULL, log = "Ready.\n", error = NULL, running = FALSE, gbif_temp_file = NULL, gbif_doi = NULL, cleaned_occurrence = NULL)
+  rv <- reactiveValues(result = NULL, log = "Ready.\n", error = NULL, running = FALSE, gbif_temp_file = NULL, gbif_doi = NULL, cleaned_occurrence = NULL,
+                      batch_running = FALSE, batch_results = NULL, batch_log = character())
   append_log <- function(message) rv$log <- paste0(rv$log, format(Sys.time(), "%H:%M:%S"), "  ", message, "\n")
   last_auto_species <- reactiveVal(sdm_initial_species)
   species_manually_set <- reactiveVal(FALSE)
@@ -146,6 +163,80 @@ server <- function(input, output, session) {
     rv$running <- FALSE
     rv$error <- "Run cancelled."
     append_log("Run cancelled by user.")
+  })
+
+  observeEvent(input$batch_cancel, {
+    if (!isTRUE(rv$batch_running)) return()
+    message("SDM: Batch cancelled by user")
+    options(sdm_cancelled = TRUE)
+    rv$batch_running <- FALSE
+    rv$batch_log <- c(rv$batch_log, paste0(format(Sys.time(), "%H:%M:%S"), "  Batch cancelled by user.\n"))
+  })
+
+  output$batch_progress_ui <- renderUI({
+    if (!isTRUE(input$batch_mode)) return(NULL)
+    lines <- rv$batch_log
+    if (length(lines) == 0) {
+      div(class = "batch-log", style = "font-size:0.8rem; color:#6c7a89; margin-top:4px;", "No batch run yet.")
+    } else {
+      div(class = "batch-log", style = "font-size:0.78rem; font-family:monospace; background:#f4f7fb; border:1px solid #e7edf4; border-radius:8px; padding:8px; max-height:160px; overflow-y:auto; white-space:pre-wrap; margin-top:4px;",
+          paste(lines, collapse = ""))
+    }
+  })
+
+  observeEvent(input$batch_download_template, {
+    tf <- tempfile(fileext = ".csv")
+    write.csv(data.frame(
+      species = c("Acacia mearnsii", "Opuntia stricta"),
+      occurrences_csv = c("data/acacia.csv", "data/opuntia.csv"),
+      model_id = c("glm", "glm"),
+      biovars = c("1,4,6,12,15,18", "1,4,6,12,15,18"),
+      use_elevation = c("FALSE", "FALSE"),
+      worldclim_dir = c("Worldclim", "Worldclim"),
+      cv_folds = c("3", "3"),
+      stringsAsFactors = FALSE
+    ), tf, row.names = FALSE)
+    session$sendFileResponse(tf, basename = "batch_config_template.csv")
+  })
+
+  observeEvent(input$batch_run, {
+    req(input$batch_config_file)
+    if (isTRUE(rv$batch_running)) return()
+
+    rv$batch_running <- TRUE
+    rv$batch_log <- character()
+    rv$batch_results <- NULL
+
+    append_log_batch <- function(msg) {
+      rv$batch_log <- c(rv$batch_log, paste0(format(Sys.time(), "%H:%M:%S"), "  ", msg, "\n"))
+    }
+
+    tryCatch({
+      configs <- parse_batch_config(input$batch_config_file$datapath)
+      n <- length(configs)
+      append_log_batch(paste0("Batch started: ", n, " species  (cores=", input$batch_n_cores, ")"))
+
+      rv$batch_results <- batch_run_parallel(
+        species_configs = configs,
+        n_cores = input$batch_n_cores,
+        output_dir = file.path(sdm_default_output_dir, "batch"),
+        progress_fun = function(msg) {
+          append_log_batch(msg)
+        },
+        seed = 42L
+      )
+
+      n_ok <- sum(!sapply(rv$batch_results, is.null))
+      n_err <- n - n_ok
+      append_log_batch(paste0("Batch complete. Successful: ", n_ok, " / ", n))
+      if (n_err > 0) append_log_batch(paste0("Errors: ", n_err, " (see *_<species>_ERROR.log in outputs/batch/)"))
+    },
+    error = function(e) {
+      append_log_batch(paste0("ERROR: ", conditionMessage(e)))
+    },
+    finally = {
+      rv$batch_running <- FALSE
+    })
   })
 
   occurrence_source <- function() {
@@ -351,7 +442,7 @@ server <- function(input, output, session) {
     })
   })
 
-  output$maxnet_install_hint <- renderUI({
+output$maxnet_install_hint <- renderUI({
     if (!requireNamespace("maxnet", quietly = TRUE)) {
       div(class = "small-muted",
           "MaxEnt unavailable. Install with: ",
@@ -360,27 +451,10 @@ server <- function(input, output, session) {
     }
   })
 
-  output$multi_ensemble_biomod2_section <- renderUI({
-    has_biomod2 <- requireNamespace("biomod2", quietly = TRUE) && isTRUE(getOption("sdm.enable_biomod2", FALSE))
-    if (!has_biomod2) {
-      return(div(class = "small-muted",
-        "biomod2 algorithms available when options(sdm.enable_biomod2 = TRUE) is set and biomod2 is installed."))
-    }
-    checkboxGroupInput("multi_ensemble_biomod2_models", "biomod2 algorithms",
-      choices = c(
-        "GAM" = "GAM", "FDA" = "FDA", "MARS" = "MARS",
-        "Random Forest" = "RF", "GBM" = "GBM", "BRT" = "BRT",
-        "MaxEnt (MAXNET)" = "MAXNET", "SRE" = "SRE", "CTA" = "CTA",
-        "XGBoost" = "XGBOOST"
-      ),
-      selected = character(0)
-    )
-  })
-
   output$multi_ensemble_validation <- renderUI({
     req(input$model_id == "multi_ensemble")
     total_models <- length(input$multi_ensemble_standalone %||% character(0)) +
-                    length(input$multi_ensemble_biomod2_models %||% character(0))
+                    length(input$multi_ensemble_biomod2 %||% character(0))
     if (total_models < 2) {
       div(style = "color: #8c1d18; font-size: 0.85rem;",
         "Select at least 2 models to run the ensemble.")
@@ -519,14 +593,12 @@ server <- function(input, output, session) {
             gbif_doi = rv$gbif_doi, source = input$climate_source, log_fun = append_log,
             progress_fun = function(amount, detail) incProgress(amount, detail = detail),
             multi_ensemble_models = if (identical(input$model_id, "multi_ensemble")) {
-              selected <- c(input$multi_ensemble_standalone %||% character(0))
-              if (isTRUE(input$multi_ensemble_biomod2_models %||% length(.) > 0)) {
-                c(selected, "biomod2")
-              } else selected
+              standalone <- input$multi_ensemble_standalone %||% character(0)
+              if (length(input$multi_ensemble_biomod2 %||% character(0)) > 0) c(standalone, "biomod2") else standalone
             } else NULL,
             multi_ensemble_weighting = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_weighting %||% "auc" else "auc",
             multi_ensemble_export = isTRUE(input$multi_ensemble_export),
-            biomod2_models = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_biomod2_models %||% NULL else NULL
+            biomod2_models = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_biomod2 %||% NULL else NULL
           ),
           warning = function(w) { append_log(paste("Warning:", conditionMessage(w))); invokeRestart("muffleWarning") }
         ),
