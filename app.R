@@ -471,8 +471,52 @@ server <- function(input, output, session) {
       message("Warning: setRunState message failed: ", conditionMessage(e))
     })
   })
+  output$esm_recommendation <- renderUI({
+    req(rv$cleaned_occ)
+    n_pres <- sum(rv$cleaned_occ$presence == 1, na.rm = TRUE)
+    esm_available <- "esm_glm" %in% sdm_model_ids()
 
-output$maxnet_install_hint <- renderUI({
+    if (n_pres < 10 && esm_available) {
+      div(class = "alert alert-danger",
+          icon("exclamation-triangle"),
+          strong(sprintf(" Very few records: %d presence", n_pres)),
+          " — ESM is recommended but results should be treated with caution.")
+    } else if (n_pres < 30 && esm_available) {
+      div(class = "alert alert-info",
+          icon("info-circle"),
+          strong(" Rare species detected"),
+          sprintf(" — %d presence records. ESM recommended.", n_pres),
+          actionButton("switch_to_esm", "Switch to ESM", class = "btn-info btn-sm"))
+    } else if (n_pres < 30 && !esm_available) {
+      div(class = "alert alert-warning",
+          icon("package"),
+          strong(" Low record count"),
+          sprintf(" — only %d presence records. ", n_pres),
+          "Install ecospat to enable ESM (recommended): ",
+          tags$code("install.packages('ecospat')"))
+    }
+  })
+
+  observeEvent(input$switch_to_esm, {
+    updateSelectInput(session, "model_id", selected = "esm_glm")
+  })
+
+  output$esm_complexity_warning <- renderUI({
+    req(input$model_id %in% c("esm_glm", "esm_maxnet"))
+    n_vars <- length(input$biovars %||% sdm_default_biovars)
+    n_pairs <- n_vars * (n_vars - 1) / 2
+    if (n_vars > 10) {
+      div(class = "alert alert-warning small-padded",
+          icon("clock"),
+          sprintf("ESM will fit %d bivariate models (%d variables). ", n_pairs, n_vars),
+          "Consider reducing to 6-8 variables to keep runtime under 5 minutes.")
+    } else if (n_vars > 0) {
+      div(class = "small-muted",
+          sprintf("ESM will fit %d bivariate models — manageable.", n_pairs))
+    }
+  })
+
+  output$maxnet_install_hint <- renderUI({
     if (!requireNamespace("maxnet", quietly = TRUE)) {
       div(class = "small-muted",
           "MaxEnt unavailable. Install with: ",
@@ -631,7 +675,11 @@ output$maxnet_install_hint <- renderUI({
             multi_ensemble_min_auc = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc else sdm_default_ensemble_min_auc,
             multi_ensemble_min_tss = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss else sdm_default_ensemble_min_tss,
             multi_ensemble_export = isTRUE(input$multi_ensemble_export),
-            biomod2_models = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_biomod2 %||% NULL else NULL
+            biomod2_models = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_biomod2 %||% NULL else NULL,
+            esm_n_runs = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_n_runs %||% sdm_esm_default_n_runs else sdm_esm_default_n_runs,
+            esm_split = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_split %||% sdm_esm_default_split else sdm_esm_default_split,
+            esm_min_auc = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_min_auc %||% sdm_esm_default_min_auc else sdm_esm_default_min_auc,
+            esm_power = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_power %||% sdm_esm_default_power else sdm_esm_default_power
           ),
           warning = function(w) { append_log(paste("Warning:", conditionMessage(w))); invokeRestart("muffleWarning") }
         ),
@@ -825,7 +873,6 @@ output$maxnet_install_hint <- renderUI({
     co[numeric_cols] <- lapply(co[numeric_cols], function(x) signif(x, 4))
     co
   }, striped = TRUE, hover = TRUE, spacing = "s")
-  })
   output$dwca_issues_panel <- renderUI({
     r <- rv$result
     if (is.null(r) || is.null(r$dwca_issues) || nrow(r$dwca_issues) == 0) return(NULL)
@@ -919,6 +966,78 @@ output$maxnet_install_hint <- renderUI({
     colnames(w) <- c("Model", "Method", "AUC (CV)", "TSS (CV)", "Weight")
     w
   }, striped = TRUE, hover = TRUE, spacing = "s")
+
+  output$esm_diagnostics_panel <- renderUI({
+    r <- rv$result
+    if (is.null(r) || is.null(r$esm_config)) return(NULL)
+    esm <- r$esm_config
+    n_vars <- esm$n_vars
+    n_total <- esm$n_pairs_total
+    n_used  <- esm$n_pairs_used
+    n_drop  <- esm$n_pairs_dropped
+    min_auc <- esm$min_auc
+    algo    <- esm$algorithm
+
+    tagList(
+      div(class = "content-card",
+        h4("ESM bivariate models"),
+        div(sprintf("%d of %d bivariate models kept (AUC >= %.2f); %d dropped.",
+                    n_used, n_total, min_auc, n_drop)),
+        tags$small(class = "small-muted",
+          sprintf("Algorithm: %s | Variables: %d | Runs: %d | Split: %d%%",
+                  algo, n_vars, esm$n_runs, esm$data_split))
+      ),
+      div(class = "content-card",
+        h4("ESM bivariate pair weights"),
+        plotOutput("esm_pair_heatmap", height = "auto"),
+        tags$small(class = "small-muted",
+          "Symmetric matrix: cell [i,j] shows the weight of the (variable_i, variable_j) bivariate model. Higher weight = more informative for prediction.")
+      ),
+      div(class = "content-card",
+        h4("ESM variable importance"),
+        plotOutput("esm_var_importance", height = "auto"),
+        tags$small(class = "small-muted",
+          "Importance = mean weight of all pairs containing each variable, normalised to 0-1.")
+      )
+    )
+  })
+
+  output$esm_pair_heatmap <- renderPlot({
+    r <- rv$result
+    if (is.null(r) || is.null(r$esm_config)) return(NULL)
+    p <- plot_esm_pair_heatmap(r)
+    if (is.null(p)) {
+      plot.new(); title("ggplot2 not available")
+    } else {
+      print(p)
+    }
+  }, height = function() {
+    n <- length(rv$result$esm_config$covariates %||% 6)
+    max(200, min(n * 60, 600))
+  })
+
+  output$esm_var_importance <- renderPlot({
+    r <- rv$result
+    if (is.null(r) || is.null(r$variable_importance)) return(NULL)
+    imp <- r$variable_importance
+    if (!is.data.frame(imp) || nrow(imp) == 0) return(NULL)
+    imp <- imp[order(imp$importance, decreasing = TRUE), ]
+    if (!requireNamespace("ggplot2", quietly = TRUE)) {
+      plot.new(); title("ggplot2 not available"); return(NULL)
+    }
+    p <- ggplot2::ggplot(imp, ggplot2::aes(x = ggplot2::reorder(variable, importance), y = importance)) +
+      ggplot2::geom_col(fill = "#2166ac", width = 0.7) +
+      ggplot2::coord_flip() +
+      ggplot2::scale_y_continuous(limits = c(0, 1), expand = c(0, 0.02)) +
+      ggplot2:: labs(x = NULL, y = "Relative importance") +
+      ggplot2::theme_minimal(base_size = 11) +
+      ggplot2::theme(panel.grid.major.y = ggplot2::element_blank())
+    print(p)
+  }, height = function() {
+    n <- nrow(rv$result$variable_importance %||% data.frame(variable = character(0)))
+    max(150, min(n * 35, 500))
+  })
+
   output$run_log <- renderText(rv$log)
   observeEvent(input$remove_flagged, {
     req(rv$result)

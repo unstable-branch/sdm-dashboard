@@ -42,8 +42,13 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                           multi_ensemble_power = sdm_default_ensemble_power,
                           multi_ensemble_min_auc = sdm_default_ensemble_min_auc,
                           multi_ensemble_min_tss = sdm_default_ensemble_min_tss,
-                          multi_ensemble_export = TRUE,
-                          biomod2_models = NULL) {
+multi_ensemble_export = TRUE,
+                           biomod2_models = NULL,
+                           esm_n_runs = sdm_esm_default_n_runs,
+                           esm_split = sdm_esm_default_split,
+                           esm_min_auc = sdm_esm_default_min_auc,
+                           esm_power = sdm_esm_default_power,
+                           esm_biovars = NULL) {
   ensure_sdm_packages("terra", n_cores = n_cores)
   n_cores <- configure_parallel(n_cores, log_fun = log_fun)
   projection_extent <- validate_extent(as.numeric(projection_extent), "projection_extent")
@@ -80,6 +85,13 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   } else {
     cleaned <- clean_occurrences(occurrence_file, min_source_records = min_source_records, merge_small_sources = merge_small_sources, use_cc = use_cc, cc_tests = cc_tests, log_fun = log_fun)
     occ <- cleaned$occ
+  }
+  model_meta <- get_sdm_model(model_id)
+  min_rec_req <- model_meta$min_records %||% sdm_default_min_source_records
+  n_pres <- sum(occ$presence == 1, na.rm = TRUE)
+  if (!is.na(min_rec_req) && n_pres < min_rec_req) {
+    stop(sprintf("Model '%s' requires at least %d presence records. Got %d.",
+                 model_id, min_rec_req, n_pres))
   }
   dwca_doi <- attr(cleaned$raw, "gbif_doi")
   if (!is.null(dwca_doi) && !is.na(dwca_doi) && nzchar(dwca_doi)) {
@@ -174,6 +186,9 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
     list(selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,
          ensemble_power = multi_ensemble_power, min_auc = multi_ensemble_min_auc,
          min_tss = multi_ensemble_min_tss, biomod2_models = biomod2_models)
+  } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
+    list(biovars = esm_biovars, min_auc = esm_min_auc, power = esm_power,
+         n_runs_eval = esm_n_runs, data_split = esm_split)
   } else {
     character(0)
   }
@@ -244,6 +259,8 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
                                           include_uncertainty = TRUE,
                                           ensemble_weighting = multi_ensemble_weighting,
                                           ensemble_power = multi_ensemble_power)
+  } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
+    suit <- predict_esm_suitability(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
   } else {
     suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
   }

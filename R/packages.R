@@ -33,7 +33,8 @@ sdm_optional_packages <- list(
   biomod2 = c("biomod2", "PresenceAbsence", "pROC"),
   leaflet = c("leaflet", "mapview", "sf"),
   rgee = c("rgee", "reticulate"),
-  dwca = c("finch")
+  dwca = c("finch"),
+  esm = c("ecospat", "biomod2")
 )
 
 detect_available_cores <- function(logical = TRUE) {

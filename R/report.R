@@ -99,6 +99,19 @@ write_summary_report <- function(result, path) {
     paste0("- Requested background points: ", fmt_num(result$config$background_n)),
     paste0("- CPU cores requested/used: ", fmt_num(result$metrics$n_cores)),
     paste0("- Cross-validation AUC: ", auc_text),
+    if (!is.null(result$esm_config)) {
+      esm <- result$esm_config
+      c("",
+        "Ensembles of Small Models (ESM)",
+        paste0("- Algorithm: ", esm$algorithm),
+        paste0("- Covariates: ", esm$n_vars, " -> ", esm$n_pairs_total, " bivariate pairs"),
+        paste0("- Pairs used: ", esm$n_pairs_used,
+               if (esm$n_pairs_dropped > 0) paste0(" (dropped: ", esm$n_pairs_dropped, " with AUC < ", esm$min_auc, ")") else ""),
+        paste0("- Runs: ", esm$n_runs, " | Train split: ", esm$data_split, "%"),
+        paste0("- Method: Lomba et al. (2010) Biol. Conserv. 143:2647-2657; ",
+               "Breiner et al. (2015) Methods Ecol. Evol. 6:1210-1218; ",
+               "Breiner et al. (2018) Methods Ecol. Evol. 9:802-808"))
+    } else character(),
     "", "Projection summary",
     paste0("- Valid projected cells: ", fmt_num(result$summary$cell_count)),
     paste0("- Mean suitability: ", fmt_num(result$summary$mean, 3)),

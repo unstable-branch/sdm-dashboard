@@ -5,7 +5,9 @@ sdm_model_registry <- new.env(parent = emptyenv())
 register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
                                packages = character(), maturity = "stable",
                                supports_importance = FALSE, supports_uncertainty = FALSE,
-                               supports_future = TRUE, diagnostics = list(), notes = character()) {
+                               supports_future = TRUE, diagnostics = list(), notes = character(),
+                               predict_component_fun = NULL, fit_component_fun = NULL,
+                               min_records = NULL) {
   id <- as.character(id)[1]
   if (is.na(id) || !nzchar(id)) stop("Model id must be a non-empty string.", call. = FALSE)
   if (!is.function(fit_fun)) stop("fit_fun must be a function for model id: ", id, call. = FALSE)
@@ -23,7 +25,10 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
     supports_uncertainty = isTRUE(supports_uncertainty),
     supports_future = isTRUE(supports_future),
     diagnostics = diagnostics,
-    notes = as.character(notes)
+    notes = as.character(notes),
+    predict_component_fun = if (!is.null(predict_component_fun)) predict_component_fun else predict_fun,
+    fit_component_fun = fit_component_fun,
+    min_records = as.integer(min_records)[1] %||% NA_integer_
   )
   assign(id, spec, envir = sdm_model_registry)
   invisible(spec)
@@ -88,7 +93,19 @@ register_sdm_model(
   supports_importance = TRUE,
   supports_uncertainty = FALSE,
   supports_future = TRUE,
-  diagnostics = list(coefficients = TRUE, cv_auc = TRUE)
+  diagnostics = list(coefficients = TRUE, cv_auc = TRUE),
+  predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+    log_message(log_fun, "  Predicting GLM component")
+    predict_suitability(comp_fit$model, env_project_scaled, output_tif, n_cores, log_fun)
+  },
+  fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, maxnet_features, maxnet_regmult, ...) {
+    fit_fast_sdm(occ = occ, env_train_scaled = env_train_scaled,
+                 background_n = background_n, include_quadratic = include_quadratic,
+                 cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+                 log_fun = log_fun, bias_method = bias_method,
+                 target_group_occ = target_group_occ,
+                 thickening_distance_km = thickening_distance_km)
+  }
 )
 
 register_sdm_model(
@@ -105,7 +122,11 @@ register_sdm_model(
   supports_uncertainty = FALSE,
   supports_future = TRUE,
   diagnostics = list(coefficients = TRUE, cv_auc = TRUE),
-  notes = "Experimental mgcv backend for nonlinear environmental response curves."
+  notes = "Experimental mgcv backend for nonlinear environmental response curves.",
+  predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+    log_message(log_fun, "  Predicting GAM component")
+    predict_gam_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+  }
 )
 
 register_sdm_model(
@@ -122,7 +143,11 @@ register_sdm_model(
   supports_uncertainty = FALSE,
   supports_future = TRUE,
   diagnostics = list(coefficients = FALSE, cv_auc = TRUE, cv_tss = TRUE),
-  notes = "Experimental backend using dependency-free rectangular range bags."
+  notes = "Experimental backend using dependency-free rectangular range bags.",
+  predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+    log_message(log_fun, "  Predicting Rangebagging component")
+    predict_rangebag_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+  }
 )
 
 register_sdm_model(
@@ -193,6 +218,48 @@ if (requireNamespace("maxnet", quietly = TRUE)) {
     supports_uncertainty = FALSE,
     supports_future = TRUE,
     diagnostics = list(coefficients = TRUE, cv_auc = TRUE, cv_tss = TRUE),
-    notes = "MaxEnt via the maxnet package (glmnet backend, no Java required)."
+    notes = "MaxEnt via the maxnet package (glmnet backend, no Java required).",
+    predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+      log_message(log_fun, "  Predicting MaxNet component")
+      predict_maxnet_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    }
   )
+}
+
+if (requireNamespace("ecospat", quietly = TRUE) &&
+    requireNamespace("biomod2", quietly = TRUE)) {
+
+  register_sdm_model(
+    id = "esm_glm",
+    label = "ESM — GLM (rare species)",
+    method = "Ensembles of Small Models: bivariate GLMs weighted by AUC",
+    packages = c("ecospat", "biomod2"),
+    maturity = "experimental",
+    fit_fun = function(...) fit_esm(..., algorithm = "GLM"),
+    predict_fun = predict_esm_suitability,
+    supports_importance = TRUE,
+    supports_uncertainty = FALSE,
+    supports_future = TRUE,
+    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, esm_pairs = TRUE, esm_importance = TRUE),
+    notes = "Recommended for <30 presence records. Lomba et al. 2010; Breiner et al. 2015, 2018.",
+    min_records = 5L
+  )
+
+  if (requireNamespace("maxnet", quietly = TRUE)) {
+    register_sdm_model(
+      id = "esm_maxnet",
+      label = "ESM — MaxEnt (rare species)",
+      method = "Ensembles of Small Models: bivariate MaxEnt weighted by AUC",
+      packages = c("ecospat", "biomod2", "maxnet"),
+      maturity = "experimental",
+      fit_fun = function(...) fit_esm(..., algorithm = "MAXNET"),
+      predict_fun = predict_esm_suitability,
+      supports_importance = TRUE,
+      supports_uncertainty = FALSE,
+      supports_future = TRUE,
+      diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, esm_pairs = TRUE, esm_importance = TRUE),
+      notes = "ESM with MaxEnt base algorithm. Better for non-linear responses.",
+      min_records = 5L
+    )
+  }
 }

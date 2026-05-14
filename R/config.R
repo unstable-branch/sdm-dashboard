@@ -58,6 +58,14 @@ sdm_default_ensemble_uncertainty <- TRUE
 sdm_default_elevation_demtype <- "COP90"
 sdm_default_terrain_complexity_enabled <- FALSE
 sdm_default_soil_vars <- c("BULK_DENSITY", "DRAINAGE", "ROOT_DEPTH", "AWC")
+sdm_esm_min_occurrences   <- 5L
+sdm_esm_recommend_below    <- 30L
+sdm_esm_warn_below         <- 10L
+sdm_esm_default_min_auc    <- 0.7
+sdm_esm_default_power      <- 1
+sdm_esm_default_n_runs     <- 5L
+sdm_esm_default_split      <- 70
+sdm_esm_max_vars_warn      <- 10L
 
 config$biomod2_default <- c('GLM','RF','GBM','MAXNET')
 config$biomod2_all <- c(

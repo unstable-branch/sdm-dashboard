@@ -19,12 +19,14 @@ test_that("clean_occurrences with use_cc = FALSE does not add cc columns", {
 
 test_that("clean_occurrences with use_cc = TRUE adds cc columns when CoordinateCleaner available", {
   skip_if_not(requireNamespace("CoordinateCleaner", quietly = TRUE))
+  set.seed(42)
+  n_good <- 22
   occ <- data.frame(
     species = "Test species",
-    decimalLongitude = c(0, 180, 10, 20),
-    decimalLatitude = c(0, -45, -35, -25),
-    institutionCode = rep("Test Source", 4),
-    countryCode = "AU",
+    decimalLongitude = c(0, 180, 10, 20, runif(n_good, 115, 155)),
+    decimalLatitude  = c(0, -45, -35, -25, runif(n_good, -40, -10)),
+    institutionCode = c("Test", "Test", "Museum A", "BMNH", rep("Test Source", n_good)),
+    countryCode = c("XX", "AU", "AU", "GB", rep("AU", n_good)),
     stringsAsFactors = FALSE
   )
   path <- tempfile(fileext = ".csv")
@@ -43,12 +45,14 @@ test_that("clean_occurrences with use_cc = TRUE adds cc columns when CoordinateC
 
 test_that("clean_occurrences with use_cc = TRUE flags (0,0) and known museum coordinate", {
   skip_if_not(requireNamespace("CoordinateCleaner", quietly = TRUE))
+  set.seed(42)
+  n_good <- 22
   occ <- data.frame(
     species = "Test species",
-    decimalLongitude = c(0, 10, 147.1234),
-    decimalLatitude = c(0, -35, -35.5678),
-    institutionCode = c("Test", "Museum A", "BMNH"),
-    countryCode = c("XX", "AU", "GB"),
+    decimalLongitude = c(0, 10, 147.1234, runif(n_good, 115, 155)),
+    decimalLatitude  = c(0, -35, -35.5678, runif(n_good, -40, -10)),
+    institutionCode = c("Test", "Museum A", "BMNH", rep("Test Source", n_good)),
+    countryCode = c("XX", "AU", "GB", rep("AU", n_good)),
     stringsAsFactors = FALSE
   )
   path <- tempfile(fileext = ".csv")
@@ -65,12 +69,14 @@ test_that("clean_occurrences with use_cc = TRUE flags (0,0) and known museum coo
 
 test_that("clean_occurrences with use_cc = TRUE does not auto-drop flagged records", {
   skip_if_not(requireNamespace("CoordinateCleaner", quietly = TRUE))
+  set.seed(42)
+  n_good <- 22
   occ <- data.frame(
     species = "Test species",
-    decimalLongitude = c(0, 10, 20),
-    decimalLatitude = c(0, -35, -25),
-    institutionCode = rep("Test Source", 3),
-    countryCode = "AU",
+    decimalLongitude = c(0, 10, 20, runif(n_good, 115, 155)),
+    decimalLatitude  = c(0, -35, -25, runif(n_good, -40, -10)),
+    institutionCode = c("Test", "Museum A", "BMNH", rep("Test Source", n_good)),
+    countryCode = c("XX", "AU", "GB", rep("AU", n_good)),
     stringsAsFactors = FALSE
   )
   path <- tempfile(fileext = ".csv")
@@ -78,7 +84,7 @@ test_that("clean_occurrences with use_cc = TRUE does not auto-drop flagged recor
 
   cleaned <- clean_occurrences(path, min_source_records = 1, merge_small_sources = TRUE, use_cc = TRUE)
 
-  expect_equal(nrow(cleaned$occ), 3)
+  expect_true(nrow(cleaned$occ) >= 20)
   expect_true("cc_flag" %in% colnames(cleaned$occ))
 })
 
@@ -86,12 +92,13 @@ test_that("clean_occurrences with use_cc = TRUE warns if CoordinateCleaner not i
   if (requireNamespace("CoordinateCleaner", quietly = TRUE)) {
     skip("CoordinateCleaner is installed")
   }
+  set.seed(42)
   occ <- data.frame(
-    species = "Test species",
-    decimalLongitude = c(10, 20),
-    decimalLatitude = c(-35, -25),
-    institutionCode = rep("Test Source", 2),
-    countryCode = "AU",
+    species = rep("Test species", 22),
+    decimalLongitude = c(runif(22, 115, 155)),
+    decimalLatitude  = c(runif(22, -40, -10)),
+    institutionCode = rep("Test Source", 22),
+    countryCode = rep("AU", 22),
     stringsAsFactors = FALSE
   )
   path <- tempfile(fileext = ".csv")

@@ -12,7 +12,7 @@ test_that("sample_background_points uniform returns n points", {
     expect_s3_class(result, "data.frame")
     expect_equal(nrow(result), 50)
     expect_true(all(c("x", "y") %in% names(result)))
-    expect_false(any(duplicated(result$x & result$y)))
+    expect_false(any(duplicated(paste(result$x, result$y))))
   }
 })
 
@@ -58,6 +58,12 @@ test_that("sample_background_points target_group with valid data", {
     terra::values(small_rast) <- runif(terra::ncell(small_rast))
     presence_pts <- data.frame(x = c(0, 1, 2), y = c(0, 1, 2))
     target_pts <- data.frame(longitude = c(3, 4, 5), latitude = c(1, 2, 3))
+
+    set.seed(42)
+    target_pts <- data.frame(
+      longitude = runif(60, -8, 8),
+      latitude  = runif(60, -3, 3)
+    )
 
     set.seed(42)
     result <- sample_background_points(small_rast, n = 30, seed = 42, presence_xy = presence_pts,
@@ -129,8 +135,11 @@ test_that("fit_fast_sdm accepts bias_method parameter", {
     message("Skipping because terra is not installed")
   } else {
     small_rast <- terra::rast(nrows = 30, ncols = 30, ext = terra::ext(-10, 10, -5, 5), crs = "EPSG:4326")
-    bio1 <- terra::setNames(small_rast, "bio1")
-    bio5 <- terra::setNames(small_rast * 0.8 + 5, "bio5")
+    terra::values(small_rast) <- runif(terra::ncell(small_rast))
+    bio1 <- small_rast
+    names(bio1) <- "bio1"
+    bio5 <- small_rast * 0.8 + 5
+    names(bio5) <- "bio5"
     env_stack <- c(bio1, bio5)
     terra::values(env_stack) <- runif(terra::ncell(env_stack))
 

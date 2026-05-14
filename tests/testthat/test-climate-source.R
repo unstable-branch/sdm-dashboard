@@ -54,11 +54,14 @@ test_that("source parameter is passed through load_climate_covariates", {
   r <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 142, ymin = -24, ymax = -22)
   terra::values(r) <- runif(terra::ncell(r))
   names(r) <- "bio1"
+  r2 <- r
+  names(r2) <- "bio12"
   terra::writeRaster(r, file.path(tmp, "wc2.1_10m_bio_1.tif"), overwrite = TRUE)
+  terra::writeRaster(r2, file.path(tmp, "wc2.1_10m_bio_12.tif"), overwrite = TRUE)
 
   result <- load_climate_covariates(
     worldclim_dir = tmp,
-    selected_biovars = c(1),
+    selected_biovars = c(1, 12),
     training_extent = c(140, 142, -24, -22),
     projection_extent = c(140, 142, -24, -22),
     allow_download = FALSE,
@@ -66,7 +69,7 @@ test_that("source parameter is passed through load_climate_covariates", {
   )
 
   expect_true(inherits(result$env_train, "SpatRaster"))
-  expect_equal(result$selected_biovars, 1L)
+  expect_equal(result$selected_biovars, c(1L, 12L))
 })
 
 test_that("config defaults include climate_source", {

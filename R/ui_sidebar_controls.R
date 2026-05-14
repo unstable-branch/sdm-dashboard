@@ -186,6 +186,7 @@ ui_sidebar_controls <- function() {
   tags$details(class = "control-section",
     tags$summary("Model settings"),
     div(class = "details-body",
+      uiOutput("esm_recommendation"),
       selectInput("model_id", "Model backend", choices = sdm_model_choices(), selected = sdm_default_model_id),
       uiOutput("maxnet_install_hint"),
       conditionalPanel("input.model_id == 'maxnet'",
@@ -233,6 +234,20 @@ ui_sidebar_controls <- function() {
         checkboxInput("multi_ensemble_export", "Export individual model rasters", value = TRUE),
         uiOutput("multi_ensemble_validation"),
         div(class = "small-muted", "Select at least 2 models. biomod2 requires options(sdm.enable_biomod2 = TRUE).")
+      ),
+      conditionalPanel("input.model_id == 'esm_glm' || input.model_id == 'esm_maxnet'",
+        tags$details(
+          tags$summary("Advanced ESM settings"),
+          numericInput("esm_n_runs", "Evaluation runs",
+            value = sdm_esm_default_n_runs, min = 3, max = 20, step = 1),
+          numericInput("esm_split", "Train / test split (%)",
+            value = sdm_esm_default_split, min = 50, max = 90, step = 5),
+          numericInput("esm_min_auc", "Min AUC (bivariate filter)",
+            value = sdm_esm_default_min_auc, min = 0.5, max = 0.95, step = 0.05),
+          numericInput("esm_power", "AUC weight exponent",
+            value = sdm_esm_default_power, min = 0.5, max = 5, step = 0.5)
+        ),
+        uiOutput("esm_complexity_warning")
       ),
       numericInput("background_n", "Background points", value = sdm_default_background_n, min = 500, max = 100000, step = 500),
       numericInput("min_source_records", "Merge sources with fewer than", value = sdm_default_min_source_records, min = 1, max = 100, step = 1),

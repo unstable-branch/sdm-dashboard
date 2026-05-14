@@ -143,25 +143,15 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
 }
 
 predict_single_component <- function(method, comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
-  switch(method,
-    "glm" = {
-      log_message(log_fun, "  Predicting GLM component")
-      predict_suitability(comp_fit$model, env_project_scaled, output_tif, n_cores, log_fun)
-    },
-    "gam" = {
-      log_message(log_fun, "  Predicting GAM component")
-      predict_gam_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
-    },
-    "maxnet" = {
-      log_message(log_fun, "  Predicting MaxNet component")
-      predict_maxnet_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
-    },
-    "rangebag" = {
-      log_message(log_fun, "  Predicting Rangebagging component")
-      predict_rangebag_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
-    },
-    stop("Unknown ensemble component method: ", method, call. = FALSE)
+  spec <- tryCatch(
+    get_sdm_model(method),
+    error = function(e) stop("Model '", method, "' is not registered in sdm_model_registry. Register it with register_sdm_model() first.", call. = FALSE)
   )
+  if (!is.function(spec$predict_component_fun)) {
+    stop("Model '", method, "' has no predict_component_fun registered.", call. = FALSE)
+  }
+  log_message(log_fun, "  Predicting component [", method, "] via registry dispatch")
+  spec$predict_component_fun(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
 }
 
 pred_biomod2_component <- function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
@@ -240,27 +230,39 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
 
   for (m in standalone_selected) {
     log_message(log_fun, "Fitting ensemble component: ", toupper(m))
-    comp_fit <- switch(m,
-      "glm" = fit_fast_sdm(occ = occ, env_train_scaled = env_train_scaled,
-                           background_n = background_n, include_quadratic = include_quadratic,
-                           cv_folds = cv_folds, seed = seed, n_cores = n_cores,
-                           log_fun = log_fun, bias_method = bias_method,
-                           target_group_occ = target_group_occ,
-                           thickening_distance_km = thickening_distance_km),
-      "gam" = fit_gam_sdm(occ = occ, env_train_scaled = env_train_scaled,
-                          background_n = background_n, cv_folds = cv_folds,
-                          seed = seed, n_cores = n_cores, log_fun = log_fun),
-      "maxnet" = fit_maxnet_sdm(occ = occ, env_train_scaled = env_train_scaled,
-                                background_n = background_n, include_quadratic = include_quadratic,
-                                cv_folds = cv_folds, seed = seed, n_cores = n_cores,
-                                log_fun = log_fun, maxnet_features = maxnet_features,
-                                maxnet_regmult = maxnet_regmult),
-      "rangebag" = fit_rangebag_sdm(occ = occ, env_train_scaled = env_train_scaled,
-                                    background_n = background_n, include_quadratic = FALSE,
-                                    cv_folds = cv_folds, seed = seed, n_cores = n_cores,
-                                    log_fun = log_fun),
-      stop("Unknown standalone model: ", m, call. = FALSE)
-    )
+    spec <- tryCatch(get_sdm_model(m), error = function(e) NULL)
+    comp_fit <- if (!is.null(spec) && is.function(spec$fit_component_fun)) {
+      spec$fit_component_fun(occ = occ, env_train_scaled = env_train_scaled,
+                             background_n = background_n, include_quadratic = include_quadratic,
+                             cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+                             log_fun = log_fun, bias_method = bias_method,
+                             target_group_occ = target_group_occ,
+                             thickening_distance_km = thickening_distance_km,
+                             maxnet_features = maxnet_features,
+                             maxnet_regmult = maxnet_regmult)
+    } else {
+      switch(m,
+        "glm" = fit_fast_sdm(occ = occ, env_train_scaled = env_train_scaled,
+                             background_n = background_n, include_quadratic = include_quadratic,
+                             cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+                             log_fun = log_fun, bias_method = bias_method,
+                             target_group_occ = target_group_occ,
+                             thickening_distance_km = thickening_distance_km),
+        "gam" = fit_gam_sdm(occ = occ, env_train_scaled = env_train_scaled,
+                            background_n = background_n, cv_folds = cv_folds,
+                            seed = seed, n_cores = n_cores, log_fun = log_fun),
+        "maxnet" = fit_maxnet_sdm(occ = occ, env_train_scaled = env_train_scaled,
+                                  background_n = background_n, include_quadratic = include_quadratic,
+                                  cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+                                  log_fun = log_fun, maxnet_features = maxnet_features,
+                                  maxnet_regmult = maxnet_regmult),
+        "rangebag" = fit_rangebag_sdm(occ = occ, env_train_scaled = env_train_scaled,
+                                      background_n = background_n, include_quadratic = FALSE,
+                                      cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+                                      log_fun = log_fun),
+        stop("Unknown standalone model: ", m, call. = FALSE)
+      )
+    }
     components[[m]] <- comp_fit
     methods[[m]] <- m
     cv_list[[m]] <- comp_fit$cv

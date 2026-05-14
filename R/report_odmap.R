@@ -225,6 +225,14 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
     paste0("algorithm_settings,", algorithm_settings),
     paste0("variable_selection,", variable_selection),
     paste0("threshold_rule,", threshold_rule),
+    if (!is.null(result$esm_config)) {
+      esm <- result$esm_config
+      c(paste0("esm_algorithm,", esm$algorithm),
+        paste0("esm_pairs_total,", .fmt_num(esm$n_pairs_total, 0)),
+        paste0("esm_pairs_used,", .fmt_num(esm$n_pairs_used, 0)),
+        paste0("esm_pairs_dropped,", .fmt_num(esm$n_pairs_dropped, 0)),
+        paste0("esm_min_auc,", esm$min_auc))
+    } else character(),
     "",
     "# Assessment",
     paste0("CV_strategy,", cv_strategy),
@@ -272,6 +280,11 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
       paste0("- **Algorithm settings:** ", algorithm_settings),
       paste0("- **Variable selection:** ", variable_selection),
       paste0("- **Threshold rule:** ", threshold_rule),
+      if (!is.null(result$esm_config)) {
+        esm <- result$esm_config
+        c(paste0("- **ESM strategy:** ", esm$n_pairs_used, " bivariate ", toupper(esm$algorithm),
+                 " models (AUC-weighted; ", esm$n_pairs_dropped, " dropped, AUC < ", esm$min_auc, ")"))
+      } else character(),
       "",
       "## Assessment",
       paste0("- **CV strategy:** ", cv_strategy),

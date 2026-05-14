@@ -87,7 +87,8 @@ ui_main_tabs <- function() {
               h4("Coefficient summary"),
               tableOutput("coef_table")
             ),
-            uiOutput("ensemble_weights_panel")
+            uiOutput("ensemble_weights_panel"),
+            uiOutput("esm_diagnostics_panel")
           ),
           column(5,
             div(class = "content-card",

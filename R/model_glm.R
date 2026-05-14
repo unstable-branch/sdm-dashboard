@@ -7,113 +7,104 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
   bias_method <- match.arg(bias_method)
   set.seed(seed)
   n <- as.integer(n)
-  if (is.na(n) || n < 100) n <- 100
+  if (is.na(n) || n < 1) n <- 100L
+
+  template_rast <- env_train_scaled[[1]]
+  all_cells <- seq_len(terra::ncell(template_rast))
 
   presence_cells <- integer()
   if (!is.null(presence_xy) && nrow(presence_xy) > 0) {
-    presence_cells <- tryCatch(terra::cellFromXY(env_train_scaled[[1]], presence_xy), error = function(e) integer())
+    presence_cells <- tryCatch(
+      terra::cellFromXY(template_rast, presence_xy),
+      error = function(e) integer()
+    )
     presence_cells <- unique(stats::na.omit(as.integer(presence_cells)))
   }
 
+  get_valid_cell_indices <- function() {
+    nlyrs <- terra::nlyr(env_train_scaled)
+    if (nlyrs == 1) {
+      v <- terra::values(template_rast, dataframe = FALSE)
+      which(is.finite(v))
+    } else {
+      valid <- terra::app(env_train_scaled, fun = function(...) all(is.finite(c(...))), raw = FALSE)
+      v <- terra::values(valid, dataframe = FALSE)
+      which(v > 0)
+    }
+  }
+
   if (identical(bias_method, "target_group")) {
-    if (is.null(target_group_occ) || nrow(target_group_occ) == 0) {
+    if (is.null(target_group_occ) || nrow(target_group_occ) < 1) {
       stop("bias_method = 'target_group' requires target_group_occ (data.frame with longitude and latitude columns).", call. = FALSE)
     }
     tg_xy <- target_group_occ[, c("longitude", "latitude"), drop = FALSE]
     names(tg_xy) <- c("x", "y")
-    target_cells <- tryCatch(terra::cellFromXY(env_train_scaled[[1]], tg_xy), error = function(e) integer())
+    target_cells <- tryCatch(
+      terra::cellFromXY(template_rast, tg_xy),
+      error = function(e) integer()
+    )
     target_cells <- unique(stats::na.omit(as.integer(target_cells)))
     if (length(target_cells) == 0) {
       stop("No target-group occurrence cells fall within the training raster.", call. = FALSE)
     }
-    valid_mask <- terra::init(env_train_scaled[[1]], value = NA)
-    valid_mask[target_cells] <- 1
-    if (length(presence_cells) > 0) valid_mask[presence_cells] <- NA
-    pts <- try(terra::spatSample(valid_mask, size = n, method = "random", na.rm = TRUE,
-                                 xy = TRUE, cells = TRUE, as.points = FALSE), silent = TRUE)
-    if (inherits(pts, "try-error") || is.null(pts) || nrow(pts) == 0) {
-      stop("Could not sample background points from target-group cells.", call. = FALSE)
+    target_valid <- setdiff(target_cells, presence_cells)
+    if (length(target_valid) < n) {
+      stop("Not enough valid cells for target-group background sampling (",
+           length(target_valid), " available, ", n, " requested).", call. = FALSE)
     }
-    pts <- as.data.frame(pts)
-    value_cols <- setdiff(names(pts), c("cell", "x", "y"))
-    if (length(value_cols) > 0) pts <- pts[stats::complete.cases(pts[, value_cols, drop = FALSE]), , drop = FALSE]
-    if (nrow(pts) > n) pts <- pts[sample.int(nrow(pts), n), , drop = FALSE]
-    return(pts[, c("x", "y"), drop = FALSE])
+    sampled <- sample.int(length(target_valid), n, replace = FALSE)
+    sampled_cells <- target_valid[sampled]
+    xy <- terra::xyFromCell(template_rast, sampled_cells)
+    return(data.frame(x = xy[, 1], y = xy[, 2], check.names = FALSE))
   }
 
   if (identical(bias_method, "thickened")) {
     if (is.null(presence_xy) || nrow(presence_xy) < 2) {
       stop("bias_method = 'thickened' requires at least 2 presence points.", call. = FALSE)
     }
-    sigma_km <- if (is.numeric(thickening_distance_km) && thickening_distance_km > 0) {
-      thickening_distance_km
-    } else {
-      10
-    }
+    sigma_km <- if (is.numeric(thickening_distance_km) && thickening_distance_km > 0) thickening_distance_km else 10
     sigma_deg <- sigma_km / 111
-    all_cell_idx <- tryCatch(terra::valid-cells(env_train_scaled[[1]]), error = function(e) integer())
-    if (length(all_cell_idx) == 0) {
-      all_cell_idx <- seq_len(terra::ncell(env_train_scaled[[1]]))
+    all_cell_idx <- get_valid_cell_indices()
+    if (length(all_cell_idx) < n) {
+      stop("Not enough valid cells for thickened background sampling (",
+           length(all_cell_idx), " available, ", n, " requested).", call. = FALSE)
     }
-    cell_xy <- terra::xyFromCell(env_train_scaled[[1]], all_cell_idx)
+    cell_xy <- terra::xyFromCell(template_rast, all_cell_idx)
     pres_df <- data.frame(x = presence_xy$x, y = presence_xy$y)
     weights <- numeric(nrow(cell_xy))
     for (j in seq_len(nrow(pres_df))) {
-      dist_sq <- (cell_xy[, "x"] - pres_df$x[j])^2 + (cell_xy[, "y"] - pres_df$y[j])^2
-      weights <- weights + exp(-dist_sq / (2 * sigma_deg^2))
+      d2 <- (cell_xy[, "x"] - pres_df$x[j])^2 + (cell_xy[, "y"] - pres_df$y[j])^2
+      weights <- weights + exp(-d2 / (2 * sigma_deg^2))
     }
-    weights <- weights / max(weights)
+    weights <- weights / max(weights, na.rm = TRUE)
     weights[is.na(weights)] <- 0
-    exclude_idx <- which(all_cell_idx %in% presence_cells)
-    if (length(exclude_idx) > 0) weights[exclude_idx] <- 0
+    excl <- which(all_cell_idx %in% presence_cells)
+    if (length(excl) > 0) weights[excl] <- 0
     valid_w <- which(weights > 0)
     if (length(valid_w) < n) {
-      stop("Not enough valid cells for thickened background sampling (", length(valid_w), " available, ", n, " requested).", call. = FALSE)
+      stop("Not enough valid cells for thickened background sampling (",
+           length(valid_w), " available, ", n, " requested).", call. = FALSE)
     }
     probs <- weights[valid_w]
     probs <- probs / sum(probs)
-    sel_idx <- sample(length(valid_w), size = n, replace = TRUE, prob = probs)
-    selected_xy <- cell_xy[valid_w[sel_idx], , drop = FALSE]
-    return(data.frame(x = selected_xy[, "x"], y = selected_xy[, "y"], check.names = FALSE))
+    sel <- sample.int(length(valid_w), size = n, replace = TRUE, prob = probs)
+    xy <- terra::xyFromCell(template_rast, all_cell_idx[valid_w[sel]])
+    return(data.frame(x = xy[, 1], y = xy[, 2], check.names = FALSE))
   }
 
-  sample_from <- function(r, size, check_values = FALSE) {
-    size <- min(as.integer(size), terra::ncell(r))
-    if (is.na(size) || size < 1) return(NULL)
-    pts <- try(terra::spatSample(r, size = size, method = "random", na.rm = TRUE,
-                                 xy = TRUE, cells = TRUE, as.points = FALSE,
-                                 values = check_values), silent = TRUE)
-    if (inherits(pts, "try-error") || is.null(pts)) return(NULL)
-    pts <- as.data.frame(pts)
-    if (nrow(pts) == 0 || !all(c("x", "y") %in% names(pts))) return(NULL)
-    value_cols <- setdiff(names(pts), c("cell", "x", "y"))
-    if (length(value_cols) > 0) pts <- pts[stats::complete.cases(pts[, value_cols, drop = FALSE]), , drop = FALSE]
-    if ("cell" %in% names(pts) && length(presence_cells) > 0) {
-      pts <- pts[!(pts$cell %in% presence_cells), , drop = FALSE]
-    }
-    pts
-  }
-
-  pts <- sample_from(env_train_scaled, max(n, ceiling(n * 1.25)), check_values = TRUE)
-
-  if (is.null(pts) || nrow(pts) < n) {
-    valid_mask <- try(terra::app(env_train_scaled, fun = function(...) all(is.finite(c(...)))), silent = TRUE)
-    if (!inherits(valid_mask, "try-error")) {
-      valid_mask <- terra::ifel(valid_mask, 1, NA)
-      if (length(presence_cells) > 0) valid_mask[presence_cells] <- NA
-      pts <- sample_from(valid_mask, n)
+  all_valid <- setdiff(get_valid_cell_indices(), presence_cells)
+  if (length(all_valid) < n) {
+    warning("Sampled fewer background points than requested after excluding ",
+            "incomplete and presence cells.", call. = FALSE)
+    all_valid <- get_valid_cell_indices()
+    all_valid <- setdiff(all_valid, presence_cells)
+    if (length(all_valid) == 0) {
+      stop("No valid background cells available in the training raster.", call. = FALSE)
     }
   }
-
-  if (is.null(pts) || nrow(pts) == 0) {
-    stop("No valid background cells available in the training raster.", call. = FALSE)
-  }
-  if (nrow(pts) > n) pts <- pts[sample.int(nrow(pts), n), , drop = FALSE]
-  xy <- pts[, c("x", "y"), drop = FALSE]
-  if (nrow(xy) < n) {
-    warning("Sampled fewer background points than requested after excluding incomplete and presence cells.", call. = FALSE)
-  }
-  xy
+  sampled <- sample.int(length(all_valid), n, replace = FALSE)
+  xy <- terra::xyFromCell(template_rast, all_valid[sampled])
+  data.frame(x = xy[, 1], y = xy[, 2], check.names = FALSE)
 }
 
 extract_covariates <- function(r, xy) {
