@@ -212,6 +212,7 @@ ui_sidebar_controls <- function() {
         checkboxInput("biomod2_ensemble", "Build ensemble forecast", value = TRUE),
         div(class = "small-muted", "Note: biomod2 backend requires options(sdm.enable_biomod2 = TRUE) and restart.")
       ),
+      uiOutput("biomod2_install_hint"),
       conditionalPanel("input.model_id == 'multi_ensemble'",
         tags$strong("Standalone models"),
         checkboxGroupInput("multi_ensemble_standalone", NULL,

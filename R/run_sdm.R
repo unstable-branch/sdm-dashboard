@@ -77,7 +77,7 @@ dir.create(covariate_cache_dir, recursive = TRUE, showWarnings = FALSE)
 
 if (check_cancelled(log_fun)) return(invisible(NULL))
 
-progress_step(progress_fun, 0.08, "Cleaning occurrence data")
+progress_step(progress_fun, 0.10, "Cleaning occurrence data")
   if (!is.null(occurrence_source) && nzchar(occurrence_source)) log_message(log_fun, "Observation record source: ", occurrence_source)
   if (!is.null(cleaned_occurrence) && is.data.frame(cleaned_occurrence) && nrow(cleaned_occurrence) > 0) {
     log_message(log_fun, "Using pre-cleaned occurrence data with ", nrow(cleaned_occurrence), " records (user-cleaned map)")
@@ -103,7 +103,7 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   log_message(log_fun, "Training extent: ", paste(training_extent, collapse = ", "))
   log_message(log_fun, "Projection extent: ", paste(projection_extent, collapse = ", "))
 
-  progress_step(progress_fun, 0.18, "Loading and scaling environmental covariates")
+  progress_step(progress_fun, 0.20, "Loading and scaling environmental covariates")
   env <- load_environment(
     worldclim_dir = worldclim_dir,
     selected_biovars = selected_biovars,
@@ -149,7 +149,7 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   dropped_vars <- character(0)
   vif_result <- NULL
   if (isTRUE(vif_reduction) && terra::nlyr(env$env_train_scaled) >= 3) {
-    progress_step(progress_fun, 0.05, "Running VIF collinearity reduction")
+    progress_step(progress_fun, 0.35, "Running VIF collinearity reduction")
     set.seed(seed)
     sample_size <- min(5000, terra::ncell(env$env_train_scaled))
     sample_cells <- sample(terra::ncell(env$env_train_scaled), size = sample_size)
@@ -180,7 +180,7 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   }
 
   if (check_cancelled(log_fun)) return(invisible(NULL))
-  progress_step(progress_fun, 0.22, "Fitting model")
+  progress_step(progress_fun, 0.60, "Fitting model")
   log_message(log_fun, "Model backend: ", model_spec$label)
   extra_args <- if (identical(model_id, "maxnet")) {
     list(maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
@@ -251,7 +251,7 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
 
   if (check_cancelled(log_fun)) return(invisible(NULL))
 
-  progress_step(progress_fun, 0.24, "Predicting projection raster")
+  progress_step(progress_fun, 0.80, "Predicting projection raster")
   base_name <- paste0(safe_slug(species), "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
   output_tif <- file.path(output_dir, paste0(base_name, "_suitability.tif"))
   output_png <- file.path(output_dir, paste0(base_name, "_suitability.png"))
@@ -289,7 +289,7 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   }
 
   if (isTRUE(future_projection)) {
-    progress_step(progress_fun, 0.10, "Projecting future climate scenario")
+    progress_step(progress_fun, 0.95, "Projecting future climate scenario")
     future <- project_future_suitability(
       fit = fit,
       current_suitability = suit,

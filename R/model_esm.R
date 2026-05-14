@@ -59,6 +59,8 @@ fit_esm <- function(occ,
 
   modeling_id <- paste0("esm_", format(Sys.time(), "%Y%m%d%H%M%S"))
 
+  if (check_cancelled(log_fun)) return(invisible(NULL))
+
   esm_models <- tryCatch(
     ecospat::ecospat.ESM.Modeling(
       data             = esm_data,
