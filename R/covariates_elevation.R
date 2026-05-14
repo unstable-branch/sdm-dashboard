@@ -1,3 +1,7 @@
+# Cache: <covariate_cache_dir>/opentopo/
+# CI strategy: allow_download=FALSE returns NULL on cache miss; no network calls made
+# CRS: Uses extent_vec directly; DEM resampling via bilinear after cache load
+# API keys: OPENTOPOGRAPHY_API_KEY required for live downloads
 # OpenTopography elevation covariate support.
 
 compute_terrain_metrics <- function(dem) {

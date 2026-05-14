@@ -1,3 +1,7 @@
+# Cache: <covariate_cache_dir>/vegetation/
+# CI strategy: allow_download=FALSE returns NULL on cache miss; no network calls made
+# CRS: GIMMS NDVI/EVI (250m MODIS/8km AVHRR) aggregated via aggregate_factor=18L to climate res; GEE LAI/GPP similarly aggregated
+# API keys: GEE credentials optional (rgee); no auth required for GIMMS
 # Vegetation productivity indices loader.
 # Combines:
 #   - NDVI / EVI from GIMMS (direct download, no auth required)

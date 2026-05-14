@@ -1,3 +1,7 @@
+# Cache: <covariate_cache_dir>/human_footprint/
+# CI strategy: allow_download=FALSE returns NULL on cache miss; no network calls made
+# CRS: Google Cloud Storage (no auth); aggregate_factor=18L alignment to climate resolution
+# API keys: none
 # WCS Human Footprint via Google Cloud Storage — no auth required.
 # Resolution: ~300m, global, annual 2001-2020.
 

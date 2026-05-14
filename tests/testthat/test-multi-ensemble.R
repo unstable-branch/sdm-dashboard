@@ -187,3 +187,31 @@ test_that("Multi-model ensemble with 3+ models", {
   expect_true(length(fit$model$components) >= 2)
   expect_true(abs(sum(fit$model$weights) - 1) < 1e-8)
 })
+
+test_that("Multi-model ensemble refuses single valid component after filtering", {
+  if (!requireNamespace("terra", quietly = TRUE)) return(invisible(NULL))
+
+  set.seed(42)
+  r1 <- terra::rast(nrows = 20, ncols = 20, xmin = 140, xmax = 142, ymin = -24, ymax = -22)
+  r2 <- r1
+  terra::values(r1) <- seq_len(terra::ncell(r1)) / terra::ncell(r1)
+  terra::values(r2) <- rep(seq(0, 1, length.out = 20), each = 20)
+  env <- c(r1, r2)
+  names(env) <- c("bio1", "bio12")
+
+  occ <- data.frame(
+    species = "Synthetic species",
+    longitude = seq(140.15, 141.85, length.out = 24),
+    latitude = seq(-23.85, -22.15, length.out = 24),
+    source = rep(c("A", "B"), each = 12),
+    stringsAsFactors = FALSE
+  )
+
+  expect_error(
+    fit_multi_model_ensemble(occ, env, selected_models = c("glm", "rangebag"),
+                             ensemble_weighting = "auc",
+                             min_auc = 0.999,
+                             background_n = 120, cv_folds = 2, seed = 99, n_cores = 1),
+    "Ensemble requires at least 2 valid components"
+  )
+})

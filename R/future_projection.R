@@ -90,3 +90,59 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
     )
   )
 }
+
+average_gcm_suitability <- function(gcm_suitability_paths, output_dir, base_name,
+                                    include_sd = TRUE, log_fun = NULL) {
+  if (length(gcm_suitability_paths) == 0) {
+    stop("gcm_suitability_paths must be a non-empty named list of GCM raster paths", call. = FALSE)
+  }
+  if (is.null(names(gcm_suitability_paths))) {
+    stop("gcm_suitability_paths must be a named list with GCM names as names", call. = FALSE)
+  }
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+
+  log_message(log_fun, "Loading ", length(gcm_suitability_paths), " GCM suitability rasters")
+  rasts <- lapply(gcm_suitability_paths, function(p) {
+    if (!file.exists(p)) {
+      stop("Suitability raster not found: ", p, call. = FALSE)
+    }
+    terra::rast(p)
+  })
+
+  stacked <- terra::sprc(rasts)
+  avg_suit <- terra::app(stacked, mean, na.rm = TRUE)
+  names(avg_suit) <- "suitability_gcm_avg"
+
+  avg_path <- file.path(output_dir, paste0(base_name, "_gcm_avg_suitability.tif"))
+  terra::writeRaster(avg_suit, avg_path, overwrite = TRUE,
+                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+
+  result <- list(
+    averaged_suitability = avg_suit,
+    sd_suitability = NULL,
+    gcms_averaged = names(gcm_suitability_paths),
+    n_gcms = length(gcm_suitability_paths)
+  )
+
+  if (include_sd) {
+    sd_suit <- terra::app(stacked, stats::sd, na.rm = TRUE)
+    names(sd_suit) <- "suitability_gcm_sd"
+    sd_path <- file.path(output_dir, paste0(base_name, "_gcm_sd_suitability.tif"))
+    terra::writeRaster(sd_suit, sd_path, overwrite = TRUE,
+                       wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    result$sd_suitability <- sd_suit
+  }
+
+  log_message(log_fun, "Averaged ", result$n_gcms, " GCMs -> ", avg_path)
+  result
+}
+
+discover_gcm_suitability_dirs <- function(output_dir, pattern) {
+  if (!dir.exists(output_dir)) {
+    return(character(0))
+  }
+  dirs <- list.dirs(output_dir, full.names = TRUE, recursive = FALSE)
+  dirs[grepl(pattern, basename(dirs), fixed = TRUE)]
+}

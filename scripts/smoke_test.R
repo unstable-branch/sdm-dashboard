@@ -57,3 +57,119 @@ if (cleaned$removed_bad_coordinates != 1 || cleaned$removed_duplicates != 1) sto
 if (!identical(cleaned$columns$longitude, "decimalLongitude") || !identical(cleaned$columns$latitude, "decimalLatitude")) stop("Occurrence column inference failed.", call. = FALSE)
 
 cat("SDM smoke test passed. Modules source correctly.\n")
+
+test_multi_ensemble_smoke <- function() {
+  cat("[multi_ensemble smoke] starting...\n")
+  if (!requireNamespace("maxnet", quietly = TRUE)) {
+    cat("[multi_ensemble smoke] skipped: maxnet not installed\n")
+    return(invisible(NULL))
+  }
+  if (!"maxnet" %in% unname(sdm_model_choices())) {
+    cat("[multi_ensemble smoke] skipped: maxnet not in model registry\n")
+    return(invisible(NULL))
+  }
+  tmp_occ <- tempfile(fileext = ".csv")
+  utils::write.csv(smoke_occ, tmp_occ, row.names = FALSE)
+  tmp_env <- tempfile()
+  dir.create(tmp_env, showWarnings = FALSE)
+  out_dir <- tempfile()
+  dir.create(out_dir, showWarnings = FALSE)
+  set.seed(42)
+  result <- run_fast_sdm(
+    species = "Demo species",
+    occurrence_file = tmp_occ,
+    worldclim_dir = tmp_env,
+    selected_biovars = c(1, 12),
+    projection_extent = c(140, 142, -24, -22),
+    training_extent = c(139.5, 142.5, -24.5, -21.5),
+    background_n = 80,
+    min_source_records = 5,
+    merge_small_sources = TRUE,
+    thin_by_cell = FALSE,
+    model_id = "multi_ensemble",
+    include_quadratic = FALSE,
+    threshold = 0.5,
+    aggregation_factor = 1,
+    cv_folds = 2,
+    n_cores = 1,
+    allow_download = FALSE,
+    worldclim_res = 0.5,
+    future_projection = FALSE,
+    future_worldclim_dir = "/nonexistent/future/path",
+    multi_ensemble_models = c("glm", "rangebag"),
+    multi_ensemble_weighting = "equal",
+    multi_ensemble_min_auc = 0.4,
+    output_dir = out_dir,
+    seed = 42
+  )
+  if (is.null(result)) stop("multi_ensemble smoke test returned NULL", call. = FALSE)
+  if (!is.list(result)) stop("multi_ensemble smoke test returned non-list", call. = FALSE)
+  if (is.null(result$cv) || is.null(result$cv$auc_mean)) {
+    stop("multi_ensemble smoke test missing cv$auc_mean", call. = FALSE)
+  }
+  if (result$cv$auc_mean <= 0.5) stop("multi_ensemble smoke test auc_mean <= 0.5", call. = FALSE)
+  if (is.null(result$paths$tif) || !file.exists(result$paths$tif)) {
+    stop("multi_ensemble smoke test suitability raster not written", call. = FALSE)
+  }
+  cat("[multi_ensemble smoke] passed (auc_mean=", round(result$cv$auc_mean, 3), ")\n", sep = "")
+}
+
+test_esm_smoke <- function() {
+  cat("[esm_glm smoke] starting...\n")
+  if (!requireNamespace("ecospat", quietly = TRUE) || !requireNamespace("biomod2", quietly = TRUE)) {
+    cat("[esm_glm smoke] skipped: ecospat or biomod2 not installed\n")
+    return(invisible(NULL))
+  }
+  if (!"esm_glm" %in% unname(sdm_model_choices())) {
+    cat("[esm_glm smoke] skipped: esm_glm not in model registry\n")
+    return(invisible(NULL))
+  }
+  tmp_occ <- tempfile(fileext = ".csv")
+  utils::write.csv(smoke_occ, tmp_occ, row.names = FALSE)
+  tmp_env <- tempfile()
+  dir.create(tmp_env, showWarnings = FALSE)
+  out_dir <- tempfile()
+  dir.create(out_dir, showWarnings = FALSE)
+  set.seed(99)
+  result <- run_fast_sdm(
+    species = "Demo species",
+    occurrence_file = tmp_occ,
+    worldclim_dir = tmp_env,
+    selected_biovars = c(1, 4),
+    projection_extent = c(140, 142, -24, -22),
+    training_extent = c(139.5, 142.5, -24.5, -21.5),
+    background_n = 80,
+    min_source_records = 5,
+    merge_small_sources = TRUE,
+    thin_by_cell = FALSE,
+    model_id = "esm_glm",
+    include_quadratic = FALSE,
+    threshold = 0.5,
+    aggregation_factor = 1,
+    cv_folds = 2,
+    n_cores = 1,
+    allow_download = FALSE,
+    worldclim_res = 0.5,
+    future_projection = FALSE,
+    future_worldclim_dir = "/nonexistent/future/path",
+    esm_n_runs = 3,
+    esm_split = 0.7,
+    esm_min_auc = 0.4,
+    esm_biovars = c(1, 4),
+    output_dir = out_dir,
+    seed = 99
+  )
+  if (is.null(result)) stop("esm_glm smoke test returned NULL", call. = FALSE)
+  if (!is.list(result)) stop("esm_glm smoke test returned non-list", call. = FALSE)
+  if (is.null(result$esm_config)) stop("esm_glm smoke test missing esm_config", call. = FALSE)
+  if (!is.list(result$esm_config)) stop("esm_glm smoke test esm_config not a list", call. = FALSE)
+  if (is.null(result$esm_config$n_pairs_used) || result$esm_config$n_pairs_used <= 0) {
+    stop("esm_glm smoke test n_pairs_used not > 0: ", result$esm_config$n_pairs_used, call. = FALSE)
+  }
+  cat("[esm_glm smoke] passed (n_pairs_used=", result$esm_config$n_pairs_used, ")\n", sep = "")
+}
+
+test_multi_ensemble_smoke()
+test_esm_smoke()
+
+cat("All smoke tests passed.\n")

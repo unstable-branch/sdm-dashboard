@@ -1,3 +1,7 @@
+# Cache: <covariate_cache_dir>/soilgrids/
+# CI strategy: allow_download=FALSE returns NULL on cache miss; no network calls made
+# CRS: geodata::soil_world (native 250m) resampled via bilinear; aggregate_factor alignment in load
+# API keys: none
 # SoilGrids covariate loading via geodata package.
 
 soilgrids_vars <- c(

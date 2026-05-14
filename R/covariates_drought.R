@@ -1,3 +1,7 @@
+# Cache: <covariate_cache_dir>/drought/
+# CI strategy: allow_download=FALSE returns NULL on cache miss; no network calls made
+# CRS: CRU scPDSI NetCDF (native 0.5 deg); aggregate_factor=3L alignment; bilinear
+# API keys: none
 # Drought index covariates from CRU scPDSI (Self-Calibrating Palmer Drought Severity Index).
 # Resolution: 0.5 degree (~55km). Annual mean and seasonal values.
 # No auth required. NetCDF format — terra reads natively.

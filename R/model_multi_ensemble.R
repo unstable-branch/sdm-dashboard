@@ -348,6 +348,10 @@ comp_fit <- if (!is.null(spec) && is.function(spec$fit_component_fun)) {
     dropped_models <- character()
   }
 
+  if (sum(keep) < 2) {
+    stop("Ensemble requires at least 2 valid components after filtering. Increase min AUC/TSS thresholds or add more models.", call. = FALSE)
+  }
+
   cv_list_filtered <- cv_list[keep]
   weights <- compute_multi_ensemble_weights(cv_list_filtered, ensemble_weighting, power = ensemble_power)
   names(weights) <- names(cv_list_filtered)

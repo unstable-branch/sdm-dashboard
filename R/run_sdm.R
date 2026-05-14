@@ -358,6 +358,7 @@ progress_step(progress_fun, 0.10, "Cleaning occurrence data")
     paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)
   )
   result$report_text <- output_report
+  write_manifest(result, output_dir, base_name)
   write_summary_report(result, result$report_text)
   result
 }

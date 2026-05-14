@@ -1,3 +1,7 @@
+# Cache: <covariate_cache_dir>/lulc/
+# CI strategy: allow_download=FALSE returns NULL on cache miss; no network calls made
+# CRS: AWS Open Data VSI (no auth); fractional layers aggregated via aggregate_factor=18L to climate res
+# API keys: none
 # MODIS Land Use/Land Cover (MCD12Q1 Collection 6.1, IGBP classification)
 # via AWS Open Data — no authentication required.
 # Produces fractional (continuous) layers derived from IGBP categorical classes:

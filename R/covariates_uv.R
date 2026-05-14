@@ -1,3 +1,7 @@
+# Cache: <covariate_cache_dir>/gluv/
+# CI strategy: allow_download=FALSE returns NULL on cache miss; no network calls made
+# CRS: UFZ archive ASC files read with terra; bilinear resampling after cache load
+# API keys: none
 # glUV UV-B covariate loading via UFZ VSI archive.
 
 uv_vars <- c(

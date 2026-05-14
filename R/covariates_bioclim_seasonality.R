@@ -1,3 +1,7 @@
+# Cache: <covariate_cache_dir>/bioclim_season/
+# CI strategy: allow_download=FALSE returns NULL on cache miss; no network calls made
+# CRS: WorldClim monthly (tmin/tmax/prec 10min) via geodata; derived GDD/MI/p_seasonality; aggregate_factor alignment
+# API keys: none
 # Bioclimatic seasonality covariates derived from WorldClim monthly data.
 # No extra downloads — uses tmin/tmax/prec monthly layers via geodata.
 #
