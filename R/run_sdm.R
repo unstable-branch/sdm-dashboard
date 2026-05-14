@@ -39,6 +39,9 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                           source = sdm_default_climate_source,
                           multi_ensemble_models = NULL,
                           multi_ensemble_weighting = sdm_default_multi_ensemble_weighting,
+                          multi_ensemble_power = sdm_default_ensemble_power,
+                          multi_ensemble_min_auc = sdm_default_ensemble_min_auc,
+                          multi_ensemble_min_tss = sdm_default_ensemble_min_tss,
                           multi_ensemble_export = TRUE,
                           biomod2_models = NULL) {
   ensure_sdm_packages("terra", n_cores = n_cores)
@@ -77,6 +80,10 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   } else {
     cleaned <- clean_occurrences(occurrence_file, min_source_records = min_source_records, merge_small_sources = merge_small_sources, use_cc = use_cc, cc_tests = cc_tests, log_fun = log_fun)
     occ <- cleaned$occ
+  }
+  dwca_doi <- attr(cleaned$raw, "gbif_doi")
+  if (!is.null(dwca_doi) && !is.na(dwca_doi) && nzchar(dwca_doi)) {
+    log_message(log_fun, "DwC-A GBIF dataset DOI: ", dwca_doi)
   }
   if (is.null(training_extent)) training_extent <- make_training_extent(occ, buffer = 2)
   log_message(log_fun, "Training extent: ", paste(training_extent, collapse = ", "))
@@ -165,7 +172,8 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
     list(maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
   } else if (identical(model_id, "multi_ensemble")) {
     list(selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,
-         biomod2_models = biomod2_models)
+         ensemble_power = multi_ensemble_power, min_auc = multi_ensemble_min_auc,
+         min_tss = multi_ensemble_min_tss, biomod2_models = biomod2_models)
   } else {
     character(0)
   }
@@ -232,7 +240,10 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   output_report <- file.path(output_dir, paste0(base_name, "_report.txt"))
   if (identical(model_id, "multi_ensemble")) {
     suit <- predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
-                                          export_components = isTRUE(multi_ensemble_export))
+                                          export_components = isTRUE(multi_ensemble_export),
+                                          include_uncertainty = TRUE,
+                                          ensemble_weighting = multi_ensemble_weighting,
+                                          ensemble_power = multi_ensemble_power)
   } else {
     suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
   }
@@ -250,7 +261,11 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
     for (m in names(comp_paths)) {
       extra_paths[[paste0("multi_ens_comp_", m)]] <- multi_ensemble_component_path(output_tif, m)
     }
-    extra_paths$multi_ens_disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
+    extra_paths$multi_ens_mean_tif <- attr(suit, "ensemble_mean_tif")
+    extra_paths$multi_ens_median_tif <- attr(suit, "ensemble_median_tif")
+    extra_paths$multi_ens_committee_tif <- attr(suit, "ensemble_committee_tif")
+    sd_tif <- attr(suit, "ensemble_sd_tif")
+    if (!is.null(sd_tif)) extra_paths$multi_ens_sd_tif <- sd_tif
   }
 
   if (isTRUE(future_projection)) {
@@ -304,9 +319,11 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
                   future_projection = isTRUE(future_projection), future_worldclim_dir = future_worldclim_dir,
                   future_label = future_label,
                   bias_method = bias_method, thickening_distance_km = thickening_distance_km,
-                  gbif_doi = gbif_doi, climate_source = source),
+                  gbif_doi = dwca_doi %||% gbif_doi, climate_source = source),
     occurrence = occ, occurrence_used = fit$occurrence_used, source_counts = sort(table(occ$source), decreasing = TRUE),
     cleaning = cleaned[c("removed_bad_coordinates", "removed_duplicates", "original_rows", "columns")],
+    dwca_datasets = attr(cleaned$raw, "dwca_datasets"),
+    dwca_issues = attr(cleaned$raw, "dwca_issues"),
     environment = list(names = names(env$env_train_scaled), means = env$means, sds = env$sds,
                        files = env$files, extra_covariates = env$extra_covariates,
                        dropped_vars = dropped_vars, vif_result = vif_result),

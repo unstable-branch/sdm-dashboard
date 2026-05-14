@@ -82,6 +82,17 @@ ui <- fluidPage(
     .bias-dropdown .shiny-options-group { position:relative; z-index:200; overflow:visible; }
     .form-group { overflow:visible; }
     .shiny-input-container { overflow:visible; }
+    /* Dark mode overrides for hardcoded base colors */
+    body.sdm-dark .control-section { background:#132235 !important; border-color:#26384d !important; }
+    body.sdm-dark .control-section h4 { color:#f2f7fb !important; }
+    body.sdm-dark details.control-section > summary { color:#37d0b2 !important; }
+    body.sdm-dark details.control-section > summary:after { color:#a8b6c7 !important; }
+    body.sdm-dark .checkbox-parent .form-group label::after { color:#37d0b2 !important; }
+    body.sdm-dark .batch-template { color:#a8b6c7 !important; }
+    body.sdm-dark .summary-row { border-bottom-color:#26384d !important; }
+    body.sdm-dark .run-button-wrap { background:#0f1c2b !important; border-top-color:#26384d !important; }
+    body.sdm-dark .map-controls { border-top-color:#26384d !important; }
+    body.sdm-dark .content-card { background:rgba(15,28,43,0.92) !important; }
   ")),
 
   tags$style(HTML(sdm_theme_css)),
@@ -237,6 +248,25 @@ server <- function(input, output, session) {
     finally = {
       rv$batch_running <- FALSE
     })
+  })
+
+  is_dwca_upload <- function() {
+    req(input$occ_file)
+    ext <- tools::file_ext(input$occ_file$name)
+    identical(ext, "zip")
+  }
+  output$is_dwca <- reactive(is_dwca_upload())
+  outputOptions(output, "is_dwca", suspendWhenHidden = FALSE)
+
+  output$occ_format_detected <- renderUI({
+    req(input$occ_file)
+    ext <- tools::file_ext(input$occ_file$name)
+    if (identical(ext, "zip")) {
+      div(class = "small-muted", style = "color: #0b594f;",
+        "Darwin Core Archive detected — GBIF dataset DOI will be captured automatically")
+    } else {
+      div(class = "small-muted", "CSV/TSV format detected")
+    }
   })
 
   occurrence_source <- function() {
@@ -597,6 +627,9 @@ output$maxnet_install_hint <- renderUI({
               if (length(input$multi_ensemble_biomod2 %||% character(0)) > 0) c(standalone, "biomod2") else standalone
             } else NULL,
             multi_ensemble_weighting = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_weighting %||% "auc" else "auc",
+            multi_ensemble_power = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_power %||% sdm_default_ensemble_power else sdm_default_ensemble_power,
+            multi_ensemble_min_auc = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc else sdm_default_ensemble_min_auc,
+            multi_ensemble_min_tss = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss else sdm_default_ensemble_min_tss,
             multi_ensemble_export = isTRUE(input$multi_ensemble_export),
             biomod2_models = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_biomod2 %||% NULL else NULL
           ),
@@ -792,6 +825,100 @@ output$maxnet_install_hint <- renderUI({
     co[numeric_cols] <- lapply(co[numeric_cols], function(x) signif(x, 4))
     co
   }, striped = TRUE, hover = TRUE, spacing = "s")
+  })
+  output$dwca_issues_panel <- renderUI({
+    r <- rv$result
+    if (is.null(r) || is.null(r$dwca_issues) || nrow(r$dwca_issues) == 0) return(NULL)
+    issues <- r$dwca_issues
+    if (!is.data.frame(issues) || nrow(issues) == 0) return(NULL)
+    tags$div(
+      h4("GBIF quality flags"),
+      tags$small(class = "small-muted", "Records with GBIF-assigned quality issues. Review and optionally exclude before modelling."),
+      br(),
+      DT::dataTableOutput("gbif_issues_table"),
+      actionButton("exclude_flagged", "Exclude flagged records", class = "btn-warning btn-sm")
+    )
+  })
+
+  output$gbif_issues_table <- DT::renderDataTable({
+    r <- rv$result
+    if (is.null(r) || is.null(r$dwca_issues) || nrow(r$dwca_issues) == 0) {
+      return(DT::datatable(data.frame(Message = "No GBIF quality flags"), options = list(dom = "t")))
+    }
+    issues <- r$dwca_issues
+    cols_needed <- c("x", "y", "species", "issue_flags")
+    cols_present <- cols_needed[cols_needed %in% names(issues)]
+    if (length(cols_present) == 0) {
+      return(DT::datatable(data.frame(Message = "No GBIF quality flags"), options = list(dom = "t")))
+    }
+    display_df <- issues[, cols_present, drop = FALSE]
+    names(display_df) <- ifelse(names(display_df) == "x", "longitude", ifelse(names(display_df) == "y", "latitude", names(display_df)))
+    if ("issue_flags" %in% names(display_df)) {
+      critical <- c("ZERO_COORDINATE", "COORDINATE_OUT_OF_RANGE", "COUNTRY_COORDINATE_MISMATCH", "COORDINATE_INVALID")
+      flag_colors <- ifelse(display_df$issue_flags %in% critical, "#8c1d18", "#66768a")
+      display_df$issue_flags <- sapply(seq_len(nrow(display_df)), function(i) {
+        span(display_df$issue_flags[i], style = paste0("color:", flag_colors[i], ";font-weight:700;"))
+      })
+    }
+    DT::datatable(display_df, options = list(dom = "t", pageLength = 10), rownames = FALSE, escape = FALSE)
+  })
+
+  observeEvent(input$exclude_flagged, {
+    showModal(modalDialog(
+      title = "Confirm exclusion",
+      "This will remove all records with GBIF quality flags from the current result. Continue?",
+      footer = tagList(
+        actionButton("confirm_exclude_yes", "Yes, exclude flagged records"),
+        modalButton("Cancel")
+      ),
+      easyClose = FALSE
+    ))
+  })
+  observeEvent(input$confirm_exclude_yes, {
+    removeModal()
+    r <- rv$result
+    if (!is.null(r) && !is.null(r$dwca_issues) && nrow(r$dwca_issues) > 0) {
+      issues_flagged <- r$dwca_issues
+      if ("x" %in% names(issues_flagged) && "y" %in% names(issues_flagged)) {
+        flagged_coords <- paste(issues_flagged$x, issues_flagged$y, sep = "_")
+        if (!is.null(rv$cleaned_occurrence)) {
+          occ_coords <- paste(rv$cleaned_occurrence$longitude, rv$cleaned_occurrence$latitude, sep = "_")
+          rv$cleaned_occurrence <- rv$cleaned_occurrence[!occ_coords %in% flagged_coords, , drop = FALSE]
+          append_log(paste0("Excluded ", length(flagged_coords), " GBIF-flagged records from current result."))
+        }
+      }
+    }
+  })
+
+  output$ensemble_weights_panel <- renderUI({
+    r <- rv$result
+    if (is.null(r) || is.null(r$cv$component_metrics)) return(NULL)
+    if (!identical(r$config$model_id, "multi_ensemble")) return(NULL)
+    metrics <- r$cv$component_metrics
+    if (is.null(metrics) || nrow(metrics) == 0) return(NULL)
+    excluded <- r$ensemble_config$models_excluded
+    div(class = "content-card",
+      h4("Ensemble weights"),
+      if (length(excluded) > 0) {
+        div(class = "small-muted", style = "margin-bottom:8px;",
+          "Models excluded (below threshold): ", paste(excluded, collapse = ", "))
+      },
+      tableOutput("ensemble_weights_table"),
+      tags$small(class = "small-muted", "Weights are normalised to sum to 1. Higher power gives more emphasis to better-performing models.")
+    )
+  })
+  output$ensemble_weights_table <- renderTable({
+    r <- rv$result
+    if (is.null(r) || is.null(r$cv$component_metrics)) return(data.frame())
+    metrics <- r$cv$component_metrics
+    if (nrow(metrics) == 0) return(data.frame())
+    w <- metrics
+    w$auc_mean <- sprintf("%.3f", w$auc_mean)
+    w$tss_mean <- sprintf("%.3f", w$tss_mean)
+    w$weight <- sprintf("%.3f", w$weight)
+    colnames(w) <- c("Model", "Method", "AUC (CV)", "TSS (CV)", "Weight")
+    w
+  }, striped = TRUE, hover = TRUE, spacing = "s")
   output$run_log <- renderText(rv$log)
   observeEvent(input$remove_flagged, {
     req(rv$result)
@@ -806,9 +933,44 @@ output$maxnet_install_hint <- renderUI({
     r <- rv$result
     if (is.null(r)) return(NULL)
     sidecars <- unlist(r$paths[c("glm_tif", "rangebag_tif", "disagreement_tif", "future_tif", "delta_tif")], use.names = FALSE)
+    multi_ens_keys <- grep("^multi_ens_comp_|^multi_ens_(mean|median|committee|sd)_tif$", names(r$paths), value = TRUE)
+    if (length(multi_ens_keys) > 0) sidecars <- c(sidecars, unlist(r$paths[multi_ens_keys], use.names = FALSE))
     sidecars <- sidecars[!is.na(sidecars) & nzchar(sidecars) & file.exists(sidecars)]
     if (length(sidecars) == 0) return(p(class = "small-muted", "No model sidecar rasters were produced for this run."))
     tags$ul(class = "small-muted", lapply(sidecars, function(path) tags$li(basename(path))))
+  })
+  output$future_tif_download_ui <- renderUI({
+    r <- rv$result
+    if (is.null(r) || is.null(r$paths$future_tif) || !file.exists(r$paths$future_tif)) return(NULL)
+    downloadButton("download_future_tif", "Download future GeoTIFF")
+  })
+  output$delta_tif_download_ui <- renderUI({
+    r <- rv$result
+    if (is.null(r) || is.null(r$paths$delta_tif) || !file.exists(r$paths$delta_tif)) return(NULL)
+    downloadButton("download_delta_tif", "Download delta GeoTIFF")
+  })
+  output$ensemble_downloads_ui <- renderUI({
+    r <- rv$result
+    if (is.null(r) || is.null(r$paths)) return(NULL)
+    ens_keys <- grep("^multi_ens_(mean|median|committee|sd)_tif$", names(r$paths), value = TRUE)
+    ens_files <- ens_keys[!is.na(r$paths[ens_keys]) & nzchar(r$paths[ens_keys]) & sapply(r$paths[ens_keys], file.exists)]
+    if (length(ens_files) == 0) return(NULL)
+    div(class = "content-card", style = "margin-top:12px;",
+      h4("Ensemble rasters"),
+      p(class = "small-muted", "Individual ensemble strategy outputs."),
+      div(class = "downloads-row",
+        lapply(names(ens_files), function(key) {
+          label <- switch(key,
+            "multi_ens_mean_tif" = "Mean",
+            "multi_ens_median_tif" = "Median",
+            "multi_ens_committee_tif" = "Committee",
+            "multi_ens_sd_tif" = "SD (uncertainty)",
+            basename(r$paths[[key]])
+          )
+          downloadButton(paste0("download_", key), paste("Download", label))
+        })
+      )
+    )
   })
 
   output$download_tif <- downloadHandler(filename = function() { req(rv$result); basename(rv$result$paths$tif) }, content = function(file) { req(rv$result, file.exists(rv$result$paths$tif)); file.copy(rv$result$paths$tif, file, overwrite = TRUE) })
@@ -824,7 +986,7 @@ output$maxnet_install_hint <- renderUI({
     content = function(file) {
       req(rv$result)
       sidecars <- unlist(rv$result$paths[c("glm_tif", "rangebag_tif", "disagreement_tif", "future_tif", "delta_tif")], use.names = FALSE)
-      multi_ens_keys <- grep("^multi_ens_comp_|^multi_ens_disagreement_tif$", names(rv$result$paths), value = TRUE)
+      multi_ens_keys <- grep("^multi_ens_comp_|^multi_ens_(mean|median|committee|sd)_tif$", names(rv$result$paths), value = TRUE)
       if (length(multi_ens_keys) > 0) sidecars <- c(sidecars, unlist(rv$result$paths[multi_ens_keys], use.names = FALSE))
       sidecars <- sidecars[!is.na(sidecars) & nzchar(sidecars) & file.exists(sidecars)]
       validate(need(length(sidecars) > 0, "No sidecar rasters are available for this run."))
@@ -834,6 +996,10 @@ output$maxnet_install_hint <- renderUI({
       utils::zip(file, files = basename(sidecars))
     }
   )
+  output$download_multi_ens_mean_tif <- downloadHandler(filename = function() { r <- rv$result; req(r, r$paths$multi_ens_mean_tif); basename(r$paths$multi_ens_mean_tif) }, content = function(file) { r <- rv$result; req(r, r$paths$multi_ens_mean_tif, file.exists(r$paths$multi_ens_mean_tif)); file.copy(r$paths$multi_ens_mean_tif, file, overwrite = TRUE) })
+  output$download_multi_ens_median_tif <- downloadHandler(filename = function() { r <- rv$result; req(r, r$paths$multi_ens_median_tif); basename(r$paths$multi_ens_median_tif) }, content = function(file) { r <- rv$result; req(r, r$paths$multi_ens_median_tif, file.exists(r$paths$multi_ens_median_tif)); file.copy(r$paths$multi_ens_median_tif, file, overwrite = TRUE) })
+  output$download_multi_ens_committee_tif <- downloadHandler(filename = function() { r <- rv$result; req(r, r$paths$multi_ens_committee_tif); basename(r$paths$multi_ens_committee_tif) }, content = function(file) { r <- rv$result; req(r, r$paths$multi_ens_committee_tif, file.exists(r$paths$multi_ens_committee_tif)); file.copy(r$paths$multi_ens_committee_tif, file, overwrite = TRUE) })
+  output$download_multi_ens_sd_tif <- downloadHandler(filename = function() { r <- rv$result; req(r, r$paths$multi_ens_sd_tif); basename(r$paths$multi_ens_sd_tif) }, content = function(file) { r <- rv$result; req(r, r$paths$multi_ens_sd_tif, file.exists(r$paths$multi_ens_sd_tif)); file.copy(r$paths$multi_ens_sd_tif, file, overwrite = TRUE) })
 }
 
 if (!interactive()) {

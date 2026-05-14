@@ -51,6 +51,10 @@ sdm_default_ensemble_weighting <- "auc"
 sdm_default_multi_ensemble_models <- c("glm")
 sdm_default_multi_ensemble_weighting <- "auc"
 sdm_default_multi_ensemble_export_components <- TRUE
+sdm_default_ensemble_power <- 2
+sdm_default_ensemble_min_auc <- 0.7
+sdm_default_ensemble_min_tss <- 0.5
+sdm_default_ensemble_uncertainty <- TRUE
 sdm_default_elevation_demtype <- "COP90"
 sdm_default_terrain_complexity_enabled <- FALSE
 sdm_default_soil_vars <- c("BULK_DENSITY", "DRAINAGE", "ROOT_DEPTH", "AWC")

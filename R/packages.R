@@ -32,7 +32,8 @@ sdm_optional_packages <- list(
   maxnet = c("maxnet", "glmnet"),
   biomod2 = c("biomod2", "PresenceAbsence", "pROC"),
   leaflet = c("leaflet", "mapview", "sf"),
-  rgee = c("rgee", "reticulate")
+  rgee = c("rgee", "reticulate"),
+  dwca = c("finch")
 )
 
 detect_available_cores <- function(logical = TRUE) {

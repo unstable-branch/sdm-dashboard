@@ -11,7 +11,7 @@ multi_ensemble_component_path <- function(output_tif, model_id) {
   }
 }
 
-compute_multi_ensemble_weights <- function(cv_list, weighting = "auc") {
+compute_multi_ensemble_weights <- function(cv_list, weighting = "auc", power = 2L) {
   weighting <- match.arg(weighting, c("equal", "auc", "tss"))
   n <- length(cv_list)
   if (n == 0) return(numeric(0))
@@ -29,8 +29,9 @@ compute_multi_ensemble_weights <- function(cv_list, weighting = "auc") {
     vals <- vals - 0.5
   }
   vals[vals < 0] <- 0
-  total <- sum(vals)
-  if (total > 0) vals / total else rep(1/n, n)
+  powered <- vals ^ power
+  total <- sum(powered)
+  if (total > 0) powered / total else rep(1/n, n)
 }
 
 extract_biomod2_algorithm_files <- function(modeling_id, proj_name, algo_names) {
@@ -50,14 +51,18 @@ extract_biomod2_algorithm_files <- function(modeling_id, proj_name, algo_names) 
 }
 
 predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
-                                         n_cores = 1, log_fun = NULL,
-                                         export_components = TRUE) {
+                                          n_cores = 1, log_fun = NULL,
+                                          export_components = TRUE,
+                                          include_uncertainty = TRUE,
+                                          ensemble_weighting = "auc",
+                                          ensemble_power = 2) {
   if (!is.list(fit) || is.null(fit$model) || is.null(fit$model$components)) {
     stop("fit must be a multi_model_ensemble fit result.", call. = FALSE)
   }
   components <- fit$model$components
   weights <- fit$model$weights
   methods <- fit$model$methods
+  cv_list <- fit$cv$component_cv %||% lapply(components, function(c) c(auc_mean = NA_real_, tss_mean = NA_real_))
   if (length(components) < 2) {
     stop("At least 2 component models are required for multi-model ensemble.", call. = FALSE)
   }
@@ -80,30 +85,61 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     }
   }
 
-  ensemble_suit <- NULL
-  for (m in names(preds)) {
-    w <- weights[[m]]
-    if (is.null(ensemble_suit)) {
-      ensemble_suit <- preds[[m]] * w
-    } else {
-      ensemble_suit <- ensemble_suit + preds[[m]] * w
-    }
-  }
-  names(ensemble_suit) <- "suitability"
-  terra::writeRaster(ensemble_suit, output_tif, overwrite = TRUE,
-                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  pred_stack <- terra::rast(preds)
+
+  ensemble_mean <- terra::app(pred_stack, mean, na.rm = TRUE)
+  names(ensemble_mean) <- "ensemble_mean"
+  mean_tif <- sub(".tif$", "_ensemble_mean.tif", output_tif)
+  terra::writeRaster(ensemble_mean, mean_tif, overwrite = TRUE,
+                    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  log_message(log_fun, "Ensemble mean raster written to: ", mean_tif)
+
+  ensemble_median <- terra::app(pred_stack, median, na.rm = TRUE)
+  names(ensemble_median) <- "ensemble_median"
+  median_tif <- sub(".tif$", "_ensemble_median.tif", output_tif)
+  terra::writeRaster(ensemble_median, median_tif, overwrite = TRUE,
+                    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  log_message(log_fun, "Ensemble median raster written to: ", median_tif)
+
+  weighted_layers <- mapply(function(pred, wi) pred * wi, preds, weights[ names(preds) ], SIMPLIFY = FALSE)
+  ensemble_weighted <- Reduce("+", weighted_layers)
+  names(ensemble_weighted) <- "suitability"
+  terra::writeRaster(ensemble_weighted, output_tif, overwrite = TRUE,
+                    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
   log_message(log_fun, "Ensemble raster written to: ", output_tif)
 
-  disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
-  pred_stack <- terra::rast(preds)
-  range_suit <- terra::app(pred_stack, fun = function(x) max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
-  names(range_suit) <- "model_disagreement"
-  terra::writeRaster(range_suit, disagreement_tif, overwrite = TRUE,
-                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
-  component_paths$multi_ens_disagreement_tif <- disagreement_tif
+  binary_preds <- lapply(names(preds), function(mid) {
+    comp_cv <- cv_list[[mid]]
+    thresh <- comp_cv$threshold %||% 0.5
+    preds[[mid]] >= thresh
+  })
+  committee_stack <- terra::rast(binary_preds)
+  ensemble_committee <- terra::app(committee_stack, mean, na.rm = TRUE)
+  names(ensemble_committee) <- "ensemble_committee"
+  committee_tif <- sub(".tif$", "_ensemble_committee.tif", output_tif)
+  terra::writeRaster(ensemble_committee, committee_tif, overwrite = TRUE,
+                    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  log_message(log_fun, "Ensemble committee raster written to: ", committee_tif)
 
-  attr(ensemble_suit, "component_paths") <- component_paths
-  ensemble_suit
+  if (include_uncertainty) {
+    ensemble_sd <- terra::app(pred_stack, sd, na.rm = TRUE)
+    names(ensemble_sd) <- "ensemble_sd"
+    sd_tif <- sub(".tif$", "_ensemble_sd.tif", output_tif)
+    terra::writeRaster(ensemble_sd, sd_tif, overwrite = TRUE,
+                       wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    log_message(log_fun, "Ensemble SD raster written to: ", sd_tif)
+  }
+
+  component_paths$multi_ens_disagreement_tif <- NULL
+
+  attr(ensemble_weighted, "component_paths") <- component_paths
+  attr(ensemble_weighted, "ensemble_mean_tif") <- mean_tif
+  attr(ensemble_weighted, "ensemble_median_tif") <- median_tif
+  attr(ensemble_weighted, "ensemble_committee_tif") <- committee_tif
+  if (include_uncertainty) {
+    attr(ensemble_weighted, "ensemble_sd_tif") <- sd_tif
+  }
+  ensemble_weighted
 }
 
 predict_single_component <- function(method, comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
@@ -155,20 +191,23 @@ pred_biomod2_component <- function(comp_fit, env_project_scaled, output_tif, n_c
 }
 
 fit_multi_model_ensemble <- function(occ, env_train_scaled,
-                                     selected_models = NULL,
-                                     ensemble_weighting = "auc",
-                                     background_n = sdm_default_background_n,
-                                     include_quadratic = TRUE,
-                                     cv_folds = sdm_default_cv_folds,
-                                     seed = sdm_default_seed,
-                                     n_cores = 1,
-                                     log_fun = NULL,
-                                     bias_method = c("uniform", "target_group", "thickened"),
-                                     target_group_occ = NULL,
-                                     thickening_distance_km = NULL,
-                                     maxnet_features = sdm_default_maxnet_features,
-                                     maxnet_regmult = sdm_default_maxnet_regmult,
-                                     biomod2_models = NULL) {
+                                      selected_models = NULL,
+                                      ensemble_weighting = "auc",
+                                      ensemble_power = 2,
+                                      min_auc = NA_real_,
+                                      min_tss = NA_real_,
+                                      background_n = sdm_default_background_n,
+                                      include_quadratic = TRUE,
+                                      cv_folds = sdm_default_cv_folds,
+                                      seed = sdm_default_seed,
+                                      n_cores = 1,
+                                      log_fun = NULL,
+                                      bias_method = c("uniform", "target_group", "thickened"),
+                                      target_group_occ = NULL,
+                                      thickening_distance_km = NULL,
+                                      maxnet_features = sdm_default_maxnet_features,
+                                      maxnet_regmult = sdm_default_maxnet_regmult,
+                                      biomod2_models = NULL) {
   bias_method <- match.arg(bias_method)
   if (is.null(selected_models) || length(selected_models) == 0) {
     stop("At least one model must be selected for multi-model ensemble.", call. = FALSE)
@@ -256,22 +295,60 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     }
   }
 
-  weights <- compute_multi_ensemble_weights(cv_list, ensemble_weighting)
-  names(weights) <- names(cv_list)
+  component_cv_df <- data.frame(
+    model_id = names(cv_list),
+    auc_mean = as.numeric(component_auc),
+    tss_mean = as.numeric(component_tss),
+    stringsAsFactors = FALSE
+  )
 
-  auc_weighted <- ensemble_weighted_metric(component_auc, weights)
-  tss_weighted <- ensemble_weighted_metric(component_tss, weights)
+  keep <- rep(TRUE, nrow(component_cv_df))
+  if (!is.na(min_auc)) {
+    keep <- keep & (is.na(component_cv_df$auc_mean) | component_cv_df$auc_mean >= min_auc)
+  }
+  if (!is.na(min_tss)) {
+    keep <- keep & (is.na(component_cv_df$tss_mean) | component_cv_df$tss_mean >= min_tss)
+  }
+
+  dropped_models <- component_cv_df$model_id[!keep]
+  if (length(dropped_models) > 0) {
+    msg <- paste0("Ensemble: excluded ", length(dropped_models), " model(s) below threshold: ", paste(dropped_models, collapse = ", "))
+    log_message(log_fun, msg)
+  }
+
+  if (sum(keep) == 0) {
+    warning("All models below performance threshold; using all models for ensemble.")
+    keep[] <- TRUE
+    dropped_models <- character()
+  }
+
+  cv_list_filtered <- cv_list[keep]
+  weights <- compute_multi_ensemble_weights(cv_list_filtered, ensemble_weighting, power = ensemble_power)
+  names(weights) <- names(cv_list_filtered)
+
+  auc_weighted <- ensemble_weighted_metric(component_auc[keep], weights)
+  tss_weighted <- ensemble_weighted_metric(component_tss[keep], weights)
 
   component_metrics_df <- data.frame(
-    model = names(cv_list),
-    method = unname(methods),
-    auc = as.numeric(component_auc),
-    tss = as.numeric(component_tss),
+    model_id = names(cv_list_filtered),
+    method = unname(methods[keep]),
+    auc_mean = as.numeric(component_auc[keep]),
+    tss_mean = as.numeric(component_tss[keep]),
     weight = as.numeric(weights),
     stringsAsFactors = FALSE
   )
 
-  log_message(log_fun, "Ensemble weights: ", paste(names(weights), sprintf("%.3f", weights), sep = "=", collapse = ", "))
+  log_message(log_fun, "Ensemble weights (", ensemble_weighting, ", power=", ensemble_power, "): ", paste(names(weights), sprintf("%.3f", weights), sep = "=", collapse = ", "))
+
+  ensemble_config <- list(
+    weighting = ensemble_weighting,
+    power = ensemble_power,
+    min_auc = min_auc,
+    min_tss = min_tss,
+    models_included = component_metrics_df$model_id,
+    models_excluded = dropped_models,
+    include_uncertainty = TRUE
+  )
 
   first_component <- components[[1]]
   list(
@@ -279,7 +356,8 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
       components = components,
       weights = weights,
       methods = methods,
-      weighting = ensemble_weighting
+      weighting = ensemble_weighting,
+      power = ensemble_power
     ),
     formula = NULL,
     coefficients = component_metrics_df,
@@ -292,8 +370,10 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
       tss_mean = tss_weighted,
       tss_sd = NA_real_,
       component_metrics = component_metrics_df,
+      component_cv = cv_list,
       component_k = component_k
     ),
+    ensemble_config = ensemble_config,
     covariates = first_component$covariates %||% names(env_train_scaled),
     variable_importance = NULL,
     biomod2_fit = biomod2_fit

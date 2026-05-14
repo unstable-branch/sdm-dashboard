@@ -13,6 +13,29 @@ read_occurrence_file <- function(path, log_fun = NULL) {
   if (is.null(path) || !file.exists(path)) {
     stop("Occurrence file not found. Upload a CSV or restore presence_data.csv.", call. = FALSE)
   }
+  ext <- tolower(tools::file_ext(path))
+  if (ext == "zip") {
+    result <- read_dwca(path, log_fun = log_fun)
+    occ <- result$occurrences
+    if ("x" %in% names(occ) && !"longitude" %in% names(occ)) {
+      occ$longitude <- occ$x
+    }
+    if ("y" %in% names(occ) && !"latitude" %in% names(occ)) {
+      occ$latitude <- occ$y
+    }
+    if ("species" %in% names(occ) && !"source" %in% names(occ)) {
+      occ$source <- occ$species
+    }
+    if (!"source" %in% names(occ)) {
+      occ$source <- "DwC-A"
+    }
+    attr(occ, "gbif_doi") <- result$doi
+    attr(occ, "n_raw") <- result$n_raw
+    attr(occ, "dwca_datasets") <- result$datasets
+    attr(occ, "dwca_issues") <- result$issues_flagged
+    attr(occ, "dwca_n_returned") <- result$n_returned
+    return(occ)
+  }
   is_tab <- grepl("\\.(tsv|txt)$", path, ignore.case = TRUE)
   log_message(log_fun, "Reading occurrences from ", normalizePath(path, winslash = "/", mustWork = FALSE))
   if (is_tab) {

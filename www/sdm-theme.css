@@ -308,3 +308,98 @@ body:not(.sdm-light) .table-hover > tbody > tr:hover > * { color: #e6eef7; backg
 .content-card {
   min-width: 0;
 }
+
+/* Download button styling */
+.downloads-row .btn {
+  transition: all 0.15s ease;
+}
+.downloads-row .btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(11, 110, 105, 0.18);
+}
+.downloads-row .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #d0d5dd !important;
+  border-color: #d0d5dd !important;
+  color: #66768a !important;
+}
+
+/* Dark mode download buttons */
+body.sdm-dark .downloads-row .btn {
+  background: linear-gradient(135deg, #17a589, #2c7be5) !important;
+  border: 0 !important;
+  color: white !important;
+}
+body.sdm-dark .downloads-row .btn:hover:not(:disabled) {
+  box-shadow: 0 4px 16px rgba(55, 208, 178, 0.28);
+}
+body.sdm-dark .downloads-row .btn:disabled {
+  background: #263848 !important;
+  border-color: #32475f !important;
+  color: #66768a !important;
+}
+
+/* Slider improvements for both modes */
+body.sdm-dark .irs--shiny .irs-bar,
+body:not(.sdm-light) .irs--shiny .irs-bar {
+  background: var(--sdm-accent) !important;
+}
+body.sdm-dark .irs--shiny .irs-handle,
+body:not(.sdm-light) .irs--shiny .irs-handle {
+  border-color: var(--sdm-accent) !important;
+  background: var(--sdm-surface) !important;
+}
+body.sdm-dark .irs--shiny .irs-single,
+body:not(.sdm-light) .irs--shiny .irs-single {
+  background: var(--sdm-accent) !important;
+}
+body.sdm-dark .irs--shiny .irs-from,
+body.sdm-dark .irs--shiny .irs-to,
+body.sdm-dark .irs--shiny .irs-min,
+body.sdm-dark .irs--shiny .irs-max,
+body:not(.sdm-light) .irs--shiny .irs-from,
+body:not(.sdm-light) .irs--shiny .irs-to,
+body:not(.sdm-light) .irs--shiny .irs-min,
+body:not(.sdm-light) .irs--shiny .irs-max {
+  color: var(--sdm-muted) !important;
+  background: var(--sdm-surface-soft) !important;
+}
+
+/* Dark mode slider in light section */
+body.sdm-light .irs--shiny .irs-bar { background: var(--sdm-accent) !important; }
+body.sdm-light .irs--shiny .irs-handle { border-color: var(--sdm-accent) !important; }
+body.sdm-light .irs--shiny .irs-single { background: var(--sdm-accent) !important; }
+
+/* Improved focus and hover states */
+body.sdm-dark .btn-outline-secondary,
+body:not(.sdm-light) .btn-outline-secondary {
+  border-color: #32475f !important;
+  color: #a8b6c7 !important;
+  background: transparent !important;
+}
+body.sdm-dark .btn-outline-secondary:hover,
+body:not(.sdm-light) .btn-outline-secondary:hover {
+  background: #17324c !important;
+  border-color: #37d0b2 !important;
+  color: #37d0b2 !important;
+}
+
+/* Better contrast for small-muted in dark mode */
+body.sdm-dark .small-muted,
+body:not(.sdm-light) .small-muted {
+  color: #c5d0dc !important;
+}
+
+/* Tab styling improvements */
+body.sdm-dark .nav-tabs .nav-link:hover,
+body:not(.sdm-light) .nav-tabs .nav-link:hover {
+  color: var(--sdm-heading) !important;
+  border-color: var(--sdm-border) !important;
+}
+
+/* Sidecar note styling */
+body.sdm-dark .sidecar-note,
+body:not(.sdm-light) .sidecar-note {
+  color: var(--sdm-muted) !important;
+}

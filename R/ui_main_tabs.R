@@ -73,7 +73,8 @@ ui_main_tabs <- function() {
               hr(),
               h4("Flagged records"),
               DT::dataTableOutput("flagged_records_table")
-            )
+            ),
+            uiOutput("dwca_issues_panel")
           )
         )
       ),
@@ -85,7 +86,8 @@ ui_main_tabs <- function() {
             div(class = "content-card",
               h4("Coefficient summary"),
               tableOutput("coef_table")
-            )
+            ),
+            uiOutput("ensemble_weights_panel")
           ),
           column(5,
             div(class = "content-card",
@@ -105,8 +107,8 @@ ui_main_tabs <- function() {
           div(class = "downloads-row",
             downloadButton("download_tif", "Download GeoTIFF"),
             downloadButton("download_png", "Download PNG map"),
-            downloadButton("download_future_tif", "Download future GeoTIFF"),
-            downloadButton("download_delta_tif", "Download delta GeoTIFF"),
+            uiOutput("future_tif_download_ui"),
+            uiOutput("delta_tif_download_ui"),
             downloadButton("download_occ", "Download cleaned observation records"),
             downloadButton("download_report", "Download text report"),
             downloadButton("download_sidecars", "Download sidecar rasters")
@@ -115,6 +117,7 @@ ui_main_tabs <- function() {
             downloadButton("download_odmap_csv", "Download ODMAP report (CSV)"),
             downloadButton("download_odmap_md", "Download ODMAP report (Markdown)")
           ),
+          uiOutput("ensemble_downloads_ui"),
           uiOutput("sidecar_download_note")
         )
       )
