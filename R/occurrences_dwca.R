@@ -35,9 +35,14 @@ read_dwca <- function(dwca_path,
                       basis_of_record_filter    = NULL,
                       log_fun                   = NULL) {
 
+  configure_user_library()
   if (!requireNamespace("finch", quietly = TRUE)) {
-    stop("Package 'finch' is required for Darwin Core Archive input. ",
-         "Install with: install.packages('finch')")
+    msg <- paste0(
+      "Package 'finch' is required for Darwin Core Archive input.\n",
+      "Library paths: ", paste(.libPaths(), collapse = " | "), "\n",
+      "finch installed at: ", find.package("finch", quiet = TRUE, verbose = FALSE)[1]
+    )
+    stop(msg, "\nInstall with: install.packages('finch')")
   }
 
   if (!file.exists(dwca_path)) stop("DwC-A file not found: ", dwca_path)

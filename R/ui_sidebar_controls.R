@@ -48,7 +48,12 @@ ui_sidebar_controls <- function() {
       p(class = "small-muted",
         "Flags: sea coordinates, biodiversity institutions, capital cities,",
         "country centroids, urban areas, zero coordinates."),
-      actionButton("view_flagged", "View flagged records (opens in table)")
+      selectInput("cc_tests", "CC tests to run",
+        choices = c("All tests" = "all", "Sea only" = "sea", "Capitals only" = "capitals",
+                    "Institutions only" = "institutions", "Centroids only" = "centroids",
+                    "Urban only" = "urban", "Zero only" = "zero"),
+        selected = "all"),
+      actionButton("view_flagged", "View flagged records")
     ),
     div(class = "checkbox-parent", checkboxInput("batch_mode", "Run batch of multiple species", value = FALSE)),
     conditionalPanel("input.batch_mode == true",
@@ -251,20 +256,24 @@ ui_sidebar_controls <- function() {
       ),
       numericInput("background_n", "Background points", value = sdm_default_background_n, min = 500, max = 100000, step = 500),
       numericInput("min_source_records", "Merge sources with fewer than", value = sdm_default_min_source_records, min = 1, max = 100, step = 1),
+      checkboxInput("merge_small_sources", "Merge small occurrence sources", value = TRUE),
       checkboxInput("thin_by_cell", "Thin duplicate records in the same climate cell", value = TRUE),
       checkboxInput("quadratic", "Include quadratic climate responses", value = TRUE),
       checkboxInput("vif_reduction", "Drop collinear covariates (VIF > 10)", value = FALSE),
       selectInput("cv_folds", "Cross-validation", choices = c("Off" = "0", "3-fold" = "3", "5-fold" = "5"), selected = as.character(sdm_default_cv_folds)),
-      numericInput("n_cores", "CPU cores for compile/predict/CV", value = default_cores, min = 1, max = detect_available_cores(TRUE), step = 1),
-      div(class = "small-muted", "Also sets MAKEFLAGS=-jN for source package compilation."),
-      numericInput("aggregation_factor", "Raster aggregation for speed (1 = native)", value = sdm_default_aggregation_factor, min = 1, max = 8, step = 1),
+      selectInput("cv_strategy", "CV strategy", choices = c("Random" = "random", "Spatial blocks" = "spatial_blocks"), selected = sdm_default_cv_strategy),
+      conditionalPanel("input.cv_strategy == 'spatial_blocks'",
+        numericInput("cv_block_size_km", "Spatial block size (km)",
+          value = if (is.na(sdm_default_cv_block_size_km)) 50 else sdm_default_cv_block_size_km,
+          min = 1, max = 500, step = 1),
+        div(class = "small-muted", "Auto-estimated if left at default.")
+      ),
       div(class = "bias-dropdown",
         selectInput("bias_method", "Background sampling bias correction",
           choices = c("Uniform random (default)" = "uniform",
                       "Target-group (requires related species CSV)" = "target_group",
                       "Thickened (concentrate around presences)" = "thickened"))
       ),
-      div(class = "bias-conditional",
       conditionalPanel("input.bias_method == 'target_group'",
         fileInput("target_group_file", "Upload related species occurrences (CSV)",
           accept = c(".csv")),
@@ -273,9 +282,11 @@ ui_sidebar_controls <- function() {
       conditionalPanel("input.bias_method == 'thickened'",
         numericInput("thickening_distance_km", "Kernel distance (km)",
           value = 10, min = 1, max = 100)
+      ),
+      numericInput("n_cores", "CPU cores for compile/predict/CV", value = default_cores, min = 1, max = detect_available_cores(TRUE), step = 1),
+      div(class = "small-muted", "Also sets MAKEFLAGS=-jN for source package compilation."),
+      numericInput("aggregation_factor", "Raster aggregation for speed (1 = native)", value = sdm_default_aggregation_factor, min = 1, max = 8, step = 1)
       )
-      )
-    )
   ),
   div(class = "control-section",
     h4("Projection"),
@@ -298,12 +309,22 @@ ui_sidebar_controls <- function() {
     conditionalPanel("input.future_projection == true",
       textInput("future_worldclim_dir", "Future/CMIP6 BIO folder", value = sdm_default_future_worldclim_dir),
       textInput("future_label", "Scenario label", value = "Future climate"),
-      div(class = "small-muted", "Provide future BIO GeoTIFFs with matching BIO variable numbers. The model backend is reused; only climate layers are swapped, while static elevation/soil covariates are reused.")
+      uiOutput("future_download_status")
     )
   ),
+  div(class = "control-section advanced-section",
+    h4("Advanced Settings"),
+    p(class = "small-muted", "Fine-tune cross-validation, bias correction, and data merging options."),
+    actionButton("open_advanced_modal", "Open Advanced Settings", class = "btn-outline-primary btn-sm")
+  ),
+  ui_advanced_modal(),
   div(class = "run-button-wrap",
     actionButton("run_model", "Run SDM", class = "btn-primary btn-lg", width = "100%"),
     div(style = "margin-top: 6px;", actionButton("cancel_model", "Cancel", class = "btn-outline-secondary btn-sm", width = "100%"))
   )
   )
+}
+
+ui_advanced_modal <- function() {
+  tags$div(id = "advanced-modal-placeholder")
 }

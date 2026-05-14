@@ -25,13 +25,21 @@ if (is.na(.__sdm_module_dir) || is.null(.__sdm_module_dir)) {
     call. = FALSE
   )
 }
+# If the found path is itself an R/ subdirectory, go up one level to the actual project root.
+# This handles the case where script runs from project_root/ and search_paths
+# finds project_root/R/load.R before project_root/load.R.
+if (identical(basename(.__sdm_module_dir), "R")) {
+  .__sdm_actual_root <- dirname(.__sdm_module_dir)
+} else {
+  .__sdm_actual_root <- .__sdm_module_dir
+}
+
 if (!is.null(already_rooted)) {
   message("Using existing project root: ", already_rooted)
 } else {
-  message("Setting project root to: ", .__sdm_module_dir)
+  message("Setting project root to: ", .__sdm_actual_root)
 }
-source(file.path(.__sdm_module_dir, "load.R"), local = FALSE)
-if (is.null(already_rooted)) {
-  sdm_set_project_root(.__sdm_module_dir)
-}
-rm(.__sdm_module_dir, .__sdm_ofile_dirs, .__sdm_ofiles, already_rooted, search_paths)
+source(file.path(.__sdm_actual_root, "R", "bootstrap.R"), local = FALSE)
+sdm_set_project_root(.__sdm_actual_root)
+source(file.path(.__sdm_actual_root, "R", "load.R"), local = FALSE)
+rm(.__sdm_ofile_dirs, .__sdm_ofiles, already_rooted, search_paths, .__sdm_actual_root)

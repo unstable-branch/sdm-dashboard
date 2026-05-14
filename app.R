@@ -93,6 +93,8 @@ ui <- fluidPage(
     body.sdm-dark .run-button-wrap { background:#0f1c2b !important; border-top-color:#26384d !important; }
     body.sdm-dark .map-controls { border-top-color:#26384d !important; }
     body.sdm-dark .content-card { background:rgba(15,28,43,0.92) !important; }
+    body.sdm-dark .content-card strong { color:inherit !important; }
+    .status-ok strong, .status-warn strong, .status-error strong, .status-info strong { color:inherit; }
   ")),
 
   tags$style(HTML(sdm_theme_css)),
@@ -269,6 +271,23 @@ server <- function(input, output, session) {
     }
   })
 
+  future_download_status <- reactive({
+    future_dir <- normalizePath(trimws(input$future_worldclim_dir %||% sdm_default_future_worldclim_dir), winslash = "/", mustWork = FALSE)
+    tif_count <- length(list.files(future_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE))
+    if (tif_count > 0) {
+      div(class = "small-muted", style = "color: #0b594f;",
+        paste0(tif_count, " future BIO layer(s) found — ready to project"))
+    } else {
+      tagList(
+        div(class = "small-muted", "No future climate data yet?"),
+        p(actionLink("open_future_download", "Download future climate layers (CMIP6)", class = "small-link")),
+        div(class = "small-muted", "Runs scripts/setup_future_climate.R from a terminal to download UKESM1-0-LL SSP2-4.5 2041-2060 layers.")
+      )
+    }
+  })
+  output$future_download_status <- renderUI({ future_download_status() })
+  outputOptions(output, "future_download_status", suspendWhenHidden = FALSE)
+
   occurrence_source <- function() {
     selected <- if (is.null(input$data_source)) "project" else input$data_source
     uploaded <- !is.null(input$occ_file)
@@ -310,6 +329,118 @@ server <- function(input, output, session) {
       last_auto_species(next_label)
       updateTextInput(session, "species", value = next_label)
     }
+  })
+
+  observeEvent(input$view_flagged, {
+    if (is.null(rv$cleaned_occurrence) || !is.data.frame(rv$cleaned_occurrence)) {
+      showModal(modalDialog(title = "Flagged Records", "No cleaned occurrence data available.", easyClose = TRUE, footer = modalButton("Close")))
+      return()
+    }
+    occ <- rv$cleaned_occurrence
+    flagged <- occ[!is.na(occ$cc_flag) & occ$cc_flag == TRUE, , drop = FALSE]
+    if (nrow(flagged) == 0) {
+      showModal(modalDialog(title = "Flagged Records", "No records flagged by CoordinateCleaner.", easyClose = TRUE, footer = modalButton("Close")))
+      return()
+    }
+    cols <- c("longitude", "latitude", "species", "source", "cc_flag",
+              "cc_test_sea", "cc_test_capitals", "cc_test_institutions",
+              "cc_test_centroids", "cc_test_urban", "cc_test_zero")
+    cols_present <- cols[cols %in% names(flagged)]
+    showModal(modalDialog(
+      title = paste("Flagged Records (", nrow(flagged), ")", sep = ""),
+      size = "l",
+      DT::datatable(flagged[, cols_present, drop = FALSE], options = list(pageLength = 25, dom = "frtip"), rownames = FALSE),
+      easyClose = TRUE,
+      footer = modalButton("Close")
+    ))
+  })
+
+  observeEvent(input$open_future_download, {
+    showModal(modalDialog(
+      title = "Download Future Climate Layers",
+      size = "m",
+      easyClose = TRUE,
+      footer = modalButton("Close"),
+      p("This will download CMIP6 future climate layers to the"),
+      code("Worldclim_future/"), HTML("&nbsp;folder using the default:"),
+      tags$ul(
+        tags$li(HTML("<strong>GCM:</strong> UKESM1-0-LL")),
+        tags$li(HTML("<strong>SSP:</strong> SSP2-4.5 (intermediate emissions)")),
+        tags$li(HTML("<strong>Period:</strong> 2041-2060 (mid-century)"))
+      ),
+      p("To customise the download, run from a terminal:"),
+      code('Rscript scripts/setup_future_climate.R --gcm MRI-ESM2-0 --ssp SSP5-8.5 --period 2061-2080'),
+      hr(),
+      p(class = "small-muted", "The download requires internet access and may take several minutes for the first dataset. Run the app from a terminal to see progress.")
+    ))
+  })
+
+  observeEvent(input$open_advanced_modal, {
+    showModal(bslib::modal(
+      title = "Advanced Settings",
+      size = "l",
+      easyClose = FALSE,
+      footer = tagList(
+        actionButton("apply_advanced", "Apply", class = "btn-primary"),
+        modalButton("Cancel")
+      ),
+      tags$div(class = "advanced-modal-body",
+        h4("Cross-validation"),
+        selectInput("cv_strategy_modal", "CV strategy",
+          choices = c("Random" = "random", "Spatial blocks" = "spatial_blocks"),
+          selected = input$cv_strategy %||% sdm_default_cv_strategy),
+        conditionalPanel("input.cv_strategy_modal == 'spatial_blocks'",
+          numericInput("cv_block_size_km_modal", "Spatial block size (km)",
+            value = input$cv_block_size_km %||% if (is.na(sdm_default_cv_block_size_km)) 50 else sdm_default_cv_block_size_km,
+            min = 1, max = 500, step = 1),
+          div(class = "small-muted", "Auto-estimated if left at default.")
+        ),
+        hr(),
+        h4("Bias correction"),
+        selectInput("bias_method_modal", "Background sampling bias correction",
+          choices = c("Uniform random" = "uniform", "Target-group" = "target_group", "Thickened" = "thickened"),
+          selected = input$bias_method %||% "uniform"),
+        conditionalPanel("input.bias_method_modal == 'target_group'",
+          fileInput("target_group_file_modal", "Upload related species occurrences (CSV)",
+            accept = c(".csv")),
+          div(class = "small-muted", "One record per row with longitude and latitude columns.")
+        ),
+        conditionalPanel("input.bias_method_modal == 'thickened'",
+          numericInput("thickening_distance_km_modal", "Kernel distance (km)",
+            value = input$thickening_distance_km %||% 10, min = 1, max = 100)
+        ),
+        hr(),
+        h4("CoordinateCleaner (Advanced Cleaning)"),
+        selectInput("cc_tests_modal", "CC tests to run",
+          choices = c("All tests" = "all", "Sea only" = "sea", "Capitals only" = "capitals",
+                      "Institutions only" = "institutions", "Centroids only" = "centroids",
+                      "Urban only" = "urban", "Zero only" = "zero"),
+          selected = input$cc_tests %||% "all"),
+        hr(),
+        h4("Data merging"),
+        checkboxInput("merge_small_sources_modal", "Merge small occurrence sources", value = input$merge_small_sources %||% TRUE),
+        checkboxInput("vif_reduction_modal", "Drop collinear covariates (VIF > 10)", value = input$vif_reduction %||% FALSE)
+      )
+    ))
+  })
+
+  observeEvent(input$apply_advanced, {
+    removeModal()
+    updateSelectInput(session, "cv_strategy", selected = input$cv_strategy_modal)
+    if (identical(input$cv_strategy_modal, "spatial_blocks") && !is.null(input$cv_block_size_km_modal)) {
+      updateNumericInput(session, "cv_block_size_km", value = input$cv_block_size_km_modal)
+    }
+    updateSelectInput(session, "bias_method", selected = input$bias_method_modal)
+    if (!is.null(input$thickening_distance_km_modal)) {
+      updateNumericInput(session, "thickening_distance_km", value = input$thickening_distance_km_modal)
+    }
+    if (!is.null(input$target_group_file_modal) && isTRUE(input$bias_method_modal == "target_group")) {
+      shiny::file.copy(input$target_group_file_modal$datapath,
+                      file.path(tempdir(), input$target_group_file_modal$name), overwrite = TRUE)
+    }
+    updateSelectInput(session, "cc_tests", selected = input$cc_tests_modal)
+    updateCheckboxInput(session, "merge_small_sources", value = isTRUE(input$merge_small_sources_modal))
+    updateCheckboxInput(session, "vif_reduction", value = isTRUE(input$vif_reduction_modal))
   })
 
   observe({
@@ -417,25 +548,22 @@ server <- function(input, output, session) {
     overlap <- if (!is.null(cleaned) && is.null(cleaned$error)) occurrence_extent_overlap(cleaned$occ, extent) else NULL
     if (!is.null(overlap)) {
       overlap_detail <- paste0(overlap$count, " of ", overlap$total, " cleaned observation records (", fmt_num(overlap$percent, 1), "%) fall inside the selected projection extent.")
-      overlap_state <- if (overlap$count == 0 || overlap$percent < 10) "warn" else "ok"
-      if (identical(overlap_state, "warn")) warnings <- c(warnings, paste("Projection extent has little or no overlap with the observation records:", overlap_detail))
+      overlap_state <- if (overlap$count == 0 || overlap$percent < 10) "info" else "ok"
     }
 
     future_state <- "info"
     future_detail <- "Future climate projection is off."
-    if (isTRUE(input$future_projection)) {
+if (isTRUE(input$future_projection)) {
       future_dir <- trimws(input$future_worldclim_dir %||% "")
       if (!nzchar(future_dir)) {
-        future_state <- "error"
-        future_detail <- "Future projection is on, but no future climate folder is set."
-        issues <- c(issues, future_detail)
+        future_state <- "info"
+        future_detail <- "Future projection is on, but no folder path is set."
       } else {
         future_files <- future_projection_files(future_dir, biovars)
         missing_future <- names(future_files)[is.na(future_files)]
         if (length(missing_future) > 0) {
-          future_state <- "error"
-          future_detail <- paste0("Missing future BIO", paste(missing_future, collapse = ", BIO"), " in ", future_dir, ".")
-          issues <- c(issues, "Add matching future BIO GeoTIFFs or turn future projection off.")
+          future_state <- "info"
+          future_detail <- paste0("Missing BIO", paste(missing_future, collapse = ", BIO"), " in ", future_dir, ". Future projection will use current climate only.")
         } else {
           future_state <- "ok"
           future_detail <- paste(length(future_files), "matching future BIO layers found in", future_dir)
@@ -627,6 +755,15 @@ server <- function(input, output, session) {
     species_label <- trimws(input$species %||% "")
     if (!nzchar(species_label)) species_label <- sdm_default_species
 
+    cleaned_occ <- cleaned_occurrence()
+    if (!is.null(cleaned_occ) && is.null(cleaned_occ$error)) {
+      run_overlap <- occurrence_extent_overlap(cleaned_occ$occ, projection_extent)
+      if (!is.null(run_overlap) && (run_overlap$count == 0 || run_overlap$percent < 10)) {
+        msg <- paste0("NOTE: ", run_overlap$count, " of ", run_overlap$total, " cleaned occurrence records (", fmt_num(run_overlap$percent, 1), "%) fall inside the projection extent. Model will project into ", fmt_num(100 - run_overlap$percent, 1), "% of the extent area with no known presence records.")
+        append_log(msg)
+      }
+    }
+
     withProgress(message = "Running SDM", value = 0, {
       result <- tryCatch(
         withCallingHandlers(
@@ -634,9 +771,11 @@ server <- function(input, output, session) {
             species = species_label, occurrence_file = occurrence_file, worldclim_dir = input$worldclim_dir,
             selected_biovars = as.integer(input$biovars), projection_extent = projection_extent,
             background_n = input$background_n, min_source_records = input$min_source_records,
-            merge_small_sources = TRUE, thin_by_cell = isTRUE(input$thin_by_cell), model_id = input$model_id,
+            merge_small_sources = isTRUE(input$merge_small_sources) %||% TRUE, thin_by_cell = isTRUE(input$thin_by_cell), model_id = input$model_id,
             include_quadratic = isTRUE(input$quadratic),
             threshold = input$threshold, aggregation_factor = input$aggregation_factor, cv_folds = as.integer(input$cv_folds),
+            cv_strategy = input$cv_strategy %||% sdm_default_cv_strategy,
+            cv_block_size_km = if (identical(input$cv_strategy, "spatial_blocks")) input$cv_block_size_km else NA_real_,
             n_cores = input$n_cores, allow_download = isTRUE(input$download_worldclim), worldclim_res = as.numeric(input$worldclim_res),
             use_elevation = isTRUE(input$use_elevation), elevation_demtype = input$elevation_demtype,
             opentopo_api_key = input$opentopo_api_key,
@@ -651,7 +790,7 @@ server <- function(input, output, session) {
             use_drought = isTRUE(input$use_drought), selected_drought_periods = input$drought_periods,
             selected_chelsa_extras = if (identical(input$climate_source, "chelsa")) input$chelsa_extras else NULL,
             covariate_cache_dir = sdm_default_covariate_cache_dir,
-            vif_reduction = isTRUE(input$vif_reduction),
+            vif_reduction = isTRUE(input$vif_reduction) %||% FALSE,
             future_projection = isTRUE(input$future_projection),
             future_worldclim_dir = input$future_worldclim_dir,
             future_label = input$future_label,
@@ -663,6 +802,8 @@ server <- function(input, output, session) {
             } else NULL,
             thickening_distance_km = if (isTRUE(input$bias_method == "thickened")) input$thickening_distance_km else NULL,
             cleaned_occurrence = rv$cleaned_occurrence,
+            use_cc = isTRUE(input$use_coordinatecleaner),
+            cc_tests = input$cc_tests %||% "all",
             output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = occurrence$detail,
             gbif_doi = rv$gbif_doi, source = input$climate_source, log_fun = append_log,
             progress_fun = function(amount, detail) incProgress(amount, detail = detail),
@@ -679,7 +820,8 @@ server <- function(input, output, session) {
             esm_n_runs = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_n_runs %||% sdm_esm_default_n_runs else sdm_esm_default_n_runs,
             esm_split = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_split %||% sdm_esm_default_split else sdm_esm_default_split,
             esm_min_auc = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_min_auc %||% sdm_esm_default_min_auc else sdm_esm_default_min_auc,
-            esm_power = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_power %||% sdm_esm_default_power else sdm_esm_default_power
+            esm_power = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_power %||% sdm_esm_default_power else sdm_esm_default_power,
+            overlap_warn = !is.null(run_overlap) && (run_overlap$count == 0 || run_overlap$percent < 10)
           ),
           warning = function(w) { append_log(paste("Warning:", conditionMessage(w))); invokeRestart("muffleWarning") }
         ),
@@ -1119,6 +1261,617 @@ server <- function(input, output, session) {
   output$download_multi_ens_median_tif <- downloadHandler(filename = function() { r <- rv$result; req(r, r$paths$multi_ens_median_tif); basename(r$paths$multi_ens_median_tif) }, content = function(file) { r <- rv$result; req(r, r$paths$multi_ens_median_tif, file.exists(r$paths$multi_ens_median_tif)); file.copy(r$paths$multi_ens_median_tif, file, overwrite = TRUE) })
   output$download_multi_ens_committee_tif <- downloadHandler(filename = function() { r <- rv$result; req(r, r$paths$multi_ens_committee_tif); basename(r$paths$multi_ens_committee_tif) }, content = function(file) { r <- rv$result; req(r, r$paths$multi_ens_committee_tif, file.exists(r$paths$multi_ens_committee_tif)); file.copy(r$paths$multi_ens_committee_tif, file, overwrite = TRUE) })
   output$download_multi_ens_sd_tif <- downloadHandler(filename = function() { r <- rv$result; req(r, r$paths$multi_ens_sd_tif); basename(r$paths$multi_ens_sd_tif) }, content = function(file) { r <- rv$result; req(r, r$paths$multi_ens_sd_tif, file.exists(r$paths$multi_ens_sd_tif)); file.copy(r$paths$multi_ens_sd_tif, file, overwrite = TRUE) })
+
+  # -------------------------------------------------------------------------
+  # Get Data tab: output renderers
+  # -------------------------------------------------------------------------
+  output$get_data_content <- renderUI({ get_data_tab() })
+
+gd_append_log <- function(target, msg) {
+    cur <- rv[[target]] %||% ""
+    rv[[target]] <- paste0(cur, format(Sys.time(), "%H:%M:%S"), " ", msg, "\n")
+  }
+
+  # -------------------------------------------------------------------------
+  # Get Data tab: status dot output renderers + suspendWhenHidden
+  # -------------------------------------------------------------------------
+  gd_status_dots <- function(v) {
+    cls <- switch(v$status, ok = "status-ok", warn = "status-warn", error = "status-error", "status-unknown")
+    span(class = paste("status-dot", cls), title = v$detail)
+  }
+
+  output$gd_worldclim_status <- renderUI({
+    v <- verify_worldclim_cache("Worldclim", source = input$gd_climate_source %||% "worldclim")
+    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+  })
+  outputOptions(output, "gd_worldclim_status", suspendWhenHidden = FALSE)
+
+  output$gd_chelsa_status <- renderUI({
+    v <- verify_chelsa_extras_cache("Worldclim")
+    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+  })
+  outputOptions(output, "gd_chelsa_status", suspendWhenHidden = FALSE)
+
+  output$gd_cmip6_status <- renderUI({
+    v <- verify_future_cache()
+    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+  })
+  outputOptions(output, "gd_cmip6_status", suspendWhenHidden = FALSE)
+
+  output$gd_elevation_status <- renderUI({
+    v <- verify_elevation_cache()
+    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+  })
+  outputOptions(output, "gd_elevation_status", suspendWhenHidden = FALSE)
+
+  output$gd_soil_status <- renderUI({
+    v <- verify_soil_cache()
+    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+  })
+  outputOptions(output, "gd_soil_status", suspendWhenHidden = FALSE)
+
+  output$gd_uv_status <- renderUI({
+    v <- verify_uv_cache()
+    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+  })
+  outputOptions(output, "gd_uv_status", suspendWhenHidden = FALSE)
+
+  output$gd_vegetation_status <- renderUI({
+    v <- verify_vegetation_cache()
+    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+  })
+  outputOptions(output, "gd_vegetation_status", suspendWhenHidden = FALSE)
+
+  output$gd_lulc_status <- renderUI({
+    v <- verify_lulc_cache()
+    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+  })
+  outputOptions(output, "gd_lulc_status", suspendWhenHidden = FALSE)
+
+  output$gd_hfp_status <- renderUI({
+    v <- verify_hfp_cache()
+    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+  })
+  outputOptions(output, "gd_hfp_status", suspendWhenHidden = FALSE)
+
+  output$gd_drought_status <- renderUI({
+    v <- verify_drought_cache()
+    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+  })
+  outputOptions(output, "gd_drought_status", suspendWhenHidden = FALSE)
+
+  output$gd_bioclime_status <- renderUI({
+    v <- verify_bioclim_season_cache()
+    tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+  })
+  outputOptions(output, "gd_bioclime_status", suspendWhenHidden = FALSE)
+
+  output$gd_cache_summary <- renderUI({
+    s <- get_data_summary()
+    tags$ul(class = "small-muted", style = "padding-left:1.2rem;",
+      tags$li(paste("WorldClim:", s$worldclim$detail)),
+      tags$li(paste("CHELSA extras:", s$chelsa_extras$detail)),
+      tags$li(paste("CMIP6 futures:", s$future$detail)),
+      tags$li(paste("Elevation:", s$elevation$detail)),
+      tags$li(paste("Soil:", s$soil$detail)),
+      tags$li(paste("UV-B:", s$uv$detail)),
+      tags$li(paste("Vegetation:", s$vegetation$detail)),
+      tags$li(paste("LULC:", s$lulc$detail)),
+      tags$li(paste("HFP:", s$hfp$detail)),
+      tags$li(paste("Drought:", s$drought$detail)),
+      tags$li(paste("Bioclim season:", s$bioclim_season$detail))
+    )
+  })
+  outputOptions(output, "gd_cache_summary", suspendWhenHidden = FALSE)
+
+  output$gd_cache_size <- renderUI({
+    s <- get_data_summary()
+    p(class = "small-muted", paste("Total covariate cache:", round(s$total_covariates_mb, 1), "MB"))
+  })
+  outputOptions(output, "gd_cache_size", suspendWhenHidden = FALSE)
+
+  # -------------------------------------------------------------------------
+  # Get Data tab: download button handlers
+  # -------------------------------------------------------------------------
+
+  observeEvent(input$gd_verify_worldclim, {
+    gd_append_log("gd_worldclim_log", "Verifying WorldClim files...")
+    v <- verify_worldclim_cache("Worldclim", source = input$gd_climate_source %||% "worldclim")
+    gd_append_log("gd_worldclim_log", v$detail)
+    if (v$size_mb > 0) gd_append_log("gd_worldclim_log", paste("Cache size:", round(v$size_mb, 1), "MB"))
+  })
+
+  observeEvent(input$gd_download_worldclim, {
+    source <- input$gd_climate_source %||% "worldclim"
+    res <- as.integer(input$gd_worldclim_res %||% 10)
+    gd_append_log("gd_worldclim_log", paste0("Starting WorldClim download (source=", source, ", res=", res, ")..."))
+    tryCatch({
+      bg <- callr::r_bg(function() {
+        source("R/optimized_sdm.R")
+        source(file.path(sdm_project_root(), "R", "covariates_climate.R"))
+        load_climate_covariates(
+          worldclim_dir = "Worldclim",
+          selected_biovars = 1:19,
+          training_extent = NULL, projection_extent = NULL,
+          aggregation_factor = 1,
+          allow_download = TRUE,
+          worldclim_res = 10,
+          source = "worldclim",
+          selected_chelsa_extras = NULL,
+          log_fun = function(...) message(paste(...))
+        )
+        message("WorldClim download complete.")
+      }, stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 300) {
+        Sys.sleep(1)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) {
+          for (ln in lines[nzchar(lines)]) gd_append_log("gd_worldclim_log", ln)
+        }
+        poll <- poll + 1
+      }
+      if (bg$is_alive()) {
+        gd_append_log("gd_worldclim_log", "WorldClim download still running (timeout at 5 min). Check terminal for progress.")
+      } else {
+        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_worldclim_log", ln)
+        v <- verify_worldclim_cache("Worldclim", source = source)
+        gd_append_log("gd_worldclim_log", paste("Verification:", v$detail))
+      }
+    }, error = function(e) {
+      gd_append_log("gd_worldclim_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_download_chelsa, {
+    extras <- c(
+      if (isTRUE(input$gd_chelsa_gdd5)) "gdd5",
+      if (isTRUE(input$gd_chelsa_gdd10)) "gdd10",
+      if (isTRUE(input$gd_chelsa_gsl)) "gsl",
+      if (isTRUE(input$gd_chelsa_fcf)) "fcf",
+      if (isTRUE(input$gd_chelsa_npp)) "npp",
+      if (isTRUE(input$gd_chelsa_scd)) "scd"
+    )
+    if (length(extras) == 0) {
+      gd_append_log("gd_worldclim_log", "No CHELSA extras selected.")
+      return()
+    }
+    gd_append_log("gd_worldclim_log", paste("Downloading CHELSA extras:", paste(extras, collapse = ", ")))
+    tryCatch({
+      bg <- callr::r_bg(function(extras) {
+        source("R/optimized_sdm.R")
+        source(file.path(sdm_project_root(), "R", "covariates_climate.R"))
+        download_chelsa_extras("Worldclim", extras = extras, log_fun = function(...) message(paste(...)))
+        message("CHELSA extras download complete.")
+      }, args = list(extras), stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 300) {
+        Sys.sleep(1)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_worldclim_log", ln)
+        poll <- poll + 1
+      }
+      last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+      if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_worldclim_log", ln)
+      v <- verify_chelsa_extras_cache("Worldclim")
+      gd_append_log("gd_worldclim_log", paste("Verification:", v$detail))
+    }, error = function(e) {
+      gd_append_log("gd_worldclim_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_verify_future, {
+    gd_append_log("gd_cmip6_log", "Scanning CMIP6 scenarios...")
+    v <- verify_future_cache()
+    gd_append_log("gd_cmip6_log", v$detail)
+    if (nrow(v$scenarios) > 0) {
+      for (i in 1:nrow(v$scenarios)) {
+        r <- v$scenarios[i, ]
+        gd_append_log("gd_cmip6_log", paste(r$GCM, r$SSP, r$Period, "-", r$Files, "files,", r$SizeMB, "MB"))
+      }
+    }
+  })
+
+  observeEvent(input$gd_download_cmip6, {
+    gcm <- input$gd_cmip6_gcm %||% "UKESM1-0-LL"
+    ssp <- input$gd_cmip6_ssp %||% "SSP2-4.5"
+    period <- input$gd_cmip6_period %||% "2041-2060"
+    gd_append_log("gd_cmip6_log", paste("Starting CMIP6 download:", gcm, ssp, period, "..."))
+    tryCatch({
+      bg <- callr::r_bg(function(gcm, ssp, period) {
+        source("R/optimized_sdm.R")
+        fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = 10,
+                               out_dir = "Worldclim_future", quiet = FALSE)
+        message("CMIP6 download complete.")
+      }, args = list(gcm = gcm, ssp = ssp, period = period), stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 600) {
+        Sys.sleep(1)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_cmip6_log", ln)
+        poll <- poll + 1
+      }
+      if (bg$is_alive()) {
+        bg$kill()
+        gd_append_log("gd_cmip6_log", "CMIP6 download timed out (>10 min). Killed.")
+      } else {
+        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_cmip6_log", ln)
+        v <- verify_future_cache()
+        gd_append_log("gd_cmip6_log", paste("Verification:", v$detail))
+      }
+    }, error = function(e) {
+      gd_append_log("gd_cmip6_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_average_gcms, {
+    gcm_list <- input$gd_cmip6_avg_gcms %||% character(0)
+    ssp <- input$gd_cmip6_ssp %||% "SSP2-4.5"
+    period <- input$gd_cmip6_period %||% "2041-2060"
+    if (length(gcm_list) < 2) {
+      gd_append_log("gd_cmip6_log", "Select at least 2 GCMs to average.")
+      return()
+    }
+    gd_append_log("gd_cmip6_log", paste("Averaging GCMs:", paste(gcm_list, collapse = ", "), "SSP", ssp, period))
+    tryCatch({
+      bg <- callr::r_bg(function(gcm_list, ssp, period) {
+        source("R/optimized_sdm.R")
+        average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc",
+                           res = 10, out_dir = "Worldclim_future", quiet = FALSE)
+        message("GCM averaging complete.")
+      }, args = list(gcm_list = gcm_list, ssp = ssp, period = period), stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 600) {
+        Sys.sleep(1)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_cmip6_log", ln)
+        poll <- poll + 1
+      }
+      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_cmip6_log", "Average timed out (>10 min). Killed.") }
+      else {
+        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_cmip6_log", ln)
+      }
+    }, error = function(e) {
+      gd_append_log("gd_cmip6_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_download_elevation, {
+    demtype <- input$gd_demtype %||% "COP90"
+    api_key <- input$gd_opentopo_key %||% Sys.getenv("OPENTOPOGRAPHY_API_KEY", "")
+    if (!nzchar(api_key)) {
+      gd_append_log("gd_terrain_log", "ERROR: OpenTopography API key required. Enter in the field above.")
+      return()
+    }
+    gd_append_log("gd_terrain_log", paste("Downloading elevation DEM:", demtype, "..."))
+    tryCatch({
+      bg <- callr::r_bg(function(demtype, api_key) {
+        source("R/optimized_sdm.R")
+        source(file.path(sdm_project_root(), "R", "covariates_elevation.R"))
+        cache_dir <- file.path(sdm_project_root(), "covariates", "opentopo")
+        dir.create(cache_dir, recursive = TRUE)
+        load_elevation_covariate(training_extent = NULL, projection_extent = NULL,
+                                 cache_dir = cache_dir, demtype = demtype,
+                                 api_key = api_key, allow_download = TRUE,
+                                 log_fun = function(...) message(paste(...)))
+        message("Elevation download complete.")
+      }, args = list(demtype = demtype, api_key = api_key), stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 300) {
+        Sys.sleep(1)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_terrain_log", ln)
+        poll <- poll + 1
+      }
+      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_terrain_log", "Download timed out (5 min). Killed.") }
+      else {
+        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_terrain_log", ln)
+        v <- verify_elevation_cache()
+        gd_append_log("gd_terrain_log", paste("Verification:", v$detail))
+      }
+    }, error = function(e) {
+      gd_append_log("gd_terrain_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_download_soil, {
+    selected_vars <- c(
+      if (isTRUE(input$gd_soil_bdod)) "bdod",
+      if (isTRUE(input$gd_soil_clay)) "clay",
+      if (isTRUE(input$gd_soil_soc)) "soc",
+      if (isTRUE(input$gd_soil_phh2o)) "phh2o",
+      if (isTRUE(input$gd_soil_sand)) "sand"
+    )
+    selected_depths <- input$gd_soil_depths %||% character(0)
+    if (length(selected_vars) == 0 || length(selected_depths) == 0) {
+      gd_append_log("gd_terrain_log", "Select at least one variable and one depth.")
+      return()
+    }
+    gd_append_log("gd_terrain_log", paste("Downloading soil:", paste(selected_vars, collapse = ","), "depths:", paste(selected_depths, collapse = ",")))
+    tryCatch({
+      bg <- callr::r_bg(function(selected_vars, selected_depths) {
+        source("R/optimized_sdm.R")
+        cache_dir <- file.path(sdm_project_root(), "covariates", "soilgrids")
+        dir.create(cache_dir, recursive = TRUE)
+        for (v in selected_vars) {
+          for (d in selected_depths) {
+            tryCatch({
+              message("Downloading soil ", v, " depth ", d, "cm...")
+              r <- geodata::soil_world(var = v, depth = as.integer(d), stat = "mean", path = cache_dir)
+              f <- list.files(cache_dir, pattern = paste0("sg_", v, "_d", d), full.names = TRUE)[1]
+              if (!is.na(f) && file.exists(f)) message("OK: ", f)
+            }, error = function(e) message("ERROR soil ", v, " d", d, ": ", e$message))
+          }
+        }
+        message("Soil download complete.")
+      }, args = list(selected_vars = selected_vars, selected_depths = selected_depths), stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 600) {
+        Sys.sleep(2)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_terrain_log", ln)
+        poll <- poll + 1
+      }
+      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_terrain_log", "Download timed out (>20 min). Killed.") }
+      else {
+        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_terrain_log", ln)
+        v <- verify_soil_cache()
+        gd_append_log("gd_terrain_log", paste("Verification:", v$detail))
+      }
+    }, error = function(e) {
+      gd_append_log("gd_terrain_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_download_uv, {
+    gd_append_log("gd_env_log", "Downloading UV-B radiation layers...")
+    tryCatch({
+      bg <- callr::r_bg(function() {
+        source("R/optimized_sdm.R")
+        source(file.path(sdm_project_root(), "R", "covariates_uv.R"))
+        load_uv_covariate(selected_uv_vars = c("UVB1","UVB2","UVB3","UVB4","UVB5","UVB6"),
+                          selected_uv_months = as.character(1:12),
+                          covariate_cache_dir = file.path(sdm_project_root(), "covariates", "gluv"),
+                          allow_download = TRUE, log_fun = function(...) message(paste(...)))
+        message("UV-B download complete.")
+      }, stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 300) {
+        Sys.sleep(1)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
+        poll <- poll + 1
+      }
+      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
+      else {
+        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
+        v <- verify_uv_cache()
+        gd_append_log("gd_env_log", paste("Verification:", v$detail))
+      }
+    }, error = function(e) {
+      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_download_vegetation, {
+    gd_append_log("gd_env_log", "Downloading GIMMS NDVI climatology...")
+    tryCatch({
+      bg <- callr::r_bg(function() {
+        source("R/optimized_sdm.R")
+        source(file.path(sdm_project_root(), "R", "covariates_vegetation.R"))
+        load_gimms_ndvi_period(period = "clim", ndvi_year = 2020,
+                                extent_vec = c(-180,180,-90,90),
+                                aggregate_factor = 1,
+                                cache_dir = file.path(sdm_project_root(), "covariates", "vegetation"),
+                                allow_download = TRUE, log_fun = function(...) message(paste(...)))
+        message("GIMMS NDVI download complete.")
+      }, stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 300) {
+        Sys.sleep(2)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
+        poll <- poll + 1
+      }
+      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
+      else {
+        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
+        v <- verify_vegetation_cache()
+        gd_append_log("gd_env_log", paste("Verification:", v$detail))
+      }
+    }, error = function(e) {
+      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_gee_check, {
+    geestatus <- if (requireNamespace("rgee", quietly = TRUE)) {
+      tryCatch({
+        rgee::ee_check()
+        "GEE: authenticated"
+      }, error = function(e) paste("GEE:", conditionMessage(e)))
+    } else "GEE: rgee not installed"
+    gd_append_log("gd_env_log", geestatus)
+  })
+
+  observeEvent(input$gd_download_lulc, {
+    year <- as.integer(input$gd_lulc_year %||% 2020)
+    gd_append_log("gd_env_log", paste("Downloading LULC year:", year, "..."))
+    tryCatch({
+      bg <- callr::r_bg(function(year) {
+        source("R/optimized_sdm.R")
+        source(file.path(sdm_project_root(), "R", "covariates_lulc.R"))
+        load_lulc_covariate(lulc_year = year, extent_vec = c(-180,180,-90,90),
+                            aggregate_factor = 1,
+                            covariate_cache_dir = file.path(sdm_project_root(), "covariates", "lulc"),
+                            allow_download = TRUE, log_fun = function(...) message(paste(...)))
+        message("LULC download complete.")
+      }, args = list(year = year), stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 300) {
+        Sys.sleep(2)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
+        poll <- poll + 1
+      }
+      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
+      else {
+        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
+        v <- verify_lulc_cache()
+        gd_append_log("gd_env_log", paste("Verification:", v$detail))
+      }
+    }, error = function(e) {
+      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_download_hfp, {
+    year <- as.integer(input$gd_hfp_year %||% 2020)
+    gd_append_log("gd_env_log", paste("Downloading Human Footprint year:", year, "..."))
+    tryCatch({
+      bg <- callr::r_bg(function(year) {
+        source("R/optimized_sdm.R")
+        source(file.path(sdm_project_root(), "R", "covariates_human_footprint.R"))
+        load_human_footprint_covariate(hfp_year = year, extent_vec = c(-180,180,-90,90),
+                                        aggregate_factor = 1,
+                                        covariate_cache_dir = file.path(sdm_project_root(), "covariates", "human_footprint"),
+                                        allow_download = TRUE, log_fun = function(...) message(paste(...)))
+        message("HFP download complete.")
+      }, args = list(year = year), stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 300) {
+        Sys.sleep(2)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
+        poll <- poll + 1
+      }
+      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
+      else {
+        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
+        v <- verify_hfp_cache()
+        gd_append_log("gd_env_log", paste("Verification:", v$detail))
+      }
+    }, error = function(e) {
+      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_download_drought, {
+    periods <- input$gd_drought_periods %||% character(0)
+    if (length(periods) == 0) {
+      gd_append_log("gd_env_log", "Select at least one drought period.")
+      return()
+    }
+    gd_append_log("gd_env_log", paste("Downloading drought periods:", paste(periods, collapse = ", ")))
+    tryCatch({
+      bg <- callr::r_bg(function(periods) {
+        source("R/optimized_sdm.R")
+        source(file.path(sdm_project_root(), "R", "covariates_drought.R"))
+        load_drought_covariate(selected_periods = periods,
+                                extent_vec = c(-180,180,-90,90),
+                                aggregate_factor = 1,
+                                covariate_cache_dir = file.path(sdm_project_root(), "covariates", "drought"),
+                                allow_download = TRUE, log_fun = function(...) message(paste(...)))
+        message("Drought download complete.")
+      }, args = list(periods = periods), stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 300) {
+        Sys.sleep(2)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
+        poll <- poll + 1
+      }
+      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
+      else {
+        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
+        v <- verify_drought_cache()
+        gd_append_log("gd_env_log", paste("Verification:", v$detail))
+      }
+    }, error = function(e) {
+      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_download_bioclime, {
+    gd_append_log("gd_env_log", "Downloading bioclimatic seasonality...")
+    tryCatch({
+      bg <- callr::r_bg(function() {
+        source("R/optimized_sdm.R")
+        source(file.path(sdm_project_root(), "R", "covariates_bioclim_seasonality.R"))
+        load_bioclim_seasonality(extent_vec = c(-180,180,-90,90),
+                                  worldclim_dir = file.path(sdm_project_root(), "Worldclim"),
+                                  aggregate_factor = 1,
+                                  covariate_cache_dir = file.path(sdm_project_root(), "covariates", "bioclim_season"),
+                                  allow_download = TRUE, log_fun = function(...) message(paste(...)))
+        message("Bioclim season download complete.")
+      }, stdout = "|", stderr = "|")
+      poll <- 0
+      while (bg$is_alive() && poll < 300) {
+        Sys.sleep(1)
+        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
+        poll <- poll + 1
+      }
+      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
+      else {
+        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
+        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
+        v <- verify_bioclim_season_cache()
+        gd_append_log("gd_env_log", paste("Verification:", v$detail))
+      }
+    }, error = function(e) {
+      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$gd_verify_all, {
+    gd_append_log("gd_worldclim_log", "--- Full verification ---")
+    s <- get_data_summary()
+    gd_append_log("gd_worldclim_log", paste("WorldClim:", s$worldclim$detail))
+    gd_append_log("gd_worldclim_log", paste("CHELSA extras:", s$chelsa_extras$detail))
+    gd_append_log("gd_cmip6_log", paste("CMIP6 futures:", s$future$detail))
+    gd_append_log("gd_terrain_log", paste("Elevation:", s$elevation$detail))
+    gd_append_log("gd_terrain_log", paste("Soil:", s$soil$detail))
+    gd_append_log("gd_env_log", paste("UV-B:", s$uv$detail))
+    gd_append_log("gd_env_log", paste("Vegetation:", s$vegetation$detail))
+    gd_append_log("gd_env_log", paste("LULC:", s$lulc$detail))
+    gd_append_log("gd_env_log", paste("HFP:", s$hfp$detail))
+    gd_append_log("gd_env_log", paste("Drought:", s$drought$detail))
+    gd_append_log("gd_env_log", paste("Bioclim season:", s$bioclim_season$detail))
+    gd_append_log("gd_env_log", paste("Total cache:", round(s$total_covariates_mb, 1), "MB"))
+  })
+
+  observeEvent(input$gd_clear_cache, {
+    showModal(modalDialog(
+      title = "Clear covariate cache?",
+      "This will permanently delete all cached covariate rasters in the covariates/ directory.",
+      "Re-download will be required on next model run.",
+      footer = tagList(
+        actionButton("confirm_clear_cache_yes", "Yes, clear cache", class = "btn-danger"),
+        modalButton("Cancel")
+      ), easyClose = FALSE
+    ))
+  })
+
+  observeEvent(input$confirm_clear_cache_yes, {
+    removeModal()
+    tryCatch({
+      unlink("covariates", recursive = TRUE)
+      gd_append_log("gd_env_log", "Covariate cache cleared.")
+    }, error = function(e) {
+      gd_append_log("gd_env_log", paste("ERROR clearing cache:", conditionMessage(e)))
+    })
+  })
 }
 
 if (!interactive()) {

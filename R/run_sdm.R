@@ -6,6 +6,7 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
                           thin_by_cell = TRUE, model_id = sdm_default_model_id,
                           include_quadratic = TRUE, threshold = sdm_default_threshold, aggregation_factor = sdm_default_aggregation_factor,
                           cv_folds = sdm_default_cv_folds, n_cores = NULL, allow_download = TRUE, worldclim_res = sdm_default_worldclim_res,
+                          cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
                           use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
                           use_soil = FALSE,
                           selected_soil_vars = sdm_default_soil_vars,
@@ -48,7 +49,8 @@ multi_ensemble_export = TRUE,
                            esm_split = sdm_esm_default_split,
                            esm_min_auc = sdm_esm_default_min_auc,
                            esm_power = sdm_esm_default_power,
-                           esm_biovars = NULL) {
+                           esm_biovars = NULL,
+                           overlap_warn = FALSE) {
   ensure_sdm_packages("terra", n_cores = n_cores)
   n_cores <- configure_parallel(n_cores, log_fun = log_fun)
   projection_extent <- validate_extent(as.numeric(projection_extent), "projection_extent")
@@ -196,6 +198,7 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
   fit <- do.call(fit_sdm_model, c(list(model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
                                        background_n = background_n, include_quadratic = include_quadratic,
                                        cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun,
+                                       cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
                                        bias_method = bias_method, target_group_occ = target_group_occ,
                                        thickening_distance_km = thickening_distance_km), extra_args))
 
@@ -336,7 +339,8 @@ progress_step(progress_fun, 0.08, "Cleaning occurrence data")
                   future_projection = isTRUE(future_projection), future_worldclim_dir = future_worldclim_dir,
                   future_label = future_label,
                   bias_method = bias_method, thickening_distance_km = thickening_distance_km,
-                  gbif_doi = dwca_doi %||% gbif_doi, climate_source = source),
+                  gbif_doi = dwca_doi %||% gbif_doi, climate_source = source,
+                  overlap_warn = isTRUE(overlap_warn)),
     occurrence = occ, occurrence_used = fit$occurrence_used, source_counts = sort(table(occ$source), decreasing = TRUE),
     cleaning = cleaned[c("removed_bad_coordinates", "removed_duplicates", "original_rows", "columns")],
     dwca_datasets = attr(cleaned$raw, "dwca_datasets"),

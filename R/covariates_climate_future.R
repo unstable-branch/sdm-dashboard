@@ -8,6 +8,9 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
     stop("geodata package required for CMIP6 download. Install with: install.packages('geodata')")
   }
 
+  ssp_map <- c("SSP1-2.6" = "126", "SSP2-4.5" = "245", "SSP3-7.0" = "370", "SSP5-8.5" = "585")
+  ssp_code <- if (nzchar(ssp) && !is.na(ssp_map[ssp])) ssp_map[ssp] else ssp
+
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
   cache_subdir <- file.path(out_dir, paste(gcm, ssp, period, sep = "_"))
@@ -23,15 +26,17 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
       var = var,
       bio.num = 1:19,
       model = gcm,
-      ssp = ssp,
+      ssp = ssp_code,
       time = period,
+      res = res,
       version = "2.1",
-      path = out_dir,
-      ...
+      path = out_dir
     )
 
     list(dir = attr(out, "path") %||% cache_subdir, cached = FALSE, raster = out)
   }, error = function(e) {
+    message("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
+    message("Troubleshooting: Check internet connection, try a different GCM/SSP/period")
     stop("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
   })
 }
@@ -152,7 +157,11 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
     if (length(bio_files) == length(gcm_list)) {
       stacked <- terra::rast(bio_files)
       avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
-      terra::add(avg)
+      if (terra::nlyr(averaged_stack) == 0) {
+        averaged_stack <- avg
+      } else {
+        averaged_stack <- terra::add(averaged_stack, avg)
+      }
     }
   }
 
