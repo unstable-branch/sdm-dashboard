@@ -12,8 +12,8 @@ Depends: R (>= 4.3)
 Imports:
     bslib,
     geodata,
+    mgcv,
     shiny,
     terra
 Suggests:
-    mgcv,
     testthat

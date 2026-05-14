@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<eml:eml xmlns:eml="eml://ecoinformatics.org/eml-2.1.1"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="eml://ecoinformatics.org/eml-2.1.1 http://rs.gbif.org/schema/eml-2.1.1/eml.xsd"
+         packageId="10.5066-dwca-test" system="GBIF">
+  <dataset>
+    <alternateIdentifier>10.5066/dwca-test-minimal</alternateIdentifier>
+    <title>Minimal DwC-A Test Archive</title>
+    <creator>
+      <individualName>
+        <surName>Test</surName>
+        <givenName>User</givenName>
+      </individualName>
+    </creator>
+    <pubDate>2024-01-01</pubDate>
+    <abstract>
+      <para>Minimal Darwin Core Archive fixture for testing SDM Dashboard DwC-A parsing.</para>
+    </abstract>
+    <intellectualRights>
+      <para>CC0</para>
+    </intellectualRights>
+  </dataset>
+</eml:eml>

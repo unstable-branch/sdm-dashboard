@@ -1,0 +1,7 @@
+occurrenceID	scientificName	decimalLongitude	decimalLatitude	eventDate	basisOfRecord	coordinateUncertaintyInMeters	datasetKey	institutionCode	collectionCode
+occ001	Panthera leo	28.5	-25.2	2020-01-15	HUMAN_OBSERVATION	100	4e4f50d2-f23a-43d2-8390-4f6f2ca5e22f	Museum	NatColl
+occ002	Panthera leo	28.7	-25.4	2020-02-20	HUMAN_OBSERVATION	NA	4e4f50d2-f23a-43d2-8390-4f6f2ca5e22f	Museum	NatColl
+occ003	Panthera leo	29.1	-24.8	2019-11-05	PRESERVED_SPECIMEN	50	4e4f50d2-f23a-43d2-8390-4f6f2ca5e22f	Inst2	BioLab
+occ004	Loxodonta africana	30.2	-23.5	2021-03-10	HUMAN_OBSERVATION	200	5a1b2c3d-1234-5678-90ab-cdef12345678	Wildlife	FieldData
+occ005	Loxodonta africana	30.5	-23.8	2021-04-15	MACHINE_OBSERVATION	NA	5a1b2c3d-1234-5678-90ab-cdef12345678	Wildlife	FieldData
+occ006	Acinonyx jubatus	27.8	-26.1	2018-07-22	HUMAN_OBSERVATION	150	6b2c3d4e-2345-6789-01bc-def012345678	Conserv	Tracker

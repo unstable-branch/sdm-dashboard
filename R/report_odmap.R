@@ -104,6 +104,13 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
   thinning_method <- .get_config("thinning_method", "cell thinning")
   sampling_bias_correction <- .fmt(thinning_method, "cell thinning")
 
+  bias_method <- .get_config("bias_method", "uniform")
+  background_strategy <- switch(bias_method,
+                                 "uniform" = "uniform random (target area)",
+                                 "target_group" = "target-group bias correction",
+                                 "thickened" = "thickened presence bias correction",
+                                 bias_method)
+
   algorithm_settings <- model_method
 
   biovars_selected <- .get_config("selected_biovars")
@@ -219,6 +226,7 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
     paste0("predictors,", predictors),
     paste0("predictor_source,", predictor_source),
     paste0("sampling_bias_correction,", sampling_bias_correction),
+    paste0("background_strategy,", background_strategy),
     "",
     "# Model",
     paste0("algorithm,", algorithm),
@@ -274,6 +282,7 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
       paste0("- **Predictors:** ", predictors),
       paste0("- **Predictor source:** ", predictor_source),
       paste0("- **Sampling bias correction:** ", sampling_bias_correction),
+      paste0("- **Background strategy:** ", background_strategy),
       "",
       "## Model",
       paste0("- **Algorithm:** ", algorithm),
