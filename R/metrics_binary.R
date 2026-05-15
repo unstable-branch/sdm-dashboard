@@ -122,3 +122,50 @@ continuous_boyce_index <- function(pres_suit, bg_suit, n_bins = 101, win = 0.1) 
     note = if (length(note) == 0) character(0) else note
   )
 }
+
+compute_projection_metrics <- function(suit_raster, train_presence_suit,
+                                        threshold, n_bg_samples = 1000L,
+                                        validation_occ = NULL,
+                                        log_fun = NULL) {
+  bb <- terra::ext(suit_raster)
+  set.seed(42)
+  bg_xy <- data.frame(x = runif(n_bg_samples, bb$xmin, bb$xmax),
+                      y = runif(n_bg_samples, bb$ymin, bb$ymax))
+  bg_suit <- terra::extract(suit_raster, bg_xy)$suitability
+
+  pCBI <- continuous_boyce_index(pres_suit = train_presence_suit, bg_suit = bg_suit)$cbi
+
+  pct_exceeding <- mean(bg_suit >= threshold, na.rm = TRUE) * 100
+  mean_bg_suit <- mean(bg_suit, na.rm = TRUE)
+
+  risk_level <- if (!is.finite(pCBI) || pCBI < 0.4) "LOW" else if (pCBI < 0.7) "MEDIUM" else "HIGH"
+
+  validation_result <- NULL
+  if (!is.null(validation_occ) && is.data.frame(validation_occ) && nrow(validation_occ) > 0) {
+    valid <- !is.na(validation_occ$decimalLatitude) & !is.na(validation_occ$decimalLongitude)
+    pts <- validation_occ[valid, c("decimalLongitude", "decimalLatitude"), drop = FALSE]
+    if (nrow(pts) > 0) {
+      incursion_suit <- terra::extract(suit_raster, pts)$suitability
+      n_valid <- sum(valid)
+      n_exceed <- sum(incursion_suit >= threshold, na.rm = TRUE)
+      validation_result <- list(
+        n_provided = nrow(validation_occ),
+        n_valid = n_valid,
+        n_exceeding_threshold = n_exceed,
+        pct_exceeding = n_exceed / n_valid * 100,
+        mean_suitability = mean(incursion_suit, na.rm = TRUE)
+      )
+    }
+  }
+
+  log_message(log_fun, "Projection CBI: ", sprintf("%.3f", pCBI), " (", risk_level, ")")
+
+  list(
+    projection_cbi = pCBI,
+    risk_level = risk_level,
+    pct_above_threshold = pct_exceeding,
+    mean_projection_suitability = mean_bg_suit,
+    n_bg_sampled = n_bg_samples,
+    validation = validation_result
+  )
+}

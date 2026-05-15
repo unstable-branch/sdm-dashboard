@@ -70,9 +70,10 @@ ui_main_tabs <- function() {
             div(class = "content-card",
               h4("Observation sources"),
               tableOutput("source_table"),
+              verbatimTextOutput("absent_excluded_log"),
               hr(),
               h4("Flagged records"),
-              DT::dataTableOutput("flagged_records_table")
+              verbatimTextOutput("cc_stats_log")
             ),
             uiOutput("dwca_issues_panel")
           )

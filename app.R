@@ -378,30 +378,6 @@ server <- function(input, output, session) {
     }
   })
 
-  observeEvent(input$view_flagged, {
-    if (is.null(rv$cleaned_occurrence) || !is.data.frame(rv$cleaned_occurrence)) {
-      showModal(modalDialog(title = "Flagged Records", "No cleaned occurrence data available.", easyClose = TRUE, footer = modalButton("Close")))
-      return()
-    }
-    occ <- rv$cleaned_occurrence
-    flagged <- occ[!is.na(occ$cc_flag) & occ$cc_flag == TRUE, , drop = FALSE]
-    if (nrow(flagged) == 0) {
-      showModal(modalDialog(title = "Flagged Records", "No records flagged by CoordinateCleaner.", easyClose = TRUE, footer = modalButton("Close")))
-      return()
-    }
-    cols <- c("longitude", "latitude", "source", "cc_flag",
-              "cc_test_sea", "cc_test_capitals", "cc_test_institutions",
-              "cc_test_centroids", "cc_test_urban", "cc_test_zero")
-    cols_present <- cols[cols %in% names(flagged)]
-    showModal(modalDialog(
-      title = paste("Flagged Records (", nrow(flagged), ")", sep = ""),
-      size = "l",
-      DT::datatable(flagged[, cols_present, drop = FALSE], options = list(pageLength = 25, dom = "frtip"), rownames = FALSE),
-      easyClose = TRUE,
-      footer = modalButton("Close")
-    ))
-  })
-
   observeEvent(input$open_future_download, {
     showModal(modalDialog(
       title = "Download Future Climate Layers",
@@ -492,12 +468,13 @@ server <- function(input, output, session) {
 
   observe({
     occurrence <- occurrence_source()
+    use_cc <- isTRUE(input$use_coordinatecleaner)
+    cc_tests <- input$cc_tests %||% "all"
     if (is.null(occurrence$path)) {
       rv$cleaned_occurrence <- NULL
       return()
     }
-    use_cc <- isTRUE(input$use_coordinatecleaner)
-    cleaned <- clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records, use_cc = use_cc, cc_tests = input$cc_tests %||% "all")
+    cleaned <- clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records, use_cc = use_cc, cc_tests = cc_tests)
     if (!is.null(cleaned$error)) {
       rv$cleaned_occurrence <- NULL
       return()
@@ -505,7 +482,12 @@ server <- function(input, output, session) {
     if (is.null(cleaned$cc_flag)) {
       cleaned$cc_flag <- FALSE
     }
-    rv$cleaned_occurrence <- cleaned
+    cleaned$occ$cc_flag <- cleaned$cc_flag
+    cc_test_cols <- grep("^cc_test_", names(cleaned), value = TRUE)
+    for (col in cc_test_cols) {
+      cleaned$occ[[col]] <- cleaned[[col]]
+    }
+    rv$cleaned_occurrence <- cleaned$occ
   })
 
   cleaned_occurrence <- reactive(rv$cleaned_occurrence)
@@ -715,6 +697,8 @@ if (isTRUE(input$future_projection)) {
   })
 
   output$biomod2_install_hint <- renderUI({
+    selected_is_biomod2 <- identical(input$model_id, "biomod2")
+    if (!selected_is_biomod2) return(NULL)
     if (!isTRUE(getOption("sdm.enable_biomod2")) || !requireNamespace("biomod2", quietly = TRUE)) {
       div(class = "alert alert-warning small-padded",
           icon("triangle-exclamation"),
@@ -1028,8 +1012,11 @@ if (isTRUE(input$future_projection)) {
                                               project = FALSE, colors = colors)
     } else {
       r_wgs84 <- terra::project(terra::rast(r$paths$tif), "EPSG:4326")
+      cols <- grDevices::colorRampPalette(c("#0A1624", "#123247", "#15545D",
+                                           "#1F8A70", "#59C174", "#C6D65B",
+                                           "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"))(180)
       map <- map %>% leaflet::addRasterImage(r_wgs84, opacity = 0.7,
-                                              layerId = "suitability", project = FALSE)
+                                              layerId = "suitability", colors = cols, project = TRUE)
     }
   })
   output$future_plot <- renderPlot({ if (is.null(rv$result) || is.null(rv$result$future)) return(placeholder_plot("Run with future projection enabled to view a future suitability map.")); r <- rv$result; plot_suitability_map(r$future$suitability, r$occurrence, r$config$projection_extent, paste(r$config$species, r$config$future_label), r$config$threshold, TRUE) })
@@ -1058,7 +1045,24 @@ if (isTRUE(input$future_projection)) {
       if (!is.null(r$future)) row("Delta output TIFF", r$paths$delta_tif %||% "not available")
     )
   })
-  output$source_table <- renderTable({ r <- rv$result; if (is.null(r)) return(data.frame(Message = "Run the model to view observation source counts.")); head(data.frame(Source = names(r$source_counts), Records = as.integer(r$source_counts), row.names = NULL), 25) }, striped = TRUE, hover = TRUE, spacing = "s")
+  output$source_table <- renderTable({
+    co <- rv$cleaned_occurrence
+    if (is.null(co) || !is.data.frame(co) || is.null(co$source_counts)) {
+      return(data.frame(Message = "Load occurrence data to view source counts."))
+    }
+    sc <- co$source_counts
+    head(data.frame(Source = names(sc), Records = as.integer(sc), row.names = NULL), 25)
+  }, striped = TRUE, hover = TRUE, spacing = "s")
+
+  output$absent_excluded_log <- renderText({
+    co <- rv$cleaned_occurrence
+    if (is.null(co) || !is.data.frame(co)) return("")
+    n_absent <- co$n_absent_excluded %||% 0L
+    n_raw <- co$original_rows %||% NA_integer_
+    if (n_absent == 0L) return("")
+    sprintf("ABSENT records excluded from analysis: %s of %s total",
+            format(n_absent, big.mark = ","), format(n_raw, big.mark = ","))
+  })
 
   output$occurrence_cleaning_map <- renderLeaflet({
     req(rv$cleaned_occurrence)
@@ -1118,23 +1122,39 @@ if (isTRUE(input$future_projection)) {
     rv$cleaned_occurrence$cc_flag <- FALSE
   })
 
-  output$flagged_records_table <- DT::renderDataTable({
-    req(rv$cleaned_occurrence)
-    occ <- rv$cleaned_occurrence
-    if (!is.data.frame(occ) || nrow(occ) < 1) {
-      return(DT::datatable(data.frame(Message = "No records available"), options = list(dom = "t")))
+  output$cc_stats_log <- renderText({
+    co <- rv$cleaned_occurrence
+    if (is.null(co) || !is.data.frame(co) || is.null(co$cc_flag)) {
+      return("Advanced cleaning not enabled or CoordinateCleaner not available.")
     }
-    flagged <- occ[!is.na(occ$cc_flag) & occ$cc_flag == TRUE, , drop = FALSE]
-    if (nrow(flagged) == 0) {
-      return(DT::datatable(data.frame(Message = "No flagged records"), options = list(dom = "t")))
-    }
-    cols <- c("longitude", "latitude", "species", "source", "cc_flag")
-    cols_present <- cols[cols %in% names(flagged)]
-    DT::datatable(
-      flagged[, cols_present, drop = FALSE],
-      options = list(dom = "t", pageLength = 10),
-      rownames = FALSE
+    n_total <- nrow(co)
+    n_flagged <- sum(co$cc_flag, na.rm = TRUE)
+    pct <- if (n_total > 0) paste0(" (", round(100 * n_flagged / n_total, 1), "%)") else ""
+
+    lines <- c(
+      "CoordinateCleaner Results:",
+      paste0("  Total records: ", format(n_total, big.mark = ",")),
+      paste0("  Flagged: ", format(n_flagged, big.mark = ","), pct),
+      "  By test:"
     )
+
+    test_names <- c(
+      cc_test_sea = "Sea coordinates",
+      cc_test_capitals = "Capital cities",
+      cc_test_centroids = "Country centroids",
+      cc_test_institutions = "Biodiversity institutions",
+      cc_test_urban = "Urban areas",
+      cc_test_zero = "Zero coordinates"
+    )
+
+    for (nm in names(test_names)) {
+      if (nm %in% names(co)) {
+        n <- sum(co[[nm]], na.rm = TRUE)
+        lines <- c(lines, paste0("    ", test_names[nm], ": ", format(n, big.mark = ",")))
+      }
+    }
+
+    paste(lines, collapse = "\n")
   })
   output$coef_table <- renderTable({
     r <- rv$result

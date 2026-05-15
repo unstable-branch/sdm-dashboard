@@ -49,8 +49,9 @@ multi_ensemble_export = TRUE,
                            esm_split = sdm_esm_default_split,
                            esm_min_auc = sdm_esm_default_min_auc,
                            esm_power = sdm_esm_default_power,
-                           esm_biovars = NULL,
-                           overlap_warn = FALSE) {
+esm_biovars = NULL,
+                            overlap_warn = FALSE,
+                            validation_occurrences = sdm_default_validation_occurrences) {
   ensure_sdm_packages("terra", n_cores = n_cores)
   n_cores <- configure_parallel(n_cores, log_fun = log_fun)
   projection_extent <- validate_extent(as.numeric(projection_extent), "projection_extent")
@@ -316,13 +317,41 @@ progress_step(progress_fun, 0.10, "Cleaning occurrence data")
   progress_step(progress_fun, 0.08, "Summarising outputs")
   suitability_summary <- summarise_suitability(suit, threshold)
   if (!is.null(future)) future$summary <- summarise_suitability(future$suitability, threshold)
+
+  projection_metrics <- NULL
+  if (!is.null(training_extent) && !identical(projection_extent, training_extent)) {
+    train_pres_suit <- tryCatch(as.numeric(fit$presence_suit), error = function(e) NULL)
+    if (!is.null(train_pres_suit) && length(train_pres_suit) > 0 && !anyNA(train_pres_suit)) {
+      validation_occ_df <- NULL
+      if (!is.null(validation_occurrences)) {
+        if (is.character(validation_occurrences) && length(validation_occurrences) == 1 && file.exists(validation_occurrences)) {
+          validation_occ_df <- tryCatch(
+            read.csv(validation_occurrences, stringsAsFactors = FALSE, check.names = FALSE),
+            error = function(e) NULL
+          )
+        } else if (is.data.frame(validation_occurrences)) {
+          validation_occ_df <- validation_occurrences
+        }
+      }
+      projection_metrics <- compute_projection_metrics(
+        suit_raster = suit,
+        train_presence_suit = train_pres_suit,
+        threshold = threshold,
+        n_bg_samples = 1000L,
+        validation_occ = validation_occ_df,
+        log_fun = log_fun
+      )
+    }
+  }
+
   save_suitability_png(suit, occ, projection_extent, species, threshold, output_png)
 
   elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
   log_message(log_fun, "Completed in ", sprintf("%.1f", elapsed), " seconds")
   metrics <- list(presence_records = nrow(fit$occurrence_used), background_points = nrow(fit$background_xy),
                   auc_mean = fit$cv$auc_mean, auc_sd = fit$cv$auc_sd, cv_folds = fit$cv$k,
-                  n_cores = n_cores, elapsed_seconds = elapsed)
+                  n_cores = n_cores, elapsed_seconds = elapsed,
+                  projection = projection_metrics)
 
   result <- list(
     config = list(species = species, occurrence_file = occurrence_file, occurrence_source = occurrence_source, worldclim_dir = worldclim_dir,

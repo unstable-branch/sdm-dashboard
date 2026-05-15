@@ -45,15 +45,11 @@ ui_sidebar_controls <- function() {
     div(class = "small-muted", "If the selected source is unavailable, the app falls back to project data, then demo data when possible."),
     div(class = "checkbox-parent", checkboxInput("use_coordinatecleaner", "Advanced cleaning (CoordinateCleaner)", value = FALSE)),
     conditionalPanel("input.use_coordinatecleaner == true",
-      p(class = "small-muted",
-        "Flags: sea coordinates, biodiversity institutions, capital cities,",
-        "country centroids, urban areas, zero coordinates."),
       selectInput("cc_tests", "CC tests to run",
         choices = c("All tests" = "all", "Sea only" = "sea", "Capitals only" = "capitals",
                     "Institutions only" = "institutions", "Centroids only" = "centroids",
                     "Urban only" = "urban", "Zero only" = "zero"),
-        selected = "all"),
-      actionButton("view_flagged", "View flagged records")
+        selected = "all")
     ),
     div(class = "checkbox-parent", checkboxInput("batch_mode", "Run batch of multiple species", value = FALSE)),
     conditionalPanel("input.batch_mode == true",

@@ -172,8 +172,8 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
     n <- length(y)
     w <- if (n1 == 0 || n0 == 0) rep(1, n) else ifelse(y == 1, n / (2 * n1), n / (2 * n0))
     train_model$case_weight_sdm <- w
-    fit <- stats::glm(formula_arg, data = train_model, family = stats::binomial(),
-                      weights = case_weight_sdm, control = stats::glm.control(maxit = 60))
+    fit <- suppressWarnings(stats::glm(formula_arg, data = train_model, family = stats::binomial(),
+                      weights = case_weight_sdm, control = stats::glm.control(maxit = 60)))
     pred <- stats::predict(fit, newdata = test_model, type = "response")
     metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold_arg), fold = i)
   }
@@ -263,8 +263,8 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   log_message(log_fun, "Fitting fast GLM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   model_fit_data <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
   model_fit_data$case_weight_sdm <- class_balance_weights(model_fit_data$presence)
-  model <- stats::glm(formula, data = model_fit_data, family = stats::binomial(),
-                      weights = case_weight_sdm, control = stats::glm.control(maxit = 80))
+  model <- suppressWarnings(stats::glm(formula, data = model_fit_data, family = stats::binomial(),
+                      weights = case_weight_sdm, control = stats::glm.control(maxit = 80)))
 
   train_pred <- stats::predict(model, newdata = model_fit_data, type = "response")
   train_metrics <- compute_binary_metrics(model_fit_data$presence, train_pred, threshold = threshold)
@@ -306,5 +306,6 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
                       cbi = cbi_result$cbi, cbi_pe_ratio = cbi_result$pe_ratio, cbi_note = cbi_result$note),
        cbi_detail = cbi_result, covariates = covariates,
        bias_method = bias_method,
-       thickening_distance_km = if (identical(bias_method, "thickened")) thickening_distance_km else NULL)
+       thickening_distance_km = if (identical(bias_method, "thickened")) thickening_distance_km else NULL,
+       presence_suit = train_pred[model_fit_data$presence == 1])
 }

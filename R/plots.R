@@ -142,10 +142,13 @@ render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
 
   if (!is.null(suitability_raster)) {
     r_wgs84 <- terra::project(suitability_raster, "EPSG:4326")
+    cols <- grDevices::colorRampPalette(c("#0A1624", "#123247", "#15545D",
+                                          "#1F8A70", "#59C174", "#C6D65B",
+                                          "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"))(180)
     map <- map %>%
       leaflet::addTiles() %>%
       leaflet::addRasterImage(r_wgs84, opacity = 0.7, layerId = "suitability",
-                              project = FALSE) %>%
+                              colors = cols, project = TRUE) %>%
       leaflet::addLegend(position = "bottomright",
                           colors = c("#0A1624", "#59C174", "#F3C45A", "#E34B35", "#A51E3B"),
                           labels = c("0", "0.25", "0.5", "0.75", "1"),
@@ -208,7 +211,7 @@ add_suitability_layer <- function(map, raster, type = c("continuous", "binary"),
                                            "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"))(180)
     map <- map %>% leaflet::addRasterImage(r_wgs84, opacity = 0.7,
                                             layerId = "suitability_continuous",
-                                            project = FALSE)
+                                            colors = cols, project = TRUE)
   }
   map
 }

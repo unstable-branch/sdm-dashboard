@@ -67,6 +67,8 @@ sdm_esm_default_n_runs     <- 5L
 sdm_esm_default_split      <- 70
 sdm_esm_max_vars_warn      <- 10L
 
+sdm_default_validation_occurrences <- NULL
+
 config$biomod2_default <- c('GLM','RF','GBM','MAXNET')
 config$biomod2_all <- c(
   'GLM','GAM','FDA','MARS',

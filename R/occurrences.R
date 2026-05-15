@@ -58,11 +58,8 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   lon_col <- detect_column(names(raw), c("^(lon|longitude|x)$", "decimal.*lon", "decimallongitude", "^long"))
   lat_col <- detect_column(names(raw), c("^(lat|latitude|y)$", "decimal.*lat", "decimallatitude"))
   src_col <- detect_column(names(raw), c("^(source|datasource|data_source|institution|institutioncode|herbarium|provider)$", "basisofrecord", "dataset"))
-  country_col <- detect_column(names(raw), c("^(countrycode|country|iso2)$"))
-
-  if (is.na(lon_col) || is.na(lat_col)) {
-    stop("Could not find longitude/latitude columns. Expected longitude/latitude, lon/lat, or decimalLongitude/decimalLatitude.", call. = FALSE)
-  }
+country_col <- detect_column(names(raw), c("^(countrycode|country|iso2)$"))
+  status_col <- detect_column(names(raw), c("occurrenceStatus"))
 
   source <- if (!is.na(src_col)) raw[[src_col]] else rep("Unknown", nrow(raw))
   source <- as.character(source)
@@ -70,6 +67,14 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   source <- trimws(source)
   source <- gsub("[^A-Za-z0-9 _.-]+", "_", source)
   source <- gsub("[ ]+", "_", source)
+
+  if (!is.na(status_col)) {
+    raw_status <- as.character(raw[[status_col]])
+    raw_status[is.na(raw_status) | trimws(raw_status) == ""] <- "PRESENT"
+  } else {
+    raw_status <- rep(NA_character_, nrow(raw))
+  }
+  n_absent_excluded <- sum(raw_status == "ABSENT", na.rm = TRUE)
 
   occ <- data.frame(
     longitude = suppressWarnings(as.numeric(raw[[lon_col]])),
@@ -82,7 +87,8 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   complete_ok <- stats::complete.cases(occ[, c("longitude", "latitude", "source")])
   finite_ok <- is.finite(occ$longitude) & is.finite(occ$latitude)
   bounds_ok <- occ$longitude >= -180 & occ$longitude <= 180 & occ$latitude >= -90 & occ$latitude <= 90
-  ok <- complete_ok & finite_ok & bounds_ok
+  status_ok <- is.na(raw_status) | raw_status == "PRESENT"
+  ok <- complete_ok & finite_ok & bounds_ok & status_ok
   removed_bad <- sum(!ok)
   occ <- occ[ok, , drop = FALSE]
 
@@ -90,6 +96,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   removed_dupes <- sum(duplicated_rows)
   occ <- occ[!duplicated_rows, , drop = FALSE]
   occ$source[is.na(occ$source) | occ$source == "" | occ$source == "NA"] <- "Unknown"
+  occ$presence <- 1L
 
   source_counts <- sort(table(occ$source), decreasing = TRUE)
   small_sources <- names(source_counts[source_counts < min_source_records])
@@ -143,6 +150,8 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   list(raw = raw, occ = occ, source_counts = source_counts,
        removed_bad_coordinates = removed_bad, removed_duplicates = removed_dupes,
        original_rows = original_n,
+       n_absent_excluded = n_absent_excluded,
+       has_occurrence_status = !is.na(status_col),
        columns = list(longitude = lon_col, latitude = lat_col, source = src_col, country = country_col))
 }
 

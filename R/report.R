@@ -119,6 +119,23 @@ write_summary_report <- function(result, path) {
     paste0("- Maximum suitability: ", fmt_num(result$summary$max, 3)),
     paste0("- Cells above threshold ", fmt_num(result$summary$threshold, 2), ": ", fmt_num(result$summary$cells_above_threshold), " (", percent_text, ")"),
     paste0("- Estimated high-suitability area (km2): ", fmt_num(result$summary$high_risk_area_km2)),
+    if (!is.null(result$metrics$projection)) {
+      pm <- result$metrics$projection
+      proj_cbi_text <- if (finite_one(pm$projection_cbi)) sprintf("%.3f", pm$projection_cbi) else "not available"
+      c("",
+        "Projection region validation (cross-region biosecurity assessment)",
+        paste0("- Projection CBI (environmental analog): ", proj_cbi_text, if (!is.null(pm$risk_level)) paste0(" [", pm$risk_level, "]") else ""),
+        "  - pCBI interpretation: pCBI >0.7 = HIGH risk (projection region has similar niche to training region)",
+        "  - pCBI 0.4-0.7 = MEDIUM risk | pCBI <0.4 = LOW risk (environmentally dissimilar)",
+        paste0("- Threshold (", fmt_num(result$config$threshold, 2), ") excess: ", sprintf("%.1f", pm$pct_above_threshold), "% of projection area above threshold"),
+        paste0("- Mean suitability in projection region: ", sprintf("%.3f", pm$mean_projection_suitability)),
+        if (!is.null(pm$validation)) {
+          validation <- pm$validation
+          c(paste0("- Validation occurrences (user-provided): ", fmt_num(validation$n_provided), " total | ", fmt_num(validation$n_valid), " with coordinates"),
+            paste0("- Points exceeding threshold: ", fmt_num(validation$n_exceeding_threshold), " (", sprintf("%.1f", validation$pct_exceeding), "%)"),
+            paste0("- Mean suitability at validation points: ", sprintf("%.3f", validation$mean_suitability)))
+        } else character())
+    } else character(),
     future_lines,
     "", "Outputs",
     paste0("- Suitability GeoTIFF: ", fmt_chr(result$paths$tif)),
