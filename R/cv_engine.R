@@ -1,10 +1,12 @@
 # Generic cross-validation engine for SDM models.
 # Extracted from cross_validate_glm and cross_validate_maxnet to eliminate ~80% code duplication.
+# Supports: random, spatial_blocks, stratified_random, presence_only_stratified, custom fold_id.
 
 cross_validate_model <- function(model_data, k, seed, n_cores,
                                   cv_strategy, cv_block_size_km, threshold,
                                   fit_fun, cluster_setup_fn = NULL,
-                                  cluster_exports = NULL) {
+                                  cluster_exports = NULL,
+                                  fold_id = NULL) {
   k <- as.integer(k)
   cv_strategy <- normalize_cv_strategy(cv_strategy)
   threshold <- normalize_threshold(threshold)
@@ -13,18 +15,19 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
                 tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
                 fold_metrics = data.frame(), fold_sizes = data.frame()))
   }
-  k <- min(k, sum(model_data$presence == 1), sum(model_data$presence == 0))
-  if (k < 2) {
-    return(list(k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_,
-                tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
-                fold_metrics = data.frame(), fold_sizes = data.frame()))
-  }
-  n_cores <- min(normalize_core_count(n_cores), k)
 
   block_id <- NULL
   block_size_mode <- "not_applicable"
   block_size_used <- NA_real_
-  if (identical(cv_strategy, "spatial_blocks") && all(c(".x", ".y") %in% names(model_data))) {
+
+  if (!is.null(fold_id)) {
+    k <- max(fold_id, na.rm = TRUE)
+    if (k < 2) {
+      return(list(k = 0, strategy = "custom", auc_mean = NA_real_, auc_sd = NA_real_,
+                  tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
+                  fold_metrics = data.frame(), fold_sizes = data.frame()))
+    }
+  } else if (identical(cv_strategy, "spatial_blocks") && all(c(".x", ".y") %in% names(model_data))) {
     folds <- make_cv_folds_spatial_blocks(model_data$.x, model_data$.y, model_data$presence, k = k,
                                           block_size_km = normalize_cv_block_size_km(cv_block_size_km), seed = seed)
     fold_id <- folds$fold_id
@@ -32,10 +35,32 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
     block_size_mode <- folds$block_size_mode
     block_size_used <- folds$block_size_km
     k <- max(fold_id, na.rm = TRUE)
+  } else if (identical(cv_strategy, "stratified_random")) {
+    pres_idx <- which(model_data$presence == 1)
+    bg_idx <- which(model_data$presence == 0)
+    fold_id <- integer(nrow(model_data))
+    fold_id[pres_idx] <- sample(rep(seq_len(k), length.out = length(pres_idx)))
+    fold_id[bg_idx] <- sample(rep(seq_len(k), length.out = length(bg_idx)))
+    cv_strategy <- "stratified_random"
   } else {
     cv_strategy <- "random"
     fold_id <- make_cv_folds_random(model_data$presence, k = k, seed = seed)
   }
+
+  if (is.null(block_id)) {
+    effective_k <- max(fold_id[fold_id > 0], na.rm = TRUE)
+    if (is.finite(effective_k) && effective_k >= 2) {
+      k <- effective_k
+    }
+  }
+
+  if (k < 2) {
+    return(list(k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_,
+                tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
+                fold_metrics = data.frame(), fold_sizes = data.frame()))
+  }
+
+  n_cores <- min(normalize_core_count(n_cores), k)
   fold_sizes <- summarise_cv_folds(fold_id, model_data$presence, block_id = block_id)
 
   fit_one_fold <- function(i) fit_fun(i, model_data, fold_id, threshold)
