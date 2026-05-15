@@ -951,7 +951,8 @@ if (isTRUE(input$future_projection)) {
       presence_df = r$occurrence_used %||% r$occurrence,
       background_df = r$background_used %||% NULL,
       mess_raster = if (!is.null(r$mess)) terra::rast(r$mess) else NULL,
-      threshold = r$config$threshold %||% 0.5
+      threshold = r$config$threshold %||% 0.5,
+      show_mess = isTRUE(input$show_mess)
     )
 
     if (!isTRUE(input$show_presence)) {
@@ -973,9 +974,15 @@ if (isTRUE(input$future_projection)) {
     r <- rv$result
     map <- leaflet::leafletProxy("suitability_map")
     if (isTRUE(input$show_mess)) {
-      if (!is.null(r$mess) && !is.na(terra::sources(r$mess)) && nchar(terra::sources(r$mess)) > 0) {
+      mess_src <- tryCatch(terra::sources(r$mess), error = function(e) NULL)
+      if (!is.null(r$mess) && !is.null(mess_src) && length(mess_src) > 0 && any(nzchar(mess_src))) {
         mess_raster <- terra::rast(r$mess)
-        r_mess <- terra::project(mess_raster, "EPSG:4326")
+        r_mess <- tryCatch(terra::project(mess_raster, "EPSG:4326"),
+                           error = function(e) { showNotification("MESS projection failed: ", e$message, type = "warning"); NULL })
+        if (is.null(r_mess)) {
+          updateCheckboxInput(session, "show_mess", value = FALSE)
+          return()
+        }
         mess_binary <- r_mess
         terra::values(mess_binary) <- ifelse(terra::values(r_mess) < 0, 1, 0)
         map <- map %>%
@@ -1017,7 +1024,7 @@ if (isTRUE(input$future_projection)) {
   observeEvent(list(input$suitability_display, input$threshold), {
     req(rv$result)
     r <- rv$result
-    map <- leaflet::leafletProxy("suitability_map")
+    map <- leaflet::leafletProxy("suitability_map") %>% leaflet::removeImages(layerId = "suitability")
 
     if (isTRUE(input$suitability_display == "binary")) {
       r_wgs84 <- terra::project(terra::rast(r$paths$tif), "EPSG:4326")
@@ -1081,6 +1088,10 @@ if (isTRUE(input$future_projection)) {
             format(n_absent, big.mark = ","), format(n_raw, big.mark = ","))
   })
 
+  marker_colors <- function(cc_flag) {
+    ifelse(is.na(cc_flag) | cc_flag == FALSE, "blue", "red")
+  }
+
   output$occurrence_cleaning_map <- renderLeaflet({
     req(rv$cleaned_occurrence$df)
     occ <- rv$cleaned_occurrence$df
@@ -1088,7 +1099,13 @@ if (isTRUE(input$future_projection)) {
       return(leaflet::leaflet() %>% leaflet::addTiles() %>% leaflet::setView(lng = 0, lat = 0, zoom = 2))
     }
 
-    colors <- ifelse(is.na(occ$cc_flag) | occ$cc_flag == FALSE, "blue", "red")
+    colors <- marker_colors(occ$cc_flag)
+    species_col <- if ("species" %in% names(occ)) occ$species else "N/A"
+    source_col <- occ$source
+    row_nums <- seq_len(nrow(occ))
+    popups <- paste0("Row ", row_nums, "<br>",
+                      "Species: ", species_col, "<br>",
+                      "Source: ", source_col)
 
     leaflet::leaflet(occ) %>%
       leaflet::addTiles() %>%
@@ -1097,18 +1114,23 @@ if (isTRUE(input$future_projection)) {
         color = colors,
         fillOpacity = 0.7,
         radius = 5,
-        layerId = ~seq_len(nrow(occ)),
-        popup = ~paste0("Row ", seq_len(nrow(occ)), "<br>",
-                         "Species: ", if("species" %in% names(occ)) species else "N/A", "<br>",
-                         "Source: ", source)
+        layerId = row_nums,
+        popup = popups
+      ) %>%
+      leaflet::fitBounds(
+        lng1 = min(occ$longitude, na.rm = TRUE),
+        lat1 = min(occ$latitude, na.rm = TRUE),
+        lng2 = max(occ$longitude, na.rm = TRUE),
+        lat2 = max(occ$latitude, na.rm = TRUE)
       )
   })
 
   observeEvent(rv$cleaned_occurrence$df$cc_flag, {
     req(rv$cleaned_occurrence$df)
+    req(input$occurrence_cleaning_map)
     occ <- rv$cleaned_occurrence$df
     if (!is.data.frame(occ) || nrow(occ) < 1) return()
-    colors <- ifelse(is.na(occ$cc_flag) | occ$cc_flag == FALSE, "blue", "red")
+    colors <- marker_colors(occ$cc_flag)
     leaflet::leafletProxy("occurrence_cleaning_map") %>%
       leaflet::clearMarkers() %>%
       leaflet::addCircleMarkers(
@@ -1133,17 +1155,24 @@ if (isTRUE(input$future_projection)) {
 
   observeEvent(input$remove_flagged_map, {
     req(rv$cleaned_occurrence)
+    req(input$occurrence_cleaning_map)
 
     keep <- is.na(rv$cleaned_occurrence$df$cc_flag) | rv$cleaned_occurrence$df$cc_flag == FALSE
     rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df[keep, ]
 
+    occ <- rv$cleaned_occurrence$df
+    if (nrow(occ) < 1) {
+      leaflet::leafletProxy("occurrence_cleaning_map") %>% leaflet::clearMarkers()
+      return()
+    }
+    colors <- marker_colors(occ$cc_flag)
     leaflet::leafletProxy("occurrence_cleaning_map") %>%
       leaflet::clearMarkers() %>%
       leaflet::addCircleMarkers(
-        data = rv$cleaned_occurrence$df,
+        data = occ,
         lng = ~longitude, lat = ~latitude,
-        color = "blue", fillOpacity = 0.7, radius = 5,
-        layerId = ~seq_len(nrow(rv$cleaned_occurrence$df))
+        color = colors, fillOpacity = 0.7, radius = 5,
+        layerId = seq_len(nrow(occ))
       )
   })
 

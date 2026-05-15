@@ -136,8 +136,8 @@ n_perm_default <- function(df) {
 }
 
 render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
-                                      background_df = NULL, mess_raster = NULL,
-                                      threshold = 0.5) {
+                                       background_df = NULL, mess_raster = NULL,
+                                       threshold = 0.5, show_mess = FALSE) {
   map <- leaflet::leaflet()
 
   if (!is.null(suitability_raster)) {
@@ -177,15 +177,18 @@ render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
     }
   }
 
-  if (!is.null(mess_raster) && !is.null(terra::sources(mess_raster))) {
-    r_mess <- terra::project(mess_raster, "EPSG:4326")
-    mess_binary <- r_mess
-    terra::values(mess_binary) <- ifelse(terra::values(r_mess) < 0, 1, 0)
-    map <- map %>%
-      leaflet::addRasterImage(mess_binary, opacity = 0.5, layerId = "mess",
-                              project = FALSE, colors = "red") %>%
-      leaflet::addLegend(position = "bottomright", colors = "red",
-                          labels = "Extrapolation (MESS<0)", title = "MESS")
+  if (isTRUE(show_mess) && !is.null(mess_raster) && !is.null(terra::sources(mess_raster))) {
+    r_mess <- tryCatch(terra::project(mess_raster, "EPSG:4326"),
+                       error = function(e) { warning("MESS projection failed: ", e$message); NULL })
+    if (!is.null(r_mess)) {
+      mess_binary <- r_mess
+      terra::values(mess_binary) <- ifelse(terra::values(r_mess) < 0, 1, 0)
+      map <- map %>%
+        leaflet::addRasterImage(mess_binary, opacity = 0.5, layerId = "mess",
+                                project = FALSE, colors = "red") %>%
+        leaflet::addLegend(position = "bottomright", colors = "red",
+                            labels = "Extrapolation (MESS<0)", title = "MESS")
+    }
   }
 
   map
@@ -196,7 +199,9 @@ add_suitability_layer <- function(map, raster, type = c("continuous", "binary"),
   type <- match.arg(type)
   if (is.null(raster)) return(map)
 
-  r_wgs84 <- terra::project(raster, "EPSG:4326")
+  r_wgs84 <- tryCatch(terra::project(raster, "EPSG:4326"),
+                      error = function(e) { warning("Raster projection failed: ", e$message); NULL })
+  if (is.null(r_wgs84)) return(map)
 
   if (type == "binary") {
     r_bin <- r_wgs84
