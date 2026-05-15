@@ -438,6 +438,11 @@ server <- function(input, output, session) {
     )
   })
 
+  output$occurrence_source_status <- renderUI({
+    occurrence <- occurrence_source()
+    div(class = paste("status", occurrence$state, sep = "-"), role = "status", `aria-live` = "polite", occurrence$detail)
+  })
+
   readiness <- reactive({
     biovars <- as.integer(input$biovars)
     biovars <- biovars[!is.na(biovars)]
@@ -508,7 +513,7 @@ server <- function(input, output, session) {
 
     extent_state <- "ok"
     extent_detail <- paste0("xmin ", extent[1], ", xmax ", extent[2], ", ymin ", extent[3], ", ymax ", extent[4])
-    if (any(!is.finite(extent)) || any(is.na(extent)) || extent[1] >= extent[2] || extent[3] >= extent[4]) {
+    if (any(!is.finite(extent)) || extent[1] >= extent[2] || extent[3] >= extent[4]) {
       extent_state <- "error"
       extent_detail <- "Projection extent is invalid. Ensure xmin < xmax, ymin < ymax, and all values are finite numbers within longitude [-180,180] and latitude [-90,90]."
       issues <- c(issues, "Fix the projection extent values.")
@@ -1548,7 +1553,7 @@ gd_append_log <- function(target, msg) {
     }
     gd_append_log("gd_env_log", paste("Downloading CHELSA extras:", paste(extras, collapse = ", ")))
     download_covariate_bg(
-      log_target = "gd_worldclim_log", log_append = gd_append_log,
+      log_target = "gd_env_log", log_append = gd_append_log,
       label = "CHELSA extras",
       download_fun = function(extras) {
         source(file.path(sdm_project_root(), "R", "covariates_climate.R"))
