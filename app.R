@@ -1598,7 +1598,9 @@ gd_append_log <- function(target, msg) {
     gd_append_log("gd_cmip6_log", paste("Starting CMIP6 download:", gcm, ssp, period, "..."))
     tryCatch({
       bg <- callr::r_bg(function(gcm, ssp, period) {
+        library(terra)
         source("R/optimized_sdm.R")
+        source(file.path(sdm_project_root(), "R", "covariates_climate_future.R"))
         fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = 10,
                                out_dir = "Worldclim_future", quiet = FALSE)
         message("CMIP6 download complete.")
@@ -1635,7 +1637,9 @@ gd_append_log <- function(target, msg) {
     gd_append_log("gd_cmip6_log", paste("Averaging GCMs:", paste(gcm_list, collapse = ", "), "SSP", ssp, period))
     tryCatch({
       bg <- callr::r_bg(function(gcm_list, ssp, period) {
+        library(terra)
         source("R/optimized_sdm.R")
+        source(file.path(sdm_project_root(), "R", "covariates_climate_future.R"))
         average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc",
                            res = 10, out_dir = "Worldclim_future", quiet = FALSE)
         message("GCM averaging complete.")
@@ -1651,6 +1655,9 @@ gd_append_log <- function(target, msg) {
       else {
         last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
         if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_cmip6_log", ln)
+        v <- verify_future_cache()
+        gd_append_log("gd_cmip6_log", paste("Verification:", v$detail))
+        shiny::showNotification("GCM averaging complete.", type = "message")
       }
     }, error = function(e) {
       gd_append_log("gd_cmip6_log", paste("ERROR:", conditionMessage(e)))
@@ -1667,6 +1674,7 @@ gd_append_log <- function(target, msg) {
     gd_append_log("gd_terrain_log", paste("Downloading elevation DEM:", demtype, "..."))
     tryCatch({
       bg <- callr::r_bg(function(demtype, api_key) {
+        library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_elevation.R"))
         cache_dir <- file.path(sdm_project_root(), "covariates", "opentopo")
@@ -1712,6 +1720,7 @@ gd_append_log <- function(target, msg) {
     gd_append_log("gd_terrain_log", paste("Downloading soil:", paste(selected_vars, collapse = ","), "depths:", paste(selected_depths, collapse = ",")))
     tryCatch({
       bg <- callr::r_bg(function(selected_vars, selected_depths) {
+        library(terra)
         source("R/optimized_sdm.R")
         cache_dir <- file.path(sdm_project_root(), "covariates", "soilgrids")
         dir.create(cache_dir, recursive = TRUE)
@@ -1750,6 +1759,7 @@ gd_append_log <- function(target, msg) {
     gd_append_log("gd_env_log", "Downloading UV-B radiation layers...")
     tryCatch({
       bg <- callr::r_bg(function() {
+        library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_uv.R"))
         load_uv_covariate(selected_uv_vars = c("UVB1","UVB2","UVB3","UVB4","UVB5","UVB6"),
@@ -1781,6 +1791,7 @@ gd_append_log <- function(target, msg) {
     gd_append_log("gd_env_log", "Downloading GIMMS NDVI climatology...")
     tryCatch({
       bg <- callr::r_bg(function() {
+        library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_vegetation.R"))
         load_gimms_ndvi_period(period = "clim", ndvi_year = 2020,
@@ -1824,6 +1835,7 @@ gd_append_log <- function(target, msg) {
     gd_append_log("gd_env_log", paste("Downloading LULC year:", year, "..."))
     tryCatch({
       bg <- callr::r_bg(function(year) {
+        library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_lulc.R"))
         load_lulc_covariate(lulc_year = year, extent_vec = c(-180,180,-90,90),
@@ -1856,6 +1868,7 @@ gd_append_log <- function(target, msg) {
     gd_append_log("gd_env_log", paste("Downloading Human Footprint year:", year, "..."))
     tryCatch({
       bg <- callr::r_bg(function(year) {
+        library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_human_footprint.R"))
         load_human_footprint_covariate(hfp_year = year, extent_vec = c(-180,180,-90,90),
@@ -1892,6 +1905,7 @@ gd_append_log <- function(target, msg) {
     gd_append_log("gd_env_log", paste("Downloading drought periods:", paste(periods, collapse = ", ")))
     tryCatch({
       bg <- callr::r_bg(function(periods) {
+        library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_drought.R"))
         load_drought_covariate(selected_periods = periods,
@@ -1924,6 +1938,7 @@ gd_append_log <- function(target, msg) {
     gd_append_log("gd_env_log", "Downloading bioclimatic seasonality...")
     tryCatch({
       bg <- callr::r_bg(function() {
+        library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_bioclim_seasonality.R"))
         load_bioclim_seasonality(extent_vec = c(-180,180,-90,90),

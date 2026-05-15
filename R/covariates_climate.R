@@ -21,7 +21,11 @@ find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("wo
         hit <- files[grepl(pattern1, basename(files), ignore.case = TRUE)]
       }
     }
-    if (length(hit) == 0) NA_character_ else hit[1]
+    if (length(hit) == 0) NA_character_
+    else if (length(hit) > 1) {
+      n_cells <- vapply(hit, function(f) as.integer(terra::ncell(terra::rast(f))[1]), integer(1))
+      hit[which.max(n_cells)]
+    } else hit[1]
   }, character(1))
   names(matched) <- as.character(selected_biovars)
   matched

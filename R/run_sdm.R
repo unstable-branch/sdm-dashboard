@@ -90,8 +90,9 @@ progress_step(progress_fun, 0.10, "Cleaning occurrence data")
   }
   model_meta <- get_sdm_model(model_id)
   min_rec_req <- model_meta$min_records %||% sdm_default_min_source_records
-  n_pres <- sum(occ$presence == 1, na.rm = TRUE)
-  if (!is.na(min_rec_req) && n_pres < min_rec_req) {
+  has_presence_col <- "presence" %in% names(occ) && any(occ$presence == 1, na.rm = TRUE)
+  n_pres <- if (has_presence_col) sum(occ$presence == 1, na.rm = TRUE) else NA_integer_
+  if (!is.na(n_pres) && !is.na(min_rec_req) && n_pres < min_rec_req) {
     stop(sprintf("Model '%s' requires at least %d presence records. Got %d.",
                  model_id, min_rec_req, n_pres))
   }
