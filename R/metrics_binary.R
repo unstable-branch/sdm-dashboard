@@ -97,7 +97,7 @@ continuous_boyce_index <- function(pres_suit, bg_suit, n_bins = 101, win = 0.1) 
     sum(pres_suit >= bin_edges[i] & pres_suit < bin_edges[i + 1])
   })
 
-  ratio <- ifelse(pred_per_bin > 0, obs_per_bin / pred_per_bin, 0)
+  ratio <- if (pred_per_bin > 0) obs_per_bin / pred_per_bin else rep(0, n_bins)
 
   win_size <- max(1, floor(win * n_bins))
   smoothed <- sapply(seq_along(ratio), function(i) {

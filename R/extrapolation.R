@@ -38,7 +38,10 @@ compute_mess <- function(env_train, env_proj) {
     train_ranges[[var]] <- c(min = train_min, max = train_max)
 
     if (train_range == 0 || is.na(train_range) || !is.finite(train_range)) {
-      per_variable[[var]] <- terra::app(proj_vals, function(x) NA)
+      per_variable[[var]] <- terra::app(proj_vals, function(x) {
+        if (length(x) == 0) return(numeric(0))
+        rep(NA_real_, length(x))
+      })
       next
     }
 

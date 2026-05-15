@@ -5,7 +5,7 @@ test_that("compute_mess identifies extrapolation correctly", {
   train_rast[] <- 1:100
 
   proj_rast <- terra::rast(nrows = 10, ncols = 10, xmin = -5, xmax = 15, ymin = 0, ymax = 10)
-  proj_rast[] <- rep(1:100, each = 2)  # values from -5 to 95, outside training range in some cells
+  proj_rast[] <- rep_len(1:100, length.out = 100)  # values from -5 to 95, outside training range in some cells
 
   result <- compute_mess(train_rast, proj_rast)
 
@@ -40,7 +40,7 @@ test_that("compute_mod returns variable indices", {
 
   proj_rast <- terra::rast(nrows = 10, ncols = 10, xmin = -5, xmax = 15, ymin = 0, ymax = 10)
   names(proj_rast) <- c("var1", "var2")
-  proj_rast[] <- rep(1:100, each = 2)
+  proj_rast[] <- rep_len(1:100, length.out = 100)
 
   mess_result <- compute_mess(train_rast, proj_rast)
   mod_raster <- compute_mod(mess_result$per_variable)

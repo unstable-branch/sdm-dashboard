@@ -18,11 +18,17 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
                       sd = numeric(), baseline = numeric(), stringsAsFactors = FALSE))
   }
 
-  obs <- model_data$presence
+obs <- model_data$presence
   if (!is.numeric(obs)) obs <- as.numeric(obs)
   ok_obs <- is.finite(obs) & (obs == 0 | obs == 1)
   if (sum(ok_obs) < 20) {
-    return(data.frame(variable = cov_cols, importance = 0, sd = NA, baseline = NA,
+    sd_vals <- vapply(cov_cols, function(v) {
+      col_vals <- model_data[[v]]
+      if (!is.numeric(col_vals)) return(NA_real_)
+      var_sd <- stats::sd(col_vals, na.rm = TRUE)
+      if (is.na(var_sd) || var_sd < 1e-10) 0 else NA_real_
+    }, numeric(1))
+    return(data.frame(variable = cov_cols, importance = 0, sd = sd_vals, baseline = NA,
                       stringsAsFactors = FALSE))
   }
 
@@ -32,7 +38,13 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
   ok_pred <- is.finite(baseline_pred)
   ok_both <- ok_obs & ok_pred
   if (sum(ok_both) < 20) {
-    return(data.frame(variable = cov_cols, importance = 0, sd = NA, baseline = NA,
+    sd_vals <- vapply(cov_cols, function(v) {
+      col_vals <- model_data[[v]]
+      if (!is.numeric(col_vals)) return(NA_real_)
+      var_sd <- stats::sd(col_vals, na.rm = TRUE)
+      if (is.na(var_sd) || var_sd < 1e-10) 0 else NA_real_
+    }, numeric(1))
+    return(data.frame(variable = cov_cols, importance = 0, sd = sd_vals, baseline = NA,
                       stringsAsFactors = FALSE))
   }
 
@@ -64,10 +76,13 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
       }
       drops[p] <- baseline_metric - if (is.finite(perm_metric)) perm_metric else 0
     }
-    list(
-      importance = mean(drops, na.rm = TRUE),
-      sd = if (n_perm > 1 && sum(is.finite(drops)) > 1) stats::sd(drops, na.rm = TRUE) else 0
-    )
+    sd_val <- if (n_perm > 1 && sum(is.finite(drops)) > 1) {
+      sd_val <- stats::sd(drops, na.rm = TRUE)
+      if (is.na(sd_val)) 0 else sd_val
+    } else {
+      0
+    }
+    list(importance = mean(drops, na.rm = TRUE), sd = sd_val)
   }
 
   results <- if (n_cores > 1 && n_perm > 1 && requireNamespace("parallel", quietly = TRUE)) {
