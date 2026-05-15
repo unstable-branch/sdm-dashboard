@@ -1,45 +1,23 @@
 # Compatibility loader for the refactored SDM engine.
+# Delegates project-root detection to bootstrap.R.
 
-.__sdm_ofiles <- vapply(sys.frames(), function(frame) {
-  if (!is.null(frame$ofile)) frame$ofile else NA_character_
-}, character(1))
-.__sdm_ofile_dirs <- dirname(normalizePath(.__sdm_ofiles[!is.na(.__sdm_ofiles)], winslash = "/", mustWork = FALSE))
-
-already_rooted <- if (exists(".__sdm_project_root", envir = .GlobalEnv, inherits = FALSE)) {
-  get(".__sdm_project_root", envir = .GlobalEnv)
-} else {
-  NULL
-}
-
-search_paths <- if (!is.null(already_rooted)) {
-  c(already_rooted, file.path(already_rooted, "R"))
-} else {
-  c(file.path(getwd(), "R"), getwd(), .__sdm_ofile_dirs)
-}
-.__sdm_module_dir <- search_paths[file.exists(file.path(search_paths, "load.R"))][1]
-if (is.na(.__sdm_module_dir) || is.null(.__sdm_module_dir)) {
-  stop(
-    "Could not locate R/load.R. Searched: ",
-    paste(unique(search_paths), collapse = ", "),
-    ". Current: ", getwd(),
-    call. = FALSE
+find_bootstrap <- function() {
+  candidates <- c(
+    file.path(getwd(), "R", "bootstrap.R"),
+    file.path(getwd(), "bootstrap.R")
   )
-}
-# If the found path is itself an R/ subdirectory, go up one level to the actual project root.
-# This handles the case where script runs from project_root/ and search_paths
-# finds project_root/R/load.R before project_root/load.R.
-if (identical(basename(.__sdm_module_dir), "R")) {
-  .__sdm_actual_root <- dirname(.__sdm_module_dir)
-} else {
-  .__sdm_actual_root <- .__sdm_module_dir
+  script <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+  if (length(script) > 0) {
+    script_dir <- dirname(sub("^--file=", "", script[1]))
+    candidates <- c(candidates, file.path(script_dir, "R", "bootstrap.R"), file.path(script_dir, "bootstrap.R"))
+  }
+  existing <- candidates[file.exists(candidates)]
+  if (length(existing) == 0) {
+    stop("Could not find R/bootstrap.R. Current working directory: ", getwd(), call. = FALSE)
+  }
+  existing[1]
 }
 
-if (!is.null(already_rooted)) {
-  message("Using existing project root: ", already_rooted)
-} else {
-  message("Setting project root to: ", .__sdm_actual_root)
-}
-source(file.path(.__sdm_actual_root, "R", "bootstrap.R"), local = FALSE)
-sdm_set_project_root(.__sdm_actual_root)
-source(file.path(.__sdm_actual_root, "R", "load.R"), local = FALSE)
-rm(.__sdm_ofile_dirs, .__sdm_ofiles, already_rooted, search_paths, .__sdm_actual_root)
+source(find_bootstrap(), local = FALSE)
+sdm_set_project_root(NULL)
+source(file.path(sdm_project_root(), "R", "load.R"), local = FALSE)

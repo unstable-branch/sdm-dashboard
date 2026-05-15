@@ -57,7 +57,6 @@ sdm_default_ensemble_min_tss <- 0.5
 sdm_default_ensemble_uncertainty <- TRUE
 sdm_default_elevation_demtype <- "COP90"
 sdm_default_terrain_complexity_enabled <- FALSE
-sdm_default_soil_vars <- c("BULK_DENSITY", "DRAINAGE", "ROOT_DEPTH", "AWC")
 sdm_esm_min_occurrences   <- 5L
 sdm_esm_recommend_below    <- 30L
 sdm_esm_warn_below         <- 10L

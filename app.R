@@ -53,72 +53,10 @@ sdm_theme_css <- if (file.exists(sdm_theme_css_file)) paste(readLines(sdm_theme_
 ui <- fluidPage(
   theme = bslib::bs_theme(version = 5, bootswatch = "flatly", primary = "#0B6E69"),
   tags$head(
-    tags$style(HTML("\n      body { background:#f4f7fb; color:#102a43; }\n      .container-fluid { max-width:1680px; }\n      .hero { background:radial-gradient(circle at top right,rgba(255,255,255,.18),transparent 28%),linear-gradient(135deg,#083f3c 0%,#0B6E69 48%,#174A7C 100%); color:white; border-radius:22px; padding:30px 34px; margin:18px 0 22px; box-shadow:0 16px 38px rgba(15,36,58,.18);}\n      .hero h1 { font-weight:800; margin:0 0 8px; letter-spacing:-.02em; } .hero p { margin:0; opacity:.93; font-size:1.08rem; max-width:780px; }\n      .control-panel,.content-card,.metric-card { background:white; border:1px solid #e7edf4; border-radius:18px; box-shadow:0 10px 26px rgba(15,36,58,.07); }\n      .control-panel { padding:18px; position:sticky; top:14px; max-height:calc(100vh - 28px); overflow:auto; }\n      .control-panel h4 { color:#0B4F4A; font-size:1rem; font-weight:800; margin-top:6px; }\n      .content-card { padding:20px; margin-bottom:16px; } .content-card h4 { font-weight:800; margin-top:0; color:#16324f; }\n      .metric-grid { display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:14px; margin-bottom:16px; }\n      .metric-card { border-left:5px solid #0B6E69; padding:16px; } .metric-label { color:#5d6d7e; font-size:.78rem; text-transform:uppercase; letter-spacing:.07em; font-weight:700; }\n      .metric-value { color:#102a43; font-size:1.8rem; font-weight:800; line-height:1.2; } .metric-note { color:#6c7a89; font-size:.85rem; margin-top:4px; }\n      .status-ok,.status-warn,.status-error,.status-info { border-radius:14px; padding:13px 15px; margin-bottom:16px; }\n      .status-ok { background:#e8f7f4; border:1px solid #b7e4db; color:#0b594f; } .status-warn { background:#fff7e6; border:1px solid #ffd591; color:#7a4b00; } .status-error { background:#fff1f0; border:1px solid #ffa39e; color:#8c1d18; } .status-info { background:#eef6ff; border:1px solid #b9dafb; color:#174A7C; }\n      .readiness-grid { display:grid; grid-template-columns:repeat(2,minmax(220px,1fr)); gap:12px; }\n      .readiness-item { border:1px solid #e7edf4; border-radius:14px; padding:13px 14px; background:#fbfcfe; }\n      .readiness-title { display:flex; align-items:center; gap:8px; font-weight:800; margin-bottom:4px; } .readiness-detail { color:#5d6d7e; font-size:.92rem; }\n      .pill { display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; border-radius:999px; font-size:.78rem; font-weight:900; }\n      .pill-ok { background:#d9f3ed; color:#08705f; } .pill-warn { background:#ffedc2; color:#8a5a00; } .pill-error { background:#ffd8d6; color:#9f1f1a; } .pill-info { background:#dceeff; color:#174A7C; }\n      .run-button-wrap .btn { font-weight:800; padding:.8rem 1rem; }\n      pre { background:#0b1020; color:#d6e4ff; border-radius:12px; padding:14px; max-height:460px; overflow:auto; } .small-muted { color:#6c7a89; font-size:.9rem; }\n      .tab-content { padding-top:4px; }\n      @media(max-width:1100px){.metric-grid,.readiness-grid{grid-template-columns:repeat(2,minmax(150px,1fr));}.control-panel{position:static;max-height:none;}} @media(max-width:700px){.metric-grid,.readiness-grid{grid-template-columns:1fr;}.hero{padding:24px 22px;}}\n    ")),
+    tags$link(rel = "stylesheet", href = "sdm-theme.css"),
     tags$script(HTML("\n      console.log('SDM Dashboard JS loaded');\n      Shiny.addCustomMessageHandler('setRunState', function(x) {\n        var btn = document.getElementById('run_model');\n        if (!btn) { console.log('setRunState: run_model btn not found'); return; }\n        console.log('setRunState called, running=', x.running);\n        btn.disabled = !!x.running;\n        btn.classList.toggle('disabled', !!x.running);\n        btn.textContent = x.running ? 'Running SDM...' : 'Run SDM';\n      });\n      (function() {\n        function setTheme(dark) {\n          document.body.classList.toggle('sdm-dark', dark);\n          document.body.classList.toggle('sdm-light', !dark);\n          try { window.localStorage.setItem('sdm-dashboard-theme', dark ? 'dark' : 'light'); } catch (e) {}\n        }\n        function initialTheme() {\n          try {\n            var saved = window.localStorage.getItem('sdm-dashboard-theme');\n            if (saved === 'dark' || saved === 'light') return saved === 'dark';\n          } catch (e) {}\n          return true;\n        }\n        function wireToggle() {\n          var toggle = document.getElementById('dark_mode');\n          var dark = initialTheme();\n          setTheme(dark);\n          if (!toggle || toggle.dataset.themeBound === '1') return;\n          toggle.checked = dark;\n          toggle.dataset.themeBound = '1';\n          toggle.addEventListener('change', function() { setTheme(toggle.checked); });\n        }\n        document.addEventListener('DOMContentLoaded', wireToggle);\n        document.addEventListener('shiny:connected', function() { console.log('Shiny connected'); wireToggle(); });\n      })();\n    "))
   ),
 
-  tags$style(HTML("\n    .hero { padding:12px 20px; margin:8px 0 10px; border-radius:16px; }\n    .hero h1 { font-size:1.55rem; margin-bottom:1px; } .hero p { font-size:.92rem; }\n    .control-panel { display:flex; flex-direction:column; height:calc(100vh - 94px); max-height:calc(100vh - 94px); padding:12px; overflow:hidden; }\n    .control-scroll { flex:1 1 auto; min-height:0; overflow:auto; padding-right:3px; }\n    .control-panel .form-group { margin-bottom:.62rem; }\n    .control-section { border:1px solid #e7edf4; border-radius:14px; padding:10px 12px; margin-bottom:10px; background:#fbfdff; }\n    .control-section h4 { margin:0 0 8px; }\n    details.control-section { padding:0; overflow:visible; }\n    details.control-section > summary { cursor:pointer; padding:10px 12px; font-weight:800; color:#0B4F4A; list-style:none; }\n    details.control-section > summary::-webkit-details-marker { display:none; }\n    details.control-section > summary:after { content:'+'; float:right; color:#5d6d7e; }\n    details.control-section[open] > summary:after { content:'-'; }\n    .details-body { padding:0 12px 10px; }\n    .run-button-wrap { flex:0 0 auto; position:static; bottom:auto; background:white; border-top:1px solid #e7edf4; margin-top:8px; padding-top:10px; }\n    .main-panel { padding-top:0; }\n    .content-card { padding:14px; margin-bottom:12px; }\n    .metric-grid { grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px; margin-bottom:10px; }\n    .metric-card { padding:12px; }\n    .metric-value { font-size:1.45rem; }\n    .status-ok,.status-warn,.status-error,.status-info { margin-bottom:10px; padding:10px 12px; }\n    .preflight-compact .readiness-grid { display:none; }\n    .preflight-compact { padding:10px 12px; }\n    .summary-list { display:grid; gap:6px; }\n    .summary-row { display:grid; grid-template-columns:minmax(105px,38%) 1fr; gap:8px; padding:6px 0; border-bottom:1px solid #edf2f7; }\n    .summary-row:last-child { border-bottom:0; }\n    .summary-label { color:#5d6d7e; font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; font-weight:800; }\n    .summary-value { color:#102a43; font-weight:650; overflow-wrap:anywhere; }\n    .downloads-row .btn { margin:0 8px 8px 0; }\n    @media (max-width: 991px) { .control-panel { position:static; height:auto; max-height:none; overflow:visible; } .control-scroll { overflow:visible; } .metric-grid { grid-template-columns:repeat(2,minmax(140px,1fr)); } }\n  ")),
-
-  tags$style(HTML("\n    .status-ok,.status-warn,.status-error,.status-info { overflow-wrap:anywhere; }\n    .status-ok:focus,.status-warn:focus,.status-error:focus,.status-info:focus,\n    .btn:focus-visible,.form-control:focus,.form-select:focus,input[type='radio']:focus-visible,input[type='checkbox']:focus-visible,summary:focus-visible { outline:3px solid #4cc9b0; outline-offset:2px; box-shadow:0 0 0 .2rem rgba(76,201,176,.25); }\n    @media (max-width: 991px) {\n      .control-panel { position:static; height:auto; max-height:none; margin-bottom:12px; }\n      .control-scroll { overflow:visible; }\n      .run-button-wrap { position:sticky; bottom:0; z-index:10; padding-bottom:8px; }\n      .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }\n      .main-panel .content-card { overflow-x:auto; }\n    }\n    @media (max-width: 575px) {\n      .hero { padding:14px; }\n      .metric-grid,.summary-row { grid-template-columns:1fr; }\n      .metric-value { font-size:1.3rem; }\n      .content-card { padding:12px; }
-    .map-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:8px; padding:8px 0; border-top:1px solid #e7edf4; }
-    .map-controls .form-group { margin-bottom:0; }
-    .btn-primary:disabled, .btn-primary.disabled { background:#6c757d !important; cursor:not-allowed; opacity:0.6; }
-    .checkbox-parent .form-group label { display:flex; align-items:center; }
-    .checkbox-parent .form-group label::after { content:'+'; margin-left:auto; padding-left:6px; font-weight:700; color:#0B6E69; font-size:1.05em; line-height:1; }
-    .checkbox-parent .form-group label:has(input:checked)::after { content:'-'; }
-    .batch-controls { padding:8px 4px 4px; }
-    .batch-controls .form-group { margin-bottom:.5rem; }
-    .batch-template { font-size:.75rem; color:#6c7a89; margin-bottom:6px; }
-    .batch-action { display:flex; gap:8px; margin-top:6px; }
-    .bias-dropdown { position:relative; z-index:200; overflow:visible; }
-    .bias-dropdown select { overflow:visible; }
-    .bias-dropdown .shiny-input-container { overflow:visible; position:relative; z-index:200; }
-    .bias-dropdown .selectize-dropdown { z-index:9999 !important; }
-    .bias-dropdown .selectize-dropdown { position:absolute !important; }
-    .bias-conditional { position:relative; z-index:200; }
-    .control-section { position:relative; z-index:1; }
-    details.control-section[open] { z-index:10; }
-    .details-body { position:relative; z-index:5; }
-    .bias-dropdown .shiny-options-group { position:relative; z-index:200; overflow:visible; }
-    .form-group { overflow:visible; }
-    .shiny-input-container { overflow:visible; }
-    /* Dark mode overrides for hardcoded base colors */
-    body.sdm-dark .control-section { background:#132235 !important; border-color:#26384d !important; }
-    body.sdm-dark .control-section h4 { color:#f2f7fb !important; }
-    body.sdm-dark details.control-section > summary { color:#37d0b2 !important; }
-    body.sdm-dark details.control-section > summary:after { color:#a8b6c7 !important; }
-    body.sdm-dark .checkbox-parent .form-group label::after { color:#37d0b2 !important; }
-    body.sdm-dark .batch-template { color:#a8b6c7 !important; }
-    body.sdm-dark .summary-row { border-bottom-color:#26384d !important; }
-    body.sdm-dark .run-button-wrap { background:#0f1c2b !important; border-top-color:#26384d !important; }
-    body.sdm-dark .map-controls { border-top-color:#26384d !important; }
-    body.sdm-dark .content-card { background:rgba(15,28,43,0.92) !important; }
-    body.sdm-dark .content-card strong { color:inherit !important; }
-    .status-ok strong, .status-warn strong, .status-error strong, .status-info strong { color:inherit; }
-    body.sdm-dark .modal-content { background:#0f1c2b !important; color:#e6eef7 !important; border:1px solid #26384d !important; border-radius:0.5rem !important; }
-    body.sdm-dark .modal-header { background:#132235 !important; border-bottom:1px solid #26384d !important; padding:1rem 1.25rem !important; border-radius:0.5rem 0.5rem 0 0 !important; }
-    body.sdm-dark .modal-header .modal-title { color:#f2f7fb !important; font-size:1.25rem !important; }
-    body.sdm-dark .modal-body { background:#0f1c2b !important; color:#e6eef7 !important; padding:1.25rem !important; }
-    body.sdm-dark .modal-footer { background:#132235 !important; border-top:1px solid #26384d !important; padding:0.75rem 1.25rem !important; border-radius:0 0 0.5rem 0.5rem !important; }
-    body.sdm-dark .modal .dataTables_wrapper { color:#e6eef7 !important; background:transparent !important; }
-    body.sdm-dark .modal .dataTables_filter input,
-    body.sdm-dark .modal .dataTables_length select,
-    body.sdm-dark .modal .dataTables_length label { background:#132235 !important; color:#e6eef7 !important; border:1px solid #26384d !important; }
-    body.sdm-dark .modal .dataTables_info { color:#a8b6c7 !important; padding:0.75rem 0 !important; }
-    body.sdm-dark .modal .paginate_button { color:#e6eef7 !important; background:transparent !important; border:none !important; }
-    body.sdm-dark .modal .paginate_button:hover { background:#26384d !important; color:#f2f7fb !important; }
-    body.sdm-dark .modal .paginate_button.previous,
-    body.sdm-dark .modal .paginate_button.next { color:#e6eef7 !important; }
-    body.sdm-dark .modal .table { color:#e6eef7 !important; background:transparent !important; }
-    body.sdm-dark .modal .table thead tr th { background:#132235 !important; color:#f2f7fb !important; border-bottom:2px solid #26384d !important; padding:0.75rem !important; font-weight:600 !important; }
-    body.sdm-dark .modal .table tbody tr td { background:transparent !important; border-color:#26384d !important; padding:0.5rem 0.75rem !important; color:#e6eef7 !important; }
-    body.sdm-dark .modal .table-striped tbody tr:nth-of-type(odd) td { background:rgba(255,255,255,0.03) !important; }
-    body.sdm-dark .modal .table-hover tbody tr:hover td { background:rgba(55,208,178,0.1) !important; }
-    body.sdm-dark .modal .form-control,
-    body.sdm-dark .modal select { background:#132235 !important; color:#e6eef7 !important; border:1px solid #26384d !important; }
-    body.sdm-dark .modal .close { color:#f2f7fb !important; opacity:0.7 !important; }
-    body.sdm-dark .modal .close:hover { opacity:1 !important; }
-  ")),
 
   tags$style(HTML(sdm_theme_css)),
 
@@ -494,10 +432,6 @@ server <- function(input, output, session) {
     if (!"cc_flag" %in% names(cleaned$occ)) {
       cleaned$occ$cc_flag <- FALSE
     }
-    cc_test_cols <- grep("^cc_test_", names(cleaned$occ), value = TRUE)
-    for (col in cc_test_cols) {
-      cleaned$occ[[col]] <- cleaned$occ[[col]]
-    }
     rv$cleaned_occurrence <- list(
       df = cleaned$occ,
       source_counts = cleaned$source_counts,
@@ -677,7 +611,9 @@ if (isTRUE(input$future_projection)) {
   output$esm_complexity_warning <- renderUI({
     req(input$model_id %in% c("esm_glm", "esm_maxnet"))
     n_vars <- length(input$biovars %||% sdm_default_biovars)
-    n_pres <- length(input$occurrence_file %||% "")
+    n_pres <- if (!is.null(rv$cleaned_occurrence) && is.data.frame(rv$cleaned_occurrence$df)) {
+      sum(rv$cleaned_occurrence$df$presence == 1, na.rm = TRUE)
+    } else 0L
     n_pairs <- n_vars * (n_vars - 1) / 2
     tags$div(
       div(class = "alert alert-info small-padded",
@@ -1595,51 +1531,24 @@ gd_append_log <- function(target, msg) {
     source <- input$gd_climate_source %||% "worldclim"
     res <- as.integer(input$gd_worldclim_res %||% 10)
     gd_append_log("gd_worldclim_log", paste0("Starting WorldClim download (source=", source, ", res=", res, ")..."))
-    tryCatch({
-      bg <- callr::r_bg(function() {
+    download_covariate_bg(
+      log_target = "gd_worldclim_log", log_append = gd_append_log,
+      label = "WorldClim",
+      download_fun = function() {
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_climate.R"))
         load_climate_covariates(
-          worldclim_dir = "Worldclim",
-          selected_biovars = 1:19,
-          training_extent = NULL, projection_extent = NULL,
-          aggregation_factor = 1,
-          allow_download = TRUE,
-          worldclim_res = res,
-          source = "worldclim",
-          selected_chelsa_extras = NULL,
-          log_fun = function(...) message(paste(...))
+          worldclim_dir = "Worldclim", selected_biovars = 1:19,
+          training_extent = NULL, projection_extent = NULL, aggregation_factor = 1,
+          allow_download = TRUE, worldclim_res = res, source = "worldclim",
+          selected_chelsa_extras = NULL, log_fun = function(...) message(paste(...))
         )
         message("WorldClim download complete.")
-      }, stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 300) {
-        Sys.sleep(1)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) {
-          for (ln in lines[nzchar(lines)]) gd_append_log("gd_worldclim_log", ln)
-        }
-        poll <- poll + 1
-      }
-      if (bg$is_alive()) {
-        gd_append_log("gd_worldclim_log", "WorldClim download still running (timeout at 5 min). Check terminal for progress.")
-      } else {
-        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_worldclim_log", ln)
-        v <- verify_worldclim_cache("Worldclim", source = source)
-        gd_append_log("gd_worldclim_log", paste("Verification:", v$detail))
-        shiny::showNotification(
-          paste0("WorldClim downloaded to ", file.path(sdm_project_root(), "Worldclim")),
-          type = "message", duration = 5
-        )
-      }
-    }, error = function(e) {
-      gd_append_log("gd_worldclim_log", paste("ERROR:", conditionMessage(e)))
-      shiny::showNotification(
-        paste0("WorldClim download failed: ", conditionMessage(e)),
-        type = "error", duration = 8
-      )
-    })
+      },
+      verify_fun = function() verify_worldclim_cache("Worldclim", source = source),
+      timeout_sec = 300,
+      notification_msg = paste0("WorldClim downloaded to ", file.path(sdm_project_root(), "Worldclim"))
+    )
   })
 
   observeEvent(input$gd_download_chelsa, {
@@ -1656,35 +1565,20 @@ gd_append_log <- function(target, msg) {
       return()
     }
     gd_append_log("gd_worldclim_log", paste("Downloading CHELSA extras:", paste(extras, collapse = ", ")))
-    tryCatch({
-      bg <- callr::r_bg(function(extras) {
+    download_covariate_bg(
+      log_target = "gd_worldclim_log", log_append = gd_append_log,
+      label = "CHELSA extras",
+      download_fun = function(extras) {
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_climate.R"))
         download_chelsa_extras("Worldclim", extras = extras, log_fun = function(...) message(paste(...)))
         message("CHELSA extras download complete.")
-      }, args = list(extras), stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 300) {
-        Sys.sleep(1)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_worldclim_log", ln)
-        poll <- poll + 1
-      }
-      last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-      if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_worldclim_log", ln)
-      v <- verify_chelsa_extras_cache("Worldclim")
-      gd_append_log("gd_worldclim_log", paste("Verification:", v$detail))
-      shiny::showNotification(
-        paste0("CHELSA extras downloaded to ", file.path(sdm_project_root(), "Worldclim")),
-        type = "message", duration = 5
-      )
-    }, error = function(e) {
-      gd_append_log("gd_worldclim_log", paste("ERROR:", conditionMessage(e)))
-      shiny::showNotification(
-        paste0("CHELSA extras download failed: ", conditionMessage(e)),
-        type = "error", duration = 8
-      )
-    })
+      },
+      args = list(extras = extras),
+      verify_fun = function() verify_chelsa_extras_cache("Worldclim"),
+      timeout_sec = 300,
+      notification_msg = paste0("CHELSA extras downloaded to ", file.path(sdm_project_root(), "Worldclim"))
+    )
   })
 
   observeEvent(input$gd_verify_future, {
@@ -1704,36 +1598,22 @@ gd_append_log <- function(target, msg) {
     ssp <- input$gd_cmip6_ssp %||% "SSP2-4.5"
     period <- input$gd_cmip6_period %||% "2041-2060"
     gd_append_log("gd_cmip6_log", paste("Starting CMIP6 download:", gcm, ssp, period, "..."))
-    tryCatch({
-      bg <- callr::r_bg(function(gcm, ssp, period) {
+    download_covariate_bg(
+      log_target = "gd_cmip6_log", log_append = gd_append_log,
+      label = "CMIP6",
+      download_fun = function(gcm, ssp, period) {
         library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_climate_future.R"))
         fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = 10,
                                out_dir = "Worldclim_future", quiet = FALSE)
         message("CMIP6 download complete.")
-      }, args = list(gcm = gcm, ssp = ssp, period = period), stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 600) {
-        Sys.sleep(1)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_cmip6_log", ln)
-        poll <- poll + 1
-      }
-      if (bg$is_alive()) {
-        bg$kill()
-        gd_append_log("gd_cmip6_log", "CMIP6 download timed out (>10 min). Killed.")
-      } else {
-        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_cmip6_log", ln)
-        v <- verify_future_cache()
-        gd_append_log("gd_cmip6_log", paste("Verification:", v$detail))
-        rv$cmip6_scenarios <- v
-        shiny::showNotification("CMIP6 scenario download complete.", type = "message")
-      }
-    }, error = function(e) {
-      gd_append_log("gd_cmip6_log", paste("ERROR:", conditionMessage(e)))
-    })
+      },
+      args = list(gcm = gcm, ssp = ssp, period = period),
+      verify_fun = function() { v <- verify_future_cache(); rv$cmip6_scenarios <<- v; v },
+      timeout_sec = 600, kill_on_timeout = TRUE,
+      notification_msg = "CMIP6 scenario download complete."
+    )
   })
 
   observeEvent(input$gd_average_gcms, {
@@ -1745,34 +1625,22 @@ gd_append_log <- function(target, msg) {
       return()
     }
     gd_append_log("gd_cmip6_log", paste("Averaging GCMs:", paste(gcm_list, collapse = ", "), "SSP", ssp, period))
-    tryCatch({
-      bg <- callr::r_bg(function(gcm_list, ssp, period) {
+    download_covariate_bg(
+      log_target = "gd_cmip6_log", log_append = gd_append_log,
+      label = "GCM averaging",
+      download_fun = function(gcm_list, ssp, period) {
         library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_climate_future.R"))
         average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc",
                            res = 10, out_dir = "Worldclim_future", quiet = FALSE)
         message("GCM averaging complete.")
-      }, args = list(gcm_list = gcm_list, ssp = ssp, period = period), stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 600) {
-        Sys.sleep(1)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_cmip6_log", ln)
-        poll <- poll + 1
-      }
-      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_cmip6_log", "Average timed out (>10 min). Killed.") }
-      else {
-        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_cmip6_log", ln)
-        v <- verify_future_cache()
-        gd_append_log("gd_cmip6_log", paste("Verification:", v$detail))
-        rv$cmip6_scenarios <- v
-        shiny::showNotification("GCM averaging complete.", type = "message")
-      }
-    }, error = function(e) {
-      gd_append_log("gd_cmip6_log", paste("ERROR:", conditionMessage(e)))
-    })
+      },
+      args = list(gcm_list = gcm_list, ssp = ssp, period = period),
+      verify_fun = function() { v <- verify_future_cache(); rv$cmip6_scenarios <<- v; v },
+      timeout_sec = 600, kill_on_timeout = TRUE,
+      notification_msg = "GCM averaging complete."
+    )
   })
 
   observeEvent(input$gd_download_elevation, {
@@ -1782,37 +1650,25 @@ gd_append_log <- function(target, msg) {
       gd_append_log("gd_terrain_log", "ERROR: OpenTopography API key required. Enter in the field above.")
       return()
     }
-    gd_append_log("gd_terrain_log", paste("Downloading elevation DEM:", demtype, "..."))
-    tryCatch({
-      bg <- callr::r_bg(function(demtype, api_key) {
+    download_covariate_bg(
+      log_target = "gd_terrain_log", log_append = gd_append_log,
+      label = paste("elevation DEM:", demtype),
+      download_fun = function(demtype, api_key) {
         library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_elevation.R"))
         cache_dir <- file.path(sdm_project_root(), "covariates", "opentopo")
         dir.create(cache_dir, recursive = TRUE)
         load_elevation_covariate(training_extent = NULL, projection_extent = NULL,
-                                 cache_dir = cache_dir, demtype = demtype,
-                                 api_key = api_key, allow_download = TRUE,
-                                 log_fun = function(...) message(paste(...)))
+                                  cache_dir = cache_dir, demtype = demtype,
+                                  api_key = api_key, allow_download = TRUE,
+                                  log_fun = function(...) message(paste(...)))
         message("Elevation download complete.")
-      }, args = list(demtype = demtype, api_key = api_key), stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 300) {
-        Sys.sleep(1)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_terrain_log", ln)
-        poll <- poll + 1
-      }
-      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_terrain_log", "Download timed out (5 min). Killed.") }
-      else {
-        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_terrain_log", ln)
-        v <- verify_elevation_cache()
-        gd_append_log("gd_terrain_log", paste("Verification:", v$detail))
-      }
-    }, error = function(e) {
-      gd_append_log("gd_terrain_log", paste("ERROR:", conditionMessage(e)))
-    })
+      },
+      args = list(demtype = demtype, api_key = api_key),
+      verify_fun = function() verify_elevation_cache(),
+      timeout_sec = 300, kill_on_timeout = TRUE
+    )
   })
 
   observeEvent(input$gd_download_soil, {
@@ -1828,9 +1684,10 @@ gd_append_log <- function(target, msg) {
       gd_append_log("gd_terrain_log", "Select at least one variable and one depth.")
       return()
     }
-    gd_append_log("gd_terrain_log", paste("Downloading soil:", paste(selected_vars, collapse = ","), "depths:", paste(selected_depths, collapse = ",")))
-    tryCatch({
-      bg <- callr::r_bg(function(selected_vars, selected_depths) {
+    download_covariate_bg(
+      log_target = "gd_terrain_log", log_append = gd_append_log,
+      label = paste("soil:", paste(selected_vars, collapse = ",")),
+      download_fun = function(selected_vars, selected_depths) {
         library(terra)
         source("R/optimized_sdm.R")
         cache_dir <- file.path(sdm_project_root(), "covariates", "soilgrids")
@@ -1846,30 +1703,18 @@ gd_append_log <- function(target, msg) {
           }
         }
         message("Soil download complete.")
-      }, args = list(selected_vars = selected_vars, selected_depths = selected_depths), stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 600) {
-        Sys.sleep(2)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_terrain_log", ln)
-        poll <- poll + 1
-      }
-      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_terrain_log", "Download timed out (>20 min). Killed.") }
-      else {
-        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_terrain_log", ln)
-        v <- verify_soil_cache()
-        gd_append_log("gd_terrain_log", paste("Verification:", v$detail))
-      }
-    }, error = function(e) {
-      gd_append_log("gd_terrain_log", paste("ERROR:", conditionMessage(e)))
-    })
+      },
+      args = list(selected_vars = selected_vars, selected_depths = selected_depths),
+      verify_fun = function() verify_soil_cache(),
+      timeout_sec = 1200, kill_on_timeout = TRUE
+    )
   })
 
   observeEvent(input$gd_download_uv, {
-    gd_append_log("gd_env_log", "Downloading UV-B radiation layers...")
-    tryCatch({
-      bg <- callr::r_bg(function() {
+    download_covariate_bg(
+      log_target = "gd_env_log", log_append = gd_append_log,
+      label = "UV-B radiation",
+      download_fun = function() {
         library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_uv.R"))
@@ -1878,30 +1723,17 @@ gd_append_log <- function(target, msg) {
                           covariate_cache_dir = file.path(sdm_project_root(), "covariates", "gluv"),
                           allow_download = TRUE, log_fun = function(...) message(paste(...)))
         message("UV-B download complete.")
-      }, stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 300) {
-        Sys.sleep(1)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
-        poll <- poll + 1
-      }
-      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
-      else {
-        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
-        v <- verify_uv_cache()
-        gd_append_log("gd_env_log", paste("Verification:", v$detail))
-      }
-    }, error = function(e) {
-      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
-    })
+      },
+      verify_fun = function() verify_uv_cache(),
+      timeout_sec = 300, kill_on_timeout = TRUE
+    )
   })
 
   observeEvent(input$gd_download_vegetation, {
-    gd_append_log("gd_env_log", "Downloading GIMMS NDVI climatology...")
-    tryCatch({
-      bg <- callr::r_bg(function() {
+    download_covariate_bg(
+      log_target = "gd_env_log", log_append = gd_append_log,
+      label = "GIMMS NDVI climatology",
+      download_fun = function() {
         library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_vegetation.R"))
@@ -1911,24 +1743,10 @@ gd_append_log <- function(target, msg) {
                                 cache_dir = file.path(sdm_project_root(), "covariates", "vegetation"),
                                 allow_download = TRUE, log_fun = function(...) message(paste(...)))
         message("GIMMS NDVI download complete.")
-      }, stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 300) {
-        Sys.sleep(2)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
-        poll <- poll + 1
-      }
-      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
-      else {
-        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
-        v <- verify_vegetation_cache()
-        gd_append_log("gd_env_log", paste("Verification:", v$detail))
-      }
-    }, error = function(e) {
-      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
-    })
+      },
+      verify_fun = function() verify_vegetation_cache(),
+      timeout_sec = 300, kill_on_timeout = TRUE
+    )
   })
 
   observeEvent(input$gd_gee_check, {
@@ -1943,9 +1761,10 @@ gd_append_log <- function(target, msg) {
 
   observeEvent(input$gd_download_lulc, {
     year <- as.integer(input$gd_lulc_year %||% 2020)
-    gd_append_log("gd_env_log", paste("Downloading LULC year:", year, "..."))
-    tryCatch({
-      bg <- callr::r_bg(function(year) {
+    download_covariate_bg(
+      log_target = "gd_env_log", log_append = gd_append_log,
+      label = paste("LULC year:", year),
+      download_fun = function(year) {
         library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_lulc.R"))
@@ -1954,31 +1773,19 @@ gd_append_log <- function(target, msg) {
                             covariate_cache_dir = file.path(sdm_project_root(), "covariates", "lulc"),
                             allow_download = TRUE, log_fun = function(...) message(paste(...)))
         message("LULC download complete.")
-      }, args = list(year = year), stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 300) {
-        Sys.sleep(2)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
-        poll <- poll + 1
-      }
-      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
-      else {
-        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
-        v <- verify_lulc_cache()
-        gd_append_log("gd_env_log", paste("Verification:", v$detail))
-      }
-    }, error = function(e) {
-      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
-    })
+      },
+      args = list(year = year),
+      verify_fun = function() verify_lulc_cache(),
+      timeout_sec = 300, kill_on_timeout = TRUE
+    )
   })
 
   observeEvent(input$gd_download_hfp, {
     year <- as.integer(input$gd_hfp_year %||% 2020)
-    gd_append_log("gd_env_log", paste("Downloading Human Footprint year:", year, "..."))
-    tryCatch({
-      bg <- callr::r_bg(function(year) {
+    download_covariate_bg(
+      log_target = "gd_env_log", log_append = gd_append_log,
+      label = paste("Human Footprint year:", year),
+      download_fun = function(year) {
         library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_human_footprint.R"))
@@ -1987,24 +1794,11 @@ gd_append_log <- function(target, msg) {
                                         covariate_cache_dir = file.path(sdm_project_root(), "covariates", "human_footprint"),
                                         allow_download = TRUE, log_fun = function(...) message(paste(...)))
         message("HFP download complete.")
-      }, args = list(year = year), stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 300) {
-        Sys.sleep(2)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
-        poll <- poll + 1
-      }
-      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
-      else {
-        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
-        v <- verify_hfp_cache()
-        gd_append_log("gd_env_log", paste("Verification:", v$detail))
-      }
-    }, error = function(e) {
-      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
-    })
+      },
+      args = list(year = year),
+      verify_fun = function() verify_hfp_cache(),
+      timeout_sec = 300, kill_on_timeout = TRUE
+    )
   })
 
   observeEvent(input$gd_download_drought, {
@@ -2013,9 +1807,10 @@ gd_append_log <- function(target, msg) {
       gd_append_log("gd_env_log", "Select at least one drought period.")
       return()
     }
-    gd_append_log("gd_env_log", paste("Downloading drought periods:", paste(periods, collapse = ", ")))
-    tryCatch({
-      bg <- callr::r_bg(function(periods) {
+    download_covariate_bg(
+      log_target = "gd_env_log", log_append = gd_append_log,
+      label = paste("drought periods:", paste(periods, collapse = ", ")),
+      download_fun = function(periods) {
         library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_drought.R"))
@@ -2025,30 +1820,18 @@ gd_append_log <- function(target, msg) {
                                 covariate_cache_dir = file.path(sdm_project_root(), "covariates", "drought"),
                                 allow_download = TRUE, log_fun = function(...) message(paste(...)))
         message("Drought download complete.")
-      }, args = list(periods = periods), stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 300) {
-        Sys.sleep(2)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
-        poll <- poll + 1
-      }
-      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
-      else {
-        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
-        v <- verify_drought_cache()
-        gd_append_log("gd_env_log", paste("Verification:", v$detail))
-      }
-    }, error = function(e) {
-      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
-    })
+      },
+      args = list(periods = periods),
+      verify_fun = function() verify_drought_cache(),
+      timeout_sec = 300, kill_on_timeout = TRUE
+    )
   })
 
   observeEvent(input$gd_download_bioclime, {
-    gd_append_log("gd_env_log", "Downloading bioclimatic seasonality...")
-    tryCatch({
-      bg <- callr::r_bg(function() {
+    download_covariate_bg(
+      log_target = "gd_env_log", log_append = gd_append_log,
+      label = "bioclimatic seasonality",
+      download_fun = function() {
         library(terra)
         source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_bioclim_seasonality.R"))
@@ -2058,24 +1841,10 @@ gd_append_log <- function(target, msg) {
                                   covariate_cache_dir = file.path(sdm_project_root(), "covariates", "bioclim_season"),
                                   allow_download = TRUE, log_fun = function(...) message(paste(...)))
         message("Bioclim season download complete.")
-      }, stdout = "|", stderr = "|")
-      poll <- 0
-      while (bg$is_alive() && poll < 300) {
-        Sys.sleep(1)
-        lines <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(lines) > 0) for (ln in lines[nzchar(lines)]) gd_append_log("gd_env_log", ln)
-        poll <- poll + 1
-      }
-      if (bg$is_alive()) { bg$kill(); gd_append_log("gd_env_log", "Download timed out (5 min). Killed.") }
-      else {
-        last_out <- tryCatch(bg$read_output(), error = function(e) character(0))
-        if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_env_log", ln)
-        v <- verify_bioclim_season_cache()
-        gd_append_log("gd_env_log", paste("Verification:", v$detail))
-      }
-    }, error = function(e) {
-      gd_append_log("gd_env_log", paste("ERROR:", conditionMessage(e)))
-    })
+      },
+      verify_fun = function() verify_bioclim_season_cache(),
+      timeout_sec = 300, kill_on_timeout = TRUE
+    )
   })
 
   observeEvent(input$gd_download_all, {
