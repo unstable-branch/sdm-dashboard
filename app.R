@@ -57,9 +57,6 @@ ui <- fluidPage(
     tags$script(HTML("\n      console.log('SDM Dashboard JS loaded');\n      Shiny.addCustomMessageHandler('setRunState', function(x) {\n        var btn = document.getElementById('run_model');\n        if (!btn) { console.log('setRunState: run_model btn not found'); return; }\n        console.log('setRunState called, running=', x.running);\n        btn.disabled = !!x.running;\n        btn.classList.toggle('disabled', !!x.running);\n        btn.textContent = x.running ? 'Running SDM...' : 'Run SDM';\n      });\n      (function() {\n        function setTheme(dark) {\n          document.body.classList.toggle('sdm-dark', dark);\n          document.body.classList.toggle('sdm-light', !dark);\n          try { window.localStorage.setItem('sdm-dashboard-theme', dark ? 'dark' : 'light'); } catch (e) {}\n        }\n        function initialTheme() {\n          try {\n            var saved = window.localStorage.getItem('sdm-dashboard-theme');\n            if (saved === 'dark' || saved === 'light') return saved === 'dark';\n          } catch (e) {}\n          return true;\n        }\n        function wireToggle() {\n          var toggle = document.getElementById('dark_mode');\n          var dark = initialTheme();\n          setTheme(dark);\n          if (!toggle || toggle.dataset.themeBound === '1') return;\n          toggle.checked = dark;\n          toggle.dataset.themeBound = '1';\n          toggle.addEventListener('change', function() { setTheme(toggle.checked); });\n        }\n        document.addEventListener('DOMContentLoaded', wireToggle);\n        document.addEventListener('shiny:connected', function() { console.log('Shiny connected'); wireToggle(); });\n      })();\n    "))
   ),
 
-
-  tags$style(HTML(sdm_theme_css)),
-
   ui_header(),
 
   sidebarLayout(
@@ -79,6 +76,7 @@ server <- function(input, output, session) {
   previous_occurrence_path <- reactiveVal(NULL)
   last_auto_species <- reactiveVal(sdm_initial_species)
   species_manually_set <- reactiveVal(FALSE)
+  last_progress <- reactiveVal(0)
   readiness_item <- function(title, detail, state = "info") {
     symbol <- switch(state, ok = "OK", warn = "!", error = "!", "i")
     div(class = "readiness-item", div(class = "readiness-title", span(class = paste("pill", paste0("pill-", state)), symbol), title), div(class = "readiness-detail", detail))
@@ -88,10 +86,10 @@ server <- function(input, output, session) {
     req(input$gbif_taxon)
     output$gbif_status <- renderUI(p("Fetching from GBIF..."))
     tryCatch({
-      if (nzchar(input$gbif_token)) {
+      if (nzchar(input$gbif_token %||% "")) {
         result <- read_gbif_download(
           taxon = input$gbif_taxon,
-          country = if (nzchar(input$gbif_country)) input$gbif_country else NULL,
+          country = if (nzchar(input$gbif_country %||% "")) input$gbif_country else NULL,
           token = input$gbif_token
         )
         occ_df <- result$occurrences
@@ -99,7 +97,7 @@ server <- function(input, output, session) {
       } else {
         occ_df <- read_gbif_records(
           taxon = input$gbif_taxon,
-          country = if (nzchar(input$gbif_country)) input$gbif_country else NULL,
+          country = if (nzchar(input$gbif_country %||% "")) input$gbif_country else NULL,
           max_records = input$gbif_max_records,
           log_fun = append_log
         )
@@ -828,8 +826,8 @@ if (isTRUE(input$future_projection)) {
             gbif_doi = rv$gbif_doi, source = input$climate_source, log_fun = append_log,
             progress_fun = function(p) {
               if (is.list(p) && !is.null(p$detail)) {
-                incProgress(p$value - getOption("sdm_last_progress", 0), detail = p$detail)
-                options(sdm_last_progress = p$value)
+                incProgress(p$value - last_progress(), detail = p$detail)
+                last_progress(p$value)
               } else {
                 incProgress(as.numeric(p))
               }
@@ -913,7 +911,7 @@ if (isTRUE(input$future_projection)) {
       if (!is.null(r$mess) && !is.null(mess_src) && length(mess_src) > 0 && any(nzchar(mess_src))) {
         mess_raster <- terra::rast(r$mess)
         r_mess <- tryCatch(terra::project(mess_raster, "EPSG:4326"),
-                           error = function(e) { showNotification("MESS projection failed: ", e$message, type = "warning"); NULL })
+                           error = function(e) { showNotification(paste("MESS projection failed:", e$message), type = "warning"); NULL })
         if (is.null(r_mess)) {
           updateCheckboxInput(session, "show_mess", value = FALSE)
           return()
@@ -980,7 +978,6 @@ if (isTRUE(input$future_projection)) {
   })
   output$future_plot <- renderPlot({ if (is.null(rv$result) || is.null(rv$result$future)) return(placeholder_plot("Run with future projection enabled to view a future suitability map.")); r <- rv$result; plot_suitability_map(r$future$suitability, r$occurrence, r$config$projection_extent, paste(r$config$species, r$config$future_label), r$config$threshold, TRUE) })
   output$delta_plot <- renderPlot({ if (is.null(rv$result) || is.null(rv$result$future)) return(placeholder_plot("Run with future projection enabled to view current-to-future change.")); plot_delta_map(rv$result$future$delta, rv$result$config$future_label) })
-  output$occurrence_plot <- renderPlot({ if (is.null(rv$result)) return(placeholder_plot("No occurrence map yet.")); plot_occurrence_map(rv$result$occurrence, rv$result$config$species) })
   output$summary_panel <- renderUI({
     r <- rv$result
     if (is.null(r)) return(div(class = "small-muted", "No model has been run yet."))
@@ -1195,8 +1192,8 @@ if (isTRUE(input$future_projection)) {
       if ("x" %in% names(issues_flagged) && "y" %in% names(issues_flagged)) {
         flagged_coords <- paste(issues_flagged$x, issues_flagged$y, sep = "_")
         if (!is.null(rv$cleaned_occurrence)) {
-          occ_coords <- paste(rv$cleaned_occurrence$longitude, rv$cleaned_occurrence$latitude, sep = "_")
-          rv$cleaned_occurrence <- rv$cleaned_occurrence[!occ_coords %in% flagged_coords, , drop = FALSE]
+          occ_coords <- paste(rv$cleaned_occurrence$df$longitude, rv$cleaned_occurrence$df$latitude, sep = "_")
+          rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df[!occ_coords %in% flagged_coords, , drop = FALSE]
           append_log(paste0("Excluded ", length(flagged_coords), " GBIF-flagged records from current result."))
         }
       }
@@ -1278,7 +1275,7 @@ if (isTRUE(input$future_projection)) {
       print(p)
     }
   }, height = function() {
-    n <- length(rv$result$esm_config$covariates %||% 6)
+    n <- length(rv$result$esm_config$covariates %||% seq_len(6))
     max(200, min(n * 60, 600))
   })
 
@@ -1305,15 +1302,6 @@ if (isTRUE(input$future_projection)) {
   })
 
   output$run_log <- renderText(rv$log)
-  observeEvent(input$remove_flagged, {
-    req(rv$result)
-    occ <- rv$result$occurrence
-    if (!is.null(occ$cc_flag)) {
-      rv$result$occurrence <- occ[is.na(occ$cc_flag) | occ$cc_flag == FALSE, ]
-      rv$result$occurrence_used <- rv$result$occurrence
-      append_log("Removed CoordinateCleaner-flagged records from current result.")
-    }
-  })
   output$sidecar_download_note <- renderUI({
     r <- rv$result
     if (is.null(r)) return(NULL)
@@ -1442,7 +1430,7 @@ gd_append_log <- function(target, msg) {
 
   observe({
     rv$cmip6_scenarios <- verify_future_cache()
-  })
+  }, ignoreInit = TRUE)
 
   output$gd_elevation_status <- renderUI({
     v <- verify_elevation_cache()
@@ -1610,7 +1598,7 @@ gd_append_log <- function(target, msg) {
         message("CMIP6 download complete.")
       },
       args = list(gcm = gcm, ssp = ssp, period = period),
-      verify_fun = function() { v <- verify_future_cache(); rv$cmip6_scenarios <<- v; v },
+      verify_fun = function() verify_future_cache(),
       timeout_sec = 600, kill_on_timeout = TRUE,
       notification_msg = "CMIP6 scenario download complete."
     )
@@ -1637,7 +1625,7 @@ gd_append_log <- function(target, msg) {
         message("GCM averaging complete.")
       },
       args = list(gcm_list = gcm_list, ssp = ssp, period = period),
-      verify_fun = function() { v <- verify_future_cache(); rv$cmip6_scenarios <<- v; v },
+      verify_fun = function() verify_future_cache(),
       timeout_sec = 600, kill_on_timeout = TRUE,
       notification_msg = "GCM averaging complete."
     )

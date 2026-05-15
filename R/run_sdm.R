@@ -80,9 +80,8 @@ if (check_cancelled(log_fun)) return(invisible(NULL))
 
 progress_step(progress_fun, 0.10, "Cleaning occurrence data")
   if (!is.null(occurrence_source) && nzchar(occurrence_source)) log_message(log_fun, "Observation record source: ", occurrence_source)
-  if (!is.null(cleaned_occurrence) && is.data.frame(cleaned_occurrence) && nrow(cleaned_occurrence) > 0) {
-    log_message(log_fun, "Using pre-cleaned occurrence data with ", nrow(cleaned_occurrence), " records (user-cleaned map)")
-    occ <- cleaned_occurrence
+  if (!is.null(cleaned_occurrence) && is.list(cleaned_occurrence) && is.data.frame(cleaned_occurrence$df) && nrow(cleaned_occurrence$df) > 0) {
+    occ <- cleaned_occurrence$df
     cleaned <- list(occ = occ, removed_bad_coordinates = 0, removed_duplicates = 0, original_rows = nrow(occ), columns = colnames(occ))
     if (is.null(occ$cc_flag)) occ$cc_flag <- FALSE
   } else {
