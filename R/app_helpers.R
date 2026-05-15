@@ -58,9 +58,9 @@ default_species_label <- function(path = sdm_default_occurrence_file) {
   if (!is.na(inferred) && nzchar(inferred)) inferred else sdm_default_species
 }
 
-clean_occurrence_preview <- function(path, min_source_records = sdm_default_min_source_records, use_cc = FALSE) {
+clean_occurrence_preview <- function(path, min_source_records = sdm_default_min_source_records, use_cc = FALSE, cc_tests = "all") {
   quiet_log <- function(message) invisible(NULL)
-  tryCatch(clean_occurrences(path, min_source_records = min_source_records, merge_small_sources = TRUE, use_cc = use_cc, log_fun = quiet_log), error = function(e) list(error = conditionMessage(e)))
+  tryCatch(clean_occurrences(path, min_source_records = min_source_records, merge_small_sources = TRUE, use_cc = use_cc, cc_tests = cc_tests, log_fun = quiet_log), error = function(e) list(error = conditionMessage(e)))
 }
 
 occurrence_extent_overlap <- function(occ, extent) {

@@ -99,39 +99,60 @@ verify_future_cache <- function(future_dir = "Worldclim_future") {
                  total_size_mb = NA_real_))
   }
   subdirs <- list.dirs(future_dir, recursive = FALSE)
+  subdirs <- subdirs[!grepl("^wc2\\.", basename(subdirs))]
   gcm_map <- c("UKESM1-0-LL" = "UKESM1-0-LL", "MPI-ESM1-2-HR" = "MPI-ESM1-2-HR",
                "IPSL-CM6A-LR" = "IPSL-CM6A-LR", "MRI-ESM2-0" = "MRI-ESM2-0",
                "GFDL-ESM4" = "GFDL-ESM4")
-  ssp_map <- c("SSP1-2.6" = "126", "SSP2-4.5" = "245",
-               "SSP3-7.0" = "370", "SSP5-8.5" = "585")
+  ssp_labels <- c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0", "SSP5-8.5")
+  ssp_codes <- c("126", "245", "370", "585")
   rows <- list()
   for (d in subdirs) {
     bn <- basename(d)
-    parts <- strsplit(bn, "_")[[1]]
-    if (identical(parts[1], "averaged")) {
-      gcm <- paste("averaged", parts[2], parts[3], sep = "_")
-      gcm_display <- paste(parts[2], parts[3], sep = " + ")
-      ssp_code <- parts[4]
-      period <- parts[5]
+    if (grepl("^averaged_", bn)) {
+      parts <- strsplit(bn, "_")[[1]]
+      ssp_code_idx <- which(grepl("^SSP[0-9]", parts))[1]
+      if (!is.na(ssp_code_idx) && ssp_code_idx > 2) {
+        gcms <- paste(parts[2:(ssp_code_idx - 1)], collapse = "_")
+        gcm_display <- paste(parts[2:(ssp_code_idx - 1)], collapse = " + ")
+        ssp_code <- gsub("^SSP", "", parts[ssp_code_idx])
+        period <- parts[ssp_code_idx + 1]
+      } else {
+        gcms <- bn; gcm_display <- bn; ssp_code <- NA; period <- NA
+      }
       tifs <- list.files(d, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
       size_mb <- sum(file.size(tifs), na.rm = TRUE) / 1e6
+      ssp_display <- if (!is.na(ssp_code)) {
+        names(ssp_codes)[ssp_codes == ssp_code][1] %||% paste0("SSP", ssp_code)
+      } else NA
       rows <- c(rows, list(data.frame(
         GCM = paste0("Ensemble (", gcm_display, ")"),
-        SSP = names(ssp_map)[ssp_map == ssp_code][1] %||% paste0("SSP", ssp_code),
+        SSP = ssp_display,
         Period = period,
         Files = length(tifs),
         SizeMB = round(size_mb, 1),
+        dir = basename(d),
         stringsAsFactors = FALSE
       )))
     } else {
-      gcm <- parts[1]; ssp_code <- parts[2]; period <- parts[3]
-      gcm_display <- names(gcm_map)[grepl(gcm, gcm_map, ignore.case = TRUE)][1] %||% gcm
-      ssp_display <- names(ssp_map)[ssp_map == ssp_code][1] %||% ssp_code
+      ssp_pos <- regexpr("SSP[0-9]{1,3}(-[0-9])?", bn)[1]
+      if (ssp_pos > 1) {
+        gcm <- substr(bn, 1, ssp_pos - 2)
+        rest <- substr(bn, ssp_pos, nchar(bn))
+        rest_parts <- strsplit(rest, "_")[[1]]
+        ssp_label <- rest_parts[1]
+        period <- rest_parts[2]
+      } else {
+        gcm <- bn; ssp_label <- NA; period <- NA
+      }
+      gcm_display <- names(gcm_map)[grepl(gsub("-", ".", gcm), gcm_map, ignore.case = TRUE)][1] %||% gcm
+      ssp_display <- if (!is.na(ssp_label) && ssp_label %in% ssp_labels) ssp_label else if (!is.na(ssp_label)) ssp_label else NA
       tifs <- list.files(d, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
       size_mb <- sum(file.size(tifs), na.rm = TRUE) / 1e6
       rows <- c(rows, list(data.frame(GCM = gcm_display, SSP = ssp_display,
                                      Period = period, Files = length(tifs),
-                                     SizeMB = round(size_mb, 1), stringsAsFactors = FALSE)))
+                                     SizeMB = round(size_mb, 1),
+                                     dir = basename(d),
+                                     stringsAsFactors = FALSE)))
     }
   }
   scenarios <- if (length(rows) > 0) do.call(rbind, rows) else data.frame(

@@ -95,6 +95,29 @@ ui <- fluidPage(
     body.sdm-dark .content-card { background:rgba(15,28,43,0.92) !important; }
     body.sdm-dark .content-card strong { color:inherit !important; }
     .status-ok strong, .status-warn strong, .status-error strong, .status-info strong { color:inherit; }
+    body.sdm-dark .modal-content { background:#0f1c2b !important; color:#e6eef7 !important; border:1px solid #26384d !important; border-radius:0.5rem !important; }
+    body.sdm-dark .modal-header { background:#132235 !important; border-bottom:1px solid #26384d !important; padding:1rem 1.25rem !important; border-radius:0.5rem 0.5rem 0 0 !important; }
+    body.sdm-dark .modal-header .modal-title { color:#f2f7fb !important; font-size:1.25rem !important; }
+    body.sdm-dark .modal-body { background:#0f1c2b !important; color:#e6eef7 !important; padding:1.25rem !important; }
+    body.sdm-dark .modal-footer { background:#132235 !important; border-top:1px solid #26384d !important; padding:0.75rem 1.25rem !important; border-radius:0 0 0.5rem 0.5rem !important; }
+    body.sdm-dark .modal .dataTables_wrapper { color:#e6eef7 !important; background:transparent !important; }
+    body.sdm-dark .modal .dataTables_filter input,
+    body.sdm-dark .modal .dataTables_length select,
+    body.sdm-dark .modal .dataTables_length label { background:#132235 !important; color:#e6eef7 !important; border:1px solid #26384d !important; }
+    body.sdm-dark .modal .dataTables_info { color:#a8b6c7 !important; padding:0.75rem 0 !important; }
+    body.sdm-dark .modal .paginate_button { color:#e6eef7 !important; background:transparent !important; border:none !important; }
+    body.sdm-dark .modal .paginate_button:hover { background:#26384d !important; color:#f2f7fb !important; }
+    body.sdm-dark .modal .paginate_button.previous,
+    body.sdm-dark .modal .paginate_button.next { color:#e6eef7 !important; }
+    body.sdm-dark .modal .table { color:#e6eef7 !important; background:transparent !important; }
+    body.sdm-dark .modal .table thead tr th { background:#132235 !important; color:#f2f7fb !important; border-bottom:2px solid #26384d !important; padding:0.75rem !important; font-weight:600 !important; }
+    body.sdm-dark .modal .table tbody tr td { background:transparent !important; border-color:#26384d !important; padding:0.5rem 0.75rem !important; color:#e6eef7 !important; }
+    body.sdm-dark .modal .table-striped tbody tr:nth-of-type(odd) td { background:rgba(255,255,255,0.03) !important; }
+    body.sdm-dark .modal .table-hover tbody tr:hover td { background:rgba(55,208,178,0.1) !important; }
+    body.sdm-dark .modal .form-control,
+    body.sdm-dark .modal select { background:#132235 !important; color:#e6eef7 !important; border:1px solid #26384d !important; }
+    body.sdm-dark .modal .close { color:#f2f7fb !important; opacity:0.7 !important; }
+    body.sdm-dark .modal .close:hover { opacity:1 !important; }
   ")),
 
   tags$style(HTML(sdm_theme_css)),
@@ -112,7 +135,8 @@ ui <- fluidPage(
 
 server <- function(input, output, session) {
   rv <- reactiveValues(result = NULL, log = "Ready.\n", error = NULL, running = FALSE, gbif_temp_file = NULL, gbif_doi = NULL, cleaned_occurrence = NULL,
-                      batch_running = FALSE, batch_results = NULL, batch_log = character())
+                      batch_running = FALSE, batch_results = NULL, batch_log = character(),
+                      cmip6_scenarios = NULL)
   append_log <- function(message) rv$log <- paste0(rv$log, format(Sys.time(), "%H:%M:%S"), "  ", message, "\n")
   last_auto_species <- reactiveVal(sdm_initial_species)
   species_manually_set <- reactiveVal(FALSE)
@@ -288,6 +312,29 @@ server <- function(input, output, session) {
   output$future_download_status <- renderUI({ future_download_status() })
   outputOptions(output, "future_download_status", suspendWhenHidden = FALSE)
 
+  output$future_scenario_selector <- renderUI({
+    scenarios <- rv$cmip6_scenarios
+    if (is.null(scenarios) || nrow(scenarios$scenarios) == 0) {
+      return(tagList(
+        p(class = "small-muted", "No scenarios downloaded yet. Use Get Data tab to download."),
+        textInput("future_worldclim_dir", "Or enter folder path manually:",
+                  value = sdm_default_future_worldclim_dir)
+      ))
+    }
+    choices <- setNames(
+      file.path("Worldclim_future", scenarios$scenarios$dir),
+      paste(scenarios$scenarios$GCM, scenarios$scenarios$SSP, scenarios$scenarios$Period, sep = " / ")
+    )
+    tagList(
+      selectInput("future_worldclim_dir", "CMIP6 scenario",
+                  choices = c("Select a scenario" = "", choices),
+                  selected = ""),
+      p(class = "small-muted", style = "font-size:0.78em;",
+        paste(nrow(scenarios$scenarios), "scenario(s) available. Selected folder:", input$future_worldclim_dir %||% "none"))
+    )
+  })
+  outputOptions(output, "future_scenario_selector", suspendWhenHidden = FALSE)
+
   occurrence_source <- function() {
     selected <- if (is.null(input$data_source)) "project" else input$data_source
     uploaded <- !is.null(input$occ_file)
@@ -342,7 +389,7 @@ server <- function(input, output, session) {
       showModal(modalDialog(title = "Flagged Records", "No records flagged by CoordinateCleaner.", easyClose = TRUE, footer = modalButton("Close")))
       return()
     }
-    cols <- c("longitude", "latitude", "species", "source", "cc_flag",
+    cols <- c("longitude", "latitude", "source", "cc_flag",
               "cc_test_sea", "cc_test_capitals", "cc_test_institutions",
               "cc_test_centroids", "cc_test_urban", "cc_test_zero")
     cols_present <- cols[cols %in% names(flagged)]
@@ -450,7 +497,7 @@ server <- function(input, output, session) {
       return()
     }
     use_cc <- isTRUE(input$use_coordinatecleaner)
-    cleaned <- clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records, use_cc = use_cc)
+    cleaned <- clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records, use_cc = use_cc, cc_tests = input$cc_tests %||% "all")
     if (!is.null(cleaned$error)) {
       rv$cleaned_occurrence <- NULL
       return()
@@ -1382,8 +1429,8 @@ gd_append_log <- function(target, msg) {
   outputOptions(output, "gd_chelsa_status", suspendWhenHidden = FALSE)
 
   output$gd_cmip6_scenarios <- renderUI({
-    v <- verify_future_cache()
-    if (v$status != "ok" || nrow(v$scenarios) == 0) {
+    v <- rv$cmip6_scenarios
+    if (is.null(v) || v$status != "ok" || nrow(v$scenarios) == 0) {
       return(p("No CMIP6 scenarios downloaded yet."))
     }
     rows <- lapply(seq_len(nrow(v$scenarios)), function(i) {
@@ -1399,6 +1446,10 @@ gd_append_log <- function(target, msg) {
     )
   })
   outputOptions(output, "gd_cmip6_scenarios", suspendWhenHidden = FALSE)
+
+  observe({
+    rv$cmip6_scenarios <- verify_future_cache()
+  })
 
   output$gd_elevation_status <- renderUI({
     v <- verify_elevation_cache()
@@ -1620,6 +1671,8 @@ gd_append_log <- function(target, msg) {
         if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_cmip6_log", ln)
         v <- verify_future_cache()
         gd_append_log("gd_cmip6_log", paste("Verification:", v$detail))
+        rv$cmip6_scenarios <- v
+        shiny::showNotification("CMIP6 scenario download complete.", type = "message")
       }
     }, error = function(e) {
       gd_append_log("gd_cmip6_log", paste("ERROR:", conditionMessage(e)))
@@ -1657,6 +1710,7 @@ gd_append_log <- function(target, msg) {
         if (length(last_out) > 0) for (ln in last_out[nzchar(last_out)]) gd_append_log("gd_cmip6_log", ln)
         v <- verify_future_cache()
         gd_append_log("gd_cmip6_log", paste("Verification:", v$detail))
+        rv$cmip6_scenarios <- v
         shiny::showNotification("GCM averaging complete.", type = "message")
       }
     }, error = function(e) {

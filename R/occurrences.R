@@ -41,7 +41,11 @@ read_occurrence_file <- function(path, log_fun = NULL) {
   if (is_tab) {
     utils::read.delim(path, quote = "", stringsAsFactors = FALSE, check.names = FALSE)
   } else {
-    utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+    if (requireNamespace("data.table", quietly = TRUE)) {
+      data.table::fread(path, stringsAsFactors = FALSE, check.names = FALSE)
+    } else {
+      utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+    }
   }
 }
 
@@ -102,21 +106,30 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   if (nrow(occ) < 20) stop("Too few valid occurrence records after cleaning (", nrow(occ), ").", call. = FALSE)
 
   if (use_cc && requireNamespace("CoordinateCleaner", quietly = TRUE)) {
+    cc_tests_active <- if (identical(cc_tests, "all")) {
+      c("sea", "capitals", "institutions", "centroids", "urban", "zeros")
+    } else {
+      cc_tests
+    }
     cc_result <- CoordinateCleaner::clean_coordinates(
       occ,
       lon = "longitude",
       lat = "latitude",
-      tests = cc_tests,
-      value = "flagged"
+      species = NULL,
+      tests = cc_tests_active,
+      value = "spatialvalid"
     )
-    occ$cc_flag <- cc_result$.summary
-    occ$cc_test_sea <- cc_result$tests$sea
-    occ$cc_test_capitals <- cc_result$tests$capitals
-    occ$cc_test_institutions <- cc_result$tests$institutions
-    occ$cc_test_centroids <- cc_result$tests$centroids
-    occ$cc_test_urban <- cc_result$tests$urban
-    occ$cc_test_zero <- cc_result$tests$zero
-    n_flagged <- sum(cc_result$.summary, na.rm = TRUE)
+    occ$cc_flag <- !cc_result$.summary
+    cc_test_map <- c(.sea = "cc_test_sea", .cap = "cc_test_capitals",
+                    .inst = "cc_test_institutions", .cen = "cc_test_centroids",
+                    .otl = "cc_test_urban", .zer = "cc_test_zero",
+                    .equ = "cc_test_equal", .gbf = "cc_test_gbif")
+    for (col in names(cc_result)) {
+      if (col %in% names(cc_test_map)) {
+        occ[[cc_test_map[[col]]]] <- !cc_result[[col]]
+      }
+    }
+    n_flagged <- sum(!cc_result$.summary, na.rm = TRUE)
     log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", nrow(occ), " records")
   } else if (use_cc && !requireNamespace("CoordinateCleaner", quietly = TRUE)) {
     warning("CoordinateCleaner not installed. Install with: install.packages('CoordinateCleaner')")

@@ -1,7 +1,7 @@
 # Optional future-climate projection helpers.
 
 future_projection_files <- function(future_worldclim_dir, selected_biovars) {
-  find_worldclim_files(future_worldclim_dir, selected_biovars)
+  find_cmip6_files(future_worldclim_dir, selected_biovars)
 }
 
 future_projection_ready <- function(future_worldclim_dir, selected_biovars) {
@@ -25,19 +25,16 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   }
 
   log_message(log_fun, "Loading future climate layers from ", future_worldclim_dir)
-  future_climate <- load_climate_covariates(
-    worldclim_dir = future_worldclim_dir,
+  future_climate <- cmip6_load_future_covariates(
+    cmip6_dir = future_worldclim_dir,
     selected_biovars = selected_biovars,
     training_extent = projection_extent,
     projection_extent = projection_extent,
     aggregation_factor = aggregation_factor,
-    allow_download = FALSE,
-    worldclim_res = sdm_default_worldclim_res,
-    log_fun = log_fun,
-    n_cores = n_cores
+    log_fun = log_fun
   )
 
-  future_project <- future_climate$env_project
+  future_project <- future_climate$env_future
   static_names <- setdiff(names(env$env_project), names(future_project))
   if (length(static_names) > 0) {
     log_message(log_fun, "Reusing current static covariates for future projection: ", paste(static_names, collapse = ", "))

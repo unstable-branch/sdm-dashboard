@@ -308,7 +308,7 @@ ui_sidebar_controls <- function() {
     sliderInput("threshold", "High-suitability threshold", min = 0.05, max = 0.95, value = sdm_default_threshold, step = 0.05),
     div(class = "checkbox-parent", checkboxInput("future_projection", "Project a future climate scenario", value = FALSE)),
     conditionalPanel("input.future_projection == true",
-      textInput("future_worldclim_dir", "Future/CMIP6 BIO folder", value = sdm_default_future_worldclim_dir),
+      uiOutput("future_scenario_selector"),
       textInput("future_label", "Scenario label", value = "Future climate"),
       uiOutput("future_download_status")
     )

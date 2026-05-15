@@ -33,7 +33,31 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
       path = out_dir
     )
 
-    list(dir = attr(out, "path") %||% cache_subdir, cached = FALSE, raster = out)
+    actual_path <- attr(out, "path") %||% file.path(out_dir, "climate", "wc2.1_10m")
+
+    if (dir.exists(cache_subdir) || !dir.exists(actual_path)) {
+      list(dir = cache_subdir, cached = dir.exists(cache_subdir), raster = out)
+    } else {
+      if (!dir.exists(cache_subdir)) dir.create(cache_subdir, recursive = TRUE)
+      tifs <- list.files(actual_path, pattern = "\\.tif$", full.names = TRUE, recursive = FALSE)
+      for (tf in tifs) {
+        bn <- basename(tf)
+        new_bn <- gsub("^wc2[.]1_10m_bioc_", "", bn, fixed = FALSE)
+        new_bn <- gsub("_ssp", "_SSP", new_bn)
+        new_path <- file.path(cache_subdir, new_bn)
+        if (file.exists(new_path)) file.remove(new_path)
+        file.rename(tf, new_path)
+      }
+      empty_after_move <- length(list.files(actual_path, pattern = "\\.tif$")) == 0L
+      if (empty_after_move && actual_path != cache_subdir) {
+        unlink(actual_path, recursive = TRUE, force = TRUE)
+        parent <- dirname(actual_path)
+        if (dirname(parent) != out_dir && dir.exists(parent) && length(list.files(parent)) == 0L) {
+          unlink(parent, recursive = TRUE, force = TRUE)
+        }
+      }
+      list(dir = cache_subdir, cached = FALSE, raster = out)
+    }
   }, error = function(e) {
     message("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
     message("Troubleshooting: Check internet connection, try a different GCM/SSP/period")
