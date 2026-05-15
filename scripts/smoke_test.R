@@ -68,20 +68,42 @@ test_multi_ensemble_smoke <- function() {
     cat("[multi_ensemble smoke] skipped: maxnet not in model registry\n")
     return(invisible(NULL))
   }
+  source_files <- list.files("Worldclim", pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  if (length(source_files) == 0) {
+    cat("[multi_ensemble smoke] skipped: no WorldClim files in Worldclim/ directory\n")
+    return(invisible(NULL))
+  }
+  ens_occ <- data.frame(
+    species = "Demo species",
+    decimalLongitude = c(140.2, 140.8, 141.3, 141.8, 142.2, 139.8,
+                        140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 155, 160, 161),
+    decimalLatitude = c(-22.0, -22.5, -23.0, -23.5, -24.0, -24.3,
+                       -39, -38, -37, -36, -35, -34, -33, -32, -31, -30, -29, -28, -27, -26),
+    institutionCode = c(rep("Museum A", 6), rep("Museum B", 14)),
+    countryCode = "AU",
+    stringsAsFactors = FALSE
+  )
   tmp_occ <- tempfile(fileext = ".csv")
-  utils::write.csv(smoke_occ, tmp_occ, row.names = FALSE)
+  utils::write.csv(ens_occ, tmp_occ, row.names = FALSE)
   tmp_env <- tempfile()
   dir.create(tmp_env, showWarnings = FALSE)
   out_dir <- tempfile()
   dir.create(out_dir, showWarnings = FALSE)
   set.seed(42)
+  training_extent <- c(139.5, 142.5, -24.5, -21.5)
+  inside <- ens_occ$decimalLongitude >= training_extent[1] & ens_occ$decimalLongitude <= training_extent[2] &
+           ens_occ$decimalLatitude >= training_extent[3] & ens_occ$decimalLatitude <= training_extent[4]
+  if (sum(inside) < 20) {
+    cat("[multi_ensemble smoke] skipped: not enough occurrence points (", sum(inside), ") inside training extent for GLM component\n")
+    return(invisible(NULL))
+  }
   result <- run_fast_sdm(
     species = "Demo species",
     occurrence_file = tmp_occ,
-    worldclim_dir = tmp_env,
+    worldclim_dir = "Worldclim",
     selected_biovars = c(1, 12),
     projection_extent = c(140, 142, -24, -22),
-    training_extent = c(139.5, 142.5, -24.5, -21.5),
+    training_extent = training_extent,
     background_n = 80,
     min_source_records = 5,
     merge_small_sources = TRUE,
@@ -118,6 +140,13 @@ test_esm_smoke <- function() {
   cat("[esm_glm smoke] starting...\n")
   if (!requireNamespace("ecospat", quietly = TRUE) || !requireNamespace("biomod2", quietly = TRUE)) {
     cat("[esm_glm smoke] skipped: ecospat or biomod2 not installed\n")
+    return(invisible(NULL))
+  }
+  bm_ver <- tryCatch(as.character(packageVersion("biomod2")), error = function(e) "0.0.0")
+  bm_parts <- strsplit(bm_ver, "\\.")[[1]]
+  bm_v <- sum(as.integer(bm_parts) * c(100, 10, 1))
+  if (bm_v >= 430) {
+    cat("[esm_glm smoke] skipped: biomod2 >= 4.3.0 has ecospat ESM incompatibility\n")
     return(invisible(NULL))
   }
   if (!"esm_glm" %in% unname(sdm_model_choices())) {

@@ -102,7 +102,6 @@ fit_esm <- function(occ,
       weighting.score  = "AUC",
       models           = toupper(algorithm),
       tune             = FALSE,
-      models.options   = biomod2::bm_ModelingOptions(bm.format = biomod_data, models = toupper(algorithm), strategy = "default"),
       modeling.id      = modeling_id,
       cleanup          = TRUE
     ),
