@@ -491,13 +491,12 @@ server <- function(input, output, session) {
       rv$cleaned_occurrence <- NULL
       return()
     }
-    if (is.null(cleaned$cc_flag)) {
-      cleaned$cc_flag <- FALSE
+    if (!"cc_flag" %in% names(cleaned$occ)) {
+      cleaned$occ$cc_flag <- FALSE
     }
-    cleaned$occ$cc_flag <- cleaned$cc_flag
-    cc_test_cols <- grep("^cc_test_", names(cleaned), value = TRUE)
+    cc_test_cols <- grep("^cc_test_", names(cleaned$occ), value = TRUE)
     for (col in cc_test_cols) {
-      cleaned$occ[[col]] <- cleaned[[col]]
+      cleaned$occ[[col]] <- cleaned$occ[[col]]
     }
     rv$cleaned_occurrence <- list(
       df = cleaned$occ,
@@ -1117,11 +1116,10 @@ if (isTRUE(input$future_projection)) {
         layerId = row_nums,
         popup = popups
       ) %>%
-      leaflet::fitBounds(
-        lng1 = min(occ$longitude, na.rm = TRUE),
-        lat1 = min(occ$latitude, na.rm = TRUE),
-        lng2 = max(occ$longitude, na.rm = TRUE),
-        lat2 = max(occ$latitude, na.rm = TRUE)
+      leaflet::setView(
+        lng = mean(range(occ$longitude, na.rm = TRUE)),
+        lat = mean(range(occ$latitude, na.rm = TRUE)),
+        zoom = 5
       )
   })
 
@@ -1151,6 +1149,7 @@ if (isTRUE(input$future_projection)) {
     }
     current_flag <- rv$cleaned_occurrence$df$cc_flag[row_idx]
     rv$cleaned_occurrence$df$cc_flag[row_idx] <- !current_flag
+    rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df
   })
 
   observeEvent(input$remove_flagged_map, {
@@ -1158,9 +1157,16 @@ if (isTRUE(input$future_projection)) {
     req(input$occurrence_cleaning_map)
 
     keep <- is.na(rv$cleaned_occurrence$df$cc_flag) | rv$cleaned_occurrence$df$cc_flag == FALSE
-    rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df[keep, ]
+    new_df <- rv$cleaned_occurrence$df[keep, , drop = FALSE]
 
-    occ <- rv$cleaned_occurrence$df
+    rv$cleaned_occurrence <- list(
+      df = new_df,
+      source_counts = rv$cleaned_occurrence$source_counts,
+      n_absent_excluded = rv$cleaned_occurrence$n_absent_excluded,
+      original_rows = rv$cleaned_occurrence$original_rows
+    )
+
+    occ <- new_df
     if (nrow(occ) < 1) {
       leaflet::leafletProxy("occurrence_cleaning_map") %>% leaflet::clearMarkers()
       return()
@@ -1180,6 +1186,7 @@ if (isTRUE(input$future_projection)) {
     req(rv$cleaned_occurrence)
 
     rv$cleaned_occurrence$df$cc_flag <- FALSE
+    rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df
   })
 
   output$cc_stats_log <- renderText({
