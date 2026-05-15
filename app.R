@@ -498,7 +498,12 @@ server <- function(input, output, session) {
     for (col in cc_test_cols) {
       cleaned$occ[[col]] <- cleaned[[col]]
     }
-    rv$cleaned_occurrence <- cleaned$occ
+    rv$cleaned_occurrence <- list(
+      df = cleaned$occ,
+      source_counts = cleaned$source_counts,
+      n_absent_excluded = cleaned$n_absent_excluded,
+      original_rows = cleaned$original_rows
+    )
   })
 
   cleaned_occurrence <- reactive(rv$cleaned_occurrence)
@@ -1058,7 +1063,7 @@ if (isTRUE(input$future_projection)) {
   })
   output$source_table <- renderTable({
     co <- rv$cleaned_occurrence
-    if (is.null(co) || !is.data.frame(co) || is.null(co$source_counts)) {
+    if (is.null(co) || !is.data.frame(co$df) || is.null(co$source_counts)) {
       return(data.frame(Message = "Load occurrence data to view source counts."))
     }
     sc <- co$source_counts
@@ -1067,7 +1072,7 @@ if (isTRUE(input$future_projection)) {
 
   output$absent_excluded_log <- renderText({
     co <- rv$cleaned_occurrence
-    if (is.null(co) || !is.data.frame(co)) return("")
+    if (is.null(co) || !is.data.frame(co$df)) return("")
     n_absent <- co$n_absent_excluded %||% 0L
     n_raw <- co$original_rows %||% NA_integer_
     if (n_absent == 0L) return("")
@@ -1077,7 +1082,7 @@ if (isTRUE(input$future_projection)) {
 
   output$occurrence_cleaning_map <- renderLeaflet({
     req(rv$cleaned_occurrence)
-    occ <- rv$cleaned_occurrence
+    occ <- rv$cleaned_occurrence$df
     if (!is.data.frame(occ) || nrow(occ) < 1 || is.null(occ$longitude) || is.null(occ$latitude)) {
       return(leaflet::leaflet() %>% leaflet::addTiles() %>% leaflet::setView(lng = 0, lat = 0, zoom = 2))
     }
@@ -1110,42 +1115,42 @@ if (isTRUE(input$future_projection)) {
     click <- input$occurrence_cleaning_map_marker_click
     row_idx <- as.integer(click$id)
 
-    if (is.na(row_idx) || row_idx < 1 || row_idx > nrow(rv$cleaned_occurrence)) {
+    if (is.na(row_idx) || row_idx < 1 || row_idx > nrow(rv$cleaned_occurrence$df)) {
       return()
     }
-    current_flag <- rv$cleaned_occurrence$cc_flag[row_idx]
-    rv$cleaned_occurrence$cc_flag[row_idx] <- !current_flag
+    current_flag <- rv$cleaned_occurrence$df$cc_flag[row_idx]
+    rv$cleaned_occurrence$df$cc_flag[row_idx] <- !current_flag
   })
 
   observeEvent(input$remove_flagged_map, {
     req(rv$cleaned_occurrence)
 
-    keep <- is.na(rv$cleaned_occurrence$cc_flag) | rv$cleaned_occurrence$cc_flag == FALSE
-    rv$cleaned_occurrence <- rv$cleaned_occurrence[keep, ]
+    keep <- is.na(rv$cleaned_occurrence$df$cc_flag) | rv$cleaned_occurrence$df$cc_flag == FALSE
+    rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df[keep, ]
 
     leaflet::leafletProxy("occurrence_cleaning_map") %>%
       leaflet::clearMarkers() %>%
       leaflet::addCircleMarkers(
-        data = rv$cleaned_occurrence,
+        data = rv$cleaned_occurrence$df,
         lng = ~longitude, lat = ~latitude,
         color = "blue", fillOpacity = 0.7, radius = 5,
-        layerId = ~seq_len(nrow(rv$cleaned_occurrence))
+        layerId = ~seq_len(nrow(rv$cleaned_occurrence$df))
       )
   })
 
   observeEvent(input$clear_flags, {
     req(rv$cleaned_occurrence)
 
-    rv$cleaned_occurrence$cc_flag <- FALSE
+    rv$cleaned_occurrence$df$cc_flag <- FALSE
   })
 
   output$cc_stats_log <- renderText({
     co <- rv$cleaned_occurrence
-    if (is.null(co) || !is.data.frame(co) || is.null(co$cc_flag)) {
+    if (is.null(co) || !is.data.frame(co$df) || is.null(co$df$cc_flag)) {
       return("Advanced cleaning not enabled or CoordinateCleaner not available.")
     }
-    n_total <- nrow(co)
-    n_flagged <- sum(co$cc_flag, na.rm = TRUE)
+    n_total <- nrow(co$df)
+    n_flagged <- sum(co$df$cc_flag, na.rm = TRUE)
     pct <- if (n_total > 0) paste0(" (", round(100 * n_flagged / n_total, 1), "%)") else ""
 
     lines <- c(
