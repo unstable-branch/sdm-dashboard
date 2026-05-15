@@ -259,14 +259,23 @@ body:not(.sdm-light) .table-hover > tbody > tr:hover > * { color: #e6eef7; backg
 .map-card {
   background:
     radial-gradient(circle at 70% 15%, rgba(42, 168, 137, 0.10), transparent 18rem),
-    linear-gradient(180deg, #081320 0%, #07111d 100%) !important;
+    var(--sdm-surface, #ffffff);
   border-color: rgba(74, 222, 203, 0.18) !important;
+}
+body.sdm-dark .map-card,
+body:not(.sdm-light) .map-card {
+  background:
+    radial-gradient(circle at 70% 15%, rgba(42, 168, 137, 0.10), transparent 18rem),
+    linear-gradient(180deg, #081320 0%, #07111d 100%) !important;
 }
 .map-card .shiny-plot-output {
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 14px;
   background: #07111d;
+}
+body.sdm-light .map-card .shiny-plot-output {
+  background: #f8f9fa;
 }
 .map-title-row {
   display: flex;
