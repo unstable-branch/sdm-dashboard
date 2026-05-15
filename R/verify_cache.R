@@ -327,16 +327,8 @@ verify_lulc_cache <- function(cache_dir = "covariates/lulc") {
   }
   files <- list.files(cache_dir, pattern = "\\.tif$", full.names = TRUE,
                       ignore.case = TRUE)
-  avail_years <- sort(unique(as.integer(grep("lulc_frac_(\\d{4})", basename(files),
-                                              value = TRUE,
-                                              perl = TRUE,
-                                              invert = FALSE))))
-  if (length(avail_years) > 0) {
-    m <- regexpr("lulc_frac_(\\d{4})", basename(files), perl = TRUE)
-    avail_years <- sort(unique(as.integer(regmatches(basename(files), m, invert = FALSE)[[1]])))
-  } else {
-    avail_years <- integer()
-  }
+  year_matches <- regmatches(basename(files), gregexpr("lulc_frac_(\\d{4})", basename(files), perl = TRUE))
+  avail_years <- sort(unique(as.integer(gsub("lulc_frac_", "", unlist(year_matches)))))
   all_years <- 2001:2023
   missing_years <- setdiff(all_years, avail_years)
   size_mb <- sum(file.size(files), na.rm = TRUE) / 1e6

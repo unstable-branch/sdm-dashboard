@@ -12,7 +12,7 @@ write_manifest <- function(result, output_dir, base_name) {
     })
 
     git_sha <- tryCatch(
-      system("git rev-parse HEAD", intern = TRUE),
+      system("git rev-parse HEAD", intern = TRUE, ignore.stderr = TRUE),
       error = function(e) NA_character_
     )
     manifest$git_sha <- if (length(git_sha) == 1 && nzchar(git_sha)) git_sha else NA_character_

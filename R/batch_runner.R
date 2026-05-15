@@ -58,6 +58,8 @@ build_run_args <- function(row) {
   if (nzchar(row$worldclim_dir %||% "")) args$worldclim_dir <- row$worldclim_dir
   if (nzchar(row$biovars %||% "")) args$selected_biovars <- parse_comma_ints(row$biovars)
   if (nzchar(row$model_id %||% "")) args$model_id <- row$model_id
+  if (nzchar(row$projection_extent %||% "")) args$projection_extent <- parse_comma_doubles(row$projection_extent)
+  if (nzchar(row$training_extent %||% "")) args$training_extent <- parse_comma_doubles(row$training_extent)
 
   bg <- suppressWarnings(as.integer(row$background_n %||% NA_integer_))
   if (!is.na(bg)) args$background_n <- bg

@@ -93,6 +93,10 @@ fit_esm <- function(occ,
 
   log_message(log_fun, "ESM: calibrating ", n_pairs, " bivariate models...")
 
+  if (isTRUE(getOption("sdm.cancelled"))) {
+    stop("ESM modelling cancelled by user.")
+  }
+
   esm_models <- tryCatch(
     ecospat::ecospat.ESM.Modeling(
       data             = biomod_data,
@@ -109,6 +113,10 @@ fit_esm <- function(occ,
       stop("ESM calibration failed: ", conditionMessage(e))
     }
   )
+
+  if (isTRUE(getOption("sdm.cancelled"))) {
+    stop("ESM modelling cancelled by user.")
+  }
 
   log_message(log_fun, "ESM: building weighted ensemble (min_auc = ", min_auc, ")...")
 

@@ -8,12 +8,20 @@ check_sdm_versions <- function() {
     mgcv    = "1.8-40",
     torch   = "0.10.0"
   )
+  outdated <- character()
   for (pkg in names(min_versions)) {
     if (!requireNamespace(pkg, quietly = TRUE)) next
     cur <- tryCatch(as.character(packageVersion(pkg)), error = function(e) "0.0.0")
-    if (utils::compareVersion(cur, min_versions[[pkg]]) < 0) next
+    if (utils::compareVersion(cur, min_versions[[pkg]]) < 0) {
+      outdated <- c(outdated, sprintf("%s (installed: %s, required: %s)", pkg, cur, min_versions[[pkg]]))
+    }
   }
-  TRUE
+  if (length(outdated) > 0) {
+    warning("Outdated packages detected:\n", paste(outdated, collapse = "\n"), call. = FALSE)
+    FALSE
+  } else {
+    TRUE
+  }
 }
 
 sdm_required_packages <- c("terra")
@@ -69,7 +77,11 @@ set_compile_threads <- function(n_cores) {
 configure_user_library <- function() {
   user_lib <- Sys.getenv("R_LIBS_USER")
   if (!nzchar(user_lib)) {
-    user_lib <- file.path(Sys.getenv("LOCALAPPDATA", unset = path.expand("~")), "R", "win-library", paste(R.version$major, R.version$minor, sep = "."))
+    if (.Platform$OS.type == "windows") {
+      user_lib <- file.path(Sys.getenv("LOCALAPPDATA", unset = path.expand("~")), "R", "win-library", paste(R.version$major, R.version$minor, sep = "."))
+    } else {
+      user_lib <- .libPaths()[1]
+    }
     Sys.setenv(R_LIBS_USER = user_lib)
   }
   user_lib <- path.expand(user_lib)

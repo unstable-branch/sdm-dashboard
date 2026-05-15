@@ -2,10 +2,6 @@
 
 biovar_choices <- sdm_biovar_choices
 
-`%||%` <- function(x, y) {
-  if (is.null(x)) y else x
-}
-
 extent_from_inputs <- function(input, occurrence = NULL) {
   preset <- input$extent_preset
   if (identical(preset, "occurrence")) {

@@ -18,6 +18,9 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
                                     covariate_cache_dir = sdm_default_covariate_cache_dir,
                                     allow_download = TRUE,
                                     log_fun = NULL) {
+  if (!requireNamespace("curl", quietly = TRUE)) {
+    stop("curl package required for drought downloads. Install with: install.packages('curl')")
+  }
 
   # CRU scPDSI file — direct URL
   scpdsi_remote <- "https://crudata.uea.ac.uk/cru/data/drought/scpdsi.global2024.readme.txt"

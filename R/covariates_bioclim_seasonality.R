@@ -53,11 +53,11 @@ hargreaves_pet <- function(tmin_month, tmax_month, latitude, day_of_month = 15) 
 compute_gdd <- function(tmin_month, tmax_month, base_temp = 5) {
   tmean_month <- (tmin_month + tmax_month) / 2
   gdd_month <- pmax(0, tmean_month - base_temp)
-  sum(gdd_month) * days_in_month_vector()
+  sum(gdd_month * days_in_month_vector())
 }
 
 days_in_month_vector <- function() {
-  c(31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+  c(31, 28.25, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 }
 
 # Moisture index: annual precipitation / annual PET
@@ -82,7 +82,6 @@ compute_p_seasonality <- function(prec_month, tmin_month, tmax_month) {
 }
 
 load_bioclim_seasonality <- function(extent_vec,
-                                      worldclim_dir = sdm_default_worldclim_dir,
                                       aggregate_factor = 1L,
                                       covariate_cache_dir = sdm_default_covariate_cache_dir,
                                       allow_download = TRUE,

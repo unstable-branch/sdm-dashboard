@@ -4,8 +4,7 @@
 # API keys: OPENTOPOGRAPHY_API_KEY required for live downloads
 # OpenTopography elevation covariate support.
 
-compute_terrain_metrics <- function(dem) {
-  neighbors <- 8
+compute_terrain_metrics <- function(dem, neighbors = 8) {
   tri <- terra::terrain(dem, v = "TRI", unit = "degrees", neighbors = neighbors)
   names(tri) <- "terrain_ruggedness"
   slope <- terra::terrain(dem, v = "slope", unit = "degrees", neighbors = neighbors)
@@ -86,15 +85,21 @@ opentopo_tile_extents <- function(extent_vec, demtype = sdm_default_elevation_de
   tiles
 }
 
-download_opentopo_tile <- function(tile_extent, demtype, api_key, destfile) {
+download_opentopo_tile <- function(tile_extent, demtype, api_key, destfile, max_retries = 3) {
   url <- opentopo_globaldem_url(tile_extent, demtype = demtype, api_key = api_key)
-  result <- suppressWarnings(try(utils::download.file(url, destfile, mode = "wb", quiet = TRUE), silent = TRUE))
-  ok <- !inherits(result, "try-error") && file.exists(destfile) && is.finite(file.info(destfile)$size) && file.info(destfile)$size > 1024
-  if (!ok) {
+  last_error <- NULL
+  for (attempt in seq_len(max_retries)) {
+    result <- suppressWarnings(try(utils::download.file(url, destfile, mode = "wb", quiet = TRUE), silent = TRUE))
+    ok <- !inherits(result, "try-error") && file.exists(destfile) && {
+      fi <- file.info(destfile)
+      is.finite(fi$size) && fi$size > 1024
+    }
+    if (ok) return(invisible(destfile))
     if (file.exists(destfile)) unlink(destfile)
-    stop("OpenTopography download failed for one DEM tile.", call. = FALSE)
+    last_error <- "download failed or file too small"
+    if (attempt < max_retries) Sys.sleep(2 ^ attempt)
   }
-  invisible(destfile)
+  stop("OpenTopography download failed after ", max_retries, " attempts: ", last_error, call. = FALSE)
 }
 
 download_opentopo_dem <- function(extent_vec, demtype, cache_file, api_key = NULL, log_fun = NULL) {

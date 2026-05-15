@@ -63,7 +63,7 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
       stop("bias_method = 'thickened' requires at least 2 presence points.", call. = FALSE)
     }
     sigma_km <- if (is.numeric(thickening_distance_km) && thickening_distance_km > 0) thickening_distance_km else 10
-    sigma_deg <- sigma_km / 111
+    sigma_deg <- sigma_km / 111.32
     all_cell_idx <- get_valid_cell_indices()
     if (length(all_cell_idx) < n) {
       stop("Not enough valid cells for thickened background sampling (",
@@ -185,9 +185,9 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
   }
 
   fold_metrics <- if (n_cores > 1 && k > 1) {
+    cl <- parallel::makeCluster(n_cores)
+    on.exit(parallel::stopCluster(cl), add = TRUE)
     parallel_result <- tryCatch({
-      cl <- parallel::makeCluster(n_cores)
-      on.exit(parallel::stopCluster(cl), add = TRUE)
       parallel::clusterExport(cl, c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "normalize_threshold"), envir = environment(cross_validate_glm))
       rows <- parallel::parLapply(cl, seq_len(k), fit_one_fold,
                                    model_data_arg = model_data, fold_id_arg = fold_id,

@@ -100,8 +100,7 @@ find_cmip6_files <- function(cmip6_dir, selected_biovars) {
   all_files <- list.files(cmip6_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
   all_files <- normalizePath(all_files)
 
-  bio_patterns <- paste0("bio", c(1:19, "01", "02", "03", "04", "05", "06", "07", "08", "09",
-                                    10:19, "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"))
+  bio_patterns <- paste0("bio", c(1:19, sprintf("%02d", 1:9)))
   names(bio_patterns) <- paste0("bio", c(1:19, 1:19))
 
   files <- character()

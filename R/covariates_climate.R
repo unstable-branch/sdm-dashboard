@@ -23,8 +23,8 @@ find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("wo
     }
     if (length(hit) == 0) NA_character_
     else if (length(hit) > 1) {
-      n_cells <- vapply(hit, function(f) as.integer(terra::ncell(terra::rast(f))[1]), integer(1))
-      hit[which.max(n_cells)]
+      sizes <- vapply(hit, function(f) as.integer(file.info(f)$size), integer(1))
+      hit[which.max(sizes)]
     } else hit[1]
   }, character(1))
   names(matched) <- as.character(selected_biovars)
@@ -58,6 +58,9 @@ find_chelsa_extra_files <- function(worldclim_dir, selected_extras = names(chels
 
 download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa_extra_vars),
                                    log_fun = NULL, n_cores = NULL) {
+  if (!requireNamespace("curl", quietly = TRUE)) {
+    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')")
+  }
   ensure_sdm_packages(c("terra", "geodata"), n_cores = n_cores)
   dir.create(worldclim_dir, recursive = TRUE, showWarnings = FALSE)
   log_message(log_fun, "Downloading CHELSA bioclim-plus extra variables to ", worldclim_dir)
@@ -113,8 +116,7 @@ crop_and_optionally_aggregate <- function(r, extent_vec, aggregation_factor = 1)
 }
 
 scale_raster_stack <- function(r, means, sds) {
-  out <- r
-  for (i in seq_len(terra::nlyr(r))) out[[i]] <- (r[[i]] - means[i]) / sds[i]
+  out <- (r - means) / sds
   names(out) <- names(r)
   out
 }

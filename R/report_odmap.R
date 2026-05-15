@@ -63,7 +63,7 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
   target_output <- "Suitability raster for presence/background SDM"
   hypotheses <- ""
   algorithm <- .fmt(.get_config("model_id"), "glm")
-  algorithm_label <- .fmt(result$model_label, "GLM / Logistic regression")
+  algorithm_label <- .fmt(.get_config("model_label"), "GLM / Logistic regression")
 
   model_method <- if (!is.null(result$model_method)) {
     result$model_method

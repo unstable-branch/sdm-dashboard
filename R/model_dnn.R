@@ -471,8 +471,7 @@ get_dnn_metrics <- function(model, test_data) {
     warning("DNN-403: Test labels have no variance (all 0s or all 1s). AUC cannot be calculated meaningfully.")
   } else {
     tryCatch({
-      r <- cor.test(pred_probs, test_data$test_y, method = "spearman")
-      auc <- (r$estimate + 1) / 2
+      auc <- auc_rank(test_data$test_y, pred_probs)
     }, error = function(e) {
       warning(paste("DNN-403: AUC calculation failed:", conditionMessage(e)))
     })
