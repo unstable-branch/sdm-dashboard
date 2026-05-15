@@ -1092,10 +1092,16 @@ if (isTRUE(input$future_projection)) {
   }
 
   output$occurrence_cleaning_map <- renderLeaflet({
-    req(rv$cleaned_occurrence$df)
+    req(rv$cleaned_occurrence)
+    leaflet::leaflet() %>% leaflet::addTiles()
+  })
+
+  observeEvent(rv$cleaned_occurrence$df, {
+    req(input$occurrence_cleaning_map)
     occ <- rv$cleaned_occurrence$df
-    if (!is.data.frame(occ) || nrow(occ) < 1 || is.null(occ$longitude) || is.null(occ$latitude)) {
-      return(leaflet::leaflet() %>% leaflet::addTiles() %>% leaflet::setView(lng = 0, lat = 0, zoom = 2))
+    if (!is.data.frame(occ) || nrow(occ) < 1) {
+      leaflet::leafletProxy("occurrence_cleaning_map") %>% leaflet::clearMarkers()
+      return()
     }
 
     colors <- marker_colors(occ$cc_flag)
@@ -1106,35 +1112,15 @@ if (isTRUE(input$future_projection)) {
                       "Species: ", species_col, "<br>",
                       "Source: ", source_col)
 
-    leaflet::leaflet(occ) %>%
-      leaflet::addTiles() %>%
+    leaflet::leafletProxy("occurrence_cleaning_map") %>%
+      leaflet::clearMarkers() %>%
       leaflet::addCircleMarkers(
-        lng = ~longitude, lat = ~latitude,
+        lng = occ$longitude, lat = occ$latitude,
         color = colors,
         fillOpacity = 0.7,
         radius = 5,
         layerId = row_nums,
         popup = popups
-      ) %>%
-      leaflet::setView(
-        lng = mean(range(occ$longitude, na.rm = TRUE)),
-        lat = mean(range(occ$latitude, na.rm = TRUE)),
-        zoom = 5
-      )
-  })
-
-  observeEvent(rv$cleaned_occurrence$df$cc_flag, {
-    req(rv$cleaned_occurrence$df)
-    req(input$occurrence_cleaning_map)
-    occ <- rv$cleaned_occurrence$df
-    if (!is.data.frame(occ) || nrow(occ) < 1) return()
-    colors <- marker_colors(occ$cc_flag)
-    leaflet::leafletProxy("occurrence_cleaning_map") %>%
-      leaflet::clearMarkers() %>%
-      leaflet::addCircleMarkers(
-        lng = occ$longitude, lat = occ$latitude,
-        color = colors, fillOpacity = 0.7, radius = 5,
-        layerId = seq_len(nrow(occ))
       )
   }, ignoreInit = TRUE)
 
@@ -1154,7 +1140,6 @@ if (isTRUE(input$future_projection)) {
 
   observeEvent(input$remove_flagged_map, {
     req(rv$cleaned_occurrence)
-    req(input$occurrence_cleaning_map)
 
     keep <- is.na(rv$cleaned_occurrence$df$cc_flag) | rv$cleaned_occurrence$df$cc_flag == FALSE
     new_df <- rv$cleaned_occurrence$df[keep, , drop = FALSE]
@@ -1165,21 +1150,6 @@ if (isTRUE(input$future_projection)) {
       n_absent_excluded = rv$cleaned_occurrence$n_absent_excluded,
       original_rows = rv$cleaned_occurrence$original_rows
     )
-
-    occ <- new_df
-    if (nrow(occ) < 1) {
-      leaflet::leafletProxy("occurrence_cleaning_map") %>% leaflet::clearMarkers()
-      return()
-    }
-    colors <- marker_colors(occ$cc_flag)
-    leaflet::leafletProxy("occurrence_cleaning_map") %>%
-      leaflet::clearMarkers() %>%
-      leaflet::addCircleMarkers(
-        data = occ,
-        lng = ~longitude, lat = ~latitude,
-        color = colors, fillOpacity = 0.7, radius = 5,
-        layerId = seq_len(nrow(occ))
-      )
   })
 
   observeEvent(input$clear_flags, {
