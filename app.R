@@ -459,8 +459,9 @@ server <- function(input, output, session) {
       updateNumericInput(session, "thickening_distance_km", value = input$thickening_distance_km_modal)
     }
     if (!is.null(input$target_group_file_modal) && isTRUE(input$bias_method_modal == "target_group")) {
+      safe_name <- make.names(basename(input$target_group_file_modal$name), unique = TRUE)
       shiny::file.copy(input$target_group_file_modal$datapath,
-                      file.path(tempdir(), input$target_group_file_modal$name), overwrite = TRUE)
+                      file.path(tempdir(), safe_name), overwrite = TRUE)
     }
     updateSelectInput(session, "cc_tests", selected = input$cc_tests_modal)
     updateCheckboxInput(session, "merge_small_sources", value = isTRUE(input$merge_small_sources_modal))
@@ -1081,16 +1082,11 @@ if (isTRUE(input$future_projection)) {
   })
 
   output$occurrence_cleaning_map <- renderLeaflet({
-    req(rv$cleaned_occurrence)
+    req(rv$cleaned_occurrence$df)
     occ <- rv$cleaned_occurrence$df
     if (!is.data.frame(occ) || nrow(occ) < 1 || is.null(occ$longitude) || is.null(occ$latitude)) {
       return(leaflet::leaflet() %>% leaflet::addTiles() %>% leaflet::setView(lng = 0, lat = 0, zoom = 2))
     }
-
-    current_view <- input$occurrence_cleaning_map_bounds
-    saved_zoom <- if (!is.null(current_view$zoom)) current_view$zoom else 5
-    saved_lng <- if (!is.null(current_view$center$lng)) current_view$center$lng else 140
-    saved_lat <- if (!is.null(current_view$center$lat)) current_view$center$lat else -25
 
     colors <- ifelse(is.na(occ$cc_flag) | occ$cc_flag == FALSE, "blue", "red")
 
@@ -1105,9 +1101,22 @@ if (isTRUE(input$future_projection)) {
         popup = ~paste0("Row ", seq_len(nrow(occ)), "<br>",
                          "Species: ", if("species" %in% names(occ)) species else "N/A", "<br>",
                          "Source: ", source)
-      ) %>%
-      leaflet::setView(lng = saved_lng, lat = saved_lat, zoom = saved_zoom)
+      )
   })
+
+  observeEvent(rv$cleaned_occurrence$df$cc_flag, {
+    req(rv$cleaned_occurrence$df)
+    occ <- rv$cleaned_occurrence$df
+    if (!is.data.frame(occ) || nrow(occ) < 1) return()
+    colors <- ifelse(is.na(occ$cc_flag) | occ$cc_flag == FALSE, "blue", "red")
+    leaflet::leafletProxy("occurrence_cleaning_map") %>%
+      leaflet::clearMarkers() %>%
+      leaflet::addCircleMarkers(
+        lng = occ$longitude, lat = occ$latitude,
+        color = colors, fillOpacity = 0.7, radius = 5,
+        layerId = seq_len(nrow(occ))
+      )
+  }, ignoreInit = TRUE)
 
   observeEvent(input$occurrence_cleaning_map_marker_click, {
     req(rv$cleaned_occurrence)
