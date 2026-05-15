@@ -111,7 +111,7 @@ configure_parallel <- function(n_cores = NULL, log_fun = NULL) {
   n_cores <- normalize_core_count(n_cores, reserve_one = is.null(n_cores))
   set_compile_threads(n_cores)
   if (requireNamespace("terra", quietly = TRUE)) {
-    try(terra::terraOptions(memfrac = 0.75, progress = 1), silent = TRUE)
+    try(terra::terraOptions(memfrac = 0.75, progress = 0), silent = TRUE)
   }
   log_message(log_fun, "Using ", n_cores, " CPU core(s) for package compilation, cross-validation, and raster prediction")
   n_cores

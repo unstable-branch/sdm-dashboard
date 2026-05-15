@@ -141,7 +141,7 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
   }
 
   log_message(log_fun, "Loading ", length(files), " WorldClim layer(s) from ", worldclim_dir)
-  terra::terraOptions(memfrac = 0.75, progress = 1)
+  terra::terraOptions(memfrac = 0.75, progress = 0)
   env_global <- terra::rast(unname(files))
   names(env_global) <- paste0("bio", selected_biovars)
 
