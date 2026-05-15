@@ -1082,6 +1082,11 @@ if (isTRUE(input$future_projection)) {
       return(leaflet::leaflet() %>% leaflet::addTiles() %>% leaflet::setView(lng = 0, lat = 0, zoom = 2))
     }
 
+    current_view <- input$occurrence_cleaning_map_bounds
+    saved_zoom <- if (!is.null(current_view$zoom)) current_view$zoom else 5
+    saved_lng <- if (!is.null(current_view$center$lng)) current_view$center$lng else 140
+    saved_lat <- if (!is.null(current_view$center$lat)) current_view$center$lat else -25
+
     colors <- ifelse(is.na(occ$cc_flag) | occ$cc_flag == FALSE, "blue", "red")
 
     leaflet::leaflet(occ) %>%
@@ -1095,7 +1100,8 @@ if (isTRUE(input$future_projection)) {
         popup = ~paste0("Row ", seq_len(nrow(occ)), "<br>",
                          "Species: ", if("species" %in% names(occ)) species else "N/A", "<br>",
                          "Source: ", source)
-      )
+      ) %>%
+      leaflet::setView(lng = saved_lng, lat = saved_lat, zoom = saved_zoom)
   })
 
   observeEvent(input$occurrence_cleaning_map_marker_click, {
