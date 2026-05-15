@@ -20,33 +20,27 @@ make_gam_formula <- function(covariates, data = NULL, max_k = 5) {
 }
 
 cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, seed = sdm_default_seed, n_cores = 1) {
-  k <- as.integer(k)
-  if (is.na(k) || k < 2) return(list(k = 0, auc_mean = NA_real_, auc_sd = NA_real_, fold_auc = numeric()))
-  k <- min(k, sum(model_data$presence == 1), sum(model_data$presence == 0))
-  if (k < 2) return(list(k = 0, auc_mean = NA_real_, auc_sd = NA_real_, fold_auc = numeric()))
-  set.seed(seed)
-  fold_id <- integer(nrow(model_data))
-  pres_idx <- which(model_data$presence == 1)
-  bg_idx <- which(model_data$presence == 0)
-  fold_id[pres_idx] <- sample(rep(seq_len(k), length.out = length(pres_idx)))
-  fold_id[bg_idx] <- sample(rep(seq_len(k), length.out = length(bg_idx)))
-  aucs <- rep(NA_real_, k)
-
-  for (fold in seq_len(k)) {
-    train_data <- model_data[fold_id != fold, , drop = FALSE]
-    test_data <- model_data[fold_id == fold, , drop = FALSE]
+  fit_fun <- function(i, model_data, fold_id, threshold) {
+    train_data <- model_data[fold_id != i, , drop = FALSE]
+    test_data <- model_data[fold_id == i, , drop = FALSE]
     train_formula <- make_gam_formula(setdiff(names(train_data), c("presence", "case_weight_sdm")), train_data)
     train_data$case_weight_sdm <- class_balance_weights(train_data$presence)
     model <- tryCatch(
       mgcv::gam(train_formula, data = train_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML"),
       error = function(e) NULL
     )
-    if (is.null(model)) next
+    if (is.null(model)) {
+      return(metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_,
+                                       threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i))
+    }
     pred <- tryCatch(stats::predict(model, newdata = test_data, type = "response"), error = function(e) rep(NA_real_, nrow(test_data)))
-    aucs[fold] <- auc_rank(test_data$presence, pred)
+    metrics_list_to_row(compute_binary_metrics(test_data$presence, pred, threshold = threshold), fold = i)
   }
 
-  list(k = k, auc_mean = mean(aucs, na.rm = TRUE), auc_sd = stats::sd(aucs, na.rm = TRUE), fold_auc = aucs)
+  cross_validate_model(model_data, k = k, seed = seed, n_cores = n_cores,
+                       cv_strategy = "stratified_random", cv_block_size_km = NA_real_,
+                       threshold = sdm_default_threshold, fit_fun = fit_fun,
+                       cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"))
 }
 
 fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
