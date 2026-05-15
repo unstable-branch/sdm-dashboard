@@ -95,3 +95,24 @@ libtorch-win-shared-with-deps-2.11.0+cu128/
 # Local temp files
 pr_body.md
 species/
+nohup.out
+*_download.log
+all_files.txt
+
+# IDE configuration
+.vscode/
+
+# Windows NTFS alternate data streams (from drag-drop operations)
+*:Zone.Identifier
+
+# R package management (lock file is committed, cache is local)
+renv/
+..Rcheck/
+
+# Local test and working directories
+TestSpp/
+
+# Personal contributor notes (not for upstream)
+*sdm-dashboard-jacob-roadmap*
+*SDM_DASHBOARD_DWCA_SUPPORT*
+*SDM_DASHBOARD_ESM_IMPLEMENTATION*
