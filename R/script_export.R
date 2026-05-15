@@ -151,5 +151,3 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
   writeLines(lines, con = path)
   invisible(path)
 }
-
-`%||%` <- function(x, y) if (is.null(x)) y else x

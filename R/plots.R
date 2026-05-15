@@ -47,8 +47,13 @@ plot_suitability_map <- function(suitability, occ = NULL, projection_extent = NU
   }
   graphics::box(col = "#24465F", lwd = 1.1)
   graphics::title(main = paste0(species, " suitability"), line = 2.2, cex.main = 1.08, font.main = 2)
-  graphics::mtext(sprintf("Australia-first suitability surface; reporting threshold %.2f", threshold),
-                  side = 3, line = 0.7, adj = 0, cex = 0.72, col = "#9FB2C2")
+  region_label <- if (!is.null(projection_extent)) {
+    sprintf("Region: lon %.1f–%.1f, lat %.1f–%.1f; threshold %.2f",
+            projection_extent[1], projection_extent[2], projection_extent[3], projection_extent[4], threshold)
+  } else {
+    sprintf("Suitability surface; reporting threshold %.2f", threshold)
+  }
+  graphics::mtext(region_label, side = 3, line = 0.7, adj = 0, cex = 0.72, col = "#9FB2C2")
   graphics::mtext("Satellite-inspired dark basemap styling; warmer cells indicate higher predicted suitability.",
                   side = 1, line = 2.7, adj = 0, cex = 0.64, col = "#8EA2B5")
   if (!is.null(occ) && add_points) {
@@ -115,12 +120,17 @@ plotVariableImportance <- function(importance_df) {
     return(NULL)
   }
   df <- importance_df
-  if ("sd" %in% names(df)) {
+  has_error_bars <- "sd" %in% names(df)
+  if (has_error_bars) {
     df$se <- df$sd / sqrt(max(1, n_perm_default(df)))
   }
-  ggplot2::ggplot(df, ggplot2::aes(x = stats::reorder(variable, importance), y = importance)) +
-    ggplot2::geom_bar(stat = "identity", fill = "steelblue", alpha = 0.85) +
-    ggplot2::coord_flip() +
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = stats::reorder(variable, importance), y = importance)) +
+    ggplot2::geom_bar(stat = "identity", fill = "steelblue", alpha = 0.85)
+  if (has_error_bars) {
+    p <- p + ggplot2::geom_errorbar(ggplot2::aes(ymin = importance - se, ymax = importance + se),
+                                     width = 0.2, colour = "darkred")
+  }
+  p + ggplot2::coord_flip() +
     ggplot2::labs(x = "Covariate", y = "Importance (AUC drop)", title = "Variable Importance (Permutation)") +
     ggplot2::theme_minimal(base_size = 11) +
     ggplot2::theme(
@@ -141,18 +151,24 @@ render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
   map <- leaflet::leaflet()
 
   if (!is.null(suitability_raster)) {
-    r_wgs84 <- terra::project(suitability_raster, "EPSG:4326")
-    cols <- grDevices::colorRampPalette(c("#0A1624", "#123247", "#15545D",
-                                          "#1F8A70", "#59C174", "#C6D65B",
-                                          "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"))(180)
-    map <- map %>%
-      leaflet::addTiles() %>%
-      leaflet::addRasterImage(r_wgs84, opacity = 0.7, layerId = "suitability",
-                              colors = cols, project = TRUE) %>%
-      leaflet::addLegend(position = "bottomright",
-                          colors = c("#0A1624", "#59C174", "#F3C45A", "#E34B35", "#A51E3B"),
-                          labels = c("0", "0.25", "0.5", "0.75", "1"),
-                          title = "Suitability")
+    crs <- terra::crs(suitability_raster)
+    if (is.na(crs) || !nzchar(trimws(crs))) {
+      warning("Suitability raster has no CRS; cannot project for leaflet display.")
+    } else {
+      r_wgs84 <- tryCatch(terra::project(suitability_raster, "EPSG:4326"),
+                          error = function(e) suitability_raster)
+      cols <- grDevices::colorRampPalette(c("#0A1624", "#123247", "#15545D",
+                                            "#1F8A70", "#59C174", "#C6D65B",
+                                            "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"))(180)
+      map <- map %>%
+        leaflet::addTiles() %>%
+        leaflet::addRasterImage(r_wgs84, opacity = 0.7, layerId = "suitability",
+                                colors = cols, project = TRUE) %>%
+        leaflet::addLegend(position = "bottomright",
+                            colors = c("#0A1624", "#59C174", "#F3C45A", "#E34B35", "#A51E3B"),
+                            labels = c("0", "0.25", "0.5", "0.75", "1"),
+                            title = "Suitability")
+    }
   } else {
     map <- map %>% leaflet::addTiles()
   }

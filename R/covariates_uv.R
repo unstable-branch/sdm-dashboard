@@ -35,6 +35,9 @@ load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
                                covariate_cache_dir = sdm_default_covariate_cache_dir,
                                allow_download = TRUE,
                                log_fun = NULL) {
+  if (!requireNamespace("curl", quietly = TRUE)) {
+    stop("curl package required for UV downloads. Install with: install.packages('curl')")
+  }
   selected_uv_vars <- unique(as.character(selected_uv_vars))
   selected_uv_vars <- selected_uv_vars[nzchar(selected_uv_vars)]
   selected_uv_months <- unique(as.character(selected_uv_months))

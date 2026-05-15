@@ -235,7 +235,7 @@ predict_maxnet_suitability <- function(fit, env_project_scaled, output_tif, n_co
   }, cores = n_cores)
 
   names(suit) <- "suitability"
-  terra::writeRaster(suit, output_tif, overwrite = TRUE)
+  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
   log_message(log_fun, "Suitability raster written to: ", output_tif)
   suit
 }

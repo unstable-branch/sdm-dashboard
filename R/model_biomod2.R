@@ -3,13 +3,6 @@
 ## only when options(sdm.enable_biomod2 = TRUE) and biomod2 is installed.
 ## See BIOMOD2_ADAPTER_NOTES.md for gating strategy details.
 
-safe_slug <- function(x) {
-  x <- gsub("[^a-zA-Z0-9]", "_", x)
-  x <- gsub("_+", "_", x)
-  x <- gsub("^_|_$", "", x)
-  tolower(x)
-}
-
 run_biomod2 <- function(occ_df, pred_stack, models = NULL,
                        background_n = 1000, cv_folds = 3,
                        species_name = NULL, seed = 42,

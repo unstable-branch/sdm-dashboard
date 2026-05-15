@@ -36,16 +36,12 @@ gpu_architecture_map <- list(
 #' @return List with gpu_name, cuda_version, or NULL if no NVIDIA GPU
 #' @export
 detect_nvidia_gpu <- function() {
-  if (.Platform$OS.type != "windows") {
-    return(NULL)
-  }
-  
   result <- list(
     gpu_name = NULL,
     cuda_driver = NULL,
     driver_version = NULL
   )
-  
+
   tryCatch({
     # Try nvidia-smi to get GPU info
     output <- system("nvidia-smi --query-gpu=name,driver_version,compute_version --format=csv,noheader", intern = TRUE, ignore.stderr = TRUE)

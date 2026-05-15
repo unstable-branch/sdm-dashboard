@@ -17,6 +17,9 @@ load_human_footprint_covariate <- function(hfp_year = 2020,
                                            covariate_cache_dir = sdm_default_covariate_cache_dir,
                                            allow_download = TRUE,
                                            log_fun = NULL) {
+  if (!requireNamespace("curl", quietly = TRUE)) {
+    stop("curl package required for Human Footprint downloads. Install with: install.packages('curl')")
+  }
 
   hfp_year <- as.integer(hfp_year[1])
   if (is.na(hfp_year) || hfp_year < 2001 || hfp_year > 2020) {

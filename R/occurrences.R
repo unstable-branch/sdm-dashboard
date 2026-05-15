@@ -50,7 +50,7 @@ read_occurrence_file <- function(path, log_fun = NULL) {
 }
 
 clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE,
-                              use_cc = FALSE, cc_tests = "all", log_fun = NULL) {
+                              use_cc = FALSE, cc_tests = "all", log_fun = NULL, min_records = 20) {
   raw <- read_occurrence_file(path, log_fun = log_fun)
   original_n <- nrow(raw)
   if (original_n == 0) stop("Occurrence file is empty.", call. = FALSE)
@@ -110,7 +110,7 @@ country_col <- detect_column(names(raw), c("^(countrycode|country|iso2)$"))
     }
   }
   source_counts <- sort(table(occ$source), decreasing = TRUE)
-  if (nrow(occ) < 20) stop("Too few valid occurrence records after cleaning (", nrow(occ), ").", call. = FALSE)
+  if (nrow(occ) < min_records) stop("Too few valid occurrence records after cleaning (", nrow(occ), "). Minimum: ", min_records, ".", call. = FALSE)
 
   if (use_cc && requireNamespace("CoordinateCleaner", quietly = TRUE)) {
     cc_tests_active <- if (identical(cc_tests, "all")) {
@@ -251,10 +251,16 @@ read_gbif_records <- function(taxon, country = NULL, max_records = 100,
 #' \dontrun{
 #' result <- read_gbif_download("Acacia mearnsii", token = "YOUR_TOKEN")
 #' }
-read_gbif_download <- function(taxon, country = NULL, token,
+read_gbif_download <- function(taxon, country = NULL, token, email = NULL,
                                max_attempts = 30, poll_interval = 10, ...) {
   if (!requireNamespace("rgbif", quietly = TRUE)) {
     stop("rgbif package required for GBIF downloading. Install with: install.packages('rgbif')")
+  }
+  if (is.null(email) || !nzchar(trimws(email))) {
+    email <- Sys.getenv("SDM_GBIF_EMAIL", unset = "")
+  }
+  if (!nzchar(trimws(email))) {
+    stop("GBIF download requires a valid email. Provide via 'email' parameter or set SDM_GBIF_EMAIL.")
   }
 
   taxon_key <- rgbif::name_backbone(taxon)$speciesKey
@@ -271,7 +277,7 @@ read_gbif_download <- function(taxon, country = NULL, token,
     !!!pred_list,
     user = "token",
     pwd = token,
-    email = "user@example.com"
+    email = trimws(email)
   )
 
   status <- "running"

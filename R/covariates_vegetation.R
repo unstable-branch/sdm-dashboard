@@ -12,21 +12,6 @@
 # GIMMS NDVI/EVI (from covariates_ndvi.R — kept in-line for cohesion)
 # ---------------------------------------------------------------------------
 
-gimms_doy_map <- function() {
-  doy_8day <- seq(1L, 361L, by = 8L)
-  names(doy_8day) <- sprintf("%03d", doy_8day)
-  doy_8day
-}
-
-doy_for_month <- function(month) {
-  m <- as.integer(month)
-  stopifnot(m >= 1 && m <= 12)
-  month_start_doy <- c(1L, 32L, 60L, 91L, 121L, 152L, 182L, 213L, 244L, 274L, 305L, 335L)
-  mid_doy <- month_start_doy[m] + 14L
-  period_doy <- ((mid_doy - 1L) %/% 8L) * 8L + 1L
-  sprintf("%03d", period_doy)
-}
-
 gimms_ndvi_doy <- gimms_doy_map()
 month_period_doys <- sapply(1:12, function(m) doy_for_month(m))
 names(month_period_doys) <- month.abb
@@ -254,6 +239,9 @@ load_vegetation_covariate <- function(
     covariate_cache_dir = sdm_default_covariate_cache_dir,
     allow_download = TRUE,
     log_fun = NULL) {
+  if (!requireNamespace("curl", quietly = TRUE)) {
+    stop("curl package required for vegetation downloads. Install with: install.packages('curl')")
+  }
 
   current_year <- as.integer(format(Sys.Date(), "%Y"))
   veg_year <- suppressWarnings(as.integer(veg_year[1]))
