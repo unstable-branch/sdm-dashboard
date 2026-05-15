@@ -43,12 +43,12 @@ sdm_default_worldclim_res <- 10
 sdm_default_climate_source <- "worldclim"
 sdm_default_seed <- 42L
 sdm_default_n_perm <- 5L
-sdm_default_model_id <- "multi_ensemble"
+sdm_default_model_id <- "glm"
 sdm_default_rangebag_n_bags <- 100L
 sdm_default_rangebag_fraction <- 0.5
 sdm_default_rangebag_vars_per_bag <- 1L
 sdm_default_ensemble_weighting <- "auc"
-sdm_default_multi_ensemble_models <- c("glm")
+sdm_default_multi_ensemble_models <- c("glm", "rangebag")
 sdm_default_multi_ensemble_weighting <- "auc"
 sdm_default_multi_ensemble_export_components <- TRUE
 sdm_default_ensemble_power <- 2

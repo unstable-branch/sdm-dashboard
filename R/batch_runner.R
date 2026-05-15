@@ -121,16 +121,18 @@ build_run_args <- function(row) {
   args
 }
 
-normalize_core_count <- function(n_cores = NULL, reserve_one = FALSE) {
-  if (is.null(n_cores)) {
-    n <- parallel::detectCores()
-    if (is.na(n)) n <- 2L
-    if (reserve_one) n <- max(1, n - 1)
-    return(as.integer(n))
+if (!exists("normalize_core_count", envir = globalenv())) {
+  normalize_core_count <- function(n_cores = NULL, reserve_one = FALSE) {
+    if (is.null(n_cores)) {
+      n <- parallel::detectCores()
+      if (is.na(n)) n <- 2L
+      if (reserve_one) n <- max(1, n - 1)
+      return(as.integer(n))
+    }
+    n <- as.integer(n_cores[1])
+    if (is.na(n) || n < 1) n <- 1
+    n
   }
-  n <- as.integer(n_cores[1])
-  if (is.na(n) || n < 1) n <- 1
-  n
 }
 
 write_batch_summary_csv <- function(results, output_dir) {

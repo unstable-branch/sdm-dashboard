@@ -1,5 +1,6 @@
 permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NULL,
-                                   n_perm = 5, seed = 42, n_cores = 1) {
+                                   n_perm = 5, seed = 42, n_cores = 1,
+                                   use_held_out = FALSE) {
   if (is.null(metric_fun)) metric_fun <- auc_rank
   if (!is.function(predict_fun)) stop("predict_fun must be a function", call. = FALSE)
   if (!is.function(metric_fun)) stop("metric_fun must be a function", call. = FALSE)
@@ -10,6 +11,18 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
   n_cores <- as.integer(n_cores)[1]
   if (is.na(n_cores) || n_cores < 1) n_cores <- 1
 
+  eval_data <- model_data
+  if (isTRUE(use_held_out) && nrow(model_data) >= 50) {
+    set.seed(seed)
+    hold_size <- max(20L, floor(nrow(model_data) * 0.2))
+    hold_idx <- sample(seq_len(nrow(model_data)), size = hold_size, replace = FALSE)
+    eval_data <- model_data[hold_idx, , drop = FALSE]
+    eval_obs <- eval_data$presence
+    if (!is.numeric(eval_obs)) eval_obs <- as.numeric(eval_obs)
+    ok_eval <- is.finite(eval_obs) & (eval_obs == 0 | eval_obs == 1)
+    if (sum(ok_eval) < 20) eval_data <- model_data
+  }
+
   exclude_cols <- c("presence", ".x", ".y", "case_weight_sdm")
   cov_cols <- setdiff(names(model_data), exclude_cols)
   cov_cols <- cov_cols[is.finite(match(cov_cols, names(model_data)))]
@@ -18,7 +31,7 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
                       sd = numeric(), baseline = numeric(), stringsAsFactors = FALSE))
   }
 
-obs <- model_data$presence
+obs <- eval_data$presence
   if (!is.numeric(obs)) obs <- as.numeric(obs)
   ok_obs <- is.finite(obs) & (obs == 0 | obs == 1)
   if (sum(ok_obs) < 20) {
@@ -33,7 +46,7 @@ obs <- model_data$presence
   }
 
   set.seed(seed)
-  baseline_pred <- predict_fun(fit, model_data)
+  baseline_pred <- predict_fun(fit, eval_data)
   if (!is.numeric(baseline_pred)) baseline_pred <- as.numeric(baseline_pred)
   ok_pred <- is.finite(baseline_pred)
   ok_both <- ok_obs & ok_pred
@@ -55,8 +68,8 @@ obs <- model_data$presence
   }
 
   compute_drops <- function(var) {
-    if (!var %in% names(model_data)) return(c(importance = 0, sd = NA_real_))
-    col_vals <- model_data[[var]]
+    if (!var %in% names(eval_data)) return(c(importance = 0, sd = NA_real_))
+    col_vals <- eval_data[[var]]
     if (!is.numeric(col_vals)) return(c(importance = 0, sd = NA_real_))
     var_sd <- stats::sd(col_vals, na.rm = TRUE)
     if (is.na(var_sd) || var_sd < 1e-10) return(c(importance = 0, sd = 0))
@@ -64,8 +77,8 @@ obs <- model_data$presence
     drops <- numeric(n_perm)
     for (p in seq_len(n_perm)) {
       if (isTRUE(getOption("sdm_cancelled"))) break
-      shuffled <- model_data
-      shuffled[[var]] <- sample(col_vals, size = nrow(model_data), replace = FALSE)
+      shuffled <- eval_data
+      shuffled[[var]] <- sample(col_vals, size = nrow(eval_data), replace = FALSE)
       pred_shuffled <- predict_fun(fit, shuffled)
       if (!is.numeric(pred_shuffled)) pred_shuffled <- as.numeric(pred_shuffled)
       ok_shuffled <- is.finite(pred_shuffled) & ok_both

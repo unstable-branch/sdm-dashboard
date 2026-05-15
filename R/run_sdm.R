@@ -151,8 +151,13 @@ progress_step(progress_fun, 0.10, "Cleaning occurrence data")
   if (isTRUE(vif_reduction) && terra::nlyr(env$env_train_scaled) >= 3) {
     progress_step(progress_fun, 0.35, "Running VIF collinearity reduction")
     set.seed(seed)
-    sample_size <- min(5000, terra::ncell(env$env_train_scaled))
-    sample_cells <- sample(terra::ncell(env$env_train_scaled), size = sample_size)
+    n_cells <- terra::ncell(env$env_train_scaled)
+    sample_size <- max(1000, min(5000, ceiling(n_cells * 0.01)))
+    if (n_cells > 100000 && sample_size < 20000) {
+      sample_size <- 20000
+      log_message(log_fun, "VIF sample size adapted to ", sample_size, " for large raster (1% of ", n_cells, " cells)")
+    }
+    sample_cells <- sample(n_cells, size = sample_size)
     sample_xy <- terra::xyFromCell(env$env_train_scaled[[1]], sample_cells)
     covar_samples <- terra::extract(env$env_train_scaled, sample_xy)
     covar_samples <- covar_samples[complete.cases(covar_samples), ]
