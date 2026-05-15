@@ -7,7 +7,9 @@ fit_esm <- function(occ,
                      n_runs_eval     = sdm_esm_default_n_runs,
                      data_split      = sdm_esm_default_split,
                      seed            = sdm_default_seed,
-                     log_fun         = NULL) {
+                     log_fun         = NULL,
+                     background_n    = 1000,
+                     ...) {
 
   if (!requireNamespace("ecospat", quietly = TRUE)) {
     stop("Package 'ecospat' is required for ESM. ",
@@ -21,7 +23,7 @@ fit_esm <- function(occ,
   set.seed(seed)
 
   covariate_cols <- if (!is.null(biovars) && length(biovars) > 0) {
-    biovars
+    paste0("bio", biovars)
   } else {
     setdiff(names(env_train_scaled),
             c("presence", "case_weight_sdm", ".x", ".y"))
@@ -29,7 +31,27 @@ fit_esm <- function(occ,
 
   n_vars  <- length(covariate_cols)
   n_pairs <- n_vars * (n_vars - 1) / 2
-  n_pres  <- sum(env_train_scaled$presence == 1, na.rm = TRUE)
+
+  pres_xy <- occ[, c("longitude", "latitude"), drop = FALSE]
+  names(pres_xy) <- c("x", "y")
+  pres_vals <- extract_covariates(env_train_scaled, pres_xy)
+  pres_keep <- stats::complete.cases(pres_vals)
+  n_pres <- sum(pres_keep)
+  if (sum(!pres_keep) > 0) log_message(log_fun, "ESM dropped ", sum(!pres_keep), " occurrence records with missing covariates")
+
+  bg_xy <- sample_background_points(env_train_scaled, background_n, seed = seed)
+  bg_vals <- extract_covariates(env_train_scaled, bg_xy)
+  bg_keep <- stats::complete.cases(bg_vals)
+  bg_vals <- bg_vals[bg_keep, , drop = FALSE]
+  bg_xy <- bg_xy[bg_keep, , drop = FALSE]
+  min_bg <- min(background_n, 100)
+  if (nrow(bg_vals) < min_bg) stop("ESM: too few background points could be sampled (got ", nrow(bg_vals), ", need >= ", min_bg, ").", call. = FALSE)
+
+  esm_data <- data.frame(
+    RespVar = c(rep(1L, n_pres), rep(0L, nrow(bg_vals))),
+    rbind(pres_vals[pres_keep, , drop = FALSE], bg_vals),
+    check.names = FALSE
+  )
 
   log_message(log_fun, "ESM: ", n_pres, " presences, ", n_vars, " variables -> ",
               n_pairs, " bivariate models (algorithm = ", algorithm, ")")
@@ -50,26 +72,37 @@ fit_esm <- function(occ,
                 ") selected. Consider reducing to 6-8 variables for faster runtime.")
   }
 
-  esm_data <- data.frame(
-    RespVar = env_train_scaled$presence,
-    env_train_scaled[, covariate_cols, drop = FALSE]
+  log_message(log_fun, "ESM: building BIOMOD data objects...")
+
+  modeling_id <- paste0("esm_", format(Sys.time(), "%Y%m%d%H%M%S"))
+
+  combined_xy <- data.frame(
+    longitude = c(pres_xy$x[pres_keep], bg_xy$x),
+    latitude  = c(pres_xy$y[pres_keep], bg_xy$y)
+  )
+  combined_resp <- c(rep(1L, n_pres), rep(0L, nrow(bg_vals)))
+  names(combined_xy) <- c("longitude", "latitude")
+
+  biomod_data <- biomod2::BIOMOD_FormatingData(
+    resp.var   = combined_resp,
+    expl.var   = env_train_scaled,
+    resp.name  = "esm_species",
+    resp.xy    = combined_xy,
+    na.rm      = TRUE
   )
 
   log_message(log_fun, "ESM: calibrating ", n_pairs, " bivariate models...")
 
-  modeling_id <- paste0("esm_", format(Sys.time(), "%Y%m%d%H%M%S"))
-
-  if (check_cancelled(log_fun)) return(invisible(NULL))
-
   esm_models <- tryCatch(
     ecospat::ecospat.ESM.Modeling(
-      data             = esm_data,
+      data             = biomod_data,
       NbRunEval        = as.integer(n_runs_eval),
       DataSplit        = as.integer(data_split),
       Prevalence       = NULL,
       weighting.score  = "AUC",
       models           = toupper(algorithm),
       tune             = FALSE,
+      models.options   = biomod2::bm_ModelingOptions(bm.format = biomod_data, models = toupper(algorithm), strategy = "default"),
       modeling.id      = modeling_id,
       cleanup          = TRUE
     ),
@@ -116,7 +149,7 @@ fit_esm <- function(occ,
   bg_xy <- if (!is.null(first_comp) && !is.null(first_comp$input$coord)) {
     first_comp$input$coord[first_comp$input$pa == 0, , drop = FALSE]
   } else {
-    env_train_scaled[env_train_scaled$presence == 0, c(".x", ".y"), drop = FALSE]
+    bg_xy
   }
 
   list(

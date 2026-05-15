@@ -108,14 +108,31 @@ verify_future_cache <- function(future_dir = "Worldclim_future") {
   for (d in subdirs) {
     bn <- basename(d)
     parts <- strsplit(bn, "_")[[1]]
-    gcm <- parts[1]; ssp_code <- parts[2]; period <- parts[3]
-    gcm_display <- names(gcm_map)[grepl(gcm, gcm_map, ignore.case = TRUE)][1] %||% gcm
-    ssp_display <- names(ssp_map)[ssp_map == ssp_code][1] %||% ssp_code
-    tifs <- list.files(d, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
-    size_mb <- sum(file.size(tifs), na.rm = TRUE) / 1e6
-    rows <- c(rows, list(data.frame(GCM = gcm_display, SSP = ssp_display,
-                                   Period = period, Files = length(tifs),
-                                   SizeMB = round(size_mb, 1), stringsAsFactors = FALSE)))
+    if (identical(parts[1], "averaged")) {
+      gcm <- paste("averaged", parts[2], parts[3], sep = "_")
+      gcm_display <- paste(parts[2], parts[3], sep = " + ")
+      ssp_code <- parts[4]
+      period <- parts[5]
+      tifs <- list.files(d, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+      size_mb <- sum(file.size(tifs), na.rm = TRUE) / 1e6
+      rows <- c(rows, list(data.frame(
+        GCM = paste0("Ensemble (", gcm_display, ")"),
+        SSP = names(ssp_map)[ssp_map == ssp_code][1] %||% paste0("SSP", ssp_code),
+        Period = period,
+        Files = length(tifs),
+        SizeMB = round(size_mb, 1),
+        stringsAsFactors = FALSE
+      )))
+    } else {
+      gcm <- parts[1]; ssp_code <- parts[2]; period <- parts[3]
+      gcm_display <- names(gcm_map)[grepl(gcm, gcm_map, ignore.case = TRUE)][1] %||% gcm
+      ssp_display <- names(ssp_map)[ssp_map == ssp_code][1] %||% ssp_code
+      tifs <- list.files(d, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+      size_mb <- sum(file.size(tifs), na.rm = TRUE) / 1e6
+      rows <- c(rows, list(data.frame(GCM = gcm_display, SSP = ssp_display,
+                                     Period = period, Files = length(tifs),
+                                     SizeMB = round(size_mb, 1), stringsAsFactors = FALSE)))
+    }
   }
   scenarios <- if (length(rows) > 0) do.call(rbind, rows) else data.frame(
     GCM = character(), SSP = character(), Period = character(),

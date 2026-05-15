@@ -135,7 +135,7 @@ ui_main_tabs <- function() {
 get_data_tab <- function() {
   status_dot <- function(status) {
     color <- switch(status, ok = "#0b594f", warn = "#7a4b00", error = "#8c1d18", "warn")
-    span(style = sprintf("display:inline-block;width:10px;height:10px;border-radius:50%%;background:%s;margin-right:6px;", color))
+    span(style = sprintf("display:inline-block;width:6px;height:6px;border-radius:50%%;background:%s;margin-right:6px;", color))
   }
 
   section_header <- function(label, icon = NULL, status = NULL, detail = NULL) {

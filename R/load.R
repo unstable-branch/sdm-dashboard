@@ -28,6 +28,7 @@ modules <- c(
   "model_ensemble.R",
   "model_maxnet.R",
   "model_multi_ensemble.R",
+  "model_esm.R",
   "model_registry.R",
   "prediction.R",
   "future_projection.R",

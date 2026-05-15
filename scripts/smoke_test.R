@@ -124,17 +124,30 @@ test_esm_smoke <- function() {
     cat("[esm_glm smoke] skipped: esm_glm not in model registry\n")
     return(invisible(NULL))
   }
+  esm_test_occ <- data.frame(
+    species = "Demo species",
+    decimalLongitude = c(c(140.2, 140.8, 141.3, 141.8, 142.2, 139.8), c(140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 155, 160, 161)),
+    decimalLatitude = c(c(-22.0, -22.5, -23.0, -23.5, -24.0, -24.3), c(-39, -38, -37, -36, -35, -34, -33, -32, -31, -30, -29, -28, -27, -26)),
+    institutionCode = c(rep("Museum A", 6), rep("Museum B", 14)),
+    countryCode = "AU",
+    stringsAsFactors = FALSE
+  )
   tmp_occ <- tempfile(fileext = ".csv")
-  utils::write.csv(smoke_occ, tmp_occ, row.names = FALSE)
+  utils::write.csv(esm_test_occ, tmp_occ, row.names = FALSE)
   tmp_env <- tempfile()
   dir.create(tmp_env, showWarnings = FALSE)
   out_dir <- tempfile()
   dir.create(out_dir, showWarnings = FALSE)
+  source_files <- list.files("Worldclim", pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  if (length(source_files) == 0) {
+    cat("[esm_glm smoke] skipped: no WorldClim files in Worldclim/ directory\n")
+    return(invisible(NULL))
+  }
   set.seed(99)
   result <- run_fast_sdm(
     species = "Demo species",
     occurrence_file = tmp_occ,
-    worldclim_dir = tmp_env,
+    worldclim_dir = "Worldclim",
     selected_biovars = c(1, 4),
     projection_extent = c(140, 142, -24, -22),
     training_extent = c(139.5, 142.5, -24.5, -21.5),
