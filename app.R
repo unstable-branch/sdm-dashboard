@@ -138,6 +138,7 @@ server <- function(input, output, session) {
                       batch_running = FALSE, batch_results = NULL, batch_log = character(),
                       cmip6_scenarios = NULL)
   append_log <- function(message) rv$log <- paste0(rv$log, format(Sys.time(), "%H:%M:%S"), "  ", message, "\n")
+  previous_occurrence_path <- reactiveVal(NULL)
   last_auto_species <- reactiveVal(sdm_initial_species)
   species_manually_set <- reactiveVal(FALSE)
   readiness_item <- function(title, detail, state = "info") {
@@ -470,8 +471,18 @@ server <- function(input, output, session) {
     occurrence <- occurrence_source()
     use_cc <- isTRUE(input$use_coordinatecleaner)
     cc_tests <- input$cc_tests %||% "all"
-    if (is.null(occurrence$path)) {
+    current_path <- occurrence$path
+
+    if (!identical(current_path, previous_occurrence_path())) {
+      previous_occurrence_path(current_path)
       rv$cleaned_occurrence <- NULL
+      output$cc_stats_log <- renderText("Loading occurrence data...")
+      output$source_table <- renderTable({
+        data.frame(Message = "Loading...")
+      }, striped = FALSE, hover = FALSE)
+    }
+
+    if (is.null(current_path)) {
       return()
     }
     cleaned <- clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records, use_cc = use_cc, cc_tests = cc_tests)
