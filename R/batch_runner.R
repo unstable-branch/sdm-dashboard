@@ -133,6 +133,41 @@ normalize_core_count <- function(n_cores = NULL, reserve_one = FALSE) {
   n
 }
 
+write_batch_summary_csv <- function(results, output_dir) {
+  summary_rows <- lapply(results, function(r) {
+    if (is.null(r)) {
+      data.frame(
+        species = NA_character_,
+        status = "error",
+        auc_mean = NA_real_,
+        tss_mean = NA_real_,
+        cbi = NA_real_,
+        elapsed_seconds = NA_real_,
+        stringsAsFactors = FALSE
+      )
+    } else {
+      sp <- r$config$species %||% NA_character_
+      auc <- tryCatch(r$cv$auc_mean %||% NA_real_, error = function(e) NA_real_)
+      tss <- tryCatch(r$cv$tss_mean %||% NA_real_, error = function(e) NA_real_)
+      cbi_val <- tryCatch(r$cv$cbi %||% NA_real_, error = function(e) NA_real_)
+      elapsed <- tryCatch(r$metrics$elapsed_seconds %||% NA_real_, error = function(e) NA_real_)
+      data.frame(
+        species = sp,
+        status = "success",
+        auc_mean = auc,
+        tss_mean = tss,
+        cbi = cbi_val,
+        elapsed_seconds = elapsed,
+        stringsAsFactors = FALSE
+      )
+    }
+  })
+  df <- do.call(rbind, summary_rows)
+  out_path <- file.path(output_dir, "batch_summary.csv")
+  write.csv(df, out_path, row.names = FALSE)
+  message("[batch] Wrote summary: ", out_path)
+}
+
 #' Run multiple species SDM models in parallel.
 #'
 #' @param species_configs list of named lists, each containing per-species configuration.
@@ -244,6 +279,8 @@ batch_run_parallel <- function(species_configs,
   if (n_error > 0) {
     p("Errors (see *_ERROR.log): ", n_error)
   }
+
+  write_batch_summary_csv(results, output_dir)
 
   invisible(results)
 }

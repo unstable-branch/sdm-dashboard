@@ -218,6 +218,40 @@ test_that("response curves work without env_train (fallback to model_data ranges
   }
 })
 
+test_that("GLM response curves are in [0,1] range and monotonically related to predictor", {
+  skip_if_not_installed("terra")
+
+  set.seed(42)
+  r1 <- terra::rast(nrows = 20, ncols = 20, xmin = 140, xmax = 142, ymin = -24, ymax = -22)
+  r2 <- r1
+  terra::values(r1) <- seq_len(terra::ncell(r1)) / terra::ncell(r1)
+  terra::values(r2) <- rep(seq(0, 1, length.out = 20), each = 20)
+  env <- c(r1, r2)
+  names(env) <- c("bio1", "bio12")
+
+  occ <- data.frame(
+    species = "Synthetic species",
+    longitude = seq(140.15, 141.85, length.out = 24),
+    latitude = seq(-23.85, -22.15, length.out = 24),
+    source = rep(c("A", "B"), each = 12),
+    stringsAsFactors = FALSE
+  )
+
+  fit <- fit_sdm_model("glm", occ, env, background_n = 120, include_quadratic = FALSE, cv_folds = 2, seed = 99, n_cores = 1)
+  curves <- compute_response_curves(fit, fit$model_data, env_train = env, n_points = 50)
+
+  for (cov_name in names(curves)) {
+    cv <- curves[[cov_name]]
+    expect_false(is.null(cv))
+    expect_true("x" %in% names(cv))
+    expect_true("fitted" %in% names(cv))
+    expect_true(all(cv$fitted >= 0, na.rm = TRUE))
+    expect_true(all(cv$fitted <= 1, na.rm = TRUE))
+    mid <- nrow(cv) / 2
+    expect_true(abs(cv$fitted[mid] - 0.5) < 0.3)
+  }
+})
+
 test_that("MaxNet response curves use type='response' via explicit predict.maxnet call", {
   skip_if_not_installed("mockery")
   if (!requireNamespace("maxnet", quietly = TRUE)) {

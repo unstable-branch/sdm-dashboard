@@ -85,7 +85,23 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
     raw_n <- nrow(result$occurrence)
   }
   cleaned_n <- nrow(result$occurrence_used)
-  cleaning_steps <- "lon/lat bounds check, duplicate removal, NA covariate removal"
+  cleaning_parts <- character(0)
+  if (!is.null(result$cleaning)) {
+    cl <- result$cleaning
+    if (!is.null(cl$removed_bad_coordinates) && cl$removed_bad_coordinates > 0) {
+      cleaning_parts <- c(cleaning_parts, paste0(cl$removed_bad_coordinates, " invalid coordinates"))
+    }
+    if (!is.null(cl$removed_duplicates) && cl$removed_duplicates > 0) {
+      cleaning_parts <- c(cleaning_parts, paste0(cl$removed_duplicates, " duplicates"))
+    }
+    if (!is.null(cl$original_rows) && !is.null(cleaned_n) && cl$original_rows > cleaned_n) {
+      cleaning_parts <- c(cleaning_parts, paste0(cl$original_rows - cleaned_n, " missing covariates"))
+    }
+    if (length(cleaning_parts) == 0) cleaning_parts <- "none"
+  } else {
+    cleaning_parts <- "not available"
+  }
+  cleaning_steps <- paste(cleaning_parts, collapse = ", ")
   extent <- .get_config("projection_extent")
   spatial_extent <- if (!is.null(extent)) .fmt_aggr(extent) else "Not available"
   aggregation_factor <- .get_config("aggregation_factor", 1)
