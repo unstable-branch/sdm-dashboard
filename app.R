@@ -554,7 +554,7 @@ server <- function(input, output, session) {
         expected_patterns <- vapply(as.integer(missing_climate), function(bv) {
           sprintf("bio_%d.tif  or  wc2.1_%sm_bio_%d.tif", bv, input$worldclim_res, bv)
         }, character(1))
-        issues <- c(issues, paste0("Add missing WorldClim BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), "), or check 'Download missing WorldClim/elevation layers'."))
+        issues <- c(issues, paste0("Add missing WorldClim BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), "), or use the Get Data tab to download."))
       }
     }
 
@@ -860,7 +860,7 @@ if (isTRUE(input$future_projection)) {
             threshold = input$threshold, aggregation_factor = input$aggregation_factor, cv_folds = as.integer(input$cv_folds),
             cv_strategy = input$cv_strategy %||% sdm_default_cv_strategy,
             cv_block_size_km = if (identical(input$cv_strategy, "spatial_blocks")) input$cv_block_size_km else NA_real_,
-            n_cores = input$n_cores, allow_download = isTRUE(input$download_worldclim), worldclim_res = as.numeric(input$worldclim_res),
+            n_cores = input$n_cores, allow_download = TRUE, worldclim_res = as.numeric(input$worldclim_res),
             use_elevation = isTRUE(input$use_elevation), elevation_demtype = input$elevation_demtype,
             opentopo_api_key = input$opentopo_api_key,
             use_soil = isTRUE(input$use_soil), selected_soil_vars = input$soil_vars, selected_soil_depths = input$soil_depths,

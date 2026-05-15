@@ -77,7 +77,6 @@ ui_sidebar_controls <- function() {
   div(class = "control-section",
     h4("Climate data"),
     textInput("worldclim_dir", "WorldClim folder", value = sdm_default_worldclim_dir),
-    checkboxInput("download_worldclim", "Download missing WorldClim/elevation layers", value = TRUE),
     selectInput("worldclim_res", "WorldClim resolution", choices = c("10 arc-min" = "10", "5 arc-min" = "5", "2.5 arc-min" = "2.5"), selected = as.character(sdm_default_worldclim_res)),
     selectInput("climate_source", "Climate data source", choices = c("WorldClim" = "worldclim", "CHELSA" = "chelsa"), selected = sdm_default_climate_source),
     conditionalPanel("input.climate_source == 'chelsa'",
