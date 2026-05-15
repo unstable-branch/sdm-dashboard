@@ -104,7 +104,7 @@ server <- function(input, output, session) {
         rv$gbif_doi <- if (!is.null(occ_df$gbif_doi[1]) && !is.na(occ_df$gbif_doi[1])) occ_df$gbif_doi[1] else NULL
       }
       if (nrow(occ_df) == 0) {
-        output$gbif_status <- renderUI(p(style = "color: red", "No GBIF records found for this species."))
+        output$gbif_status <- renderUI(p(class = "status-error-text", "No GBIF records found for this species."))
         return()
       }
       temp_file <- tempfile(fileext = ".csv")
@@ -118,7 +118,7 @@ server <- function(input, output, session) {
       output$gbif_status <- renderUI(p(msg))
       append_log(msg)
     }, error = function(e) {
-      output$gbif_status <- renderUI(p(style = "color: red", paste0("Error: ", conditionMessage(e))))
+      output$gbif_status <- renderUI(p(class = "status-error-text", paste0("Error: ", conditionMessage(e))))
       append_log(paste0("GBIF fetch error: ", conditionMessage(e)))
     })
   })
@@ -151,9 +151,9 @@ server <- function(input, output, session) {
     if (!isTRUE(input$batch_mode)) return(NULL)
     lines <- rv$batch_log
     if (length(lines) == 0) {
-      div(class = "batch-log", style = "font-size:0.8rem; color:#6c7a89; margin-top:4px;", "No batch run yet.")
+      div(class = "batch-log batch-log-empty", "No batch run yet.")
     } else {
-      div(class = "batch-log", style = "font-size:0.78rem; font-family:monospace; background:#f4f7fb; border:1px solid #e7edf4; border-radius:8px; padding:8px; max-height:160px; overflow-y:auto; white-space:pre-wrap; margin-top:4px;",
+      div(class = "batch-log batch-log-active",
           paste(lines, collapse = ""))
     }
   })
@@ -225,7 +225,7 @@ server <- function(input, output, session) {
     req(input$occ_file)
     ext <- tools::file_ext(input$occ_file$name)
     if (identical(ext, "zip")) {
-      div(class = "small-muted", style = "color: #0b594f;",
+      div(class = "small-muted status-positive",
         "Darwin Core Archive detected — GBIF dataset DOI will be captured automatically")
     } else {
       div(class = "small-muted", "CSV/TSV format detected")
@@ -236,7 +236,7 @@ server <- function(input, output, session) {
     future_dir <- normalizePath(trimws(input$future_worldclim_dir %||% sdm_default_future_worldclim_dir), winslash = "/", mustWork = FALSE)
     tif_count <- length(list.files(future_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE))
     if (tif_count > 0) {
-      div(class = "small-muted", style = "color: #0b594f;",
+      div(class = "small-muted status-positive",
         paste0(tif_count, " future BIO layer(s) found — ready to project"))
     } else {
       tagList(
@@ -266,7 +266,7 @@ server <- function(input, output, session) {
       selectInput("future_worldclim_dir", "CMIP6 scenario",
                   choices = c("Select a scenario" = "", choices),
                   selected = ""),
-      p(class = "small-muted", style = "font-size:0.78em;",
+      p(class = "small-muted small-muted-xs",
         paste(nrow(scenarios$scenarios), "scenario(s) available. Selected folder:", input$future_worldclim_dir %||% "none"))
     )
   })
@@ -438,17 +438,10 @@ server <- function(input, output, session) {
     )
   })
 
-  cleaned_occurrence <- reactive(rv$cleaned_occurrence)
-
-  output$occurrence_source_status <- renderUI({
-    occurrence <- occurrence_source()
-    div(class = paste("status", occurrence$state, sep = "-"), role = "status", `aria-live` = "polite", occurrence$detail)
-  })
-
   readiness <- reactive({
     biovars <- as.integer(input$biovars)
     biovars <- biovars[!is.na(biovars)]
-    cleaned <- cleaned_occurrence()
+    cleaned <- rv$cleaned_occurrence
     extent <- extent_from_inputs(input, cleaned)
     issues <- character()
     warnings <- character()
@@ -515,9 +508,9 @@ server <- function(input, output, session) {
 
     extent_state <- "ok"
     extent_detail <- paste0("xmin ", extent[1], ", xmax ", extent[2], ", ymin ", extent[3], ", ymax ", extent[4])
-    if (any(!is.finite(extent)) || extent[1] >= extent[2] || extent[3] >= extent[4]) {
+    if (any(!is.finite(extent)) || any(is.na(extent)) || extent[1] >= extent[2] || extent[3] >= extent[4]) {
       extent_state <- "error"
-      extent_detail <- "Projection extent is invalid. Ensure xmin < xmax, ymin < ymax, all values are numeric, and within longitude [-180,180] and latitude [-90,90]."
+      extent_detail <- "Projection extent is invalid. Ensure xmin < xmax, ymin < ymax, and all values are finite numbers within longitude [-180,180] and latitude [-90,90]."
       issues <- c(issues, "Fix the projection extent values.")
     }
     overlap_state <- "info"
@@ -675,10 +668,10 @@ if (isTRUE(input$future_projection)) {
             " before using biomod2 algorithms in ensemble.")
       },
       if (total_models < 2) {
-        div(style = "color: #8c1d18; font-size: 0.85rem;",
+        div(class = "ensemble-error",
           "Select at least 2 models to run the ensemble.")
       } else {
-        div(style = "color: #0b594f; font-size: 0.85rem;",
+        div(class = "ensemble-ready",
           paste("Ensemble of", total_models, "model(s) ready."))
       }
     )
@@ -769,11 +762,11 @@ if (isTRUE(input$future_projection)) {
       rv$error <- "Select at least one drought period, or turn drought covariates off."
       append_log(rv$error); rv$running <- FALSE; return(invisible(NULL))
     }
-    projection_extent <- extent_from_inputs(input, cleaned_occurrence())
+    projection_extent <- extent_from_inputs(input, rv$cleaned_occurrence)
     species_label <- trimws(input$species %||% "")
     if (!nzchar(species_label)) species_label <- sdm_default_species
 
-    cleaned_occ <- cleaned_occurrence()
+    cleaned_occ <- rv$cleaned_occurrence
     if (!is.null(cleaned_occ) && is.null(cleaned_occ$error)) {
       run_overlap <- occurrence_extent_overlap(cleaned_occ$occ, projection_extent)
       if (!is.null(run_overlap) && (run_overlap$count == 0 || run_overlap$percent < 10)) {
@@ -1210,7 +1203,7 @@ if (isTRUE(input$future_projection)) {
     div(class = "content-card",
       h4("Ensemble weights"),
       if (length(excluded) > 0) {
-        div(class = "small-muted", style = "margin-bottom:8px;",
+        div(class = "small-muted mb-sm",
           "Models excluded (below threshold): ", paste(excluded, collapse = ", "))
       },
       tableOutput("ensemble_weights_table"),
@@ -1302,13 +1295,18 @@ if (isTRUE(input$future_projection)) {
   })
 
   output$run_log <- renderText(rv$log)
+
+  collect_sidecar_paths <- function(result) {
+    sidecars <- unlist(result$paths[c("glm_tif", "rangebag_tif", "disagreement_tif", "future_tif", "delta_tif")], use.names = FALSE)
+    multi_ens_keys <- grep("^multi_ens_comp_|^multi_ens_(mean|median|committee|sd)_tif$", names(result$paths), value = TRUE)
+    if (length(multi_ens_keys) > 0) sidecars <- c(sidecars, unlist(result$paths[multi_ens_keys], use.names = FALSE))
+    sidecars[!is.na(sidecars) & nzchar(sidecars) & file.exists(sidecars)]
+  }
+
   output$sidecar_download_note <- renderUI({
     r <- rv$result
     if (is.null(r)) return(NULL)
-    sidecars <- unlist(r$paths[c("glm_tif", "rangebag_tif", "disagreement_tif", "future_tif", "delta_tif")], use.names = FALSE)
-    multi_ens_keys <- grep("^multi_ens_comp_|^multi_ens_(mean|median|committee|sd)_tif$", names(r$paths), value = TRUE)
-    if (length(multi_ens_keys) > 0) sidecars <- c(sidecars, unlist(r$paths[multi_ens_keys], use.names = FALSE))
-    sidecars <- sidecars[!is.na(sidecars) & nzchar(sidecars) & file.exists(sidecars)]
+    sidecars <- collect_sidecar_paths(r)
     if (length(sidecars) == 0) return(p(class = "small-muted", "No model sidecar rasters were produced for this run."))
     tags$ul(class = "small-muted", lapply(sidecars, function(path) tags$li(basename(path))))
   })
@@ -1328,7 +1326,7 @@ if (isTRUE(input$future_projection)) {
     ens_keys <- grep("^multi_ens_(mean|median|committee|sd)_tif$", names(r$paths), value = TRUE)
     ens_files <- ens_keys[!is.na(r$paths[ens_keys]) & nzchar(r$paths[ens_keys]) & sapply(r$paths[ens_keys], file.exists)]
     if (length(ens_files) == 0) return(NULL)
-    div(class = "content-card", style = "margin-top:12px;",
+    div(class = "content-card mt-sm",
       h4("Ensemble rasters"),
       p(class = "small-muted", "Individual ensemble strategy outputs."),
       div(class = "downloads-row",
@@ -1358,10 +1356,7 @@ if (isTRUE(input$future_projection)) {
     filename = function() { req(rv$result); paste0(safe_slug(rv$result$config$species), "_model_sidecars.zip") },
     content = function(file) {
       req(rv$result)
-      sidecars <- unlist(rv$result$paths[c("glm_tif", "rangebag_tif", "disagreement_tif", "future_tif", "delta_tif")], use.names = FALSE)
-      multi_ens_keys <- grep("^multi_ens_comp_|^multi_ens_(mean|median|committee|sd)_tif$", names(rv$result$paths), value = TRUE)
-      if (length(multi_ens_keys) > 0) sidecars <- c(sidecars, unlist(rv$result$paths[multi_ens_keys], use.names = FALSE))
-      sidecars <- sidecars[!is.na(sidecars) & nzchar(sidecars) & file.exists(sidecars)]
+      sidecars <- collect_sidecar_paths(rv$result)
       validate(need(length(sidecars) > 0, "No sidecar rasters are available for this run."))
       oldwd <- getwd()
       on.exit(setwd(oldwd), add = TRUE)
@@ -1389,7 +1384,7 @@ gd_append_log <- function(target, msg) {
   # -------------------------------------------------------------------------
   gd_status_dots <- function(v) {
     cls <- switch(v$status, ok = "status-ok", warn = "status-warn", error = "status-error", "status-unknown")
-    span(class = paste("status-dot", cls), style = "width:3px;height:3px;border-radius:50%;display:inline-block;margin-right:5px;", title = v$detail)
+    span(class = paste("status-dot", cls), title = v$detail)
   }
 
   output$gd_worldclim_log <- renderText(rv$gd_worldclim_log %||% "")
@@ -1417,13 +1412,13 @@ gd_append_log <- function(target, msg) {
     rows <- lapply(seq_len(nrow(v$scenarios)), function(i) {
       r <- v$scenarios[i, ]
       div(
-        style = "padding:4px 0;border-bottom:1px solid #eee;",
+        class = "scenario-row",
         strong(r$GCM), " / ", r$SSP, " / ", r$Period,
-        span(style = "float:right;color:#888;", paste0(r$Files, " files, ", r$SizeMB, " MB"))
+        span(class = "scenario-meta", paste0(r$Files, " files, ", r$SizeMB, " MB"))
       )
     })
     tagList(
-      div(style = "font-size:0.85em;", rows)
+      div(class = "text-sm", rows)
     )
   })
   outputOptions(output, "gd_cmip6_scenarios", suspendWhenHidden = FALSE)
@@ -1482,7 +1477,7 @@ gd_append_log <- function(target, msg) {
 
   output$gd_cache_summary <- renderUI({
     s <- get_data_summary()
-    tags$ul(class = "small-muted", style = "padding-left:1.2rem;",
+    tags$ul(class = "small-muted pl-sm",
       tags$li(paste("WorldClim:", s$worldclim$detail)),
       tags$li(paste("CHELSA extras:", s$chelsa_extras$detail)),
       tags$li(paste("CMIP6 futures:", s$future$detail)),
@@ -1523,7 +1518,6 @@ gd_append_log <- function(target, msg) {
       log_target = "gd_worldclim_log", log_append = gd_append_log,
       label = "WorldClim",
       download_fun = function() {
-        source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_climate.R"))
         load_climate_covariates(
           worldclim_dir = "Worldclim", selected_biovars = 1:19,
@@ -1549,15 +1543,14 @@ gd_append_log <- function(target, msg) {
       if (isTRUE(input$gd_chelsa_scd)) "scd"
     )
     if (length(extras) == 0) {
-      gd_append_log("gd_worldclim_log", "No CHELSA extras selected.")
+      gd_append_log("gd_env_log", "No CHELSA extras selected.")
       return()
     }
-    gd_append_log("gd_worldclim_log", paste("Downloading CHELSA extras:", paste(extras, collapse = ", ")))
+    gd_append_log("gd_env_log", paste("Downloading CHELSA extras:", paste(extras, collapse = ", ")))
     download_covariate_bg(
       log_target = "gd_worldclim_log", log_append = gd_append_log,
       label = "CHELSA extras",
       download_fun = function(extras) {
-        source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_climate.R"))
         download_chelsa_extras("Worldclim", extras = extras, log_fun = function(...) message(paste(...)))
         message("CHELSA extras download complete.")
@@ -1591,7 +1584,6 @@ gd_append_log <- function(target, msg) {
       label = "CMIP6",
       download_fun = function(gcm, ssp, period) {
         library(terra)
-        source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_climate_future.R"))
         fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = 10,
                                out_dir = "Worldclim_future", quiet = FALSE)
@@ -1618,7 +1610,6 @@ gd_append_log <- function(target, msg) {
       label = "GCM averaging",
       download_fun = function(gcm_list, ssp, period) {
         library(terra)
-        source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_climate_future.R"))
         average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc",
                            res = 10, out_dir = "Worldclim_future", quiet = FALSE)
@@ -1643,7 +1634,6 @@ gd_append_log <- function(target, msg) {
       label = paste("elevation DEM:", demtype),
       download_fun = function(demtype, api_key) {
         library(terra)
-        source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_elevation.R"))
         cache_dir <- file.path(sdm_project_root(), "covariates", "opentopo")
         dir.create(cache_dir, recursive = TRUE)
@@ -1677,7 +1667,6 @@ gd_append_log <- function(target, msg) {
       label = paste("soil:", paste(selected_vars, collapse = ",")),
       download_fun = function(selected_vars, selected_depths) {
         library(terra)
-        source("R/optimized_sdm.R")
         cache_dir <- file.path(sdm_project_root(), "covariates", "soilgrids")
         dir.create(cache_dir, recursive = TRUE)
         for (v in selected_vars) {
@@ -1704,7 +1693,6 @@ gd_append_log <- function(target, msg) {
       label = "UV-B radiation",
       download_fun = function() {
         library(terra)
-        source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_uv.R"))
         load_uv_covariate(selected_uv_vars = c("UVB1","UVB2","UVB3","UVB4","UVB5","UVB6"),
                           selected_uv_months = as.character(1:12),
@@ -1723,7 +1711,6 @@ gd_append_log <- function(target, msg) {
       label = "GIMMS NDVI climatology",
       download_fun = function() {
         library(terra)
-        source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_vegetation.R"))
         load_gimms_ndvi_period(period = "clim", ndvi_year = 2020,
                                 extent_vec = c(-180,180,-90,90),
@@ -1754,7 +1741,6 @@ gd_append_log <- function(target, msg) {
       label = paste("LULC year:", year),
       download_fun = function(year) {
         library(terra)
-        source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_lulc.R"))
         load_lulc_covariate(lulc_year = year, extent_vec = c(-180,180,-90,90),
                             aggregate_factor = 1,
@@ -1775,7 +1761,6 @@ gd_append_log <- function(target, msg) {
       label = paste("Human Footprint year:", year),
       download_fun = function(year) {
         library(terra)
-        source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_human_footprint.R"))
         load_human_footprint_covariate(hfp_year = year, extent_vec = c(-180,180,-90,90),
                                         aggregate_factor = 1,
@@ -1800,7 +1785,6 @@ gd_append_log <- function(target, msg) {
       label = paste("drought periods:", paste(periods, collapse = ", ")),
       download_fun = function(periods) {
         library(terra)
-        source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_drought.R"))
         load_drought_covariate(selected_periods = periods,
                                 extent_vec = c(-180,180,-90,90),
@@ -1821,7 +1805,6 @@ gd_append_log <- function(target, msg) {
       label = "bioclimatic seasonality",
       download_fun = function() {
         library(terra)
-        source("R/optimized_sdm.R")
         source(file.path(sdm_project_root(), "R", "covariates_bioclim_seasonality.R"))
         load_bioclim_seasonality(extent_vec = c(-180,180,-90,90),
                                   worldclim_dir = file.path(sdm_project_root(), "Worldclim"),
@@ -1860,7 +1843,7 @@ gd_append_log <- function(target, msg) {
     gd_append_log("gd_worldclim_log", "--- Full verification ---")
     s <- get_data_summary()
     gd_append_log("gd_worldclim_log", paste("WorldClim:", s$worldclim$detail))
-    gd_append_log("gd_worldclim_log", paste("CHELSA extras:", s$chelsa_extras$detail))
+    gd_append_log("gd_env_log", paste("CHELSA extras:", s$chelsa_extras$detail))
     gd_append_log("gd_cmip6_log", paste("CMIP6 futures:", s$future$detail))
     gd_append_log("gd_terrain_log", paste("Elevation:", s$elevation$detail))
     gd_append_log("gd_terrain_log", paste("Soil:", s$soil$detail))

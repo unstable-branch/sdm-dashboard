@@ -2,6 +2,11 @@
 
 biovar_choices <- sdm_biovar_choices
 
+sanitize_extent <- function(x) {
+  x <- as.numeric(x)
+  ifelse(!is.finite(x), NA_real_, x)
+}
+
 extent_from_inputs <- function(input, occurrence = NULL) {
   preset <- input$extent_preset
   if (identical(preset, "occurrence")) {
@@ -11,7 +16,7 @@ extent_from_inputs <- function(input, occurrence = NULL) {
     return(sdm_default_projection_extent)
   }
   if (identical(preset, "custom")) {
-    return(c(input$xmin, input$xmax, input$ymin, input$ymax))
+    return(sanitize_extent(c(input$xmin, input$xmax, input$ymin, input$ymax)))
   }
   if (identical(preset, "boundary_file")) {
     if (!is.null(input$boundary_shp) && !is.null(input$boundary_shp$datapath) && nzchar(input$boundary_shp$datapath)) {

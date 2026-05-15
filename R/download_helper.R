@@ -4,10 +4,15 @@ download_covariate_bg <- function(log_target, log_append, label, download_fun,
                                    verify_fun = NULL, timeout_sec = 300,
                                    notification_msg = NULL,
                                    kill_on_timeout = FALSE,
+                                   init_engine = TRUE,
                                    args = NULL) {
   log_append(log_target, paste0("Starting ", label, " download..."))
   tryCatch({
-    bg <- callr::r_bg(download_fun, args = args, stdout = "|", stderr = "|")
+    wrapped_fun <- function(...) {
+      if (isTRUE(init_engine)) source("R/optimized_sdm.R")
+      download_fun(...)
+    }
+    bg <- callr::r_bg(wrapped_fun, args = args, stdout = "|", stderr = "|")
     early_out <- tryCatch(bg$read_output(), error = function(e) character(0))
     if (length(early_out) > 0) {
       for (ln in early_out[nzchar(early_out)]) log_append(log_target, ln)

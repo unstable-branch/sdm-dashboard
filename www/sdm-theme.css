@@ -712,3 +712,61 @@ body.sdm-dark .modal select {
 }
 body.sdm-dark .modal .close { color: #f2f7fb !important; opacity: 0.7 !important; }
 body.sdm-dark .modal .close:hover { opacity: 1 !important; }
+
+/* Utility classes (extracted from inline style= attributes) */
+.status-error-text { color: #8c1d18; }
+body.sdm-dark .status-error-text { color: #ffd2d4; }
+
+.status-positive { color: #0b594f; }
+body.sdm-dark .status-positive { color: #c6fff2; }
+
+.small-muted-xs { font-size: 0.78em; }
+
+.batch-log-empty { font-size: 0.8rem; color: #6c7a89; margin-top: 4px; }
+body.sdm-dark .batch-log-empty { color: #a8b6c7; }
+
+.batch-log-active {
+  font-size: 0.78rem;
+  background: #f4f7fb;
+  border: 1px solid #e7edf4;
+  border-radius: 8px;
+  padding: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  margin-top: 4px;
+}
+body.sdm-dark .batch-log-active {
+  background: #0b1726;
+  border-color: #26384d;
+  color: #e6eef7;
+}
+
+.ensemble-error { color: #8c1d18; font-size: 0.85rem; }
+body.sdm-dark .ensemble-error { color: #ffd2d4; }
+
+.ensemble-ready { color: #0b594f; font-size: 0.85rem; }
+body.sdm-dark .ensemble-ready { color: #c6fff2; }
+
+.mb-sm { margin-bottom: 8px; }
+.mt-sm { margin-top: 12px; }
+
+.status-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 5px;
+}
+
+.scenario-row {
+  padding: 4px 0;
+  border-bottom: 1px solid #eee;
+}
+body.sdm-dark .scenario-row { border-bottom-color: #26384d; }
+
+.scenario-meta { float: right; color: #888; }
+body.sdm-dark .scenario-meta { color: #a8b6c7; }
+
+.text-sm { font-size: 0.85em; }
+.pl-sm { padding-left: 1.2rem; }
