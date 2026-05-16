@@ -330,9 +330,10 @@ body.sdm-dark .btn-outline-secondary:hover,
 /* Better contrast for small-muted in dark mode */
 body.sdm-dark .small-muted,
 /* Tab styling improvements */
-body.sdm-dark .nav-tabs .nav-link:hover,
-/* Sidecar note styling */
-body.sdm-dark .sidecar-note,
+body.sdm-dark .nav-tabs .nav-link:hover {
+  color: var(--sdm-accent);
+}
+
 /* Base layout (moved from app.R inline styles) */
 body {
   background: #f4f7fb;
@@ -555,7 +556,6 @@ details.control-section[open] > summary:after { content: '-'; }
   margin-top: 8px;
   padding-top: 10px;
 }
-.main-panel { padding-top: 0; }
 .content-card {
   padding: 14px;
   margin-bottom: 12px;
@@ -629,7 +629,7 @@ summary:focus-visible {
     padding-bottom: 8px;
   }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .main-panel .content-card { overflow-x: auto; }
+  .content-card { overflow-x: auto; }
 }
 @media (max-width: 575px) {
   .hero { padding: 14px; }
@@ -693,10 +693,6 @@ summary:focus-visible {
 }
 .bias-dropdown .selectize-dropdown { z-index: 9999 !important; }
 .bias-dropdown .selectize-dropdown { position: absolute !important; }
-.bias-conditional {
-  position: relative;
-  z-index: 200;
-}
 .control-section {
   position: relative;
   z-index: 1;
@@ -877,6 +873,63 @@ body.sdm-dark .ensemble-ready { color: #c6fff2; }
 .status-dot-ok { background: var(--sdm-success, #0b594f); }
 .status-dot-warn { background: var(--sdm-warning, #7a4b00); }
 .status-dot-error { background: var(--sdm-danger, #8c1d18); }
+.status-dot-unknown { background: var(--sdm-muted, #8ea2b5); }
+
+/* Advanced settings modal */
+.advanced-section {
+  border-left: 3px solid var(--sdm-accent, #0b6e69);
+  padding-left: 8px;
+  margin-top: 8px;
+}
+
+.advanced-modal-body {
+  padding: 16px;
+  font-size: 0.9rem;
+}
+
+/* Alert padding utility */
+.small-padded {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+/* Get Data tab section styles */
+.gd-section-summary {
+  cursor: pointer;
+  font-weight: 800;
+  font-size: 1rem;
+  padding: 10px 12px;
+  list-style: none;
+}
+
+.gd-section-summary-compact {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 6px 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gd-section-icon {
+  font-size: 1.2em;
+  margin-right: 8px;
+}
+
+.gd-section-body {
+  padding: 0 12px 12px;
+}
+
+body.sdm-dark .gd-section-summary,
+body.sdm-dark .gd-section-summary-compact {
+  color: var(--sdm-text);
+}
+
+body.sdm-dark .gd-section-icon {
+  filter: brightness(1.1);
+}
 
 /* Detail text styling */
 .detail-text {

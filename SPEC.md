@@ -19,8 +19,7 @@
 | `app.R` | Shiny UI — main user-facing dashboard |
 | `pipeline.R` | Non-interactive batch workflow |
 | `launch_app.R` | Opens browser on launch |
-| `optimized_sdm.R` | Root-level engine loader |
-| `R/optimized_sdm.R` | Refactored engine loader → `R/load.R` |
+| `R/optimized_sdm.R` | Engine loader → `R/load.R` |
 
 ### Module loader (`R/load.R`)
 

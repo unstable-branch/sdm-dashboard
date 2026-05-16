@@ -62,7 +62,7 @@ Latest beta release:
 - Repository: `https://github.com/mrcanofcatfood/sdm-dashboard`
 - Release tag: `v0.5.0-beta`
 - Source asset: `sdm-dashboard-v0.5.0-beta-source.zip`
-- Windows-ready asset: `sdm-dashboard-v0.3.0-beta-windows-ready.zip`
+- Windows-ready asset: `sdm-dashboard-v0.5.0-beta-windows-ready.zip`
 
 Previous beta release:
 
@@ -115,7 +115,8 @@ This configures a Windows port proxy so `http://127.0.0.1:3838` in your Windows 
 **Every time you want to use the app:**
 
 1. In WSL2 terminal: `Rscript app.R` — wait for "Listening on http://0.0.0.0:3838"
-2. In Windows browser: `http://127.0.0.1:3838`
+2. Get WSL2 IP: `hostname -I | awk '{print $1}'`
+3. In Windows browser: `http://<WSL2-IP>:3838`
 
 If the browser shows a blank page after the WSL setup, verify the app is running in WSL (`Test-NetConnection 127.0.0.1 3838` from PowerShell should show `TcpTestSucceeded: True`). If TCP test fails but the app is running, re-run `.\scripts\wsl_setup.ps1` to refresh the port proxy.
 
@@ -189,8 +190,8 @@ Rscript scripts/audit_release.R
 Build release assets with explicit versions:
 
 ```bash
-Rscript scripts/make_release_zip.R source --version=v0.3.0-beta
-Rscript scripts/make_release_zip.R ready --version=v0.3.0-beta
+Rscript scripts/make_release_zip.R source --version=v0.5.0-beta
+Rscript scripts/make_release_zip.R ready --version=v0.5.0-beta
 ```
 
 ## Contributing And Citation
