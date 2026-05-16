@@ -65,3 +65,11 @@ Screenshots/
 *_screenshot*.jpeg
 *hyprshot*.png
 /*_preview.png
+renv/
+torch/
+libtorch/
+*.Rproj
+.vscode/
+AGENTS.md
+pr_body.md
+sdm-dashboard-jacob-roadmap.md

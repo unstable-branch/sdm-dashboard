@@ -88,7 +88,7 @@ Standard stratified K-fold CV. Fold assignment is stratified by presence/backgro
 
 ### Spatial-Block K-Fold
 
-Blocks are assigned based on a regular grid inkm coordinates (latitude-adjusted). A fold-assignment heuristic balances total points and presence prevalence across folds. When the geographic extent yields fewer spatial blocks than K folds, the method falls back to random CV with a warning (see `R/cv_folds.R`).
+Blocks are assigned based on a regular grid in km coordinates (latitude-adjusted). A fold-assignment heuristic balances total points and presence prevalence across folds. When the geographic extent yields fewer spatial blocks than K folds, the method falls back to random CV with a warning (see `R/cv_folds.R`).
 
 Citation: Roberts, D.R. et al. (2017). Cross-validation strategies for data with temporal, spatial, hierarchical, or phylogenetic structure. *Ecography*, 40, 913–929.
 

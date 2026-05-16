@@ -140,7 +140,7 @@ get_data_tab <- function() {
 
   section_header <- function(label, icon = NULL, status = NULL, detail = NULL) {
     tagList(
-      tags$summary(style = "cursor:pointer;font-weight:700;font-size:0.95rem;padding:6px 0;list-style:none;display:flex;align-items:center;gap:8px;",
+      tags$summary(class = "gd-section-summary-compact",
         if (!is.null(status)) status_dot(status),
         if (!is.null(icon)) icon,
         label
@@ -163,11 +163,11 @@ get_data_tab <- function() {
       # Section 1: Climate — Current
       # ----------------------------------------------------------------
       tags$details(class = "control-section",
-        tags$summary(style = "cursor:pointer;font-weight:800;font-size:1rem;padding:10px 12px;list-style:none;",
-          span(style = "font-size:1.2em;margin-right:8px;", "🌡"),
+        tags$summary(class = "gd-section-summary",
+          span(class = "gd-section-icon", "🌡"),
           "Climate — Current (WorldClim / CHELSA)"
         ),
-        div(style = "padding:0 12px 12px;",
+        div(class = "gd-section-body",
           fluidRow(
             column(4,
               h5("WorldClim")
@@ -224,11 +224,11 @@ get_data_tab <- function() {
       # Section 2: Climate — Future CMIP6
       # ----------------------------------------------------------------
       tags$details(class = "control-section",
-        tags$summary(style = "cursor:pointer;font-weight:800;font-size:1rem;padding:10px 12px;list-style:none;",
-          span(style = "font-size:1.2em;margin-right:8px;", "🗺"),
+        tags$summary(class = "gd-section-summary",
+          span(class = "gd-section-icon", "🗺"),
           "Climate — Future (CMIP6)"
         ),
-        div(style = "padding:0 12px 12px;",
+        div(class = "gd-section-body",
           fluidRow(
             column(5,
               h5("Downloaded scenarios"),
@@ -305,11 +305,11 @@ get_data_tab <- function() {
       # Section 3: Terrain & Soil
       # ----------------------------------------------------------------
       tags$details(class = "control-section",
-        tags$summary(style = "cursor:pointer;font-weight:800;font-size:1rem;padding:10px 12px;list-style:none;",
-          span(style = "font-size:1.2em;margin-right:8px;", "⛰"),
+        tags$summary(class = "gd-section-summary",
+          span(class = "gd-section-icon", "⛰"),
           "Terrain & Soil"
         ),
-        div(style = "padding:0 12px 12px;",
+        div(class = "gd-section-body",
           fluidRow(
             column(4,
               h5("Elevation (OpenTopography)"),
@@ -367,11 +367,11 @@ get_data_tab <- function() {
       # Section 4: Environmental Layers
       # ----------------------------------------------------------------
       tags$details(class = "control-section",
-        tags$summary(style = "cursor:pointer;font-weight:800;font-size:1rem;padding:10px 12px;list-style:none;",
-          span(style = "font-size:1.2em;margin-right:8px;", "🌿"),
+        tags$summary(class = "gd-section-summary",
+          span(class = "gd-section-icon", "🌿"),
           "Environmental Layers"
         ),
-        div(style = "padding:0 12px 12px;",
+        div(class = "gd-section-body",
           fluidRow(
             column(4,
               h5("UV-B Radiation (glUV)"),
@@ -434,11 +434,11 @@ get_data_tab <- function() {
       # Section 5: Quick Actions
       # ----------------------------------------------------------------
       tags$details(class = "control-section",
-        tags$summary(style = "cursor:pointer;font-weight:800;font-size:1rem;padding:10px 12px;list-style:none;",
-          span(style = "font-size:1.2em;margin-right:8px;", "⚡"),
+        tags$summary(class = "gd-section-summary",
+          span(class = "gd-section-icon", "⚡"),
           "Quick Actions"
         ),
-        div(style = "padding:0 12px 12px;",
+        div(class = "gd-section-body",
           fluidRow(
             column(6,
               h5("Covariate cache summary"),

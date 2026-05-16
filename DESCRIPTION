@@ -1,7 +1,7 @@
 Package: SDMDashboardWorkbench
 Type: Shiny
 Title: Local Species Distribution Modelling Dashboard Workbench
-Version: 0.3.0
+Version: 0.5.0
 Authors@R: c(
     person("SDM Dashboard Workbench contributors", role = c("aut", "cre"))
   )
@@ -11,9 +11,21 @@ Encoding: UTF-8
 Depends: R (>= 4.3)
 Imports:
     bslib,
+    callr,
+    curl,
+    DT,
     geodata,
+    ggplot2,
+    leaflet,
+    maxnet,
     mgcv,
+    sf,
     shiny,
     terra
 Suggests:
+    CoordinateCleaner,
+    ecospat,
+    finch,
+    rgbif,
+    rgee,
     testthat

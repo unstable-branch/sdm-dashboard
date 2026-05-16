@@ -93,7 +93,6 @@ torch/
 libtorch-win-shared-with-deps-2.11.0+cu128/
 
 # Local temp files
-pr_body.md
 species/
 nohup.out
 *_download.log
