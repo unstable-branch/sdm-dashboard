@@ -527,6 +527,20 @@ server <- function(input, output, session) {
       overlap_state <- if (overlap$count == 0 || overlap$percent < 10) "info" else "ok"
     }
 
+    cc_state <- "info"
+    cc_detail <- "Advanced cleaning is off."
+    if (isTRUE(input$use_coordinatecleaner)) {
+      if (!is.null(cleaned) && is.data.frame(cleaned$df) && "cc_flag" %in% names(cleaned$df)) {
+        n_flagged <- sum(cleaned$df$cc_flag, na.rm = TRUE)
+        n_total <- nrow(cleaned$df)
+        pct <- round(100 * n_flagged / n_total, 1)
+        cc_detail <- paste0(n_flagged, " of ", n_total, " records flagged (", pct, "%)")
+        cc_state <- if (n_flagged > 0) "warn" else "ok"
+      } else {
+        cc_detail <- "Advanced cleaning enabled — will run when data is loaded."
+      }
+    }
+
     future_state <- "info"
     future_detail <- "Future climate projection is off."
 if (isTRUE(input$future_projection)) {
@@ -563,6 +577,7 @@ if (isTRUE(input$future_projection)) {
         readiness_item("Selected covariates", paste(selected_count, "total covariates selected; BIO", paste(biovars, collapse = ", BIO")), if (selected_count >= 2) "ok" else "error"),
         readiness_item("Projection extent", extent_detail, extent_state),
         readiness_item("Observation/projection overlap", overlap_detail, overlap_state),
+        readiness_item("CoordinateCleaner", cc_detail, cc_state),
         readiness_item("Future climate projection", future_detail, future_state)
       )
     )
@@ -1019,10 +1034,6 @@ if (isTRUE(input$future_projection)) {
             format(n_absent, big.mark = ","), format(n_raw, big.mark = ","))
   })
 
-  marker_colors <- function(cc_flag) {
-    ifelse(is.na(cc_flag) | cc_flag == FALSE, "blue", "red")
-  }
-
   output$occurrence_cleaning_map <- renderLeaflet({
     req(rv$cleaned_occurrence)
     leaflet::leaflet() %>% leaflet::addTiles()
@@ -1032,27 +1043,56 @@ if (isTRUE(input$future_projection)) {
     req(input$occurrence_cleaning_map)
     occ <- rv$cleaned_occurrence$df
     if (!is.data.frame(occ) || nrow(occ) < 1) {
-      leaflet::leafletProxy("occurrence_cleaning_map") %>% leaflet::clearMarkers()
+      leaflet::leafletProxy("occurrence_cleaning_map") %>%
+        leaflet::clearMarkers() %>%
+        leaflet::removeLayersControl()
       return()
     }
 
-    colors <- marker_colors(occ$cc_flag)
-    species_col <- if ("species" %in% names(occ)) occ$species else "N/A"
-    source_col <- occ$source
-    row_nums <- seq_len(nrow(occ))
-    popups <- paste0("Row ", row_nums, "<br>",
-                      "Species: ", species_col, "<br>",
-                      "Source: ", source_col)
+    clean_idx <- is.na(occ$cc_flag) | occ$cc_flag == FALSE
+    flagged_idx <- !clean_idx
 
-    leaflet::leafletProxy("occurrence_cleaning_map") %>%
+    flag_status <- ifelse(clean_idx,
+      '<span style="color:#2196F3;font-weight:bold;">Clean</span>',
+      '<span style="color:#f44336;font-weight:bold;">Flagged</span>')
+    species_col <- if ("species" %in% names(occ)) occ$species else "N/A"
+    popups <- paste0("Row ", seq_len(nrow(occ)), "<br>",
+                      "Species: ", species_col, "<br>",
+                      "Source: ", occ$source, "<br>",
+                      "Status: ", flag_status)
+
+    proxy <- leaflet::leafletProxy("occurrence_cleaning_map") %>%
       leaflet::clearMarkers() %>%
-      leaflet::addCircleMarkers(
-        lng = occ$longitude, lat = occ$latitude,
-        color = colors,
-        fillOpacity = 0.7,
-        radius = 5,
-        layerId = row_nums,
-        popup = popups
+      leaflet::removeLayersControl()
+
+    if (any(clean_idx)) {
+      proxy <- proxy %>%
+        leaflet::addCircleMarkers(
+          data = occ[clean_idx, , drop = FALSE],
+          lng = ~longitude, lat = ~latitude,
+          color = "blue", fillOpacity = 0.7, radius = 5,
+          layerId = which(clean_idx),
+          popup = popups[clean_idx],
+          group = "Clean records"
+        )
+    }
+
+    if (any(flagged_idx)) {
+      proxy <- proxy %>%
+        leaflet::addCircleMarkers(
+          data = occ[flagged_idx, , drop = FALSE],
+          lng = ~longitude, lat = ~latitude,
+          color = "red", fillOpacity = 0.7, radius = 5,
+          layerId = which(flagged_idx),
+          popup = popups[flagged_idx],
+          group = "Flagged records"
+        )
+    }
+
+    proxy %>%
+      leaflet::addLayersControl(
+        overlayGroups = c("Clean records", "Flagged records"),
+        options = leaflet::layersControlOptions(collapsed = TRUE)
       )
   }, ignoreInit = TRUE)
 
