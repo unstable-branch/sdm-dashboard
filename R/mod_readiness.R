@@ -145,17 +145,13 @@ mod_readiness_server <- function(id, rv, input, readiness_item) {
       }
 
       cc_state <- "info"
-      cc_detail <- "Advanced cleaning is off."
-      if (isTRUE(input$use_coordinatecleaner)) {
-        if (!is.null(cleaned) && is.data.frame(cleaned$df) && "cc_flag" %in% names(cleaned$df)) {
-          n_flagged <- sum(cleaned$df$cc_flag, na.rm = TRUE)
-          n_total <- nrow(cleaned$df)
-          pct <- round(100 * n_flagged / n_total, 1)
-          cc_detail <- paste0(n_flagged, " of ", n_total, " records flagged (", pct, "%)")
-          cc_state <- if (n_flagged > 0) "warn" else "ok"
-        } else {
-          cc_detail <- "Advanced cleaning enabled — will run when data is loaded."
-        }
+      cc_detail <- "Advanced cleaning not yet run."
+      if (!is.null(cleaned) && is.data.frame(cleaned$df) && "cc_flag" %in% names(cleaned$df)) {
+        n_flagged <- sum(cleaned$df$cc_flag, na.rm = TRUE)
+        n_total <- nrow(cleaned$df)
+        pct <- round(100 * n_flagged / n_total, 1)
+        cc_detail <- paste0(n_flagged, " of ", n_total, " records flagged (", pct, "%)")
+        cc_state <- if (n_flagged > 0) "warn" else "ok"
       }
 
       future_state <- "info"

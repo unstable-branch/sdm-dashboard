@@ -146,7 +146,7 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           } else NULL,
           thickening_distance_km = if (isTRUE(input$bias_method == "thickened")) input$thickening_distance_km else NULL,
           cleaned_occurrence = rv$cleaned_occurrence,
-          use_cc = isTRUE(input$use_coordinatecleaner),
+          use_cc = TRUE,
           cc_tests = input$cc_tests %||% "all",
           output_dir = sdm_default_output_dir,
           seed = sdm_default_seed,

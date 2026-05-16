@@ -71,7 +71,6 @@ server <- function(input, output, session) {
   mod_get_data_server("get_data", rv, input)
 
   append_log <- function(message) rv$log <- paste0(rv$log, format(Sys.time(), "%H:%M:%S"), "  ", message, "\n")
-  previous_occurrence_path <- reactiveVal(NULL)
   last_auto_species <- reactiveVal(sdm_initial_species)
   species_manually_set <- reactiveVal(FALSE)
   last_progress <- reactiveVal(0)
@@ -299,27 +298,21 @@ server <- function(input, output, session) {
 
 
 
-  observe({
+  cc_last_run <- reactiveVal(NULL)
+
+  observeEvent(input$run_cc, {
     occurrence <- occurrence_source()
-    use_cc <- isTRUE(input$use_coordinatecleaner)
-    cc_tests <- input$cc_tests %||% "all"
     current_path <- occurrence$path
+    req(current_path)
 
-    if (!identical(current_path, previous_occurrence_path())) {
-      previous_occurrence_path(current_path)
-      rv$cleaned_occurrence <- NULL
-      output$cc_stats_log <- renderText("Loading occurrence data...")
-      output$source_table <- renderTable({
-        data.frame(Message = "Loading...")
-      }, striped = FALSE, hover = FALSE)
-    }
-
-    if (is.null(current_path)) {
-      return()
-    }
-    cleaned <- clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records, use_cc = use_cc, cc_tests = cc_tests)
+    cc_tests <- input$cc_tests %||% "all"
+    cleaned <- clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records, use_cc = TRUE, cc_tests = cc_tests)
     if (!is.null(cleaned$error)) {
       rv$cleaned_occurrence <- NULL
+      output$cc_stats_log <- renderText(paste("Cleaning failed:", cleaned$error))
+      output$source_table <- renderTable({
+        data.frame(Message = paste("Error:", cleaned$error))
+      }, striped = FALSE, hover = FALSE)
       return()
     }
     if (!"cc_flag" %in% names(cleaned$occ)) {
@@ -331,7 +324,18 @@ server <- function(input, output, session) {
       n_absent_excluded = cleaned$n_absent_excluded,
       original_rows = cleaned$original_rows
     )
+    cc_last_run(format(Sys.time(), "%H:%M:%S"))
+  }, ignoreInit = TRUE)
+
+  output$cc_run_status <- renderUI({
+    last_run <- cc_last_run()
+    if (is.null(last_run)) {
+      div(class = "small-muted", "Click to run advanced cleaning on occurrence data.")
+    } else {
+      div(class = "small-muted status-positive", paste("Last run:", last_run))
+    }
   })
+  outputOptions(output, "cc_run_status", suspendWhenHidden = FALSE)
 
   output$occurrence_source_status <- renderUI({
     occurrence <- occurrence_source()
