@@ -143,8 +143,9 @@ test_esm_smoke <- function() {
     return(invisible(NULL))
   }
   bm_ver <- tryCatch(as.character(packageVersion("biomod2")), error = function(e) "0.0.0")
-  bm_parts <- strsplit(bm_ver, "\\.")[[1]]
-  bm_v <- sum(as.integer(bm_parts) * c(100, 10, 1))
+  bm_parts <- as.integer(strsplit(bm_ver, "\\.")[[1]])
+  bm_multipliers <- c(1000, 100, 10, 1)
+  bm_v <- sum(bm_parts * bm_multipliers[seq_along(bm_parts)])
   if (bm_v >= 430) {
     cat("[esm_glm smoke] skipped: biomod2 >= 4.3.0 has ecospat ESM incompatibility\n")
     return(invisible(NULL))

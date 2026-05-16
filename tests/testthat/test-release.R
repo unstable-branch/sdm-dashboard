@@ -1,6 +1,9 @@
 test_that("source release selection excludes generated and sensitive paths", {
   env <- new.env(parent = .GlobalEnv)
-  source(file.path("scripts", "make_release_zip.R"), local = env)
+  old_wd <- getwd()
+  setwd(project_root)
+  on.exit(setwd(old_wd), add = TRUE)
+  source(file.path(project_root, "scripts", "make_release_zip.R"), local = env)
 
   sample_paths <- c(
     "presence_data.csv", "outputs/model.tif", "screenshots/app.png",
@@ -19,7 +22,10 @@ test_that("source release selection excludes generated and sensitive paths", {
 
 test_that("source release file list does not include local generated files", {
   env <- new.env(parent = .GlobalEnv)
-  source(file.path("scripts", "make_release_zip.R"), local = env)
+  old_wd <- getwd()
+  setwd(project_root)
+  on.exit(setwd(old_wd), add = TRUE)
+  source(file.path(project_root, "scripts", "make_release_zip.R"), local = env)
   files <- env$release_included_paths(include_worldclim = FALSE)
 
   expect_true("scripts/smoke_test.R" %in% files)
@@ -32,7 +38,10 @@ test_that("source release file list does not include local generated files", {
 
 test_that("Windows-ready release file list is end-user focused", {
   env <- new.env(parent = .GlobalEnv)
-  source(file.path("scripts", "make_release_zip.R"), local = env)
+  old_wd <- getwd()
+  setwd(project_root)
+  on.exit(setwd(old_wd), add = TRUE)
+  source(file.path(project_root, "scripts", "make_release_zip.R"), local = env)
   files <- env$ready_release_paths(include_worldclim = FALSE)
 
   expect_true("run_app_windows.bat" %in% files)

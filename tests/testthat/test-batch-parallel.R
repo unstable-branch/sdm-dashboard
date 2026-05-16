@@ -9,6 +9,24 @@ test_that("parse_comma_ints handles comma-separated integers", {
   expect_equal(parse_comma_ints("1, 4, 6"), c(1L, 4L, 6L))
 })
 
+test_that("parse_comma_doubles handles comma-separated doubles", {
+  expect_equal(parse_comma_doubles("140.0,154.0,-44.0,-10.0"), c(140.0, 154.0, -44.0, -10.0))
+  expect_equal(parse_comma_doubles("140, 154, -44, -10"), c(140, 154, -44, -10))
+  expect_equal(parse_comma_doubles("1.5,2.5"), c(1.5, 2.5))
+})
+
+test_that("parse_comma_doubles handles single values", {
+  expect_equal(parse_comma_doubles("140.5"), 140.5)
+  expect_equal(parse_comma_doubles(" 140.5 "), 140.5)
+})
+
+test_that("parse_comma_doubles handles empty/NA strings", {
+  expect_equal(parse_comma_doubles(NULL), numeric(0))
+  expect_equal(parse_comma_doubles(NA), numeric(0))
+  expect_equal(parse_comma_doubles(""), numeric(0))
+  expect_equal(parse_comma_doubles("  "), numeric(0))
+})
+
 test_that("parse_comma_ints handles single values", {
   expect_equal(parse_comma_ints("7"), 7L)
   expect_equal(parse_comma_ints(" 7 "), 7L)
@@ -58,6 +76,59 @@ test_that("parse_batch_config rejects empty CSV", {
   write.csv(data.frame(species = character()), tmp, row.names = FALSE)
   expect_error(parse_batch_config(tmp), "empty")
   unlink(tmp)
+})
+
+test_that("build_run_args parses minimal config", {
+  row <- list(species = "Test species", occurrences_csv = "/path/to/occ.csv")
+  args <- build_run_args(row)
+  expect_equal(args$species, "Test species")
+  expect_equal(args$occurrence_file, "/path/to/occ.csv")
+})
+
+test_that("build_run_args parses extent strings", {
+  row <- list(
+    species = "Test",
+    occurrences_csv = "occ.csv",
+    projection_extent = "140.0,154.0,-44.0,-10.0",
+    training_extent = "138.0,156.0,-42.0,-12.0"
+  )
+  args <- build_run_args(row)
+  expect_equal(args$projection_extent, c(140.0, 154.0, -44.0, -10.0))
+  expect_equal(args$training_extent, c(138.0, 156.0, -42.0, -12.0))
+})
+
+test_that("build_run_args parses logical fields", {
+  row <- list(
+    species = "Test",
+    occurrences_csv = "occ.csv",
+    use_elevation = "TRUE",
+    use_soil = "false",
+    include_quadratic = "yes",
+    vif_reduction = "0"
+  )
+  args <- build_run_args(row)
+  expect_true(args$use_elevation)
+  expect_false(args$use_soil)
+  expect_true(args$include_quadratic)
+  expect_false(args$vif_reduction)
+})
+
+test_that("build_run_args parses biovars and numeric fields", {
+  row <- list(
+    species = "Test",
+    occurrences_csv = "occ.csv",
+    biovars = "1,4,12",
+    background_n = "500",
+    cv_folds = "5",
+    threshold = "0.6",
+    aggregation_factor = "2"
+  )
+  args <- build_run_args(row)
+  expect_equal(args$selected_biovars, c(1L, 4L, 12L))
+  expect_equal(args$background_n, 500L)
+  expect_equal(args$cv_folds, 5L)
+  expect_equal(args$threshold, 0.6)
+  expect_equal(args$aggregation_factor, 2L)
 })
 
 test_that("parse_batch_config parses valid CSV into list of lists", {
