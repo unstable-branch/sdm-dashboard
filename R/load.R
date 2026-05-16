@@ -61,6 +61,8 @@ modules <- c(
   "batch_runner.R",
   "script_export.R",
   "mod_get_data.R",
+  "mod_advanced.R",
+  "mod_model_run.R",
   "ui_header.R",
   "ui_sidebar_controls.R",
   "ui_main_tabs.R"
