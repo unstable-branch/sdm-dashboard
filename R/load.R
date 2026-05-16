@@ -63,7 +63,6 @@ modules <- c(
   "batch_runner.R",
   "script_export.R",
   "mod_get_data.R",
-  "mod_advanced.R",
   "mod_model_run.R",
   "mod_results.R",
   "mod_readiness.R",

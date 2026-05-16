@@ -90,11 +90,11 @@ ui_sidebar_controls <- function() {
     ),
     div(
       class = "control-section",
-      h4("Climate data"),
+      h4("Climate & BIO variables"),
       textInput("worldclim_dir", "WorldClim folder", value = sdm_default_worldclim_dir),
       selectInput("worldclim_res", "WorldClim resolution", choices = c("10 arc-min" = "10", "5 arc-min" = "5", "2.5 arc-min" = "2.5"), selected = as.character(sdm_default_worldclim_res)),
       checkboxInput("download_worldclim", "Auto-download missing BIO layers", value = TRUE),
-      div(class = "small-muted", "When enabled, missing WorldClim layers are downloaded automatically."),
+      div(class = "small-muted", "Select at least 2 climate variables."),
       selectInput("climate_source", "Climate data source", choices = c("WorldClim" = "worldclim", "CHELSA" = "chelsa"), selected = sdm_default_climate_source),
       conditionalPanel(
         "input.climate_source == 'chelsa'",
@@ -107,14 +107,7 @@ ui_sidebar_controls <- function() {
         ),
         div(class = "small-muted", "CHELSA bioclim-plus: gdd5/10 (growing degree days), gsl, fcf, npp, scd. Downloaded automatically when selected.")
       ),
-    ),
-    tags$details(
-      class = "control-section", open = TRUE,
-      tags$summary("Climate variables"),
-      div(
-        class = "details-body",
-        checkboxGroupInput("biovars", NULL, choices = biovar_choices, selected = as.character(sdm_default_biovars))
-      )
+      checkboxGroupInput("biovars", NULL, choices = biovar_choices, selected = as.character(sdm_default_biovars))
     ),
     tags$details(
       class = "control-section",
@@ -328,11 +321,7 @@ ui_sidebar_controls <- function() {
           uiOutput("esm_complexity_warning")
         ),
         numericInput("background_n", "Background points", value = sdm_default_background_n, min = 500, max = 100000, step = 500),
-        numericInput("min_source_records", "Merge sources with fewer than", value = sdm_default_min_source_records, min = 1, max = 100, step = 1),
-        checkboxInput("merge_small_sources", "Merge small occurrence sources", value = TRUE),
-        checkboxInput("thin_by_cell", "Thin duplicate records in the same climate cell", value = TRUE),
         checkboxInput("quadratic", "Include quadratic climate responses", value = TRUE),
-        checkboxInput("vif_reduction", "Drop collinear covariates (VIF > 10)", value = FALSE),
         selectInput("cv_folds", "Cross-validation", choices = c("Off" = "0", "3-fold" = "3", "5-fold" = "5"), selected = as.character(sdm_default_cv_folds)),
         selectInput("cv_strategy", "CV strategy", choices = c("Random" = "random", "Spatial blocks" = "spatial_blocks"), selected = sdm_default_cv_strategy),
         conditionalPanel(
@@ -342,29 +331,6 @@ ui_sidebar_controls <- function() {
             min = 1, max = 500, step = 1
           ),
           div(class = "small-muted", "Auto-estimated if left at default.")
-        ),
-        div(
-          class = "bias-dropdown",
-          selectInput("bias_method", "Background sampling bias correction",
-            choices = c(
-              "Uniform random (default)" = "uniform",
-              "Target-group (requires related species CSV)" = "target_group",
-              "Thickened (concentrate around presences)" = "thickened"
-            )
-          )
-        ),
-        conditionalPanel(
-          "input.bias_method == 'target_group'",
-          fileInput("target_group_file", "Upload related species occurrences (CSV)",
-            accept = c(".csv")
-          ),
-          div(class = "small-muted", "One record per row with longitude and latitude columns.")
-        ),
-        conditionalPanel(
-          "input.bias_method == 'thickened'",
-          numericInput("thickening_distance_km", "Kernel distance (km)",
-            value = 10, min = 1, max = 100
-          )
         ),
         numericInput("n_cores", "CPU cores for compile/predict/CV", value = safe_numeric(default_cores, 1), min = 1, max = safe_numeric(detect_available_cores(TRUE), 4), step = 1),
         div(class = "small-muted", "Also sets MAKEFLAGS=-jN for source package compilation."),
@@ -387,12 +353,7 @@ ui_sidebar_controls <- function() {
           multiple = FALSE
         ),
         div(class = "small-muted", "Upload a polygon boundary file to define the projection extent automatically. The bounding box of the geometry is used.")
-      )
-    ),
-    div(
-      class = "control-section",
-      h4("Outputs"),
-      sliderInput("threshold", "High-suitability threshold", min = 0.05, max = 0.95, value = sdm_default_threshold, step = 0.05),
+      ),
       div(class = "checkbox-parent", checkboxInput("future_projection", "Project a future climate scenario", value = FALSE)),
       conditionalPanel(
         "input.future_projection == true",
@@ -401,11 +362,31 @@ ui_sidebar_controls <- function() {
         uiOutput("future_download_status")
       )
     ),
-    div(
-      class = "control-section advanced-section",
-      h4("Advanced Settings"),
-      p(class = "small-muted", "Fine-tune cross-validation, bias correction, and data merging options."),
-      actionButton("open_advanced_modal", "Open Advanced Settings", class = "btn-outline-primary btn-sm")
+    tags$details(
+      class = "control-section",
+      tags$summary("Advanced settings"),
+      div(
+        class = "details-body",
+        checkboxInput("vif_reduction", "Drop collinear covariates (VIF > 10)", value = FALSE),
+        checkboxInput("thin_by_cell", "Thin duplicate records in same climate cell", value = TRUE),
+        checkboxInput("merge_small_sources", "Merge small occurrence sources", value = TRUE),
+        numericInput("min_source_records", "Merge sources with fewer than", value = sdm_default_min_source_records, min = 1, max = 100, step = 1),
+        selectInput("bias_method", "Background sampling bias correction",
+          choices = c(
+            "Uniform random (default)" = "uniform",
+            "Target-group (requires related species CSV)" = "target_group",
+            "Thickened (concentrate around presences)" = "thickened"
+          )
+        ),
+        conditionalPanel(
+          "input.bias_method == 'target_group'",
+          fileInput("target_group_file", "Upload related species occurrences (CSV)", accept = c(".csv"))
+        ),
+        conditionalPanel(
+          "input.bias_method == 'thickened'",
+          numericInput("thickening_distance_km", "Kernel distance (km)", value = 10, min = 1, max = 100)
+        )
+      )
     ),
     ui_advanced_modal(),
     div(
