@@ -337,7 +337,7 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$open_advanced_modal, {
-    showModal(bslib::modal(
+    showModal(modalDialog(
       title = "Advanced Settings",
       size = "l",
       easyClose = FALSE,

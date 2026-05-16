@@ -98,7 +98,7 @@ ui_sidebar_controls <- function() {
       div(class = "checkbox-parent", checkboxInput("use_elevation", "Add elevation from OpenTopography", value = FALSE)),
       conditionalPanel("input.use_elevation == true",
         selectInput("elevation_demtype", "Elevation DEM", choices = opentopo_dem_choices, selected = sdm_default_elevation_demtype),
-        passwordInput("opentopo_api_key", "OpenTopography API key (optional)", value = "", autocomplete = "new-password"),
+        tagAppendAttributes(passwordInput("opentopo_api_key", "OpenTopography API key (optional)", value = ""), autocomplete = "new-password"),
         div(class = "small-muted", "Leave blank to use OPENTOPOGRAPHY_API_KEY from your environment. Keys are not saved in outputs."),
         div(class = "small-muted", "Terrain derivatives (TRI, slope, aspect, curvature) are computed automatically from the DEM.")
       ),
