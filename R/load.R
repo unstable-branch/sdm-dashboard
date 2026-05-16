@@ -63,6 +63,8 @@ modules <- c(
   "mod_get_data.R",
   "mod_advanced.R",
   "mod_model_run.R",
+  "mod_results.R",
+  "mod_readiness.R",
   "ui_header.R",
   "ui_sidebar_controls.R",
   "ui_main_tabs.R"
