@@ -116,7 +116,7 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           worldclim_res = as.numeric(input$worldclim_res),
           use_elevation = isTRUE(input$use_elevation),
           elevation_demtype = input$elevation_demtype,
-          opentopo_api_key = input$opentopo_api_key,
+          opentopo_api_key = input$opentopo_api_key %||% Sys.getenv("OPENTOPOGRAPHY_API_KEY", ""),
           use_soil = isTRUE(input$use_soil),
           selected_soil_vars = input$soil_vars,
           selected_soil_depths = input$soil_depths,

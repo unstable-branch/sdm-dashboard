@@ -177,6 +177,24 @@ Outputs are habitat suitability or relative occurrence-support maps, not confirm
 - Keep templates and synthetic examples in `data/`; keep local working data at the project root or ignored cache/output folders.
 - Review generated reports and screenshots before sharing because coordinates, paths, and species names can be sensitive.
 
+## API Keys
+
+Some features require API keys. The app checks for these environment variables:
+
+| Variable | Used for | Required? |
+|----------|----------|-----------|
+| `OPENTOPOGRAPHY_API_KEY` | Elevation downloads from OpenTopography | Yes, if using elevation covariate |
+
+Create a `.Renviron` file in the project root (or your home directory) to set them:
+
+```
+OPENTOPOGRAPHY_API_KEY=your_key_here
+```
+
+The file `.Renviron` is git-ignored and must never be committed. After editing, restart R for the change to take effect.
+
+API keys entered via the Shiny UI take precedence over `.Renviron` values.
+
 ## Verification
 
 Run the lightweight source checks:
