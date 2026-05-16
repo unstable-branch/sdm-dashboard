@@ -60,6 +60,7 @@ modules <- c(
   "verify_cache.R",
   "batch_runner.R",
   "script_export.R",
+  "mod_get_data.R",
   "ui_header.R",
   "ui_sidebar_controls.R",
   "ui_main_tabs.R"
