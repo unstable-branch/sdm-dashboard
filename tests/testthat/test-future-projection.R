@@ -5,8 +5,8 @@ test_that("future projection discovery reports missing BIO layers", {
 
   file.create(file.path(tmp, "wc2.1_10m_bio_1.tif"))
   files <- future_projection_files(tmp, c(1, 12))
-  expect_false(is.na(files[["1"]]))
-  expect_true(is.na(files[["12"]]))
+  expect_false(is.na(files[["bio1"]]))
+  expect_true(is.na(files[["bio12"]]))
 })
 
 test_that("future projection reuses model dispatch and writes delta rasters", {

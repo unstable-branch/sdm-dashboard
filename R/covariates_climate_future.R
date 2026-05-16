@@ -91,7 +91,7 @@ cmip6_load_future_covariates <- function(cmip6_dir, selected_biovars, training_e
   }
 
   env_future <- terra::rast(layers)
-  terra::names(env_future) <- names(layers)
+  names(env_future) <- names(layers)
 
   list(env_future = env_future, files = files)
 }
@@ -100,21 +100,29 @@ find_cmip6_files <- function(cmip6_dir, selected_biovars) {
   all_files <- list.files(cmip6_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
   all_files <- normalizePath(all_files)
 
-  bio_patterns <- paste0("bio", c(1:19, sprintf("%02d", 1:9)))
-  names(bio_patterns) <- paste0("bio", c(1:19, 1:19))
-
   files <- character()
   for (bio in selected_biovars) {
     bio_name <- paste0("bio", bio)
     bio_name_2digit <- if (bio < 10) paste0("bio0", bio) else paste0("bio", bio)
+    bio_underscore <- paste0("bio_", bio)
+    bio_underscore_2digit <- if (bio < 10) paste0("bio_0", bio) else paste0("bio_", bio)
 
-    pattern1 <- paste0("_(", bio_name, ")[^0-9]")
-    pattern2 <- paste0("_(", bio_name_2digit, ")[^0-9]")
+    pattern1 <- paste0("[/_]", bio_name, "[^0-9]")
+    pattern2 <- paste0("[/_]", bio_name_2digit, "[^0-9]")
+    pattern3 <- paste0("[/_]", bio_underscore, "[^0-9]")
+    pattern4 <- paste0("[/_]", bio_underscore_2digit, "[^0-9]")
+    pattern5 <- paste0("[/_]", bio_name, "\\.tif$")
+    pattern6 <- paste0("[/_]", bio_name_2digit, "\\.tif$")
 
     matched <- c(
       all_files[grepl(pattern1, all_files, ignore.case = TRUE)],
-      all_files[grepl(pattern2, all_files, ignore.case = TRUE)]
+      all_files[grepl(pattern2, all_files, ignore.case = TRUE)],
+      all_files[grepl(pattern3, all_files, ignore.case = TRUE)],
+      all_files[grepl(pattern4, all_files, ignore.case = TRUE)],
+      all_files[grepl(pattern5, all_files, ignore.case = TRUE)],
+      all_files[grepl(pattern6, all_files, ignore.case = TRUE)]
     )
+    matched <- unique(matched)
 
     if (length(matched) == 0) {
       files[as.character(bio)] <- NA_character_

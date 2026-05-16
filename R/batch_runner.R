@@ -34,6 +34,14 @@ parse_comma_strings <- function(x) {
   trimws(unlist(strsplit(trimws(x), ",\\s*")))
 }
 
+#' Parse a comma-separated string of doubles.
+#' @param x character vector, possibly with whitespace around values.
+#' @return numeric vector, or numeric(0) if empty/NA.
+parse_comma_doubles <- function(x) {
+  if (is.null(x) || is.na(x) || !nzchar(trimws(x))) return(numeric(0))
+  suppressWarnings(as.numeric(unlist(strsplit(trimws(x), "\\s*,\\s*"))))
+}
+
 #' Parse a logical value from a string ("TRUE", "FALSE", "true", "false", "1", "0").
 #' @param x character or logical.
 #' @return logical.
