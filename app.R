@@ -1430,7 +1430,7 @@ gd_append_log <- function(target, msg) {
 
   observe({
     rv$cmip6_scenarios <- verify_future_cache()
-  }, ignoreInit = TRUE)
+  })
 
   output$gd_elevation_status <- renderUI({
     v <- verify_elevation_cache()
