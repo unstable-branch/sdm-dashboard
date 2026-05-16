@@ -35,6 +35,7 @@ modules <- c(
   "future_projection.R",
   "extrapolation.R",
   "plots.R",
+  "sdm_config.R",
   "report.R",
   "report_odmap.R",
   "run_sdm.R",
