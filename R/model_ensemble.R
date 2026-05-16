@@ -4,14 +4,18 @@ ensemble_weighted_metric <- function(values, weights) {
   values <- suppressWarnings(as.numeric(values))
   weights <- suppressWarnings(as.numeric(weights))
   ok <- is.finite(values) & is.finite(weights) & weights > 0
-  if (!any(ok)) return(NA_real_)
+  if (!any(ok)) {
+    return(NA_real_)
+  }
   weights <- weights[ok] / sum(weights[ok])
   sum(values[ok] * weights)
 }
 
 ensemble_model_weights <- function(glm_fit, rangebag_fit, weighting = sdm_default_ensemble_weighting) {
   weighting <- match.arg(weighting, c("equal", "auc", "tss"))
-  if (identical(weighting, "equal")) return(c(glm = 0.5, rangebag = 0.5))
+  if (identical(weighting, "equal")) {
+    return(c(glm = 0.5, rangebag = 0.5))
+  }
 
   metric <- function(fit, name, fallback = 0.5) {
     value <- suppressWarnings(as.numeric(fit$cv[[name]][1]))
@@ -36,7 +40,8 @@ fit_ensemble_glm_rangebag_sdm <- function(occ, env_train_scaled, background_n = 
 
   log_message(log_fun, "Fitting ensemble component: Rangebagging")
   rangebag_fit <- fit_rangebag_sdm(
-    occ, env_train_scaled, background_n = background_n, include_quadratic = include_quadratic,
+    occ, env_train_scaled,
+    background_n = background_n, include_quadratic = include_quadratic,
     cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun
   )
   rangebag_fit$model_id <- "rangebag"

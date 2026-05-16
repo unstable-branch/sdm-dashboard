@@ -28,25 +28,32 @@ biomod2_detect_capabilities <- function() {
 #' Quick boolean check if biomod2 is usable (installed and meets tested range)
 biomod2_is_supported <- function() {
   caps <- tryCatch(biomod2_detect_capabilities(), error = function(e) NULL)
-  if (is.null(caps)) return(FALSE)
+  if (is.null(caps)) {
+    return(FALSE)
+  }
   caps$has_BIOMOD_Modeling && caps$has_BIOMOD_EnsembleModeling
 }
 
 #' Log a human‑readable summary of detected capabilities
 log_biomod2_capabilities <- function(logger = NULL) {
-  msg <- tryCatch({
-    caps <- biomod2_detect_capabilities()
-    ver <- if (requireNamespace("biomod2", quietly = TRUE)) {
-      as.character(packageVersion("biomod2"))
-    } else {
-      "not installed"
+  msg <- tryCatch(
+    {
+      caps <- biomod2_detect_capabilities()
+      ver <- if (requireNamespace("biomod2", quietly = TRUE)) {
+        as.character(packageVersion("biomod2"))
+      } else {
+        "not installed"
+      }
+      paste0(
+        "biomod2 capabilities: Modeling=", caps$has_BIOMOD_Modeling,
+        ", Ensemble=", caps$has_BIOMOD_EnsembleModeling,
+        ", version=", ver
+      )
+    },
+    error = function(e) {
+      "biomod2: not available"
     }
-    paste0("biomod2 capabilities: Modeling=", caps$has_BIOMOD_Modeling,
-           ", Ensemble=", caps$has_BIOMOD_EnsembleModeling,
-           ", version=", ver)
-  }, error = function(e) {
-    "biomod2: not available"
-  })
+  )
   if (is.null(logger)) {
     message(msg)
   } else {

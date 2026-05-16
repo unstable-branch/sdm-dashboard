@@ -30,11 +30,11 @@ igbp_classes <- c(
 
 # Fraction layer mapping: which IGBP classes contribute to each fraction
 fraction_classes <- list(
-  forest     = as.character(1:5),   # all forest types
-  shrubland  = as.character(6:7),    # closed + open shrublands
-  savanna    = as.character(8:9),    # woody savannas + savannas
+  forest     = as.character(1:5), # all forest types
+  shrubland  = as.character(6:7), # closed + open shrublands
+  savanna    = as.character(8:9), # woody savannas + savannas
   grassland  = "10",
-  cropland   = c("12", "14"),       # croplands + mosaic
+  cropland   = c("12", "14"), # croplands + mosaic
   urban      = "13",
   wetland    = "11",
   snow_ice   = "15",
@@ -54,8 +54,10 @@ mcd12q1_tile_for_extent <- function(extent_vec) {
   v_tiles <- findInterval(floor(extent_vec[3] / 10) * 10 + seq(0, 9), lat)
   v_tiles <- v_tiles[v_tiles >= 1 & v_tiles <= 18]
   tiles <- character(0)
-  for (h in h_tiles) for (v in v_tiles) {
-    tiles <- c(tiles, sprintf("h%02dv%02d", h, v))
+  for (h in h_tiles) {
+    for (v in v_tiles) {
+      tiles <- c(tiles, sprintf("h%02dv%02d", h, v))
+    }
   }
   unique(tiles)
 }
@@ -75,12 +77,11 @@ build_lulc_fraction_layers <- function(lulc_rast, fraction_map) {
 }
 
 load_lulc_covariate <- function(lulc_year = 2020,
-                                 extent_vec = NULL,
-                                 aggregate_factor = 18L,
-                                 covariate_cache_dir = sdm_default_covariate_cache_dir,
-                                 allow_download = TRUE,
-                                 log_fun = NULL) {
-
+                                extent_vec = NULL,
+                                aggregate_factor = 18L,
+                                covariate_cache_dir = sdm_default_covariate_cache_dir,
+                                allow_download = TRUE,
+                                log_fun = NULL) {
   lulc_year <- as.integer(lulc_year[1])
   if (is.na(lulc_year) || lulc_year < 2001 || lulc_year > 2023) {
     log_message(log_fun, "LULC year ", lulc_year, " out of range (2001-2023). Using 2020.")
@@ -120,15 +121,19 @@ load_lulc_covariate <- function(lulc_year = 2020,
   tiles_needed <- if (!is.null(extent_vec) && length(extent_vec) == 4) {
     mcd12q1_tile_for_extent(extent_vec)
   } else {
-    c("h09v04","h10v04","h11v04","h12v04","h13v04",
-      "h09v05","h10v05","h11v05","h12v05","h13v05")
+    c(
+      "h09v04", "h10v04", "h11v04", "h12v04", "h13v04",
+      "h09v05", "h10v05", "h11v05", "h12v05", "h13v05"
+    )
   }
 
   # Try to load via AWS Open Data VSI
   # MCD12Q1 on AWS: s3://modis-006-mcd12q1/
   # File naming: MCD12Q1.A{YYYY}001.h{H}v{V}.061.2023125042021.hdf.tif
-  log_message(log_fun, "Attempting LULC load via AWS VSI for year ", lulc_year, ", tiles: ",
-              paste(tiles_needed, collapse = ", "))
+  log_message(
+    log_fun, "Attempting LULC load via AWS VSI for year ", lulc_year, ", tiles: ",
+    paste(tiles_needed, collapse = ", ")
+  )
 
   raw_tiles <- list()
   for (tile in tiles_needed) {
@@ -159,20 +164,28 @@ load_lulc_covariate <- function(lulc_year = 2020,
   }
 
   if (length(raw_tiles) == 0) {
-    log_message(log_fun, "LULC tiles could not be loaded from AWS. ",
-                "Ensure the tile range is correct and internet is available.")
+    log_message(
+      log_fun, "LULC tiles could not be loaded from AWS. ",
+      "Ensure the tile range is correct and internet is available."
+    )
     return(NULL)
   }
 
   # Mosaic and crop tiles
   log_message(log_fun, "Merging ", length(raw_tiles), " LULC tiles")
-  lulc_mosaic <- tryCatch({
-    if (length(raw_tiles) == 1) raw_tiles[[1]]
-    else do.call(terra::mosaic, raw_tiles)
-  }, error = function(e) {
-    log_message(log_fun, "Mosaic failed: ", conditionMessage(e))
-    raw_tiles[[1]]
-  })
+  lulc_mosaic <- tryCatch(
+    {
+      if (length(raw_tiles) == 1) {
+        raw_tiles[[1]]
+      } else {
+        do.call(terra::mosaic, raw_tiles)
+      }
+    },
+    error = function(e) {
+      log_message(log_fun, "Mosaic failed: ", conditionMessage(e))
+      raw_tiles[[1]]
+    }
+  )
 
   # Crop to extent if provided
   if (!is.null(extent_vec) && length(extent_vec) == 4) {
@@ -194,7 +207,8 @@ load_lulc_covariate <- function(lulc_year = 2020,
     vals_copy <- igbp_vals
     terra::values(r_frac) <- ifelse(vals_copy %in% classes, 1L, NA_integer_)
     r_frac <- tryCatch(terra::aggregate(r_frac, fact = aggregate_factor, fun = "mean", na.rm = TRUE),
-                       error = function(e) NULL)
+      error = function(e) NULL
+    )
     if (!is.null(r_frac)) {
       names(r_frac) <- paste0("lulc_", fname)
       layers[[fname]] <- r_frac
@@ -209,8 +223,10 @@ load_lulc_covariate <- function(lulc_year = 2020,
   lulc_frac <- do.call(c, layers)
 
   # Write to cache
-  terra::writeRaster(lulc_frac, cached_frac, overwrite = TRUE,
-                    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  terra::writeRaster(lulc_frac, cached_frac,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
   log_message(log_fun, "LULC fractional layers cached: ", paste(names(lulc_frac), collapse = ", "))
 
   methods <- setNames(rep("bilinear", terra::nlyr(lulc_frac)), names(lulc_frac))

@@ -2,25 +2,35 @@
 
 write_summary_report <- function(result, path) {
   fmt_num <- function(x, digits = 0, suffix = "") {
-    if (length(x) == 0) return("not available")
+    if (length(x) == 0) {
+      return("not available")
+    }
     x <- suppressWarnings(as.numeric(x[1]))
-    if (!is.finite(x)) return("not available")
+    if (!is.finite(x)) {
+      return("not available")
+    }
     paste0(format(round(x, digits), big.mark = ",", nsmall = digits, trim = TRUE), suffix)
   }
   fmt_chr <- function(x, empty = "not provided") {
     x <- as.character(x)
     x <- x[!is.na(x) & nzchar(x)]
-    if (length(x) == 0) return(empty)
+    if (length(x) == 0) {
+      return(empty)
+    }
     paste(x, collapse = ", ")
   }
   fmt_extent <- function(x) {
     x <- suppressWarnings(as.numeric(x))
-    if (length(x) != 4 || any(!is.finite(x))) return("not available")
+    if (length(x) != 4 || any(!is.finite(x))) {
+      return("not available")
+    }
     paste(format(round(x, 4), trim = TRUE), collapse = ", ")
   }
   fmt_bool <- function(x) if (isTRUE(x)) "yes" else "no"
   finite_one <- function(x) {
-    if (length(x) == 0) return(FALSE)
+    if (length(x) == 0) {
+      return(FALSE)
+    }
     x <- suppressWarnings(as.numeric(x[1]))
     is.finite(x)
   }
@@ -32,8 +42,10 @@ write_summary_report <- function(result, path) {
     "Fast presence/background GLM with balanced class weights"
   }
   auc_text <- if (finite_one(result$metrics$auc_mean)) {
-    paste0(sprintf("%.3f", result$metrics$auc_mean),
-           if (finite_one(result$metrics$auc_sd)) paste0(" +/- ", sprintf("%.3f", result$metrics$auc_sd)) else "")
+    paste0(
+      sprintf("%.3f", result$metrics$auc_mean),
+      if (finite_one(result$metrics$auc_sd)) paste0(" +/- ", sprintf("%.3f", result$metrics$auc_sd)) else ""
+    )
   } else {
     "not run"
   }
@@ -68,9 +80,13 @@ write_summary_report <- function(result, path) {
       paste0("- Cells above threshold ", fmt_num(result$future$summary$threshold, 2), ": ", fmt_num(result$future$summary$cells_above_threshold))
     )
     if (!is.null(result$future$mess$pct_extrapolation)) {
-      future_lines <- c(future_lines,
-        paste0("- ", sprintf("%.1f", result$future$mess$pct_extrapolation * 100),
-               "% of projected cells lie outside training envelope on at least one variable."))
+      future_lines <- c(
+        future_lines,
+        paste0(
+          "- ", sprintf("%.1f", result$future$mess$pct_extrapolation * 100),
+          "% of projected cells lie outside training envelope on at least one variable."
+        )
+      )
     }
   }
   lines <- c(
@@ -101,17 +117,25 @@ write_summary_report <- function(result, path) {
     paste0("- Cross-validation AUC: ", auc_text),
     if (!is.null(result$esm_config)) {
       esm <- result$esm_config
-      c("",
+      c(
+        "",
         "Ensembles of Small Models (ESM)",
         paste0("- Algorithm: ", esm$algorithm),
         paste0("- Covariates: ", esm$n_vars, " -> ", esm$n_pairs_total, " bivariate pairs"),
-        paste0("- Pairs used: ", esm$n_pairs_used,
-               if (esm$n_pairs_dropped > 0) paste0(" (dropped: ", esm$n_pairs_dropped, " with AUC < ", esm$min_auc, ")") else ""),
+        paste0(
+          "- Pairs used: ", esm$n_pairs_used,
+          if (esm$n_pairs_dropped > 0) paste0(" (dropped: ", esm$n_pairs_dropped, " with AUC < ", esm$min_auc, ")") else ""
+        ),
         paste0("- Runs: ", esm$n_runs, " | Train split: ", esm$data_split, "%"),
-        paste0("- Method: Lomba et al. (2010) Biol. Conserv. 143:2647-2657; ",
-               "Breiner et al. (2015) Methods Ecol. Evol. 6:1210-1218; ",
-               "Breiner et al. (2018) Methods Ecol. Evol. 9:802-808"))
-    } else character(),
+        paste0(
+          "- Method: Lomba et al. (2010) Biol. Conserv. 143:2647-2657; ",
+          "Breiner et al. (2015) Methods Ecol. Evol. 6:1210-1218; ",
+          "Breiner et al. (2018) Methods Ecol. Evol. 9:802-808"
+        )
+      )
+    } else {
+      character()
+    },
     "", "Projection summary",
     paste0("- Valid projected cells: ", fmt_num(result$summary$cell_count)),
     paste0("- Mean suitability: ", fmt_num(result$summary$mean, 3)),
@@ -122,7 +146,8 @@ write_summary_report <- function(result, path) {
     if (!is.null(result$metrics$projection)) {
       pm <- result$metrics$projection
       proj_cbi_text <- if (finite_one(pm$projection_cbi)) sprintf("%.3f", pm$projection_cbi) else "not available"
-      c("",
+      c(
+        "",
         "Projection region validation (cross-region biosecurity assessment)",
         paste0("- Projection CBI (environmental analog): ", proj_cbi_text, if (!is.null(pm$risk_level)) paste0(" [", pm$risk_level, "]") else ""),
         "  - pCBI interpretation: pCBI >0.7 = HIGH risk (projection region has similar niche to training region)",
@@ -131,11 +156,18 @@ write_summary_report <- function(result, path) {
         paste0("- Mean suitability in projection region: ", sprintf("%.3f", pm$mean_projection_suitability)),
         if (!is.null(pm$validation)) {
           validation <- pm$validation
-          c(paste0("- Validation occurrences (user-provided): ", fmt_num(validation$n_provided), " total | ", fmt_num(validation$n_valid), " with coordinates"),
+          c(
+            paste0("- Validation occurrences (user-provided): ", fmt_num(validation$n_provided), " total | ", fmt_num(validation$n_valid), " with coordinates"),
             paste0("- Points exceeding threshold: ", fmt_num(validation$n_exceeding_threshold), " (", sprintf("%.1f", validation$pct_exceeding), "%)"),
-            paste0("- Mean suitability at validation points: ", sprintf("%.3f", validation$mean_suitability)))
-        } else character())
-    } else character(),
+            paste0("- Mean suitability at validation points: ", sprintf("%.3f", validation$mean_suitability))
+          )
+        } else {
+          character()
+        }
+      )
+    } else {
+      character()
+    },
     future_lines,
     "", "Outputs",
     paste0("- Suitability GeoTIFF: ", fmt_chr(result$paths$tif)),

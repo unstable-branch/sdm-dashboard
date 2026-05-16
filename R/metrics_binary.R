@@ -6,7 +6,9 @@ auc_rank <- function(obs, score) {
   score <- as.numeric(score[ok])
   n1 <- sum(obs == 1)
   n0 <- sum(obs == 0)
-  if (n1 == 0 || n0 == 0) return(NA_real_)
+  if (n1 == 0 || n0 == 0) {
+    return(NA_real_)
+  }
   r <- rank(score, ties.method = "average")
   as.numeric((sum(r[obs == 1]) - n1 * (n1 + 1) / 2) / (n1 * n0))
 }
@@ -17,8 +19,10 @@ compute_binary_metrics <- function(obs, score, threshold = sdm_default_threshold
   obs <- as.integer(obs[ok])
   score <- as.numeric(score[ok])
   if (length(obs) == 0) {
-    return(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_,
-                threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L))
+    return(list(
+      auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_,
+      threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L
+    ))
   }
   pred <- as.integer(score >= threshold)
   tp <- sum(obs == 1 & pred == 1)
@@ -56,13 +60,17 @@ metrics_list_to_row <- function(metrics, fold = NA_integer_) {
 
 metric_mean <- function(x) {
   x <- suppressWarnings(as.numeric(x))
-  if (length(x) == 0 || all(!is.finite(x))) return(NA_real_)
+  if (length(x) == 0 || all(!is.finite(x))) {
+    return(NA_real_)
+  }
   mean(x, na.rm = TRUE)
 }
 
 metric_sd <- function(x) {
   x <- suppressWarnings(as.numeric(x))
-  if (length(x) < 2 || sum(is.finite(x)) < 2) return(NA_real_)
+  if (length(x) < 2 || sum(is.finite(x)) < 2) {
+    return(NA_real_)
+  }
   stats::sd(x, na.rm = TRUE)
 }
 
@@ -74,20 +82,26 @@ continuous_boyce_index <- function(pres_suit, bg_suit, n_bins = 101, win = 0.1) 
 
   note <- character(0)
   if (n_pres < 5) {
-    return(list(cbi = NA_real_, bins = data.frame(), pe_ratio = NA_real_,
-                note = "Insufficient presence points (< 5)"))
+    return(list(
+      cbi = NA_real_, bins = data.frame(), pe_ratio = NA_real_,
+      note = "Insufficient presence points (< 5)"
+    ))
   }
   if (n_bg < 50) {
-    return(list(cbi = NA_real_, bins = data.frame(), pe_ratio = NA_real_,
-                note = "Insufficient background points (< 50)"))
+    return(list(
+      cbi = NA_real_, bins = data.frame(), pe_ratio = NA_real_,
+      note = "Insufficient background points (< 50)"
+    ))
   }
 
   all_vals <- c(pres_suit, bg_suit)
   min_v <- min(all_vals)
   max_v <- max(all_vals)
   if (abs(max_v - min_v) < 1e-10) {
-    return(list(cbi = NA_real_, bins = data.frame(), pe_ratio = NA_real_,
-                note = "No variance in predictions"))
+    return(list(
+      cbi = NA_real_, bins = data.frame(), pe_ratio = NA_real_,
+      note = "No variance in predictions"
+    ))
   }
 
   bin_edges <- seq(min_v, max_v, length.out = n_bins + 1)
@@ -106,31 +120,38 @@ continuous_boyce_index <- function(pres_suit, bg_suit, n_bins = 101, win = 0.1) 
     mean(ratio[lo:hi], na.rm = TRUE)
   })
 
-  spearman_result <- tryCatch({
-    test <- stats::cor.test(bin_mid, smoothed, method = "spearman", exact = FALSE)
-    test$estimate
-  }, error = function(e) NA_real_)
+  spearman_result <- tryCatch(
+    {
+      test <- stats::cor.test(bin_mid, smoothed, method = "spearman", exact = FALSE)
+      test$estimate
+    },
+    error = function(e) NA_real_
+  )
 
   cbi_value <- if (is.finite(spearman_result)) spearman_result else NA_real_
   pe_ratio <- mean(smoothed, na.rm = TRUE)
 
   list(
     cbi = as.numeric(cbi_value),
-    bins = data.frame(bin_mid = bin_mid, ratio = ratio, smoothed = smoothed,
-                      stringsAsFactors = FALSE),
+    bins = data.frame(
+      bin_mid = bin_mid, ratio = ratio, smoothed = smoothed,
+      stringsAsFactors = FALSE
+    ),
     pe_ratio = as.numeric(pe_ratio),
     note = if (length(note) == 0) character(0) else note
   )
 }
 
 compute_projection_metrics <- function(suit_raster, train_presence_suit,
-                                        threshold, n_bg_samples = 1000L,
-                                        validation_occ = NULL,
-                                        log_fun = NULL) {
+                                       threshold, n_bg_samples = 1000L,
+                                       validation_occ = NULL,
+                                       log_fun = NULL) {
   bb <- terra::ext(suit_raster)
   set.seed(42)
-  bg_xy <- data.frame(x = runif(n_bg_samples, bb$xmin, bb$xmax),
-                      y = runif(n_bg_samples, bb$ymin, bb$ymax))
+  bg_xy <- data.frame(
+    x = runif(n_bg_samples, bb$xmin, bb$xmax),
+    y = runif(n_bg_samples, bb$ymin, bb$ymax)
+  )
   bg_suit <- terra::extract(suit_raster, bg_xy)$suitability
 
   pCBI <- continuous_boyce_index(pres_suit = train_presence_suit, bg_suit = bg_suit)$cbi

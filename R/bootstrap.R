@@ -6,13 +6,17 @@ sdm_normalize_path <- function(path, mustWork = FALSE) {
 
 sdm_script_path <- function() {
   file_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
-  if (length(file_arg) > 0) return(sdm_normalize_path(sub("^--file=", "", file_arg[1]), mustWork = TRUE))
+  if (length(file_arg) > 0) {
+    return(sdm_normalize_path(sub("^--file=", "", file_arg[1]), mustWork = TRUE))
+  }
 
   ofiles <- vapply(sys.frames(), function(frame) {
     if (!is.null(frame$ofile)) frame$ofile else NA_character_
   }, character(1))
   ofiles <- ofiles[!is.na(ofiles)]
-  if (length(ofiles) > 0) return(sdm_normalize_path(ofiles[length(ofiles)], mustWork = FALSE))
+  if (length(ofiles) > 0) {
+    return(sdm_normalize_path(ofiles[length(ofiles)], mustWork = FALSE))
+  }
 
   NA_character_
 }

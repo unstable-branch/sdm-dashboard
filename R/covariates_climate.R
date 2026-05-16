@@ -4,7 +4,9 @@ find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("wo
   source <- match.arg(source)
   files <- if (dir.exists(worldclim_dir)) list.files(worldclim_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE) else character()
   selected_biovars <- as.integer(selected_biovars)
-  if (length(files) == 0) return(setNames(rep(NA_character_, length(selected_biovars)), selected_biovars))
+  if (length(files) == 0) {
+    return(setNames(rep(NA_character_, length(selected_biovars)), selected_biovars))
+  }
 
   matched <- vapply(selected_biovars, function(bv) {
     if (source == "worldclim") {
@@ -21,11 +23,14 @@ find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("wo
         hit <- files[grepl(pattern1, basename(files), ignore.case = TRUE)]
       }
     }
-    if (length(hit) == 0) NA_character_
-    else if (length(hit) > 1) {
+    if (length(hit) == 0) {
+      NA_character_
+    } else if (length(hit) > 1) {
       sizes <- vapply(hit, function(f) as.integer(file.info(f)$size), integer(1))
       hit[which.max(sizes)]
-    } else hit[1]
+    } else {
+      hit[1]
+    }
   }, character(1))
   names(matched) <- as.character(selected_biovars)
   matched
@@ -34,18 +39,22 @@ find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("wo
 # CHELSA bioclim-plus extra variables (gdd5, gsl, fcf, npp, etc.)
 # These are available as separate GeoTIFF downloads from CHELSA v2.1.
 chelsa_extra_vars <- c(
-  "gdd5"  = "gdd5",   # Growing degree days above 5C
-  "gdd10" = "gdd10",  # Growing degree days above 10C
-  "gsl"   = "gsl",    # Growing season length
-  "fcf"   = "fcf",    # Frost change frequency
-  "npp"   = "npp",    # Net primary productivity
-  "scd"   = "scd"     # Snow cover days
+  "gdd5"  = "gdd5", # Growing degree days above 5C
+  "gdd10" = "gdd10", # Growing degree days above 10C
+  "gsl"   = "gsl", # Growing season length
+  "fcf"   = "fcf", # Frost change frequency
+  "npp"   = "npp", # Net primary productivity
+  "scd"   = "scd" # Snow cover days
 )
 
 find_chelsa_extra_files <- function(worldclim_dir, selected_extras = names(chelsa_extra_vars)) {
-  if (!dir.exists(worldclim_dir)) return(setNames(rep(NA_character_, length(selected_extras)), selected_extras))
+  if (!dir.exists(worldclim_dir)) {
+    return(setNames(rep(NA_character_, length(selected_extras)), selected_extras))
+  }
   files <- list.files(worldclim_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
-  if (length(files) == 0) return(setNames(rep(NA_character_, length(selected_extras)), selected_extras))
+  if (length(files) == 0) {
+    return(setNames(rep(NA_character_, length(selected_extras)), selected_extras))
+  }
 
   matched <- vapply(selected_extras, function(var) {
     pattern <- sprintf("CHELSA_%s_.*\\.tif$", var)
@@ -75,11 +84,14 @@ download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa
     }
     url <- paste0(base_url, fname)
     tmp <- tempfile(fileext = ".tif")
-    ok <- tryCatch({
-      curl::curl_fetch_disk(url, tmp)
-      fi <- file.info(tmp)
-      !is.na(fi$size) && fi$size > 1024
-    }, error = function(e) FALSE)
+    ok <- tryCatch(
+      {
+        curl::curl_fetch_disk(url, tmp)
+        fi <- file.info(tmp)
+        !is.na(fi$size) && fi$size > 1024
+      },
+      error = function(e) FALSE
+    )
     if (ok && file.exists(tmp) && file.info(tmp)$size > 1024) {
       file.rename(tmp, dest)
       log_message(log_fun, "Downloaded CHELSA extra: ", var)
@@ -122,10 +134,10 @@ scale_raster_stack <- function(r, means, sds) {
 }
 
 load_climate_covariates <- function(worldclim_dir, selected_biovars, training_extent, projection_extent,
-                                     aggregation_factor = 1, allow_download = TRUE, worldclim_res = 10,
-                                     log_fun = NULL, n_cores = NULL,
-                                     source = c("worldclim", "chelsa"),
-                                     selected_chelsa_extras = NULL) {
+                                    aggregation_factor = 1, allow_download = TRUE, worldclim_res = 10,
+                                    log_fun = NULL, n_cores = NULL,
+                                    source = c("worldclim", "chelsa"),
+                                    selected_chelsa_extras = NULL) {
   source <- match.arg(source)
   ensure_sdm_packages("terra", n_cores = n_cores)
   selected_biovars <- validate_biovars(selected_biovars)
@@ -137,7 +149,9 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
   if (any(is.na(files))) {
     missing <- selected_biovars[is.na(files)]
     stop("Missing WorldClim layer(s): ", paste(paste0("BIO", missing), collapse = ", "),
-         ". Restore the Worldclim folder or enable Download missing WorldClim layers.", call. = FALSE)
+      ". Restore the Worldclim folder or enable Download missing WorldClim layers.",
+      call. = FALSE
+    )
   }
 
   log_message(log_fun, "Loading ", length(files), " WorldClim layer(s) from ", worldclim_dir)

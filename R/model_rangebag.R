@@ -11,7 +11,9 @@ find_optimal_threshold <- function(obs, pred) {
   ok <- is.finite(obs) & is.finite(pred)
   obs <- obs[ok]
   pred <- pred[ok]
-  if (length(pred) < 3 || sum(obs == 1) < 1 || sum(obs == 0) < 1) return(0.5)
+  if (length(pred) < 3 || sum(obs == 1) < 1 || sum(obs == 0) < 1) {
+    return(0.5)
+  }
   candidates <- sort(unique(pred))
   if (length(candidates) > 2) candidates <- candidates[2:(length(candidates) - 1)]
   best_threshold <- 0.5
@@ -73,7 +75,9 @@ predict_rangebag_bag <- function(bag, newdata) {
 predict_rangebag_values <- function(model, data) {
   data <- as.data.frame(data, check.names = FALSE)
   bags <- model$bags
-  if (length(bags) < 1) return(rep(NA_real_, nrow(data)))
+  if (length(bags) < 1) {
+    return(rep(NA_real_, nrow(data)))
+  }
   votes <- rep(0, nrow(data))
   for (bag in bags) votes <- votes + predict_rangebag_bag(bag, data)
   votes / length(bags)
@@ -110,8 +114,10 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
 
   log_message(log_fun, "Fitting Rangebagging SDM with ", nrow(pres_vals), " presences, ", nrow(bg_vals), " background points, and ", n_bags, " bags")
 
-  cv <- list(k = 0, strategy = "presence_only_stratified", auc_mean = NA_real_, auc_sd = NA_real_,
-             tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(), fold_metrics = data.frame(), fold_sizes = data.frame())
+  cv <- list(
+    k = 0, strategy = "presence_only_stratified", auc_mean = NA_real_, auc_sd = NA_real_,
+    tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(), fold_metrics = data.frame(), fold_sizes = data.frame()
+  )
   k_rb <- suppressWarnings(as.integer(cv_folds[1]))
   if (is.finite(k_rb) && k_rb >= 2) {
     k_rb <- min(k_rb, nrow(pres_vals))
@@ -128,8 +134,10 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
       fit_fun_rb <- function(i, model_data, fold_id, threshold) {
         train_pres <- model_data[fold_id == i & model_data$presence == 1, , drop = FALSE]
         if (nrow(train_pres) < 3) {
-          return(metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_,
-                                           threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i))
+          return(metrics_list_to_row(list(
+            auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_,
+            threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L
+          ), fold = i))
         }
         bags <- vector("list", n_bags)
         for (j in seq_len(n_bags)) {
@@ -137,8 +145,10 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
         }
         bags <- Filter(Negate(is.null), bags)
         if (length(bags) == 0) {
-          return(metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_,
-                                           threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i))
+          return(metrics_list_to_row(list(
+            auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_,
+            threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L
+          ), fold = i))
         }
         fold_model <- list(bags = bags, covariates = covariates)
         test_data <- model_data[fold_id == i, , drop = FALSE]
@@ -147,11 +157,13 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
         metrics_list_to_row(compute_binary_metrics(obs, pred, threshold = threshold), fold = i)
       }
 
-      cv <- cross_validate_model(model_data_rb, k = k_rb, seed = seed, n_cores = 1,
-                                 cv_strategy = "presence_only_stratified", cv_block_size_km = NA_real_,
-                                 threshold = sdm_default_threshold, fit_fun = fit_fun_rb,
-                                 cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
-                                 fold_id = fold_id)
+      cv <- cross_validate_model(model_data_rb,
+        k = k_rb, seed = seed, n_cores = 1,
+        cv_strategy = "presence_only_stratified", cv_block_size_km = NA_real_,
+        threshold = sdm_default_threshold, fit_fun = fit_fun_rb,
+        cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
+        fold_id = fold_id
+      )
       if (is.finite(cv$auc_mean)) log_message(log_fun, "Rangebag CV AUC: ", sprintf("%.3f", cv$auc_mean), if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
     }
   }

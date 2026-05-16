@@ -19,7 +19,7 @@ boundary_registry <- list(
     default_extent = c(-8, 2, 49, 61)
   ),
   USA = list(
-    name = "United States", 
+    name = "United States",
     url = "https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm410_USA_shp.zip",
     format = "shp",
     default_extent = c(-125, -66, 24, 50)
@@ -61,7 +61,7 @@ has_boundary_file <- function(country_code = "AUS") {
   TRUE
 }
 
-#' Get boundary file path, downloading if necessary  
+#' Get boundary file path, downloading if necessary
 #' @param country_code Country code (AUS, GBR, USA, etc)
 #' @param cache_dir Directory to store boundary files
 #' @return Path to boundary file or NULL
@@ -75,7 +75,7 @@ get_boundary_file <- function(country_code = "AUS", cache_dir = "boundaries") {
   base_name <- paste0(country_code, "_boundary.")
   ext <- switch(config$format,
     shp = ".shp",
-    kml = ".kml", 
+    kml = ".kml",
     geojson = ".geojson",
     tif = ".tif",
     ".shp"
@@ -84,13 +84,13 @@ get_boundary_file <- function(country_code = "AUS", cache_dir = "boundaries") {
   if (file.exists(file_path)) {
     return(file_path)
   }
-  
+
   # Check for any downloaded boundary file
   existing <- list.files(cache_dir, pattern = paste0("^", country_code, "_boundary"), full.names = TRUE)
   if (length(existing) > 0) {
     return(existing[1])
   }
-  
+
   # Return path - will trigger download in UI
   file.path(cache_dir, paste0(country_code, "_boundary.shp"))
 }
@@ -108,7 +108,7 @@ get_extent_choices <- function() {
     "Occurrence extent" = "occurrence",
     "Full world" = "world",
     "Australia - full" = "aus_full",
-    "Australia - north" = "aus_north", 
+    "Australia - north" = "aus_north",
     "Australia - east" = "aus_east",
     "Custom extent" = "custom"
   )
@@ -130,11 +130,14 @@ compute_extent_from_file <- function(file_path) {
   if (is.null(file_path) || !nzchar(file_path) || !file.exists(file_path)) {
     return(NULL)
   }
-  tryCatch({
-    sf_obj <- sf::st_read(file_path, quiet = TRUE, geometry_column = sf::st_geometry_column_names(file_path)[1])
-    bb <- sf::st_bbox(sf_obj)
-    c(as.numeric(bb["xmin"]), as.numeric(bb["xmax"]), as.numeric(bb["ymin"]), as.numeric(bb["ymax"]))
-  }, error = function(e) NULL)
+  tryCatch(
+    {
+      sf_obj <- sf::st_read(file_path, quiet = TRUE, geometry_column = sf::st_geometry_column_names(file_path)[1])
+      bb <- sf::st_bbox(sf_obj)
+      c(as.numeric(bb["xmin"]), as.numeric(bb["xmax"]), as.numeric(bb["ymin"]), as.numeric(bb["ymax"]))
+    },
+    error = function(e) NULL
+  )
 }
 
 #' Validate boundary extent coordinates
@@ -144,6 +147,9 @@ validate_boundary_extent <- function(extent) {
   if (is.null(extent) || length(extent) != 4) {
     return(FALSE)
   }
-  xmin <- extent[1]; xmax <- extent[2]; ymin <- extent[3]; ymax <- extent[4]
+  xmin <- extent[1]
+  xmax <- extent[2]
+  ymin <- extent[3]
+  ymax <- extent[4]
   xmin < xmax && ymin < ymax && xmin >= -180 && xmax <= 180 && ymin >= -90 && ymax <= 90
 }

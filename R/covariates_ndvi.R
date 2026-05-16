@@ -15,7 +15,7 @@ doy_for_month <- function(month) {
   stopifnot(m >= 1 && m <= 12)
   # Mid-month DOY (approximate, for a non-leap year)
   month_start_doy <- c(1L, 32L, 60L, 91L, 121L, 152L, 182L, 213L, 244L, 274L, 305L, 335L)
-  mid_doy <- month_start_doy[m] + 14L  # mid-month approximation
+  mid_doy <- month_start_doy[m] + 14L # mid-month approximation
   period_doy <- ((mid_doy - 1L) %/% 8L) * 8L + 1L
   sprintf("%03d", period_doy)
 }
@@ -37,13 +37,17 @@ gimms_avhrr_base <- "https://gimms.gsfc.nasa.gov/AVHRR/gimms006nc"
 # ---------------------------------------------------------------------------
 
 ndvi_url <- function(year, doy) {
-  paste0(gimms_cog_base, "/", year, "/", doy, "/",
-         "GMOD09Q1.A", year, doy, ".08d.latlon.global.061.NDVI.tif")
+  paste0(
+    gimms_cog_base, "/", year, "/", doy, "/",
+    "GMOD09Q1.A", year, doy, ".08d.latlon.global.061.NDVI.tif"
+  )
 }
 
 ndvi_mean_url <- function(doy) {
-  paste0(gimms_cog_base, "_mean_S2001-2024/", doy, "/",
-         "GMOD09Q1.A2001-2024", doy, ".08d.latlon.global.061.NDVI_mean.tif")
+  paste0(
+    gimms_cog_base, "_mean_S2001-2024/", doy, "/",
+    "GMOD09Q1.A2001-2024", doy, ".08d.latlon.global.061.NDVI_mean.tif"
+  )
 }
 
 # ---------------------------------------------------------------------------
@@ -59,11 +63,14 @@ avhrr_evi_file_glob <- function() {
 discover_avhrr_evi_url <- function(log_fun = NULL) {
   # Try to list the directory and find EVI NetCDF file
   vsi_dir <- paste0(gimms_avhrr_base, "/?list_dir=1")
-  tryCatch({
-    files <-terra::vect(vsi_dir)
-    # actually this won't work — GIMMS doesn't expose directory listing via VSI
-    NULL
-  }, error = function(e) NULL)
+  tryCatch(
+    {
+      files <- terra::vect(vsi_dir)
+      # actually this won't work — GIMMS doesn't expose directory listing via VSI
+      NULL
+    },
+    error = function(e) NULL
+  )
 
   # Fallback: construct known URL pattern from GIMMS documentation
   # EVI3g v1 NetCDF: gimms_evi3g_v1_1981_2020_0.05deg.nc
@@ -75,12 +82,12 @@ discover_avhrr_evi_url <- function(log_fun = NULL) {
 # ---------------------------------------------------------------------------
 
 load_ndvi_covariate <- function(ndvi_year = 2024,
-                                 selected_periods = "annual_mean",
-                                 extent_vec = NULL,
-                                 aggregate_factor = 18L,
-                                 covariate_cache_dir = sdm_default_covariate_cache_dir,
-                                 allow_download = TRUE,
-                                 log_fun = NULL) {
+                                selected_periods = "annual_mean",
+                                extent_vec = NULL,
+                                aggregate_factor = 18L,
+                                covariate_cache_dir = sdm_default_covariate_cache_dir,
+                                allow_download = TRUE,
+                                log_fun = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
     stop("curl package required for NDVI downloads. Install with: install.packages('curl')")
   }
@@ -92,9 +99,11 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
     return(NULL)
   }
 
-  valid_periods <- c("annual_mean", "annual_max", "gimms_clim",
-                    "jan","feb","mar","apr","may","jun",
-                    "jul","aug","sep","oct","nov","dec")
+  valid_periods <- c(
+    "annual_mean", "annual_max", "gimms_clim",
+    "jan", "feb", "mar", "apr", "may", "jun",
+    "jul", "aug", "sep", "oct", "nov", "dec"
+  )
   invalid <- setdiff(selected_periods, valid_periods)
   if (length(invalid) > 0) {
     log_message(log_fun, "Unknown NDVI period(s): ", paste(invalid, collapse = ", "))
@@ -130,7 +139,6 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
   ndvi_loaded <- character(0)
 
   for (period in selected_periods) {
-
     if (identical(period, "gimms_clim")) {
       # Long-term mean: one file per period, no year
       layer_name <- "ndvi_gimms_clim"
@@ -145,10 +153,13 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
         for (doy_name in names(gimms_ndvi_doy)) {
           doy_url <- ndvi_mean_url(doy_name)
           tmp <- tempfile(fileext = ".tif")
-          downloaded <- tryCatch({
-            curl::curl_fetch_disk(doy_url, tmp)
-            file.info(tmp)$size > 1024
-          }, error = function(e) FALSE)
+          downloaded <- tryCatch(
+            {
+              curl::curl_fetch_disk(doy_url, tmp)
+              file.info(tmp)$size > 1024
+            },
+            error = function(e) FALSE
+          )
           if (!downloaded || !file.exists(tmp)) {
             log_message(log_fun, "Failed to download NDVI climatology tile DOY ", doy_name)
             next
@@ -169,13 +180,19 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
         # Aggregate each tile
         aggd <- lapply(tiles, function(t) {
           tryCatch(terra::aggregate(t, fact = aggregate_factor, fun = "mean", na.rm = TRUE),
-                   error = function(e) NULL)
+            error = function(e) NULL
+          )
         })
         aggd <- aggd[!sapply(aggd, is.null)]
-        if (length(aggd) == 0) { log_message(log_fun, "Aggregation failed."); next }
+        if (length(aggd) == 0) {
+          log_message(log_fun, "Aggregation failed.")
+          next
+        }
         r <- terra::app(do.call(c, aggd), fun = "mean", na.rm = TRUE)
-        terra::writeRaster(r, cached, overwrite = TRUE,
-                           wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+        terra::writeRaster(r, cached,
+          overwrite = TRUE,
+          wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+        )
         ndvi_files <- c(ndvi_files, cached)
         log_message(log_fun, "GIMMS NDVI climatology cached (", length(aggd), " tiles).")
       } else {
@@ -188,7 +205,6 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
         ndvi_layers[[layer_name]] <- r
         ndvi_loaded <- c(ndvi_loaded, "gimms_clim")
       }
-
     } else if (identical(period, "annual_mean") || identical(period, "annual_max")) {
       # All 46 periods for the year, then aggregate
       layer_name <- paste0("ndvi_", if (identical(period, "annual_mean")) "annual_" else "max_", ndvi_year)
@@ -203,24 +219,30 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
         for (doy_name in names(gimms_ndvi_doy)) {
           url <- ndvi_url(ndvi_year, doy_name)
           tmp <- tempfile(fileext = ".tif")
-          downloaded <- tryCatch({
-            curl::curl_fetch_disk(url, tmp)
-            file.info(tmp)$size > 1024
-          }, error = function(e) FALSE)
+          downloaded <- tryCatch(
+            {
+              curl::curl_fetch_disk(url, tmp)
+              file.info(tmp)$size > 1024
+            },
+            error = function(e) FALSE
+          )
           if (!downloaded || !file.exists(tmp)) {
             log_message(log_fun, "Failed to download NDVI tile DOY ", doy_name)
             next
           }
           t <- tryCatch(terra::rast(tmp), error = function(e) NULL)
           unlink(tmp)
-          if (is.null(t)) { next }
+          if (is.null(t)) {
+            next
+          }
           # Crop to extent first (before caching full tile)
           if (!is.null(extent_vec) && length(extent_vec) == 4) {
             t <- tryCatch(terra::crop(t, terra::ext(extent_vec), snap = "out"), error = function(e) t)
           }
           # Aggregate immediately to save space
           t_agg <- tryCatch(terra::aggregate(t, fact = aggregate_factor, fun = "mean", na.rm = TRUE),
-                            error = function(e) NULL)
+            error = function(e) NULL
+          )
           if (!is.null(t_agg)) tiles[[doy_name]] <- t_agg
         }
         if (length(tiles) == 0) {
@@ -233,8 +255,10 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
         } else {
           r <- terra::app(stack, fun = "max", na.rm = TRUE)
         }
-        terra::writeRaster(r, cached, overwrite = TRUE,
-                           wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+        terra::writeRaster(r, cached,
+          overwrite = TRUE,
+          wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+        )
         ndvi_files <- c(ndvi_files, cached)
         log_message(log_fun, "GIMMS NDVI ", period, " for ", ndvi_year, " cached (", length(tiles), " tiles).")
       } else {
@@ -247,14 +271,15 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
         ndvi_layers[[layer_name]] <- r
         ndvi_loaded <- c(ndvi_loaded, paste0(period, "_", ndvi_year))
       }
-
     } else {
       # Monthly: jan..dec
-      month_names <- c(jan="01", feb="02", mar="03", apr="04", may="05", jun="06",
-                       jul="07", aug="08", sep="09", oct="10", nov="11", dec="12")
+      month_names <- c(
+        jan = "01", feb = "02", mar = "03", apr = "04", may = "05", jun = "06",
+        jul = "07", aug = "08", sep = "09", oct = "10", nov = "11", dec = "12"
+      )
       if (!period %in% names(month_names)) next
       mm <- month_names[[period]]
-      doy_name <- month_period_doys[[period]]   # e.g. "017" for Jan
+      doy_name <- month_period_doys[[period]] # e.g. "017" for Jan
       layer_name <- paste0("ndvi_month_", mm, "_", ndvi_year)
       cached <- file.path(cache_dir, paste0("gimms_ndvi_month_", mm, "_", ndvi_year, ext_key, ".tif"))
 
@@ -265,10 +290,13 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
         url <- ndvi_url(ndvi_year, doy_name)
         log_message(log_fun, "Downloading GIMMS NDVI month ", period, " (DOY ", doy_name, ") for ", ndvi_year)
         tmp <- tempfile(fileext = ".tif")
-        downloaded <- tryCatch({
-          curl::curl_fetch_disk(url, tmp)
-          file.info(tmp)$size > 1024
-        }, error = function(e) FALSE)
+        downloaded <- tryCatch(
+          {
+            curl::curl_fetch_disk(url, tmp)
+            file.info(tmp)$size > 1024
+          },
+          error = function(e) FALSE
+        )
         if (!downloaded || !file.exists(tmp)) {
           log_message(log_fun, "Failed to download NDVI month ", period, ": ", url)
           unlink(tmp, force = TRUE)
@@ -280,12 +308,15 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
           }
           if (!is.null(r)) {
             r <- tryCatch(terra::aggregate(r, fact = aggregate_factor, fun = "mean", na.rm = TRUE),
-                           error = function(e) NULL)
+              error = function(e) NULL
+            )
           }
         }
         if (!is.null(r) && inherits(r, "SpatRaster")) {
-          terra::writeRaster(r, cached, overwrite = TRUE,
-                            wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+          terra::writeRaster(r, cached,
+            overwrite = TRUE,
+            wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+          )
           ndvi_files <- c(ndvi_files, cached)
           log_message(log_fun, "GIMMS NDVI month ", period, " cached.")
         } else {
@@ -318,24 +349,30 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
     log_message(log_fun, "Downloading GIMMS AVHRR EVI (~8km, may be large)...")
     evi_remote <- paste0(gimms_avhrr_base, "/gimms_evi3g_v1_1981_2020_0.05deg.nc")
     tmp <- tempfile(fileext = ".nc")
-    downloaded <- tryCatch({
-      curl::curl_fetch_disk(evi_remote, tmp)
-      file.info(tmp)$size > 10240
-    }, error = function(e) {
-      log_message(log_fun, "AVHRR EVI download failed: ", conditionMessage(e))
-      FALSE
-    })
+    downloaded <- tryCatch(
+      {
+        curl::curl_fetch_disk(evi_remote, tmp)
+        file.info(tmp)$size > 10240
+      },
+      error = function(e) {
+        log_message(log_fun, "AVHRR EVI download failed: ", conditionMessage(e))
+        FALSE
+      }
+    )
     if (downloaded && file.exists(tmp) && file.info(tmp)$size > 10240) {
       evi_nc <- tryCatch(terra::rast(tmp), error = function(e) NULL)
       unlink(tmp)
       if (!is.null(evi_nc)) {
         if (!is.null(extent_vec) && length(extent_vec) == 4) {
           evi_nc <- tryCatch(terra::crop(evi_nc, terra::ext(extent_vec), snap = "out"),
-                             error = function(e) evi_nc)
+            error = function(e) evi_nc
+          )
         }
         names(evi_nc) <- evi_layer_name
-        terra::writeRaster(evi_nc, evi_cached, overwrite = TRUE,
-                           wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+        terra::writeRaster(evi_nc, evi_cached,
+          overwrite = TRUE,
+          wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+        )
         ndvi_files <- c(ndvi_files, evi_cached)
         log_message(log_fun, "GIMMS AVHRR EVI cached.")
         evi_r <- evi_nc
@@ -358,8 +395,10 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
   methods <- rep("bilinear", terra::nlyr(combined))
   names(methods) <- names(combined)
 
-  log_message(log_fun, "Loaded ", terra::nlyr(combined), " NDVI/EVI layer(s): ",
-              paste(names(combined), collapse = ", "))
+  log_message(
+    log_fun, "Loaded ", terra::nlyr(combined), " NDVI/EVI layer(s): ",
+    paste(names(combined), collapse = ", ")
+  )
   list(
     raster = combined,
     files = ndvi_files,

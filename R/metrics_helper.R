@@ -7,13 +7,19 @@
 #'   occurrence_used, background_points, auc_mean, auc_sd, cv_folds
 #' @export
 extract_biomod_metrics <- function(biomod_mod) {
-  eval_tbl <- tryCatch({
-    biomod_mod@models.evaluation@data
-  }, error = function(e) {
-    tryCatch({
-      biomod_mod@evaluation@eval
-    }, error = function(e2) NULL)
-  })
+  eval_tbl <- tryCatch(
+    {
+      biomod_mod@models.evaluation@data
+    },
+    error = function(e) {
+      tryCatch(
+        {
+          biomod_mod@evaluation@eval
+        },
+        error = function(e2) NULL
+      )
+    }
+  )
   if (is.null(eval_tbl) || nrow(eval_tbl) == 0) {
     return(list(
       occurrence_used = NA_integer_,
@@ -43,8 +49,7 @@ extract_biomod_metrics <- function(biomod_mod) {
 #' @return SpatRaster with combined ensemble prediction
 #' @export
 combine_ensemble <- function(biomod_pred, dnn_results, method = "weighted_average",
-                              dnn_weight = 0.3, threshold = 0.5) {
-
+                             dnn_weight = 0.3, threshold = 0.5) {
   # Handle different dnn_results formats
   if (is.null(dnn_results)) {
     return(biomod_pred)
@@ -104,16 +109,20 @@ combine_ensemble <- function(biomod_pred, dnn_results, method = "weighted_averag
 #' @export
 compute_ensemble_weights <- function(metrics_list) {
   aucs <- sapply(metrics_list, function(m) {
-    if (is.list(m) && !is.null(m$AUC)) m$AUC
-    else if (is.numeric(m)) m
-    else NA_real_
+    if (is.list(m) && !is.null(m$AUC)) {
+      m$AUC
+    } else if (is.numeric(m)) {
+      m
+    } else {
+      NA_real_
+    }
   })
 
-  aucs[is.na(aucs)] <- 0.5  # Replace NA with baseline
+  aucs[is.na(aucs)] <- 0.5 # Replace NA with baseline
 
   # Weight = AUC - 0.5 (baseline), normalized
   weights <- aucs - 0.5
-  weights[weights < 0] <- 0  # No negative weights
+  weights[weights < 0] <- 0 # No negative weights
 
   if (sum(weights) > 0) {
     weights / sum(weights)

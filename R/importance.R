@@ -27,22 +27,28 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
   cov_cols <- setdiff(names(model_data), exclude_cols)
   cov_cols <- cov_cols[is.finite(match(cov_cols, names(model_data)))]
   if (length(cov_cols) == 0) {
-    return(data.frame(variable = character(), importance = numeric(),
-                      sd = numeric(), baseline = numeric(), stringsAsFactors = FALSE))
+    return(data.frame(
+      variable = character(), importance = numeric(),
+      sd = numeric(), baseline = numeric(), stringsAsFactors = FALSE
+    ))
   }
 
-obs <- eval_data$presence
+  obs <- eval_data$presence
   if (!is.numeric(obs)) obs <- as.numeric(obs)
   ok_obs <- is.finite(obs) & (obs == 0 | obs == 1)
   if (sum(ok_obs) < 20) {
     sd_vals <- vapply(cov_cols, function(v) {
       col_vals <- model_data[[v]]
-      if (!is.numeric(col_vals)) return(NA_real_)
+      if (!is.numeric(col_vals)) {
+        return(NA_real_)
+      }
       var_sd <- stats::sd(col_vals, na.rm = TRUE)
       if (is.na(var_sd) || var_sd < 1e-10) 0 else NA_real_
     }, numeric(1))
-    return(data.frame(variable = cov_cols, importance = 0, sd = sd_vals, baseline = NA,
-                      stringsAsFactors = FALSE))
+    return(data.frame(
+      variable = cov_cols, importance = 0, sd = sd_vals, baseline = NA,
+      stringsAsFactors = FALSE
+    ))
   }
 
   set.seed(seed)
@@ -53,26 +59,38 @@ obs <- eval_data$presence
   if (sum(ok_both) < 20) {
     sd_vals <- vapply(cov_cols, function(v) {
       col_vals <- model_data[[v]]
-      if (!is.numeric(col_vals)) return(NA_real_)
+      if (!is.numeric(col_vals)) {
+        return(NA_real_)
+      }
       var_sd <- stats::sd(col_vals, na.rm = TRUE)
       if (is.na(var_sd) || var_sd < 1e-10) 0 else NA_real_
     }, numeric(1))
-    return(data.frame(variable = cov_cols, importance = 0, sd = sd_vals, baseline = NA,
-                      stringsAsFactors = FALSE))
+    return(data.frame(
+      variable = cov_cols, importance = 0, sd = sd_vals, baseline = NA,
+      stringsAsFactors = FALSE
+    ))
   }
 
   baseline_metric <- metric_fun(obs[ok_both], baseline_pred[ok_both])
   if (!is.finite(baseline_metric)) {
-    return(data.frame(variable = cov_cols, importance = 0, sd = NA, baseline = NA,
-                      stringsAsFactors = FALSE))
+    return(data.frame(
+      variable = cov_cols, importance = 0, sd = NA, baseline = NA,
+      stringsAsFactors = FALSE
+    ))
   }
 
   compute_drops <- function(var) {
-    if (!var %in% names(eval_data)) return(c(importance = 0, sd = NA_real_))
+    if (!var %in% names(eval_data)) {
+      return(c(importance = 0, sd = NA_real_))
+    }
     col_vals <- eval_data[[var]]
-    if (!is.numeric(col_vals)) return(c(importance = 0, sd = NA_real_))
+    if (!is.numeric(col_vals)) {
+      return(c(importance = 0, sd = NA_real_))
+    }
     var_sd <- stats::sd(col_vals, na.rm = TRUE)
-    if (is.na(var_sd) || var_sd < 1e-10) return(c(importance = 0, sd = 0))
+    if (is.na(var_sd) || var_sd < 1e-10) {
+      return(c(importance = 0, sd = 0))
+    }
 
     drops <- numeric(n_perm)
     for (p in seq_len(n_perm)) {
@@ -99,11 +117,14 @@ obs <- eval_data$presence
   }
 
   results <- if (n_cores > 1 && n_perm > 1 && requireNamespace("parallel", quietly = TRUE)) {
-    tryCatch({
-      cl <- parallel::makeCluster(n_cores)
-      on.exit(parallel::stopCluster(cl), add = TRUE)
-      parallel::parLapply(cl, cov_cols, compute_drops)
-    }, error = function(e) lapply(cov_cols, compute_drops))
+    tryCatch(
+      {
+        cl <- parallel::makeCluster(n_cores)
+        on.exit(parallel::stopCluster(cl), add = TRUE)
+        parallel::parLapply(cl, cov_cols, compute_drops)
+      },
+      error = function(e) lapply(cov_cols, compute_drops)
+    )
   } else {
     lapply(cov_cols, compute_drops)
   }

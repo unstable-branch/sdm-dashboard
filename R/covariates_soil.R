@@ -5,20 +5,20 @@
 # SoilGrids covariate loading via geodata package.
 
 soilgrids_vars <- c(
-  "bdod"    = "Bulk density (fine earth fraction)",
-  "cfvo"    = "Coarse fragments volumetric",
-  "clay"    = "Clay content (fine earth fraction)",
-  "nitrogen"= "Total nitrogen",
-  "soc"     = "Soil organic carbon content",
-  "phh2o"   = "Soil pH (water)",
-  "sand"    = "Sand content (fine earth fraction)",
-  "silt"    = "Silt content (fine earth fraction)",
-  "cec"     = "Cation exchange capacity"
+  "bdod" = "Bulk density (fine earth fraction)",
+  "cfvo" = "Coarse fragments volumetric",
+  "clay" = "Clay content (fine earth fraction)",
+  "nitrogen" = "Total nitrogen",
+  "soc" = "Soil organic carbon content",
+  "phh2o" = "Soil pH (water)",
+  "sand" = "Sand content (fine earth fraction)",
+  "silt" = "Silt content (fine earth fraction)",
+  "cec" = "Cation exchange capacity"
 )
 
 soilgrids_depths <- c(
-  "0-5cm"   = 5,
-  "5-15cm"  = 15,
+  "0-5cm" = 5,
+  "5-15cm" = 15,
   "15-30cm" = 30,
   "30-60cm" = 60,
   "60-100cm" = 100,
@@ -99,7 +99,7 @@ load_soil_covariate <- function(soil_path = NULL,
           }
         )
         if (!is.null(r) && inherits(r, "SpatRaster")) {
-         terra::writeRaster(r, cached_file, overwrite = TRUE)
+          terra::writeRaster(r, cached_file, overwrite = TRUE)
           files <- c(files, cached_file)
         }
       } else {

@@ -21,7 +21,9 @@ extent_from_inputs <- function(input, occurrence = NULL) {
   if (identical(preset, "boundary_file")) {
     if (!is.null(input$boundary_shp) && !is.null(input$boundary_shp$datapath) && nzchar(input$boundary_shp$datapath)) {
       ext <- compute_extent_from_file(input$boundary_shp$datapath)
-      if (!is.null(ext)) return(ext)
+      if (!is.null(ext)) {
+        return(ext)
+      }
     }
     return(sdm_default_projection_extent)
   }
@@ -29,28 +31,43 @@ extent_from_inputs <- function(input, occurrence = NULL) {
 }
 
 fmt_num <- function(x, digits = 0) {
-  if (length(x) == 0 || is.null(x) || !is.finite(x)) return("-")
+  if (length(x) == 0 || is.null(x) || !is.finite(x)) {
+    return("-")
+  }
   format(round(x, digits), big.mark = ",", nsmall = digits)
 }
 
-metric_card <- function(label, value, note = NULL) {
-  div(class = "metric-card", div(class = "metric-label", label), div(class = "metric-value", value), if (!is.null(note)) div(class = "metric-note", note))
+metric_card <- function(label, value, note = NULL, note_class = NULL) {
+  note_el <- if (!is.null(note)) {
+    div(class = paste("metric-note", note_class), note)
+  } else NULL
+  div(class = "metric-card", div(class = "metric-label", label), div(class = "metric-value", value), note_el)
 }
 
 infer_species_label <- function(path) {
-  if (is.null(path) || length(path) == 0 || is.na(path[1]) || !file.exists(path[1])) return(NA_character_)
+  if (is.null(path) || length(path) == 0 || is.na(path[1]) || !file.exists(path[1])) {
+    return(NA_character_)
+  }
   path <- path[1]
   quiet_log <- function(message) invisible(NULL)
   raw <- tryCatch(read_occurrence_file(path, log_fun = quiet_log), error = function(e) NULL)
-  if (is.null(raw) || nrow(raw) == 0) return(NA_character_)
+  if (is.null(raw) || nrow(raw) == 0) {
+    return(NA_character_)
+  }
   species_col <- detect_column(names(raw), c("^(species|scientificname|taxon)$", "scientific.*name", "taxon.*name"))
-  if (is.na(species_col)) return(NA_character_)
+  if (is.na(species_col)) {
+    return(NA_character_)
+  }
   values <- trimws(as.character(raw[[species_col]]))
   values <- values[!is.na(values) & nzchar(values) & values != "NA"]
-  if (length(values) == 0) return(NA_character_)
+  if (length(values) == 0) {
+    return(NA_character_)
+  }
   counts <- sort(table(values), decreasing = TRUE)
   top <- names(counts)[1]
-  if (length(top) == 0 || as.numeric(counts[1]) / length(values) < 0.6) return(NA_character_)
+  if (length(top) == 0 || as.numeric(counts[1]) / length(values) < 0.6) {
+    return(NA_character_)
+  }
   top
 }
 
@@ -65,7 +82,9 @@ clean_occurrence_preview <- function(path, min_source_records = sdm_default_min_
 }
 
 occurrence_extent_overlap <- function(occ, extent) {
-  if (is.null(occ) || nrow(occ) == 0 || length(extent) != 4 || any(!is.finite(extent))) return(NULL)
+  if (is.null(occ) || nrow(occ) == 0 || length(extent) != 4 || any(!is.finite(extent))) {
+    return(NULL)
+  }
   inside <- occ$longitude >= extent[1] & occ$longitude <= extent[2] & occ$latitude >= extent[3] & occ$latitude <= extent[4]
   list(count = sum(inside, na.rm = TRUE), total = nrow(occ), percent = 100 * sum(inside, na.rm = TRUE) / nrow(occ))
 }

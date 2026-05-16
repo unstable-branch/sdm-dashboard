@@ -13,11 +13,11 @@
 # The NetCDF typically contains multiple time steps (monthly or seasonal)
 
 load_drought_covariate <- function(selected_periods = "annual_mean",
-                                    extent_vec = NULL,
-                                    aggregate_factor = 3L,
-                                    covariate_cache_dir = sdm_default_covariate_cache_dir,
-                                    allow_download = TRUE,
-                                    log_fun = NULL) {
+                                   extent_vec = NULL,
+                                   aggregate_factor = 3L,
+                                   covariate_cache_dir = sdm_default_covariate_cache_dir,
+                                   allow_download = TRUE,
+                                   log_fun = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
     stop("curl package required for drought downloads. Install with: install.packages('curl')")
   }
@@ -76,11 +76,14 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
 
     log_message(log_fun, "Downloading CRU scPDSI annual data from CRU...")
     tmp <- tempfile(fileext = ".nc")
-    ok <- tryCatch({
-      curl::curl_fetch_disk(scpdsi_url, tmp)
-      fi <- file.info(tmp)
-      !is.na(fi$size) && fi$size > 10240
-    }, error = function(e) FALSE)
+    ok <- tryCatch(
+      {
+        curl::curl_fetch_disk(scpdsi_url, tmp)
+        fi <- file.info(tmp)
+        !is.na(fi$size) && fi$size > 10240
+      },
+      error = function(e) FALSE
+    )
 
     if (!ok || !file.exists(tmp) || file.info(tmp)$size < 10240) {
       log_message(log_fun, "CRU scPDSI download failed. URL: ", scpdsi_url)
@@ -102,9 +105,13 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
     # Determine which layer to extract for this period
     # NetCDF time dimension: we need annual mean (Jan-Dec average), wet season (DJF), dry season (JJA)
     # Use the first available pdsi-type layer
-    use_layer <- if ("scpdsi" %in% names(nc_rast)) "scpdsi"
-                 else if ("pdsi" %in% names(nc_rast)) "pdsi"
-                 else names(nc_rast)[1]
+    use_layer <- if ("scpdsi" %in% names(nc_rast)) {
+      "scpdsi"
+    } else if ("pdsi" %in% names(nc_rast)) {
+      "pdsi"
+    } else {
+      names(nc_rast)[1]
+    }
 
     r_raw <- nc_rast[[use_layer]]
     names(r_raw) <- use_layer
@@ -146,20 +153,25 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
       af <- as.integer(aggregate_factor)
       if (af > 1L) {
         r_annual <- tryCatch(terra::aggregate(r_annual, fact = af, fun = "mean", na.rm = TRUE),
-                             error = function(e) r_annual)
+          error = function(e) r_annual
+        )
         if (exists("r_wet")) {
           r_wet <- tryCatch(terra::aggregate(r_wet, fact = af, fun = "mean", na.rm = TRUE),
-                            error = function(e) r_wet)
+            error = function(e) r_wet
+          )
           r_dry <- tryCatch(terra::aggregate(r_dry, fact = af, fun = "mean", na.rm = TRUE),
-                            error = function(e) r_dry)
+            error = function(e) r_dry
+          )
         }
       }
     }
 
     if ("annual_mean" %in% periods) {
       names(r_annual) <- "scpdsi_annual"
-      terra::writeRaster(r_annual, cached_annual, overwrite = TRUE,
-                         wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      terra::writeRaster(r_annual, cached_annual,
+        overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      )
       layers[["scpdsi_annual"]] <- r_annual
       layer_files <- c(layer_files, cached_annual)
       loaded_vars <- c(loaded_vars, "annual")
@@ -167,8 +179,10 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
 
     if (exists("r_wet") && "wet_season" %in% periods) {
       names(r_wet) <- "scpdsi_wet"
-      terra::writeRaster(r_wet, cached_wet, overwrite = TRUE,
-                         wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      terra::writeRaster(r_wet, cached_wet,
+        overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      )
       layers[["scpdsi_wet"]] <- r_wet
       layer_files <- c(layer_files, cached_wet)
       loaded_vars <- c(loaded_vars, "wet_season")
@@ -176,8 +190,10 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
 
     if (exists("r_dry") && "dry_season" %in% periods) {
       names(r_dry) <- "scpdsi_dry"
-      terra::writeRaster(r_dry, cached_dry, overwrite = TRUE,
-                         wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      terra::writeRaster(r_dry, cached_dry,
+        overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      )
       layers[["scpdsi_dry"]] <- r_dry
       layer_files <- c(layer_files, cached_dry)
       loaded_vars <- c(loaded_vars, "dry_season")
@@ -192,8 +208,10 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
   combined <- do.call(c, layers)
   methods <- setNames(rep("bilinear", terra::nlyr(combined)), names(combined))
 
-  log_message(log_fun, "Loaded ", terra::nlyr(combined), " scPDSI layer(s): ",
-              paste(names(combined), collapse = ", "))
+  log_message(
+    log_fun, "Loaded ", terra::nlyr(combined), " scPDSI layer(s): ",
+    paste(names(combined), collapse = ", ")
+  )
 
   list(
     raster = combined,

@@ -1,23 +1,26 @@
 fit_esm <- function(occ,
-                     env_train_scaled,
-                     biovars         = NULL,
-                     algorithm       = "GLM",
-                     min_auc         = sdm_esm_default_min_auc,
-                     power           = sdm_esm_default_power,
-                     n_runs_eval     = sdm_esm_default_n_runs,
-                     data_split      = sdm_esm_default_split,
-                     seed            = sdm_default_seed,
-                     log_fun         = NULL,
-                     background_n    = 1000,
-                     ...) {
-
+                    env_train_scaled,
+                    biovars = NULL,
+                    algorithm = "GLM",
+                    min_auc = sdm_esm_default_min_auc,
+                    power = sdm_esm_default_power,
+                    n_runs_eval = sdm_esm_default_n_runs,
+                    data_split = sdm_esm_default_split,
+                    seed = sdm_default_seed,
+                    log_fun = NULL,
+                    background_n = 1000,
+                    ...) {
   if (!requireNamespace("ecospat", quietly = TRUE)) {
-    stop("Package 'ecospat' is required for ESM. ",
-         "Install with: install.packages('ecospat')")
+    stop(
+      "Package 'ecospat' is required for ESM. ",
+      "Install with: install.packages('ecospat')"
+    )
   }
   if (!requireNamespace("biomod2", quietly = TRUE)) {
-    stop("Package 'biomod2' is required by ecospat for ESM. ",
-         "Install with: install.packages('biomod2')")
+    stop(
+      "Package 'biomod2' is required by ecospat for ESM. ",
+      "Install with: install.packages('biomod2')"
+    )
   }
 
   set.seed(seed)
@@ -25,11 +28,13 @@ fit_esm <- function(occ,
   covariate_cols <- if (!is.null(biovars) && length(biovars) > 0) {
     paste0("bio", biovars)
   } else {
-    setdiff(names(env_train_scaled),
-            c("presence", "case_weight_sdm", ".x", ".y"))
+    setdiff(
+      names(env_train_scaled),
+      c("presence", "case_weight_sdm", ".x", ".y")
+    )
   }
 
-  n_vars  <- length(covariate_cols)
+  n_vars <- length(covariate_cols)
   n_pairs <- n_vars * (n_vars - 1) / 2
 
   pres_xy <- occ[, c("longitude", "latitude"), drop = FALSE]
@@ -53,8 +58,10 @@ fit_esm <- function(occ,
     check.names = FALSE
   )
 
-  log_message(log_fun, "ESM: ", n_pres, " presences, ", n_vars, " variables -> ",
-              n_pairs, " bivariate models (algorithm = ", algorithm, ")")
+  log_message(
+    log_fun, "ESM: ", n_pres, " presences, ", n_vars, " variables -> ",
+    n_pairs, " bivariate models (algorithm = ", algorithm, ")"
+  )
 
   if (n_pres < 5) {
     stop("ESM requires at least 5 presence records. Got: ", n_pres)
@@ -63,13 +70,17 @@ fit_esm <- function(occ,
     stop("ESM requires at least 2 predictor variables. Got: ", n_vars)
   }
   if (n_pairs > 100) {
-    warning("ESM: ", n_pairs, " bivariate models requested. This may take ",
-            "several minutes. Consider reducing the number of covariates.")
+    warning(
+      "ESM: ", n_pairs, " bivariate models requested. This may take ",
+      "several minutes. Consider reducing the number of covariates."
+    )
   }
   if (n_vars > sdm_esm_max_vars_warn) {
-    log_message(log_fun,
-                "ESM warning: ", n_vars, " variables (>", sdm_esm_max_vars_warn,
-                ") selected. Consider reducing to 6-8 variables for faster runtime.")
+    log_message(
+      log_fun,
+      "ESM warning: ", n_vars, " variables (>", sdm_esm_max_vars_warn,
+      ") selected. Consider reducing to 6-8 variables for faster runtime."
+    )
   }
 
   log_message(log_fun, "ESM: building BIOMOD data objects...")
@@ -122,30 +133,34 @@ fit_esm <- function(occ,
 
   esm_ensemble <- ecospat::ecospat.ESM.EnsembleModeling(
     ESM.modeling.output = esm_models,
-    weighting.score     = "AUC",
-    threshold          = min_auc
+    weighting.score = "AUC",
+    threshold = min_auc
   )
 
   eval_scores <- esm_ensemble$ESM.evaluations
-  auc_mean    <- mean(eval_scores$AUC, na.rm = TRUE)
-  auc_sd      <- sd(eval_scores$AUC,   na.rm = TRUE)
-  tss_mean    <- mean(eval_scores$TSS, na.rm = TRUE)
-  tss_sd      <- sd(eval_scores$TSS,   na.rm = TRUE)
+  auc_mean <- mean(eval_scores$AUC, na.rm = TRUE)
+  auc_sd <- sd(eval_scores$AUC, na.rm = TRUE)
+  tss_mean <- mean(eval_scores$TSS, na.rm = TRUE)
+  tss_sd <- sd(eval_scores$TSS, na.rm = TRUE)
 
-  log_message(log_fun, sprintf("ESM: AUC = %.3f +/- %.3f, TSS = %.3f +/- %.3f",
-                                auc_mean, auc_sd, tss_mean, tss_sd))
+  log_message(log_fun, sprintf(
+    "ESM: AUC = %.3f +/- %.3f, TSS = %.3f +/- %.3f",
+    auc_mean, auc_sd, tss_mean, tss_sd
+  ))
 
   weights_raw <- esm_ensemble$weights
-  n_models_kept   <- sum(!is.na(weights_raw) & weights_raw > 0)
+  n_models_kept <- sum(!is.na(weights_raw) & weights_raw > 0)
   n_models_dropped <- n_pairs - n_models_kept
 
   if (n_models_dropped > 0) {
-    log_message(log_fun, "ESM: dropped ", n_models_dropped,
-                " bivariate models (AUC < ", min_auc, ")")
+    log_message(
+      log_fun, "ESM: dropped ", n_models_dropped,
+      " bivariate models (AUC < ", min_auc, ")"
+    )
   }
 
   weights_used <- data.frame(
-    pair       = names(weights_raw),
+    pair = names(weights_raw),
     weight_raw = unname(weights_raw),
     stringsAsFactors = FALSE
   )
@@ -160,13 +175,15 @@ fit_esm <- function(occ,
   }
 
   list(
-    model            = list(esm_models   = esm_models,
-                           esm_ensemble = esm_ensemble),
-    formula          = NULL,
-    coefficients     = weights_used,
-    occurrence_used  = occ,
-    background_xy    = bg_xy,
-    cv               = list(
+    model = list(
+      esm_models = esm_models,
+      esm_ensemble = esm_ensemble
+    ),
+    formula = NULL,
+    coefficients = weights_used,
+    occurrence_used = occ,
+    background_xy = bg_xy,
+    cv = list(
       strategy  = "split-sample",
       k         = as.integer(n_runs_eval),
       auc_mean  = auc_mean,
@@ -175,9 +192,9 @@ fit_esm <- function(occ,
       tss_sd    = tss_sd,
       threshold = min_auc
     ),
-    covariates       = covariate_cols,
+    covariates = covariate_cols,
     variable_importance = importance_df,
-    esm_config       = list(
+    esm_config = list(
       algorithm       = algorithm,
       n_vars          = n_vars,
       n_pairs_total   = n_pairs,
@@ -192,9 +209,8 @@ fit_esm <- function(occ,
 }
 
 predict_esm_suitability <- function(fit, env_project_scaled,
-                                     output_tif, n_cores = 1,
-                                     log_fun = NULL) {
-
+                                    output_tif, n_cores = 1,
+                                    log_fun = NULL) {
   log_message(log_fun, "ESM: projecting suitability...")
 
   env_df <- as.data.frame(terra::values(env_project_scaled))
@@ -210,15 +226,17 @@ predict_esm_suitability <- function(fit, env_project_scaled,
     ESM.EnsembleModeling.output = fit$model$esm_ensemble
   )
 
-  template     <- env_project_scaled[[1]]
-  suit_values  <- unname(ens_proj) / 1000
-  suit_values  <- pmin(1, pmax(0, suit_values))
-  suit_raster  <- terra::setValues(template, suit_values)
+  template <- env_project_scaled[[1]]
+  suit_values <- unname(ens_proj) / 1000
+  suit_values <- pmin(1, pmax(0, suit_values))
+  suit_raster <- terra::setValues(template, suit_values)
   names(suit_raster) <- "suitability"
 
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(suit_raster, output_tif, overwrite = TRUE,
-                    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  terra::writeRaster(suit_raster, output_tif,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
   log_message(log_fun, "ESM suitability written to: ", output_tif)
 
   suit_raster
@@ -227,13 +245,17 @@ predict_esm_suitability <- function(fit, env_project_scaled,
 extract_esm_importance <- function(esm_ensemble, var_names) {
   w <- esm_ensemble$weights
   if (is.null(w) || length(w) == 0) {
-    return(data.frame(variable = var_names, importance = 0,
-                      stringsAsFactors = FALSE))
+    return(data.frame(
+      variable = var_names, importance = 0,
+      stringsAsFactors = FALSE
+    ))
   }
 
   importance <- vapply(var_names, function(v) {
     pairs_with_v <- grep(paste0("(^|_)", v, "(_|$)"), names(w), value = TRUE)
-    if (length(pairs_with_v) == 0) return(0)
+    if (length(pairs_with_v) == 0) {
+      return(0)
+    }
     mean(w[pairs_with_v], na.rm = TRUE)
   }, numeric(1))
 
@@ -241,7 +263,7 @@ extract_esm_importance <- function(esm_ensemble, var_names) {
   importance[is.na(importance)] <- 0
 
   data.frame(
-    variable   = var_names,
+    variable = var_names,
     importance = unname(importance),
     stringsAsFactors = FALSE
   )
@@ -249,11 +271,13 @@ extract_esm_importance <- function(esm_ensemble, var_names) {
 
 plot_esm_pair_heatmap <- function(esm_fit) {
   w <- esm_fit$model$esm_ensemble$weights
-  if (is.null(w) || length(w) == 0) return(NULL)
+  if (is.null(w) || length(w) == 0) {
+    return(NULL)
+  }
   pairs <- strsplit(names(w), "_")
   df <- data.frame(
-    var1   = sapply(pairs, `[`, 1),
-    var2   = sapply(pairs, `[`, 2),
+    var1 = sapply(pairs, `[`, 1),
+    var2 = sapply(pairs, `[`, 2),
     weight = unname(w),
     stringsAsFactors = FALSE
   )
@@ -265,9 +289,11 @@ plot_esm_pair_heatmap <- function(esm_fit) {
 
   ggplot2::ggplot(df_sym, ggplot2::aes(var1, var2, fill = weight)) +
     ggplot2::geom_tile(colour = "white") +
-    ggplot2::scale_fill_gradient2(name = "AUC\nweight", low = "#f7f7f7",
-                                  high = "#2166ac", mid = "#67a9cf",
-                                  midpoint = mean(df$weight, na.rm = TRUE)) +
+    ggplot2::scale_fill_gradient2(
+      name = "AUC\nweight", low = "#f7f7f7",
+      high = "#2166ac", mid = "#67a9cf",
+      midpoint = mean(df$weight, na.rm = TRUE)
+    ) +
     ggplot2::theme_minimal(base_size = 11) +
     ggplot2::labs(title = "ESM bivariate model weights", x = NULL, y = NULL) +
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))

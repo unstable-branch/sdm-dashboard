@@ -31,10 +31,10 @@ uv_months <- c(
 gluv_base_url <- "http://www.ufz.de/export/data/global/"
 
 load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
-                               selected_uv_months = NULL,
-                               covariate_cache_dir = sdm_default_covariate_cache_dir,
-                               allow_download = TRUE,
-                               log_fun = NULL) {
+                              selected_uv_months = NULL,
+                              covariate_cache_dir = sdm_default_covariate_cache_dir,
+                              allow_download = TRUE,
+                              log_fun = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
     stop("curl package required for UV downloads. Install with: install.packages('curl')")
   }
@@ -50,15 +50,19 @@ load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
 
   invalid_vars <- setdiff(selected_uv_vars, names(uv_vars))
   if (length(invalid_vars) > 0) {
-    log_message(log_fun, "Unknown UV variable(s): ", paste(invalid_vars, collapse = ", "),
-                ". Available: ", paste(names(uv_vars), collapse = ", "))
+    log_message(
+      log_fun, "Unknown UV variable(s): ", paste(invalid_vars, collapse = ", "),
+      ". Available: ", paste(names(uv_vars), collapse = ", ")
+    )
     selected_uv_vars <- setdiff(selected_uv_vars, invalid_vars)
   }
 
   invalid_months <- setdiff(selected_uv_months, names(uv_months))
   if (length(invalid_months) > 0) {
-    log_message(log_fun, "Unknown UV month(s): ", paste(invalid_months, collapse = ", "),
-                ". Available: ", paste(names(uv_months), collapse = ", "))
+    log_message(
+      log_fun, "Unknown UV month(s): ", paste(invalid_months, collapse = ", "),
+      ". Available: ", paste(names(uv_months), collapse = ", ")
+    )
     selected_uv_months <- setdiff(selected_uv_months, invalid_months)
   }
 
@@ -91,13 +95,16 @@ load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
         "UVB5" = "56463_UVB5_Sum_of_UV-B_Radiation_of_Highest_Quarter.asc",
         "UVB6" = "56464_UVB6_Sum_of_UV-B_Radiation_of_Lowest_Quarter.asc"
       ))
-      r <- tryCatch({
-        curl::curl_fetch_disk(remote, cached_file)
-        terra::rast(cached_file)
-      }, error = function(e) {
-        log_message(log_fun, "Failed to download glUV ", var, ": ", conditionMessage(e))
-        NULL
-      })
+      r <- tryCatch(
+        {
+          curl::curl_fetch_disk(remote, cached_file)
+          terra::rast(cached_file)
+        },
+        error = function(e) {
+          log_message(log_fun, "Failed to download glUV ", var, ": ", conditionMessage(e))
+          NULL
+        }
+      )
       if (!is.null(r) && inherits(r, "SpatRaster")) {
         files <- c(files, cached_file)
       }
@@ -137,13 +144,16 @@ load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
         "November"  = "56475_glUV_November_monthly_means.asc",
         "December"  = "56476_glUV_December_monthly_means.asc"
       ))
-      r <- tryCatch({
-        curl::curl_fetch_disk(remote, cached_file)
-        terra::rast(cached_file)
-      }, error = function(e) {
-        log_message(log_fun, "Failed to download glUV monthly layer ", month_label, ": ", conditionMessage(e))
-        NULL
-      })
+      r <- tryCatch(
+        {
+          curl::curl_fetch_disk(remote, cached_file)
+          terra::rast(cached_file)
+        },
+        error = function(e) {
+          log_message(log_fun, "Failed to download glUV monthly layer ", month_label, ": ", conditionMessage(e))
+          NULL
+        }
+      )
       if (!is.null(r) && inherits(r, "SpatRaster")) {
         files <- c(files, cached_file)
       }

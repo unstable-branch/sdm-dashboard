@@ -132,13 +132,19 @@ setup_torch_cuda <- function(force_gpu = FALSE, log_fun = NULL) {
     return(result)
   }
 
-  tryCatch({
-    result$torch_version <- as.character(packageVersion("torch"))
-  }, error = function(e) NULL)
+  tryCatch(
+    {
+      result$torch_version <- as.character(packageVersion("torch"))
+    },
+    error = function(e) NULL
+  )
 
-  result$installation_status <- tryCatch({
-    if (torch::torch_is_installed()) "ok" else "not_installed"
-  }, error = function(e) "error")
+  result$installation_status <- tryCatch(
+    {
+      if (torch::torch_is_installed()) "ok" else "not_installed"
+    },
+    error = function(e) "error"
+  )
 
   if (result$installation_status != "ok") {
     result$message <- "LibTorch not installed - run torch::install_torch()"
@@ -147,31 +153,34 @@ setup_torch_cuda <- function(force_gpu = FALSE, log_fun = NULL) {
 
   result$message <- "LibTorch installed"
 
-  tryCatch({
-    has_cuda <- torch::cuda_is_available()
-    has_mps <- torch::mps_is_available()
+  tryCatch(
+    {
+      has_cuda <- torch::cuda_is_available()
+      has_mps <- torch::mps_is_available()
 
-    if (has_cuda) {
-      cuda_ver <- Sys.getenv("CUDA", NA_character_)
-      if (nzchar(cuda_ver)) result$cuda_version <- cuda_ver
-    }
-
-    if (force_gpu || has_cuda) {
-      result$gpu_available <- TRUE
-      result$device <- if (has_cuda) "cuda" else "cpu"
-      result$message <- if (has_cuda) {
-        paste("CUDA GPU available (version:", result$cuda_version, ")")
-      } else {
-        "CUDA requested but not available"
+      if (has_cuda) {
+        cuda_ver <- Sys.getenv("CUDA", NA_character_)
+        if (nzchar(cuda_ver)) result$cuda_version <- cuda_ver
       }
-    } else if (has_mps) {
-      result$gpu_available <- TRUE
-      result$device <- "mps"
-      result$message <- "MPS (Apple Silicon) GPU available"
+
+      if (force_gpu || has_cuda) {
+        result$gpu_available <- TRUE
+        result$device <- if (has_cuda) "cuda" else "cpu"
+        result$message <- if (has_cuda) {
+          paste("CUDA GPU available (version:", result$cuda_version, ")")
+        } else {
+          "CUDA requested but not available"
+        }
+      } else if (has_mps) {
+        result$gpu_available <- TRUE
+        result$device <- "mps"
+        result$message <- "MPS (Apple Silicon) GPU available"
+      }
+    },
+    error = function(e) {
+      result$message <- paste("GPU detection error:", conditionMessage(e))
     }
-  }, error = function(e) {
-    result$message <- paste("GPU detection error:", conditionMessage(e))
-  })
+  )
 
   if (!is.null(log_fun)) {
     log_fun(paste("torch:", result$message, "| Device:", result$device))

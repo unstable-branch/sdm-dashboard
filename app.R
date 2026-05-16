@@ -15,16 +15,10 @@ app_dir <- if (!is.na(app_path)) dirname(normalizePath(app_path, winslash = "/",
 source(file.path(app_dir, "R", "bootstrap.R"))
 sdm_set_project_root(app_dir)
 
-engine_candidates <- unique(c(
-  file.path(app_dir, "R", "optimized_sdm.R"),
-  file.path(getwd(), "R", "optimized_sdm.R"),
-  "optimized_sdm.R"
-))
-engine_file <- engine_candidates[file.exists(engine_candidates)][1]
-if (is.na(engine_file)) {
+engine_file <- file.path(app_dir, "R", "optimized_sdm.R")
+if (!file.exists(engine_file)) {
   stop(
-    "Could not find the modelling engine file optimized_sdm.R.\n",
-    "Expected either R/optimized_sdm.R or optimized_sdm.R in the project folder.\n",
+    "Could not find R/optimized_sdm.R.\n",
     "Your zip/extraction may be incomplete."
   )
 }
@@ -82,6 +76,34 @@ server <- function(input, output, session) {
     symbol <- switch(state, ok = "OK", warn = "!", error = "!", "i")
     div(class = "readiness-item", div(class = "readiness-title", span(class = paste("pill", paste0("pill-", state)), symbol), title), div(class = "readiness-detail", detail))
   }
+
+  output$hero_badges <- renderUI({
+    occ <- rv$cleaned_occurrence
+    res <- rv$result
+    running <- isTRUE(rv$running)
+    badges <- list()
+    if (running) {
+      badges <- c(badges, list(span("Running...")))
+    }
+    if (!is.null(occ) && is.data.frame(occ$df)) {
+      n <- nrow(occ$df)
+      n_pres <- sum(occ$df$presence == 1, na.rm = TRUE)
+      badges <- c(badges, list(span(paste0(n_pres, " presence / ", n, " records"))))
+    } else {
+      badges <- c(badges, list(span("No data loaded")))
+    }
+    if (!is.null(res)) {
+      auc <- res$metrics$auc_mean
+      model <- res$config$model_label %||% "Model"
+      badges <- c(badges, list(span(paste0(model, " AUC ", fmt_num(auc, 3)))))
+      if (!is.null(res$future)) {
+        badges <- c(badges, list(span("Future projection")))
+      }
+    } else if (!running) {
+      badges <- c(badges, list(span("Ready to run")))
+    }
+    tagList(badges)
+  })
 
   observeEvent(input$fetch_gbif, {
     req(input$gbif_taxon)
@@ -873,7 +895,16 @@ if (isTRUE(input$future_projection)) {
   output$metric_cards <- renderUI({
     r <- rv$result
     if (is.null(r)) return(div(class = "metric-grid", metric_card("Observation records", "-", "waiting for run"), metric_card("Covariates", "-", "waiting for run"), metric_card("AUC", "-", "cross-validation"), metric_card("High-suitability area", "-", "km2 above threshold")))
-    div(class = "metric-grid", metric_card("Observation records used", fmt_num(r$metrics$presence_records), "after cleaning/thinning"), metric_card("Model", r$config$model_label %||% "GLM", "backend"), metric_card("CV AUC", fmt_num(r$metrics$auc_mean, 3), paste0(r$metrics$cv_folds, " folds; ", r$metrics$n_cores, " cores")), metric_card("High-suitability area", fmt_num(r$summary$high_risk_area_km2), "km2 above threshold"))
+    auc <- r$metrics$auc_mean
+    auc_note <- if (is.numeric(auc)) {
+      if (auc >= 0.9) "Excellent" else if (auc >= 0.7) "Good" else "Poor"
+    } else ""
+    auc_class <- if (auc_note == "Excellent") "metric-note-excellent" else if (auc_note == "Good") "metric-note-good" else if (auc_note == "Poor") "metric-note-poor" else ""
+    div(class = "metric-grid",
+      metric_card("Observation records used", fmt_num(r$metrics$presence_records), "after cleaning/thinning"),
+      metric_card("Model", r$config$model_label %||% "GLM", "backend"),
+      metric_card("CV AUC", fmt_num(auc, 3), paste(auc_note, paste0(r$metrics$cv_folds, " folds; ", r$metrics$n_cores, " cores"), sep = " — "), auc_class),
+      metric_card("High-suitability area", fmt_num(r$summary$high_risk_area_km2), "km2 above threshold"))
   })
 
   output$suitability_plot <- renderPlot({ if (is.null(rv$result)) return(placeholder_plot("No suitability map yet.")); r <- rv$result; plot_suitability_map(r$suitability, r$occurrence, r$config$projection_extent, r$config$species, r$config$threshold, TRUE) })
@@ -1129,6 +1160,14 @@ if (isTRUE(input$future_projection)) {
 
     rv$cleaned_occurrence$df$cc_flag <- FALSE
     rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df
+  })
+
+  output$flagged_count <- renderUI({
+    co <- rv$cleaned_occurrence
+    if (is.null(co) || !is.data.frame(co$df) || !"cc_flag" %in% names(co$df)) return(NULL)
+    n_flagged <- sum(co$df$cc_flag, na.rm = TRUE)
+    if (n_flagged == 0) return(NULL)
+    span(class = "flagged-count-badge flagged-count-badge-warn", paste0(n_flagged, " flagged"))
   })
 
   output$cc_stats_log <- renderText({

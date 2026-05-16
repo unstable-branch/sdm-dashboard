@@ -3,17 +3,19 @@
 # Supports: random, spatial_blocks, stratified_random, presence_only_stratified, custom fold_id.
 
 cross_validate_model <- function(model_data, k, seed, n_cores,
-                                  cv_strategy, cv_block_size_km, threshold,
-                                  fit_fun, cluster_setup_fn = NULL,
-                                  cluster_exports = NULL,
-                                  fold_id = NULL) {
+                                 cv_strategy, cv_block_size_km, threshold,
+                                 fit_fun, cluster_setup_fn = NULL,
+                                 cluster_exports = NULL,
+                                 fold_id = NULL) {
   k <- as.integer(k)
   cv_strategy <- normalize_cv_strategy(cv_strategy)
   threshold <- normalize_threshold(threshold)
   if (is.na(k) || k < 2) {
-    return(list(k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_,
-                tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
-                fold_metrics = data.frame(), fold_sizes = data.frame()))
+    return(list(
+      k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_,
+      tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
+      fold_metrics = data.frame(), fold_sizes = data.frame()
+    ))
   }
 
   block_id <- NULL
@@ -23,13 +25,17 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
   if (!is.null(fold_id)) {
     k <- max(fold_id, na.rm = TRUE)
     if (k < 2) {
-      return(list(k = 0, strategy = "custom", auc_mean = NA_real_, auc_sd = NA_real_,
-                  tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
-                  fold_metrics = data.frame(), fold_sizes = data.frame()))
+      return(list(
+        k = 0, strategy = "custom", auc_mean = NA_real_, auc_sd = NA_real_,
+        tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
+        fold_metrics = data.frame(), fold_sizes = data.frame()
+      ))
     }
   } else if (identical(cv_strategy, "spatial_blocks") && all(c(".x", ".y") %in% names(model_data))) {
-    folds <- make_cv_folds_spatial_blocks(model_data$.x, model_data$.y, model_data$presence, k = k,
-                                          block_size_km = normalize_cv_block_size_km(cv_block_size_km), seed = seed)
+    folds <- make_cv_folds_spatial_blocks(model_data$.x, model_data$.y, model_data$presence,
+      k = k,
+      block_size_km = normalize_cv_block_size_km(cv_block_size_km), seed = seed
+    )
     fold_id <- folds$fold_id
     block_id <- folds$block_id
     block_size_mode <- folds$block_size_mode
@@ -55,9 +61,11 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
   }
 
   if (k < 2) {
-    return(list(k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_,
-                tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
-                fold_metrics = data.frame(), fold_sizes = data.frame()))
+    return(list(
+      k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_,
+      tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
+      fold_metrics = data.frame(), fold_sizes = data.frame()
+    ))
   }
 
   n_cores <- min(normalize_core_count(n_cores), k)
@@ -78,10 +86,13 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
     if (!is.null(cluster_exports) && length(cluster_exports) > 0) {
       parallel::clusterExport(cl, cluster_exports, envir = environment())
     }
-    parallel_result <- tryCatch({
-      rows <- parallel::parLapply(cl, seq_len(k), fit_one_fold)
-      do.call(rbind, rows)
-    }, error = function(e) e)
+    parallel_result <- tryCatch(
+      {
+        rows <- parallel::parLapply(cl, seq_len(k), fit_one_fold)
+        do.call(rbind, rows)
+      },
+      error = function(e) e
+    )
     if (inherits(parallel_result, "error")) {
       warning("Parallel cross-validation failed; falling back to single-core CV: ", conditionMessage(parallel_result), call. = FALSE)
       run_single_core_cv()

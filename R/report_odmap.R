@@ -18,19 +18,27 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
   stopifnot(is.character(path_csv), length(path_csv) == 1)
 
   .fmt <- function(x, default = "Not available") {
-    if (is.null(x) || (length(x) == 0) || all(is.na(x))) return(default)
-    if (inherits(x, "character") && !nzchar(x[1])) return(default)
+    if (is.null(x) || (length(x) == 0) || all(is.na(x))) {
+      return(default)
+    }
+    if (inherits(x, "character") && !nzchar(x[1])) {
+      return(default)
+    }
     x
   }
 
   .fmt_num <- function(x, digits = 3, default = "Not available") {
-    if (is.null(x) || length(x) == 0 || !is.finite(as.numeric(x[1]))) return(default)
+    if (is.null(x) || length(x) == 0 || !is.finite(as.numeric(x[1]))) {
+      return(default)
+    }
     fmt_str <- if (digits == 0) "%.0f" else paste0("%.", digits, "f")
     sprintf(fmt_str, as.numeric(x[1]))
   }
 
   .fmt_aggr <- function(x, default = "Not available") {
-    if (is.null(x) || length(x) == 0) return(default)
+    if (is.null(x) || length(x) == 0) {
+      return(default)
+    }
     paste(x, collapse = ", ")
   }
 
@@ -122,10 +130,11 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
 
   bias_method <- .get_config("bias_method", "uniform")
   background_strategy <- switch(bias_method,
-                                 "uniform" = "uniform random (target area)",
-                                 "target_group" = "target-group bias correction",
-                                 "thickened" = "thickened presence bias correction",
-                                 bias_method)
+    "uniform" = "uniform random (target area)",
+    "target_group" = "target-group bias correction",
+    "thickened" = "thickened presence bias correction",
+    bias_method
+  )
 
   algorithm_settings <- model_method
 
@@ -145,12 +154,14 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
   auc_mean <- .get_cv("auc_mean")
   auc_sd <- .get_cv("auc_sd")
   if (!is.null(auc_mean) && is.finite(auc_mean)) {
-    auc_text <- paste0(sprintf("%.3f", auc_mean),
-                      if (!is.null(auc_sd) && is.finite(auc_sd)) {
-                        paste0(" +/- ", sprintf("%.3f", auc_sd))
-                      } else {
-                        ""
-                      })
+    auc_text <- paste0(
+      sprintf("%.3f", auc_mean),
+      if (!is.null(auc_sd) && is.finite(auc_sd)) {
+        paste0(" +/- ", sprintf("%.3f", auc_sd))
+      } else {
+        ""
+      }
+    )
   } else {
     auc_text <- "Not computed"
   }
@@ -158,12 +169,14 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
   tss_mean <- .get_cv("tss_mean")
   tss_sd <- .get_cv("tss_sd")
   if (!is.null(tss_mean) && is.finite(tss_mean)) {
-    tss_text <- paste0(sprintf("%.3f", tss_mean),
-                      if (!is.null(tss_sd) && is.finite(tss_sd)) {
-                        paste0(" +/- ", sprintf("%.3f", tss_sd))
-                      } else {
-                        ""
-                      })
+    tss_text <- paste0(
+      sprintf("%.3f", tss_mean),
+      if (!is.null(tss_sd) && is.finite(tss_sd)) {
+        paste0(" +/- ", sprintf("%.3f", tss_sd))
+      } else {
+        ""
+      }
+    )
   } else {
     tss_text <- "Not computed"
   }
@@ -251,12 +264,16 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
     paste0("threshold_rule,", threshold_rule),
     if (!is.null(result$esm_config)) {
       esm <- result$esm_config
-      c(paste0("esm_algorithm,", esm$algorithm),
+      c(
+        paste0("esm_algorithm,", esm$algorithm),
         paste0("esm_pairs_total,", .fmt_num(esm$n_pairs_total, 0)),
         paste0("esm_pairs_used,", .fmt_num(esm$n_pairs_used, 0)),
         paste0("esm_pairs_dropped,", .fmt_num(esm$n_pairs_dropped, 0)),
-        paste0("esm_min_auc,", esm$min_auc))
-    } else character(),
+        paste0("esm_min_auc,", esm$min_auc)
+      )
+    } else {
+      character()
+    },
     "",
     if (identical(.get_config("model_id"), "multi_ensemble")) {
       ens <- result$model
@@ -266,7 +283,9 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
       n_failed <- n_total - n_succeeded
       weight_lines <- if (!is.null(ens$weights) && length(ens$weights) > 0) {
         paste0("ensemble_weight,", paste(names(ens$weights), sprintf("%.4f", ens$weights), sep = "=", collapse = "; "))
-      } else character()
+      } else {
+        character()
+      }
       disagreement_tif <- result$paths$multi_ens_sd_tif %||% NA_character_
       c(
         "# Ensemble",
@@ -281,9 +300,13 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
             paste0("ensemble_component,", paste(as.character(row), collapse = ","))
           })
           c(comp_header, comp_rows)
-        } else character()
+        } else {
+          character()
+        }
       )
-    } else character(),
+    } else {
+      character()
+    },
     "",
     "# Assessment",
     paste0("CV_strategy,", cv_strategy),
@@ -334,9 +357,13 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
       paste0("- **Threshold rule:** ", threshold_rule),
       if (!is.null(result$esm_config)) {
         esm <- result$esm_config
-        c(paste0("- **ESM strategy:** ", esm$n_pairs_used, " bivariate ", toupper(esm$algorithm),
-                 " models (AUC-weighted; ", esm$n_pairs_dropped, " dropped, AUC < ", esm$min_auc, ")"))
-      } else character(),
+        c(paste0(
+          "- **ESM strategy:** ", esm$n_pairs_used, " bivariate ", toupper(esm$algorithm),
+          " models (AUC-weighted; ", esm$n_pairs_dropped, " dropped, AUC < ", esm$min_auc, ")"
+        ))
+      } else {
+        character()
+      },
       "",
       if (identical(.get_config("model_id"), "multi_ensemble")) {
         ens <- result$model
@@ -347,12 +374,18 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
         disagreement_tif <- result$paths$multi_ens_sd_tif %||% NA_character_
         weight_lines <- if (!is.null(ens$weights) && length(ens$weights) > 0) {
           paste0("- **Component weights:** ", paste(names(ens$weights), sprintf("%.4f", ens$weights), sep = " = ", collapse = ", "))
-        } else character()
+        } else {
+          character()
+        }
         comp_rows <- if (!is.null(cv_df) && nrow(cv_df) > 0) {
-          paste0("- **", cv_df$model_id, ":** AUC = ", sprintf("%.3f", cv_df$auc_mean),
-                 ", TSS = ", sprintf("%.3f", cv_df$tss_mean),
-                 ", weight = ", sprintf("%.4f", cv_df$weight))
-        } else character()
+          paste0(
+            "- **", cv_df$model_id, ":** AUC = ", sprintf("%.3f", cv_df$auc_mean),
+            ", TSS = ", sprintf("%.3f", cv_df$tss_mean),
+            ", weight = ", sprintf("%.4f", cv_df$weight)
+          )
+        } else {
+          character()
+        }
         c(
           "## Ensemble",
           paste0("- **Components attempted:** ", n_total),
@@ -363,7 +396,9 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
           comp_rows,
           ""
         )
-      } else character(),
+      } else {
+        character()
+      },
       "## Assessment",
       paste0("- **CV strategy:** ", cv_strategy),
       paste0("- **AUC:** ", auc_text),
@@ -380,11 +415,14 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
       paste0("- **Extrapolation diagnostics:** ", extrapolation_diagnostics)
     )
 
-    tryCatch({
-      writeLines(md_lines, con = path_md)
-    }, error = function(e) {
-      warning("Failed to write Markdown report: ", conditionMessage(e), call. = FALSE)
-    })
+    tryCatch(
+      {
+        writeLines(md_lines, con = path_md)
+      },
+      error = function(e) {
+        warning("Failed to write Markdown report: ", conditionMessage(e), call. = FALSE)
+      }
+    )
   }
 
   invisible(path_csv)

@@ -50,7 +50,9 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
     target_valid <- setdiff(target_cells, presence_cells)
     if (length(target_valid) < n) {
       stop("Not enough valid cells for target-group background sampling (",
-           length(target_valid), " available, ", n, " requested).", call. = FALSE)
+        length(target_valid), " available, ", n, " requested).",
+        call. = FALSE
+      )
     }
     sampled <- sample.int(length(target_valid), n, replace = FALSE)
     sampled_cells <- target_valid[sampled]
@@ -67,7 +69,9 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
     all_cell_idx <- get_valid_cell_indices()
     if (length(all_cell_idx) < n) {
       stop("Not enough valid cells for thickened background sampling (",
-           length(all_cell_idx), " available, ", n, " requested).", call. = FALSE)
+        length(all_cell_idx), " available, ", n, " requested).",
+        call. = FALSE
+      )
     }
     cell_xy <- terra::xyFromCell(template_rast, all_cell_idx)
     pres_df <- data.frame(x = presence_xy$x, y = presence_xy$y)
@@ -83,7 +87,9 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
     valid_w <- which(weights > 0)
     if (length(valid_w) < n) {
       stop("Not enough valid cells for thickened background sampling (",
-           length(valid_w), " available, ", n, " requested).", call. = FALSE)
+        length(valid_w), " available, ", n, " requested).",
+        call. = FALSE
+      )
     }
     probs <- weights[valid_w]
     probs <- probs / sum(probs)
@@ -95,7 +101,9 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
   all_valid <- setdiff(get_valid_cell_indices(), presence_cells)
   if (length(all_valid) < n) {
     warning("Sampled fewer background points than requested after excluding ",
-            "incomplete and presence cells.", call. = FALSE)
+      "incomplete and presence cells.",
+      call. = FALSE
+    )
     n <- length(all_valid)
   }
   sampled <- sample.int(length(all_valid), n, replace = FALSE)
@@ -114,7 +122,9 @@ class_balance_weights <- function(y) {
   n1 <- sum(y == 1)
   n0 <- sum(y == 0)
   n <- length(y)
-  if (n1 == 0 || n0 == 0) return(rep(1, n))
+  if (n1 == 0 || n0 == 0) {
+    return(rep(1, n))
+  }
   ifelse(y == 1, n / (2 * n1), n / (2 * n0))
 }
 
@@ -139,25 +149,29 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
     n <- length(y)
     w <- if (n1 == 0 || n0 == 0) rep(1, n) else ifelse(y == 1, n / (2 * n1), n / (2 * n0))
     train_model$case_weight_sdm <- w
-    fit <- suppressWarnings(stats::glm(formula, data = train_model, family = stats::binomial(),
-                      weights = case_weight_sdm, control = stats::glm.control(maxit = 60)))
+    fit <- suppressWarnings(stats::glm(formula,
+      data = train_model, family = stats::binomial(),
+      weights = case_weight_sdm, control = stats::glm.control(maxit = 60)
+    ))
     pred <- stats::predict(fit, newdata = test_model, type = "response")
     metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
   }
 
-  cross_validate_model(model_data, k = k, seed = seed, n_cores = n_cores,
-                       cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-                       threshold = threshold, fit_fun = fit_fun,
-                       cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "normalize_threshold"))
+  cross_validate_model(model_data,
+    k = k, seed = seed, n_cores = n_cores,
+    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+    threshold = threshold, fit_fun = fit_fun,
+    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "normalize_threshold")
+  )
 }
 
 fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n, include_quadratic = TRUE,
-                          cv_folds = 3, seed = 42, n_cores = 1, log_fun = NULL,
-                          cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
-                          threshold = sdm_default_threshold,
-                          bias_method = c("uniform", "target_group", "thickened"),
-                          target_group_occ = NULL,
-                          thickening_distance_km = NULL) {
+                         cv_folds = 3, seed = 42, n_cores = 1, log_fun = NULL,
+                         cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
+                         threshold = sdm_default_threshold,
+                         bias_method = c("uniform", "target_group", "thickened"),
+                         target_group_occ = NULL,
+                         thickening_distance_km = NULL) {
   bias_method <- match.arg(bias_method)
   covariates <- names(env_train_scaled)
   if (length(covariates) < 2) stop("At least two covariates are required for modelling.", call. = FALSE)
@@ -172,9 +186,11 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   occ_used <- occ[pres_keep, , drop = FALSE]
   if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
 
-  bg_xy <- sample_background_points(env_train_scaled, background_n, seed = seed, presence_xy = pres_xy_used,
-                                      bias_method = bias_method, target_group_occ = target_group_occ,
-                                      thickening_distance_km = thickening_distance_km)
+  bg_xy <- sample_background_points(env_train_scaled, background_n,
+    seed = seed, presence_xy = pres_xy_used,
+    bias_method = bias_method, target_group_occ = target_group_occ,
+    thickening_distance_km = thickening_distance_km
+  )
   bg_vals <- extract_covariates(env_train_scaled, bg_xy)
   bg_keep <- stats::complete.cases(bg_vals)
   bg_vals <- bg_vals[bg_keep, , drop = FALSE]
@@ -193,17 +209,23 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   log_message(log_fun, "Fitting fast GLM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   model_fit_data <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
   model_fit_data$case_weight_sdm <- class_balance_weights(model_fit_data$presence)
-  model <- suppressWarnings(stats::glm(formula, data = model_fit_data, family = stats::binomial(),
-                      weights = case_weight_sdm, control = stats::glm.control(maxit = 80)))
+  model <- suppressWarnings(stats::glm(formula,
+    data = model_fit_data, family = stats::binomial(),
+    weights = case_weight_sdm, control = stats::glm.control(maxit = 80)
+  ))
 
   train_pred <- stats::predict(model, newdata = model_fit_data, type = "response")
   train_metrics <- compute_binary_metrics(model_fit_data$presence, train_pred, threshold = threshold)
 
-  cv <- cross_validate_glm(model_data, formula, k = cv_folds, seed = seed, n_cores = n_cores,
-                           cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km, threshold = threshold)
+  cv <- cross_validate_glm(model_data, formula,
+    k = cv_folds, seed = seed, n_cores = n_cores,
+    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km, threshold = threshold
+  )
   if (is.finite(cv$auc_mean)) {
-    log_message(log_fun, "Cross-validation (", cv$strategy, ") AUC: ", sprintf("%.3f", cv$auc_mean),
-                if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
+    log_message(
+      log_fun, "Cross-validation (", cv$strategy, ") AUC: ", sprintf("%.3f", cv$auc_mean),
+      if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else ""
+    )
   }
 
   pres_vals_for_cbi <- model_fit_data$presence
@@ -229,13 +251,17 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   if (!is.null(model$terms)) attr(model$terms, ".Environment") <- baseenv()
   model$call <- base::call("glm", formula = formula, family = stats::binomial())
 
-  list(model = model, formula = formula, coefficients = coefficients, model_data = model_fit_data,
-       occurrence_used = occ_used, background_xy = bg_xy, cv = cv, binary_metrics = train_metrics,
-       metrics = list(auc = train_metrics$auc, tss = train_metrics$tss,
-                      sensitivity = train_metrics$sensitivity, specificity = train_metrics$specificity,
-                      cbi = cbi_result$cbi, cbi_pe_ratio = cbi_result$pe_ratio, cbi_note = cbi_result$note),
-       cbi_detail = cbi_result, covariates = covariates,
-       bias_method = bias_method,
-       thickening_distance_km = if (identical(bias_method, "thickened")) thickening_distance_km else NULL,
-       presence_suit = train_pred[model_fit_data$presence == 1])
+  list(
+    model = model, formula = formula, coefficients = coefficients, model_data = model_fit_data,
+    occurrence_used = occ_used, background_xy = bg_xy, cv = cv, binary_metrics = train_metrics,
+    metrics = list(
+      auc = train_metrics$auc, tss = train_metrics$tss,
+      sensitivity = train_metrics$sensitivity, specificity = train_metrics$specificity,
+      cbi = cbi_result$cbi, cbi_pe_ratio = cbi_result$pe_ratio, cbi_note = cbi_result$note
+    ),
+    cbi_detail = cbi_result, covariates = covariates,
+    bias_method = bias_method,
+    thickening_distance_km = if (identical(bias_method, "thickened")) thickening_distance_km else NULL,
+    presence_suit = train_pred[model_fit_data$presence == 1]
+  )
 }

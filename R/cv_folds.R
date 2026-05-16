@@ -3,7 +3,9 @@
 make_cv_folds_random <- function(y, k = sdm_default_cv_folds, seed = sdm_default_seed) {
   y <- as.integer(y)
   k <- as.integer(k)
-  if (is.na(k) || k < 2) return(rep(0L, length(y)))
+  if (is.na(k) || k < 2) {
+    return(rep(0L, length(y)))
+  }
   set.seed(seed)
   fold_id <- integer(length(y))
   for (class_value in sort(unique(y))) {
@@ -27,7 +29,9 @@ estimate_cv_block_size_km <- function(x, y, k = sdm_default_cv_folds) {
   width <- diff(range(xy$x_km, na.rm = TRUE))
   height <- diff(range(xy$y_km, na.rm = TRUE))
   span <- max(width, height, na.rm = TRUE)
-  if (!is.finite(span) || span <= 0) return(50)
+  if (!is.finite(span) || span <= 0) {
+    return(50)
+  }
   max(10, span / max(2, sqrt(as.integer(k) * 4)))
 }
 
@@ -35,13 +39,17 @@ make_cv_folds_spatial_blocks <- function(x, y, presence, k = sdm_default_cv_fold
                                          block_size_km = NA_real_, seed = sdm_default_seed) {
   k <- as.integer(k)
   presence <- as.integer(presence)
-  if (is.na(k) || k < 2) return(list(fold_id = rep(0L, length(presence)), block_size_km = NA_real_, block_size_mode = "off", block_id = character(length(presence))))
+  if (is.na(k) || k < 2) {
+    return(list(fold_id = rep(0L, length(presence)), block_size_km = NA_real_, block_size_mode = "off", block_id = character(length(presence))))
+  }
   unique_vals <- unique(presence)
   if (length(setdiff(unique_vals, 0:1)) > 0) {
     warning("make_cv_folds_spatial_blocks: 'presence' must be 0/1; falling back to random CV.", call. = FALSE)
-    return(list(fold_id = make_cv_folds_random(presence, k = k, seed = seed),
-                block_size_km = NA_real_, block_size_mode = "off+invalid-presence",
-                block_id = character(length(presence))))
+    return(list(
+      fold_id = make_cv_folds_random(presence, k = k, seed = seed),
+      block_size_km = NA_real_, block_size_mode = "off+invalid-presence",
+      block_id = character(length(presence))
+    ))
   }
   if (!is.finite(block_size_km) || block_size_km <= 0) {
     block_size_km <- estimate_cv_block_size_km(x, y, k)

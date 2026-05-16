@@ -4,10 +4,9 @@
 ## See BIOMOD2_ADAPTER_NOTES.md for gating strategy details.
 
 run_biomod2 <- function(occ_df, pred_stack, models = NULL,
-                       background_n = 1000, cv_folds = 3,
-                       species_name = NULL, seed = 42,
-                       output_dir = tempdir(), log_fun = NULL) {
-
+                        background_n = 1000, cv_folds = 3,
+                        species_name = NULL, seed = 42,
+                        output_dir = tempdir(), log_fun = NULL) {
   if (is.null(models)) {
     models <- config$biomod2_default
   }
@@ -23,9 +22,11 @@ run_biomod2 <- function(occ_df, pred_stack, models = NULL,
   log_message(log_fun, "Running biomod2 with models: ", paste(models, collapse = ", "))
 
   set.seed(seed)
-  pa_points <- terra::spatSample(pred_stack, size = background_n,
-                                  method = "random", na.rm = TRUE,
-                                  as.points = TRUE, xy = TRUE)
+  pa_points <- terra::spatSample(pred_stack,
+    size = background_n,
+    method = "random", na.rm = TRUE,
+    as.points = TRUE, xy = TRUE
+  )
 
   if (is.null(pa_points) || terra::nrow(pa_points) == 0) {
     stop("Failed to generate pseudo-absence points for biomod2")
@@ -62,7 +63,9 @@ run_biomod2 <- function(occ_df, pred_stack, models = NULL,
     OPT.user = bm_opts,
     output.dir = file.path(output_dir, modeling_id)
   )
-  if (check_cancelled(log_fun)) return(invisible(NULL))
+  if (check_cancelled(log_fun)) {
+    return(invisible(NULL))
+  }
   biomod_mod <- do.call(biomod2::BIOMOD_Modeling, user_args)
 
   evaluations <- biomod2::get_evaluations(biomod_mod)
@@ -110,7 +113,7 @@ run_biomod2 <- function(occ_df, pred_stack, models = NULL,
 }
 
 predict_biomod2_suitability <- function(fit, env_project_scaled, output_tif,
-                                         n_cores = 1, log_fun = NULL) {
+                                        n_cores = 1, log_fun = NULL) {
   proj_name <- paste0("proj_", fit$modeling_id)
 
   proj <- biomod2::BIOMOD_Projection(
@@ -122,7 +125,8 @@ predict_biomod2_suitability <- function(fit, env_project_scaled, output_tif,
   )
 
   proj_files <- list.files(file.path(tempdir(), fit$modeling_id, proj_name),
-                          pattern = "\\.tif$", full.names = TRUE)
+    pattern = "\\.tif$", full.names = TRUE
+  )
   proj_files <- proj_files[!grepl("clamping", proj_files)]
 
   if (length(proj_files) == 0) {
@@ -132,8 +136,10 @@ predict_biomod2_suitability <- function(fit, env_project_scaled, output_tif,
   final_file <- proj_files[length(proj_files)]
 
   if (!is.null(output_tif)) {
-    terra::writeRaster(terra::rast(final_file), output_tif, overwrite = TRUE,
-                       wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    terra::writeRaster(terra::rast(final_file), output_tif,
+      overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    )
   }
 
   terra::rast(final_file)

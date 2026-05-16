@@ -30,17 +30,21 @@ cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, se
       error = function(e) NULL
     )
     if (is.null(model)) {
-      return(metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_,
-                                       threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i))
+      return(metrics_list_to_row(list(
+        auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_,
+        threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L
+      ), fold = i))
     }
     pred <- tryCatch(stats::predict(model, newdata = test_data, type = "response"), error = function(e) rep(NA_real_, nrow(test_data)))
     metrics_list_to_row(compute_binary_metrics(test_data$presence, pred, threshold = threshold), fold = i)
   }
 
-  cross_validate_model(model_data, k = k, seed = seed, n_cores = n_cores,
-                       cv_strategy = "stratified_random", cv_block_size_km = NA_real_,
-                       threshold = sdm_default_threshold, fit_fun = fit_fun,
-                       cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"))
+  cross_validate_model(model_data,
+    k = k, seed = seed, n_cores = n_cores,
+    cv_strategy = "stratified_random", cv_block_size_km = NA_real_,
+    threshold = sdm_default_threshold, fit_fun = fit_fun,
+    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row")
+  )
 }
 
 fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,

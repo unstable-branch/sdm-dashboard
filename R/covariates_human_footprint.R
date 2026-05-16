@@ -59,11 +59,14 @@ load_human_footprint_covariate <- function(hfp_year = 2020,
   log_message(log_fun, "Downloading Human Footprint ", hfp_year, " from Google Cloud Storage...")
 
   tmp <- tempfile(fileext = ".tif")
-  ok <- tryCatch({
-    curl::curl_fetch_disk(url, tmp)
-    fi <- file.info(tmp)
-    !is.na(fi$size) && fi$size > 1024
-  }, error = function(e) FALSE)
+  ok <- tryCatch(
+    {
+      curl::curl_fetch_disk(url, tmp)
+      fi <- file.info(tmp)
+      !is.na(fi$size) && fi$size > 1024
+    },
+    error = function(e) FALSE
+  )
 
   if (!ok || !file.exists(tmp) || file.info(tmp)$size < 1024) {
     log_message(log_fun, "Human Footprint download failed for year ", hfp_year, ". URL: ", url)
@@ -89,14 +92,17 @@ load_human_footprint_covariate <- function(hfp_year = 2020,
     af <- as.integer(aggregate_factor)
     if (af > 1L) {
       r <- tryCatch(terra::aggregate(r, fact = af, fun = "mean", na.rm = TRUE),
-                     error = function(e) r)
+        error = function(e) r
+      )
     }
   }
 
   names(r) <- paste0("hfp_", hfp_year)
 
-  terra::writeRaster(r, cached_file, overwrite = TRUE,
-                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  terra::writeRaster(r, cached_file,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
   log_message(log_fun, "Human Footprint cached: ", names(r))
 
   list(

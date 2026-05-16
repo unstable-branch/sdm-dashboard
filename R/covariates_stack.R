@@ -28,32 +28,34 @@ align_covariate_stack <- function(source, template_train, template_project) {
 }
 
 load_extra_covariates <- function(template_train, template_project, training_extent, projection_extent,
-                                   use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
-                                   use_soil = FALSE,
-                                   selected_soil_vars = sdm_default_soil_vars,
-                                   selected_soil_depths = sdm_default_soil_depths,
-                                   use_uv = FALSE,
-                                   selected_uv_vars = sdm_default_uv_vars,
-                                   selected_uv_months = NULL,
-                                   use_vegetation = FALSE,
-                                   veg_year = sdm_default_veg_year,
-                                   veg_products = sdm_default_veg_products,
-                                   use_lulc = FALSE,
-                                   lulc_year = 2020,
-                                   use_hfp = FALSE,
-                                   hfp_year = 2020,
-                                   use_bioclim_season = FALSE,
-                                   use_drought = FALSE,
-                                   selected_drought_periods = "annual_mean",
-                                   covariate_cache_dir = sdm_default_covariate_cache_dir,
-                                   allow_download = TRUE, log_fun = NULL) {
+                                  use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
+                                  use_soil = FALSE,
+                                  selected_soil_vars = sdm_default_soil_vars,
+                                  selected_soil_depths = sdm_default_soil_depths,
+                                  use_uv = FALSE,
+                                  selected_uv_vars = sdm_default_uv_vars,
+                                  selected_uv_months = NULL,
+                                  use_vegetation = FALSE,
+                                  veg_year = sdm_default_veg_year,
+                                  veg_products = sdm_default_veg_products,
+                                  use_lulc = FALSE,
+                                  lulc_year = 2020,
+                                  use_hfp = FALSE,
+                                  hfp_year = 2020,
+                                  use_bioclim_season = FALSE,
+                                  use_drought = FALSE,
+                                  selected_drought_periods = "annual_mean",
+                                  covariate_cache_dir = sdm_default_covariate_cache_dir,
+                                  allow_download = TRUE, log_fun = NULL) {
   sources <- list()
   metadata <- list()
   files <- list()
 
   if (isTRUE(use_elevation)) {
-    elev <- load_elevation_covariate(training_extent, projection_extent, covariate_cache_dir,
-                                     elevation_demtype, opentopo_api_key, allow_download, log_fun)
+    elev <- load_elevation_covariate(
+      training_extent, projection_extent, covariate_cache_dir,
+      elevation_demtype, opentopo_api_key, allow_download, log_fun
+    )
     if (!is.null(elev)) {
       sources$elevation <- elev
       metadata$elevation <- elev$source
@@ -97,9 +99,11 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_lulc)) {
-    lulc <- load_lulc_covariate(lulc_year = lulc_year, extent_vec = training_extent,
-                                 aggregate_factor = 18L, covariate_cache_dir = covariate_cache_dir,
-                                 allow_download = allow_download, log_fun = log_fun)
+    lulc <- load_lulc_covariate(
+      lulc_year = lulc_year, extent_vec = training_extent,
+      aggregate_factor = 18L, covariate_cache_dir = covariate_cache_dir,
+      allow_download = allow_download, log_fun = log_fun
+    )
     if (!is.null(lulc)) {
       sources$lulc <- lulc
       metadata$lulc <- list(source = lulc$source, variables = lulc$variables)
@@ -108,9 +112,11 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_hfp)) {
-    hfp <- load_human_footprint_covariate(hfp_year = hfp_year, extent_vec = training_extent,
-                                          aggregate_factor = 18L, covariate_cache_dir = covariate_cache_dir,
-                                          allow_download = allow_download, log_fun = log_fun)
+    hfp <- load_human_footprint_covariate(
+      hfp_year = hfp_year, extent_vec = training_extent,
+      aggregate_factor = 18L, covariate_cache_dir = covariate_cache_dir,
+      allow_download = allow_download, log_fun = log_fun
+    )
     if (!is.null(hfp)) {
       sources$hfp <- hfp
       metadata$hfp <- list(source = hfp$source, variables = hfp$variables)
@@ -119,9 +125,11 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_bioclim_season)) {
-    bioclim <- load_bioclim_seasonality(extent_vec = training_extent,
-                                        covariate_cache_dir = covariate_cache_dir,
-                                        allow_download = allow_download, log_fun = log_fun)
+    bioclim <- load_bioclim_seasonality(
+      extent_vec = training_extent,
+      covariate_cache_dir = covariate_cache_dir,
+      allow_download = allow_download, log_fun = log_fun
+    )
     if (!is.null(bioclim)) {
       sources$bioclim_season <- bioclim
       metadata$bioclim_season <- list(source = bioclim$source, variables = bioclim$variables)
@@ -130,10 +138,12 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_drought)) {
-    drought <- load_drought_covariate(selected_periods = selected_drought_periods,
-                                       extent_vec = training_extent,
-                                       aggregate_factor = 3L, covariate_cache_dir = covariate_cache_dir,
-                                       allow_download = allow_download, log_fun = log_fun)
+    drought <- load_drought_covariate(
+      selected_periods = selected_drought_periods,
+      extent_vec = training_extent,
+      aggregate_factor = 3L, covariate_cache_dir = covariate_cache_dir,
+      allow_download = allow_download, log_fun = log_fun
+    )
     if (!is.null(drought)) {
       sources$drought <- drought
       metadata$drought <- list(source = drought$source, variables = drought$variables)
@@ -141,7 +151,9 @@ load_extra_covariates <- function(template_train, template_project, training_ext
     }
   }
 
-  if (length(sources) == 0) return(list(train = NULL, project = NULL, metadata = metadata, files = files))
+  if (length(sources) == 0) {
+    return(list(train = NULL, project = NULL, metadata = metadata, files = files))
+  }
 
   aligned <- lapply(sources, align_covariate_stack, template_train = template_train, template_project = template_project)
   train <- do.call(c, lapply(aligned, `[[`, "train"))
@@ -173,22 +185,25 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
                              source = sdm_default_climate_source,
                              selected_chelsa_extras = NULL) {
   climate <- load_climate_covariates(worldclim_dir, selected_biovars, training_extent, projection_extent,
-                                     aggregation_factor, allow_download, worldclim_res, log_fun, n_cores,
-                                     source = source, selected_chelsa_extras = selected_chelsa_extras)
+    aggregation_factor, allow_download, worldclim_res, log_fun, n_cores,
+    source = source, selected_chelsa_extras = selected_chelsa_extras
+  )
 
   env_train <- climate$env_train
   env_project <- climate$env_project
-  extras <- load_extra_covariates(env_train[[1]], env_project[[1]], training_extent, projection_extent,
-                                  use_elevation, elevation_demtype, opentopo_api_key,
-                                  use_soil, selected_soil_vars, selected_soil_depths,
-                                  use_uv, selected_uv_vars, selected_uv_months,
-                                  use_vegetation, veg_year, veg_products,
-                                  use_lulc, lulc_year,
-                                  use_hfp, hfp_year,
-                                  use_bioclim_season,
-                                  use_drought, selected_drought_periods,
-                                  covariate_cache_dir,
-                                  allow_download, log_fun)
+  extras <- load_extra_covariates(
+    env_train[[1]], env_project[[1]], training_extent, projection_extent,
+    use_elevation, elevation_demtype, opentopo_api_key,
+    use_soil, selected_soil_vars, selected_soil_depths,
+    use_uv, selected_uv_vars, selected_uv_months,
+    use_vegetation, veg_year, veg_products,
+    use_lulc, lulc_year,
+    use_hfp, hfp_year,
+    use_bioclim_season,
+    use_drought, selected_drought_periods,
+    covariate_cache_dir,
+    allow_download, log_fun
+  )
   if (!is.null(extras$train)) {
     env_train <- c(env_train, extras$train)
     env_project <- c(env_project, extras$project)
@@ -211,12 +226,16 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
 
   env_train_scaled <- scale_raster_stack(env_train, means, sds)
   env_project_scaled <- scale_raster_stack(env_project, means, sds)
-  log_message(log_fun, "Prepared covariates: ", terra::nlyr(env_train_scaled), " layer(s); training cells = ",
-              format(terra::ncell(env_train_scaled), big.mark = ","), "; projection cells = ",
-              format(terra::ncell(env_project_scaled), big.mark = ","))
+  log_message(
+    log_fun, "Prepared covariates: ", terra::nlyr(env_train_scaled), " layer(s); training cells = ",
+    format(terra::ncell(env_train_scaled), big.mark = ","), "; projection cells = ",
+    format(terra::ncell(env_project_scaled), big.mark = ",")
+  )
 
-  list(env_train = env_train, env_project = env_project,
-       env_train_scaled = env_train_scaled, env_project_scaled = env_project_scaled,
-       means = means, sds = sds, selected_biovars = climate$selected_biovars,
-       files = c(list(climate = climate$files), extras$files), extra_covariates = extras$metadata)
+  list(
+    env_train = env_train, env_project = env_project,
+    env_train_scaled = env_train_scaled, env_project_scaled = env_project_scaled,
+    means = means, sds = sds, selected_biovars = climate$selected_biovars,
+    files = c(list(climate = climate$files), extras$files), extra_covariates = extras$metadata
+  )
 }

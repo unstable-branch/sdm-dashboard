@@ -30,14 +30,17 @@ check_dnn_requirements <- function(n_records, log_fun = NULL) {
     check_result$installation_status <- "missing"
     return(check_result)
   }
-  
+
   # Check if LibTorch is installed
-  check_result$installation_status <- tryCatch({
-    if (torch::torch_is_installed()) "ok" else "not_installed"
-  }, error = function(e) {
-    "error"
-  })
-  
+  check_result$installation_status <- tryCatch(
+    {
+      if (torch::torch_is_installed()) "ok" else "not_installed"
+    },
+    error = function(e) {
+      "error"
+    }
+  )
+
   if (check_result$installation_status != "ok") {
     check_result$status <- "error"
     check_result$message <- paste(
@@ -48,9 +51,12 @@ check_dnn_requirements <- function(n_records, log_fun = NULL) {
   }
 
   # Get versions
-  tryCatch({
-    check_result$torch_version <- as.character(packageVersion("torch"))
-  }, error = function(e) NULL)
+  tryCatch(
+    {
+      check_result$torch_version <- as.character(packageVersion("torch"))
+    },
+    error = function(e) NULL
+  )
 
   # Check record count
   if (n_records < config$dnn_hard_block) {
@@ -68,69 +74,75 @@ check_dnn_requirements <- function(n_records, log_fun = NULL) {
   }
 
   # Check GPU availability with improved detection
-  tryCatch({
-    has_cuda <- FALSE
-    has_mps <- FALSE
-    
-    # CUDA detection
-    has_cuda <- tryCatch(torch::cuda_is_available(), error = function(e) FALSE)
-    
-    # MPS detection (Apple Silicon)
-    has_mps <- tryCatch(torch::mps_is_available(), error = function(e) FALSE)
+  tryCatch(
+    {
+      has_cuda <- FALSE
+      has_mps <- FALSE
 
-    if (has_cuda) {
-      check_result$gpu_available <- TRUE
-      check_result$device <- "cuda"
-      check_result$estimated_time_gpu <- 2
-      check_result$estimated_time_cpu <- 25
-      
-      # Try to get CUDA version
-      tryCatch({
-        cuda_ver <- Sys.getenv("CUDA", NA_character_)
-        if (nzchar(cuda_ver)) {
-          check_result$cuda_version <- cuda_ver
+      # CUDA detection
+      has_cuda <- tryCatch(torch::cuda_is_available(), error = function(e) FALSE)
+
+      # MPS detection (Apple Silicon)
+      has_mps <- tryCatch(torch::mps_is_available(), error = function(e) FALSE)
+
+      if (has_cuda) {
+        check_result$gpu_available <- TRUE
+        check_result$device <- "cuda"
+        check_result$estimated_time_gpu <- 2
+        check_result$estimated_time_cpu <- 25
+
+        # Try to get CUDA version
+        tryCatch(
+          {
+            cuda_ver <- Sys.getenv("CUDA", NA_character_)
+            if (nzchar(cuda_ver)) {
+              check_result$cuda_version <- cuda_ver
+            }
+          },
+          error = function(e) NULL
+        )
+
+        if (!is.null(log_fun)) {
+          log_fun(paste(
+            "DNN GPU: CUDA available | Device: cuda |",
+            "Records:", n_records,
+            "| Expected time: ~2 min"
+          ))
         }
-      }, error = function(e) NULL)
-      
-      if (!is.null(log_fun)) {
-        log_fun(paste(
-          "DNN GPU: CUDA available | Device: cuda |",
-          "Records:", n_records,
-          "| Expected time: ~2 min"
-        ))
+      } else if (has_mps) {
+        check_result$gpu_available <- TRUE
+        check_result$device <- "mps"
+        check_result$estimated_time_gpu <- 3
+        check_result$estimated_time_cpu <- 25
+
+        if (!is.null(log_fun)) {
+          log_fun(paste(
+            "DNN GPU: MPS (Apple Silicon) available | Device: mps |",
+            "Records:", n_records,
+            "| Expected time: ~3 min"
+          ))
+        }
+      } else {
+        check_result$device <- "cpu"
+        check_result$estimated_time_cpu <- 25
+
+        if (!is.null(log_fun)) {
+          log_fun(paste(
+            "DNN: CPU only | No GPU detected |",
+            "Records:", n_records,
+            "| Expected time: ~25 min"
+          ))
+        }
       }
-    } else if (has_mps) {
-      check_result$gpu_available <- TRUE
-      check_result$device <- "mps"
-      check_result$estimated_time_gpu <- 3
-      check_result$estimated_time_cpu <- 25
-      
-      if (!is.null(log_fun)) {
-        log_fun(paste(
-          "DNN GPU: MPS (Apple Silicon) available | Device: mps |",
-          "Records:", n_records,
-          "| Expected time: ~3 min"
-        ))
-      }
-    } else {
+    },
+    error = function(e) {
       check_result$device <- "cpu"
       check_result$estimated_time_cpu <- 25
-      
       if (!is.null(log_fun)) {
-        log_fun(paste(
-          "DNN: CPU only | No GPU detected |",
-          "Records:", n_records,
-          "| Expected time: ~25 min"
-        ))
+        log_fun(paste("DNN GPU detection failed:", conditionMessage(e), "- using CPU"))
       }
     }
-  }, error = function(e) {
-    check_result$device <- "cpu"
-    check_result$estimated_time_cpu <- 25
-    if (!is.null(log_fun)) {
-      log_fun(paste("DNN GPU detection failed:", conditionMessage(e), "- using CPU"))
-    }
-  })
+  )
 
   if (!is.null(log_fun) && check_result$status == "ok") {
     log_fun(paste(
@@ -156,86 +168,95 @@ check_dnn_requirements <- function(n_records, log_fun = NULL) {
 #' @export
 prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L) {
   set.seed(seed)
-  
+
   # DNN-104: Check raster stack has valid layers
   if (is.null(pred_stack) || terra::nlyr(pred_stack) < 1) {
     stop("DNN-104: Raster stack is empty or has no layers. Ensure covariates are properly loaded.")
   }
-  
+
   # DNN-101: Extract presence points
   coords <- occ_df[, c("longitude", "latitude")]
-  pres_vals <- tryCatch({
-    terra::extract(pred_stack, coords)
-  }, error = function(e) {
-    stop(paste("DNN-101: Failed to extract presence points from raster:", conditionMessage(e)))
-  })
+  pres_vals <- tryCatch(
+    {
+      terra::extract(pred_stack, coords)
+    },
+    error = function(e) {
+      stop(paste("DNN-101: Failed to extract presence points from raster:", conditionMessage(e)))
+    }
+  )
   pres_vals <- pres_vals[complete.cases(pres_vals), , drop = FALSE]
-  
+
   if (nrow(pres_vals) == 0) {
     stop("DNN-101: No valid presence points found after raster extraction. Check that occurrence coordinates overlap with covariate raster extent.")
   }
-  
+
   # DNN-102: Sample background points
   bg_mask <- pred_stack[[1]]
   bg_mask[!is.na(bg_mask)] <- 1
-  bg_points <- tryCatch({
-    terra::spatSample(bg_mask, size = background_n * 2, method = "random", na.rm = TRUE, as.points = TRUE)
-  }, error = function(e) {
-    stop(paste("DNN-102: Failed to sample background points:", conditionMessage(e)))
-  })
-  
+  bg_points <- tryCatch(
+    {
+      terra::spatSample(bg_mask, size = background_n * 2, method = "random", na.rm = TRUE, as.points = TRUE)
+    },
+    error = function(e) {
+      stop(paste("DNN-102: Failed to sample background points:", conditionMessage(e)))
+    }
+  )
+
   if (terra::nrow(bg_points) == 0) {
     stop("DNN-102: No background points could be sampled. Ensure the raster extent contains valid data.")
   }
-  
+
   if (terra::nrow(bg_points) > background_n) {
     bg_points <- bg_points[sample(terra::nrow(bg_points), background_n), ]
   }
-  
-  bg_vals <- tryCatch({
-    terra::extract(pred_stack, bg_points)
-  }, error = function(e) {
-    stop(paste("DNN-102: Failed to extract background values from raster:", conditionMessage(e)))
-  })
+
+  bg_vals <- tryCatch(
+    {
+      terra::extract(pred_stack, bg_points)
+    },
+    error = function(e) {
+      stop(paste("DNN-102: Failed to extract background values from raster:", conditionMessage(e)))
+    }
+  )
   bg_vals <- bg_vals[complete.cases(bg_vals), , drop = FALSE]
-  
+
   if (nrow(bg_vals) == 0) {
     stop("DNN-102: No valid background points found after raster extraction.")
   }
-  
+
   # Combine and create labels
   n_pres <- nrow(pres_vals)
   n_bg <- nrow(bg_vals)
-  
+
   all_data <- rbind(pres_vals, bg_vals)
   labels <- c(rep(1, n_pres), rep(0, n_bg))
-  
+
   # DNN-103: Train/test split (80/20)
   n_total <- length(labels)
   if (n_total < 10) {
     stop(paste("DNN-103: Insufficient total data points (", n_total, "). Minimum 10 points required for train/test split."))
   }
-  
+
   test_indices <- sample(n_total, size = floor(0.2 * n_total))
   train_indices <- setdiff(1:n_total, test_indices)
-  
+
   train_x <- as.matrix(all_data[train_indices, ])
   train_y <- labels[train_indices]
   test_x <- as.matrix(all_data[test_indices, ])
   test_y <- labels[test_indices]
-  
+
   # Scale features (z-score normalization)
   scaler <- list(
     mean = colMeans(train_x),
     sd = apply(train_x, 2, sd)
   )
   scaler$sd[scaler$sd == 0] <- 1
-  
+
   train_x_scaled <- sweep(train_x, 2, scaler$mean, "-")
   train_x_scaled <- sweep(train_x_scaled, 2, scaler$sd, "/")
   test_x_scaled <- sweep(test_x, 2, scaler$mean, "-")
   test_x_scaled <- sweep(test_x_scaled, 2, scaler$sd, "/")
-  
+
   list(
     train_x = train_x_scaled,
     train_y = train_y,
@@ -261,12 +282,12 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   if (!requireNamespace("cito", quietly = TRUE)) {
     stop("DNN-201: cito package not installed. Install with: install.packages('cito')")
   }
-  
+
   # DNN-201b: Verify torch is installed and working
   if (!requireNamespace("torch", quietly = TRUE)) {
     stop("DNN-201b: torch package missing. Install with: install.packages('torch')")
   }
-  
+
   if (!torch::torch_is_installed()) {
     stop(paste(
       "DNN-201b: LibTorch not installed.",
@@ -274,7 +295,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
       "\n  For GPU: Ensure CUDA Toolkit 12.8 + cuDNN installed, then: torch::install_torch(reinstall = TRUE)"
     ))
   }
-  
+
   # DNN-202: Validate architecture
   arch <- config$dnn_arch[[model_type]]
   if (is.null(arch)) {
@@ -288,13 +309,15 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   }
 
   if (!is.null(log_fun)) {
-    log_fun(paste("Training DNN:", model_type, "| Hidden:", paste(arch$hidden, collapse = "->"),
-                  "| Epochs:", arch$epochs, "| Device:", device))
+    log_fun(paste(
+      "Training DNN:", model_type, "| Hidden:", paste(arch$hidden, collapse = "->"),
+      "| Epochs:", arch$epochs, "| Device:", device
+    ))
   }
 
   formula_str <- paste("y ~", paste(train_data$feature_names, collapse = " + "))
   df <- as.data.frame(cbind(y = train_data$train_y, train_data$train_x))
-  
+
   # Check device availability if GPU requested
   if (device == "cuda") {
     if (!torch::cuda_is_available()) {
@@ -309,57 +332,60 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   }
 
   # DNN-204: Train model with error handling
-  model <- tryCatch({
-    cito::dnn(
-      formula = as.formula(formula_str),
-      data = df,
-      hidden = arch$hidden,
-      activation = "relu",
-      loss = "binomial",
-      optimizer = "adam",
-      lr = arch$lr,
-      epochs = arch$epochs,
-      batchsize = min(100L, max(32L, floor(n_train / 10))),
-      dropout = arch$dropout,
-      lambda = 0.001,
-      alpha = 1.0,
-      validation = 0.3,
-      lr_scheduler = cito::config_lr_scheduler("reduce_on_plateau", patience = 7),
-      early_stopping = 14L,
-      device = device,
-      verbose = FALSE
-    )
-  }, error = function(e) {
-    err_msg <- conditionMessage(e)
-    
-    # Provide specific suggestions based on error type
-    if (grepl("cuda|CUDA", err_msg, ignore.case = TRUE)) {
-      stop(paste(
-        "DNN-204: CUDA error:", err_msg,
-        "\n  Suggestions:",
-        "\n  1. Verify CUDA Toolkit 12.8 is installed: nvidia-smi",
-        "\n  2. Reinstall torch with GPU: torch::install_torch(reinstall = TRUE)",
-        "\n  3. Try CPU device instead: device = 'cpu'"
-      ))
-    } else if (grepl("memory|Memory", err_msg, ignore.case = TRUE)) {
-      stop(paste(
-        "DNN-204: Out of memory error:", err_msg,
-        "\n  Suggestions:",
-        "\n  1. Reduce model size (use DNN_Small instead of DNN_Large)",
-        "\n  2. Reduce batch size or epochs in config$dnn_arch",
-        "\n  3. Use CPU with more available RAM"
-      ))
-    } else {
-      stop(paste(
-        "DNN-204: Training failed:", err_msg,
-        "\n  Suggestions:",
-        "\n  1. Check data: ensure covariate values are not all NA/NaN",
-        "\n  2. Try CPU device: device = 'cpu'",
-        "\n  3. Try simpler architecture: DNN_Small"
-      ))
+  model <- tryCatch(
+    {
+      cito::dnn(
+        formula = as.formula(formula_str),
+        data = df,
+        hidden = arch$hidden,
+        activation = "relu",
+        loss = "binomial",
+        optimizer = "adam",
+        lr = arch$lr,
+        epochs = arch$epochs,
+        batchsize = min(100L, max(32L, floor(n_train / 10))),
+        dropout = arch$dropout,
+        lambda = 0.001,
+        alpha = 1.0,
+        validation = 0.3,
+        lr_scheduler = cito::config_lr_scheduler("reduce_on_plateau", patience = 7),
+        early_stopping = 14L,
+        device = device,
+        verbose = FALSE
+      )
+    },
+    error = function(e) {
+      err_msg <- conditionMessage(e)
+
+      # Provide specific suggestions based on error type
+      if (grepl("cuda|CUDA", err_msg, ignore.case = TRUE)) {
+        stop(paste(
+          "DNN-204: CUDA error:", err_msg,
+          "\n  Suggestions:",
+          "\n  1. Verify CUDA Toolkit 12.8 is installed: nvidia-smi",
+          "\n  2. Reinstall torch with GPU: torch::install_torch(reinstall = TRUE)",
+          "\n  3. Try CPU device instead: device = 'cpu'"
+        ))
+      } else if (grepl("memory|Memory", err_msg, ignore.case = TRUE)) {
+        stop(paste(
+          "DNN-204: Out of memory error:", err_msg,
+          "\n  Suggestions:",
+          "\n  1. Reduce model size (use DNN_Small instead of DNN_Large)",
+          "\n  2. Reduce batch size or epochs in config$dnn_arch",
+          "\n  3. Use CPU with more available RAM"
+        ))
+      } else {
+        stop(paste(
+          "DNN-204: Training failed:", err_msg,
+          "\n  Suggestions:",
+          "\n  1. Check data: ensure covariate values are not all NA/NaN",
+          "\n  2. Try CPU device: device = 'cpu'",
+          "\n  3. Try simpler architecture: DNN_Small"
+        ))
+      }
     }
-  })
-    
+  )
+
   model
 }
 
@@ -377,50 +403,56 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
   if (is.null(model)) {
     stop("DNN-301: Model object is NULL or invalid. Ensure training completed successfully.")
   }
-  
+
   # DNN-302: Check raster has valid cells
   n_cells <- terra::ncell(pred_stack)
   valid_cells <- which(!is.na(terra::values(pred_stack[[1]])))
-  
+
   if (length(valid_cells) == 0) {
     stop("DNN-302: Raster stack has no valid cells to predict. Check that the projection extent overlaps with covariate rasters.")
   }
-  
+
   # Process in batches with error handling
   pred_vals <- rep(NA, n_cells)
-  
+
   for (i in seq(1, length(valid_cells), by = batch_size)) {
     batch_idx <- valid_cells[i:min(i + batch_size - 1, length(valid_cells))]
     batch_xy <- terra::xyFromCell(pred_stack, batch_idx)
-    batch_vals <- tryCatch({
-      terra::extract(pred_stack, batch_xy)
-    }, error = function(e) {
-      stop(paste("DNN-303: Failed to extract raster values for prediction:", conditionMessage(e)))
-    })
-    
+    batch_vals <- tryCatch(
+      {
+        terra::extract(pred_stack, batch_xy)
+      },
+      error = function(e) {
+        stop(paste("DNN-303: Failed to extract raster values for prediction:", conditionMessage(e)))
+      }
+    )
+
     # Track which rows in batch_idx had valid data
     valid_rows <- complete.cases(batch_vals)
     valid_batch_idx <- batch_idx[valid_rows]
     valid_batch_vals <- batch_vals[valid_rows, , drop = FALSE]
-    
+
     if (nrow(valid_batch_vals) > 0) {
       # Scale
       batch_scaled <- sweep(as.matrix(valid_batch_vals), 2, scaler$mean, "-")
       batch_scaled <- sweep(batch_scaled, 2, scaler$sd, "/")
-      
+
       # DNN-303: Predict with error handling
-      batch_pred <- tryCatch({
-        pred <- predict(model, newdata = as.data.frame(batch_scaled), type = "response")
-        if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
-      }, error = function(e) {
-        stop(paste("DNN-303: Prediction failed for batch:", conditionMessage(e)))
-      })
-      
+      batch_pred <- tryCatch(
+        {
+          pred <- predict(model, newdata = as.data.frame(batch_scaled), type = "response")
+          if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+        },
+        error = function(e) {
+          stop(paste("DNN-303: Prediction failed for batch:", conditionMessage(e)))
+        }
+      )
+
       # Map back to valid cell indices
       pred_vals[valid_batch_idx] <- batch_pred
     }
   }
-  
+
   # Create raster
   pred_raster <- pred_stack[[1]]
   terra::values(pred_raster) <- pred_vals
@@ -438,43 +470,49 @@ get_dnn_metrics <- function(model, test_data) {
   if (is.null(test_data) || is.null(test_data$test_x) || is.null(test_data$test_y)) {
     stop("DNN-401: Test data is NULL or missing. Ensure prepare_dnn_data completed successfully.")
   }
-  
+
   if (length(test_data$test_y) == 0) {
     stop("DNN-401: Test data is empty. Cannot calculate metrics.")
   }
-  
+
   # DNN-402: Get predictions with error handling
-  pred_probs <- tryCatch({
-    pred <- predict(model, newdata = as.data.frame(test_data$test_x), type = "response")
-    if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
-  }, error = function(e) {
-    stop(paste("DNN-402: Failed to get predictions on test data:", conditionMessage(e)))
-  })
-  
+  pred_probs <- tryCatch(
+    {
+      pred <- predict(model, newdata = as.data.frame(test_data$test_x), type = "response")
+      if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+    },
+    error = function(e) {
+      stop(paste("DNN-402: Failed to get predictions on test data:", conditionMessage(e)))
+    }
+  )
+
   pred_binary <- ifelse(pred_probs > 0.5, 1, 0)
-  
+
   # Calculate metrics
   tp <- sum(pred_binary == 1 & test_data$test_y == 1)
   tn <- sum(pred_binary == 0 & test_data$test_y == 0)
   fp <- sum(pred_binary == 1 & test_data$test_y == 0)
   fn <- sum(pred_binary == 0 & test_data$test_y == 1)
-  
+
   sensitivity <- if ((tp + fn) > 0) tp / (tp + fn) else 0
   specificity <- if ((tn + fp) > 0) tn / (tn + fp) else 0
-  
+
   # TSS = sensitivity + specificity - 1
   tss <- sensitivity + specificity - 1
-  
+
   # DNN-403: Check test labels have variance
   auc <- NA
   if (length(unique(test_data$test_y)) == 1) {
     warning("DNN-403: Test labels have no variance (all 0s or all 1s). AUC cannot be calculated meaningfully.")
   } else {
-    tryCatch({
-      auc <- auc_rank(test_data$test_y, pred_probs)
-    }, error = function(e) {
-      warning(paste("DNN-403: AUC calculation failed:", conditionMessage(e)))
-    })
+    tryCatch(
+      {
+        auc <- auc_rank(test_data$test_y, pred_probs)
+      },
+      error = function(e) {
+        warning(paste("DNN-403: AUC calculation failed:", conditionMessage(e)))
+      }
+    )
   }
 
   list(
@@ -500,7 +538,6 @@ get_dnn_metrics <- function(model, test_data) {
 run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
                     background_n = 1000, device = "auto",
                     log_fun = NULL, progress_fun = NULL) {
-
   if (is.null(selected_dnn_models) || length(selected_dnn_models) == 0) {
     return(NULL)
   }
@@ -514,8 +551,10 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
 
   # DNN-501: Additional check for record count
   if (nrow(occ_df) < config$dnn_hard_block) {
-    err_msg <- paste("DNN-501: Insufficient records for DNN. Found", nrow(occ_df), 
-                     "but minimum", config$dnn_hard_block, "required.")
+    err_msg <- paste(
+      "DNN-501: Insufficient records for DNN. Found", nrow(occ_df),
+      "but minimum", config$dnn_hard_block, "required."
+    )
     if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
     stop(err_msg)
   }
@@ -537,13 +576,16 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
   }
 
   # DNN-502: Prepare data with error handling
-  dnn_data <- tryCatch({
-    prepare_dnn_data(occ_df, pred_stack, background_n = background_n)
-  }, error = function(e) {
-    err_msg <- paste("DNN-502: Data preparation failed:", conditionMessage(e))
-    if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
-    stop(err_msg)
-  })
+  dnn_data <- tryCatch(
+    {
+      prepare_dnn_data(occ_df, pred_stack, background_n = background_n)
+    },
+    error = function(e) {
+      err_msg <- paste("DNN-502: Data preparation failed:", conditionMessage(e))
+      if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
+      stop(err_msg)
+    }
+  )
 
   if (!is.null(progress_fun)) {
     progress_fun(0.1, "Preparing DNN training data")
@@ -565,21 +607,27 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
     }
 
     # DNN-503: Train model with error handling
-    model <- tryCatch({
-      train_dnn_model(dnn_data, model_type = model_type, device = device, log_fun = log_fun)
-    }, error = function(e) {
-      err_msg <- paste("DNN-503: Model training failed for", model_type, ":", conditionMessage(e))
-      if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
-      stop(err_msg)
-    })
+    model <- tryCatch(
+      {
+        train_dnn_model(dnn_data, model_type = model_type, device = device, log_fun = log_fun)
+      },
+      error = function(e) {
+        err_msg <- paste("DNN-503: Model training failed for", model_type, ":", conditionMessage(e))
+        if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
+        stop(err_msg)
+      }
+    )
 
     # Get metrics
-    metrics <- tryCatch({
-      get_dnn_metrics(model, dnn_data)
-    }, error = function(e) {
-      warning(paste("DNN: Metrics calculation failed for", model_type, ":", conditionMessage(e)))
-      list(AUC = NA, TSS = NA, sensitivity = NA, specificity = NA, n_test = 0)
-    })
+    metrics <- tryCatch(
+      {
+        get_dnn_metrics(model, dnn_data)
+      },
+      error = function(e) {
+        warning(paste("DNN: Metrics calculation failed for", model_type, ":", conditionMessage(e)))
+        list(AUC = NA, TSS = NA, sensitivity = NA, specificity = NA, n_test = 0)
+      }
+    )
     metrics$model_type <- model_type
 
     if (!is.null(progress_fun)) {
@@ -587,13 +635,16 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
     }
 
     # DNN-504: Generate predictions with error handling
-    pred_raster <- tryCatch({
-      predict_dnn_raster(model, pred_stack, dnn_data$scaler, device = device)
-    }, error = function(e) {
-      err_msg <- paste("DNN-504: Prediction failed for", model_type, ":", conditionMessage(e))
-      if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
-      stop(err_msg)
-    })
+    pred_raster <- tryCatch(
+      {
+        predict_dnn_raster(model, pred_stack, dnn_data$scaler, device = device)
+      },
+      error = function(e) {
+        err_msg <- paste("DNN-504: Prediction failed for", model_type, ":", conditionMessage(e))
+        if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
+        stop(err_msg)
+      }
+    )
 
     results[[model_type]] <- list(
       model = model,

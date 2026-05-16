@@ -39,7 +39,9 @@ compute_mess <- function(env_train, env_proj) {
 
     if (train_range == 0 || is.na(train_range) || !is.finite(train_range)) {
       per_variable[[var]] <- terra::app(proj_vals, function(x) {
-        if (length(x) == 0) return(numeric(0))
+        if (length(x) == 0) {
+          return(numeric(0))
+        }
         rep(NA_real_, length(x))
       })
       next
@@ -63,7 +65,9 @@ compute_mess <- function(env_train, env_proj) {
 
   all_values <- terra::rast(per_variable)
   overall_mess <- terra::app(all_values, function(x) {
-    if (all(is.na(x))) return(NA)
+    if (all(is.na(x))) {
+      return(NA)
+    }
     min(x, na.rm = TRUE)
   })
   names(overall_mess) <- "MESS"
@@ -94,7 +98,9 @@ compute_mod <- function(per_variable_mess) {
   all_rasts <- terra::rast(per_variable_mess)
 
   mod <- terra::app(all_rasts, function(x) {
-    if (all(is.na(x))) return(NA)
+    if (all(is.na(x))) {
+      return(NA)
+    }
     which.min(x)
   })
   names(mod) <- "MOD"

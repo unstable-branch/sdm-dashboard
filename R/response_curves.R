@@ -18,7 +18,7 @@ compute_response_curves <- function(fit, model_data, env_train = NULL, n_points 
   cov_cols <- setdiff(names(model_data), exclude_cols)
   cov_cols <- cov_cols[vapply(cov_cols, function(c) is.numeric(model_data[[c]]), logical(1))]
   if (length(cov_cols) == 0) {
-    warning("compute_response_curves: no numeric covariate columns found in model_data (names: ", paste(names(model_data), collapse=", "), ")", call. = FALSE)
+    warning("compute_response_curves: no numeric covariate columns found in model_data (names: ", paste(names(model_data), collapse = ", "), ")", call. = FALSE)
     return(list())
   }
 
@@ -30,7 +30,7 @@ compute_response_curves <- function(fit, model_data, env_train = NULL, n_points 
     var_ranges <- tryCatch(get_ranges_from_data(model_data, cov_cols), error = function(e) NULL)
   }
   if (is.null(var_ranges) || nrow(var_ranges) == 0) {
-    warning("compute_response_curves: could not compute variable ranges for covariates (", paste(cov_cols, collapse=", "), ")", call. = FALSE)
+    warning("compute_response_curves: could not compute variable ranges for covariates (", paste(cov_cols, collapse = ", "), ")", call. = FALSE)
     return(list())
   }
 
@@ -104,8 +104,10 @@ get_ranges_from_data <- function(model_data, cov_cols) {
     c(min = min(x, na.rm = TRUE), max = max(x, na.rm = TRUE))
   })
   if (!is.matrix(ranges)) {
-    ranges <- matrix(ranges, nrow = 2, ncol = length(valid_cols),
-                     dimnames = list(c("min", "max"), valid_cols))
+    ranges <- matrix(ranges,
+      nrow = 2, ncol = length(valid_cols),
+      dimnames = list(c("min", "max"), valid_cols)
+    )
   }
   result <- t(ranges)
   colnames(result) <- c("min", "max")

@@ -164,8 +164,10 @@ apply_vif_selection <- function(covariate_values, threshold = 10, log_fun = NULL
   vif_result <- select_by_vif(covariate_values, threshold = threshold)
 
   if (length(vif_result$dropped) > 0) {
-    log_message(log_fun, "VIF reduction dropped: ", paste(vif_result$dropped, collapse = ", "),
-                " (final VIF max = ", sprintf("%.2f", vif_result$vif_final), ")")
+    log_message(
+      log_fun, "VIF reduction dropped: ", paste(vif_result$dropped, collapse = ", "),
+      " (final VIF max = ", sprintf("%.2f", vif_result$vif_final), ")"
+    )
   } else {
     log_message(log_fun, "VIF reduction: all variables passed (max VIF = ", sprintf("%.2f", vif_result$vif_final), ")")
   }

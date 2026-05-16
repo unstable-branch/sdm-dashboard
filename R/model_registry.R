@@ -99,13 +99,15 @@ register_sdm_model(
     predict_suitability(comp_fit$model, env_project_scaled, output_tif, n_cores, log_fun)
   },
   fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
-    fit_fast_sdm(occ = occ, env_train_scaled = env_train_scaled,
-                 background_n = background_n, include_quadratic = include_quadratic,
-                 cv_folds = cv_folds, seed = seed, n_cores = n_cores,
-                 log_fun = log_fun, bias_method = bias_method,
-                 target_group_occ = target_group_occ,
-                 thickening_distance_km = thickening_distance_km,
-                 cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km)
+    fit_fast_sdm(
+      occ = occ, env_train_scaled = env_train_scaled,
+      background_n = background_n, include_quadratic = include_quadratic,
+      cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+      log_fun = log_fun, bias_method = bias_method,
+      target_group_occ = target_group_occ,
+      thickening_distance_km = thickening_distance_km,
+      cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+    )
   }
 )
 
@@ -228,8 +230,7 @@ if (requireNamespace("maxnet", quietly = TRUE)) {
 }
 
 if (requireNamespace("ecospat", quietly = TRUE) &&
-    requireNamespace("biomod2", quietly = TRUE)) {
-
+  requireNamespace("biomod2", quietly = TRUE)) {
   register_sdm_model(
     id = "esm_glm",
     label = "ESM — GLM (rare species)",

@@ -21,7 +21,9 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   if (any(is.na(future_files))) {
     missing <- selected_biovars[is.na(future_files)]
     stop("Missing future climate layer(s): ", paste(paste0("BIO", missing), collapse = ", "),
-         ". Add matching future/CMIP6 BIO GeoTIFFs or turn future projection off.", call. = FALSE)
+      ". Add matching future/CMIP6 BIO GeoTIFFs or turn future projection off.",
+      call. = FALSE
+    )
   }
 
   log_message(log_fun, "Loading future climate layers from ", future_worldclim_dir)
@@ -57,8 +59,10 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   }
   delta <- future_suitability - current_suitability
   names(delta) <- "suitability_delta"
-  terra::writeRaster(delta, output_delta_tif, overwrite = TRUE,
-                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  terra::writeRaster(delta, output_delta_tif,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
 
   log_message(log_fun, "Computing MESS extrapolation surface")
   mess_result <- compute_mess(env$env_train, future_project)
@@ -66,12 +70,16 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   output_mess_tif <- sub("_future_suitability\\.tif$", "_future_mess.tif", output_future_tif)
   output_mod_tif <- sub("_future_suitability\\.tif$", "_future_mod.tif", output_future_tif)
 
-  terra::writeRaster(mess_result$mess, output_mess_tif, overwrite = TRUE,
-                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  terra::writeRaster(mess_result$mess, output_mess_tif,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
 
   mod_raster <- compute_mod(mess_result$per_variable)
-  terra::writeRaster(mod_raster, output_mod_tif, overwrite = TRUE,
-                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"), datatype = "INT1U"))
+  terra::writeRaster(mod_raster, output_mod_tif,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"), datatype = "INT1U")
+  )
 
   log_message(log_fun, sprintf("MESS: %.1f%% of cells extrapolate beyond training envelope", mess_result$pct_extrapolation * 100))
 
@@ -80,8 +88,10 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
     delta = delta,
     summary = summarise_suitability(future_suitability),
     files = future_files,
-    paths = list(future_tif = output_future_tif, delta_tif = output_delta_tif,
-                 mess_tif = output_mess_tif, mod_tif = output_mod_tif),
+    paths = list(
+      future_tif = output_future_tif, delta_tif = output_delta_tif,
+      mess_tif = output_mess_tif, mod_tif = output_mod_tif
+    ),
     mess = list(
       pct_extrapolation = mess_result$pct_extrapolation
     )
@@ -113,8 +123,10 @@ average_gcm_suitability <- function(gcm_suitability_paths, output_dir, base_name
   names(avg_suit) <- "suitability_gcm_avg"
 
   avg_path <- file.path(output_dir, paste0(base_name, "_gcm_avg_suitability.tif"))
-  terra::writeRaster(avg_suit, avg_path, overwrite = TRUE,
-                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  terra::writeRaster(avg_suit, avg_path,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
 
   result <- list(
     averaged_suitability = avg_suit,
@@ -127,8 +139,10 @@ average_gcm_suitability <- function(gcm_suitability_paths, output_dir, base_name
     sd_suit <- terra::app(stacked, stats::sd, na.rm = TRUE)
     names(sd_suit) <- "suitability_gcm_sd"
     sd_path <- file.path(output_dir, paste0(base_name, "_gcm_sd_suitability.tif"))
-    terra::writeRaster(sd_suit, sd_path, overwrite = TRUE,
-                       wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    terra::writeRaster(sd_suit, sd_path,
+      overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    )
     result$sd_suitability <- sd_suit
   }
 

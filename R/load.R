@@ -38,7 +38,31 @@ modules <- c(
   "report.R",
   "report_odmap.R",
   "run_sdm.R",
-  "app_helpers.R"
+  "app_helpers.R",
+  # --- extras (formerly auto-sourced) in dependency order ---
+  "torch_setup.R",
+  "manifest.R",
+  "metrics_helper.R",
+  "covariates_ndvi.R",
+  "covariates_uv.R",
+  "covariates_vegetation.R",
+  "covariates_drought.R",
+  "covariates_human_footprint.R",
+  "covariates_lulc.R",
+  "covariates_bioclim_seasonality.R",
+  "covariates_climate_future.R",
+  "response_curves.R",
+  "download_helper.R",
+  "occurrences_dwca.R",
+  "biomod2_compat.R",
+  "model_biomod2.R",
+  "model_dnn.R",
+  "verify_cache.R",
+  "batch_runner.R",
+  "script_export.R",
+  "ui_header.R",
+  "ui_sidebar_controls.R",
+  "ui_main_tabs.R"
 )
 
 for (m in modules) {
@@ -49,15 +73,5 @@ for (m in modules) {
     })
   } else {
     stop("Missing required module: ", m, call. = FALSE)
-  }
-}
-
-extra <- setdiff(list.files(mod_dir, pattern = "\\.R$"), c(modules, "load.R", "optimized_sdm.R"))
-if (length(extra) > 0) {
-  for (m in sort(extra)) {
-    p <- file.path(mod_dir, m)
-    tryCatch(source(p, local = FALSE), error = function(e) {
-      stop("Failed to auto-source ", m, ": ", e$message, call. = FALSE)
-    })
   }
 }

@@ -22,7 +22,9 @@
 #' @param x character vector, possibly with whitespace around values.
 #' @return integer vector, or integer(0) if empty/NA.
 parse_comma_ints <- function(x) {
-  if (is.null(x) || is.na(x) || !nzchar(trimws(x))) return(integer(0))
+  if (is.null(x) || is.na(x) || !nzchar(trimws(x))) {
+    return(integer(0))
+  }
   as.integer(unlist(strsplit(trimws(x), "\\s*,\\s*")))
 }
 
@@ -30,7 +32,9 @@ parse_comma_ints <- function(x) {
 #' @param x character vector.
 #' @return character vector, or character(0) if empty/NA.
 parse_comma_strings <- function(x) {
-  if (is.null(x) || is.na(x) || !nzchar(trimws(x))) return(character(0))
+  if (is.null(x) || is.na(x) || !nzchar(trimws(x))) {
+    return(character(0))
+  }
   trimws(unlist(strsplit(trimws(x), ",\\s*")))
 }
 
@@ -38,7 +42,9 @@ parse_comma_strings <- function(x) {
 #' @param x character vector, possibly with whitespace around values.
 #' @return numeric vector, or numeric(0) if empty/NA.
 parse_comma_doubles <- function(x) {
-  if (is.null(x) || is.na(x) || !nzchar(trimws(x))) return(numeric(0))
+  if (is.null(x) || is.na(x) || !nzchar(trimws(x))) {
+    return(numeric(0))
+  }
   suppressWarnings(as.numeric(unlist(strsplit(trimws(x), "\\s*,\\s*"))))
 }
 
@@ -46,10 +52,16 @@ parse_comma_doubles <- function(x) {
 #' @param x character or logical.
 #' @return logical.
 parse_logical <- function(x) {
-  if (is.null(x) || is.na(x)) return(FALSE)
-  if (is.logical(x)) return(x)
+  if (is.null(x) || is.na(x)) {
+    return(FALSE)
+  }
+  if (is.logical(x)) {
+    return(x)
+  }
   x <- trimws(as.character(x))
-  if (x == "") return(FALSE)
+  if (x == "") {
+    return(FALSE)
+  }
   tolower(x) %in% c("true", "1", "yes", "on")
 }
 
@@ -201,22 +213,25 @@ write_batch_summary_csv <- function(results, output_dir) {
 #'
 #' @examples
 #' configs <- list(
-#'   list(species = "Acacia mearnsii",
-#'        occurrences_csv = "data/acacia.csv",
-#'        model_id = "glm",
-#'        biovars = "1,4,6,12,15,18"),
-#'   list(species = "Opuntia stricta",
-#'        occurrences_csv = "data/opuntia.csv",
-#'        model_id = "glm",
-#'        biovars = "1,4,6,12,15,18")
+#'   list(
+#'     species = "Acacia mearnsii",
+#'     occurrences_csv = "data/acacia.csv",
+#'     model_id = "glm",
+#'     biovars = "1,4,6,12,15,18"
+#'   ),
+#'   list(
+#'     species = "Opuntia stricta",
+#'     occurrences_csv = "data/opuntia.csv",
+#'     model_id = "glm",
+#'     biovars = "1,4,6,12,15,18"
+#'   )
 #' )
 #' batch_run_parallel(configs, n_cores = 2, output_dir = "results/")
 batch_run_parallel <- function(species_configs,
-                                n_cores = NULL,
-                                output_dir = "batch_results/",
-                                progress_fun = NULL,
-                                seed = 42L) {
-
+                               n_cores = NULL,
+                               output_dir = "batch_results/",
+                               progress_fun = NULL,
+                               seed = 42L) {
   if (!is.list(species_configs) || length(species_configs) == 0) {
     stop("species_configs must be a non-empty list", call. = FALSE)
   }
@@ -252,32 +267,38 @@ batch_run_parallel <- function(species_configs,
       sp_name <- cfg$species %||% "unknown_species"
       slug <- safe_slug(sp_name)
 
-      tryCatch({
-        call_args <- build_run_args(cfg)
-        call_args$output_dir <- output_dir
+      tryCatch(
+        {
+          call_args <- build_run_args(cfg)
+          call_args$output_dir <- output_dir
 
-        message("[", i, "/", length(species_configs), "] Starting: ", sp_name)
-        result <- do.call(run_fast_sdm, call_args)
+          message("[", i, "/", length(species_configs), "] Starting: ", sp_name)
+          result <- do.call(run_fast_sdm, call_args)
 
-        output_path <- file.path(output_dir, paste0(slug, "_result.rds"))
-        saveRDS(result, output_path)
-        message("[", i, "/", length(species_configs), "] Done: ", sp_name,
-                " -> ", basename(output_path))
+          output_path <- file.path(output_dir, paste0(slug, "_result.rds"))
+          saveRDS(result, output_path)
+          message(
+            "[", i, "/", length(species_configs), "] Done: ", sp_name,
+            " -> ", basename(output_path)
+          )
 
-        result
-      },
-      error = function(e) {
-        err_path <- file.path(output_dir, paste0(slug, "_ERROR.log"))
-        writeLines(c(
-          format(Sys.time()),
-          paste0("Species: ", sp_name),
-          paste0("Error: ", conditionMessage(e)),
-          paste0("Call: ", conditionCall(e), collapse = "\n")
-        ), con = err_path)
-        message("[", i, "/", length(species_configs), "] ERROR: ", sp_name,
-                " — see ", err_path)
-        NULL
-      })
+          result
+        },
+        error = function(e) {
+          err_path <- file.path(output_dir, paste0(slug, "_ERROR.log"))
+          writeLines(c(
+            format(Sys.time()),
+            paste0("Species: ", sp_name),
+            paste0("Error: ", conditionMessage(e)),
+            paste0("Call: ", conditionCall(e), collapse = "\n")
+          ), con = err_path)
+          message(
+            "[", i, "/", length(species_configs), "] ERROR: ", sp_name,
+            " — see ", err_path
+          )
+          NULL
+        }
+      )
     },
     future.seed = seed
   )
@@ -309,8 +330,10 @@ parse_batch_config <- function(config_csv) {
   if (!file.exists(config_csv)) {
     stop("Batch config CSV not found: ", config_csv, call. = FALSE)
   }
-  df <- read.csv(config_csv, stringsAsFactors = FALSE, header = TRUE,
-                check.names = FALSE)
+  df <- read.csv(config_csv,
+    stringsAsFactors = FALSE, header = TRUE,
+    check.names = FALSE
+  )
   if (nrow(df) == 0) {
     stop("Batch config CSV is empty: ", config_csv, call. = FALSE)
   }

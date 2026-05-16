@@ -20,13 +20,17 @@ gimms_cog_base <- "https://gimms.gsfc.nasa.gov/MODIS/std/GMOD09Q1/cog/NDVI"
 gimms_avhrr_base <- "https://gimms.gsfc.nasa.gov/AVHRR/gimms006nc"
 
 ndvi_url <- function(year, doy) {
-  paste0(gimms_cog_base, "/", year, "/", doy, "/",
-         "GMOD09Q1.A", year, doy, ".08d.latlon.global.061.NDVI.tif")
+  paste0(
+    gimms_cog_base, "/", year, "/", doy, "/",
+    "GMOD09Q1.A", year, doy, ".08d.latlon.global.061.NDVI.tif"
+  )
 }
 
 ndvi_mean_url <- function(doy) {
-  paste0(gimms_cog_base, "_mean_S2001-2024/", doy, "/",
-         "GMOD09Q1.A2001-2024", doy, ".08d.latlon.global.061.NDVI_mean.tif")
+  paste0(
+    gimms_cog_base, "_mean_S2001-2024/", doy, "/",
+    "GMOD09Q1.A2001-2024", doy, ".08d.latlon.global.061.NDVI_mean.tif"
+  )
 }
 
 # ---------------------------------------------------------------------------
@@ -34,11 +38,16 @@ ndvi_mean_url <- function(doy) {
 # ---------------------------------------------------------------------------
 
 gee_is_initialized <- function() {
-  if (!requireNamespace("rgee", quietly = TRUE)) return(FALSE)
-  tryCatch({
-    rgee::ee_check()
-    TRUE
-  }, error = function(e) FALSE)
+  if (!requireNamespace("rgee", quietly = TRUE)) {
+    return(FALSE)
+  }
+  tryCatch(
+    {
+      rgee::ee_check()
+      TRUE
+    },
+    error = function(e) FALSE
+  )
 }
 
 gee_ensure_initialized <- function(log_fun = NULL) {
@@ -46,14 +55,19 @@ gee_ensure_initialized <- function(log_fun = NULL) {
     log_message(log_fun, "rgee is not installed. Install with: install.packages('rgee')")
     return(FALSE)
   }
-  tryCatch({
-    rgee::ee_check()
-    TRUE
-  }, error = function(e) {
-    log_message(log_fun, "GEE not initialized: ", conditionMessage(e),
-                ". Run rgee::ee_initialize() or set up credentials.")
-    FALSE
-  })
+  tryCatch(
+    {
+      rgee::ee_check()
+      TRUE
+    },
+    error = function(e) {
+      log_message(
+        log_fun, "GEE not initialized: ", conditionMessage(e),
+        ". Run rgee::ee_initialize() or set up credentials."
+      )
+      FALSE
+    }
+  )
 }
 
 gee_lai_collection <- function() "MODIS/061/MCD15A2H"
@@ -62,74 +76,89 @@ gee_gpp_collection <- function() "MODIS/061/MOD17A2HGF"
 gee_extract_vegetation <- function(extent_vec, year, products,
                                    aggregate_factor = 18L,
                                    cache_dir, log_fun = NULL) {
-  if (!gee_ensure_initialized(log_fun)) return(list())
+  if (!gee_ensure_initialized(log_fun)) {
+    return(list())
+  }
 
-  tryCatch({
-    geom <- rgee::ee$Geometry$Rectangle(
-      c(extent_vec[1], extent_vec[3], extent_vec[2], extent_vec[4])
-    )
-    start_date <- paste0(year, "-01-01")
-    end_date <- paste0(year, "-12-31")
+  tryCatch(
+    {
+      geom <- rgee::ee$Geometry$Rectangle(
+        c(extent_vec[1], extent_vec[3], extent_vec[2], extent_vec[4])
+      )
+      start_date <- paste0(year, "-01-01")
+      end_date <- paste0(year, "-12-31")
 
-    layers <- list()
+      layers <- list()
 
-    if ("lai" %in% products) {
-      log_message(log_fun, "Fetching GEE LAI (MCD15A2H) for ", year)
-      col <- rgee::ee$ImageCollection(gee_lai_collection())$
-        filterDate(start_date, end_date)$
-        filterBounds(geom)$
-        select("Lai")
-      img <- col$median()
-      scale <- img$projection()$nominalScale()$getInfo()
-      downloaded <- tryCatch({
-        out_file <- file.path(cache_dir, paste0("gee_lai_", year, "_tmp.tif"))
-        rgee::ee_as_image(img, filename = out_file, scale = max(scale, 500),
-                          region = geom, via = "drive", quiet = TRUE)
-        file.exists(out_file) && file.info(out_file)$size > 1000
-      }, error = function(e) {
-        log_message(log_fun, "LAI download failed: ", conditionMessage(e))
-        FALSE
-      })
-      if (downloaded) {
-        r <- terra::rast(file.path(cache_dir, paste0("gee_lai_", year, "_tmp.tif")))
-        r_agg <- terra::aggregate(r, fact = aggregate_factor, fun = "mean", na.rm = TRUE)
-        names(r_agg) <- paste0("lai_", year)
-        layers[[paste0("lai_", year)]] <- r_agg
-        unlink(file.path(cache_dir, paste0("gee_lai_", year, "_tmp.tif")), force = TRUE)
+      if ("lai" %in% products) {
+        log_message(log_fun, "Fetching GEE LAI (MCD15A2H) for ", year)
+        col <- rgee::ee$ImageCollection(gee_lai_collection())$
+          filterDate(start_date, end_date)$
+          filterBounds(geom)$
+          select("Lai")
+        img <- col$median()
+        scale <- img$projection()$nominalScale()$getInfo()
+        downloaded <- tryCatch(
+          {
+            out_file <- file.path(cache_dir, paste0("gee_lai_", year, "_tmp.tif"))
+            rgee::ee_as_image(img,
+              filename = out_file, scale = max(scale, 500),
+              region = geom, via = "drive", quiet = TRUE
+            )
+            file.exists(out_file) && file.info(out_file)$size > 1000
+          },
+          error = function(e) {
+            log_message(log_fun, "LAI download failed: ", conditionMessage(e))
+            FALSE
+          }
+        )
+        if (downloaded) {
+          r <- terra::rast(file.path(cache_dir, paste0("gee_lai_", year, "_tmp.tif")))
+          r_agg <- terra::aggregate(r, fact = aggregate_factor, fun = "mean", na.rm = TRUE)
+          names(r_agg) <- paste0("lai_", year)
+          layers[[paste0("lai_", year)]] <- r_agg
+          unlink(file.path(cache_dir, paste0("gee_lai_", year, "_tmp.tif")), force = TRUE)
+        }
       }
-    }
 
-    if ("gpp" %in% products) {
-      log_message(log_fun, "Fetching GEE GPP (MOD17A2HGF) for ", year)
-      col <- rgee::ee$ImageCollection(gee_gpp_collection())$
-        filterDate(start_date, end_date)$
-        filterBounds(geom)$
-        select("Gpp")
-      img <- col$median()
-      scale <- img$projection()$nominalScale()$getInfo()
-      downloaded <- tryCatch({
-        out_file <- file.path(cache_dir, paste0("gee_gpp_", year, "_tmp.tif"))
-        rgee::ee_as_image(img, filename = out_file, scale = max(scale, 500),
-                          region = geom, via = "drive", quiet = TRUE)
-        file.exists(out_file) && file.info(out_file)$size > 1000
-      }, error = function(e) {
-        log_message(log_fun, "GPP download failed: ", conditionMessage(e))
-        FALSE
-      })
-      if (downloaded) {
-        r <- terra::rast(file.path(cache_dir, paste0("gee_gpp_", year, "_tmp.tif")))
-        r_agg <- terra::aggregate(r, fact = aggregate_factor, fun = "mean", na.rm = TRUE)
-        names(r_agg) <- paste0("gpp_", year)
-        layers[[paste0("gpp_", year)]] <- r_agg
-        unlink(file.path(cache_dir, paste0("gee_gpp_", year, "_tmp.tif")), force = TRUE)
+      if ("gpp" %in% products) {
+        log_message(log_fun, "Fetching GEE GPP (MOD17A2HGF) for ", year)
+        col <- rgee::ee$ImageCollection(gee_gpp_collection())$
+          filterDate(start_date, end_date)$
+          filterBounds(geom)$
+          select("Gpp")
+        img <- col$median()
+        scale <- img$projection()$nominalScale()$getInfo()
+        downloaded <- tryCatch(
+          {
+            out_file <- file.path(cache_dir, paste0("gee_gpp_", year, "_tmp.tif"))
+            rgee::ee_as_image(img,
+              filename = out_file, scale = max(scale, 500),
+              region = geom, via = "drive", quiet = TRUE
+            )
+            file.exists(out_file) && file.info(out_file)$size > 1000
+          },
+          error = function(e) {
+            log_message(log_fun, "GPP download failed: ", conditionMessage(e))
+            FALSE
+          }
+        )
+        if (downloaded) {
+          r <- terra::rast(file.path(cache_dir, paste0("gee_gpp_", year, "_tmp.tif")))
+          r_agg <- terra::aggregate(r, fact = aggregate_factor, fun = "mean", na.rm = TRUE)
+          names(r_agg) <- paste0("gpp_", year)
+          layers[[paste0("gpp_", year)]] <- r_agg
+          unlink(file.path(cache_dir, paste0("gee_gpp_", year, "_tmp.tif")), force = TRUE)
+        }
       }
-    }
 
-    layers
-  }, error = function(e) {
-    log_message(log_fun, "GEE extraction error: ", conditionMessage(e))
-    list()
-  })
+      layers
+    },
+    error = function(e) {
+      log_message(log_fun, "GEE extraction error: ", conditionMessage(e))
+      list()
+    }
+  )
 }
 
 # ---------------------------------------------------------------------------
@@ -150,10 +179,13 @@ load_gimms_ndvi_period <- function(period, ndvi_year, extent_vec,
     url <- ndvi_url(ndvi_year, doy_name)
     log_message(log_fun, "Downloading GIMMS NDVI month ", period, " (DOY ", doy_name, ") for ", ndvi_year)
     tmp <- tempfile(fileext = ".tif")
-    downloaded <- tryCatch({
-      curl::curl_fetch_disk(url, tmp)
-      file.info(tmp)$size > 1024
-    }, error = function(e) FALSE)
+    downloaded <- tryCatch(
+      {
+        curl::curl_fetch_disk(url, tmp)
+        file.info(tmp)$size > 1024
+      },
+      error = function(e) FALSE
+    )
     if (!downloaded || !file.exists(tmp)) {
       log_message(log_fun, "Failed to download NDVI month ", period, ": ", url)
       unlink(tmp, force = TRUE)
@@ -161,15 +193,20 @@ load_gimms_ndvi_period <- function(period, ndvi_year, extent_vec,
     }
     r <- tryCatch(terra::rast(tmp), error = function(e) NULL)
     unlink(tmp)
-    if (is.null(r)) return(NULL)
+    if (is.null(r)) {
+      return(NULL)
+    }
     if (!is.null(extent_vec) && length(extent_vec) == 4) {
       r <- tryCatch(terra::crop(r, terra::ext(extent_vec), snap = "out"), error = function(e) r)
     }
     r <- tryCatch(terra::aggregate(r, fact = aggregate_factor, fun = "mean", na.rm = TRUE),
-                   error = function(e) NULL)
+      error = function(e) NULL
+    )
     if (!is.null(r)) {
-      terra::writeRaster(r, cached, overwrite = TRUE,
-                        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      terra::writeRaster(r, cached,
+        overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      )
       log_message(log_fun, "GIMMS NDVI month ", period, " cached.")
     }
   } else {
@@ -193,24 +230,30 @@ load_gimms_evi <- function(extent_vec, cache_dir, allow_download, log_fun) {
     evi_remote <- paste0(gimms_avhrr_base, "/gimms_evi3g_v1_1981_2020_0.05deg.nc")
     tmp <- tempfile(fileext = ".nc")
     log_message(log_fun, "Downloading GIMMS AVHRR EVI (~8km, may be large)...")
-    downloaded <- tryCatch({
-      curl::curl_fetch_disk(evi_remote, tmp)
-      file.info(tmp)$size > 10240
-    }, error = function(e) {
-      log_message(log_fun, "AVHRR EVI download failed: ", conditionMessage(e))
-      FALSE
-    })
+    downloaded <- tryCatch(
+      {
+        curl::curl_fetch_disk(evi_remote, tmp)
+        file.info(tmp)$size > 10240
+      },
+      error = function(e) {
+        log_message(log_fun, "AVHRR EVI download failed: ", conditionMessage(e))
+        FALSE
+      }
+    )
     if (downloaded && file.exists(tmp) && file.info(tmp)$size > 10240) {
       evi_nc <- tryCatch(terra::rast(tmp), error = function(e) NULL)
       unlink(tmp)
       if (!is.null(evi_nc)) {
         if (!is.null(extent_vec) && length(extent_vec) == 4) {
           evi_nc <- tryCatch(terra::crop(evi_nc, terra::ext(extent_vec), snap = "out"),
-                             error = function(e) evi_nc)
+            error = function(e) evi_nc
+          )
         }
         names(evi_nc) <- evi_layer_name
-        terra::writeRaster(evi_nc, evi_cached, overwrite = TRUE,
-                          wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+        terra::writeRaster(evi_nc, evi_cached,
+          overwrite = TRUE,
+          wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+        )
         log_message(log_fun, "GIMMS AVHRR EVI cached.")
         evi_r <- evi_nc
       }
@@ -232,13 +275,14 @@ load_gimms_evi <- function(extent_vec, cache_dir, allow_download, log_fun) {
 # ---------------------------------------------------------------------------
 
 load_vegetation_covariate <- function(
-    veg_year = NULL,
-    selected_products = NULL,
-    extent_vec = NULL,
-    aggregate_factor = 18L,
-    covariate_cache_dir = sdm_default_covariate_cache_dir,
-    allow_download = TRUE,
-    log_fun = NULL) {
+  veg_year = NULL,
+  selected_products = NULL,
+  extent_vec = NULL,
+  aggregate_factor = 18L,
+  covariate_cache_dir = sdm_default_covariate_cache_dir,
+  allow_download = TRUE,
+  log_fun = NULL
+) {
   if (!requireNamespace("curl", quietly = TRUE)) {
     stop("curl package required for vegetation downloads. Install with: install.packages('curl')")
   }
@@ -263,9 +307,11 @@ load_vegetation_covariate <- function(
   files_used <- character(0)
 
   # --- NDVI periods ---
-  ndvi_periods <- c("annual_mean", "annual_max", "gimms_clim",
-                    "jan","feb","mar","apr","may","jun",
-                    "jul","aug","sep","oct","nov","dec")
+  ndvi_periods <- c(
+    "annual_mean", "annual_max", "gimms_clim",
+    "jan", "feb", "mar", "apr", "may", "jun",
+    "jul", "aug", "sep", "oct", "nov", "dec"
+  )
   ndvi_selected <- intersect(selected_products, ndvi_periods)
   has_ndvi <- length(ndvi_selected) > 0
 
@@ -293,10 +339,13 @@ load_vegetation_covariate <- function(
           for (doy_nm in names(gimms_ndvi_doy)) {
             doy_url <- ndvi_mean_url(doy_nm)
             tmp <- tempfile(fileext = ".tif")
-            downloaded <- tryCatch({
-              curl::curl_fetch_disk(doy_url, tmp)
-              file.info(tmp)$size > 1024
-            }, error = function(e) FALSE)
+            downloaded <- tryCatch(
+              {
+                curl::curl_fetch_disk(doy_url, tmp)
+                file.info(tmp)$size > 1024
+              },
+              error = function(e) FALSE
+            )
             if (!downloaded) {
               log_message(log_fun, "  Failed DOY ", doy_nm)
               next
@@ -306,18 +355,22 @@ load_vegetation_covariate <- function(
             if (is.null(t)) next
             if (!is.null(extent_vec) && length(extent_vec) == 4) {
               t <- tryCatch(terra::crop(t, terra::ext(extent_vec), snap = "out"),
-                           error = function(e) t)
+                error = function(e) t
+              )
             }
             t_agg <- tryCatch(terra::aggregate(t, fact = aggregate_factor, fun = "mean", na.rm = TRUE),
-                              error = function(e) NULL)
+              error = function(e) NULL
+            )
             if (!is.null(t_agg)) tiles[[doy_nm]] <- t_agg
           }
           if (length(tiles) == 0) {
             log_message(log_fun, "No climatology tiles loaded.")
           } else {
             r <- terra::app(do.call(c, tiles), fun = "mean", na.rm = TRUE)
-            terra::writeRaster(r, clim_cached, overwrite = TRUE,
-                              wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+            terra::writeRaster(r, clim_cached,
+              overwrite = TRUE,
+              wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+            )
             log_message(log_fun, "GIMMS NDVI climatology cached (", length(tiles), " tiles).")
           }
         } else {
@@ -328,7 +381,6 @@ load_vegetation_covariate <- function(
           names(r) <- "ndvi_gimms_clim"
           layers[["ndvi_gimms_clim"]] <- r
         }
-
       } else if (identical(period, "annual_mean") || identical(period, "annual_max")) {
         cached_ann <- file.path(cache_dir, paste0("gimms_ndvi_", period, "_", veg_year, ".tif"))
         if (file.exists(cached_ann)) {
@@ -340,20 +392,28 @@ load_vegetation_covariate <- function(
           for (doy_nm in names(gimms_ndvi_doy)) {
             url <- ndvi_url(veg_year, doy_nm)
             tmp <- tempfile(fileext = ".tif")
-            downloaded <- tryCatch({
-              curl::curl_fetch_disk(url, tmp)
-              file.info(tmp)$size > 1024
-            }, error = function(e) FALSE)
-            if (!downloaded) { unlink(tmp, force = TRUE); next }
+            downloaded <- tryCatch(
+              {
+                curl::curl_fetch_disk(url, tmp)
+                file.info(tmp)$size > 1024
+              },
+              error = function(e) FALSE
+            )
+            if (!downloaded) {
+              unlink(tmp, force = TRUE)
+              next
+            }
             t <- tryCatch(terra::rast(tmp), error = function(e) NULL)
             unlink(tmp)
             if (is.null(t)) next
             if (!is.null(extent_vec) && length(extent_vec) == 4) {
               t <- tryCatch(terra::crop(t, terra::ext(extent_vec), snap = "out"),
-                           error = function(e) t)
+                error = function(e) t
+              )
             }
             t_agg <- tryCatch(terra::aggregate(t, fact = aggregate_factor, fun = "mean", na.rm = TRUE),
-                              error = function(e) NULL)
+              error = function(e) NULL
+            )
             if (!is.null(t_agg)) tiles[[doy_nm]] <- t_agg
           }
           if (length(tiles) == 0) {
@@ -365,8 +425,10 @@ load_vegetation_covariate <- function(
             } else {
               terra::app(stack, fun = "max", na.rm = TRUE)
             }
-            terra::writeRaster(r, cached_ann, overwrite = TRUE,
-                              wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+            terra::writeRaster(r, cached_ann,
+              overwrite = TRUE,
+              wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+            )
             log_message(log_fun, "GIMMS NDVI ", period, " cached (", length(tiles), " tiles).")
           }
         } else {
@@ -378,10 +440,11 @@ load_vegetation_covariate <- function(
           names(r) <- nm
           layers[[nm]] <- r
         }
-
       } else {
-        r <- load_gimms_ndvi_period(period, veg_year, extent_vec,
-                                     aggregate_factor, cache_dir, allow_download, log_fun)
+        r <- load_gimms_ndvi_period(
+          period, veg_year, extent_vec,
+          aggregate_factor, cache_dir, allow_download, log_fun
+        )
         if (!is.null(r)) layers[[names(r)[1]]] <- r
       }
     }
@@ -398,8 +461,10 @@ load_vegetation_covariate <- function(
     gee_products <- character(0)
     if (has_lai) gee_products <- c(gee_products, "lai")
     if (has_gpp) gee_products <- c(gee_products, "gpp")
-    gee_layers <- gee_extract_vegetation(extent_vec, veg_year, gee_products,
-                                         aggregate_factor, cache_dir, log_fun)
+    gee_layers <- gee_extract_vegetation(
+      extent_vec, veg_year, gee_products,
+      aggregate_factor, cache_dir, log_fun
+    )
     for (nm in names(gee_layers)) layers[[nm]] <- gee_layers[[nm]]
   }
 

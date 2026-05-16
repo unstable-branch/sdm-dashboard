@@ -32,13 +32,19 @@ opentopo_dem_choices <- c(
 
 opentopo_tile_size_degrees <- function(demtype) {
   demtype <- as.character(demtype)
-  if (demtype %in% c("SRTMGL1", "SRTMGL1_E", "AW3D30", "AW3D30_E", "COP30", "NASADEM")) return(4)
-  if (demtype %in% c("SRTMGL3", "COP90", "EU_DTM")) return(10)
+  if (demtype %in% c("SRTMGL1", "SRTMGL1_E", "AW3D30", "AW3D30_E", "COP30", "NASADEM")) {
+    return(4)
+  }
+  if (demtype %in% c("SRTMGL3", "COP90", "EU_DTM")) {
+    return(10)
+  }
   20
 }
 
 opentopo_api_key <- function(api_key = NULL) {
-  if (!is.null(api_key) && length(api_key) > 0 && nzchar(trimws(api_key[1]))) return(trimws(api_key[1]))
+  if (!is.null(api_key) && length(api_key) > 0 && nzchar(trimws(api_key[1]))) {
+    return(trimws(api_key[1]))
+  }
   Sys.getenv("OPENTOPOGRAPHY_API_KEY", unset = "")
 }
 
@@ -94,10 +100,12 @@ download_opentopo_tile <- function(tile_extent, demtype, api_key, destfile, max_
       fi <- file.info(destfile)
       is.finite(fi$size) && fi$size > 1024
     }
-    if (ok) return(invisible(destfile))
+    if (ok) {
+      return(invisible(destfile))
+    }
     if (file.exists(destfile)) unlink(destfile)
     last_error <- "download failed or file too small"
-    if (attempt < max_retries) Sys.sleep(2 ^ attempt)
+    if (attempt < max_retries) Sys.sleep(2^attempt)
   }
   stop("OpenTopography download failed after ", max_retries, " attempts: ", last_error, call. = FALSE)
 }
@@ -148,7 +156,9 @@ load_elevation_covariate <- function(training_extent, projection_extent, cache_d
         NULL
       }
     )
-    if (is.null(downloaded) || !file.exists(cache_file)) return(NULL)
+    if (is.null(downloaded) || !file.exists(cache_file)) {
+      return(NULL)
+    }
   } else {
     log_message(log_fun, "Using cached elevation raster: ", normalizePath(cache_file, winslash = "/", mustWork = FALSE))
   }

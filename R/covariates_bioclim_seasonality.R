@@ -29,16 +29,16 @@ hargreaves_pet <- function(tmin_month, tmax_month, latitude, day_of_month = 15) 
 
   # Sunset hour angle
   ws <- acos(-tan(lat_rad) * tan(delta))
-  ws[is.na(ws)] <- pi  # handle polar sun
+  ws[is.na(ws)] <- pi # handle polar sun
 
   # Inverse relative distance Earth-Sun
   dr <- 1 + 0.033 * cos(2 * pi / 365 * doy)
 
   # Extraterrestrial radiation Ra (MJ/m²/day)
-  Gsc <- 0.0820  # solar constant MJ/m²/min
+  Gsc <- 0.0820 # solar constant MJ/m²/min
   Ra <- (24 * 60 / pi) * Gsc * dr *
     (ws * sin(lat_rad) * sin(delta) + cos(lat_rad) * cos(delta) * sin(ws))
-  Ra[Ra <= 0] <- 0.1  # avoid negative Ra at poles
+  Ra[Ra <= 0] <- 0.1 # avoid negative Ra at poles
 
   Tmean <- (tmin_month + tmax_month) / 2
   Tdiff <- pmax(0, tmax_month - tmin_month)
@@ -65,7 +65,9 @@ compute_mi <- function(prec_month, tmin_month, tmax_month, latitude) {
   pet_month <- hargreaves_pet(tmin_month, tmax_month, latitude)
   annual_p <- sum(prec_month)
   annual_pet <- sum(pet_month)
-  if (annual_pet <= 0) return(NA_real_)
+  if (annual_pet <= 0) {
+    return(NA_real_)
+  }
   annual_p / annual_pet
 }
 
@@ -77,16 +79,17 @@ compute_p_seasonality <- function(prec_month, tmin_month, tmax_month) {
   warm_months <- order[1:4]
   warm_p <- sum(prec_month[warm_months])
   total_p <- sum(prec_month)
-  if (total_p <= 0) return(NA_real_)
+  if (total_p <= 0) {
+    return(NA_real_)
+  }
   warm_p / total_p
 }
 
 load_bioclim_seasonality <- function(extent_vec,
-                                      aggregate_factor = 1L,
-                                      covariate_cache_dir = sdm_default_covariate_cache_dir,
-                                      allow_download = TRUE,
-                                      log_fun = NULL) {
-
+                                     aggregate_factor = 1L,
+                                     covariate_cache_dir = sdm_default_covariate_cache_dir,
+                                     allow_download = TRUE,
+                                     log_fun = NULL) {
   cache_dir <- file.path(covariate_cache_dir, "bioclim_season")
   if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -158,7 +161,7 @@ load_bioclim_seasonality <- function(extent_vec,
   lat_centroid <- if (!is.null(extent_vec) && length(extent_vec) == 4) {
     mean(extent_vec[3:4])
   } else {
-    0  # fallback to equator
+    0 # fallback to equator
   }
 
   # For each cell: extract 12 monthly values, compute seasonality metrics
@@ -184,7 +187,8 @@ load_bioclim_seasonality <- function(extent_vec,
   # GDD5
   gdd5_vec <- apply(tmin_mat, 1, function(row) {
     compute_gdd(row, as.numeric(tmax_mat[which(rownames(tmax_mat) == rownames(tmin_mat)[1]), ]),
-                base_temp = 5)
+      base_temp = 5
+    )
   })
   # Actually need paired tmin/tmax per row
   compute_gdd_row <- function(i) {
@@ -194,12 +198,16 @@ load_bioclim_seasonality <- function(extent_vec,
     compute_gdd(as.numeric(tmin_mat[i, ]), as.numeric(tmax_mat[i, ]), base_temp = 10)
   }
   compute_mi_row <- function(i) {
-    compute_mi(as.numeric(prec_mat[i, ]), as.numeric(tmin_mat[i, ]),
-               as.numeric(tmax_mat[i, ]), lat_centroid)
+    compute_mi(
+      as.numeric(prec_mat[i, ]), as.numeric(tmin_mat[i, ]),
+      as.numeric(tmax_mat[i, ]), lat_centroid
+    )
   }
   compute_psev_row <- function(i) {
-    compute_p_seasonality(as.numeric(prec_mat[i, ]), as.numeric(tmin_mat[i, ]),
-                          as.numeric(tmax_mat[i, ]))
+    compute_p_seasonality(
+      as.numeric(prec_mat[i, ]), as.numeric(tmin_mat[i, ]),
+      as.numeric(tmax_mat[i, ])
+    )
   }
 
   log_message(log_fun, "Computing GDD5 (", n_cells, " cells)...")
@@ -213,15 +221,25 @@ load_bioclim_seasonality <- function(extent_vec,
 
   # Build SpatRaster from computed vectors
   ref_layer <- tmin_rast[[1]]
-  gdd5_r <- ref_layer;  terra::values(gdd5_r) <- gdd5_vec;  names(gdd5_r) <- "gdd5"
-  gdd10_r <- ref_layer; terra::values(gdd10_r) <- gdd10_vec; names(gdd10_r) <- "gdd10"
-  mi_r <- ref_layer;     terra::values(mi_r) <- mi_vec;      names(mi_r) <- "mi"
-  psev_r <- ref_layer;   terra::values(psev_r) <- psev_vec;   names(psev_r) <- "p_seasonality"
+  gdd5_r <- ref_layer
+  terra::values(gdd5_r) <- gdd5_vec
+  names(gdd5_r) <- "gdd5"
+  gdd10_r <- ref_layer
+  terra::values(gdd10_r) <- gdd10_vec
+  names(gdd10_r) <- "gdd10"
+  mi_r <- ref_layer
+  terra::values(mi_r) <- mi_vec
+  names(mi_r) <- "mi"
+  psev_r <- ref_layer
+  terra::values(psev_r) <- psev_vec
+  names(psev_r) <- "p_seasonality"
 
   result <- c(gdd5_r, gdd10_r, mi_r, psev_r)
 
-  terra::writeRaster(result, cached_file, overwrite = TRUE,
-                     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  terra::writeRaster(result, cached_file,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
   log_message(log_fun, "Bioclimatic seasonality cached: ", paste(names(result), collapse = ", "))
 
   list(

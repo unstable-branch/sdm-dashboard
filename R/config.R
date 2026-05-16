@@ -23,10 +23,10 @@ sdm_default_lulc_year <- 2020L
 sdm_default_hfp_year <- 2020L
 
 config$sdm_australia_boundary_path <- file.path("data", "examples", "geo", "australia.geojson")
-config$sdm_world_boundary_path     <- file.path("data", "examples", "geo", "world_boundary.geojson")
-config$custom_boundary_path         <- NULL
+config$sdm_world_boundary_path <- file.path("data", "examples", "geo", "world_boundary.geojson")
+config$custom_boundary_path <- NULL
 sdm_australia_boundary_path <- config$sdm_australia_boundary_path
-sdm_world_boundary_path     <- config$sdm_world_boundary_path
+sdm_world_boundary_path <- config$sdm_world_boundary_path
 
 sdm_default_biovars <- c(1, 4, 6, 12, 15, 18)
 
@@ -57,34 +57,34 @@ sdm_default_ensemble_min_tss <- 0.5
 sdm_default_ensemble_uncertainty <- TRUE
 sdm_default_elevation_demtype <- "COP90"
 sdm_default_terrain_complexity_enabled <- FALSE
-sdm_esm_min_occurrences   <- 5L
-sdm_esm_recommend_below    <- 30L
-sdm_esm_warn_below         <- 10L
-sdm_esm_default_min_auc    <- 0.7
-sdm_esm_default_power      <- 1
-sdm_esm_default_n_runs     <- 5L
-sdm_esm_default_split      <- 70
-sdm_esm_max_vars_warn      <- 10L
+sdm_esm_min_occurrences <- 5L
+sdm_esm_recommend_below <- 30L
+sdm_esm_warn_below <- 10L
+sdm_esm_default_min_auc <- 0.7
+sdm_esm_default_power <- 1
+sdm_esm_default_n_runs <- 5L
+sdm_esm_default_split <- 70
+sdm_esm_max_vars_warn <- 10L
 
 sdm_default_validation_occurrences <- NULL
 
-config$biomod2_default <- c('GLM','RF','GBM','MAXNET')
+config$biomod2_default <- c("GLM", "RF", "GBM", "MAXNET")
 config$biomod2_all <- c(
-  'GLM','GAM','FDA','MARS',
-  'RF','GBM','BRT','MAXNET',
-  'SRE','CTA','ANN','XGBOOST'
+  "GLM", "GAM", "FDA", "MARS",
+  "RF", "GBM", "BRT", "MAXNET",
+  "SRE", "CTA", "ANN", "XGBOOST"
 )
 biomod2_choices <- c(
   config$biomod2_default,
-  setdiff(config$biomod2_all, c(config$biomod2_default, 'ANN'))
+  setdiff(config$biomod2_all, c(config$biomod2_default, "ANN"))
 )
-biomod2_nn_choices <- c('ANN' = 'ANN')
+biomod2_nn_choices <- c("ANN" = "ANN")
 
-config$dnn_default <- c('DNN_Medium')
+config$dnn_default <- c("DNN_Medium")
 config$dnn_arch <- list(
-  'DNN_Small'   = list(hidden = c(64L),    epochs = 150L, lr = 0.05,  dropout = 0.3),
-  'DNN_Medium'  = list(hidden = c(100L, 100L), epochs = 150L, lr = 0.05, dropout = 0.3),
-  'DNN_Large'   = list(hidden = c(100L, 100L, 100L), epochs = 200L, lr = 0.05, dropout = 0.3)
+  "DNN_Small"   = list(hidden = c(64L), epochs = 150L, lr = 0.05, dropout = 0.3),
+  "DNN_Medium"  = list(hidden = c(100L, 100L), epochs = 150L, lr = 0.05, dropout = 0.3),
+  "DNN_Large"   = list(hidden = c(100L, 100L, 100L), epochs = 200L, lr = 0.05, dropout = 0.3)
 )
 dnn_choices <- c(
   "DNN Small (64 units, 1 hidden layer)" = "DNN_Small",
