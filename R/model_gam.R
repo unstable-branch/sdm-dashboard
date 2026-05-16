@@ -54,29 +54,16 @@ fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     stop("The GAM backend requires the mgcv package. Install mgcv or choose a different model backend.", call. = FALSE)
   }
 
-  pres_xy <- occ[, c("longitude", "latitude"), drop = FALSE]
-  names(pres_xy) <- c("x", "y")
-  pres_vals <- extract_covariates(env_train_scaled, pres_xy)
-  pres_keep <- stats::complete.cases(pres_vals)
-  if (sum(!pres_keep) > 0) log_message(log_fun, "Dropped ", sum(!pres_keep), " occurrence records with missing covariates")
-  pres_vals <- pres_vals[pres_keep, , drop = FALSE]
-  occ_used <- occ[pres_keep, , drop = FALSE]
-  if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data for GAM fitting.", call. = FALSE)
-
-  bg_xy <- sample_background_points(env_train_scaled, background_n, seed = seed, presence_xy = pres_xy[pres_keep, , drop = FALSE])
-  bg_vals <- extract_covariates(env_train_scaled, bg_xy)
-  bg_keep <- stats::complete.cases(bg_vals)
-  bg_vals <- bg_vals[bg_keep, , drop = FALSE]
-  bg_xy <- bg_xy[bg_keep, , drop = FALSE]
-  if (nrow(bg_vals) < 100) stop("Too few background points could be sampled for GAM fitting.", call. = FALSE)
-
-  covariates <- make.names(names(env_train_scaled))
-  names(pres_vals) <- covariates
-  names(bg_vals) <- covariates
-  model_data <- rbind(
-    data.frame(presence = 1L, pres_vals, check.names = FALSE),
-    data.frame(presence = 0L, bg_vals, check.names = FALSE)
+  d <- prepare_sdm_data(occ, env_train_scaled, background_n,
+    seed = seed, log_fun = log_fun,
+    include_xy = FALSE
   )
+  occ_used <- d$occ_used
+  pres_vals <- d$pres_vals
+  bg_vals <- d$bg_vals
+  bg_xy <- d$bg_xy
+  covariates <- d$covariates
+  model_data <- d$model_data
   formula <- make_gam_formula(covariates, model_data)
   model_data$case_weight_sdm <- class_balance_weights(model_data$presence)
 

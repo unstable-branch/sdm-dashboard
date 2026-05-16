@@ -53,32 +53,15 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
       stop("maxnet package is required for MaxEnt fitting but is not installed.", call. = FALSE)
     }
 
-    covariates <- names(env_train_scaled)
-    if (length(covariates) < 2) stop("At least two covariates are required for modelling.", call. = FALSE)
-
-    pres_xy <- occ[, c("longitude", "latitude"), drop = FALSE]
-    names(pres_xy) <- c("x", "y")
-    pres_vals <- extract_covariates(env_train_scaled, pres_xy)
-    pres_keep <- stats::complete.cases(pres_vals)
-    if (sum(!pres_keep) > 0) log_message(log_fun, "Dropped ", sum(!pres_keep), " occurrence records with missing covariates")
-    pres_vals <- pres_vals[pres_keep, , drop = FALSE]
-    pres_xy_used <- pres_xy[pres_keep, , drop = FALSE]
-    occ_used <- occ[pres_keep, , drop = FALSE]
-    if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
-
-    bg_xy <- sample_background_points(env_train_scaled, background_n, seed = seed, presence_xy = pres_xy_used)
-    bg_vals <- extract_covariates(env_train_scaled, bg_xy)
-    bg_keep <- stats::complete.cases(bg_vals)
-    bg_vals <- bg_vals[bg_keep, , drop = FALSE]
-    bg_xy <- bg_xy[bg_keep, , drop = FALSE]
-    if (nrow(bg_vals) < 100) stop("Too few background points could be sampled.", call. = FALSE)
-
-    model_data <- rbind(
-      data.frame(presence = 1L, pres_vals, .x = pres_xy_used$x, .y = pres_xy_used$y, check.names = FALSE),
-      data.frame(presence = 0L, bg_vals, .x = bg_xy$x, .y = bg_xy$y, check.names = FALSE)
+    d <- prepare_sdm_data(occ, env_train_scaled, background_n,
+      seed = seed, log_fun = log_fun
     )
-    names(model_data) <- make.names(names(model_data))
-    covariates <- make.names(covariates)
+    occ_used <- d$occ_used
+    pres_vals <- d$pres_vals
+    bg_vals <- d$bg_vals
+    bg_xy <- d$bg_xy
+    model_data <- d$model_data
+    covariates <- d$covariates
 
     log_message(log_fun, "Fitting MaxEnt SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
 

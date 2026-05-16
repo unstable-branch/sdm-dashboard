@@ -23,6 +23,7 @@ modules <- c(
   "cv_engine.R",
   "importance.R",
   "boundary.R",
+  "model_helpers.R",
   "model_glm.R",
   "model_gam.R",
   "model_rangebag.R",
