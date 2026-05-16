@@ -27,8 +27,8 @@ ui_main_tabs <- function() {
                 checkboxInput("show_mess", "Show MESS extrapolation", value = FALSE),
                 selectInput("suitability_display", "Suitability display",
                   choices = c("Continuous" = "continuous", "Binary (threshold)" = "binary"),
-                  selected = "continuous"
-                )
+                  selected = "continuous"),
+                sliderInput("threshold", "High-suitability threshold", min = 0.05, max = 0.95, value = sdm_default_threshold, step = 0.05)
               )
             )
           ),

@@ -69,7 +69,6 @@ server <- function(input, output, session) {
                       cmip6_scenarios = NULL)
 
   mod_get_data_server("get_data", rv, input)
-  mod_advanced_server("advanced", rv, input)
 
   append_log <- function(message) rv$log <- paste0(rv$log, format(Sys.time(), "%H:%M:%S"), "  ", message, "\n")
   previous_occurrence_path <- reactiveVal(NULL)
