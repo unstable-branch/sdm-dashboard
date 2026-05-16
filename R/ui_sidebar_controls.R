@@ -1,4 +1,7 @@
 ui_sidebar_controls <- function() {
+  safe_numeric <- function(x, default = 1) {
+    if (is.null(x) || length(x) == 0 || !is.finite(x)) default else x
+  }
   div(class = "control-scroll",
   div(class = "control-section display-section",
     h4("Display"),
@@ -95,7 +98,7 @@ ui_sidebar_controls <- function() {
       div(class = "checkbox-parent", checkboxInput("use_elevation", "Add elevation from OpenTopography", value = FALSE)),
       conditionalPanel("input.use_elevation == true",
         selectInput("elevation_demtype", "Elevation DEM", choices = opentopo_dem_choices, selected = sdm_default_elevation_demtype),
-        passwordInput("opentopo_api_key", "OpenTopography API key (optional)", value = ""),
+        passwordInput("opentopo_api_key", "OpenTopography API key (optional)", value = "", autocomplete = "new-password"),
         div(class = "small-muted", "Leave blank to use OPENTOPOGRAPHY_API_KEY from your environment. Keys are not saved in outputs."),
         div(class = "small-muted", "Terrain derivatives (TRI, slope, aspect, curvature) are computed automatically from the DEM.")
       ),
@@ -279,7 +282,7 @@ ui_sidebar_controls <- function() {
         numericInput("thickening_distance_km", "Kernel distance (km)",
           value = 10, min = 1, max = 100)
       ),
-      numericInput("n_cores", "CPU cores for compile/predict/CV", value = default_cores, min = 1, max = detect_available_cores(TRUE), step = 1),
+      numericInput("n_cores", "CPU cores for compile/predict/CV", value = safe_numeric(default_cores, 1), min = 1, max = safe_numeric(detect_available_cores(TRUE), 4), step = 1),
       div(class = "small-muted", "Also sets MAKEFLAGS=-jN for source package compilation."),
       numericInput("aggregation_factor", "Raster aggregation for speed (1 = native)", value = sdm_default_aggregation_factor, min = 1, max = 8, step = 1)
       )
