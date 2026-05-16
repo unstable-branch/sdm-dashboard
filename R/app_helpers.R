@@ -10,8 +10,8 @@ sanitize_extent <- function(x) {
 extent_from_inputs <- function(input, occurrence = NULL) {
   preset <- input$extent_preset
   if (identical(preset, "occurrence")) {
-    if (!is.null(occurrence) && !is.null(occurrence$occ) && nrow(occurrence$occ) > 0) {
-      return(make_training_extent(occurrence$occ, buffer = 2))
+    if (!is.null(occurrence) && !is.null(occurrence$df) && nrow(occurrence$df) > 0) {
+      return(make_training_extent(occurrence$df, buffer = 2))
     }
     return(sdm_default_projection_extent)
   }

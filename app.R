@@ -521,7 +521,7 @@ server <- function(input, output, session) {
     }
     overlap_state <- "info"
     overlap_detail <- "Observation/projection overlap will be checked after observation records are available."
-    overlap <- if (!is.null(cleaned) && is.null(cleaned$error)) occurrence_extent_overlap(cleaned$occ, extent) else NULL
+    overlap <- if (!is.null(cleaned)) occurrence_extent_overlap(cleaned$df, extent) else NULL
     if (!is.null(overlap)) {
       overlap_detail <- paste0(overlap$count, " of ", overlap$total, " cleaned observation records (", fmt_num(overlap$percent, 1), "%) fall inside the selected projection extent.")
       overlap_state <- if (overlap$count == 0 || overlap$percent < 10) "info" else "ok"
@@ -577,7 +577,7 @@ if (isTRUE(input$future_projection)) {
   })
   output$esm_recommendation <- renderUI({
     req(rv$cleaned_occurrence)
-    n_pres <- sum(rv$cleaned_occurrence$presence == 1, na.rm = TRUE)
+    n_pres <- sum(rv$cleaned_occurrence$df$presence == 1, na.rm = TRUE)
     esm_available <- "esm_glm" %in% sdm_model_ids()
 
     if (n_pres < 10 && esm_available) {
@@ -773,8 +773,8 @@ if (isTRUE(input$future_projection)) {
     if (!nzchar(species_label)) species_label <- sdm_default_species
 
     cleaned_occ <- rv$cleaned_occurrence
-    if (!is.null(cleaned_occ) && is.null(cleaned_occ$error)) {
-      run_overlap <- occurrence_extent_overlap(cleaned_occ$occ, projection_extent)
+    if (!is.null(cleaned_occ)) {
+      run_overlap <- occurrence_extent_overlap(cleaned_occ$df, projection_extent)
       if (!is.null(run_overlap) && (run_overlap$count == 0 || run_overlap$percent < 10)) {
         msg <- paste0("NOTE: ", run_overlap$count, " of ", run_overlap$total, " cleaned occurrence records (", fmt_num(run_overlap$percent, 1), "%) fall inside the projection extent. Model will project into ", fmt_num(100 - run_overlap$percent, 1), "% of the extent area with no known presence records.")
         append_log(msg)
@@ -1117,8 +1117,8 @@ if (isTRUE(input$future_projection)) {
     )
 
     for (nm in names(test_names)) {
-      if (nm %in% names(co)) {
-        n <- sum(co[[nm]], na.rm = TRUE)
+      if (nm %in% names(co$df)) {
+        n <- sum(co$df[[nm]], na.rm = TRUE)
         lines <- c(lines, paste0("    ", test_names[nm], ": ", format(n, big.mark = ",")))
       }
     }
