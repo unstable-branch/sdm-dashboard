@@ -16,8 +16,6 @@ mod_results_server <- function(id, rv, input) {
         metric_card("High-suitability area", fmt_num(r$summary$high_risk_area_km2), "km2 above threshold"))
     })
 
-    output$suitability_plot <- renderPlot({ if (is.null(rv$result)) return(placeholder_plot("No suitability map yet.")); r <- rv$result; plot_suitability_map(r$suitability, r$occurrence, r$config$projection_extent, r$config$species, r$config$threshold, TRUE) })
-
     output$suitability_map_ui <- renderUI({
       if (is.null(rv$result) || is.null(rv$result$paths$tif) || !file.exists(rv$result$paths$tif)) {
         return(div(class = "content-card map-card",

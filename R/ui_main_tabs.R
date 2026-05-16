@@ -118,7 +118,7 @@ ui_main_tabs <- function() {
               class = "content-card",
               h4("Run log"),
               p(class = "small-muted", "Warnings and progress messages from the latest run."),
-              verbatimTextOutput("run_log")
+              htmlOutput("run_log")
             )
           )
         )
