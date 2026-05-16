@@ -1053,6 +1053,33 @@ body.sdm-dark .run-log-warn { color: #ffe1a6; }
 }
 body.sdm-dark .run-log-note { color: #7cb7ff; }
 
+.flagged-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+.flagged-count-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+.flagged-count-badge-warn {
+  background: #fff7e6;
+  color: #7a4b00;
+  border: 1px solid #ffd591;
+}
+body.sdm-dark .flagged-count-badge-warn {
+  background: #33250e;
+  color: #ffe1a6;
+  border-color: #8d6825;
+}
+
 .welcome-panel {
   padding: 1.25rem;
 }

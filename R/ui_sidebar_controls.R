@@ -93,6 +93,8 @@ ui_sidebar_controls <- function() {
       h4("Climate data"),
       textInput("worldclim_dir", "WorldClim folder", value = sdm_default_worldclim_dir),
       selectInput("worldclim_res", "WorldClim resolution", choices = c("10 arc-min" = "10", "5 arc-min" = "5", "2.5 arc-min" = "2.5"), selected = as.character(sdm_default_worldclim_res)),
+      checkboxInput("download_worldclim", "Auto-download missing BIO layers", value = TRUE),
+      div(class = "small-muted", "When enabled, missing WorldClim layers are downloaded automatically."),
       selectInput("climate_source", "Climate data source", choices = c("WorldClim" = "worldclim", "CHELSA" = "chelsa"), selected = sdm_default_climate_source),
       conditionalPanel(
         "input.climate_source == 'chelsa'",

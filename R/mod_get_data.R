@@ -132,7 +132,7 @@ mod_get_data_server <- function(id, rv, input) {
 
     observeEvent(input$gd_download_worldclim, {
       source <- input$gd_climate_source %||% "worldclim"
-      res <- as.integer(input$gd_worldclim_res %||% 10)
+      res <- as.numeric(input$gd_worldclim_res %||% 10)
       gd_append_log("gd_worldclim_log", paste0("Starting WorldClim download (source=", source, ", res=", res, ")..."))
       download_covariate_bg(
         log_target = "gd_worldclim_log", log_append = gd_append_log,
