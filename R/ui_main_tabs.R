@@ -135,8 +135,7 @@ ui_main_tabs <- function() {
 
 get_data_tab <- function() {
   status_dot <- function(status) {
-    color <- switch(status, ok = "#0b594f", warn = "#7a4b00", error = "#8c1d18", "warn")
-    span(style = sprintf("display:inline-block;width:6px;height:6px;border-radius:50%%;background:%s;margin-right:6px;", color))
+    span(class = paste0("status-dot status-dot-", status))
   }
 
   section_header <- function(label, icon = NULL, status = NULL, detail = NULL) {
@@ -146,7 +145,7 @@ get_data_tab <- function() {
         if (!is.null(icon)) icon,
         label
       ),
-      if (!is.null(detail)) tags$p(style = "margin:4px 0 8px 18px;font-size:0.82rem;color:#66768a;", detail)
+      if (!is.null(detail)) tags$p(class = "detail-text", detail)
     )
   }
 
@@ -213,7 +212,7 @@ get_data_tab <- function() {
           fluidRow(
             column(12,
               verbatimTextOutput("gd_worldclim_log"),
-              style = "max-height:120px;overflow-y:scroll;background:#f4f7fb;border-radius:8px;padding:8px;font-size:0.8rem;margin-top:8px;"
+              class = "scrollable-log"
             )
           )
         )
@@ -294,7 +293,7 @@ get_data_tab <- function() {
           fluidRow(
             column(12,
               verbatimTextOutput("gd_cmip6_log"),
-              style = "max-height:120px;overflow-y:scroll;background:#f4f7fb;border-radius:8px;padding:8px;font-size:0.8rem;margin-top:8px;"
+              class = "scrollable-log"
             )
           )
         )
@@ -356,7 +355,7 @@ get_data_tab <- function() {
           fluidRow(
             column(12,
               verbatimTextOutput("gd_terrain_log"),
-              style = "max-height:100px;overflow-y:scroll;background:#f4f7fb;border-radius:8px;padding:8px;font-size:0.8rem;margin-top:8px;"
+              class = "scrollable-log scrollable-log-sm"
             )
           )
         )
@@ -423,7 +422,7 @@ get_data_tab <- function() {
           fluidRow(
             column(12,
               verbatimTextOutput("gd_env_log"),
-              style = "max-height:100px;overflow-y:scroll;background:#f4f7fb;border-radius:8px;padding:8px;font-size:0.8rem;margin-top:8px;"
+              class = "scrollable-log scrollable-log-sm"
             )
           )
         )

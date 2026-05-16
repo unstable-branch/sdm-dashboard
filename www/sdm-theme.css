@@ -33,6 +33,7 @@ body.sdm-dark {
 
 body.sdm-light,
 body.sdm-dark {
+  transition: background 0.3s ease, color 0.3s ease;
   background:
     radial-gradient(circle at 12% 8%, rgba(42, 168, 137, 0.16), transparent 28rem),
     radial-gradient(circle at 88% 12%, rgba(23, 74, 124, 0.16), transparent 30rem),
@@ -87,6 +88,7 @@ body.sdm-dark .hero {
 body.sdm-dark .control-panel,
 body.sdm-dark .content-card,
 body.sdm-dark .metric-card {
+  background: rgba(15, 28, 43, 0.92) !important;
   background: color-mix(in srgb, var(--sdm-surface) 92%, transparent) !important;
   border-color: var(--sdm-border) !important;
   box-shadow: var(--sdm-shadow) !important;
@@ -214,82 +216,7 @@ body.sdm-dark pre {
   .hero-kicker { font-size: 0.66rem; }
 }
 
-
 /* Default dark workbench skin. */
-body:not(.sdm-light) {
-  background:
-    radial-gradient(circle at 16% 8%, rgba(20, 184, 166, 0.16), transparent 26rem),
-    radial-gradient(circle at 86% 10%, rgba(59, 130, 246, 0.13), transparent 32rem),
-    linear-gradient(180deg, #06101b 0%, #091522 42%, #07111d 100%) !important;
-  color: var(--sdm-text) !important;
-}
-body:not(.sdm-light) .control-panel,
-body:not(.sdm-light) .content-card,
-body:not(.sdm-light) .metric-card {
-  background: rgba(15, 28, 43, 0.92) !important;
-  border-color: #26384d !important;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.34) !important;
-}
-body:not(.sdm-light) .control-section,
-body:not(.sdm-light) .readiness-item {
-  background: rgba(19, 34, 53, 0.86) !important;
-  border-color: #26384d !important;
-}
-body:not(.sdm-light) .control-panel h4,
-body:not(.sdm-light) details.control-section > summary,
-body:not(.sdm-light) .content-card h4,
-body:not(.sdm-light) .summary-value,
-body:not(.sdm-light) .metric-value {
-  color: #f2f7fb !important;
-}
-body:not(.sdm-light) .small-muted,
-body:not(.sdm-light) .metric-label,
-body:not(.sdm-light) .metric-note,
-body:not(.sdm-light) .readiness-detail,
-body:not(.sdm-light) .summary-label,
-body:not(.sdm-light) label,
-body:not(.sdm-light) .form-text,
-body:not(.sdm-light) .help-block {
-  color: #a8b6c7 !important;
-}
-body:not(.sdm-light) .form-control,
-body:not(.sdm-light) .form-select,
-body:not(.sdm-light) input[type='number'],
-body:not(.sdm-light) input[type='text'],
-body:not(.sdm-light) input[type='password'],
-body:not(.sdm-light) select,
-body:not(.sdm-light) textarea,
-body:not(.sdm-light) .selectize-input,
-body:not(.sdm-light) .selectize-control.multi .selectize-input,
-body:not(.sdm-light) .selectize-dropdown {
-  background-color: #0b1726 !important;
-  border-color: #32475f !important;
-  color: #e6eef7 !important;
-}
-body:not(.sdm-light) .selectize-input input,
-body:not(.sdm-light) .selectize-dropdown .option,
-body:not(.sdm-light) .selectize-dropdown .optgroup-header { color: #e6eef7 !important; }
-body:not(.sdm-light) .selectize-dropdown .active { background: #17324c !important; }
-body:not(.sdm-light) .nav-tabs { border-bottom-color: #26384d; }
-body:not(.sdm-light) .nav-tabs .nav-link {
-  color: #a8b6c7;
-  border-color: transparent;
-}
-body:not(.sdm-light) .nav-tabs .nav-link.active {
-  background: #0f1c2b !important;
-  border-color: #26384d #26384d #0f1c2b !important;
-  color: #f2f7fb !important;
-}
-body:not(.sdm-light) .table,
-body:not(.sdm-light) table { color: #e6eef7 !important; }
-body:not(.sdm-light) .table-striped > tbody > tr:nth-of-type(odd) > * {
-  color: #e6eef7;
-  background-color: rgba(255, 255, 255, 0.035);
-}
-body:not(.sdm-light) .table-hover > tbody > tr:hover > * {
-  color: #e6eef7;
-  background-color: rgba(55, 208, 178, 0.09);
-}
 .map-card {
   background:
     radial-gradient(circle at 70% 15%, rgba(42, 168, 137, 0.10), transparent 18rem),
@@ -297,11 +224,6 @@ body:not(.sdm-light) .table-hover > tbody > tr:hover > * {
   border-color: rgba(74, 222, 203, 0.18) !important;
 }
 body.sdm-dark .map-card,
-body:not(.sdm-light) .map-card {
-  background:
-    radial-gradient(circle at 70% 15%, rgba(42, 168, 137, 0.10), transparent 18rem),
-    linear-gradient(180deg, #081320 0%, #07111d 100%) !important;
-}
 .map-card .shiny-plot-output {
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.18);
@@ -329,6 +251,12 @@ body.sdm-light .map-card .shiny-plot-output {
   background: rgba(20, 184, 166, 0.10);
   font-size: 0.75rem;
   font-weight: 800;
+}
+
+body.sdm-light .map-title-row span {
+  color: #0B6E69;
+  background: rgba(11,110,105,0.08);
+  border-color: rgba(11,110,105,0.25);
 }
 
 .summary-value,
@@ -385,30 +313,12 @@ body.sdm-dark .downloads-row .btn:disabled {
 
 /* Slider improvements for both modes */
 body.sdm-dark .irs--shiny .irs-bar,
-body:not(.sdm-light) .irs--shiny .irs-bar {
-  background: var(--sdm-accent) !important;
-}
 body.sdm-dark .irs--shiny .irs-handle,
-body:not(.sdm-light) .irs--shiny .irs-handle {
-  border-color: var(--sdm-accent) !important;
-  background: var(--sdm-surface) !important;
-}
 body.sdm-dark .irs--shiny .irs-single,
-body:not(.sdm-light) .irs--shiny .irs-single {
-  background: var(--sdm-accent) !important;
-}
 body.sdm-dark .irs--shiny .irs-from,
 body.sdm-dark .irs--shiny .irs-to,
 body.sdm-dark .irs--shiny .irs-min,
 body.sdm-dark .irs--shiny .irs-max,
-body:not(.sdm-light) .irs--shiny .irs-from,
-body:not(.sdm-light) .irs--shiny .irs-to,
-body:not(.sdm-light) .irs--shiny .irs-min,
-body:not(.sdm-light) .irs--shiny .irs-max {
-  color: var(--sdm-muted) !important;
-  background: var(--sdm-surface-soft) !important;
-}
-
 /* Dark mode slider in light section */
 body.sdm-light .irs--shiny .irs-bar { background: var(--sdm-accent) !important; }
 body.sdm-light .irs--shiny .irs-handle { border-color: var(--sdm-accent) !important; }
@@ -416,37 +326,13 @@ body.sdm-light .irs--shiny .irs-single { background: var(--sdm-accent) !importan
 
 /* Improved focus and hover states */
 body.sdm-dark .btn-outline-secondary,
-body:not(.sdm-light) .btn-outline-secondary {
-  border-color: #32475f !important;
-  color: #a8b6c7 !important;
-  background: transparent !important;
-}
 body.sdm-dark .btn-outline-secondary:hover,
-body:not(.sdm-light) .btn-outline-secondary:hover {
-  background: #17324c !important;
-  border-color: #37d0b2 !important;
-  color: #37d0b2 !important;
-}
-
 /* Better contrast for small-muted in dark mode */
 body.sdm-dark .small-muted,
-body:not(.sdm-light) .small-muted {
-  color: #c5d0dc !important;
-}
-
 /* Tab styling improvements */
 body.sdm-dark .nav-tabs .nav-link:hover,
-body:not(.sdm-light) .nav-tabs .nav-link:hover {
-  color: var(--sdm-heading) !important;
-  border-color: var(--sdm-border) !important;
-}
-
 /* Sidecar note styling */
 body.sdm-dark .sidecar-note,
-body:not(.sdm-light) .sidecar-note {
-  color: var(--sdm-muted) !important;
-}
-
 /* Base layout (moved from app.R inline styles) */
 body {
   background: #f4f7fb;
@@ -979,12 +865,39 @@ body.sdm-dark .ensemble-ready { color: #c6fff2; }
 .mb-sm { margin-bottom: 8px; }
 .mt-sm { margin-top: 12px; }
 
+/* Status dots with CSS variable colors */
 .status-dot {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
   display: inline-block;
-  margin-right: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-dot-ok { background: var(--sdm-success, #0b594f); }
+.status-dot-warn { background: var(--sdm-warning, #7a4b00); }
+.status-dot-error { background: var(--sdm-danger, #8c1d18); }
+
+/* Detail text styling */
+.detail-text {
+  margin: 4px 0 8px 18px;
+  font-size: 0.82rem;
+  color: var(--sdm-muted, #66768a);
+}
+
+/* Scrollable log area */
+.scrollable-log {
+  max-height: 120px;
+  overflow-y: scroll;
+  background: var(--sdm-surface, #f4f7fb);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 0.8rem;
+  margin-top: 8px;
+}
+
+.scrollable-log-sm {
+  max-height: 100px;
 }
 
 .scenario-row {
@@ -1001,3 +914,14 @@ body.sdm-dark .scenario-meta { color: #a8b6c7; }
 
 .text-sm { font-size: 0.85em; }
 .pl-sm { padding-left: 1.2rem; }
+
+/* Accessibility: respect user motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
