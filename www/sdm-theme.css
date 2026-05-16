@@ -1027,31 +1027,108 @@ body.sdm-dark .scenario-meta { color: var(--sdm-muted); }
 .text-sm { font-size: 0.85em; }
 .pl-sm { padding-left: 1.2rem; }
 
-.flagged-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-top: 0.5rem;
+.run-log {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
-.flagged-count-badge {
+.run-log-line {
+  padding: 0.15rem 0;
+}
+.run-log-error {
+  color: #8c1d18;
+  font-weight: 700;
+}
+body.sdm-dark .run-log-error { color: #ffd2d4; }
+.run-log-warn {
+  color: #7a4b00;
+  font-weight: 600;
+}
+body.sdm-dark .run-log-warn { color: #ffe1a6; }
+.run-log-note {
+  color: #174a7c;
+  font-weight: 500;
+}
+body.sdm-dark .run-log-note { color: #7cb7ff; }
+
+.welcome-panel {
+  padding: 1.25rem;
+}
+.welcome-panel h4 {
+  margin-bottom: 0.5rem;
+}
+.welcome-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.welcome-step {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.welcome-step-num {
   display: inline-flex;
   align-items: center;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 750;
-  line-height: 1.4;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--sdm-accent, #0b6e69);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  margin-top: 0.15rem;
 }
-.flagged-count-badge-warn {
-  background: #fff7e6;
-  color: #7a4b00;
-  border: 1px solid #ffd591;
+.welcome-step h5 {
+  margin: 0 0 0.2rem;
+  font-size: 0.95rem;
 }
-body.sdm-dark .flagged-count-badge-warn {
-  background: #33250e;
-  color: #ffe1a6;
-  border-color: #8d6825;
+.welcome-step p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--sdm-muted, #66768a);
+}
+.welcome-hint {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #eef6ff;
+  border: 1px solid #b9dafb;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: #174a7c;
+}
+body.sdm-dark .welcome-hint {
+  background: rgba(55, 208, 178, 0.08);
+  border-color: rgba(55, 208, 178, 0.18);
+  color: var(--sdm-accent-2, #71e0c8);
+}
+
+.downloads-section {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e7edf4;
+}
+body.sdm-dark .downloads-section {
+  border-top-color: var(--sdm-border);
+}
+.downloads-section h5 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+  color: var(--sdm-heading, #132f4d);
+}
+.downloads-section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.downloads-row-sm {
+  margin-top: 0.3rem;
 }
 
 /* Accessibility: respect user motion preferences */

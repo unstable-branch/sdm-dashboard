@@ -134,7 +134,19 @@ mod_results_server <- function(id, rv, input) {
     output$delta_plot <- renderPlot({ if (is.null(rv$result) || is.null(rv$result$future)) return(placeholder_plot("Run with future projection enabled to view current-to-future change.")); plot_delta_map(rv$result$future$delta, rv$result$config$future_label) })
     output$summary_panel <- renderUI({
       r <- rv$result
-      if (is.null(r)) return(div(class = "small-muted", "No model has been run yet."))
+      if (is.null(r)) {
+        return(div(class = "welcome-panel",
+          h4("Welcome to the SDM Dashboard"),
+          p("Follow these steps to run your first species distribution model:"),
+          div(class = "welcome-steps",
+            div(class = "welcome-step", span(class = "welcome-step-num", "1"), div(h5("Load occurrence data"), p("Upload a CSV, fetch from GBIF, or use the bundled demo data. Configure in the left sidebar under Input data."))),
+            div(class = "welcome-step", span(class = "welcome-step-num", "2"), div(h5("Select climate variables"), p("Choose BIOCLIM variables and optional covariates (elevation, soil, vegetation). Toggle optional covariates under Climate variables."))),
+            div(class = "welcome-step", span(class = "welcome-step-num", "3"), div(h5("Choose a model"), p("Select GLM, MaxEnt, GAM, or ensemble backends. Configure cross-validation and bias correction under Model settings."))),
+            div(class = "welcome-step", span(class = "welcome-step-num", "4"), div(h5("Run and explore"), p("Click Run SDM, then review maps, metrics, and diagnostics in the tabs above. Export results from the Downloads tab.")))
+          ),
+          div(class = "welcome-hint", "Tip: Start with the bundled synthetic demo data and WorldClim layers to test the pipeline before using your own data.")
+        ))
+      }
       row <- function(label, value) div(class = "summary-row", div(class = "summary-label", label), div(class = "summary-value", value))
       div(class = "summary-list",
         row("Model backend", r$config$model_label %||% "GLM"),
@@ -330,7 +342,25 @@ mod_results_server <- function(id, rv, input) {
       max(150, min(n * 35, 500))
     })
 
-    output$run_log <- renderText(rv$log)
+    output$run_log <- renderUI({
+      log_text <- rv$log %||% ""
+      if (!nzchar(log_text)) return(div(class = "run-log-line", "No log output yet."))
+      lines <- strsplit(log_text, "\n")[[1]]
+      lines <- lines[nzchar(lines)]
+      tags$div(class = "run-log",
+        lapply(lines, function(line) {
+          cls <- "run-log-line"
+          if (grepl("^ERROR", line)) {
+            cls <- paste(cls, "run-log-error")
+          } else if (grepl("^Warning", line)) {
+            cls <- paste(cls, "run-log-warn")
+          } else if (grepl("^NOTE", line)) {
+            cls <- paste(cls, "run-log-note")
+          }
+          div(class = cls, line)
+        })
+      )
+    })
 
     collect_sidecar_paths <- function(result) {
       sidecars <- unlist(result$paths[c("glm_tif", "rangebag_tif", "disagreement_tif", "future_tif", "delta_tif")], use.names = FALSE)

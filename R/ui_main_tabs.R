@@ -135,22 +135,33 @@ ui_main_tabs <- function() {
           class = "content-card",
           h4("Export results"),
           p("Downloads are enabled after a successful run."),
-          div(
-            class = "downloads-row",
-            downloadButton("download_tif", "Download GeoTIFF"),
-            downloadButton("download_png", "Download PNG map"),
-            uiOutput("future_tif_download_ui"),
-            uiOutput("delta_tif_download_ui"),
-            downloadButton("download_occ", "Download cleaned observation records"),
-            downloadButton("download_report", "Download text report"),
-            downloadButton("download_sidecars", "Download sidecar rasters")
+          div(class = "downloads-section",
+            h5("Maps"),
+            div(class = "downloads-row",
+              downloadButton("download_tif", "GeoTIFF (suitability raster)"),
+              downloadButton("download_png", "PNG map preview"),
+              downloadButton("download_sidecars", "Sidecar rasters (ZIP)")
+            ),
+            div(class = "downloads-row downloads-row-sm",
+              uiOutput("future_tif_download_ui"),
+              uiOutput("delta_tif_download_ui")
+            ),
+            uiOutput("ensemble_downloads_ui")
           ),
-          div(
-            class = "downloads-row",
-            downloadButton("download_odmap_csv", "Download ODMAP report (CSV)"),
-            downloadButton("download_odmap_md", "Download ODMAP report (Markdown)")
+          div(class = "downloads-section",
+            h5("Data"),
+            div(class = "downloads-row",
+              downloadButton("download_occ", "Cleaned observation records (CSV)")
+            )
           ),
-          uiOutput("ensemble_downloads_ui"),
+          div(class = "downloads-section",
+            h5("Reports"),
+            div(class = "downloads-row",
+              downloadButton("download_report", "Text report (.txt)"),
+              downloadButton("download_odmap_csv", "ODMAP report (CSV)"),
+              downloadButton("download_odmap_md", "ODMAP report (Markdown)")
+            )
+          ),
           uiOutput("sidecar_download_note")
         )
       )
