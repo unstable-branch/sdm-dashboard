@@ -360,7 +360,8 @@ ui_sidebar_controls <- function() {
         uiOutput("future_scenario_selector"),
         textInput("future_label", "Scenario label", value = "Future climate"),
         uiOutput("future_download_status")
-      )
+      ),
+      sliderInput("threshold", "High-suitability threshold", min = 0.05, max = 0.95, value = sdm_default_threshold, step = 0.05)
     ),
     tags$details(
       class = "control-section",
