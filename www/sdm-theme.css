@@ -686,9 +686,14 @@ summary:focus-visible {
     bottom: 0;
     z-index: 10;
     padding-bottom: 8px;
-  }
-  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .content-card { overflow-x: auto; }
+  .table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.table-scroll table {
+  max-width: 100%;
+  table-layout: auto;
+  word-break: break-word;
 }
 @media (max-width: 575px) {
   .hero { padding: 14px; }

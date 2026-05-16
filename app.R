@@ -49,6 +49,7 @@ ui <- fluidPage(
   tags$head(
     tags$link(rel = "stylesheet", href = "sdm-theme.css"),
     if (nzchar(sdm_theme_css)) tags$style(HTML(sdm_theme_css)),
+    tags$script(src = "sdm-plugins.js"),
     tags$script(HTML("\n      console.log('SDM Dashboard JS loaded');\n      Shiny.addCustomMessageHandler('setRunState', function(x) {\n        var btn = document.getElementById('run_model');\n        if (!btn) { console.log('setRunState: run_model btn not found'); return; }\n        console.log('setRunState called, running=', x.running);\n        btn.disabled = !!x.running;\n        btn.classList.toggle('disabled', !!x.running);\n        btn.textContent = x.running ? 'Running SDM...' : 'Run SDM';\n      });\n      (function() {\n        function setTheme(dark) {\n          document.body.classList.toggle('sdm-dark', dark);\n          document.body.classList.toggle('sdm-light', !dark);\n          try { window.localStorage.setItem('sdm-dashboard-theme', dark ? 'dark' : 'light'); } catch (e) {}\n        }\n        function initialTheme() {\n          try {\n            var saved = window.localStorage.getItem('sdm-dashboard-theme');\n            if (saved === 'dark' || saved === 'light') return saved === 'dark';\n          } catch (e) {}\n          return true;\n        }\n        function wireToggle() {\n          var toggle = document.getElementById('dark_mode');\n          var dark = initialTheme();\n          setTheme(dark);\n          if (!toggle || toggle.dataset.themeBound === '1') return;\n          toggle.checked = dark;\n          toggle.dataset.themeBound = '1';\n          toggle.addEventListener('change', function() { setTheme(toggle.checked); });\n        }\n        document.addEventListener('DOMContentLoaded', wireToggle);\n        document.addEventListener('shiny:connected', function() { console.log('Shiny connected'); wireToggle(); });\n      })();\n    "))
   ),
 
@@ -397,24 +398,38 @@ server <- function(input, output, session) {
             format(n_absent, big.mark = ","), format(n_raw, big.mark = ","))
   })
 
-  output$occurrence_cleaning_map <- renderLeaflet({
-    req(rv$cleaned_occurrence)
-    leaflet::leaflet() %>% leaflet::addTiles()
-  })
-
-  observeEvent(rv$cleaned_occurrence$df, {
-    req(input$occurrence_cleaning_map)
-    occ <- rv$cleaned_occurrence$df
-    if (!is.data.frame(occ) || nrow(occ) < 1) {
-      leaflet::leafletProxy("occurrence_cleaning_map") %>%
-        leaflet::clearMarkers() %>%
-        leaflet::removeLayersControl()
+  observeEvent(input$data_source, {
+    occurrence <- occurrence_source()
+    current_path <- occurrence$path
+    if (is.null(current_path)) {
+      rv$cleaned_occurrence <- NULL
       return()
     }
+    cleaned <- clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records, use_cc = FALSE, cc_tests = "all")
+    if (!is.null(cleaned$error)) {
+      rv$cleaned_occurrence <- NULL
+      return()
+    }
+    if (!"cc_flag" %in% names(cleaned$occ)) {
+      cleaned$occ$cc_flag <- FALSE
+    }
+    rv$cleaned_occurrence <- list(
+      df = cleaned$occ,
+      source_counts = cleaned$source_counts,
+      n_absent_excluded = cleaned$n_absent_excluded,
+      original_rows = cleaned$original_rows
+    )
+  }, ignoreInit = TRUE)
 
+output$occurrence_cleaning_map <- renderLeaflet({
+    co <- rv$cleaned_occurrence
+    if (is.null(co) || !is.data.frame(co$df) || nrow(co$df) < 1) {
+      return(leaflet::leaflet() %>% leaflet::addTiles() %>%
+        leaflet::addMeasure(position = "topleft", primaryLengthUnit = "kilometers", primaryAreaUnit = "sqkilometers"))
+    }
+    occ <- co$df
     clean_idx <- is.na(occ$cc_flag) | occ$cc_flag == FALSE
     flagged_idx <- !clean_idx
-
     flag_status <- ifelse(clean_idx,
       '<span style="color:#2196F3;font-weight:bold;">Clean</span>',
       '<span style="color:#f44336;font-weight:bold;">Flagged</span>')
@@ -423,11 +438,50 @@ server <- function(input, output, session) {
                       "Species: ", species_col, "<br>",
                       "Source: ", occ$source, "<br>",
                       "Status: ", flag_status)
+    map <- leaflet::leaflet() %>%
+      leaflet::addTiles() %>%
+      leaflet::addCircleMarkers(
+        data = occ,
+        lng = ~longitude, lat = ~latitude,
+        color = ifelse(is.na(occ$cc_flag) | occ$cc_flag == FALSE, "blue", "red"),
+        fillOpacity = 0.7, radius = 5,
+        layerId = seq_len(nrow(occ)),
+        popup = popups,
+        group = "Occurrences"
+      ) %>%
+      leaflet::addLayersControl(
+        overlayGroups = c("Occurrences"),
+        options = leaflet::layersControlOptions(collapsed = TRUE)
+      ) %>%
+      leaflet::addMiniMap(toggleDisplay = TRUE, position = "bottomright") %>%
+      leaflet::addMeasure(position = "topleft", primaryLengthUnit = "kilometers", primaryAreaUnit = "sqkilometers") %>%
+      leaflet::fitBounds(
+        lng1 = min(occ$longitude, na.rm = TRUE),
+        lat1 = min(occ$latitude, na.rm = TRUE),
+        lng2 = max(occ$longitude, na.rm = TRUE),
+        lat2 = max(occ$latitude, na.rm = TRUE)
+      )
+  })
 
+  observeEvent(rv$cleaned_occurrence$df, {
+    req(input$occurrence_cleaning_map)
+    occ <- rv$cleaned_occurrence$df
+    if (!is.data.frame(occ) || nrow(occ) < 1) {
+      return()
+    }
+    clean_idx <- is.na(occ$cc_flag) | occ$cc_flag == FALSE
+    flagged_idx <- !clean_idx
+    flag_status <- ifelse(clean_idx,
+      '<span style="color:#2196F3;font-weight:bold;">Clean</span>',
+      '<span style="color:#f44336;font-weight:bold;">Flagged</span>')
+    species_col <- if ("species" %in% names(occ)) occ$species else "N/A"
+    popups <- paste0("Row ", seq_len(nrow(occ)), "<br>",
+                      "Species: ", species_col, "<br>",
+                      "Source: ", occ$source, "<br>",
+                      "Status: ", flag_status)
     proxy <- leaflet::leafletProxy("occurrence_cleaning_map") %>%
       leaflet::clearMarkers() %>%
       leaflet::removeLayersControl()
-
     if (any(clean_idx)) {
       proxy <- proxy %>%
         leaflet::addCircleMarkers(
@@ -439,7 +493,6 @@ server <- function(input, output, session) {
           group = "Clean records"
         )
     }
-
     if (any(flagged_idx)) {
       proxy <- proxy %>%
         leaflet::addCircleMarkers(
@@ -451,7 +504,6 @@ server <- function(input, output, session) {
           group = "Flagged records"
         )
     }
-
     proxy %>%
       leaflet::addLayersControl(
         overlayGroups = c("Clean records", "Flagged records"),

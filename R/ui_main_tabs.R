@@ -1,9 +1,9 @@
 ui_main_tabs <- function() {
   mainPanel(
     width = 9,
-    uiOutput("status_banner"),
-    uiOutput("preflight_panel"),
-    uiOutput("metric_cards"),
+    uiOutput("readiness-status_banner"),
+    uiOutput("readiness-preflight_panel"),
+    uiOutput("results-metric_cards"),
     tabsetPanel(
       id = "tabs",
       tabPanel(
@@ -19,7 +19,7 @@ ui_main_tabs <- function() {
                 h4("Current suitability"),
                 span("Interactive map view")
               ),
-              uiOutput("suitability_map_ui"),
+              uiOutput("results-suitability_map_ui"),
               div(
                 class = "map-controls",
                 checkboxInput("show_presence", "Show presence points", value = TRUE),
@@ -36,7 +36,7 @@ ui_main_tabs <- function() {
             div(
               class = "content-card",
               h4("Projection summary"),
-              uiOutput("summary_panel")
+              uiOutput("results-summary_panel")
             )
           )
         )
@@ -50,7 +50,7 @@ ui_main_tabs <- function() {
             div(
               class = "content-card",
               h4("Future suitability"),
-              plotOutput("future_plot", height = "48vh")
+              plotOutput("results-future_plot", height = "48vh")
             )
           ),
           column(
@@ -58,7 +58,7 @@ ui_main_tabs <- function() {
             div(
               class = "content-card",
               h4("Suitability delta"),
-              plotOutput("delta_plot", height = "48vh")
+              plotOutput("results-delta_plot", height = "48vh")
             )
           )
         )
@@ -87,7 +87,9 @@ ui_main_tabs <- function() {
             div(
               class = "content-card",
               h4("Observation sources"),
-              tableOutput("source_table"),
+              div(class = "table-scroll",
+                tableOutput("source_table")
+              ),
               verbatimTextOutput("absent_excluded_log"),
               hr(),
               h4("Flagged records"),
@@ -106,10 +108,10 @@ ui_main_tabs <- function() {
             div(
               class = "content-card",
               h4("Coefficient summary"),
-              tableOutput("coef_table")
+              tableOutput("results-coef_table")
             ),
-            uiOutput("ensemble_weights_panel"),
-            uiOutput("esm_diagnostics_panel")
+            uiOutput("results-ensemble_weights_panel"),
+            uiOutput("results-esm_diagnostics_panel")
           ),
           column(
             5,
@@ -117,7 +119,7 @@ ui_main_tabs <- function() {
               class = "content-card",
               h4("Run log"),
               p(class = "small-muted", "Warnings and progress messages from the latest run."),
-              htmlOutput("run_log")
+              htmlOutput("results-run_log")
             )
           )
         )
@@ -125,7 +127,7 @@ ui_main_tabs <- function() {
       tabPanel(
         "Get Data",
         br(),
-        uiOutput("get_data_content")
+        uiOutput("get_data-get_data_content")
       ),
       tabPanel(
         "Downloads",
@@ -142,10 +144,10 @@ ui_main_tabs <- function() {
               downloadButton("download_sidecars", "Sidecar rasters (ZIP)")
             ),
             div(class = "downloads-row downloads-row-sm",
-              uiOutput("future_tif_download_ui"),
-              uiOutput("delta_tif_download_ui")
+              uiOutput("results-future_tif_download_ui"),
+              uiOutput("results-delta_tif_download_ui")
             ),
-            uiOutput("ensemble_downloads_ui")
+            uiOutput("results-ensemble_downloads_ui")
           ),
           div(class = "downloads-section",
             h5("Data"),
@@ -161,7 +163,7 @@ ui_main_tabs <- function() {
               downloadButton("download_odmap_md", "ODMAP report (Markdown)")
             )
           ),
-          uiOutput("sidecar_download_note")
+          uiOutput("results-sidecar_download_note")
         )
       )
     )
@@ -252,14 +254,14 @@ get_data_tab <- function() {
             ),
             column(
               4,
-              uiOutput("gd_worldclim_status"),
+              uiOutput("get_data-gd_worldclim_status"),
               hr(),
-              uiOutput("gd_chelsa_status")
+              uiOutput("get_data-gd_chelsa_status")
             )
           ),
           fluidRow(
             column(12,
-              verbatimTextOutput("gd_worldclim_log"),
+              verbatimTextOutput("get_data-gd_worldclim_log"),
               class = "scrollable-log"
             )
           )
@@ -283,7 +285,7 @@ get_data_tab <- function() {
             column(
               5,
               h5("Downloaded scenarios"),
-              uiOutput("gd_cmip6_scenarios"),
+              uiOutput("get_data-gd_cmip6_scenarios"),
               hr(),
               actionButton("gd_verify_future", "Refresh scenarios", icon = icon("refresh"), class = "btn-outline-primary btn-sm")
             ),
@@ -353,7 +355,7 @@ get_data_tab <- function() {
           ),
           fluidRow(
             column(12,
-              verbatimTextOutput("gd_cmip6_log"),
+              verbatimTextOutput("get_data-gd_cmip6_log"),
               class = "scrollable-log"
             )
           )
@@ -377,7 +379,7 @@ get_data_tab <- function() {
             column(
               4,
               h5("Elevation (OpenTopography)"),
-              uiOutput("gd_elevation_status"),
+              uiOutput("get_data-gd_elevation_status"),
               selectInput("gd_demtype", "DEM type",
                 choices = c(
                   "Copernicus 90m" = "COP90",
@@ -398,7 +400,7 @@ get_data_tab <- function() {
             column(
               8,
               h5("SoilGrids (ISRIC)"),
-              uiOutput("gd_soil_status"),
+              uiOutput("get_data-gd_soil_status"),
               fluidRow(
                 column(
                   6,
@@ -427,7 +429,7 @@ get_data_tab <- function() {
           ),
           fluidRow(
             column(12,
-              verbatimTextOutput("gd_terrain_log"),
+              verbatimTextOutput("get_data-gd_terrain_log"),
               class = "scrollable-log scrollable-log-sm"
             )
           )
@@ -451,13 +453,13 @@ get_data_tab <- function() {
             column(
               4,
               h5("UV-B Radiation (glUV)"),
-              uiOutput("gd_uv_status"),
+              uiOutput("get_data-gd_uv_status"),
               actionButton("gd_download_uv", "Download UV-B layers", icon = icon("download"), class = "btn-outline-primary btn-sm")
             ),
             column(
               4,
               h5("Vegetation (GIMMS NDVI/EVI)"),
-              uiOutput("gd_vegetation_status"),
+              uiOutput("get_data-gd_vegetation_status"),
               actionButton("gd_download_vegetation", "Download GIMMS NDVI", icon = icon("download"), class = "btn-outline-primary btn-sm"),
               p(class = "small-muted", "LAI/GPP require Google Earth Engine (rgee)"),
               actionButton("gd_gee_check", "Check GEE auth status", icon = icon("key"), class = "btn-outline-secondary btn-sm")
@@ -465,7 +467,7 @@ get_data_tab <- function() {
             column(
               4,
               h5("LULC (MODIS MCD12Q1)"),
-              uiOutput("gd_lulc_status"),
+              uiOutput("get_data-gd_lulc_status"),
               selectInput("gd_lulc_year", "Year to download",
                 choices = 2001:2023, selected = 2020
               ),
@@ -477,7 +479,7 @@ get_data_tab <- function() {
             column(
               4,
               h5("Human Footprint (WCS)"),
-              uiOutput("gd_hfp_status"),
+              uiOutput("get_data-gd_hfp_status"),
               selectInput("gd_hfp_year", "Year to download",
                 choices = 2001:2020, selected = 2020
               ),
@@ -486,7 +488,7 @@ get_data_tab <- function() {
             column(
               4,
               h5("Drought Index (CRU scPDSI)"),
-              uiOutput("gd_drought_status"),
+              uiOutput("get_data-gd_drought_status"),
               checkboxGroupInput("gd_drought_periods",
                 label = NULL,
                 choices = c(
@@ -501,14 +503,14 @@ get_data_tab <- function() {
             column(
               4,
               h5("Bioclimatic Seasonality"),
-              uiOutput("gd_bioclime_status"),
+              uiOutput("get_data-gd_bioclime_status"),
               actionButton("gd_download_bioclime", "Download seasonality", icon = icon("download"), class = "btn-outline-primary btn-sm"),
               p(class = "small-muted", "GDD5, GDD10, Moisture Index from WorldClim monthly data")
             )
           ),
           fluidRow(
             column(12,
-              verbatimTextOutput("gd_env_log"),
+              verbatimTextOutput("get_data-gd_env_log"),
               class = "scrollable-log scrollable-log-sm"
             )
           )
@@ -532,7 +534,7 @@ get_data_tab <- function() {
             column(
               6,
               h5("Covariate cache summary"),
-              uiOutput("gd_cache_summary"),
+              uiOutput("get_data-gd_cache_summary"),
               hr(),
               actionButton("gd_verify_all", "Refresh all status", icon = icon("refresh"), class = "btn-outline-primary btn-sm"),
               actionButton("gd_download_all", "Download all missing", icon = icon("download"), class = "btn-primary btn-sm")
@@ -540,7 +542,7 @@ get_data_tab <- function() {
             column(
               6,
               h5("Cache management"),
-              uiOutput("gd_cache_size"),
+              uiOutput("get_data-gd_cache_size"),
               hr(),
               actionButton("gd_clear_cache", "Clear covariate cache", icon = icon("trash"), class = "btn-danger btn-sm"),
               p(class = "small-muted", "Removes all cached covariate rasters. Re-download required on next run.")
