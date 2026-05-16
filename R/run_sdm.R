@@ -1,57 +1,88 @@
 # Public orchestration API for the SDM workflow.
 
-run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_default_occurrence_file, worldclim_dir = sdm_default_worldclim_dir,
-                         selected_biovars = sdm_default_biovars, projection_extent = sdm_default_projection_extent,
-                         training_extent = NULL, background_n = sdm_default_background_n, min_source_records = sdm_default_min_source_records, merge_small_sources = TRUE,
-                         thin_by_cell = TRUE, model_id = sdm_default_model_id,
-                         include_quadratic = TRUE, threshold = sdm_default_threshold, aggregation_factor = sdm_default_aggregation_factor,
-                         cv_folds = sdm_default_cv_folds, n_cores = NULL, allow_download = TRUE, worldclim_res = sdm_default_worldclim_res,
-                         cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
-                         use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
-                         use_soil = FALSE,
-                         selected_soil_vars = sdm_default_soil_vars,
-                         selected_soil_depths = sdm_default_soil_depths,
-                         use_uv = FALSE,
-                         selected_uv_vars = sdm_default_uv_vars,
-                         selected_uv_months = NULL,
-                         use_vegetation = FALSE,
-                         veg_year = sdm_default_veg_year,
-                         veg_products = sdm_default_veg_products,
-                         use_lulc = FALSE,
-                         lulc_year = 2020,
-                         use_hfp = FALSE,
-                         hfp_year = 2020,
-                         use_bioclim_season = FALSE,
-                         use_drought = FALSE,
-                         selected_drought_periods = "annual_mean",
-                         selected_chelsa_extras = NULL,
-                         covariate_cache_dir = sdm_default_covariate_cache_dir,
-                         vif_reduction = FALSE, vif_threshold = 10,
-                         future_projection = FALSE, future_worldclim_dir = sdm_default_future_worldclim_dir,
-                         future_label = "Future climate",
-                         maxnet_features = sdm_default_maxnet_features, maxnet_regmult = sdm_default_maxnet_regmult,
-                         bias_method = c("uniform", "target_group", "thickened"),
-                         target_group_occ = NULL,
-                         thickening_distance_km = NULL,
-                         use_cc = FALSE, cc_tests = "all",
-                         cleaned_occurrence = NULL,
-                         output_dir = sdm_default_output_dir, seed = sdm_default_seed, occurrence_source = NULL,
-                         gbif_doi = NULL, log_fun = NULL, progress_fun = NULL,
-                         source = sdm_default_climate_source,
-                         multi_ensemble_models = NULL,
-                         multi_ensemble_weighting = sdm_default_multi_ensemble_weighting,
-                         multi_ensemble_power = sdm_default_ensemble_power,
-                         multi_ensemble_min_auc = sdm_default_ensemble_min_auc,
-                         multi_ensemble_min_tss = sdm_default_ensemble_min_tss,
-                         multi_ensemble_export = TRUE,
-                         biomod2_models = NULL,
-                         esm_n_runs = sdm_esm_default_n_runs,
-                         esm_split = sdm_esm_default_split,
-                         esm_min_auc = sdm_esm_default_min_auc,
-                         esm_power = sdm_esm_default_power,
-                         esm_biovars = NULL,
-                         overlap_warn = FALSE,
-                         validation_occurrences = sdm_default_validation_occurrences) {
+run_fast_sdm <- function(...) {
+  args <- list(...)
+  if (length(args) == 1 && is.sdm_config(args[[1]])) {
+    cfg <- args[[1]]
+  } else {
+    cfg <- sdm_config(...)
+  }
+
+  species <- cfg$species
+  occurrence_file <- cfg$occurrence_file
+  worldclim_dir <- cfg$worldclim_dir
+  selected_biovars <- cfg$selected_biovars
+  projection_extent <- cfg$projection_extent
+  training_extent <- cfg$training_extent
+  background_n <- cfg$background_n
+  min_source_records <- cfg$min_source_records
+  merge_small_sources <- cfg$merge_small_sources
+  thin_by_cell <- cfg$thin_by_cell
+  model_id <- cfg$model_id
+  include_quadratic <- cfg$include_quadratic
+  threshold <- cfg$threshold
+  aggregation_factor <- cfg$aggregation_factor
+  cv_folds <- cfg$cv_folds
+  n_cores <- cfg$n_cores
+  allow_download <- cfg$allow_download
+  worldclim_res <- cfg$worldclim_res
+  cv_strategy <- cfg$cv_strategy
+  cv_block_size_km <- cfg$cv_block_size_km
+  use_elevation <- cfg$use_elevation
+  elevation_demtype <- cfg$elevation_demtype
+  opentopo_api_key <- cfg$opentopo_api_key
+  use_soil <- cfg$use_soil
+  selected_soil_vars <- cfg$selected_soil_vars
+  selected_soil_depths <- cfg$selected_soil_depths
+  use_uv <- cfg$use_uv
+  selected_uv_vars <- cfg$selected_uv_vars
+  selected_uv_months <- cfg$selected_uv_months
+  use_vegetation <- cfg$use_vegetation
+  veg_year <- cfg$veg_year
+  veg_products <- cfg$veg_products
+  use_lulc <- cfg$use_lulc
+  lulc_year <- cfg$lulc_year
+  use_hfp <- cfg$use_hfp
+  hfp_year <- cfg$hfp_year
+  use_bioclim_season <- cfg$use_bioclim_season
+  use_drought <- cfg$use_drought
+  selected_drought_periods <- cfg$selected_drought_periods
+  selected_chelsa_extras <- cfg$selected_chelsa_extras
+  covariate_cache_dir <- cfg$covariate_cache_dir
+  vif_reduction <- cfg$vif_reduction
+  vif_threshold <- cfg$vif_threshold
+  future_projection <- cfg$future_projection
+  future_worldclim_dir <- cfg$future_worldclim_dir
+  future_label <- cfg$future_label
+  maxnet_features <- cfg$maxnet_features
+  maxnet_regmult <- cfg$maxnet_regmult
+  bias_method <- cfg$bias_method %||% "uniform"
+  target_group_occ <- cfg$target_group_occ
+  thickening_distance_km <- cfg$thickening_distance_km
+  use_cc <- cfg$use_cc
+  cc_tests <- cfg$cc_tests
+  cleaned_occurrence <- cfg$cleaned_occurrence
+  output_dir <- cfg$output_dir
+  seed <- cfg$seed
+  occurrence_source <- cfg$occurrence_source
+  gbif_doi <- cfg$gbif_doi
+  log_fun <- cfg$log_fun
+  progress_fun <- cfg$progress_fun
+  source <- cfg$source
+  multi_ensemble_models <- cfg$multi_ensemble_models
+  multi_ensemble_weighting <- cfg$multi_ensemble_weighting
+  multi_ensemble_power <- cfg$multi_ensemble_power
+  multi_ensemble_min_auc <- cfg$multi_ensemble_min_auc
+  multi_ensemble_min_tss <- cfg$multi_ensemble_min_tss
+  multi_ensemble_export <- cfg$multi_ensemble_export
+  biomod2_models <- cfg$biomod2_models
+  esm_n_runs <- cfg$esm_n_runs
+  esm_split <- cfg$esm_split
+  esm_min_auc <- cfg$esm_min_auc
+  esm_power <- cfg$esm_power
+  esm_biovars <- cfg$esm_biovars
+  overlap_warn <- cfg$overlap_warn
+  validation_occurrences <- cfg$validation_occurrences
   ensure_sdm_packages("terra", n_cores = n_cores)
   n_cores <- configure_parallel(n_cores, log_fun = log_fun)
   projection_extent <- validate_extent(as.numeric(projection_extent), "projection_extent")
@@ -214,7 +245,7 @@ run_fast_sdm <- function(species = sdm_default_species, occurrence_file = sdm_de
   } else {
     character(0)
   }
-  bias_method <- match.arg(bias_method)
+  bias_method <- match.arg(bias_method, c("uniform", "target_group", "thickened"))
   fit <- do.call(fit_sdm_model, c(list(
     model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
     background_n = background_n, include_quadratic = include_quadratic,
