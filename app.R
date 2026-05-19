@@ -404,9 +404,10 @@ server <- function(input, output, session) {
     if (!is.null(cleaned$error)) {
       rv$cleaned_occurrence <- NULL
       output$cc_stats_log <- renderText(paste("Cleaning failed:", cleaned$error))
-      output$source_table <- renderTable({
-        data.frame(Message = paste("Error:", cleaned$error))
-      }, striped = FALSE, hover = FALSE)
+      output$source_table_dt <- DT::renderDataTable({
+        DT::datatable(data.frame(Message = paste("Error:", cleaned$error)),
+          options = list(dom = "t", ordering = FALSE), rownames = FALSE)
+      })
       return()
     }
     if (!"cc_flag" %in% names(cleaned$occ)) {
@@ -673,11 +674,9 @@ server <- function(input, output, session) {
       options = list(
         dom = "t",
         ordering = TRUE,
-        pageLength = 25,
-        columnDefs = list(
-          list(targets = 5, escape = FALSE)
-        )
+        pageLength = 25
       ),
+      escape = FALSE,
       rownames = FALSE,
       class = "display compact",
       style = "bootstrap",
@@ -767,6 +766,55 @@ server <- function(input, output, session) {
     }
   }, ignoreInit = TRUE)
 
+  output$occurrence_cleaning_map <- renderLeaflet({
+    co <- rv$cleaned_occurrence
+    if (is.null(co) || !is.data.frame(co$df) || nrow(co$df) < 1) {
+      return(leaflet() %>%
+        addTiles(group = "Light tiles") %>%
+        addProviderTiles(providers$CartoDB.DarkMatter, group = "Dark tiles") %>%
+        addLayersControl(baseGroups = c("Light tiles", "Dark tiles"),
+          options = layersControlOptions(collapsed = TRUE)) %>%
+        addMiniMap(toggleDisplay = TRUE, position = "bottomright") %>%
+        addMeasure(position = "topleft", primaryLengthUnit = "kilometers", primaryAreaUnit = "sqkilometers"))
+    }
+    occ <- co$df
+    clean_idx <- is.na(occ$cc_flag) | occ$cc_flag == FALSE
+    flagged_idx <- !clean_idx
+    flag_status <- ifelse(clean_idx,
+      '<span style="color:#2196F3;font-weight:bold;">Clean</span>',
+      '<span style="color:#f44336;font-weight:bold;">Flagged</span>')
+    species_col <- if ("species" %in% names(occ)) occ$species else "N/A"
+    popups <- paste0("Row ", seq_len(nrow(occ)), "<br>",
+                      "Species: ", species_col, "<br>",
+                      "Source: ", occ$source, "<br>",
+                      "Status: ", flag_status)
+    leaflet() %>%
+      addTiles(group = "Light tiles") %>%
+      addProviderTiles(providers$CartoDB.DarkMatter, group = "Dark tiles") %>%
+      addCircleMarkers(
+        data = occ,
+        lng = ~longitude, lat = ~latitude,
+        color = ifelse(is.na(occ$cc_flag) | occ$cc_flag == FALSE, "blue", "red"),
+        fillOpacity = 0.7, radius = 5,
+        layerId = seq_len(nrow(occ)),
+        popup = popups,
+        group = "Occurrences"
+      ) %>%
+      addLayersControl(
+        overlayGroups = c("Occurrences"),
+        baseGroups = c("Light tiles", "Dark tiles"),
+        options = layersControlOptions(collapsed = TRUE)
+      ) %>%
+      addMiniMap(toggleDisplay = TRUE, position = "bottomright") %>%
+      addMeasure(position = "topleft", primaryLengthUnit = "kilometers", primaryAreaUnit = "sqkilometers") %>%
+      fitBounds(
+        lng1 = min(occ$longitude, na.rm = TRUE),
+        lat1 = min(occ$latitude, na.rm = TRUE),
+        lng2 = max(occ$longitude, na.rm = TRUE),
+        lat2 = max(occ$latitude, na.rm = TRUE)
+      )
+  })
+
   observeEvent(rv$cleaned_occurrence$df, {
     req(input$occurrence_cleaning_map)
     occ <- rv$cleaned_occurrence$df
@@ -777,6 +825,12 @@ server <- function(input, output, session) {
 
     clean_idx <- is.na(occ$cc_flag) | occ$cc_flag == FALSE
     flagged_idx <- !clean_idx
+
+    if (isTRUE(input$obs_source_filter != "All")) {
+      clean_idx <- clean_idx & occ$source == input$obs_source_filter
+      flagged_idx <- flagged_idx & occ$source == input$obs_source_filter
+    }
+
     flag_status <- ifelse(clean_idx,
       '<span style="color:#2196F3;font-weight:bold;">Clean</span>',
       '<span style="color:#f44336;font-weight:bold;">Flagged</span>')
@@ -810,12 +864,22 @@ server <- function(input, output, session) {
           group = "Flagged records"
         )
     }
-    proxy %>%
+    proxy <- proxy %>%
       leaflet::addLayersControl(
         overlayGroups = c("Clean records", "Flagged records"),
         baseGroups = c("Light tiles", "Dark tiles"),
         options = leaflet::layersControlOptions(collapsed = TRUE)
       )
+    if (any(clean_idx | flagged_idx)) {
+      filtered <- occ[clean_idx | flagged_idx, , drop = FALSE]
+      proxy <- proxy %>%
+        leaflet::fitBounds(
+          lng1 = min(filtered$longitude, na.rm = TRUE),
+          lat1 = min(filtered$latitude, na.rm = TRUE),
+          lng2 = max(filtered$longitude, na.rm = TRUE),
+          lat2 = max(filtered$latitude, na.rm = TRUE)
+        )
+    }
   }, ignoreInit = TRUE)
 
   observeEvent(input$occurrence_cleaning_map_marker_click, {
@@ -827,9 +891,14 @@ server <- function(input, output, session) {
     if (is.na(row_idx) || row_idx < 1 || row_idx > nrow(rv$cleaned_occurrence$df)) {
       return()
     }
-    current_flag <- rv$cleaned_occurrence$df$cc_flag[row_idx]
-    rv$cleaned_occurrence$df$cc_flag[row_idx] <- !isTRUE(current_flag)
-    rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df
+    new_df <- rv$cleaned_occurrence$df
+    new_df$cc_flag[row_idx] <- !isTRUE(new_df$cc_flag[row_idx])
+    rv$cleaned_occurrence <- list(
+      df = new_df,
+      source_counts = rv$cleaned_occurrence$source_counts,
+      n_absent_excluded = rv$cleaned_occurrence$n_absent_excluded,
+      original_rows = rv$cleaned_occurrence$original_rows
+    )
   })
 
   observeEvent(input$remove_flagged_map, {
@@ -861,8 +930,14 @@ server <- function(input, output, session) {
       rv$undo_stack <- c(rv$undo_stack[-1], list(rv$cleaned_occurrence))
     }
 
-    rv$cleaned_occurrence$df$cc_flag <- FALSE
-    rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df
+    new_df <- rv$cleaned_occurrence$df
+    new_df$cc_flag <- FALSE
+    rv$cleaned_occurrence <- list(
+      df = new_df,
+      source_counts = rv$cleaned_occurrence$source_counts,
+      n_absent_excluded = rv$cleaned_occurrence$n_absent_excluded,
+      original_rows = rv$cleaned_occurrence$original_rows
+    )
   })
 
   observeEvent(input$undo_flag_action, {
