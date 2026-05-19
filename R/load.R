@@ -66,6 +66,7 @@ modules <- c(
   "model_maxnet.R",
   "model_rf.R",
   "model_xgboost.R",
+  "model_jsdm.R",
   "model_multi_ensemble.R",
   "model_esm.R",
   "model_dnn.R",
@@ -88,6 +89,8 @@ modules <- c(
   "aoa.R",
   "niche_overlap.R",
   "species_richness.R",
+  "dispersal.R",
+  "climex.R",
 
   # --- output ---
   "metrics_binary.R",
