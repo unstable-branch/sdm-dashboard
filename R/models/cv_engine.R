@@ -33,9 +33,12 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
       ))
     }
   } else if (identical(cv_strategy, "spatial_blocks") && all(c(".x", ".y") %in% names(model_data))) {
-    folds <- make_cv_folds_spatial_blocks(model_data$.x, model_data$.y, model_data$presence,
-      k = k,
-      block_size_km = normalize_cv_block_size_km(cv_block_size_km), seed = seed
+    # Try blockCV first (variogram-based), fall back to custom
+    folds <- tryCatch(
+      make_cv_folds_blockcv(model_data, k = k, seed = seed,
+        cv_block_size_km = normalize_cv_block_size_km(cv_block_size_km), log_fun = log_fun),
+      error = function(e) make_cv_folds_spatial_blocks(model_data$.x, model_data$.y, model_data$presence,
+        k = k, block_size_km = normalize_cv_block_size_km(cv_block_size_km), seed = seed)
     )
     fold_id <- folds$fold_id
     block_id <- folds$block_id

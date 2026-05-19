@@ -651,3 +651,95 @@ run_fast_sdm <- function(...) {
   write_summary_report(result, result$report_text)
   result
 }
+
+# --- Pipeline stage API (I39) ---
+# Allows running individual stages of the SDM pipeline independently.
+# Each stage function takes a partial result and returns an updated one.
+
+#' Run SDM pipeline: Stage 1 — Clean occurrence data
+sdm_stage_clean <- function(cfg, log_fun = NULL) {
+  log_message(log_fun, "Stage 1: Cleaning occurrence data")
+  cleaned <- clean_occurrences(
+    cfg$occurrence_file,
+    min_source_records = cfg$min_source_records,
+    merge_small_sources = cfg$merge_small_sources,
+    use_cc = cfg$use_cc,
+    cc_tests = cfg$cc_tests,
+    log_fun = log_fun,
+    max_coordinate_uncertainty = cfg$max_coordinate_uncertainty
+  )
+  list(cleaned = cleaned)
+}
+
+#' Run SDM pipeline: Stage 2 — Load and scale environmental covariates
+sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
+  log_message(log_fun, "Stage 2: Loading covariates")
+  env <- load_climate_covariates(
+    cfg$selected_biovars,
+    worldclim_dir = cfg$worldclim_dir,
+    projection_extent = cfg$projection_extent,
+    training_extent = cfg$training_extent,
+    aggregation_factor = cfg$aggregation_factor,
+    worldclim_res = cfg$worldclim_res,
+    source = cfg$source,
+    log_fun = log_fun
+  )
+  list(env = env)
+}
+
+#' Run SDM pipeline: Stage 3 — Fit model
+sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL) {
+  log_message(log_fun, "Stage 3: Fitting model")
+  extra_args <- list()
+  # Build extra_args from cfg as in run_fast_sdm...
+  fit <- do.call(fit_sdm_model, c(list(
+    model_id = cfg$model_id, occ = occ, env_train_scaled = env$env_train_scaled,
+    background_n = cfg$background_n, include_quadratic = cfg$include_quadratic,
+    cv_folds = cfg$cv_folds, seed = cfg$seed, n_cores = cfg$n_cores, log_fun = log_fun,
+    cv_strategy = cfg$cv_strategy, cv_block_size_km = cfg$cv_block_size_km,
+    bias_method = cfg$bias_method, target_group_occ = cfg$target_group_occ,
+    thickening_distance_km = cfg$thickening_distance_km
+  ), extra_args))
+  list(fit = fit)
+}
+
+#' Run SDM pipeline: Stage 4 — Predict suitability
+sdm_stage_predict <- function(cfg, fit, env, output_tif, log_fun = NULL) {
+  log_message(log_fun, "Stage 4: Predicting suitability")
+  suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, cfg$n_cores, log_fun)
+  list(suit = suit, output_tif = output_tif)
+}
+
+#' Run SDM pipeline: Stage 5 — Post-processing (climate match, EOO/AOO, AOA)
+sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
+  log_message(log_fun, "Stage 5: Post-processing")
+  result <- list()
+
+  # EOO/AOO
+  if (!is.null(fit$occurrence_used)) {
+    result$eoo_aoo <- tryCatch(
+      compute_eoo_aoo(fit$occurrence_used, aoo_cell_size_km = 2, log_fun = log_fun),
+      error = function(e) NULL
+    )
+  }
+
+  # AOA
+  if (!is.null(fit$model_data) && !is.null(fit$covariates)) {
+    result$aoa <- tryCatch(
+      compute_aoa(fit$model_data, env$env_project_scaled, fit$covariates,
+        variable_importance = fit$variable_importance, method = "cast", log_fun = log_fun),
+      error = function(e) NULL
+    )
+  }
+
+  # Climate matching
+  if (isTRUE(cfg$climate_matching)) {
+    result$climate_match <- tryCatch(
+      compute_climate_match(env$env_train_scaled, env$env_project_scaled,
+        method = cfg$climate_matching_method %||% "mahalanobis", log_fun = log_fun),
+      error = function(e) NULL
+    )
+  }
+
+  result
+}

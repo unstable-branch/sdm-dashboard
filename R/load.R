@@ -1,4 +1,5 @@
 # SDM Module Loader - sources all modules in dependency order
+# Updated: R/ reorganised into subdirectories (I38)
 
 mod_dir <- file.path(sdm_project_root(), "R")
 
@@ -6,23 +7,57 @@ if (!dir.exists(mod_dir)) {
   stop("Module directory not found: ", mod_dir, call. = FALSE)
 }
 
+# Resolve module path — checks subdirectories then R/ root for backward compat
+resolve_module <- function(m) {
+  subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "output")
+  for (sub in subdirs) {
+    p <- file.path(mod_dir, sub, m)
+    if (file.exists(p)) return(p)
+  }
+  # Fallback to R/ root
+  p <- file.path(mod_dir, m)
+  if (file.exists(p)) return(p)
+  NULL
+}
+
 modules <- c(
+  # --- core ---
   "bootstrap.R",
   "config.R",
   "packages.R",
   "logging.R",
   "validation.R",
+  "app_helpers.R",
+  "optimized_sdm.R",
+  "sdm_config.R",
+  "run_sdm.R",
+
+  # --- data ---
   "occurrences.R",
+  "occurrences_dwca.R",
+
+  # --- covariates ---
   "covariates_climate.R",
   "covariates_elevation.R",
   "covariates_soil.R",
   "covariates_stack.R",
   "predictor_selection.R",
-  "metrics_binary.R",
-  "cv_folds.R",
-  "cv_engine.R",
-  "importance.R",
   "boundary.R",
+  "download_helper.R",
+  "verify_cache.R",
+  "future_projection.R",
+  "extrapolation.R",
+  # extras
+  "covariates_ndvi.R",
+  "covariates_uv.R",
+  "covariates_vegetation.R",
+  "covariates_drought.R",
+  "covariates_human_footprint.R",
+  "covariates_lulc.R",
+  "covariates_bioclim_seasonality.R",
+  "covariates_climate_future.R",
+
+  # --- models ---
   "model_helpers.R",
   "model_glm.R",
   "model_gam.R",
@@ -34,57 +69,51 @@ modules <- c(
   "model_multi_ensemble.R",
   "model_esm.R",
   "model_dnn.R",
+  "model_registry.R",
+  "model_biomod2.R",
+  "biomod2_compat.R",
+  "torch_setup.R",
+  "cv_folds.R",
+  "cv_engine.R",
+  "blockcv.R",
+  "importance.R",
   "calibration.R",
+  "ensemble_importance.R",
+  "hyperparameter_tuning.R",
+  "prediction.R",
+
+  # --- ecology ---
   "climate_matching.R",
   "eoo_aoo.R",
   "aoa.R",
   "niche_overlap.R",
-  "ensemble_importance.R",
-  "hyperparameter_tuning.R",
   "species_richness.R",
-  "model_registry.R",
-  "prediction.R",
-  "future_projection.R",
-  "extrapolation.R",
+
+  # --- output ---
+  "metrics_binary.R",
+  "metrics_helper.R",
+  "response_curves.R",
   "plots.R",
-  "sdm_config.R",
   "report.R",
   "report_odmap.R",
-  "run_sdm.R",
-  "app_helpers.R",
-  # --- extras (formerly auto-sourced) in dependency order ---
-  "torch_setup.R",
   "manifest.R",
-  "metrics_helper.R",
-  "covariates_ndvi.R",
-  "covariates_uv.R",
-  "covariates_vegetation.R",
-  "covariates_drought.R",
-  "covariates_human_footprint.R",
-  "covariates_lulc.R",
-  "covariates_bioclim_seasonality.R",
-  "covariates_climate_future.R",
-  "response_curves.R",
-  "download_helper.R",
-  "occurrences_dwca.R",
-  "biomod2_compat.R",
-  "model_biomod2.R",
-  "model_dnn.R",
-  "verify_cache.R",
   "batch_runner.R",
   "script_export.R",
+
+  # --- ui / modules ---
+  "ui_header.R",
+  "ui_sidebar_controls.R",
+  "ui_main_tabs.R",
+  "leaflet_plugins.R",
   "mod_get_data.R",
   "mod_model_run.R",
   "mod_results.R",
-  "mod_readiness.R",
-  "ui_header.R",
-  "ui_sidebar_controls.R",
-  "ui_main_tabs.R"
+  "mod_readiness.R"
 )
 
 for (m in modules) {
-  p <- file.path(mod_dir, m)
-  if (file.exists(p)) {
+  p <- resolve_module(m)
+  if (!is.null(p)) {
     tryCatch(source(p, local = TRUE), error = function(e) {
       stop("Failed to source ", m, ": ", e$message, call. = FALSE)
     })
