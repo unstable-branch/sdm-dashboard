@@ -16,12 +16,12 @@ feature branch -> dev -> main
 - Commit locally at logical checkpoints: a bug fixed, a feature working, a refactor complete, or a test added.
 - Avoid committing broken states to `dev` or `main`. WIP belongs on a feature branch.
 
-Branch names should use GitHub handles or short repo-local aliases, then the topic:
+Branch names should use a short area or repo-local alias, then the topic. No real names needed.
 
-- `mrcanofcatfood/obs-records-table`
-- `5p00kyy/ci-cleanup`
-- `mrcanofcatfood/gbif-import`
-- `5p00kyy/release-audit`
+- `ui/obs-records-table`
+- `ci/release-audit`
+- `data/gbif-import`
+- `docs/workflow-guide`
 
 Use conventional commit prefixes:
 
