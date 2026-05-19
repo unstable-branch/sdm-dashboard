@@ -932,8 +932,9 @@ body.sdm-dark .modal .table tbody tr td {
   padding: 0.5rem 0.75rem !important;
   color: var(--sdm-text) !important;
 }
-body.sdm-dark .modal .table-striped tbody tr:nth-of-type(odd) td { background: rgba(255,255,255,0.03) !important; }
-body.sdm-dark .modal .table-hover tbody tr:hover td { background: color-mix(in srgb, var(--sdm-accent) 10%, transparent) !important; }
+body.sdm-dark .modal .table-striped tbody tr:nth-of-type(odd) td { background: rgba(255,255,255,0.035) !important; }
+body.sdm-dark .modal .table-striped tbody tr:nth-of-type(even) td { background: transparent !important; }
+body.sdm-dark .modal .table-hover tbody tr:hover td { background: rgba(55, 208, 178, 0.09) !important; }
 
 /* Non-modal DataTables dark mode (batch results, run comparison, GBIF tables) */
 body.sdm-dark .dataTables_wrapper {
@@ -978,12 +979,6 @@ body.sdm-dark .table tbody tr td {
   padding: 0.5rem 0.75rem !important;
   color: var(--sdm-text) !important;
 }
-body.sdm-dark .table-striped tbody tr:nth-of-type(odd) td { background: rgba(255,255,255,0.03) !important; }
-body.sdm-dark .table-striped tbody tr:nth-of-type(odd) > * {
-  color: var(--sdm-text);
-  background-color: rgba(255, 255, 255, 0.035);
-}
-body.sdm-dark .table-hover tbody tr:hover td { background: color-mix(in srgb, var(--sdm-accent) 10%, transparent) !important; }
 body.sdm-dark .form-control,
 body.sdm-dark select {
   background: var(--sdm-surface-soft) !important;
@@ -1552,6 +1547,86 @@ body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
 }
 .obs-record-table .dataTables_scrollHead {
   overflow: hidden;
+}
+
+/* Unified DataTables striped/hover — light mode */
+.source-table .table-striped tbody tr:nth-of-type(odd) td,
+.obs-record-table .table-striped tbody tr:nth-of-type(odd) td,
+.dataTables_wrapper .table-striped tbody tr:nth-of-type(odd) td {
+  background: #f4f7fb;
+}
+.source-table .table-striped tbody tr:nth-of-type(even) td,
+.obs-record-table .table-striped tbody tr:nth-of-type(even) td,
+.dataTables_wrapper .table-striped tbody tr:nth-of-type(even) td {
+  background: #ffffff;
+}
+.source-table .table-hover tbody tr:hover td,
+.obs-record-table .table-hover tbody tr:hover td,
+.dataTables_wrapper .table-hover tbody tr:hover td {
+  background: #e8f0f8;
+}
+
+/* Unified DataTables striped/hover — dark mode */
+body.sdm-dark .source-table .table-striped tbody tr:nth-of-type(odd) td,
+body.sdm-dark .obs-record-table .table-striped tbody tr:nth-of-type(odd) td,
+body.sdm-dark .dataTables_wrapper .table-striped tbody tr:nth-of-type(odd) td {
+  background: rgba(255, 255, 255, 0.035) !important;
+}
+body.sdm-dark .source-table .table-striped tbody tr:nth-of-type(even) td,
+body.sdm-dark .obs-record-table .table-striped tbody tr:nth-of-type(even) td,
+body.sdm-dark .dataTables_wrapper .table-striped tbody tr:nth-of-type(even) td {
+  background: transparent !important;
+}
+body.sdm-dark .source-table .table-hover tbody tr:hover td,
+body.sdm-dark .obs-record-table .table-hover tbody tr:hover td,
+body.sdm-dark .dataTables_wrapper .table-hover tbody tr:hover td {
+  background: rgba(55, 208, 178, 0.09) !important;
+}
+
+/* Unified DataTables table headers — light mode */
+.source-table table.dataTable thead th,
+.obs-record-table table.dataTable thead th,
+.dataTables_wrapper table.dataTable thead th {
+  background: #f4f7fb;
+  color: #102a43;
+  border-bottom: 2px solid #d4dde6;
+  padding: 0.75rem;
+  font-weight: 600;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Unified DataTables table headers — dark mode */
+body.sdm-dark .source-table table.dataTable thead th,
+body.sdm-dark .obs-record-table table.dataTable thead th,
+body.sdm-dark .dataTables_wrapper table.dataTable thead th {
+  background: var(--sdm-surface-soft) !important;
+  color: var(--sdm-heading) !important;
+  border-bottom: 2px solid var(--sdm-border) !important;
+  padding: 0.75rem !important;
+  font-weight: 600 !important;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Unified DataTables table cells — light mode */
+.source-table table.dataTable tbody td,
+.obs-record-table table.dataTable tbody td,
+.dataTables_wrapper table.dataTable tbody td {
+  padding: 0.5rem 0.75rem;
+  border-color: #e7edf4;
+  color: #102a43;
+}
+
+/* Unified DataTables table cells — dark mode */
+body.sdm-dark .source-table table.dataTable tbody td,
+body.sdm-dark .obs-record-table table.dataTable tbody td,
+body.sdm-dark .dataTables_wrapper table.dataTable tbody td {
+  border-color: var(--sdm-border) !important;
+  color: var(--sdm-text) !important;
+  padding: 0.5rem 0.75rem !important;
 }
 
 /* Phase 10: Export flagged button */
