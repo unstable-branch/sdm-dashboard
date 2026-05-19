@@ -1,5 +1,9 @@
 # SDM Dashboard Workbench
 
+> This personal repository is archived. The canonical project now lives at
+> https://github.com/unstable-branch/sdm-dashboard under the Unstable Branch
+> organization.
+
 SDM Dashboard Workbench is a local R/Shiny application for species distribution modelling from presence-only occurrence records. It combines occurrence cleaning, selected WorldClim BIO layers, optional elevation and soil covariates, GLM-based modelling, map export, and a compact text report in one desktop-friendly workflow.
 
 This is a beta release. Interfaces, defaults, packaging, and outputs may change before a stable `v1.0.0` release. Validate model outputs carefully before operational use.
