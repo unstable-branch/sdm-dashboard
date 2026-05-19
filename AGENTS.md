@@ -1,22 +1,25 @@
-# AGENTS.md — SDM Dashboard Workbench
+# AGENTS.md — SDM Dashboard Development Guide
+
+This guide is for both humans and coding agents working on SDM Dashboard.
 
 ## Git workflow
 
-This repo uses a two-step integration flow:
+Default flow:
 
 ```
-feature branch -> dev -> main
+feature branch -> PR into dev -> PR from dev into main
 ```
 
-- `main` is the stable branch. Do not push directly to `main`. It should move only by PR from `dev` after CI passes.
-- `dev` is the integration branch. It should stay mostly working, but it is allowed to move faster than `main`.
-- Bigger work happens on feature branches, then PRs into `dev`.
-- Small docs/CI fixes may go straight to `dev` only when the change is low risk and the owner explicitly asked for it.
-- Never rewrite shared branch history after pushing. No force-push to `main` or `dev`.
-- Commit locally at logical checkpoints: a bug fixed, a feature working, a refactor complete, or a test added.
-- Avoid committing broken states to `dev` or `main`. WIP belongs on a feature branch.
+- `main` is the stable branch. Keep it green and release-ready.
+- `dev` is the shared integration branch. New work lands here first.
+- Feature branches are for focused changes: one bug, feature, cleanup, or experiment at a time.
+- Open PRs into `dev` for normal work. Open PRs from `dev` into `main` when the current dev state is ready to promote.
+- Avoid direct pushes to `main`. Direct pushes to `dev` should be rare and agreed beforehand.
+- Do not force-push shared branches after other people may have based work on them.
+- Commit at useful checkpoints: a bug fixed, a feature working, a refactor complete, or a test added.
+- Keep WIP or broken experiments on feature branches until they are ready to review.
 
-Branch names should use GitHub handles or short repo-local aliases, then the topic:
+Branch names should use GitHub handles or short repo-local aliases, then the topic. No real names needed.
 
 - `mrcanofcatfood/obs-records-table`
 - `5p00kyy/ci-cleanup`
@@ -34,7 +37,7 @@ Use conventional commit prefixes:
 
 PR targets:
 
-- Feature/fix PRs target `dev`.
+- Feature, fix, docs, and cleanup PRs target `dev`.
 - Release/stabilization PRs target `main` from `dev`.
 - If two people need the same files, split the work first or agree who owns that file slice.
 - Keep PRs reviewable. Prefer several focused PRs over one giant mixed UI/model/docs/test change.
@@ -122,9 +125,10 @@ Windows launcher: `run_app_windows.bat` → `scripts/windows_setup.R` → `launc
 ## Development priorities
 
 - Keep the app usable for local desktop work first. Web/deployment polish is secondary unless explicitly scoped.
-- Scientific outputs need honest labels: experimental, optional, skipped, failed, or validated. Do not imply a model/backend is production-ready because a UI control exists.
-- Optional packages must fail gracefully with clear install hints and skipped tests.
-- Prefer simple, inspectable R modules over broad rewrites. If a feature touches UI, model code, tests, and release scripts, split it unless the coupling is real.
+- Label scientific outputs honestly: experimental, optional, skipped, failed, or validated.
+- Optional packages should fail gracefully with clear install hints and skipped tests.
+- Prefer simple, inspectable R modules over broad rewrites.
+- If a change touches UI, model code, tests, and release scripts, consider splitting it unless those parts genuinely need to move together.
 - Preserve reproducibility: seeds, selected covariates, model id, thresholds, extents, and output paths should be recorded in reports/manifests where relevant.
 
 ## Review posture
@@ -138,7 +142,7 @@ For code review, prioritize:
 - mismatches between UI labels and actual backend behavior;
 - large mixed commits that should be split before merge.
 
-Do not accept a PR just because it is visually impressive. Check that it starts, the relevant workflow works, and CI passes.
+A good PR should start cleanly, match what the UI says it does, and pass the relevant checks.
 
 ## WSL access
 
