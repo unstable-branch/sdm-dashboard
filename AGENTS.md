@@ -2,24 +2,70 @@
 
 ## Git workflow
 
-- **Commit locally only for significant changes** — only `git add` and `git commit` when changes are significant (bug fixes, new features, non-trivial refactors). Skip committing for trivial CSS tweaks, comment changes, or minor formatting.
-- **Never push to GitHub unless explicitly asked** — do not run `git push` without the user requesting it. After committing locally, ask the user if they want to push to origin.
+This repo uses a two-step integration flow:
+
+```
+feature branch -> dev -> main
+```
+
+- `main` is the stable branch. Do not push directly to `main`. It should move only by PR from `dev` after CI passes.
+- `dev` is the integration branch. It should stay mostly working, but it is allowed to move faster than `main`.
+- Bigger work happens on feature branches, then PRs into `dev`.
+- Small docs/CI fixes may go straight to `dev` only when the change is low risk and the owner explicitly asked for it.
+- Never rewrite shared branch history after pushing. No force-push to `main` or `dev`.
+- Commit locally at logical checkpoints: a bug fixed, a feature working, a refactor complete, or a test added.
+- Avoid committing broken states to `dev` or `main`. WIP belongs on a feature branch.
+
+Branch names should use GitHub handles or short repo-local aliases, then the topic:
+
+- `mrcanofcatfood/obs-records-table`
+- `5p00kyy/ci-cleanup`
+- `mrcanofcatfood/gbif-import`
+- `5p00kyy/release-audit`
+
+Use conventional commit prefixes:
+
+- `feat:` user-facing feature
+- `fix:` bug fix
+- `test:` tests or fixtures
+- `docs:` documentation only
+- `refactor:` internal restructure without behavior change
+- `chore:` maintenance/tooling
+
+PR targets:
+
+- Feature/fix PRs target `dev`.
+- Release/stabilization PRs target `main` from `dev`.
+- If two people need the same files, split the work first or agree who owns that file slice.
+- Keep PRs reviewable. Prefer several focused PRs over one giant mixed UI/model/docs/test change.
+
+Before opening a PR:
+
+1. Rebase or merge the latest target branch.
+2. Run at least the smoke test or explain why it could not run.
+3. Check `git diff --stat` for accidental large/binary/generated files.
+4. Summarize user-visible behavior, test coverage, and known limitations.
 
 ## Run commands
 
 ```bash
+# Fast syntax check
+Rscript -e 'files <- list.files(path = c("R", "scripts", "tests"), pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE); for (f in files) parse(f); parse("app.R"); parse("pipeline.R"); parse("launch_app.R")'
+
 # Smoke test (always run before PR)
 Rscript scripts/smoke_test.R
 
 # Full testthat suite
 Rscript tests/testthat.R
 
+# Release/public bundle audit
+Rscript scripts/audit_release.R
+
 # Install dependencies
 Rscript install_packages.R
-
-# Parse all R sources (excludes renv/)
-Rscript -e 'files <- list.files(path = c("R", "scripts", "tests"), pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE); for (f in files) parse(f); parse("app.R"); parse("pipeline.R"); parse("launch_app.R")'
 ```
+
+If local R is unavailable, rely on GitHub Actions and say that local R was unavailable in the PR/check notes.
 
 ## Architecture
 
@@ -53,6 +99,9 @@ Windows launcher: `run_app_windows.bat` → `scripts/windows_setup.R` → `launc
 - **`rv$cleaned_occurrence` is a list** — structure: `{df, source_counts, n_absent_excluded, original_rows}`. NOT a dataframe.
 - **Numeric inputs can receive `Inf`/`NA`** — use `safe_numeric()` helper in `R/ui/ui_sidebar_controls.R` to sanitize values before passing to `numericInput()`.
 - **`sdm_default_cv_block_size_km` is `NA_real_`** — UI defaults to 50 when NA.
+- **Leaflet proxy groups must match render groups** — if `renderLeaflet()` uses group names like `clean` and `flagged`, proxy add/remove calls must use the same names.
+- **Reactive values can hold lists** — inspect structure before assuming a dataframe. `rv$cleaned_occurrence` is list-shaped.
+- **Do not use remote/CDN assets casually** — Shiny should remain usable locally/offline where possible. Add JS/CSS dependencies deliberately.
 
 ## Key conventions
 
@@ -67,6 +116,29 @@ Windows launcher: `run_app_windows.bat` → `scripts/windows_setup.R` → `launc
 - WorldClim cached in `Worldclim/`; CHELSA in `chelsa/`; future layers in `Worldclim_future/`. Do not commit downloaded rasters.
 - Occurrence CSV must have `longitude`/`latitude` columns (or aliases: `lon`, `decimalLongitude`).
 - Outputs go to `outputs/` by default. This directory is gitignored.
+- Real occurrence datasets, downloaded rasters, generated outputs, logs, API keys, and screenshots must not be committed.
+- `AGENTS.md` is allowed to be tracked, but release/source bundles must exclude it.
+
+## Development priorities
+
+- Keep the app usable for local desktop work first. Web/deployment polish is secondary unless explicitly scoped.
+- Scientific outputs need honest labels: experimental, optional, skipped, failed, or validated. Do not imply a model/backend is production-ready because a UI control exists.
+- Optional packages must fail gracefully with clear install hints and skipped tests.
+- Prefer simple, inspectable R modules over broad rewrites. If a feature touches UI, model code, tests, and release scripts, split it unless the coupling is real.
+- Preserve reproducibility: seeds, selected covariates, model id, thresholds, extents, and output paths should be recorded in reports/manifests where relevant.
+
+## Review posture
+
+For code review, prioritize:
+
+- runtime crashes and Shiny reactive mistakes;
+- incorrect SDM/statistical claims;
+- broken CI/test assumptions;
+- generated or private files accidentally tracked;
+- mismatches between UI labels and actual backend behavior;
+- large mixed commits that should be split before merge.
+
+Do not accept a PR just because it is visually impressive. Check that it starts, the relevant workflow works, and CI passes.
 
 ## WSL access
 
