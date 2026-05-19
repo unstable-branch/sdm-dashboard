@@ -176,6 +176,10 @@ mod_results_server <- function(id, rv, input) {
         row("Maximum suitability", fmt_num(r$summary$max, 3)),
         row("Cells above threshold", paste0(fmt_num(r$summary$cells_above_threshold), " (", fmt_num(r$summary$percent_above_threshold, 1), "%)")),
         row("High-suitability area", paste(fmt_num(r$summary$high_risk_area_km2), "km2")),
+        if (!is.null(r$eoo_aoo) && is.finite(r$eoo_aoo$eoo_km2))
+          row("EOO (MCP)", paste(fmt_num(r$eoo_aoo$eoo_km2), "km2")),
+        if (!is.null(r$eoo_aoo) && is.finite(r$eoo_aoo$aoo_km2))
+          row("AOO (2x2 km)", paste(r$eoo_aoo$aoo_cells, "cells =", fmt_num(r$eoo_aoo$aoo_km2), "km2")),
         row("Observation source", r$config$occurrence_source),
         row("Observation file", r$config$occurrence_file),
         row("Covariates", paste(r$environment$names, collapse = ", ")),
@@ -194,7 +198,15 @@ mod_results_server <- function(id, rv, input) {
           }
         },
         if (!is.null(r$future)) row("Future output TIFF", r$paths$future_tif %||% "not available"),
-        if (!is.null(r$future)) row("Delta output TIFF", r$paths$delta_tif %||% "not available")
+        if (!is.null(r$future)) row("Delta output TIFF", r$paths$delta_tif %||% "not available"),
+        if (!is.null(r$future2)) {
+          row("2nd scenario", r$config$future_label2 %||% "Scenario 2"),
+          row("2nd future mean", fmt_num(r$future2$summary$mean, 3)),
+          if (is.finite(r$future$summary$high_risk_area_km2) && is.finite(r$future2$summary$high_risk_area_km2)) {
+            diff_pct <- (r$future2$summary$high_risk_area_km2 - r$future$summary$high_risk_area_km2) / r$future$summary$high_risk_area_km2 * 100
+            row("Scenario diff", paste0(fmt_num(abs(diff_pct), 1), "% ", if(diff_pct > 0) "more" else "less", " area in scenario 2"))
+          }
+        }
       )
     })
     output$coef_table <- renderTable({
@@ -281,6 +293,37 @@ mod_results_server <- function(id, rv, input) {
       })
       if (nrow(cal_data) == 0) return(placeholder_plot("Calibration plot not available for this backend."))
       plot_calibration(cal_data)
+    })
+    output$climate_match_panel <- renderUI({
+      r <- rv$result
+      if (is.null(r) || is.null(r$climate_match)) return(NULL)
+      cm <- r$climate_match
+      div(class = "content-card",
+        h4("Climate matching"),
+        p(class = "small-muted", paste0(cm$summary$method, " distance across ", cm$summary$n_variables, " variables.")),
+        div(class = "metric-row",
+          div(class = "metric", strong(sprintf("%.1f%%", cm$summary$pct_similar)), "similar (>0.5)"),
+          div(class = "metric", strong(sprintf("%.1f%%", cm$summary$pct_dissimilar)), "dissimilar (<0.2)")
+        ),
+        p(class = "small-muted", paste("Variables:", paste(cm$summary$variables, collapse = ", "))),
+        if (!is.null(r$paths$climate_matching_tif))
+          p(class = "small-muted", paste("Output:", r$paths$climate_matching_tif))
+      )
+    })
+    output$aoa_panel <- renderUI({
+      r <- rv$result
+      if (is.null(r) || is.null(r$aoa)) return(NULL)
+      aoa <- r$aoa
+      div(class = "content-card",
+        h4("Area of Applicability (AOA)"),
+        p(class = "small-muted", "Model-weighted extrapolation detection (Meyer & Pebesma 2022). Cells outside the AOA should be interpreted with caution."),
+        div(class = "metric-row",
+          div(class = "metric", strong(sprintf("%.1f%%", aoa$summary$pct_applicable)), "applicable"),
+          div(class = "metric", strong(sprintf("%.1f%%", aoa$summary$pct_outside)), "outside training envelope")
+        ),
+        p(class = "small-muted", paste("Method:", aoa$summary$method, "| Threshold:", sprintf("%.1f", aoa$summary$threshold),
+          "| Training points:", aoa$summary$n_training))
+      )
     })
     output$dwca_issues_panel <- renderUI({
       r <- rv$result

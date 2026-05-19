@@ -397,7 +397,8 @@ server <- function(input, output, session) {
           icon("info-circle"),
           strong(" Rare species detected"),
           sprintf(" — %d presence records. ESM recommended.", n_pres),
-          actionButton("switch_to_esm", "Switch to ESM", class = "btn-info btn-sm"))
+          actionButton("switch_to_esm", "Switch to ESM", class = "btn-info btn-sm"),
+          actionButton("rapid_response", "Quick Run", class = "btn-success btn-sm"))
     } else if (n_pres < 30 && !esm_available) {
       div(class = "alert alert-warning",
           icon("package"),
@@ -410,6 +411,33 @@ server <- function(input, output, session) {
 
   observeEvent(input$switch_to_esm, {
     updateSelectInput(session, "model_id", selected = "esm_glm")
+  })
+
+  observeEvent(input$rapid_response, {
+    # Auto-select best algorithm based on record count
+    if (is.null(rv$cleaned_occurrence)) return()
+    n_pres <- sum(rv$cleaned_occurrence$df$presence == 1, na.rm = TRUE)
+
+    best_model <- if (n_pres < 10) {
+      "esm_glm"
+    } else if (n_pres < 30) {
+      "esm_glm"
+    } else if (n_pres < 100) {
+      "maxnet"
+    } else {
+      "glm"
+    }
+
+    # Set sensible defaults for rapid response
+    updateSelectInput(session, "model_id", selected = best_model)
+    updateNumericInput(session, "cv_folds", value = if (n_pres < 30) 3 else 5)
+    updateNumericInput(session, "background_n", value = min(10000, max(1000, n_pres * 50)))
+
+    # Trigger the run after a short delay to let UI update
+    session$sendCustomMessage(type = "sdm-restore-settings", list())
+    shinyjs::delay(500, {
+      shinyjs::click("run_model")
+    })
   })
 
 

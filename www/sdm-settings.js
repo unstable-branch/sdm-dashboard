@@ -39,6 +39,8 @@
     'batch_mode',
     'use_elevation',
     'dwca_max_uncertainty',
+    'climate_matching',
+    'climate_matching_method',
     'use_soil',
     'use_vegetation'
   ];

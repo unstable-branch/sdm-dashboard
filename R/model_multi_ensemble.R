@@ -75,17 +75,70 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   preds <- list()
   component_paths <- list()
   failed_components <- character()
-  for (m in names(components)) {
+
+  # Separate biomod2 and standalone components
+  biomod2_names <- names(components)[methods[names(components)] == "biomod2"]
+  standalone_names <- setdiff(names(components), biomod2_names)
+
+  # Predict standalone components in parallel if n_cores > 1
+  if (n_cores > 1 && length(standalone_names) > 1 && requireNamespace("parallel", quietly = TRUE)) {
+    log_message(log_fun, "Predicting ", length(standalone_names), " standalone components in parallel (", n_cores, " cores)")
+    cl <- parallel::makeCluster(min(n_cores, length(standalone_names)))
+    on.exit(parallel::stopCluster(cl), add = TRUE)
+
+    # Export necessary functions to workers
+    parallel::clusterExport(cl, c("predict_single_component", "multi_ensemble_component_path",
+      "log_message", "normalize_core_count"), envir = environment())
+    parallel::clusterEvalQ(cl, library(terra))
+
+    standalone_results <- parallel::parLapply(cl, standalone_names, function(m) {
+      comp_fit <- components[[m]]
+      method <- methods[[m]]
+      comp_tif <- multi_ensemble_component_path(output_tif, m)
+      tryCatch(
+        predict_single_component(method, comp_fit, env_project_scaled, comp_tif, 1, NULL),
+        error = function(e) NULL
+      )
+    })
+    names(standalone_results) <- standalone_names
+
+    for (m in standalone_names) {
+      if (!is.null(standalone_results[[m]])) {
+        preds[[m]] <- standalone_results[[m]]
+        if (export_components) component_paths[[paste0("multi_ens_comp_", m)]] <- multi_ensemble_component_path(output_tif, m)
+      } else {
+        failed_components <- c(failed_components, m)
+      }
+    }
+  } else {
+    # Sequential prediction
+    for (m in standalone_names) {
+      comp_fit <- components[[m]]
+      log_message(log_fun, "Predicting component: ", m)
+      comp_tif <- multi_ensemble_component_path(output_tif, m)
+      pred_result <- tryCatch(
+        predict_single_component(methods[[m]], comp_fit, env_project_scaled, comp_tif, n_cores, log_fun),
+        error = function(e) {
+          log_message(log_fun, "Component '", m, "' prediction failed: ", conditionMessage(e))
+          NULL
+        }
+      )
+      if (is.null(pred_result)) {
+        failed_components <- c(failed_components, m)
+        next
+      }
+      preds[[m]] <- pred_result
+      if (export_components) component_paths[[paste0("multi_ens_comp_", m)]] <- comp_tif
+    }
+  }
+
+  # Predict biomod2 components (always sequential — Java backend)
+  for (m in biomod2_names) {
     comp_fit <- components[[m]]
-    method <- methods[[m]]
-    log_message(log_fun, "Predicting component: ", m)
+    log_message(log_fun, "Predicting biomod2 component: ", m)
     comp_tif <- multi_ensemble_component_path(output_tif, m)
     pred_result <- tryCatch(
-      if (identical(method, "biomod2")) {
-        pred_biomod2_component(comp_fit, env_project_scaled, comp_tif, n_cores, log_fun)
-      } else {
-        predict_single_component(method, comp_fit, env_project_scaled, comp_tif, n_cores, log_fun)
-      },
+      pred_biomod2_component(comp_fit, env_project_scaled, comp_tif, n_cores, log_fun),
       error = function(e) {
         log_message(log_fun, "Component '", m, "' prediction failed: ", conditionMessage(e))
         NULL
@@ -96,9 +149,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
       next
     }
     preds[[m]] <- pred_result
-    if (export_components) {
-      component_paths[[paste0("multi_ens_comp_", m)]] <- comp_tif
-    }
+    if (export_components) component_paths[[paste0("multi_ens_comp_", m)]] <- comp_tif
   }
 
   if (length(failed_components) > 0) {

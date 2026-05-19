@@ -366,6 +366,8 @@ ui_sidebar_controls <- function() {
         "input.future_projection == true",
         uiOutput("future_scenario_selector"),
         textInput("future_label", "Scenario label", value = "Future climate"),
+        textInput("future_worldclim_dir2", "Compare 2nd scenario path (optional)"),
+        textInput("future_label2", "2nd scenario label", value = "Future climate 2"),
         uiOutput("future_download_status")
       ),
       sliderInput("threshold", "High-suitability threshold", min = 0.05, max = 0.95, value = sdm_default_threshold, step = 0.05)
@@ -378,6 +380,16 @@ ui_sidebar_controls <- function() {
       div(
         class = "details-body",
         checkboxInput("vif_reduction", "Drop collinear covariates (VIF > 10)", value = FALSE),
+        checkboxInput("climate_matching", "Compute climate matching similarity map", value = FALSE),
+        conditionalPanel(
+          "input.climate_matching",
+          selectInput("climate_matching_method", "Climate matching method",
+            choices = c("Mahalanobis (accounts for covariance)" = "mahalanobis",
+                        "Standardised Euclidean (z-score)" = "standardised",
+                        "Euclidean (simple)" = "euclidean"),
+            selected = "mahalanobis"
+          )
+        ),
         checkboxInput("thin_by_cell", "Thin duplicate records in same climate cell", value = TRUE),
         checkboxInput("merge_small_sources", "Merge small occurrence sources", value = TRUE),
         numericInput("min_source_records", "Merge sources with fewer than", value = sdm_default_min_source_records, min = 1, max = 100, step = 1),

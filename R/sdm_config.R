@@ -52,6 +52,8 @@ sdm_config <- function(...) {
     future_projection = FALSE,
     future_worldclim_dir = sdm_default_future_worldclim_dir,
     future_label = "Future climate",
+    future_worldclim_dir2 = NULL,
+    future_label2 = "Future climate 2",
     maxnet_features = sdm_default_maxnet_features,
     maxnet_regmult = sdm_default_maxnet_regmult,
     bias_method = "uniform",
@@ -82,6 +84,8 @@ sdm_config <- function(...) {
     overlap_warn = FALSE,
     validation_occurrences = sdm_default_validation_occurrences,
     pa_replicates = 1,
+    climate_matching = FALSE,
+    climate_matching_method = "mahalanobis",
   )
 
   for (nm in names(defaults)) {

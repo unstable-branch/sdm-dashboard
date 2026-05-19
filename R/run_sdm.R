@@ -352,6 +352,19 @@ run_fast_sdm <- function(...) {
     importance_result <- fit$variable_importance
   }
 
+  # Area of Applicability (AOA)
+  aoa_result <- NULL
+  if (!is.null(fit$model_data) && !is.null(fit$covariates)) {
+    aoa_result <- tryCatch(
+      compute_aoa(fit$model_data, env$env_project_scaled, fit$covariates,
+        variable_importance = importance_result, method = "cast", log_fun = log_fun),
+      error = function(e) {
+        log_message(log_fun, "AOA computation failed: ", conditionMessage(e))
+        NULL
+      }
+    )
+  }
+
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
@@ -413,6 +426,39 @@ run_fast_sdm <- function(...) {
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
+
+  # Climate matching (optional)
+  climate_match_result <- NULL
+  if (isTRUE(cfg$climate_matching)) {
+    climate_match_result <- tryCatch({
+      cm_method <- cfg$climate_matching_method %||% "mahalanobis"
+      # Use presence points for training reference if available
+      pres_points <- NULL
+      if (!is.null(fit$occurrence_used) && all(c("longitude", "latitude") %in% names(fit$occurrence_used))) {
+        pres_points <- data.frame(
+          x = fit$occurrence_used$longitude,
+          y = fit$occurrence_used$latitude
+        )
+      }
+      compute_climate_match(
+        env_train = env$env_train_scaled,
+        env_proj = env$env_project_scaled,
+        method = cm_method,
+        presence_points = pres_points,
+        log_fun = log_fun
+      )
+    }, error = function(e) {
+      log_message(log_fun, "Climate matching failed: ", conditionMessage(e))
+      NULL
+    })
+    if (!is.null(climate_match_result)) {
+      cm_tif <- file.path(output_dir, paste0(base_name, "_climatch.tif"))
+      terra::writeRaster(climate_match_result$similarity, cm_tif,
+        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      extra_paths[["climate_matching_tif"]] <- cm_tif
+    }
+  }
+
   future <- NULL
   extra_paths <- list()
   if (identical(model_id, "ensemble_glm_rangebag")) {
@@ -451,12 +497,63 @@ run_fast_sdm <- function(...) {
     extra_paths <- c(extra_paths, future$paths)
   }
 
+  # Second future scenario (multi-SSP comparison)
+  future_worldclim_dir2 <- cfg$future_worldclim_dir2 %||% NULL
+  future_label2 <- cfg$future_label2 %||% "Future climate 2"
+  future2 <- NULL
+  if (isTRUE(future_projection) && !is.null(future_worldclim_dir2) && nzchar(future_worldclim_dir2) && dir.exists(future_worldclim_dir2)) {
+    progress_step(progress_fun, 0.97, paste0("Projecting 2nd scenario: ", future_label2))
+    future2 <- tryCatch(
+      project_future_suitability(
+        fit = fit,
+        current_suitability = suit,
+        env = env,
+        future_worldclim_dir = future_worldclim_dir2,
+        selected_biovars = selected_biovars,
+        projection_extent = projection_extent,
+        aggregation_factor = aggregation_factor,
+        output_future_tif = file.path(output_dir, paste0(base_name, "_future2_suitability.tif")),
+        output_delta_tif = file.path(output_dir, paste0(base_name, "_future2_delta.tif")),
+        n_cores = n_cores,
+        log_fun = log_fun
+      ),
+      error = function(e) {
+        log_message(log_fun, "2nd scenario failed: ", conditionMessage(e))
+        NULL
+      }
+    )
+    if (!is.null(future2)) {
+      future2$summary <- summarise_suitability(future2$suitability, threshold)
+      extra_paths <- c(extra_paths, future2$paths)
+
+      # Comparison summary
+      area1 <- future$summary$high_risk_area_km2 %||% NA_real_
+      area2 <- future2$summary$high_risk_area_km2 %||% NA_real_
+      if (is.finite(area1) && is.finite(area2)) {
+        log_message(log_fun, "Scenario comparison: ", cfg$future_label, "=", sprintf("%.0f km2", area1),
+          " | ", future_label2, "=", sprintf("%.0f km2", area2))
+      }
+    }
+  }
+
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
   progress_step(progress_fun, 0.08, "Summarising outputs")
   suitability_summary <- summarise_suitability(suit, threshold)
   if (!is.null(future)) future$summary <- summarise_suitability(future$suitability, threshold)
+
+  # EOO/AOO calculation
+  eoo_aoo_result <- NULL
+  if (!is.null(fit$occurrence_used)) {
+    eoo_aoo_result <- tryCatch(
+      compute_eoo_aoo(fit$occurrence_used, aoo_cell_size_km = 2, log_fun = log_fun),
+      error = function(e) {
+        log_message(log_fun, "EOO/AOO calculation failed: ", conditionMessage(e))
+        NULL
+      }
+    )
+  }
 
   projection_metrics <- NULL
   if (!is.null(training_extent) && !identical(projection_extent, training_extent)) {
@@ -537,7 +634,10 @@ run_fast_sdm <- function(...) {
     model = fit$model, formula = fit$formula, coefficients = fit$coefficients, cv = fit$cv,
     variable_importance = importance_result,
     response_curves = response_curves,
-    suitability = suit, future = future, summary = suitability_summary, metrics = metrics,
+    suitability = suit, future = future, future2 = future2, climate_match = climate_match_result,
+    eoo_aoo = eoo_aoo_result,
+    aoa = aoa_result,
+    summary = suitability_summary, metrics = metrics,
     paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)
   )
   result$report_text <- output_report
