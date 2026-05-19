@@ -4,6 +4,12 @@
 # Installs all packages required for the SDM Dashboard.
 # Core packages + SDM model backends + utilities.
 # Optional packages (torch, rgee) are commented out — uncomment if needed.
+#
+# macOS note: terra requires GDAL/GEOS/PROJ. If binary not available,
+# install via Homebrew first: brew install gdal geos proj
+# then: install.packages('terra', type = 'source')
+# Apple Silicon users: R must be the arm64 (Apple Silicon) build,
+# not the x86_64 (Intel) build running under Rosetta.
 
 cat("SDM Dashboard Package Installer\n")
 cat("===============================\n\n")

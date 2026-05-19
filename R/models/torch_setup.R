@@ -29,7 +29,9 @@ gpu_architecture_map <- list(
   # Blackwell architecture (sm_100+) - B100, B200
   list(gpu_pattern = "B100|B200|Blackwell", arch = "blackwell", sm = "100", cuda_best = "13.0", cuda_fallback = c("13.0", "12.8"), torch_kind = "cu130"),
   # Intel integrated graphics (not supported)
-  list(gpu_pattern = "Intel|UHD|Iris", arch = "intel", sm = NA, cuda_best = NA, cuda_fallback = NA, torch_kind = "cpu")
+  list(gpu_pattern = "Intel|UHD|Iris", arch = "intel", sm = NA, cuda_best = NA, cuda_fallback = NA, torch_kind = "cpu"),
+  # Apple Silicon — Metal/MPS acceleration
+  list(gpu_pattern = "Apple|M[1-4]|Metal", arch = "apple_silicon", sm = NA, cuda_best = NA, cuda_fallback = NA, torch_kind = "cpu")  # torch uses MPS automatically on macOS
 )
 
 #' Detect GPU using nvidia-smi
@@ -70,6 +72,21 @@ detect_nvidia_gpu <- function() {
         nvidia_line <- grep("NVIDIA", output, value = TRUE, ignore.case = TRUE)
         if (length(nvidia_line) > 0) {
           result$gpu_name <- gsub(".*=", "", nvidia_line[1])
+        }
+      },
+      error = function(e) NULL
+    )
+  }
+
+  # macOS: detect Apple Silicon GPU via system_profiler
+  if (is.null(result$gpu_name) && Sys.info()["sysname"] == "Darwin") {
+    tryCatch(
+      {
+        sp <- system("system_profiler SPDisplaysDataType 2>/dev/null", intern = TRUE, ignore.stderr = TRUE)
+        chip_line <- grep("Chipset|Metal|Apple|M[1-4]", sp, value = TRUE, ignore.case = TRUE)
+        if (length(chip_line) > 0) {
+          result$gpu_name <- trimws(gsub(".*:\s*", "", chip_line[1]))
+          result$driver_version <- "metal"
         }
       },
       error = function(e) NULL
