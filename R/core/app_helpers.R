@@ -101,4 +101,18 @@ placeholder_plot <- function(message) {
   graphics::text(0.5, 0.46, "Configure options on the left, then click Run SDM.", cex = 0.86, col = "#8EA2B5")
 }
 
-opentopo_key_is_configured <- function() nzchar(Sys.getenv("OPENTOPOGRAPHY_API_KEY", unset = ""))
+opentopo_key_is_configured <- function() {
+  if (nzchar(Sys.getenv("OPENTOPOGRAPHY_API_KEY", unset = ""))) return(TRUE)
+  # Also check project .Renviron if not already read
+  renviron <- file.path(sdm_project_root(), ".Renviron")
+  if (file.exists(renviron)) {
+    lines <- readLines(renviron, warn = FALSE)
+    key_line <- grep("^OPENTOPOGRAPHY_API_KEY", lines, value = TRUE)
+    if (length(key_line) > 0) {
+      val <- sub("^OPENTOPOGRAPHY_API_KEY\s*=\s*", "", key_line[1])
+      val <- sub("^[\"']|[\"']$", "", val)  # strip quotes
+      return(nzchar(val))
+    }
+  }
+  FALSE
+}
