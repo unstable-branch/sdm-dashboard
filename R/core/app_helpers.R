@@ -109,7 +109,7 @@ opentopo_key_is_configured <- function() {
     lines <- readLines(renviron, warn = FALSE)
     key_line <- grep("^OPENTOPOGRAPHY_API_KEY", lines, value = TRUE)
     if (length(key_line) > 0) {
-      val <- sub("^OPENTOPOGRAPHY_API_KEY\s*=\s*", "", key_line[1])
+      val <- sub("^OPENTOPOGRAPHY_API_KEY\\s*=\\s*", "", key_line[1])
       val <- sub("^[\"']|[\"']$", "", val)  # strip quotes
       return(nzchar(val))
     }

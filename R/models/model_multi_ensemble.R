@@ -190,8 +190,10 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   )
   log_message(log_fun, "Ensemble raster written to: ", output_tif)
 
-  binary_preds <- lapply(names(preds), function(mid) {
-    thresh <- user_threshold %||% comp_cv$threshold %||% 0.5
+  binary_preds <- lapply(seq_along(preds), function(i) {
+    mid <- names(preds)[i]
+    comp_thresh <- if (!is.null(cv_list[[i]]) && !is.null(cv_list[[i]]$threshold)) cv_list[[i]]$threshold else 0.5
+    thresh <- user_threshold %||% comp_thresh
     preds[[mid]] >= thresh
   })
   committee_stack <- terra::rast(binary_preds)

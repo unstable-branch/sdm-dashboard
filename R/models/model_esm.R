@@ -233,6 +233,8 @@ predict_esm_suitability <- function(fit, env_project_scaled,
     ESM.EnsembleModeling.output = fit$model$esm_ensemble
   )
 
+  template <- env_project_scaled[[1]]
+
   # Compute between-pair uncertainty (SD across bivariate predictions)
   pair_sd <- NULL
   tryCatch({
@@ -257,7 +259,6 @@ predict_esm_suitability <- function(fit, env_project_scaled,
     log_message(log_fun, "ESM between-pair uncertainty written to: ", pair_sd_tif)
   }
 
-  template <- env_project_scaled[[1]]
   # ecospat outputs suitability values in 0-1000 range; convert to 0-1
   # If ecospat changes this in a future version, the clamp below catches it
   suit_values <- unname(ens_proj) / 1000

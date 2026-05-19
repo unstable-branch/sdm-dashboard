@@ -117,7 +117,7 @@ test_that("biomod2 registry entry absent when not enabled", {
 
   load_all_modules <- function() {
     env <- new.env()
-    source("/home/rando/Opencode Projects/sdm-dashboard-main/R/model_registry.R", local = env)
+    source(file.path(project_root, "R", "models", "model_registry.R"), local = env)
     get("sdm_model_ids", envir = env)()
   }
 

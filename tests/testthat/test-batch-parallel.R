@@ -1,8 +1,5 @@
 # Tests for batch_run_parallel() and batch runner helpers.
-
-source(file.path(project_root, "R", "bootstrap.R"))
-sdm_set_project_root(project_root)
-source(file.path(project_root, "R", "optimized_sdm.R"))
+# (project_root and module loading provided by helper-load.R)
 
 test_that("parse_comma_ints handles comma-separated integers", {
   expect_equal(parse_comma_ints("1,4,6,12,15,18"), c(1L, 4L, 6L, 12L, 15L, 18L))

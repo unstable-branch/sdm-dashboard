@@ -310,8 +310,8 @@ if (requireNamespace("ranger", quietly = TRUE)) {
         cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
       )
     }
-  ),
-  list(
+  )
+  register_sdm_model(
     id = "xgboost",
     label = "BRT / XGBoost",
     method = "Boosted Regression Trees via xgboost package",

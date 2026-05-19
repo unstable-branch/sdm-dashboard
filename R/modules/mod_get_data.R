@@ -173,7 +173,7 @@ mod_get_data_server <- function(id, rv, input) {
     outputOptions(output, "gd_cmip6_scenarios", suspendWhenHidden = FALSE)
 
     observe({
-      rv$cmip6_scenarios <- verify_future_cache()
+      isolate(rv$cmip6_scenarios <- verify_future_cache())
     })
 
     output$gd_elevation_status <- renderUI({

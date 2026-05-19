@@ -5,14 +5,14 @@ cmd_args <- commandArgs(FALSE)
 file_arg <- grep("^--file=", cmd_args, value = TRUE)
 script_path <- if (length(file_arg) > 0) normalizePath(sub("^--file=", "", file_arg[1]), winslash = "/", mustWork = TRUE) else normalizePath(file.path("scripts", "smoke_test.R"), winslash = "/", mustWork = FALSE)
 project_root <- dirname(dirname(script_path))
-source(file.path(project_root, "R", "bootstrap.R"))
+source(file.path(project_root, "R", "core", "bootstrap.R"))
 sdm_set_project_root(project_root)
 
-r_files <- list.files("R", pattern = "\\.R$", full.names = TRUE)
+r_files <- list.files("R", pattern = "\\.R$", full.names = TRUE, recursive = TRUE)
 parse_errors <- vapply(r_files, function(path) inherits(try(parse(path), silent = TRUE), "try-error"), logical(1))
 if (any(parse_errors)) stop("Failed to parse R module(s): ", paste(r_files[parse_errors], collapse = ", "), call. = FALSE)
 
-source(file.path("R", "optimized_sdm.R"))
+source(file.path("R", "core", "optimized_sdm.R"))
 
 required_functions <- c(
   "run_fast_sdm", "load_environment", "download_worldclim_layers",

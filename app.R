@@ -18,7 +18,7 @@ sdm_set_project_root(app_dir)
 engine_file <- file.path(app_dir, "R", "core", "optimized_sdm.R")
 if (!file.exists(engine_file)) {
   stop(
-    "Could not find R/optimized_sdm.R.\n",
+    "Could not find R/core/optimized_sdm.R.\n",
     "Your zip/extraction may be incomplete."
   )
 }

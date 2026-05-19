@@ -13,9 +13,9 @@ direct_execution <- identical(
   normalizePath(script_path, winslash = "/", mustWork = FALSE),
   normalizePath(file.path(project_root, "scripts", "make_release_zip.R"), winslash = "/", mustWork = FALSE)
 )
-source(file.path(project_root, "R", "bootstrap.R"))
+source(file.path(project_root, "R", "core", "bootstrap.R"))
 sdm_set_project_root(project_root)
-source(file.path(project_root, "R", "optimized_sdm.R"))
+source(file.path(project_root, "R", "core", "optimized_sdm.R"))
 
 args <- commandArgs(trailingOnly = TRUE)
 flags <- args[grepl("^--", args)]

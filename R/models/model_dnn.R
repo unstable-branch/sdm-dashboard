@@ -686,12 +686,41 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
   }
 
-  d <- prepare_sdm_data(occ, env_train_scaled, background_n,
-    seed = seed, log_fun = log_fun, include_xy = FALSE,
-    bias_method = bias_method, target_group_occ = target_group_occ,
-    thickening_distance_km = thickening_distance_km)
-  covariates <- d$covariates
-  model_data <- d$model_data
+  # Extract presence values and filter for complete cases (consistent with prepare_dnn_data)
+  coords <- occ[, c("longitude", "latitude"), drop = FALSE]
+  pres_vals <- tryCatch(terra::extract(env_train_scaled, coords), error = function(e) NULL)
+  if (is.null(pres_vals) || nrow(pres_vals) == 0) stop("No valid presence points found after raster extraction.", call. = FALSE)
+  pres_vals <- pres_vals[complete.cases(pres_vals), , drop = FALSE]
+  if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
+  occurrence_used <- occ[complete.cases(pres_vals), , drop = FALSE]
+
+  # Sample background points the same way prepare_dnn_data does (seed = 42L)
+  set.seed(42L)
+  bg_mask <- env_train_scaled[[1]]
+  bg_mask[!is.na(bg_mask)] <- 1
+  bg_points <- tryCatch(terra::spatSample(bg_mask, size = background_n * 2, method = "random", na.rm = TRUE, as.points = TRUE), error = function(e) NULL)
+  if (is.null(bg_points) || terra::nrow(bg_points) == 0) stop("No background points could be sampled.", call. = FALSE)
+  if (terra::nrow(bg_points) > background_n) bg_points <- bg_points[sample(terra::nrow(bg_points), background_n), ]
+  bg_vals <- terra::extract(env_train_scaled, bg_points)
+  bg_vals <- bg_vals[complete.cases(bg_vals), , drop = FALSE]
+  bg_xy <- tryCatch({
+    bg_geom <- terra::geom(bg_points)
+    data.frame(x = bg_geom[, 1], y = bg_geom[, 2], check.names = FALSE)
+  }, error = function(e) NULL)
+  if (is.null(bg_xy)) stop("Failed to extract background coordinates.", call. = FALSE)
+  bg_xy <- bg_xy[complete.cases(bg_vals), , drop = FALSE]
+  bg_vals <- bg_vals[complete.cases(bg_vals), , drop = FALSE]
+  if (nrow(bg_vals) < 100) stop("Too few background points could be sampled.", call. = FALSE)
+
+  covariates <- make.names(names(env_train_scaled))
+  names(pres_vals) <- covariates
+  names(bg_vals) <- covariates
+
+  model_data <- rbind(
+    data.frame(presence = 1L, pres_vals, check.names = FALSE),
+    data.frame(presence = 0L, bg_vals, check.names = FALSE)
+  )
+  names(model_data) <- make.names(names(model_data))
 
   log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", sum(model_data$presence == 1), " presences")
 
@@ -736,8 +765,8 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     formula = NULL,
     coefficients = NULL,
     model_data = model_data,
-    occurrence_used = d$occ_used,
-    background_xy = d$bg_xy,
+    occurrence_used = occurrence_used,
+    background_xy = bg_xy,
     cv = cv,
     covariates = covariates,
     variable_importance = NULL,

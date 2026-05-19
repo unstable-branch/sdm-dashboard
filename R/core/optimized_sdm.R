@@ -14,7 +14,7 @@ find_bootstrap <- function() {
   }
   existing <- candidates[file.exists(candidates)]
   if (length(existing) == 0) {
-    stop("Could not find R/bootstrap.R. Current working directory: ", getwd(), call. = FALSE)
+    stop("Could not find R/core/bootstrap.R. Current working directory: ", getwd(), call. = FALSE)
   }
   existing[1]
 }

@@ -1,17 +1,25 @@
 mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, last_progress) {
   moduleServer(id, function(input, output, session) {
 
+    # Reactive state for background polling (single observer, created once)
+    bg_state <- reactiveValues(
+      process = NULL,
+      result_file = NULL,
+      log_file = NULL,
+      active = FALSE
+    )
+
     observeEvent(input$cancel_model, {
       if (!isTRUE(rv$running)) return()
       message("SDM: Run cancelled by user")
       options(sdm_cancelled = TRUE)
-      # Kill background process if it exists
-      if (!is.null(rv$bg_process) && rv$bg_process$is_alive()) {
-        rv$bg_process$kill()
+      if (!is.null(bg_state$process) && bg_state$process$is_alive()) {
+        bg_state$process$kill()
         append_log("Background model run killed by user.")
       }
       rv$running <- FALSE
       rv$error <- "Run cancelled."
+      bg_state$active <- FALSE
       append_log("Run cancelled by user.")
     })
 
@@ -23,6 +31,46 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
       })
     })
 
+    # Single polling observer — created once, reacts to bg_state$active
+    observeEvent(bg_state$active, {
+      if (!bg_state$active || is.null(bg_state$process)) return()
+      poll_timer <- reactiveTimer(500, session)
+      observe({
+        poll_timer()
+        if (!bg_state$process$is_alive()) {
+          exit_status <- bg_state$process$get_exit_status()
+          if (file.exists(bg_state$log_file)) {
+            log_text <- tryCatch(paste(readLines(bg_state$log_file, warn = FALSE), collapse = "\n"), error = function(e) "")
+            if (nzchar(log_text)) append_log(log_text)
+          }
+          if (exit_status == 0 && file.exists(bg_state$result_file)) {
+            result <- tryCatch(readRDS(bg_state$result_file), error = function(e) {
+              rv$error <- paste("Failed to read model result:", conditionMessage(e))
+              NULL
+            })
+            if (!is.null(result)) {
+              rv$result <- result
+              store_past_run(rv, result)
+            }
+            append_log("Model run completed.")
+          } else {
+            stderr_text <- tryCatch(bg_state$process$read_error(), error = function(e) "")
+            rv$error <- paste0("Model run failed (exit ", exit_status, "): ", stderr_text)
+            append_log(rv$error)
+          }
+          rv$running <- FALSE
+          bg_state$active <- FALSE
+          unlink(c(bg_state$result_file, bg_state$log_file))
+          message("SDM: Model run finished")
+        } else {
+          if (file.exists(bg_state$log_file)) {
+            log_text <- tryCatch(paste(tail(readLines(bg_state$log_file, warn = FALSE), 5), collapse = "\n"), error = function(e) "")
+            if (nzchar(log_text)) append_log(log_text)
+          }
+        }
+      }, label = "sdm_bg_poll")
+    })
+
     observeEvent(input$run_model, {
       message("SDM: Run SDM button clicked")
       if (isTRUE(rv$running)) {
@@ -31,7 +79,6 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
       }
       rv$error <- NULL; options(sdm_cancelled = FALSE); rv$running <- TRUE; rv$log <- ""
       message("SDM: Starting model run")
-      on.exit({ rv$running <- FALSE; message("SDM: Model run finished") }, add = TRUE)
       occurrence <- occurrence_source()
       occurrence_file <- occurrence$path
       if (is.null(occurrence_file)) {
@@ -185,57 +232,21 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           validation_occurrences = rv$validation_occurrences %||% NULL
         )
 
-        # Run model in background process via callr (fixes Bug #8: cancel now works)
         result_file <- tempfile(pattern = "sdm_result_", fileext = ".rds")
         log_file <- tempfile(pattern = "sdm_log_", fileext = ".txt")
         bg_process <- tryCatch({
           start_model_bg(cfg, result_file, log_file)
         }, error = function(e) {
-          # Fallback to synchronous run if callr unavailable
           append_log("Background process failed: ", conditionMessage(e), "; running synchronously")
           NULL
         })
-        rv$bg_process <- bg_process
 
         if (!is.null(bg_process)) {
-          # Poll background process
-          poll_timer <- reactiveTimer(500, session)
-          observe({
-            poll_timer()
-            if (!bg_process$is_alive()) {
-              exit_status <- bg_process$get_exit_status()
-              # Read accumulated log
-              if (file.exists(log_file)) {
-                log_text <- tryCatch(paste(readLines(log_file, warn = FALSE), collapse = "\n"), error = function(e) "")
-                if (nzchar(log_text)) append_log(log_text)
-              }
-              if (exit_status == 0 && file.exists(result_file)) {
-                result <- tryCatch(readRDS(result_file), error = function(e) {
-                  rv$error <- paste("Failed to read model result:", conditionMessage(e))
-                  NULL
-                })
-                if (!is.null(result)) {
-                  rv$result <- result
-                  store_past_run(rv, result)
-                }
-                append_log("Model run completed.")
-              } else {
-                stderr_text <- tryCatch(bg_process$read_error(), error = function(e) "")
-                rv$error <- paste0("Model run failed (exit ", exit_status, "): ", stderr_text)
-                append_log(rv$error)
-              }
-              rv$running <- FALSE
-              unlink(c(result_file, log_file))
-            } else {
-              # Still running — read any new log output
-              if (file.exists(log_file)) {
-                log_text <- tryCatch(paste(tail(readLines(log_file, warn = FALSE), 5), collapse = "\n"), error = function(e) "")
-                if (nzchar(log_text)) append_log(log_text)
-              }
-            }
-          }, label = "sdm_bg_poll")
+          bg_state$process <- bg_process
+          bg_state$result_file <- result_file
+          bg_state$log_file <- log_file
+          bg_state$active <- TRUE
         } else {
-          # Synchronous fallback
           result <- tryCatch(
             withCallingHandlers(
               run_fast_sdm(cfg),
@@ -248,6 +259,7 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
             store_past_run(rv, result)
           }
           rv$running <- FALSE
+          message("SDM: Model run finished")
         }
       })
     })

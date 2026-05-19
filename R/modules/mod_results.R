@@ -199,14 +199,14 @@ mod_results_server <- function(id, rv, input) {
         },
         if (!is.null(r$future)) row("Future output TIFF", r$paths$future_tif %||% "not available"),
         if (!is.null(r$future)) row("Delta output TIFF", r$paths$delta_tif %||% "not available"),
-        if (!is.null(r$future2)) {
+        if (!is.null(r$future2)) tagList(
           row("2nd scenario", r$config$future_label2 %||% "Scenario 2"),
           row("2nd future mean", fmt_num(r$future2$summary$mean, 3)),
           if (is.finite(r$future$summary$high_risk_area_km2) && is.finite(r$future2$summary$high_risk_area_km2)) {
             diff_pct <- (r$future2$summary$high_risk_area_km2 - r$future$summary$high_risk_area_km2) / r$future$summary$high_risk_area_km2 * 100
             row("Scenario diff", paste0(fmt_num(abs(diff_pct), 1), "% ", if(diff_pct > 0) "more" else "less", " area in scenario 2"))
           }
-        }
+        )
       )
     })
     output$coef_table <- renderTable({

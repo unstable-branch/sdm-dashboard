@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     proj-data \
     && rm -rf /var/lib/apt/lists/*
 
-RUN R -e "pkgs <- c('shiny', 'bslib', 'terra', 'geodata'); install.packages(pkgs, repos = 'https://cloud.r-project.org', Ncpus = max(1, parallel::detectCores() - 1)); missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]; if (length(missing)) stop('Package installation failed: ', paste(missing, collapse = ', '))"
+RUN R -e "pkgs <- c('shiny', 'bslib', 'terra', 'geodata', 'leaflet', 'sf', 'DT', 'ggplot2', 'callr', 'curl', 'maxnet', 'mgcv', 'shinyjs', 'future', 'future.apply', 'marginaleffects', 'mapview'); install.packages(pkgs, repos = 'https://cloud.r-project.org', Ncpus = max(1, parallel::detectCores() - 1)); missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]; if (length(missing)) stop('Package installation failed: ', paste(missing, collapse = ', '))"
 
 WORKDIR /srv/sdm-dashboard
 COPY . /srv/sdm-dashboard

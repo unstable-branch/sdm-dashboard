@@ -7,7 +7,21 @@ if (!dir.exists(mod_dir)) {
   stop("Module directory not found: ", mod_dir, call. = FALSE)
 }
 
-# sdm_resolve_module is defined in core/app_helpers.R (loaded first)
+# sdm_resolve_module is defined in core/app_helpers.R (loaded first within the loop below)
+# If not yet available (e.g., direct load.R sourcing), define a minimal version:
+if (!exists("sdm_resolve_module", mode = "function")) {
+  sdm_resolve_module <- function(m) {
+    mod_dir <- file.path(sdm_project_root(), "R")
+    subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "output")
+    for (sub in subdirs) {
+      p <- file.path(mod_dir, sub, m)
+      if (file.exists(p)) return(p)
+    }
+    p <- file.path(mod_dir, m)
+    if (file.exists(p)) return(p)
+    NULL
+  }
+}
 
 modules <- c(
   # --- core ---
@@ -104,6 +118,7 @@ modules <- c(
 )
 
 for (m in modules) {
+  if (m %in% c("bootstrap.R", "optimized_sdm.R") && exists("sdm_project_root", mode = "function")) next
   p <- sdm_resolve_module(m)
   if (!is.null(p)) {
     tryCatch(source(p, local = TRUE), error = function(e) {

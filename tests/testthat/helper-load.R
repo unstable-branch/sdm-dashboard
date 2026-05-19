@@ -16,6 +16,6 @@ find_sdm_root <- function() {
   stop("Could not find SDM project root")
 }
 project_root <- find_sdm_root()
-source(file.path(project_root, "R", "bootstrap.R"))
+source(file.path(project_root, "R", "core", "bootstrap.R"))
 sdm_set_project_root(project_root)
-source(file.path(project_root, "R", "optimized_sdm.R"))
+source(file.path(project_root, "R", "core", "optimized_sdm.R"))

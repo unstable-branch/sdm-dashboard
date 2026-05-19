@@ -352,12 +352,6 @@ run_fast_sdm <- function(...) {
     importance_result <- fit$variable_importance
   }
 
-  # Ensemble variable importance (multi-model)
-  if (identical(model_id, "multi_ensemble") && !is.null(attr(suit, "ensemble_importance"))) {
-    importance_result <- attr(suit, "ensemble_importance")
-    log_message(log_fun, "Ensemble weighted importance computed across ", importance_result$n_models[1], " models")
-  }
-
   # Area of Applicability (AOA)
   aoa_result <- NULL
   if (!is.null(fit$model_data) && !is.null(fit$covariates)) {
@@ -390,6 +384,7 @@ run_fast_sdm <- function(...) {
   output_tif <- file.path(output_dir, paste0(base_name, "_suitability.tif"))
   output_png <- file.path(output_dir, paste0(base_name, "_suitability.png"))
   output_report <- file.path(output_dir, paste0(base_name, "_report.txt"))
+  extra_paths <- list()
   if (identical(model_id, "multi_ensemble")) {
     suit <- predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
       export_components = isTRUE(multi_ensemble_export),
@@ -404,6 +399,12 @@ run_fast_sdm <- function(...) {
     if (!is.null(esm_pair_sd_tif)) extra_paths[["esm_pair_sd"]] <- esm_pair_sd_tif
   } else {
     suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
+  }
+
+  # Ensemble variable importance (multi-model) — must come after suit is assigned
+  if (identical(model_id, "multi_ensemble") && !is.null(attr(suit, "ensemble_importance"))) {
+    importance_result <- attr(suit, "ensemble_importance")
+    log_message(log_fun, "Ensemble weighted importance computed across ", importance_result$n_models[1], " models")
   }
 
   # PA replication: average predictions across replicates
@@ -467,7 +468,6 @@ run_fast_sdm <- function(...) {
   }
 
   future <- NULL
-  extra_paths <- list()
   if (identical(model_id, "ensemble_glm_rangebag")) {
     extra_paths <- list(
       glm_tif = ensemble_component_path(output_tif, "glm"),
