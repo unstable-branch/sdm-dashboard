@@ -87,11 +87,11 @@ Organised by effort and impact. Items marked with source reference:
 | I12 ✅ **Integrate ESM as multi-ensemble component** — auto-recommend based on record count, allow ESM in weighted ensemble | ESM + Ensemble | esm-deep-dive |
 | I13 ✅ **Run model in background process** — use `future`/`callr` like Get Data downloads, prevent UI freeze | UX + Architecture | code review, bug #8 |
 | I14 ✅ **Add BRT/XGBoost algorithm** — wrap `xgboost` or `gbm` following registry pattern | Algorithms | ensemble |
-| I15 | **Climate matching (Climatch-style)** — Euclidean/Mahalanobis distance between source/target climates, output similarity map | Biosecurity | biosecurity-deep-dive |
-| I16 | **Rapid response mode** — one-click auto-algorithm selection based on record count, optimised for speed | Biosecurity | biosecurity-deep-dive |
-| I17 | **EOO/AOO calculation** — IUCN Red List extent of occurrence / area of occupancy via `rredlist` or `CONR` | Ecology | ecology-deep-dive |
+| I15 ✅ **Climate matching (Climatch-style)** — Euclidean/Mahalanobis distance between source/target climates, output similarity map | Biosecurity | biosecurity-deep-dive |
+| I16 ✅ **Rapid response mode** — one-click auto-algorithm selection based on record count, optimised for speed | Biosecurity | biosecurity-deep-dive |
+| I17 ✅ **EOO/AOO calculation** — IUCN Red List extent of occurrence / area of occupancy via `rredlist` or `CONR` | Ecology | ecology-deep-dive |
 | I18 ✅ **Range size change metrics** — current vs future suitable area, expansion/contraction/retraction | Ecology + Future | ecology-deep-dive |
-| I19 | **Multi-scenario SSP comparison** — side-by-side maps for multiple SSP/RCP scenarios | Future projections | ecology-deep-dive, future |
+| I19 ✅ **Multi-scenario SSP comparison** — side-by-side maps for multiple SSP/RCP scenarios | Future projections | ecology-deep-dive, future |
 | I20 ✅ **Model comparison across runs** — store last N runs, side-by-side AUC/maps | UX | code review |
 
 ### Phase 3 — Polish (1 week+)
@@ -99,14 +99,14 @@ Organised by effort and impact. Items marked with source reference:
 | # | Improvement | Area | Source |
 |---|------------|------|--------|
 | I21 ✅ **Promote backends from experimental → stable** — write tests for MaxNet, GAM, Rangebag, multi-ensemble | Reliability | architecture |
-| I22 | **AOA via CAST** — replace/adjoin MESS with model-weighted area of applicability | Standards → Gold | extrapolation, standards |
+| I22 ✅ **AOA via CAST** — replace/adjoin MESS with model-weighted area of applicability | Standards → Gold | extrapolation, standards |
 | I23 ✅ **Calibration plots** — binned observed vs predicted frequency (Pearce & Ferrier 2000) | Evaluation | standards-assessment |
 | I24 ✅ **Spatial-block CV for MaxNet and GAM** — currently only GLM uses `cv_strategy = "spatial_blocks"` | Standards | code review |
 | I25 ✅ **Simplified sidebar by default** — show only Species, Data Source, Model, BIO vars, Run; advanced behind toggle | UX | code review |
 | I26 ✅ **Structured run log** — parse into collapsible sections (Data → Covariates → Model → CV → Projection) | UX | code review |
 | I27 | **Native vs introduced niche comparison** — PCA overlap plot, `ecospat.niche.overlap()` metrics | Biosecurity | biosecurity-deep-dive |
 | I28 | **Species richness stacking** — stack SDM outputs across species for community-level maps | Ecology | ecology-deep-dive |
-| I29 | **Parallel component prediction in multi-ensemble** — `future`/`parallel` for component model predictions | Performance | code review |
+| I29 ✅ **Parallel component prediction in multi-ensemble** — `future`/`parallel` for component model predictions | Performance | code review |
 | I30 ✅ **Script export for all backends** — ensure `script_export.R` covers ESM, multi-ensemble, biomod2 | Reproducibility | code review |
 
 ### Phase 4 — Advanced (future)
