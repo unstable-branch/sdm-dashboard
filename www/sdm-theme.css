@@ -965,6 +965,7 @@ body.sdm-dark .paginate_button.next { color: var(--sdm-text) !important; }
 body.sdm-dark .table {
   color: var(--sdm-text) !important;
   background: transparent !important;
+  --bs-table-bg: transparent !important;
 }
 body.sdm-dark .table thead tr th {
   background: var(--sdm-surface-soft) !important;
@@ -1547,6 +1548,18 @@ body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
 }
 .obs-record-table .dataTables_scrollHead {
   overflow: hidden;
+}
+
+/* Disable Bootstrap 5 table background override */
+.source-table table.dataTable,
+.obs-record-table table.dataTable,
+.dataTables_wrapper table.dataTable {
+  --bs-table-bg: transparent;
+}
+body.sdm-dark .source-table table.dataTable,
+body.sdm-dark .obs-record-table table.dataTable,
+body.sdm-dark .dataTables_wrapper table.dataTable {
+  --bs-table-bg: transparent !important;
 }
 
 /* Unified DataTables striped/hover — light mode */
