@@ -687,7 +687,7 @@ server <- function(input, output, session) {
   observeEvent(input$obs_record_table_rows_selected, {
     req(rv$cleaned_occurrence)
     req(input$obs_record_table_rows_selected)
-    row_idx <- as.integer(input$obs_record_table_rows_selected)
+    row_idx <- as.integer(input$obs_record_table_rows_selected)[1]
     occ <- rv$cleaned_occurrence$df
     if (is.na(row_idx) || row_idx < 1 || row_idx > nrow(occ)) return()
     proxy <- leaflet::leafletProxy("occurrence_cleaning_map")
