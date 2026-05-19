@@ -219,6 +219,69 @@ thin_occurrences_by_cell <- function(occ, raster_template, by_source = FALSE, lo
   occ
 }
 
+haversine_distance_km <- function(lon1, lat1, lon2, lat2) {
+  radius_km <- 6371.0088
+  to_rad <- pi / 180
+  dlat <- (lat2 - lat1) * to_rad
+  dlon <- (lon2 - lon1) * to_rad
+  lat1 <- lat1 * to_rad
+  lat2 <- lat2 * to_rad
+  a <- sin(dlat / 2)^2 + cos(lat1) * cos(lat2) * sin(dlon / 2)^2
+  2 * radius_km * atan2(sqrt(a), sqrt(pmax(0, 1 - a)))
+}
+
+thin_occurrences_by_distance <- function(occ, min_distance_km = sdm_default_thinning_distance_km,
+                                         by_source = FALSE, seed = sdm_default_seed, log_fun = NULL) {
+  min_distance_km <- suppressWarnings(as.numeric(min_distance_km)[1])
+  if (!is.finite(min_distance_km) || min_distance_km <= 0) {
+    min_distance_km <- sdm_default_thinning_distance_km
+  }
+  original_n <- nrow(occ)
+  if (original_n <= 1) {
+    attr(occ, "thinning_stats") <- list(original_n = original_n, final_n = original_n, removed_total = 0L)
+    return(occ)
+  }
+
+  set.seed(seed)
+  groups <- if (isTRUE(by_source) && "source" %in% names(occ)) {
+    split(seq_len(nrow(occ)), occ$source)
+  } else {
+    list(all = seq_len(nrow(occ)))
+  }
+
+  kept <- integer()
+  for (group_name in sort(names(groups))) {
+    idx <- groups[[group_name]]
+    selected <- integer()
+    for (candidate in sample(idx, length(idx))) {
+      if (length(selected) == 0) {
+        selected <- c(selected, candidate)
+        next
+      }
+      distances <- haversine_distance_km(
+        occ$longitude[candidate], occ$latitude[candidate],
+        occ$longitude[selected], occ$latitude[selected]
+      )
+      if (all(distances >= min_distance_km, na.rm = TRUE)) {
+        selected <- c(selected, candidate)
+      }
+    }
+    kept <- c(kept, selected)
+  }
+
+  kept <- sort(unique(kept))
+  out <- occ[kept, , drop = FALSE]
+  removed <- original_n - nrow(out)
+  if (removed > 0) {
+    log_message(log_fun, "Distance thinning removed ", removed, " records closer than ", min_distance_km, " km")
+  }
+  attr(out, "thinning_stats") <- list(
+    original_n = original_n, final_n = nrow(out), removed_total = removed,
+    min_distance_km = min_distance_km
+  )
+  out
+}
+
 #' Fetch GBIF occurrence records via public API (occ_search)
 #'
 #' @param taxon Species name to search for (e.g., "Acacia mearnsii")

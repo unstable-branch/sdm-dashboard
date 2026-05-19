@@ -65,12 +65,11 @@ compute_mess <- function(env_train, env_proj) {
   per_variable <- per_variable[common_vars]
 
   all_values <- Reduce(function(a, b) c(a, b), per_variable)
-  overall_mess <- terra::app(all_values, function(x) {
-    if (all(is.na(x))) {
-      return(NA)
-    }
-    min(x, na.rm = TRUE)
-  })
+  overall_mess <- if (length(per_variable) == 1) {
+    per_variable[[1]]
+  } else {
+    terra::min(all_values, na.rm = TRUE)
+  }
   names(overall_mess) <- "MESS"
 
   pct_extrapolation <- terra::global(overall_mess < 0, "mean", na.rm = TRUE)[1, 1]
@@ -98,12 +97,14 @@ compute_mod <- function(per_variable_mess) {
 
   all_rasts <- Reduce(function(a, b) c(a, b), per_variable_mess)
 
-  mod <- terra::app(all_rasts, function(x) {
-    if (all(is.na(x))) {
-      return(NA)
-    }
-    which.min(x)
-  })
+  mod <- if (length(per_variable_mess) == 1) {
+    per_variable_mess[[1]]
+  } else {
+    terra::app(all_rasts, which.min)
+  }
+  if (length(per_variable_mess) == 1) {
+    mod[] <- 1L
+  }
   names(mod) <- "MOD"
 
   mod
