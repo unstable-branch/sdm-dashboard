@@ -253,23 +253,28 @@ mod_results_server <- function(id, rv, input) {
         plotOutput("results-var_importance_plot", height = "auto")
       )
     })
-    output$var_importance_plot <- renderPlot({
-      r <- rv$result
-      req(r, r$variable_importance)
-      imp <- r$variable_importance
+    # Shared variable importance plot renderer
+    render_var_importance <- function(imp, y_limit = NULL) {
       if (!is.data.frame(imp) || nrow(imp) == 0) return(NULL)
       imp <- imp[order(imp$importance, decreasing = TRUE), , drop = FALSE]
       if (!requireNamespace("ggplot2", quietly = TRUE)) {
         plot.new(); title("ggplot2 not available"); return(NULL)
       }
+      ylim <- y_limit %||% c(0, max(1, max(imp$importance, na.rm = TRUE) * 1.1))
       p <- ggplot2::ggplot(imp, ggplot2::aes(x = ggplot2::reorder(variable, importance), y = importance)) +
         ggplot2::geom_col(fill = "#2166ac", width = 0.7) +
         ggplot2::coord_flip() +
-        ggplot2::scale_y_continuous(limits = c(0, max(1, max(imp$importance, na.rm = TRUE) * 1.1)), expand = c(0, 0.02)) +
+        ggplot2::scale_y_continuous(limits = ylim, expand = c(0, 0.02)) +
         ggplot2::labs(x = NULL, y = "Relative importance") +
         ggplot2::theme_minimal(base_size = 11) +
         ggplot2::theme(panel.grid.major.y = ggplot2::element_blank())
       print(p)
+    }
+
+    output$var_importance_plot <- renderPlot({
+      r <- rv$result
+      req(r, r$variable_importance)
+      render_var_importance(r$variable_importance)
     }, height = function() {
       r <- rv$result
       if (is.null(r) || is.null(r$variable_importance)) return(200)
@@ -471,20 +476,7 @@ mod_results_server <- function(id, rv, input) {
     output$esm_var_importance <- renderPlot({
       r <- rv$result
       if (is.null(r) || is.null(r$variable_importance)) return(NULL)
-      imp <- r$variable_importance
-      if (!is.data.frame(imp) || nrow(imp) == 0) return(NULL)
-      imp <- imp[order(imp$importance, decreasing = TRUE), ]
-      if (!requireNamespace("ggplot2", quietly = TRUE)) {
-        plot.new(); title("ggplot2 not available"); return(NULL)
-      }
-      p <- ggplot2::ggplot(imp, ggplot2::aes(x = ggplot2::reorder(variable, importance), y = importance)) +
-        ggplot2::geom_col(fill = "#2166ac", width = 0.7) +
-        ggplot2::coord_flip() +
-        ggplot2::scale_y_continuous(limits = c(0, 1), expand = c(0, 0.02)) +
-        ggplot2:: labs(x = NULL, y = "Relative importance") +
-        ggplot2::theme_minimal(base_size = 11) +
-        ggplot2::theme(panel.grid.major.y = ggplot2::element_blank())
-      print(p)
+      render_var_importance(r$variable_importance, y_limit = c(0, 1))
     }, height = function() {
       n <- nrow(rv$result$variable_importance %||% data.frame(variable = character(0)))
       max(150, min(n * 35, 500))

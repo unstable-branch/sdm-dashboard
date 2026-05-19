@@ -66,138 +66,124 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
         layer_files <- c(layer_files, cached)
         loaded_vars <- c(loaded_vars, period)
       }
-      next
     }
+  }
 
-    if (!isTRUE(allow_download)) {
-      log_message(log_fun, "scPDSI not cached and downloads disabled.")
-      next
+  if (length(layers) == length(periods)) {
+    combined <- do.call(c, layers)
+    methods <- setNames(rep("bilinear", terra::nlyr(combined)), names(combined))
+    log_message(log_fun, "Loaded ", terra::nlyr(combined), " scPDSI layer(s): ", paste(names(combined), collapse = ", "))
+    return(list(raster = combined, files = layer_files, source = "CRU scPDSI v4.09 (0.5 deg, 1901-2024) via crudata.uea.ac.uk", variables = list(scpdsi = loaded_vars), methods = methods))
+  }
+
+  if (!isTRUE(allow_download)) {
+    log_message(log_fun, "scPDSI not fully cached and downloads disabled.")
+    if (length(layers) == 0) return(NULL)
+    combined <- do.call(c, layers)
+    methods <- setNames(rep("bilinear", terra::nlyr(combined)), names(combined))
+    return(list(raster = combined, files = layer_files, source = "CRU scPDSI v4.09 (0.5 deg, 1901-2024) via crudata.uea.ac.uk", variables = list(scpdsi = loaded_vars), methods = methods))
+  }
+
+  log_message(log_fun, "Downloading CRU scPDSI annual data from CRU...")
+  tmp <- tempfile(fileext = ".nc")
+  ok <- tryCatch(
+    {
+      curl::curl_fetch_disk(scpdsi_url, tmp)
+      fi <- file.info(tmp)
+      !is.na(fi$size) && fi$size > 10240
+    },
+    error = function(e) FALSE
+  )
+
+  if (!ok || !file.exists(tmp) || file.info(tmp)$size < 10240) {
+    log_message(log_fun, "CRU scPDSI download failed. URL: ", scpdsi_url)
+    if (file.exists(tmp)) unlink(tmp, force = TRUE)
+    if (length(layers) == 0) return(NULL)
+    combined <- do.call(c, layers)
+    methods <- setNames(rep("bilinear", terra::nlyr(combined)), names(combined))
+    return(list(raster = combined, files = layer_files, source = "CRU scPDSI v4.09 (0.5 deg, 1901-2024) via crudata.uea.ac.uk", variables = list(scpdsi = loaded_vars), methods = methods))
+  }
+
+  log_message(log_fun, "Processing CRU scPDSI NetCDF...")
+  nc_rast <- tryCatch(terra::rast(tmp), error = function(e) NULL)
+  unlink(tmp)
+
+  if (is.null(nc_rast)) {
+    log_message(log_fun, "Failed to read CRU scPDSI NetCDF.")
+    if (length(layers) == 0) return(NULL)
+    combined <- do.call(c, layers)
+    methods <- setNames(rep("bilinear", terra::nlyr(combined)), names(combined))
+    return(list(raster = combined, files = layer_files, source = "CRU scPDSI v4.09 (0.5 deg, 1901-2024) via crudata.uea.ac.uk", variables = list(scpdsi = loaded_vars), methods = methods))
+  }
+
+  log_message(log_fun, "scPDSI layers available: ", paste(names(nc_rast), collapse = ", "))
+
+  use_layer <- if ("scpdsi" %in% names(nc_rast)) {
+    "scpdsi"
+  } else if ("pdsi" %in% names(nc_rast)) {
+    "pdsi"
+  } else {
+    names(nc_rast)[1]
+  }
+
+  r_raw <- nc_rast[[use_layer]]
+  names(r_raw) <- use_layer
+
+  nl <- terra::nlyr(r_raw)
+  if (nl > 1) {
+    r_annual <- terra::app(r_raw, fun = "mean", na.rm = TRUE)
+  } else {
+    r_annual <- r_raw
+  }
+  names(r_annual) <- "scpdsi_annual"
+
+  if (nl >= 12) {
+    month_idx <- 1:12
+    r_wet <- terra::app(terra::subset(r_raw, month_idx[c(12, 1, 2)]), fun = "mean", na.rm = TRUE)
+    r_dry <- terra::app(terra::subset(r_raw, month_idx[6:8]), fun = "mean", na.rm = TRUE)
+  } else {
+    r_wet <- r_annual
+    r_dry <- r_annual
+  }
+
+  if (!is.null(extent_vec) && length(extent_vec) == 4) {
+    ext <- terra::ext(extent_vec[1], extent_vec[2], extent_vec[3], extent_vec[4])
+    r_annual <- tryCatch(terra::crop(r_annual, ext, snap = "out"), error = function(e) r_annual)
+    r_wet <- tryCatch(terra::crop(r_wet, ext, snap = "out"), error = function(e) r_wet)
+    r_dry <- tryCatch(terra::crop(r_dry, ext, snap = "out"), error = function(e) r_dry)
+  }
+
+  if (!is.null(aggregate_factor) && aggregate_factor > 1L) {
+    af <- as.integer(aggregate_factor)
+    if (af > 1L) {
+      r_annual <- tryCatch(terra::aggregate(r_annual, fact = af, fun = "mean", na.rm = TRUE), error = function(e) r_annual)
+      r_wet <- tryCatch(terra::aggregate(r_wet, fact = af, fun = "mean", na.rm = TRUE), error = function(e) r_wet)
+      r_dry <- tryCatch(terra::aggregate(r_dry, fact = af, fun = "mean", na.rm = TRUE), error = function(e) r_dry)
     }
+  }
 
-    log_message(log_fun, "Downloading CRU scPDSI annual data from CRU...")
-    tmp <- tempfile(fileext = ".nc")
-    ok <- tryCatch(
-      {
-        curl::curl_fetch_disk(scpdsi_url, tmp)
-        fi <- file.info(tmp)
-        !is.na(fi$size) && fi$size > 10240
-      },
-      error = function(e) FALSE
-    )
-
-    if (!ok || !file.exists(tmp) || file.info(tmp)$size < 10240) {
-      log_message(log_fun, "CRU scPDSI download failed. URL: ", scpdsi_url)
-      if (file.exists(tmp)) unlink(tmp, force = TRUE)
-      next
-    }
-
-    log_message(log_fun, "Processing CRU scPDSI NetCDF...")
-    nc_rast <- tryCatch(terra::rast(tmp), error = function(e) NULL)
-    unlink(tmp)
-
-    if (is.null(nc_rast)) {
-      log_message(log_fun, "Failed to read CRU scPDSI NetCDF.")
-      next
-    }
-
-    log_message(log_fun, "scPDSI layers available: ", paste(names(nc_rast), collapse = ", "))
-
-    # Determine which layer to extract for this period
-    # NetCDF time dimension: we need annual mean (Jan-Dec average), wet season (DJF), dry season (JJA)
-    # Use the first available pdsi-type layer
-    use_layer <- if ("scpdsi" %in% names(nc_rast)) {
-      "scpdsi"
-    } else if ("pdsi" %in% names(nc_rast)) {
-      "pdsi"
-    } else {
-      names(nc_rast)[1]
-    }
-
-    r_raw <- nc_rast[[use_layer]]
-    names(r_raw) <- use_layer
-
-    # For annual mean: average all monthly time steps (typically 12 layers or all time steps)
-    nl <- terra::nlyr(r_raw)
-    if (nl > 1) {
-      r_annual <- terra::app(r_raw, fun = "mean", na.rm = TRUE)
-    } else {
-      r_annual <- r_raw
-    }
+  if ("annual_mean" %in% periods && !file.exists(cached_annual)) {
     names(r_annual) <- "scpdsi_annual"
+    terra::writeRaster(r_annual, cached_annual, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    layers[["scpdsi_annual"]] <- r_annual
+    layer_files <- c(layer_files, cached_annual)
+    loaded_vars <- c(loaded_vars, "annual")
+  }
 
-    # Wet season: roughly Dec-Feb (months 12, 1, 2 in 1-indexed)
-    # Dry season: roughly Jun-Aug (months 6, 7, 8)
-    # Extract specific months if available
-    if (nl >= 12) {
-      month_idx <- 1:12
-      r_wet <- terra::app(terra::subset(r_raw, month_idx[c(12, 1, 2)]), fun = "mean", na.rm = TRUE)
-      r_dry <- terra::app(terra::subset(r_raw, month_idx[6:8]), fun = "mean", na.rm = TRUE)
-    } else {
-      r_wet <- r_annual
-      r_dry <- r_annual
-    }
+  if ("wet_season" %in% periods && !file.exists(cached_wet)) {
+    names(r_wet) <- "scpdsi_wet"
+    terra::writeRaster(r_wet, cached_wet, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    layers[["scpdsi_wet"]] <- r_wet
+    layer_files <- c(layer_files, cached_wet)
+    loaded_vars <- c(loaded_vars, "wet_season")
+  }
 
-    # Crop to extent
-    if (!is.null(extent_vec) && length(extent_vec) == 4) {
-      ext <- terra::ext(extent_vec[1], extent_vec[2], extent_vec[3], extent_vec[4])
-      r_annual <- tryCatch(terra::crop(r_annual, ext, snap = "out"), error = function(e) r_annual)
-      if (exists("r_wet")) {
-        r_wet <- tryCatch(terra::crop(r_wet, ext, snap = "out"), error = function(e) r_wet)
-        r_dry <- tryCatch(terra::crop(r_dry, ext, snap = "out"), error = function(e) r_dry)
-      }
-    }
-
-    # Aggregate to 0.5 deg from whatever native resolution is (already 0.5 deg from CRU)
-    # But extent_crop may have changed resolution slightly — ensure consistent
-    if (!is.null(aggregate_factor) && aggregate_factor > 1L) {
-      af <- as.integer(aggregate_factor)
-      if (af > 1L) {
-        r_annual <- tryCatch(terra::aggregate(r_annual, fact = af, fun = "mean", na.rm = TRUE),
-          error = function(e) r_annual
-        )
-        if (exists("r_wet")) {
-          r_wet <- tryCatch(terra::aggregate(r_wet, fact = af, fun = "mean", na.rm = TRUE),
-            error = function(e) r_wet
-          )
-          r_dry <- tryCatch(terra::aggregate(r_dry, fact = af, fun = "mean", na.rm = TRUE),
-            error = function(e) r_dry
-          )
-        }
-      }
-    }
-
-    if ("annual_mean" %in% periods) {
-      names(r_annual) <- "scpdsi_annual"
-      terra::writeRaster(r_annual, cached_annual,
-        overwrite = TRUE,
-        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
-      )
-      layers[["scpdsi_annual"]] <- r_annual
-      layer_files <- c(layer_files, cached_annual)
-      loaded_vars <- c(loaded_vars, "annual")
-    }
-
-    if (exists("r_wet") && "wet_season" %in% periods) {
-      names(r_wet) <- "scpdsi_wet"
-      terra::writeRaster(r_wet, cached_wet,
-        overwrite = TRUE,
-        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
-      )
-      layers[["scpdsi_wet"]] <- r_wet
-      layer_files <- c(layer_files, cached_wet)
-      loaded_vars <- c(loaded_vars, "wet_season")
-    }
-
-    if (exists("r_dry") && "dry_season" %in% periods) {
-      names(r_dry) <- "scpdsi_dry"
-      terra::writeRaster(r_dry, cached_dry,
-        overwrite = TRUE,
-        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
-      )
-      layers[["scpdsi_dry"]] <- r_dry
-      layer_files <- c(layer_files, cached_dry)
-      loaded_vars <- c(loaded_vars, "dry_season")
-    }
+  if ("dry_season" %in% periods && !file.exists(cached_dry)) {
+    names(r_dry) <- "scpdsi_dry"
+    terra::writeRaster(r_dry, cached_dry, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    layers[["scpdsi_dry"]] <- r_dry
+    layer_files <- c(layer_files, cached_dry)
+    loaded_vars <- c(loaded_vars, "dry_season")
   }
 
   if (length(layers) == 0) {

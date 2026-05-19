@@ -95,12 +95,16 @@ load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
         "UVB5" = "56463_UVB5_Sum_of_UV-B_Radiation_of_Highest_Quarter.asc",
         "UVB6" = "56464_UVB6_Sum_of_UV-B_Radiation_of_Lowest_Quarter.asc"
       ))
+      tmp <- tempfile(fileext = ".asc")
       r <- tryCatch(
         {
-          curl::curl_fetch_disk(remote, cached_file)
+          curl::curl_fetch_disk(remote, tmp)
+          if (!file.exists(tmp) || file.info(tmp)$size < 1024) stop("Downloaded file too small")
+          file.rename(tmp, cached_file)
           terra::rast(cached_file)
         },
         error = function(e) {
+          unlink(tmp)
           log_message(log_fun, "Failed to download glUV ", var, ": ", conditionMessage(e))
           NULL
         }
@@ -144,12 +148,16 @@ load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
         "November"  = "56475_glUV_November_monthly_means.asc",
         "December"  = "56476_glUV_December_monthly_means.asc"
       ))
+      tmp <- tempfile(fileext = ".asc")
       r <- tryCatch(
         {
-          curl::curl_fetch_disk(remote, cached_file)
+          curl::curl_fetch_disk(remote, tmp)
+          if (!file.exists(tmp) || file.info(tmp)$size < 1024) stop("Downloaded file too small")
+          file.rename(tmp, cached_file)
           terra::rast(cached_file)
         },
         error = function(e) {
+          unlink(tmp)
           log_message(log_fun, "Failed to download glUV monthly layer ", month_label, ": ", conditionMessage(e))
           NULL
         }
