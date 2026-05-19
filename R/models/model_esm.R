@@ -258,7 +258,14 @@ predict_esm_suitability <- function(fit, env_project_scaled,
   }
 
   template <- env_project_scaled[[1]]
+  # ecospat outputs suitability values in 0-1000 range; convert to 0-1
+  # If ecospat changes this in a future version, the clamp below catches it
   suit_values <- unname(ens_proj) / 1000
+  # Safety: detect if values are already 0-1 (future ecospat version)
+  if (max(suit_values, na.rm = TRUE) <= 1.01 && min(suit_values, na.rm = TRUE) >= -0.01) {
+    # Already 0-1 range, skip division
+    suit_values <- unname(ens_proj)
+  }
   suit_values <- pmin(1, pmax(0, suit_values))
   suit_raster <- terra::setValues(template, suit_values)
   names(suit_raster) <- "suitability"

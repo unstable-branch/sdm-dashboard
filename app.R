@@ -509,7 +509,10 @@ server <- function(input, output, session) {
       rv$tune_result <- tune_result
     }
   })
-
+  # Compact header mode toggle
+  observeEvent(input$compact_mode, {
+    session$sendCustomMessage(type = "sdm-toggle-compact", list(compact = isTRUE(input$compact_mode)))
+  }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
 
 

@@ -42,7 +42,8 @@
     'climate_matching',
     'climate_matching_method',
     'use_soil',
-    'use_vegetation'
+    'use_vegetation',
+    'compact_mode'
   ];
 
   function getInputValue(id) {
@@ -129,4 +130,15 @@
     save: saveSettings,
     restore: restoreSettings
   };
+
+  // Compact header toggle handler
+  if (window.Shiny) {
+    Shiny.addCustomMessageHandler('sdm-toggle-compact', function(msg) {
+      if (msg.compact) {
+        document.body.classList.add('sdm-compact');
+      } else {
+        document.body.classList.remove('sdm-compact');
+      }
+    });
+  }
 })();

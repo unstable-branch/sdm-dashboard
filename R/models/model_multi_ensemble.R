@@ -59,7 +59,8 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
                                          export_components = TRUE,
                                          include_uncertainty = TRUE,
                                          ensemble_weighting = "auc",
-                                         ensemble_power = 2) {
+                                         ensemble_power = 2,
+                                         user_threshold = NULL) {
   if (!is.list(fit) || is.null(fit$model) || is.null(fit$model$components)) {
     stop("fit must be a multi_model_ensemble fit result.", call. = FALSE)
   }
@@ -190,8 +191,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   log_message(log_fun, "Ensemble raster written to: ", output_tif)
 
   binary_preds <- lapply(names(preds), function(mid) {
-    comp_cv <- cv_list[[mid]]
-    thresh <- comp_cv$threshold %||% 0.5
+    thresh <- user_threshold %||% comp_cv$threshold %||% 0.5
     preds[[mid]] >= thresh
   })
   committee_stack <- terra::rast(binary_preds)

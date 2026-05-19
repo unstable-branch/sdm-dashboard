@@ -107,7 +107,8 @@ ui_sidebar_controls <- function() {
         div(class = "small-muted", "CHELSA bioclim-plus: gdd5/10 (growing degree days), gsl, fcf, npp, scd. Downloaded automatically when selected.")
       ),
       checkboxGroupInput("biovars", NULL, choices = biovar_choices, selected = as.character(sdm_default_biovars)),
-      div(class = "advanced-toggle", checkboxInput("show_advanced", "Show advanced options", value = FALSE))
+      div(class = "advanced-toggle", checkboxInput("show_advanced", "Show advanced options", value = FALSE)),
+      div(class = "advanced-toggle small-muted", checkboxInput("compact_mode", "Compact header", value = FALSE))
     ),
     conditionalPanel(
       "input.show_advanced",

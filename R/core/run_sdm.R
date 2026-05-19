@@ -393,9 +393,10 @@ run_fast_sdm <- function(...) {
   if (identical(model_id, "multi_ensemble")) {
     suit <- predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
       export_components = isTRUE(multi_ensemble_export),
-      include_uncertainty = TRUE,
+      include_uncertainty = isTRUE(multi_ensemble_export),
       ensemble_weighting = multi_ensemble_weighting,
-      ensemble_power = multi_ensemble_power
+      ensemble_power = multi_ensemble_power,
+      user_threshold = threshold
     )
   } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
     suit <- predict_esm_suitability(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
