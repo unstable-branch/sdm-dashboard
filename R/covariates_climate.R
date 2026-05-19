@@ -122,10 +122,17 @@ download_worldclim_layers <- function(worldclim_dir, selected_biovars, res = 10,
   wc <- geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir)
   for (bv in as.integer(selected_biovars)) {
     idx <- grep(sprintf("bio_?%d$", bv), names(wc), ignore.case = TRUE)
+    # geodata names layers bio01-bio19; also try zero-padded form
+    if (length(idx) == 0) idx <- grep(sprintf("bio%02d$", bv), names(wc), ignore.case = TRUE)
     if (length(idx) == 0 && bv <= terra::nlyr(wc)) idx <- bv
     if (length(idx) > 0) {
       out <- file.path(worldclim_dir, sprintf("wc2.1_%sm_bio_%d.tif", res, bv))
-      if (!file.exists(out)) try(terra::writeRaster(wc[[idx[1]]], out, overwrite = TRUE), silent = TRUE)
+      if (!file.exists(out)) {
+        wr <- try(terra::writeRaster(wc[[idx[1]]], out, overwrite = TRUE), silent = TRUE)
+        if (inherits(wr, "try-error")) {
+          log_message(log_fun, "Warning: failed to write ", basename(out), ": ", attr(wr, "condition")$message)
+        }
+      }
     }
   }
   invisible(find_worldclim_files(worldclim_dir, selected_biovars))
@@ -189,9 +196,13 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
     }
   }
 
+  # Allow NULL extents for download-only calls (Get Data tab)
+  env_train <- if (!is.null(training_extent)) crop_and_optionally_aggregate(env_global, training_extent, aggregation_factor) else env_global
+  env_project <- if (!is.null(projection_extent)) crop_and_optionally_aggregate(env_global, projection_extent, aggregation_factor) else env_global
+
   list(
-    env_train = crop_and_optionally_aggregate(env_global, training_extent, aggregation_factor),
-    env_project = crop_and_optionally_aggregate(env_global, projection_extent, aggregation_factor),
+    env_train = env_train,
+    env_project = env_project,
     selected_biovars = selected_biovars,
     files = c(files, extra_files)
   )
