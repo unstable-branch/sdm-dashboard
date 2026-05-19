@@ -214,12 +214,12 @@ body.sdm-dark .nav-tabs .nav-link.active {
 body.sdm-dark .table,
 body.sdm-dark table { color: var(--sdm-text) !important; }
 body.sdm-dark .table-striped > tbody > tr:nth-of-type(odd) > * {
-  color: var(--sdm-text);
-  background-color: rgba(255, 255, 255, 0.035);
+  color: var(--sdm-text) !important;
+  background-color: rgba(255, 255, 255, 0.035) !important;
 }
 body.sdm-dark .table-hover > tbody > tr:hover > * {
-  color: var(--sdm-text);
-  background-color: rgba(55, 208, 178, 0.09);
+  color: var(--sdm-text) !important;
+  background-color: rgba(55, 208, 178, 0.09) !important;
 }
 
 body.sdm-dark .status-ok {
@@ -918,6 +918,10 @@ body.sdm-dark .modal .paginate_button.next { color: var(--sdm-text) !important; 
 body.sdm-dark .modal .table {
   color: var(--sdm-text) !important;
   background: transparent !important;
+  --bs-table-bg: transparent !important;
+  --bs-table-accent-bg: transparent !important;
+  --bs-table-striped-bg: transparent !important;
+  --bs-table-hover-bg: transparent !important;
 }
 body.sdm-dark .modal .table thead tr th {
   background: var(--sdm-surface-soft) !important;
@@ -925,12 +929,14 @@ body.sdm-dark .modal .table thead tr th {
   border-bottom: 2px solid var(--sdm-border) !important;
   padding: 0.75rem !important;
   font-weight: 600 !important;
+  box-shadow: none !important;
 }
 body.sdm-dark .modal .table tbody tr td {
   background: transparent !important;
   border-color: var(--sdm-border) !important;
   padding: 0.5rem 0.75rem !important;
   color: var(--sdm-text) !important;
+  box-shadow: none !important;
 }
 body.sdm-dark .modal .table-striped tbody tr:nth-of-type(odd) td { background: rgba(255,255,255,0.035) !important; }
 body.sdm-dark .modal .table-striped tbody tr:nth-of-type(even) td { background: transparent !important; }
@@ -966,6 +972,9 @@ body.sdm-dark .table {
   color: var(--sdm-text) !important;
   background: transparent !important;
   --bs-table-bg: transparent !important;
+  --bs-table-accent-bg: transparent !important;
+  --bs-table-striped-bg: transparent !important;
+  --bs-table-hover-bg: transparent !important;
 }
 body.sdm-dark .table thead tr th {
   background: var(--sdm-surface-soft) !important;
@@ -973,12 +982,14 @@ body.sdm-dark .table thead tr th {
   border-bottom: 2px solid var(--sdm-border) !important;
   padding: 0.75rem !important;
   font-weight: 600 !important;
+  box-shadow: none !important;
 }
 body.sdm-dark .table tbody tr td {
   background: transparent !important;
   border-color: var(--sdm-border) !important;
   padding: 0.5rem 0.75rem !important;
   color: var(--sdm-text) !important;
+  box-shadow: none !important;
 }
 body.sdm-dark .form-control,
 body.sdm-dark select {
@@ -1550,15 +1561,37 @@ body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
   overflow: hidden;
 }
 
-/* Disable Bootstrap 5 table styling on DataTables */
-.source-table,
-.obs-record-table,
-.dataTables_wrapper {
+/* === Disable Bootstrap 5 table styling on ALL DataTables === */
+.source-table .table,
+.obs-record-table .table,
+.dataTables_wrapper .table {
   --bs-table-bg: transparent !important;
   --bs-table-color: inherit !important;
   --bs-table-border-color: transparent !important;
   --bs-table-accent-bg: transparent !important;
+  --bs-table-striped-bg: transparent !important;
+  --bs-table-striped-color: inherit !important;
+  --bs-table-active-bg: transparent !important;
+  --bs-table-active-color: inherit !important;
+  --bs-table-hover-bg: transparent !important;
+  --bs-table-hover-color: inherit !important;
 }
+
+/* Kill Bootstrap's box-shadow overlay trick on cells */
+.source-table .table tbody tr td,
+.source-table .table tbody tr th,
+.source-table .table thead tr th,
+.obs-record-table .table tbody tr td,
+.obs-record-table .table tbody tr th,
+.obs-record-table .table thead tr th,
+.dataTables_wrapper .table tbody tr td,
+.dataTables_wrapper .table tbody tr th,
+.dataTables_wrapper .table thead tr th {
+  box-shadow: none !important;
+  background-color: unset !important;
+}
+
+/* Reset table structure */
 .source-table table.dataTable,
 .obs-record-table table.dataTable,
 .dataTables_wrapper table.dataTable {
@@ -1567,11 +1600,7 @@ body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
   margin: 0;
   width: 100%;
 }
-.source-table table.dataTable *,
-.obs-record-table table.dataTable *,
-.dataTables_wrapper table.dataTable * {
-  background-color: unset !important;
-}
+
 /* Re-apply our custom backgrounds on top of the reset */
 
 /* Unified DataTables striped/hover — light mode */
@@ -1612,14 +1641,15 @@ body.sdm-dark .dataTables_wrapper .table-hover tbody tr:hover td {
 .source-table table.dataTable thead th,
 .obs-record-table table.dataTable thead th,
 .dataTables_wrapper table.dataTable thead th {
-  background: #f4f7fb;
-  color: #102a43;
-  border-bottom: 2px solid #d4dde6;
-  padding: 0.75rem;
-  font-weight: 600;
-  font-size: 0.82rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  background: #f4f7fb !important;
+  color: #102a43 !important;
+  border-bottom: 2px solid #d4dde6 !important;
+  padding: 0.75rem !important;
+  font-weight: 600 !important;
+  font-size: 0.82rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  box-shadow: none !important;
 }
 
 /* Unified DataTables table headers — dark mode */
@@ -1631,9 +1661,10 @@ body.sdm-dark .dataTables_wrapper table.dataTable thead th {
   border-bottom: 2px solid var(--sdm-border) !important;
   padding: 0.75rem !important;
   font-weight: 600 !important;
-  font-size: 0.82rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 0.82rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  box-shadow: none !important;
 }
 
 /* Unified DataTables table cells — light mode */
@@ -1643,6 +1674,8 @@ body.sdm-dark .dataTables_wrapper table.dataTable thead th {
   padding: 0.5rem 0.75rem;
   border-color: #e7edf4;
   color: #102a43;
+  background: transparent;
+  box-shadow: none;
 }
 
 /* Unified DataTables table cells — dark mode */
@@ -1652,6 +1685,8 @@ body.sdm-dark .dataTables_wrapper table.dataTable tbody td {
   border-color: var(--sdm-border) !important;
   color: var(--sdm-text) !important;
   padding: 0.5rem 0.75rem !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 /* Phase 10: Export flagged button */
