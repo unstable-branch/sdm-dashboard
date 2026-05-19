@@ -52,7 +52,8 @@ read_occurrence_file <- function(path, log_fun = NULL) {
 }
 
 clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE,
-                              use_cc = FALSE, cc_tests = "all", log_fun = NULL, min_records = 20) {
+                              use_cc = FALSE, cc_tests = "all", log_fun = NULL, min_records = 20,
+                              max_coordinate_uncertainty = NULL) {
   raw <- read_occurrence_file(path, log_fun = log_fun)
   original_n <- nrow(raw)
   if (original_n == 0) stop("Occurrence file is empty.", call. = FALSE)
@@ -90,7 +91,26 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   finite_ok <- is.finite(occ$longitude) & is.finite(occ$latitude)
   bounds_ok <- occ$longitude >= -180 & occ$longitude <= 180 & occ$latitude >= -90 & occ$latitude <= 90
   status_ok <- is.na(raw_status) | tolower(raw_status) == "present"
-  ok <- complete_ok & finite_ok & bounds_ok & status_ok
+
+  # Coordinate uncertainty filter (GBIF coordinateUncertaintyInMeters)
+  uncertainty_ok <- rep(TRUE, nrow(raw))
+  n_uncertainty_filtered <- 0L
+  if (!is.null(max_coordinate_uncertainty) && is.finite(max_coordinate_uncertainty) && max_coordinate_uncertainty < .Machine$double.xmax) {
+    unc_col <- detect_column(names(raw), c("coordinateuncertaintyinmeters", "coordinate_uncertainty", "uncertainty"))
+    if (!is.na(unc_col)) {
+      unc_values <- suppressWarnings(as.numeric(raw[[unc_col]]))
+      # Keep records with no uncertainty info OR uncertainty within threshold
+      uncertainty_ok <- is.na(unc_values) | unc_values <= max_coordinate_uncertainty
+      n_uncertainty_filtered <- sum(!uncertainty_ok & !is.na(unc_values))
+      if (n_uncertainty_filtered > 0) {
+        log_message(log_fun, "Filtered ", n_uncertainty_filtered, " records with coordinate uncertainty > ", max_coordinate_uncertainty, "m")
+      }
+    } else {
+      log_message(log_fun, "Coordinate uncertainty column not found; skipping uncertainty filter")
+    }
+  }
+
+  ok <- complete_ok & finite_ok & bounds_ok & status_ok & uncertainty_ok
   removed_bad <- sum(!ok)
   occ <- occ[ok, , drop = FALSE]
 

@@ -175,6 +175,63 @@ mod_results_server <- function(id, rv, input) {
       co[numeric_cols] <- lapply(co[numeric_cols], function(x) signif(x, 4))
       co
     }, striped = TRUE, hover = TRUE, spacing = "s")
+    output$response_curves_panel <- renderUI({
+      r <- rv$result
+      if (is.null(r) || is.null(r$response_curves) || length(r$response_curves) == 0) return(NULL)
+      div(class = "content-card",
+        h4("Response curves"),
+        p(class = "small-muted", "Marginal (partial) response of suitability to each covariate, holding others at their mean."),
+        plotOutput("results-response_curves_plot", height = "auto")
+      )
+    })
+    output$response_curves_plot <- renderPlot({
+      r <- rv$result
+      req(r)
+      curve_data <- r$response_curves
+      if (is.null(curve_data) || length(curve_data) == 0) return(placeholder_plot("Response curves not available for this backend."))
+      plot_response_curves(curve_data, ncol = 3)
+    }, height = function() {
+      r <- rv$result
+      if (is.null(r) || is.null(r$response_curves)) return(200)
+      n_vars <- max(1, length(r$response_curves))
+      ceiling(n_vars / 3) * 180 + 60
+    })
+    output$variable_importance_panel <- renderUI({
+      r <- rv$result
+      if (is.null(r)) return(NULL)
+      imp <- r$variable_importance
+      if (is.null(imp) || !is.data.frame(imp) || nrow(imp) == 0) return(NULL)
+      # ESM has its own dedicated panel with pair heatmap
+      if (!is.null(r$esm_config)) return(NULL)
+      div(class = "content-card",
+        h4("Variable importance"),
+        p(class = "small-muted", "Permutation importance: drop in AUC when each variable is randomly shuffled."),
+        plotOutput("results-var_importance_plot", height = "auto")
+      )
+    })
+    output$var_importance_plot <- renderPlot({
+      r <- rv$result
+      req(r, r$variable_importance)
+      imp <- r$variable_importance
+      if (!is.data.frame(imp) || nrow(imp) == 0) return(NULL)
+      imp <- imp[order(imp$importance, decreasing = TRUE), , drop = FALSE]
+      if (!requireNamespace("ggplot2", quietly = TRUE)) {
+        plot.new(); title("ggplot2 not available"); return(NULL)
+      }
+      p <- ggplot2::ggplot(imp, ggplot2::aes(x = ggplot2::reorder(variable, importance), y = importance)) +
+        ggplot2::geom_col(fill = "#2166ac", width = 0.7) +
+        ggplot2::coord_flip() +
+        ggplot2::scale_y_continuous(limits = c(0, max(1, max(imp$importance, na.rm = TRUE) * 1.1)), expand = c(0, 0.02)) +
+        ggplot2::labs(x = NULL, y = "Relative importance") +
+        ggplot2::theme_minimal(base_size = 11) +
+        ggplot2::theme(panel.grid.major.y = ggplot2::element_blank())
+      print(p)
+    }, height = function() {
+      r <- rv$result
+      if (is.null(r) || is.null(r$variable_importance)) return(200)
+      n <- max(1, nrow(r$variable_importance))
+      max(180, min(n * 30 + 60, 500))
+    })
     output$dwca_issues_panel <- renderUI({
       r <- rv$result
       if (is.null(r) || is.null(r$dwca_issues) || nrow(r$dwca_issues) == 0) return(NULL)

@@ -148,6 +148,7 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           cleaned_occurrence = rv$cleaned_occurrence,
           use_cc = TRUE,
           cc_tests = input$cc_tests %||% "all",
+          max_coordinate_uncertainty = input$dwca_max_uncertainty %||% NULL,
           output_dir = sdm_default_output_dir,
           seed = sdm_default_seed,
           occurrence_source = occurrence$detail,
@@ -175,6 +176,7 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           esm_n_runs = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_n_runs %||% sdm_esm_default_n_runs else sdm_esm_default_n_runs,
           esm_split = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_split %||% sdm_esm_default_split else sdm_esm_default_split,
           esm_min_auc = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_min_auc %||% sdm_esm_default_min_auc else sdm_esm_default_min_auc,
+          esm_weighting_metric = input$esm_weighting_metric %||% "AUC",
           esm_power = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_power %||% sdm_esm_default_power else sdm_esm_default_power,
           overlap_warn = !is.null(run_overlap) && (run_overlap$count == 0 || run_overlap$percent < 10)
         )

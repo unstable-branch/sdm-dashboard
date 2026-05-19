@@ -3,6 +3,7 @@ fit_esm <- function(occ,
                     biovars = NULL,
                     algorithm = "GLM",
                     min_auc = sdm_esm_default_min_auc,
+                    weighting_metric = "AUC",
                     power = sdm_esm_default_power,
                     n_runs_eval = sdm_esm_default_n_runs,
                     data_split = sdm_esm_default_split,
@@ -24,6 +25,12 @@ fit_esm <- function(occ,
   }
 
   set.seed(seed)
+
+  weighting_metric <- toupper(weighting_metric[1])
+  if (!weighting_metric %in% c("AUC", "TSS")) {
+    warning("ESM weighting_metric must be 'AUC' or 'TSS'; defaulting to 'AUC'")
+    weighting_metric <- "AUC"
+  }
 
   covariate_cols <- if (!is.null(biovars) && length(biovars) > 0) {
     paste0("bio", biovars)
@@ -114,7 +121,7 @@ fit_esm <- function(occ,
       NbRunEval        = as.integer(n_runs_eval),
       DataSplit        = as.integer(data_split),
       Prevalence       = NULL,
-      weighting.score  = "AUC",
+      weighting.score  = weighting_metric,
       models           = toupper(algorithm),
       tune             = FALSE,
       modeling.id      = modeling_id,
@@ -133,7 +140,7 @@ fit_esm <- function(occ,
 
   esm_ensemble <- ecospat::ecospat.ESM.EnsembleModeling(
     ESM.modeling.output = esm_models,
-    weighting.score = "AUC",
+    weighting.score = weighting_metric,
     threshold = min_auc
   )
 
@@ -226,6 +233,30 @@ predict_esm_suitability <- function(fit, env_project_scaled,
     ESM.EnsembleModeling.output = fit$model$esm_ensemble
   )
 
+  # Compute between-pair uncertainty (SD across bivariate predictions)
+  pair_sd <- NULL
+  tryCatch({
+    pair_preds <- proj_out$proj[fit$model$esm_ensemble$models.kept, , drop = FALSE]
+    if (!is.null(pair_preds) && nrow(pair_preds) > 1) {
+      pair_sd_values <- matrixStats::colSds(as.matrix(pair_preds), na.rm = TRUE) / 1000
+      pair_sd <- terra::setValues(template, pmin(1, pmax(0, pair_sd_values)))
+      names(pair_sd) <- "esm_pair_sd"
+    }
+  }, error = function(e) {
+    log_message(log_fun, "ESM: between-pair SD computation skipped: ", conditionMessage(e))
+  })
+
+  # Save pair SD as sidecar TIFF if computed
+  pair_sd_tif <- NULL
+  if (!is.null(pair_sd)) {
+    pair_sd_tif <- sub("\\.tif$", "_pair_sd.tif", output_tif)
+    terra::writeRaster(pair_sd, pair_sd_tif,
+      overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    )
+    log_message(log_fun, "ESM between-pair uncertainty written to: ", pair_sd_tif)
+  }
+
   template <- env_project_scaled[[1]]
   suit_values <- unname(ens_proj) / 1000
   suit_values <- pmin(1, pmax(0, suit_values))
@@ -239,6 +270,9 @@ predict_esm_suitability <- function(fit, env_project_scaled,
   )
   log_message(log_fun, "ESM suitability written to: ", output_tif)
 
+  if (!is.null(pair_sd_tif)) {
+    attr(suit_raster, "esm_pair_sd_tif") <- pair_sd_tif
+  }
   suit_raster
 }
 
