@@ -584,7 +584,7 @@ server <- function(input, output, session) {
       stringsAsFactors = FALSE
     )
     DT::datatable(df,
-      options = list(dom = "t", ordering = TRUE, pageLength = 15),
+      options = list(dom = "t", ordering = TRUE, pageLength = 15, scrollX = TRUE, autoWidth = FALSE),
       rownames = FALSE,
       class = "display compact source-table",
       style = "bootstrap"
@@ -674,7 +674,9 @@ server <- function(input, output, session) {
       options = list(
         dom = "t",
         ordering = TRUE,
-        pageLength = 25
+        pageLength = 25,
+        scrollX = TRUE,
+        autoWidth = FALSE
       ),
       escape = FALSE,
       rownames = FALSE,
