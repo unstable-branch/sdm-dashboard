@@ -7,18 +7,7 @@ if (!dir.exists(mod_dir)) {
   stop("Module directory not found: ", mod_dir, call. = FALSE)
 }
 
-# Resolve module path — checks subdirectories then R/ root for backward compat
-resolve_module <- function(m) {
-  subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "output")
-  for (sub in subdirs) {
-    p <- file.path(mod_dir, sub, m)
-    if (file.exists(p)) return(p)
-  }
-  # Fallback to R/ root
-  p <- file.path(mod_dir, m)
-  if (file.exists(p)) return(p)
-  NULL
-}
+# sdm_resolve_module is defined in core/app_helpers.R (loaded first)
 
 modules <- c(
   # --- core ---
@@ -115,7 +104,7 @@ modules <- c(
 )
 
 for (m in modules) {
-  p <- resolve_module(m)
+  p <- sdm_resolve_module(m)
   if (!is.null(p)) {
     tryCatch(source(p, local = TRUE), error = function(e) {
       stop("Failed to source ", m, ": ", e$message, call. = FALSE)

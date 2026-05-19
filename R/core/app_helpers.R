@@ -116,3 +116,17 @@ opentopo_key_is_configured <- function() {
   }
   FALSE
 }
+
+# Module path resolver — finds R source files in subdirectories.
+# Used by load.R and on-demand source() calls (e.g., mod_get_data.R).
+sdm_resolve_module <- function(m) {
+  mod_dir <- file.path(sdm_project_root(), "R")
+  subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "output")
+  for (sub in subdirs) {
+    p <- file.path(mod_dir, sub, m)
+    if (file.exists(p)) return(p)
+  }
+  p <- file.path(mod_dir, m)
+  if (file.exists(p)) return(p)
+  NULL
+}
