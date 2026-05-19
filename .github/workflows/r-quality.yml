@@ -36,7 +36,7 @@ jobs:
           files <- files[!grepl("/\\.Rprofile$", files)]
           for (file in files) parse(file)
           message("Parsed ", length(files), " R source files.")
-        shell: Rscript {0}
+        shell: Rscript --no-init-file {0}
 
       - name: Install system dependencies
         run: |
