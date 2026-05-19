@@ -46,3 +46,39 @@ test_that("prepare_dnn_data returns expected structure", {
   expect_true(d$n_presences > 0)
   expect_true(d$n_background > 0)
 })
+
+test_that("DNN backend fits and predicts through the registry", {
+  skip_if_not(requireNamespace("cito", quietly = TRUE))
+  skip_if_not(requireNamespace("torch", quietly = TRUE))
+  skip_if_not("dnn" %in% unname(sdm_model_choices()))
+
+  set.seed(42)
+  env <- make_test_raster(n_layers = 2, layer_names = c("bio1", "bio12"))
+  occ <- data.frame(
+    species = "Synthetic species",
+    longitude = seq(140.15, 141.85, length.out = 30),
+    latitude = seq(-23.85, -22.15, length.out = 30),
+    source = rep(c("A", "B"), each = 15),
+    stringsAsFactors = FALSE
+  )
+
+  fit <- fit_sdm_model("dnn", occ, env, background_n = 60, cv_folds = 2, seed = 99, n_cores = 1)
+  expect_equal(fit$model_id, "dnn")
+  expect_true(is.list(fit$model))
+  expect_true(is.list(fit$cv))
+  expect_true(is.finite(fit$cv$auc_mean))
+
+  output_tif <- tempfile(fileext = ".tif")
+  suit <- predict_sdm_model(fit, env, output_tif, n_cores = 1)
+  expect_true(inherits(suit, "SpatRaster"))
+  expect_equal(names(suit), "suitability")
+  expect_true(file.exists(output_tif))
+})
+
+test_that("DNN torch_setup detects device correctly", {
+  skip_if_not(requireNamespace("torch", quietly = TRUE))
+  result <- detect_torch_device()
+  expect_true(is.list(result))
+  expect_true("device" %in% names(result))
+  expect_true(result$device %in% c("cpu", "cuda", "mps"))
+})
