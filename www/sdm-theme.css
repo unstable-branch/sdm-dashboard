@@ -704,7 +704,12 @@ summary:focus-visible {
 }
 .table-scroll table {
   max-width: 100%;
-  table-layout: auto;
+  table-layout: fixed;
+  word-break: break-word;
+}
+.table-scroll td:first-child {
+  max-width: 180px;
+  overflow-wrap: break-word;
   word-break: break-word;
 }
 @media (max-width: 575px) {

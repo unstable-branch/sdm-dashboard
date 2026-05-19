@@ -79,16 +79,16 @@ mod_readiness_server <- function(id, rv, input, readiness_item, occurrence_sourc
 
       climate_files <- {
         climate_dir <- input$worldclim_dir
-        if (is.null(climate_dir) || is.na(climate_dir) || !nzchar(climate_dir)) {
-          setNames(rep(NA_real_, length(biovars)), biovars)
-        } else {
-          climate_dir <- file.path(sdm_project_root(), climate_dir)
-          find_worldclim_files(climate_dir, biovars, source = input$climate_source %||% "worldclim")
+        if (is.null(climate_dir) || is.na(climate_dir) || !nzchar(trimws(climate_dir))) {
+          climate_dir <- sdm_default_worldclim_dir
         }
+        climate_dir <- file.path(sdm_project_root(), climate_dir)
+        find_worldclim_files(climate_dir, biovars, source = input$climate_source %||% "worldclim")
       }
       missing_climate <- names(climate_files)[is.na(climate_files)]
       climate_state <- "ok"
-      climate_detail <- paste(length(climate_files) - length(missing_climate), "of", length(climate_files), "selected BIO layers found in", input$worldclim_dir)
+      climate_dir_label <- if (!is.null(input$worldclim_dir) && nzchar(trimws(input$worldclim_dir))) input$worldclim_dir else sdm_default_worldclim_dir
+      climate_detail <- paste(length(climate_files) - length(missing_climate), "of", length(climate_files), "selected BIO layers found in", climate_dir_label)
       if (length(biovars) < 2) {
         issues <- c(issues, "Select at least two BIOCLIM variables.")
         climate_state <- "error"
@@ -117,7 +117,7 @@ mod_readiness_server <- function(id, rv, input, readiness_item, occurrence_sourc
             } else {
               character(0)
             }
-            issues <- c(issues, paste0("Add missing CHELSA v2.1 BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), "), or enable auto-download."))
+            issues <- c(issues, paste0("Add missing CHELSA v2.1 BIO layers to ", climate_dir_label, " (e.g., ", paste(expected_patterns, collapse = ", "), "), or enable auto-download."))
           } else {
             expected_patterns <- if (length(bv_int) > 0 && !anyNA(bv_int)) {
               vapply(bv_int, function(bv) {
@@ -126,7 +126,7 @@ mod_readiness_server <- function(id, rv, input, readiness_item, occurrence_sourc
             } else {
               character(0)
             }
-            issues <- c(issues, paste0("Add missing WorldClim BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), "), use the Get Data tab, or enable auto-download."))
+            issues <- c(issues, paste0("Add missing WorldClim BIO layers to ", climate_dir_label, " (e.g., ", paste(expected_patterns, collapse = ", "), "), use the Get Data tab, or enable auto-download."))
           }
         }
       }

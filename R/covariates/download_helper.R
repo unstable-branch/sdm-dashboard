@@ -3,7 +3,14 @@
 
 start_download_bg <- function(download_fun, args = NULL, init_engine = TRUE) {
   wrapped_fun <- function(...) {
-    if (isTRUE(init_engine)) source(sdm_resolve_module("optimized_sdm.R"))
+    if (isTRUE(init_engine)) {
+      proj_root <- getwd()
+      if (file.exists(file.path(proj_root, "R", "core", "bootstrap.R"))) {
+        source(file.path(proj_root, "R", "core", "bootstrap.R"))
+        sdm_set_project_root(proj_root)
+      }
+      source(sdm_resolve_module("optimized_sdm.R"))
+    }
     download_fun(...)
   }
   # Ensure the callr subprocess starts in the project root
