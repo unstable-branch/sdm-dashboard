@@ -75,10 +75,12 @@ ui_main_tabs <- function() {
               p("Click a marker to flag for removal. Flagged records shown in red."),
               leafletOutput("occurrence_cleaning_map", height = "45vh"),
               br(),
-              div(class = "flagged-actions",
-                actionButton("remove_flagged_map", "Remove flagged records"),
-                uiOutput("flagged_count"),
-                actionButton("clear_flags", "Clear flags")
+              div(class = "flagged-actions btn-toolbar", role = "toolbar",
+                div(class = "btn-group btn-group-sm",
+                  actionButton("remove_flagged_map", icon = icon("trash-alt"), "Remove flagged"),
+                  actionButton("clear_flags", icon = icon("eraser"), "Clear flags")
+                ),
+                uiOutput("flagged_count")
               )
             )
           ),

@@ -559,9 +559,11 @@ server <- function(input, output, session) {
   }, ignoreInit = TRUE)
 
 output$occurrence_cleaning_map <- renderLeaflet({
-    co <- rv$cleaned_occurrence
+    co <- isolate(rv$cleaned_occurrence)
     if (is.null(co) || !is.data.frame(co$df) || nrow(co$df) < 1) {
-      return(leaflet::leaflet() %>% leaflet::addTiles() %>%
+      return(leaflet::leaflet() %>%
+        leaflet::addProviderTiles("CartoDB.Positron", group = "Light tiles") %>%
+        leaflet::addProviderTiles("CartoDB.DarkMatter", group = "Dark tiles") %>%
         leaflet::addMeasure(position = "topleft", primaryLengthUnit = "kilometers", primaryAreaUnit = "sqkilometers"))
     }
     occ <- co$df
@@ -576,18 +578,31 @@ output$occurrence_cleaning_map <- renderLeaflet({
                       "Source: ", occ$source, "<br>",
                       "Status: ", flag_status)
     map <- leaflet::leaflet() %>%
-      leaflet::addTiles() %>%
+      leaflet::addProviderTiles("CartoDB.Positron", group = "Light tiles") %>%
+      leaflet::addProviderTiles("CartoDB.DarkMatter", group = "Dark tiles") %>%
       leaflet::addCircleMarkers(
-        data = occ,
+        data = occ[clean_idx, , drop = FALSE],
         lng = ~longitude, lat = ~latitude,
-        color = ifelse(is.na(occ$cc_flag) | occ$cc_flag == FALSE, "blue", "red"),
-        fillOpacity = 0.7, radius = 5,
-        layerId = seq_len(nrow(occ)),
-        popup = popups,
-        group = "Occurrences"
-      ) %>%
+        color = "blue", fillOpacity = 0.7, radius = 5,
+        layerId = which(clean_idx),
+        popup = popups[clean_idx],
+        group = "Clean records"
+      )
+    if (any(flagged_idx)) {
+      map <- map %>%
+        leaflet::addCircleMarkers(
+          data = occ[flagged_idx, , drop = FALSE],
+          lng = ~longitude, lat = ~latitude,
+          color = "red", fillOpacity = 0.7, radius = 5,
+          layerId = which(flagged_idx),
+          popup = popups[flagged_idx],
+          group = "Flagged records"
+        )
+    }
+      map <- map %>%
       leaflet::addLayersControl(
-        overlayGroups = c("Occurrences"),
+        overlayGroups = c("Clean records", "Flagged records"),
+        baseGroups = c("Light tiles", "Dark tiles"),
         options = leaflet::layersControlOptions(collapsed = TRUE)
       ) %>%
       leaflet::addMiniMap(toggleDisplay = TRUE, position = "bottomright") %>%
@@ -644,6 +659,7 @@ output$occurrence_cleaning_map <- renderLeaflet({
     proxy %>%
       leaflet::addLayersControl(
         overlayGroups = c("Clean records", "Flagged records"),
+        baseGroups = c("Light tiles", "Dark tiles"),
         options = leaflet::layersControlOptions(collapsed = TRUE)
       )
   }, ignoreInit = TRUE)
@@ -658,7 +674,7 @@ output$occurrence_cleaning_map <- renderLeaflet({
       return()
     }
     current_flag <- rv$cleaned_occurrence$df$cc_flag[row_idx]
-    rv$cleaned_occurrence$df$cc_flag[row_idx] <- !current_flag
+    rv$cleaned_occurrence$df$cc_flag[row_idx] <- !isTRUE(current_flag)
     rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df
   })
 
@@ -670,7 +686,7 @@ output$occurrence_cleaning_map <- renderLeaflet({
 
     rv$cleaned_occurrence <- list(
       df = new_df,
-      source_counts = rv$cleaned_occurrence$source_counts,
+      source_counts = sort(table(new_df$source), decreasing = TRUE),
       n_absent_excluded = rv$cleaned_occurrence$n_absent_excluded,
       original_rows = rv$cleaned_occurrence$original_rows
     )

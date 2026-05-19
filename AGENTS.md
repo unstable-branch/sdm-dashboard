@@ -2,7 +2,7 @@
 
 ## Git workflow
 
-- **Commit locally first** — always `git add` and `git commit` changes to the local repo immediately after completing a task.
+- **Commit locally only for significant changes** — only `git add` and `git commit` when changes are significant (bug fixes, new features, non-trivial refactors). Skip committing for trivial CSS tweaks, comment changes, or minor formatting.
 - **Never push to GitHub unless explicitly asked** — do not run `git push` without the user requesting it. After committing locally, ask the user if they want to push to origin.
 
 ## Run commands
