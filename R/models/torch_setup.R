@@ -85,7 +85,7 @@ detect_nvidia_gpu <- function() {
         sp <- system("system_profiler SPDisplaysDataType 2>/dev/null", intern = TRUE, ignore.stderr = TRUE)
         chip_line <- grep("Chipset|Metal|Apple|M[1-4]", sp, value = TRUE, ignore.case = TRUE)
         if (length(chip_line) > 0) {
-          result$gpu_name <- trimws(gsub(".*:\s*", "", chip_line[1]))
+          result$gpu_name <- trimws(gsub(".*:\\s*", "", chip_line[1]))
           result$driver_version <- "metal"
         }
       },
