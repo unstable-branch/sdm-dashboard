@@ -25,6 +25,19 @@ if (requireNamespace("testthat", quietly = TRUE)) {
   }
   expect_true <- function(object) if (!isTRUE(object)) stop("Expected TRUE.", call. = FALSE)
   expect_false <- function(object) if (!isFALSE(object)) stop("Expected FALSE.", call. = FALSE)
+  expect_null <- function(object) if (!is.null(object)) stop("Expected NULL.", call. = FALSE)
+  expect_type <- function(object, type) if (typeof(object) != type) stop("Expected type ", type, " got ", typeof(object), ".", call. = FALSE)
+  expect_s3_class <- function(object, class) if (!inherits(object, class)) stop("Expected class ", class, ".", call. = FALSE)
+  expect_length <- function(object, n) if (length(object) != n) stop("Expected length ", n, " got ", length(object), ".", call. = FALSE)
+  expect_identical <- function(object, expected) if (!identical(object, expected)) stop("Expected identical.", call. = FALSE)
+  expect_warning <- function(object, regexp = NULL) {
+    w <- character(0)
+    tryCatch(withCallingHandlers(force(object), warning = function(e) { w <<- c(w, conditionMessage(e)); invokeRestart("muffleWarning") }), error = function(e) NULL)
+    if (length(w) == 0) stop("Expected a warning.", call. = FALSE)
+    if (!is.null(regexp) && !any(grepl(regexp, w))) stop("Warning did not match: ", regexp, call. = FALSE)
+  }
+  skip_if_not_installed <- function(pkg) if (!requireNamespace(pkg, quietly = TRUE)) stop("Skipped: ", pkg, " not installed.", call. = FALSE)
+  skip_if_not <- function(cond, msg = "") if (!isTRUE(cond)) stop("Skipped: ", msg, call. = FALSE)
 
   source(file.path("tests", "testthat", "helper-load.R"))
   for (path in list.files(file.path("tests", "testthat"), pattern = "^test-.*\\.R$", full.names = TRUE)) source(path)
