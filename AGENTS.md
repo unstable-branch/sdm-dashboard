@@ -1,5 +1,10 @@
 # AGENTS.md — SDM Dashboard Workbench
 
+## Git workflow
+
+- **Commit locally first** — always `git add` and `git commit` changes to the local repo immediately after completing a task.
+- **Never push to GitHub unless explicitly asked** — do not run `git push` without the user requesting it. After committing locally, ask the user if they want to push to origin.
+
 ## Run commands
 
 ```bash
@@ -18,18 +23,19 @@ Rscript -e 'files <- list.files(path = c("R", "scripts", "tests"), pattern = "[.
 
 ## Architecture
 
-- **Entry point:** `app.R` (Shiny UI). Orchestration engine: `R/run_sdm.R` → `run_fast_sdm()`.
-- **Module loader:** `R/load.R` sources 32 canonical modules in fixed dependency order, then auto-sources any extra `R/*.R` files not in the list. Current extras: `biomod2_compat.R`, `model_biomod2.R`, `model_dnn.R`, `torch_setup.R`, `ui_header.R`, `ui_main_tabs.R`, `ui_sidebar_controls.R`, `covariates_climate_future.R`, `download_helper.R`, `app_helpers.R`.
-- **Config:** `R/config.R` sets project-wide defaults; secrets must not be added here.
+- **Entry point:** `app.R` (Shiny UI). Orchestration engine: `R/core/run_sdm.R` → `run_fast_sdm()`.
+- **R/ is organized into subdirectories:** `core/`, `data/`, `covariates/`, `models/`, `ecology/`, `output/`, `ui/`, `modules/`.
+- **Module loader:** `R/load.R` uses `sdm_resolve_module()` to find files across subdirectories. Sources ~70 modules in fixed dependency order.
+- **Config:** `R/core/config.R` sets project-wide defaults; secrets must not be added here.
 - **Path resolution:** `app.R` resolves `app_dir` from `--file=` arg or `sys.frames()`, not `getwd()`. All paths use `file.path(app_dir, ...)`.
 
 ## Boot-up process
 
 ```
 app.R
-  → source R/bootstrap.R → sdm_set_project_root(app_dir)
-  → source R/optimized_sdm.R → source R/load.R → 32 canonical modules + extras
-  → source R/ui_header.R, R/ui_sidebar_controls.R, R/ui_main_tabs.R
+  → source R/core/bootstrap.R → sdm_set_project_root(app_dir)
+  → source R/core/optimized_sdm.R → sources bootstrap again → sources R/load.R → all modules
+  → source R/ui/ui_header.R, R/ui/ui_sidebar_controls.R, R/ui/ui_main_tabs.R
   → ensure_sdm_packages(c("shiny","bslib","terra","leaflet","sf","DT"))
   → library(shiny) library(bslib) library(leaflet) library(sf)
   → if (!interactive()) shiny::runApp(host="0.0.0.0", port=3838)
@@ -43,9 +49,9 @@ Windows launcher: `run_app_windows.bat` → `scripts/windows_setup.R` → `launc
 - **`bslib::modal()` does not exist** — use Shiny's `modalDialog()` instead.
 - **`passwordInput()` does NOT accept `autocomplete`** — wrap with `tagAppendAttributes(..., autocomplete = "new-password")`.
 - **`nzchar(NULL)` returns `logical(0)`** — causes `if` runtime errors. Use `nzchar(x %||% "")` or check `is.null(x)` first.
-- **`callr::r_bg` runs in a separate process** — `<<-` on Shiny reactives inside `verify_fun` has no effect. Use `download_covariate_bg()` with `init_engine = TRUE` to source modules in the child process.
+- **`callr::r_bg` runs in a separate process** — `<<-` on Shiny reactives inside `verify_fun` has no effect. Background download functions must source `bootstrap.R` before `optimized_sdm.R` in the child process.
 - **`rv$cleaned_occurrence` is a list** — structure: `{df, source_counts, n_absent_excluded, original_rows}`. NOT a dataframe.
-- **Numeric inputs can receive `Inf`/`NA`** — use `safe_numeric()` helper in `R/ui_sidebar_controls.R` to sanitize values before passing to `numericInput()`.
+- **Numeric inputs can receive `Inf`/`NA`** — use `safe_numeric()` helper in `R/ui/ui_sidebar_controls.R` to sanitize values before passing to `numericInput()`.
 - **`sdm_default_cv_block_size_km` is `NA_real_`** — UI defaults to 50 when NA.
 
 ## Key conventions
@@ -71,7 +77,7 @@ hostname -I | awk '{print $1}'
 
 ## Package install quirks
 
-- `R/packages.R` defines `sdm_setup_packages` (core UI deps), `sdm_app_packages` (all modelling backends), and `sdm_optional_packages` (per-feature deps).
+- `R/core/packages.R` defines `sdm_setup_packages` (core UI deps), `sdm_app_packages` (all modelling backends), and `sdm_optional_packages` (per-feature deps).
 - Any package loaded via `library()` or `::` in app.R or R/ui_*.R **must be in `sdm_setup_packages`** to avoid first-launch install failures.
 - `install_packages.R` uses `sdm_setup_packages`; `scripts/windows_setup.R` uses `sdm_app_packages`.
 
@@ -84,15 +90,27 @@ hostname -I | awk '{print $1}'
 
 ## Important file locations
 
-- `R/optimized_sdm.R` — engine loader (not at root)
-- `R/bootstrap.R` — project root detection, path helpers
+- `R/core/bootstrap.R` — project root detection, path helpers
+- `R/core/config.R` — all sdm_default_* constants
+- `R/core/packages.R` — dependency lists, ensure_sdm_packages()
+- `R/core/optimized_sdm.R` — engine loader, sources bootstrap + load.R
+- `R/core/run_sdm.R` — run_fast_sdm() orchestration
+- `R/core/sdm_config.R` — config object builder
 - `R/data/occurrences.R` — cleaning, CoordinateCleaner integration
-- `R/covariates_stack.R` — combines climate + elevation + soil into training raster
+- `R/covariates/covariates_climate.R` — WorldClim/CHELSA download + load
+- `R/covariates/covariates_stack.R` — combines climate + elevation + soil
+- `R/covariates/download_helper.R` — background download helper (callr::r_bg)
+- `R/covariates/future_projection.R` — future BIO layer swap and delta raster
 - `R/models/model_glm.R` — primary model backend; random and spatial-block CV
-- `R/prediction.R` — suitability raster prediction
-- `R/future_projection.R` — future BIO layer swap and delta raster export
-- `R/download_helper.R` — background download helper with polling/verification
-- `R/app_helpers.R` — `fmt_num()`, `safe_numeric()`, `metric_card()`, extent helpers
+- `R/models/prediction.R` — suitability raster prediction
+- `R/output/report.R` — text report generation
+- `R/output/report_odmap.R` — ODMAP standard report
+- `R/ui/ui_sidebar_controls.R` — sidebar inputs
+- `R/ui/ui_main_tabs.R` — tab layout
+- `R/modules/mod_get_data.R` — Get Data tab server
+- `R/modules/mod_model_run.R` — model run tab server
+- `R/modules/mod_results.R` — results tab server
+- `R/modules/mod_readiness.R` — readiness preflight checks
 
 ## PR Checklist Template
 
