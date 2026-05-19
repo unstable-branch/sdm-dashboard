@@ -1,7 +1,5 @@
 # Tests for DNN backend contract.
 
-library(testthat)
-source("tests/testthat/helper-load.R")
 
 test_that("DNN registry entry absent when cito not installed", {
   ids <- sdm_model_ids()

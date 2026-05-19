@@ -1,7 +1,5 @@
 # Tests for multi-ensemble predict function (comp_cv fix).
 
-library(testthat)
-source("tests/testthat/helper-load.R")
 
 test_that("predict_multi_model_ensemble handles NULL user_threshold without comp_cv error", {
   skip_if_not(requireNamespace("ranger", quietly = TRUE))

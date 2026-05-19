@@ -168,6 +168,11 @@ test_that("batch_run_parallel runs two species with n_cores=1 (sequential)", {
     message("Skipping: synthetic demo file not found at ", occ_source)
     return(invisible(NULL))
   }
+  wc_dir <- file.path(project_root, "Worldclim")
+  if (!dir.exists(wc_dir)) {
+    message("Skipping: Worldclim directory not found")
+    return(invisible(NULL))
+  }
   occ <- read.csv(occ_source, stringsAsFactors = FALSE)
   write.csv(occ, demo_csv_1, row.names = FALSE)
   write.csv(occ, demo_csv_2, row.names = FALSE)
@@ -175,11 +180,11 @@ test_that("batch_run_parallel runs two species with n_cores=1 (sequential)", {
   configs <- list(
     list(species = "Test species 1", occurrences_csv = demo_csv_1,
          model_id = "glm", biovars = "1,4,12",
-         worldclim_dir = normalizePath(file.path(project_root, "Worldclim")),
+         worldclim_dir = normalizePath(wc_dir),
          cv_folds = "3", aggregation_factor = "4"),
     list(species = "Test species 2", occurrences_csv = demo_csv_2,
          model_id = "glm", biovars = "1,4,12",
-         worldclim_dir = normalizePath(file.path(project_root, "Worldclim")),
+         worldclim_dir = normalizePath(wc_dir),
          cv_folds = "3", aggregation_factor = "4")
   )
 
@@ -218,6 +223,11 @@ test_that("batch_run_parallel parallel mode (n_cores=2)", {
     message("Skipping: synthetic demo file not found at ", occ_source)
     return(invisible(NULL))
   }
+  wc_dir <- file.path(project_root, "Worldclim")
+  if (!dir.exists(wc_dir)) {
+    message("Skipping: Worldclim directory not found")
+    return(invisible(NULL))
+  }
   occ <- read.csv(occ_source, stringsAsFactors = FALSE)
   write.csv(occ, demo_csv_1, row.names = FALSE)
   write.csv(occ, demo_csv_2, row.names = FALSE)
@@ -225,11 +235,11 @@ test_that("batch_run_parallel parallel mode (n_cores=2)", {
   configs <- list(
     list(species = "Parallel test species 1", occurrences_csv = demo_csv_1,
          model_id = "glm", biovars = "1,4,12",
-         worldclim_dir = normalizePath(file.path(project_root, "Worldclim")),
+         worldclim_dir = normalizePath(wc_dir),
          cv_folds = "3", aggregation_factor = "4"),
     list(species = "Parallel test species 2", occurrences_csv = demo_csv_2,
          model_id = "glm", biovars = "1,4,12",
-         worldclim_dir = normalizePath(file.path(project_root, "Worldclim")),
+         worldclim_dir = normalizePath(wc_dir),
          cv_folds = "3", aggregation_factor = "4")
   )
 
@@ -283,6 +293,11 @@ test_that("batch_run_parallel saves results with AUC in metadata", {
     message("Skipping: synthetic demo file not found")
     return(invisible(NULL))
   }
+  wc_dir <- file.path(project_root, "Worldclim")
+  if (!dir.exists(wc_dir)) {
+    message("Skipping: Worldclim directory not found")
+    return(invisible(NULL))
+  }
   occ <- read.csv(occ_source, stringsAsFactors = FALSE)
   demo_csv <- file.path(tmp_dir, "sp_auc.csv")
   write.csv(occ, demo_csv, row.names = FALSE)
@@ -290,7 +305,7 @@ test_that("batch_run_parallel saves results with AUC in metadata", {
   configs <- list(
     list(species = "AUC test species", occurrences_csv = demo_csv,
          model_id = "glm", biovars = "1,4,12",
-         worldclim_dir = normalizePath(file.path(project_root, "Worldclim")),
+         worldclim_dir = normalizePath(wc_dir),
          cv_folds = "3", aggregation_factor = "4")
   )
 
