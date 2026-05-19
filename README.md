@@ -1,6 +1,6 @@
 # SDM Dashboard Workbench
 
-SDM Dashboard Workbench is a local R/Shiny application for species distribution modelling from presence-only occurrence records. It combines occurrence cleaning, selected WorldClim BIO layers, optional elevation and soil covariates, GLM-based modelling, map export, and a compact text report in one desktop-friendly workflow.
+SDM Dashboard Workbench is a local R/Shiny application for species distribution modelling from presence-only occurrence records. It provides a multi-algorithm, multi-species workbench with occurrence cleaning, climate/environmental covariates, model fitting, evaluation, future projection, and a rich ecology toolkit — all in one desktop-friendly workflow.
 
 This is a beta release. Interfaces, defaults, packaging, and outputs may change before a stable `v1.0.0` release. Validate model outputs carefully before operational use.
 
@@ -9,72 +9,105 @@ The public repository contains source code, documentation, scripts, templates, a
 
 ## Current Status
 
-Implemented and tested in the current beta:
+### Model Backends
 
-- GLM presence/background workflow for presence-only occurrence records.
-- Experimental GAM, Rangebagging, GLM + Rangebagging ensemble, and MaxEnt (maxnet) backends behind the model registry.
-- Occurrence cleaning, duplicate removal, source summaries, synthetic example data, raster-cell thinning, and deterministic distance thinning.
-- Selected WorldClim BIO covariates with optional local download/cache.
-- Optional OpenTopography elevation covariate.
-- Optional local HWSD v2 soil covariate.
-- GLM random or spatial-block cross-validation, with AUC, TSS, sensitivity, specificity, CBI, and confusion-count diagnostics.
-- Permutation importance (algorithm-agnostic) and marginal response curves.
-- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, summary report, ODMAP report, reproducible R script, and sidecar raster bundle when available.
-- Optional future-climate projection from user-provided future BIO GeoTIFFs, including future suitability, delta, and MESS extrapolation rasters.
-- Interactive Leaflet map with layer toggles, CoordinateCleaner integration (optional), and map-based occurrence cleaning (click to flag/remove).
-- Dark/professional dashboard presentation mode with an Australia-first workbench map view.
-- Windows launcher, command-line pipeline, Docker scaffold, smoke tests, release audit, and testthat checks.
-- Optional GBIF occurrence ingestion (public API or authenticated download with DOI capture).
-- VIF-based collinearity reduction and bias correction (target-group / thickened background sampling).
+| Backend | Status | Package | Description |
+|---------|--------|---------|-------------|
+| GLM | Stable | stats | Generalised linear model (default) |
+| GAM | Stable | mgcv | Generalised additive model with spatial-block CV |
+| MaxEnt (maxnet) | Stable | maxnet | Maximum entropy with tunable features & regularisation |
+| Random Forest | Stable | ranger | Fast random forest with permutation importance |
+| XGBoost/BRT | Stable | xgboost | Gradient boosted trees with feature importance |
+| ESM-GLM | Stable | ecospat | Ensemble of small models (GLM pairs) |
+| ESM-MaxNet | Stable | ecospat | Ensemble of small models (MaxNet pairs) |
+| Multi-ensemble | Stable | — | Weighted combination of any stable backends |
+| DNN | Conditional | cito + torch | Deep neural network (appears when both packages installed) |
+| JSDM (HMSC) | Framework | Hmsc | Joint species distribution model for species interactions |
+| Rangebag | Experimental | rangebag | Range bagging envelope model |
+| biomod2 | Legacy | biomod2 | biomod2-managed MaxEnt (legacy integration) |
 
-Planned research extensions, not integrated unless a later release explicitly says so:
+### Ecology Toolkit
 
-- SoilGrids helper/download flow.
-- Automated CMIP6 download/selection and multi-GCM averaging.
-- Boundary/mask UI.
-- Additional model backends such as biomod2-managed MaxEnt/maxnet, Random Forest, BRT/GBM, BART, NSDM, JSDM, or hybrid/mechanistic models.
+- **Climate matching** — Mahalanobis, standardised Euclidean, and Euclidean distance maps for assessing site similarity to training conditions
+- **EOO/AOO** — Extent of Occurrence (MCP) and Area of Occupancy (2×2 km grid) per IUCN Red List standards
+- **AOA** — Area of Applicability via weighted dissimilarity (Meyer & Pebesma 2022)
+- **Niche overlap** — Schoener's D, Hellinger's I, stability/unfilling/expansion (PCA density estimation)
+- **Species richness** — Binary, probabilistic, or weighted stacking across multiple SDM outputs
+- **Dispersal simulation** — Kernel-based range expansion from introduction points
+- **CLIMEX import** — Mechanistic suitability from temperature/moisture response curves, combined with correlative SDM
+- **Range size change** — Expansion/contraction metrics between current and future projections
+- **Calibration plots** — Binned observed vs predicted (Pearce & Ferrier 2000)
 
-Do not treat planned/experimental items as available until they have UI support, tests, and documentation.
+### Modelling Features
 
-## Features
+- **PA replication** — Multiple background samples (N=5 default), averaged predictions for robustness
+- **Spatial-block CV** — Random or spatial-block cross-validation; blockCV variogram-based blocks when available
+- **VIF collinearity reduction** — Optional VIF filtering before model fitting
+- **Bias correction** — Target-group or thickened background sampling
+- **Hyperparameter tuning** — Grid search for MaxNet (regularisation × features) and GAM (k parameter)
+- **Response curves** — Marginal and partial dependence plots
+- **Permutation importance** — Algorithm-agnostic; ensemble importance weighted by component AUC
+- **Multi-SSP comparison** — Run two future scenarios side-by-side with comparison metrics
+- **Rapid response mode** — One-click auto-algorithm selection based on record count
+- **Background model runs** — Non-blocking execution via callr; cancel button supported
 
-- Shiny dashboard for occurrence CSV/TSV uploads or a bundled synthetic example dataset.
-- Presence/background SDM workflow with configurable extent, threshold, thinning mode, cross-validation folds/strategy, and CPU use.
-- WorldClim BIO climate layers with optional local download/cache.
-- Optional OpenTopography elevation and local HWSD v2 soil covariates.
-- Random or spatial-block GLM cross-validation with AUC, TSS, sensitivity, specificity, and confusion-count diagnostics.
-- Exportable suitability GeoTIFF, PNG preview, cleaned occurrence table, summary report, and model sidecar raster bundle when available.
-- Optional future-climate projection for matching BIO GeoTIFF scenarios, including suitability-change delta exports.
-- Dark/professional presentation mode with an Australia-first map view and real Australia boundary overlay.
-- Windows one-click runner, command-line pipeline, Docker scaffold, and lightweight checks for maintainers.
+### Data & Covariates
+
+- WorldClim BIO climate layers with local download/cache
+- Optional OpenTopography elevation (API key or `.Renviron`)
+- Optional HWSD v2 soil covariates
+- Optional NDVI, vegetation, UV, drought, human footprint, LULC, bioclim seasonality layers
+- GBIF occurrence ingestion (public API or authenticated download with DOI capture)
+- DwCA archive support with coordinate uncertainty filtering
+- Occurrence cleaning: CoordinateCleaner, source summaries, raster-cell thinning, distance thinning, click-to-remove on map
+
+### Outputs & Export
+
+- Suitability GeoTIFF with LZW compression
+- PNG preview, cleaned occurrence CSV, summary text report
+- ODMAP standard report
+- Reproducible R script export for all backends
+- Structured run log with collapsible sections
+- Run comparison table across multiple model runs
+- Batch runner with summary table
+- Future-climate projection with suitability, delta, and MESS extrapolation rasters
+- Sidecar raster bundles (ensemble components, pair uncertainty, etc.)
+
+### UI/UX
+
+- Dark/professional dashboard with Australia-first map view
+- Advanced sidebar toggle (hides expert settings by default)
+- Compact header mode
+- Persistent settings via localStorage (survives page refresh)
+- Interactive Leaflet map with layer toggles
+- Metric cards, readiness preflight, and model badges
+- Windows launcher, command-line pipeline, Docker scaffold
+
+## Project Structure
+
+```
+R/
+├── core/          bootstrap, config, logging, run_sdm, pipeline stages
+├── data/          occurrences, DwCA parsing
+├── covariates/    climate, elevation, soil, future, NDVI, vegetation, etc.
+├── models/        GLM, GAM, MaxNet, RF, XGBoost, ESM, DNN, JSDM, ensemble, registry
+├── ecology/       climate matching, EOO/AOO, AOA, niche overlap, richness, dispersal, CLIMEX
+├── ui/            header, sidebar, tabs, Leaflet plugins
+├── modules/       Shiny modules (get_data, model_run, results, readiness)
+├── output/        metrics, plots, reports, manifest, batch, script export
+└── load.R         Module loader with subdirectory resolution
+```
 
 ## Which Download
 
 Most users should use the latest GitHub Release rather than cloning the repository.
 
-- Windows users: download `sdm-dashboard-vX.Y.Z-windows-ready.zip` or `sdm-dashboard-vX.Y.Z-beta-windows-ready.zip` from Releases, extract it, then double-click `run_app_windows.bat`.
+- Windows users: download `sdm-dashboard-vX.Y.Z-windows-ready.zip` from Releases, extract, then double-click `run_app_windows.bat`.
 - Developers and Linux/macOS users: clone the repository or download `sdm-dashboard-vX.Y.Z-source.zip`.
-- The source zip excludes generated outputs, private data, downloaded rasters, and caches.
-- The Windows-ready zip may be larger because it can include the default WorldClim BIO layers for faster first launch.
 
 Latest beta release:
 
 - Repository: `https://github.com/mrcanofcatfood/sdm-dashboard`
-- Release tag: `v0.5.0-beta`
-- Source asset: `sdm-dashboard-v0.5.0-beta-source.zip`
-- Windows-ready asset: `sdm-dashboard-v0.5.0-beta-windows-ready.zip`
-
-Previous beta release:
-
-- Release tag: `v0.2.0-beta`
-- Source asset: `sdm-dashboard-v0.2.0-beta-source.zip`
-- Windows-ready asset: `sdm-dashboard-v0.2.0-beta-windows-ready.zip`
-
-First public beta release:
-
-- Release tag: `v0.1.0-beta`
-- Windows asset: `sdm-dashboard-v0.1.0-beta-windows-ready.zip`
-- Source asset: `sdm-dashboard-v0.1.0-beta-source.zip`
 
 ## Local Run
 
@@ -110,15 +143,11 @@ cd C:\path\to\sdm-dashboard-main
 .\scripts\wsl_setup.ps1
 ```
 
-This configures a Windows port proxy so `http://127.0.0.1:3838` in your Windows browser routes to the app running in WSL2.
-
 **Every time you want to use the app:**
 
 1. In WSL2 terminal: `Rscript app.R` — wait for "Listening on http://0.0.0.0:3838"
 2. Get WSL2 IP: `hostname -I | awk '{print $1}'`
 3. In Windows browser: `http://<WSL2-IP>:3838`
-
-If the browser shows a blank page after the WSL setup, verify the app is running in WSL (`Test-NetConnection 127.0.0.1 3838` from PowerShell should show `TcpTestSucceeded: True`). If TCP test fails but the app is running, re-run `.\scripts\wsl_setup.ps1` to refresh the port proxy.
 
 ## Windows Run
 
@@ -128,7 +157,7 @@ On Windows, extract the Windows-ready zip and double-click:
 run_app_windows.bat
 ```
 
-The helper locates R, installs missing packages, checks default WorldClim layers, and starts the app. See `README_WINDOWS.md` for additional Windows notes.
+See `README_WINDOWS.md` for additional Windows notes.
 
 ## Data Inputs
 
@@ -142,10 +171,11 @@ Use `data/presence_data_template.csv` as the input template. Use `data/examples/
 
 ## Covariates
 
-- WorldClim: selected BIO layers are downloaded/cached under `Worldclim/` when requested. Cite and use WorldClim according to its terms before redistributing rasters or derived products.
-- Elevation: optional OpenTopography Global DEM access. Set `OPENTOPOGRAPHY_API_KEY` or enter a key in the app. Keys are not saved by the app and should never be committed.
-- Soil: optional HWSD v2 GeoTIFF at `covariates/hwsd_v2/HWSD_V2_SMU_selected.tif`. Check HWSD licensing and citation requirements before redistributing derived files.
-- Future climate: optional projection uses a local folder such as `Worldclim_future/` containing future BIO GeoTIFFs with the same selected BIO variable numbers as the current-climate run. It reuses the fitted backend and static elevation/soil covariates, then exports future suitability and current-to-future delta rasters.
+- **WorldClim**: selected BIO layers are downloaded/cached under `Worldclim/`. Cite and use WorldClim according to its terms before redistributing.
+- **Elevation**: optional OpenTopography Global DEM. Set `OPENTOPOGRAPHY_API_KEY` or enter a key in the app. Keys are not saved by the app.
+- **Soil**: optional HWSD v2 GeoTIFF at `covariates/hwsd_v2/HWSD_V2_SMU_selected.tif`.
+- **Future climate**: optional projection from user-provided future BIO GeoTIFFs. Supports two SSP scenarios for comparison.
+- **Extended covariates**: NDVI, vegetation, UV, drought, human footprint, LULC, bioclim seasonality (when data files are available).
 
 Generated working folders such as `outputs/`, `checkpoints/`, `logs/`, `Worldclim/`, `Worldclim_future/`, and `covariates/` can contain large files or sensitive project data and are ignored by git.
 
@@ -158,13 +188,7 @@ docker build -t sdm-dashboard .
 docker run --rm -p 3838:3838 sdm-dashboard
 ```
 
-Or use Compose:
-
-```bash
-docker compose up --build
-```
-
-Mount local working data only when needed, for example with bind mounts for `Worldclim/`, `covariates/`, or `outputs/`. Do not bake private data or API keys into images. Hosted deployments need a Shiny-capable runtime such as Shiny Server, Posit Connect, shinyapps.io, or a container platform that can run the Shiny process.
+Mount local working data only when needed. Do not bake private data or API keys into images.
 
 ## Interpretation Caveats
 
@@ -173,27 +197,16 @@ Outputs are habitat suitability or relative occurrence-support maps, not confirm
 ## Privacy
 
 - Do not commit real occurrence datasets unless they are explicitly public and redistribution is allowed.
-- Do not commit API keys, `.Renviron`, `.env`, downloaded rasters, generated model outputs, logs, screenshots with sensitive information, or release zip files.
+- Do not commit API keys, `.Renviron`, `.env`, downloaded rasters, generated model outputs, logs, or screenshots with sensitive information.
 - Keep templates and synthetic examples in `data/`; keep local working data at the project root or ignored cache/output folders.
-- Review generated reports and screenshots before sharing because coordinates, paths, and species names can be sensitive.
 
 ## API Keys
-
-Some features require API keys. The app checks for these environment variables:
 
 | Variable | Used for | Required? |
 |----------|----------|-----------|
 | `OPENTOPOGRAPHY_API_KEY` | Elevation downloads from OpenTopography | Yes, if using elevation covariate |
 
-Create a `.Renviron` file in the project root (or your home directory) to set them:
-
-```
-OPENTOPOGRAPHY_API_KEY=your_key_here
-```
-
-The file `.Renviron` is git-ignored and must never be committed. After editing, restart R for the change to take effect.
-
-API keys entered via the Shiny UI take precedence over `.Renviron` values.
+Create a `.Renviron` file in the project root (or your home directory) to set them. The file `.Renviron` is git-ignored and must never be committed. After editing, restart R for the change to take effect. API keys entered via the Shiny UI take precedence over `.Renviron` values.
 
 ## Verification
 
@@ -203,13 +216,6 @@ Run the lightweight source checks:
 Rscript scripts/smoke_test.R
 Rscript tests/testthat.R
 Rscript scripts/audit_release.R
-```
-
-Build release assets with explicit versions:
-
-```bash
-Rscript scripts/make_release_zip.R source --version=v0.5.0-beta
-Rscript scripts/make_release_zip.R ready --version=v0.5.0-beta
 ```
 
 ## Contributing And Citation

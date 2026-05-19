@@ -392,7 +392,7 @@ mod_get_data_server <- function(id, rv, input) {
       gd_start_download(
         label = "WorldClim",
         download_fun = function() {
-          source(file.path(sdm_project_root(), "R", "covariates_climate.R"))
+          source(sdm_resolve_module("covariates_climate.R"))
           load_climate_covariates(
             worldclim_dir = "Worldclim", selected_biovars = 1:19,
             training_extent = NULL, projection_extent = NULL, aggregation_factor = 1,
@@ -424,7 +424,7 @@ mod_get_data_server <- function(id, rv, input) {
       gd_start_download(
         label = "CHELSA extras",
         download_fun = function(extras) {
-          source(file.path(sdm_project_root(), "R", "covariates_climate.R"))
+          source(sdm_resolve_module("covariates_climate.R"))
           download_chelsa_extras("Worldclim", extras = extras, log_fun = function(...) cat(paste(...), "\n"))
           cat("CHELSA extras download complete.\n")
         },
@@ -444,7 +444,7 @@ mod_get_data_server <- function(id, rv, input) {
         label = "CMIP6",
         download_fun = function(gcm, ssp, period) {
           library(terra)
-          source(file.path(sdm_project_root(), "R", "covariates_climate_future.R"))
+          source(sdm_resolve_module("covariates_climate_future.R"))
           fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = 10,
                                  out_dir = "Worldclim_future", quiet = FALSE)
           cat("CMIP6 download complete.\n")
@@ -469,7 +469,7 @@ mod_get_data_server <- function(id, rv, input) {
         label = "GCM averaging",
         download_fun = function(gcm_list, ssp, period) {
           library(terra)
-          source(file.path(sdm_project_root(), "R", "covariates_climate_future.R"))
+          source(sdm_resolve_module("covariates_climate_future.R"))
           average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc",
                              res = 10, out_dir = "Worldclim_future", quiet = FALSE)
           cat("GCM averaging complete.\n")
@@ -492,7 +492,7 @@ mod_get_data_server <- function(id, rv, input) {
         label = paste("elevation DEM:", demtype),
         download_fun = function(demtype, api_key) {
           library(terra)
-          source(file.path(sdm_project_root(), "R", "covariates_elevation.R"))
+          source(sdm_resolve_module("covariates_elevation.R"))
           load_elevation_covariate(training_extent = c(-180, 180, -90, 90), projection_extent = NULL,
                                     cache_dir = file.path(sdm_project_root(), "covariates"), demtype = demtype,
                                     api_key = api_key, allow_download = TRUE,
@@ -547,7 +547,7 @@ mod_get_data_server <- function(id, rv, input) {
         label = "UV-B radiation",
         download_fun = function() {
           library(terra)
-          source(file.path(sdm_project_root(), "R", "covariates_uv.R"))
+          source(sdm_resolve_module("covariates_uv.R"))
           load_uv_covariate(selected_uv_vars = c("UVB1","UVB2","UVB3","UVB4","UVB5","UVB6"),
                             selected_uv_months = as.character(1:12),
                              covariate_cache_dir = file.path(sdm_project_root(), "covariates"),
@@ -564,7 +564,7 @@ mod_get_data_server <- function(id, rv, input) {
         label = "GIMMS NDVI climatology",
         download_fun = function() {
           library(terra)
-          source(file.path(sdm_project_root(), "R", "covariates_vegetation.R"))
+          source(sdm_resolve_module("covariates_vegetation.R"))
           load_gimms_ndvi_period(period = "clim", ndvi_year = 2020,
                                   extent_vec = c(-180,180,-90,90),
                                   aggregate_factor = 1,
@@ -583,7 +583,7 @@ mod_get_data_server <- function(id, rv, input) {
         label = paste("LULC year:", year),
         download_fun = function(year) {
           library(terra)
-          source(file.path(sdm_project_root(), "R", "covariates_lulc.R"))
+          source(sdm_resolve_module("covariates_lulc.R"))
           load_lulc_covariate(lulc_year = year, extent_vec = c(-180,180,-90,90),
                               aggregate_factor = 1,
                                covariate_cache_dir = file.path(sdm_project_root(), "covariates"),
@@ -602,7 +602,7 @@ mod_get_data_server <- function(id, rv, input) {
         label = paste("Human Footprint year:", year),
         download_fun = function(year) {
           library(terra)
-          source(file.path(sdm_project_root(), "R", "covariates_human_footprint.R"))
+          source(sdm_resolve_module("covariates_human_footprint.R"))
           load_human_footprint_covariate(hfp_year = year, extent_vec = c(-180,180,-90,90),
                                           aggregate_factor = 1,
                                            covariate_cache_dir = file.path(sdm_project_root(), "covariates"),
@@ -625,7 +625,7 @@ mod_get_data_server <- function(id, rv, input) {
         label = paste("drought periods:", paste(periods, collapse = ", ")),
         download_fun = function(periods) {
           library(terra)
-          source(file.path(sdm_project_root(), "R", "covariates_drought.R"))
+          source(sdm_resolve_module("covariates_drought.R"))
           load_drought_covariate(selected_periods = periods,
                                   extent_vec = c(-180,180,-90,90),
                                   aggregate_factor = 1,
@@ -644,7 +644,7 @@ mod_get_data_server <- function(id, rv, input) {
         label = "bioclimatic seasonality",
         download_fun = function() {
           library(terra)
-          source(file.path(sdm_project_root(), "R", "covariates_bioclim_seasonality.R"))
+          source(sdm_resolve_module("covariates_bioclim_seasonality.R"))
           load_bioclim_seasonality(extent_vec = c(-180,180,-90,90),
                                     worldclim_dir = file.path(sdm_project_root(), "Worldclim"),
                                     aggregate_factor = 1,

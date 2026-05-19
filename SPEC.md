@@ -19,7 +19,7 @@
 | `app.R` | Shiny UI — main user-facing dashboard |
 | `pipeline.R` | Non-interactive batch workflow |
 | `launch_app.R` | Opens browser on launch |
-| `R/optimized_sdm.R` | Engine loader → `R/load.R` |
+| `R/core/optimized_sdm.R` | Engine loader → `R/load.R` |
 
 ### Module loader (`R/load.R`)
 
@@ -44,22 +44,22 @@ model_biomod2, model_dnn
 
 | Module | Responsibility |
 |--------|---------------|
-| `R/bootstrap.R` | Project root detection, path helpers |
-| `R/config.R` | Global defaults, choices, `config` environment |
-| `R/packages.R` | Package installation, core count, torch setup |
-| `R/occurrences.R` | CSV/TSV reading, cleaning, thinning |
+| `R/core/bootstrap.R` | Project root detection, path helpers |
+| `R/core/config.R` | Global defaults, choices, `config` environment |
+| `R/core/packages.R` | Package installation, core count, torch setup |
+| `R/data/occurrences.R` | CSV/TSV reading, cleaning, thinning |
 | `R/covariates_*.R` | WorldClim, elevation, soil layer loading |
-| `R/covariates_stack.R` | Combines covariates into training raster stack |
-| `R/model_glm.R` | GLM fitting, background sampling, CV (random + spatial-block) |
-| `R/model_gam.R` | GAM backend (experimental) |
-| `R/model_rangebag.R` | Rangebagging backend (experimental) |
-| `R/model_ensemble.R` | Ensemble of GLM + Rangebagging (experimental) |
-| `R/prediction.R` | Suitability map raster prediction |
-| `R/future_projection.R` | Future climate BIO swap, delta raster export |
-| `R/plots.R` | Map rendering with terra/ggplot2 |
-| `R/report.R` | Text summary report generation |
-| `R/run_sdm.R` | `run_fast_sdm()` — public orchestration API |
-| `R/app_helpers.R` | UI helpers, extent resolution, formatting |
+| `R/covariates/covariates_stack.R` | Combines covariates into training raster stack |
+| `R/models/model_glm.R` | GLM fitting, background sampling, CV (random + spatial-block) |
+| `R/models/model_gam.R` | GAM backend (experimental) |
+| `R/models/model_rangebag.R` | Rangebagging backend (experimental) |
+| `R/models/model_ensemble.R` | Ensemble of GLM + Rangebagging (experimental) |
+| `R/models/prediction.R` | Suitability map raster prediction |
+| `R/covariates/future_projection.R` | Future climate BIO swap, delta raster export |
+| `R/output/plots.R` | Map rendering with terra/ggplot2 |
+| `R/output/report.R` | Text summary report generation |
+| `R/core/run_sdm.R` | `run_fast_sdm()` — public orchestration API |
+| `R/core/app_helpers.R` | UI helpers, extent resolution, formatting |
 
 ---
 
@@ -159,7 +159,7 @@ Sections (all collapsible):
 
 ## 5. Configuration
 
-All configuration lives in `R/config.R`:
+All configuration lives in `R/core/config.R`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|

@@ -86,9 +86,9 @@ hostname -I | awk '{print $1}'
 
 - `R/optimized_sdm.R` — engine loader (not at root)
 - `R/bootstrap.R` — project root detection, path helpers
-- `R/occurrences.R` — cleaning, CoordinateCleaner integration
+- `R/data/occurrences.R` — cleaning, CoordinateCleaner integration
 - `R/covariates_stack.R` — combines climate + elevation + soil into training raster
-- `R/model_glm.R` — primary model backend; random and spatial-block CV
+- `R/models/model_glm.R` — primary model backend; random and spatial-block CV
 - `R/prediction.R` — suitability raster prediction
 - `R/future_projection.R` — future BIO layer swap and delta raster export
 - `R/download_helper.R` — background download helper with polling/verification
