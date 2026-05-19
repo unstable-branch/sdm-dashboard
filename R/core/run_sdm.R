@@ -669,7 +669,7 @@ sdm_stage_clean <- function(cfg, log_fun = NULL) {
     log_fun = log_fun,
     max_coordinate_uncertainty = cfg$max_coordinate_uncertainty
   )
-  list(cleaned = cleaned)
+  list(cleaned = cleaned, occ = cleaned$occ)
 }
 
 #' Run SDM pipeline: Stage 2 — Load and scale environmental covariates
