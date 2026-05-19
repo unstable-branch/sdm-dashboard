@@ -68,7 +68,7 @@ compute_mess <- function(env_train, env_proj) {
   overall_mess <- if (length(per_variable) == 1) {
     per_variable[[1]]
   } else {
-    terra::min(all_values, na.rm = TRUE)
+    terra::app(all_values, min, na.rm = TRUE)
   }
   names(overall_mess) <- "MESS"
 
