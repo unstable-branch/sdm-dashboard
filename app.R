@@ -68,7 +68,8 @@ server <- function(input, output, session) {
   rv <- reactiveValues(result = NULL, log = "Ready.\n", error = NULL, running = FALSE, gbif_temp_file = NULL, gbif_doi = NULL, cleaned_occurrence = NULL,
                       batch_running = FALSE, batch_results = NULL, batch_log = character(),
                       cmip6_scenarios = NULL, gd_unified_log = "", gd_cache_refresh = 0,
-                      gd_cache_summary = NULL, gd_gee_cached = NULL)
+                      gd_cache_summary = NULL, gd_gee_cached = NULL,
+                      past_runs = list())
 
   # Clean up GBIF temp file when session ends
   session$onSessionEnded(function() {

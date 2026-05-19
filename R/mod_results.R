@@ -1,6 +1,29 @@
 mod_results_server <- function(id, rv, input) {
   moduleServer(id, function(input, output, session) {
 
+    # --- Run comparison table ---
+    output$run_comparison <- renderUI({
+      past <- rv$past_runs
+      if (length(past) == 0) return(NULL)
+      if (length(past) == 1) return(p(class = "small-muted", "Run more models to see a comparison table."))
+      df <- do.call(rbind, lapply(past, function(r) {
+        data.frame(
+          Time = format(r$timestamp, "%H:%M:%S"),
+          Species = r$species,
+          Model = r$model_id,
+          AUC = if (is.finite(r$auc)) sprintf("%.3f", r$auc) else "-",
+          TSS = if (is.finite(r$tss)) sprintf("%.3f", r$tss) else "-",
+          stringsAsFactors = FALSE
+        )
+      }))
+      div(class = "content-card",
+        h4("Run comparison"),
+        p(class = "small-muted", "Metrics from recent runs in this session."),
+        DT::datatable(df, options = list(dom = "t", ordering = FALSE), rownames = FALSE,
+                     class = "display compact", style = "bootstrap")
+      )
+    })
+
     output$metric_cards <- renderUI({
       r <- rv$result
       if (is.null(r)) return(div(class = "metric-grid", metric_card("Observation records", "-", "waiting for run"), metric_card("Covariates", "-", "waiting for run"), metric_card("AUC", "-", "cross-validation"), metric_card("High-suitability area", "-", "km2 above threshold")))
@@ -429,19 +452,56 @@ mod_results_server <- function(id, rv, input) {
       if (!nzchar(log_text)) return(div(class = "run-log-line", "No log output yet."))
       lines <- strsplit(log_text, "\n")[[1]]
       lines <- lines[nzchar(lines)]
-      tags$div(class = "run-log",
-        lapply(lines, function(line) {
+
+      # Detect section headers in log lines
+      section_patterns <- list(
+        "Data" = "(?i)(occurrence|data|gbif|download|cleaning|source)",
+        "Covariates" = "(?i)(covariate|worldclim|biovar|elevation|soil|vif|layer|climate)",
+        "Model" = "(?i)(fitting|model|glm|gam|maxnet|rf|xgboost|rangebag|esm|ensemble|cross-valid|auc|tss|pa rep)",
+        "Projection" = "(?i)(predict|project|raster|suitability|tif|output|future|range)"
+      )
+
+      # Tag each line with its section
+      section_tags <- rep("Other", length(lines))
+      for (sec_name in names(section_patterns)) {
+        matches <- grepl(section_patterns[[sec_name]], lines)
+        section_tags[matches] <- sec_name
+      }
+
+      # Group consecutive same-section lines together
+      groups <- rle(section_tags)
+      group_starts <- c(0, cumsum(groups$lengths[-length(groups$lengths)]))
+
+      tag_list <- lapply(seq_along(groups$values), function(g) {
+        sec <- groups$values[g]
+        start_idx <- group_starts[g] + 1
+        end_idx <- group_starts[g] + groups$lengths[g]
+        group_lines <- lines[start_idx:end_idx]
+
+        line_divs <- lapply(group_lines, function(line) {
           cls <- "run-log-line"
-          if (grepl("^ERROR", line)) {
+          if (grepl("ERROR", line, ignore.case = TRUE)) {
             cls <- paste(cls, "run-log-error")
-          } else if (grepl("^Warning", line)) {
+          } else if (grepl("Warning", line, ignore.case = TRUE)) {
             cls <- paste(cls, "run-log-warn")
-          } else if (grepl("^NOTE", line)) {
+          } else if (grepl("NOTE", line, ignore.case = TRUE)) {
             cls <- paste(cls, "run-log-note")
           }
           div(class = cls, line)
         })
-      )
+
+        # If group is small (<=3 lines), don't collapse
+        if (groups$lengths[g] <= 3) {
+          tagList(line_divs)
+        } else {
+          tags$details(
+            tags$summary(paste0(sec, " (", groups$lengths[g], " lines)")),
+            tagList(line_divs)
+          )
+        }
+      })
+
+      tags$div(class = "run-log", tagList(tag_list))
     })
 
     collect_sidecar_paths <- function(result) {

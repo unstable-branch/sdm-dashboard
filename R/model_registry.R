@@ -117,7 +117,7 @@ register_sdm_model(
   label = "GAM / Smooth response curves",
   method = "Generalized Additive Model with smooth environmental response curves",
   packages = "mgcv",
-  maturity = "experimental",
+  maturity = "stable",
   fit_fun = function(...) fit_gam_sdm(...),
   predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
     predict_gam_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
@@ -126,7 +126,7 @@ register_sdm_model(
   supports_uncertainty = FALSE,
   supports_future = TRUE,
   diagnostics = list(coefficients = TRUE, cv_auc = TRUE),
-  notes = "Experimental mgcv backend for nonlinear environmental response curves.",
+  notes = "GAM backend via mgcv with REML smoothing. Supports spatial-block CV. Promoted to stable in Phase 4.",
   predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
     log_message(log_fun, "  Predicting GAM component")
     predict_gam_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
@@ -224,7 +224,7 @@ if (requireNamespace("maxnet", quietly = TRUE)) {
     label = "MaxEnt (maxnet)",
     method = "Maximum entropy presence/background SDM via maxnet/glmnet",
     packages = c("maxnet", "glmnet"),
-    maturity = "experimental",
+    maturity = "stable",
     fit_fun = function(...) fit_maxnet_sdm(...),
     predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
       predict_maxnet_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
@@ -310,5 +310,36 @@ if (requireNamespace("ranger", quietly = TRUE)) {
         cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
       )
     }
+  ),
+  list(
+    id = "xgboost",
+    label = "BRT / XGBoost",
+    method = "Boosted Regression Trees via xgboost package",
+    packages = "xgboost",
+    maturity = "experimental",
+    fit_fun = function(...) fit_xgboost_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_xgboost_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = TRUE,
+    supports_uncertainty = FALSE,
+    supports_future = TRUE,
+    diagnostics = list(coefficients = FALSE, cv_auc = TRUE, cv_tss = TRUE, feature_importance = TRUE),
+    notes = "Experimental XGBoost backend. Handles interactions and nonlinear responses. Tune max_depth/eta/nrounds for best results.",
+    predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+      log_message(log_fun, "  Predicting XGBoost component")
+      predict_xgboost_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+      fit_xgboost_sdm(
+        occ = occ, env_train_scaled = env_train_scaled,
+        background_n = background_n,
+        cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+        log_fun = log_fun, bias_method = bias_method,
+        target_group_occ = target_group_occ,
+        thickening_distance_km = thickening_distance_km,
+        cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+      )
+    }
   )
-}
+} # end get_model_registry()

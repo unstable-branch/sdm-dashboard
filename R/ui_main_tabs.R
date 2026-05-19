@@ -113,6 +113,7 @@ ui_main_tabs <- function() {
             uiOutput("results-response_curves_panel"),
             uiOutput("results-variable_importance_panel"),
             uiOutput("results-calibration_panel"),
+            uiOutput("results-run_comparison"),
             uiOutput("results-ensemble_weights_panel"),
             uiOutput("results-esm_diagnostics_panel")
           ),

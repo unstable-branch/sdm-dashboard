@@ -248,7 +248,17 @@ run_fast_sdm <- function(...) {
     character(0)
   }
   bias_method <- match.arg(bias_method, c("uniform", "target_group", "thickened"))
-  fit <- do.call(fit_sdm_model, c(list(
+  pa_replicates <- cfg$pa_replicates %||% 1L
+  if (is.null(pa_replicates) || !is.finite(pa_replicates) || pa_replicates < 1) pa_replicates <- 1L
+  pa_replicates <- as.integer(pa_replicates)
+
+  if (pa_replicates > 1) {
+    log_message(log_fun, "Running ", pa_replicates, " PA replicates with different background samples")
+  }
+
+  # PA replication: fit model N times with different background seeds
+  replicate_fits <- vector("list", pa_replicates)
+  replicate_fits[[1]] <- do.call(fit_sdm_model, c(list(
     model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
     background_n = background_n, include_quadratic = include_quadratic,
     cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun,
@@ -256,6 +266,40 @@ run_fast_sdm <- function(...) {
     bias_method = bias_method, target_group_occ = target_group_occ,
     thickening_distance_km = thickening_distance_km
   ), extra_args))
+
+  if (pa_replicates > 1) {
+    for (rep_i in seq_len(pa_replicates - 1) + 1) {
+      rep_seed <- seed + rep_i * 1000L
+      log_message(log_fun, "  PA replicate ", rep_i, "/", pa_replicates)
+      replicate_fits[[rep_i]] <- tryCatch({
+        do.call(fit_sdm_model, c(list(
+          model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
+          background_n = background_n, include_quadratic = include_quadratic,
+          cv_folds = cv_folds, seed = rep_seed, n_cores = n_cores, log_fun = log_fun,
+          cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+          bias_method = bias_method, target_group_occ = target_group_occ,
+          thickening_distance_km = thickening_distance_km
+        ), extra_args))
+      }, error = function(e) {
+        log_message(log_fun, "  Replicate ", rep_i, " failed: ", conditionMessage(e))
+        NULL
+      })
+    }
+  }
+
+  # Use the first successful fit as the primary fit
+  fit <- replicate_fits[[1]]
+  # Store PA replicate info if multiple runs
+  if (pa_replicates > 1) {
+    successful <- sum(!vapply(replicate_fits, is.null, logical(1)))
+    fit$pa_replicates <- list(
+      n = pa_replicates,
+      successful = successful,
+      cv_auc_means = vapply(replicate_fits, function(f) if (is.null(f)) NA_real_ else f$cv$auc_mean, numeric(1)),
+      cv_tss_means = vapply(replicate_fits, function(f) if (is.null(f)) NA_real_ else f$cv$tss_mean, numeric(1))
+    )
+    log_message(log_fun, "PA replication: ", successful, "/", pa_replicates, " successful")
+  }
 
   importance_result <- NULL
   if (isTRUE(model_spec$supports_importance) && !is.null(fit$cv) && is.finite(fit$cv$auc_mean)) {
@@ -336,6 +380,31 @@ run_fast_sdm <- function(...) {
     if (!is.null(esm_pair_sd_tif)) extra_paths[["esm_pair_sd"]] <- esm_pair_sd_tif
   } else {
     suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
+  }
+
+  # PA replication: average predictions across replicates
+  if (pa_replicates > 1 && !is.null(fit$pa_replicates)) {
+    suit_sum <- suit
+    valid_reps <- 1L
+    for (rep_i in seq_len(pa_replicates)[-1]) {
+      rep_fit <- replicate_fits[[rep_i]]
+      if (is.null(rep_fit)) next
+      rep_tif <- tempfile(pattern = paste0("pa_rep", rep_i, "_"), fileext = ".tif")
+      rep_suit <- tryCatch(
+        predict_sdm_model(rep_fit, env$env_project_scaled, rep_tif, n_cores, log_fun),
+        error = function(e) NULL
+      )
+      if (!is.null(rep_suit)) {
+        suit_sum <- suit_sum + rep_suit
+        valid_reps <- valid_reps + 1L
+        unlink(rep_tif)
+      }
+    }
+    if (valid_reps > 1) {
+      suit <- suit_sum / valid_reps
+      terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      log_message(log_fun, "PA-averaged suitability from ", valid_reps, " replicates written to ", output_tif)
+    }
   }
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))

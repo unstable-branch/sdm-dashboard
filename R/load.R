@@ -30,6 +30,7 @@ modules <- c(
   "model_ensemble.R",
   "model_maxnet.R",
   "model_rf.R",
+  "model_xgboost.R",
   "model_multi_ensemble.R",
   "model_esm.R",
   "calibration.R",

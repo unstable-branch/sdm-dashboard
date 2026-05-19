@@ -81,3 +81,18 @@ log_cv_result <- function(log_fun, cv) {
     )
   }
 }
+
+#' Store a run summary in rv$past_runs for cross-run comparison.
+store_past_run <- function(rv, result) {
+  run_summary <- list(
+    timestamp = Sys.time(),
+    species = result$config$species %||% "unknown",
+    model_id = result$config$model_id %||% result$model_id %||% "unknown",
+    auc = if (!is.null(result$cv)) result$cv$auc_mean else NA_real_,
+    tss = if (!is.null(result$cv)) result$cv$tss_mean else NA_real_,
+    threshold = result$config$threshold %||% result$metrics$threshold %||% NA_real_,
+    area_km2 = result$summary$high_risk_area_km2 %||% NA_real_
+  )
+  rv$past_runs <- c(rv$past_runs, list(run_summary))
+  if (length(rv$past_runs) > 10) rv$past_runs <- tail(rv$past_runs, 10)
+}

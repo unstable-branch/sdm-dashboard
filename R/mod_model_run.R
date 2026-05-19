@@ -107,6 +107,7 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           selected_biovars = as.integer(input$biovars),
           projection_extent = projection_extent,
           background_n = input$background_n,
+          pa_replicates = as.integer(input$pa_replicates %||% 1),
           min_source_records = input$min_source_records,
           merge_small_sources = isTRUE(input$merge_small_sources) %||% TRUE,
           thin_by_cell = isTRUE(input$thin_by_cell),
@@ -209,7 +210,10 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
                   rv$error <- paste("Failed to read model result:", conditionMessage(e))
                   NULL
                 })
-                if (!is.null(result)) rv$result <- result
+                if (!is.null(result)) {
+                  rv$result <- result
+                  store_past_run(rv, result)
+                }
                 append_log("Model run completed.")
               } else {
                 stderr_text <- tryCatch(bg_process$read_error(), error = function(e) "")
@@ -235,7 +239,10 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
             ),
             error = function(e) { rv$error <- conditionMessage(e); append_log(paste("ERROR:", conditionMessage(e))); NULL }
           )
-          if (!is.null(result)) rv$result <- result
+          if (!is.null(result)) {
+            rv$result <- result
+            store_past_run(rv, result)
+          }
           rv$running <- FALSE
         }
       })

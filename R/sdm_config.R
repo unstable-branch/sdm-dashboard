@@ -80,7 +80,8 @@ sdm_config <- function(...) {
     esm_power = sdm_esm_default_power,
     esm_biovars = NULL,
     overlap_warn = FALSE,
-    validation_occurrences = sdm_default_validation_occurrences
+    validation_occurrences = sdm_default_validation_occurrences,
+    pa_replicates = 1,
   )
 
   for (nm in names(defaults)) {

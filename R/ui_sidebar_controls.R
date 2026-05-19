@@ -272,7 +272,7 @@ ui_sidebar_controls <- function() {
           "input.model_id == 'multi_ensemble'",
           tags$strong("Standalone models"),
           checkboxGroupInput("multi_ensemble_standalone", NULL,
-            choices = c("GLM" = "glm", "GAM" = "gam", "MaxEnt (maxnet)" = "maxnet", "Random Forest" = "rf", "Rangebagging" = "rangebag", "ESM-GLM (rare)" = "esm_glm", "ESM-MaxNet (rare)" = "esm_maxnet"),
+            choices = c("GLM" = "glm", "GAM" = "gam", "MaxEnt (maxnet)" = "maxnet", "Random Forest" = "rf", "XGBoost" = "xgboost", "Rangebagging" = "rangebag", "ESM-GLM (rare)" = "esm_glm", "ESM-MaxNet (rare)" = "esm_maxnet"),
             selected = "glm"
           ),
           tags$strong("biomod2 algorithms"),
@@ -327,6 +327,7 @@ ui_sidebar_controls <- function() {
           uiOutput("esm_complexity_warning")
         ),
         numericInput("background_n", "Background points", value = sdm_default_background_n, min = 500, max = 100000, step = 500),
+        numericInput("pa_replicates", "PA replicates", value = sdm_default_pa_replicates, min = 1, max = 10, step = 1),
         checkboxInput("quadratic", "Include quadratic climate responses", value = TRUE),
         selectInput("cv_folds", "Cross-validation", choices = c("Off" = "0", "3-fold" = "3", "5-fold" = "5"), selected = as.character(sdm_default_cv_folds)),
         selectInput("cv_strategy", "CV strategy", choices = c("Random" = "random", "Spatial blocks" = "spatial_blocks"), selected = sdm_default_cv_strategy),
