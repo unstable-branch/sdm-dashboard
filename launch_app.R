@@ -4,7 +4,7 @@
 cmd_args <- commandArgs(FALSE)
 file_arg <- grep("^--file=", cmd_args, value = TRUE)
 launcher_path <- if (length(file_arg) > 0) normalizePath(sub("^--file=", "", file_arg[1]), winslash = "/", mustWork = TRUE) else normalizePath("launch_app.R", winslash = "/", mustWork = FALSE)
-source(file.path(dirname(launcher_path), "R", "bootstrap.R"))
+source(file.path(dirname(launcher_path), "R", "core", "bootstrap.R"))
 sdm_set_project_root(dirname(launcher_path))
 
 if (!file.exists("app.R")) {

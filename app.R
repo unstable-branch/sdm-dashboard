@@ -12,10 +12,10 @@ if (is.na(app_path)) {
   if (length(app_ofiles) > 0) app_path <- app_ofiles[length(app_ofiles)]
 }
 app_dir <- if (!is.na(app_path)) dirname(normalizePath(app_path, winslash = "/", mustWork = TRUE)) else getwd()
-source(file.path(app_dir, "R", "bootstrap.R"))
+source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
 
-engine_file <- file.path(app_dir, "R", "optimized_sdm.R")
+engine_file <- file.path(app_dir, "R", "core", "optimized_sdm.R")
 if (!file.exists(engine_file)) {
   stop(
     "Could not find R/optimized_sdm.R.\n",

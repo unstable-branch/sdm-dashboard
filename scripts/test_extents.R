@@ -7,7 +7,7 @@
 # extent. A preset passes when the result is c(xmin, xmax, ymin, ymax) with
 # all four values finite, xmin < xmax, and ymin < ymax.
 
-source("R/bootstrap.R")
+source("R/core/bootstrap.R")
 sdm_set_project_root(getwd())
 source("R/load.R")
 

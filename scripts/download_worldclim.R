@@ -7,7 +7,7 @@ script_path <- if (length(file_arg) > 0) normalizePath(sub("^--file=", "", file_
 project_root <- dirname(dirname(script_path))
 source(file.path(project_root, "R", "bootstrap.R"))
 sdm_set_project_root(project_root)
-source("R/optimized_sdm.R")
+source("R/core/optimized_sdm.R")
 
 args <- commandArgs(trailingOnly = TRUE)
 res <- if (length(args) >= 1) as.numeric(args[[1]]) else sdm_default_worldclim_res

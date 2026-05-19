@@ -11,12 +11,12 @@ script_path <- if (length(file_arg) > 0) {
 project_root <- dirname(dirname(script_path))
 source(file.path(project_root, "R", "bootstrap.R"))
 sdm_set_project_root(project_root)
-source("R/optimized_sdm.R")
+source("R/core/optimized_sdm.R")
 
 fail <- function(...) stop(paste0(...), call. = FALSE)
 
 expected <- c(
-  "app.R", "launch_app.R", "run_app_windows.bat", "R/load.R", "R/optimized_sdm.R",
+  "app.R", "launch_app.R", "run_app_windows.bat", "R/load.R", "R/core/optimized_sdm.R",
   "scripts/make_release_zip.R", "scripts/smoke_test.R", "scripts/windows_setup.R",
   "README.md", "README_WINDOWS.md", "LICENSE", "CONTRIBUTING.md", "CITATION.cff",
   "CODE_OF_CONDUCT.md", "SECURITY.md", "Dockerfile", ".dockerignore",

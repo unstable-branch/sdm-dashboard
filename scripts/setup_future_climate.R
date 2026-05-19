@@ -32,7 +32,7 @@ message("Period : ", period)
 message("Output : ", out_dir)
 message("================================================================")
 
-source("R/optimized_sdm.R")
+source("R/core/optimized_sdm.R")
 
 message("\nDownloading CMIP6 climate layers...")
 message("(This may take several minutes depending on your connection)\n")

@@ -4,10 +4,10 @@
 cmd_args <- commandArgs(FALSE)
 file_arg <- grep("^--file=", cmd_args, value = TRUE)
 pipeline_path <- if (length(file_arg) > 0) normalizePath(sub("^--file=", "", file_arg[1]), winslash = "/", mustWork = TRUE) else normalizePath("pipeline.R", winslash = "/", mustWork = FALSE)
-source(file.path(dirname(pipeline_path), "R", "bootstrap.R"))
+source(file.path(dirname(pipeline_path), "R", "core", "bootstrap.R"))
 sdm_set_project_root(dirname(pipeline_path))
 
-source("R/optimized_sdm.R")
+source("R/core/optimized_sdm.R")
 
 n_cores <- normalize_core_count(NULL, reserve_one = TRUE)
 
