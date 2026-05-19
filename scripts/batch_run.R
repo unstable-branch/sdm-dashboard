@@ -74,7 +74,7 @@ if (is.na(project_root)) {
   stop("Could not find project root (R/load.R not found in ancestor dirs)")
 }
 
-source(file.path(project_root, "R", "bootstrap.R"))
+source(file.path(project_root, "R", "core", "bootstrap.R"))
 sdm_set_project_root(project_root)
 source(file.path(project_root, "R", "load.R"))
 

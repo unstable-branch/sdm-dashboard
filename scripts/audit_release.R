@@ -9,7 +9,7 @@ script_path <- if (length(file_arg) > 0) {
   normalizePath(file.path("scripts", "audit_release.R"), winslash = "/", mustWork = FALSE)
 }
 project_root <- dirname(dirname(script_path))
-source(file.path(project_root, "R", "bootstrap.R"))
+source(file.path(project_root, "R", "core", "bootstrap.R"))
 sdm_set_project_root(project_root)
 source("R/core/optimized_sdm.R")
 

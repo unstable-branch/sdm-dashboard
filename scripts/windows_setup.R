@@ -5,7 +5,7 @@ cmd_args <- commandArgs(FALSE)
 file_arg <- grep("^--file=", cmd_args, value = TRUE)
 setup_path <- if (length(file_arg) > 0) normalizePath(sub("^--file=", "", file_arg[1]), winslash = "/", mustWork = TRUE) else normalizePath(file.path("scripts", "windows_setup.R"), winslash = "/", mustWork = FALSE)
 project_root <- dirname(dirname(setup_path))
-source(file.path(project_root, "R", "bootstrap.R"))
+source(file.path(project_root, "R", "core", "bootstrap.R"))
 sdm_set_project_root(project_root)
 
 source(file.path("R", "optimized_sdm.R"))
