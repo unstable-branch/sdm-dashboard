@@ -1562,11 +1562,14 @@ body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
 }
 
 /* === Disable Bootstrap 5 table styling on ALL DataTables === */
-/* NOTE: .source-table is a class ON the <table> element itself (from DT::datatable class= arg) */
-/*       .obs-record-table and .dataTables_wrapper are classes on parent <div> elements */
-table.source-table,
-.obs-record-table .table,
-.dataTables_wrapper .table {
+/* Bootstrap 5 uses box-shadow: inset 0 0 0 9999px as an overlay on cells.
+   It resolves CSS variables at the cell level via .table > :not(caption) > * > *
+   We must match that exact selector pattern with higher specificity. */
+
+/* Reset Bootstrap table CSS variables at the table level */
+table.source-table.table,
+.obs-record-table table.table,
+.dataTables_wrapper table.table {
   --bs-table-bg: transparent !important;
   --bs-table-color: inherit !important;
   --bs-table-border-color: transparent !important;
@@ -1579,16 +1582,17 @@ table.source-table,
   --bs-table-hover-color: inherit !important;
 }
 
-/* Kill Bootstrap's box-shadow overlay trick on cells */
-table.source-table tbody tr td,
-table.source-table tbody tr th,
-table.source-table thead tr th,
-.obs-record-table .table tbody tr td,
-.obs-record-table .table tbody tr th,
-.obs-record-table .table thead tr th,
-.dataTables_wrapper .table tbody tr td,
-.dataTables_wrapper .table tbody tr th,
-.dataTables_wrapper .table thead tr th {
+/* Kill Bootstrap's box-shadow overlay and variable cascade at the CELL level.
+   Matches .table > :not(caption) > * > * but with higher specificity. */
+table.source-table.table > :not(caption) > * > *,
+.obs-record-table table.table > :not(caption) > * > *,
+.dataTables_wrapper table.table > :not(caption) > * > * {
+  --bs-table-bg: transparent !important;
+  --bs-table-bg-type: initial !important;
+  --bs-table-bg-state: initial !important;
+  --bs-table-accent-bg: transparent !important;
+  --bs-table-color-type: initial !important;
+  --bs-table-color-state: initial !important;
   box-shadow: none !important;
   background-color: transparent !important;
 }
@@ -1606,44 +1610,44 @@ table.source-table.dataTable,
 /* Re-apply our custom backgrounds on top of the reset */
 
 /* Unified DataTables striped/hover — light mode */
-table.source-table.table-striped tbody tr:nth-of-type(odd) td,
-.obs-record-table .table-striped tbody tr:nth-of-type(odd) td,
-.dataTables_wrapper .table-striped tbody tr:nth-of-type(odd) td {
-  background: #f4f7fb !important;
+table.source-table.table.table-striped > tbody > tr:nth-of-type(odd) > *,
+.obs-record-table table.table.table-striped > tbody > tr:nth-of-type(odd) > *,
+.dataTables_wrapper table.table.table-striped > tbody > tr:nth-of-type(odd) > * {
+  background-color: #f4f7fb !important;
 }
-table.source-table.table-striped tbody tr:nth-of-type(even) td,
-.obs-record-table .table-striped tbody tr:nth-of-type(even) td,
-.dataTables_wrapper .table-striped tbody tr:nth-of-type(even) td {
-  background: #ffffff !important;
+table.source-table.table.table-striped > tbody > tr:nth-of-type(even) > *,
+.obs-record-table table.table.table-striped > tbody > tr:nth-of-type(even) > *,
+.dataTables_wrapper table.table.table-striped > tbody > tr:nth-of-type(even) > * {
+  background-color: #ffffff !important;
 }
-table.source-table.table-hover tbody tr:hover td,
-.obs-record-table .table-hover tbody tr:hover td,
-.dataTables_wrapper .table-hover tbody tr:hover td {
-  background: #e8f0f8 !important;
+table.source-table.table.table-hover > tbody > tr:hover > *,
+.obs-record-table table.table.table-hover > tbody > tr:hover > *,
+.dataTables_wrapper table.table.table-hover > tbody > tr:hover > * {
+  background-color: #e8f0f8 !important;
 }
 
 /* Unified DataTables striped/hover — dark mode */
-body.sdm-dark table.source-table.table-striped tbody tr:nth-of-type(odd) td,
-body.sdm-dark .obs-record-table .table-striped tbody tr:nth-of-type(odd) td,
-body.sdm-dark .dataTables_wrapper .table-striped tbody tr:nth-of-type(odd) td {
-  background: rgba(255, 255, 255, 0.035) !important;
+body.sdm-dark table.source-table.table.table-striped > tbody > tr:nth-of-type(odd) > *,
+body.sdm-dark .obs-record-table table.table.table-striped > tbody > tr:nth-of-type(odd) > *,
+body.sdm-dark .dataTables_wrapper table.table.table-striped > tbody > tr:nth-of-type(odd) > * {
+  background-color: rgba(255, 255, 255, 0.035) !important;
 }
-body.sdm-dark table.source-table.table-striped tbody tr:nth-of-type(even) td,
-body.sdm-dark .obs-record-table .table-striped tbody tr:nth-of-type(even) td,
-body.sdm-dark .dataTables_wrapper .table-striped tbody tr:nth-of-type(even) td {
-  background: transparent !important;
+body.sdm-dark table.source-table.table.table-striped > tbody > tr:nth-of-type(even) > *,
+body.sdm-dark .obs-record-table table.table.table-striped > tbody > tr:nth-of-type(even) > *,
+body.sdm-dark .dataTables_wrapper table.table.table-striped > tbody > tr:nth-of-type(even) > * {
+  background-color: transparent !important;
 }
-body.sdm-dark table.source-table.table-hover tbody tr:hover td,
-body.sdm-dark .obs-record-table .table-hover tbody tr:hover td,
-body.sdm-dark .dataTables_wrapper .table-hover tbody tr:hover td {
-  background: rgba(55, 208, 178, 0.09) !important;
+body.sdm-dark table.source-table.table.table-hover > tbody > tr:hover > *,
+body.sdm-dark .obs-record-table table.table.table-hover > tbody > tr:hover > *,
+body.sdm-dark .dataTables_wrapper table.table.table-hover > tbody > tr:hover > * {
+  background-color: rgba(55, 208, 178, 0.09) !important;
 }
 
 /* Unified DataTables table headers — light mode */
-table.source-table.dataTable thead th,
-.obs-record-table table.dataTable thead th,
-.dataTables_wrapper table.dataTable thead th {
-  background: #f4f7fb !important;
+table.source-table.table.dataTable thead > tr > th,
+.obs-record-table table.table.dataTable thead > tr > th,
+.dataTables_wrapper table.table.dataTable thead > tr > th {
+  background-color: #f4f7fb !important;
   color: #102a43 !important;
   border-bottom: 2px solid #d4dde6 !important;
   padding: 0.75rem !important;
@@ -1651,14 +1655,13 @@ table.source-table.dataTable thead th,
   font-size: 0.82rem !important;
   text-transform: uppercase !important;
   letter-spacing: 0.04em !important;
-  box-shadow: none !important;
 }
 
 /* Unified DataTables table headers — dark mode */
-body.sdm-dark table.source-table.dataTable thead th,
-body.sdm-dark .obs-record-table table.dataTable thead th,
-body.sdm-dark .dataTables_wrapper table.dataTable thead th {
-  background: var(--sdm-surface-soft) !important;
+body.sdm-dark table.source-table.table.dataTable thead > tr > th,
+body.sdm-dark .obs-record-table table.table.dataTable thead > tr > th,
+body.sdm-dark .dataTables_wrapper table.table.dataTable thead > tr > th {
+  background-color: var(--sdm-surface-soft) !important;
   color: var(--sdm-heading) !important;
   border-bottom: 2px solid var(--sdm-border) !important;
   padding: 0.75rem !important;
@@ -1666,29 +1669,24 @@ body.sdm-dark .dataTables_wrapper table.dataTable thead th {
   font-size: 0.82rem !important;
   text-transform: uppercase !important;
   letter-spacing: 0.04em !important;
-  box-shadow: none !important;
 }
 
 /* Unified DataTables table cells — light mode */
-table.source-table.dataTable tbody td,
-.obs-record-table table.dataTable tbody td,
-.dataTables_wrapper table.dataTable tbody td {
+table.source-table.table.dataTable tbody > tr > td,
+.obs-record-table table.table.dataTable tbody > tr > td,
+.dataTables_wrapper table.table.dataTable tbody > tr > td {
   padding: 0.5rem 0.75rem;
   border-color: #e7edf4;
   color: #102a43;
-  background: transparent;
-  box-shadow: none;
 }
 
 /* Unified DataTables table cells — dark mode */
-body.sdm-dark table.source-table.dataTable tbody td,
-body.sdm-dark .obs-record-table table.dataTable tbody td,
-body.sdm-dark .dataTables_wrapper table.dataTable tbody td {
+body.sdm-dark table.source-table.table.dataTable tbody > tr > td,
+body.sdm-dark .obs-record-table table.table.dataTable tbody > tr > td,
+body.sdm-dark .dataTables_wrapper table.table.dataTable tbody > tr > td {
   border-color: var(--sdm-border) !important;
   color: var(--sdm-text) !important;
   padding: 0.5rem 0.75rem !important;
-  background: transparent !important;
-  box-shadow: none !important;
 }
 
 /* Phase 10: Export flagged button */
