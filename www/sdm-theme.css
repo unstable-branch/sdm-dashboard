@@ -1550,33 +1550,45 @@ body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
   overflow: hidden;
 }
 
-/* Disable Bootstrap 5 table background override */
+/* Disable Bootstrap 5 table styling on DataTables */
+.source-table,
+.obs-record-table,
+.dataTables_wrapper {
+  --bs-table-bg: transparent !important;
+  --bs-table-color: inherit !important;
+  --bs-table-border-color: transparent !important;
+  --bs-table-accent-bg: transparent !important;
+}
 .source-table table.dataTable,
 .obs-record-table table.dataTable,
 .dataTables_wrapper table.dataTable {
-  --bs-table-bg: transparent;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0;
+  width: 100%;
 }
-body.sdm-dark .source-table table.dataTable,
-body.sdm-dark .obs-record-table table.dataTable,
-body.sdm-dark .dataTables_wrapper table.dataTable {
-  --bs-table-bg: transparent !important;
+.source-table table.dataTable *,
+.obs-record-table table.dataTable *,
+.dataTables_wrapper table.dataTable * {
+  background-color: unset !important;
 }
+/* Re-apply our custom backgrounds on top of the reset */
 
 /* Unified DataTables striped/hover — light mode */
 .source-table .table-striped tbody tr:nth-of-type(odd) td,
 .obs-record-table .table-striped tbody tr:nth-of-type(odd) td,
 .dataTables_wrapper .table-striped tbody tr:nth-of-type(odd) td {
-  background: #f4f7fb;
+  background: #f4f7fb !important;
 }
 .source-table .table-striped tbody tr:nth-of-type(even) td,
 .obs-record-table .table-striped tbody tr:nth-of-type(even) td,
 .dataTables_wrapper .table-striped tbody tr:nth-of-type(even) td {
-  background: #ffffff;
+  background: #ffffff !important;
 }
 .source-table .table-hover tbody tr:hover td,
 .obs-record-table .table-hover tbody tr:hover td,
 .dataTables_wrapper .table-hover tbody tr:hover td {
-  background: #e8f0f8;
+  background: #e8f0f8 !important;
 }
 
 /* Unified DataTables striped/hover — dark mode */
