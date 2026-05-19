@@ -55,8 +55,8 @@ conditional on package availability. This is the right approach.
 - Clean separation: `fit_multi_model_ensemble` → `predict_multi_model_ensemble`
 
 **Issues found:**
-1. **`predict_multi_model_ensemble` writes 4-6 rasters unconditionally.** Even if the user only needs the weighted output, it writes mean, median, committee, SD, and all component rasters. This is wasteful for large extents. Consider making these optional via config.
-2. **Ensemble committee uses per-component CV threshold** (`comp_cv$threshold %||% 0.5`) which may not match the user's chosen threshold. The committee binary conversion should use the global `input$threshold`.
+1. **`predict_multi_model_ensemble` writes 4-6 rasters (now optional via export_components) ✅.** Even if the user only needs the weighted output, it writes mean, median, committee, SD, and all component rasters. This is wasteful for large extents. Consider making these optional via config.
+2. **Ensemble committee uses user_threshold (global) ✅** (`comp_cv$threshold %||% 0.5`) which may not match the user's chosen threshold. The committee binary conversion should use the global `input$threshold`.
 3. **`extract_biomod2_algorithm_files` has a fragile pattern match** (`paste0("_", algo, "[^a-zA-Z]")`) that could match wrong files if algo names overlap.
 4. **No parallel prediction of components.** Components are predicted sequentially. For 5+ models, this could be parallelized with `future`/`parallel`.
 
@@ -70,7 +70,7 @@ conditional on package availability. This is the right approach.
 - Clean contract matching other models
 
 **Issues found:**
-1. **ESM suitability divided by 1000** (line from `predict_esm_suitability`): `suit_values <- unname(ens_proj) / 1000`. The scaling assumption (ecospat outputs 0-1000) should be validated against current ecospat version — if ecospat changes this, suitability values will be wrong.
+1. **ESM suitability auto-detects 0-1000 vs 0-1 range ✅
 2. **`extract_esm_importance` pattern matching** uses `grep(paste0("(^|_)", v, "(_|$)"), names(w))`. If variable names contain underscores (e.g., `bio_12`), the pattern `bio_12` would match `bio_12_bio_15` but NOT `bio1_bio12`. The current naming convention (`bio1`, `bio4`, etc.) avoids this, but it's fragile.
 
 ---
@@ -93,7 +93,7 @@ The sidebar has 7+ collapsible sections, some with multiple nested `conditionalP
 - **Optional covariates is also collapsed** — elevation, soil, vegetation are hidden
 - **Advanced settings** contains important options (VIF reduction, bias correction, thinning) that are buried
 
-**Suggestion:** Show a simplified sidebar by default with just: Species, Data Source, Model (with smart recommendation), BIO variables, Run button. Put everything else behind an "Advanced" toggle.
+**Suggestion:** Simplified sidebar with Advanced toggle (I25) ✅
 
 #### 2. No Model Comparison View
 After running a model, there's no way to compare it against a previous run. Users can't see side-by-side GLM vs MaxEnt vs Ensemble results.
@@ -130,7 +130,7 @@ All sidebar settings reset on page refresh. For iterative modelling workflows, t
 - The dark theme is polished with good contrast
 - CSS variable system (`--sdm-*`) is well-structured
 - Card-based layout is clean
-- The hero header is nice but takes vertical space — consider a compact mode
+- The hero header is nice but takes vertical space — compact mode toggle added ✅
 
 ---
 
@@ -181,7 +181,7 @@ R/
 ## Priority Improvement Recommendations
 
 ### High Impact
-1. **Wire response curve plots into the Diagnostics tab** — code exists, just needs UI
+1. **Response curve plots wired to Diagnostics tab ✅
 2. **Add model comparison** (store results, side-by-side maps/AUC)
 3. **Break `run_sdm.R` into pipeline stages** for better error recovery
 4. **Run model in background process** (like Get Data downloads) to prevent UI freeze
