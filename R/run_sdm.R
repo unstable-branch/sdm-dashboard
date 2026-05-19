@@ -61,6 +61,7 @@ run_fast_sdm <- function(...) {
   thickening_distance_km <- cfg$thickening_distance_km
   use_cc <- cfg$use_cc
   cc_tests <- cfg$cc_tests
+  max_coordinate_uncertainty <- cfg$max_coordinate_uncertainty %||% NULL
   cleaned_occurrence <- cfg$cleaned_occurrence
   output_dir <- cfg$output_dir
   seed <- cfg$seed
@@ -79,6 +80,7 @@ run_fast_sdm <- function(...) {
   esm_n_runs <- cfg$esm_n_runs
   esm_split <- cfg$esm_split
   esm_min_auc <- cfg$esm_min_auc
+  esm_weighting_metric <- cfg$esm_weighting_metric %||% "AUC"
   esm_power <- cfg$esm_power
   esm_biovars <- cfg$esm_biovars
   overlap_warn <- cfg$overlap_warn
@@ -118,7 +120,7 @@ run_fast_sdm <- function(...) {
     cleaned <- list(occ = occ, removed_bad_coordinates = 0, removed_duplicates = 0, original_rows = nrow(occ), columns = colnames(occ))
     if (is.null(occ$cc_flag)) occ$cc_flag <- FALSE
   } else {
-    cleaned <- clean_occurrences(occurrence_file, min_source_records = min_source_records, merge_small_sources = merge_small_sources, use_cc = use_cc, cc_tests = cc_tests, log_fun = log_fun)
+    cleaned <- clean_occurrences(occurrence_file, min_source_records = min_source_records, merge_small_sources = merge_small_sources, use_cc = use_cc, cc_tests = cc_tests, log_fun = log_fun, max_coordinate_uncertainty = max_coordinate_uncertainty)
     occ <- cleaned$occ
   }
   model_meta <- get_sdm_model(model_id)
@@ -239,7 +241,7 @@ run_fast_sdm <- function(...) {
     )
   } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
     list(
-      biovars = esm_biovars, min_auc = esm_min_auc, power = esm_power,
+      biovars = esm_biovars, min_auc = esm_min_auc, weighting_metric = esm_weighting_metric, power = esm_power,
       n_runs_eval = esm_n_runs, data_split = esm_split
     )
   } else {
@@ -330,6 +332,8 @@ run_fast_sdm <- function(...) {
     )
   } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
     suit <- predict_esm_suitability(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
+    esm_pair_sd_tif <- attr(suit, "esm_pair_sd_tif")
+    if (!is.null(esm_pair_sd_tif)) extra_paths[["esm_pair_sd"]] <- esm_pair_sd_tif
   } else {
     suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
   }

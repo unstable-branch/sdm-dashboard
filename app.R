@@ -49,6 +49,7 @@ ui <- fluidPage(
     tags$link(rel = "stylesheet", href = "sdm-theme.css"),
     if (nzchar(sdm_theme_css)) tags$style(HTML(sdm_theme_css)),
     tags$script(src = "sdm-plugins.js"),
+    tags$script(src = "sdm-settings.js"),
     tags$script(HTML("\n      console.log('SDM Dashboard JS loaded');\n      Shiny.addCustomMessageHandler('setRunState', function(x) {\n        var btn = document.getElementById('run_model');\n        if (!btn) { console.log('setRunState: run_model btn not found'); return; }\n        console.log('setRunState called, running=', x.running);\n        btn.disabled = !!x.running;\n        btn.classList.toggle('disabled', !!x.running);\n        btn.textContent = x.running ? 'Running SDM...' : 'Run SDM';\n      });\n      (function() {\n        function setTheme(dark) {\n          document.body.classList.toggle('sdm-dark', dark);\n          document.body.classList.toggle('sdm-light', !dark);\n          try { window.localStorage.setItem('sdm-dashboard-theme', dark ? 'dark' : 'light'); } catch (e) {}\n        }\n        function initialTheme() {\n          try {\n            var saved = window.localStorage.getItem('sdm-dashboard-theme');\n            if (saved === 'dark' || saved === 'light') return saved === 'dark';\n          } catch (e) {}\n          return true;\n        }\n        function wireToggle() {\n          var toggle = document.getElementById('dark_mode');\n          var dark = initialTheme();\n          setTheme(dark);\n          if (!toggle || toggle.dataset.themeBound === '1') return;\n          toggle.checked = dark;\n          toggle.dataset.themeBound = '1';\n          toggle.addEventListener('change', function() { setTheme(toggle.checked); });\n        }\n        document.addEventListener('DOMContentLoaded', wireToggle);\n        document.addEventListener('shiny:connected', function() { console.log('Shiny connected'); wireToggle(); });\n      })();\n    "))
   ),
 
@@ -118,6 +119,19 @@ server <- function(input, output, session) {
   mod_model_run_server("model_run", rv, input, append_log, occurrence_source, last_progress)
   mod_results_server("results", rv, input)
   mod_readiness_server("readiness", rv, input, readiness_item, occurrence_source)
+
+  # Show/hide Future projection tab based on sidebar toggle
+  observeEvent(input$future_projection, {
+    if (isTRUE(input$future_projection)) {
+      showTab("tabs", "Future projection")
+    } else {
+      hideTab("tabs", "Future projection")
+    }
+  }, ignoreNULL = TRUE)
+  # Hide on startup (runs once after session initialises)
+  observe({
+    if (!isTRUE(input$future_projection)) hideTab("tabs", "Future projection")
+  }, priority = 1000)
 
   # Sync climate source between sidebar and Get Data tab
   observeEvent(input$climate_source, {

@@ -312,7 +312,11 @@ ui_sidebar_controls <- function() {
             numericInput("esm_min_auc", "Min AUC (bivariate filter)",
               value = sdm_esm_default_min_auc, min = 0.5, max = 0.95, step = 0.05
             ),
-            numericInput("esm_power", "AUC weight exponent",
+            selectInput("esm_weighting_metric", "Weighting metric",
+              choices = c("AUC" = "AUC", "TSS" = "TSS"),
+              selected = "AUC", selectize = FALSE
+            ),
+            numericInput("esm_power", "Weight exponent",
               value = sdm_esm_default_power, min = 0.5, max = 5, step = 0.5
             )
           ),

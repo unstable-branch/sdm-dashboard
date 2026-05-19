@@ -110,6 +110,8 @@ ui_main_tabs <- function() {
               h4("Coefficient summary"),
               tableOutput("results-coef_table")
             ),
+            uiOutput("results-response_curves_panel"),
+            uiOutput("results-variable_importance_panel"),
             uiOutput("results-ensemble_weights_panel"),
             uiOutput("results-esm_diagnostics_panel")
           ),
