@@ -116,9 +116,9 @@ Organised by effort and impact. Items marked with source reference:
 | I31 ✅ **Hyperparameter tuning** — grid search for MaxNet regularisation, GAM k/sp | Standards → Gold | standards-assessment |
 | I32 ✅ **blockCV variogram-based blocks** — replace custom blocks with `blockCV::cv_spatial()` | Standards → Gold | standards-assessment |
 | I33 ✅ **Ensemble variable importance** — permutation importance across weighted ensemble | Evaluation | architecture |
-| I34 | **Dispersal simulation** — kernel-based spread model, animated spread maps | Biosecurity | biosecurity-deep-dive |
-| I35 | **JSDM backend (HMSC)** — joint species distribution modelling for species interactions | Ecology | ecology-deep-dive |
-| I36 | **CLIMEX parameter import** — combine mechanistic + correlative approaches | Biosecurity | biosecurity-deep-dive |
+| I34 ✅ **Dispersal simulation** — kernel-based spread model, animated spread maps | Biosecurity | biosecurity-deep-dive |
+| I35 ✅ **JSDM backend (HMSC)** — joint species distribution modelling for species interactions | Ecology | ecology-deep-dive |
+| I36 ✅ **CLIMEX parameter import** — combine mechanistic + correlative approaches | Biosecurity | biosecurity-deep-dive |
 | I37 ✅ **Wire DNN to UI** — expose cito/torch backend in model selector | Algorithms | code review |
 | I38 ✅ **Organise R/ into subdirectories** — core/, data/, covariates/, models/, ui/, modules/ | Architecture | code review |
 | I39 ✅ **Break `run_sdm.R` into pipeline stages** — load → covariates → fit → predict → metrics → outputs | Architecture | code review |
