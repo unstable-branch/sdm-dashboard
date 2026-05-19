@@ -52,7 +52,10 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
                             cv_strategy = sdm_default_cv_strategy,
                             cv_block_size_km = sdm_default_cv_block_size_km,
                             threshold = sdm_default_threshold,
-                            max_depth = 6L, eta = 0.3, nrounds = 100L) {
+                            max_depth = 6L, eta = 0.3, nrounds = 100L,
+                            bias_method = "uniform",
+                            target_group_occ = NULL,
+                            thickening_distance_km = NULL) {
   if (!requireNamespace("xgboost", quietly = TRUE)) {
     stop("The XGBoost backend requires the xgboost package. Install xgboost or choose a different model backend.", call. = FALSE)
   }
@@ -122,8 +125,19 @@ predict_xgboost_suitability <- function(fit, env_project_scaled, output_tif, n_c
   log_message(log_fun, "Predicting suitability raster with XGBoost")
   covariates <- fit$covariates
 
+  # Match covariate names (make.names-ified in fit) to raster layer names
+  raster_names <- names(env_project_scaled)
+  raster_names_clean <- make.names(raster_names)
+  cov_idx <- match(covariates, raster_names_clean)
+  if (any(is.na(cov_idx))) {
+    missing <- covariates[is.na(cov_idx)]
+    stop("The following covariates are missing from the projection stack: ", paste(missing, collapse = ", "), call. = FALSE)
+  }
+  env_subset <- env_project_scaled[[raster_names[cov_idx]]]
+
   predict_one_block <- function(rast_block) {
     df <- as.data.frame(rast_block)
+    names(df) <- covariates  # match make.names-ified covariate names
     x <- as.matrix(df[, covariates, drop = FALSE])
     pred <- predict(fit$model, x)
     pred[!is.finite(pred)] <- 0
@@ -131,7 +145,7 @@ predict_xgboost_suitability <- function(fit, env_project_scaled, output_tif, n_c
     pred
   }
 
-  suit <- terra::app(env_project_scaled[[covariates]], predict_one_block, nodes = TRUE, names = "suitability")
+  suit <- terra::app(env_subset, predict_one_block, nodes = TRUE, names = "suitability")
   terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
   log_message(log_fun, "XGBoost suitability saved: ", output_tif)
   suit

@@ -16,6 +16,7 @@
     'vif_reduction',
     'bias_method',
     'background_n',
+    'pa_replicates',
     'maxnet_features',
     'maxnet_regmult',
     'multi_ensemble_weighting',
@@ -34,8 +35,10 @@
     'climate_source',
     'biomod2_ensemble',
     'thin_by_cell',
+    'show_advanced',
     'batch_mode',
     'use_elevation',
+    'dwca_max_uncertainty',
     'use_soil',
     'use_vegetation'
   ];

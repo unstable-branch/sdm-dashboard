@@ -56,13 +56,19 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
                          num_trees = sdm_default_rf_num_trees,
                          mtry = sdm_default_rf_mtry,
                          min_node_size = sdm_default_rf_min_node_size,
+                         bias_method = "uniform",
+                         target_group_occ = NULL,
+                         thickening_distance_km = NULL,
                          ...) {
     if (!requireNamespace("ranger", quietly = TRUE)) {
       stop("ranger package is required for RF fitting but is not installed.", call. = FALSE)
     }
 
     d <- prepare_sdm_data(occ, env_train_scaled, background_n,
-      seed = seed, log_fun = log_fun
+      seed = seed, log_fun = log_fun,
+      bias_method = bias_method %||% "uniform",
+      target_group_occ = target_group_occ %||% NULL,
+      thickening_distance_km = thickening_distance_km %||% NULL
     )
     occ_used <- d$occ_used
     pres_vals <- d$pres_vals
@@ -155,12 +161,15 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
     if (!is.list(fit) || is.null(fit$model)) stop("fit must be an RF model fit result list.", call. = FALSE)
 
     if (is.null(fit$covariates)) stop("fit$covariates is missing; cannot map covariates.", call. = FALSE)
-    missing_covs <- setdiff(fit$covariates, names(env_project_scaled))
-    if (length(missing_covs) > 0) {
-      stop("The following covariates are missing from the projection stack: ", paste(missing_covs, collapse = ", "), call. = FALSE)
+    # Match covariate names (make.names-ified in fit) to raster layer names
+    raster_names <- names(env_project_scaled)
+    raster_names_clean <- make.names(raster_names)
+    cov_idx <- match(fit$covariates, raster_names_clean)
+    if (any(is.na(cov_idx))) {
+      missing <- fit$covariates[is.na(cov_idx)]
+      stop("The following covariates are missing from the projection stack: ", paste(missing, collapse = ", "), call. = FALSE)
     }
-
-    env_subset <- env_project_scaled[[fit$covariates]]
+    env_subset <- env_project_scaled[[raster_names[cov_idx]]]
     log_message(log_fun, "Predicting RF suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
     suit <- terra::app(env_subset, fun = function(vals) {
