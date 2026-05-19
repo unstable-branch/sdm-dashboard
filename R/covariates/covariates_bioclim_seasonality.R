@@ -117,17 +117,19 @@ load_bioclim_seasonality <- function(extent_vec,
 
   log_message(log_fun, "Downloading WorldClim monthly data for seasonality computation...")
   ensure_sdm_packages("geodata")
+  monthly_cache <- file.path(cache_dir, "monthly_wc")
+  if (!dir.exists(monthly_cache)) dir.create(monthly_cache, recursive = TRUE, showWarnings = FALSE)
   suppressMessages({
     tmin_rast <- tryCatch(
-      geodata::worldclim_global(var = "tmin", res = 10, path = tempdir()),
+      geodata::worldclim_global(var = "tmin", res = 10, path = monthly_cache),
       error = function(e) NULL
     )
     tmax_rast <- tryCatch(
-      geodata::worldclim_global(var = "tmax", res = 10, path = tempdir()),
+      geodata::worldclim_global(var = "tmax", res = 10, path = monthly_cache),
       error = function(e) NULL
     )
     prec_rast <- tryCatch(
-      geodata::worldclim_global(var = "prec", res = 10, path = tempdir()),
+      geodata::worldclim_global(var = "prec", res = 10, path = monthly_cache),
       error = function(e) NULL
     )
   })

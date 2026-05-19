@@ -134,25 +134,32 @@ mod_get_data_server <- function(id, rv, input) {
 
     # ---- Status output renderers ----
 
-    output$gd_worldclim_status <- renderUI({
-      rv$gd_cache_refresh
-      v <- tryCatch(
-        verify_worldclim_cache("Worldclim", source = input$gd_climate_source %||% "worldclim"),
-        error = function(e) list(status = "error", detail = paste("Error:", conditionMessage(e)))
-      )
-      tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
-    })
-    outputOptions(output, "gd_worldclim_status", suspendWhenHidden = FALSE)
+    make_status_renderer <- function(output_id, verify_fun) {
+      output[[output_id]] <- renderUI({
+        rv$gd_cache_refresh
+        v <- tryCatch(
+          verify_fun(),
+          error = function(e) list(status = "error", detail = paste("Error:", conditionMessage(e)))
+        )
+        tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+      })
+      outputOptions(output, output_id, suspendWhenHidden = FALSE)
+    }
 
-    output$gd_chelsa_status <- renderUI({
-      rv$gd_cache_refresh
-      v <- tryCatch(
-        verify_chelsa_extras_cache("Worldclim"),
-        error = function(e) list(status = "error", detail = paste("Error:", conditionMessage(e)))
-      )
-      tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
+    make_status_renderer("gd_worldclim_status", function() {
+      verify_worldclim_cache("Worldclim", source = input$gd_climate_source %||% "worldclim")
     })
-    outputOptions(output, "gd_chelsa_status", suspendWhenHidden = FALSE)
+    make_status_renderer("gd_chelsa_status", function() {
+      verify_chelsa_extras_cache("Worldclim")
+    })
+    make_status_renderer("gd_elevation_status", verify_elevation_cache)
+    make_status_renderer("gd_soil_status", verify_soil_cache)
+    make_status_renderer("gd_uv_status", verify_uv_cache)
+    make_status_renderer("gd_vegetation_status", verify_vegetation_cache)
+    make_status_renderer("gd_lulc_status", verify_lulc_cache)
+    make_status_renderer("gd_hfp_status", verify_hfp_cache)
+    make_status_renderer("gd_drought_status", verify_drought_cache)
+    make_status_renderer("gd_bioclime_status", verify_bioclim_season_cache)
 
     output$gd_cmip6_scenarios <- renderUI({
       rv$gd_cache_refresh
@@ -162,11 +169,8 @@ mod_get_data_server <- function(id, rv, input) {
       }
       rows <- lapply(seq_len(nrow(v$scenarios)), function(i) {
         r <- v$scenarios[i, ]
-        div(
-          class = "scenario-row",
-          strong(r$GCM), " / ", r$SSP, " / ", r$Period,
-          span(class = "scenario-meta", paste0(r$Files, " files, ", r$SizeMB, " MB"))
-        )
+        div(class = "scenario-row", strong(r$GCM), " / ", r$SSP, " / ", r$Period,
+          span(class = "scenario-meta", paste0(r$Files, " files, ", r$SizeMB, " MB")))
       })
       tagList(div(class = "text-sm", rows))
     })
@@ -175,86 +179,6 @@ mod_get_data_server <- function(id, rv, input) {
     observe({
       isolate(rv$cmip6_scenarios <- verify_future_cache())
     })
-
-    output$gd_elevation_status <- renderUI({
-      rv$gd_cache_refresh
-      v <- tryCatch(
-        verify_elevation_cache(),
-        error = function(e) list(status = "error", detail = paste("Error:", conditionMessage(e)))
-      )
-      tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
-    })
-    outputOptions(output, "gd_elevation_status", suspendWhenHidden = FALSE)
-
-    output$gd_soil_status <- renderUI({
-      rv$gd_cache_refresh
-      v <- tryCatch(
-        verify_soil_cache(),
-        error = function(e) list(status = "error", detail = paste("Error:", conditionMessage(e)))
-      )
-      tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
-    })
-    outputOptions(output, "gd_soil_status", suspendWhenHidden = FALSE)
-
-    output$gd_uv_status <- renderUI({
-      rv$gd_cache_refresh
-      v <- tryCatch(
-        verify_uv_cache(),
-        error = function(e) list(status = "error", detail = paste("Error:", conditionMessage(e)))
-      )
-      tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
-    })
-    outputOptions(output, "gd_uv_status", suspendWhenHidden = FALSE)
-
-    output$gd_vegetation_status <- renderUI({
-      rv$gd_cache_refresh
-      v <- tryCatch(
-        verify_vegetation_cache(),
-        error = function(e) list(status = "error", detail = paste("Error:", conditionMessage(e)))
-      )
-      tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
-    })
-    outputOptions(output, "gd_vegetation_status", suspendWhenHidden = FALSE)
-
-    output$gd_lulc_status <- renderUI({
-      rv$gd_cache_refresh
-      v <- tryCatch(
-        verify_lulc_cache(),
-        error = function(e) list(status = "error", detail = paste("Error:", conditionMessage(e)))
-      )
-      tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
-    })
-    outputOptions(output, "gd_lulc_status", suspendWhenHidden = FALSE)
-
-    output$gd_hfp_status <- renderUI({
-      rv$gd_cache_refresh
-      v <- tryCatch(
-        verify_hfp_cache(),
-        error = function(e) list(status = "error", detail = paste("Error:", conditionMessage(e)))
-      )
-      tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
-    })
-    outputOptions(output, "gd_hfp_status", suspendWhenHidden = FALSE)
-
-    output$gd_drought_status <- renderUI({
-      rv$gd_cache_refresh
-      v <- tryCatch(
-        verify_drought_cache(),
-        error = function(e) list(status = "error", detail = paste("Error:", conditionMessage(e)))
-      )
-      tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
-    })
-    outputOptions(output, "gd_drought_status", suspendWhenHidden = FALSE)
-
-    output$gd_bioclime_status <- renderUI({
-      rv$gd_cache_refresh
-      v <- tryCatch(
-        verify_bioclim_season_cache(),
-        error = function(e) list(status = "error", detail = paste("Error:", conditionMessage(e)))
-      )
-      tagList(gd_status_dots(v), span(class = "small-muted", v$detail))
-    })
-    outputOptions(output, "gd_bioclime_status", suspendWhenHidden = FALSE)
 
     output$gd_cache_summary <- renderUI({
       s <- rv$gd_cache_summary
