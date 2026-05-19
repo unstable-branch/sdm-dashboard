@@ -3,13 +3,14 @@
 
 find_bootstrap <- function() {
   candidates <- c(
+    file.path(getwd(), "R", "core", "bootstrap.R"),
     file.path(getwd(), "R", "bootstrap.R"),
     file.path(getwd(), "bootstrap.R")
   )
   script <- grep("^--file=", commandArgs(FALSE), value = TRUE)
   if (length(script) > 0) {
     script_dir <- dirname(sub("^--file=", "", script[1]))
-    candidates <- c(candidates, file.path(script_dir, "R", "bootstrap.R"), file.path(script_dir, "bootstrap.R"))
+    candidates <- c(candidates, file.path(script_dir, "R", "core", "bootstrap.R"), file.path(script_dir, "R", "bootstrap.R"), file.path(script_dir, "bootstrap.R"))
   }
   existing <- candidates[file.exists(candidates)]
   if (length(existing) == 0) {
