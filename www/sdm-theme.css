@@ -517,19 +517,20 @@ body.sdm-dark .metric-note-poor { color: #ffd2d4; }
   gap: 8px;
 }
 .readiness-item {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px;
-  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
   border-radius: 10px;
   background: rgba(255,255,255,.55);
   border: 1px solid #e7edf4;
-  align-items: start;
 }
 .readiness-title {
   display: flex;
   align-items: center;
   gap: 6px;
+  font-weight: 600;
+  font-size: .88rem;
 }
 .pill {
   display: inline-flex;
@@ -562,6 +563,8 @@ body.sdm-dark .metric-note-poor { color: #ffd2d4; }
   color: #5d6d7e;
   font-size: .82rem;
   line-height: 1.35;
+  margin-left: 28px;
+  margin-top: 2px;
 }
 
 /* Compact layout overrides */
