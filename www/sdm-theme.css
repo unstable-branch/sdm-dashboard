@@ -1405,6 +1405,11 @@ body.sdm-dark .obs-log-output {
   border-radius: 8px;
   background: #fff;
   padding: 0.5rem;
+  max-width: 100%;
+  overflow: hidden;
+}
+.source-table-container .dataTables_wrapper {
+  overflow-x: auto;
 }
 body.sdm-dark .source-table-container {
   background: transparent;
@@ -1538,9 +1543,15 @@ body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
 /* Phase 3: Record table */
 .obs-record-table {
   margin-top: 12px;
+  max-width: 100%;
+  overflow: hidden;
 }
 .obs-record-table .dataTables_wrapper {
   font-size: 0.82rem;
+  overflow-x: auto;
+}
+.obs-record-table .dataTables_scrollHead {
+  overflow: hidden;
 }
 
 /* Phase 10: Export flagged button */
