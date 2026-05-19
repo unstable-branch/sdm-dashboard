@@ -7,7 +7,6 @@
 .env
 .env.*
 !.env.example
-AGENTS.md
 .DS_Store
 Thumbs.db
 
