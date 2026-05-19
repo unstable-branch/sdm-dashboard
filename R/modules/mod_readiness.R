@@ -93,34 +93,41 @@ mod_readiness_server <- function(id, rv, input, readiness_item, occurrence_sourc
         issues <- c(issues, "Select at least two BIOCLIM variables.")
         climate_state <- "error"
         climate_detail <- "Select at least two climate variables."
-      } else if (length(missing_climate) > 0 && isTRUE(input$download_worldclim)) {
-        climate_state <- "warn"
-        climate_detail <- paste0(climate_detail, "; missing BIO", paste(missing_climate, collapse = ", BIO"), " will be downloaded if available.")
-        warnings <- c(warnings, "WorldClim download is enabled for missing BIO layers.")
       } else if (length(missing_climate) > 0) {
-        climate_state <- "error"
-        missing_biovars <- paste(missing_climate, collapse = ", BIO")
-        climate_detail <- paste0(climate_detail, "; missing BIO", missing_biovars, ".")
-        clim_src <- if (is.null(input$climate_source)) "worldclim" else input$climate_source
-        bv_int <- as.integer(missing_climate)
-        if (identical(clim_src, "chelsa")) {
-          expected_patterns <- if (length(bv_int) > 0 && !anyNA(bv_int)) {
-            vapply(bv_int, function(bv) {
-              if (bv < 10) sprintf("CHELSA_bio0%d_*.tif", bv) else sprintf("CHELSA_bio%d_*.tif", bv)
-            }, character(1))
-          } else {
-            character(0)
-          }
-          issues <- c(issues, paste0("Add missing CHELSA v2.1 BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), ")."))
+        # When auto-download is enabled (default), show info — do NOT block the run.
+        # The run pipeline will download missing layers via geodata on first use.
+        if (isTRUE(input$download_worldclim)) {
+          climate_state <- "warn"
+          climate_detail <- paste0(
+            "Missing BIO", paste(missing_climate, collapse = ", BIO"),
+            " — auto-download is ON. Layers will be fetched on run (requires internet)."
+          )
+          warnings <- c(warnings, "Missing climate layers will be auto-downloaded when you run the model.")
         } else {
-          expected_patterns <- if (length(bv_int) > 0 && !anyNA(bv_int)) {
-            vapply(bv_int, function(bv) {
-              sprintf("bio_%d.tif  or  wc2.1_%sm_bio_%d.tif", bv, input$worldclim_res %||% "10", bv)
-            }, character(1))
+          climate_state <- "error"
+          missing_biovars <- paste(missing_climate, collapse = ", BIO")
+          climate_detail <- paste0(climate_detail, "; missing BIO", missing_biovars, ".")
+          clim_src <- if (is.null(input$climate_source)) "worldclim" else input$climate_source
+          bv_int <- as.integer(missing_climate)
+          if (identical(clim_src, "chelsa")) {
+            expected_patterns <- if (length(bv_int) > 0 && !anyNA(bv_int)) {
+              vapply(bv_int, function(bv) {
+                if (bv < 10) sprintf("CHELSA_bio0%d_*.tif", bv) else sprintf("CHELSA_bio%d_*.tif", bv)
+              }, character(1))
+            } else {
+              character(0)
+            }
+            issues <- c(issues, paste0("Add missing CHELSA v2.1 BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), "), or enable auto-download."))
           } else {
-            character(0)
+            expected_patterns <- if (length(bv_int) > 0 && !anyNA(bv_int)) {
+              vapply(bv_int, function(bv) {
+                sprintf("bio_%d.tif  or  wc2.1_%sm_bio_%d.tif", bv, input$worldclim_res %||% "10", bv)
+              }, character(1))
+            } else {
+              character(0)
+            }
+            issues <- c(issues, paste0("Add missing WorldClim BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), "), use the Get Data tab, or enable auto-download."))
           }
-          issues <- c(issues, paste0("Add missing WorldClim BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), "), or use the Get Data tab to download."))
         }
       }
 

@@ -229,7 +229,8 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           esm_weighting_metric = input$esm_weighting_metric %||% "AUC",
           esm_power = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_power %||% sdm_esm_default_power else sdm_esm_default_power,
           overlap_warn = !is.null(run_overlap) && (run_overlap$count == 0 || run_overlap$percent < 10),
-          validation_occurrences = rv$validation_occurrences %||% NULL
+          validation_occurrences = rv$validation_occurrences %||% NULL,
+          allow_download = isTRUE(input$download_worldclim %||% TRUE)
         )
 
         result_file <- tempfile(pattern = "sdm_result_", fileext = ".rds")

@@ -676,11 +676,12 @@ sdm_stage_clean <- function(cfg, log_fun = NULL) {
 sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
   log_message(log_fun, "Stage 2: Loading covariates")
   env <- load_climate_covariates(
-    cfg$selected_biovars,
     worldclim_dir = cfg$worldclim_dir,
+    selected_biovars = cfg$selected_biovars,
     projection_extent = cfg$projection_extent,
     training_extent = cfg$training_extent,
     aggregation_factor = cfg$aggregation_factor,
+    allow_download = cfg$allow_download %||% TRUE,
     worldclim_res = cfg$worldclim_res,
     source = cfg$source,
     log_fun = log_fun
