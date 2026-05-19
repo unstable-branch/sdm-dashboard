@@ -1,5 +1,6 @@
 #!/usr/bin/env Rscript
-# Lightweight source/API smoke test. Does not download data or fit a model.
+# Lightweight source/API smoke test with tagged filtering.
+# Usage: Rscript scripts/smoke_test.R [--tags=fast,heavy,ensemble,esm,batch]
 
 cmd_args <- commandArgs(FALSE)
 file_arg <- grep("^--file=", cmd_args, value = TRUE)
@@ -7,6 +8,11 @@ script_path <- if (length(file_arg) > 0) normalizePath(sub("^--file=", "", file_
 project_root <- dirname(dirname(script_path))
 source(file.path(project_root, "R", "core", "bootstrap.R"))
 sdm_set_project_root(project_root)
+
+tags_arg <- grep("^--tags=", cmd_args, value = TRUE)
+requested_tags <- if (length(tags_arg) > 0) strsplit(sub("^--tags=", "", tags_arg[1]), ",")[[1]] else c("fast", "heavy")
+requested_tags <- trimws(requested_tags)
+has_tag <- function(tag) tag %in% requested_tags || "all" %in% requested_tags
 
 r_files <- list.files("R", pattern = "\\.R$", full.names = TRUE, recursive = TRUE)
 parse_errors <- vapply(r_files, function(path) inherits(try(parse(path), silent = TRUE), "try-error"), logical(1))
@@ -84,11 +90,15 @@ test_multi_ensemble_smoke <- function() {
     stringsAsFactors = FALSE
   )
   tmp_occ <- tempfile(fileext = ".csv")
-  utils::write.csv(ens_occ, tmp_occ, row.names = FALSE)
   tmp_env <- tempfile()
-  dir.create(tmp_env, showWarnings = FALSE)
   out_dir <- tempfile()
+  dir.create(tmp_env, showWarnings = FALSE)
   dir.create(out_dir, showWarnings = FALSE)
+  on.exit({
+    unlink(tmp_occ, force = TRUE)
+    unlink(tmp_env, recursive = TRUE, force = TRUE)
+    unlink(out_dir, recursive = TRUE, force = TRUE)
+  })
   set.seed(42)
   training_extent <- c(139.5, 142.5, -24.5, -21.5)
   inside <- ens_occ$decimalLongitude >= training_extent[1] & ens_occ$decimalLongitude <= training_extent[2] &
@@ -97,6 +107,7 @@ test_multi_ensemble_smoke <- function() {
     cat("[multi_ensemble smoke] skipped: not enough occurrence points (", sum(inside), ") inside training extent for GLM component\n")
     return(invisible(NULL))
   }
+  utils::write.csv(ens_occ, tmp_occ, row.names = FALSE)
   result <- run_fast_sdm(
     species = "Demo species",
     occurrence_file = tmp_occ,
@@ -163,16 +174,21 @@ test_esm_smoke <- function() {
     stringsAsFactors = FALSE
   )
   tmp_occ <- tempfile(fileext = ".csv")
-  utils::write.csv(esm_test_occ, tmp_occ, row.names = FALSE)
   tmp_env <- tempfile()
-  dir.create(tmp_env, showWarnings = FALSE)
   out_dir <- tempfile()
+  dir.create(tmp_env, showWarnings = FALSE)
   dir.create(out_dir, showWarnings = FALSE)
+  on.exit({
+    unlink(tmp_occ, force = TRUE)
+    unlink(tmp_env, recursive = TRUE, force = TRUE)
+    unlink(out_dir, recursive = TRUE, force = TRUE)
+  })
   source_files <- list.files("Worldclim", pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
   if (length(source_files) == 0) {
     cat("[esm_glm smoke] skipped: no WorldClim files in Worldclim/ directory\n")
     return(invisible(NULL))
   }
+  utils::write.csv(esm_test_occ, tmp_occ, row.names = FALSE)
   set.seed(99)
   result <- run_fast_sdm(
     species = "Demo species",
@@ -211,9 +227,6 @@ test_esm_smoke <- function() {
   }
   cat("[esm_glm smoke] passed (n_pairs_used=", result$esm_config$n_pairs_used, ")\n", sep = "")
 }
-
-test_multi_ensemble_smoke()
-test_esm_smoke()
 
 test_batch_runner_smoke <- function() {
   cat("[batch_runner smoke] starting...\n")
@@ -286,6 +299,17 @@ test_batch_runner_smoke <- function() {
   cat("[batch_runner smoke] passed (auc_mean=", round(result[[1]]$cv$auc_mean, 3), ")\n", sep = "")
 }
 
-test_batch_runner_smoke()
+if (has_tag("fast")) {
+  cat("[fast] Parse check and function assertions passed.\n")
+}
+if (has_tag("heavy") || has_tag("ensemble")) {
+  test_multi_ensemble_smoke()
+}
+if (has_tag("heavy") || has_tag("esm")) {
+  test_esm_smoke()
+}
+if (has_tag("heavy") || has_tag("batch")) {
+  test_batch_runner_smoke()
+}
 
 cat("All smoke tests passed.\n")
