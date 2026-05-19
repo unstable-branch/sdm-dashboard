@@ -37,6 +37,8 @@ modules <- c(
   "climate_matching.R",
   "eoo_aoo.R",
   "aoa.R",
+  "niche_overlap.R",
+  "ensemble_importance.R",
   "model_registry.R",
   "prediction.R",
   "future_projection.R",
