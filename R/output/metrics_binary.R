@@ -106,12 +106,24 @@ continuous_boyce_index <- function(pres_suit, bg_suit, n_bins = 101, win = 0.1) 
 
   bin_edges <- seq(min_v, max_v, length.out = n_bins + 1)
   bin_mid <- (bin_edges[-length(bin_edges)] + bin_edges[-1]) / 2
-  pred_per_bin <- n_bg / n_bins
+  bg_per_bin <- sapply(seq_len(n_bins), function(i) {
+    if (i == n_bins) {
+      sum(bg_suit >= bin_edges[i] & bg_suit <= bin_edges[i + 1])
+    } else {
+      sum(bg_suit >= bin_edges[i] & bg_suit < bin_edges[i + 1])
+    }
+  })
   obs_per_bin <- sapply(seq_len(n_bins), function(i) {
-    sum(pres_suit >= bin_edges[i] & pres_suit < bin_edges[i + 1])
+    if (i == n_bins) {
+      sum(pres_suit >= bin_edges[i] & pres_suit <= bin_edges[i + 1])
+    } else {
+      sum(pres_suit >= bin_edges[i] & pres_suit < bin_edges[i + 1])
+    }
   })
 
-  ratio <- if (pred_per_bin > 0) obs_per_bin / pred_per_bin else rep(0, n_bins)
+  bg_prop <- bg_per_bin / n_bg
+  obs_prop <- obs_per_bin / n_pres
+  ratio <- (obs_prop + .Machine$double.eps) / (bg_prop + .Machine$double.eps)
 
   win_size <- max(1, floor(win * n_bins))
   smoothed <- sapply(seq_along(ratio), function(i) {
@@ -120,10 +132,15 @@ continuous_boyce_index <- function(pres_suit, bg_suit, n_bins = 101, win = 0.1) 
     mean(ratio[lo:hi], na.rm = TRUE)
   })
 
+  keep <- is.finite(smoothed) & (bg_per_bin > 0 | obs_per_bin > 0)
   spearman_result <- tryCatch(
     {
-      test <- stats::cor.test(bin_mid, smoothed, method = "spearman", exact = FALSE)
-      test$estimate
+      if (sum(keep) < 3) {
+        NA_real_
+      } else {
+        test <- stats::cor.test(bin_mid[keep], smoothed[keep], method = "spearman", exact = FALSE)
+        test$estimate
+      }
     },
     error = function(e) NA_real_
   )

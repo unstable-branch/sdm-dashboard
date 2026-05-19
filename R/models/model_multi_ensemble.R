@@ -196,7 +196,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     thresh <- user_threshold %||% comp_thresh
     preds[[mid]] >= thresh
   })
-  committee_stack <- terra::rast(binary_preds)
+  committee_stack <- do.call(c, binary_preds)
   ensemble_committee <- terra::app(committee_stack, mean, na.rm = TRUE)
   names(ensemble_committee) <- "ensemble_committee"
   committee_tif <- sub(".tif$", "_ensemble_committee.tif", output_tif)
@@ -217,7 +217,16 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     log_message(log_fun, "Ensemble SD raster written to: ", sd_tif)
   }
 
-  component_paths$multi_ens_disagreement_tif <- NULL
+  disagreement <- terra::app(pred_stack, function(x) {
+    if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
+  })
+  names(disagreement) <- "ensemble_disagreement"
+  disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
+  terra::writeRaster(disagreement, disagreement_tif,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
+  component_paths$multi_ens_disagreement_tif <- disagreement_tif
 
   attr(ensemble_weighted, "component_paths") <- component_paths
   attr(ensemble_weighted, "ensemble_mean_tif") <- mean_tif

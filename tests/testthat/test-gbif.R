@@ -103,6 +103,7 @@ test_that("read_gbif_records returns empty df when no records found", {
 })
 
 test_that("read_gbif_records stops when rgbif is not installed", {
+  skip_if_not_installed("mockery")
   mockery::stub(read_gbif_records, "requireNamespace", FALSE)
   expect_error(read_gbif_records("Test species"), "rgbif package required")
 })

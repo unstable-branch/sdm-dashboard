@@ -5,11 +5,7 @@ compute_mess <- function(env_train, env_proj) {
   stopifnot("env_train must be SpatRaster or data.frame" = inherits(env_train, "SpatRaster") || is.data.frame(env_train))
   stopifnot("env_proj must be SpatRaster" = inherits(env_proj, "SpatRaster"))
 
-  if (is.data.frame(env_train)) {
-    env_train <- as.matrix(env_train)
-  }
-
-  train_vars <- names(env_train)
+  train_vars <- if (is.data.frame(env_train)) names(env_train) else names(env_train)
   proj_vars <- names(env_proj)
 
   if (!identical(sort(train_vars), sort(proj_vars))) {
@@ -21,29 +17,34 @@ compute_mess <- function(env_train, env_proj) {
     stop("No common variables between training and projection", call. = FALSE)
   }
 
-  env_train <- env_train[[common_vars]]
+  if (inherits(env_train, "SpatRaster")) {
+    env_train <- env_train[[common_vars]]
+  } else {
+    env_train <- env_train[, common_vars, drop = FALSE]
+  }
   env_proj <- env_proj[[common_vars]]
 
   per_variable <- list()
   train_ranges <- list()
 
   for (var in common_vars) {
-    train_vals <- env_train[[var]]
+    train_vals <- if (inherits(env_train, "SpatRaster")) {
+      terra::values(env_train[[var]], mat = FALSE)
+    } else {
+      env_train[[var]]
+    }
     proj_vals <- env_proj[[var]]
 
-    train_min <- terra::global(train_vals, "min", na.rm = TRUE)[1, 1]
-    train_max <- terra::global(train_vals, "max", na.rm = TRUE)[1, 1]
+    train_min <- min(train_vals, na.rm = TRUE)
+    train_max <- max(train_vals, na.rm = TRUE)
     train_range <- train_max - train_min
 
     train_ranges[[var]] <- c(min = train_min, max = train_max)
 
     if (train_range == 0 || is.na(train_range) || !is.finite(train_range)) {
-      per_variable[[var]] <- terra::app(proj_vals, function(x) {
-        if (length(x) == 0) {
-          return(numeric(0))
-        }
-        rep(NA_real_, length(x))
-      })
+      per_variable[[var]] <- proj_vals
+      per_variable[[var]][] <- NA_real_
+      names(per_variable[[var]]) <- var
       next
     }
 
@@ -63,7 +64,7 @@ compute_mess <- function(env_train, env_proj) {
 
   per_variable <- per_variable[common_vars]
 
-  all_values <- terra::rast(per_variable)
+  all_values <- do.call(c, per_variable)
   overall_mess <- terra::app(all_values, function(x) {
     if (all(is.na(x))) {
       return(NA)
@@ -95,7 +96,7 @@ compute_mod <- function(per_variable_mess) {
   var_names <- names(per_variable_mess)
   n_vars <- length(per_variable_mess)
 
-  all_rasts <- terra::rast(per_variable_mess)
+  all_rasts <- do.call(c, per_variable_mess)
 
   mod <- terra::app(all_rasts, function(x) {
     if (all(is.na(x))) {
