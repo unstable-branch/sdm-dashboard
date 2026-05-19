@@ -67,8 +67,22 @@ fit_ensemble_glm_rangebag_sdm <- function(occ, env_train_scaled, background_n = 
       stringsAsFactors = FALSE
     ),
     model_data = glm_fit$model_data,
-    occurrence_used = glm_fit$occurrence_used,
-    background_xy = glm_fit$background_xy,
+    occurrence_used = {
+      glm_occ <- glm_fit$occurrence_used
+      rb_occ <- rangebag_fit$occurrence_used
+      if (!is.null(glm_occ) && !is.null(rb_occ) && nrow(glm_occ) != nrow(rb_occ)) {
+        log_message(log_fun, "Warning: GLM and Rangebag occurrence sets differ (", nrow(glm_occ), " vs ", nrow(rb_occ), " rows); using GLM set")
+      }
+      glm_occ %||% rb_occ
+    },
+    background_xy = {
+      glm_bg <- glm_fit$background_xy
+      rb_bg <- rangebag_fit$background_xy
+      if (!is.null(glm_bg) && !is.null(rb_bg) && nrow(glm_bg) != nrow(rb_bg)) {
+        log_message(log_fun, "Warning: GLM and Rangebag background sets differ; using GLM set")
+      }
+      glm_bg %||% rb_bg
+    },
     cv = list(
       k = if (length(component_k) > 0) min(component_k) else NA_integer_,
       auc_mean = ensemble_weighted_metric(component_auc, weights[c("glm", "rangebag")]),

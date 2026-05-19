@@ -34,24 +34,29 @@ Source files: `bank/research/topics/sdm-dashboard/`
 Six bugs were fixed in commit `dfb310a` (covariates, cache, double-sourcing,
 tempfile cleanup). The following remain from the earlier Hermes-era audit:
 
-### Fix-Now (easy patches)
+### Fixed in clean snapshot (already patched)
+
+| # | Bug | Status |
+|---|-----|--------|
+| 9 | Rangebag `n_cores` ignored | ✅ Fixed: `cores = normalize_core_count(n_cores)` |
+| 10 | `compute_projection_metrics` hardcodes `$suitability` | ✅ Fixed: uses `extracted[[1]]` |
+| 11 | Invalid GBIF `decimalLatitude/Longitude` params | ✅ Fixed: removed from `occ_search()` |
+| 12 | Hardcoded GBIF username `"token"` | ✅ Fixed: uses `gbif_user`/`gbif_pwd` params |
+| 13 | Case-sensitive `"ABSENT"` filter | ✅ Fixed: uses `tolower()` comparison |
+| 14 | All-NA coordinates crash in `make_training_extent` | ✅ Fixed: guard with clear error message |
+
+### Fixed in this commit
+
+| # | Bug | Fix |
+|---|-----|-----|
+| 15 | Ensemble inherits `occurrence_used` only from GLM component | ✅ Now validates both components agree, falls back to whichever is non-NULL |
+| 16 | `make.names()` inconsistency between GLM and Rangebag | ✅ Rangebag now applies `make.names()` to covariate names and data columns |
+
+### Deferred (architectural)
 
 | # | Bug | File | Severity |
 |---|-----|------|----------|
-| 9 | Rangebag `n_cores` ignored — hardcoded `cores = 1` in `terra::predict()` | `R/model_rangebag.R` | Performance |
-| 10 | `compute_projection_metrics` hardcodes `$suitability` column name — returns NULL for differently-named layers | `R/metrics_binary.R` | Silent wrong results |
-| 11 | `read_gbif_records` passes invalid `decimalLatitude = "present"` and `decimalLongitude = "present"` — not valid rgbif filters | `R/occurrences.R` | Records unfiltered |
-| 12 | `read_gbif_download` hardcodes `user = "token"` — GBIF download function unusable | `R/occurrences.R` | Feature broken |
-| 13 | `clean_occurrences` case-sensitive `"ABSENT"` match — misses lowercase `"absent"` from DwC-A downloads | `R/occurrences.R` | Silent data corruption |
-| 14 | `make_training_extent` produces garbage extent for all-NA coordinates — `min(..., na.rm=TRUE)` returns Inf | `R/occurrences.R` | Edge case crash |
-
-### Defer (architectural or latent)
-
-| # | Bug | File | Severity |
-|---|-----|------|----------|
-| 8 | Cancel button non-functional — Shiny event loop blocked by synchronous run | `R/mod_model_run.R` | UX-critical, needs architecture change |
-| 15 | Ensemble inherits `occurrence_used` only from GLM component — fragile coupling | `R/model_ensemble.R` | Latent |
-| 16 | `make.names()` inconsistency between GLM (via `prepare_sdm_data`) and Rangebag (manual) | `R/model_rangebag.R` | Latent, breaks with special chars |
+| 8 | Cancel button non-functional — Shiny event loop blocked by synchronous run | `R/mod_model_run.R` | UX-critical, needs background process (tied to I13) |
 
 ---
 
