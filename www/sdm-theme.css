@@ -1379,3 +1379,174 @@ body.sdm-dark .downloads-section {
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+
+/* Phase 1: Observation Records tab dark/light mode fixes */
+
+/* 1A. verbatimTextOutput blocks (CC stats, absent log) — explicit light mode */
+.obs-log-output {
+  background: #f4f7fb;
+  color: #102a43;
+  border: 1px solid #e7edf4;
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+body.sdm-dark .obs-log-output {
+  background: #050b14;
+  color: #d7e7ff;
+  border-color: var(--sdm-border);
+}
+
+/* 1B. Source table light mode explicit styling */
+.source-table-container {
+  border: 1px solid #e7edf4;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.5rem;
+}
+body.sdm-dark .source-table-container {
+  background: transparent;
+  border-color: var(--sdm-border);
+}
+
+/* 1G. btn-warning dark mode override */
+body.sdm-dark .btn-warning {
+  background: #8d6825 !important;
+  border-color: #7a5a1e !important;
+  color: #ffe1a6 !important;
+}
+body.sdm-dark .btn-warning:hover {
+  background: #a07830 !important;
+  border-color: #8d6825 !important;
+  color: #fff !important;
+}
+
+/* Phase 2: DT source table dark mode (extends existing non-modal DT rules) */
+body.sdm-dark .source-table .dataTables_wrapper {
+  background: transparent !important;
+}
+
+/* Phase 5: Record summary metric cards */
+.obs-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+@media (max-width: 991px) {
+  .obs-metric-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 575px) {
+  .obs-metric-grid { grid-template-columns: 1fr; }
+}
+.obs-metric-card {
+  background: rgba(255,255,255,0.7);
+  border: 1px solid #e7edf4;
+  border-radius: 10px;
+  padding: 14px;
+  border-left: 4px solid #0B6E69;
+}
+body.sdm-dark .obs-metric-card {
+  background: rgba(255,255,255,0.04);
+  border-color: var(--sdm-border);
+  border-left-color: var(--sdm-accent);
+}
+.obs-metric-label {
+  color: #5d6d7e;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+body.sdm-dark .obs-metric-label {
+  color: var(--sdm-muted);
+}
+.obs-metric-value {
+  color: #102a43;
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+body.sdm-dark .obs-metric-value {
+  color: var(--sdm-heading);
+}
+.obs-metric-note {
+  color: #6c7a89;
+  font-size: 0.78rem;
+  margin-top: 4px;
+}
+body.sdm-dark .obs-metric-note {
+  color: var(--sdm-muted);
+}
+
+/* Phase 6: Source colour legend */
+.source-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.source-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.source-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* Phase 7: CC stats table + mini chart */
+.cc-stats-table {
+  width: 100%;
+  margin-top: 8px;
+}
+.cc-stats-table .dataTables_wrapper {
+  font-size: 0.82rem;
+}
+.cc-mini-chart {
+  margin-top: 8px;
+  padding: 4px 0;
+}
+
+/* Phase 9: Undo button styling */
+.flagged-actions .btn-group .btn-undo {
+  color: #0B6E69;
+  background: transparent;
+  border-color: #e7edf4;
+}
+.flagged-actions .btn-group .btn-undo:hover {
+  background: #eef6ff;
+  border-color: #0B6E69;
+}
+body.sdm-dark .flagged-actions .btn-group .btn-undo {
+  color: var(--sdm-accent);
+  border-color: var(--sdm-border);
+}
+body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
+  background: rgba(55, 208, 178, 0.1);
+  border-color: var(--sdm-accent);
+}
+
+/* Phase 3: Record table */
+.obs-record-table {
+  margin-top: 12px;
+}
+.obs-record-table .dataTables_wrapper {
+  font-size: 0.82rem;
+}
+
+/* Phase 10: Export flagged button */
+.export-flagged-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

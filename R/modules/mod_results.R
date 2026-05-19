@@ -388,7 +388,7 @@ mod_results_server <- function(id, rv, input) {
           if (!is.null(rv$cleaned_occurrence)) {
             occ_coords <- paste(rv$cleaned_occurrence$df$longitude, rv$cleaned_occurrence$df$latitude, sep = "_")
             rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df[!occ_coords %in% flagged_coords, , drop = FALSE]
-            append_log(paste0("Excluded ", length(flagged_coords), " GBIF-flagged records from current result."))
+            showNotification(paste0("Excluded ", length(flagged_coords), " GBIF-flagged records."), type = "message")
           }
         }
       }
