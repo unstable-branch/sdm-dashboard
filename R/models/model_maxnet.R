@@ -8,9 +8,6 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
     )
   }
 } else {
-  sdm_default_maxnet_features <- "lqp"
-  sdm_default_maxnet_regmult <- 1.0
-
   cross_validate_maxnet <- function(model_data, covariates, maxnet_features, maxnet_regmult, k = 3,
                                     seed = 42, n_cores = 1,
                                     cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,

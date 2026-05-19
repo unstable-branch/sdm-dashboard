@@ -39,14 +39,14 @@ stack_species_richness <- function(rasters, threshold = 0.5,
     binary_maps <- lapply(aligned, function(r) {
       terra::ifel(r >= threshold, 1, 0)
     })
-    stack <- terra::rast(binary_maps)
+    stack <- do.call(c, binary_maps)
     names(stack) <- species_names
     richness <- terra::app(stack, sum, na.rm = TRUE)
     names(richness) <- "species_richness"
 
   } else if (method == "probabilistic") {
     # Sum suitability values directly
-    stack <- terra::rast(aligned)
+    stack <- do.call(c, aligned)
     names(stack) <- species_names
     richness <- terra::app(stack, sum, na.rm = TRUE)
     names(richness) <- "species_richness"
@@ -59,7 +59,7 @@ stack_species_richness <- function(rasters, threshold = 0.5,
     weights <- weights / sum(weights)  # normalise
 
     weighted_maps <- mapply(function(r, w) r * w, aligned, weights, SIMPLIFY = FALSE)
-    stack <- terra::rast(weighted_maps)
+    stack <- do.call(c, weighted_maps)
     names(stack) <- species_names
     richness <- terra::app(stack, sum, na.rm = TRUE)
     names(richness) <- "species_richness_weighted"
@@ -82,7 +82,7 @@ stack_species_richness <- function(rasters, threshold = 0.5,
 
   list(
     richness = richness,
-    stack = if (method == "binary") stack else terra::rast(aligned),
+    stack = if (method == "binary") stack else do.call(c, aligned),
     summary = summary
   )
 }

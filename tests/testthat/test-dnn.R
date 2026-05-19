@@ -17,6 +17,7 @@ test_that("fit_dnn_sdm fails gracefully without cito", {
       latitude = c(-30, -31, -32, -33, -34)
     )
     env_data <- terra::rast(nrows = 10, ncols = 10, xmin = 139, xmax = 145, ymin = -35, ymax = -29)
+    env_data <- c(env_data, env_data)
     terra::values(env_data) <- matrix(rnorm(200), ncol = 2)
     names(env_data) <- c("BIO1", "BIO12")
     expect_error(fit_dnn_sdm(occ_df, env_data), "cito and torch")
@@ -30,6 +31,7 @@ test_that("prepare_dnn_data returns expected structure", {
     latitude = c(-30, -31, -32, -33, -34, -30.5, -31.5, -32.5, -33.5, -34.5)
   )
   env_data <- terra::rast(nrows = 10, ncols = 10, xmin = 139, xmax = 145, ymin = -35, ymax = -29)
+  env_data <- c(env_data, env_data)
   terra::values(env_data) <- matrix(rnorm(200), ncol = 2)
   names(env_data) <- c("BIO1", "BIO12")
 

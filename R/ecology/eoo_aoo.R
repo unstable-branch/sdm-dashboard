@@ -97,8 +97,9 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, log_fun = NULL) {
       ), ncol = 2, byrow = TRUE)))
     })
 
-    grid_sf <- sf::st_as_sf(grid_polys, crs = utm_crs)
-    sf::st_geometry(grid_sf) <- "x"
+    grid_sf <- sf::st_sf(
+      geometry = sf::st_sfc(grid_polys, crs = utm_crs)
+    )
 
     # Which cells contain at least one point?
     intersects <- sf::st_intersects(pts_proj, grid_sf, sparse = FALSE)

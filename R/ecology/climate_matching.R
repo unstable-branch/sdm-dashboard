@@ -93,6 +93,9 @@ compute_climate_match <- function(env_train, env_proj,
   # Compute distance for each projection cell
   compute_dist_block <- function(rast_block) {
     df <- as.data.frame(rast_block)
+    if (is.null(dim(df)) || ncol(df) == 1 && length(common_vars) > 1) {
+      df <- as.data.frame(matrix(unlist(rast_block), ncol = length(common_vars), byrow = TRUE))
+    }
     names(df) <- common_vars
     df_complete <- stats::complete.cases(df)
 
@@ -119,7 +122,7 @@ compute_climate_match <- function(env_train, env_proj,
     dist
   }
 
-  dist_rast <- terra::app(env_proj_subset, compute_dist_block, nodes = TRUE)
+  dist_rast <- terra::app(env_proj_subset, compute_dist_block)
   names(dist_rast) <- paste0("climatch_", method)
 
   # Normalise to 0-1 similarity (1 = identical climate, 0 = very different)
