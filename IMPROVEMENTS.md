@@ -104,7 +104,7 @@ Organised by effort and impact. Items marked with source reference:
 | I24 ✅ **Spatial-block CV for MaxNet and GAM** — currently only GLM uses `cv_strategy = "spatial_blocks"` | Standards | code review |
 | I25 ✅ **Simplified sidebar by default** — show only Species, Data Source, Model, BIO vars, Run; advanced behind toggle | UX | code review |
 | I26 ✅ **Structured run log** — parse into collapsible sections (Data → Covariates → Model → CV → Projection) | UX | code review |
-| I27 | **Native vs introduced niche comparison** — PCA overlap plot, `ecospat.niche.overlap()` metrics | Biosecurity | biosecurity-deep-dive |
+| I27 ✅ **Native vs introduced niche comparison** — PCA overlap plot, `ecospat.niche.overlap()` metrics | Biosecurity | biosecurity-deep-dive |
 | I28 | **Species richness stacking** — stack SDM outputs across species for community-level maps | Ecology | ecology-deep-dive |
 | I29 ✅ **Parallel component prediction in multi-ensemble** — `future`/`parallel` for component model predictions | Performance | code review |
 | I30 ✅ **Script export for all backends** — ensure `script_export.R` covers ESM, multi-ensemble, biomod2 | Reproducibility | code review |
@@ -115,7 +115,7 @@ Organised by effort and impact. Items marked with source reference:
 |---|------------|------|--------|
 | I31 | **Hyperparameter tuning** — grid search for MaxNet regularisation, GAM k/sp | Standards → Gold | standards-assessment |
 | I32 | **blockCV variogram-based blocks** — replace custom blocks with `blockCV::cv_spatial()` | Standards → Gold | standards-assessment |
-| I33 | **Ensemble variable importance** — permutation importance across weighted ensemble | Evaluation | architecture |
+| I33 ✅ **Ensemble variable importance** — permutation importance across weighted ensemble | Evaluation | architecture |
 | I34 | **Dispersal simulation** — kernel-based spread model, animated spread maps | Biosecurity | biosecurity-deep-dive |
 | I35 | **JSDM backend (HMSC)** — joint species distribution modelling for species interactions | Ecology | ecology-deep-dive |
 | I36 | **CLIMEX parameter import** — combine mechanistic + correlative approaches | Biosecurity | biosecurity-deep-dive |
