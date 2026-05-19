@@ -241,6 +241,24 @@ mod_results_server <- function(id, rv, input) {
       n <- max(1, nrow(r$variable_importance))
       max(180, min(n * 30 + 60, 500))
     })
+    output$calibration_panel <- renderUI({
+      r <- rv$result
+      if (is.null(r)) return(NULL)
+      div(class = "content-card",
+        h4("Calibration plot"),
+        p(class = "small-muted", "Binned observed vs predicted suitability. Points near the diagonal indicate good calibration (Pearce & Ferrier 2000)."),
+        plotOutput("results-calibration_plot", height = "300px")
+      )
+    })
+    output$calibration_plot <- renderPlot({
+      r <- rv$result
+      req(r, r$fit, r$model_data)
+      cal_data <- tryCatch(compute_calibration(r$model_data, r$fit, n_bins = 10), error = function(e) {
+        data.frame(bin_mid = numeric(0), observed = numeric(0), predicted = numeric(0), n = integer(0))
+      })
+      if (nrow(cal_data) == 0) return(placeholder_plot("Calibration plot not available for this backend."))
+      plot_calibration(cal_data)
+    })
     output$dwca_issues_panel <- renderUI({
       r <- rv$result
       if (is.null(r) || is.null(r$dwca_issues) || nrow(r$dwca_issues) == 0) return(NULL)

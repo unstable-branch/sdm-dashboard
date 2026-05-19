@@ -19,7 +19,8 @@ make_gam_formula <- function(covariates, data = NULL, max_k = 5) {
   formula
 }
 
-cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, seed = sdm_default_seed, n_cores = 1) {
+cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, seed = sdm_default_seed, n_cores = 1,
+                               cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km) {
   fit_fun <- function(i, model_data, fold_id, threshold) {
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
@@ -41,7 +42,7 @@ cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, se
 
   cross_validate_model(model_data,
     k = k, seed = seed, n_cores = n_cores,
-    cv_strategy = "stratified_random", cv_block_size_km = NA_real_,
+    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = sdm_default_threshold, fit_fun = fit_fun,
     cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
     log_fun = log_fun
@@ -50,7 +51,10 @@ cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, se
 
 fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
                         include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
-                        seed = sdm_default_seed, n_cores = 1, log_fun = NULL) {
+                        seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
+                        cv_strategy = sdm_default_cv_strategy,
+                        cv_block_size_km = sdm_default_cv_block_size_km,
+                        threshold = sdm_default_threshold) {
   if (!requireNamespace("mgcv", quietly = TRUE)) {
     stop("The GAM backend requires the mgcv package. Install mgcv or choose a different model backend.", call. = FALSE)
   }
@@ -70,7 +74,8 @@ fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
   log_message(log_fun, "Fitting GAM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   model <- mgcv::gam(formula, data = model_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML")
-  cv <- cross_validate_gam(model_data, formula, k = cv_folds, seed = seed, n_cores = n_cores)
+  cv <- cross_validate_gam(model_data, formula, k = cv_folds, seed = seed, n_cores = n_cores,
+    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km)
   if (is.finite(cv$auc_mean)) {
     log_message(log_fun, "GAM cross-validation AUC: ", sprintf("%.3f", cv$auc_mean), if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
   }

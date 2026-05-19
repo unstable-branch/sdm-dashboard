@@ -30,6 +30,10 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
       "# install.packages(c('terra', 'shiny', 'bslib', 'geodata'))",
       "# For MaxEnt backend:",
       "# install.packages('maxnet')",
+      "# For Random Forest backend:",
+      "# install.packages('ranger')",
+      "# For ESM (rare species) backend:",
+      "# install.packages(c('ecospat', 'biomod2'))",
       "# For biomod2 backend:",
       "# install.packages(c('biomod2', 'PresenceAbsence', 'pROC'))",
       "",
@@ -76,6 +80,49 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
   if (!is.null(config$climate_source)) {
     lines <- c(lines, paste0("climate_source <- '", config$climate_source, "'"))
   }
+  # Model-specific parameters
+  model_id <- result$model_id
+  if (model_id %in% c("esm_glm", "esm_maxnet")) {
+    esm_cfg <- result$esm_config
+    if (!is.null(esm_cfg)) {
+      lines <- c(lines, paste0("esm_algorithm <- '", esm_cfg$algorithm, "'"))
+      lines <- c(lines, paste0("esm_min_auc <- ", esm_cfg$min_auc))
+      lines <- c(lines, paste0("esm_power <- ", esm_cfg$power))
+      lines <- c(lines, paste0("esm_n_runs <- ", esm_cfg$n_runs))
+      lines <- c(lines, paste0("esm_split <- ", esm_cfg$data_split))
+    }
+  }
+  if (identical(model_id, "multi_ensemble")) {
+    if (!is.null(config$multi_ensemble_models)) {
+      lines <- c(lines, paste0("multi_ensemble_models <- c('", paste(config$multi_ensemble_models, collapse = "', '"), "')"))
+    }
+    if (!is.null(config$multi_ensemble_weighting)) {
+      lines <- c(lines, paste0("multi_ensemble_weighting <- '", config$multi_ensemble_weighting, "'"))
+    }
+    if (!is.null(config$multi_ensemble_power)) {
+      lines <- c(lines, paste0("multi_ensemble_power <- ", config$multi_ensemble_power))
+    }
+  }
+  if (identical(model_id, "maxnet")) {
+    if (!is.null(config$maxnet_features)) {
+      lines <- c(lines, paste0("maxnet_features <- '", config$maxnet_features, "'"))
+    }
+    if (!is.null(config$maxnet_regmult)) {
+      lines <- c(lines, paste0("maxnet_regmult <- ", config$maxnet_regmult))
+    }
+  }
+  if (identical(model_id, "rf")) {
+    lines <- c(lines, "# RF parameters (ranger)")
+    lines <- c(lines, "# num_trees <- 500")
+    lines <- c(lines, "# mtry <- NULL  # auto: sqrt(n_covariates)")
+    lines <- c(lines, "# min_node_size <- 10")
+  }
+  if (!is.null(config$cv_strategy)) {
+    lines <- c(lines, paste0("cv_strategy <- '", config$cv_strategy, "'"))
+  }
+  if (!is.null(config$bias_method)) {
+    lines <- c(lines, paste0("bias_method <- '", config$bias_method, "'"))
+  }
 
   lines <- c(lines, "")
   lines <- c(lines, "# ------------------------------------------------------------------------------")
@@ -119,7 +166,9 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
   lines <- c(lines, "#   cv_folds = cv_folds,")
   lines <- c(lines, "#   threshold = threshold,")
   lines <- c(lines, "#   aggregation_factor = aggregation_factor,")
-  lines <- c(lines, "#   source = climate_source")
+  lines <- c(lines, "#   source = climate_source,")
+  lines <- c(lines, "#   cv_strategy = cv_strategy,")
+  lines <- c(lines, "#   bias_method = bias_method")
   lines <- c(lines, "# )")
   lines <- c(lines, "")
 

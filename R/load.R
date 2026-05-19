@@ -32,6 +32,7 @@ modules <- c(
   "model_rf.R",
   "model_multi_ensemble.R",
   "model_esm.R",
+  "calibration.R",
   "model_registry.R",
   "prediction.R",
   "future_projection.R",

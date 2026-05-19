@@ -130,6 +130,17 @@ register_sdm_model(
   predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
     log_message(log_fun, "  Predicting GAM component")
     predict_gam_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+  },
+  fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+    fit_gam_sdm(
+      occ = occ, env_train_scaled = env_train_scaled,
+      background_n = background_n,
+      cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+      log_fun = log_fun, bias_method = bias_method,
+      target_group_occ = target_group_occ,
+      thickening_distance_km = thickening_distance_km,
+      cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+    )
   }
 )
 

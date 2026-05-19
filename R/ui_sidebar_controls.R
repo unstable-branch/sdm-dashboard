@@ -105,11 +105,14 @@ ui_sidebar_controls <- function() {
         ),
         div(class = "small-muted", "CHELSA bioclim-plus: gdd5/10 (growing degree days), gsl, fcf, npp, scd. Downloaded automatically when selected.")
       ),
-      checkboxGroupInput("biovars", NULL, choices = biovar_choices, selected = as.character(sdm_default_biovars))
+      checkboxGroupInput("biovars", NULL, choices = biovar_choices, selected = as.character(sdm_default_biovars)),
+      div(class = "advanced-toggle", checkboxInput("show_advanced", "Show advanced options", value = FALSE))
     ),
-    tags$details(
-      class = "control-section",
-      tags$summary("Optional covariates"),
+    conditionalPanel(
+      "input.show_advanced",
+      tags$details(
+        class = "control-section",
+        tags$summary("Optional covariates"),
       div(
         class = "details-body",
         div(class = "checkbox-parent", checkboxInput("use_elevation", "Add elevation from OpenTopography", value = FALSE)),
@@ -230,6 +233,7 @@ ui_sidebar_controls <- function() {
         )
       )
     ),
+    ), # end conditionalPanel(show_advanced) for Optional covariates
     tags$details(
       class = "control-section",
       tags$summary("Model settings"),
@@ -365,9 +369,11 @@ ui_sidebar_controls <- function() {
       ),
       sliderInput("threshold", "High-suitability threshold", min = 0.05, max = 0.95, value = sdm_default_threshold, step = 0.05)
     ),
-    tags$details(
-      class = "control-section",
-      tags$summary("Advanced settings"),
+    conditionalPanel(
+      "input.show_advanced",
+      tags$details(
+        class = "control-section",
+        tags$summary("Advanced settings"),
       div(
         class = "details-body",
         checkboxInput("vif_reduction", "Drop collinear covariates (VIF > 10)", value = FALSE),
@@ -391,6 +397,7 @@ ui_sidebar_controls <- function() {
         )
       )
     ),
+    ), # end conditionalPanel(show_advanced) for Advanced settings
     ui_advanced_modal(),
     div(
       class = "run-button-wrap",

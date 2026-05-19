@@ -1194,3 +1194,19 @@ body.sdm-dark .downloads-section {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Advanced toggle */
+.advanced-toggle {
+  margin-top: 0.5rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--sdm-border);
+}
+.advanced-toggle .checkbox {
+  margin: 0;
+}
+.advanced-toggle label {
+  font-size: 0.82rem;
+  color: var(--sdm-muted);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
