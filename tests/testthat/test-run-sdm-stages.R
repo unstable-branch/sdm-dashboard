@@ -1,7 +1,5 @@
 # Tests for sdm_stage_* pipeline functions.
 
-library(testthat)
-source("tests/testthat/helper-load.R")
 
 test_that("sdm_stage_clean returns cleaned occurrence data", {
   demo_csv <- file.path(project_root, "data", "examples", "synthetic_presence_data.csv")
