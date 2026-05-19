@@ -28,28 +28,30 @@ repos <- "https://cloud.r-project.org"
 
 core_packages <- c(
   # UI
-  "shiny", "bslib", "leaflet", "mapview", "sf", "DT",
+  "shiny", "bslib", "leaflet", "mapview", "sf", "DT", "shinyjs",
 
   # Geodata / raster
-  "terra", "geodata", "ncdf4",
+  "terra", "geodata",
 
   # SDM model backends
   "randomForest", "gbm", "maxnet", "nnet",
-  "mgcv", "earth", "rpart", "mda", "gam", "xgboost",
+  "mgcv", "earth", "rpart", "mda", "gam", "xgboost", "ranger",
 
   # Model evaluation
   "biomod2", "PresenceAbsence", "pROC", "ecospat",
-  "marginaleffects", "plotrix",
+  "marginaleffects", "plotrix", "ggplot2",
+
+  # Spatial analysis
+  "CAST", "blockCV",
 
   # Utilities
-  "httr", "jsonlite", "callr", "glue", "magrittr", "R.utils",
-  "parallel", "foreach", "doParallel",
+  "httr", "jsonlite", "callr",
 
   # Occurrence handling
   "CoordinateCleaner", "rgbif", "finch",
 
-  # Parallel / progress
-  "future", "future.apply", "progressr",
+  # Parallel
+  "future", "future.apply",
 
   # Testing
   "testthat"

@@ -28,13 +28,14 @@ sdm_required_packages <- c("terra")
 sdm_app_packages <- c(
   "shiny", "bslib", "terra",
   "biomod2", "randomForest", "gbm", "maxnet", "nnet",
-  "mgcv", "earth", "rpart", "mda", "gam", "xgboost",
+  "mgcv", "earth", "rpart", "mda", "gam", "xgboost", "ranger",
   "httr", "jsonlite",
-  "cito", "R.utils",
-  "torch", "reticulate",
-  "future", "future.apply", "progressr"
+  "cito",
+  "torch",
+  "future", "future.apply",
+  "ggplot2", "CAST", "blockCV"
 )
-sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf", "DT", "marginaleffects", "shinyjs", "future", "future.apply")
+sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf", "DT", "marginaleffects", "shinyjs", "future", "future.apply", "ggplot2")
 
 sdm_optional_packages <- list(
   maxnet = c("maxnet", "glmnet"),
