@@ -73,9 +73,11 @@ server <- function(input, output, session) {
 
   # Clean up GBIF temp file when session ends
   session$onSessionEnded(function() {
-    if (!is.null(rv$gbif_temp_file) && file.exists(rv$gbif_temp_file)) {
-      try(unlink(rv$gbif_temp_file), silent = TRUE)
-    }
+    isolate({
+      if (!is.null(rv$gbif_temp_file) && file.exists(rv$gbif_temp_file)) {
+        try(unlink(rv$gbif_temp_file), silent = TRUE)
+      }
+    })
   })
 
   mod_get_data_server("get_data", rv, input)
