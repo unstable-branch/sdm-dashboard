@@ -77,6 +77,8 @@ compute_response_curves <- function(fit, model_data, env_train = NULL, n_points 
       covariate = var,
       value = seq_val,
       suitability = as.numeric(preds),
+      x = seq_val,
+      fitted = as.numeric(preds),
       stringsAsFactors = FALSE,
       row.names = NULL
     )
