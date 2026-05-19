@@ -6,7 +6,8 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
                                  cv_strategy, cv_block_size_km, threshold,
                                  fit_fun, cluster_setup_fn = NULL,
                                  cluster_exports = NULL,
-                                 fold_id = NULL) {
+                                 fold_id = NULL,
+                                 log_fun = NULL) {
   k <- as.integer(k)
   cv_strategy <- normalize_cv_strategy(cv_strategy)
   threshold <- normalize_threshold(threshold)
@@ -94,7 +95,7 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
       error = function(e) e
     )
     if (inherits(parallel_result, "error")) {
-      warning("Parallel cross-validation failed; falling back to single-core CV: ", conditionMessage(parallel_result), call. = FALSE)
+      log_message(log_fun, "Parallel CV failed; falling back to single-core: ", conditionMessage(parallel_result))
       run_single_core_cv()
     } else {
       parallel_result

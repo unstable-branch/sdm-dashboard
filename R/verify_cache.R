@@ -36,9 +36,11 @@ verify_worldclim_cache <- function(worldclim_dir = "Worldclim", source = "worldc
     nm2 <- if (bio < 10) paste0("bio0", bio) else paste0("bio", bio)
     pat1 <- paste0("_(", nm1, ")[^0-9]")
     pat2 <- paste0("_(", nm2, ")[^0-9]")
+    pat3 <- paste0("bio_", bio, "($|[^0-9])")
     matched <- c(
       all_files[grepl(pat1, all_files, ignore.case = TRUE)],
-      all_files[grepl(pat2, all_files, ignore.case = TRUE)]
+      all_files[grepl(pat2, all_files, ignore.case = TRUE)],
+      all_files[grepl(pat3, all_files, ignore.case = TRUE)]
     )
     if (length(matched) > 0) present <- c(present, paste0("bio", bio))
   }
@@ -196,6 +198,7 @@ verify_future_cache <- function(future_dir = "Worldclim_future") {
       Files = integer(), SizeMB = numeric()
     )
   }
+  scenarios <- scenarios[!is.na(scenarios$GCM) & scenarios$Files > 0, , drop = FALSE]
   total_size_mb <- sum(scenarios$SizeMB, na.rm = TRUE)
   if (nrow(scenarios) == 0) {
     status <- "warn"

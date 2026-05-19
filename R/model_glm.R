@@ -137,7 +137,7 @@ make_sdm_formula <- function(covariates, include_quadratic = TRUE) {
 
 cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 1,
                                cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
-                               threshold = sdm_default_threshold) {
+                               threshold = sdm_default_threshold, log_fun = NULL) {
   fit_fun <- function(i, model_data, fold_id, threshold) {
     train <- model_data[fold_id != i, , drop = FALSE]
     test <- model_data[fold_id == i, , drop = FALSE]
@@ -161,7 +161,8 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
     k = k, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = threshold, fit_fun = fit_fun,
-    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "normalize_threshold")
+    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "normalize_threshold"),
+    log_fun = log_fun
   )
 }
 

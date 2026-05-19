@@ -686,6 +686,7 @@ summary:focus-visible {
     bottom: 0;
     z-index: 10;
     padding-bottom: 8px;
+  }
   .table-scroll {
   overflow-x: auto;
   max-width: 100%;
@@ -1057,6 +1058,26 @@ body.sdm-dark .run-log-warn { color: #ffe1a6; }
   font-weight: 500;
 }
 body.sdm-dark .run-log-note { color: #7cb7ff; }
+
+.gd-terminal-card { padding: 0; overflow: hidden; position: sticky; top: 10px; }
+.gd-terminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--sdm-surface, #1e1e1e);
+  border-bottom: 1px solid var(--sdm-border, #333);
+}
+.gd-terminal-header h4 { margin: 0; font-size: 0.85rem; color: #ccc; }
+.gd-log-box { max-height: 80vh; overflow-y: auto; background: #000000; border-radius: 0 0 8px 8px; padding: 8px; font-size: 0.75rem; word-wrap: break-word; overflow-wrap: break-word; }
+.gd-log { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 0.75rem; line-height: 1.4; white-space: pre-wrap; word-break: break-all; overflow-wrap: break-word; }
+.gd-log-line { padding: 0.1rem 0; color: #ffffff; }
+.gd-log-error { color: #ff6b6b; font-weight: 700; }
+.gd-log-warn { color: #f0c040; font-weight: 600; }
+.gd-log-note { color: #6bc6ff; font-weight: 500; }
+.gd-log-done { color: #40d040; font-weight: 600; }
+.gd-log-progress { color: #f0c040; font-weight: 500; }
+.gd-log-progress-dots { color: #f0c040; font-weight: 500; font-style: italic; }
 
 .flagged-actions {
   display: flex;

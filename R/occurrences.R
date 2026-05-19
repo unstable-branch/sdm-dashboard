@@ -76,7 +76,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   } else {
     raw_status <- rep(NA_character_, nrow(raw))
   }
-  n_absent_excluded <- sum(raw_status == "ABSENT", na.rm = TRUE)
+  n_absent_excluded <- sum(tolower(raw_status) == "absent", na.rm = TRUE)
 
   occ <- data.frame(
     longitude = suppressWarnings(as.numeric(raw[[lon_col]])),
@@ -89,7 +89,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   complete_ok <- stats::complete.cases(occ[, c("longitude", "latitude", "source")])
   finite_ok <- is.finite(occ$longitude) & is.finite(occ$latitude)
   bounds_ok <- occ$longitude >= -180 & occ$longitude <= 180 & occ$latitude >= -90 & occ$latitude <= 90
-  status_ok <- is.na(raw_status) | raw_status == "PRESENT"
+  status_ok <- is.na(raw_status) | tolower(raw_status) == "present"
   ok <- complete_ok & finite_ok & bounds_ok & status_ok
   removed_bad <- sum(!ok)
   occ <- occ[ok, , drop = FALSE]
@@ -112,6 +112,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     }
   }
   source_counts <- sort(table(occ$source), decreasing = TRUE)
+  if (nrow(occ) == 0) stop("All occurrence records have invalid coordinates (empty file or all rows removed).", call. = FALSE)
   if (nrow(occ) < min_records) stop("Too few valid occurrence records after cleaning (", nrow(occ), "). Minimum: ", min_records, ".", call. = FALSE)
 
   if (use_cc && requireNamespace("CoordinateCleaner", quietly = TRUE)) {
@@ -164,6 +165,9 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
 }
 
 make_training_extent <- function(occ, buffer = 2) {
+  if (sum(is.finite(occ$longitude)) == 0 || sum(is.finite(occ$latitude)) == 0) {
+    stop("No valid coordinates remaining for training extent.", call. = FALSE)
+  }
   xmin <- max(-180, floor(min(occ$longitude, na.rm = TRUE) - buffer))
   xmax <- min(180, ceiling(max(occ$longitude, na.rm = TRUE) + buffer))
   ymin <- max(-90, floor(min(occ$latitude, na.rm = TRUE) - buffer))
@@ -221,9 +225,7 @@ read_gbif_records <- function(taxon, country = NULL, max_records = 100,
     taxonKey = taxon_key,
     country = country,
     limit = min(max_records, 10000),
-    hasCoordinate = TRUE,
-    decimalLatitude = "present",
-    decimalLongitude = "present"
+    hasCoordinate = TRUE
   )
 
   if (is.null(result$data) || nrow(result$data) == 0) {
@@ -256,17 +258,31 @@ read_gbif_records <- function(taxon, country = NULL, max_records = 100,
 #'
 #' @param taxon Species name to search for
 #' @param country Optional country code filter
-#' @param token GBIF API token for authenticated downloads
+#' @param gbif_user GBIF username (required)
+#' @param gbif_pwd GBIF password or API key (required)
+#' @param email Email address for GBIF notifications (required)
+#' @param token Deprecated; use gbif_pwd instead
 #' @param max_attempts Maximum polling attempts for download completion
 #' @param poll_interval Seconds between status polls
 #' @param ... Additional arguments passed to rgbif::occ_download
 #' @return list with occurrences data.frame, doi character, and gbif_key
 #' @examples
 #' \dontrun{
-#' result <- read_gbif_download("Acacia mearnsii", token = "YOUR_TOKEN")
+#' result <- read_gbif_download("Acacia mearnsii", gbif_user = "myuser", gbif_pwd = "mypwd", email = "me@example.com")
 #' }
-read_gbif_download <- function(taxon, country = NULL, token, email = NULL,
+read_gbif_download <- function(taxon, country = NULL, gbif_user = NULL, gbif_pwd = NULL,
+                               email = NULL, token = NULL,
                                max_attempts = 30, poll_interval = 10, ...) {
+  if (!is.null(token) && is.null(gbif_pwd)) {
+    warning("'token' is deprecated; use 'gbif_pwd' instead", call. = FALSE)
+    gbif_pwd <- token
+  }
+  if (is.null(gbif_user) || !nzchar(trimws(gbif_user))) {
+    stop("GBIF download requires 'gbif_user' (your GBIF username).")
+  }
+  if (is.null(gbif_pwd) || !nzchar(trimws(gbif_pwd))) {
+    stop("GBIF download requires 'gbif_pwd' (your GBIF password or API key).")
+  }
   if (!requireNamespace("rgbif", quietly = TRUE)) {
     stop("rgbif package required for GBIF downloading. Install with: install.packages('rgbif')")
   }
@@ -289,8 +305,8 @@ read_gbif_download <- function(taxon, country = NULL, token, email = NULL,
 
   download_key <- rgbif::occ_download(
     !!!pred_list,
-    user = "token",
-    pwd = token,
+    user = trimws(gbif_user),
+    pwd = trimws(gbif_pwd),
     email = trimws(email)
   )
 

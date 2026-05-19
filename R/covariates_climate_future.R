@@ -9,7 +9,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
   }
 
   ssp_map <- c("SSP1-2.6" = "126", "SSP2-4.5" = "245", "SSP3-7.0" = "370", "SSP5-8.5" = "585")
-  ssp_code <- if (nzchar(ssp) && !is.na(ssp_map[ssp])) ssp_map[ssp] else ssp
+  ssp_code <- if (nzchar(ssp %||% "") && !is.na(ssp_map[ssp])) ssp_map[ssp] else ssp
 
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
@@ -36,8 +36,13 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
 
       actual_path <- attr(out, "path") %||% file.path(out_dir, "climate", "wc2.1_10m")
 
-      if (dir.exists(cache_subdir) || !dir.exists(actual_path)) {
-        list(dir = cache_subdir, cached = dir.exists(cache_subdir), raster = out)
+      if (!dir.exists(actual_path)) {
+        if (!dir.exists(cache_subdir)) dir.create(cache_subdir, recursive = TRUE)
+        for (bv in seq_len(terra::nlyr(out))) {
+          out_path <- file.path(cache_subdir, sprintf("wc2.1_%sm_bioc_%d.tif", res, bv))
+          terra::writeRaster(out[[bv]], out_path, overwrite = TRUE)
+        }
+        list(dir = cache_subdir, cached = FALSE, raster = out)
       } else {
         if (!dir.exists(cache_subdir)) dir.create(cache_subdir, recursive = TRUE)
         tifs <- list.files(actual_path, pattern = "\\.tif$", full.names = TRUE, recursive = FALSE)

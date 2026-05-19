@@ -27,7 +27,8 @@ extent_from_inputs <- function(input, occurrence = NULL) {
     }
     return(sdm_default_projection_extent)
   }
-  sdm_extent_presets[[preset]] %||% sdm_default_projection_extent
+  result <- tryCatch(sdm_extent_presets[[preset]], error = function(e) NULL)
+  if (is.null(result)) sdm_default_projection_extent else result
 }
 
 fmt_num <- function(x, digits = 0) {

@@ -40,6 +40,7 @@ sdm_model_ids <- function() {
 
 sdm_model_choices <- function() {
   ids <- sdm_model_ids()
+  if (length(ids) == 0) return(setNames(character(), character()))
   labels <- vapply(ids, function(id) get_sdm_model(id)$label, character(1))
   stats::setNames(ids, labels)
 }

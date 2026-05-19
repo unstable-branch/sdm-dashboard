@@ -152,7 +152,8 @@ compute_projection_metrics <- function(suit_raster, train_presence_suit,
     x = runif(n_bg_samples, bb$xmin, bb$xmax),
     y = runif(n_bg_samples, bb$ymin, bb$ymax)
   )
-  bg_suit <- terra::extract(suit_raster, bg_xy)$suitability
+  extracted <- terra::extract(suit_raster, bg_xy)
+  bg_suit <- if (ncol(extracted) > 0) extracted[[1]] else numeric(0)
 
   pCBI <- continuous_boyce_index(pres_suit = train_presence_suit, bg_suit = bg_suit)$cbi
 
@@ -166,7 +167,8 @@ compute_projection_metrics <- function(suit_raster, train_presence_suit,
     valid <- !is.na(validation_occ$decimalLatitude) & !is.na(validation_occ$decimalLongitude)
     pts <- validation_occ[valid, c("decimalLongitude", "decimalLatitude"), drop = FALSE]
     if (nrow(pts) > 0) {
-      incursion_suit <- terra::extract(suit_raster, pts)$suitability
+      extracted_val <- terra::extract(suit_raster, pts)
+      incursion_suit <- if (ncol(extracted_val) > 0) extracted_val[[1]] else numeric(0)
       n_valid <- sum(valid)
       n_exceed <- sum(incursion_suit >= threshold, na.rm = TRUE)
       validation_result <- list(

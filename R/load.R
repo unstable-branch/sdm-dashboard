@@ -74,7 +74,7 @@ modules <- c(
 for (m in modules) {
   p <- file.path(mod_dir, m)
   if (file.exists(p)) {
-    tryCatch(source(p, local = FALSE), error = function(e) {
+    tryCatch(source(p, local = TRUE), error = function(e) {
       stop("Failed to source ", m, ": ", e$message, call. = FALSE)
     })
   } else {

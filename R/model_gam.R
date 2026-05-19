@@ -43,7 +43,8 @@ cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, se
     k = k, seed = seed, n_cores = n_cores,
     cv_strategy = "stratified_random", cv_block_size_km = NA_real_,
     threshold = sdm_default_threshold, fit_fun = fit_fun,
-    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row")
+    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
+    log_fun = log_fun
   )
 }
 

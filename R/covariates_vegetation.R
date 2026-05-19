@@ -168,6 +168,7 @@ gee_extract_vegetation <- function(extent_vec, year, products,
 load_gimms_ndvi_period <- function(period, ndvi_year, extent_vec,
                                    aggregate_factor, cache_dir,
                                    allow_download, log_fun) {
+  if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
   doy_name <- month_period_doys[[period]]
   layer_name <- paste0("ndvi_month_", period, "_", ndvi_year)
   cached <- file.path(cache_dir, paste0("gimms_ndvi_", period, "_", ndvi_year, ".tif"))

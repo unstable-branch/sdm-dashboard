@@ -20,7 +20,7 @@ ui_sidebar_controls <- function() {
           placeholder = "e.g., Acacia mearnsii"
         ),
         numericInput("dwca_max_uncertainty", "Max coordinate uncertainty (m)",
-          value = Inf, min = 0
+          value = .Machine$double.xmax, min = 0
         ),
         checkboxGroupInput("dwca_basis_filter", "Basis of record to include",
           choices = c(

@@ -162,7 +162,8 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
         cv_strategy = "presence_only_stratified", cv_block_size_km = NA_real_,
         threshold = sdm_default_threshold, fit_fun = fit_fun_rb,
         cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
-        fold_id = fold_id
+        fold_id = fold_id,
+        log_fun = log_fun
       )
       if (is.finite(cv$auc_mean)) log_message(log_fun, "Rangebag CV AUC: ", sprintf("%.3f", cv$auc_mean), if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
     }
@@ -214,7 +215,7 @@ predict_rangebag_suitability <- function(fit, env_project_scaled, output_tif, n_
     fun = predict_rangebag_values,
     filename = output_tif,
     overwrite = TRUE,
-    cores = 1,
+    cores = normalize_core_count(n_cores),
     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
   )
   names(suit) <- "suitability"

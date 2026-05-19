@@ -2,16 +2,27 @@
 
 find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("worldclim", "chelsa")) {
   source <- match.arg(source)
+  if (is.null(worldclim_dir) || length(worldclim_dir) == 0 || !nzchar(worldclim_dir)) {
+    return(setNames(rep(NA_character_, length(as.integer(selected_biovars))), as.character(as.integer(selected_biovars))))
+  }
   files <- if (dir.exists(worldclim_dir)) list.files(worldclim_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE) else character()
   selected_biovars <- as.integer(selected_biovars)
-  if (length(files) == 0) {
-    return(setNames(rep(NA_character_, length(selected_biovars)), selected_biovars))
+  if (length(files) == 0 || length(selected_biovars) == 0) {
+    return(setNames(rep(NA_character_, length(selected_biovars)), as.character(selected_biovars)))
   }
 
   matched <- vapply(selected_biovars, function(bv) {
     if (source == "worldclim") {
-      pattern <- sprintf("bio_?%d\\.tif$", bv)
-      hit <- files[grepl(pattern, basename(files), ignore.case = TRUE, perl = TRUE)]
+      nm1 <- paste0("bio", bv)
+      nm2 <- if (bv < 10) paste0("bio0", bv) else paste0("bio", bv)
+      pat1 <- paste0("_(", nm1, ")[^0-9]")
+      pat2 <- paste0("_(", nm2, ")[^0-9]")
+      pat3 <- paste0("bio_", bv, "($|[^0-9])")
+      hit <- unique(c(
+        files[grepl(pat1, basename(files), ignore.case = TRUE, perl = TRUE)],
+        files[grepl(pat2, basename(files), ignore.case = TRUE, perl = TRUE)],
+        files[grepl(pat3, basename(files), ignore.case = TRUE, perl = TRUE)]
+      ))
     } else {
       if (bv < 10) {
         pattern1 <- sprintf("CHELSA_bio0%d_.*\\.tif$", bv)
@@ -27,7 +38,8 @@ find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("wo
       NA_character_
     } else if (length(hit) > 1) {
       sizes <- vapply(hit, function(f) as.integer(file.info(f)$size), integer(1))
-      hit[which.max(sizes)]
+      idx <- which.max(sizes)
+      if (length(idx) == 0) NA_character_ else hit[idx]
     } else {
       hit[1]
     }

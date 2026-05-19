@@ -67,7 +67,8 @@ ui <- fluidPage(
 server <- function(input, output, session) {
   rv <- reactiveValues(result = NULL, log = "Ready.\n", error = NULL, running = FALSE, gbif_temp_file = NULL, gbif_doi = NULL, cleaned_occurrence = NULL,
                       batch_running = FALSE, batch_results = NULL, batch_log = character(),
-                      cmip6_scenarios = NULL)
+                      cmip6_scenarios = NULL, gd_unified_log = "", gd_cache_refresh = 0,
+                      gd_cache_summary = NULL, gd_gee_cached = NULL)
 
   mod_get_data_server("get_data", rv, input)
 
@@ -76,6 +77,33 @@ server <- function(input, output, session) {
   species_manually_set <- reactiveVal(FALSE)
   last_progress <- reactiveVal(0)
 
+  occurrence_source <- function() {
+    selected <- if (is.null(input$data_source)) "project" else input$data_source
+    uploaded <- !is.null(input$occ_file)
+    project_exists <- file.exists(sdm_default_occurrence_file)
+    demo_exists <- file.exists(sdm_demo_occurrence_file)
+    gbif_path <- if (!is.null(rv$gbif_temp_file)) rv$gbif_temp_file else NULL
+    if (identical(selected, "upload") && uploaded) {
+      return(list(path = input$occ_file$datapath, detail = paste("Using uploaded observation records:", input$occ_file$name), state = "ok", issue = NULL))
+    }
+    if (identical(selected, "gbif") && !is.null(gbif_path) && file.exists(gbif_path)) {
+      return(list(path = gbif_path, detail = paste("Using GBIF records for:", input$gbif_taxon), state = "ok", issue = NULL))
+    }
+    if (identical(selected, "project") && project_exists) {
+      return(list(path = sdm_default_occurrence_file, detail = paste("Using project observation records:", sdm_default_occurrence_file), state = "ok", issue = NULL))
+    }
+    if (identical(selected, "demo") && demo_exists) {
+      return(list(path = sdm_demo_occurrence_file, detail = paste("Using bundled synthetic demo observation records:", sdm_demo_occurrence_file), state = "ok", issue = NULL))
+    }
+    if (project_exists) {
+      return(list(path = sdm_default_occurrence_file, detail = paste("Selected observation source unavailable; falling back to project file:", sdm_default_occurrence_file), state = "warn", issue = NULL))
+    }
+    if (demo_exists) {
+      return(list(path = sdm_demo_occurrence_file, detail = paste("Selected observation source unavailable; falling back to bundled synthetic demo records:", sdm_demo_occurrence_file), state = "warn", issue = NULL))
+    }
+    list(path = NULL, detail = "No observation record file is available yet.", state = "error", issue = paste("Upload a CSV/TSV, add", sdm_default_occurrence_file, "to the project folder, or restore the demo dataset."))
+  }
+
   readiness_item <- function(title, detail, state = "info") {
     symbol <- switch(state, ok = "OK", warn = "!", error = "!", "i")
     div(class = "readiness-item", div(class = "readiness-title", span(class = paste("pill", paste0("pill-", state)), symbol), title), div(class = "readiness-detail", detail))
@@ -83,7 +111,22 @@ server <- function(input, output, session) {
 
   mod_model_run_server("model_run", rv, input, append_log, occurrence_source, last_progress)
   mod_results_server("results", rv, input)
-  mod_readiness_server("readiness", rv, input, readiness_item)
+  mod_readiness_server("readiness", rv, input, readiness_item, occurrence_source)
+
+  # Sync climate source between sidebar and Get Data tab
+  observeEvent(input$climate_source, {
+    req(input$climate_source)
+    if (!identical(input$gd_climate_source, input$climate_source)) {
+      updateSelectInput(session, "gd_climate_source", selected = input$climate_source)
+    }
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$gd_climate_source, {
+    req(input$gd_climate_source)
+    if (!identical(input$climate_source, input$gd_climate_source)) {
+      updateSelectInput(session, "climate_source", selected = input$gd_climate_source)
+    }
+  }, ignoreInit = TRUE)
 
   output$hero_badges <- renderUI({
     occ <- rv$cleaned_occurrence
@@ -253,33 +296,6 @@ server <- function(input, output, session) {
       div(class = "small-muted", "CSV/TSV format detected")
     }
   })
-
-  occurrence_source <- function() {
-    selected <- if (is.null(input$data_source)) "project" else input$data_source
-    uploaded <- !is.null(input$occ_file)
-    project_exists <- file.exists(sdm_default_occurrence_file)
-    demo_exists <- file.exists(sdm_demo_occurrence_file)
-    gbif_path <- if (!is.null(rv$gbif_temp_file)) rv$gbif_temp_file else NULL
-    if (identical(selected, "upload") && uploaded) {
-      return(list(path = input$occ_file$datapath, detail = paste("Using uploaded observation records:", input$occ_file$name), state = "ok", issue = NULL))
-    }
-    if (identical(selected, "gbif") && !is.null(gbif_path) && file.exists(gbif_path)) {
-      return(list(path = gbif_path, detail = paste("Using GBIF records for:", input$gbif_taxon), state = "ok", issue = NULL))
-    }
-    if (identical(selected, "project") && project_exists) {
-      return(list(path = sdm_default_occurrence_file, detail = paste("Using project observation records:", sdm_default_occurrence_file), state = "ok", issue = NULL))
-    }
-    if (identical(selected, "demo") && demo_exists) {
-      return(list(path = sdm_demo_occurrence_file, detail = paste("Using bundled synthetic demo observation records:", sdm_demo_occurrence_file), state = "ok", issue = NULL))
-    }
-    if (project_exists) {
-      return(list(path = sdm_default_occurrence_file, detail = paste("Selected observation source unavailable; falling back to project file:", sdm_default_occurrence_file), state = "warn", issue = NULL))
-    }
-    if (demo_exists) {
-      return(list(path = sdm_demo_occurrence_file, detail = paste("Selected observation source unavailable; falling back to bundled synthetic demo records:", sdm_demo_occurrence_file), state = "warn", issue = NULL))
-    }
-    list(path = NULL, detail = "No observation record file is available yet.", state = "error", issue = paste("Upload a CSV/TSV, add", sdm_default_occurrence_file, "to the project folder, or restore the demo dataset."))
-  }
 
   observeEvent(input$species, {
     value <- trimws(input$species %||% "")

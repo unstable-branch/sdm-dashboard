@@ -90,6 +90,9 @@ sdm_config <- function(...) {
   }
 
   cfg$selected_biovars <- validate_biovars(cfg$selected_biovars)
+  if (is.null(cfg$projection_extent) || length(cfg$projection_extent) == 0 || all(is.na(cfg$projection_extent))) {
+    stop("sdm_config: projection_extent is required. Set a valid spatial extent or use 'occurrence' preset.", call. = FALSE)
+  }
   cfg$projection_extent <- validate_extent(as.numeric(cfg$projection_extent), "projection_extent")
   if (!is.null(cfg$training_extent)) {
     cfg$training_extent <- validate_extent(as.numeric(cfg$training_extent), "training_extent")

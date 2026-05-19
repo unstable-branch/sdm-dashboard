@@ -1,6 +1,6 @@
 # Logging, progress, and small string helpers.
 
-`%||%` <- function(a, b) if (is.null(a) || identical(a, NA_integer_)) b else a
+`%||%` <- function(a, b) if (is.null(a)) b else a
 
 log_message <- function(log_fun = NULL, ...) {
   msg <- paste(..., collapse = "")

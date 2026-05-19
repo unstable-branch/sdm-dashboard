@@ -88,7 +88,7 @@ compute_mod <- function(per_variable_mess) {
     stop("per_variable_mess must be a non-empty list of SpatRasters", call. = FALSE)
   }
 
-  if (is.null(names(per_variable_mess)) || any(nzchar(names(per_variable_mess)) == 0)) {
+  if (is.null(names(per_variable_mess)) || any(!nzchar(names(per_variable_mess)))) {
     stop("per_variable_mess list must have named elements", call. = FALSE)
   }
 

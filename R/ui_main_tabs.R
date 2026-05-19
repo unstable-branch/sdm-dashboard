@@ -170,384 +170,342 @@ ui_main_tabs <- function() {
   )
 }
 
-get_data_tab <- function() {
-  status_dot <- function(status) {
-    span(class = paste0("status-dot status-dot-", status))
-  }
-
-  section_header <- function(label, icon = NULL, status = NULL, detail = NULL) {
-    tagList(
-      tags$summary(
-        class = "gd-section-summary-compact",
-        if (!is.null(status)) status_dot(status),
-        if (!is.null(icon)) icon,
-        label
-      ),
-      if (!is.null(detail)) tags$p(class = "detail-text", detail)
-    )
-  }
-
-  card <- function(...) div(class = "content-card", ...)
-
+get_data_tab <- function(ns = identity) {
   fluidRow(
     column(
-      12,
-      card(
-        h4("Covariate Data Management"),
-        p(class = "small-muted", "Download, verify, and manage all covariate layers used in SDM modelling. No sidebar space used — all data operations in one place."),
-        hr()
-      ),
-
-      # ----------------------------------------------------------------
-      # Section 1: Climate — Current
-      # ----------------------------------------------------------------
-      tags$details(
-        class = "control-section",
-        tags$summary(
-          class = "gd-section-summary",
-          span(class = "gd-section-icon", "🌡"),
-          "Climate — Current (WorldClim / CHELSA)"
-        ),
+      10,
+      div(
+        class = "gd-sections-panel",
         div(
-          class = "gd-section-body",
-          fluidRow(
-            column(
-              4,
-              h5("WorldClim")
-            ),
-            column(
-              4,
-              h5("CHELSA extras")
-            ),
-            column(
-              4,
-              h5("Status")
-            )
+          class = "content-card",
+          h4("Covariate Data Management"),
+          p(class = "small-muted", "Download, verify, and manage all covariate layers used in SDM modelling. All activity appears in the Activity Log to the right."),
+          hr()
+        ),
+
+        # Section 1: Climate — Current
+        tags$details(
+          class = "control-section",
+          tags$summary(
+            class = "gd-section-summary",
+            span(class = "gd-section-icon", "🌡"),
+            "Climate — Current (WorldClim / CHELSA)"
           ),
-          fluidRow(
-            column(
-              4,
-              selectInput("gd_climate_source", "Source",
-                choices = c("WorldClim" = "worldclim", "CHELSA" = "chelsa"),
-                selected = "worldclim"
+          div(
+            class = "gd-section-body",
+            fluidRow(
+              column(
+                6,
+                h5("WorldClim"),
+                selectInput(ns("gd_climate_source"), "Source",
+                  choices = c("WorldClim" = "worldclim", "CHELSA" = "chelsa"),
+                  selected = "worldclim"
+                ),
+                selectInput(ns("gd_worldclim_res"), "Resolution",
+                  choices = c("10 arc-min" = 10, "5 arc-min" = 5, "2.5 arc-min" = 2.5),
+                  selected = 10
+                ),
+                actionButton(ns("gd_verify_worldclim"), "Verify files", icon = icon("search"), class = "btn-outline-primary btn-sm"),
+                br(), br(),
+                actionButton(ns("gd_download_worldclim"), "Download missing layers", icon = icon("download"), class = "btn-outline-primary btn-sm"),
+                p(class = "small-muted", "Downloads from WorldClim via geodata package")
               ),
-              selectInput("gd_worldclim_res", "Resolution",
-                choices = c("10 arc-min" = 10, "5 arc-min" = 5, "2.5 arc-min" = 2.5),
-                selected = 10
-              ),
-              actionButton("gd_verify_worldclim", "Verify files", icon = icon("search"), class = "btn-outline-primary btn-sm"),
-              br(), br(),
-              actionButton("gd_download_worldclim", "Download missing layers", icon = icon("download"), class = "btn-primary btn-sm"),
-              p(class = "small-muted", "Downloads from WorldClim via geodata package")
-            ),
-            column(
-              4,
-              p(class = "small-muted", "CHELSA bioclim-plus extras:"),
-              checkboxInput("gd_chelsa_gdd5", "GDD5 (growing degree days >5C)", value = FALSE),
-              checkboxInput("gd_chelsa_gdd10", "GDD10 (growing degree days >10C)", value = FALSE),
-              checkboxInput("gd_chelsa_gsl", "GSL (growing season length)", value = FALSE),
-              checkboxInput("gd_chelsa_fcf", "FCF (frost change frequency)", value = FALSE),
-              checkboxInput("gd_chelsa_npp", "NPP (net primary productivity)", value = FALSE),
-              checkboxInput("gd_chelsa_scd", "SCD (snow cover days)", value = FALSE),
-              br(),
-              actionButton("gd_download_chelsa", "Download selected extras", icon = icon("download"), class = "btn-outline-primary btn-sm")
-            ),
-            column(
-              4,
-              uiOutput("get_data-gd_worldclim_status"),
-              hr(),
-              uiOutput("get_data-gd_chelsa_status")
-            )
-          ),
-          fluidRow(
-            column(12,
-              verbatimTextOutput("get_data-gd_worldclim_log"),
-              class = "scrollable-log"
+              column(
+                6,
+                h5("CHELSA extras"),
+                uiOutput(ns("gd_chelsa_status")),
+                p(class = "small-muted", "CHELSA bioclim-plus extras:"),
+                checkboxInput(ns("gd_chelsa_gdd5"), "GDD5 (growing degree days >5C)", value = FALSE),
+                checkboxInput(ns("gd_chelsa_gdd10"), "GDD10 (growing degree days >10C)", value = FALSE),
+                checkboxInput(ns("gd_chelsa_gsl"), "GSL (growing season length)", value = FALSE),
+                checkboxInput(ns("gd_chelsa_fcf"), "FCF (frost change frequency)", value = FALSE),
+                checkboxInput(ns("gd_chelsa_npp"), "NPP (net primary productivity)", value = FALSE),
+                checkboxInput(ns("gd_chelsa_scd"), "SCD (snow cover days)", value = FALSE),
+                br(),
+                actionButton(ns("gd_download_chelsa"), "Download selected extras", icon = icon("download"), class = "btn-outline-primary btn-sm")
+              )
             )
           )
-        )
-      ),
-      tags$br(),
-
-      # ----------------------------------------------------------------
-      # Section 2: Climate — Future CMIP6
-      # ----------------------------------------------------------------
-      tags$details(
-        class = "control-section",
-        tags$summary(
-          class = "gd-section-summary",
-          span(class = "gd-section-icon", "🗺"),
-          "Climate — Future (CMIP6)"
         ),
-        div(
-          class = "gd-section-body",
-          fluidRow(
-            column(
-              5,
-              h5("Downloaded scenarios"),
-              uiOutput("get_data-gd_cmip6_scenarios"),
-              hr(),
-              actionButton("gd_verify_future", "Refresh scenarios", icon = icon("refresh"), class = "btn-outline-primary btn-sm")
-            ),
-            column(
-              7,
-              h5("Download new scenario"),
-              fluidRow(
-                column(
-                  4,
-                  selectInput("gd_cmip6_gcm", "GCM",
-                    choices = c(
-                      "UKESM1-0-LL (UK)" = "UKESM1-0-LL",
-                      "MPI-ESM1-2-HR (Germany)" = "MPI-ESM1-2-HR",
-                      "IPSL-CM6A-LR (France)" = "IPSL-CM6A-LR",
-                      "MRI-ESM2-0 (Japan)" = "MRI-ESM2-0",
-                      "GFDL-ESM4 (USA)" = "GFDL-ESM4"
-                    ),
-                    selected = "UKESM1-0-LL"
-                  )
-                ),
-                column(
-                  4,
-                  selectInput("gd_cmip6_ssp", "SSP",
-                    choices = c(
-                      "SSP1-2.6 (Low emissions)" = "SSP1-2.6",
-                      "SSP2-4.5 (Intermediate)" = "SSP2-4.5",
-                      "SSP3-7.0 (High emissions)" = "SSP3-7.0",
-                      "SSP5-8.5 (Very high)" = "SSP5-8.5"
-                    ),
-                    selected = "SSP2-4.5"
-                  )
-                ),
-                column(
-                  4,
-                  selectInput("gd_cmip6_period", "Period",
-                    choices = c(
-                      "2021-2040 (Near)" = "2021-2040",
-                      "2041-2060 (Mid century)" = "2041-2060",
-                      "2061-2080 (End century)" = "2061-2080",
-                      "2081-2100 (Long term)" = "2081-2100"
-                    ),
-                    selected = "2041-2060"
-                  )
-                )
+
+        # Section 2: Climate — Future CMIP6
+        tags$details(
+          class = "control-section",
+          tags$summary(
+            class = "gd-section-summary",
+            span(class = "gd-section-icon", "🗺"),
+            "Climate — Future (CMIP6)"
+          ),
+          div(
+            class = "gd-section-body",
+            fluidRow(
+              column(
+                5,
+                h5("Downloaded scenarios"),
+                uiOutput(ns("gd_cmip6_scenarios")),
+                hr(),
+                actionButton(ns("gd_verify_future"), "Refresh scenarios", icon = icon("refresh"), class = "btn-outline-primary btn-sm")
               ),
-              br(),
-              actionButton("gd_download_cmip6", "Download scenario", icon = icon("download"), class = "btn-primary btn-sm"),
-              hr(),
-              h6("Average multiple GCMs"),
-              fluidRow(
-                column(
-                  8,
-                  selectInput("gd_cmip6_avg_gcms", "GCMs to average",
-                    choices = c("UKESM1-0-LL", "MPI-ESM1-2-HR", "IPSL-CM6A-LR", "MRI-ESM2-0", "GFDL-ESM4"),
-                    selected = character(0),
-                    multiple = TRUE,
-                    selectize = TRUE
+              column(
+                7,
+                h5("Download new scenario"),
+                fluidRow(
+                  column(
+                    4,
+                    selectInput(ns("gd_cmip6_gcm"), "GCM",
+                      choices = c(
+                        "UKESM1-0-LL (UK)" = "UKESM1-0-LL",
+                        "MPI-ESM1-2-HR (Germany)" = "MPI-ESM1-2-HR",
+                        "IPSL-CM6A-LR (France)" = "IPSL-CM6A-LR",
+                        "MRI-ESM2-0 (Japan)" = "MRI-ESM2-0",
+                        "GFDL-ESM4 (USA)" = "GFDL-ESM4"
+                      ),
+                      selected = "UKESM1-0-LL"
+                    )
+                  ),
+                  column(
+                    4,
+                    selectInput(ns("gd_cmip6_ssp"), "SSP",
+                      choices = c(
+                        "SSP1-2.6 (Low emissions)" = "SSP1-2.6",
+                        "SSP2-4.5 (Intermediate)" = "SSP2-4.5",
+                        "SSP3-7.0 (High emissions)" = "SSP3-7.0",
+                        "SSP5-8.5 (Very high)" = "SSP5-8.5"
+                      ),
+                      selected = "SSP2-4.5"
+                    )
+                  ),
+                  column(
+                    4,
+                    selectInput(ns("gd_cmip6_period"), "Period",
+                      choices = c(
+                        "2021-2040 (Near)" = "2021-2040",
+                        "2041-2060 (Mid century)" = "2041-2060",
+                        "2061-2080 (End century)" = "2061-2080",
+                        "2081-2100 (Long term)" = "2081-2100"
+                      ),
+                      selected = "2041-2060"
+                    )
                   )
                 ),
-                column(
-                  4,
-                  br(),
-                  actionButton("gd_average_gcms", "Average GCMs", icon = icon("calculator"), class = "btn-outline-primary btn-sm")
+                br(),
+                actionButton(ns("gd_download_cmip6"), "Download scenario", icon = icon("download"), class = "btn-outline-primary btn-sm"),
+                hr(),
+                h6("Average multiple GCMs"),
+                p(class = "small-muted", "Creates an ensemble average of selected GCMs for a given SSP and period. Outputs a blended future climate layer."),
+                fluidRow(
+                  column(
+                    8,
+                    selectInput(ns("gd_cmip6_avg_gcms"), "GCMs to average",
+                      choices = c("UKESM1-0-LL", "MPI-ESM1-2-HR", "IPSL-CM6A-LR", "MRI-ESM2-0", "GFDL-ESM4"),
+                      selected = character(0),
+                      multiple = TRUE,
+                      selectize = TRUE
+                    )
+                  ),
+                  column(
+                    4,
+                    br(),
+                    actionButton(ns("gd_average_gcms"), "Average GCMs", icon = icon("calculator"), class = "btn-outline-primary btn-sm")
+                  )
                 )
               )
             )
-          ),
-          fluidRow(
-            column(12,
-              verbatimTextOutput("get_data-gd_cmip6_log"),
-              class = "scrollable-log"
-            )
           )
-        )
-      ),
-      tags$br(),
-
-      # ----------------------------------------------------------------
-      # Section 3: Terrain & Soil
-      # ----------------------------------------------------------------
-      tags$details(
-        class = "control-section",
-        tags$summary(
-          class = "gd-section-summary",
-          span(class = "gd-section-icon", "⛰"),
-          "Terrain & Soil"
         ),
-        div(
-          class = "gd-section-body",
-          fluidRow(
-            column(
-              4,
-              h5("Elevation (OpenTopography)"),
-              uiOutput("get_data-gd_elevation_status"),
-              selectInput("gd_demtype", "DEM type",
-                choices = c(
-                  "Copernicus 90m" = "COP90",
-                  "SRTM GL 90m" = "SRTMGL3",
-                  "Copernicus 30m" = "COP30",
-                  "SRTM GL 30m" = "SRTMGL1",
-                  "NASA DEM" = "NASADEM",
-                  "ALOS World 3D 30m" = "AW3D30"
+
+        # Section 3: Terrain & Soil
+        tags$details(
+          class = "control-section",
+          tags$summary(
+            class = "gd-section-summary",
+            span(class = "gd-section-icon", "⛰"),
+            "Terrain & Soil"
+          ),
+          div(
+            class = "gd-section-body",
+            fluidRow(
+              column(
+                6,
+                h5("Elevation (OpenTopography)"),
+                uiOutput(ns("gd_elevation_status")),
+                selectInput(ns("gd_demtype"), "DEM type",
+                  choices = c(
+                    "Copernicus 90m" = "COP90",
+                    "SRTM GL 90m" = "SRTMGL3",
+                    "Copernicus 30m" = "COP30",
+                    "SRTM GL 30m" = "SRTMGL1",
+                    "NASA DEM" = "NASADEM",
+                    "ALOS World 3D 30m" = "AW3D30"
+                  ),
+                  selected = "COP90"
                 ),
-                selected = "COP90"
-              ),
-              passwordInput("gd_opentopo_key", "OpenTopography API key",
-                placeholder = "Get from OpenTopography.org"
-              ),
-              p(class = "small-muted", "API key required. Get free key opentopography.org"),
-              actionButton("gd_download_elevation", "Download elevation tiles", icon = icon("download"), class = "btn-outline-primary btn-sm")
-            ),
-            column(
-              8,
-              h5("SoilGrids (ISRIC)"),
-              uiOutput("get_data-gd_soil_status"),
-              fluidRow(
-                column(
-                  6,
-                  h6("Select variables to download:"),
-                  checkboxInput("gd_soil_bdod", "Bulk density (BDOD)", value = FALSE),
-                  checkboxInput("gd_soil_clay", "Clay content", value = FALSE),
-                  checkboxInput("gd_soil_soc", "Soil organic carbon (SOC)", value = FALSE),
-                  checkboxInput("gd_soil_phh2o", "pH in H2O", value = FALSE),
-                  checkboxInput("gd_soil_sand", "Sand content", value = FALSE)
+                passwordInput(ns("gd_opentopo_key"), "OpenTopography API key",
+                  placeholder = "Get from OpenTopography.org"
+                ) %>% tagAppendAttributes(autocomplete = "new-password"),
+                p(class = "small-muted",
+                  "API key required. Get a free key at ",
+                  tags$a(href = "https://opentopography.org", target = "_blank", "opentopography.org")
                 ),
-                column(
-                  6,
-                  h6("Select depths:"),
-                  checkboxGroupInput("gd_soil_depths",
-                    label = NULL,
-                    choices = c(
-                      "0-5cm" = "5", "5-15cm" = "15", "15-30cm" = "30",
-                      "30-60cm" = "60", "60-100cm" = "100", "100-200cm" = "200"
-                    ),
-                    selected = character(0)
+                actionButton(ns("gd_download_elevation"), "Download elevation tiles", icon = icon("download"), class = "btn-outline-primary btn-sm")
+              ),
+              column(
+                6,
+                h5("SoilGrids (ISRIC)"),
+                uiOutput(ns("gd_soil_status")),
+                fluidRow(
+                  column(
+                    6,
+                    h6("Select variables:"),
+                    checkboxInput(ns("gd_soil_bdod"), "Bulk density (BDOD)", value = FALSE),
+                    checkboxInput(ns("gd_soil_clay"), "Clay content", value = FALSE),
+                    checkboxInput(ns("gd_soil_soc"), "Soil organic carbon (SOC)", value = FALSE),
+                    checkboxInput(ns("gd_soil_phh2o"), "pH in H2O", value = FALSE),
+                    checkboxInput(ns("gd_soil_sand"), "Sand content", value = FALSE)
+                  ),
+                  column(
+                    6,
+                    h6("Select depths:"),
+                    checkboxGroupInput(ns("gd_soil_depths"),
+                      label = NULL,
+                      choices = c(
+                        "0-5cm" = "5", "5-15cm" = "15", "15-30cm" = "30",
+                        "30-60cm" = "60", "60-100cm" = "100", "100-200cm" = "200"
+                      ),
+                      selected = character(0)
+                    )
                   )
-                )
-              ),
-              actionButton("gd_download_soil", "Download selected soil layers", icon = icon("download"), class = "btn-outline-primary btn-sm")
-            )
-          ),
-          fluidRow(
-            column(12,
-              verbatimTextOutput("get_data-gd_terrain_log"),
-              class = "scrollable-log scrollable-log-sm"
-            )
-          )
-        )
-      ),
-      tags$br(),
-
-      # ----------------------------------------------------------------
-      # Section 4: Environmental Layers
-      # ----------------------------------------------------------------
-      tags$details(
-        class = "control-section",
-        tags$summary(
-          class = "gd-section-summary",
-          span(class = "gd-section-icon", "🌿"),
-          "Environmental Layers"
-        ),
-        div(
-          class = "gd-section-body",
-          fluidRow(
-            column(
-              4,
-              h5("UV-B Radiation (glUV)"),
-              uiOutput("get_data-gd_uv_status"),
-              actionButton("gd_download_uv", "Download UV-B layers", icon = icon("download"), class = "btn-outline-primary btn-sm")
-            ),
-            column(
-              4,
-              h5("Vegetation (GIMMS NDVI/EVI)"),
-              uiOutput("get_data-gd_vegetation_status"),
-              actionButton("gd_download_vegetation", "Download GIMMS NDVI", icon = icon("download"), class = "btn-outline-primary btn-sm"),
-              p(class = "small-muted", "LAI/GPP require Google Earth Engine (rgee)"),
-              actionButton("gd_gee_check", "Check GEE auth status", icon = icon("key"), class = "btn-outline-secondary btn-sm")
-            ),
-            column(
-              4,
-              h5("LULC (MODIS MCD12Q1)"),
-              uiOutput("get_data-gd_lulc_status"),
-              selectInput("gd_lulc_year", "Year to download",
-                choices = 2001:2023, selected = 2020
-              ),
-              actionButton("gd_download_lulc", "Download LULC year", icon = icon("download"), class = "btn-outline-primary btn-sm")
-            )
-          ),
-          hr(),
-          fluidRow(
-            column(
-              4,
-              h5("Human Footprint (WCS)"),
-              uiOutput("get_data-gd_hfp_status"),
-              selectInput("gd_hfp_year", "Year to download",
-                choices = 2001:2020, selected = 2020
-              ),
-              actionButton("gd_download_hfp", "Download HFP year", icon = icon("download"), class = "btn-outline-primary btn-sm")
-            ),
-            column(
-              4,
-              h5("Drought Index (CRU scPDSI)"),
-              uiOutput("get_data-gd_drought_status"),
-              checkboxGroupInput("gd_drought_periods",
-                label = NULL,
-                choices = c(
-                  "Annual mean" = "annual_mean",
-                  "Wet season (Dec-Feb)" = "wet_season",
-                  "Dry season (Jun-Aug)" = "dry_season"
                 ),
-                selected = character(0)
-              ),
-              actionButton("gd_download_drought", "Download drought layers", icon = icon("download"), class = "btn-outline-primary btn-sm")
-            ),
-            column(
-              4,
-              h5("Bioclimatic Seasonality"),
-              uiOutput("get_data-gd_bioclime_status"),
-              actionButton("gd_download_bioclime", "Download seasonality", icon = icon("download"), class = "btn-outline-primary btn-sm"),
-              p(class = "small-muted", "GDD5, GDD10, Moisture Index from WorldClim monthly data")
+                actionButton(ns("gd_download_soil"), "Download selected soil layers", icon = icon("download"), class = "btn-outline-primary btn-sm")
+              )
             )
+          )
+        ),
+
+        # Section 4: Environmental Layers
+        tags$details(
+          class = "control-section",
+          tags$summary(
+            class = "gd-section-summary",
+            span(class = "gd-section-icon", "🌿"),
+            "Environmental Layers"
           ),
-          fluidRow(
-            column(12,
-              verbatimTextOutput("get_data-gd_env_log"),
-              class = "scrollable-log scrollable-log-sm"
+          div(
+            class = "gd-section-body",
+            fluidRow(
+              column(
+                4,
+                h5("UV-B Radiation (glUV)"),
+                uiOutput(ns("gd_uv_status")),
+                actionButton(ns("gd_download_uv"), "Download UV-B layers", icon = icon("download"), class = "btn-outline-primary btn-sm")
+              ),
+              column(
+                4,
+                h5("Vegetation (GIMMS NDVI/EVI)"),
+                uiOutput(ns("gd_vegetation_status")),
+                actionButton(ns("gd_download_vegetation"), "Download GIMMS NDVI", icon = icon("download"), class = "btn-outline-primary btn-sm"),
+                p(class = "small-muted", "LAI/GPP require Google Earth Engine (rgee)")
+              ),
+              column(
+                4,
+                h5("LULC (MODIS MCD12Q1)"),
+                uiOutput(ns("gd_lulc_status")),
+                selectInput(ns("gd_lulc_year"), "Year to download",
+                  choices = 2001:2023, selected = 2020
+                ),
+                actionButton(ns("gd_download_lulc"), "Download LULC year", icon = icon("download"), class = "btn-outline-primary btn-sm")
+              )
+            ),
+            hr(),
+            fluidRow(
+              column(
+                4,
+                h5("Human Footprint (WCS)"),
+                uiOutput(ns("gd_hfp_status")),
+                selectInput(ns("gd_hfp_year"), "Year to download",
+                  choices = 2001:2020, selected = 2020
+                ),
+                actionButton(ns("gd_download_hfp"), "Download HFP year", icon = icon("download"), class = "btn-outline-primary btn-sm")
+              ),
+              column(
+                4,
+                h5("Drought Index (CRU scPDSI)"),
+                uiOutput(ns("gd_drought_status")),
+                checkboxGroupInput(ns("gd_drought_periods"),
+                  label = NULL,
+                  choices = c(
+                    "Annual mean" = "annual_mean",
+                    "Wet season (Dec-Feb)" = "wet_season",
+                    "Dry season (Jun-Aug)" = "dry_season"
+                  ),
+                  selected = character(0)
+                ),
+                actionButton(ns("gd_download_drought"), "Download drought layers", icon = icon("download"), class = "btn-outline-primary btn-sm")
+              ),
+              column(
+                4,
+                h5("Bioclimatic Seasonality"),
+                uiOutput(ns("gd_bioclime_status")),
+                actionButton(ns("gd_download_bioclime"), "Download seasonality", icon = icon("download"), class = "btn-outline-primary btn-sm"),
+                p(class = "small-muted", "GDD5, GDD10, Moisture Index from WorldClim monthly data")
+              )
+            )
+          )
+        ),
+
+        # Section 5: Quick Actions
+        tags$details(
+          class = "control-section",
+          tags$summary(
+            class = "gd-section-summary",
+            span(class = "gd-section-icon", "⚡"),
+            "Quick Actions"
+          ),
+          div(
+            class = "gd-section-body",
+            fluidRow(
+              column(
+                4,
+                h5("Covariate cache summary"),
+                uiOutput(ns("gd_cache_summary")),
+                hr(),
+                actionButton(ns("gd_verify_all"), "Refresh all status", icon = icon("refresh"), class = "btn-outline-primary btn-sm")
+              ),
+              column(
+                4,
+                h5("Cache management"),
+                uiOutput(ns("gd_cache_size")),
+                hr(),
+                actionButton(ns("gd_clear_cache"), "Clear covariate cache", icon = icon("trash"), class = "btn-danger btn-sm"),
+                p(class = "small-muted", "Removes all cached covariate rasters. Re-download required on next run.")
+              ),
+              column(
+                4,
+                h5("Auth & utilities"),
+                uiOutput(ns("gd_gee_status")),
+                actionButton(ns("gd_gee_check"), "Check GEE auth status", icon = icon("key"), class = "btn-outline-secondary btn-sm"),
+                hr(),
+                p(class = "small-muted", "GEE required for LULC, vegetation LAI/GPP, and some advanced layers.")
+              )
             )
           )
         )
-      ),
-      tags$br(),
+      )
+    ),
 
-      # ----------------------------------------------------------------
-      # Section 5: Quick Actions
-      # ----------------------------------------------------------------
-      tags$details(
-        class = "control-section",
-        tags$summary(
-          class = "gd-section-summary",
-          span(class = "gd-section-icon", "⚡"),
-          "Quick Actions"
+    # Right sidebar: Activity Log
+    column(
+      2,
+      div(
+        class = "content-card gd-terminal-card",
+        div(
+          class = "gd-terminal-header",
+          h4("Activity Log"),
+          actionLink(ns("gd_clear_log"), "Clear log", class = "btn-outline-secondary btn-sm")
         ),
         div(
-          class = "gd-section-body",
-          fluidRow(
-            column(
-              6,
-              h5("Covariate cache summary"),
-              uiOutput("get_data-gd_cache_summary"),
-              hr(),
-              actionButton("gd_verify_all", "Refresh all status", icon = icon("refresh"), class = "btn-outline-primary btn-sm"),
-              actionButton("gd_download_all", "Download all missing", icon = icon("download"), class = "btn-primary btn-sm")
-            ),
-            column(
-              6,
-              h5("Cache management"),
-              uiOutput("get_data-gd_cache_size"),
-              hr(),
-              actionButton("gd_clear_cache", "Clear covariate cache", icon = icon("trash"), class = "btn-danger btn-sm"),
-              p(class = "small-muted", "Removes all cached covariate rasters. Re-download required on next run.")
-            )
-          )
+          class = "scrollable-log gd-log-box",
+          htmlOutput(ns("gd_unified_log_styled"))
         )
       )
     )

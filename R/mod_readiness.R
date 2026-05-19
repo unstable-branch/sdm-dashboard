@@ -1,4 +1,4 @@
-mod_readiness_server <- function(id, rv, input, readiness_item) {
+mod_readiness_server <- function(id, rv, input, readiness_item, occurrence_source) {
   moduleServer(id, function(input, output, session) {
 
     future_download_status <- reactive({
@@ -62,7 +62,10 @@ mod_readiness_server <- function(id, rv, input, readiness_item) {
     })
 
     readiness <- reactive({
-      biovars <- as.integer(input$biovars)
+      biovars <- {
+        raw <- input$biovars %||% as.character(sdm_default_biovars)
+        as.integer(raw)
+      }
       biovars <- biovars[!is.na(biovars)]
       cleaned <- rv$cleaned_occurrence
       extent <- extent_from_inputs(input, cleaned)
@@ -74,7 +77,15 @@ mod_readiness_server <- function(id, rv, input, readiness_item) {
       if (identical(occurrence$state, "warn")) warnings <- c(warnings, occurrence$detail)
       if (!is.null(cleaned$error)) issues <- c(issues, paste("Observation records cannot be read:", cleaned$error))
 
-      climate_files <- find_worldclim_files(input$worldclim_dir, biovars, source = input$climate_source %||% "worldclim")
+      climate_files <- {
+        climate_dir <- input$worldclim_dir
+        if (is.null(climate_dir) || is.na(climate_dir) || !nzchar(climate_dir)) {
+          setNames(rep(NA_real_, length(biovars)), biovars)
+        } else {
+          climate_dir <- file.path(sdm_project_root(), climate_dir)
+          find_worldclim_files(climate_dir, biovars, source = input$climate_source %||% "worldclim")
+        }
+      }
       missing_climate <- names(climate_files)[is.na(climate_files)]
       climate_state <- "ok"
       climate_detail <- paste(length(climate_files) - length(missing_climate), "of", length(climate_files), "selected BIO layers found in", input$worldclim_dir)
@@ -91,15 +102,24 @@ mod_readiness_server <- function(id, rv, input, readiness_item) {
         missing_biovars <- paste(missing_climate, collapse = ", BIO")
         climate_detail <- paste0(climate_detail, "; missing BIO", missing_biovars, ".")
         clim_src <- if (is.null(input$climate_source)) "worldclim" else input$climate_source
+        bv_int <- as.integer(missing_climate)
         if (identical(clim_src, "chelsa")) {
-          expected_patterns <- vapply(as.integer(missing_climate), function(bv) {
-            if (bv < 10) sprintf("CHELSA_bio0%d_*.tif", bv) else sprintf("CHELSA_bio%d_*.tif", bv)
-          }, character(1))
+          expected_patterns <- if (length(bv_int) > 0 && !anyNA(bv_int)) {
+            vapply(bv_int, function(bv) {
+              if (bv < 10) sprintf("CHELSA_bio0%d_*.tif", bv) else sprintf("CHELSA_bio%d_*.tif", bv)
+            }, character(1))
+          } else {
+            character(0)
+          }
           issues <- c(issues, paste0("Add missing CHELSA v2.1 BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), ")."))
         } else {
-          expected_patterns <- vapply(as.integer(missing_climate), function(bv) {
-            sprintf("bio_%d.tif  or  wc2.1_%sm_bio_%d.tif", bv, input$worldclim_res, bv)
-          }, character(1))
+          expected_patterns <- if (length(bv_int) > 0 && !anyNA(bv_int)) {
+            vapply(bv_int, function(bv) {
+              sprintf("bio_%d.tif  or  wc2.1_%sm_bio_%d.tif", bv, input$worldclim_res %||% "10", bv)
+            }, character(1))
+          } else {
+            character(0)
+          }
           issues <- c(issues, paste0("Add missing WorldClim BIO layers to ", input$worldclim_dir, " (e.g., ", paste(expected_patterns, collapse = ", "), "), or use the Get Data tab to download."))
         }
       }
@@ -198,7 +218,7 @@ mod_readiness_server <- function(id, rv, input, readiness_item) {
 
     output$esm_complexity_warning <- renderUI({
       req(input$model_id %in% c("esm_glm", "esm_maxnet"))
-      n_vars <- length(input$biovars %||% sdm_default_biovars)
+      n_vars <- length(input$biovars %||% as.character(sdm_default_biovars))
       n_pres <- if (!is.null(rv$cleaned_occurrence) && is.data.frame(rv$cleaned_occurrence$df)) {
         sum(rv$cleaned_occurrence$df$presence == 1, na.rm = TRUE)
       } else 0L
