@@ -68,17 +68,25 @@ ui_main_tabs <- function() {
         br(),
         fluidRow(
           column(
+            12,
+            uiOutput("obs_metric_cards")
+          )
+        ),
+        fluidRow(
+          column(
             7,
             div(
               class = "content-card",
               h4("Occurrence map"),
-              p("Click a marker to flag for removal. Flagged records shown in red."),
+              p(class = "small-muted", "Click a marker to flag for removal. Flagged records shown in red."),
+              selectInput("obs_source_filter", "Filter by source", choices = "All", selected = "All", width = "100%"),
               leafletOutput("occurrence_cleaning_map", height = "45vh"),
               br(),
               div(class = "flagged-actions btn-toolbar", role = "toolbar",
                 div(class = "btn-group btn-group-sm",
                   actionButton("remove_flagged_map", icon = icon("trash-alt"), "Remove flagged"),
-                  actionButton("clear_flags", icon = icon("eraser"), "Clear flags")
+                  actionButton("clear_flags", icon = icon("eraser"), "Clear flags"),
+                  actionButton("undo_flag_action", icon = icon("undo"), "Undo", class = "btn-undo")
                 ),
                 uiOutput("flagged_count")
               )
@@ -89,15 +97,29 @@ ui_main_tabs <- function() {
             div(
               class = "content-card",
               h4("Observation sources"),
-              div(class = "table-scroll",
-                tableOutput("source_table")
+              div(class = "source-table-container",
+                DT::dataTableOutput("source_table_dt")
               ),
-              verbatimTextOutput("absent_excluded_log"),
+              div(class = "obs-log-output", verbatimTextOutput("absent_excluded_log")),
               hr(),
               h4("Flagged records"),
-              verbatimTextOutput("cc_stats_log")
+              div(class = "obs-log-output", verbatimTextOutput("cc_stats_log")),
+              div(class = "export-flagged-row",
+                downloadButton("download_flagged", icon = icon("download"), "Export flagged (CSV)", class = "btn-sm btn-outline-secondary")
+              )
             ),
             uiOutput("dwca_issues_panel")
+          )
+        ),
+        fluidRow(
+          column(
+            12,
+            div(
+              class = "content-card obs-record-table",
+              h4("All records"),
+              p(class = "small-muted", "Click a row to highlight on the map. Flag column toggles the flag status."),
+              DT::dataTableOutput("obs_record_table")
+            )
           )
         )
       ),

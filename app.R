@@ -69,7 +69,7 @@ server <- function(input, output, session) {
                       batch_running = FALSE, batch_results = NULL, batch_log = character(),
                       cmip6_scenarios = NULL, gd_unified_log = "", gd_cache_refresh = 0,
                       gd_cache_summary = NULL, gd_gee_cached = NULL,
-                      past_runs = list())
+                      past_runs = list(), undo_stack = list())
 
   # Clean up GBIF temp file when session ends
   session$onSessionEnded(function() {
@@ -223,6 +223,29 @@ server <- function(input, output, session) {
       rv$gbif_temp_file <- NULL
       rv$gbif_doi <- NULL
     }
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$data_source, {
+    occurrence <- occurrence_source()
+    current_path <- occurrence$path
+    if (is.null(current_path)) {
+      rv$cleaned_occurrence <- NULL
+      return()
+    }
+    cleaned <- clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records, use_cc = FALSE, cc_tests = "all")
+    if (!is.null(cleaned$error)) {
+      rv$cleaned_occurrence <- NULL
+      return()
+    }
+    if (!"cc_flag" %in% names(cleaned$occ)) {
+      cleaned$occ$cc_flag <- FALSE
+    }
+    rv$cleaned_occurrence <- list(
+      df = cleaned$occ,
+      source_counts = cleaned$source_counts,
+      n_absent_excluded = cleaned$n_absent_excluded,
+      original_rows = cleaned$original_rows
+    )
   }, ignoreInit = TRUE)
 
   observeEvent(input$batch_cancel, {
@@ -516,14 +539,54 @@ server <- function(input, output, session) {
 
 
 
-  output$source_table <- renderTable({
+  output$obs_metric_cards <- renderUI({
     co <- rv$cleaned_occurrence
-    if (is.null(co) || !is.data.frame(co$df) || is.null(co$source_counts)) {
-      return(data.frame(Message = "Load occurrence data to view source counts."))
+    if (is.null(co) || !is.data.frame(co$df)) {
+      return(div(class = "obs-metric-grid",
+        div(class = "obs-metric-card", div(class = "obs-metric-label", "Records loaded"), div(class = "obs-metric-value", "—"), div(class = "obs-metric-note", "waiting for data")),
+        div(class = "obs-metric-card", div(class = "obs-metric-label", "Flagged"), div(class = "obs-metric-value", "—"), div(class = "obs-metric-note", "waiting for data")),
+        div(class = "obs-metric-card", div(class = "obs-metric-label", "Unique sources"), div(class = "obs-metric-value", "—"), div(class = "obs-metric-note", "waiting for data")),
+        div(class = "obs-metric-card", div(class = "obs-metric-label", "Spatial extent"), div(class = "obs-metric-value", "—"), div(class = "obs-metric-note", "waiting for data"))
+      ))
     }
-    sc <- co$source_counts
-    head(data.frame(Source = names(sc), Records = as.integer(sc), row.names = NULL), 25)
-  }, striped = TRUE, hover = TRUE, spacing = "s")
+    n_total <- nrow(co$df)
+    n_flagged <- sum(co$df$cc_flag, na.rm = TRUE)
+    n_sources <- length(unique(co$df$source))
+    lat_range <- paste0(round(min(co$df$latitude, na.rm = TRUE), 1), " to ", round(max(co$df$latitude, na.rm = TRUE), 1))
+    lon_range <- paste0(round(min(co$df$longitude, na.rm = TRUE), 1), " to ", round(max(co$df$longitude, na.rm = TRUE), 1))
+    extent_str <- paste0(lat_range, "° lat, ", lon_range, "° lon")
+    div(class = "obs-metric-grid",
+      div(class = "obs-metric-card", div(class = "obs-metric-label", "Records loaded"), div(class = "obs-metric-value", format(n_total, big.mark = ",")), div(class = "obs-metric-note", paste0(n_flagged, " flagged"))),
+      div(class = "obs-metric-card", div(class = "obs-metric-label", "Flagged"), div(class = "obs-metric-value", format(n_flagged, big.mark = ",")), div(class = "obs-metric-note", paste0(round(100 * n_flagged / max(n_total, 1), 1), "% of total"))),
+      div(class = "obs-metric-card", div(class = "obs-metric-label", "Unique sources"), div(class = "obs-metric-value", n_sources), div(class = "obs-metric-note", "data providers")),
+      div(class = "obs-metric-card", div(class = "obs-metric-label", "Spatial extent"), div(class = "obs-metric-value", "—"), div(class = "obs-metric-note", extent_str))
+    )
+  })
+
+  output$source_table_dt <- DT::renderDataTable({
+    co <- rv$cleaned_occurrence
+    if (is.null(co) || !is.data.frame(co$df)) {
+      return(DT::datatable(data.frame(Source = "Load occurrence data", Records = "", Flagged = "", `% of Total` = ""),
+        options = list(dom = "t", ordering = FALSE), rownames = FALSE))
+    }
+    occ <- co$df
+    sc <- sort(table(occ$source), decreasing = TRUE)
+    n_total <- nrow(occ)
+    flagged_by_source <- tapply(occ$cc_flag, occ$source, function(x) sum(x, na.rm = TRUE))
+    df <- data.frame(
+      Source = names(sc),
+      Records = as.integer(sc),
+      Flagged = as.integer(flagged_by_source[names(sc)] %||% rep(0, length(sc))),
+      `% of Total` = paste0(round(100 * as.integer(sc) / n_total, 1), "%"),
+      stringsAsFactors = FALSE
+    )
+    DT::datatable(df,
+      options = list(dom = "t", ordering = TRUE, pageLength = 15),
+      rownames = FALSE,
+      class = "display compact source-table",
+      style = "bootstrap"
+    )
+  })
 
   output$absent_excluded_log <- renderText({
     co <- rv$cleaned_occurrence
@@ -535,92 +598,181 @@ server <- function(input, output, session) {
             format(n_absent, big.mark = ","), format(n_raw, big.mark = ","))
   })
 
-  observeEvent(input$data_source, {
-    occurrence <- occurrence_source()
-    current_path <- occurrence$path
-    if (is.null(current_path)) {
-      rv$cleaned_occurrence <- NULL
-      return()
+  output$cc_stats_log <- renderText({
+    co <- rv$cleaned_occurrence
+    if (is.null(co) || !is.data.frame(co$df) || is.null(co$df$cc_flag)) {
+      return("Advanced cleaning not enabled or CoordinateCleaner not available.")
     }
-    cleaned <- clean_occurrence_preview(occurrence$path, min_source_records = input$min_source_records, use_cc = FALSE, cc_tests = "all")
-    if (!is.null(cleaned$error)) {
-      rv$cleaned_occurrence <- NULL
-      return()
-    }
-    if (!"cc_flag" %in% names(cleaned$occ)) {
-      cleaned$occ$cc_flag <- FALSE
-    }
-    rv$cleaned_occurrence <- list(
-      df = cleaned$occ,
-      source_counts = cleaned$source_counts,
-      n_absent_excluded = cleaned$n_absent_excluded,
-      original_rows = cleaned$original_rows
-    )
-  }, ignoreInit = TRUE)
+    n_total <- nrow(co$df)
+    n_flagged <- sum(co$df$cc_flag, na.rm = TRUE)
+    pct <- if (n_total > 0) paste0(" (", round(100 * n_flagged / n_total, 1), "%)") else ""
 
-output$occurrence_cleaning_map <- renderLeaflet({
-    co <- isolate(rv$cleaned_occurrence)
-    if (is.null(co) || !is.data.frame(co$df) || nrow(co$df) < 1) {
-      return(leaflet::leaflet() %>%
-        leaflet::addProviderTiles("CartoDB.Positron", group = "Light tiles") %>%
-        leaflet::addProviderTiles("CartoDB.DarkMatter", group = "Dark tiles") %>%
-        leaflet::addMeasure(position = "topleft", primaryLengthUnit = "kilometers", primaryAreaUnit = "sqkilometers"))
+    lines <- c(
+      "CoordinateCleaner Results:",
+      paste0("  Total records: ", format(n_total, big.mark = ",")),
+      paste0("  Flagged: ", format(n_flagged, big.mark = ","), pct),
+      "  By test:"
+    )
+
+    test_names <- c(
+      cc_test_sea = "Sea coordinates",
+      cc_test_capitals = "Capital cities",
+      cc_test_centroids = "Country centroids",
+      cc_test_institutions = "Biodiversity institutions",
+      cc_test_urban = "Urban areas",
+      cc_test_zero = "Zero coordinates"
+    )
+
+    for (nm in names(test_names)) {
+      if (nm %in% names(co$df)) {
+        n <- sum(co$df[[nm]], na.rm = TRUE)
+        lines <- c(lines, paste0("    ", test_names[nm], ": ", format(n, big.mark = ",")))
+      }
+    }
+
+    paste(lines, collapse = "\n")
+  })
+
+  output$obs_record_table <- DT::renderDataTable({
+    co <- rv$cleaned_occurrence
+    if (is.null(co) || !is.data.frame(co$df)) {
+      return(DT::datatable(data.frame(Row = "Load occurrence data to view records"),
+        options = list(dom = "t", ordering = FALSE), rownames = FALSE))
     }
     occ <- co$df
-    clean_idx <- is.na(occ$cc_flag) | occ$cc_flag == FALSE
-    flagged_idx <- !clean_idx
-    flag_status <- ifelse(clean_idx,
+    n_rows <- nrow(occ)
+    display_rows <- min(n_rows, 500)
+    occ <- occ[1:display_rows, , drop = FALSE]
+
+    flag_text <- ifelse(is.na(occ$cc_flag) | occ$cc_flag == FALSE,
       '<span style="color:#2196F3;font-weight:bold;">Clean</span>',
       '<span style="color:#f44336;font-weight:bold;">Flagged</span>')
-    species_col <- if ("species" %in% names(occ)) occ$species else "N/A"
-    popups <- paste0("Row ", seq_len(nrow(occ)), "<br>",
-                      "Species: ", species_col, "<br>",
-                      "Source: ", occ$source, "<br>",
-                      "Status: ", flag_status)
-    map <- leaflet::leaflet() %>%
-      leaflet::addProviderTiles("CartoDB.Positron", group = "Light tiles") %>%
-      leaflet::addProviderTiles("CartoDB.DarkMatter", group = "Dark tiles") %>%
-      leaflet::addCircleMarkers(
-        data = occ[clean_idx, , drop = FALSE],
-        lng = ~longitude, lat = ~latitude,
-        color = "blue", fillOpacity = 0.7, radius = 5,
-        layerId = which(clean_idx),
-        popup = popups[clean_idx],
-        group = "Clean records"
-      )
+
+    cols <- data.frame(
+      Row = seq_len(display_rows),
+      Longitude = round(occ$longitude, 4),
+      Latitude = round(occ$latitude, 4),
+      Source = occ$source,
+      `Flag Status` = flag_text,
+      stringsAsFactors = FALSE
+    )
+
+    if ("year" %in% names(occ)) cols$Year <- occ$year
+    if ("countryCode" %in% names(occ)) cols$Country <- occ$countryCode
+
+    cc_test_cols <- grep("^cc_test_", names(occ), value = TRUE)
+    for (cc in cc_test_cols) {
+      cols[[sub("cc_test_", "", cc)]] <- ifelse(occ[[cc]], "X", "")
+    }
+
+    note <- if (n_rows > 500) paste0("\nShowing first 500 of ", format(n_rows, big.mark = ","), " records.") else ""
+
+    DT::datatable(cols,
+      options = list(
+        dom = "t",
+        ordering = TRUE,
+        pageLength = 25,
+        columnDefs = list(
+          list(targets = 5, escape = FALSE)
+        )
+      ),
+      rownames = FALSE,
+      class = "display compact",
+      style = "bootstrap",
+      caption = note
+    )
+  })
+
+  observeEvent(input$obs_record_table_rows_selected, {
+    req(rv$cleaned_occurrence)
+    req(input$obs_record_table_rows_selected)
+    row_idx <- as.integer(input$obs_record_table_rows_selected)
+    occ <- rv$cleaned_occurrence$df
+    if (is.na(row_idx) || row_idx < 1 || row_idx > nrow(occ)) return()
+    proxy <- leaflet::leafletProxy("occurrence_cleaning_map")
+    proxy <- proxy %>%
+      leaflet::setView(lng = occ$longitude[row_idx], lat = occ$latitude[row_idx], zoom = 12)
+    species_col <- if ("species" %in% names(occ)) occ$species[row_idx] else "N/A"
+    flag_status <- if (is.na(occ$cc_flag[row_idx]) | occ$cc_flag[row_idx] == FALSE)
+      '<span style="color:#2196F3;font-weight:bold;">Clean</span>'
+    else
+      '<span style="color:#f44336;font-weight:bold;">Flagged</span>'
+    popup <- paste0("Row ", row_idx, "<br>",
+      "Species: ", species_col, "<br>",
+      "Source: ", occ$source[row_idx], "<br>",
+      "Status: ", flag_status)
+    if ("year" %in% names(occ) && !is.na(occ$year[row_idx])) popup <- paste0(popup, "<br>Year: ", occ$year[row_idx])
+    proxy <- proxy %>%
+      leaflet::addPopups(lng = occ$longitude[row_idx], lat = occ$latitude[row_idx], popup = popup,
+        options = leaflet::popupOptions(closeButton = TRUE, maxWidth = 300))
+  })
+
+  observeEvent(input$obs_source_filter, {
+    req(rv$cleaned_occurrence)
+    req(input$occurrence_cleaning_map)
+    occ <- rv$cleaned_occurrence$df
+    if (!is.data.frame(occ) || nrow(occ) < 1) return()
+
+    proxy <- leaflet::leafletProxy("occurrence_cleaning_map") %>%
+      leaflet::clearMarkers() %>%
+      leaflet::removeLayersControl()
+
+    clean_idx <- is.na(occ$cc_flag) | occ$cc_flag == FALSE
+    flagged_idx <- !clean_idx
+
+    if (isTRUE(input$obs_source_filter != "All")) {
+      clean_idx <- clean_idx & occ$source == input$obs_source_filter
+      flagged_idx <- flagged_idx & occ$source == input$obs_source_filter
+    }
+
+    if (any(clean_idx)) {
+      proxy <- proxy %>%
+        leaflet::addCircleMarkers(
+          data = occ[clean_idx, , drop = FALSE],
+          lng = ~longitude, lat = ~latitude,
+          color = "blue", fillOpacity = 0.7, radius = 5,
+          layerId = which(clean_idx),
+          group = "Clean records"
+        )
+    }
     if (any(flagged_idx)) {
-      map <- map %>%
+      proxy <- proxy %>%
         leaflet::addCircleMarkers(
           data = occ[flagged_idx, , drop = FALSE],
           lng = ~longitude, lat = ~latitude,
           color = "red", fillOpacity = 0.7, radius = 5,
           layerId = which(flagged_idx),
-          popup = popups[flagged_idx],
           group = "Flagged records"
         )
     }
-      map <- map %>%
+
+    proxy <- proxy %>%
       leaflet::addLayersControl(
         overlayGroups = c("Clean records", "Flagged records"),
         baseGroups = c("Light tiles", "Dark tiles"),
         options = leaflet::layersControlOptions(collapsed = TRUE)
-      ) %>%
-      leaflet::addMiniMap(toggleDisplay = TRUE, position = "bottomright") %>%
-      leaflet::addMeasure(position = "topleft", primaryLengthUnit = "kilometers", primaryAreaUnit = "sqkilometers") %>%
-      leaflet::fitBounds(
-        lng1 = min(occ$longitude, na.rm = TRUE),
-        lat1 = min(occ$latitude, na.rm = TRUE),
-        lng2 = max(occ$longitude, na.rm = TRUE),
-        lat2 = max(occ$latitude, na.rm = TRUE)
       )
-  })
+
+    if (any(clean_idx | flagged_idx)) {
+      filtered <- occ[clean_idx | flagged_idx, , drop = FALSE]
+      proxy <- proxy %>%
+        leaflet::fitBounds(
+          lng1 = min(filtered$longitude, na.rm = TRUE),
+          lat1 = min(filtered$latitude, na.rm = TRUE),
+          lng2 = max(filtered$longitude, na.rm = TRUE),
+          lat2 = max(filtered$latitude, na.rm = TRUE)
+        )
+    }
+  }, ignoreInit = TRUE)
 
   observeEvent(rv$cleaned_occurrence$df, {
     req(input$occurrence_cleaning_map)
     occ <- rv$cleaned_occurrence$df
-    if (!is.data.frame(occ) || nrow(occ) < 1) {
-      return()
-    }
+    if (!is.data.frame(occ) || nrow(occ) < 1) return()
+
+    sources <- sort(unique(occ$source))
+    updateSelectInput(session, "obs_source_filter", choices = c("All" = "All", setNames(sources, sources)), selected = "All")
+
     clean_idx <- is.na(occ$cc_flag) | occ$cc_flag == FALSE
     flagged_idx <- !clean_idx
     flag_status <- ifelse(clean_idx,
@@ -684,6 +836,12 @@ output$occurrence_cleaning_map <- renderLeaflet({
     keep <- is.na(rv$cleaned_occurrence$df$cc_flag) | rv$cleaned_occurrence$df$cc_flag == FALSE
     new_df <- rv$cleaned_occurrence$df[keep, , drop = FALSE]
 
+    if (length(rv$undo_stack) < 10) {
+      rv$undo_stack <- c(rv$undo_stack, list(rv$cleaned_occurrence))
+    } else {
+      rv$undo_stack <- c(rv$undo_stack[-1], list(rv$cleaned_occurrence))
+    }
+
     rv$cleaned_occurrence <- list(
       df = new_df,
       source_counts = sort(table(new_df$source), decreasing = TRUE),
@@ -695,8 +853,26 @@ output$occurrence_cleaning_map <- renderLeaflet({
   observeEvent(input$clear_flags, {
     req(rv$cleaned_occurrence)
 
+    if (length(rv$undo_stack) < 10) {
+      rv$undo_stack <- c(rv$undo_stack, list(rv$cleaned_occurrence))
+    } else {
+      rv$undo_stack <- c(rv$undo_stack[-1], list(rv$cleaned_occurrence))
+    }
+
     rv$cleaned_occurrence$df$cc_flag <- FALSE
     rv$cleaned_occurrence$df <- rv$cleaned_occurrence$df
+  })
+
+  observeEvent(input$undo_flag_action, {
+    req(rv$cleaned_occurrence)
+    n <- length(rv$undo_stack)
+    if (n == 0) {
+      showNotification("Nothing to undo.", type = "message")
+      return()
+    }
+    rv$cleaned_occurrence <- rv$undo_stack[[n]]
+    rv$undo_stack <- rv$undo_stack[-n]
+    showNotification("Undid last flag action.", type = "message")
   })
 
   output$flagged_count <- renderUI({
@@ -707,40 +883,20 @@ output$occurrence_cleaning_map <- renderLeaflet({
     span(class = "flagged-count-badge flagged-count-badge-warn", paste0(n_flagged, " flagged"))
   })
 
-  output$cc_stats_log <- renderText({
-    co <- rv$cleaned_occurrence
-    if (is.null(co) || !is.data.frame(co$df) || is.null(co$df$cc_flag)) {
-      return("Advanced cleaning not enabled or CoordinateCleaner not available.")
+  output$download_flagged <- downloadHandler(
+    filename = function() {
+      co <- rv$cleaned_occurrence
+      species <- if (!is.null(co) && "species" %in% names(co$df)) co$df$species[1] else "occurrences"
+      paste0(safe_slug(species), "_flagged_records.csv")
+    },
+    content = function(file) {
+      co <- rv$cleaned_occurrence
+      req(co, is.data.frame(co$df))
+      flagged <- co$df[co$df$cc_flag == TRUE, , drop = FALSE]
+      validate(need(nrow(flagged) > 0, "No flagged records to export."))
+      utils::write.csv(flagged, file, row.names = FALSE)
     }
-    n_total <- nrow(co$df)
-    n_flagged <- sum(co$df$cc_flag, na.rm = TRUE)
-    pct <- if (n_total > 0) paste0(" (", round(100 * n_flagged / n_total, 1), "%)") else ""
-
-    lines <- c(
-      "CoordinateCleaner Results:",
-      paste0("  Total records: ", format(n_total, big.mark = ",")),
-      paste0("  Flagged: ", format(n_flagged, big.mark = ","), pct),
-      "  By test:"
-    )
-
-    test_names <- c(
-      cc_test_sea = "Sea coordinates",
-      cc_test_capitals = "Capital cities",
-      cc_test_centroids = "Country centroids",
-      cc_test_institutions = "Biodiversity institutions",
-      cc_test_urban = "Urban areas",
-      cc_test_zero = "Zero coordinates"
-    )
-
-    for (nm in names(test_names)) {
-      if (nm %in% names(co$df)) {
-        n <- sum(co$df[[nm]], na.rm = TRUE)
-        lines <- c(lines, paste0("    ", test_names[nm], ": ", format(n, big.mark = ",")))
-      }
-    }
-
-    paste(lines, collapse = "\n")
-  })
+  )
 }
 
 if (!interactive()) {
