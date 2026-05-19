@@ -101,9 +101,20 @@ ensure_sdm_packages <- function(packages = sdm_required_packages, install = TRUE
   missing <- packages[!vapply(packages, requireNamespace, logical(1), quietly = TRUE)]
   if (length(missing) > 0) {
     if (!install) stop("Missing required R packages: ", paste(missing, collapse = ", "), call. = FALSE)
-    message("Installing missing packages with ", n_cores, " compile worker(s): ", paste(missing, collapse = ", "))
+    message("Installing ", length(missing), " missing package(s): ", paste(missing, collapse = ", "))
     message("Package library: ", .libPaths()[1])
-    install.packages(missing, repos = "https://cloud.r-project.org", Ncpus = n_cores, lib = .libPaths()[1])
+    message("This may take several minutes — compiling from source.\n")
+    for (i in seq_along(missing)) {
+      pkg <- missing[i]
+      message(sprintf("[%d/%d] Installing %s ...", i, length(missing), pkg))
+      tryCatch({
+        install.packages(pkg, repos = "https://cloud.r-project.org", lib = .libPaths()[1],
+                        quiet = FALSE, verbose = FALSE)
+        message(sprintf("[%d/%d] %s: OK", i, length(missing), pkg))
+      }, error = function(e) {
+        message(sprintf("[%d/%d] %s: FAILED — %s", i, length(missing), pkg, conditionMessage(e)))
+      })
+    }
   }
   invisible(TRUE)
 }
