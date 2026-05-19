@@ -82,7 +82,8 @@ ui_sidebar_controls <- function() {
             actionButton("batch_run", "Run batch", class = "btn-primary btn-sm"),
             actionButton("batch_cancel", "Cancel", class = "btn-outline-secondary btn-sm")
           ),
-          uiOutput("batch_progress_ui")
+          uiOutput("batch_progress_ui"),
+          uiOutput("batch_results_table")
         )
       )
     ),
@@ -255,7 +256,8 @@ ui_sidebar_controls <- function() {
           ),
           numericInput("maxnet_regmult", "Regularization multiplier",
             value = 1.0, min = 0.1, max = 10, step = 0.1
-          )
+          ),
+          actionButton("tune_maxnet", "Tune MaxNet", class = "btn-outline-secondary btn-sm", width = "100%")
         ),
         div(class = "small-muted", "Rangebagging is experimental; GLM remains the stable default."),
         conditionalPanel(

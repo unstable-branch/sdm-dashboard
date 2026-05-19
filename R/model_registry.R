@@ -342,4 +342,25 @@ if (requireNamespace("ranger", quietly = TRUE)) {
       )
     }
   )
+
+  # DNN (cito/torch) — conditional registration
+  if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietly = TRUE)) {
+    register_sdm_model(
+      id = "dnn",
+      label = "DNN (cito/torch)",
+      method = "Deep Neural Network via cito with torch backend",
+      packages = c("cito", "torch"),
+      maturity = "experimental",
+      fit_fun = function(...) fit_dnn_sdm(...),
+      predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+        predict_dnn_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+      },
+      supports_importance = FALSE,
+      supports_uncertainty = FALSE,
+      supports_future = TRUE,
+      diagnostics = list(cv_auc = TRUE, cv_tss = TRUE),
+      notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration if CUDA available. Best with >100 records."
+    )
+  }
+
 } # end get_model_registry()

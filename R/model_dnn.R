@@ -666,3 +666,95 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
     record_count = nrow(occ_df)
   )
 }
+
+# --- Registry-compatible wrappers ---
+
+#' Fit DNN SDM (registry pattern)
+fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
+                        include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
+                        seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
+                        cv_strategy = sdm_default_cv_strategy,
+                        cv_block_size_km = sdm_default_cv_block_size_km,
+                        threshold = sdm_default_threshold,
+                        bias_method = "uniform",
+                        target_group_occ = NULL,
+                        thickening_distance_km = NULL,
+                        dnn_model_type = "DNN_Medium",
+                        dnn_device = "auto",
+                        ...) {
+  if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
+    stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
+  }
+
+  d <- prepare_sdm_data(occ, env_train_scaled, background_n,
+    seed = seed, log_fun = log_fun, include_xy = FALSE,
+    bias_method = bias_method, target_group_occ = target_group_occ,
+    thickening_distance_km = thickening_distance_km)
+  covariates <- d$covariates
+  model_data <- d$model_data
+
+  log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", sum(model_data$presence == 1), " presences")
+
+  # Run DNN
+  dnn_result <- run_dnn(
+    occ_df = occ,
+    pred_stack = env_train_scaled,
+    selected_dnn_models = dnn_model_type,
+    background_n = background_n,
+    device = dnn_device,
+    log_fun = log_fun
+  )
+
+  if (is.null(dnn_result) || length(dnn_result$results) == 0) {
+    stop("DNN training failed", call. = FALSE)
+  }
+
+  best_result <- dnn_result$results[[1]]
+  metrics <- best_result$metrics
+
+  # Create CV-like result from DNN metrics
+  cv <- list(
+    k = 0L,
+    strategy = "dnn_holdout",
+    auc_mean = if (is.finite(metrics$AUC)) metrics$AUC else NA_real_,
+    auc_sd = NA_real_,
+    tss_mean = if (is.finite(metrics$TSS)) metrics$TSS else NA_real_,
+    tss_sd = NA_real_,
+    sensitivity_mean = metrics$sensitivity,
+    specificity_mean = metrics$specificity,
+    fold_auc = numeric(),
+    fold_metrics = data.frame(),
+    fold_sizes = data.frame()
+  )
+
+  if (is.finite(cv$auc_mean)) {
+    log_message(log_fun, "DNN holdout AUC: ", sprintf("%.3f", cv$auc_mean))
+  }
+
+  list(
+    model = best_result$model,
+    formula = NULL,
+    coefficients = NULL,
+    model_data = model_data,
+    occurrence_used = d$occ_used,
+    background_xy = d$bg_xy,
+    cv = cv,
+    covariates = covariates,
+    variable_importance = NULL,
+    scaler = best_result$scaler,
+    dnn_device = dnn_result$device,
+    dnn_model_type = dnn_model_type
+  )
+}
+
+#' Predict DNN suitability (registry pattern)
+predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+  log_message(log_fun, "Predicting suitability raster with DNN (", fit$dnn_model_type, ")")
+
+  pred <- predict_dnn_raster(fit$model, env_project_scaled, fit$scaler, device = fit$dnn_device)
+
+  dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+  terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  log_message(log_fun, "DNN suitability saved: ", output_tif)
+  pred
+}

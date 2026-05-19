@@ -244,6 +244,37 @@ server <- function(input, output, session) {
     }
   })
 
+  output$batch_results_table <- renderUI({
+    if (!isTRUE(input$batch_mode)) return(NULL)
+    results <- rv$batch_results
+    if (is.null(results) || length(results) == 0) return(NULL)
+
+    summary_rows <- lapply(results, function(r) {
+      if (is.null(r)) {
+        data.frame(Species = NA_character_, Model = NA_character_,
+                    AUC = NA_real_, TSS = NA_real_, Area_km2 = NA_real_,
+                    EOO_km2 = NA_real_, Status = "error", stringsAsFactors = FALSE)
+      } else {
+        data.frame(
+          Species = r$config$species %||% "?",
+          Model = r$config$model_id %||% r$model_info$id %||% "?",
+          AUC = if (is.finite(r$cv$auc_mean %||% NA_real_)) sprintf("%.3f", r$cv$auc_mean) else "-",
+          TSS = if (is.finite(r$cv$tss_mean %||% NA_real_)) sprintf("%.3f", r$cv$tss_mean) else "-",
+          Area_km2 = if (is.finite(r$summary$high_risk_area_km2 %||% NA_real_)) sprintf("%.0f", r$summary$high_risk_area_km2) else "-",
+          EOO_km2 = if (!is.null(r$eoo_aoo) && is.finite(r$eoo_aoo$eoo_km2)) sprintf("%.0f", r$eoo_aoo$eoo_km2) else "-",
+          Status = "success",
+          stringsAsFactors = FALSE
+        )
+      }
+    })
+    df <- do.call(rbind, summary_rows)
+    div(
+      h4("Batch results"),
+      DT::datatable(df, options = list(dom = "t", ordering = TRUE, pageLength = 25),
+                   rownames = FALSE, class = "display compact", style = "bootstrap")
+    )
+  })
+
   observeEvent(input$batch_download_template, {
     tf <- tempfile(fileext = ".csv")
     write.csv(data.frame(
@@ -440,6 +471,44 @@ server <- function(input, output, session) {
     })
   })
 
+
+  # Hyperparameter tuning
+  observeEvent(input$tune_maxnet, {
+    if (is.null(rv$cleaned_occurrence)) {
+      showNotification("Load occurrence data first", type = "error")
+      return()
+    }
+    if (is.null(rv$result) || is.null(rv$result$fit) || is.null(rv$result$fit$model_data)) {
+      showNotification("Run a MaxNet model first, then tune", type = "error")
+      return()
+    }
+    showModal(modalDialog(
+      title = "Tuning MaxNet",
+      "Running grid search across regularisation multipliers and feature class combinations...",
+      footer = NULL
+    ))
+    tune_result <- tryCatch({
+      tune_maxnet(rv$result$fit$model_data, rv$result$fit$covariates,
+        regmult_grid = c(0.5, 1.0, 1.5, 2.0, 3.0),
+        feature_sets = c("lqph", "lqp", "lp", "l"),
+        k = as.integer(input$cv_folds), seed = 42, log_fun = append_log)
+    }, error = function(e) {
+      showNotification(paste("Tuning failed:", conditionMessage(e)), type = "error")
+      removeModal()
+      NULL
+    })
+    removeModal()
+    if (!is.null(tune_result)) {
+      best <- attr(tune_result, "best")
+      if (!is.null(best)) {
+        updateNumericInput(session, "maxnet_regmult", value = best$regmult)
+        updateSelectInput(session, "maxnet_features", selected = best$features)
+        showNotification(paste0("Best: regmult=", best$regmult, ", features=", best$features,
+          ", AUC=", sprintf("%.3f", best$auc_mean)), type = "message", duration = 10)
+      }
+      rv$tune_result <- tune_result
+    }
+  })
 
 
 

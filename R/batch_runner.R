@@ -163,24 +163,42 @@ write_batch_summary_csv <- function(results, output_dir) {
       data.frame(
         species = NA_character_,
         status = "error",
+        model_id = NA_character_,
         auc_mean = NA_real_,
         tss_mean = NA_real_,
         cbi = NA_real_,
+        high_suit_area_km2 = NA_real_,
+        eoo_km2 = NA_real_,
+        aoo_km2 = NA_real_,
+        threshold = NA_real_,
+        cv_strategy = NA_character_,
         elapsed_seconds = NA_real_,
         stringsAsFactors = FALSE
       )
     } else {
       sp <- r$config$species %||% NA_character_
+      mid <- r$config$model_id %||% r$model_info$id %||% NA_character_
       auc <- tryCatch(r$cv$auc_mean %||% NA_real_, error = function(e) NA_real_)
       tss <- tryCatch(r$cv$tss_mean %||% NA_real_, error = function(e) NA_real_)
-      cbi_val <- tryCatch(r$cv$cbi %||% NA_real_, error = function(e) NA_real_)
+      cbi_val <- tryCatch(r$metrics$cbi %||% NA_real_, error = function(e) NA_real_)
+      area <- tryCatch(r$summary$high_risk_area_km2 %||% NA_real_, error = function(e) NA_real_)
+      eoo <- tryCatch(r$eoo_aoo$eoo_km2 %||% NA_real_, error = function(e) NA_real_)
+      aoo <- tryCatch(r$eoo_aoo$aoo_km2 %||% NA_real_, error = function(e) NA_real_)
+      thresh <- r$config$threshold %||% NA_real_
+      cv_strat <- r$cv$strategy %||% NA_character_
       elapsed <- tryCatch(r$metrics$elapsed_seconds %||% NA_real_, error = function(e) NA_real_)
       data.frame(
         species = sp,
         status = "success",
+        model_id = mid,
         auc_mean = auc,
         tss_mean = tss,
         cbi = cbi_val,
+        high_suit_area_km2 = area,
+        eoo_km2 = eoo,
+        aoo_km2 = aoo,
+        threshold = thresh,
+        cv_strategy = cv_strat,
         elapsed_seconds = elapsed,
         stringsAsFactors = FALSE
       )
