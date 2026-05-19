@@ -268,7 +268,7 @@ ui_sidebar_controls <- function() {
           "input.model_id == 'multi_ensemble'",
           tags$strong("Standalone models"),
           checkboxGroupInput("multi_ensemble_standalone", NULL,
-            choices = c("GLM" = "glm", "Rangebagging" = "rangebag"),
+            choices = c("GLM" = "glm", "GAM" = "gam", "MaxEnt (maxnet)" = "maxnet", "Random Forest" = "rf", "Rangebagging" = "rangebag", "ESM-GLM (rare)" = "esm_glm", "ESM-MaxNet (rare)" = "esm_maxnet"),
             selected = "glm"
           ),
           tags$strong("biomod2 algorithms"),

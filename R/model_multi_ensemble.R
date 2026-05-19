@@ -255,7 +255,7 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     log_message(log_fun, "biomod2 not available; removed from ensemble selection.")
   }
 
-  standalone_ids <- c("glm", "gam", "maxnet", "rangebag")
+  standalone_ids <- c("glm", "gam", "maxnet", "rf", "rangebag", "esm_glm", "esm_maxnet")
   standalone_selected <- intersect(selected_models, standalone_ids)
   biomod2_selected <- if ("biomod2" %in% selected_models && has_biomod2) biomod2_models else character()
 

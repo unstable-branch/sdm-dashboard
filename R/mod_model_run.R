@@ -5,6 +5,11 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
       if (!isTRUE(rv$running)) return()
       message("SDM: Run cancelled by user")
       options(sdm_cancelled = TRUE)
+      # Kill background process if it exists
+      if (!is.null(rv$bg_process) && rv$bg_process$is_alive()) {
+        rv$bg_process$kill()
+        append_log("Background model run killed by user.")
+      }
       rv$running <- FALSE
       rv$error <- "Run cancelled."
       append_log("Run cancelled by user.")
@@ -154,15 +159,8 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           occurrence_source = occurrence$detail,
           gbif_doi = rv$gbif_doi,
           source = input$climate_source,
-          log_fun = append_log,
-          progress_fun = function(p) {
-            if (is.list(p) && !is.null(p$detail)) {
-              incProgress(p$value - last_progress(), detail = p$detail)
-              last_progress(p$value)
-            } else {
-              incProgress(as.numeric(p))
-            }
-          },
+          log_fun = NULL,
+          progress_fun = NULL,
           multi_ensemble_models = if (identical(input$model_id, "multi_ensemble")) {
             standalone <- input$multi_ensemble_standalone %||% character(0)
             if (length(input$multi_ensemble_biomod2 %||% character(0)) > 0) c(standalone, "biomod2") else standalone
@@ -178,17 +176,68 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           esm_min_auc = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_min_auc %||% sdm_esm_default_min_auc else sdm_esm_default_min_auc,
           esm_weighting_metric = input$esm_weighting_metric %||% "AUC",
           esm_power = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_power %||% sdm_esm_default_power else sdm_esm_default_power,
-          overlap_warn = !is.null(run_overlap) && (run_overlap$count == 0 || run_overlap$percent < 10)
+          overlap_warn = !is.null(run_overlap) && (run_overlap$count == 0 || run_overlap$percent < 10),
+          validation_occurrences = rv$validation_occurrences %||% NULL
         )
 
-        result <- tryCatch(
-          withCallingHandlers(
-            run_fast_sdm(cfg),
-            warning = function(w) { append_log(paste("Warning:", conditionMessage(w))); invokeRestart("muffleWarning") }
-          ),
-          error = function(e) { rv$error <- conditionMessage(e); append_log(paste("ERROR:", conditionMessage(e))); NULL }
-        )
-        if (!is.null(result)) rv$result <- result
+        # Run model in background process via callr (fixes Bug #8: cancel now works)
+        result_file <- tempfile(pattern = "sdm_result_", fileext = ".rds")
+        log_file <- tempfile(pattern = "sdm_log_", fileext = ".txt")
+        bg_process <- tryCatch({
+          start_model_bg(cfg, result_file, log_file)
+        }, error = function(e) {
+          # Fallback to synchronous run if callr unavailable
+          append_log("Background process failed: ", conditionMessage(e), "; running synchronously")
+          NULL
+        })
+        rv$bg_process <- bg_process
+
+        if (!is.null(bg_process)) {
+          # Poll background process
+          poll_timer <- reactiveTimer(500, session)
+          observe({
+            poll_timer()
+            if (!bg_process$is_alive()) {
+              exit_status <- bg_process$get_exit_status()
+              # Read accumulated log
+              if (file.exists(log_file)) {
+                log_text <- tryCatch(paste(readLines(log_file, warn = FALSE), collapse = "\n"), error = function(e) "")
+                if (nzchar(log_text)) append_log(log_text)
+              }
+              if (exit_status == 0 && file.exists(result_file)) {
+                result <- tryCatch(readRDS(result_file), error = function(e) {
+                  rv$error <- paste("Failed to read model result:", conditionMessage(e))
+                  NULL
+                })
+                if (!is.null(result)) rv$result <- result
+                append_log("Model run completed.")
+              } else {
+                stderr_text <- tryCatch(bg_process$read_error(), error = function(e) "")
+                rv$error <- paste0("Model run failed (exit ", exit_status, "): ", stderr_text)
+                append_log(rv$error)
+              }
+              rv$running <- FALSE
+              unlink(c(result_file, log_file))
+            } else {
+              # Still running — read any new log output
+              if (file.exists(log_file)) {
+                log_text <- tryCatch(paste(tail(readLines(log_file, warn = FALSE), 5), collapse = "\n"), error = function(e) "")
+                if (nzchar(log_text)) append_log(log_text)
+              }
+            }
+          }, label = "sdm_bg_poll")
+        } else {
+          # Synchronous fallback
+          result <- tryCatch(
+            withCallingHandlers(
+              run_fast_sdm(cfg),
+              warning = function(w) { append_log(paste("Warning:", conditionMessage(w))); invokeRestart("muffleWarning") }
+            ),
+            error = function(e) { rv$error <- conditionMessage(e); append_log(paste("ERROR:", conditionMessage(e))); NULL }
+          )
+          if (!is.null(result)) rv$result <- result
+          rv$running <- FALSE
+        }
       })
     })
 

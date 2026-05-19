@@ -29,6 +29,7 @@ modules <- c(
   "model_rangebag.R",
   "model_ensemble.R",
   "model_maxnet.R",
+  "model_rf.R",
   "model_multi_ensemble.R",
   "model_esm.R",
   "model_registry.R",

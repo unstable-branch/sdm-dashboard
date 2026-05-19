@@ -266,3 +266,38 @@ if (requireNamespace("ecospat", quietly = TRUE) &&
     )
   }
 }
+
+# Random Forest via ranger — conditional registration
+if (requireNamespace("ranger", quietly = TRUE)) {
+  register_sdm_model(
+    id = "rf",
+    label = "Random Forest (ranger)",
+    method = "Random Forest with permutation importance via ranger package",
+    packages = "ranger",
+    maturity = "experimental",
+    fit_fun = function(...) fit_rf_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_rf_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = TRUE,
+    supports_uncertainty = FALSE,
+    supports_future = TRUE,
+    diagnostics = list(coefficients = FALSE, cv_auc = TRUE, cv_tss = TRUE, oob_auc = TRUE),
+    notes = "Experimental RF backend via ranger. Handles interactions and nonlinear responses natively.",
+    predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+      log_message(log_fun, "  Predicting RF component")
+      predict_rf_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+      fit_rf_sdm(
+        occ = occ, env_train_scaled = env_train_scaled,
+        background_n = background_n,
+        cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+        log_fun = log_fun, bias_method = bias_method,
+        target_group_occ = target_group_occ,
+        thickening_distance_km = thickening_distance_km,
+        cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+      )
+    }
+  )
+}

@@ -161,6 +161,15 @@ mod_results_server <- function(id, rv, input) {
         row("Output TIFF", r$paths$tif),
         if (!is.null(r$future)) row("Future scenario", r$config$future_label %||% "Future climate"),
         if (!is.null(r$future)) row("Future mean suitability", fmt_num(r$future$summary$mean, 3)),
+        if (!is.null(r$future)) {
+          cur_area <- r$summary$high_risk_area_km2 %||% NA_real_
+          fut_area <- r$future$summary$high_risk_area_km2 %||% NA_real_
+          if (is.finite(cur_area) && is.finite(fut_area)) {
+            change_pct <- (fut_area - cur_area) / cur_area * 100
+            direction <- if (change_pct > 0) "expansion" else if (change_pct < 0) "contraction" else "no change"
+            row("Range change", paste0(fmt_num(abs(change_pct), 1), "% ", direction, " (", fmt_num(cur_area), " → ", fmt_num(fut_area), " km2)"))
+          }
+        },
         if (!is.null(r$future)) row("Future output TIFF", r$paths$future_tif %||% "not available"),
         if (!is.null(r$future)) row("Delta output TIFF", r$paths$delta_tif %||% "not available")
       )
