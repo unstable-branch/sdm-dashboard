@@ -64,7 +64,7 @@ compute_mess <- function(env_train, env_proj) {
 
   per_variable <- per_variable[common_vars]
 
-  all_values <- do.call(c, per_variable)
+  all_values <- Reduce(function(a, b) c(a, b), per_variable)
   overall_mess <- terra::app(all_values, function(x) {
     if (all(is.na(x))) {
       return(NA)
@@ -96,7 +96,7 @@ compute_mod <- function(per_variable_mess) {
   var_names <- names(per_variable_mess)
   n_vars <- length(per_variable_mess)
 
-  all_rasts <- do.call(c, per_variable_mess)
+  all_rasts <- Reduce(function(a, b) c(a, b), per_variable_mess)
 
   mod <- terra::app(all_rasts, function(x) {
     if (all(is.na(x))) {
