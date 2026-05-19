@@ -24,9 +24,8 @@ if (!file.exists(engine_file)) {
 }
 source(engine_file)
 
-source(file.path(app_dir, "R", "ui_header.R"))
-source(file.path(app_dir, "R", "ui_sidebar_controls.R"))
-source(file.path(app_dir, "R", "ui_main_tabs.R"))
+# UI modules are already sourced via load.R (called by optimized_sdm.R).
+# The ui_* functions are now available in the global environment.
 default_cores <- normalize_core_count(NULL, reserve_one = TRUE)
 ensure_sdm_packages(c("shiny", "bslib", "terra", "leaflet", "sf", "DT"), n_cores = default_cores)
 
@@ -69,6 +68,13 @@ server <- function(input, output, session) {
                       batch_running = FALSE, batch_results = NULL, batch_log = character(),
                       cmip6_scenarios = NULL, gd_unified_log = "", gd_cache_refresh = 0,
                       gd_cache_summary = NULL, gd_gee_cached = NULL)
+
+  # Clean up GBIF temp file when session ends
+  session$onSessionEnded(function() {
+    if (!is.null(rv$gbif_temp_file) && file.exists(rv$gbif_temp_file)) {
+      try(unlink(rv$gbif_temp_file), silent = TRUE)
+    }
+  })
 
   mod_get_data_server("get_data", rv, input)
 
