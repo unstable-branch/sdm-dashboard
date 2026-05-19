@@ -224,6 +224,14 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   if (include_uncertainty) {
     attr(ensemble_weighted, "ensemble_sd_tif") <- sd_tif
   }
+
+  # Ensemble variable importance
+  ens_imp <- tryCatch(
+    compute_ensemble_importance(components, weights, methods, log_fun = log_fun),
+    error = function(e) NULL
+  )
+  attr(ensemble_weighted, "ensemble_importance") <- ens_imp
+
   ensemble_weighted
 }
 

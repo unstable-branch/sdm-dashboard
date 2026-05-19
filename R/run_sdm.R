@@ -352,6 +352,12 @@ run_fast_sdm <- function(...) {
     importance_result <- fit$variable_importance
   }
 
+  # Ensemble variable importance (multi-model)
+  if (identical(model_id, "multi_ensemble") && !is.null(attr(suit, "ensemble_importance"))) {
+    importance_result <- attr(suit, "ensemble_importance")
+    log_message(log_fun, "Ensemble weighted importance computed across ", importance_result$n_models[1], " models")
+  }
+
   # Area of Applicability (AOA)
   aoa_result <- NULL
   if (!is.null(fit$model_data) && !is.null(fit$covariates)) {
