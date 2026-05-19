@@ -1562,7 +1562,9 @@ body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
 }
 
 /* === Disable Bootstrap 5 table styling on ALL DataTables === */
-.source-table .table,
+/* NOTE: .source-table is a class ON the <table> element itself (from DT::datatable class= arg) */
+/*       .obs-record-table and .dataTables_wrapper are classes on parent <div> elements */
+table.source-table,
 .obs-record-table .table,
 .dataTables_wrapper .table {
   --bs-table-bg: transparent !important;
@@ -1578,9 +1580,9 @@ body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
 }
 
 /* Kill Bootstrap's box-shadow overlay trick on cells */
-.source-table .table tbody tr td,
-.source-table .table tbody tr th,
-.source-table .table thead tr th,
+table.source-table tbody tr td,
+table.source-table tbody tr th,
+table.source-table thead tr th,
 .obs-record-table .table tbody tr td,
 .obs-record-table .table tbody tr th,
 .obs-record-table .table thead tr th,
@@ -1588,11 +1590,11 @@ body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
 .dataTables_wrapper .table tbody tr th,
 .dataTables_wrapper .table thead tr th {
   box-shadow: none !important;
-  background-color: unset !important;
+  background-color: transparent !important;
 }
 
 /* Reset table structure */
-.source-table table.dataTable,
+table.source-table.dataTable,
 .obs-record-table table.dataTable,
 .dataTables_wrapper table.dataTable {
   border-collapse: separate;
@@ -1604,41 +1606,41 @@ body.sdm-dark .flagged-actions .btn-group .btn-undo:hover {
 /* Re-apply our custom backgrounds on top of the reset */
 
 /* Unified DataTables striped/hover — light mode */
-.source-table .table-striped tbody tr:nth-of-type(odd) td,
+table.source-table.table-striped tbody tr:nth-of-type(odd) td,
 .obs-record-table .table-striped tbody tr:nth-of-type(odd) td,
 .dataTables_wrapper .table-striped tbody tr:nth-of-type(odd) td {
   background: #f4f7fb !important;
 }
-.source-table .table-striped tbody tr:nth-of-type(even) td,
+table.source-table.table-striped tbody tr:nth-of-type(even) td,
 .obs-record-table .table-striped tbody tr:nth-of-type(even) td,
 .dataTables_wrapper .table-striped tbody tr:nth-of-type(even) td {
   background: #ffffff !important;
 }
-.source-table .table-hover tbody tr:hover td,
+table.source-table.table-hover tbody tr:hover td,
 .obs-record-table .table-hover tbody tr:hover td,
 .dataTables_wrapper .table-hover tbody tr:hover td {
   background: #e8f0f8 !important;
 }
 
 /* Unified DataTables striped/hover — dark mode */
-body.sdm-dark .source-table .table-striped tbody tr:nth-of-type(odd) td,
+body.sdm-dark table.source-table.table-striped tbody tr:nth-of-type(odd) td,
 body.sdm-dark .obs-record-table .table-striped tbody tr:nth-of-type(odd) td,
 body.sdm-dark .dataTables_wrapper .table-striped tbody tr:nth-of-type(odd) td {
   background: rgba(255, 255, 255, 0.035) !important;
 }
-body.sdm-dark .source-table .table-striped tbody tr:nth-of-type(even) td,
+body.sdm-dark table.source-table.table-striped tbody tr:nth-of-type(even) td,
 body.sdm-dark .obs-record-table .table-striped tbody tr:nth-of-type(even) td,
 body.sdm-dark .dataTables_wrapper .table-striped tbody tr:nth-of-type(even) td {
   background: transparent !important;
 }
-body.sdm-dark .source-table .table-hover tbody tr:hover td,
+body.sdm-dark table.source-table.table-hover tbody tr:hover td,
 body.sdm-dark .obs-record-table .table-hover tbody tr:hover td,
 body.sdm-dark .dataTables_wrapper .table-hover tbody tr:hover td {
   background: rgba(55, 208, 178, 0.09) !important;
 }
 
 /* Unified DataTables table headers — light mode */
-.source-table table.dataTable thead th,
+table.source-table.dataTable thead th,
 .obs-record-table table.dataTable thead th,
 .dataTables_wrapper table.dataTable thead th {
   background: #f4f7fb !important;
@@ -1653,7 +1655,7 @@ body.sdm-dark .dataTables_wrapper .table-hover tbody tr:hover td {
 }
 
 /* Unified DataTables table headers — dark mode */
-body.sdm-dark .source-table table.dataTable thead th,
+body.sdm-dark table.source-table.dataTable thead th,
 body.sdm-dark .obs-record-table table.dataTable thead th,
 body.sdm-dark .dataTables_wrapper table.dataTable thead th {
   background: var(--sdm-surface-soft) !important;
@@ -1668,7 +1670,7 @@ body.sdm-dark .dataTables_wrapper table.dataTable thead th {
 }
 
 /* Unified DataTables table cells — light mode */
-.source-table table.dataTable tbody td,
+table.source-table.dataTable tbody td,
 .obs-record-table table.dataTable tbody td,
 .dataTables_wrapper table.dataTable tbody td {
   padding: 0.5rem 0.75rem;
@@ -1679,7 +1681,7 @@ body.sdm-dark .dataTables_wrapper table.dataTable thead th {
 }
 
 /* Unified DataTables table cells — dark mode */
-body.sdm-dark .source-table table.dataTable tbody td,
+body.sdm-dark table.source-table.dataTable tbody td,
 body.sdm-dark .obs-record-table table.dataTable tbody td,
 body.sdm-dark .dataTables_wrapper table.dataTable tbody td {
   border-color: var(--sdm-border) !important;
