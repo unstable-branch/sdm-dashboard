@@ -97,14 +97,14 @@ mod_results_server <- function(id, rv, input) {
             leaflet::addRasterImage(mess_binary, opacity = 0.5, layerId = "mess",
                                     project = FALSE, colors = "red") %>%
             leaflet::addLegend(position = "bottomright", colors = "red",
-                                labels = "Extrapolation (MESS<0)", title = "MESS")
+                                labels = "Extrapolation (MESS<0)", title = "MESS", layerId = "mess_legend")
         } else {
           showNotification("No MESS layer available for this model run.", type = "message")
           updateCheckboxInput(session, "show_mess", value = FALSE)
         }
       } else {
         if (!is.null(map$dependencies)) {
-          map <- map %>% leaflet::removeImages(layerId = "mess")
+          map <- map %>% leaflet::removeLegend(layerId = "mess_legend") %>% leaflet::removeImages(layerId = "mess")
         }
       }
     })

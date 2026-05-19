@@ -189,7 +189,8 @@ render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
         "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"
       ))(180)
       map <- map %>%
-        leaflet::addTiles() %>%
+        leaflet::addProviderTiles("CartoDB.Positron", group = "Light tiles") %>%
+        leaflet::addProviderTiles("CartoDB.DarkMatter", group = "Dark tiles") %>%
         leaflet::addRasterImage(r_wgs84,
           opacity = 0.7, layerId = "suitability",
           colors = cols, project = TRUE
@@ -202,7 +203,8 @@ render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
         )
     }
   } else {
-    map <- map %>% leaflet::addTiles()
+    map <- map %>% leaflet::addProviderTiles("CartoDB.Positron", group = "Light tiles") %>%
+        leaflet::addProviderTiles("CartoDB.DarkMatter", group = "Dark tiles")
   }
 
   if (!is.null(presence_df) && nrow(presence_df) > 0) {
@@ -246,11 +248,17 @@ render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
         ) %>%
         leaflet::addLegend(
           position = "bottomright", colors = "red",
-          labels = "Extrapolation (MESS<0)", title = "MESS"
+          labels = "Extrapolation (MESS<0)", title = "MESS", layerId = "mess_legend"
         )
     }
   }
 
+  map <- map %>%
+    leaflet::addLayersControl(
+      baseGroups = c("Light tiles", "Dark tiles"),
+      overlayGroups = c("presence", "background"),
+      options = leaflet::layersControlOptions(collapsed = TRUE)
+    )
   map
 }
 

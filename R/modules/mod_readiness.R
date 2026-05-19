@@ -157,7 +157,10 @@ mod_readiness_server <- function(id, rv, input, readiness_item, occurrence_sourc
       }
 
       extent_state <- "ok"
-      extent_detail <- paste0("xmin ", extent[1], ", xmax ", extent[2], ", ymin ", extent[3], ", ymax ", extent[4])
+      extent_preset_label <- input$extent_preset %||% sdm_default_extent_preset
+      preset_names <- c(occurrence = "Occurrence", world = "Full world", aus_full = "Australia - full", aus_north = "Northern Australia", aus_east = "Eastern Australia", custom = "Custom extent", boundary_file = "Custom boundary")
+      preset_name <- preset_names[[extent_preset_label]] %||% extent_preset_label
+      extent_detail <- paste0(preset_name, " — xmin ", extent[1], ", xmax ", extent[2], ", ymin ", extent[3], ", ymax ", extent[4])
       if (any(!is.finite(extent)) || extent[1] >= extent[2] || extent[3] >= extent[4]) {
         extent_state <- "error"
         extent_detail <- "Projection extent is invalid. Ensure xmin < xmax, ymin < ymax, and all values are finite numbers within longitude [-180,180] and latitude [-90,90]."
