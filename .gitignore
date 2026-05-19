@@ -41,6 +41,7 @@ Worldclim_future/
 worldclim_future/
 WorldClim_future/
 covariates/
+!R/covariates/
 covariates/**/*.tif
 covariates/**/*.tiff
 covariates/opentopo/
