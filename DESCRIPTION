@@ -10,8 +10,10 @@ License: MIT
 Encoding: UTF-8
 Depends: R (>= 4.3)
 Imports:
+    blockCV,
     bslib,
     callr,
+    CAST,
     curl,
     DT,
     future,
@@ -20,6 +22,7 @@ Imports:
     ggplot2,
     leaflet,
     mgcv,
+    ranger,
     sf,
     shiny,
     shinyjs,
