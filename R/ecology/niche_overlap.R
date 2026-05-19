@@ -44,7 +44,7 @@ compute_niche_overlap <- function(occ_native, occ_introduced, env,
   # ecospat niche overlap
   tryCatch({
     # Create ecospat input data
-    pca_env <- stats::rbind(native_env, intro_env)
+    pca_env <- rbind(native_env, intro_env)
     rownames(pca_env) <- NULL
 
     # PCA on combined environment
@@ -120,7 +120,7 @@ compute_niche_overlap_pca <- function(occ_native, occ_introduced, env, log_fun) 
 
   if (nrow(native_env) < 5 || nrow(intro_env) < 5) return(NULL)
 
-  pca_env <- stats::rbind(native_env, intro_env)
+  pca_env <- rbind(native_env, intro_env)
   pca <- stats::prcomp(pca_env, scale. = TRUE, center = TRUE)
 
   native_scores <- stats::predict(pca, newdata = native_env)[, 1:2]

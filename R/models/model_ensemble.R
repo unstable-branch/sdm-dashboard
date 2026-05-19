@@ -87,9 +87,9 @@ fit_ensemble_glm_rangebag_sdm <- function(occ, env_train_scaled, background_n = 
       k = if (length(component_k) > 0) min(component_k) else NA_integer_,
       auc_mean = ensemble_weighted_metric(component_auc, weights[c("glm", "rangebag")]),
       auc_sd = NA_real_,
-      auc_component_sd = if (length(auc_values) > 1) stats::sd(auc_values) else NA_real_,
+      auc_component_sd = if (length(auc_values) > 1) stats::sd(auc_values) else if (length(auc_values) == 1) 0 else NA_real_,
       tss_mean = ensemble_weighted_metric(component_tss, weights[c("glm", "rangebag")]),
-      tss_sd = if (length(tss_values) > 1) stats::sd(tss_values) else NA_real_,
+      tss_sd = if (length(tss_values) > 1) stats::sd(tss_values) else if (length(tss_values) == 1) 0 else NA_real_,
       component_metrics = data.frame(
         model = c("glm", "rangebag"),
         auc = c(glm_fit$cv$auc_mean %||% NA_real_, rangebag_fit$cv$auc_mean %||% NA_real_),

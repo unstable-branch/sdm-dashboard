@@ -47,6 +47,8 @@ sdm_default_model_id <- "glm"
 sdm_default_rangebag_n_bags <- 100L
 sdm_default_rangebag_fraction <- 0.5
 sdm_default_rangebag_vars_per_bag <- 1L
+sdm_default_maxnet_features <- "lqp"
+sdm_default_maxnet_regmult <- 1.0
 sdm_default_ensemble_weighting <- "auc"
 sdm_default_multi_ensemble_models <- c("glm", "rangebag")
 sdm_default_multi_ensemble_weighting <- "auc"
