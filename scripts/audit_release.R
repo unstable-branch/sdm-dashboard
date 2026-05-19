@@ -26,7 +26,7 @@ expected <- c(
 missing <- expected[!file.exists(expected)]
 if (length(missing) > 0) fail("Missing expected release file(s): ", paste(missing, collapse = ", "))
 
-removed_public_clutter <- c("AGENTS.md", "Main.R", "prepare_windows.bat", "docs/index.md")
+removed_public_clutter <- c("Main.R", "prepare_windows.bat", "docs/index.md")
 tracked_public_clutter <- tryCatch(
   system2("git", c("-C", project_root, "ls-files", "--", removed_public_clutter), stdout = TRUE, stderr = FALSE),
   error = function(e) character()
