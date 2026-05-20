@@ -1,0 +1,42 @@
+# Development compose — mounts local code, no image builds
+# Usage: docker compose -f docker-compose.dev.yml up
+
+services:
+  postgres:
+    extends:
+      file: docker-compose.yml
+      service: postgres
+
+  redis:
+    extends:
+      file: docker-compose.yml
+      service: redis
+
+  garage:
+    extends:
+      file: docker-compose.yml
+      service: garage
+
+  plumber:
+    build:
+      context: .
+      dockerfile: plumber/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./R:/app/R:ro
+      - ./plumber:/app/plumber:ro
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./covariates:/app/covariates
+      - ./Worldclim:/app/Worldclim
+    environment:
+      - SDM_PROJECT_ROOT=/app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    networks:
+      - sdm-network

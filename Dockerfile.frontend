@@ -1,0 +1,31 @@
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
+COPY frontend/package.json frontend/
+
+RUN npm install
+
+COPY packages/shared/ packages/shared/
+COPY frontend/ frontend/
+
+RUN cd frontend && npm run build
+
+FROM node:22-alpine AS runner
+
+RUN apk add --no-cache dumb-init
+
+WORKDIR /app
+
+COPY --from=builder /app/frontend/package.json ./frontend/
+COPY --from=builder /app/frontend/.next ./frontend/.next
+COPY --from=builder /app/frontend/public ./frontend/public
+COPY --from=builder /app/frontend/node_modules ./frontend/node_modules
+
+EXPOSE 3000
+
+ENV NODE_ENV=production
+
+CMD ["dumb-init", "node", "frontend/node_modules/.bin/next", "start", "frontend", "-p", "3000"]

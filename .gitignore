@@ -23,6 +23,16 @@ redis-data/
 .Rproj.user/
 .Renviron
 
+# R data directories
+data/uploads/
+outputs/
+covariates/
+Worldclim/
+Worldclim_future/
+renv/
+species/
+TestSpp/
+
 # OS
 .DS_Store
 Thumbs.db

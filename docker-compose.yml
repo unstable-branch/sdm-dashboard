@@ -14,6 +14,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - sdm-network
 
   redis:
     image: redis:7-alpine
@@ -26,6 +28,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - sdm-network
 
   garage:
     image: dxflrs/garage:latest
@@ -49,8 +53,94 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - sdm-network
+
+  plumber:
+    build:
+      context: .
+      dockerfile: plumber/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - plumber-data:/app/data
+      - plumber-outputs:/app/outputs
+      - plumber-covariates:/app/covariates
+      - plumber-worldclim:/app/Worldclim
+    environment:
+      - SDM_PROJECT_ROOT=/app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8G
+    networks:
+      - sdm-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://sdm:sdm_password@postgres:5432/sdm_platform
+      - REDIS_URL=redis://redis:6379
+      - PLUMBER_URL=http://plumber:8000
+      - GARAGE_ENDPOINT=http://garage:3900
+      - GARAGE_ACCESS_KEY=sdm
+      - GARAGE_SECRET_KEY=sdm_garage_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      plumber:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - sdm-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - API_URL=http://api:4000
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - sdm-network
 
 volumes:
   postgres-data:
   redis-data:
   garage-data:
+  plumber-data:
+  plumber-outputs:
+  plumber-covariates:
+  plumber-worldclim:
+
+networks:
+  sdm-network:
+    driver: bridge
