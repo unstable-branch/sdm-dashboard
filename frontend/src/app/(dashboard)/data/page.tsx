@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { FileUpload } from "@/components/data/file-upload";
 import { GbifSearch } from "@/components/data/gbif-search";
 import { PreviewTable } from "@/components/data/preview-table";
@@ -9,7 +10,8 @@ import { OccurrenceMap } from "@/components/data/occurrence-map";
 import { SourceCounts } from "@/components/data/source-counts";
 import { JobProgress } from "@/components/jobs/job-progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, FileArchive, Wand2, Map, Loader2 } from "lucide-react";
+import { Upload, Globe, FileArchive, Wand2, Map, Loader2, CheckCircle2 } from "lucide-react";
+import { useSDMStore } from "@/stores/sdm-store";
 
 interface OccurrencePoint {
   longitude: number;
@@ -20,6 +22,10 @@ interface OccurrencePoint {
 }
 
 export default function DataPage() {
+  const setOccurrenceFilePath = useSDMStore((s) => s.setOccurrenceFilePath);
+  const setRecordCount = useSDMStore((s) => s.setRecordCount);
+  const occurrenceFilePath = useSDMStore((s) => s.occurrenceFilePath);
+
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<Record<string, unknown> | null>(null);
@@ -58,6 +64,10 @@ export default function DataPage() {
 
       const result = await res.json();
       setUploadResult(result);
+      if (result.file_path) {
+        setOccurrenceFilePath(result.file_path);
+        setRecordCount(result.n_rows || 0);
+      }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -193,6 +203,18 @@ export default function DataPage() {
 
           {uploadPreview && uploadPreview.length > 0 && (
             <PreviewTable data={uploadPreview} title="Preview (first 5 records)" />
+          )}
+
+          {typeof uploadResult?.file_path === "string" && (
+            <div className="mt-3 flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-green-500">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Ready for modeling — {Number(uploadResult.n_rows ?? 0).toLocaleString()} records loaded</span>
+              </div>
+              <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
+                Go to Model tab →
+              </Link>
+            </div>
           )}
         </TabsContent>
 

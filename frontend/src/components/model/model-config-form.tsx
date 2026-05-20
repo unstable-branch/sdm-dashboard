@@ -5,6 +5,7 @@ import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
 import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG } from "@sdm/shared";
 import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
 import { cn } from "@/lib/utils";
+import { CheckCircle2 } from "lucide-react";
 
 interface ModelConfigFormProps {
   occurrenceFile: string | null;
@@ -134,6 +135,16 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
       {error && (
         <div className="rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
           {error}
+        </div>
+      )}
+
+      {occurrenceFile && (
+        <div className="rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3 flex items-center gap-3">
+          <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-sdm-text truncate">{occurrenceFile.split("/").pop()}</p>
+            <p className="text-xs text-sdm-muted truncate">{occurrenceFile}</p>
+          </div>
         </div>
       )}
 

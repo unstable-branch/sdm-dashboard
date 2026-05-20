@@ -5,14 +5,18 @@ import { useRouter } from "next/navigation";
 import { ModelConfigForm } from "@/components/model/model-config-form";
 import { RunHistory } from "@/components/model/run-history";
 import { JobProgress } from "@/components/jobs/job-progress";
+import { useSDMStore } from "@/stores/sdm-store";
 import type { ModelConfig } from "@sdm/shared";
 
 export default function ModelPage() {
   const router = useRouter();
+  const occurrenceFile = useSDMStore((s) => s.occurrenceFilePath);
+  const recordCount = useSDMStore((s) => s.recordCount);
+  const species = useSDMStore((s) => s.species);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
-  const [occurrenceFile, setOccurrenceFile] = useState<string | null>(null);
 
   const handleSubmit = async (config: Partial<ModelConfig>) => {
     setLoading(true);
@@ -82,9 +86,19 @@ export default function ModelPage() {
         <div className="space-y-6">
           <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
             <h2 className="text-sm font-semibold text-sdm-heading mb-3">Data source</h2>
-            <p className="text-xs text-sdm-muted">
-              Upload occurrence data in the Data tab first, then return here to run the model.
-            </p>
+            {occurrenceFile ? (
+              <div>
+                <p className="text-sm text-sdm-text font-mono truncate">{occurrenceFile.split("/").pop()}</p>
+                <p className="text-xs text-sdm-muted mt-1">{recordCount.toLocaleString()} records loaded</p>
+                {species && species !== "Untitled species" && (
+                  <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-sdm-muted">
+                Upload occurrence data in the Data tab first.
+              </p>
+            )}
           </div>
 
           <RunHistory onRunSelect={handleRunSelect} />

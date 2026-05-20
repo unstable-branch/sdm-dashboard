@@ -1,8 +1,15 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 interface SDMState {
   species: string;
   setSpecies: (species: string) => void;
+
+  occurrenceFilePath: string | null;
+  setOccurrenceFilePath: (path: string | null) => void;
+
+  recordCount: number;
+  setRecordCount: (count: number) => void;
 
   cleanedOccurrence: {
     df: Record<string, unknown>[];
@@ -26,26 +33,44 @@ interface SDMState {
   setError: (error: string | null) => void;
 }
 
-export const useSDMStore = create<SDMState>((set) => ({
-  species: "Untitled species",
-  setSpecies: (species) => set({ species }),
+export const useSDMStore = create<SDMState>()(
+  persist(
+    (set) => ({
+      species: "Untitled species",
+      setSpecies: (species) => set({ species }),
 
-  cleanedOccurrence: null,
-  setCleanedOccurrence: (data) => set({ cleanedOccurrence: data }),
+      occurrenceFilePath: null,
+      setOccurrenceFilePath: (path) => set({ occurrenceFilePath: path }),
 
-  result: null,
-  setResult: (result) => set({ result }),
+      recordCount: 0,
+      setRecordCount: (count) => set({ recordCount: count }),
 
-  running: false,
-  setRunning: (running) => set({ running }),
+      cleanedOccurrence: null,
+      setCleanedOccurrence: (data) => set({ cleanedOccurrence: data }),
 
-  log: "",
-  appendLog: (message) =>
-    set((state) => ({
-      log: state.log + `${new Date().toLocaleTimeString()}  ${message}\n`,
-    })),
-  clearLog: () => set({ log: "" }),
+      result: null,
+      setResult: (result) => set({ result }),
 
-  error: null,
-  setError: (error) => set({ error }),
-}));
+      running: false,
+      setRunning: (running) => set({ running }),
+
+      log: "",
+      appendLog: (message) =>
+        set((state) => ({
+          log: state.log + `${new Date().toLocaleTimeString()}  ${message}\n`,
+        })),
+      clearLog: () => set({ log: "" }),
+
+      error: null,
+      setError: (error) => set({ error }),
+    }),
+    {
+      name: "sdm-storage",
+      partialize: (state) => ({
+        species: state.species,
+        occurrenceFilePath: state.occurrenceFilePath,
+        recordCount: state.recordCount,
+      }),
+    }
+  )
+);
