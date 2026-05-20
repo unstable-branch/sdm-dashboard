@@ -6,7 +6,7 @@ dist/
 
 # Infrastructure
 postgres-data/
-minio-data/
+garage-data/
 redis-data/
 
 # Logs

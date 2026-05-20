@@ -27,19 +27,30 @@ services:
       timeout: 3s
       retries: 5
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  garage:
+    image: dxflrs/garage:latest
+    command: server
     environment:
-      MINIO_ROOT_USER: sdm
-      MINIO_ROOT_PASSWORD: sdm_minio_password
+      GARAGE_BOOTSTRAP_TOKEN: "sdm-bootstrap-token"
+      GARAGE_DATA_DIR: /var/lib/garage
+      GARAGE_RPC_BIND_ADDR: "0.0.0.0:3902"
+      GARAGE_S3_API_BIND_ADDR: "0.0.0.0:3900"
+      GARAGE_S3_WEB_BIND_ADDR: "0.0.0.0:3901"
+      GARAGE_S3_ROOT_ACCESS_KEY_ID: "sdm"
+      GARAGE_S3_ROOT_SECRET_KEY: "sdm_garage_secret"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "3900:3900"
+      - "3901:3901"
+      - "3902:3902"
     volumes:
-      - minio-data:/data
+      - garage-data:/var/lib/garage
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3901/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
   postgres-data:
   redis-data:
-  minio-data:
+  garage-data:

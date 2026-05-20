@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Node.js >= 22** — managed via `fnm` (Fast Node Manager)
-- **Docker Compose** — for PostgreSQL/PostGIS, Redis, MinIO
+- **Docker Compose** — for PostgreSQL/PostGIS, Redis, Garage
 
 ## Quick Start
 
@@ -40,21 +40,23 @@ cd frontend && npm run dev
 |---------|------|---------|
 | PostgreSQL + PostGIS | 5432 | Species, runs, occurrences storage |
 | Redis | 6379 | Job queue (BullMQ), caching |
-| MinIO | 9000 (API), 9001 (Console) | Raster file storage (S3-compatible) |
+| Garage (S3-compatible) | 3900 (API), 3901 (Web UI) | Raster file storage (AGPLv3, open-source) |
 | R Plumber | 8000 | Computation API (model fitting, prediction) |
 | Hono API | 4000 | BFF API (frontend proxy, data management) |
 | Next.js Frontend | 3000 | Web UI |
 
 ## Environment Variables
 
-See `api/.env` for configuration. Copy to `.env.local` for overrides.
+See `api/.env.example` for configuration. Copy to `api/.env` for local overrides.
 
 ```
 DATABASE_URL=postgresql://sdm:sdm_password@localhost:5432/sdm_platform
 REDIS_URL=redis://localhost:6379
-MINIO_ENDPOINT=localhost:9000
-MINIO_ACCESS_KEY=sdm
-MINIO_SECRET_KEY=sdm_minio_password
+GARAGE_ENDPOINT=localhost:3900
+GARAGE_ACCESS_KEY_ID=sdm
+GARAGE_SECRET_KEY=sdm_garage_secret
+GARAGE_BUCKET_RASTERS=sdm-rasters
+GARAGE_BUCKET_EXPORTS=sdm-exports
 PLUMBER_URL=http://localhost:8000
 PORT=4000
 ```
@@ -74,3 +76,21 @@ sudo -u postgres psql -c "CREATE USER sdm WITH PASSWORD 'sdm_password';"
 sudo -u postgres psql -c "CREATE DATABASE sdm_platform OWNER sdm;"
 sudo -u postgres psql -d sdm_platform -c "CREATE EXTENSION postgis;"
 ```
+
+To run Garage locally without Docker:
+```bash
+# Download Garage binary from https://garagehq.deuxfleurs.fr/
+garage server
+```
+
+## Why Garage?
+
+Garage is an open-source (AGPLv3) S3-compatible object storage written in Rust.
+It replaced MinIO in this project because MinIO changed to the SSPL license,
+which is not approved by the Open Source Initiative (OSI).
+
+Garage features:
+- Lightweight single binary, no dependencies
+- Designed for self-hosted and multi-node deployments
+- Native S3 API compatibility
+- LSM-tree storage engine for efficient writes
