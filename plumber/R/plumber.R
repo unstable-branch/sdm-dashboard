@@ -4,8 +4,18 @@
 
 library(jsonlite)
 
+# Resolve project root: Docker uses /app, local uses parent of plumber/R/
+app_dir <- if (dir.exists("/app/R")) "/app" else normalizePath(file.path(getwd(), ".."), winslash = "/")
+
 # Source existing R modules
-source("/app/R/load.R")
+load_path <- file.path(app_dir, "R", "load.R")
+if (!file.exists(load_path)) {
+  stop("Could not find R/load.R at: ", load_path, call. = FALSE)
+}
+source(load_path)
+
+# Source data endpoints
+source(file.path(app_dir, "plumber", "R", "endpoints-data.R"))
 
 #* Health check
 #* @get /health
