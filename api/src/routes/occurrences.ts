@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { plumberClient } from "../services/plumber";
+import { enqueueSdmJob } from "../services/queue";
 import { db } from "../db";
 import { species, occurrences } from "../db/schema";
 import { eq } from "drizzle-orm";
@@ -27,6 +28,16 @@ dataRoutes.post("/occurrences/upload", async (c) => {
 dataRoutes.post("/occurrences/clean", async (c) => {
   try {
     const body = await c.req.json();
+    const async = body.async === true;
+
+    if (async) {
+      const jobId = await enqueueSdmJob({
+        type: "clean",
+        payload: body,
+      });
+      return c.json({ jobId, status: "queued" });
+    }
+
     const result = await plumberClient.cleanOccurrences(body);
 
     if (result && typeof result === "object" && "occurrence_preview" in result) {
