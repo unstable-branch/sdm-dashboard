@@ -7,8 +7,9 @@ import { PreviewTable } from "@/components/data/preview-table";
 import { CleaningTable } from "@/components/data/cleaning-table";
 import { OccurrenceMap } from "@/components/data/occurrence-map";
 import { SourceCounts } from "@/components/data/source-counts";
+import { JobProgress } from "@/components/jobs/job-progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, FileArchive, Wand2, Map } from "lucide-react";
+import { Upload, Globe, FileArchive, Wand2, Map, Loader2 } from "lucide-react";
 
 interface OccurrencePoint {
   longitude: number;
@@ -26,6 +27,8 @@ export default function DataPage() {
   const [cleanLoading, setCleanLoading] = useState(false);
   const [cleanError, setCleanError] = useState<string | null>(null);
   const [cleanResult, setCleanResult] = useState<Record<string, unknown> | null>(null);
+  const [cleanJobId, setCleanJobId] = useState<string | null>(null);
+  const [useAsync, setUseAsync] = useState(false);
 
   const [gbifLoading, setGbifLoading] = useState(false);
   const [gbifError, setGbifError] = useState<string | null>(null);
@@ -79,6 +82,7 @@ export default function DataPage() {
           merge_small_sources: true,
           use_cc: false,
           cc_tests: "all",
+          async: useAsync,
         }),
       });
 
@@ -88,12 +92,25 @@ export default function DataPage() {
       }
 
       const result = await res.json();
-      setCleanResult(result);
+
+      if (useAsync && result.jobId) {
+        setCleanJobId(result.jobId);
+      } else {
+        setCleanResult(result);
+      }
     } catch (err) {
       setCleanError(err instanceof Error ? err.message : "Clean failed");
     } finally {
-      setCleanLoading(false);
+      if (!useAsync) {
+        setCleanLoading(false);
+      }
     }
+  };
+
+  const handleCleanComplete = (result: Record<string, unknown>) => {
+    setCleanResult(result.data as Record<string, unknown> | undefined ?? result);
+    setCleanJobId(null);
+    setCleanLoading(false);
   };
 
   const handleGbifSearch = async (taxon: string, country: string, maxRecords: number) => {
@@ -223,18 +240,37 @@ export default function DataPage() {
             <p className="text-sm text-sdm-muted mb-4">
               Remove duplicates, filter invalid coordinates, and optionally run CoordinateCleaner tests.
             </p>
+
+            <div className="flex items-center gap-4 mb-4">
+              <label className="flex items-center gap-2 text-sm text-sdm-text">
+                <input
+                  type="checkbox"
+                  checked={useAsync}
+                  onChange={(e) => setUseAsync(e.target.checked)}
+                  className="rounded border-sdm-border bg-sdm-surface-soft"
+                />
+                Run in background (for large datasets)
+              </label>
+            </div>
+
             <button
               onClick={handleClean}
-              disabled={cleanLoading || !uploadResult?.file_id}
+              disabled={cleanLoading || !uploadResult?.file_id || !!cleanJobId}
               className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Wand2 className="h-4 w-4" />
-              {cleanLoading ? "Cleaning..." : "Run cleaning"}
+              {cleanLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+              {cleanLoading ? "Cleaning..." : cleanJobId ? "Running..." : "Run cleaning"}
             </button>
 
             {cleanError && (
               <div className="mt-4 flex items-center gap-2 rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
                 <span>{cleanError}</span>
+              </div>
+            )}
+
+            {cleanJobId && (
+              <div className="mt-4">
+                <JobProgress jobId={cleanJobId} onComplete={handleCleanComplete} />
               </div>
             )}
           </div>

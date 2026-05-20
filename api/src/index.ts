@@ -3,12 +3,14 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { S3Client, CreateBucketCommand } from "@aws-sdk/client-s3";
+import { streamSSE } from "hono/streaming";
 import { plumberClient } from "./services/plumber";
 import { getGarageConfig, getBucketNames } from "./services/storage";
+import { sdmQueue, sdmWorker, getJobStatus } from "./services/queue";
 import { sdmRoutes } from "./routes/sdm";
 import { dataRoutes } from "./routes/occurrences";
 import { resultsRoutes } from "./routes/results";
-import { jobsRoutes } from "./routes/jobs";
+import jobsRoutes from "./routes/jobs";
 
 const app = new Hono();
 
@@ -24,11 +26,22 @@ app.get("/health", async (c) => {
     plumberStatus = "unreachable";
   }
 
+  let redisStatus = "unknown";
+  try {
+    const client = sdmQueue.client;
+    const redisClient = await client;
+    await redisClient.ping();
+    redisStatus = "connected";
+  } catch {
+    redisStatus = "disconnected";
+  }
+
   return c.json({
     status: "ok",
     timestamp: new Date().toISOString(),
     services: {
       plumber: plumberStatus,
+      redis: redisStatus,
     },
   });
 });
@@ -57,6 +70,33 @@ app.route("/api/v1/sdm", sdmRoutes);
 app.route("/api/v1/data", dataRoutes);
 app.route("/api/v1/results", resultsRoutes);
 app.route("/api/v1/jobs", jobsRoutes);
+
+app.get("/api/v1/sse", (c) => {
+  return streamSSE(c, async (stream) => {
+    while (true) {
+      const jobs = await sdmQueue.getJobs(["active", "waiting", "completed", "failed"]);
+
+      for (const job of jobs) {
+        const state = await job.getState();
+        const progress = job.progress || 0;
+
+        await stream.writeSSE({
+          event: "job-update",
+          data: JSON.stringify({
+            id: job.id,
+            state,
+            progress,
+            type: job.data?.type,
+            result: job.returnvalue,
+            failedReason: job.failedReason,
+          }),
+        });
+      }
+
+      await stream.sleep(2000);
+    }
+  });
+});
 
 async function initGarageBuckets(): Promise<void> {
   const config = getGarageConfig();

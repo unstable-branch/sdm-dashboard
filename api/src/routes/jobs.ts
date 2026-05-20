@@ -1,38 +1,62 @@
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
+import { getJobStatus, sdmQueue } from "../services/queue";
 
-export const jobsRoutes = new Hono();
+const app = new Hono();
 
-jobsRoutes.get("/", async (c) => {
-  return c.json([]);
-});
+app.get("/sse", (c) => {
+  return streamSSE(c, async (stream) => {
+    while (true) {
+      const jobs = await sdmQueue.getJobs(["active", "waiting", "completed", "failed"]);
 
-jobsRoutes.get("/:id", async (c) => {
-  const id = c.req.param("id");
-  return c.json({
-    jobId: id,
-    status: "running",
-    progress: 0.5,
-    progressLabel: "Fitting model",
-    logs: ["Cleaning occurrence data...", "Loading covariates..."],
+      for (const job of jobs) {
+        const state = await job.getState();
+        const progress = job.progress || 0;
+
+        await stream.writeSSE({
+          event: "job-update",
+          data: JSON.stringify({
+            id: job.id,
+            state,
+            progress,
+            type: job.data?.type,
+            result: job.returnvalue,
+            failedReason: job.failedReason,
+          }),
+        });
+      }
+
+      await stream.sleep(2000);
+    }
   });
 });
 
-jobsRoutes.get("/:id/stream", async (c) => {
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(`data: ${JSON.stringify({ type: "progress", pct: 0.5 })}\n\n`);
-    },
-  });
+app.get("/:jobId", async (c) => {
+  const jobId = c.req.param("jobId");
+  const status = await getJobStatus(jobId);
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+  if (!status) {
+    return c.json({ error: "Job not found" }, 404);
+  }
+
+  return c.json(status);
 });
 
-jobsRoutes.delete("/:id", async (c) => {
-  return c.json({ ok: true });
+app.post("/:jobId/cancel", async (c) => {
+  const jobId = c.req.param("jobId");
+  const job = await sdmQueue.getJob(jobId);
+
+  if (!job) {
+    return c.json({ error: "Job not found" }, 404);
+  }
+
+  const state = await job.getState();
+  if (state === "active" || state === "waiting") {
+    await job.remove();
+    return c.json({ ok: true, message: `Job ${state} and removed` });
+  }
+
+  return c.json({ ok: false, message: `Cannot cancel job in state: ${state}` }, 400);
 });
+
+export default app;

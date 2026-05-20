@@ -25,10 +25,20 @@ export class PlumberClient {
     return res.json();
   }
 
-  async uploadOccurrence(file: Buffer, filename: string): Promise<Record<string, unknown>> {
+  async uploadOccurrence(file: Buffer | string, filename?: string): Promise<Record<string, unknown>> {
+    if (typeof file === "string") {
+      const res = await fetch(`${this.baseUrl}/api/v1/occurrences/upload`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_path: file, file_id: filename }),
+      });
+      if (!res.ok) throw new Error(`Failed to upload occurrence: ${res.status}`);
+      return res.json();
+    }
+
     const formData = new FormData();
     const blob = new Blob([new Uint8Array(file)]);
-    formData.append("file", blob, filename);
+    formData.append("file", blob, filename || "upload.csv");
 
     const res = await fetch(`${this.baseUrl}/api/v1/occurrences/upload`, {
       method: "POST",
@@ -89,6 +99,36 @@ export class PlumberClient {
       method: "DELETE",
     });
     if (!res.ok) throw new Error(`Failed to cancel job: ${res.status}`);
+    return res.json();
+  }
+
+  async fitModel(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/models/fit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`Failed to fit model: ${res.status}`);
+    return res.json();
+  }
+
+  async predict(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/models/predict`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`Failed to predict: ${res.status}`);
+    return res.json();
+  }
+
+  async generateReport(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/output/report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`Failed to generate report: ${res.status}`);
     return res.json();
   }
 }
