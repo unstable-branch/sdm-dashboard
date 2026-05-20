@@ -27,26 +27,10 @@ export interface Run {
   speciesId: string;
   modelId: string;
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
-  config: ModelConfig;
+  config: import("./schemas").ModelConfig;
   metrics: RunMetrics | null;
   startedAt: string | null;
   completedAt: string | null;
-}
-
-export interface ModelConfig {
-  species: string;
-  modelId: string;
-  biovars: number[];
-  projectionExtent: [number, number, number, number];
-  backgroundN: number;
-  cvFolds: number;
-  cvStrategy: "random" | "spatial_blocks";
-  threshold: number;
-  includeQuadratic: boolean;
-  useElevation: boolean;
-  useSoil: boolean;
-  nCores: number;
-  seed: number;
 }
 
 export interface RunMetrics {

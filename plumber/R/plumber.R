@@ -17,6 +17,9 @@ source(load_path)
 # Source data endpoints
 source(file.path(app_dir, "plumber", "R", "endpoints-data.R"))
 
+# Source model endpoints
+source(file.path(app_dir, "plumber", "R", "endpoints-model.R"))
+
 #* Health check
 #* @get /health
 function() {

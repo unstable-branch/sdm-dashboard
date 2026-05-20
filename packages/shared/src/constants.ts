@@ -20,16 +20,74 @@ export const BIOVAR_CHOICES = [
   { id: 19, label: "BIO19", description: "Precipitation of Coldest Quarter" },
 ];
 
-export const EXTENT_PRESETS: Record<string, [number, number, number, number]> = {
-  aus_full: [112, 154, -44, -10],
-  world: [-180, 180, -90, 90],
+export const EXTENT_PRESETS: Record<string, { label: string; extent: [number, number, number, number] }> = {
+  aus_full: { label: "Australia - full", extent: [112, 154, -44, -10] },
+  aus_north: { label: "Northern Australia", extent: [112, 154, -26, -10] },
+  aus_east: { label: "Eastern Australia", extent: [138, 154, -44, -10] },
+  world: { label: "Full world", extent: [-180, 180, -90, 90] },
 };
 
 export const MODEL_BACKENDS = [
-  { id: "glm", label: "GLM / Logistic regression", maturity: "stable" as const },
-  { id: "gam", label: "GAM / Smooth response curves", maturity: "stable" as const },
-  { id: "maxnet", label: "MaxEnt", maturity: "stable" as const },
-  { id: "rf", label: "Random Forest", maturity: "stable" as const },
-  { id: "xgboost", label: "XGBoost", maturity: "experimental" as const },
-  { id: "rangebag", label: "Rangebagging", maturity: "experimental" as const },
+  { id: "glm", label: "GLM / Logistic regression", maturity: "stable" as const, minRecords: 15 },
+  { id: "gam", label: "GAM / Smooth response curves", maturity: "stable" as const, minRecords: 20 },
+  { id: "maxnet", label: "MaxEnt", maturity: "stable" as const, minRecords: 10 },
+  { id: "rf", label: "Random Forest", maturity: "stable" as const, minRecords: 20 },
+  { id: "xgboost", label: "XGBoost", maturity: "experimental" as const, minRecords: 30 },
+  { id: "rangebag", label: "Rangebagging", maturity: "experimental" as const, minRecords: 15 },
+  { id: "esm_glm", label: "ESM-GLM (rare species)", maturity: "stable" as const, minRecords: 5 },
+  { id: "esm_maxnet", label: "ESM-MaxNet (rare species)", maturity: "stable" as const, minRecords: 5 },
+  { id: "multi_ensemble", label: "Multi-model ensemble", maturity: "stable" as const, minRecords: 20 },
 ];
+
+export const SOIL_VARS = [
+  { id: "bdod", label: "Bulk density" },
+  { id: "cfvo", label: "Coarse fragments" },
+  { id: "clay", label: "Clay content" },
+  { id: "nitrogen", label: "Nitrogen" },
+  { id: "soc", label: "Soil organic carbon" },
+  { id: "phh2o", label: "pH (water)" },
+  { id: "sand", label: "Sand content" },
+  { id: "silt", label: "Silt content" },
+  { id: "cec", label: "CEC" },
+];
+
+export const SOIL_DEPTHS = ["0-5cm", "5-15cm", "15-30cm", "30-60cm", "60-100cm", "100-200cm"];
+
+export const UV_VARS = [
+  { id: "UVB1", label: "UVB1 Annual Mean" },
+  { id: "UVB2", label: "UVB2 Seasonality" },
+  { id: "UVB3", label: "UVB3 Highest Month" },
+  { id: "UVB4", label: "UVB4 Lowest Month" },
+  { id: "UVB5", label: "UVB5 Highest Quarter" },
+  { id: "UVB6", label: "UVB6 Lowest Quarter" },
+];
+
+export const DEM_CHOICES = ["COP90", "SRTMGL3", "AW3D30", "SRTMGL1"];
+
+export const DEFAULT_CONFIG = {
+  biovars: [1, 4, 6, 12, 15, 18],
+  backgroundN: 10000,
+  cvFolds: 3,
+  cvStrategy: "random" as const,
+  threshold: 0.5,
+  nCores: 1,
+  seed: 42,
+  minSourceRecords: 15,
+  aggregationFactor: 1,
+  paReplicates: 1,
+  biasMethod: "uniform" as const,
+  thickeningDistanceKm: 10,
+  maxnetFeatures: "lqp" as const,
+  maxnetRegmult: 1.0,
+  worldclimRes: 10,
+  source: "worldclim" as const,
+  elevationDemtype: "COP90",
+  soilVars: ["sand", "clay", "phh2o"],
+  soilDepths: ["0-5cm", "30-60cm"],
+  uvVars: ["UVB1", "UVB2"],
+  vegProducts: ["ndvi_annual_mean"],
+  lulcYear: 2020,
+  hfpYear: 2020,
+  vifThreshold: 10,
+  climateMatchingMethod: "mahalanobis" as const,
+};
