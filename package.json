@@ -2,13 +2,13 @@
   "name": "sdm-platform",
   "private": true,
   "scripts": {
-    "dev:api": "cd api && npm run dev",
-    "dev:frontend": "cd frontend && npm run dev",
+    "dev:api": "cd api && pnpm dev",
+    "dev:frontend": "cd frontend && pnpm dev",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   }
 }
