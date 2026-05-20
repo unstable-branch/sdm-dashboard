@@ -3,9 +3,39 @@
 ## Prerequisites
 
 - **Node.js >= 22** — managed via `fnm` (Fast Node Manager)
-- **Docker Compose** — for PostgreSQL/PostGIS, Redis, Garage
+- **Docker Compose** — for full-stack deployment
+- **R >= 4.3** — for local Plumber development (optional, Docker handles this)
 
-## Quick Start
+## Quick Start — Full Stack (Docker)
+
+```bash
+# Build and start all services (first time takes ~30 min for R packages)
+docker compose up -d
+
+# Wait for Plumber to finish installing R packages (check logs)
+docker compose logs -f plumber
+
+# Once healthy, access:
+# Frontend: http://localhost:3000
+# API: http://localhost:4000
+# Plumber: http://localhost:8000
+# Garage Web UI: http://localhost:3901
+```
+
+## Quick Start — Development (Docker + Local)
+
+```bash
+# Start only infrastructure + Plumber (local code mounted)
+docker compose -f docker-compose.dev.yml up -d
+
+# Start API locally
+cd api && npm run dev
+
+# Start frontend locally (another terminal)
+cd frontend && npm run dev
+```
+
+## Quick Start — Manual (No Docker)
 
 ```bash
 # Install fnm (if not already installed)
@@ -22,7 +52,7 @@ cd ../api && npm install
 cd ../..
 
 # Start infrastructure services
-docker compose up -d
+docker compose up -d postgres redis garage
 
 # Run database migrations
 cd api && npm run db:migrate

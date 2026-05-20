@@ -1,0 +1,22 @@
+FROM node:22-alpine
+
+RUN apk add --no-cache dumb-init
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
+COPY api/package.json api/
+COPY frontend/package.json frontend/
+
+RUN npm install
+
+COPY packages/shared/ packages/shared/
+COPY api/ api/
+COPY frontend/ frontend/
+
+RUN cd api && npm run build
+
+EXPOSE 4000
+
+CMD ["dumb-init", "node", "api/dist/index.js"]
