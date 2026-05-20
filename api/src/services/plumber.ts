@@ -78,7 +78,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async runModel(data: Record<string, unknown>): Promise<{ jobId: string; status: string }> {
+  async runModel(data: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await fetch(`${this.baseUrl}/api/v1/models/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -129,6 +129,26 @@ export class PlumberClient {
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`Failed to generate report: ${res.status}`);
+    return res.json();
+  }
+
+  async getModelStatus(jobId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`);
+    if (!res.ok) throw new Error(`Failed to get model status: ${res.status}`);
+    return res.json();
+  }
+
+  async cancelModel(jobId: string): Promise<{ ok: boolean; message: string }> {
+    const res = await fetch(`${this.baseUrl}/api/v1/models/cancel/${jobId}`, {
+      method: "POST",
+    });
+    if (!res.ok) throw new Error(`Failed to cancel model: ${res.status}`);
+    return res.json();
+  }
+
+  async getModelRuns(): Promise<Array<Record<string, unknown>>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/models/runs`);
+    if (!res.ok) throw new Error(`Failed to get model runs: ${res.status}`);
     return res.json();
   }
 }

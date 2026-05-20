@@ -1,0 +1,157 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SuitabilityMap } from "@/components/results/suitability-map";
+import { MetricCards } from "@/components/results/metric-cards";
+import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
+import { ArrowLeft, Loader2 } from "lucide-react";
+
+interface RunStatus {
+  id: string;
+  status: string;
+  species: string;
+  model_id: string;
+  started_at: string;
+  completed_at: string | null;
+  error: string | null;
+  metrics: Record<string, unknown> | null;
+  output_files: Record<string, string> | null;
+  progress_log: string[];
+}
+
+export default function ResultsPage() {
+  const params = useParams();
+  const router = useRouter();
+  const runId = params.runId as string;
+
+  const [run, setRun] = useState<RunStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!runId) return;
+
+    const fetchStatus = () => {
+      fetch(`/api/v1/sdm/status/${runId}`)
+        .then((res) => {
+          if (!res.ok) throw new Error("Run not found");
+          return res.json();
+        })
+        .then((data) => {
+          setRun(data);
+          setLoading(false);
+          if (data.status === "running") {
+            setTimeout(fetchStatus, 3000);
+          }
+        })
+        .catch((err) => {
+          setError(err.message);
+          setLoading(false);
+        });
+    };
+
+    fetchStatus();
+  }, [runId]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />
+        <span className="ml-2 text-sdm-muted">Loading results...</span>
+      </div>
+    );
+  }
+
+  if (error || !run) {
+    return (
+      <div className="space-y-4">
+        <button onClick={() => router.back()} className="flex items-center gap-1 text-sm text-sdm-muted hover:text-sdm-text">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </button>
+        <div className="rounded-md border border-red-300/30 bg-red-500/5 p-4 text-sm text-red-500">
+          {error || "Run not found"}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button onClick={() => router.back()} className="text-sdm-muted hover:text-sdm-text">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-sdm-heading">{run.species || "Results"}</h1>
+            <p className="text-sm text-sdm-muted">
+              {run.model_id} · Started {new Date(run.started_at).toLocaleString()}
+            </p>
+          </div>
+        </div>
+        <span className={
+          run.status === "completed" ? "px-3 py-1 rounded-full text-xs font-medium bg-green-500/10 text-green-500" :
+          run.status === "failed" ? "px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-500" :
+          "px-3 py-1 rounded-full text-xs font-medium bg-sdm-accent/10 text-sdm-accent animate-pulse"
+        }>
+          {run.status}
+        </span>
+      </div>
+
+      {run.status === "running" && (
+        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+          <div className="flex items-center gap-2 text-sm text-sdm-muted">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Model is still running...
+          </div>
+          {run.progress_log.length > 0 && (
+            <div className="mt-2 rounded bg-sdm-surface-soft p-2 font-mono text-xs text-sdm-muted max-h-32 overflow-y-auto">
+              {run.progress_log.map((line, i) => (
+                <div key={i} className="truncate">{line}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {run.status === "failed" && run.error && (
+        <div className="rounded-md border border-red-300/30 bg-red-500/5 p-4 text-sm text-red-500">
+          {run.error}
+        </div>
+      )}
+
+      {run.status === "completed" && (
+        <>
+          {run.metrics && <MetricCards metrics={run.metrics} />}
+
+          <Tabs defaultValue="map" className="space-y-4">
+            <TabsList className="grid w-full max-w-md grid-cols-3">
+              <TabsTrigger value="map">Suitability Map</TabsTrigger>
+              <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
+              <TabsTrigger value="report">Report</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="map">
+              <SuitabilityMap outputFiles={run.output_files} />
+            </TabsContent>
+
+            <TabsContent value="diagnostics">
+              <DiagnosticsPanel run={run} />
+            </TabsContent>
+
+            <TabsContent value="report">
+              <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
+                <h3 className="text-sm font-semibold text-sdm-heading mb-3">Run summary</h3>
+                <pre className="text-xs text-sdm-muted font-mono whitespace-pre-wrap max-h-96 overflow-y-auto">
+                  {run.progress_log.join("\n")}
+                </pre>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </>
+      )}
+    </div>
+  );
+}

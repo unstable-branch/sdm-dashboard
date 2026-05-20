@@ -50,10 +50,34 @@ export const sdmWorker = new Worker<SdmJobData, SdmJobResult>(
           break;
         }
         case "model": {
-          await job.updateProgress(20);
-          const modelRes = await client.fitModel(payload);
+          await job.updateProgress(10);
+          const modelRes = await client.runModel(payload);
+          const runJobId = (modelRes as any).job_id as string | undefined;
+          if (runJobId) {
+            await job.updateProgress(50);
+            let status: Record<string, unknown> = {};
+            try {
+              status = await client.getModelStatus(runJobId);
+            } catch {
+              // Status check failed, continue
+            }
+            while ((status as any).status === "running") {
+              await new Promise((resolve) => setTimeout(resolve, 3000));
+              try {
+                const updated = await client.getModelStatus(runJobId);
+                const logLen = Array.isArray((updated as any).progress_log) ? (updated as any).progress_log.length : 0;
+                await job.updateProgress(Math.min(95, 50 + Math.round(logLen * 0.5)));
+                Object.assign(status, updated);
+              } catch {
+                break;
+              }
+            }
+            const finalStatus = (status as any).status;
+            result = { status: finalStatus === "completed" ? "success" : "error", data: status, error: (status as any).error as string | undefined };
+          } else {
+            result = { status: "success", data: modelRes };
+          }
           await job.updateProgress(100);
-          result = { status: "success", data: modelRes };
           break;
         }
         case "predict": {
