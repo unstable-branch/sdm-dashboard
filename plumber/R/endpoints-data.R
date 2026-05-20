@@ -27,6 +27,13 @@ function(req) {
     ext <- tolower(tools::file_ext(uploaded$name %||% ""))
     is_dwca <- ext == "zip"
 
+    upload_dir <- file.path(app_dir, "data", "uploads")
+    dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
+    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", uploaded$name %||% "upload")
+    dest_path <- file.path(upload_dir, paste0(format(Sys.time(), "%Y%m%d_%H%M%S_"), safe_name))
+    file.copy(file_path, dest_path, overwrite = TRUE)
+    rel_path <- file.path("data", "uploads", basename(dest_path))
+
     if (is_dwca) {
       result <- read_dwca(file_path, log_fun = message)
       occ <- result$occurrences
@@ -44,7 +51,8 @@ function(req) {
       preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
 
       list(
-        file_id = basename(file_path),
+        file_id = dest_path,
+        file_path = rel_path,
         filename = uploaded$name,
         format = "dwca",
         n_rows = n_rows,
@@ -72,7 +80,8 @@ function(req) {
       preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
 
       list(
-        file_id = basename(file_path),
+        file_id = dest_path,
+        file_path = rel_path,
         filename = uploaded$name,
         format = if (ext %in% c("tsv", "txt")) "tsv" else "csv",
         n_rows = n_rows,
