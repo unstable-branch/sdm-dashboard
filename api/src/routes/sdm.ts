@@ -428,7 +428,7 @@ sdmRoutes.post("/batch", async (c) => {
         output_dir: join("outputs", "jobs", run.id),
       };
 
-      const plumberRes = await plumberClient.submitModel(plumberPayload);
+      const plumberRes = await plumberClient.runModel(plumberPayload);
       const plumberJobId = (plumberRes as any).job_id;
 
       await db

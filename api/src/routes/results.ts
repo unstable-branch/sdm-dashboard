@@ -95,7 +95,7 @@ resultsRoutes.get("/:id/script", async (c) => {
     const data = await res.json();
 
     if (!res.ok) {
-      return c.json(data, res.status);
+      return c.json(data, res.status as any);
     }
 
     const scriptPath = (data as any).script_path;
@@ -121,7 +121,7 @@ resultsRoutes.get("/:id/manifest", async (c) => {
     const data = await res.json();
 
     if (!res.ok) {
-      return c.json(data, res.status);
+      return c.json(data, res.status as any);
     }
 
     return c.json(data);

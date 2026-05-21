@@ -88,19 +88,18 @@ app.route("/api/v1/jobs", jobsRoutes);
 
 const port = parseInt(process.env.PORT || "4000", 10);
 
-console.log(`SDM API server running on http://0.0.0.0:${port}`);
-
 // Initialize Garage S3 buckets
 ensureBuckets().catch((err) => {
   console.error("[Garage] Bucket initialization failed:", err);
 });
 
-const server = createServer(app.fetch);
+// Set up HTTP server with WebSocket support
+const server = createServer(app.fetch as any);
 
-// Set up WebSocket for real-time job progress
-const ws = setupWebSocket(server);
+setupWebSocket(server);
 
 server.listen(port, () => {
+  console.log(`SDM API server running on http://0.0.0.0:${port}`);
   console.log(`HTTP server listening on port ${port}`);
   console.log(`WebSocket available at ws://0.0.0.0:${port}/ws`);
 });
@@ -108,5 +107,3 @@ server.listen(port, () => {
 process.on("unhandledRejection", (reason) => {
   console.error("[API] Unhandled rejection:", reason);
 });
-
-export { ws };
