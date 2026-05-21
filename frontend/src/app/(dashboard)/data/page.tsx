@@ -43,6 +43,10 @@ export default function DataPage() {
   const [gbifError, setGbifError] = useState<string | null>(null);
   const [gbifResult, setGbifResult] = useState<Record<string, unknown> | null>(null);
 
+  const [dwcaLoading, setDwcaLoading] = useState(false);
+  const [dwcaError, setDwcaError] = useState<string | null>(null);
+  const [dwcaResult, setDwcaResult] = useState<Record<string, unknown> | null>(null);
+
   const [flaggedIndices, setFlaggedIndices] = useState<Set<number>>(new Set());
 
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
@@ -264,6 +268,34 @@ export default function DataPage() {
     }
   };
 
+  const handleDwcaUpload = async (file: File) => {
+    setDwcaLoading(true);
+    setDwcaError(null);
+    setDwcaResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/v1/data/occurrences/dwca", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "DwCA parsing failed");
+      }
+
+      const result = await res.json();
+      setDwcaResult(result);
+    } catch (err) {
+      setDwcaError(err instanceof Error ? err.message : "DwCA parsing failed");
+    } finally {
+      setDwcaLoading(false);
+    }
+  };
+
   const uploadPreview = uploadResult?.preview as Array<Record<string, unknown>> | undefined;
   const gbifPreview = gbifResult?.preview as Array<Record<string, unknown>> | undefined;
   const cleanPreview = cleanResult?.occurrence_preview as OccurrencePoint[] | undefined;
@@ -364,14 +396,55 @@ export default function DataPage() {
               extracting occurrence data and dataset DOI for provenance.
             </p>
             <FileUpload
-              onUpload={handleUpload}
-              loading={uploadLoading}
-              error={uploadError}
+              onUpload={handleDwcaUpload}
+              loading={dwcaLoading}
+              error={dwcaError}
             />
           </div>
 
-          {uploadPreview && uploadPreview.length > 0 && (
-            <PreviewTable data={uploadPreview} title="DwC-A Preview (first 5 records)" />
+          {dwcaError && (
+            <div className="rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
+              {dwcaError}
+            </div>
+          )}
+
+          {dwcaResult && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Datasets</p>
+                  <p className="mt-1 text-xl font-bold text-sdm-heading">{String(dwcaResult.n_datasets || 0)}</p>
+                </div>
+                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Records</p>
+                  <p className="mt-1 text-xl font-bold text-sdm-accent">{Number(dwcaResult.n_occurrences || 0).toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">With coords</p>
+                  <p className="mt-1 text-xl font-bold text-sdm-heading">{Number(dwcaResult.n_with_coords || 0).toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">DOI</p>
+                  <p className="mt-1 text-xs font-mono text-sdm-text truncate">{(dwcaResult.doi as string) || "—"}</p>
+                </div>
+              </div>
+
+              {(dwcaResult.preview as Array<Record<string, unknown>> | undefined) && (dwcaResult.preview as Array<Record<string, unknown>>).length > 0 && (
+                <PreviewTable data={dwcaResult.preview as Array<Record<string, unknown>>} title="DwC-A Preview (first 5 records)" />
+              )}
+
+              {typeof dwcaResult.file_path === "string" && (
+                <div className="mt-3 flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-green-500">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>DwC-A parsed — {Number(dwcaResult.n_occurrences ?? 0).toLocaleString()} records extracted</span>
+                  </div>
+                  <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
+                    Go to Model tab →
+                  </Link>
+                </div>
+              )}
+            </div>
           )}
         </TabsContent>
 

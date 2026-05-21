@@ -20,16 +20,25 @@ import {
   Leaf,
   Moon,
   Sun,
+  Download,
+  Users,
+  Settings,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 
-const navItems = [
+const pipelineItems = [
   { title: "Data", href: "/data", icon: Database },
   { title: "Model", href: "/model", icon: Brain },
   { title: "Evaluate", href: "/evaluate", icon: BarChart3 },
   { title: "Project", href: "/project", icon: Globe },
   { title: "Ecology", href: "/ecology", icon: Leaf },
+];
+
+const systemItems = [
+  { title: "Downloads", href: "/downloads", icon: Download },
+  { title: "Species", href: "/species", icon: Users },
+  { title: "Settings", href: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
@@ -48,7 +57,24 @@ export function AppSidebar() {
           <SidebarGroupLabel>Pipeline</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => (
+              {pipelineItems.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton asChild>
+                    <a href={item.href}>
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </a>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>System</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {systemItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild>
                     <a href={item.href}>

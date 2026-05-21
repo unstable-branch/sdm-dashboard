@@ -7,7 +7,7 @@ import { SuitabilityMap } from "@/components/results/suitability-map";
 import { MetricCards } from "@/components/results/metric-cards";
 import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Download } from "lucide-react";
 
 interface RunStatus {
   id: string;
@@ -31,6 +31,7 @@ export default function ResultsPage() {
   const [run, setRun] = useState<RunStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reportText, setReportText] = useState<string | null>(null);
 
   useEffect(() => {
     if (!runId) return;
@@ -44,6 +45,12 @@ export default function ResultsPage() {
         .then((data) => {
           setRun(data);
           setLoading(false);
+          if (data.status === "completed") {
+            fetch(`/api/v1/results/${runId}/report.txt`)
+              .then((res) => res.ok ? res.text() : null)
+              .then((text) => setReportText(text))
+              .catch(() => {});
+          }
           if (data.status === "running") {
             setTimeout(fetchStatus, 3000);
           }
@@ -149,11 +156,30 @@ export default function ResultsPage() {
             </TabsContent>
 
             <TabsContent value="report">
-              <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
-                <h3 className="text-sm font-semibold text-sdm-heading mb-3">Run summary</h3>
-                <pre className="text-xs text-sdm-muted font-mono whitespace-pre-wrap max-h-96 overflow-y-auto">
-                  {run.progress_log.join("\n")}
-                </pre>
+              <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-sdm-heading">Run report</h3>
+                  {run.output_files?.report && (
+                    <a
+                      href={`/api/v1/results/file/${encodeURIComponent(run.output_files.report)}`}
+                      className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                    >
+                      <Download className="h-3.5 w-3.5" /> Download report
+                    </a>
+                  )}
+                </div>
+                {reportText ? (
+                  <pre className="text-xs text-sdm-text font-mono whitespace-pre-wrap max-h-[60vh] overflow-y-auto bg-sdm-surface-soft p-4 rounded-lg">
+                    {reportText}
+                  </pre>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-sm text-sdm-muted">Formatted report not available. Showing run log:</p>
+                    <pre className="text-xs text-sdm-muted font-mono whitespace-pre-wrap max-h-96 overflow-y-auto bg-sdm-surface-soft p-4 rounded-lg">
+                      {run.progress_log.join("\n")}
+                    </pre>
+                  </div>
+                )}
               </div>
             </TabsContent>
           </Tabs>
