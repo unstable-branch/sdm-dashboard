@@ -89,6 +89,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+      args:
+        - PNPM_REGISTRY=${PNPM_REGISTRY:-https://registry.npmmirror.com}
     ports:
       - "4000:4000"
     environment:
@@ -119,6 +121,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      args:
+        - PNPM_REGISTRY=${PNPM_REGISTRY:-https://registry.npmmirror.com}
     ports:
       - "3000:3000"
     environment:
