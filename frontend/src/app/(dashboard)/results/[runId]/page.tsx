@@ -184,6 +184,20 @@ export default function ResultsPage() {
                         <Download className="h-3.5 w-3.5" /> Download report
                       </a>
                     )}
+                    <a
+                      href={`/api/v1/results/${run.id}/script`}
+                      className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                    >
+                      <Download className="h-3.5 w-3.5" /> Reproducible R script
+                    </a>
+                    <a
+                      href={`/api/v1/results/${run.id}/manifest`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                    >
+                      <Download className="h-3.5 w-3.5" /> Run manifest
+                    </a>
                   </div>
                 </div>
                 {reportText ? (
