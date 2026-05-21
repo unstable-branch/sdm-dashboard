@@ -22,7 +22,7 @@ export default function EcologyPage() {
     fetch("/api/v1/sdm/runs")
       .then((res) => res.json())
       .then((data) => {
-        const completed = Array.isArray(data) ? data.filter((r: RunSummary) => r.status === "completed") : [];
+        const completed = (data.runs || []).filter((r: RunSummary) => r.status === "completed");
         setRuns(completed);
         if (completed.length > 0) setSelectedRun(completed[0].id);
         setLoading(false);

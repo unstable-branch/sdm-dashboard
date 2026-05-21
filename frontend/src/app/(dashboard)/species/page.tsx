@@ -19,7 +19,7 @@ export default function SpeciesPage() {
     fetch("/api/v1/data/species")
       .then((res) => res.json())
       .then((data) => {
-        setSpecies(Array.isArray(data) ? data : []);
+        setSpecies(data.species || []);
         setLoading(false);
       })
       .catch(() => setLoading(false));

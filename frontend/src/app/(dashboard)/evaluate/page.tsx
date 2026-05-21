@@ -31,7 +31,7 @@ export default function EvaluatePage() {
     fetch("/api/v1/sdm/runs")
       .then((res) => res.json())
       .then((data) => {
-        const allRuns = Array.isArray(data) ? data : [];
+        const allRuns = data.runs || [];
         setRuns(allRuns);
         const completed = allRuns.filter((r: RunSummary) => r.status === "completed");
         if (completed.length > 0) {

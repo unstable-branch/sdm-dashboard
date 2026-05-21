@@ -3,8 +3,9 @@ import { db } from "../db";
 import { projects, projectMembers, users } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth";
+import type { AppEnv } from "../middleware/auth";
 
-export const projectRoutes = new Hono();
+export const projectRoutes = new Hono<AppEnv>();
 
 projectRoutes.use("*", authMiddleware);
 

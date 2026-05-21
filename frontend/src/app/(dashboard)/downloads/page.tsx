@@ -38,7 +38,7 @@ export default function DownloadsPage() {
     fetch("/api/v1/sdm/runs")
       .then((res) => res.json())
       .then((data) => {
-        const completed = Array.isArray(data) ? data.filter((r: RunSummary) => r.status === "completed" && r.output_files) : [];
+        const completed = (data.runs || []).filter((r: RunSummary) => r.status === "completed" && r.output_files);
         setRuns(completed);
         setLoading(false);
       })

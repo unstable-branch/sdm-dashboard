@@ -30,7 +30,8 @@ export default function DashboardPage() {
     fetch("/api/v1/sdm/runs")
       .then((res) => res.json())
       .then((data) => {
-        const completed = Array.isArray(data) ? data.filter((r: RunSummary) => r.status === "completed") : [];
+        const runs = data.runs || [];
+        const completed = runs.filter((r: RunSummary) => r.status === "completed");
         if (completed.length > 0) {
           setLatestRun(completed[0]);
         }

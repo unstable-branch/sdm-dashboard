@@ -4,13 +4,19 @@ import { plumberClient } from "../services/plumber";
 import { enqueueSdmJob } from "../services/queue";
 import { db } from "../db";
 import { runs, species } from "../db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, count } from "drizzle-orm";
 import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit";
+import { authMiddleware, optionalAuth } from "../middleware/auth";
+import { join } from "path";
 
 export const sdmRoutes = new Hono();
 
 sdmRoutes.use("*", modelRateLimit);
+sdmRoutes.use("/run", authMiddleware);
+sdmRoutes.use("/batch", authMiddleware);
+sdmRoutes.use("/cancel/*", authMiddleware);
+sdmRoutes.use("*", optionalAuth);
 
 sdmRoutes.post("/run", async (c) => {
   try {
@@ -219,8 +225,8 @@ sdmRoutes.get("/config/defaults", async (c) => {
 sdmRoutes.get("/runs", async (c) => {
   try {
     const page = parseInt(c.req.query("page") || "1", 10);
-    const limit = parseInt(c.req.query("limit") || "20", 10);
-    const offset = (page - 1) * limit;
+    const limitVal = parseInt(c.req.query("limit") || "20", 10);
+    const offset = (page - 1) * limitVal;
 
     const allRuns = await db
       .select({
@@ -231,14 +237,15 @@ sdmRoutes.get("/runs", async (c) => {
         started_at: runs.startedAt,
         completed_at: runs.completedAt,
         metrics: runs.metrics,
+        outputFiles: runs.outputFiles,
         error: runs.error,
       })
       .from(runs)
       .orderBy(desc(runs.createdAt))
-      .limit(limit)
+      .limit(limitVal)
       .offset(offset);
 
-    const [{ count }] = await db.select({ count: runs.id }).from(runs);
+    const [{ total }] = await db.select({ total: count() }).from(runs);
 
     const formatted = allRuns.map((r) => ({
       id: r.id,
@@ -248,6 +255,7 @@ sdmRoutes.get("/runs", async (c) => {
       started_at: r.started_at ? new Date(r.started_at).toISOString() : null,
       completed_at: r.completed_at ? new Date(r.completed_at).toISOString() : null,
       metrics: r.metrics ?? null,
+      output_files: r.outputFiles ?? null,
       error: r.error ?? null,
     }));
 
@@ -255,9 +263,9 @@ sdmRoutes.get("/runs", async (c) => {
       runs: formatted,
       pagination: {
         page,
-        limit,
-        total: count,
-        totalPages: Math.ceil(count / limit),
+        limit: limitVal,
+        total,
+        totalPages: Math.ceil(total / limitVal),
       },
     });
   } catch (err) {

@@ -3,12 +3,23 @@ import { plumberClient } from "../services/plumber";
 import { enqueueSdmJob } from "../services/queue";
 import { climateRateLimit } from "../middleware/rate-limit";
 import { longCache } from "../middleware/cache";
+import { authMiddleware, optionalAuth } from "../middleware/auth";
 
 export const climateRoutes = new Hono();
 
 climateRoutes.use("*", climateRateLimit);
+climateRoutes.use("/download", authMiddleware);
+climateRoutes.use("/delete/*", authMiddleware);
+climateRoutes.use("*", optionalAuth);
 
 climateRoutes.get("/scenarios", longCache, async (c) => {
+  try {
+    const scenarios = await plumberClient.getClimateScenarios();
+    return c.json(scenarios);
+  } catch {
+    return c.json({ scenarios: [], message: "Plumber unavailable" });
+  }
+});
 
 climateRoutes.post("/download", async (c) => {
   try {
@@ -32,15 +43,6 @@ climateRoutes.post("/download", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Climate download failed";
     return c.json({ error: message }, 502);
-  }
-});
-
-climateRoutes.get("/scenarios", async (c) => {
-  try {
-    const scenarios = await plumberClient.getClimateScenarios();
-    return c.json(scenarios);
-  } catch {
-    return c.json({ scenarios: [], message: "Plumber unavailable" });
   }
 });
 
