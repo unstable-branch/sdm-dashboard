@@ -24,16 +24,19 @@ import {
   Users,
   Settings,
   Layers,
+  LayoutDashboard,
+  Cloud,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 
 const pipelineItems = [
+  { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Data", href: "/data", icon: Database },
   { title: "Model", href: "/model", icon: Brain },
   { title: "Batch", href: "/batch", icon: Layers },
   { title: "Evaluate", href: "/evaluate", icon: BarChart3 },
-  { title: "Project", href: "/project", icon: Globe },
+  { title: "Future Projection", href: "/project", icon: Cloud },
   { title: "Ecology", href: "/ecology", icon: Leaf },
 ];
 
