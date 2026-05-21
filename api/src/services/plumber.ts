@@ -88,6 +88,16 @@ export class PlumberClient {
     return res.json();
   }
 
+  async downloadClimate(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/climate/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`Failed to download climate: ${res.status}`);
+    return res.json();
+  }
+
   async getJobStatus(jobId: string): Promise<Record<string, unknown>> {
     const res = await fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`);
     if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
@@ -149,6 +159,30 @@ export class PlumberClient {
   async getModelRuns(): Promise<Array<Record<string, unknown>>> {
     const res = await fetch(`${this.baseUrl}/api/v1/models/runs`);
     if (!res.ok) throw new Error(`Failed to get model runs: ${res.status}`);
+    return res.json();
+  }
+
+  async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; base_directory: string; message?: string }> {
+    const res = await fetch(`${this.baseUrl}/api/v1/future/scenarios`);
+    if (!res.ok) throw new Error(`Failed to get future scenarios: ${res.status}`);
+    return res.json();
+  }
+
+  async getClimateScenarios(): Promise<{ scenarios: Array<Record<string, unknown>> }> {
+    const res = await fetch(`${this.baseUrl}/api/v1/climate/scenarios`);
+    if (!res.ok) throw new Error(`Failed to get climate scenarios: ${res.status}`);
+    return res.json();
+  }
+
+  async deleteClimateScenario(scenarioId: string): Promise<{ ok: boolean; message: string }> {
+    const res = await fetch(`${this.baseUrl}/api/v1/climate/delete/${scenarioId}`, { method: "POST" });
+    if (!res.ok) throw new Error(`Failed to delete scenario: ${res.status}`);
+    return res.json();
+  }
+
+  async getClimateStatus(jobId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/climate/status/${jobId}`);
+    if (!res.ok) throw new Error(`Failed to get climate status: ${res.status}`);
     return res.json();
   }
 }

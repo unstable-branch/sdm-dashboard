@@ -5,6 +5,7 @@ import { enqueueSdmJob } from "../services/queue";
 import { db } from "../db";
 import { runs, species } from "../db/schema";
 import { eq, desc } from "drizzle-orm";
+import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 
 export const sdmRoutes = new Hono();
 
@@ -146,6 +147,7 @@ sdmRoutes.post("/run", async (c) => {
       use_elevation: config.useElevation,
       use_soil: config.useSoil,
       future_projection: config.futureProjection,
+      future_worldclim_dir: config.futureWorldclimDir,
       future_label: config.futureLabel,
       vif_reduction: config.vifReduction,
       bias_method: config.biasMethod,
@@ -291,6 +293,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
             metrics: plumberMetrics ?? null,
             output_files: plumberOutputFiles ?? null,
             progress_log: (plumberStatus as any).progress_log ?? [],
+            config: run.config,
           });
         }
 
@@ -305,6 +308,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
           metrics: null,
           output_files: null,
           progress_log: (plumberStatus as any).progress_log ?? [],
+          config: run.config,
         });
       } catch {
         return c.json({
@@ -318,6 +322,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
           metrics: null,
           output_files: null,
           progress_log: [],
+          config: run.config,
         });
       }
     }
@@ -333,6 +338,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       metrics: run.metrics ?? null,
       output_files: run.outputFiles ?? null,
       progress_log: run.progressLog ?? [],
+      config: run.config,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get status";
@@ -360,5 +366,20 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to cancel";
     return c.json({ error: message }, 502);
+  }
+});
+
+sdmRoutes.get("/future/scenarios", async (c) => {
+  try {
+    const scenarios = await plumberClient.getFutureScenarios();
+    return c.json(scenarios);
+  } catch {
+    return c.json({
+      available_scenarios: [],
+      gcm_choices: GCM_CHOICES,
+      ssp_choices: SSP_CHOICES,
+      period_choices: TIME_PERIOD_CHOICES,
+      message: "Plumber unavailable; returning static constants",
+    });
   }
 });

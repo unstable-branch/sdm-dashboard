@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { FileUpload } from "@/components/data/file-upload";
 import { GbifSearch } from "@/components/data/gbif-search";
@@ -9,9 +9,12 @@ import { CleaningTable } from "@/components/data/cleaning-table";
 import { OccurrenceMap } from "@/components/data/occurrence-map";
 import { SourceCounts } from "@/components/data/source-counts";
 import { JobProgress } from "@/components/jobs/job-progress";
+import { DownloadProgress } from "@/components/climate/download-progress";
+import { ScenarioList } from "@/components/climate/scenario-list";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, FileArchive, Wand2, Map, Loader2, CheckCircle2 } from "lucide-react";
+import { Upload, Globe, FileArchive, Wand2, Map, Cloud, Loader2, CheckCircle2, Download } from "lucide-react";
 import { useSDMStore } from "@/stores/sdm-store";
+import { BIOVAR_CHOICES, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 
 interface OccurrencePoint {
   longitude: number;
@@ -41,6 +44,118 @@ export default function DataPage() {
   const [gbifResult, setGbifResult] = useState<Record<string, unknown> | null>(null);
 
   const [flaggedIndices, setFlaggedIndices] = useState<Set<number>>(new Set());
+
+  const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
+  const [climateRes, setClimateRes] = useState(10);
+  const [climateBiovars, setClimateBiovars] = useState<number[]>([1, 4, 6, 12, 15, 18]);
+  const [climateDownloadJob, setClimateDownloadJob] = useState<string | null>(null);
+
+  const [cmip6Gcm, setCmip6Gcm] = useState("UKESM1-0-LL");
+  const [cmip6Ssp, setCmip6Ssp] = useState("SSP2-4.5");
+  const [cmip6Period, setCmip6Period] = useState("2041-2060");
+  const [cmip6DownloadJob, setCmip6DownloadJob] = useState<string | null>(null);
+
+  const [avgGcms, setAvgGcms] = useState<string[]>([]);
+  const [avgDownloadJob, setAvgDownloadJob] = useState<string | null>(null);
+
+  const [scenarios, setScenarios] = useState<Array<Record<string, unknown>>>([]);
+  const [scenariosLoading, setScenariosLoading] = useState(false);
+
+  const toggleClimateBiovar = (id: number) => {
+    setClimateBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
+  };
+
+  const toggleAvgGcm = (id: string) => {
+    setAvgGcms((prev) => prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]);
+  };
+
+  const handleClimateDownload = async () => {
+    try {
+      const res = await fetch("/api/v1/climate/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: climateSource,
+          res: climateRes,
+          biovars: climateBiovars.join(","),
+        }),
+      });
+      if (!res.ok) throw new Error("Download failed");
+      const data = await res.json();
+      setClimateDownloadJob(data.jobId);
+    } catch {
+    }
+  };
+
+  const handleCmip6Download = async () => {
+    try {
+      const res = await fetch("/api/v1/climate/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "cmip6",
+          gcm: cmip6Gcm,
+          ssp: cmip6Ssp,
+          period: cmip6Period,
+          res: 10,
+        }),
+      });
+      if (!res.ok) throw new Error("Download failed");
+      const data = await res.json();
+      setCmip6DownloadJob(data.jobId);
+    } catch {
+    }
+  };
+
+  const handleAvgDownload = async () => {
+    if (avgGcms.length < 2) return;
+    try {
+      const res = await fetch("/api/v1/climate/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "cmip6_average",
+          gcm_list: avgGcms,
+          ssp: cmip6Ssp,
+          period: cmip6Period,
+          res: 10,
+        }),
+      });
+      if (!res.ok) throw new Error("Download failed");
+      const data = await res.json();
+      setAvgDownloadJob(data.jobId);
+    } catch {
+    }
+  };
+
+  const handleDownloadComplete = useCallback(() => {
+    setClimateDownloadJob(null);
+    setCmip6DownloadJob(null);
+    setAvgDownloadJob(null);
+    fetchScenarios();
+  }, []);
+
+  const fetchScenarios = useCallback(async () => {
+    setScenariosLoading(true);
+    try {
+      const res = await fetch("/api/v1/climate/scenarios");
+      if (res.ok) {
+        const data = await res.json();
+        setScenarios(data.scenarios || []);
+      }
+    } catch {
+    } finally {
+      setScenariosLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchScenarios();
+  }, [fetchScenarios]);
+
+  const handleDeleteScenario = (id: string) => {
+    setScenarios((prev) => prev.filter((s) => s.id !== id));
+  };
 
   const handleUpload = async (file: File) => {
     setUploadLoading(true);
@@ -164,7 +279,7 @@ export default function DataPage() {
       </div>
 
       <Tabs defaultValue="upload" className="space-y-4">
-        <TabsList className="grid w-full max-w-lg grid-cols-5">
+        <TabsList className="grid w-full max-w-2xl grid-cols-6">
           <TabsTrigger value="upload" className="flex items-center gap-1.5">
             <Upload className="h-3.5 w-3.5" />
             Upload
@@ -184,6 +299,10 @@ export default function DataPage() {
           <TabsTrigger value="map" className="flex items-center gap-1.5">
             <Map className="h-3.5 w-3.5" />
             Map
+          </TabsTrigger>
+          <TabsTrigger value="climate" className="flex items-center gap-1.5">
+            <Cloud className="h-3.5 w-3.5" />
+            Climate
           </TabsTrigger>
         </TabsList>
 
@@ -358,6 +477,164 @@ export default function DataPage() {
               Clean occurrence data first to see the map.
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="climate" className="space-y-4">
+          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-sdm-heading mb-1">Current climate</h2>
+              <p className="text-sm text-sdm-muted mb-4">Download WorldClim v2.1 or CHELSA v2.1 BIO layers.</p>
+
+              <div className="space-y-3">
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 text-sm text-sdm-text">
+                    <input type="radio" checked={climateSource === "worldclim"} onChange={() => setClimateSource("worldclim")} />
+                    WorldClim v2.1
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-sdm-text">
+                    <input type="radio" checked={climateSource === "chelsa"} onChange={() => setClimateSource("chelsa")} />
+                    CHELSA v2.1
+                  </label>
+                </div>
+
+                {climateSource === "worldclim" && (
+                  <div>
+                    <label className="block text-sm font-medium text-sdm-text mb-1">Resolution</label>
+                    <select value={climateRes} onChange={(e) => setClimateRes(Number(e.target.value))} className="rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
+                      <option value={2.5}>2.5 arc-min (~5 km)</option>
+                      <option value={5}>5 arc-min (~10 km)</option>
+                      <option value={10}>10 arc-min (~20 km)</option>
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-sdm-text mb-1">BIO variables</label>
+                  <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-10 gap-1.5">
+                    {BIOVAR_CHOICES.map((bio) => (
+                      <label
+                        key={bio.id}
+                        className={`flex items-center justify-center rounded border px-2 py-1.5 text-xs cursor-pointer transition-colors ${
+                          climateBiovars.includes(bio.id)
+                            ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
+                            : "border-sdm-border bg-sdm-surface-soft text-sdm-muted hover:border-sdm-accent/50"
+                        }`}
+                      >
+                        <input type="checkbox" checked={climateBiovars.includes(bio.id)} onChange={() => toggleClimateBiovar(bio.id)} className="sr-only" />
+                        {bio.label}
+                      </label>
+                    ))}
+                  </div>
+                  {climateBiovars.length < 2 && (
+                    <p className="text-xs text-sdm-danger mt-1">Select at least 2 BIO variables</p>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleClimateDownload}
+                  disabled={climateDownloadJob !== null || climateBiovars.length < 2}
+                  className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {climateDownloadJob ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  {climateDownloadJob ? "Downloading..." : `Download ${climateSource === "worldclim" ? "WorldClim" : "CHELSA"}`}
+                </button>
+              </div>
+            </div>
+
+            <div className="border-t border-sdm-border pt-6">
+              <h2 className="text-lg font-semibold text-sdm-heading mb-1">Future climate (CMIP6)</h2>
+              <p className="text-sm text-sdm-muted mb-4">Download CMIP6 climate projections for future scenario analysis.</p>
+
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-sdm-text mb-1">GCM</label>
+                    <select value={cmip6Gcm} onChange={(e) => setCmip6Gcm(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
+                      {GCM_CHOICES.map((gcm) => (
+                        <option key={gcm.id} value={gcm.id}>{gcm.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-sdm-text mb-1">SSP</label>
+                    <select value={cmip6Ssp} onChange={(e) => setCmip6Ssp(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
+                      {SSP_CHOICES.map((ssp) => (
+                        <option key={ssp.id} value={ssp.id}>{ssp.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-sdm-text mb-1">Period</label>
+                    <select value={cmip6Period} onChange={(e) => setCmip6Period(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
+                      {TIME_PERIOD_CHOICES.map((p) => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleCmip6Download}
+                  disabled={cmip6DownloadJob !== null}
+                  className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {cmip6DownloadJob ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  {cmip6DownloadJob ? "Downloading..." : "Download scenario"}
+                </button>
+
+                <div className="border-t border-sdm-border pt-4 mt-4">
+                  <h3 className="text-sm font-medium text-sdm-heading mb-2">Multi-GCM averaging</h3>
+                  <p className="text-xs text-sdm-muted mb-2">Select at least 2 GCMs to compute ensemble mean.</p>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {GCM_CHOICES.map((gcm) => (
+                      <label
+                        key={gcm.id}
+                        className={`px-2 py-1 rounded text-xs cursor-pointer border ${
+                          avgGcms.includes(gcm.id)
+                            ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
+                            : "border-sdm-border text-sdm-muted"
+                        }`}
+                      >
+                        <input type="checkbox" checked={avgGcms.includes(gcm.id)} onChange={() => toggleAvgGcm(gcm.id)} className="sr-only" />
+                        {gcm.label}
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    onClick={handleAvgDownload}
+                    disabled={avgDownloadJob !== null || avgGcms.length < 2}
+                    className="inline-flex items-center gap-2 rounded-md bg-sdm-surface-soft border border-sdm-border px-4 py-2 text-sm font-medium text-sdm-text transition-colors hover:bg-sdm-surface disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {avgDownloadJob ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    {avgDownloadJob ? "Averaging..." : "Average GCMs"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {(() => {
+            const activeJob = climateDownloadJob || cmip6DownloadJob || avgDownloadJob;
+            if (!activeJob) return null;
+            return (
+              <DownloadProgress
+                jobId={activeJob}
+                onComplete={handleDownloadComplete}
+                onCancel={() => {
+                  setClimateDownloadJob(null);
+                  setCmip6DownloadJob(null);
+                  setAvgDownloadJob(null);
+                }}
+              />
+            );
+          })()}
+
+          <ScenarioList
+            scenarios={scenarios as any}
+            onRefresh={fetchScenarios}
+            onDelete={handleDeleteScenario}
+            loading={scenariosLoading}
+          />
         </TabsContent>
       </Tabs>
     </div>

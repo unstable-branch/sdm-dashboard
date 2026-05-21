@@ -12,7 +12,7 @@ const connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379"
 export const sdmQueue = new Queue("sdm-jobs", { connection });
 
 export interface SdmJobData {
-  type: "clean" | "model" | "predict" | "report";
+  type: "clean" | "model" | "predict" | "report" | "climate_download";
   payload: Record<string, unknown>;
 }
 
@@ -155,6 +155,59 @@ export const sdmWorker = new Worker<SdmJobData, SdmJobResult>(
           const reportRes = await client.generateReport(payload);
           await job.updateProgress(100);
           result = { status: "success", data: reportRes };
+          break;
+        }
+        case "climate_download": {
+          await job.updateProgress(10);
+          const downloadRes = await client.downloadClimate(payload);
+          const climateJobId = (downloadRes as any).job_id as string | undefined;
+
+          await job.updateProgress(20);
+
+          if (climateJobId) {
+            let status: Record<string, unknown> = {};
+            let completed = false;
+            let attempts = 0;
+
+            while (!completed && attempts < 300) {
+              await new Promise((resolve) => setTimeout(resolve, 3000));
+              attempts++;
+
+              try {
+                status = await client.getClimateStatus(climateJobId);
+                const runStatus = (status as any).status;
+
+                if (runStatus === "running") {
+                  const logLen = Array.isArray((status as any).progress_log)
+                    ? (status as any).progress_log.length
+                    : 0;
+                  await job.updateProgress(Math.min(95, 20 + Math.round(logLen * 0.5)));
+                }
+
+                if (runStatus === "completed" || runStatus === "failed") {
+                  completed = true;
+                  const progressLog = ((status as any).progress_log || []) as string[];
+                  const error = (status as any).error;
+
+                  result = {
+                    status: runStatus === "completed" ? "success" : "error",
+                    data: status,
+                    error: error as string | undefined,
+                  };
+                }
+              } catch {
+                attempts++;
+              }
+            }
+
+            if (!completed) {
+              result = { status: "error", error: "Polling timeout: download did not complete in time" };
+            }
+          } else {
+            result = { status: "success", data: downloadRes };
+          }
+
+          await job.updateProgress(100);
           break;
         }
         default:

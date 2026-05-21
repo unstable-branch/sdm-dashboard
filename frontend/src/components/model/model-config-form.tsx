@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
-import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG } from "@sdm/shared";
+import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
 import { cn } from "@/lib/utils";
 import { CheckCircle2 } from "lucide-react";
@@ -47,6 +47,9 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
   const [useDrought, setUseDrought] = useState(false);
   const [futureProjection, setFutureProjection] = useState(false);
   const [futureLabel, setFutureLabel] = useState("Future climate");
+  const [futureGcm, setFutureGcm] = useState("UKESM1-0-LL");
+  const [futureSsp, setFutureSsp] = useState("SSP2-4.5");
+  const [futurePeriod, setFuturePeriod] = useState("2041-2060");
   const [vifReduction, setVifReduction] = useState(false);
   const [climateMatching, setClimateMatching] = useState(false);
   const [maxnetFeatures, setMaxnetFeatures] = useState(DEFAULT_CONFIG.maxnetFeatures);
@@ -102,6 +105,7 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
       useBioclimSeason,
       useDrought,
       futureProjection,
+      futureWorldclimDir: futureProjection ? `Worldclim_future/${futureGcm}_${futureSsp}_${futurePeriod}` : undefined,
       futureLabel,
       vifReduction,
       climateMatching,
@@ -302,9 +306,38 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
         </div>
 
         {futureProjection && (
-          <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">Scenario label</label>
-            <input type="text" value={futureLabel} onChange={(e) => setFutureLabel(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Scenario label</label>
+              <input type="text" value={futureLabel} onChange={(e) => setFutureLabel(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">GCM</label>
+              <select value={futureGcm} onChange={(e) => setFutureGcm(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                {GCM_CHOICES.map((gcm) => (
+                  <option key={gcm.id} value={gcm.id}>{gcm.label} — {gcm.description}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">SSP scenario</label>
+              <select value={futureSsp} onChange={(e) => setFutureSsp(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                {SSP_CHOICES.map((ssp) => (
+                  <option key={ssp.id} value={ssp.id}>{ssp.label} — {ssp.description}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Time period</label>
+              <select value={futurePeriod} onChange={(e) => setFuturePeriod(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                {TIME_PERIOD_CHOICES.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label} — {p.description}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-sdm-muted font-mono">
+              Path: Worldclim_future/{futureGcm}_{futureSsp}_{futurePeriod}
+            </p>
           </div>
         )}
       </div>
