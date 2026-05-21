@@ -16,6 +16,7 @@ import { climateRoutes } from "./routes/climate";
 import { ecologyRoutes } from "./routes/ecology";
 import { authRoutes } from "./routes/auth";
 import { projectRoutes } from "./routes/projects";
+import { diagnosticsRoutes } from "./routes/diagnostics";
 import jobsRoutes from "./routes/jobs";
 
 const app = new Hono();
@@ -84,6 +85,7 @@ app.route("/api/v1/data", dataRoutes);
 app.route("/api/v1/results", resultsRoutes);
 app.route("/api/v1/climate", climateRoutes);
 app.route("/api/v1/ecology", ecologyRoutes);
+app.route("/api/v1/diagnostics", diagnosticsRoutes);
 app.route("/api/v1/jobs", jobsRoutes);
 
 const port = parseInt(process.env.PORT || "4000", 10);

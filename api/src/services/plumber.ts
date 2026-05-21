@@ -179,6 +179,42 @@ export class PlumberClient {
     if (!res.ok) throw new Error(`Failed to get ecology report: ${res.status}`);
     return res.text();
   }
+
+  async getDiagnosticsVif(runId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/vif/${runId}`);
+    if (!res.ok) throw new Error(`Failed to get VIF diagnostics: ${res.status}`);
+    return res.json();
+  }
+
+  async getDiagnosticsResponseCurves(runId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/response-curves/${runId}`);
+    if (!res.ok) throw new Error(`Failed to get response curves: ${res.status}`);
+    return res.json();
+  }
+
+  async getDiagnosticsImportance(runId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/importance/${runId}`);
+    if (!res.ok) throw new Error(`Failed to get variable importance: ${res.status}`);
+    return res.json();
+  }
+
+  async getDiagnosticsCbi(runId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/cbi/${runId}`);
+    if (!res.ok) throw new Error(`Failed to get CBI diagnostics: ${res.status}`);
+    return res.json();
+  }
+
+  async getDiagnosticsMess(runId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/mess/${runId}`);
+    if (!res.ok) throw new Error(`Failed to get MESS diagnostics: ${res.status}`);
+    return res.json();
+  }
+
+  async getDiagnosticsSummary(runId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/summary/${runId}`);
+    if (!res.ok) throw new Error(`Failed to get diagnostics summary: ${res.status}`);
+    return res.json();
+  }
 }
 
 export const plumberClient = new PlumberClient();
