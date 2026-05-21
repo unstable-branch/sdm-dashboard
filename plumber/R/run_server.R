@@ -1,0 +1,71 @@
+#!/usr/bin/env Rscript
+# Plumber server entry point with global authentication filter
+# All computation endpoints require either:
+#   - X-API-Key header (direct API key auth)
+#   - X-Hono-Internal header + X-Forwarded-User (Hono-proxied requests with valid JWT)
+# Open endpoints (health, reads) bypass auth
+
+app_dir <- if (dir.exists("/app/R")) "/app" else normalizePath(file.path(getwd(), ".."), winslash = "/")
+
+# Source auth helpers (must be in global env before sourcing plumber.R)
+source(file.path(app_dir, "plumber", "R", "auth.R"), local = FALSE)
+
+# Create plumber router (this sets global `pr`)
+pr <- plumber::pr(app_dir)
+
+# Internal auth key set by Hono when proxying authenticated requests
+internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
+
+# Global preroute hook - runs before every endpoint
+plumber::pr_hook(pr, "preroute", function(req, res) {
+  path <- req$PATH
+
+  # Disable auth in dev/test if env var set
+  if (identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
+    return(NULL)
+  }
+
+  # Open endpoints: read-only, no state change
+  if (!requires_auth(path)) {
+    return(NULL)
+  }
+
+  # Hono internal proxy: Hono has already validated JWT, forward user ID
+  if (nzchar(internal_key)) {
+    hono_internal <- req$HEADERS[["x-hono-internal"]]
+    if (!is.null(hono_internal) && identical(hono_internal, internal_key)) {
+      fwd_user <- req$HEADERS[["x-forwarded-user"]]
+      if (!is.null(fwd_user) && nzchar(fwd_user)) {
+        req$user_id <- fwd_user
+      }
+      return(NULL)
+    }
+  }
+
+  # Direct API key auth
+  api_key <- req$HEADERS[["x-api-key"]]
+  if (is.null(api_key) || !nzchar(api_key)) {
+    res$status <- 401L
+    res$body <- '{"error":"API key required. Provide X-API-Key header."}'
+    return(res)
+  }
+
+  user_info <- validate_api_key(api_key, app_dir)
+  if (is.null(user_info)) {
+    res$status <- 401L
+    res$body <- '{"error":"Invalid or expired API key."}'
+    return(res)
+  }
+
+  req$user_id <- user_info$user_id
+  req$user_email <- user_info$email
+  req$user_role <- user_info$role
+
+  NULL
+})
+
+# Now source the plumber routes - they register with global `pr`
+source(file.path(app_dir, "plumber", "R", "plumber.R"), local = FALSE)
+
+# Start server
+plumber::pr_run(pr, host = "0.0.0.0", port = 8000)

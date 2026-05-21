@@ -25,6 +25,7 @@ climateRoutes.post("/download", async (c) => {
   try {
     const body = await c.req.json();
     const type = (body.type as string) || "cmip6";
+    const user = c.get("user");
 
     if (!["cmip6", "cmip6_average", "worldclim", "chelsa"].includes(type)) {
       return c.json({ error: "Invalid download type. Must be: cmip6, cmip6_average, worldclim, chelsa" }, 400);
@@ -34,10 +35,13 @@ climateRoutes.post("/download", async (c) => {
       return c.json({ error: "Multi-GCM averaging requires at least 2 GCMs in gcm_list" }, 400);
     }
 
-    const jobId = await enqueueSdmJob({
-      type: "climate_download",
-      payload: body,
-    });
+    const jobId = await enqueueSdmJob(
+      {
+        type: "climate_download",
+        payload: body,
+      },
+      user.id
+    );
 
     return c.json({ jobId, status: "queued" });
   } catch (err) {

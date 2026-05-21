@@ -25,6 +25,7 @@ export const sdmQueue = new Queue("sdm-jobs", {
 export interface SdmJobData {
   type: "clean" | "model" | "climate_download";
   payload: Record<string, unknown>;
+  userId?: string;
 }
 
 export interface SdmJobResult {
@@ -36,8 +37,11 @@ export interface SdmJobResult {
 export const sdmWorker = new Worker<SdmJobData, SdmJobResult>(
   "sdm-jobs",
   async (job: Job<SdmJobData, SdmJobResult>) => {
-    const { type, payload } = job.data;
+    const { type, payload, userId } = job.data;
     const client = new PlumberClient(process.env.PLUMBER_URL || "http://localhost:8000");
+    if (userId) {
+      client.withUser(userId);
+    }
 
     await job.updateProgress(10);
 
@@ -236,7 +240,8 @@ export const sdmWorker = new Worker<SdmJobData, SdmJobResult>(
   { connection }
 );
 
-export async function enqueueSdmJob(data: SdmJobData): Promise<string> {
+export async function enqueueSdmJob(data: SdmJobData, userId?: string): Promise<string> {
+  const jobData: SdmJobData = userId ? { ...data, userId } : data;
   const job = await sdmQueue.add("sdm-task", data, {
     attempts: 2,
     backoff: { type: "exponential", delay: 1000 },

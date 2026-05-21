@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { getJobStatus, sdmQueue } from "../services/queue";
+import { jobEventBus } from "../services/job-events";
 
 const app = new Hono();
 
@@ -19,16 +20,26 @@ app.get("/sse", (c) => {
           const state = await job.getState();
           const progress = job.progress || 0;
 
+          const eventData = {
+            id: job.id,
+            state,
+            progress,
+            type: job.data?.type,
+            result: job.returnvalue,
+            failedReason: job.failedReason,
+          };
+
           await stream.writeSSE({
             event: "job-update",
-            data: JSON.stringify({
-              id: job.id,
-              state,
-              progress,
-              type: job.data?.type,
-              result: job.returnvalue,
-              failedReason: job.failedReason,
-            }),
+            data: JSON.stringify(eventData),
+          });
+
+          jobEventBus.emitJobStatus({
+            jobId: job.id,
+            state,
+            progress,
+            result: job.returnvalue as Record<string, unknown> | undefined,
+            failedReason: job.failedReason,
           });
         }
 

@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server } from "http";
+import { jobEventBus } from "./job-events";
 
 interface JobProgress {
   jobId: string;
@@ -56,6 +57,27 @@ export function setupWebSocket(server: Server) {
         clients.delete(clientId);
       }
     });
+  });
+
+  jobEventBus.on("jobStatus", (event) => {
+    const subscribers = subscriptions.get(event.jobId);
+    if (subscribers) {
+      const payload = JSON.stringify({
+        type: "status",
+        jobId: event.jobId,
+        status: event.state,
+        progress: event.progress,
+        logs: event.logs,
+        result: event.result,
+        failedReason: event.failedReason,
+      });
+      for (const clientId of subscribers) {
+        const client = clients.get(clientId);
+        if (client?.ws.readyState === WebSocket.OPEN) {
+          client.ws.send(payload);
+        }
+      }
+    }
   });
 
   return {

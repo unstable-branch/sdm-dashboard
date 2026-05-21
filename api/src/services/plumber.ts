@@ -1,10 +1,25 @@
 const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
+const PLUMBER_INTERNAL_KEY = process.env.PLUMBER_INTERNAL_KEY || "";
 
 export class PlumberClient {
   private baseUrl: string;
+  private forwardedUser: string | null = null;
 
   constructor(baseUrl: string = PLUMBER_URL) {
     this.baseUrl = baseUrl;
+  }
+
+  withUser(userId: string): PlumberClient {
+    const client = new PlumberClient(this.baseUrl);
+    client.forwardedUser = userId;
+    return client;
+  }
+
+  private headers(): Record<string, string> {
+    const h: Record<string, string> = {};
+    if (PLUMBER_INTERNAL_KEY) h["X-Hono-Internal"] = PLUMBER_INTERNAL_KEY;
+    if (this.forwardedUser) h["X-Forwarded-User"] = this.forwardedUser;
+    return h;
   }
 
   async healthCheck(): Promise<{ status: string; r_version: string; timestamp: string }> {
@@ -26,10 +41,11 @@ export class PlumberClient {
   }
 
   async uploadOccurrence(file: Buffer | string, filename?: string): Promise<Record<string, unknown>> {
+    const headers = this.headers();
     if (typeof file === "string") {
       const res = await fetch(`${this.baseUrl}/api/v1/occurrences/upload`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ file_path: file, file_id: filename }),
       });
       if (!res.ok) throw new Error(`Failed to upload occurrence: ${res.status}`);
@@ -43,6 +59,7 @@ export class PlumberClient {
     const res = await fetch(`${this.baseUrl}/api/v1/occurrences/upload`, {
       method: "POST",
       body: formData,
+      headers,
     });
     if (!res.ok) throw new Error(`Failed to upload occurrence: ${res.status}`);
     return res.json();
@@ -51,7 +68,7 @@ export class PlumberClient {
   async cleanOccurrences(data: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await fetch(`${this.baseUrl}/api/v1/occurrences/clean`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`Failed to clean occurrences: ${res.status}`);
@@ -61,7 +78,7 @@ export class PlumberClient {
   async searchGbif(data: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await fetch(`${this.baseUrl}/api/v1/occurrences/gbif/search`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`Failed to search GBIF: ${res.status}`);
@@ -71,7 +88,7 @@ export class PlumberClient {
   async parseDwca(data: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await fetch(`${this.baseUrl}/api/v1/occurrences/dwca`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`Failed to parse DwCA: ${res.status}`);
@@ -81,7 +98,7 @@ export class PlumberClient {
   async runModel(data: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await fetch(`${this.baseUrl}/api/v1/models/run`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`Failed to run model: ${res.status}`);
@@ -91,7 +108,7 @@ export class PlumberClient {
   async downloadClimate(data: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await fetch(`${this.baseUrl}/api/v1/climate/download`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`Failed to download climate: ${res.status}`);
@@ -99,7 +116,7 @@ export class PlumberClient {
   }
 
   async getJobStatus(jobId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`);
+    const res = await fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
     return res.json();
   }
@@ -107,13 +124,14 @@ export class PlumberClient {
   async cancelJob(jobId: string): Promise<{ ok: boolean }> {
     const res = await fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`, {
       method: "DELETE",
+      headers: this.headers(),
     });
     if (!res.ok) throw new Error(`Failed to cancel job: ${res.status}`);
     return res.json();
   }
 
   async getModelStatus(jobId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`);
+    const res = await fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get model status: ${res.status}`);
     return res.json();
   }
@@ -121,6 +139,7 @@ export class PlumberClient {
   async cancelModel(jobId: string): Promise<{ ok: boolean; message: string }> {
     const res = await fetch(`${this.baseUrl}/api/v1/models/cancel/${jobId}`, {
       method: "POST",
+      headers: this.headers(),
     });
     if (!res.ok) throw new Error(`Failed to cancel model: ${res.status}`);
     return res.json();
@@ -145,73 +164,76 @@ export class PlumberClient {
   }
 
   async deleteClimateScenario(scenarioId: string): Promise<{ ok: boolean; message: string }> {
-    const res = await fetch(`${this.baseUrl}/api/v1/climate/delete/${scenarioId}`, { method: "POST" });
+    const res = await fetch(`${this.baseUrl}/api/v1/climate/delete/${scenarioId}`, {
+      method: "POST",
+      headers: this.headers(),
+    });
     if (!res.ok) throw new Error(`Failed to delete scenario: ${res.status}`);
     return res.json();
   }
 
   async getClimateStatus(jobId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/climate/status/${jobId}`);
+    const res = await fetch(`${this.baseUrl}/api/v1/climate/status/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get climate status: ${res.status}`);
     return res.json();
   }
 
   async getEcologyData(runId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}`);
+    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get ecology data: ${res.status}`);
     return res.json();
   }
 
   async getEooAoo(runId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}/eoo-aoo`);
+    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}/eoo-aoo`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get EOO/AOO: ${res.status}`);
     return res.json();
   }
 
   async getAoa(runId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}/aoa`);
+    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}/aoa`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get AOA: ${res.status}`);
     return res.json();
   }
 
   async getEcologyReport(runId: string): Promise<string> {
-    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}/report`);
+    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}/report`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get ecology report: ${res.status}`);
     return res.text();
   }
 
   async getDiagnosticsVif(runId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/vif/${runId}`);
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/vif/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get VIF diagnostics: ${res.status}`);
     return res.json();
   }
 
   async getDiagnosticsResponseCurves(runId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/response-curves/${runId}`);
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/response-curves/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get response curves: ${res.status}`);
     return res.json();
   }
 
   async getDiagnosticsImportance(runId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/importance/${runId}`);
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/importance/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get variable importance: ${res.status}`);
     return res.json();
   }
 
   async getDiagnosticsCbi(runId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/cbi/${runId}`);
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/cbi/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get CBI diagnostics: ${res.status}`);
     return res.json();
   }
 
   async getDiagnosticsMess(runId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/mess/${runId}`);
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/mess/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get MESS diagnostics: ${res.status}`);
     return res.json();
   }
 
   async getDiagnosticsSummary(runId: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/summary/${runId}`);
+    const res = await fetch(`${this.baseUrl}/api/v1/diagnostics/summary/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get diagnostics summary: ${res.status}`);
     return res.json();
   }

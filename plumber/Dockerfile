@@ -16,7 +16,8 @@ RUN R -e "install.packages(c( \
     'CAST', 'blockCV', \
     'CoordinateCleaner', 'rgbif', 'finch', \
     'future', 'future.apply', \
-    'testthat' \
+    'testthat', \
+    'DBI', 'RPostgres', 'digest' \
   ), repos='https://cloud.r-project.org', Ncpus=4)"
 
 WORKDIR /app
@@ -29,4 +30,4 @@ RUN mkdir -p /app/data/uploads /app/outputs /app/covariates /app/Worldclim
 
 EXPOSE 8000
 
-CMD ["R", "-e", "pr <- plumber::pr('/app/plumber/R/plumber.R'); plumber::pr_run(pr, host='0.0.0.0', port=8000)"]
+CMD ["Rscript", "/app/plumber/R/run_server.R"]

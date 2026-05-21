@@ -69,6 +69,8 @@ services:
       - plumber-worldclim:/app/Worldclim
     environment:
       - SDM_PROJECT_ROOT=/app
+      - PLUMBER_INTERNAL_KEY=sdm-internal-key-change-in-production
+      - PLUMBER_AUTH_DISABLED=false
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -94,6 +96,7 @@ services:
       - DATABASE_URL=postgresql://sdm:sdm_password@postgres:5432/sdm_platform
       - REDIS_URL=redis://redis:6379
       - PLUMBER_URL=http://plumber:8000
+      - PLUMBER_INTERNAL_KEY=sdm-internal-key-change-in-production
       - GARAGE_ENDPOINT=http://garage:3900
       - GARAGE_ACCESS_KEY=sdm
       - GARAGE_SECRET_KEY=sdm_garage_secret
