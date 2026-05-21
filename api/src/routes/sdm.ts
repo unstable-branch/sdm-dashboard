@@ -388,6 +388,61 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
   }
 });
 
+sdmRoutes.post("/batch", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { configs, parallel } = body;
+
+    if (!Array.isArray(configs) || configs.length === 0) {
+      return c.json({ error: "configs must be a non-empty array" }, 400);
+    }
+
+    const jobIds: string[] = [];
+
+    for (const config of configs) {
+      const parsed = modelConfigSchema.safeParse(config);
+      if (!parsed.success) {
+        return c.json({ error: `Invalid config: ${parsed.error.message}` }, 400);
+      }
+
+      const [run] = await db
+        .insert(runs)
+        .values({
+          speciesName: parsed.data.species,
+          modelId: parsed.data.modelId,
+          status: "queued",
+          config: parsed.data as any,
+        })
+        .returning();
+
+      const plumberPayload = {
+        ...parsed.data,
+        output_dir: join("outputs", "jobs", run.id),
+      };
+
+      const plumberRes = await plumberClient.submitModel(plumberPayload);
+      const plumberJobId = (plumberRes as any).job_id;
+
+      await db
+        .update(runs)
+        .set({ jobId: plumberJobId, status: "running", startedAt: new Date() })
+        .where(eq(runs.id, run.id));
+
+      jobIds.push(run.id);
+    }
+
+    return c.json({
+      batch_id: `batch-${Date.now()}`,
+      job_ids: jobIds,
+      total: jobIds.length,
+      message: `Batch of ${jobIds.length} runs started`,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Batch run failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
 sdmRoutes.get("/future/scenarios", async (c) => {
   try {
     const scenarios = await plumberClient.getFutureScenarios();

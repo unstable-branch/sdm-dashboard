@@ -85,3 +85,48 @@ resultsRoutes.get("/:id/report.txt", async (c) => {
   c.header("Content-Type", "text/plain");
   return c.body(readFileSync(reportPath, "utf-8"));
 });
+
+resultsRoutes.get("/:id/script", async (c) => {
+  const id = c.req.param("id");
+
+  try {
+    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
+    const res = await fetch(`${plumberUrl}/api/v1/output/script/${id}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      return c.json(data, res.status);
+    }
+
+    const scriptPath = (data as any).script_path;
+    if (!scriptPath || !existsSync(scriptPath)) {
+      return c.json({ error: "Script not generated" }, 500);
+    }
+
+    c.header("Content-Type", "text/x-r-source");
+    c.header("Content-Disposition", `attachment; filename="reproducible_run.R"`);
+    return c.body(readFileSync(scriptPath, "utf-8"));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Script export failed";
+    return c.json({ error: message }, 502);
+  }
+});
+
+resultsRoutes.get("/:id/manifest", async (c) => {
+  const id = c.req.param("id");
+
+  try {
+    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
+    const res = await fetch(`${plumberUrl}/api/v1/output/manifest/${id}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      return c.json(data, res.status);
+    }
+
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Manifest generation failed";
+    return c.json({ error: message }, 502);
+  }
+});

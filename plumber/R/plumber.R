@@ -1079,6 +1079,103 @@ function() {
   ids <- sdm_model_ids()
   choices <- sdm_model_choices()
   lapply(ids, function(id) {
-    list(id = id, label = choices[id])
+    spec <- get_sdm_model(id)
+    list(
+      id = id,
+      label = choices[id],
+      maturity = spec$maturity,
+      min_records = if (!is.na(spec$min_records)) spec$min_records else NULL,
+      packages = spec$packages,
+      notes = if (length(spec$notes) > 0) paste(spec$notes, collapse = " ") else ""
+    )
   })
+}
+
+#* Export reproducible R script for a run
+#* @get /api/v1/output/script/<run_id>
+function(run_id, output_dir = NULL) {
+  job_dir <- file.path("outputs", "jobs", run_id)
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (!file.exists(meta_file)) {
+    return(list(error = "Run not found"), 404)
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") {
+    return(list(error = "Run not completed yet"), 400)
+  }
+
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+
+  if (is.null(result_rds) || !file.exists(result_rds)) {
+    return(list(error = "Result file not found"), 404)
+  }
+
+  tryCatch({
+    result <- readRDS(result_rds)
+    script_path <- file.path(job_dir, "reproducible_run.R")
+    source(sdm_resolve_module("script_export.R"), local = TRUE)
+    export_run_script(result, script_path)
+    list(ok = TRUE, script_path = script_path)
+  }, error = function(e) {
+    list(error = paste("Script export failed:", conditionMessage(e)))
+  })
+}
+
+#* Generate run manifest for reproducibility
+#* @get /api/v1/output/manifest/<run_id>
+function(run_id) {
+  job_dir <- file.path("outputs", "jobs", run_id)
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (!file.exists(meta_file)) {
+    return(list(error = "Run not found"), 404)
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  config <- meta$config %||% list()
+  metrics <- meta$metrics %||% list()
+  output_files <- meta$output_files %||% list()
+
+  manifest <- list(
+    run_id = meta$id,
+    generated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+    app_version = list(
+      r_version = R.version.string,
+      platform = R.version$platform,
+      timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    ),
+    species = config$species,
+    model = list(
+      id = config$model_id,
+      parameters = config
+    ),
+    data = list(
+      occurrence_file = config$occurrence_file,
+      occurrence_hash = if (!is.null(config$occurrence_file) && file.exists(config$occurrence_file)) {
+        tools::md5sum(config$occurrence_file)
+      } else NA_character_,
+      record_count = metrics$presence_records
+    ),
+    climate = list(
+      source = config$source %||% "worldclim",
+      worldclim_dir = config$worldclim_dir,
+      biovars = config$biovars,
+      resolution = config$worldclim_res %||% 10
+    ),
+    validation = list(
+      cv_folds = config$cv_folds,
+      cv_strategy = config$cv_strategy,
+      seed = config$seed
+    ),
+    metrics = metrics,
+    output_files = output_files
+  )
+
+  manifest_path <- file.path(job_dir, "manifest.json")
+  writeLines(jsonlite::toJSON(manifest, auto_unbox = TRUE, pretty = TRUE), manifest_path)
+
+  list(ok = TRUE, manifest_path = manifest_path, manifest = manifest)
 }
