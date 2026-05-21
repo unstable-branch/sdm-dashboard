@@ -2,3 +2,9 @@ packages:
   - "frontend"
   - "api"
   - "packages/*"
+allowBuilds:
+  bcrypt: true
+  esbuild: true
+  msgpackr-extract: true
+  sharp: true
+  unrs-resolver: true
