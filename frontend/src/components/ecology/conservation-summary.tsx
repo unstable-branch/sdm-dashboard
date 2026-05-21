@@ -102,6 +102,15 @@ export function ConservationSummary({ runId }: ConservationSummaryProps) {
   const aoa = data.aoa;
   const climateMatching = data.climate_matching;
   const mess = data.mess;
+  const nicheOverlap = data.niche_overlap as {
+    D?: number | null;
+    I?: number | null;
+    stability?: number | null;
+    unfilling?: number | null;
+    expansion?: number | null;
+    species_1?: string;
+    species_2?: string;
+  } | null;
 
   return (
     <div className="space-y-4">
@@ -225,6 +234,42 @@ export function ConservationSummary({ runId }: ConservationSummaryProps) {
           <p className="text-xs text-sdm-muted">
             MESS (Multivariate Environmental Similarity Surface) detects areas where future climate conditions fall outside the training data range.
           </p>
+        </div>
+      ) : null}
+
+      {nicheOverlap && nicheOverlap.D != null ? (
+        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-sdm-heading flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
+            Niche Overlap
+          </h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="rounded-md bg-sdm-surface-soft p-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Schoener&apos;s D</p>
+              <p className="mt-1 text-xl font-bold text-sdm-heading">{nicheOverlap.D.toFixed(3)}</p>
+              <p className="text-xs text-sdm-muted mt-0.5">0 = no overlap, 1 = identical</p>
+            </div>
+            <div className="rounded-md bg-sdm-surface-soft p-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Hellinger&apos;s I</p>
+              <p className="mt-1 text-xl font-bold text-sdm-heading">{nicheOverlap.I?.toFixed(3) ?? "—"}</p>
+              <p className="text-xs text-sdm-muted mt-0.5">Hellinger distance-based overlap</p>
+            </div>
+            <div className="rounded-md bg-sdm-surface-soft p-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Stability</p>
+              <p className="mt-1 text-xl font-bold text-sdm-heading">{((nicheOverlap.stability ?? 0) * 100).toFixed(1)}%</p>
+              <p className="text-xs text-sdm-muted mt-0.5">Shared niche space</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4 text-xs text-sdm-muted">
+            <div className="rounded-md bg-sdm-surface-soft p-3">
+              <p className="font-medium text-sdm-text">Expansion: {((nicheOverlap.expansion ?? 0) * 100).toFixed(1)}%</p>
+              <p>New environmental space occupied by second species</p>
+            </div>
+            <div className="rounded-md bg-sdm-surface-soft p-3">
+              <p className="font-medium text-sdm-text">Unfilling: {((nicheOverlap.unfilling ?? 0) * 100).toFixed(1)}%</p>
+              <p>Niche space lost between ranges</p>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

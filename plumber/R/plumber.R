@@ -414,6 +414,20 @@ function(req) {
         cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
       })
 
+      # Generate ODMAP report
+      tryCatch({
+        source(file.path(app_dir, "R", "output", "report_odmap.R"), local = TRUE)
+        odmap_csv <- file.path(job_dir, "odmap_report.csv")
+        odmap_md <- file.path(job_dir, "odmap_report.md")
+        write_odmap_report(result, odmap_csv, odmap_md)
+        log_fun("Saved ODMAP report: ", odmap_csv)
+        diag_files$odmap_report_csv <- odmap_csv
+        diag_files$odmap_report_md <- odmap_md
+      }, error = function(e) {
+        cat("ODMAP report failed:", conditionMessage(e), "\n")
+        cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
+      })
+
       job_meta$status <<- "completed"
       job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       if (!is.null(result)) {
@@ -962,6 +976,88 @@ function(run_id) {
   }
 
   paste(lines, collapse = "\n")
+}
+
+#* Compute niche overlap between two runs
+#* @post /api/v1/ecology/niche-overlap
+function(req) {
+  body <- tryCatch(jsonlite::fromJSON(req$postBody), error = function(e) NULL)
+  if (is.null(body)) return(sdm_error(req, 400, "Invalid JSON body"))
+
+  run_id_1 <- body$run_id_1
+  run_id_2 <- body$run_id_2
+  if (is.null(run_id_1) || is.null(run_id_2)) {
+    return(sdm_error(req, 400, "run_id_1 and run_id_2 are required"))
+  }
+
+  job_dir_1 <- file.path("outputs", "jobs", run_id_1)
+  job_dir_2 <- file.path("outputs", "jobs", run_id_2)
+  meta_file_1 <- file.path(job_dir_1, "meta.json")
+  meta_file_2 <- file.path(job_dir_2, "meta.json")
+
+  if (!file.exists(meta_file_1) || !file.exists(meta_file_2)) {
+    return(sdm_error(req, 404, "One or both runs not found"))
+  }
+
+  meta_1 <- jsonlite::fromJSON(meta_file_1, simplifyVector = FALSE)
+  meta_2 <- jsonlite::fromJSON(meta_file_2, simplifyVector = FALSE)
+
+  occ_file_1 <- meta_1$config$occurrence_file
+  occ_file_2 <- meta_2$config$occurrence_file
+
+  if (!file.exists(occ_file_1) || !file.exists(occ_file_2)) {
+    return(sdm_error(req, 400, "Occurrence files not found for one or both runs"))
+  }
+
+  env_dir <- meta_1$config$worldclim_dir %||% sdm_default_worldclim_dir
+  if (!dir.exists(env_dir)) {
+    return(sdm_error(req, 400, "Climate data directory not found"))
+  }
+
+  tryCatch({
+    occ_1 <- read_occurrence_file(occ_file_1, log_fun = message)
+    occ_2 <- read_occurrence_file(occ_file_2, log_fun = message)
+
+    biovars <- as.integer(unlist(strsplit(as.character(meta_1$config$biovars %||% "1,4,6,12,15,18"), ",")))
+    tif_pattern <- paste0("bio", biovars, "\\.tif$")
+    tif_files <- list.files(env_dir, pattern = tif_pattern, full.names = TRUE, recursive = TRUE)
+    if (length(tif_files) == 0) {
+      return(sdm_error(req, 400, "No climate TIFF files found"))
+    }
+    env <- terra::rast(tif_files[1])
+    if (length(tif_files) > 1) {
+      env <- terra::rast(tif_files)
+    }
+
+    source(sdm_resolve_module("niche_overlap.R"), local = TRUE)
+    overlap <- compute_niche_overlap(occ_1, occ_2, env, n_boot = 100, log_fun = message)
+
+    if (is.null(overlap)) {
+      return(sdm_error(req, 500, "Niche overlap computation failed"))
+    }
+
+    result <- list(
+      run_id_1 = run_id_1,
+      run_id_2 = run_id_2,
+      species_1 = meta_1$config$species,
+      species_2 = meta_2$config$species,
+      D = overlap$D,
+      I = overlap$I,
+      stability = overlap$stability,
+      unfilling = overlap$unfilling,
+      expansion = overlap$expansion,
+      centroid_distance = overlap$centroid_distance,
+      n_native = overlap$n_native,
+      n_introduced = overlap$n_introduced
+    )
+
+    out_file <- file.path(job_dir_1, "niche_overlap.json")
+    writeLines(jsonlite::toJSON(result, auto_unbox = TRUE, pretty = TRUE), out_file)
+
+    result
+  }, error = function(e) {
+    sdm_error(req, 500, paste("Niche overlap failed:", conditionMessage(e)))
+  })
 }
 
 #* Get model config defaults

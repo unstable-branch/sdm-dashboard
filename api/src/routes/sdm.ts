@@ -6,8 +6,11 @@ import { db } from "../db";
 import { runs, species } from "../db/schema";
 import { eq, desc } from "drizzle-orm";
 import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
+import { modelRateLimit } from "../middleware/rate-limit";
 
 export const sdmRoutes = new Hono();
+
+sdmRoutes.use("*", modelRateLimit);
 
 sdmRoutes.post("/run", async (c) => {
   try {
@@ -215,6 +218,10 @@ sdmRoutes.get("/config/defaults", async (c) => {
 
 sdmRoutes.get("/runs", async (c) => {
   try {
+    const page = parseInt(c.req.query("page") || "1", 10);
+    const limit = parseInt(c.req.query("limit") || "20", 10);
+    const offset = (page - 1) * limit;
+
     const allRuns = await db
       .select({
         id: runs.id,
@@ -227,7 +234,11 @@ sdmRoutes.get("/runs", async (c) => {
         error: runs.error,
       })
       .from(runs)
-      .orderBy(desc(runs.createdAt));
+      .orderBy(desc(runs.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [{ count }] = await db.select({ count: runs.id }).from(runs);
 
     const formatted = allRuns.map((r) => ({
       id: r.id,
@@ -240,7 +251,15 @@ sdmRoutes.get("/runs", async (c) => {
       error: r.error ?? null,
     }));
 
-    return c.json(formatted);
+    return c.json({
+      runs: formatted,
+      pagination: {
+        page,
+        limit,
+        total: count,
+        totalPages: Math.ceil(count / limit),
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch runs";
     return c.json({ error: message }, 500);

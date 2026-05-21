@@ -12,7 +12,7 @@ const connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379"
 export const sdmQueue = new Queue("sdm-jobs", { connection });
 
 export interface SdmJobData {
-  type: "clean" | "model" | "predict" | "report" | "climate_download";
+  type: "clean" | "model" | "climate_download";
   payload: Record<string, unknown>;
 }
 
@@ -75,7 +75,7 @@ export const sdmWorker = new Worker<SdmJobData, SdmJobResult>(
             let completed = false;
             let attempts = 0;
 
-            while (!completed && attempts < 120) {
+            while (!completed && attempts < 300) {
               await new Promise((resolve) => setTimeout(resolve, 3000));
               attempts++;
 
@@ -143,20 +143,6 @@ export const sdmWorker = new Worker<SdmJobData, SdmJobResult>(
           await job.updateProgress(100);
           break;
         }
-        case "predict": {
-          await job.updateProgress(20);
-          const predictRes = await client.predict(payload);
-          await job.updateProgress(100);
-          result = { status: "success", data: predictRes };
-          break;
-        }
-        case "report": {
-          await job.updateProgress(20);
-          const reportRes = await client.generateReport(payload);
-          await job.updateProgress(100);
-          result = { status: "success", data: reportRes };
-          break;
-        }
         case "climate_download": {
           await job.updateProgress(10);
           const downloadRes = await client.downloadClimate(payload);
@@ -169,7 +155,7 @@ export const sdmWorker = new Worker<SdmJobData, SdmJobResult>(
             let completed = false;
             let attempts = 0;
 
-            while (!completed && attempts < 300) {
+            while (!completed && attempts < 600) {
               await new Promise((resolve) => setTimeout(resolve, 3000));
               attempts++;
 

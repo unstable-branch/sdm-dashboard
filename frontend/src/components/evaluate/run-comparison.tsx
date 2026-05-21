@@ -11,6 +11,7 @@ interface RunSummary {
   started_at: string;
   completed_at: string | null;
   metrics: Record<string, number | null> | null;
+  config?: Record<string, unknown> | null;
 }
 
 interface RunComparisonProps {
@@ -24,11 +25,26 @@ export function RunComparison({ runs }: RunComparisonProps) {
   const completedRuns = runs.filter((r) => r.status === "completed");
 
   useEffect(() => {
-    const details: Record<string, RunSummary> = {};
-    completedRuns.forEach((r) => {
-      details[r.id] = r;
-    });
-    setRunDetails(details);
+    const fetchDetails = async () => {
+      const details: Record<string, RunSummary> = {};
+      await Promise.all(
+        completedRuns.map(async (r) => {
+          try {
+            const res = await fetch(`/api/v1/sdm/status/${r.id}`);
+            if (res.ok) {
+              const full = await res.json();
+              details[r.id] = { ...r, config: full.config };
+            } else {
+              details[r.id] = r;
+            }
+          } catch {
+            details[r.id] = r;
+          }
+        })
+      );
+      setRunDetails(details);
+    };
+    fetchDetails();
   }, [completedRuns]);
 
   const toggleRun = (id: string) => {
@@ -138,7 +154,7 @@ export function RunComparison({ runs }: RunComparisonProps) {
             {selectedRuns.map((run) => (
               <div key={run.id} className="space-y-1">
                 <p className="text-sdm-muted font-medium">{run.species}</p>
-                <p className="text-sdm-text">Threshold: {(run.metrics as any)?.threshold ?? "—"}</p>
+                <p className="text-sdm-text">Threshold: {(run.config as any)?.threshold ?? "—"}</p>
                 <p className="text-sdm-text">Started: {new Date(run.started_at).toLocaleDateString()}</p>
               </div>
             ))}
