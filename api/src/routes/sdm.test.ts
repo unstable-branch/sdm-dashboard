@@ -124,4 +124,26 @@ describe("SDM routes", () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe("POST /batch", () => {
+    it("rejects empty configs", async () => {
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ configs: [] }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects missing configs array", async () => {
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      expect(res.status).toBe(400);
+    });
+  });
 });

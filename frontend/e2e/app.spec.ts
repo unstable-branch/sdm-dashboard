@@ -66,3 +66,21 @@ test.describe("Results Page", () => {
     await expect(page.getByText(/No runs yet/i)).toBeVisible();
   });
 });
+
+test.describe("Batch Page", () => {
+  test("loads batch page with upload zone", async ({ page }) => {
+    await page.goto("/batch");
+    await expect(page.getByText(/Batch Processing/i)).toBeVisible();
+    await expect(page.getByText(/Drop your batch config CSV/i)).toBeVisible();
+  });
+
+  test("shows required columns info", async ({ page }) => {
+    await page.goto("/batch");
+    await expect(page.getByText(/species, occurrences_csv, model_id/i)).toBeVisible();
+  });
+
+  test("shows CSV format example", async ({ page }) => {
+    await page.goto("/batch");
+    await expect(page.getByText(/Acacia mearnsii/i)).toBeVisible();
+  });
+});
