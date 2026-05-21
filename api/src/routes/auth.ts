@@ -7,8 +7,9 @@ import { eq, and } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth";
 import { rateLimit } from "../middleware/rate-limit";
 import { randomBytes, createHash } from "crypto";
+import type { AppEnv } from "../middleware/auth";
 
-export const authRoutes = new Hono();
+export const authRoutes = new Hono<AppEnv>();
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const BCRYPT_ROUNDS = 12;
