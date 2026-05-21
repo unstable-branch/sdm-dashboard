@@ -2,9 +2,12 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { createServer } from "http";
 import { plumberClient } from "./services/plumber";
 import { ensureBuckets } from "./services/storage";
 import { sdmQueue, sdmWorker, getJobStatus } from "./services/queue";
+import { setupWebSocket } from "./services/websocket";
+import { mediumCache, longCache } from "./middleware/cache";
 import { sdmRoutes } from "./routes/sdm";
 import { dataRoutes } from "./routes/occurrences";
 import { resultsRoutes } from "./routes/results";
@@ -86,8 +89,18 @@ ensureBuckets().catch((err) => {
   console.error("[Garage] Bucket initialization failed:", err);
 });
 
-const server = serve({ fetch: app.fetch, port });
+const server = createServer(app.fetch);
+
+// Set up WebSocket for real-time job progress
+const ws = setupWebSocket(server);
+
+server.listen(port, () => {
+  console.log(`HTTP server listening on port ${port}`);
+  console.log(`WebSocket available at ws://0.0.0.0:${port}/ws`);
+});
 
 process.on("unhandledRejection", (reason) => {
   console.error("[API] Unhandled rejection:", reason);
 });
+
+export { ws };
