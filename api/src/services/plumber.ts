@@ -185,6 +185,30 @@ export class PlumberClient {
     if (!res.ok) throw new Error(`Failed to get climate status: ${res.status}`);
     return res.json();
   }
+
+  async getEcologyData(runId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}`);
+    if (!res.ok) throw new Error(`Failed to get ecology data: ${res.status}`);
+    return res.json();
+  }
+
+  async getEooAoo(runId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}/eoo-aoo`);
+    if (!res.ok) throw new Error(`Failed to get EOO/AOO: ${res.status}`);
+    return res.json();
+  }
+
+  async getAoa(runId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}/aoa`);
+    if (!res.ok) throw new Error(`Failed to get AOA: ${res.status}`);
+    return res.json();
+  }
+
+  async getEcologyReport(runId: string): Promise<string> {
+    const res = await fetch(`${this.baseUrl}/api/v1/ecology/${runId}/report`);
+    if (!res.ok) throw new Error(`Failed to get ecology report: ${res.status}`);
+    return res.text();
+  }
 }
 
 export const plumberClient = new PlumberClient();
