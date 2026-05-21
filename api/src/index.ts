@@ -10,6 +10,8 @@ import { dataRoutes } from "./routes/occurrences";
 import { resultsRoutes } from "./routes/results";
 import { climateRoutes } from "./routes/climate";
 import { ecologyRoutes } from "./routes/ecology";
+import { authRoutes } from "./routes/auth";
+import { projectRoutes } from "./routes/projects";
 import jobsRoutes from "./routes/jobs";
 
 const app = new Hono();
@@ -66,6 +68,8 @@ app.get("/ready", async (c) => {
   return c.json({ status, checks }, allOk ? 200 : 503);
 });
 
+app.route("/api/v1/auth", authRoutes);
+app.route("/api/v1/projects", projectRoutes);
 app.route("/api/v1/sdm", sdmRoutes);
 app.route("/api/v1/data", dataRoutes);
 app.route("/api/v1/results", resultsRoutes);
