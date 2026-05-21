@@ -1,6 +1,9 @@
 import { Queue, Worker, Job } from "bullmq";
 import IORedis from "ioredis";
 import { PlumberClient } from "./plumber";
+import { db } from "../db";
+import { runs } from "../db/schema";
+import { eq } from "drizzle-orm";
 
 const connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
   maxRetriesPerRequest: null,
@@ -27,17 +30,12 @@ export const sdmWorker = new Worker<SdmJobData, SdmJobResult>(
 
     await job.updateProgress(10);
 
-    let result: SdmJobResult;
+    let result: SdmJobResult = { status: "error", error: "Job processing failed" };
 
     try {
       switch (type) {
         case "clean": {
           await job.updateProgress(20);
-          const uploadRes = await client.uploadOccurrence(
-            payload.file_path as string,
-            payload.file_id as string
-          );
-          await job.updateProgress(50);
           const cleanRes = await client.cleanOccurrences({
             file_id: payload.file_id as string,
             min_source_records: Number(payload.min_source_records) || 15,
@@ -51,32 +49,97 @@ export const sdmWorker = new Worker<SdmJobData, SdmJobResult>(
         }
         case "model": {
           await job.updateProgress(10);
+          const runId = payload.runId as string;
+
+          if (runId) {
+            await db
+              .update(runs)
+              .set({ status: "running", startedAt: new Date() })
+              .where(eq(runs.id, runId));
+          }
+
           const modelRes = await client.runModel(payload);
-          const runJobId = (modelRes as any).job_id as string | undefined;
-          if (runJobId) {
-            await job.updateProgress(50);
+          const plumberJobId = (modelRes as any).job_id as string | undefined;
+
+          if (runId) {
+            await db
+              .update(runs)
+              .set({ jobId: plumberJobId ?? null })
+              .where(eq(runs.id, runId));
+          }
+
+          await job.updateProgress(30);
+
+          if (plumberJobId) {
             let status: Record<string, unknown> = {};
-            try {
-              status = await client.getModelStatus(runJobId);
-            } catch {
-              // Status check failed, continue
-            }
-            while ((status as any).status === "running") {
+            let completed = false;
+            let attempts = 0;
+
+            while (!completed && attempts < 120) {
               await new Promise((resolve) => setTimeout(resolve, 3000));
+              attempts++;
+
               try {
-                const updated = await client.getModelStatus(runJobId);
-                const logLen = Array.isArray((updated as any).progress_log) ? (updated as any).progress_log.length : 0;
-                await job.updateProgress(Math.min(95, 50 + Math.round(logLen * 0.5)));
-                Object.assign(status, updated);
+                status = await client.getModelStatus(plumberJobId);
+                const runStatus = (status as any).status;
+
+                if (runStatus === "running") {
+                  const logLen = Array.isArray((status as any).progress_log)
+                    ? (status as any).progress_log.length
+                    : 0;
+                  await job.updateProgress(Math.min(95, 30 + Math.round(logLen * 0.5)));
+                }
+
+                if (runStatus === "completed" || runStatus === "failed") {
+                  completed = true;
+
+                  const metrics = (status as any).metrics;
+                  const outputFiles = (status as any).output_files;
+                  const progressLog = ((status as any).progress_log || []) as string[];
+                  const error = (status as any).error;
+
+                  const structuredLog = progressLog.map((line: string) => {
+                    const match = line.match(/^(\d{2}:\d{2}:\d{2})\s*(?:\[([\d.]+%)\])?\s*(.*)/);
+                    if (match) {
+                      return { timestamp: match[1], level: match[2] || "info", message: match[3] };
+                    }
+                    return { timestamp: "", level: "info", message: line };
+                  });
+
+                  await db
+                    .update(runs)
+                    .set({
+                      status: runStatus === "completed" ? "completed" : "failed",
+                      metrics: metrics ?? null,
+                      outputFiles: outputFiles ?? null,
+                      progressLog: structuredLog,
+                      error: error ?? null,
+                      completedAt: runStatus === "completed" ? new Date() : null,
+                    })
+                    .where(eq(runs.id, runId));
+
+                  result = {
+                    status: runStatus === "completed" ? "success" : "error",
+                    data: status,
+                    error: error as string | undefined,
+                  };
+                }
               } catch {
-                break;
+                attempts++;
               }
             }
-            const finalStatus = (status as any).status;
-            result = { status: finalStatus === "completed" ? "success" : "error", data: status, error: (status as any).error as string | undefined };
+
+            if (!completed) {
+              await db
+                .update(runs)
+                .set({ status: "failed", error: "Polling timeout", completedAt: new Date() })
+                .where(eq(runs.id, runId));
+              result = { status: "error", error: "Polling timeout: model did not complete in time" };
+            }
           } else {
             result = { status: "success", data: modelRes };
           }
+
           await job.updateProgress(100);
           break;
         }
@@ -100,6 +163,20 @@ export const sdmWorker = new Worker<SdmJobData, SdmJobResult>(
 
       return result;
     } catch (err) {
+      if (type === "model") {
+        const runId = payload.runId as string;
+        if (runId) {
+          await db
+            .update(runs)
+            .set({
+              status: "failed",
+              error: err instanceof Error ? err.message : "Unknown error",
+              completedAt: new Date(),
+            })
+            .where(eq(runs.id, runId));
+        }
+      }
+
       return {
         status: "error",
         error: err instanceof Error ? err.message : "Unknown error",

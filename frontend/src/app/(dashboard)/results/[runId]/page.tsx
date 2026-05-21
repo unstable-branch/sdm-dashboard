@@ -127,9 +127,10 @@ export default function ResultsPage() {
           {run.metrics && <MetricCards metrics={run.metrics} />}
 
           <Tabs defaultValue="map" className="space-y-4">
-            <TabsList className="grid w-full max-w-md grid-cols-3">
-              <TabsTrigger value="map">Suitability Map</TabsTrigger>
+            <TabsList className="grid w-full max-w-md grid-cols-4">
+              <TabsTrigger value="map">Map</TabsTrigger>
               <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
+              <TabsTrigger value="future">Future</TabsTrigger>
               <TabsTrigger value="report">Report</TabsTrigger>
             </TabsList>
 
@@ -139,6 +140,12 @@ export default function ResultsPage() {
 
             <TabsContent value="diagnostics">
               <DiagnosticsPanel run={run} />
+            </TabsContent>
+
+            <TabsContent value="future">
+              <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
+                Future projection — configure in Model tab and re-run
+              </div>
             </TabsContent>
 
             <TabsContent value="report">

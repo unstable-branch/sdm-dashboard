@@ -2,10 +2,8 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { S3Client, CreateBucketCommand } from "@aws-sdk/client-s3";
-import { streamSSE } from "hono/streaming";
 import { plumberClient } from "./services/plumber";
-import { getGarageConfig, getBucketNames } from "./services/storage";
+import { ensureBuckets } from "./services/storage";
 import { sdmQueue, sdmWorker, getJobStatus } from "./services/queue";
 import { sdmRoutes } from "./routes/sdm";
 import { dataRoutes } from "./routes/occurrences";
@@ -71,86 +69,14 @@ app.route("/api/v1/data", dataRoutes);
 app.route("/api/v1/results", resultsRoutes);
 app.route("/api/v1/jobs", jobsRoutes);
 
-app.get("/api/v1/sse", (c) => {
-  return streamSSE(c, async (stream) => {
-    while (true) {
-      const jobs = await sdmQueue.getJobs(["active", "waiting", "completed", "failed"]);
-
-      for (const job of jobs) {
-        const state = await job.getState();
-        const progress = job.progress || 0;
-
-        await stream.writeSSE({
-          event: "job-update",
-          data: JSON.stringify({
-            id: job.id,
-            state,
-            progress,
-            type: job.data?.type,
-            result: job.returnvalue,
-            failedReason: job.failedReason,
-          }),
-        });
-      }
-
-      await stream.sleep(2000);
-    }
-  });
-});
-
-async function initGarageBuckets(): Promise<void> {
-  const config = getGarageConfig();
-  const { rasters, exports } = getBucketNames();
-
-  const s3 = new S3Client({
-    endpoint: `http://${config.endPoint}:${config.port}`,
-    region: "garage",
-    forcePathStyle: true,
-    credentials: {
-      accessKeyId: config.accessKey,
-      secretAccessKey: config.secretKey,
-    },
-  });
-
-  const buckets = [rasters, exports];
-  const maxRetries = 15;
-  const retryDelay = 2000;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      for (const bucket of buckets) {
-        try {
-          await s3.send(new CreateBucketCommand({ Bucket: bucket }));
-          console.log(`[Garage] Created bucket: ${bucket}`);
-        } catch (err: unknown) {
-          if (err instanceof Error && "name" in err && (err as { name: string }).name === "BucketAlreadyOwnedByYou") {
-            console.log(`[Garage] Bucket already exists: ${bucket}`);
-          } else {
-            throw err;
-          }
-        }
-      }
-      console.log("[Garage] All buckets initialized");
-      return;
-    } catch (err) {
-      if (attempt < maxRetries) {
-        console.log(`[Garage] Not ready yet (attempt ${attempt}/${maxRetries}), retrying in ${retryDelay}ms...`);
-        await new Promise((resolve) => setTimeout(resolve, retryDelay));
-      } else {
-        console.error("[Garage] Failed to initialize buckets after", maxRetries, "attempts:", err);
-      }
-    }
-  }
-}
-
 const port = parseInt(process.env.PORT || "4000", 10);
 
 console.log(`SDM API server running on http://0.0.0.0:${port}`);
 
-// Garage bucket initialization (requires access keys to be configured)
-// initGarageBuckets().catch((err) => {
-//   console.error("[Garage] Bucket initialization failed:", err);
-// });
+// Initialize Garage S3 buckets
+ensureBuckets().catch((err) => {
+  console.error("[Garage] Bucket initialization failed:", err);
+});
 
 const server = serve({ fetch: app.fetch, port });
 

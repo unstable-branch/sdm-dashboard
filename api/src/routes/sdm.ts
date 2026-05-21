@@ -2,6 +2,9 @@ import { Hono } from "hono";
 import { modelConfigSchema } from "@sdm/shared";
 import { plumberClient } from "../services/plumber";
 import { enqueueSdmJob } from "../services/queue";
+import { db } from "../db";
+import { runs, species } from "../db/schema";
+import { eq, desc } from "drizzle-orm";
 
 export const sdmRoutes = new Hono();
 
@@ -17,9 +20,38 @@ sdmRoutes.post("/run", async (c) => {
     const async = body.async === true;
 
     if (async) {
+      let speciesId: string | undefined;
+      const speciesName = config.species;
+
+      try {
+        let [sp] = await db.select().from(species).where(eq(species.name, speciesName)).limit(1);
+        if (!sp) {
+          [sp] = await db
+            .insert(species)
+            .values({ name: speciesName, occurrenceCount: 0 })
+            .returning();
+        }
+        speciesId = sp.id;
+      } catch {
+        // Species tracking is best-effort; continue without it
+      }
+
+      const [run] = await db
+        .insert(runs)
+        .values({
+          speciesId: speciesId ?? null,
+          speciesName: speciesName ?? null,
+          modelId: config.modelId,
+          status: "queued",
+          config: config as any,
+          jobId: null,
+        })
+        .returning();
+
       const jobId = await enqueueSdmJob({
         type: "model",
         payload: {
+          runId: run.id,
           species: config.species,
           model_id: config.modelId,
           occurrence_file: config.occurrenceFile,
@@ -71,8 +103,26 @@ sdmRoutes.post("/run", async (c) => {
           source: config.source,
         },
       });
-      return c.json({ jobId, status: "queued" });
+
+      if (jobId) {
+        await db
+          .update(runs)
+          .set({ jobId })
+          .where(eq(runs.id, run.id));
+      }
+
+      return c.json({ jobId: run.id, queuedAt: new Date().toISOString() });
     }
+
+    const [run] = await db
+      .insert(runs)
+      .values({
+        modelId: config.modelId,
+        speciesName: config.species ?? null,
+        status: "running",
+        config: config as any,
+      })
+      .returning();
 
     const result = await plumberClient.runModel({
       species: config.species,
@@ -103,7 +153,16 @@ sdmRoutes.post("/run", async (c) => {
       thickening_distance_km: config.thickeningDistanceKm,
     });
 
-    return c.json(result);
+    const plumberJobId = (result as any).job_id;
+
+    if (plumberJobId) {
+      await db
+        .update(runs)
+        .set({ jobId: plumberJobId, status: "running" })
+        .where(eq(runs.id, run.id));
+    }
+
+    return c.json({ ...result, runId: run.id });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Model run failed";
     return c.json({ error: message }, 502);
@@ -154,19 +213,127 @@ sdmRoutes.get("/config/defaults", async (c) => {
 
 sdmRoutes.get("/runs", async (c) => {
   try {
-    const runs = await plumberClient.getModelRuns();
-    return c.json(runs);
+    const allRuns = await db
+      .select({
+        id: runs.id,
+        species: runs.speciesName,
+        model_id: runs.modelId,
+        status: runs.status,
+        started_at: runs.startedAt,
+        completed_at: runs.completedAt,
+        metrics: runs.metrics,
+        error: runs.error,
+      })
+      .from(runs)
+      .orderBy(desc(runs.createdAt));
+
+    const formatted = allRuns.map((r) => ({
+      id: r.id,
+      species: r.species ?? null,
+      model_id: r.model_id ?? null,
+      status: r.status ?? "queued",
+      started_at: r.started_at ? new Date(r.started_at).toISOString() : null,
+      completed_at: r.completed_at ? new Date(r.completed_at).toISOString() : null,
+      metrics: r.metrics ?? null,
+      error: r.error ?? null,
+    }));
+
+    return c.json(formatted);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch runs";
-    return c.json({ error: message }, 502);
+    return c.json({ error: message }, 500);
   }
 });
 
 sdmRoutes.get("/status/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");
-    const status = await plumberClient.getModelStatus(jobId);
-    return c.json(status);
+
+    const [run] = await db
+      .select()
+      .from(runs)
+      .where(eq(runs.id, jobId))
+      .limit(1);
+
+    if (!run) {
+      return c.json({ error: "Run not found" }, 404);
+    }
+
+    if (run.status === "running" && run.jobId) {
+      try {
+        const plumberStatus = await plumberClient.getModelStatus(run.jobId);
+
+        const plumberRunStatus = (plumberStatus as any).status;
+        const plumberMetrics = (plumberStatus as any).metrics;
+        const plumberOutputFiles = (plumberStatus as any).output_files;
+        const plumberError = (plumberStatus as any).error;
+
+        if (plumberRunStatus === "completed" || plumberRunStatus === "failed") {
+          await db
+            .update(runs)
+            .set({
+              status: plumberRunStatus as any,
+              metrics: plumberMetrics ?? null,
+              outputFiles: plumberOutputFiles ?? null,
+              error: plumberError ?? null,
+              completedAt: plumberRunStatus === "completed" ? new Date() : null,
+            })
+            .where(eq(runs.id, jobId));
+
+          return c.json({
+            id: run.id,
+            status: plumberRunStatus,
+            species: run.speciesName,
+            model_id: run.modelId,
+            started_at: run.startedAt?.toISOString() ?? null,
+            completed_at: plumberStatus && (plumberStatus as any).completed_at,
+            error: plumberError ?? null,
+            metrics: plumberMetrics ?? null,
+            output_files: plumberOutputFiles ?? null,
+            progress_log: (plumberStatus as any).progress_log ?? [],
+          });
+        }
+
+        return c.json({
+          id: run.id,
+          status: run.status,
+          species: run.speciesName,
+          model_id: run.modelId,
+          started_at: run.startedAt?.toISOString() ?? null,
+          completed_at: run.completedAt?.toISOString() ?? null,
+          error: null,
+          metrics: null,
+          output_files: null,
+          progress_log: (plumberStatus as any).progress_log ?? [],
+        });
+      } catch {
+        return c.json({
+          id: run.id,
+          status: run.status,
+          species: run.speciesName,
+          model_id: run.modelId,
+          started_at: run.startedAt?.toISOString() ?? null,
+          completed_at: run.completedAt?.toISOString() ?? null,
+          error: null,
+          metrics: null,
+          output_files: null,
+          progress_log: [],
+        });
+      }
+    }
+
+    return c.json({
+      id: run.id,
+      status: run.status,
+      species: run.speciesName,
+      model_id: run.modelId,
+      started_at: run.startedAt?.toISOString() ?? null,
+      completed_at: run.completedAt?.toISOString() ?? null,
+      error: run.error ?? null,
+      metrics: run.metrics ?? null,
+      output_files: run.outputFiles ?? null,
+      progress_log: run.progressLog ?? [],
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get status";
     return c.json({ error: message }, 502);
@@ -176,8 +343,20 @@ sdmRoutes.get("/status/:jobId", async (c) => {
 sdmRoutes.post("/cancel/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");
-    const result = await plumberClient.cancelModel(jobId);
-    return c.json(result);
+    const [run] = await db.select().from(runs).where(eq(runs.id, jobId)).limit(1);
+
+    if (!run) {
+      return c.json({ error: "Run not found" }, 404);
+    }
+
+    if (run.jobId) {
+      const result = await plumberClient.cancelModel(run.jobId);
+      await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, jobId));
+      return c.json(result);
+    }
+
+    await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, jobId));
+    return c.json({ ok: true, message: "Run cancelled" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to cancel";
     return c.json({ error: message }, 502);

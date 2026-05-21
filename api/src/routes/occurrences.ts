@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { readFileSync } from "fs";
 import { plumberClient } from "../services/plumber";
 import { enqueueSdmJob } from "../services/queue";
 import { db } from "../db";
@@ -40,40 +41,46 @@ dataRoutes.post("/occurrences/clean", async (c) => {
 
     const result = await plumberClient.cleanOccurrences(body);
 
-    if (result && typeof result === "object" && "occurrence_preview" in result) {
-      const preview = result.occurrence_preview as Array<Record<string, unknown>>;
-      if (preview.length > 0 && "longitude" in preview[0] && "latitude" in preview[0]) {
-        const speciesName = (body.species as string) || "Untitled species";
+    if (result && typeof result === "object" && "cleaned_id" in result) {
+      const cleanedId = result.cleaned_id as string;
+      const speciesName = (body.species as string) || "Untitled species";
 
-        let [sp] = await db
-          .select()
-          .from(species)
-          .where(eq(species.name, speciesName))
-          .limit(1);
+      let [sp] = await db
+        .select()
+        .from(species)
+        .where(eq(species.name, speciesName))
+        .limit(1);
 
-        if (!sp) {
-          [sp] = await db
-            .insert(species)
-            .values({ name: speciesName, occurrenceCount: 0 })
-            .returning();
-        }
+      if (!sp) {
+        [sp] = await db
+          .insert(species)
+          .values({ name: speciesName, occurrenceCount: 0 })
+          .returning();
+      }
 
-        const recordsToInsert = preview.map((row) => ({
+      const cleanedRecords = parseCsvRecords(cleanedId);
+      const validRecords = cleanedRecords.filter(
+        (r) => typeof r.longitude === "number" && typeof r.latitude === "number" && isFinite(r.longitude) && isFinite(r.latitude)
+      );
+
+      if (validRecords.length > 0) {
+        const recordsToInsert = validRecords.map((row) => ({
           speciesId: sp.id,
+          filePath: cleanedId,
           longitude: Number(row.longitude),
           latitude: Number(row.latitude),
           source: (row.source as string) || null,
-          flagged: false,
+          flagged: Boolean(row.flagged || row.cc_flag),
+          flagReason: (row.flag_reason as string) || null,
+          cleaned: true,
           raw: row,
         }));
 
-        if (recordsToInsert.length > 0) {
-          await db.insert(occurrences).values(recordsToInsert);
-          await db
-            .update(species)
-            .set({ occurrenceCount: (sp.occurrenceCount || 0) + recordsToInsert.length })
-            .where(eq(species.id, sp.id));
-        }
+        await db.insert(occurrences).values(recordsToInsert);
+        await db
+          .update(species)
+          .set({ occurrenceCount: (sp.occurrenceCount || 0) + recordsToInsert.length })
+          .where(eq(species.id, sp.id));
       }
     }
 
@@ -83,6 +90,60 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     return c.json({ error: message }, 502);
   }
 });
+
+function parseCsvRecords(filePath: string): Array<Record<string, unknown>> {
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const lines = content.trim().split("\n");
+    if (lines.length < 2) return [];
+
+    const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
+    const records: Array<Record<string, unknown>> = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseCSVLine(lines[i]);
+      if (values.length !== headers.length) continue;
+
+      const record: Record<string, unknown> = {};
+      for (let j = 0; j < headers.length; j++) {
+        const val = values[j].trim();
+        const num = Number(val);
+        record[headers[j]] = isNaN(num) ? val : num;
+      }
+      records.push(record);
+    }
+
+    return records;
+  } catch {
+    return [];
+  }
+}
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === "," && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+
+  result.push(current);
+  return result;
+}
 
 dataRoutes.post("/occurrences/gbif/search", async (c) => {
   try {

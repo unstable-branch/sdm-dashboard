@@ -1,3 +1,11 @@
+import {
+  S3Client,
+  CreateBucketCommand,
+  PutObjectCommand,
+  GetObjectCommand,
+  HeadBucketCommand,
+} from "@aws-sdk/client-s3";
+
 const GARAGE_ENDPOINT = process.env.GARAGE_ENDPOINT || "localhost:3900";
 const GARAGE_ACCESS_KEY_ID = process.env.GARAGE_ACCESS_KEY_ID || "sdm";
 const GARAGE_SECRET_KEY = process.env.GARAGE_SECRET_KEY || "sdm_garage_secret";
@@ -31,10 +39,41 @@ export function getBucketNames(): { rasters: string; exports: string } {
   };
 }
 
+function createS3Client(): S3Client {
+  const config = getGarageConfig();
+  return new S3Client({
+    endpoint: `http://${config.endPoint}:${config.port}`,
+    region: "garage",
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: config.accessKey,
+      secretAccessKey: config.secretKey,
+    },
+  });
+}
+
 export async function ensureBuckets(): Promise<void> {
+  const s3 = createS3Client();
   const { rasters, exports } = getBucketNames();
-  console.log(`[Garage] Buckets configured: ${rasters}, ${exports}`);
-  console.log(`[Garage] Endpoint: ${GARAGE_ENDPOINT}`);
+  const buckets = [rasters, exports];
+
+  for (const bucket of buckets) {
+    try {
+      await s3.send(new HeadBucketCommand({ Bucket: bucket }));
+      console.log(`[Garage] Bucket exists: ${bucket}`);
+    } catch {
+      try {
+        await s3.send(new CreateBucketCommand({ Bucket: bucket }));
+        console.log(`[Garage] Created bucket: ${bucket}`);
+      } catch (err: unknown) {
+        if (err instanceof Error && "name" in err && (err as { name: string }).name === "BucketAlreadyOwnedByYou") {
+          console.log(`[Garage] Bucket already exists: ${bucket}`);
+        } else {
+          throw err;
+        }
+      }
+    }
+  }
 }
 
 export async function uploadFile(
@@ -43,24 +82,51 @@ export async function uploadFile(
   data: Buffer | NodeJS.ReadableStream,
   contentType: string
 ): Promise<string> {
-  const size = Buffer.isBuffer(data) ? data.length : 0;
-  console.log(`[Garage] Upload: ${bucket}/${objectName} (${size} bytes, ${contentType})`);
-  return `${bucket}/${objectName}`;
+  const s3 = createS3Client();
+  const body = Buffer.isBuffer(data) ? data : await streamToBuffer(data);
+
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: objectName,
+      Body: body,
+      ContentType: contentType,
+    })
+  );
+
+  const protocol = USE_SSL ? "https" : "http";
+  return `${protocol}://${GARAGE_ENDPOINT}/${bucket}/${objectName}`;
 }
 
 export async function downloadFile(
   bucket: string,
   objectName: string
 ): Promise<Buffer> {
-  console.log(`[Garage] Download: ${bucket}/${objectName}`);
-  return Buffer.alloc(0);
+  const s3 = createS3Client();
+  const response = await s3.send(
+    new GetObjectCommand({ Bucket: bucket, Key: objectName })
+  );
+  if (!response.Body) return Buffer.alloc(0);
+  const chunks: Buffer[] = [];
+  for await (const chunk of response.Body as AsyncIterable<Buffer>) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 export async function getFileUrl(
   bucket: string,
   objectName: string,
-  expirySeconds = 3600
+  _expirySeconds = 3600
 ): Promise<string> {
   const protocol = USE_SSL ? "https" : "http";
   return `${protocol}://${GARAGE_ENDPOINT}/${bucket}/${objectName}`;
+}
+
+async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
 }
