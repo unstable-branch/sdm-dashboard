@@ -32,7 +32,7 @@ services:
       - sdm-network
 
   garage:
-    image: dxflrs/garage:latest
+    image: dxflrs/garage:v2.2.0
     command: server
     environment:
       GARAGE_BOOTSTRAP_TOKEN: "sdm-bootstrap-token"

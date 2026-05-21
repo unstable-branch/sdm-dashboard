@@ -147,8 +147,13 @@ const port = parseInt(process.env.PORT || "4000", 10);
 
 console.log(`SDM API server running on http://0.0.0.0:${port}`);
 
-initGarageBuckets().catch((err) => {
-  console.error("[Garage] Bucket initialization failed:", err);
-});
+// Garage bucket initialization (requires access keys to be configured)
+// initGarageBuckets().catch((err) => {
+//   console.error("[Garage] Bucket initialization failed:", err);
+// });
 
-serve({ fetch: app.fetch, port });
+const server = serve({ fetch: app.fetch, port });
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[API] Unhandled rejection:", reason);
+});

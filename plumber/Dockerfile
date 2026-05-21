@@ -1,31 +1,13 @@
-FROM r-ver:4.4.2
+FROM rocker/geospatial:4.4.2
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgdal-dev \
-    libproj-dev \
-    libgeos-dev \
-    libudunits2-dev \
-    libcurl4-openssl-dev \
-    libssl-dev \
-    libxml2-dev \
-    libfontconfig1-dev \
-    libharfbuzz-dev \
-    libfribidi-dev \
-    libfreetype6-dev \
-    libpng-dev \
-    libtiff5-dev \
-    libjpeg-dev \
-    libcairo2-dev \
-    libsqlite3-dev \
-    libpq-dev \
+    libjq-dev \
     pandoc \
-    pandoc-citeproc \
     && rm -rf /var/lib/apt/lists/*
 
 RUN R -e "install.packages(c( \
-    'terra', 'sf', 'geodata', 'raster', 'sp', 'rgdal', \
     'jsonlite', 'plumber', 'httr', 'callr', \
     'randomForest', 'gbm', 'maxnet', 'nnet', \
     'mgcv', 'earth', 'rpart', 'mda', 'gam', 'xgboost', 'ranger', \
@@ -42,7 +24,6 @@ WORKDIR /app
 COPY R/ /app/R/
 COPY plumber/ /app/plumber/
 COPY data/ /app/data/
-COPY install_packages.R /app/install_packages.R
 
 RUN mkdir -p /app/data/uploads /app/outputs /app/covariates /app/Worldclim
 
