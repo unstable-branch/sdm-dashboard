@@ -21,6 +21,7 @@
     "@hono/node-server": "^1.13.0",
     "@sdm/shared": "file:../packages/shared",
     "@types/pg": "^8.20.0",
+    "bcrypt": "^6.0.0",
     "bullmq": "^5.76.10",
     "drizzle-orm": "^0.36.0",
     "hono": "^4.6.0",
@@ -30,6 +31,7 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.1.7",
     "drizzle-kit": "^0.28.0",
