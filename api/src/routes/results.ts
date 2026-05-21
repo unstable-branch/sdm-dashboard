@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { db } from "../db";
+import { runs } from "../db/schema";
+import { eq } from "drizzle-orm";
 
 export const resultsRoutes = new Hono();
 
@@ -30,19 +33,46 @@ resultsRoutes.get("/file/:filePath", async (c) => {
 
 resultsRoutes.get("/:id", async (c) => {
   const id = c.req.param("id");
-  const metaPath = join(appDir, "outputs", "jobs", id, "meta.json");
 
-  if (!existsSync(metaPath)) {
+  const [run] = await db
+    .select()
+    .from(runs)
+    .where(eq(runs.id, id))
+    .limit(1);
+
+  if (!run) {
     return c.json({ error: "Run not found" }, 404);
   }
 
-  const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
-  return c.json(meta);
+  return c.json({
+    id: run.id,
+    status: run.status,
+    species: run.speciesName,
+    model_id: run.modelId,
+    started_at: run.startedAt?.toISOString() ?? null,
+    completed_at: run.completedAt?.toISOString() ?? null,
+    error: run.error ?? null,
+    metrics: run.metrics ?? null,
+    output_files: run.outputFiles ?? null,
+    progress_log: (run.progressLog ?? []).map((entry) => {
+      if (typeof entry === "string") return entry;
+      return `${entry.timestamp} ${entry.message}`;
+    }),
+  });
 });
 
 resultsRoutes.get("/:id/report.txt", async (c) => {
   const id = c.req.param("id");
-  const reportPath = join(appDir, "outputs", "jobs", id, "report.txt");
+
+  const [run] = await db
+    .select({ resultPath: runs.resultPath })
+    .from(runs)
+    .where(eq(runs.id, id))
+    .limit(1);
+
+  const reportPath = run?.resultPath
+    ? join(appDir, run.resultPath, "report.txt")
+    : join(appDir, "outputs", "jobs", id, "report.txt");
 
   if (!existsSync(reportPath)) {
     return c.json({ error: "Report not found" }, 404);

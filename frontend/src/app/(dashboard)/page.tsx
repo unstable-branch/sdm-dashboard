@@ -5,7 +5,7 @@ import { WelcomePanel } from "@/components/ecology/welcome-panel";
 import dynamic from "next/dynamic";
 
 const SuitabilityMap = dynamic(
-  () => import("@/components/maps/suitability-map").then((mod) => ({ default: mod.SuitabilityMap })),
+  () => import("@/components/results/suitability-map").then((mod) => ({ default: mod.SuitabilityMap })),
   { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
 );
 
@@ -37,7 +37,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <SuitabilityMap />
+          <SuitabilityMap outputFiles={null} />
         </div>
         <div>
           <WelcomePanel />

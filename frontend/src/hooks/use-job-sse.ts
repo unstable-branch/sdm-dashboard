@@ -18,7 +18,7 @@ export function useJobSSE(enabled = true) {
   const connect = useCallback(() => {
     if (!enabled) return;
 
-    const es = new EventSource("/api/v1/sse");
+    const es = new EventSource("/api/v1/jobs/sse");
     eventSourceRef.current = es;
 
     es.addEventListener("job-update", (event) => {

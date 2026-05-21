@@ -404,6 +404,16 @@ function(req) {
 
       result <- run_fast_sdm(cfg)
 
+      # Generate diagnostic PNG plots
+      diag_files <- list()
+      tryCatch({
+        source(file.path(app_dir, "R", "output", "diagnostics_plots.R"), local = TRUE)
+        diag_files <- save_diagnostic_plots(result, job_dir, log_fun = log_fun)
+      }, error = function(e) {
+        cat("Diagnostic plots failed:", conditionMessage(e), "\n")
+        cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
+      })
+
       job_meta$status <<- "completed"
       job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       if (!is.null(result)) {
@@ -417,7 +427,7 @@ function(req) {
           elapsed_seconds = result$metrics$elapsed_seconds,
           high_suitability_area_km2 = result$summary$high_risk_area_km2
         )
-        job_meta$output_files <<- result$paths
+        job_meta$output_files <<- c(result$paths, diag_files)
       }
       writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
     }, error = function(e) {
