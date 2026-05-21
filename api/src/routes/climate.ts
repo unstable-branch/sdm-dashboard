@@ -4,8 +4,9 @@ import { enqueueSdmJob } from "../services/queue";
 import { climateRateLimit } from "../middleware/rate-limit";
 import { longCache } from "../middleware/cache";
 import { authMiddleware, optionalAuth } from "../middleware/auth";
+import type { AppEnv } from "../middleware/auth";
 
-export const climateRoutes = new Hono();
+export const climateRoutes = new Hono<AppEnv>();
 
 climateRoutes.use("*", climateRateLimit);
 climateRoutes.use("/download", authMiddleware);

@@ -9,8 +9,9 @@ import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit";
 import { authMiddleware, optionalAuth } from "../middleware/auth";
 import { join } from "path";
+import type { AppEnv } from "../middleware/auth";
 
-export const sdmRoutes = new Hono();
+export const sdmRoutes = new Hono<AppEnv>();
 
 sdmRoutes.use("*", modelRateLimit);
 sdmRoutes.use("/run", authMiddleware);

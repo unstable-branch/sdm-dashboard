@@ -35,9 +35,9 @@ app.get("/sse", (c) => {
           });
 
           jobEventBus.emitJobStatus({
-            jobId: job.id,
-            state,
-            progress,
+            jobId: job.id ?? "",
+            state: state as string,
+            progress: (progress ?? 0) as number,
             result: job.returnvalue as Record<string, unknown> | undefined,
             failedReason: job.failedReason,
           });

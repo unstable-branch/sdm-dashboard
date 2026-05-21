@@ -8,8 +8,9 @@ import { species, occurrences } from "../db/schema";
 import { eq, count } from "drizzle-orm";
 import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit";
 import { authMiddleware, optionalAuth } from "../middleware/auth";
+import type { AppEnv } from "../middleware/auth";
 
-export const dataRoutes = new Hono();
+export const dataRoutes = new Hono<AppEnv>();
 
 dataRoutes.use("*", defaultRateLimit);
 dataRoutes.use("/occurrences/upload", authMiddleware);
