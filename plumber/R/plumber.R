@@ -1179,3 +1179,324 @@ function(run_id) {
 
   list(ok = TRUE, manifest_path = manifest_path, manifest = manifest)
 }
+
+#* Get VIF collinearity screening results for a run
+#* @get /api/v1/diagnostics/vif/<run_id>
+function(run_id) {
+  job_dir <- file.path("outputs", "jobs", run_id)
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (!file.exists(meta_file)) {
+    return(list(error = "Run not found"), 404)
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") {
+    return(list(error = "Run not completed yet"), 400)
+  }
+
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+
+  if (is.null(result_rds) || !file.exists(result_rds)) {
+    return(list(error = "Result file not found"), 404)
+  }
+
+  tryCatch({
+    result <- readRDS(result_rds)
+    env_info <- result$environment
+    vif_result <- env_info$vif_result
+
+    if (is.null(vif_result)) {
+      return(list(
+        available = FALSE,
+        message = "VIF reduction was not enabled for this run",
+        selected_vars = env_info$names %||% character(0)
+      ))
+    }
+
+    vif_history <- if (!is.null(vif_result$vif_history) && is.data.frame(vif_result$vif_history)) {
+      lapply(seq_len(nrow(vif_result$vif_history)), function(i) as.list(vif_result$vif_history[i, ]))
+    } else {
+      list()
+    }
+
+    list(
+      available = TRUE,
+      selected = vif_result$selected %||% character(0),
+      dropped = vif_result$dropped %||% character(0),
+      vif_final = vif_result$vif_final,
+      vif_history = vif_history,
+      all_vars = env_info$names %||% character(0),
+      var_means = env_info$means %||% list(),
+      var_sds = env_info$sds %||% list()
+    )
+  }, error = function(e) {
+    list(error = paste("VIF diagnostics failed:", conditionMessage(e)))
+  })
+}
+
+#* Get response curve data for a run
+#* @get /api/v1/diagnostics/response-curves/<run_id>
+function(run_id) {
+  job_dir <- file.path("outputs", "jobs", run_id)
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (!file.exists(meta_file)) {
+    return(list(error = "Run not found"), 404)
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") {
+    return(list(error = "Run not completed yet"), 400)
+  }
+
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+
+  if (is.null(result_rds) || !file.exists(result_rds)) {
+    return(list(error = "Result file not found"), 404)
+  }
+
+  tryCatch({
+    result <- readRDS(result_rds)
+    rc <- result$response_curves
+
+    if (is.null(rc) || length(rc) == 0) {
+      return(list(available = FALSE, message = "Response curves not computed for this run"))
+    }
+
+    curves <- lapply(names(rc), function(var) {
+      df <- rc[[var]]
+      if (is.null(df) || !is.data.frame(df)) return(NULL)
+      list(
+        covariate = var,
+        points = lapply(seq_len(nrow(df)), function(i) list(
+          value = df$value[i],
+          suitability = df$suitability[i]
+        ))
+      )
+    })
+    curves <- Filter(Negate(is.null), curves)
+
+    list(
+      available = TRUE,
+      n_curves = length(curves),
+      curves = curves
+    )
+  }, error = function(e) {
+    list(error = paste("Response curves failed:", conditionMessage(e)))
+  })
+}
+
+#* Get variable importance data for a run
+#* @get /api/v1/diagnostics/importance/<run_id>
+function(run_id) {
+  job_dir <- file.path("outputs", "jobs", run_id)
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (!file.exists(meta_file)) {
+    return(list(error = "Run not found"), 404)
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") {
+    return(list(error = "Run not completed yet"), 400)
+  }
+
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+
+  if (is.null(result_rds) || !file.exists(result_rds)) {
+    return(list(error = "Result file not found"), 404)
+  }
+
+  tryCatch({
+    result <- readRDS(result_rds)
+    imp <- result$variable_importance
+
+    if (is.null(imp) || !is.data.frame(imp) || nrow(imp) == 0) {
+      return(list(available = FALSE, message = "Variable importance not computed for this run"))
+    }
+
+    importance_data <- lapply(seq_len(nrow(imp)), function(i) list(
+      variable = imp$variable[i],
+      importance = imp$importance[i],
+      sd = imp$sd[i],
+      baseline = imp$baseline[i]
+    ))
+
+    list(
+      available = TRUE,
+      n_variables = nrow(imp),
+      importance = importance_data
+    )
+  }, error = function(e) {
+    list(error = paste("Variable importance failed:", conditionMessage(e)))
+  })
+}
+
+#* Get Continuous Boyce Index data for a run
+#* @get /api/v1/diagnostics/cbi/<run_id>
+function(run_id) {
+  job_dir <- file.path("outputs", "jobs", run_id)
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (!file.exists(meta_file)) {
+    return(list(error = "Run not found"), 404)
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") {
+    return(list(error = "Run not completed yet"), 400)
+  }
+
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+
+  if (is.null(result_rds) || !file.exists(result_rds)) {
+    return(list(error = "Result file not found"), 404)
+  }
+
+  tryCatch({
+    result <- readRDS(result_rds)
+    pres_suit <- result$fit$presence_suit
+    bg_suit <- result$fit$background_suit
+
+    if (is.null(pres_suit) || is.null(bg_suit)) {
+      return(list(available = FALSE, message = "Suitability data not available for CBI computation"))
+    }
+
+    source(sdm_resolve_module("metrics_binary.R"), local = TRUE)
+    cbi_result <- continuous_boyce_index(pres_suit, bg_suit, n_bins = 51, win = 0.1)
+
+    if (is.null(cbi_result) || !is.data.frame(cbi_result$bins)) {
+      return(list(available = FALSE, message = "CBI computation returned no data"))
+    }
+
+    bins_df <- cbi_result$bins
+    bins_data <- lapply(seq_len(nrow(bins_df)), function(i) list(
+      bin_mid = bins_df$bin_mid[i],
+      ratio = bins_df$ratio[i],
+      smoothed = bins_df$smoothed[i]
+    ))
+
+    list(
+      available = TRUE,
+      cbi = cbi_result$cbi,
+      pe_ratio = cbi_result$pe_ratio,
+      n_bins = nrow(bins_df),
+      bins = bins_data,
+      note = if (!is.null(cbi_result$note) && nzchar(cbi_result$note)) cbi_result$note else NULL
+    )
+  }, error = function(e) {
+    list(error = paste("CBI computation failed:", conditionMessage(e)))
+  })
+}
+
+#* Get MESS extrapolation summary for a run
+#* @get /api/v1/diagnostics/mess/<run_id>
+function(run_id) {
+  job_dir <- file.path("outputs", "jobs", run_id)
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (!file.exists(meta_file)) {
+    return(list(error = "Run not found"), 404)
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") {
+    return(list(error = "Run not completed yet"), 400)
+  }
+
+  metrics <- meta$metrics %||% list()
+  output_files <- meta$output_files %||% list()
+
+  mess_tif <- output_files$future_mess_tif
+  mod_tif <- output_files$future_mod_tif
+
+  if (is.null(mess_tif) || !file.exists(mess_tif)) {
+    return(list(
+      available = FALSE,
+      message = "No future projection with MESS for this run",
+      has_future_projection = !is.null(output_files$future_suitability_tif)
+    ))
+  }
+
+  list(
+    available = TRUE,
+    mess_tif = mess_tif,
+    mod_tif = mod_tif,
+    pct_extrapolation = metrics$projection$mess_pct_extrapolation %||% NULL,
+    message = "MESS raster available; download TIFF for full spatial analysis"
+  )
+}
+
+#* Get combined diagnostics summary for a run
+#* @get /api/v1/diagnostics/summary/<run_id>
+function(run_id) {
+  job_dir <- file.path("outputs", "jobs", run_id)
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (!file.exists(meta_file)) {
+    return(list(error = "Run not found"), 404)
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") {
+    return(list(error = "Run not completed yet"), 400)
+  }
+
+  output_files <- meta$output_files %||% list()
+  metrics <- meta$metrics %||% list()
+  config <- meta$config %||% list()
+
+  result_rds <- output_files$result_rds
+  has_result_rds <- !is.null(result_rds) && file.exists(result_rds)
+
+  vif_available <- FALSE
+  response_curves_available <- FALSE
+  importance_available <- FALSE
+  cbi_available <- FALSE
+
+  if (has_result_rds) {
+    tryCatch({
+      result <- readRDS(result_rds)
+      vif_available <- !is.null(result$environment$vif_result)
+      response_curves_available <- !is.null(result$response_curves) && length(result$response_curves) > 0
+      importance_available <- !is.null(result$variable_importance) && is.data.frame(result$variable_importance) && nrow(result$variable_importance) > 0
+      cbi_available <- !is.null(result$fit$presence_suit) && !is.null(result$fit$background_suit)
+    }, error = function(e) {})
+  }
+
+  mess_available <- !is.null(output_files$future_mess_tif) && file.exists(output_files$future_mess_tif)
+
+  list(
+    run_id = run_id,
+    species = config$species,
+    model_id = config$model_id,
+    diagnostics = list(
+      vif = list(available = vif_available, enabled = isTRUE(config$vif_reduction)),
+      response_curves = list(available = response_curves_available),
+      variable_importance = list(available = importance_available),
+      cbi = list(available = cbi_available),
+      mess = list(available = mess_available)
+    ),
+    metrics = list(
+      auc_mean = metrics$auc_mean,
+      auc_sd = metrics$auc_sd,
+      tss_mean = metrics$tss_mean,
+      tss_sd = metrics$tss_sd,
+      presence_records = metrics$presence_records,
+      background_points = metrics$background_points
+    ),
+    files = list(
+      variable_importance_png = output_files$variable_importance_png %||% NULL,
+      response_curves_png = output_files$response_curves_png %||% NULL,
+      roc_curve_png = output_files$roc_curve_png %||% NULL,
+      cbi_png = output_files$cbi_png %||% NULL,
+      calibration_png = output_files$calibration_png %||% NULL,
+      cv_folds_png = output_files$cv_folds_png %||% NULL
+    )
+  )
+}

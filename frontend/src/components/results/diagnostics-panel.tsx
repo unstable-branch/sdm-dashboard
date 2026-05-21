@@ -1,7 +1,13 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { VifTable } from "@/components/diagnostics/vif-table";
+import { ImportanceChart } from "@/components/diagnostics/importance-chart";
+import { ResponseCurvesChart } from "@/components/diagnostics/response-curves-chart";
+import { CbiChart } from "@/components/diagnostics/cbi-chart";
+import { MessSummary } from "@/components/diagnostics/mess-summary";
 
 interface RunStatus {
   id: string;
@@ -77,6 +83,40 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
     ? `/api/v1/results/file/${encodeURIComponent(outputFiles.calibration_png)}`
     : null;
 
+  const [vifData, setVifData] = useState<Record<string, unknown> | null>(null);
+  const [importanceData, setImportanceData] = useState<Record<string, unknown> | null>(null);
+  const [responseCurvesData, setResponseCurvesData] = useState<Record<string, unknown> | null>(null);
+  const [cbiData, setCbiData] = useState<Record<string, unknown> | null>(null);
+  const [messData, setMessData] = useState<Record<string, unknown> | null>(null);
+  const [loadingDiagnostics, setLoadingDiagnostics] = useState(true);
+
+  useEffect(() => {
+    if (run.status !== "completed") return;
+
+    setLoadingDiagnostics(true);
+    const endpoints = [
+      { url: `/api/v1/diagnostics/vif/${run.id}`, setter: setVifData },
+      { url: `/api/v1/diagnostics/importance/${run.id}`, setter: setImportanceData },
+      { url: `/api/v1/diagnostics/response-curves/${run.id}`, setter: setResponseCurvesData },
+      { url: `/api/v1/diagnostics/cbi/${run.id}`, setter: setCbiData },
+      { url: `/api/v1/diagnostics/mess/${run.id}`, setter: setMessData },
+    ];
+
+    Promise.all(
+      endpoints.map(async ({ url, setter }) => {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            setter(data);
+          }
+        } catch {
+          // Silently fail — PNG fallback remains
+        }
+      })
+    ).finally(() => setLoadingDiagnostics(false));
+  }, [run.id, run.status]);
+
   const getMetric = (key: string) => {
     const val = run.metrics?.[key];
     return typeof val === "number" ? val.toFixed(3) : "—";
@@ -85,14 +125,15 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="cv" className="space-y-4">
-        <TabsList className="grid grid-cols-7 w-full max-w-3xl">
+        <TabsList className="grid grid-cols-8 w-full max-w-4xl">
           <TabsTrigger value="cv" className="text-xs">CV Folds</TabsTrigger>
           <TabsTrigger value="importance" className="text-xs">Importance</TabsTrigger>
           <TabsTrigger value="curves" className="text-xs">Response Curves</TabsTrigger>
           <TabsTrigger value="roc" className="text-xs">ROC</TabsTrigger>
           <TabsTrigger value="cbi" className="text-xs">CBI</TabsTrigger>
           <TabsTrigger value="calibration" className="text-xs">Calibration</TabsTrigger>
-          <TabsTrigger value="log" className="text-xs">Run Log</TabsTrigger>
+          <TabsTrigger value="vif" className="text-xs">VIF</TabsTrigger>
+          <TabsTrigger value="mess" className="text-xs">MESS</TabsTrigger>
         </TabsList>
 
         <TabsContent value="cv">
@@ -127,11 +168,23 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
         </TabsContent>
 
         <TabsContent value="importance">
-          <DiagnosticImage src={variableImportancePng} label="Variable importance" className="max-h-[70vh]" />
+          <div className="space-y-4">
+            <ImportanceChart
+              data={importanceData as any}
+              loading={loadingDiagnostics}
+            />
+            <DiagnosticImage src={variableImportancePng} label="Variable importance (PNG fallback)" className="max-h-[40vh]" />
+          </div>
         </TabsContent>
 
         <TabsContent value="curves">
-          <DiagnosticImage src={responseCurvesPng} label="Response curves" className="max-h-[70vh]" />
+          <div className="space-y-4">
+            <ResponseCurvesChart
+              data={responseCurvesData as any}
+              loading={loadingDiagnostics}
+            />
+            <DiagnosticImage src={responseCurvesPng} label="Response curves (PNG fallback)" className="max-h-[40vh]" />
+          </div>
         </TabsContent>
 
         <TabsContent value="roc">
@@ -139,11 +192,31 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
         </TabsContent>
 
         <TabsContent value="cbi">
-          <DiagnosticImage src={cbiPng} label="Continuous Boyce Index" className="max-h-[70vh]" />
+          <div className="space-y-4">
+            <CbiChart
+              data={cbiData as any}
+              loading={loadingDiagnostics}
+            />
+            <DiagnosticImage src={cbiPng} label="CBI (PNG fallback)" className="max-h-[40vh]" />
+          </div>
         </TabsContent>
 
         <TabsContent value="calibration">
           <DiagnosticImage src={calibrationPng} label="Calibration Curve" className="max-h-[70vh]" />
+        </TabsContent>
+
+        <TabsContent value="vif">
+          <VifTable
+            data={vifData as any}
+            loading={loadingDiagnostics}
+          />
+        </TabsContent>
+
+        <TabsContent value="mess">
+          <MessSummary
+            data={messData as any}
+            loading={loadingDiagnostics}
+          />
         </TabsContent>
 
         <TabsContent value="log">
