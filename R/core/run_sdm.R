@@ -550,6 +550,14 @@ run_fast_sdm <- function(...) {
   suitability_summary <- summarise_suitability(suit, threshold)
   if (!is.null(future)) future$summary <- summarise_suitability(future$suitability, threshold)
 
+  future_pngs <- save_future_pngs(future, occ, projection_extent, species, threshold, future_label, output_dir, base_name)
+  if (!is.null(future_pngs$future_png)) extra_paths$future_suitability_png <- future_pngs$future_png
+  if (!is.null(future_pngs$delta_png)) extra_paths$future_delta_png <- future_pngs$delta_png
+
+  future2_pngs <- save_future_pngs(future2, occ, projection_extent, species, threshold, future_label2, output_dir, base_name, suffix = "2")
+  if (!is.null(future2_pngs$future_png)) extra_paths$future2_suitability_png <- future2_pngs$future_png
+  if (!is.null(future2_pngs$delta_png)) extra_paths$future2_delta_png <- future2_pngs$delta_png
+
   # EOO/AOO calculation
   eoo_aoo_result <- NULL
   if (!is.null(fit$occurrence_used)) {

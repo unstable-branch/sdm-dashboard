@@ -520,6 +520,269 @@ function() {
   )
 }
 
+#* Discover available future climate scenarios
+#* @get /api/v1/future/scenarios
+function() {
+  base_dir <- sdm_default_future_worldclim_dir
+  if (!dir.exists(base_dir)) {
+    return(list(available_scenarios = list(), message = paste("Directory not found:", base_dir)))
+  }
+
+  gcm_ids <- c("UKESM1-0-LL", "MPI-ESM1-2-HR", "IPSL-CM6A-LR", "MRI-ESM2-0", "GFDL-ESM4")
+  ssp_ids <- c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0", "SSP5-8.5")
+  period_ids <- c("2021-2040", "2041-2060", "2061-2080", "2081-2100")
+
+  available <- list()
+  for (gcm in gcm_ids) {
+    for (ssp in ssp_ids) {
+      for (period in period_ids) {
+        dir_name <- paste0(gcm, "_", ssp, "_", period)
+        dir_path <- file.path(base_dir, dir_name)
+        if (dir.exists(dir_path)) {
+          tif_files <- list.files(dir_path, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+          available <- c(available, list(list(
+            gcm = gcm,
+            ssp = ssp,
+            period = period,
+            path = dir_path,
+            file_count = length(tif_files),
+            files = tif_files
+          )))
+        }
+      }
+    }
+  }
+
+  list(available_scenarios = available, base_directory = base_dir)
+}
+
+#* Download a climate scenario (current or future)
+#* @post /api/v1/climate/download
+function(req) {
+  body <- req$postBody
+  if (is.null(body)) body <- list()
+  if (is.character(body)) body <- jsonlite::fromJSON(body, simplifyVector = FALSE)
+
+  download_type <- body$type %||% "cmip6"
+  job_id <- paste0("climate_", format(Sys.time(), "%Y%m%d_%H%M%S"), "_", paste(sample(letters, 6), collapse = ""))
+  job_dir <- file.path("outputs", "jobs", job_id)
+  dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+  progress_log <- file.path(job_dir, "progress.log")
+
+  job_meta <- list(
+    id = job_id,
+    type = download_type,
+    status = "running",
+    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+    completed_at = NULL,
+    error = NULL,
+    config = body
+  )
+  writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE), file.path(job_dir, "meta.json"))
+
+  log_fun <- function(...) {
+    msg <- paste0(...)
+    cat(msg, "\n")
+    cat(msg, "\n", file = progress_log, append = TRUE)
+  }
+
+  run_bg <- function() {
+    tryCatch({
+      if (download_type == "cmip6") {
+        gcm <- body$gcm %||% "UKESM1-0-LL"
+        ssp <- body$ssp %||% "SSP2-4.5"
+        period <- body$period %||% "2041-2060"
+        res <- as.integer(body$res %||% 10)
+        log_fun("Downloading CMIP6: ", gcm, " / ", ssp, " / ", period, " (", res, "m)")
+        source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
+        fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res, out_dir = "Worldclim_future", quiet = FALSE)
+        log_fun("CMIP6 download complete")
+      } else if (download_type == "cmip6_average") {
+        gcm_list <- body$gcm_list %||% character(0)
+        ssp <- body$ssp %||% "SSP2-4.5"
+        period <- body$period %||% "2041-2060"
+        res <- as.integer(body$res %||% 10)
+        log_fun("Averaging CMIP6 GCMs: ", paste(gcm_list, collapse = ", "), " / ", ssp, " / ", period)
+        source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
+        average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res, out_dir = "Worldclim_future", quiet = FALSE)
+        log_fun("GCM averaging complete")
+      } else if (download_type == "worldclim") {
+        res <- as.integer(body$res %||% 10)
+        biovars <- body$biovars
+        if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
+        log_fun("Downloading WorldClim v2.1 BIO layers (", res, "m)")
+        source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
+        download_worldclim_bio(worldclim_dir = "Worldclim", biovars = biovars, res = res, quiet = FALSE)
+        log_fun("WorldClim download complete")
+      } else if (download_type == "chelsa") {
+        biovars <- body$biovars
+        if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
+        log_fun("Downloading CHELSA v2.1 BIO layers")
+        source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
+        download_chelsa_bio(chelsa_dir = "chelsa", biovars = biovars, quiet = FALSE)
+        log_fun("CHELSA download complete")
+      } else {
+        stop("Unknown download type: ", download_type)
+      }
+
+      job_meta$status <<- "completed"
+      job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    }, error = function(e) {
+      job_meta$status <<- "failed"
+      job_meta$error <<- conditionMessage(e)
+      job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      log_fun("Download failed: ", conditionMessage(e))
+    })
+
+    job_meta$progress_log <- tryCatch(tail(readLines(progress_log, warn = FALSE), 50), error = function(e) character(0))
+    writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE), file.path(job_dir, "meta.json"))
+  }
+
+  callr::r_bg(run_bg)
+
+  list(
+    job_id = job_id,
+    status = "running",
+    message = "Climate download started in background"
+  )
+}
+
+#* Get climate download job status
+#* @get /api/v1/climate/status/<job_id>
+function(job_id) {
+  job_dir <- file.path("outputs", "jobs", job_id)
+  meta_file <- file.path(job_dir, "meta.json")
+  progress_file <- file.path(job_dir, "progress.log")
+
+  if (!file.exists(meta_file)) {
+    return(list(error = "Download job not found"), 404)
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+
+  progress_lines <- character(0)
+  if (file.exists(progress_file)) {
+    progress_lines <- tail(readLines(progress_file, warn = FALSE), 50)
+  }
+
+  list(
+    id = meta$id,
+    type = meta$type,
+    status = meta$status,
+    started_at = meta$started_at,
+    completed_at = meta$completed_at %||% NULL,
+    error = meta$error %||% NULL,
+    config = meta$config %||% NULL,
+    progress_log = progress_lines
+  )
+}
+
+#* List downloaded climate scenarios
+#* @get /api/v1/climate/scenarios
+function() {
+  future_dir <- sdm_default_future_worldclim_dir
+  current_dir <- sdm_default_worldclim_dir
+  chelsa_dir <- "chelsa"
+
+  scenarios <- list()
+
+  if (dir.exists(future_dir)) {
+    subdirs <- list.dirs(future_dir, recursive = FALSE, full.names = FALSE)
+    for (sd_name in subdirs) {
+      sd <- file.path(future_dir, sd_name)
+      tif_files <- list.files(sd, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+      total_size <- sum(file.info(tif_files)$size, na.rm = TRUE)
+      is_averaged <- startsWith(sd_name, "averaged_")
+
+      gcm <- ""
+      ssp <- ""
+      period <- ""
+      if (is_averaged) {
+        parts <- strsplit(sd_name, "_")[[1]]
+        if (length(parts) >= 4) {
+          gcm <- paste(parts[2:(length(parts) - 2)], collapse = "_")
+          ssp_code <- parts[length(parts) - 1]
+          ssp <- paste0("SSP", substr(ssp_code, 1, 1), "-", substr(ssp_code, 2, 3))
+          period <- parts[length(parts)]
+        }
+      } else {
+        parts <- strsplit(sd_name, "_")[[1]]
+        if (length(parts) >= 3) {
+          period <- parts[length(parts)]
+          ssp_raw <- parts[length(parts) - 1]
+          ssp <- if (grepl("-", ssp_raw)) ssp_raw else paste0("SSP", substr(ssp_raw, 1, 1), "-", substr(ssp_raw, 2, 3))
+          gcm <- paste(parts[1:(length(parts) - 2)], collapse = "_")
+        }
+      }
+
+      scenarios <- c(scenarios, list(list(
+        id = sd_name,
+        type = "future",
+        gcm = gcm,
+        ssp = ssp,
+        period = period,
+        path = sd,
+        file_count = length(tif_files),
+        size_bytes = total_size,
+        is_averaged = is_averaged
+      )))
+    }
+  }
+
+  if (dir.exists(current_dir)) {
+    tif_files <- list.files(current_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+    total_size <- sum(file.info(tif_files)$size, na.rm = TRUE)
+    scenarios <- c(scenarios, list(list(
+      id = "worldclim_current",
+      type = "current",
+      source = "worldclim",
+      path = current_dir,
+      file_count = length(tif_files),
+      size_bytes = total_size
+    )))
+  }
+
+  if (dir.exists(chelsa_dir)) {
+    tif_files <- list.files(chelsa_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+    total_size <- sum(file.info(tif_files)$size, na.rm = TRUE)
+    scenarios <- c(scenarios, list(list(
+      id = "chelsa_current",
+      type = "current",
+      source = "chelsa",
+      path = chelsa_dir,
+      file_count = length(tif_files),
+      size_bytes = total_size
+    )))
+  }
+
+  list(scenarios = scenarios)
+}
+
+#* Delete a downloaded climate scenario
+#* @post /api/v1/climate/delete/<scenario_id>
+function(scenario_id) {
+  future_dir <- sdm_default_future_worldclim_dir
+  current_dir <- sdm_default_worldclim_dir
+  chelsa_dir <- "chelsa"
+
+  target_dir <- NULL
+  if (scenario_id == "worldclim_current") {
+    target_dir <- current_dir
+  } else if (scenario_id == "chelsa_current") {
+    target_dir <- chelsa_dir
+  } else {
+    target_dir <- file.path(future_dir, scenario_id)
+  }
+
+  if (is.null(target_dir) || !dir.exists(target_dir)) {
+    return(list(error = "Scenario not found"), 404)
+  }
+
+  unlink(target_dir, recursive = TRUE, force = TRUE)
+
+  list(ok = TRUE, message = paste("Scenario deleted:", scenario_id))
+}
+
 #* Get model config defaults
 #* @get /api/v1/config/defaults
 function() {

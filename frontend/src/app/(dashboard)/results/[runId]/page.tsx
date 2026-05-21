@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SuitabilityMap } from "@/components/results/suitability-map";
 import { MetricCards } from "@/components/results/metric-cards";
 import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
+import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
 interface RunStatus {
@@ -19,6 +20,7 @@ interface RunStatus {
   metrics: Record<string, unknown> | null;
   output_files: Record<string, string> | null;
   progress_log: string[];
+  config?: Record<string, unknown>;
 }
 
 export default function ResultsPage() {
@@ -143,9 +145,7 @@ export default function ResultsPage() {
             </TabsContent>
 
             <TabsContent value="future">
-              <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
-                Future projection — configure in Model tab and re-run
-              </div>
+              <FutureProjectionPanel outputFiles={run.output_files} config={run.config} />
             </TabsContent>
 
             <TabsContent value="report">

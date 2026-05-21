@@ -64,6 +64,35 @@ export const UV_VARS = [
 
 export const DEM_CHOICES = ["COP90", "SRTMGL3", "AW3D30", "SRTMGL1"];
 
+export const GCM_CHOICES = [
+  { id: "UKESM1-0-LL", label: "UKESM1-0-LL", description: "UK Earth System Model" },
+  { id: "MPI-ESM1-2-HR", label: "MPI-ESM1-2-HR", description: "Max Planck Institute" },
+  { id: "IPSL-CM6A-LR", label: "IPSL-CM6A-LR", description: "Institut Pierre-Simon Laplace" },
+  { id: "MRI-ESM2-0", label: "MRI-ESM2-0", description: "Meteorological Research Institute" },
+  { id: "GFDL-ESM4", label: "GFDL-ESM4", description: "Geophysical Fluid Dynamics Laboratory" },
+];
+
+export const SSP_CHOICES = [
+  { id: "SSP1-2.6", label: "SSP1-2.6", description: "Low emissions" },
+  { id: "SSP2-4.5", label: "SSP2-4.5", description: "Intermediate (default)" },
+  { id: "SSP3-7.0", label: "SSP3-7.0", description: "High emissions" },
+  { id: "SSP5-8.5", label: "SSP5-8.5", description: "Very high emissions" },
+];
+
+export const TIME_PERIOD_CHOICES = [
+  { id: "2021-2040", label: "2021-2040", description: "Near future" },
+  { id: "2041-2060", label: "2041-2060", description: "Mid century (default)" },
+  { id: "2061-2080", label: "2061-2080", description: "End of century" },
+  { id: "2081-2100", label: "2081-2100", description: "Long term" },
+];
+
+export const SSP_CODE_MAP: Record<string, string> = {
+  "SSP1-2.6": "126",
+  "SSP2-4.5": "245",
+  "SSP3-7.0": "370",
+  "SSP5-8.5": "585",
+};
+
 export const DEFAULT_CONFIG = {
   biovars: [1, 4, 6, 12, 15, 18],
   backgroundN: 10000,

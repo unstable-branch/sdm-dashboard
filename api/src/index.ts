@@ -8,6 +8,7 @@ import { sdmQueue, sdmWorker, getJobStatus } from "./services/queue";
 import { sdmRoutes } from "./routes/sdm";
 import { dataRoutes } from "./routes/occurrences";
 import { resultsRoutes } from "./routes/results";
+import { climateRoutes } from "./routes/climate";
 import jobsRoutes from "./routes/jobs";
 
 const app = new Hono();
@@ -67,6 +68,7 @@ app.get("/ready", async (c) => {
 app.route("/api/v1/sdm", sdmRoutes);
 app.route("/api/v1/data", dataRoutes);
 app.route("/api/v1/results", resultsRoutes);
+app.route("/api/v1/climate", climateRoutes);
 app.route("/api/v1/jobs", jobsRoutes);
 
 const port = parseInt(process.env.PORT || "4000", 10);
