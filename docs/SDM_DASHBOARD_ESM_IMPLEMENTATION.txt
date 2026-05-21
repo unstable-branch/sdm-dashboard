@@ -1,0 +1,700 @@
+================================================================================
+SDM DASHBOARD WORKBENCH — ENSEMBLES OF SMALL MODELS (ESM)
+================================================================================
+Feature: ESM support for rare and data-poor invasive species
+Method:  Lomba et al. (2010), Breiner et al. (2015, 2018)
+Package: ecospat (rOpenSci / CRAN) — the reference implementation
+
+================================================================================
+WHAT IS ESM AND WHY IT MATTERS FOR YOUR PROJECT
+================================================================================
+
+Standard SDMs with many covariates and few presence records overfit badly.
+Your current minimum is 15 records (sdm_default_min_source_records). With
+15 records and 6 bioclim variables, a GLM with quadratic terms has 12
+parameters and almost zero degrees of freedom for cross-validation — the
+model is memorising the training data, not learning the species' ecology.
+
+ESMs solve this by decomposing the modelling problem:
+
+  STANDARD SDM:         1 model × N predictors × M occurrences
+  ESM:           N*(N-1)/2 models × 2 predictors each × M occurrences
+
+Example with 6 predictors (BIO1, BIO4, BIO6, BIO12, BIO15, BIO18):
+  6*(6-1)/2 = 15 bivariate models, each with only 2 predictors
+  Each model is simple enough to fit with as few as 5-10 occurrences
+
+The 15 bivariate models are weighted by AUC and averaged into one ensemble.
+
+Key literature findings:
+  - ESMs outperform standard SDMs for rare species (<30 occurrences)
+  - The rarer the species, the more pronounced the ESM advantage
+  - ESMs are competitive with or better than standard ensembles at low N
+  - Performance advantage diminishes as N increases (>100 records standard
+    SDMs catch up)
+
+RELEVANCE TO YOUR PROJECT:
+  Newly-invasive species are by definition rare (few records exist).
+  Early-detection invasives — the most management-relevant case — have
+  5-30 records. ESMs are THE recommended method for this regime.
+  No other SDM platform exposes ESMs as prominently as they deserve.
+  Wallace 2 does not have ESMs. flexsdm does. ecospat has the reference
+  implementation. Adding ESMs makes your tool best-in-class for rare
+  invasive species.
+
+================================================================================
+HOW ESMs WORK (algorithm)
+================================================================================
+
+Given:
+  - P = set of predictors (e.g., BIO1, BIO4, BIO6, BIO12, BIO15, BIO18)
+  - n = number of presences (e.g., 20)
+  - Algorithm = GLM (or MaxEnt, GBM)
+
+Step 1: Generate all pairwise combinations of predictors
+  pairs = [(BIO1,BIO4), (BIO1,BIO6), (BIO1,BIO12), ..., (BIO15,BIO18)]
+  For k=6 predictors: 15 pairs
+
+Step 2: For each pair (pi, pj):
+  a. Fit bivariate model: suitability ~ pi + pj (+ pi² + pj² if GLM)
+  b. Cross-validate (k-fold or split-sample)
+  c. Record AUC score
+
+Step 3: Optional — apply AUC threshold
+  Drop bivariate models with AUC < threshold (e.g., 0.7)
+  Keeps only informative predictor pairs
+
+Step 4: Build weighted ensemble
+  w_i = AUC_i ^ power (power=1 default for ESM)
+  w_i_norm = w_i / sum(w_i)
+  ESM_suitability = sum(w_i_norm × suitability_i) for all kept models
+
+Step 5: Project to study region (or future climate)
+  Apply weighted ensemble to full covariate raster
+
+Computational cost:
+  For k predictors: k*(k-1)/2 bivariate models × cross-validation
+  k=6:  15 models  — fast (<1 min)
+  k=10: 45 models  — moderate (~3-5 min)
+  k=19: 171 models — slow (10-30 min) — warn users; recommend subsetting
+
+================================================================================
+IMPLEMENTATION APPROACH: USE ecospat (recommended)
+================================================================================
+
+Reason to use ecospat over implementing from scratch:
+  - Reference implementation from original authors (Breiner, Broennimann)
+  - Peer-reviewed, tested across hundreds of species in published studies
+  - Handles edge cases (failed bivariate models, AUC < 0.5 fallbacks)
+  - Supports multiple algorithms (GLM, GBM, MaxEnt, RF) internally
+  - Already integrates with biomod2 output format
+  - Alternative (from scratch) is 300+ lines and reproduces existing work
+
+================================================================================
+IMPLEMENTATION STEP 1: ADD ECOSPAT TO PACKAGES
+================================================================================
+
+WHERE: R/packages.R
+
+ADD to sdm_optional_packages:
+```r
+sdm_optional_packages <- list(
+  maxnet  = c("maxnet", "glmnet"),
+  biomd2  = c("biomod2", "PresenceAbsence", "pROC"),
+  dwca    = c("finch"),
+  esm     = c("ecospat", "biomod2")  # ecospat wraps biomod2 for ESM
+)
+```
+
+NOTE: ecospat depends on biomod2. This means enabling ESMs also pulls in
+biomod2. Accept this dependency — ecospat is the only mature ESM
+implementation. When biomod2 (Task B1-B7) is eventually wired up, the
+ecospat dependency is already satisfied.
+
+================================================================================
+IMPLEMENTATION STEP 2: ESM BACKEND MODULE
+================================================================================
+
+WHERE: New file R/model_esm.R
+
+```r
+#' Ensembles of Small Models (ESM)
+#' Lomba et al. 2010, Breiner et al. 2015, 2018
+#'
+#' Fits all pairwise bivariate models and averages them into an ensemble.
+#' Designed for rare species with few occurrences (typically < 30 records).
+#'
+#' @param occ               sf/data.frame with presence records
+#' @param env_train_scaled  data.frame of training covariate values
+#'                          (presence + background, scaled)
+#' @param biovars           character vector of covariate names to use
+#' @param algorithm         "GLM" | "GAM" | "MAXNET" — passed to ecospat
+#' @param min_auc           numeric — drop bivariate models below this AUC
+#' @param power             numeric — AUC weight exponent (default 1)
+#' @param n_runs_eval       integer — evaluation runs (default 5)
+#' @param data_split        numeric — train/test split % (default 70)
+#' @param seed              integer
+#' @param log_fun           optional progress logger
+#'
+#' @return standard SDM fit list (same contract as fit_fast_sdm)
+
+fit_esm <- function(occ,
+                    env_train_scaled,
+                    biovars         = NULL,
+                    algorithm       = "GLM",
+                    min_auc         = 0.7,
+                    power           = 1,
+                    n_runs_eval     = 5,
+                    data_split      = 70,
+                    seed            = 42L,
+                    log_fun         = NULL) {
+
+  if (!requireNamespace("ecospat", quietly = TRUE)) {
+    stop("Package 'ecospat' is required for ESM. ",
+         "Install with: install.packages('ecospat')")
+  }
+  if (!requireNamespace("biomd2", quietly = TRUE)) {
+    stop("Package 'biomd2' is required by ecospat for ESM. ",
+         "Install with: install.packages('biomd2')")
+  }
+
+  set.seed(seed)
+
+  # ── Validate inputs ───────────────────────────────────────────────────────
+  n_pres <- sum(env_train_scaled$presence == 1)
+  n_vars <- if (!is.null(biovars)) length(biovars) else
+              sum(!(names(env_train_scaled) %in%
+                    c("presence", "case_weight_sdm", ".x", ".y")))
+
+  n_pairs <- n_vars * (n_vars - 1) / 2
+
+  log_msg(log_fun, "ESM: ", n_pres, " presences, ", n_vars, " variables → ",
+          n_pairs, " bivariate models")
+
+  if (n_pres < 5) {
+    stop("ESM requires at least 5 presence records. Got: ", n_pres)
+  }
+  if (n_vars < 2) {
+    stop("ESM requires at least 2 predictor variables. Got: ", n_vars)
+  }
+  if (n_pairs > 100) {
+    warning("ESM: ", n_pairs, " bivariate models requested. This may take ",
+            "several minutes. Consider reducing the number of covariates.")
+  }
+
+  # ── Prepare data in ecospat format ───────────────────────────────────────
+  # ecospat.ESM.Modeling expects a specific data format:
+  # data = data.frame with columns: RespVar (0/1), predictor1, predictor2, ...
+
+  covariate_cols <- if (!is.null(biovars)) biovars else
+    setdiff(names(env_train_scaled),
+            c("presence", "case_weight_sdm", ".x", ".y"))
+
+  esm_data <- data.frame(
+    RespVar = env_train_scaled$presence,
+    env_train_scaled[, covariate_cols, drop = FALSE]
+  )
+
+  # ── Run ESM calibration ──────────────────────────────────────────────────
+  log_msg(log_fun, "ESM: calibrating ", n_pairs, " bivariate models...")
+
+  esm_models <- tryCatch(
+    ecospat::ecospat.ESM.Modeling(
+      data             = esm_data,
+      NbRunEval        = n_runs_eval,
+      DataSplit        = data_split,
+      Prevalence       = NULL,          # use observed prevalence
+      weighting.score  = "AUC",         # weight by AUC (Breiner 2015)
+      models           = algorithm,
+      tune             = FALSE,         # no hyperparameter tuning (speed)
+      modeling.id      = paste0("esm_", format(Sys.time(), "%Y%m%d%H%M%S")),
+      cleanup          = TRUE           # remove temp files
+    ),
+    error = function(e) {
+      stop("ESM calibration failed: ", conditionMessage(e))
+    }
+  )
+
+  # ── Build ensemble ────────────────────────────────────────────────────────
+  log_msg(log_fun, "ESM: building weighted ensemble...")
+
+  esm_ensemble <- ecospat::ecospat.ESM.EnsembleModeling(
+    ESM.modeling.output = esm_models,
+    weighting.score     = "AUC",
+    threshold           = min_auc       # drop models below this AUC
+  )
+
+  # ── Extract evaluation metrics ───────────────────────────────────────────
+  eval_scores <- esm_ensemble$ESM.evaluations
+  auc_mean    <- mean(eval_scores$AUC,  na.rm = TRUE)
+  auc_sd      <- sd(eval_scores$AUC,    na.rm = TRUE)
+  tss_mean    <- mean(eval_scores$TSS,  na.rm = TRUE)
+  tss_sd      <- sd(eval_scores$TSS,    na.rm = TRUE)
+
+  log_msg(log_fun, sprintf("ESM: AUC = %.3f ± %.3f, TSS = %.3f ± %.3f",
+                            auc_mean, auc_sd, tss_mean, tss_sd))
+
+  # ── Extract weights per bivariate model ──────────────────────────────────
+  weights_used <- data.frame(
+    pair       = names(esm_ensemble$weights),
+    weight_raw = unname(esm_ensemble$weights),
+    stringsAsFactors = FALSE
+  )
+  n_models_kept   <- sum(!is.na(esm_ensemble$weights) &
+                          esm_ensemble$weights > 0)
+  n_models_dropped <- n_pairs - n_models_kept
+
+  if (n_models_dropped > 0) {
+    log_msg(log_fun, "ESM: dropped ", n_models_dropped,
+            " bivariate models (AUC < ", min_auc, ")")
+  }
+
+  # ── Return standard fit contract ─────────────────────────────────────────
+  list(
+    model            = list(esm_models   = esm_models,
+                             esm_ensemble = esm_ensemble),
+    formula          = NULL,
+    coefficients     = weights_used,       # predictor pair weights ≈ importance
+    occurrence_used  = occ,
+    background_xy    = env_train_scaled[env_train_scaled$presence == 0,
+                                         c(".x", ".y")],
+    cv               = list(
+      strategy        = "split-sample",
+      k               = n_runs_eval,
+      auc_mean        = auc_mean,
+      auc_sd          = auc_sd,
+      tss_mean        = tss_mean,
+      tss_sd          = tss_sd,
+      threshold       = min_auc
+    ),
+    covariates       = covariate_cols,
+    variable_importance = extract_esm_importance(esm_ensemble, covariate_cols),
+    esm_config       = list(
+      algorithm       = algorithm,
+      n_vars          = n_vars,
+      n_pairs_total   = n_pairs,
+      n_pairs_used    = n_models_kept,
+      n_pairs_dropped = n_models_dropped,
+      min_auc         = min_auc,
+      power           = power
+    )
+  )
+}
+
+#' Predict suitability from a fitted ESM
+predict_esm_suitability <- function(fit, env_project_scaled,
+                                     output_tif, n_cores = 1,
+                                     log_fun = NULL) {
+
+  log_msg(log_fun, "ESM: projecting suitability...")
+
+  # ecospat provides ESM.project for spatial prediction
+  esm_proj <- ecospat::ecospat.ESM.EnsembleProjection(
+    ESM.prediction.output = ecospat::ecospat.ESM.Projection(
+      ESM.modeling.output = fit$model$esm_models,
+      new.env             = as.data.frame(terra::values(env_project_scaled))
+    ),
+    ESM.EnsembleModeling.output = fit$model$esm_ensemble
+  )
+
+  # Convert vector to SpatRaster
+  template     <- env_project_scaled[[1]]
+  suit_raster  <- terra::setValues(template, esm_proj / 1000)  # ecospat scales 0-1000
+  names(suit_raster) <- "suitability"
+
+  terra::writeRaster(suit_raster, output_tif, overwrite = TRUE)
+  suit_raster
+}
+
+#' Derive per-variable importance from ESM pair weights
+#' Each variable's importance = mean weight of all pairs containing it
+extract_esm_importance <- function(esm_ensemble, var_names) {
+  w <- esm_ensemble$weights
+  if (is.null(w) || length(w) == 0) return(NULL)
+
+  # Parse pair names (format: "VAR1_VAR2")
+  importance <- vapply(var_names, function(v) {
+    pairs_with_v <- grep(paste0("(^|_)", v, "(_|$)"), names(w), value = TRUE)
+    if (length(pairs_with_v) == 0) return(0)
+    mean(w[pairs_with_v], na.rm = TRUE)
+  }, numeric(1))
+
+  data.frame(
+    variable   = var_names,
+    importance = importance / max(importance, na.rm = TRUE),  # normalise 0-1
+    stringsAsFactors = FALSE
+  )
+}
+```
+
+================================================================================
+IMPLEMENTATION STEP 3: REGISTER IN MODEL REGISTRY
+================================================================================
+
+WHERE: R/model_registry.R
+
+```r
+if (requireNamespace("ecospat", quietly = TRUE) &&
+    requireNamespace("biomd2", quietly = TRUE)) {
+
+  register_sdm_model(
+    id          = "esm_glm",
+    label       = "ESM — GLM (rare species)",
+    method      = "Ensembles of Small Models: bivariate GLMs weighted by AUC",
+    packages    = c("ecospat", "biomd2"),
+    maturity    = "experimental",
+    fit_fun     = function(...) fit_esm(..., algorithm = "GLM"),
+    predict_fun = predict_esm_suitability,
+    supports_importance = TRUE,
+    supports_uncertainty = FALSE,
+    supports_future      = TRUE,
+    min_records          = 5L,    # override global minimum for ESM
+    notes = paste0(
+      "Recommended for < 30 presence records. ",
+      "Builds all pairwise bivariate models and averages by AUC. ",
+      "Lomba et al. 2010; Breiner et al. 2015, 2018."
+    )
+  )
+
+  register_sdm_model(
+    id      = "esm_maxnet",
+    label   = "ESM — MaxEnt (rare species)",
+    method  = "Ensembles of Small Models: bivariate MaxEnt weighted by AUC",
+    packages = c("ecospat", "biomd2", "maxnet"),
+    maturity = "experimental",
+    fit_fun  = function(...) fit_esm(..., algorithm = "MAXNET"),
+    predict_fun = predict_esm_suitability,
+    supports_importance = TRUE,
+    supports_uncertainty = FALSE,
+    supports_future      = TRUE,
+    min_records          = 5L,
+    notes = paste0(
+      "As ESM-GLM but using MaxEnt as the base algorithm. ",
+      "Better for non-linear responses. Requires maxnet package."
+    )
+  )
+}
+```
+
+KEY ADDITION — min_records per backend:
+This requires adding a `min_records` field to the registry contract and
+checking it in run_fast_sdm():
+
+```r
+# In R/run_sdm.R, after loading occurrence data:
+model_meta  <- get_sdm_model(config$model_id)
+min_rec_req <- model_meta$min_records %||% sdm_default_min_source_records
+
+if (n_presences < min_rec_req) {
+  stop(sprintf("Model '%s' requires at least %d presence records. Got %d.",
+               config$model_id, min_rec_req, n_presences))
+}
+```
+
+================================================================================
+IMPLEMENTATION STEP 4: UI — SMART MODEL RECOMMENDATION
+================================================================================
+
+One of the highest-value UI additions: auto-recommend ESM when record count
+is low. This is the key workflow trigger for ESMs.
+
+WHERE: app.R, model settings section
+
+```r
+# Show ESM recommendation when presences < threshold
+uiOutput("esm_recommendation")
+
+# Server
+output$esm_recommendation <- renderUI({
+  req(rv$cleaned_occ)
+  n_pres <- sum(rv$cleaned_occ$presence == 1, na.rm = TRUE)
+
+  if (n_pres < 30 && "esm_glm" %in% sdm_model_ids()) {
+    div(class = "alert alert-info",
+        icon("info-circle"),
+        strong(" Rare species detected"),
+        sprintf(" — only %d presence records. ", n_pres),
+        "ESM (Ensembles of Small Models) is recommended for this record count.",
+        br(),
+        actionButton("switch_to_esm", "Switch to ESM",
+                     class = "btn-info btn-sm")
+    )
+  } else if (n_pres < 30 && !("esm_glm" %in% sdm_model_ids())) {
+    div(class = "alert alert-warning",
+        icon("warning"),
+        strong(" Low record count"),
+        sprintf(" — only %d presence records. ", n_pres),
+        "Install ecospat to enable ESM (recommended for rare species): ",
+        tags$code("install.packages('ecospat')")
+    )
+  }
+})
+
+# Handler for "Switch to ESM" button
+observeEvent(input$switch_to_esm, {
+  updateSelectInput(session, "model_id", selected = "esm_glm")
+})
+```
+
+THRESHOLDS FOR RECOMMENDATION:
+  n < 10   — show warning even for ESM ("very few records; treat results with caution")
+  10-29    — recommend ESM strongly
+  30-99    — standard models competitive; ESM still valid; user's choice
+  >= 100   — standard models preferred; ESM offers no advantage
+
+================================================================================
+IMPLEMENTATION STEP 5: CONFIGURATION DEFAULTS
+================================================================================
+
+WHERE: R/config.R
+
+```r
+# ESM defaults
+sdm_esm_min_occurrences  <- 5L     # absolute minimum for ESM
+sdm_esm_recommend_below  <- 30L    # threshold for auto-recommendation
+sdm_esm_warn_below       <- 10L    # warn even within ESM regime
+sdm_esm_default_min_auc  <- 0.7    # drop bivariate models below this AUC
+sdm_esm_default_power    <- 1      # weight exponent (Breiner 2015 default)
+sdm_esm_default_n_runs   <- 5L     # evaluation runs
+sdm_esm_default_split    <- 70     # train/test split %
+sdm_esm_max_vars_warn    <- 10L    # warn if >10 vars (>45 bivariate models)
+```
+
+================================================================================
+IMPLEMENTATION STEP 6: COMPUTATIONAL SCALING GUARD
+================================================================================
+
+With many covariates, ESM becomes expensive. Guard against this:
+
+```r
+# In fit_esm(), before calling ecospat.ESM.Modeling():
+
+if (n_vars > sdm_esm_max_vars_warn) {
+  n_models_est <- n_vars * (n_vars - 1) / 2
+  # Estimate time: ~1-2 min per 15 pairs, scales roughly linearly
+  log_msg(log_fun,
+    sprintf(
+      "Warning: %d covariates → %d bivariate models. ",
+      n_vars, n_models_est
+    ),
+    "Consider reducing to your 6-8 most important covariates for ESM."
+  )
+}
+```
+
+UI warning in model settings when ESM is selected:
+```r
+conditionalPanel(
+  condition = "input.model_id == 'esm_glm' || input.model_id == 'esm_maxnet'",
+  uiOutput("esm_complexity_warning")
+)
+
+output$esm_complexity_warning <- renderUI({
+  n_vars <- length(input$biovars)
+  n_pairs <- n_vars * (n_vars - 1) / 2
+  if (n_vars > 10) {
+    div(class = "small-muted text-warning",
+        sprintf("ESM will fit %d bivariate models (%d variables). ",
+                n_pairs, n_vars),
+        "Consider reducing to 6-8 variables to keep runtime under 5 minutes.")
+  } else {
+    div(class = "small-muted",
+        sprintf("ESM will fit %d bivariate models — manageable.", n_pairs))
+  }
+})
+```
+
+================================================================================
+IMPLEMENTATION STEP 7: ESM-SPECIFIC DIAGNOSTICS
+================================================================================
+
+ESMs produce a richer set of diagnostics than single models. Surface them.
+
+WHERE: app.R, Model diagnostics tab (conditional on ESM backend)
+
+DIAGNOSTIC 1 — Bivariate pair performance heatmap
+  Show an N×N heatmap where cell [i,j] = AUC of the (variable_i, variable_j)
+  bivariate model. High-AUC cells = informative variable pairs.
+
+```r
+# Plot bivariate AUC heatmap
+plot_esm_pair_heatmap <- function(esm_fit) {
+  w <- esm_fit$model$esm_ensemble$weights
+  pairs <- strsplit(names(w), "_")
+  mat_data <- data.frame(
+    var1   = sapply(pairs, `[`, 1),
+    var2   = sapply(pairs, `[`, 2),
+    weight = unname(w)
+  )
+  ggplot2::ggplot(mat_data, aes(var1, var2, fill = weight)) +
+    ggplot2::geom_tile() +
+    ggplot2::scale_fill_viridis_c(name = "AUC weight",
+                                  limits = c(0, max(mat_data$weight))) +
+    ggplot2::theme_minimal() +
+    ggplot2::labs(title = "ESM bivariate model weights",
+                  x = "Variable 1", y = "Variable 2") +
+    ggplot2::theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+```
+
+DIAGNOSTIC 2 — Variable importance (marginal)
+  Bar chart: mean weight of all pairs containing each variable.
+  Variables contributing to many high-AUC pairs = important.
+
+DIAGNOSTIC 3 — Number of bivariate models kept vs. dropped
+  "17 of 21 bivariate models kept (AUC ≥ 0.70); 4 dropped."
+
+================================================================================
+IMPLEMENTATION STEP 8: REPORT ADDITIONS
+================================================================================
+
+WHERE: R/report.R and R/report_odmap.R
+
+Text report:
+```r
+if (!is.null(result$esm_config)) {
+  esm <- result$esm_config
+  writeLines(c(
+    "",
+    "=== ENSEMBLES OF SMALL MODELS (ESM) ===",
+    paste0("Algorithm: ", esm$algorithm),
+    paste0("Covariates: ", esm$n_vars,
+           " → ", esm$n_pairs_total, " bivariate pairs"),
+    paste0("Pairs used: ", esm$n_pairs_used,
+           " (dropped: ", esm$n_pairs_dropped,
+           " with AUC < ", esm$min_auc, ")"),
+    "",
+    "Method: Lomba et al. (2010) Biol. Conserv. 143:2647-2657",
+    "        Breiner et al. (2015) Methods Ecol. Evol. 6:1210-1218",
+    "        Breiner et al. (2018) Methods Ecol. Evol. 9:802-808"
+  ), con = report_path, append = TRUE)
+}
+```
+
+ODMAP additions:
+```r
+list(section = "Model", item = "ESM strategy",
+     value   = if (!is.null(result$esm_config))
+       paste0("ESM (", result$esm_config$n_pairs_used, " bivariate ",
+              result$esm_config$algorithm, " models, AUC-weighted)")
+     else "standard (non-ESM)"),
+```
+
+================================================================================
+TESTING
+================================================================================
+
+WHERE: New file tests/testthat/test-esm-contract.R
+
+```r
+test_that("fit_esm returns standard contract", {
+  skip_if_not_installed("ecospat")
+  skip_if_not_installed("biomd2")
+
+  # Synthetic data: 20 presences, 200 background
+  set.seed(42)
+  n_pres <- 20
+  env_data <- data.frame(
+    presence = c(rep(1, n_pres), rep(0, 200)),
+    BIO1  = rnorm(n_pres + 200),
+    BIO12 = rnorm(n_pres + 200),
+    BIO15 = rnorm(n_pres + 200),
+    BIO4  = rnorm(n_pres + 200)
+  )
+
+  fit <- fit_esm(
+    occ              = env_data[env_data$presence == 1, ],
+    env_train_scaled = env_data,
+    biovars          = c("BIO1", "BIO12", "BIO15", "BIO4"),
+    algorithm        = "GLM",
+    n_runs_eval      = 3,
+    seed             = 42
+  )
+
+  # Contract checks
+  expect_named(fit, c("model", "formula", "coefficients", "occurrence_used",
+                       "background_xy", "cv", "covariates",
+                       "variable_importance", "esm_config"))
+  expect_true(is.finite(fit$cv$auc_mean))
+  expect_equal(fit$cv$strategy, "split-sample")
+  expect_true(is.data.frame(fit$coefficients))  # bivariate pair weights
+  expect_equal(ncol(fit$coefficients), 2)        # pair, weight_raw
+})
+
+test_that("ESM fails gracefully with < 5 presences", {
+  skip_if_not_installed("ecospat")
+  env_data <- data.frame(presence = c(1,1,1,0,0,0,0,0,0,0),
+                          BIO1 = rnorm(10), BIO12 = rnorm(10))
+  expect_error(
+    fit_esm(env_data[1:3,], env_data, c("BIO1","BIO12")),
+    "at least 5 presence records"
+  )
+})
+
+test_that("extract_esm_importance returns one row per variable", {
+  skip_if_not_installed("ecospat")
+  # Mock esm_ensemble with named weights
+  mock_ensemble <- list(weights = c(BIO1_BIO12 = 0.8, BIO1_BIO15 = 0.7,
+                                     BIO12_BIO15 = 0.6))
+  imp <- extract_esm_importance(mock_ensemble, c("BIO1","BIO12","BIO15"))
+  expect_equal(nrow(imp), 3)
+  expect_true(all(imp$importance >= 0))
+  expect_true(max(imp$importance) == 1)  # normalised to [0,1]
+})
+```
+
+================================================================================
+ACCEPTANCE CRITERIA
+================================================================================
+
+✓ ESM-GLM and ESM-MaxEnt appear in model dropdown when ecospat is installed
+✓ Auto-recommendation fires when presence count < 30
+✓ fit_esm() returns standard model contract (same keys as fit_fast_sdm)
+✓ predict_esm_suitability() writes a valid GeoTIFF
+✓ min_records = 5 for ESM backends (not 15 like standard models)
+✓ Warning fires when >10 covariates selected with ESM
+✓ Bivariate pair heatmap shown in Model diagnostics tab
+✓ Variable importance derived from pair weights and shown in bar chart
+✓ ODMAP report includes ESM strategy and method citations
+✓ Text report includes Lomba 2010, Breiner 2015, Breiner 2018 citations
+✓ All testthat tests pass without network access
+
+================================================================================
+NOTES FOR THE PROJECT-MANAGING AI
+================================================================================
+
+WHEN TO USE ESM vs. STANDARD SDM:
+  This is a key editorial decision for the UI. The guidance should be:
+    < 10 presences:  ESM only; warn results are unreliable for any method
+    10-29 presences: Recommend ESM; standard models are not good here
+    30-99 presences: Both valid; ESM slightly safer; user's choice
+    >= 100 records:  Standard models preferred; ESM adds no value
+
+ECOSPAT WRAPPER APPROACH:
+  This implementation wraps ecospat, which internally uses biomd2 as its
+  SDM engine. This means biomd2 must be installed but DOES NOT need to be
+  wired in the UI (it runs headlessly inside ecospat). This is separate from
+  Task B1-B7 (wiring the full biomd2 interface). These are independent tasks.
+
+FUTURE ESM EXTENSIONS (v0.8+):
+  Breiner et al. (2018) proposed optimised ESMs that:
+    (a) use AUC threshold to drop weak pairs (implemented above)
+    (b) include interaction terms in bivariate GLMs
+    (c) use trivariate (3-predictor) models for moderate n
+  These are post-v0.7 improvements; not needed for initial implementation.
+
+COLLINEARITY IN ESM:
+  Standard VIF-based collinearity removal (Task 1.4 in improvement plan)
+  should NOT be applied before ESM. ESM's bivariate structure inherently
+  handles collinear pairs — each pair is evaluated independently, and
+  collinear pairs will produce redundant but not wrong models. The AUC
+  weighting naturally downweights redundant pairs if they perform similarly.
+
+CITATIONS TO INCLUDE:
+  Lomba, A. et al. (2010). Biological Conservation 143:2647-2657.
+  Breiner, F.T. et al. (2015). Methods Ecol. Evol. 6:1210-1218.
+  Breiner, F.T. et al. (2018). Methods Ecol. Evol. 9:802-808.
+  Broennimann, O. et al. (2021). ecospat: Spatial Ecology Misc. Methods.
+    R package version 3.2. https://CRAN.R-project.org/package=ecospat
+
+================================================================================
