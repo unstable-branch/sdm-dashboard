@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Loader2, CheckCircle2, AlertCircle, Database, Cloud, HardDrive } from "lucide-react";
+import { ApiKeyManager } from "@/components/settings/api-key-manager";
 
 interface HealthStatus {
   status: string;
@@ -149,6 +150,8 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+
+      <ApiKeyManager />
     </div>
   );
 }
