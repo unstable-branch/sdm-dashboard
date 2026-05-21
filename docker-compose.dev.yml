@@ -3,19 +3,55 @@
 
 services:
   postgres:
-    extends:
-      file: docker-compose.yml
-      service: postgres
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: sdm
+      POSTGRES_PASSWORD: sdm_password
+      POSTGRES_DB: sdm_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sdm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sdm-network
 
   redis:
-    extends:
-      file: docker-compose.yml
-      service: redis
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - sdm-network
 
   garage:
-    extends:
-      file: docker-compose.yml
-      service: garage
+    image: dxflrs/garage:v2.2.0
+    ports:
+      - "3900:3900"
+      - "3901:3901"
+      - "3902:3902"
+      - "3903:3903"
+    volumes:
+      - ./garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3901/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - sdm-network
 
   plumber:
     build:
@@ -40,3 +76,13 @@ services:
       start_period: 120s
     networks:
       - sdm-network
+
+volumes:
+  postgres-data:
+  redis-data:
+  garage-meta:
+  garage-data:
+
+networks:
+  sdm-network:
+    driver: bridge
