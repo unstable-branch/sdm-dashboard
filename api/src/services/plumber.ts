@@ -112,33 +112,13 @@ export class PlumberClient {
     return res.json();
   }
 
-  async fitModel(data: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/models/fit`, {
+  async parseDwca(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await fetch(`${this.baseUrl}/api/v1/occurrences/dwca`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error(`Failed to fit model: ${res.status}`);
-    return res.json();
-  }
-
-  async predict(data: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/models/predict`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error(`Failed to predict: ${res.status}`);
-    return res.json();
-  }
-
-  async generateReport(data: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/output/report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error(`Failed to generate report: ${res.status}`);
+    if (!res.ok) throw new Error(`Failed to parse DwCA: ${res.status}`);
     return res.json();
   }
 

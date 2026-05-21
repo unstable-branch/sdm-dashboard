@@ -170,5 +170,48 @@ save_diagnostic_plots <- function(result, job_dir, log_fun = NULL) {
   })
   if (!is.null(cbi_path)) diag_files$cbi_png <- cbi_path
 
+  # 6. Calibration curve
+  cal_path <- tryCatch({
+    cv <- result$cv
+    if (!is.null(cv) && is.data.frame(cv$fold_metrics) && nrow(cv$fold_metrics) > 0 && "predictions" %in% names(cv)) {
+      preds <- cv$predictions
+      if (!is.null(preds) && is.data.frame(preds) && "observed" %in% names(preds) && "predicted" %in% names(preds)) {
+        n_bins <- 10
+        preds$bin <- cut(preds$predicted, breaks = seq(0, 1, length.out = n_bins + 1), include.lowest = TRUE)
+        cal_df <- aggregate(observed ~ bin, data = preds, FUN = function(x) c(mean = mean(x), count = length(x)))
+        cal_df <- do.call(data.frame, list(
+          bin_mid = sapply(cal_df$bin, function(b) mean(as.numeric(gsub("[\\[\\]()]", "", strsplit(as.character(b), ",")[[1]])))),
+          observed_freq = cal_df$observed[, "mean"],
+          count = as.integer(cal_df$observed[, "count"])
+        ))
+        cal_df <- cal_df[cal_df$count > 0, ]
+        if (nrow(cal_df) > 0) {
+          p_cal <- ggplot2::ggplot(cal_df, ggplot2::aes(x = .data$bin_mid, y = .data$observed_freq)) +
+            ggplot2::geom_line(colour = "#2C7FB8", linewidth = 1.2) +
+            ggplot2::geom_point(size = 2, colour = "#2C7FB8") +
+            ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey40") +
+            ggplot2::labs(
+              x = "Predicted Probability", y = "Observed Frequency",
+              title = "Calibration Curve"
+            ) +
+            ggplot2::theme_minimal(base_size = 12) +
+            ggplot2::theme(
+              panel.grid.minor = ggplot2::element_blank(),
+              plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")
+            ) +
+            ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+          out <- file.path(job_dir, "calibration.png")
+          ggplot2::ggsave(out, p_cal, width = 6, height = 6, dpi = 150)
+          log_message(log_fun, "Saved calibration curve: ", out)
+          out
+        } else NULL
+      } else NULL
+    } else NULL
+  }, error = function(e) {
+    log_message(log_fun, "Calibration curve failed: ", conditionMessage(e))
+    NULL
+  })
+  if (!is.null(cal_path)) diag_files$calibration_png <- cal_path
+
   diag_files
 }

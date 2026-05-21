@@ -159,14 +159,32 @@ export default function ResultsPage() {
               <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-sdm-heading">Run report</h3>
-                  {run.output_files?.report && (
-                    <a
-                      href={`/api/v1/results/file/${encodeURIComponent(run.output_files.report)}`}
-                      className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
-                    >
-                      <Download className="h-3.5 w-3.5" /> Download report
-                    </a>
-                  )}
+                  <div className="flex gap-3">
+                    {run.output_files?.odmap_report_csv && (
+                      <a
+                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.odmap_report_csv)}`}
+                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                      >
+                        <Download className="h-3.5 w-3.5" /> ODMAP CSV
+                      </a>
+                    )}
+                    {run.output_files?.odmap_report_md && (
+                      <a
+                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.odmap_report_md)}`}
+                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                      >
+                        <Download className="h-3.5 w-3.5" /> ODMAP Markdown
+                      </a>
+                    )}
+                    {run.output_files?.report && (
+                      <a
+                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.report)}`}
+                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                      >
+                        <Download className="h-3.5 w-3.5" /> Download report
+                      </a>
+                    )}
+                  </div>
                 </div>
                 {reportText ? (
                   <pre className="text-xs text-sdm-text font-mono whitespace-pre-wrap max-h-[60vh] overflow-y-auto bg-sdm-surface-soft p-4 rounded-lg">

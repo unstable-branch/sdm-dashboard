@@ -73,6 +73,10 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
     ? `/api/v1/results/file/${encodeURIComponent(outputFiles.cbi_png)}`
     : null;
 
+  const calibrationPng = outputFiles.calibration_png
+    ? `/api/v1/results/file/${encodeURIComponent(outputFiles.calibration_png)}`
+    : null;
+
   const getMetric = (key: string) => {
     const val = run.metrics?.[key];
     return typeof val === "number" ? val.toFixed(3) : "—";
@@ -81,12 +85,13 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="cv" className="space-y-4">
-        <TabsList className="grid grid-cols-6 w-full max-w-2xl">
+        <TabsList className="grid grid-cols-7 w-full max-w-3xl">
           <TabsTrigger value="cv" className="text-xs">CV Folds</TabsTrigger>
           <TabsTrigger value="importance" className="text-xs">Importance</TabsTrigger>
           <TabsTrigger value="curves" className="text-xs">Response Curves</TabsTrigger>
           <TabsTrigger value="roc" className="text-xs">ROC</TabsTrigger>
           <TabsTrigger value="cbi" className="text-xs">CBI</TabsTrigger>
+          <TabsTrigger value="calibration" className="text-xs">Calibration</TabsTrigger>
           <TabsTrigger value="log" className="text-xs">Run Log</TabsTrigger>
         </TabsList>
 
@@ -135,6 +140,10 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
 
         <TabsContent value="cbi">
           <DiagnosticImage src={cbiPng} label="Continuous Boyce Index" className="max-h-[70vh]" />
+        </TabsContent>
+
+        <TabsContent value="calibration">
+          <DiagnosticImage src={calibrationPng} label="Calibration Curve" className="max-h-[70vh]" />
         </TabsContent>
 
         <TabsContent value="log">

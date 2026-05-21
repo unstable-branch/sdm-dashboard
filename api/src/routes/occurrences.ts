@@ -1,12 +1,16 @@
 import { Hono } from "hono";
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
 import { plumberClient } from "../services/plumber";
 import { enqueueSdmJob } from "../services/queue";
 import { db } from "../db";
 import { species, occurrences } from "../db/schema";
 import { eq } from "drizzle-orm";
+import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit";
 
 export const dataRoutes = new Hono();
+
+dataRoutes.use("*", defaultRateLimit);
 
 dataRoutes.post("/occurrences/upload", async (c) => {
   try {
@@ -145,7 +149,7 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
-dataRoutes.post("/occurrences/gbif/search", async (c) => {
+dataRoutes.post("/occurrences/gbif/search", gbifRateLimit, async (c) => {
   try {
     const body = await c.req.json();
     const result = await plumberClient.searchGbif(body);
@@ -158,8 +162,19 @@ dataRoutes.post("/occurrences/gbif/search", async (c) => {
 
 dataRoutes.post("/occurrences/dwca", async (c) => {
   try {
-    const body = await c.req.json();
-    const result = await plumberClient.parseDwca(body);
+    const body = await c.req.parseBody();
+    const file = body["file"];
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: "No file uploaded" }, 400);
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const tmpDir = join(process.cwd(), "tmp");
+    mkdirSync(tmpDir, { recursive: true });
+    const tmpPath = join(tmpDir, `dwca-${Date.now()}-${file.name}`);
+    writeFileSync(tmpPath, buffer);
+
+    const result = await plumberClient.uploadOccurrence(tmpPath, file.name);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "DwCA parse failed";
@@ -169,8 +184,28 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
 
 dataRoutes.get("/species", async (c) => {
   try {
-    const allSpecies = await db.select().from(species).orderBy(species.createdAt);
-    return c.json(allSpecies);
+    const page = parseInt(c.req.query("page") || "1", 10);
+    const limit = parseInt(c.req.query("limit") || "50", 10);
+    const offset = (page - 1) * limit;
+
+    const allSpecies = await db
+      .select()
+      .from(species)
+      .orderBy(species.createdAt)
+      .limit(limit)
+      .offset(offset);
+
+    const [{ count }] = await db.select({ count: species.id }).from(species);
+
+    return c.json({
+      species: allSpecies,
+      pagination: {
+        page,
+        limit,
+        total: count,
+        totalPages: Math.ceil(count / limit),
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch species";
     return c.json({ error: message }, 500);
@@ -192,12 +227,31 @@ dataRoutes.get("/species/:id", async (c) => {
 dataRoutes.get("/species/:id/occurrences", async (c) => {
   try {
     const id = c.req.param("id");
+    const page = parseInt(c.req.query("page") || "1", 10);
+    const limit = parseInt(c.req.query("limit") || "100", 10);
+    const offset = (page - 1) * limit;
+
     const recs = await db
       .select()
       .from(occurrences)
       .where(eq(occurrences.speciesId, id))
-      .limit(1000);
-    return c.json(recs);
+      .limit(limit)
+      .offset(offset);
+
+    const [{ count }] = await db
+      .select({ count: occurrences.id })
+      .from(occurrences)
+      .where(eq(occurrences.speciesId, id));
+
+    return c.json({
+      occurrences: recs,
+      pagination: {
+        page,
+        limit,
+        total: count,
+        totalPages: Math.ceil(count / limit),
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch occurrences";
     return c.json({ error: message }, 500);

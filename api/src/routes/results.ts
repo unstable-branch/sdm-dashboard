@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 import { db } from "../db";
 import { runs } from "../db/schema";
 import { eq } from "drizzle-orm";
@@ -11,7 +11,11 @@ const appDir = process.cwd();
 
 resultsRoutes.get("/file/:filePath", async (c) => {
   const filePath = decodeURIComponent(c.req.param("filePath"));
-  const fullPath = join(appDir, filePath);
+  const fullPath = resolve(join(appDir, filePath));
+
+  if (!fullPath.startsWith(resolve(appDir))) {
+    return c.json({ error: "Invalid file path" }, 400);
+  }
 
   if (!existsSync(fullPath)) {
     return c.json({ error: "File not found" }, 404);
