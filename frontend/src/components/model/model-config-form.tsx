@@ -5,7 +5,16 @@ import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
 import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
 import { cn } from "@/lib/utils";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, AlertTriangle, Info } from "lucide-react";
+
+interface ModelInfo {
+  id: string;
+  label: string;
+  maturity: string;
+  min_records?: number | null;
+  packages?: string[];
+  notes?: string;
+}
 
 interface ModelConfigFormProps {
   occurrenceFile: string | null;
@@ -14,6 +23,8 @@ interface ModelConfigFormProps {
 }
 
 export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConfigFormProps) {
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>(MODEL_BACKENDS);
+  const [recordCount, setRecordCount] = useState<number | null>(null);
   const [species, setSpecies] = useState("Untitled species");
   const [modelId, setModelId] = useState("glm");
   const [biovars, setBiovars] = useState<number[]>(DEFAULT_CONFIG.biovars);
@@ -56,6 +67,24 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
   const [maxnetRegmult, setMaxnetRegmult] = useState(DEFAULT_CONFIG.maxnetRegmult);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/sdm/models")
+      .then((res) => res.ok ? res.json() : null)
+      .then((models) => {
+        if (models && Array.isArray(models)) {
+          setAvailableModels(models.map((m: Record<string, unknown>) => ({
+            id: m.id as string,
+            label: m.label as string,
+            maturity: m.maturity as string,
+            min_records: (m.min_records as number) || null,
+            packages: (m.packages as string[]) || [],
+            notes: (m.notes as string) || "",
+          })));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const toggleBiovar = (id: number) => {
     setBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
@@ -132,7 +161,9 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
     onSubmit(config);
   };
 
-  const selectedModel = MODEL_BACKENDS.find((m) => m.id === modelId);
+  const selectedModel = availableModels.find((m) => m.id === modelId);
+  const isESM = modelId.startsWith("esm_");
+  const lowRecordWarning = selectedModel?.min_records && recordCount !== null && recordCount < selectedModel.min_records;
 
   return (
     <div className="space-y-6">
@@ -172,7 +203,7 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
             onChange={(e) => setModelId(e.target.value)}
             className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
           >
-            {MODEL_BACKENDS.map((m) => (
+            {availableModels.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.label} ({m.maturity})
               </option>
@@ -180,6 +211,29 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
           </select>
           {selectedModel?.maturity === "experimental" && (
             <p className="mt-1 text-xs text-sdm-warning">Experimental model — results may vary</p>
+          )}
+          {isESM && (
+            <div className="mt-2 rounded-md bg-blue-500/10 border border-blue-500/30 p-3 text-xs text-sdm-text">
+              <p className="font-medium flex items-center gap-1.5">
+                <Info className="h-3.5 w-3.5" />
+                Ensembles of Small Models (ESM)
+              </p>
+              <p className="mt-1 text-sdm-muted">
+                Recommended for rare species with few occurrence records. Uses bivariate models weighted by AUC.
+              </p>
+            </div>
+          )}
+          {lowRecordWarning && (
+            <div className="mt-2 rounded-md bg-red-500/10 border border-red-500/30 p-3 text-xs text-red-400 flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                {selectedModel?.label} recommends ≥ {selectedModel.min_records} records. You have {recordCount}.
+                Results may be unreliable.
+              </span>
+            </div>
+          )}
+          {selectedModel?.notes && (
+            <p className="mt-1 text-xs text-sdm-muted italic">{selectedModel.notes}</p>
           )}
         </div>
 
