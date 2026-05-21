@@ -40,12 +40,16 @@ dataRoutes.post("/occurrences/clean", async (c) => {
   try {
     const body = await c.req.json();
     const async = body.async === true;
+    const user = c.get("user");
 
     if (async) {
-      const jobId = await enqueueSdmJob({
-        type: "clean",
-        payload: body,
-      });
+      const jobId = await enqueueSdmJob(
+        {
+          type: "clean",
+          payload: body,
+        },
+        user.id
+      );
       return c.json({ jobId, status: "queued" });
     }
 

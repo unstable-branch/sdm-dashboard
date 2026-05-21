@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Loader2, X, CheckCircle2, AlertCircle } from "lucide-react";
+import { useJobProgress } from "@/hooks/useJobProgress";
 
 interface DownloadProgressProps {
   jobId: string;
@@ -22,6 +23,7 @@ interface DownloadStatus {
 export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgressProps) {
   const [status, setStatus] = useState<DownloadStatus | null>(null);
   const [progress, setProgress] = useState(10);
+  const { job: wsJob, connected } = useJobProgress(jobId);
 
   const pollStatus = useCallback(() => {
     fetch(`/api/v1/climate/status/${jobId}`)
@@ -32,7 +34,8 @@ export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgre
       .then((data: DownloadStatus) => {
         setStatus(data);
         const logLines = data.progress_log?.length ?? 0;
-        setProgress(Math.min(95, 10 + Math.round(logLines * 0.5)));
+        const baseProgress = wsJob?.progress ?? 10;
+        setProgress(Math.min(95, Math.max(baseProgress, 10 + Math.round(logLines * 0.5))));
 
         if (data.status === "completed") {
           setProgress(100);
@@ -42,11 +45,11 @@ export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgre
         }
       })
       .catch(() => {});
-  }, [jobId, onComplete]);
+  }, [jobId, onComplete, wsJob?.progress]);
 
   useEffect(() => {
     pollStatus();
-    const interval = setInterval(pollStatus, 2000);
+    const interval = setInterval(pollStatus, 5000);
     return () => clearInterval(interval);
   }, [pollStatus]);
 

@@ -48,6 +48,39 @@ projectRoutes.post("/", async (c) => {
   return c.json(project);
 });
 
+projectRoutes.put("/:id", async (c) => {
+  const user = c.get("user");
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const { name, description } = body;
+
+  if (!name) {
+    return c.json({ error: "Name is required" }, 400);
+  }
+
+  const [member] = await db
+    .select()
+    .from(projectMembers)
+    .where(and(eq(projectMembers.projectId, id), eq(projectMembers.userId, user.id)))
+    .limit(1);
+
+  if (!member || member.role !== "admin") {
+    return c.json({ error: "Only project admins can update projects" }, 403);
+  }
+
+  const [updated] = await db
+    .update(projects)
+    .set({ name, description })
+    .where(eq(projects.id, id))
+    .returning();
+
+  if (!updated) {
+    return c.json({ error: "Project not found" }, 404);
+  }
+
+  return c.json(updated);
+});
+
 projectRoutes.get("/:id", async (c) => {
   const user = c.get("user");
   const id = c.req.param("id");

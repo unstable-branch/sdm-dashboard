@@ -28,6 +28,7 @@ sdmRoutes.post("/run", async (c) => {
 
     const config = parsed.data;
     const async = body.async === true;
+    const user = c.get("user");
 
     if (async) {
       let speciesId: string | undefined;
@@ -58,10 +59,11 @@ sdmRoutes.post("/run", async (c) => {
         })
         .returning();
 
-      const jobId = await enqueueSdmJob({
-        type: "model",
-        payload: {
-          runId: run.id,
+      const jobId = await enqueueSdmJob(
+        {
+          type: "model",
+          payload: {
+            runId: run.id,
           species: config.species,
           model_id: config.modelId,
           occurrence_file: config.occurrenceFile,
@@ -112,7 +114,7 @@ sdmRoutes.post("/run", async (c) => {
           worldclim_res: config.worldclimRes,
           source: config.source,
         },
-      });
+      }, user.id);
 
       if (jobId) {
         await db

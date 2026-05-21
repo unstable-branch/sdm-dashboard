@@ -7,6 +7,7 @@
 
 ## Run commands
 
+### R/Shiny backend (legacy)
 ```bash
 # Smoke test (always run before PR)
 Rscript scripts/smoke_test.R
@@ -18,121 +19,286 @@ Rscript tests/testthat.R
 Rscript install_packages.R
 
 # Parse all R sources (subdirectories included)
-Rscript -e 'files <- list.files("R", pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE); for (f in files) parse(f); parse("app.R"); parse("pipeline.R"); parse("launch_app.R")'
+Rscript -e 'files <- list.files("R", pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE); for (f in files) try(parse(f))'
 
 # Release audit (before shipping)
 Rscript scripts/audit_release.R
 ```
 
+### Modern stack (Next.js + Hono API + Plumber)
+```bash
+# Frontend dev
+cd frontend && pnpm dev
+
+# API dev
+cd api && pnpm dev
+
+# Run full stack via Docker Compose
+docker compose -f docker-compose.yml up
+
+# API tests
+cd api && pnpm test
+
+# Frontend tests
+cd frontend && pnpm test
+
+# TypeScript check (frontend)
+cd frontend && pnpm typecheck
+```
+
 ## Architecture
 
-- **Entry point:** `app.R` (Shiny UI). Orchestration: `R/core/run_sdm.R` → `run_fast_sdm()`.
-- **R/ has 8 subdirectories:** `core/`, `data/`, `covariates/`, `models/`, `ecology/`, `output/`, `ui/`, `modules/`. `R/load.R` sits at top level.
-- **Module loader:** `R/load.R` uses `sdm_resolve_module()` to find 91 modules across subdirectories in fixed dependency order. No auto-sourcing.
-- **Config:** `R/core/config.R` — all `sdm_default_*` constants. Secrets must not be added here.
-- **Path resolution:** `app.R` resolves `app_dir` from `--file=` arg or `sys.frames()`, not `getwd()`. All paths use `file.path(app_dir, ...)`.
+### Modern Stack (Next.js + Hono + Plumber)
+
+```
+Browser (Next.js 15)
+  ↓ HTTPS
+API Gateway (Hono BFF, port 4000)
+  ├── JWT / API Key auth middleware
+  ├── Rate limiting (BullMQ/Redis)
+  ├── CSRF protection
+  └── Route handlers
+       ↓ X-Hono-Internal + X-Forwarded-User (for Plumber)
+  Plumber R API (port 8000)
+  ├── Auth gate (API key validation against PostgreSQL)
+  ├── SDM computation (model run, climate, occurrence cleaning)
+  └── Response proxies
+       ↓
+  PostgreSQL 16 + PostGIS (users, projects, runs, species, occurrences)
+  Redis 7 + BullMQ (job queue, rate limiting)
+  Garage S3-compatible (raster storage, output artifacts)
+```
+
+### Legacy R/Shiny Stack
+
+The `app.R` file in the project root is a **Shiny-based SDM workbench**. It is maintained for local/desktop use but is **not the primary deployed architecture**. The Shiny stack runs with:
+
+- `app.R` → `R/core/bootstrap.R` → `R/core/optimized_sdm.R` → `R/load.R` (91 modules)
+- Port 3838 in production
+- No built-in auth or API
+
+---
 
 ## Boot-up process
 
-```
-app.R
-  → source R/core/bootstrap.R → sdm_set_project_root(app_dir)
-  → source R/core/optimized_sdm.R → sources R/load.R → 91 modules
-  → source R/ui/ui_header.R, R/ui/ui_sidebar_controls.R, R/ui/ui_main_tabs.R
-  → ensure_sdm_packages(c("shiny","bslib","terra","leaflet","sf","DT"))
-  → library(shiny) library(bslib) library(leaflet) library(sf)
-  → if (!interactive()) shiny::runApp(host="0.0.0.0", port=3838)
+### Modern stack (Docker Compose)
+
+```bash
+docker compose -f docker-compose.yml up
 ```
 
-Windows launcher: `run_app_windows.bat` → `scripts/windows_setup.R` → `launch_app.R` → `app.R`
+Services start in dependency order:
+1. **postgres** — PostgreSQL + PostGIS, port 5432
+2. **redis** — Redis 7, port 6379
+3. **garage** — S3-compatible storage, port 3900
+4. **plumber** — R/Plumber API, port 8000 (requires `PLUMBER_INTERNAL_KEY`)
+5. **api** — Hono BFF, port 4000 (proxies to plumber, manages auth)
+6. **frontend** — Next.js 15, port 3000
+
+### API-only (local development)
+
+```bash
+# Terminal 1: Plumber R API
+cd /path/to/sdm-dashboard
+Rscript -e "pr <- plumber::pr('plumber/R/plumber.R'); plumber::pr_run(pr, host='0.0.0.0', port=8000)"
+
+# Terminal 2: Hono API
+cd api && pnpm dev
+
+# Terminal 3: Frontend
+cd frontend && pnpm dev
+```
+
+### Legacy Shiny (local desktop)
+
+```bash
+Rscript launch_app.R
+# Opens Shiny UI at http://localhost:3838
+```
+
+---
 
 ## CI
 
-Single workflow: `.github/workflows/r-quality.yml` — parse R sources, install deps, smoke_test, testthat, audit_release. Runs on ubuntu-latest.
+- **`.github/workflows/r-quality.yml`** — R/Shiny smoke test, testthat, parse check. Runs on ubuntu-latest.
+- **GitHub Actions** — lint/typecheck for Node.js layers run separately.
 
-## R/Shiny gotchas (verified by runtime crashes)
-
-- **`observe()` does NOT accept `ignoreInit`** — only `observeEvent()` does.
-- **`bslib::modal()` does not exist** — use `modalDialog()`.
-- **`passwordInput()` does NOT accept `autocomplete`** — wrap with `tagAppendAttributes(..., autocomplete = "new-password")`.
-- **`nzchar(NULL)` returns `logical(0)`** — use `nzchar(x %||% "")` or check `is.null(x)` first.
-- **`callr::r_bg` runs in a separate process** — `<<-` on Shiny reactives has no effect. Background downloads must source `bootstrap.R` before `optimized_sdm.R` in the child.
-- **`rv$cleaned_occurrence` is a list** — `{df, source_counts, n_absent_excluded, original_rows}`. NOT a dataframe.
-- **`rv$undo_stack` is a list** — capped at 10 states, used by Observation Records tab.
-- **Numeric inputs can receive `Inf`/`NA`** — use `safe_numeric()` in `R/ui/ui_sidebar_controls.R`.
-- **`sdm_default_cv_block_size_km` is `NA_real_`** — UI defaults to 50 when NA.
+---
 
 ## Key conventions
 
-- **Climate source toggle:** `source = c("worldclim","chelsa")` — CHELSA v2.1 uses `bio1_1979-2013` naming (two-digit bio1-9, single-digit bio10-19); WorldClim uses `bio1.tif`.
-- **biomod2 is gated:** Requires `options(sdm.enable_biomod2 = TRUE)` AND `requireNamespace("biomod2", quietly = TRUE)`. Never add to base packages.
-- **Spatial-block CV fallback:** Fewer than 5 occurrence points → `cv_folds.R` warns and falls back to random k-fold.
-- **Synthetic example:** `data/examples/synthetic_presence_data.csv` — safe to commit; real occurrence data must never be committed.
-- **Lock file:** `renv.lock` pins R package versions. Use `renv::restore()` on a new machine.
+### Climate data sources
 
-## Data handling
+| Source | Naming convention | Path |
+|--------|-------------------|------|
+| WorldClim current | `bio1.tif`, `bio4.tif` | `Worldclim/` |
+| WorldClim future | `UKESM1-0-LL_SSP2-4.5_2041-2060/bio1.tif` | `Worldclim_future/` |
+| CHELSA v2.1 | `bio1_1979-2013.tif`, `bio10_1979-2013.tif` | `chelsa/` |
 
-- WorldClim cached in `Worldclim/`; CHELSA in `chelsa/`; future layers in `Worldclim_future/`. Do not commit downloaded rasters.
-- Occurrence CSV must have `longitude`/`latitude` columns (or aliases: `lon`, `decimalLongitude`).
-- Outputs go to `outputs/` by default. This directory is gitignored.
+**Note:** WorldClim uses single/double-digit BIO numbers as filenames. CHELSA v2.1 uses `bio1_1979-2013` (two-digit BIO1-9, single-digit BIO10-19).
 
-## WSL access
+### biomod2 gating
 
-WSL has no GUI browser. Access from a **Windows browser** at `http://<WSL-IP>:3838`. Get the IP:
+Requires `options(sdm.enable_biomod2 = TRUE)` AND `requireNamespace("biomod2", quietly = TRUE)`. Never add to base packages.
+
+### Spatial-block CV fallback
+
+Fewer than 5 occurrence points → `cv_folds.R` warns and falls back to random k-fold.
+
+### Synthetic example data
+
+`data/examples/synthetic_presence_data.csv` — safe to commit; real occurrence data must never be committed.
+
+### Lock file
+
+`renv.lock` pins R package versions. Use `renv::restore()` on a new machine.
+
+### Data output
+
+`outputs/` directory is gitignored. All model run outputs go here by default.
+
+### WSL access
+
+WSL has no GUI browser. Access the Shiny app from a **Windows browser** at `http://<WSL-IP>:3838`. Get the IP:
 ```bash
 hostname -I | awk '{print $1}'
 ```
 
+---
+
+## Security
+
+### API authentication
+
+The Hono API (port 4000) authenticates via:
+- **JWT Bearer token** — `Authorization: Bearer <token>` header; validated against PostgreSQL `users` table
+- **API Key** — `X-API-Key` header; SHA256 hash looked up in `api_keys` table
+
+### Plumber auth gate
+
+All computation endpoints on Plumber (port 8000) require authentication:
+- **X-Hono-Internal** + **X-Forwarded-User** headers — used when Hono proxies a request that was already authenticated via JWT. Hono sets these when forwarding to Plumber.
+- **X-API-Key** header — direct API key access to Plumber (bypasses Hono entirely)
+
+**Open Plumber endpoints** (no auth required):
+- `GET /health` — server health check
+- `GET /ready` — readiness probe
+- `GET /api/v1/models/runs` — list all model runs (read-only)
+- `GET /api/v1/climate/scenarios` — list downloaded scenarios
+- `GET /api/v1/config/defaults` — model config defaults
+- `GET /api/v1/models` — available model list
+- `GET /api/v1/future/scenarios` — future scenario discovery
+- `GET /api/v1/ecology/:runId/*` — ecology data (read-only)
+- `GET /api/v1/diagnostics/*` — diagnostics (read-only)
+
+**Protected Plumber endpoints** (auth required):
+- `POST /api/v1/models/run` — run SDM model
+- `POST /api/v1/models/cancel/:jobId` — cancel a run
+- `POST /api/v1/climate/download` — download climate data
+- `POST /api/v1/occurrences/upload` — upload occurrence file
+- `POST /api/v1/occurrences/clean` — clean occurrence data
+- `POST /api/v1/occurrences/gbif/search` — GBIF search
+- `POST /api/v1/occurrences/dwca` — parse Darwin Core Archive
+
+Set `PLUMBER_AUTH_DISABLED=true` in development to bypass the Plumber auth gate.
+
+### API key forwarding
+
+When Hono proxies a request to Plumber on behalf of an authenticated user, it forwards:
+- `X-Hono-Internal: <PLUMBER_INTERNAL_KEY>` — validates Hono is the caller
+- `X-Forwarded-User: <user_id>` — the authenticated user's ID from Hono's JWT validation
+
+The `PLUMBER_INTERNAL_KEY` must match between Hono's `PLUMBER_INTERNAL_KEY` env var and Plumber's env var.
+
+---
+
 ## Package install quirks
 
+### R packages
+
 - `R/core/packages.R` defines 4 vectors: `sdm_required_packages` (minimal bootstrap), `sdm_setup_packages` (core UI deps), `sdm_app_packages` (all modelling backends), `sdm_optional_packages` (per-feature).
-- Any package loaded via `library()` or `::` in app.R or R/ui_*.R **must be in `sdm_setup_packages`** to avoid first-launch failures.
+- Any package loaded via `library()` or `::` in `app.R` or `R/ui_*.R` **must** be in `sdm_setup_packages` to avoid first-launch failures.
 - `install_packages.R` uses `sdm_setup_packages`; `scripts/windows_setup.R` uses `sdm_app_packages`.
+
+### Node.js packages
+
+- Frontend uses `pnpm` (see `pnpm-workspace.yaml`).
+- API uses `npm` (see `api/package.json`).
+
+---
 
 ## CSS / UI conventions
 
-- **Single dark mode system:** `body.sdm-dark` + CSS variables in `www/sdm-theme.css`.
-- **CSS fallback:** `app.R` injects CSS inline via `tags$style()` as backup for the external stylesheet.
+- **Dark mode system:** `body.sdm-dark` + CSS variables in `www/sdm-theme.css`.
+- **CSS fallback:** `app.R` (Shiny) injects CSS inline via `tags$style()` as backup for the external stylesheet.
 - **Leaflet maps:** CartoDB Positron (light) + DarkMatter (dark) tile groups with `baseGroups` in layersControl.
 - **Status dot classes:** `.status-dot-ok`, `.status-dot-warn`, `.status-dot-error`, `.status-dot-unknown`.
 - **Get Data tab:** `.gd-section-summary`, `.gd-section-summary-compact`, `.gd-section-icon`, `.gd-section-body`.
 - **Observation Records tab:** `.obs-metric-card`, `.obs-metric-value`, `.obs-metric-label`, `.flagged-actions`, `.btn-toolbar`, `.source-table-container`, `.obs-log-output`, `.obs-record-table`.
 - **Flagged actions:** `btn-group btn-group-sm` toolbar with Remove flagged, Clear flags, Undo buttons.
 
+---
+
+## R/Shiny gotchas (legacy — for `app.R` maintenance only)
+
+- **`observe()` does NOT accept `ignoreInit`** — only `observeEvent()` does.
+- **`bslib::modal()` does not exist** — use `modalDialog()`.
+- **`passwordInput()` does not accept `autocomplete`** — wrap with `tagAppendAttributes(..., autocomplete = "new-password")`.
+- **`nzchar(NULL)` returns `logical(0)`** — use `nzchar(x %||% "")` or check `is.null(x)` first.
+- **`callr::r_bg` runs in separate process** — `<<-` on Shiny reactives has no effect. Background downloads must source `bootstrap.R` before `optimized_sdm.R` in the child.
+- **`rv$cleaned_occurrence` is a list** — `{df, source_counts, n_absent_excluded, original_rows}`. NOT a dataframe.
+- **`rv$undo_stack` is a list** — capped at 10 states, used by Observation Records tab.
+- **Numeric inputs can receive `Inf`/`NA`** — use `safe_numeric()` in `R/ui/ui_sidebar_controls.R`.
+- **`sdm_default_cv_block_size_km` is `NA_real_`** — UI defaults to 50 when NA.
+
+---
+
 ## Important file locations
 
-- `R/core/bootstrap.R` — project root detection, path helpers
-- `R/core/config.R` — all `sdm_default_*` constants
-- `R/core/packages.R` — dependency vectors, `ensure_sdm_packages()`
-- `R/core/optimized_sdm.R` — engine loader, sources `load.R`
-- `R/core/run_sdm.R` — `run_fast_sdm()` orchestration
-- `R/core/validation.R` — input validation helpers
-- `R/data/occurrences.R` — cleaning, CoordinateCleaner integration
-- `R/data/occurrences_dwca.R` — Darwin Core Archive reader
-- `R/covariates/covariates_climate.R` — WorldClim/CHELSA download + load
-- `R/covariates/covariates_stack.R` — combines climate + elevation + soil
-- `R/covariates/download_helper.R` — background download helper (`callr::r_bg`)
-- `R/covariates/future_projection.R` — future BIO layer swap and delta raster
-- `R/models/model_glm.R` — primary model backend; random and spatial-block CV
-- `R/models/prediction.R` — suitability raster prediction
-- `R/models/cv_engine.R` — cross-validation engine
-- `R/ecology/eoo_aoo.R` — extent/area of occurrence calculations
-- `R/output/report.R` — text report generation
-- `R/output/report_odmap.R` — ODMAP standard report
-- `R/output/plots.R` — `render_suitability_leaflet()`, map rendering
-- `R/ui/ui_main_tabs.R` — 6-tab layout: Dashboard, Future projection, Observation records, Model diagnostics, Get Data, Downloads
-- `R/ui/leaflet_plugins.R` — CDN plugin definitions (markercluster, draw, heat, side-by-side — not wired at runtime)
-- `R/modules/mod_get_data.R` — Get Data tab server
-- `R/modules/mod_model_run.R` — model run tab server
-- `R/modules/mod_results.R` — results tab server (GBIF exclusion uses `showNotification`, not `append_log`)
-- `R/modules/mod_readiness.R` — readiness preflight checks
-- `scripts/audit_release.R` — release validation (checks expected files, no public clutter, ZIP contents)
-- `scripts/smoke_test.R` — quick smoke test
+### Modern stack
+
+| Path | Purpose |
+|------|---------|
+| `api/src/index.ts` | Hono server entry point (port 4000) |
+| `api/src/routes/*.ts` | API route handlers (sdm, data, climate, ecology, auth, projects, diagnostics, jobs, results) |
+| `api/src/services/plumber.ts` | Plumber proxy client (forwards `X-Hono-Internal`, `X-Forwarded-User`) |
+| `api/src/services/queue.ts` | BullMQ job queue worker |
+| `api/src/services/websocket.ts` | WebSocket server (real-time job progress) |
+| `api/src/services/job-events.ts` | Job event bus (broadcasts SSE events to WebSocket) |
+| `api/src/middleware/auth.ts` | JWT + API key auth middleware |
+| `api/src/db/schema.ts` | Drizzle ORM schema (users, projects, api_keys, species, runs, occurrences) |
+| `frontend/src/app/` | Next.js 15 app router pages |
+| `frontend/src/components/` | React components by domain |
+| `frontend/src/services/api.ts` | Centralized fetch client (`apiGet`, `apiPost`, `apiDelete`, `apiPut`) |
+| `frontend/src/services/types.ts` | Shared API type definitions |
+| `frontend/src/hooks/useJobProgress.ts` | WebSocket hook for real-time job progress |
+| `frontend/src/stores/` | Zustand stores (auth-store, sdm-store) |
+| `plumber/R/plumber.R` | Plumber R API endpoints |
+| `plumber/R/auth.R` | Plumber API key validation |
+| `plumber/R/run_server.R` | Plumber server entry point with auth filter |
+
+### Legacy R/Shiny
+
+| Path | Purpose |
+|------|---------|
+| `app.R` | Shiny UI entry point |
+| `R/load.R` | Module loader (91 modules) |
+| `R/core/bootstrap.R` | Project root detection |
+| `R/core/config.R` | All `sdm_default_*` constants |
+| `R/core/run_sdm.R` | `run_fast_sdm()` orchestration |
+| `R/data/occurrences.R` | Occurrence cleaning (CoordinateCleaner integration) |
+| `R/covariates/covariates_climate.R` | WorldClim/CHELSA download + load |
+| `R/models/model_glm.R` | Primary GLM model backend |
+| `R/ecology/eoo_aoo.R` | EOO/AOO calculations |
+| `R/output/plots.R` | `render_suitability_leaflet()` map rendering |
+
+---
 
 ## PR Checklist Template
 
 Use this in every PR description:
 
+```markdown
 ## Summary
 What does this PR add/fix?
 
@@ -150,9 +316,9 @@ Out of scope:
 What changes in the app or outputs?
 
 ## Tests
-- [ ] R sources parse
-- [ ] scripts/smoke_test.R passes
-- [ ] tests/testthat.R passes
+- [ ] R sources parse (if R changed)
+- [ ] scripts/smoke_test.R passes (if R changed)
+- [ ] tests/testthat.R passes (if R changed)
 - [ ] Added/updated tests for this feature
 
 ## Dependencies
@@ -169,3 +335,4 @@ Attach if UI or report changed.
 
 ## Known limitations
 What should reviewers know?
+```

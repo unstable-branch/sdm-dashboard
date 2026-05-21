@@ -26,6 +26,7 @@ import {
   Layers,
   LayoutDashboard,
   Cloud,
+  FolderKanban,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ const pipelineItems = [
 ];
 
 const systemItems = [
+  { title: "Projects", href: "/projects", icon: FolderKanban },
   { title: "Downloads", href: "/downloads", icon: Download },
   { title: "Species", href: "/species", icon: Users },
   { title: "Settings", href: "/settings", icon: Settings },
