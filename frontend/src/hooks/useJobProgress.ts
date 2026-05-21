@@ -17,7 +17,7 @@ export function useJobProgress(jobId: string | null) {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const connect = useCallback(() => {
-    if (!jobId) return;
+    if (!jobId || typeof window === "undefined") return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -78,7 +78,9 @@ export function useJobProgress(jobId: string | null) {
 
     return () => {
       if (wsRef.current) {
-        wsRef.current.send(JSON.stringify({ type: "unsubscribe", jobId }));
+        try {
+          wsRef.current.send(JSON.stringify({ type: "unsubscribe", jobId }));
+        } catch { /* ignore */ }
         wsRef.current.close();
         wsRef.current = null;
       }
