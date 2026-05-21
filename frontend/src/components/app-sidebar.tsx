@@ -23,6 +23,7 @@ import {
   Download,
   Users,
   Settings,
+  Layers,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ import { Button } from "@/components/ui/button";
 const pipelineItems = [
   { title: "Data", href: "/data", icon: Database },
   { title: "Model", href: "/model", icon: Brain },
+  { title: "Batch", href: "/batch", icon: Layers },
   { title: "Evaluate", href: "/evaluate", icon: BarChart3 },
   { title: "Project", href: "/project", icon: Globe },
   { title: "Ecology", href: "/ecology", icon: Leaf },
