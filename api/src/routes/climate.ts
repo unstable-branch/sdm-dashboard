@@ -2,10 +2,13 @@ import { Hono } from "hono";
 import { plumberClient } from "../services/plumber";
 import { enqueueSdmJob } from "../services/queue";
 import { climateRateLimit } from "../middleware/rate-limit";
+import { longCache } from "../middleware/cache";
 
 export const climateRoutes = new Hono();
 
 climateRoutes.use("*", climateRateLimit);
+
+climateRoutes.get("/scenarios", longCache, async (c) => {
 
 climateRoutes.post("/download", async (c) => {
   try {

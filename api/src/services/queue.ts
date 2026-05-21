@@ -9,7 +9,18 @@ const connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379"
   maxRetriesPerRequest: null,
 });
 
-export const sdmQueue = new Queue("sdm-jobs", { connection });
+export const sdmQueue = new Queue("sdm-jobs", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: "exponential",
+      delay: 5000,
+    },
+    removeOnComplete: { age: 86400, count: 100 },
+    removeOnFail: { age: 604800 },
+  },
+});
 
 export interface SdmJobData {
   type: "clean" | "model" | "climate_download";
