@@ -112,16 +112,6 @@ export class PlumberClient {
     return res.json();
   }
 
-  async parseDwca(data: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/api/v1/occurrences/dwca`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error(`Failed to parse DwCA: ${res.status}`);
-    return res.json();
-  }
-
   async getModelStatus(jobId: string): Promise<Record<string, unknown>> {
     const res = await fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`);
     if (!res.ok) throw new Error(`Failed to get model status: ${res.status}`);
