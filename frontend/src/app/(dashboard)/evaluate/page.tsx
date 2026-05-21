@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RunComparison } from "@/components/evaluate/run-comparison";
 import { ThresholdExplorer } from "@/components/evaluate/threshold-explorer";
-import { BarChart3, Loader2 } from "lucide-react";
+import { BarChart3, Loader2, Image } from "lucide-react";
 
 interface RunSummary {
   id: string;
@@ -14,21 +14,46 @@ interface RunSummary {
   started_at: string;
   completed_at: string | null;
   metrics: Record<string, number | null> | null;
+  output_files: Record<string, string> | null;
+}
+
+interface RunDetail extends RunSummary {
+  progress_log: string[];
 }
 
 export default function EvaluatePage() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedRun, setSelectedRun] = useState<RunDetail | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/v1/sdm/runs")
       .then((res) => res.json())
       .then((data) => {
-        setRuns(Array.isArray(data) ? data : []);
+        const allRuns = Array.isArray(data) ? data : [];
+        setRuns(allRuns);
+        const completed = allRuns.filter((r: RunSummary) => r.status === "completed");
+        if (completed.length > 0) {
+          const first = completed[0];
+          setSelectedId(first.id);
+          fetch(`/api/v1/sdm/status/${first.id}`)
+            .then((res) => res.json())
+            .then((detail) => setSelectedRun(detail))
+            .catch(() => {});
+        }
         setLoading(false);
       })
       .catch(() => setLoading(false));
   }, []);
+
+  const selectRun = (id: string) => {
+    setSelectedId(id);
+    fetch(`/api/v1/sdm/status/${id}`)
+      .then((res) => res.json())
+      .then((detail) => setSelectedRun(detail))
+      .catch(() => {});
+  };
 
   if (loading) {
     return (
@@ -85,25 +110,53 @@ export default function EvaluatePage() {
 
         <TabsContent value="diagnostics">
           {completedRuns.length > 0 ? (
-            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
-              <p className="text-sm text-sdm-heading mb-2">Diagnostic images are available in the Results tab for each run.</p>
-              <p className="text-xs text-sdm-muted">
-                Each completed run generates: ROC curve, variable importance, response curves, CV fold metrics, and Continuous Boyce Index.
-              </p>
-              <div className="mt-4 space-y-2">
-                {completedRuns.slice(0, 5).map((run) => (
-                  <a
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {completedRuns.map((run) => (
+                  <button
                     key={run.id}
-                    href={`/results/${run.id}`}
-                    className="flex items-center justify-between rounded-md border border-sdm-border bg-sdm-surface-soft px-4 py-2 text-sm text-sdm-text hover:border-sdm-accent/50 transition-colors"
+                    onClick={() => selectRun(run.id)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
+                      selectedId === run.id
+                        ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
+                        : "border-sdm-border bg-sdm-surface-soft text-sdm-muted hover:text-sdm-text"
+                    }`}
                   >
-                    <span>{run.species} ({run.model_id})</span>
-                    <span className="text-xs text-sdm-muted">
-                      AUC: {(run.metrics?.auc_mean ?? 0).toFixed(3)}
-                    </span>
-                  </a>
+                    {run.species} ({run.model_id})
+                  </button>
                 ))}
               </div>
+
+              {selectedRun && selectedRun.output_files ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[
+                    { key: "roc_curve_png", label: "ROC Curve" },
+                    { key: "variable_importance_png", label: "Variable Importance" },
+                    { key: "response_curves_png", label: "Response Curves" },
+                    { key: "cv_folds_png", label: "CV Folds" },
+                    { key: "cbi_png", label: "Continuous Boyce Index" },
+                  ].map(({ key, label }) => {
+                    const path = selectedRun.output_files?.[key];
+                    const url = path ? `/api/v1/results/file/${encodeURIComponent(path)}` : null;
+                    return (
+                      <div key={key} className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
+                        <div className="px-3 py-2 border-b border-sdm-border text-xs font-medium text-sdm-heading">{label}</div>
+                        {url ? (
+                          <img src={url} alt={label} className="w-full" />
+                        ) : (
+                          <div className="flex items-center justify-center h-48 text-sm text-sdm-muted italic">
+                            <Image className="h-4 w-4 mr-1" /> Not available
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
+                  Loading diagnostic images...
+                </div>
+              )}
             </div>
           ) : (
             <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
