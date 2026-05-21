@@ -1,21 +1,34 @@
-FROM node:22-alpine
+FROM node:22-alpine AS builder
 
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init curl
+
+RUN npm install -g pnpm
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml* ./
 COPY packages/shared/package.json packages/shared/
 COPY api/package.json api/
 COPY frontend/package.json frontend/
 
-RUN npm install
+RUN pnpm install
 
 COPY packages/shared/ packages/shared/
 COPY api/ api/
 COPY frontend/ frontend/
 
-RUN cd api && npm run build
+RUN pnpm --filter @sdm/api build
+
+FROM node:22-alpine AS runner
+
+RUN apk add --no-cache dumb-init
+
+WORKDIR /app
+
+COPY --from=builder /app/api/dist ./api/dist
+COPY --from=builder /app/api/package.json ./api/
+COPY --from=builder /app/node_modules ./node_modules
 
 EXPOSE 4000
 

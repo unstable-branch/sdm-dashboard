@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { FileUpload } from "@/components/data/file-upload";
 import { GbifSearch } from "@/components/data/gbif-search";
 import { PreviewTable } from "@/components/data/preview-table";
 import { CleaningTable } from "@/components/data/cleaning-table";
-import { OccurrenceMap } from "@/components/data/occurrence-map";
 import { SourceCounts } from "@/components/data/source-counts";
 import { JobProgress } from "@/components/jobs/job-progress";
 import { DownloadProgress } from "@/components/climate/download-progress";
@@ -15,6 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Globe, FileArchive, Wand2, Map, Cloud, Loader2, CheckCircle2, Download } from "lucide-react";
 import { useSDMStore } from "@/stores/sdm-store";
 import { BIOVAR_CHOICES, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
+
+const OccurrenceMap = dynamic(() => import("@/components/data/occurrence-map").then(m => m.OccurrenceMap), { ssr: false });
 
 interface OccurrencePoint {
   longitude: number;
