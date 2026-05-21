@@ -1,7 +1,8 @@
 import { createMiddleware } from "hono/factory";
 import { verify } from "hono/jwt";
+import { createHash } from "crypto";
 import { db } from "../db";
-import { users, projectMembers, projects } from "../db/schema";
+import { users, apiKeys, projectMembers } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 
 export interface JwtPayload {
@@ -12,25 +13,64 @@ export interface JwtPayload {
   exp: number;
 }
 
-export interface AuthContext {
-  user: {
-    id: string;
-    email: string;
-    role: string;
+export type AppEnv = {
+  Variables: {
+    user: {
+      id: string;
+      email: string;
+      role: string;
+    };
   };
-}
+};
 
-export const authMiddleware = createMiddleware<AuthContext>(async (c, next) => {
+export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const authHeader = c.req.header("Authorization");
+  const apiKeyHeader = c.req.header("X-API-Key");
+
+  if (apiKeyHeader) {
+    const keyHash = createHash("sha256").update(apiKeyHeader).digest("hex");
+    const [key] = await db
+      .select({ userId: apiKeys.userId })
+      .from(apiKeys)
+      .where(and(eq(apiKeys.keyHash, keyHash)))
+      .limit(1);
+
+    if (!key) {
+      return c.json({ error: "Invalid API key" }, 401);
+    }
+
+    const [user] = await db
+      .select({ id: users.id, email: users.email, role: users.role })
+      .from(users)
+      .where(eq(users.id, key.userId))
+      .limit(1);
+
+    if (!user) {
+      return c.json({ error: "User not found" }, 401);
+    }
+
+    await db
+      .update(apiKeys)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(apiKeys.keyHash, keyHash));
+
+    c.set("user", user);
+    await next();
+    return;
+  }
+
   if (!authHeader?.startsWith("Bearer ")) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
   const token = authHeader.split(" ")[1];
-  const secret = process.env.JWT_SECRET || "dev-secret-change-in-production";
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    return c.json({ error: "Server configuration error: JWT_SECRET not set" }, 500);
+  }
 
   try {
-    const payload = await verify(token, secret);
+    const payload = await verify(token, secret, "HS256");
     c.set("user", {
       id: payload.sub as string,
       email: payload.email as string,
@@ -42,8 +82,55 @@ export const authMiddleware = createMiddleware<AuthContext>(async (c, next) => {
   }
 });
 
+export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
+  const authHeader = c.req.header("Authorization");
+  const apiKeyHeader = c.req.header("X-API-Key");
+
+  if (apiKeyHeader) {
+    try {
+      const keyHash = createHash("sha256").update(apiKeyHeader).digest("hex");
+      const [key] = await db
+        .select({ userId: apiKeys.userId })
+        .from(apiKeys)
+        .where(eq(apiKeys.keyHash, keyHash))
+        .limit(1);
+
+      if (key) {
+        const [user] = await db
+          .select({ id: users.id, email: users.email, role: users.role })
+          .from(users)
+          .where(eq(users.id, key.userId))
+          .limit(1);
+
+        if (user) {
+          c.set("user", user);
+        }
+      }
+    } catch {
+      // Silently fail for optional auth
+    }
+  } else if (authHeader?.startsWith("Bearer ")) {
+    try {
+      const token = authHeader.split(" ")[1];
+      const secret = process.env.JWT_SECRET;
+      if (secret) {
+    const payload = await verify(token, secret, "HS256");
+        c.set("user", {
+          id: payload.sub as string,
+          email: payload.email as string,
+          role: payload.role as string,
+        });
+      }
+    } catch {
+      // Silently fail for optional auth
+    }
+  }
+
+  await next();
+});
+
 export const requireRole = (roles: string[]) => {
-  return createMiddleware<AuthContext>(async (c, next) => {
+  return createMiddleware<AppEnv>(async (c, next) => {
     const user = c.get("user");
     if (!user || !roles.includes(user.role)) {
       return c.json({ error: "Forbidden" }, 403);
@@ -53,9 +140,9 @@ export const requireRole = (roles: string[]) => {
 };
 
 export const requireProjectAccess = (role: "owner" | "member" = "member") => {
-  return createMiddleware<AuthContext>(async (c, next) => {
+  return createMiddleware<AppEnv>(async (c, next) => {
     const user = c.get("user");
-    const projectId = c.req.param("projectId") || c.req.query("project_id");
+    const projectId = c.req.param("id") || c.req.query("project_id");
 
     if (!user || !projectId) {
       return c.json({ error: "Unauthorized" }, 401);

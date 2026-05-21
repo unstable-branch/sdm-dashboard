@@ -37,7 +37,7 @@ export function RunHistory({ onRunSelect }: RunHistoryProps) {
         return res.json();
       })
       .then((data) => {
-        setRuns(Array.isArray(data) ? data : []);
+        setRuns(data.runs || []);
         setLoading(false);
       })
       .catch((err) => {

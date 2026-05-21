@@ -27,7 +27,7 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: frontend/Dockerfile
+      dockerfile: Dockerfile.frontend
       target: runner
     environment:
       - NODE_ENV=production
@@ -45,7 +45,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: api/Dockerfile
+      dockerfile: Dockerfile.api
       target: runner
     environment:
       - NODE_ENV=production

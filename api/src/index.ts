@@ -8,6 +8,7 @@ import { ensureBuckets } from "./services/storage";
 import { sdmQueue, sdmWorker, getJobStatus } from "./services/queue";
 import { setupWebSocket } from "./services/websocket";
 import { mediumCache, longCache } from "./middleware/cache";
+import { csrfMiddleware } from "./middleware/csrf";
 import { sdmRoutes } from "./routes/sdm";
 import { dataRoutes } from "./routes/occurrences";
 import { resultsRoutes } from "./routes/results";
@@ -21,6 +22,11 @@ const app = new Hono();
 
 app.use("*", cors());
 app.use("*", logger());
+app.use("/api/v1/sdm/*", csrfMiddleware);
+app.use("/api/v1/data/*", csrfMiddleware);
+app.use("/api/v1/climate/*", csrfMiddleware);
+app.use("/api/v1/ecology/*", csrfMiddleware);
+app.use("/api/v1/projects/*", csrfMiddleware);
 
 app.get("/health", async (c) => {
   let plumberStatus = "unknown";

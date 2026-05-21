@@ -6,27 +6,36 @@ const app = new Hono();
 
 app.get("/sse", (c) => {
   return streamSSE(c, async (stream) => {
-    while (true) {
-      const jobs = await sdmQueue.getJobs(["active", "waiting", "completed", "failed"]);
+    let aborted = false;
+    stream.onAbort(() => {
+      aborted = true;
+    });
 
-      for (const job of jobs) {
-        const state = await job.getState();
-        const progress = job.progress || 0;
+    while (!aborted && !stream.closed) {
+      try {
+        const jobs = await sdmQueue.getJobs(["active", "waiting", "completed", "failed"]);
 
-        await stream.writeSSE({
-          event: "job-update",
-          data: JSON.stringify({
-            id: job.id,
-            state,
-            progress,
-            type: job.data?.type,
-            result: job.returnvalue,
-            failedReason: job.failedReason,
-          }),
-        });
+        for (const job of jobs) {
+          const state = await job.getState();
+          const progress = job.progress || 0;
+
+          await stream.writeSSE({
+            event: "job-update",
+            data: JSON.stringify({
+              id: job.id,
+              state,
+              progress,
+              type: job.data?.type,
+              result: job.returnvalue,
+              failedReason: job.failedReason,
+            }),
+          });
+        }
+
+        await stream.sleep(2000);
+      } catch {
+        break;
       }
-
-      await stream.sleep(2000);
     }
   });
 });

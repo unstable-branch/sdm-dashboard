@@ -1,18 +1,26 @@
 import { Hono } from "hono";
 import { sign } from "hono/jwt";
-import { hash, verify } from "bcrypt";
+import { hash, compare } from "bcrypt";
 import { db } from "../db";
 import { users, apiKeys } from "../db/schema";
-import { eq } from "drizzle-orm";
-import { authMiddleware, requireRole } from "../middleware/auth";
+import { eq, and } from "drizzle-orm";
+import { authMiddleware } from "../middleware/auth";
+import { rateLimit } from "../middleware/rate-limit";
 import { randomBytes, createHash } from "crypto";
 
 export const authRoutes = new Hono();
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
-const BCRYPT_ROUNDS = 10;
+const JWT_SECRET = process.env.JWT_SECRET;
+const BCRYPT_ROUNDS = 12;
+
+authRoutes.use("/register", rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "register" }));
+authRoutes.use("/login", rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "login" }));
 
 authRoutes.post("/register", async (c) => {
+  if (!JWT_SECRET) {
+    return c.json({ error: "Server configuration error" }, 500);
+  }
+
   try {
     const body = await c.req.json();
     const { email, password, name } = body;
@@ -39,9 +47,8 @@ authRoutes.post("/register", async (c) => {
       .returning();
 
     const token = await sign(
-      { sub: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { exp: Math.floor(Date.now() / 1000) + 86400 }
+      { sub: user.id, email: user.email, role: user.role, exp: Math.floor(Date.now() / 1000) + 86400 },
+      JWT_SECRET
     );
 
     return c.json({
@@ -55,6 +62,10 @@ authRoutes.post("/register", async (c) => {
 });
 
 authRoutes.post("/login", async (c) => {
+  if (!JWT_SECRET) {
+    return c.json({ error: "Server configuration error" }, 500);
+  }
+
   try {
     const body = await c.req.json();
     const { email, password } = body;
@@ -73,15 +84,14 @@ authRoutes.post("/login", async (c) => {
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    const valid = await verify(password, user.passwordHash);
+    const valid = await compare(password, user.passwordHash);
     if (!valid) {
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
     const token = await sign(
-      { sub: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { exp: Math.floor(Date.now() / 1000) + 86400 }
+      { sub: user.id, email: user.email, role: user.role, exp: Math.floor(Date.now() / 1000) + 86400 },
+      JWT_SECRET
     );
 
     return c.json({

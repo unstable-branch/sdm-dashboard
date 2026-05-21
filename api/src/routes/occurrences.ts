@@ -5,12 +5,18 @@ import { plumberClient } from "../services/plumber";
 import { enqueueSdmJob } from "../services/queue";
 import { db } from "../db";
 import { species, occurrences } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, count } from "drizzle-orm";
 import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit";
+import { authMiddleware, optionalAuth } from "../middleware/auth";
 
 export const dataRoutes = new Hono();
 
 dataRoutes.use("*", defaultRateLimit);
+dataRoutes.use("/occurrences/upload", authMiddleware);
+dataRoutes.use("/occurrences/clean", authMiddleware);
+dataRoutes.use("/occurrences/gbif/search", authMiddleware);
+dataRoutes.use("/occurrences/dwca", authMiddleware);
+dataRoutes.use("*", optionalAuth);
 
 dataRoutes.post("/occurrences/upload", async (c) => {
   try {
@@ -185,25 +191,25 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
 dataRoutes.get("/species", async (c) => {
   try {
     const page = parseInt(c.req.query("page") || "1", 10);
-    const limit = parseInt(c.req.query("limit") || "50", 10);
-    const offset = (page - 1) * limit;
+    const limitVal = parseInt(c.req.query("limit") || "50", 10);
+    const offset = (page - 1) * limitVal;
 
     const allSpecies = await db
       .select()
       .from(species)
       .orderBy(species.createdAt)
-      .limit(limit)
+      .limit(limitVal)
       .offset(offset);
 
-    const [{ count }] = await db.select({ count: species.id }).from(species);
+    const [{ total }] = await db.select({ total: count() }).from(species);
 
     return c.json({
       species: allSpecies,
       pagination: {
         page,
-        limit,
-        total: count,
-        totalPages: Math.ceil(count / limit),
+        limit: limitVal,
+        total,
+        totalPages: Math.ceil(total / limitVal),
       },
     });
   } catch (err) {
@@ -238,8 +244,8 @@ dataRoutes.get("/species/:id/occurrences", async (c) => {
       .limit(limit)
       .offset(offset);
 
-    const [{ count }] = await db
-      .select({ count: occurrences.id })
+    const [{ total }] = await db
+      .select({ total: count() })
       .from(occurrences)
       .where(eq(occurrences.speciesId, id));
 
@@ -248,8 +254,8 @@ dataRoutes.get("/species/:id/occurrences", async (c) => {
       pagination: {
         page,
         limit,
-        total: count,
-        totalPages: Math.ceil(count / limit),
+        total,
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (err) {
