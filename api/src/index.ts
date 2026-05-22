@@ -93,7 +93,7 @@ const port = parseInt(process.env.PORT || "4000", 10);
   try {
     await ensureBuckets();
   } catch (err) {
-    console.error("[Garage] Bucket initialization failed - continuing:", err?.message || err);
+    console.error("[Garage] Bucket initialization failed - continuing:", err instanceof Error ? err.message : String(err));
   }
 })();
 

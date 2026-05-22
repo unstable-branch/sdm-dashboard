@@ -13,7 +13,7 @@ const mockChain = (result: unknown) => ({
 });
 
 const mockCountChain = (count: number) => ({
-  from: vi.fn(() => Promise.resolve([{ count }])),
+  from: vi.fn(() => Promise.resolve([{ total: count }])),
 });
 
 vi.mock("../db", () => ({
@@ -26,6 +26,32 @@ vi.mock("../services/plumber", () => ({
   plumberClient: {
     getModelStatus: vi.fn(),
   },
+}));
+
+vi.mock("ioredis", () => ({
+  Redis: class MockRedis {
+    on = vi.fn();
+    connect = vi.fn(() => Promise.resolve());
+    zremrangebyscore = vi.fn(() => Promise.resolve(0));
+    zcard = vi.fn(() => Promise.resolve(0));
+    zadd = vi.fn(() => Promise.resolve(1));
+    expire = vi.fn(() => Promise.resolve(1));
+  },
+}));
+
+vi.mock("../middleware/auth", () => ({
+  authMiddleware: vi.fn(async (c: any, next: any) => {
+    c.set("user", { id: "user-1", email: "test@example.com", role: "admin" });
+    await next();
+  }),
+  optionalAuth: vi.fn(async (c: any, next: any) => {
+    c.set("user", { id: "user-1", email: "test@example.com", role: "admin" });
+    await next();
+  }),
+}));
+
+vi.mock("hono/jwt", () => ({
+  verify: vi.fn(async () => ({ sub: "user-1", email: "test@example.com", role: "admin" })),
 }));
 
 describe("SDM routes", () => {

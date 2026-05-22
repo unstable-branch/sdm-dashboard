@@ -30,7 +30,7 @@ describe("VifTable", () => {
     };
     render(<VifTable data={data} loading={false} />);
     expect(screen.getByText("2")).toBeTruthy();
-    expect(screen.getByText("1")).toBeTruthy();
+    expect(screen.getAllByText("1").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("bio2")).toBeTruthy();
     expect(screen.getByText("bio1")).toBeTruthy();
   });

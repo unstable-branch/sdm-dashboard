@@ -29,6 +29,8 @@ vi.mock("../db", () => ({
   },
 }));
 
+process.env.JWT_SECRET = "test-secret";
+
 const { authRoutes } = await import("./auth");
 
 describe("auth routes", () => {
