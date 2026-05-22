@@ -60,13 +60,14 @@ services:
       - "8000:8000"
     volumes:
       - plumber-data:/app/data
+      - upload-data:/app/data/uploads
       - plumber-outputs:/app/outputs
       - plumber-covariates:/app/covariates
       - plumber-worldclim:/app/Worldclim
     environment:
       - SDM_PROJECT_ROOT=/app
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:-sdm_password}@postgres:5432/sdm_platform
-      - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-change-me-in-production}
+      - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-6e94feb6699652f8529ed79ee7863a4daab79279286e84f0c4026fe2fb29884e}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
@@ -100,6 +101,8 @@ services:
       - GARAGE_ENDPOINT=${GARAGE_ENDPOINT:-http://garage:3900}
       - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY:-dev-access-key}
       - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY:-dev-secret-key}
+    volumes:
+      - upload-data:/app/data/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -145,6 +148,7 @@ volumes:
   plumber-outputs:
   plumber-covariates:
   plumber-worldclim:
+  upload-data:
 
 networks:
   sdm-network:

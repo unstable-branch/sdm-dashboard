@@ -10,6 +10,20 @@ app_dir <- if (dir.exists("/app/R")) "/app" else normalizePath(file.path(getwd()
 # Source auth helpers (must be in global env before sourcing plumber.R)
 source(file.path(app_dir, "plumber", "R", "auth.R"), local = FALSE)
 
+# Load .env file for env vars (PLUMBER_INTERNAL_KEY, DATABASE_URL, etc.)
+env_file <- file.path(app_dir, ".env")
+if (file.exists(env_file)) {
+  lines <- readLines(env_file, warn = FALSE)
+  for (line in lines) {
+    if (grepl("^[A-Za-z_][A-Za-z0-9_]*=", line)) {
+      kv <- strsplit(sub("^([A-Za-z_][A-Za-z0-9_]*)=(.*)", "\\1\n\\2", line), "\n")[[1]]
+      if (length(kv) == 2L && !nzchar(Sys.getenv(kv[1], ""))) {
+        do.call(Sys.setenv, stats::setNames(list(kv[2]), kv[1]))
+      }
+    }
+  }
+}
+
 # Create plumber router (this sets global `pr`)
 pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 

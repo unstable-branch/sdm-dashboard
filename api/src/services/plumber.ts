@@ -60,8 +60,12 @@ export class PlumberClient {
       method: "POST",
       body: formData,
       headers,
+      signal: AbortSignal.timeout(300_000),
     });
-    if (!res.ok) throw new Error(`Failed to upload occurrence: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(body || `Failed to upload occurrence: ${res.status}`);
+    }
     return res.json();
   }
 
