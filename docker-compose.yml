@@ -62,6 +62,7 @@ services:
       - plumber-worldclim:/app/Worldclim
     environment:
       - SDM_PROJECT_ROOT=/app
+      - DATABASE_URL=postgresql://sdm:sdm_password@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=sdm-internal-key-change-in-production
       - PLUMBER_AUTH_DISABLED=false
     healthcheck:

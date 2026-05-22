@@ -88,10 +88,14 @@ app.route("/api/v1/jobs", jobsRoutes);
 
 const port = parseInt(process.env.PORT || "4000", 10);
 
-// Initialize Garage S3 buckets
-ensureBuckets().catch((err) => {
-  console.error("[Garage] Bucket initialization failed:", err);
-});
+// Initialize Garage S3 buckets (non-blocking, errors are logged)
+(async () => {
+  try {
+    await ensureBuckets();
+  } catch (err) {
+    console.error("[Garage] Bucket initialization failed - continuing:", err?.message || err);
+  }
+})();
 
 // Attempt to start background job worker (will no-op if Redis unavailable)
 setTimeout(() => {
