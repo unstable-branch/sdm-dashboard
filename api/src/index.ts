@@ -2,7 +2,6 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { createServer } from "http";
 import { plumberClient } from "./services/plumber";
 import { ensureBuckets } from "./services/storage";
 import { sdmQueue, sdmWorker, getJobStatus } from "./services/queue";
@@ -96,15 +95,16 @@ ensureBuckets().catch((err) => {
 });
 
 // Set up HTTP server with WebSocket support
-const server = createServer(app.fetch as any);
+const server = serve(
+  { fetch: app.fetch, port, hostname: "0.0.0.0" },
+  (info) => {
+    console.log(`SDM API server running on http://${info.address}:${info.port}`);
+    console.log(`HTTP server listening on port ${info.port}`);
+    console.log(`WebSocket available at ws://${info.address}:${info.port}/ws`);
+  }
+);
 
 setupWebSocket(server);
-
-server.listen(port, () => {
-  console.log(`SDM API server running on http://0.0.0.0:${port}`);
-  console.log(`HTTP server listening on port ${port}`);
-  console.log(`WebSocket available at ws://0.0.0.0:${port}/ws`);
-});
 
 process.on("unhandledRejection", (reason) => {
   console.error("[API] Unhandled rejection:", reason);
