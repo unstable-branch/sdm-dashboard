@@ -8,7 +8,7 @@
 function(req, res) {
   source(file.path(app_dir, "plumber", "R", "auth.R"), local = TRUE)
 
-  path <- req$PATH
+  path <- req$PATH_INFO %||% req$PATH
 
   # Skip auth for open endpoints (read-only, no state change)
   if (!requires_auth(path)) {

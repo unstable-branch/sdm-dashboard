@@ -11,14 +11,22 @@ app_dir <- if (dir.exists("/app/R")) "/app" else normalizePath(file.path(getwd()
 source(file.path(app_dir, "plumber", "R", "auth.R"), local = FALSE)
 
 # Create plumber router (this sets global `pr`)
-pr <- plumber::pr(app_dir)
+pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 
 # Internal auth key set by Hono when proxying authenticated requests
 internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
 
 # Global preroute hook - runs before every endpoint
-plumber::pr_hook(pr, "preroute", function(req, res) {
-  path <- req$PATH
+# Note: plumber 1.3.x uses 3-argument signature (data, req, res)
+plumber::pr_hook(pr, "preroute", function(data, req, res) {
+  path <- req$PATH_INFO %||% req$PATH
+
+  # Guard against malformed requests
+  if (is.null(path) || length(path) == 0L) {
+    res$status <- 400L
+    res$body <- '{"error":"Malformed request"}'
+    return(res)
+  }
 
   # Disable auth in dev/test if env var set
   if (identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {

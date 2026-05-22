@@ -80,6 +80,11 @@ validate_api_key <- function(api_key, app_dir = NULL) {
 #' @param path Request path
 #' @return TRUE if auth required, FALSE if open
 requires_auth <- function(path) {
+  # Guard against empty/invalid path - require auth as safety measure
+  if (is.null(path) || length(path) == 0L || !is.character(path)) {
+    return(TRUE)
+  }
+
   # Open endpoints: health, ready, list endpoints
   open_patterns <- c(
     "^/health$",
@@ -97,7 +102,8 @@ requires_auth <- function(path) {
   )
 
   for (pattern in open_patterns) {
-    if (grepl(pattern, path)) {
+    result <- grepl(pattern, path)
+    if (length(result) > 0 && isTRUE(result)) {
       return(FALSE)
     }
   }
@@ -108,7 +114,7 @@ requires_auth <- function(path) {
 #' @param req Plumber request object
 #' @param res Plumber response object
 plumber_auth_filter <- function(req, res) {
-  path <- req$PATH
+  path <- req$PATH_INFO %||% req$PATH
 
   # Skip auth for open endpoints
   if (!requires_auth(path)) {

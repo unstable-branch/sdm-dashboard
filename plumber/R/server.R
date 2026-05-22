@@ -7,7 +7,7 @@ app_dir <- if (dir.exists("/app/R")) "/app" else normalizePath(file.path(getwd()
 source(file.path(app_dir, "plumber", "R", "auth.R"), local = FALSE)
 
 # Create the plumber router
-pr <- plumber::pr(app_dir)
+pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 
 # The filter is applied automatically via source above - however we need
 # to handle the filter at router creation time. The cleanest approach in Plumber
