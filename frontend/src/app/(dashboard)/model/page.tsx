@@ -88,7 +88,7 @@ export default function ModelPage() {
             <h2 className="text-sm font-semibold text-sdm-heading mb-3">Data source</h2>
             {occurrenceFile ? (
               <div>
-                <p className="text-sm text-sdm-text font-mono truncate">{occurrenceFile.split("/").pop()}</p>
+                <p className="text-sm text-sdm-text font-mono truncate">{typeof occurrenceFile === "string" ? occurrenceFile.split("/").pop() : String(occurrenceFile)}</p>
                 <p className="text-xs text-sdm-muted mt-1">{recordCount.toLocaleString()} records loaded</p>
                 {species && species !== "Untitled species" && (
                   <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>

@@ -1507,3 +1507,57 @@ function(run_id) {
     )
   )
 }
+
+#* Check which BIO variables are already downloaded
+#* @param source data source: worldclim, chelsa, cmip6
+#* @param res resolution for worldclim
+#* @param biovars comma-separated BIO variable IDs
+#* @param gcm GCM name (for cmip6)
+#* @param ssp SSP scenario (for cmip6)
+#* @param period time period (for cmip6)
+#* @get /api/v1/climate/check
+function(source = "worldclim", res = "10", biovars = "", gcm = "", ssp = "", period = "") {
+  tryCatch({
+    # Plumber may split comma query params into a vector; collapse back to string
+    if (length(biovars) > 1) biovars <- paste(biovars, collapse = ",")
+    requested <- as.integer(unlist(strsplit(as.character(biovars), ",")))
+    requested <- unique(requested[!is.na(requested)])
+
+    existing_nums <- integer(0)
+
+    if (source == "worldclim") {
+      res_esc <- gsub("\\.", "\\\\.", as.character(res))
+      pattern <- sprintf("^wc2\\.1_%sm_bio_\\d+\\.tif$", res_esc)
+      files <- list.files(sdm_default_worldclim_dir, pattern = pattern)
+      existing_nums <- as.integer(gsub("^.*_bio_(\\d+)\\.tif$", "\\1", files))
+    } else if (source == "chelsa") {
+      files <- list.files("chelsa", pattern = "^CHELSA_bio\\d+_.*\\.tif$")
+      existing_nums <- as.integer(gsub("^CHELSA_bio0*(\\d+)_.*$", "\\1", files))
+    } else if (source == "cmip6") {
+      if (nzchar(gcm) && nzchar(ssp) && nzchar(period)) {
+        future_dir <- file.path(sdm_default_future_worldclim_dir, paste0(gcm, "_", ssp, "_", period))
+        if (dir.exists(future_dir)) {
+          files <- list.files(future_dir, pattern = "^bio\\d+\\.tif$")
+          existing_nums <- as.integer(gsub("^bio(\\d+)\\.tif$", "\\1", files))
+        }
+      }
+    }
+
+    available <- intersect(requested, existing_nums)
+    missing <- setdiff(requested, existing_nums)
+
+    list(
+      source = source,
+      res = res,
+      available = as.list(available),
+      missing = as.list(missing)
+    )
+  }, error = function(e) {
+    list(
+      source = source,
+      res = res,
+      available = list(),
+      missing = as.list(requested)
+    )
+  })
+}

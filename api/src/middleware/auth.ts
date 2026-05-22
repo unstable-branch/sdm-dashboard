@@ -5,6 +5,33 @@ import { db } from "../db/index.js";
 import { users, apiKeys, projectMembers } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 
+// In-memory rate limiter for failed API key attempts (per IP)
+const failedKeyAttempts = new Map<string, { count: number; resetAt: number }>();
+const FAILED_KEY_WINDOW_MS = 60_000;
+const FAILED_KEY_MAX = 20;
+
+function checkFailedKeyRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = failedKeyAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    failedKeyAttempts.set(ip, { count: 1, resetAt: now + FAILED_KEY_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= FAILED_KEY_MAX) {
+    return false;
+  }
+  entry.count++;
+  return true;
+}
+
+// Periodically purge expired entries
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of failedKeyAttempts) {
+    if (now > entry.resetAt) failedKeyAttempts.delete(ip);
+  }
+}, 60_000);
+
 export interface JwtPayload {
   sub: string;
   email: string;
@@ -29,6 +56,11 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 
   if (apiKeyHeader) {
     try {
+      const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown";
+      if (!checkFailedKeyRateLimit(ip)) {
+        return c.json({ error: "Too many failed authentication attempts" }, 429);
+      }
+
       const keyHash = createHash("sha256").update(apiKeyHeader).digest("hex");
       const [key] = await db
         .select({ userId: apiKeys.userId })

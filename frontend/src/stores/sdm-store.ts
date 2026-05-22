@@ -92,6 +92,14 @@ export const useSDMStore = create<SDMState>()(
         cleanResult: state.cleanResult,
         flaggedIndices: state.flaggedIndices,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state && typeof state.occurrenceFilePath !== "string" && state.occurrenceFilePath !== null) {
+          state.occurrenceFilePath = null;
+        }
+        if (state && typeof state.recordCount !== "number") {
+          state.recordCount = 0;
+        }
+      },
     }
   )
 );
