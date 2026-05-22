@@ -33,22 +33,14 @@ services:
       - sdm-network
 
   garage:
-    image: dxflrs/garage:v2.2.0
-    command: server
-    environment:
-      GARAGE_BOOTSTRAP_TOKEN: "sdm-bootstrap-token"
-      GARAGE_DATA_DIR: /var/lib/garage
-      GARAGE_RPC_BIND_ADDR: "0.0.0.0:3902"
-      GARAGE_S3_API_BIND_ADDR: "0.0.0.0:3900"
-      GARAGE_S3_WEB_BIND_ADDR: "0.0.0.0:3901"
-      GARAGE_S3_ROOT_ACCESS_KEY_ID: "sdm"
-      GARAGE_S3_ROOT_SECRET_KEY: "sdm_garage_secret"
+    image: dxflrs/garage:v2.3.0
     ports:
       - "3900:3900"
       - "3901:3901"
       - "3902:3902"
     volumes:
       - garage-data:/var/lib/garage
+      - ./garage/config.toml:/etc/garage.toml:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3901/ || exit 1"]
       interval: 5s

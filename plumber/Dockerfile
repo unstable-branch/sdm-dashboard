@@ -17,7 +17,8 @@ RUN R -e "install.packages(c( \
     'CoordinateCleaner', 'rgbif', 'finch', \
     'future', 'future.apply', \
     'testthat', \
-    'DBI', 'RPostgres', 'digest' \
+    'DBI', 'RPostgres', 'digest', \
+    'Rook' \
   ), repos='https://cloud.r-project.org', Ncpus=4)"
 
 WORKDIR /app
