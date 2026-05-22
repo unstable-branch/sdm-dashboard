@@ -35,6 +35,9 @@ renv/
 species/
 TestSpp/
 
+# Broken symlinks
+/nextcloud
+
 # OS
 .DS_Store
 Thumbs.db

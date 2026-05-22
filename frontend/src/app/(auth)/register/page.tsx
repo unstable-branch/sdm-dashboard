@@ -4,10 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Leaf, Loader2, Eye, EyeOff } from "lucide-react";
+import { useAuthStore } from "@/stores/auth-store";
 import { setAuthToken } from "@/services/api";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const setAuth = useAuthStore((s) => s.setAuth);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -45,6 +47,7 @@ export default function RegisterPage() {
       }
 
       setAuthToken(data.token);
+      if (data.user) setAuth(data.user, data.token);
       router.push("/");
       router.refresh();
     } catch (err) {

@@ -8,27 +8,40 @@ import { eq } from "drizzle-orm";
 let _connection: IORedis | null = null;
 let _queue: Queue | null = null;
 let _worker: Worker<SdmJobData, SdmJobResult> | null = null;
+let _redisDisabled = false;
 
-function getConnection(): IORedis {
-  if (!_connection) {
-    _connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
-      maxRetriesPerRequest: null,
-      retryStrategy: (times) => {
-        if (times > 10) return null;
-        return Math.min(times * 100, 3000);
-      },
-      lazyConnect: true,
-    });
-    _connection.on("error", () => {});
-    _connection.connect().catch(() => {});
+function getConnection(): IORedis | null {
+  if (_redisDisabled) return null;
+  if (_connection) {
+    if (_connection.status === "close" || _connection.status === "end") {
+      _redisDisabled = true;
+      return null;
+    }
+    return _connection;
   }
+  _connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
+    maxRetriesPerRequest: null,
+    retryStrategy: (times) => {
+      if (times > 10) return null;
+      return Math.min(times * 100, 3000);
+    },
+    lazyConnect: true,
+    enableReadyCheck: true,
+  });
+  _connection.on("error", () => {});
+  _connection.connect().catch(() => {
+    _redisDisabled = true;
+  });
   return _connection;
 }
 
-function getQueue(): Queue {
+function getQueue(): Queue | null {
+  if (_redisDisabled) return null;
   if (!_queue) {
+    const conn = getConnection();
+    if (!conn) return null;
     _queue = new Queue("sdm-jobs", {
-      connection: getConnection(),
+      connection: conn,
       defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -45,7 +58,9 @@ function getQueue(): Queue {
 
 export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
   if (_worker) return _worker;
-  if (_connection && !_connection.status.includes("ready")) return null;
+  if (_redisDisabled) return null;
+  const conn = getConnection();
+  if (!conn) return null;
   _worker = new Worker<SdmJobData, SdmJobResult>(
     "sdm-jobs",
     async (job: Job<SdmJobData, SdmJobResult>) => {
@@ -249,16 +264,17 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
         };
       }
     },
-    { connection: getConnection() }
+    { connection: conn }
   );
   return _worker;
 }
 
-export function getJobQueue(): Queue {
+export function getJobQueue(): Queue | null {
   return getQueue();
 }
 
-export function getQueueClient(): IORedis {
+export function getQueueClient(): IORedis | null {
+  if (_redisDisabled) return null;
   return getConnection();
 }
 
@@ -275,8 +291,10 @@ export interface SdmJobResult {
 }
 
 export async function enqueueSdmJob(data: SdmJobData, userId?: string): Promise<string> {
+  const q = getQueue();
+  if (!q) throw new Error("Redis unavailable — cannot enqueue job");
   const jobData: SdmJobData = userId ? { ...data, userId } : data;
-  const job = await getQueue().add("sdm-task", jobData, {
+  const job = await q.add("sdm-task", jobData, {
     attempts: 2,
     backoff: { type: "exponential", delay: 1000 },
     removeOnComplete: { age: 3600 },
@@ -286,7 +304,9 @@ export async function enqueueSdmJob(data: SdmJobData, userId?: string): Promise<
 }
 
 export async function getJobStatus(jobId: string) {
-  const job = await getQueue().getJob(jobId);
+  const q = getQueue();
+  if (!q) return null;
+  const job = await q.getJob(jobId);
   if (!job) return null;
 
   const state = await job.getState();

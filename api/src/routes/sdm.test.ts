@@ -2,18 +2,28 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import { sdmRoutes } from "./sdm.js";
 
+const mockProjectChain = (projects: Array<{ projectId: string }>) => ({
+  from: vi.fn(() => ({
+    where: vi.fn(() => Promise.resolve(projects)),
+  })),
+});
+
 const mockChain = (result: unknown) => ({
   from: vi.fn(() => ({
-    orderBy: vi.fn(() => ({
-      limit: vi.fn(() => ({
-        offset: vi.fn(() => Promise.resolve(result)),
+    where: vi.fn(() => ({
+      orderBy: vi.fn(() => ({
+        limit: vi.fn(() => ({
+          offset: vi.fn(() => Promise.resolve(result)),
+        })),
       })),
     })),
   })),
 });
 
 const mockCountChain = (count: number) => ({
-  from: vi.fn(() => Promise.resolve([{ total: count }])),
+  from: vi.fn(() => ({
+    where: vi.fn(() => Promise.resolve([{ total: count }])),
+  })),
 });
 
 vi.mock("../db", () => ({
@@ -66,6 +76,7 @@ describe("SDM routes", () => {
     it("returns paginated runs", async () => {
       const { db } = await import("../db");
       (db.select as any)
+        .mockReturnValueOnce(mockProjectChain([{ projectId: "proj-1" }]))
         .mockReturnValueOnce(mockChain([
           {
             id: "run-1",
@@ -94,6 +105,7 @@ describe("SDM routes", () => {
     it("uses default pagination when no params", async () => {
       const { db } = await import("../db");
       (db.select as any)
+        .mockReturnValueOnce(mockProjectChain([{ projectId: "proj-1" }]))
         .mockReturnValueOnce(mockChain([]))
         .mockReturnValueOnce(mockCountChain(0));
 

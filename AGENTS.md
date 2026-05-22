@@ -4,6 +4,7 @@
 
 - **Commit locally only for significant changes** — bug fixes, new features, non-trivial refactors. Skip trivial CSS tweaks or comment changes.
 - **Never push to GitHub unless explicitly asked** — after committing locally, ask the user if they want to push.
+- **Branch strategy:** feature/fix PRs target `dev`. Only release/merge commits go to `main`.
 
 ## Run commands
 

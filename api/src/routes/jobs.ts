@@ -14,7 +14,8 @@ app.get("/sse", (c) => {
 
     while (!aborted && !stream.closed) {
       try {
-        const jobs = await getJobQueue().getJobs(["active", "waiting", "completed", "failed"]);
+        const q = getJobQueue();
+        const jobs = q ? await q.getJobs(["active", "waiting", "completed", "failed"]) : [];
 
         for (const job of jobs) {
           const state = await job.getState();
@@ -64,7 +65,9 @@ app.get("/:jobId", async (c) => {
 
 app.post("/:jobId/cancel", async (c) => {
   const jobId = c.req.param("jobId");
-  const job = await getJobQueue().getJob(jobId);
+  const q = getJobQueue();
+  if (!q) return c.json({ error: "Queue unavailable" }, 503);
+  const job = await q.getJob(jobId);
 
   if (!job) {
     return c.json({ error: "Job not found" }, 404);

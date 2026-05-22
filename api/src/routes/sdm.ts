@@ -3,8 +3,8 @@ import { modelConfigSchema } from "@sdm/shared";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { runs, species } from "../db/schema.js";
-import { eq, desc, count } from "drizzle-orm";
+import { runs, species, projectMembers } from "../db/schema.js";
+import { eq, desc, count, and, inArray } from "drizzle-orm";
 import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
@@ -230,6 +230,19 @@ sdmRoutes.get("/runs", async (c) => {
     const page = parseInt(c.req.query("page") || "1", 10);
     const limitVal = parseInt(c.req.query("limit") || "20", 10);
     const offset = (page - 1) * limitVal;
+    const user = c.get("user");
+
+    const conditions = [];
+    if (user) {
+      const userProjects = await db
+        .select({ projectId: projectMembers.projectId })
+        .from(projectMembers)
+        .where(eq(projectMembers.userId, user.id));
+      const projectIds = userProjects.map((p) => p.projectId);
+      if (projectIds.length > 0) {
+        conditions.push(inArray(runs.projectId, projectIds));
+      }
+    }
 
     const allRuns = await db
       .select({
@@ -244,11 +257,15 @@ sdmRoutes.get("/runs", async (c) => {
         error: runs.error,
       })
       .from(runs)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(runs.createdAt))
       .limit(limitVal)
       .offset(offset);
 
-    const [{ total }] = await db.select({ total: count() }).from(runs);
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(runs)
+      .where(conditions.length > 0 ? and(...conditions) : undefined);
 
     const formatted = allRuns.map((r) => ({
       id: r.id,

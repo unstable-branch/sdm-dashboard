@@ -2,10 +2,13 @@ import { Hono } from "hono";
 import { existsSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 import { db } from "../db/index.js";
-import { runs } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { runs, projectMembers } from "../db/schema.js";
+import { eq, and, inArray } from "drizzle-orm";
+import { optionalAuth, type AppEnv } from "../middleware/auth.js";
 
-export const resultsRoutes = new Hono();
+export const resultsRoutes = new Hono<AppEnv>();
+
+resultsRoutes.use("*", optionalAuth);
 
 const appDir = process.cwd();
 
@@ -37,11 +40,24 @@ resultsRoutes.get("/file/:filePath", async (c) => {
 
 resultsRoutes.get("/:id", async (c) => {
   const id = c.req.param("id");
+  const user = c.get("user");
+
+  const conditions = [eq(runs.id, id)];
+  if (user) {
+    const userProjects = await db
+      .select({ projectId: projectMembers.projectId })
+      .from(projectMembers)
+      .where(eq(projectMembers.userId, user.id));
+    const projectIds = userProjects.map((p) => p.projectId);
+    if (projectIds.length > 0) {
+      conditions.push(inArray(runs.projectId, projectIds));
+    }
+  }
 
   const [run] = await db
     .select()
     .from(runs)
-    .where(eq(runs.id, id))
+    .where(and(...conditions))
     .limit(1);
 
   if (!run) {

@@ -6,8 +6,8 @@ import {
   HeadBucketCommand,
 } from "@aws-sdk/client-s3";
 
-const GARAGE_ENDPOINT = process.env.GARAGE_ENDPOINT || "localhost:3900";
-const GARAGE_ACCESS_KEY_ID = process.env.GARAGE_ACCESS_KEY_ID || "sdm";
+const GARAGE_ENDPOINT = (process.env.GARAGE_ENDPOINT || "localhost:3900").replace(/^https?:\/\//, "");
+const GARAGE_ACCESS_KEY = process.env.GARAGE_ACCESS_KEY || process.env.GARAGE_ACCESS_KEY_ID || "sdm";
 const GARAGE_SECRET_KEY = process.env.GARAGE_SECRET_KEY || "sdm_garage_secret";
 const GARAGE_BUCKET_RASTERS = process.env.GARAGE_BUCKET_RASTERS || "sdm-rasters";
 const GARAGE_BUCKET_EXPORTS = process.env.GARAGE_BUCKET_EXPORTS || "sdm-exports";
@@ -27,7 +27,7 @@ export function getGarageConfig(): GarageConfig {
     endPoint: host,
     port: parseInt(portStr || "3900", 10),
     useSSL: USE_SSL,
-    accessKey: GARAGE_ACCESS_KEY_ID,
+    accessKey: GARAGE_ACCESS_KEY,
     secretKey: GARAGE_SECRET_KEY,
   };
 }
