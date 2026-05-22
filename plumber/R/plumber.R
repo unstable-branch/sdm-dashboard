@@ -53,66 +53,79 @@ sdm_safe_job_dir <- function(run_id) {
 #* @post /api/v1/occurrences/upload
 function(req) {
   uploaded <- req$args$file
-  if (is.null(uploaded)) {
-    return(sdm_error(req, 400, "No file uploaded. Send multipart/form-data with field 'file'."))
-  }
 
-  # Plumber provides file content as raw vector in uploaded$value
-  # or as tempfile path in uploaded$tempfile or uploaded$datapath
-  file_path <- if (is.list(uploaded)) {
-    if (!is.null(uploaded$tempfile) && nzchar(uploaded$tempfile)) {
-      uploaded$tempfile
-    } else if (!is.null(uploaded$datapath) && nzchar(uploaded$datapath)) {
-      uploaded$datapath
-    } else if (!is.null(uploaded$path) && nzchar(uploaded$path)) {
-      uploaded$path
-    } else {
-      # Find raw content field (typically "value" or "content")
-      raw_field <- NULL
-      for (n in names(uploaded)) {
-        if (is.raw(uploaded[[n]])) {
-          raw_field <- n
-          break
-        }
-      }
-      if (!is.null(raw_field)) {
-        tmp <- tempfile(fileext = paste0(".", tolower(tools::file_ext(uploaded$name %||% "csv"))))
-        con <- file(tmp, "wb")
-        writeBin(uploaded[[raw_field]], con)
-        close(con)
-        tmp
-      } else {
-        # Try datapath as last resort (webutils)
-        dp <- uploaded$datapath %||% uploaded$path %||% uploaded$tempfile
-        if (!is.null(dp) && nzchar(dp[1])) {
-          dp[1]
-        } else {
-          NULL
-        }
+  # Support JSON body with file_path (from Hono file-path forwarding)
+  if (is.null(uploaded)) {
+    post_body <- tryCatch(jsonlite::fromJSON(req$postBody), error = function(e) NULL)
+    if (!is.null(post_body) && !is.null(post_body$file_path) && nzchar(post_body$file_path)) {
+      safe_path <- sdm_safe_path(post_body$file_path, file.path(app_dir, "data", "uploads"))
+      if (!is.null(safe_path)) {
+        uploaded <- list(
+          datapath = safe_path,
+          filename = post_body$file_id %||% basename(post_body$file_path)
+        )
       }
     }
-  } else if (is.character(uploaded)) {
-    uploaded
-  } else {
-    NULL
   }
 
-  if (is.null(file_path) || !file.exists(file_path)) {
-    return(sdm_error(req, 400, paste("Uploaded file not found:", file_path %||% "unknown")))
-  }
-
-  max_size <- 100 * 1024 * 1024
-  if (file.info(file_path)$size > max_size) {
-    return(sdm_error(req, 413, paste("File too large. Maximum", max_size / 1e6, "MB.")))
+  if (is.null(uploaded)) {
+    return(sdm_error(req, 400, "No file uploaded. Send multipart/form-data with field 'file' or JSON with 'file_path'."))
   }
 
   tryCatch({
-    ext <- tolower(tools::file_ext(uploaded$name %||% ""))
+    file_path <- if (is.list(uploaded)) {
+      if (!is.null(uploaded$tempfile) && nzchar(uploaded$tempfile)) {
+        uploaded$tempfile
+      } else if (!is.null(uploaded$datapath) && nzchar(uploaded$datapath)) {
+        uploaded$datapath
+      } else if (!is.null(uploaded$path) && nzchar(uploaded$path)) {
+        uploaded$path
+      } else {
+        # Find raw content field (typically "value" or "content")
+        raw_field <- NULL
+        for (n in names(uploaded)) {
+          if (is.raw(uploaded[[n]])) {
+            raw_field <- n
+            break
+          }
+        }
+        if (!is.null(raw_field)) {
+          tmp <- tempfile(fileext = paste0(".", tolower(tools::file_ext(uploaded$filename %||% "csv"))))
+          con <- file(tmp, "wb")
+          writeBin(uploaded[[raw_field]], con)
+          close(con)
+          tmp
+        } else {
+          # Try datapath as last resort (webutils)
+          dp <- uploaded$datapath %||% uploaded$path %||% uploaded$tempfile
+          if (!is.null(dp) && nzchar(dp[1])) {
+            dp[1]
+          } else {
+            NULL
+          }
+        }
+      }
+    } else if (is.character(uploaded)) {
+      uploaded
+    } else {
+      NULL
+    }
+
+    if (is.null(file_path) || !file.exists(file_path)) {
+      return(sdm_error(req, 400, paste("Uploaded file not found:", file_path %||% "unknown")))
+    }
+
+    max_size <- 100 * 1024 * 1024
+    if (file.info(file_path)$size > max_size) {
+      return(sdm_error(req, 413, paste("File too large. Maximum", max_size / 1e6, "MB.")))
+    }
+
+    ext <- tolower(tools::file_ext(uploaded$filename %||% ""))
     is_dwca <- ext == "zip"
 
     upload_dir <- file.path(app_dir, "data", "uploads")
     dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
-    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", uploaded$name %||% "upload")
+    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", uploaded$filename %||% "upload")
     dest_path <- file.path(upload_dir, paste0(format(Sys.time(), "%Y%m%d_%H%M%S_"), safe_name))
     file.copy(file_path, dest_path, overwrite = TRUE)
     rel_path <- file.path("data", "uploads", basename(dest_path))
@@ -136,7 +149,7 @@ function(req) {
       list(
         file_id = dest_path,
         file_path = rel_path,
-        filename = uploaded$name,
+        filename = uploaded$filename %||% uploaded$name,
         format = "dwca",
         n_rows = n_rows,
         n_returned = result$n_returned,
@@ -165,7 +178,7 @@ function(req) {
       list(
         file_id = dest_path,
         file_path = rel_path,
-        filename = uploaded$name,
+        filename = uploaded$filename %||% uploaded$name,
         format = if (ext %in% c("tsv", "txt")) "tsv" else "csv",
         n_rows = n_rows,
         species_detected = species_detected,

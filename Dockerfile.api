@@ -50,6 +50,12 @@ COPY --from=builder /app/package.json ./
 
 RUN npm install -g pnpm && pnpm install && chmod -R 755 /app
 
+RUN addgroup -g 2000 uploadgroup && \
+    adduser node uploadgroup && \
+    mkdir -p /app/data/uploads && \
+    chown root:uploadgroup /app/data/uploads && \
+    chmod 775 /app/data/uploads
+
 USER node
 
 EXPOSE 4000

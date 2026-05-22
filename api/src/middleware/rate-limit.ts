@@ -70,6 +70,6 @@ export function rateLimit(options: RateLimitOptions) {
 }
 
 export const gbifRateLimit = rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "gbif" });
-export const climateRateLimit = rateLimit({ windowMs: 60_000, max: 2, keyPrefix: "climate" });
+export const climateRateLimit = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "climate" });
 export const modelRateLimit = rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "model" });
 export const defaultRateLimit = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "default" });

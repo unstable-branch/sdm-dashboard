@@ -1,5 +1,7 @@
 import { Hono } from "hono";
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, accessSync, constants } from "fs";
+import { join, resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
@@ -8,6 +10,30 @@ import { eq, count } from "drizzle-orm";
 import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const PROJECT_ROOT = resolve(__dirname, "../../..");
+const UPLOAD_DIR = join(PROJECT_ROOT, "data", "uploads");
+
+function saveUpload(buffer: Buffer, originalName: string): string {
+  if (!existsSync(UPLOAD_DIR)) {
+    mkdirSync(UPLOAD_DIR, { recursive: true });
+  }
+  try {
+    accessSync(UPLOAD_DIR, constants.W_OK);
+  } catch {
+    throw new Error(
+      `Uploads directory not writable: ${UPLOAD_DIR}. ` +
+      "Run: sudo chown -R $USER:$USER data/uploads"
+    );
+  }
+  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const ts = new Date().toISOString().replace(/[:.]/g, "").replace("T", "_").slice(0, 15);
+  const destPath = join(UPLOAD_DIR, `${ts}_${safeName}`);
+  writeFileSync(destPath, buffer);
+  return destPath;
+}
 
 export const dataRoutes = new Hono<AppEnv>();
 
@@ -32,8 +58,10 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
+    const destPath = saveUpload(buffer, file.name);
+    const user = c.get("user");
 
-    const result = await plumberClient.uploadOccurrence(buffer, file.name);
+    const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
@@ -187,7 +215,10 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const result = await plumberClient.uploadOccurrence(buffer, file.name);
+    const destPath = saveUpload(buffer, file.name);
+    const user = c.get("user");
+
+    const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "DwCA parse failed";
