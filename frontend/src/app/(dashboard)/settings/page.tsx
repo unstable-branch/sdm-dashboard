@@ -144,7 +144,7 @@ export default function SettingsPage() {
               {Object.entries(defaults.extent_presets).map(([key, extent]) => (
                 <div key={key} className="flex justify-between">
                   <span className="text-sdm-muted capitalize">{key.replace("_", " ")}</span>
-                  <span className="text-sdm-text font-mono text-xs">{extent.join(", ")}</span>
+                  <span className="text-sdm-text font-mono text-xs">{Array.isArray(extent) ? extent.join(", ") : String(extent ?? "—")}</span>
                 </div>
               ))}
             </div>

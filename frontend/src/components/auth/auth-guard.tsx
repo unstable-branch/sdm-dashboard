@@ -14,16 +14,28 @@ interface AuthGuardProps {
 export function AuthGuard({ children, redirectTo = "/login" }: AuthGuardProps) {
   const router = useRouter();
   const { token } = useAuthStore();
-  const [checked, setChecked] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     const fallback = getAuthToken();
-    if (token || fallback) {
-      setChecked(true);
-    } else {
+    if (!token && !fallback) {
       router.push(redirectTo);
     }
-  }, [token, router, redirectTo]);
+  }, [mounted, token, router, redirectTo]);
+
+  if (!mounted) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />
+        <span className="ml-2 text-sdm-muted">Checking authentication...</span>
+      </div>
+    );
+  }
 
   if (!token && !getAuthToken()) {
     return (

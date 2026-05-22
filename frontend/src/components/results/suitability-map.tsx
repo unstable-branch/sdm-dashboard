@@ -16,7 +16,7 @@ function MapPlaceholder() {
   );
 }
 
-const DynamicMap = dynamic(() => import("./leaflet-map"), {
+const DynamicMap = dynamic(() => import("./maplibre-map"), {
   ssr: false,
   loading: () => <MapPlaceholder />,
 });
