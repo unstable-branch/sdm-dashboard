@@ -55,7 +55,8 @@ async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<R
   if (!res.ok && retry > 0 && res.status === 401) {
     clearToken();
     if (typeof window !== "undefined") {
-      window.location.href = "/login";
+      const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = "/login?redirect=" + redirect;
     }
     throw new ApiError(401, "Unauthorized");
   }
