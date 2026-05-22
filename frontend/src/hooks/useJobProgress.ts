@@ -15,6 +15,36 @@ export function useJobProgress(jobId: string | null) {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchedRef = useRef(false);
+
+  // Fetch initial job status via REST API
+  useEffect(() => {
+    if (!jobId || fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    fetch(`/api/v1/jobs/${jobId}`, { signal: controller.signal })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        const state = data.state as string;
+        setJob({
+          id: jobId,
+          state: state as JobProgress["state"],
+          progress: (data.progress ?? 0) as number,
+          type: (data.type ?? "") as string,
+          logs: [],
+          result: data.result as Record<string, unknown> | undefined,
+          failedReason: data.failedReason as string | undefined,
+        });
+      })
+      .catch(() => {})
+      .finally(() => clearTimeout(timeoutId));
+
+    return () => clearTimeout(timeoutId);
+  }, [jobId]);
 
   const connect = useCallback(() => {
     if (!jobId || typeof window === "undefined") return;
