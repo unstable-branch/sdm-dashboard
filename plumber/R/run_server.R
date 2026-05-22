@@ -5,7 +5,13 @@
 #   - X-Hono-Internal header + X-Forwarded-User (Hono-proxied requests with valid JWT)
 # Open endpoints (health, reads) bypass auth
 
-app_dir <- if (dir.exists("/app/R")) "/app" else normalizePath(file.path(getwd(), ".."), winslash = "/")
+app_dir <- if (dir.exists("/app/R")) {
+  "/app"
+} else if (dir.exists(file.path(getwd(), "R"))) {
+  normalizePath(getwd(), winslash = "/")
+} else {
+  normalizePath(file.path(getwd(), ".."), winslash = "/")
+}
 
 # Source auth helpers (must be in global env before sourcing plumber.R)
 source(file.path(app_dir, "plumber", "R", "auth.R"), local = FALSE)
@@ -26,6 +32,10 @@ if (file.exists(env_file)) {
 
 # Create plumber router (this sets global `pr`)
 pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
+
+# Unbox single-element vectors so JSON primitives are returned instead of arrays
+# e.g. "file_path" remains string, "n_rows" remains number, not [value]
+pr$setSerializer(plumber::serializer_json(auto_unbox = TRUE))
 
 # Internal auth key set by Hono when proxying authenticated requests
 internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
@@ -96,5 +106,6 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
 # Now source the plumber routes - they register with global `pr`
 source(file.path(app_dir, "plumber", "R", "plumber.R"), local = FALSE)
 
-# Start server
+# Start server with project root as working directory
+setwd(app_dir)
 plumber::pr_run(pr, host = "0.0.0.0", port = 8000)
