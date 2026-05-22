@@ -49,7 +49,7 @@ services:
       target: runner
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://sdm:sdm_password@postgres:5432/sdm_platform
+      - DATABASE_URL=${DATABASE_URL:?Database connection string is required}
       - REDIS_URL=redis://redis:6379
       - PLUMBER_URL=http://plumber:8000
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}

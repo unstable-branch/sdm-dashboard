@@ -4,6 +4,7 @@ node_modules/
 dist/
 .turbo/
 *.tsbuildinfo
+*.csv:Zone.Identifier
 
 # Infrastructure
 postgres-data/

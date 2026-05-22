@@ -4,17 +4,23 @@ replication_factor = 1
 data_dir = "/var/lib/garage"
 metadata_dir = "/var/lib/garage/meta"
 rpc_bind_addr = "0.0.0.0:3902"
-rpc_secret = "5a343800bc4a1bfad79d31bc9dc7185287e28bd20bf6c34c31769c935c731fce"
-bootstrap_token = "sdm-bootstrap-token"
+# WARNING: Override via GARAGE_RPC_SECRET env var in production.
+# This value is for local dev only — do not commit real secrets.
+rpc_secret = "please-change-in-production-garage-rpc"
+
+# WARNING: Override via GARAGE_ADMIN_TOKEN env var in production.
+bootstrap_token = "dev-bootstrap-token"
 
 [s3_api]
 api_bind_addr = "0.0.0.0:3900"
 web_bind_addr = "0.0.0.0:3901"
 s3_region = "garage"
 
+# WARNING: These credentials are for local dev only.
+# Generate a fresh config from template for production.
 [s3_api.credentials]
-access_key_id = "sdm"
-secret_access_key = "sdm_garage_secret"
+access_key_id = "dev-access-key"
+secret_access_key = "dev-secret-key"
 
 [replication]
 strategy = "none"
