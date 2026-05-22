@@ -1,13 +1,26 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/stores/auth-store";
 import { setAuthToken } from "@/services/api";
 import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-sdm-bg">
+        <Loader2 className="h-6 w-6 animate-spin text-sdm-muted" />
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -38,7 +51,7 @@ export default function LoginPage() {
 
       setAuth(data.user, data.token);
       setAuthToken(data.token, rememberMe);
-      router.push("/");
+      router.push(searchParams.get("redirect") || "/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
