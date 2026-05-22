@@ -3,6 +3,7 @@ node_modules/
 .next/
 dist/
 .turbo/
+*.tsbuildinfo
 
 # Infrastructure
 postgres-data/
