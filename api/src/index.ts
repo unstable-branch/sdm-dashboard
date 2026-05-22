@@ -4,7 +4,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { plumberClient } from "./services/plumber";
 import { ensureBuckets } from "./services/storage";
-import { sdmQueue, sdmWorker, getJobStatus } from "./services/queue";
+import { getQueueClient, ensureWorker, getJobStatus } from "./services/queue";
 import { setupWebSocket } from "./services/websocket";
 import { mediumCache, longCache } from "./middleware/cache";
 import { csrfMiddleware } from "./middleware/csrf";
@@ -39,9 +39,8 @@ app.get("/health", async (c) => {
 
   let redisStatus = "unknown";
   try {
-    const client = sdmQueue.client;
-    const redisClient = await client;
-    await redisClient.ping();
+    const client = getQueueClient();
+    await client.ping();
     redisStatus = "connected";
   } catch {
     redisStatus = "disconnected";
@@ -93,6 +92,16 @@ const port = parseInt(process.env.PORT || "4000", 10);
 ensureBuckets().catch((err) => {
   console.error("[Garage] Bucket initialization failed:", err);
 });
+
+// Attempt to start background job worker (will no-op if Redis unavailable)
+setTimeout(() => {
+  const w = ensureWorker();
+  if (!w) {
+    console.log("[Worker] Redis unavailable; job worker deferred");
+  } else {
+    console.log("[Worker] BullMQ worker started");
+  }
+}, 1000);
 
 // Set up HTTP server with WebSocket support
 const server = serve(

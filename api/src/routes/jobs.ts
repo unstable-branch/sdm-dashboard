@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { getJobStatus, sdmQueue } from "../services/queue";
+import { getJobStatus, getJobQueue } from "../services/queue";
 import { jobEventBus } from "../services/job-events";
 
 const app = new Hono();
@@ -14,7 +14,7 @@ app.get("/sse", (c) => {
 
     while (!aborted && !stream.closed) {
       try {
-        const jobs = await sdmQueue.getJobs(["active", "waiting", "completed", "failed"]);
+        const jobs = await getJobQueue().getJobs(["active", "waiting", "completed", "failed"]);
 
         for (const job of jobs) {
           const state = await job.getState();
@@ -64,7 +64,7 @@ app.get("/:jobId", async (c) => {
 
 app.post("/:jobId/cancel", async (c) => {
   const jobId = c.req.param("jobId");
-  const job = await sdmQueue.getJob(jobId);
+  const job = await getJobQueue().getJob(jobId);
 
   if (!job) {
     return c.json({ error: "Job not found" }, 404);
