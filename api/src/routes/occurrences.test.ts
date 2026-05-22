@@ -4,6 +4,8 @@ import { dataRoutes } from "./occurrences.js";
 
 vi.mock("ioredis", () => ({
   Redis: class MockRedis {
+    on = vi.fn();
+    connect = vi.fn(() => Promise.resolve());
     zremrangebyscore = vi.fn(() => Promise.resolve(0));
     zcard = vi.fn(() => Promise.resolve(0));
     zadd = vi.fn(() => Promise.resolve(1));
@@ -70,7 +72,7 @@ describe("data routes", () => {
           })),
         })
         .mockReturnValueOnce({
-          from: vi.fn(() => Promise.resolve([{ count: 2 }])),
+          from: vi.fn(() => Promise.resolve([{ total: 2 }])),
         });
 
       const res = await app.request("/api/v1/data/species?page=1&limit=10");
@@ -154,7 +156,7 @@ describe("data routes", () => {
         })
         .mockReturnValueOnce({
           from: vi.fn(() => ({
-            where: vi.fn(() => Promise.resolve([{ count: 1 }])),
+            where: vi.fn(() => Promise.resolve([{ total: 1 }])),
           })),
         });
 

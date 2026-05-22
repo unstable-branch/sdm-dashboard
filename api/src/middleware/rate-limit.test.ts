@@ -6,6 +6,8 @@ let callCount = 0;
 
 vi.mock("ioredis", () => ({
   Redis: class MockRedis {
+    on = vi.fn();
+    connect = vi.fn(() => Promise.resolve());
     zremrangebyscore = vi.fn(() => Promise.resolve(0));
     zcard = vi.fn(() => Promise.resolve(callCount));
     zadd = vi.fn(() => {

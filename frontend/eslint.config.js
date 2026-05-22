@@ -4,10 +4,14 @@ import tsPlugin from "@typescript-eslint/eslint-plugin";
 
 export default [
   {
-    ignores: ["dist/", "node_modules/"],
+    ignores: [".next/", "dist/", "node_modules/"],
   },
   {
-    files: ["src/**/*.ts"],
+    files: ["src/**/*.{js,jsx,ts,tsx}"],
+    ...js.configs.recommended,
+  },
+  {
+    files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tsParser,
       ecmaVersion: 2022,
@@ -24,7 +28,6 @@ export default [
       "no-undef": "off",
       "no-empty": "warn",
       "prefer-const": "warn",
-      "@typescript-eslint/no-require-imports": "off",
     },
   },
 ];
