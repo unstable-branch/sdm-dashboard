@@ -1,5 +1,5 @@
-export * from "./types";
-export * from "./schemas";
+export * from "./types.js";
+export * from "./schemas.js";
 export {
   BIOVAR_CHOICES,
   EXTENT_PRESETS,
@@ -13,4 +13,4 @@ export {
   TIME_PERIOD_CHOICES,
   SSP_CODE_MAP,
   DEFAULT_CONFIG,
-} from "./constants";
+} from "./constants.js";

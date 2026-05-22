@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { resultsRoutes } from "./results";
+import { resultsRoutes } from "./results.js";
 
 vi.mock("../db", () => ({
   db: {

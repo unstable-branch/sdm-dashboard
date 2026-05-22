@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
-import { rateLimit } from "../middleware/rate-limit";
+import { rateLimit } from "../middleware/rate-limit.js";
 
 let callCount = 0;
 

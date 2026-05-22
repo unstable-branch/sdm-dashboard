@@ -1,15 +1,15 @@
 import { Hono } from "hono";
 import { modelConfigSchema } from "@sdm/shared";
-import { plumberClient } from "../services/plumber";
-import { enqueueSdmJob } from "../services/queue";
-import { db } from "../db";
-import { runs, species } from "../db/schema";
+import { plumberClient } from "../services/plumber.js";
+import { enqueueSdmJob } from "../services/queue.js";
+import { db } from "../db/index.js";
+import { runs, species } from "../db/schema.js";
 import { eq, desc, count } from "drizzle-orm";
 import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
-import { modelRateLimit } from "../middleware/rate-limit";
-import { authMiddleware, optionalAuth } from "../middleware/auth";
+import { modelRateLimit } from "../middleware/rate-limit.js";
+import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import { join } from "path";
-import type { AppEnv } from "../middleware/auth";
+import type { AppEnv } from "../middleware/auth.js";
 
 export const sdmRoutes = new Hono<AppEnv>();
 

@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { ServerType } from "@hono/node-server";
-import { jobEventBus } from "./job-events";
+import { jobEventBus } from "./job-events.js";
 
 interface JobProgress {
   jobId: string;

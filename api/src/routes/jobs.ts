@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { getJobStatus, getJobQueue } from "../services/queue";
-import { jobEventBus } from "../services/job-events";
+import { getJobStatus, getJobQueue } from "../services/queue.js";
+import { jobEventBus } from "../services/job-events.js";
 
 const app = new Hono();
 

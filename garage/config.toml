@@ -1,4 +1,5 @@
 version = "2"
+replication_factor = 1
 
 data_dir = "/var/lib/garage"
 metadata_dir = "/var/lib/garage/meta"

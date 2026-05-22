@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { plumberClient } from "../services/plumber";
-import { enqueueSdmJob } from "../services/queue";
-import { climateRateLimit } from "../middleware/rate-limit";
-import { longCache } from "../middleware/cache";
-import { authMiddleware, optionalAuth } from "../middleware/auth";
-import type { AppEnv } from "../middleware/auth";
+import { plumberClient } from "../services/plumber.js";
+import { enqueueSdmJob } from "../services/queue.js";
+import { climateRateLimit } from "../middleware/rate-limit.js";
+import { longCache } from "../middleware/cache.js";
+import { authMiddleware, optionalAuth } from "../middleware/auth.js";
+import type { AppEnv } from "../middleware/auth.js";
 
 export const climateRoutes = new Hono<AppEnv>();
 

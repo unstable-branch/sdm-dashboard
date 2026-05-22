@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { dataRoutes } from "./occurrences";
+import { dataRoutes } from "./occurrences.js";
 
 vi.mock("ioredis", () => ({
   Redis: class MockRedis {
