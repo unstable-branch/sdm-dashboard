@@ -16,16 +16,27 @@ pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 # Internal auth key set by Hono when proxying authenticated requests
 internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
 
+# Auth helper: stop request with error response
+auth_fail <- function(res, status, msg) {
+  res$status <- status
+  res$body <- msg
+  # Signal an error to stop Plumber from calling the handler
+  stop(msg)
+}
+
+# Helper to safely read headers
+get_hdr <- function(req, name) {
+  tryCatch(req$HEADERS[[name]], error = function(e) NULL)
+}
+
 # Global preroute hook - runs before every endpoint
-# Note: plumber 1.3.x uses 3-argument signature (data, req, res)
+# Throws an error to stop processing when auth fails
 plumber::pr_hook(pr, "preroute", function(data, req, res) {
   path <- req$PATH_INFO %||% req$PATH
 
   # Guard against malformed requests
   if (is.null(path) || length(path) == 0L) {
-    res$status <- 400L
-    res$body <- '{"error":"Malformed request"}'
-    return(res)
+    auth_fail(res, 400L, '{"error":"Malformed request"}')
   }
 
   # Disable auth in dev/test if env var set
@@ -40,9 +51,9 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
 
   # Hono internal proxy: Hono has already validated JWT, forward user ID
   if (nzchar(internal_key)) {
-    hono_internal <- req$HEADERS[["x-hono-internal"]]
+    hono_internal <- get_hdr(req, "x-hono-internal")
     if (!is.null(hono_internal) && identical(hono_internal, internal_key)) {
-      fwd_user <- req$HEADERS[["x-forwarded-user"]]
+      fwd_user <- get_hdr(req, "x-forwarded-user")
       if (!is.null(fwd_user) && nzchar(fwd_user)) {
         req$user_id <- fwd_user
       }
@@ -51,18 +62,14 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   }
 
   # Direct API key auth
-  api_key <- req$HEADERS[["x-api-key"]]
+  api_key <- get_hdr(req, "x-api-key")
   if (is.null(api_key) || !nzchar(api_key)) {
-    res$status <- 401L
-    res$body <- '{"error":"API key required. Provide X-API-Key header."}'
-    return(res)
+    auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}')
   }
 
   user_info <- validate_api_key(api_key, app_dir)
   if (is.null(user_info)) {
-    res$status <- 401L
-    res$body <- '{"error":"Invalid or expired API key."}'
-    return(res)
+    auth_fail(res, 401L, '{"error":"Invalid or expired API key."}')
   }
 
   req$user_id <- user_info$user_id

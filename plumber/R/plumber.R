@@ -35,15 +35,17 @@ function(req) {
     return(sdm_error(req, 400, "No file uploaded. Send multipart/form-data with field 'file'."))
   }
 
-  # Plumber provides file content as raw vector in uploaded$content
-  # or as tempfile path in uploaded$tempfile
+  # Plumber provides file content as raw vector in uploaded$value
+  # or as tempfile path in uploaded$tempfile or uploaded$datapath
   file_path <- if (is.list(uploaded)) {
     if (!is.null(uploaded$tempfile) && nzchar(uploaded$tempfile)) {
       uploaded$tempfile
+    } else if (!is.null(uploaded$datapath) && nzchar(uploaded$datapath)) {
+      uploaded$datapath
     } else if (!is.null(uploaded$path) && nzchar(uploaded$path)) {
       uploaded$path
     } else {
-      # Find raw content field
+      # Find raw content field (typically "value" or "content")
       raw_field <- NULL
       for (n in names(uploaded)) {
         if (is.raw(uploaded[[n]])) {
@@ -53,13 +55,18 @@ function(req) {
       }
       if (!is.null(raw_field)) {
         tmp <- tempfile(fileext = paste0(".", tolower(tools::file_ext(uploaded$name %||% "csv"))))
-        writeBin(uploaded[[raw_field]], tmp)
+        con <- file(tmp, "wb")
+        writeBin(uploaded[[raw_field]], con)
+        close(con)
         tmp
       } else {
-        # Debug: write field names to file
-        cat("Uploaded field names:", paste(names(uploaded), collapse=", "), "\n", file = "/tmp/plumber_debug.txt")
-        cat("Uploaded field classes:", paste(sapply(names(uploaded), function(n) class(uploaded[[n]])), collapse=", "), "\n", file = "/tmp/plumber_debug.txt", append = TRUE)
-        NULL
+        # Try datapath as last resort (webutils)
+        dp <- uploaded$datapath %||% uploaded$path %||% uploaded$tempfile
+        if (!is.null(dp) && nzchar(dp[1])) {
+          dp[1]
+        } else {
+          NULL
+        }
       }
     }
   } else if (is.character(uploaded)) {
