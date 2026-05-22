@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { sdmRoutes } from "./sdm";
+import { sdmRoutes } from "./sdm.js";
 
 const mockChain = (result: unknown) => ({
   from: vi.fn(() => ({

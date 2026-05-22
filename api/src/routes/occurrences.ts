@@ -1,14 +1,14 @@
 import { Hono } from "hono";
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
-import { plumberClient } from "../services/plumber";
-import { enqueueSdmJob } from "../services/queue";
-import { db } from "../db";
-import { species, occurrences } from "../db/schema";
+import { plumberClient } from "../services/plumber.js";
+import { enqueueSdmJob } from "../services/queue.js";
+import { db } from "../db/index.js";
+import { species, occurrences } from "../db/schema.js";
 import { eq, count } from "drizzle-orm";
-import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit";
-import { authMiddleware, optionalAuth } from "../middleware/auth";
-import type { AppEnv } from "../middleware/auth";
+import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
+import { authMiddleware, optionalAuth } from "../middleware/auth.js";
+import type { AppEnv } from "../middleware/auth.js";
 
 export const dataRoutes = new Hono<AppEnv>();
 

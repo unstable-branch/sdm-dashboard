@@ -1,9 +1,9 @@
 import { Hono } from "hono";
-import { db } from "../db";
-import { projects, projectMembers, users } from "../db/schema";
+import { db } from "../db/index.js";
+import { projects, projectMembers, users } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
-import { authMiddleware, requireRole } from "../middleware/auth";
-import type { AppEnv } from "../middleware/auth";
+import { authMiddleware, requireRole } from "../middleware/auth.js";
+import type { AppEnv } from "../middleware/auth.js";
 
 export const projectRoutes = new Hono<AppEnv>();
 

@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import { sign } from "hono/jwt";
 import { hash, compare } from "bcrypt";
-import { db } from "../db";
-import { users, apiKeys } from "../db/schema";
+import { db } from "../db/index.js";
+import { users, apiKeys } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
-import { authMiddleware } from "../middleware/auth";
-import { rateLimit } from "../middleware/rate-limit";
+import { authMiddleware } from "../middleware/auth.js";
+import { rateLimit } from "../middleware/rate-limit.js";
 import { randomBytes, createHash } from "crypto";
-import type { AppEnv } from "../middleware/auth";
+import type { AppEnv } from "../middleware/auth.js";
 
 export const authRoutes = new Hono<AppEnv>();
 

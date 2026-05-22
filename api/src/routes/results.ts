@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { existsSync, readFileSync } from "fs";
 import { join, resolve } from "path";
-import { db } from "../db";
-import { runs } from "../db/schema";
+import { db } from "../db/index.js";
+import { runs } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 
 export const resultsRoutes = new Hono();

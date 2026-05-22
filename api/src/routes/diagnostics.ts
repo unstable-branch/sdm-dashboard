@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { plumberClient } from "../services/plumber";
-import { defaultRateLimit } from "../middleware/rate-limit";
-import { optionalAuth } from "../middleware/auth";
+import { plumberClient } from "../services/plumber.js";
+import { defaultRateLimit } from "../middleware/rate-limit.js";
+import { optionalAuth } from "../middleware/auth.js";
 
 export const diagnosticsRoutes = new Hono();
 

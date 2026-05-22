@@ -1,8 +1,8 @@
 import { createMiddleware } from "hono/factory";
 import { verify } from "hono/jwt";
 import { createHash } from "crypto";
-import { db } from "../db";
-import { users, apiKeys, projectMembers } from "../db/schema";
+import { db } from "../db/index.js";
+import { users, apiKeys, projectMembers } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 
 export interface JwtPayload {

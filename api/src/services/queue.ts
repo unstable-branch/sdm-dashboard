@@ -1,8 +1,8 @@
 import { Queue, Worker, Job } from "bullmq";
 import IORedis from "ioredis";
-import { PlumberClient } from "./plumber";
-import { db } from "../db";
-import { runs } from "../db/schema";
+import { PlumberClient } from "./plumber.js";
+import { db } from "../db/index.js";
+import { runs } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 
 let _connection: IORedis | null = null;

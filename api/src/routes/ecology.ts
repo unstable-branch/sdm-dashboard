@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { plumberClient } from "../services/plumber";
+import { plumberClient } from "../services/plumber.js";
 
 export const ecologyRoutes = new Hono();
 

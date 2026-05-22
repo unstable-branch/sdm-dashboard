@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
-import { cacheResponse } from "../middleware/cache";
+import { cacheResponse } from "../middleware/cache.js";
 
 vi.mock("ioredis", () => ({
   Redis: class MockRedis {
