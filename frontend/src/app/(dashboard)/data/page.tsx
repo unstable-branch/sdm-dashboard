@@ -14,6 +14,7 @@ import { ScenarioList } from "@/components/climate/scenario-list";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Globe, FileArchive, Wand2, Map, Cloud, Loader2, CheckCircle2, Download } from "lucide-react";
 import { useSDMStore } from "@/stores/sdm-store";
+import { apiUpload, apiPost, apiGet } from "@/services/api";
 import { BIOVAR_CHOICES, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 
 const OccurrenceMap = dynamic(() => import("@/components/data/occurrence-map").then(m => m.OccurrenceMap), {
@@ -80,38 +81,26 @@ export default function DataPage() {
 
   const handleClimateDownload = async () => {
     try {
-      const res = await fetch("/api/v1/climate/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: climateSource,
-          res: climateRes,
-          biovars: climateBiovars.join(","),
-        }),
+      const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", {
+        type: climateSource,
+        res: climateRes,
+        biovars: climateBiovars.join(","),
       });
-      if (!res.ok) throw new Error("Download failed");
-      const data = await res.json();
-      setClimateDownloadJob(data.jobId);
+      setClimateDownloadJob(data.jobId as string);
     } catch {
     }
   };
 
   const handleCmip6Download = async () => {
     try {
-      const res = await fetch("/api/v1/climate/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "cmip6",
-          gcm: cmip6Gcm,
-          ssp: cmip6Ssp,
-          period: cmip6Period,
-          res: 10,
-        }),
+      const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", {
+        type: "cmip6",
+        gcm: cmip6Gcm,
+        ssp: cmip6Ssp,
+        period: cmip6Period,
+        res: 10,
       });
-      if (!res.ok) throw new Error("Download failed");
-      const data = await res.json();
-      setCmip6DownloadJob(data.jobId);
+      setCmip6DownloadJob(data.jobId as string);
     } catch {
     }
   };
@@ -119,20 +108,14 @@ export default function DataPage() {
   const handleAvgDownload = async () => {
     if (avgGcms.length < 2) return;
     try {
-      const res = await fetch("/api/v1/climate/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "cmip6_average",
-          gcm_list: avgGcms,
-          ssp: cmip6Ssp,
-          period: cmip6Period,
-          res: 10,
-        }),
+      const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", {
+        type: "cmip6_average",
+        gcm_list: avgGcms,
+        ssp: cmip6Ssp,
+        period: cmip6Period,
+        res: 10,
       });
-      if (!res.ok) throw new Error("Download failed");
-      const data = await res.json();
-      setAvgDownloadJob(data.jobId);
+      setAvgDownloadJob(data.jobId as string);
     } catch {
     }
   };
@@ -147,11 +130,8 @@ export default function DataPage() {
   const fetchScenarios = useCallback(async () => {
     setScenariosLoading(true);
     try {
-      const res = await fetch("/api/v1/climate/scenarios");
-      if (res.ok) {
-        const data = await res.json();
-        setScenarios(data.scenarios || []);
-      }
+      const data = await apiGet<{ scenarios: Array<Record<string, unknown>> }>("/api/v1/climate/scenarios");
+      setScenarios(data.scenarios || []);
     } catch {
     } finally {
       setScenariosLoading(false);
@@ -173,24 +153,11 @@ export default function DataPage() {
     setCleanResult(null);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch("/api/v1/data/occurrences/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Upload failed");
-      }
-
-      const result = await res.json();
+      const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/upload", file);
       setUploadResult(result);
       if (result.file_path) {
-        setOccurrenceFilePath(result.file_path);
-        setRecordCount(result.n_rows || 0);
+        setOccurrenceFilePath(result.file_path as string);
+        setRecordCount(result.n_rows as number || 0);
       }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
@@ -207,28 +174,17 @@ export default function DataPage() {
     setFlaggedIndices(new Set());
 
     try {
-      const res = await fetch("/api/v1/data/occurrences/clean", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          file_id: uploadResult.file_id,
-          min_source_records: 15,
-          merge_small_sources: true,
-          use_cc: false,
-          cc_tests: "all",
-          async: useAsync,
-        }),
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", {
+        file_id: uploadResult.file_id,
+        min_source_records: 15,
+        merge_small_sources: true,
+        use_cc: false,
+        cc_tests: "all",
+        async: useAsync,
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Clean failed");
-      }
-
-      const result = await res.json();
-
       if (useAsync && result.jobId) {
-        setCleanJobId(result.jobId);
+        setCleanJobId(result.jobId as string);
       } else {
         setCleanResult(result);
       }
@@ -253,18 +209,9 @@ export default function DataPage() {
     setGbifResult(null);
 
     try {
-      const res = await fetch("/api/v1/data/occurrences/gbif/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taxon, country, max_records: maxRecords }),
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/search", {
+        taxon, country, max_records: maxRecords,
       });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "GBIF search failed");
-      }
-
-      const result = await res.json();
       setGbifResult(result);
     } catch (err) {
       setGbifError(err instanceof Error ? err.message : "GBIF search failed");
@@ -279,20 +226,7 @@ export default function DataPage() {
     setDwcaResult(null);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch("/api/v1/data/occurrences/dwca", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "DwCA parsing failed");
-      }
-
-      const result = await res.json();
+      const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/dwca", file);
       setDwcaResult(result);
     } catch (err) {
       setDwcaError(err instanceof Error ? err.message : "DwCA parsing failed");
