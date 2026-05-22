@@ -5,7 +5,9 @@ replication_factor = 1
 
 rpc_bind_addr = "[::]:3901"
 rpc_public_addr = "127.0.0.1:3901"
-rpc_secret = "d1e7c03d3ea5d568964aeb561c057f028ab7d1b3e48f1ea9225ed039000b8770"
+# WARNING: Override via GARAGE_RPC_SECRET env var in production.
+# This value is for local dev only — do not commit real secrets.
+rpc_secret = "please-change-in-production-garage-rpc"
 
 [s3_api]
 s3_region = "garage"
@@ -19,5 +21,6 @@ index = "index.html"
 
 [admin]
 api_bind_addr = "[::]:3903"
+# WARNING: Override via GARAGE_ADMIN_TOKEN env var in production.
 admin_token = "dev-admin-token"
 metrics_token = "dev-metrics-token"
