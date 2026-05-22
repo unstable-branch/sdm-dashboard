@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from "ws";
-import { Server } from "http";
+import type { ServerType } from "@hono/node-server";
 import { jobEventBus } from "./job-events";
 
 interface JobProgress {
@@ -17,8 +17,8 @@ interface Client {
 const clients = new Map<string, Client>();
 const subscriptions = new Map<string, Set<string>>();
 
-export function setupWebSocket(server: Server) {
-  const wss = new WebSocketServer({ server, path: "/ws" });
+export function setupWebSocket(server: ServerType) {
+  const wss = new WebSocketServer({ server: server as any, path: "/ws" });
 
   wss.on("connection", (ws) => {
     const clientId = crypto.randomUUID();

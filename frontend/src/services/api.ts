@@ -97,7 +97,9 @@ export async function apiUpload<T>(url: string, file: File, extraFields?: Record
   }
 
   const token = typeof window !== "undefined" ? localStorage.getItem("sdm_token") : null;
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    "X-Requested-With": "XMLHttpRequest",
+  };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }

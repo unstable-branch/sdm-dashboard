@@ -1,7 +1,46 @@
 import { createMiddleware } from "hono/factory";
 import { Redis } from "ioredis";
 
-const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+let redis: Redis | null = null;
+let redisAvailable = false;
+
+function getRedis(): Redis | null {
+  if (redis === null) {
+    redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
+      lazyConnect: true,
+      maxRetriesPerRequest: 0,
+      retryStrategy: () => null,
+    });
+    redis.on("error", () => { redisAvailable = false; });
+    redis.on("ready", () => { redisAvailable = true; });
+    redis.connect().then(() => { redisAvailable = true; }).catch(() => { redisAvailable = false; });
+  }
+  return redisAvailable ? redis : null;
+}
+
+async function redisZremrangebyscore(key: string, min: number, max: number): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  try { await r.zremrangebyscore(key, min, max); } catch { /* skip */ }
+}
+
+async function redisZcard(key: string): Promise<number> {
+  const r = getRedis();
+  if (!r) return 0;
+  try { return await r.zcard(key); } catch { return 0; }
+}
+
+async function redisZadd(key: string, score: number, member: string): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  try { await r.zadd(key, score, member); } catch { /* skip */ }
+}
+
+async function redisExpire(key: string, seconds: number): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  try { await r.expire(key, seconds); } catch { /* skip */ }
+}
 
 export interface RateLimitOptions {
   windowMs: number;
@@ -15,16 +54,16 @@ export function rateLimit(options: RateLimitOptions) {
     const now = Date.now();
     const windowStart = now - options.windowMs;
 
-    await redis.zremrangebyscore(key, 0, windowStart);
+    await redisZremrangebyscore(key, 0, windowStart);
 
-    const count = await redis.zcard(key);
+    const count = await redisZcard(key);
 
     if (count >= options.max) {
       return c.json({ error: "Rate limit exceeded" }, 429);
     }
 
-    await redis.zadd(key, now, `${now}-${Math.random()}`);
-    await redis.expire(key, Math.ceil(options.windowMs / 1000));
+    await redisZadd(key, now, `${now}-${Math.random()}`);
+    await redisExpire(key, Math.ceil(options.windowMs / 1000));
 
     await next();
   });

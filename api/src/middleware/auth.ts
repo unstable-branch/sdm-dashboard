@@ -28,35 +28,39 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const apiKeyHeader = c.req.header("X-API-Key");
 
   if (apiKeyHeader) {
-    const keyHash = createHash("sha256").update(apiKeyHeader).digest("hex");
-    const [key] = await db
-      .select({ userId: apiKeys.userId })
-      .from(apiKeys)
-      .where(and(eq(apiKeys.keyHash, keyHash)))
-      .limit(1);
+    try {
+      const keyHash = createHash("sha256").update(apiKeyHeader).digest("hex");
+      const [key] = await db
+        .select({ userId: apiKeys.userId })
+        .from(apiKeys)
+        .where(and(eq(apiKeys.keyHash, keyHash)))
+        .limit(1);
 
-    if (!key) {
-      return c.json({ error: "Invalid API key" }, 401);
+      if (!key) {
+        return c.json({ error: "Invalid API key" }, 401);
+      }
+
+      const [user] = await db
+        .select({ id: users.id, email: users.email, role: users.role })
+        .from(users)
+        .where(eq(users.id, key.userId))
+        .limit(1);
+
+      if (!user) {
+        return c.json({ error: "User not found" }, 401);
+      }
+
+      await db
+        .update(apiKeys)
+        .set({ lastUsedAt: new Date() })
+        .where(eq(apiKeys.keyHash, keyHash));
+
+      c.set("user", user);
+      await next();
+      return;
+    } catch {
+      return c.json({ error: "Authentication service unavailable" }, 503);
     }
-
-    const [user] = await db
-      .select({ id: users.id, email: users.email, role: users.role })
-      .from(users)
-      .where(eq(users.id, key.userId))
-      .limit(1);
-
-    if (!user) {
-      return c.json({ error: "User not found" }, 401);
-    }
-
-    await db
-      .update(apiKeys)
-      .set({ lastUsedAt: new Date() })
-      .where(eq(apiKeys.keyHash, keyHash));
-
-    c.set("user", user);
-    await next();
-    return;
   }
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -66,7 +70,8 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const token = authHeader.split(" ")[1];
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    return c.json({ error: "Server configuration error: JWT_SECRET not set" }, 500);
+    console.warn("[auth] JWT_SECRET not configured");
+    return c.json({ error: "Authentication unavailable (server not configured)" }, 401);
   }
 
   try {
@@ -153,14 +158,18 @@ export const requireProjectAccess = (role: "owner" | "member" = "member") => {
       return;
     }
 
-    const [member] = await db
-      .select()
-      .from(projectMembers)
-      .where(and(eq(projectMembers.userId, user.id), eq(projectMembers.projectId, projectId)))
-      .limit(1);
+    try {
+      const [member] = await db
+        .select()
+        .from(projectMembers)
+        .where(and(eq(projectMembers.userId, user.id), eq(projectMembers.projectId, projectId)))
+        .limit(1);
 
-    if (!member) {
-      return c.json({ error: "Access denied" }, 403);
+      if (!member) {
+        return c.json({ error: "Access denied" }, 403);
+      }
+    } catch {
+      return c.json({ error: "Authorization service unavailable" }, 503);
     }
 
     await next();
