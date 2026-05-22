@@ -16,10 +16,22 @@ interface FetchOptions extends RequestInit {
   timeout?: number;
 }
 
+function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("sdm_token") || sessionStorage.getItem("sdm_token");
+}
+
+function clearToken() {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("sdm_token");
+    sessionStorage.removeItem("sdm_token");
+  }
+}
+
 async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<Response> {
   const { retry = 1, timeout = 15000, headers, ...rest } = options;
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("sdm_token") : null;
+  const token = getToken();
   const isFormData = rest.body instanceof FormData;
   const defaultHeaders: Record<string, string> = {};
   defaultHeaders["X-Requested-With"] = "XMLHttpRequest";
@@ -41,7 +53,7 @@ async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<R
   const res = await fetch(`${API_BASE}${url}`, fetchOptions);
 
   if (!res.ok && retry > 0 && res.status === 401) {
-    localStorage.removeItem("sdm_token");
+    clearToken();
     if (typeof window !== "undefined") {
       window.location.href = "/login";
     }
@@ -97,7 +109,7 @@ export async function apiUpload<T>(url: string, file: File, extraFields?: Record
     Object.entries(extraFields).forEach(([key, value]) => formData.append(key, value));
   }
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("sdm_token") : null;
+  const token = getToken();
   const headers: Record<string, string> = {
     "X-Requested-With": "XMLHttpRequest",
   };
@@ -113,18 +125,18 @@ export async function apiUpload<T>(url: string, file: File, extraFields?: Record
   return res.json();
 }
 
-export function setAuthToken(token: string) {
+export function setAuthToken(token: string, remember = true) {
   if (typeof window !== "undefined") {
-    localStorage.setItem("sdm_token", token);
+    clearToken();
+    const storage = remember ? localStorage : sessionStorage;
+    storage.setItem("sdm_token", token);
   }
 }
 
 export function clearAuthToken() {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("sdm_token");
-  }
+  clearToken();
 }
 
 export function getAuthToken(): string | null {
-  return typeof window !== "undefined" ? localStorage.getItem("sdm_token") : null;
+  return getToken();
 }
