@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
 import { MetricCard } from "@/components/ecology/metric-card";
 import { WelcomePanel } from "@/components/ecology/welcome-panel";
 import dynamic from "next/dynamic";
+import { useCompletedRuns } from "@/hooks/use-runs";
 import { Loader2, ArrowRight, Database, Brain, BarChart3 } from "lucide-react";
 
 const SuitabilityMap = dynamic(
@@ -12,35 +12,11 @@ const SuitabilityMap = dynamic(
   { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
 );
 
-interface RunSummary {
-  id: string;
-  species: string;
-  model_id: string;
-  status: string;
-  started_at: string;
-  metrics: Record<string, number | null> | null;
-  output_files: Record<string, string> | null;
-}
-
 export default function DashboardPage() {
-  const [latestRun, setLatestRun] = useState<RunSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: completedRuns, isLoading } = useCompletedRuns();
+  const latestRun = completedRuns.length > 0 ? completedRuns[0] : null;
 
-  useEffect(() => {
-    fetch("/api/v1/sdm/runs")
-      .then((res) => res.json())
-      .then((data) => {
-        const runs = data.runs || [];
-        const completed = runs.filter((r: RunSummary) => r.status === "completed");
-        if (completed.length > 0) {
-          setLatestRun(completed[0]);
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />

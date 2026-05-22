@@ -32,6 +32,7 @@ export function SearchInput({ value, onChange, placeholder = "Search...", classN
       />
       {localValue && (
         <button
+          type="button"
           onClick={() => setLocalValue("")}
           className="absolute right-2 top-1/2 -translate-y-1/2 text-sdm-muted hover:text-sdm-text"
         >

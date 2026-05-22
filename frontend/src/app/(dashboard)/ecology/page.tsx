@@ -1,36 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { ConservationSummary } from "@/components/ecology/conservation-summary";
 import { ExportPanel } from "@/components/ecology/export-panel";
+import { useCompletedRuns } from "@/hooks/use-runs";
 import { Leaf, Loader2 } from "lucide-react";
 
-interface RunSummary {
-  id: string;
-  species: string;
-  model_id: string;
-  status: string;
-  started_at: string;
-}
-
 export default function EcologyPage() {
-  const [runs, setRuns] = useState<RunSummary[]>([]);
-  const [selectedRun, setSelectedRun] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: runs, isLoading } = useCompletedRuns();
+  const [selectedRun, setSelectedRun] = useState<string | null>(
+    runs.length > 0 ? runs[0].id : null
+  );
 
-  useEffect(() => {
-    fetch("/api/v1/sdm/runs")
-      .then((res) => res.json())
-      .then((data) => {
-        const completed = (data.runs || []).filter((r: RunSummary) => r.status === "completed");
-        setRuns(completed);
-        if (completed.length > 0) setSelectedRun(completed[0].id);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-sdm-heading">Ecology</h1>

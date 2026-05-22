@@ -125,7 +125,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="cv" className="space-y-4">
-        <TabsList className="grid grid-cols-8 w-full max-w-4xl">
+        <TabsList className="grid grid-cols-9 w-full max-w-4xl">
           <TabsTrigger value="cv" className="text-xs">CV Folds</TabsTrigger>
           <TabsTrigger value="importance" className="text-xs">Importance</TabsTrigger>
           <TabsTrigger value="curves" className="text-xs">Response Curves</TabsTrigger>
@@ -134,6 +134,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
           <TabsTrigger value="calibration" className="text-xs">Calibration</TabsTrigger>
           <TabsTrigger value="vif" className="text-xs">VIF</TabsTrigger>
           <TabsTrigger value="mess" className="text-xs">MESS</TabsTrigger>
+          <TabsTrigger value="log" className="text-xs">Log</TabsTrigger>
         </TabsList>
 
         <TabsContent value="cv">

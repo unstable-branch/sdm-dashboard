@@ -27,9 +27,10 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const signal = AbortSignal.timeout(15000);
     Promise.all([
-      fetch("/health").then((res) => res.json()).catch(() => null),
-      fetch("/api/v1/sdm/config/defaults").then((res) => res.json()).catch(() => null),
+      fetch("/health", { signal }).then((res) => res.json()).catch(() => null),
+      fetch("/api/v1/sdm/config/defaults", { signal }).then((res) => res.json()).catch(() => null),
     ]).then(([h, d]) => {
       setHealth(h);
       setDefaults(d);

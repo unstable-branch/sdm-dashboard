@@ -28,6 +28,7 @@ import {
   Cloud,
   FolderKanban,
 } from "lucide-react";
+import Link from "next/link";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 
@@ -67,10 +68,10 @@ export function AppSidebar() {
               {pipelineItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild>
-                    <a href={item.href}>
+                    <Link href={item.href}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
-                    </a>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -84,10 +85,10 @@ export function AppSidebar() {
               {systemItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild>
-                    <a href={item.href}>
+                    <Link href={item.href}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
-                    </a>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}

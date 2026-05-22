@@ -37,7 +37,7 @@ export default function ResultsPage() {
     if (!runId) return;
 
     const fetchStatus = () => {
-      fetch(`/api/v1/sdm/status/${runId}`)
+      fetch(`/api/v1/sdm/status/${runId}`, { signal: AbortSignal.timeout(15000) })
         .then((res) => {
           if (!res.ok) throw new Error("Run not found");
           return res.json();

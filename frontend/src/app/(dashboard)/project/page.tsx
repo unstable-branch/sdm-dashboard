@@ -21,7 +21,7 @@ export default function ProjectPage() {
   const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/v1/sdm/future/scenarios")
+    fetch("/api/v1/sdm/future/scenarios", { signal: AbortSignal.timeout(15000) })
       .then((res) => res.json())
       .then((data) => {
         setScenarios(data.available_scenarios || []);

@@ -31,6 +31,7 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
       header: "",
       cell: (info: { row: { index: number } }) => (
         <button
+          type="button"
           onClick={() => {
             const idx = info.row.index;
             const isFlagged = flaggedRows.has(idx);
