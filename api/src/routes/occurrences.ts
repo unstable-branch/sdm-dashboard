@@ -18,12 +18,17 @@ dataRoutes.use("/occurrences/gbif/search", authMiddleware);
 dataRoutes.use("/occurrences/dwca", authMiddleware);
 dataRoutes.use("*", optionalAuth);
 
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB
+
 dataRoutes.post("/occurrences/upload", async (c) => {
   try {
     const body = await c.req.parseBody();
     const file = body["file"];
     if (!file || !(file instanceof File)) {
       return c.json({ error: "No file uploaded" }, 400);
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return c.json({ error: `File too large. Maximum ${MAX_UPLOAD_BYTES / 1024 / 1024}MB.` }, 413);
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -176,6 +181,9 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
     const file = body["file"];
     if (!file || !(file instanceof File)) {
       return c.json({ error: "No file uploaded" }, 400);
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return c.json({ error: `File too large. Maximum ${MAX_UPLOAD_BYTES / 1024 / 1024}MB.` }, 413);
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
