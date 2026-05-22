@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FileUpload } from "@/components/data/file-upload";
 import { GbifSearch } from "@/components/data/gbif-search";
 import { PreviewTable } from "@/components/data/preview-table";
@@ -31,17 +32,33 @@ interface OccurrencePoint {
 }
 
 export default function DataPage() {
+  return (
+    <Suspense fallback={null}>
+      <DataPageContent />
+    </Suspense>
+  );
+}
+
+function DataPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeTab = searchParams.get("tab") || "upload";
+
   const setOccurrenceFilePath = useSDMStore((s) => s.setOccurrenceFilePath);
   const setRecordCount = useSDMStore((s) => s.setRecordCount);
-  const occurrenceFilePath = useSDMStore((s) => s.occurrenceFilePath);
+  const uploadResult = useSDMStore((s) => s.uploadResult);
+  const setUploadResult = useSDMStore((s) => s.setUploadResult);
+  const cleanResult = useSDMStore((s) => s.cleanResult);
+  const setCleanResult = useSDMStore((s) => s.setCleanResult);
+  const flaggedIndicesArray = useSDMStore((s) => s.flaggedIndices);
+  const setFlaggedIndicesArray = useSDMStore((s) => s.setFlaggedIndices);
+  const flaggedIndices = useMemo(() => new Set(flaggedIndicesArray), [flaggedIndicesArray]);
 
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadResult, setUploadResult] = useState<Record<string, unknown> | null>(null);
 
   const [cleanLoading, setCleanLoading] = useState(false);
   const [cleanError, setCleanError] = useState<string | null>(null);
-  const [cleanResult, setCleanResult] = useState<Record<string, unknown> | null>(null);
   const [cleanJobId, setCleanJobId] = useState<string | null>(null);
   const [useAsync, setUseAsync] = useState(false);
 
@@ -52,8 +69,6 @@ export default function DataPage() {
   const [dwcaLoading, setDwcaLoading] = useState(false);
   const [dwcaError, setDwcaError] = useState<string | null>(null);
   const [dwcaResult, setDwcaResult] = useState<Record<string, unknown> | null>(null);
-
-  const [flaggedIndices, setFlaggedIndices] = useState<Set<number>>(new Set());
 
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
@@ -70,6 +85,10 @@ export default function DataPage() {
 
   const [scenarios, setScenarios] = useState<Array<Record<string, unknown>>>([]);
   const [scenariosLoading, setScenariosLoading] = useState(false);
+
+  const onTabChange = useCallback((value: string) => {
+    router.replace(`/data?tab=${value}`, { scroll: false });
+  }, [router]);
 
   const toggleClimateBiovar = (id: number) => {
     setClimateBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
@@ -166,12 +185,21 @@ export default function DataPage() {
     }
   };
 
+  const handleFlagToggle = useCallback((idx: number, flagged: boolean) => {
+    const current = useSDMStore.getState().flaggedIndices;
+    setFlaggedIndicesArray(
+      flagged
+        ? [...current, idx]
+        : current.filter(i => i !== idx)
+    );
+  }, [setFlaggedIndicesArray]);
+
   const handleClean = async () => {
     if (!uploadResult?.file_id) return;
 
     setCleanLoading(true);
     setCleanError(null);
-    setFlaggedIndices(new Set());
+    setFlaggedIndicesArray([]);
 
     try {
       const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", {
@@ -249,7 +277,7 @@ export default function DataPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="upload" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
         <TabsList className="grid w-full max-w-2xl grid-cols-6">
           <TabsTrigger value="upload" className="flex items-center gap-1.5">
             <Upload className="h-3.5 w-3.5" />
@@ -455,14 +483,7 @@ export default function DataPage() {
                 <CleaningTable
                   data={cleanPreview}
                   title="Cleaned records"
-                  onFlagToggle={(idx, flagged) => {
-                    setFlaggedIndices((prev) => {
-                      const next = new Set(prev);
-                      if (flagged) next.add(idx);
-                      else next.delete(idx);
-                      return next;
-                    });
-                  }}
+                  onFlagToggle={handleFlagToggle}
                 />
               )}
             </div>

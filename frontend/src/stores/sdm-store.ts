@@ -31,6 +31,15 @@ interface SDMState {
 
   error: string | null;
   setError: (error: string | null) => void;
+
+  uploadResult: Record<string, unknown> | null;
+  setUploadResult: (result: Record<string, unknown> | null) => void;
+
+  cleanResult: Record<string, unknown> | null;
+  setCleanResult: (result: Record<string, unknown> | null) => void;
+
+  flaggedIndices: number[];
+  setFlaggedIndices: (indices: number[]) => void;
 }
 
 export const useSDMStore = create<SDMState>()(
@@ -63,6 +72,15 @@ export const useSDMStore = create<SDMState>()(
 
       error: null,
       setError: (error) => set({ error }),
+
+      uploadResult: null,
+      setUploadResult: (result) => set({ uploadResult: result }),
+
+      cleanResult: null,
+      setCleanResult: (result) => set({ cleanResult: result }),
+
+      flaggedIndices: [],
+      setFlaggedIndices: (indices) => set({ flaggedIndices: indices }),
     }),
     {
       name: "sdm-storage",
@@ -70,6 +88,9 @@ export const useSDMStore = create<SDMState>()(
         species: state.species,
         occurrenceFilePath: state.occurrenceFilePath,
         recordCount: state.recordCount,
+        uploadResult: state.uploadResult,
+        cleanResult: state.cleanResult,
+        flaggedIndices: state.flaggedIndices,
       }),
     }
   )
