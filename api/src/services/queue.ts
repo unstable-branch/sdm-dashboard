@@ -4,6 +4,7 @@ import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { jobEventBus } from "./job-events.js";
 
 let _connection: IORedis | null = null;
 let _queue: Queue | null = null;
@@ -187,10 +188,13 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
           }
           case "climate_download": {
             await job.updateProgress(10);
+            jobEventBus.emitJobStatus({ jobId: job.id!, state: "active", progress: 10 });
+
             const downloadRes = await client.downloadClimate(payload);
             const climateJobId = (downloadRes as any).job_id as string | undefined;
 
             await job.updateProgress(20);
+            jobEventBus.emitJobStatus({ jobId: job.id!, state: "active", progress: 20 });
 
             if (climateJobId) {
               let status: Record<string, unknown> = {};
@@ -204,17 +208,22 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                 try {
                   status = await client.getClimateStatus(climateJobId);
                   const runStatus = (status as any).status;
+                  const logs = ((status as any).progress_log || []) as string[];
 
                   if (runStatus === "running") {
-                    const logLen = Array.isArray((status as any).progress_log)
-                      ? (status as any).progress_log.length
-                      : 0;
-                    await job.updateProgress(Math.min(95, 20 + Math.round(logLen * 0.5)));
+                    const logLen = logs.length;
+                    const pct = Math.min(95, 20 + Math.round(logLen * 0.5));
+                    await job.updateProgress(pct);
+                    jobEventBus.emitJobStatus({
+                      jobId: job.id!,
+                      state: "active",
+                      progress: pct,
+                      logs,
+                    });
                   }
 
                   if (runStatus === "completed" || runStatus === "failed") {
                     completed = true;
-                    const progressLog = ((status as any).progress_log || []) as string[];
                     const error = (status as any).error;
 
                     result = {
@@ -222,6 +231,16 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       data: status,
                       error: error as string | undefined,
                     };
+
+                    await job.updateProgress(100);
+                    jobEventBus.emitJobStatus({
+                      jobId: job.id!,
+                      state: runStatus === "completed" ? "completed" : "failed",
+                      progress: 100,
+                      logs,
+                      result: status,
+                      failedReason: error as string | undefined,
+                    });
                   }
                 } catch {
                   attempts++;
@@ -230,12 +249,18 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
 
               if (!completed) {
                 result = { status: "error", error: "Polling timeout: download did not complete in time" };
+                jobEventBus.emitJobStatus({
+                  jobId: job.id!,
+                  state: "failed",
+                  progress: 0,
+                  failedReason: "Polling timeout: download did not complete in time",
+                });
               }
             } else {
               result = { status: "success", data: downloadRes };
+              await job.updateProgress(100);
+              jobEventBus.emitJobStatus({ jobId: job.id!, state: "completed", progress: 100, result: downloadRes });
             }
-
-            await job.updateProgress(100);
             break;
           }
           default:
@@ -244,6 +269,8 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
 
         return result;
       } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "Unknown error";
+
         if (type === "model") {
           const runId = payload.runId as string;
           if (runId) {
@@ -251,16 +278,23 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
               .update(runs)
               .set({
                 status: "failed",
-                error: err instanceof Error ? err.message : "Unknown error",
+                error: errorMsg,
                 completedAt: new Date(),
               })
               .where(eq(runs.id, runId));
           }
         }
 
+        jobEventBus.emitJobStatus({
+          jobId: job.id!,
+          state: "failed",
+          progress: 0,
+          failedReason: errorMsg,
+        });
+
         return {
           status: "error",
-          error: err instanceof Error ? err.message : "Unknown error",
+          error: errorMsg,
         };
       }
     },
