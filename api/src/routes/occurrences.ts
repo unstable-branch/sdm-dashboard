@@ -1,6 +1,5 @@
 import { Hono } from "hono";
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
-import { join } from "path";
+import { readFileSync } from "fs";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
@@ -28,8 +27,8 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const result = await plumberClient.uploadOccurrence(buffer, file.name);
 
+    const result = await plumberClient.uploadOccurrence(buffer, file.name);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
@@ -180,12 +179,7 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const tmpDir = join(process.cwd(), "tmp");
-    mkdirSync(tmpDir, { recursive: true });
-    const tmpPath = join(tmpDir, `dwca-${Date.now()}-${file.name}`);
-    writeFileSync(tmpPath, buffer);
-
-    const result = await plumberClient.uploadOccurrence(tmpPath, file.name);
+    const result = await plumberClient.uploadOccurrence(buffer, file.name);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "DwCA parse failed";

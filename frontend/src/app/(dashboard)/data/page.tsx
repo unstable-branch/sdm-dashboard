@@ -172,11 +172,14 @@ function DataPageContent() {
     setCleanResult(null);
 
     try {
-      const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/upload", file);
-      setUploadResult(result);
-      if (result.file_path) {
-        setOccurrenceFilePath(result.file_path as string);
-        setRecordCount(result.n_rows as number || 0);
+      const result = await apiUpload<Record<string, unknown>>(
+        "/api/v1/data/occurrences/upload", file, undefined, 600000
+      );
+      const data = (result.data as Record<string, unknown> | undefined) ?? result;
+      setUploadResult(data);
+      if (data.file_path) {
+        setOccurrenceFilePath(data.file_path as string);
+        setRecordCount(data.n_rows as number || 0);
       }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");

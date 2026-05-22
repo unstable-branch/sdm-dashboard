@@ -102,7 +102,7 @@ export async function apiPut<T>(url: string, body?: unknown, options?: FetchOpti
   return res.json();
 }
 
-export async function apiUpload<T>(url: string, file: File, extraFields?: Record<string, string>): Promise<T> {
+export async function apiUpload<T>(url: string, file: File, extraFields?: Record<string, string>, timeout?: number): Promise<T> {
   const formData = new FormData();
   formData.append("file", file);
   if (extraFields) {
@@ -121,6 +121,7 @@ export async function apiUpload<T>(url: string, file: File, extraFields?: Record
     method: "POST",
     body: formData,
     headers,
+    timeout,
   });
   return res.json();
 }

@@ -14,6 +14,9 @@ redis-data/
 # Logs
 *.log
 
+# Temp files
+api/tmp/
+
 # Env
 .env
 .env.local
