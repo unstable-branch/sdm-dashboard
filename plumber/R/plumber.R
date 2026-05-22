@@ -5,7 +5,13 @@
 library(jsonlite)
 
 # Resolve project root: Docker uses /app, local uses parent of plumber/R/
-app_dir <- if (dir.exists("/app/R")) "/app" else normalizePath(file.path(getwd(), ".."), winslash = "/")
+app_dir <- if (dir.exists("/app/R")) {
+  "/app"
+} else if (dir.exists(file.path(getwd(), "R"))) {
+  normalizePath(getwd(), winslash = "/")
+} else {
+  normalizePath(file.path(getwd(), ".."), winslash = "/")
+}
 
 # Source bootstrap to get sdm_project_root() and source load.R
 source(file.path(app_dir, "R", "core", "bootstrap.R"))
@@ -54,25 +60,25 @@ sdm_safe_job_dir <- function(run_id) {
 function(req) {
   uploaded <- req$args$file
 
-  # Support JSON body with file_path (from Hono file-path forwarding)
-  if (is.null(uploaded)) {
-    post_body <- tryCatch(jsonlite::fromJSON(req$postBody), error = function(e) NULL)
-    if (!is.null(post_body) && !is.null(post_body$file_path) && nzchar(post_body$file_path)) {
-      safe_path <- sdm_safe_path(post_body$file_path, file.path(app_dir, "data", "uploads"))
-      if (!is.null(safe_path)) {
-        uploaded <- list(
-          datapath = safe_path,
-          filename = post_body$file_id %||% basename(post_body$file_path)
-        )
+  tryCatch({
+    # Support JSON body with file_path (from Hono file-path forwarding)
+    if (is.null(uploaded)) {
+      post_body <- jsonlite::fromJSON(req$postBody)
+      if (!is.null(post_body$file_path) && nzchar(post_body$file_path)) {
+        safe_path <- sdm_safe_path(post_body$file_path, file.path(app_dir, "data", "uploads"))
+        if (!is.null(safe_path)) {
+          uploaded <- list(
+            datapath = safe_path,
+            filename = post_body$file_id %||% basename(post_body$file_path)
+          )
+        }
       }
     }
-  }
 
-  if (is.null(uploaded)) {
-    return(sdm_error(req, 400, "No file uploaded. Send multipart/form-data with field 'file' or JSON with 'file_path'."))
-  }
+    if (is.null(uploaded)) {
+      return(sdm_error(req, 400, "No file uploaded. Send multipart/form-data with field 'file' or JSON with 'file_path'."))
+    }
 
-  tryCatch({
     file_path <- if (is.list(uploaded)) {
       if (!is.null(uploaded$tempfile) && nzchar(uploaded$tempfile)) {
         uploaded$tempfile
