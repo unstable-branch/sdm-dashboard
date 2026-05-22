@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/auth-store";
+import { getAuthToken } from "@/services/api";
 import { Loader2 } from "lucide-react";
 
 interface AuthGuardProps {
@@ -12,15 +13,19 @@ interface AuthGuardProps {
 
 export function AuthGuard({ children, redirectTo = "/login" }: AuthGuardProps) {
   const router = useRouter();
-  const { token, user } = useAuthStore();
+  const { token } = useAuthStore();
+  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    if (!token) {
+    const fallback = getAuthToken();
+    if (token || fallback) {
+      setChecked(true);
+    } else {
       router.push(redirectTo);
     }
   }, [token, router, redirectTo]);
 
-  if (!token) {
+  if (!token && !getAuthToken()) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />

@@ -40,8 +40,8 @@ app.get("/health", async (c) => {
   let redisStatus = "unknown";
   try {
     const client = getQueueClient();
-    await client.ping();
-    redisStatus = "connected";
+    await client?.ping();
+    redisStatus = client ? "connected" : "disconnected";
   } catch {
     redisStatus = "disconnected";
   }

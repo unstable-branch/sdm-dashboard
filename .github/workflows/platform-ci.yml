@@ -2,9 +2,9 @@ name: Platform CI
 
 on:
   push:
-    branches: [main, 'feature/**']
+    branches: [dev]
   pull_request:
-    branches: [main, 'feature/**']
+    branches: [dev]
   workflow_dispatch:
 
 permissions:
