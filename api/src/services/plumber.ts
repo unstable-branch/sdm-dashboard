@@ -48,7 +48,10 @@ export class PlumberClient {
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ file_path: file, file_id: filename }),
       });
-      if (!res.ok) throw new Error(`Failed to upload occurrence: ${res.status}`);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(body || `Failed to upload occurrence: ${res.status}`);
+      }
       return res.json();
     }
 
