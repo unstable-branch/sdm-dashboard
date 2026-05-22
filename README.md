@@ -1,10 +1,133 @@
 # SDM Dashboard Workbench
 
-SDM Dashboard Workbench is a local R/Shiny application for species distribution modelling from presence-only occurrence records. It provides a multi-algorithm, multi-species workbench with occurrence cleaning, climate/environmental covariates, model fitting, evaluation, future projection, and a rich ecology toolkit — all in one desktop-friendly workflow.
+SDM Dashboard Workbench is a species distribution modelling platform with two deployment options:
+
+- **Modern stack** (recommended): Next.js UI + Hono API + Plumber R engine + PostgreSQL, run via Docker Compose or locally for development
+- **Legacy R/Shiny** (desktop): single-process R/Shiny app for local use
+
+It provides multi-algorithm, multi-species SDM with occurrence cleaning, climate/environmental covariates, model fitting, evaluation, future projection, and a rich ecology toolkit.
 
 This is a beta release. Interfaces, defaults, packaging, and outputs may change before a stable `v1.0.0` release. Validate model outputs carefully before operational use.
 
 The public repository contains source code, documentation, scripts, templates, and small synthetic examples only. Real occurrence data, downloaded rasters, generated outputs, API keys, screenshots, and release archives should stay local.
+
+
+## Quick Start (Modern Stack)
+
+### Prerequisites
+
+- **Node.js** 20+ and **pnpm** (`npm install -g pnpm`)
+- **Docker** + **Docker Compose** (for backing services: PostgreSQL, Redis, Plumber, Garage)
+- **R** 4.3+ is only needed inside the Plumber Docker container — not required on the host
+
+### Full stack via Docker Compose
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/mrcanofcatfood/sdm-dashboard.git
+cd sdm-dashboard
+
+# 2. Start all services
+docker compose -f docker-compose.yml up
+
+# 3. Run database migrations
+docker compose -f docker-compose.yml exec api npm run db:migrate
+
+# Open http://localhost:3000
+```
+
+Services start in dependency order: **postgres** → **redis** → **garage** → **plumber** → **api** → **frontend**. First startup may take several minutes (Plumber installs R packages).
+
+### Local development
+
+Run only the backing services in Docker, then develop the API and frontend on the host for fast hot-reload.
+
+**Terminal 1 — Backing services:**
+
+```bash
+docker compose -f docker-compose.yml up postgres redis plumber garage -d
+```
+
+This starts:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| PostgreSQL + PostGIS | 5432 | Database |
+| Redis 7 | 6379 | Queue + caching |
+| Plumber R API | 8000 | SDM computation engine |
+| Garage S3 | 3900 | Raster / artifact storage |
+
+**Terminal 2 — API (Hono):**
+
+```bash
+cp api/.env.example api/.env   # if not present
+cd api
+pnpm install
+env PLUMBER_INTERNAL_KEY=sdm-internal-key-change-in-production \
+    JWT_SECRET=sdm-dev-secret-change-in-production \
+    pnpm dev
+```
+
+Starts on `http://localhost:4000`. Health check: `curl http://localhost:4000/health`
+
+**Terminal 3 — Frontend (Next.js):**
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+
+Starts on `http://localhost:3000`, proxying API calls to port 4000.
+
+**Database setup:**
+
+After starting PostgreSQL, run migrations from the API directory:
+
+```bash
+cd api
+pnpm db:migrate
+```
+
+This creates all tables: `users`, `projects`, `api_keys`, `species`, `runs`, `occurrences`, `project_members`.
+
+### First-time auth
+
+Once the API is running, register a user:
+
+```bash
+curl -s -X POST http://localhost:4000/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@sdm.local","password":"yourpassword","name":"Your Name"}'
+```
+
+Or log in if already registered:
+
+```bash
+curl -s -X POST http://localhost:4000/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@sdm.local","password":"yourpassword"}'
+```
+
+Both return a `token` field. Paste it into the browser console at `http://localhost:3000`:
+
+```js
+localStorage.setItem("sdm_token", "<token>")
+```
+
+Then refresh the page. The token expires in 24 hours — log in again to renew.
+
+Alternatively, use API key auth. The dev migration creates a `test-key` API key you can set directly:
+
+```js
+localStorage.setItem("sdm_token", "test-key")  // not yet supported for browser use
+```
+
+For API-only usage (curl, scripts), pass the key as a header:
+
+```bash
+curl -H 'X-API-Key: test-key' http://localhost:4000/api/v1/sdm/runs
+```
 
 
 ## Current Status
@@ -83,33 +206,122 @@ The public repository contains source code, documentation, scripts, templates, a
 - Metric cards, readiness preflight, and model badges
 - Windows launcher, command-line pipeline, Docker scaffold
 
+## Architecture
+
+### Modern stack
+
+```
+Browser (Next.js 15, port 3000)
+  ↓ HTTPS
+API Gateway (Hono BFF, port 4000)
+  ├── JWT / API Key auth middleware
+  ├── Rate limiting (BullMQ/Redis)
+  ├── CSRF protection
+  └── Route handlers
+       ↓ X-Hono-Internal + X-Forwarded-User
+  Plumber R API (port 8000)
+  ├── Auth gate (API key validation against PostgreSQL)
+  ├── SDM computation
+  └── Response proxies
+       ↓
+  PostgreSQL 16 + PostGIS  (users, projects, runs, species, occurrences)
+  Redis 7 + BullMQ         (job queue, rate limiting)
+  Garage S3                (raster storage, output artifacts)
+```
+
+### Legacy R/Shiny
+
+The `app.R` in the project root is a single-process Shiny app for local desktop use. It runs on port 3838 with no built-in auth or API layer.
+
+```
+Browser ← Shiny (port 3838) ← R modules (91 modules via R/load.R)
+```
+
 ## Project Structure
 
 ```
-R/
-├── core/          bootstrap, config, logging, run_sdm, pipeline stages
-├── data/          occurrences, DwCA parsing
-├── covariates/    climate, elevation, soil, future, NDVI, vegetation, etc.
-├── models/        GLM, GAM, MaxNet, RF, XGBoost, ESM, DNN, JSDM, ensemble, registry
-├── ecology/       climate matching, EOO/AOO, AOA, niche overlap, richness, dispersal, CLIMEX
-├── ui/            header, sidebar, tabs, Leaflet plugins
-├── modules/       Shiny modules (get_data, model_run, results, readiness)
-├── output/        metrics, plots, reports, manifest, batch, script export
-└── load.R         Module loader with subdirectory resolution
+api/               Hono API (TypeScript, port 4000)
+├── src/
+│   ├── routes/        API route handlers
+│   ├── middleware/     Auth, CSRF, rate-limit, cache
+│   ├── services/       Plumber proxy, BullMQ queue, S3 storage, WebSocket
+│   └── db/            Drizzle ORM schema + connection
+├── drizzle/          SQL migration files
+└── package.json
+
+frontend/          Next.js 15 UI (TypeScript, port 3000)
+├── src/
+│   ├── app/          Page routes (app router)
+│   ├── components/   React components
+│   ├── services/     API client, types
+│   ├── hooks/        WebSocket, job progress
+│   └── stores/       Zustand state
+└── package.json
+
+plumber/           R/Plumber computation API (port 8000)
+├── R/
+│   ├── plumber.R     Endpoint definitions
+│   ├── run_server.R  Server entry point with auth
+│   └── auth.R        API key validation
+└── Dockerfile
+
+R/                 Legacy Shiny modules
+├── core/           bootstrap, config, logging, run_sdm, pipeline stages
+├── data/           occurrences, DwCA parsing
+├── covariates/     climate, elevation, soil, future, etc.
+├── models/         GLM, GAM, MaxNet, RF, XGBoost, ESM, DNN, JSDM, ensemble
+├── ecology/        climate matching, EOO/AOO, AOA, niche overlap, etc.
+├── ui/             header, sidebar, tabs, Leaflet plugins
+├── modules/        Shiny modules (get_data, model_run, results, readiness)
+├── output/         metrics, plots, reports, manifest, batch, script export
+└── load.R          Module loader
+
+packages/shared/   Shared TypeScript types (referenced by api + frontend)
+├── src/index.ts
+└── package.json
+
+docker-compose.yml  Full-stack orchestration
 ```
+
+## Environment Variables
+
+### Modern stack
+
+| Variable | Service | Purpose | Required? |
+|----------|---------|---------|-----------|
+| `DATABASE_URL` | api, plumber | PostgreSQL connection | Yes |
+| `JWT_SECRET` | api | JWT token signing | Yes, for auth |
+| `PLUMBER_INTERNAL_KEY` | api, plumber | Hono→Plumber auth handshake | Yes |
+| `REDIS_URL` | api | Redis connection | Yes, for queue |
+| `GARAGE_ENDPOINT` | api | S3 endpoint | Yes, for storage |
+| `GARAGE_ACCESS_KEY_ID` | api | S3 access key | Yes, for storage |
+| `GARAGE_SECRET_KEY` | api | S3 secret key | Yes, for storage |
+| `PORT` | api | API listen port (default 4000) | No |
+| `PLUMBER_URL` | api | Plumber URL (default `http://localhost:8000`) | No |
+| `PLUMBER_AUTH_DISABLED` | plumber | Skip Plumber auth gate (dev only) | No |
+
+### Legacy R/Shiny
+
+| Variable | Used for | Required? |
+|----------|----------|-----------|
+| `OPENTOPOGRAPHY_API_KEY` | Elevation downloads from OpenTopography | Yes, if using elevation covariate |
+
+Create a `.Renviron` file in the project root to set R-specific variables. `.env` files are used for the Node.js stack. Both are git-ignored.
 
 ## Which Download
 
 Most users should use the latest GitHub Release rather than cloning the repository.
 
-- Windows users: download `sdm-dashboard-vX.Y.Z-windows-ready.zip` from Releases, extract, then double-click `run_app_windows.bat`.
-- Developers and Linux/macOS users: clone the repository or download `sdm-dashboard-vX.Y.Z-source.zip`.
+- Windows users (legacy Shiny): download `sdm-dashboard-vX.Y.Z-windows-ready.zip` from Releases, extract, then double-click `run_app_windows.bat`.
+- Developers: clone the repository or download `sdm-dashboard-vX.Y.Z-source.zip`.
 
 Latest beta release:
 
 - Repository: `https://github.com/mrcanofcatfood/sdm-dashboard`
 
-## Local Run
+## Legacy R/Shiny (Desktop)
+
+### Local Run
 
 Install R 4.3+ and system libraries required by `terra`/GDAL on your platform, then run from the project root:
 
@@ -132,7 +344,7 @@ Rscript pipeline.R
 
 The pipeline uses `presence_data.csv` in the project root when present, otherwise it falls back to `data/examples/synthetic_presence_data.csv`.
 
-## WSL2 Run
+### WSL2 Run
 
 WSL2 does not have a GUI browser. The app runs inside WSL2 but you access it from your **Windows browser**.
 
@@ -149,7 +361,7 @@ cd C:\path\to\sdm-dashboard-main
 2. Get WSL2 IP: `hostname -I | awk '{print $1}'`
 3. In Windows browser: `http://<WSL2-IP>:3838`
 
-## Windows Run
+### Windows Run
 
 On Windows, extract the Windows-ready zip and double-click:
 
@@ -179,16 +391,16 @@ Use `data/presence_data_template.csv` as the input template. Use `data/examples/
 
 Generated working folders such as `outputs/`, `checkpoints/`, `logs/`, `Worldclim/`, `Worldclim_future/`, and `covariates/` can contain large files or sensitive project data and are ignored by git.
 
-## Docker
+## Docker (Legacy Shiny)
 
-Build and run locally with Docker:
+Build and run the legacy Shiny app with Docker:
 
 ```bash
 docker build -t sdm-dashboard .
 docker run --rm -p 3838:3838 sdm-dashboard
 ```
 
-Mount local working data only when needed. Do not bake private data or API keys into images.
+For the modern stack, use `docker compose -f docker-compose.yml up` instead.
 
 ## Interpretation Caveats
 
@@ -200,17 +412,20 @@ Outputs are habitat suitability or relative occurrence-support maps, not confirm
 - Do not commit API keys, `.Renviron`, `.env`, downloaded rasters, generated model outputs, logs, or screenshots with sensitive information.
 - Keep templates and synthetic examples in `data/`; keep local working data at the project root or ignored cache/output folders.
 
-## API Keys
-
-| Variable | Used for | Required? |
-|----------|----------|-----------|
-| `OPENTOPOGRAPHY_API_KEY` | Elevation downloads from OpenTopography | Yes, if using elevation covariate |
-
-Create a `.Renviron` file in the project root (or your home directory) to set them. The file `.Renviron` is git-ignored and must never be committed. After editing, restart R for the change to take effect. API keys entered via the Shiny UI take precedence over `.Renviron` values.
-
 ## Verification
 
-Run the lightweight source checks:
+### Modern stack
+
+```bash
+# API health
+curl http://localhost:4000/health
+
+# Run tests
+cd api && pnpm test
+cd frontend && pnpm test
+```
+
+### Legacy R/Shiny
 
 ```bash
 Rscript scripts/smoke_test.R
