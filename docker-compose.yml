@@ -92,10 +92,11 @@ services:
       - "4000:4000"
     environment:
       - NODE_ENV=production
+      - JWT_SECRET=${JWT_SECRET:-1cfe8b19ba5bc7a3c78186acda6c7df23f7a14ac8c251b6ecdca2159b1561bb9}
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:-sdm_password}@postgres:5432/sdm_platform
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - PLUMBER_URL=${PLUMBER_URL:-http://plumber:8000}
-      - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-change-me-in-production}
+      - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-6e94feb6699652f8529ed79ee7863a4daab79279286e84f0c4026fe2fb29884e}
       - GARAGE_ENDPOINT=${GARAGE_ENDPOINT:-http://garage:3900}
       - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY:-dev-access-key}
       - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY:-dev-secret-key}

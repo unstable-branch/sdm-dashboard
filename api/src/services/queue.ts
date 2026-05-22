@@ -65,9 +65,9 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
     "sdm-jobs",
     async (job: Job<SdmJobData, SdmJobResult>) => {
       const { type, payload, userId } = job.data;
-      const client = new PlumberClient(process.env.PLUMBER_URL || "http://localhost:8000");
+      let client = new PlumberClient(process.env.PLUMBER_URL || "http://localhost:8000");
       if (userId) {
-        client.withUser(userId);
+        client = client.withUser(userId);
       }
 
       await job.updateProgress(10);

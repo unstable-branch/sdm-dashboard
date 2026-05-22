@@ -74,6 +74,7 @@ function DataPageContent() {
   const [climateRes, setClimateRes] = useState(10);
   const [climateBiovars, setClimateBiovars] = useState<number[]>([1, 4, 6, 12, 15, 18]);
   const [climateDownloadJob, setClimateDownloadJob] = useState<string | null>(null);
+  const [availableBiovars, setAvailableBiovars] = useState<Set<number>>(new Set());
 
   const [cmip6Gcm, setCmip6Gcm] = useState("UKESM1-0-LL");
   const [cmip6Ssp, setCmip6Ssp] = useState("SSP2-4.5");
@@ -82,6 +83,8 @@ function DataPageContent() {
 
   const [avgGcms, setAvgGcms] = useState<string[]>([]);
   const [avgDownloadJob, setAvgDownloadJob] = useState<string | null>(null);
+
+  const [climateError, setClimateError] = useState<string | null>(null);
 
   const [scenarios, setScenarios] = useState<Array<Record<string, unknown>>>([]);
   const [scenariosLoading, setScenariosLoading] = useState(false);
@@ -99,6 +102,7 @@ function DataPageContent() {
   };
 
   const handleClimateDownload = async () => {
+    setClimateError(null);
     try {
       const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", {
         type: climateSource,
@@ -106,26 +110,29 @@ function DataPageContent() {
         biovars: climateBiovars.join(","),
       });
       setClimateDownloadJob(data.jobId as string);
-    } catch {
+    } catch (err) {
+      setClimateError(err instanceof Error ? err.message : "Download failed");
     }
   };
 
   const handleCmip6Download = async () => {
+    setClimateError(null);
     try {
       const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", {
         type: "cmip6",
         gcm: cmip6Gcm,
         ssp: cmip6Ssp,
         period: cmip6Period,
-        res: 10,
       });
       setCmip6DownloadJob(data.jobId as string);
-    } catch {
+    } catch (err) {
+      setClimateError(err instanceof Error ? err.message : "Download failed");
     }
   };
 
   const handleAvgDownload = async () => {
     if (avgGcms.length < 2) return;
+    setClimateError(null);
     try {
       const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", {
         type: "cmip6_average",
@@ -135,14 +142,15 @@ function DataPageContent() {
         res: 10,
       });
       setAvgDownloadJob(data.jobId as string);
-    } catch {
+    } catch (err) {
+      setClimateError(err instanceof Error ? err.message : "Download failed");
     }
   };
 
-  const handleDownloadComplete = useCallback(() => {
-    setClimateDownloadJob(null);
-    setCmip6DownloadJob(null);
-    setAvgDownloadJob(null);
+  const handleDownloadComplete = useCallback((completedJobId: string) => {
+    setClimateDownloadJob(prev => prev === completedJobId ? null : prev);
+    setCmip6DownloadJob(prev => prev === completedJobId ? null : prev);
+    setAvgDownloadJob(prev => prev === completedJobId ? null : prev);
     fetchScenarios();
   }, []);
 
@@ -160,6 +168,13 @@ function DataPageContent() {
   useEffect(() => {
     fetchScenarios();
   }, [fetchScenarios]);
+
+  useEffect(() => {
+    const allBiovars = BIOVAR_CHOICES.map(b => b.id).join(",");
+    apiGet<{ available: number[] }>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${encodeURIComponent(allBiovars)}`)
+      .then(data => setAvailableBiovars(new Set(data.available || [])))
+      .catch(() => setAvailableBiovars(new Set()));
+  }, [climateSource, climateRes]);
 
   const handleDeleteScenario = (id: string) => {
     setScenarios((prev) => prev.filter((s) => s.id !== id));
@@ -524,56 +539,72 @@ function DataPageContent() {
               <div className="space-y-3">
                 <div className="flex items-center gap-4">
                   <label className="flex items-center gap-2 text-sm text-sdm-text">
-                    <input type="radio" checked={climateSource === "worldclim"} onChange={() => setClimateSource("worldclim")} />
+                    <input type="radio" checked={climateSource === "worldclim"} onChange={() => { setClimateSource("worldclim"); setClimateRes(10); }} />
                     WorldClim v2.1
                   </label>
                   <label className="flex items-center gap-2 text-sm text-sdm-text">
-                    <input type="radio" checked={climateSource === "chelsa"} onChange={() => setClimateSource("chelsa")} />
+                    <input type="radio" checked={climateSource === "chelsa"} onChange={() => { setClimateSource("chelsa"); setClimateRes(0.5); }} />
                     CHELSA v2.1
                   </label>
                 </div>
 
-                {climateSource === "worldclim" && (
-                  <div>
-                    <label className="block text-sm font-medium text-sdm-text mb-1">Resolution</label>
-                    <select value={climateRes} onChange={(e) => setClimateRes(Number(e.target.value))} className="rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
-                      <option value={2.5}>2.5 arc-min (~5 km)</option>
-                      <option value={5}>5 arc-min (~10 km)</option>
-                      <option value={10}>10 arc-min (~20 km)</option>
-                    </select>
-                  </div>
-                )}
+                <div>
+                  <label className="block text-sm font-medium text-sdm-text mb-1">Resolution</label>
+                  <select value={climateRes} onChange={(e) => setClimateRes(Number(e.target.value))} className="rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
+                    {climateSource === "worldclim" ? (
+                      <>
+                        <option value={2.5}>2.5 arc-min (~5 km)</option>
+                        <option value={5}>5 arc-min (~10 km)</option>
+                        <option value={10}>10 arc-min (~20 km)</option>
+                      </>
+                    ) : (
+                      <option value={0.5}>30 arc-seconds (~1 km)</option>
+                    )}
+                  </select>
+                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-sdm-text mb-1">BIO variables</label>
                   <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-10 gap-1.5">
-                    {BIOVAR_CHOICES.map((bio) => (
-                      <label
-                        key={bio.id}
-                        className={`flex items-center justify-center rounded border px-2 py-1.5 text-xs cursor-pointer transition-colors ${
-                          climateBiovars.includes(bio.id)
-                            ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
-                            : "border-sdm-border bg-sdm-surface-soft text-sdm-muted hover:border-sdm-accent/50"
-                        }`}
-                      >
-                        <input type="checkbox" checked={climateBiovars.includes(bio.id)} onChange={() => toggleClimateBiovar(bio.id)} className="sr-only" />
-                        {bio.label}
-                      </label>
-                    ))}
+                    {BIOVAR_CHOICES.map((bio) => {
+                      const isAvailable = availableBiovars.has(bio.id);
+                      return (
+                        <label
+                          key={bio.id}
+                          className={`flex items-center justify-center rounded border px-2 py-1.5 text-xs cursor-pointer transition-colors relative ${
+                            climateBiovars.includes(bio.id)
+                              ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
+                              : "border-sdm-border bg-sdm-surface-soft text-sdm-muted hover:border-sdm-accent/50"
+                          }`}
+                        >
+                          {isAvailable && (
+                            <span className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-green-500 translate-x-1/3 -translate-y-1/3" />
+                          )}
+                          <input type="checkbox" checked={climateBiovars.includes(bio.id)} onChange={() => toggleClimateBiovar(bio.id)} className="sr-only" />
+                          {bio.label}
+                        </label>
+                      );
+                    })}
                   </div>
                   {climateBiovars.length < 2 && (
                     <p className="text-xs text-sdm-danger mt-1">Select at least 2 BIO variables</p>
                   )}
                 </div>
 
-                <button
-                  onClick={handleClimateDownload}
-                  disabled={climateDownloadJob !== null || climateBiovars.length < 2}
-                  className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {climateDownloadJob ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  {climateDownloadJob ? "Downloading..." : `Download ${climateSource === "worldclim" ? "WorldClim" : "CHELSA"}`}
-                </button>
+                {(() => {
+                  const missingCount = climateBiovars.filter(b => !availableBiovars.has(b)).length;
+                  const allPresent = missingCount === 0 && climateBiovars.length > 0;
+                  return (
+                    <button
+                      onClick={handleClimateDownload}
+                      disabled={climateDownloadJob !== null || climateBiovars.length < 2 || allPresent}
+                      className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {climateDownloadJob ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      {climateDownloadJob ? "Downloading..." : allPresent ? "All layers present" : `Download ${missingCount} missing`}
+                    </button>
+                  );
+                })()}
               </div>
             </div>
 
@@ -649,13 +680,19 @@ function DataPageContent() {
             </div>
           </div>
 
+          {climateError && (
+            <div className="rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
+              {climateError}
+            </div>
+          )}
+
           {(() => {
             const activeJob = climateDownloadJob || cmip6DownloadJob || avgDownloadJob;
             if (!activeJob) return null;
             return (
               <DownloadProgress
                 jobId={activeJob}
-                onComplete={handleDownloadComplete}
+                onComplete={() => handleDownloadComplete(activeJob)}
                 onCancel={() => {
                   setClimateDownloadJob(null);
                   setCmip6DownloadJob(null);

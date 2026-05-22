@@ -48,15 +48,12 @@ validate_api_key <- function(api_key, app_dir = NULL) {
     )
     on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-    query <- sprintf(
-      "SELECT u.id, u.email, u.name, u.role, ak.created_at as key_created
-       FROM api_keys ak
-       JOIN users u ON u.id = ak.user_id
-       WHERE ak.key_hash = $1
-         AND (ak.expires_at IS NULL OR ak.expires_at > NOW())
-       LIMIT 1",
-      key_hash
-    )
+    query <- "SELECT u.id, u.email, u.name, u.role, ak.created_at as key_created
+              FROM api_keys ak
+              JOIN users u ON u.id = ak.user_id
+              WHERE ak.key_hash = $1
+                AND (ak.expires_at IS NULL OR ak.expires_at > NOW())
+              LIMIT 1"
 
     result <- DBI::dbGetQuery(con, query, params = list(key_hash))
 
@@ -91,6 +88,7 @@ requires_auth <- function(path) {
     "^/ready$",
     "^/api/v1/models/runs$",
     "^/api/v1/climate/scenarios$",
+    "^/api/v1/climate/check$",
     "^/api/v1/config/defaults$",
     "^/api/v1/models$",
     "^/api/v1/future/scenarios$",
