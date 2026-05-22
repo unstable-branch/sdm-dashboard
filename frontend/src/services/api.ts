@@ -22,6 +22,7 @@ async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<R
   const token = typeof window !== "undefined" ? localStorage.getItem("sdm_token") : null;
   const isFormData = rest.body instanceof FormData;
   const defaultHeaders: Record<string, string> = {};
+  defaultHeaders["X-Requested-With"] = "XMLHttpRequest";
   if (!isFormData) {
     defaultHeaders["Content-Type"] = "application/json";
   }
