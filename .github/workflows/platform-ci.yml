@@ -2,9 +2,9 @@ name: Platform CI
 
 on:
   push:
-    branches: [main, feature/platform-restructure]
+    branches: [main, 'feature/**']
   pull_request:
-    branches: [main, feature/platform-restructure]
+    branches: [main, 'feature/**']
   workflow_dispatch:
 
 permissions:
@@ -19,75 +19,67 @@ jobs:
     name: Frontend build + test
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: frontend
 
     steps:
       - uses: actions/checkout@v4
 
+      - run: npm install -g pnpm
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            frontend/package-lock.json
-            packages/shared/package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
-      - run: npm ci
-        working-directory: packages/shared
+      - run: pnpm install --frozen-lockfile
 
-      - run: npm ci
-        working-directory: frontend
+      - name: Build shared package
+        run: pnpm --filter @sdm/shared run build
 
       - name: Type check
-        run: npm run typecheck
+        run: pnpm --filter frontend run typecheck
 
       - name: Lint
-        run: npm run lint
+        run: pnpm --filter frontend run lint
 
       - name: Unit tests
-        run: npm run test
+        run: pnpm --filter frontend run test
 
       - name: Build
-        run: npm run build
+        run: pnpm --filter frontend run build
 
   api:
     name: API build + test
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: api
 
     steps:
       - uses: actions/checkout@v4
 
+      - run: npm install -g pnpm
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            api/package-lock.json
-            packages/shared/package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
-      - run: npm ci
-        working-directory: packages/shared
+      - run: pnpm install --frozen-lockfile
 
-      - run: npm ci
-        working-directory: api
+      - name: Build shared package
+        run: pnpm --filter @sdm/shared run build
 
       - name: Type check
-        run: npm run typecheck
+        run: pnpm --filter api run typecheck
 
       - name: Lint
-        run: npm run lint
+        run: pnpm --filter api run lint
 
       - name: Unit tests
-        run: npm run test
+        run: pnpm --filter api run test
 
       - name: Build
-        run: npm run build
+        run: pnpm --filter api run build
 
   r-quality:
     name: R source + tests
@@ -142,4 +134,4 @@ jobs:
         run: docker compose -f docker-compose.dev.yml config
 
       - name: Validate Plumber Dockerfile
-        run: docker build -f plumber/Dockerfile --check .
+        run: docker build -f plumber/Dockerfile .
