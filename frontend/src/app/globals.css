@@ -1,5 +1,21 @@
 @import "tailwindcss";
 
+@theme {
+  --color-sdm-bg: var(--sdm-bg);
+  --color-sdm-surface: var(--sdm-surface);
+  --color-sdm-surface-soft: var(--sdm-surface-soft);
+  --color-sdm-border: var(--sdm-border);
+  --color-sdm-text: var(--sdm-text);
+  --color-sdm-muted: var(--sdm-muted);
+  --color-sdm-heading: var(--sdm-heading);
+  --color-sdm-accent: var(--sdm-accent);
+  --color-sdm-accent-2: var(--sdm-accent-2);
+  --color-sdm-accent-blue: var(--sdm-accent-blue);
+  --color-sdm-success: var(--sdm-success);
+  --color-sdm-warning: var(--sdm-warning);
+  --color-sdm-danger: var(--sdm-danger);
+}
+
 @layer base {
   :root {
     --sdm-bg: #edf3f8;

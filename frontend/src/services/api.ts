@@ -13,10 +13,11 @@ export class ApiError extends Error {
 
 interface FetchOptions extends RequestInit {
   retry?: number;
+  timeout?: number;
 }
 
 async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<Response> {
-  const { retry = 1, headers, ...rest } = options;
+  const { retry = 1, timeout = 15000, headers, ...rest } = options;
 
   const token = typeof window !== "undefined" ? localStorage.getItem("sdm_token") : null;
   const defaultHeaders: Record<string, string> = {
@@ -26,10 +27,15 @@ async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<R
     defaultHeaders.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${url}`, {
+  const fetchOptions: RequestInit = {
     ...rest,
     headers: { ...defaultHeaders, ...headers },
-  });
+  };
+  if (!fetchOptions.signal) {
+    fetchOptions.signal = AbortSignal.timeout(timeout);
+  }
+
+  const res = await fetch(`${API_BASE}${url}`, fetchOptions);
 
   if (!res.ok && retry > 0 && res.status === 401) {
     localStorage.removeItem("sdm_token");
@@ -103,11 +109,15 @@ export async function apiUpload<T>(url: string, file: File, extraFields?: Record
 }
 
 export function setAuthToken(token: string) {
-  localStorage.setItem("sdm_token", token);
+  if (typeof window !== "undefined") {
+    localStorage.setItem("sdm_token", token);
+  }
 }
 
 export function clearAuthToken() {
-  localStorage.removeItem("sdm_token");
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("sdm_token");
+  }
 }
 
 export function getAuthToken(): string | null {

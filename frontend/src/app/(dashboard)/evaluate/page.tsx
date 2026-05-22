@@ -9,9 +9,10 @@ import { ImportanceChart } from "@/components/diagnostics/importance-chart";
 import { ResponseCurvesChart } from "@/components/diagnostics/response-curves-chart";
 import { CbiChart } from "@/components/diagnostics/cbi-chart";
 import { VifTable } from "@/components/diagnostics/vif-table";
+import { useRuns } from "@/hooks/use-runs";
 import { BarChart3, Loader2, Image } from "lucide-react";
 
-interface RunSummary {
+interface RunDetail {
   id: string;
   species: string;
   model_id: string;
@@ -20,15 +21,11 @@ interface RunSummary {
   completed_at: string | null;
   metrics: Record<string, number | null> | null;
   output_files: Record<string, string> | null;
-}
-
-interface RunDetail extends RunSummary {
   progress_log: string[];
 }
 
 export default function EvaluatePage() {
-  const [runs, setRuns] = useState<RunSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: runs, isLoading } = useRuns();
   const [selectedRun, setSelectedRun] = useState<RunDetail | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -39,24 +36,18 @@ export default function EvaluatePage() {
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
 
   useEffect(() => {
-    fetch("/api/v1/sdm/runs")
-      .then((res) => res.json())
-      .then((data) => {
-        const allRuns = data.runs || [];
-        setRuns(allRuns);
-        const completed = allRuns.filter((r: RunSummary) => r.status === "completed");
-        if (completed.length > 0) {
-          const first = completed[0];
-          setSelectedId(first.id);
-          fetch(`/api/v1/sdm/status/${first.id}`)
-            .then((res) => res.json())
-            .then((detail) => setSelectedRun(detail))
-            .catch(() => {});
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
+    if (!runs) return;
+    const allRuns = runs.runs || [];
+    const completed = allRuns.filter((r) => r.status === "completed");
+    if (completed.length > 0) {
+      const first = completed[0];
+      setSelectedId(first.id);
+      fetch(`/api/v1/sdm/status/${first.id}`, { signal: AbortSignal.timeout(10000) })
+        .then((res) => res.json())
+        .then((detail) => setSelectedRun(detail))
+        .catch(() => {});
+    }
+  }, [runs]);
 
   const selectRun = (id: string) => {
     setSelectedId(id);
@@ -65,7 +56,7 @@ export default function EvaluatePage() {
     setResponseCurvesData(null);
     setCbiData(null);
     setLoadingDiagnostics(true);
-    fetch(`/api/v1/sdm/status/${id}`)
+    fetch(`/api/v1/sdm/status/${id}`, { signal: AbortSignal.timeout(10000) })
       .then((res) => res.json())
       .then((detail) => {
         setSelectedRun(detail);
@@ -78,7 +69,7 @@ export default function EvaluatePage() {
         Promise.all(
           endpoints.map(async ({ url, setter }) => {
             try {
-              const res = await fetch(url);
+              const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
               if (res.ok) setter(await res.json());
             } catch {}
           })
@@ -87,7 +78,7 @@ export default function EvaluatePage() {
       .catch(() => setLoadingDiagnostics(false));
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-sdm-heading">Evaluate</h1>
@@ -99,7 +90,8 @@ export default function EvaluatePage() {
     );
   }
 
-  const completedRuns = runs.filter((r) => r.status === "completed");
+  const allRuns = runs?.runs || [];
+  const completedRuns = allRuns.filter((r) => r.status === "completed");
   const latestRun = completedRuns[0];
 
   const outputFiles = selectedRun?.output_files || {};
@@ -135,7 +127,7 @@ export default function EvaluatePage() {
         </TabsList>
 
         <TabsContent value="comparison">
-          <RunComparison runs={runs} />
+          <RunComparison runs={allRuns} />
         </TabsContent>
 
         <TabsContent value="threshold">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 interface CurvePoint {
@@ -33,7 +33,16 @@ const COLORS = [
 ];
 
 export function ResponseCurvesChart({ data, loading }: ResponseCurvesChartProps) {
-  const [activeCurves, setActiveCurves] = useState<Set<string>>(new Set());
+  const curves = data?.curves || [];
+  const [activeCurves, setActiveCurves] = useState<Set<string>>(
+    () => new Set(curves.map((c) => c.covariate))
+  );
+
+  useEffect(() => {
+    if (curves.length > 0 && activeCurves.size === 0) {
+      setActiveCurves(new Set(curves.map((c) => c.covariate)));
+    }
+  }, [data, curves, activeCurves.size]);
 
   if (loading) {
     return <div className="text-sm text-sdm-muted">Loading response curves...</div>;
@@ -51,13 +60,8 @@ export function ResponseCurvesChart({ data, loading }: ResponseCurvesChartProps)
     return <div className="text-sm text-sdm-muted italic">{data.message || "Response curves not available"}</div>;
   }
 
-  const curves = data.curves || [];
   if (curves.length === 0) {
     return <div className="text-sm text-sdm-muted italic">No curves to display</div>;
-  }
-
-  if (activeCurves.size === 0) {
-    setActiveCurves(new Set(curves.map((c) => c.covariate)));
   }
 
   const allValues = new Set<number>();

@@ -42,8 +42,9 @@ export function UserMenu() {
 
           {projects.length > 1 && (
             <div className="p-3 border-b border-sdm-border">
-              <label className="text-xs font-medium text-sdm-muted mb-1 block">Project</label>
+              <label htmlFor="project-selector" className="text-xs font-medium text-sdm-muted mb-1 block">Project</label>
               <select
+                id="project-selector"
                 value={project?.id || ""}
                 onChange={(e) => {
                   const p = projects.find((p) => p.id === e.target.value);

@@ -1,16 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { Download, Loader2, FileText, Image, Map } from "lucide-react";
-
-interface RunSummary {
-  id: string;
-  species: string;
-  model_id: string;
-  status: string;
-  started_at: string;
-  output_files: Record<string, string> | null;
-}
+import { useCompletedRuns } from "@/hooks/use-runs";
 
 function formatSize(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase();
@@ -31,21 +22,10 @@ function FileIcon({ ext }: { ext: string }) {
 }
 
 export default function DownloadsPage() {
-  const [runs, setRuns] = useState<RunSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: runs, isLoading } = useCompletedRuns();
+  const completedRuns = runs.filter((r) => r.output_files);
 
-  useEffect(() => {
-    fetch("/api/v1/sdm/runs")
-      .then((res) => res.json())
-      .then((data) => {
-        const completed = (data.runs || []).filter((r: RunSummary) => r.status === "completed" && r.output_files);
-        setRuns(completed);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-sdm-heading">Downloads</h1>
@@ -56,7 +36,7 @@ export default function DownloadsPage() {
     );
   }
 
-  if (runs.length === 0) {
+  if (completedRuns.length === 0) {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-sdm-heading">Downloads</h1>
@@ -77,7 +57,7 @@ export default function DownloadsPage() {
       </div>
 
       <div className="space-y-4">
-        {runs.map((run) => {
+        {completedRuns.map((run) => {
           const files = run.output_files ? Object.entries(run.output_files) : [];
           if (files.length === 0) return null;
 

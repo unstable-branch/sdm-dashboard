@@ -16,7 +16,10 @@ import { Upload, Globe, FileArchive, Wand2, Map, Cloud, Loader2, CheckCircle2, D
 import { useSDMStore } from "@/stores/sdm-store";
 import { BIOVAR_CHOICES, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 
-const OccurrenceMap = dynamic(() => import("@/components/data/occurrence-map").then(m => m.OccurrenceMap), { ssr: false });
+const OccurrenceMap = dynamic(() => import("@/components/data/occurrence-map").then(m => m.OccurrenceMap), {
+  ssr: false,
+  loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div>,
+});
 
 interface OccurrencePoint {
   longitude: number;

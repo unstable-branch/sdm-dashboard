@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import { cn } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
@@ -23,12 +24,14 @@ export function JobProgress({ jobId, onComplete }: JobProgressProps) {
 
   const job = jobId ? getJob(jobId) : null;
 
+  useEffect(() => {
+    if (job?.state === "completed" && job?.result) {
+      onComplete?.(job.result);
+    }
+  }, [job?.state, job?.result, onComplete]);
+
   if (!jobId || !job) {
     return null;
-  }
-
-  if (job.state === "completed" && job.result) {
-    onComplete?.(job.result);
   }
 
   return (
