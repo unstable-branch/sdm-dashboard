@@ -48,7 +48,9 @@ COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/api/package.json api/
 COPY --from=builder /app/package.json ./
 
-RUN npm install -g pnpm && pnpm install
+RUN npm install -g pnpm && pnpm install && chmod -R 755 /app
+
+USER node
 
 EXPOSE 4000
 

@@ -24,6 +24,28 @@ sdm_error <- function(req, status, message) {
   list(error = message)
 }
 
+# Safe path resolution — restricts access to a base directory
+sdm_safe_path <- function(input_path, base_dir) {
+  base_dir <- normalizePath(base_dir, winslash = "/", mustWork = FALSE)
+  resolved <- normalizePath(file.path(base_dir, basename(input_path)), winslash = "/", mustWork = FALSE)
+  base_norm <- normalizePath(base_dir, winslash = "/", mustWork = TRUE)
+  if (startsWith(resolved, paste0(base_norm, "/")) || identical(resolved, base_norm)) {
+    return(resolved)
+  }
+  NULL
+}
+
+# Safe job directory — ensures run_id stays within outputs/jobs
+sdm_safe_job_dir <- function(run_id) {
+  jobs_base <- normalizePath("outputs/jobs", winslash = "/", mustWork = FALSE)
+  resolved <- normalizePath(file.path(jobs_base, basename(run_id)), winslash = "/", mustWork = FALSE)
+  jobs_norm <- normalizePath("outputs/jobs", winslash = "/", mustWork = TRUE)
+  if (startsWith(resolved, paste0(jobs_norm, "/")) || identical(resolved, jobs_norm)) {
+    return(resolved)
+  }
+  NULL
+}
+
 # --- Data endpoints ---
 
 #* Upload occurrence file (CSV/TSV/ZIP)
@@ -77,6 +99,11 @@ function(req) {
 
   if (is.null(file_path) || !file.exists(file_path)) {
     return(sdm_error(req, 400, paste("Uploaded file not found:", file_path %||% "unknown")))
+  }
+
+  max_size <- 100 * 1024 * 1024
+  if (file.info(file_path)$size > max_size) {
+    return(sdm_error(req, 413, paste("File too large. Maximum", max_size / 1e6, "MB.")))
   }
 
   tryCatch({
@@ -162,9 +189,14 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
   min_source_records <- suppressWarnings(as.integer(min_source_records))
   if (!is.finite(min_source_records)) min_source_records <- 15L
 
+  safe_path <- sdm_safe_path(file_id, file.path(app_dir, "data", "uploads"))
+  if (is.null(safe_path)) {
+    return(sdm_error(req, 400, "Invalid file_id"))
+  }
+
   tryCatch({
     result <- clean_occurrences(
-      path = file_id,
+      path = safe_path,
       min_source_records = min_source_records,
       merge_small_sources = as.logical(merge_small_sources),
       use_cc = as.logical(use_cc),
@@ -250,9 +282,14 @@ function(req, file_id, species_filter = NULL, max_coord_uncertainty_m = NULL, ba
     NULL
   }
 
+  safe_path <- sdm_safe_path(file_id, file.path(app_dir, "data", "uploads"))
+  if (is.null(safe_path)) {
+    return(sdm_error(req, 400, "Invalid file_id"))
+  }
+
   tryCatch({
     result <- read_dwca(
-      dwca_path = file_id,
+      dwca_path = safe_path,
       species_filter = if (!is.null(species_filter) && nzchar(species_filter)) species_filter else NULL,
       max_coord_uncertainty_m = max_unc,
       basis_of_record_filter = bor_filter,
@@ -607,26 +644,32 @@ function(req) {
     cat(msg, "\n", file = progress_log, append = TRUE)
   }
 
+  validate_path_param <- function(x, name) {
+    if (!is.null(x) && grepl("(\\.\\./|\\.\\.\\\\|/)", x)) {
+      stop(paste("Invalid", name, "- path traversal detected"))
+    }
+    x
+  }
+
   run_bg <- function() {
     tryCatch({
-      if (download_type == "cmip6") {
-        gcm <- body$gcm %||% "UKESM1-0-LL"
-        ssp <- body$ssp %||% "SSP2-4.5"
-        period <- body$period %||% "2041-2060"
+      if (download_type %in% c("cmip6", "cmip6_average")) {
+        gcm <- validate_path_param(body$gcm %||% "UKESM1-0-LL", "gcm")
+        ssp <- validate_path_param(body$ssp %||% "SSP2-4.5", "ssp")
+        period <- validate_path_param(body$period %||% "2041-2060", "period")
         res <- as.integer(body$res %||% 10)
-        log_fun("Downloading CMIP6: ", gcm, " / ", ssp, " / ", period, " (", res, "m)")
-        source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
-        fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res, out_dir = "Worldclim_future", quiet = FALSE)
-        log_fun("CMIP6 download complete")
-      } else if (download_type == "cmip6_average") {
-        gcm_list <- body$gcm_list %||% character(0)
-        ssp <- body$ssp %||% "SSP2-4.5"
-        period <- body$period %||% "2041-2060"
-        res <- as.integer(body$res %||% 10)
-        log_fun("Averaging CMIP6 GCMs: ", paste(gcm_list, collapse = ", "), " / ", ssp, " / ", period)
-        source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
-        average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res, out_dir = "Worldclim_future", quiet = FALSE)
-        log_fun("GCM averaging complete")
+        if (download_type == "cmip6") {
+          log_fun("Downloading CMIP6: ", gcm, " / ", ssp, " / ", period, " (", res, "m)")
+          source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
+          fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res, out_dir = "Worldclim_future", quiet = FALSE)
+          log_fun("CMIP6 download complete")
+        } else {
+          gcm_list <- body$gcm_list %||% character(0)
+          log_fun("Averaging CMIP6 GCMs: ", paste(gcm_list, collapse = ", "), " / ", ssp, " / ", period)
+          source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
+          average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res, out_dir = "Worldclim_future", quiet = FALSE)
+          log_fun("GCM averaging complete")
+        }
       } else if (download_type == "worldclim") {
         res <- as.integer(body$res %||% 10)
         biovars <- body$biovars
@@ -671,7 +714,10 @@ function(req) {
 #* Get climate download job status
 #* @get /api/v1/climate/status/<job_id>
 function(job_id) {
-  job_dir <- file.path("outputs", "jobs", job_id)
+  job_dir <- sdm_safe_job_dir(job_id)
+  if (is.null(job_dir)) {
+    return(list(error = "Invalid job ID"), 404)
+  }
   meta_file <- file.path(job_dir, "meta.json")
   progress_file <- file.path(job_dir, "progress.log")
 
@@ -807,7 +853,10 @@ function(scenario_id) {
 #* Get ecology data for a model run
 #* @get /api/v1/ecology/<run_id>
 function(run_id) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) {
+    return(list(error = "Run not found"), 404)
+  }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -876,7 +925,10 @@ function(run_id) {
 #* Get EOO/AOO data for a model run
 #* @get /api/v1/ecology/<run_id>/eoo-aoo
 function(run_id) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) {
+    return(list(error = "Run not found"), 404)
+  }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -900,7 +952,7 @@ function(run_id) {
 #* Get AOA data for a model run
 #* @get /api/v1/ecology/<run_id>/aoa
 function(run_id) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -921,7 +973,7 @@ function(run_id) {
 #* Generate conservation status report text
 #* @get /api/v1/ecology/<run_id>/report
 function(run_id) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -997,8 +1049,8 @@ function(req) {
     return(sdm_error(req, 400, "run_id_1 and run_id_2 are required"))
   }
 
-  job_dir_1 <- file.path("outputs", "jobs", run_id_1)
-  job_dir_2 <- file.path("outputs", "jobs", run_id_2)
+  job_dir_1 <- file.path("outputs", "jobs", basename(run_id_1))
+  job_dir_2 <- file.path("outputs", "jobs", basename(run_id_2))
   meta_file_1 <- file.path(job_dir_1, "meta.json")
   meta_file_2 <- file.path(job_dir_2, "meta.json")
 
@@ -1101,7 +1153,7 @@ function() {
 #* Export reproducible R script for a run
 #* @get /api/v1/output/script/<run_id>
 function(run_id, output_dir = NULL) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1134,7 +1186,7 @@ function(run_id, output_dir = NULL) {
 #* Generate run manifest for reproducibility
 #* @get /api/v1/output/manifest/<run_id>
 function(run_id) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1190,7 +1242,7 @@ function(run_id) {
 #* Get VIF collinearity screening results for a run
 #* @get /api/v1/diagnostics/vif/<run_id>
 function(run_id) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1246,7 +1298,7 @@ function(run_id) {
 #* Get response curve data for a run
 #* @get /api/v1/diagnostics/response-curves/<run_id>
 function(run_id) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1299,7 +1351,7 @@ function(run_id) {
 #* Get variable importance data for a run
 #* @get /api/v1/diagnostics/importance/<run_id>
 function(run_id) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1346,7 +1398,7 @@ function(run_id) {
 #* Get Continuous Boyce Index data for a run
 #* @get /api/v1/diagnostics/cbi/<run_id>
 function(run_id) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1404,7 +1456,7 @@ function(run_id) {
 #* Get MESS extrapolation summary for a run
 #* @get /api/v1/diagnostics/mess/<run_id>
 function(run_id) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1442,7 +1494,7 @@ function(run_id) {
 #* Get combined diagnostics summary for a run
 #* @get /api/v1/diagnostics/summary/<run_id>
 function(run_id) {
-  job_dir <- file.path("outputs", "jobs", run_id)
+  job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1535,6 +1587,9 @@ function(source = "worldclim", res = "10", biovars = "", gcm = "", ssp = "", per
       existing_nums <- as.integer(gsub("^CHELSA_bio0*(\\d+)_.*$", "\\1", files))
     } else if (source == "cmip6") {
       if (nzchar(gcm) && nzchar(ssp) && nzchar(period)) {
+        if (grepl("(\\.\\./|\\.\\.\\\\|/)", paste(gcm, ssp, period))) {
+          stop("Invalid climate path parameters")
+        }
         future_dir <- file.path(sdm_default_future_worldclim_dir, paste0(gcm, "_", ssp, "_", period))
         if (dir.exists(future_dir)) {
           files <- list.files(future_dir, pattern = "^bio\\d+\\.tif$")

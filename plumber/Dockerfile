@@ -27,7 +27,11 @@ COPY R/ /app/R/
 COPY plumber/ /app/plumber/
 COPY data/ /app/data/
 
-RUN mkdir -p /app/data/uploads /app/outputs /app/covariates /app/Worldclim
+RUN mkdir -p /app/data/uploads /app/outputs /app/covariates /app/Worldclim && \
+    useradd -m -s /bin/bash sdm && \
+    chown -R sdm:sdm /app /app/data/uploads /app/outputs /app/covariates /app/Worldclim
+
+USER sdm
 
 EXPOSE 8000
 
