@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/auth-store";
+import { setAuthToken } from "@/services/api";
 import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
@@ -12,6 +13,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -35,6 +37,7 @@ export default function LoginPage() {
       if (!res.ok) throw new Error(data.error || "Request failed");
 
       setAuth(data.user, data.token);
+      setAuthToken(data.token, rememberMe);
       router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
@@ -101,6 +104,18 @@ export default function LoginPage() {
                 placeholder="••••••••"
               />
             </div>
+
+            {mode === "login" && (
+              <label className="flex items-center gap-2 text-sm text-sdm-muted cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="rounded border-sdm-border bg-sdm-surface-soft text-sdm-accent focus:ring-sdm-accent/50"
+                />
+                Remember me
+              </label>
+            )}
 
             {error && (
               <div className="rounded-md bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-400">
