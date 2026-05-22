@@ -126,46 +126,44 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                   status = await client.getModelStatus(plumberJobId);
                   const runStatus = (status as any).status;
 
+                  const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log : [];
+
                   if (runStatus === "running") {
-                    const logLen = Array.isArray((status as any).progress_log)
-                      ? (status as any).progress_log.length
-                      : 0;
-                    await job.updateProgress(Math.min(95, 30 + Math.round(logLen * 0.5)));
+                    const pct = (() => {
+                      for (const line of logs) {
+                        const m = line.match(/\[(\d+)%\]/);
+                        if (m) return Math.min(100, parseInt(m[1], 10));
+                      }
+                      return Math.min(90, 10 + Math.round(logs.length * 0.4));
+                    })();
+                    await job.updateProgress(pct);
+                    jobEventBus.emitJobStatus({
+                      jobId: job.id!,
+                      state: "active",
+                      progress: pct,
+                      logs,
+                    });
                   }
 
                   if (runStatus === "completed" || runStatus === "failed") {
                     completed = true;
-
-                    const metrics = (status as any).metrics;
-                    const outputFiles = (status as any).output_files;
-                    const progressLog = ((status as any).progress_log || []) as string[];
                     const error = (status as any).error;
-
-                    const structuredLog = progressLog.map((line: string) => {
-                      const match = line.match(/^(\d{2}:\d{2}:\d{2})\s*(?:\[([\d.]+%)\])?\s*(.*)/);
-                      if (match) {
-                        return { timestamp: match[1], level: match[2] || "info", message: match[3] };
-                      }
-                      return { timestamp: "", level: "info", message: line };
-                    });
-
-                    await db
-                      .update(runs)
-                      .set({
-                        status: runStatus === "completed" ? "completed" : "failed",
-                        metrics: metrics ?? null,
-                        outputFiles: outputFiles ?? null,
-                        progressLog: structuredLog,
-                        error: error ?? null,
-                        completedAt: runStatus === "completed" ? new Date() : null,
-                      })
-                      .where(eq(runs.id, runId));
 
                     result = {
                       status: runStatus === "completed" ? "success" : "error",
                       data: status,
                       error: error as string | undefined,
                     };
+
+                    await job.updateProgress(100);
+                    jobEventBus.emitJobStatus({
+                      jobId: job.id!,
+                      state: runStatus === "completed" ? "completed" : "failed",
+                      progress: 100,
+                      logs,
+                      result: status,
+                      failedReason: error as string | undefined,
+                    });
                   }
                 } catch {
                   attempts++;
@@ -173,17 +171,19 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
               }
 
               if (!completed) {
-                await db
-                  .update(runs)
-                  .set({ status: "failed", error: "Polling timeout", completedAt: new Date() })
-                  .where(eq(runs.id, runId));
-                result = { status: "error", error: "Polling timeout: model did not complete in time" };
+                result = { status: "error", error: "Polling timeout: download did not complete in time" };
+                jobEventBus.emitJobStatus({
+                  jobId: job.id!,
+                  state: "failed",
+                  progress: 0,
+                  failedReason: "Polling timeout: download did not complete in time",
+                });
               }
             } else {
               result = { status: "success", data: modelRes };
+              await job.updateProgress(100);
+              jobEventBus.emitJobStatus({ jobId: job.id!, state: "completed", progress: 100, result: modelRes });
             }
-
-            await job.updateProgress(100);
             break;
           }
           case "climate_download": {
@@ -208,18 +208,18 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                 try {
                   status = await client.getClimateStatus(climateJobId);
                   const runStatus = (status as any).status;
-                  const logs = ((status as any).progress_log || []) as string[];
+                  const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log : [];
 
                   if (runStatus === "running") {
-                    const logLen = logs.length;
-                    const pct = Math.min(95, 20 + Math.round(logLen * 0.5));
+                    const pct = (() => {
+                      for (const line of logs) {
+                        const m = line.match(/\[(\d+)%\]/);
+                        if (m) return Math.min(100, parseInt(m[1], 10));
+                      }
+                      return Math.min(90, 10 + Math.round(logs.length * 0.4));
+                    })();
                     await job.updateProgress(pct);
-                    jobEventBus.emitJobStatus({
-                      jobId: job.id!,
-                      state: "active",
-                      progress: pct,
-                      logs,
-                    });
+                    jobEventBus.emitJobStatus({ jobId: job.id!, state: "active", progress: pct, logs });
                   }
 
                   if (runStatus === "completed" || runStatus === "failed") {

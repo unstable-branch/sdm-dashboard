@@ -4,13 +4,18 @@
 
 library(jsonlite)
 
-# Resolve project root: Docker uses /app, local uses parent of plumber/R/
+# Resolve project root: Docker uses /app, local uses tree-walk to find R/core/bootstrap.R
 app_dir <- if (dir.exists("/app/R")) {
   "/app"
-} else if (dir.exists(file.path(getwd(), "R"))) {
-  normalizePath(getwd(), winslash = "/")
 } else {
-  normalizePath(file.path(getwd(), ".."), winslash = "/")
+  d <- getwd()
+  for (i in 1:10) {
+    if (file.exists(file.path(d, "R", "core", "bootstrap.R"))) {
+      break
+    }
+    d <- dirname(d)
+  }
+  normalizePath(d, winslash = "/")
 }
 
 # Source bootstrap to get sdm_project_root() and source load.R
@@ -43,10 +48,11 @@ sdm_safe_path <- function(input_path, base_dir) {
 
 # Safe job directory — ensures run_id stays within outputs/jobs
 sdm_safe_job_dir <- function(run_id) {
-  jobs_base <- normalizePath("outputs/jobs", winslash = "/", mustWork = FALSE)
+  jobs_base <- file.path(app_dir, "outputs", "jobs")
+  dir.create(jobs_base, recursive = TRUE, showWarnings = FALSE)
+  jobs_base <- normalizePath(jobs_base, winslash = "/", mustWork = TRUE)
   resolved <- normalizePath(file.path(jobs_base, basename(run_id)), winslash = "/", mustWork = FALSE)
-  jobs_norm <- normalizePath("outputs/jobs", winslash = "/", mustWork = TRUE)
-  if (startsWith(resolved, paste0(jobs_norm, "/")) || identical(resolved, jobs_norm)) {
+  if (startsWith(resolved, paste0(jobs_base, "/")) || identical(resolved, jobs_base)) {
     return(resolved)
   }
   NULL
@@ -381,7 +387,7 @@ function(req) {
   }
 
   job_id <- paste0("run-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
-  job_dir <- file.path("outputs", "jobs", job_id)
+  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
 
   job_meta <- list(
@@ -527,13 +533,13 @@ function(req) {
 
 #* Get model run status
 #* @get /api/v1/models/status/<job_id>
-function(job_id) {
+function(res, job_id) {
   job_dir <- file.path("outputs", "jobs", job_id)
   meta_file <- file.path(job_dir, "meta.json")
   progress_file <- file.path(job_dir, "progress.log")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
@@ -642,7 +648,7 @@ function(req) {
 
   download_type <- body$type %||% "cmip6"
   job_id <- paste0("climate_", format(Sys.time(), "%Y%m%d_%H%M%S"), "_", paste(sample(letters, 6), collapse = ""))
-  job_dir <- file.path("outputs", "jobs", job_id)
+  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
   progress_log <- file.path(job_dir, "progress.log")
 
@@ -663,6 +669,12 @@ function(req) {
     cat(msg, "\n", file = progress_log, append = TRUE)
   }
 
+  progress_fun <- function(pct, msg) {
+    line <- sprintf("[%d%%] %s", as.integer(pct), msg)
+    cat(line, "\n")
+    cat(line, "\n", file = progress_log, append = TRUE)
+  }
+
   validate_path_param <- function(x, name) {
     if (!is.null(x) && grepl("(\\.\\./|\\.\\.\\\\|/)", x)) {
       stop(paste("Invalid", name, "- path traversal detected"))
@@ -672,49 +684,56 @@ function(req) {
 
   run_bg <- function() {
     tryCatch({
+      progress_fun(5, "Initializing download")
       if (download_type %in% c("cmip6", "cmip6_average")) {
         gcm <- validate_path_param(body$gcm %||% "UKESM1-0-LL", "gcm")
         ssp <- validate_path_param(body$ssp %||% "SSP2-4.5", "ssp")
         period <- validate_path_param(body$period %||% "2041-2060", "period")
         res <- as.integer(body$res %||% 10)
         if (download_type == "cmip6") {
-          log_fun("Downloading CMIP6: ", gcm, " / ", ssp, " / ", period, " (", res, "m)")
+          progress_fun(10, "Downloading CMIP6")
+          log_fun("Scenario: ", gcm, " / ", ssp, " / ", period, " (", res, "m)")
           source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
           fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res, out_dir = "Worldclim_future", quiet = FALSE)
-          log_fun("CMIP6 download complete")
+          progress_fun(90, "CMIP6 download complete")
         } else {
           gcm_list <- body$gcm_list %||% character(0)
-          log_fun("Averaging CMIP6 GCMs: ", paste(gcm_list, collapse = ", "), " / ", ssp, " / ", period)
+          progress_fun(10, "Averaging CMIP6 GCMs")
+          log_fun("GCMs: ", paste(gcm_list, collapse = ", "), " / ", ssp, " / ", period)
           source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
           average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res, out_dir = "Worldclim_future", quiet = FALSE)
-          log_fun("GCM averaging complete")
+          progress_fun(90, "GCM averaging complete")
         }
       } else if (download_type == "worldclim") {
         res <- as.integer(body$res %||% 10)
         biovars <- body$biovars
         if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
-        log_fun("Downloading WorldClim v2.1 BIO layers (", res, "m)")
+        progress_fun(10, "Downloading WorldClim v2.1 BIO layers (", res, "m)")
+        log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
         source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
         download_worldclim_bio(worldclim_dir = "Worldclim", biovars = biovars, res = res, quiet = FALSE)
-        log_fun("WorldClim download complete")
+        progress_fun(90, "WorldClim download complete")
       } else if (download_type == "chelsa") {
         biovars <- body$biovars
         if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
-        log_fun("Downloading CHELSA v2.1 BIO layers")
+        progress_fun(10, "Downloading CHELSA v2.1 BIO layers")
+        log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
         source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
         download_chelsa_bio(chelsa_dir = "chelsa", biovars = biovars, quiet = FALSE)
-        log_fun("CHELSA download complete")
+        progress_fun(90, "CHELSA download complete")
       } else {
         stop("Unknown download type: ", download_type)
       }
 
+      progress_fun(95, "Finalizing")
       job_meta$status <<- "completed"
       job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      progress_fun(100, "Complete")
     }, error = function(e) {
       job_meta$status <<- "failed"
       job_meta$error <<- conditionMessage(e)
       job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      log_fun("Download failed: ", conditionMessage(e))
+      progress_fun(0, "Failed: ", conditionMessage(e))
     })
 
     job_meta$progress_log <- tryCatch(tail(readLines(progress_log, warn = FALSE), 50), error = function(e) character(0))
@@ -732,16 +751,16 @@ function(req) {
 
 #* Get climate download job status
 #* @get /api/v1/climate/status/<job_id>
-function(job_id) {
+function(res, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
-    return(list(error = "Invalid job ID"), 404)
+    res$status <- 404L; return(list(error = "Invalid job ID"))
   }
   meta_file <- file.path(job_dir, "meta.json")
   progress_file <- file.path(job_dir, "progress.log")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Download job not found"), 404)
+    res$status <- 404L; return(list(error = "Download job not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
@@ -846,7 +865,7 @@ function() {
 
 #* Delete a downloaded climate scenario
 #* @post /api/v1/climate/delete/<scenario_id>
-function(scenario_id) {
+function(res, scenario_id) {
   future_dir <- sdm_default_future_worldclim_dir
   current_dir <- sdm_default_worldclim_dir
   chelsa_dir <- "chelsa"
@@ -861,7 +880,7 @@ function(scenario_id) {
   }
 
   if (is.null(target_dir) || !dir.exists(target_dir)) {
-    return(list(error = "Scenario not found"), 404)
+    res$status <- 404L; return(list(error = "Scenario not found"))
   }
 
   unlink(target_dir, recursive = TRUE, force = TRUE)
@@ -871,15 +890,15 @@ function(scenario_id) {
 
 #* Get ecology data for a model run
 #* @get /api/v1/ecology/<run_id>
-function(run_id) {
+function(res, run_id) {
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
@@ -943,15 +962,15 @@ function(run_id) {
 
 #* Get EOO/AOO data for a model run
 #* @get /api/v1/ecology/<run_id>/eoo-aoo
-function(run_id) {
+function(res, run_id) {
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
@@ -970,12 +989,12 @@ function(run_id) {
 
 #* Get AOA data for a model run
 #* @get /api/v1/ecology/<run_id>/aoa
-function(run_id) {
+function(res, run_id) {
   job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
@@ -991,12 +1010,12 @@ function(run_id) {
 
 #* Generate conservation status report text
 #* @get /api/v1/ecology/<run_id>/report
-function(run_id) {
+function(res, run_id) {
   job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
@@ -1171,24 +1190,24 @@ function() {
 
 #* Export reproducible R script for a run
 #* @get /api/v1/output/script/<run_id>
-function(run_id, output_dir = NULL) {
+function(res, run_id, output_dir = NULL) {
   job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
   if (meta$status != "completed") {
-    return(list(error = "Run not completed yet"), 400)
+    res$status <- 400L; return(list(error = "Run not completed yet"))
   }
 
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
 
   if (is.null(result_rds) || !file.exists(result_rds)) {
-    return(list(error = "Result file not found"), 404)
+    res$status <- 404L; return(list(error = "Result file not found"))
   }
 
   tryCatch({
@@ -1204,12 +1223,12 @@ function(run_id, output_dir = NULL) {
 
 #* Generate run manifest for reproducibility
 #* @get /api/v1/output/manifest/<run_id>
-function(run_id) {
+function(res, run_id) {
   job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
@@ -1260,24 +1279,24 @@ function(run_id) {
 
 #* Get VIF collinearity screening results for a run
 #* @get /api/v1/diagnostics/vif/<run_id>
-function(run_id) {
+function(res, run_id) {
   job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
   if (meta$status != "completed") {
-    return(list(error = "Run not completed yet"), 400)
+    res$status <- 400L; return(list(error = "Run not completed yet"))
   }
 
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
 
   if (is.null(result_rds) || !file.exists(result_rds)) {
-    return(list(error = "Result file not found"), 404)
+    res$status <- 404L; return(list(error = "Result file not found"))
   }
 
   tryCatch({
@@ -1316,24 +1335,24 @@ function(run_id) {
 
 #* Get response curve data for a run
 #* @get /api/v1/diagnostics/response-curves/<run_id>
-function(run_id) {
+function(res, run_id) {
   job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
   if (meta$status != "completed") {
-    return(list(error = "Run not completed yet"), 400)
+    res$status <- 400L; return(list(error = "Run not completed yet"))
   }
 
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
 
   if (is.null(result_rds) || !file.exists(result_rds)) {
-    return(list(error = "Result file not found"), 404)
+    res$status <- 404L; return(list(error = "Result file not found"))
   }
 
   tryCatch({
@@ -1369,24 +1388,24 @@ function(run_id) {
 
 #* Get variable importance data for a run
 #* @get /api/v1/diagnostics/importance/<run_id>
-function(run_id) {
+function(res, run_id) {
   job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
   if (meta$status != "completed") {
-    return(list(error = "Run not completed yet"), 400)
+    res$status <- 400L; return(list(error = "Run not completed yet"))
   }
 
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
 
   if (is.null(result_rds) || !file.exists(result_rds)) {
-    return(list(error = "Result file not found"), 404)
+    res$status <- 404L; return(list(error = "Result file not found"))
   }
 
   tryCatch({
@@ -1416,24 +1435,24 @@ function(run_id) {
 
 #* Get Continuous Boyce Index data for a run
 #* @get /api/v1/diagnostics/cbi/<run_id>
-function(run_id) {
+function(res, run_id) {
   job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
   if (meta$status != "completed") {
-    return(list(error = "Run not completed yet"), 400)
+    res$status <- 400L; return(list(error = "Run not completed yet"))
   }
 
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
 
   if (is.null(result_rds) || !file.exists(result_rds)) {
-    return(list(error = "Result file not found"), 404)
+    res$status <- 404L; return(list(error = "Result file not found"))
   }
 
   tryCatch({
@@ -1474,17 +1493,17 @@ function(run_id) {
 
 #* Get MESS extrapolation summary for a run
 #* @get /api/v1/diagnostics/mess/<run_id>
-function(run_id) {
+function(res, run_id) {
   job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
   if (meta$status != "completed") {
-    return(list(error = "Run not completed yet"), 400)
+    res$status <- 400L; return(list(error = "Run not completed yet"))
   }
 
   metrics <- meta$metrics %||% list()
@@ -1512,17 +1531,17 @@ function(run_id) {
 
 #* Get combined diagnostics summary for a run
 #* @get /api/v1/diagnostics/summary/<run_id>
-function(run_id) {
+function(res, run_id) {
   job_dir <- file.path("outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
-    return(list(error = "Run not found"), 404)
+    res$status <- 404L; return(list(error = "Run not found"))
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
   if (meta$status != "completed") {
-    return(list(error = "Run not completed yet"), 400)
+    res$status <- 400L; return(list(error = "Run not completed yet"))
   }
 
   output_files <- meta$output_files %||% list()
@@ -1630,7 +1649,7 @@ function(source = "worldclim", res = "10", biovars = "", gcm = "", ssp = "", per
     list(
       source = source,
       res = res,
-      available = list(),
+      available = as.list(integer(0)),
       missing = as.list(requested)
     )
   })
