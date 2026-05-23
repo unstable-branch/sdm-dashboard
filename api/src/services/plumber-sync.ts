@@ -10,12 +10,51 @@ let _syncInterval: ReturnType<typeof setInterval> | null = null;
 let _running = false;
 
 const STALLED_RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours — mark as failed if no progress
+const GRACE_PERIOD_MS = parseInt(process.env.SDM_STARTUP_GRACE_PERIOD_MS || "60000", 10);
+const CONSECUTIVE_404_THRESHOLD = parseInt(process.env.SDM_CONSECUTIVE_404_THRESHOLD || "3", 10);
+const CONSECUTIVE_404_WINDOW_MS = 30_000; // require 404s within this window
+const MAX_404_ENTRIES = 200; // cap map size to prevent memory leak
+
+interface Consecutive404 {
+  count: number;
+  firstSeen: number;
+}
+
+const consecutive404s = new Map<string, Consecutive404>();
+
+function extractHttpStatusCode(msg: string): number | null {
+  const match = msg.match(/status:\s*(\d{3})/);
+  if (match) return parseInt(match[1], 10);
+  const bareMatch = msg.match(/\b(\d{3})\b/);
+  if (bareMatch) {
+    const code = parseInt(bareMatch[1], 10);
+    if (code >= 100 && code < 600) return code;
+  }
+  return null;
+}
+
+function cleanupOld404Entries() {
+  const now = Date.now();
+  for (const [id, entry] of consecutive404s.entries()) {
+    if (now - entry.firstSeen > CONSECUTIVE_404_WINDOW_MS * 3) {
+      consecutive404s.delete(id);
+    }
+  }
+  if (consecutive404s.size > MAX_404_ENTRIES) {
+    const oldest = Array.from(consecutive404s.entries())
+      .sort((a, b) => a[1].firstSeen - b[1].firstSeen)
+      .slice(0, consecutive404s.size - MAX_404_ENTRIES);
+    for (const [id] of oldest) consecutive404s.delete(id);
+  }
+}
 
 async function syncRunningJobs() {
   if (_running) return;
   _running = true;
 
   try {
+    cleanupOld404Entries();
+
     const activeRuns = await db
       .select({ id: runs.id, jobId: runs.jobId, status: runs.status, startedAt: runs.startedAt })
       .from(runs)
@@ -24,7 +63,6 @@ async function syncRunningJobs() {
     for (const run of activeRuns) {
       if (!run.jobId) continue;
 
-      // Check for stalled runs (no progress for too long)
       if (run.startedAt) {
         const ageMs = Date.now() - new Date(run.startedAt).getTime();
         if (ageMs > STALLED_RUN_TIMEOUT_MS) {
@@ -43,6 +81,7 @@ async function syncRunningJobs() {
             progress: 0,
             failedReason: `Run timed out after ${Math.round(ageMs / 3600000)} hours with no completion`,
           });
+          consecutive404s.delete(run.id);
           continue;
         }
       }
@@ -52,6 +91,8 @@ async function syncRunningJobs() {
         const plumberStatus = (status as any).status as string;
         const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log : [];
         const error = (status as any).error as string | undefined;
+
+        consecutive404s.delete(run.id);
 
         if (plumberStatus === "running") {
           const pct = (() => {
@@ -121,22 +162,49 @@ async function syncRunningJobs() {
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("404")) {
-          // Job not found in Plumber — likely crashed before meta.json was written
-          // Check if it's been running for less than 30 seconds (transient)
-          const runRow = await db
-            .select({ startedAt: runs.startedAt })
-            .from(runs)
-            .where(eq(runs.id, run.id))
-            .limit(1);
+        const statusCode = extractHttpStatusCode(msg);
 
-          if (runRow.length > 0 && runRow[0].startedAt) {
-            const ageMs = Date.now() - new Date(runRow[0].startedAt).getTime();
-            if (ageMs < 30_000) {
-              // Too new, skip — might be transient
+        if (statusCode !== 404) {
+          console.warn(`[plumber-sync] Transient error for run ${run.id} (HTTP ${statusCode ?? "N/A"}): ${msg}`);
+          continue;
+        }
+
+        const runRow = await db
+          .select({ startedAt: runs.startedAt, createdAt: (runs as any).createdAt })
+          .from(runs)
+          .where(eq(runs.id, run.id))
+          .limit(1);
+
+        if (runRow.length > 0) {
+          const startedAt = runRow[0].startedAt;
+          const createdAt = runRow[0].createdAt;
+          const referenceDate = startedAt || createdAt;
+
+          if (referenceDate) {
+            const ageMs = Date.now() - new Date(referenceDate).getTime();
+            if (ageMs < GRACE_PERIOD_MS) {
               continue;
             }
           }
+        }
+
+        const existing = consecutive404s.get(run.id);
+        if (!existing) {
+          consecutive404s.set(run.id, { count: 1, firstSeen: Date.now() });
+          console.warn(`[plumber-sync] First 404 for run ${run.id}, awaiting ${CONSECUTIVE_404_THRESHOLD - 1} more...`);
+          continue;
+        }
+
+        existing.count++;
+        const timeSinceFirst = Date.now() - existing.firstSeen;
+
+        if (existing.count >= CONSECUTIVE_404_THRESHOLD && timeSinceFirst >= CONSECUTIVE_404_WINDOW_MS) {
+          console.error(
+            `[plumber-sync] Marking run ${run.id} as failed: ` +
+            `consecutive_404s=${existing.count}, ` +
+            `time_since_first=${Math.round(timeSinceFirst / 1000)}s, ` +
+            `plumber_url=${process.env.PLUMBER_URL || "http://localhost:8000"}`
+          );
 
           await db
             .update(runs)
@@ -153,6 +221,14 @@ async function syncRunningJobs() {
             progress: 0,
             failedReason: "Process crashed or was killed before status could be recorded",
           });
+
+          consecutive404s.delete(run.id);
+        } else {
+          console.warn(
+            `[plumber-sync] 404 #${existing.count} for run ${run.id} ` +
+            `(${Math.round(timeSinceFirst / 1000)}s elapsed), ` +
+            `not yet marking failed (need ${CONSECUTIVE_404_THRESHOLD})`
+          );
         }
       }
     }
