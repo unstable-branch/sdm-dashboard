@@ -25,13 +25,13 @@ climateRoutes.get("/scenarios", longCache, async (c) => {
 climateRoutes.get("/check", async (c) => {
   try {
     const source = c.req.query("source") || "worldclim";
-    const res = c.req.query("res") || "10";
+    const resolution = c.req.query("resolution") || c.req.query("res") || "10";
     const biovars = c.req.query("biovars") || "";
     const gcm = c.req.query("gcm") || "";
     const ssp = c.req.query("ssp") || "";
     const period = c.req.query("period") || "";
 
-    const params = new URLSearchParams({ source, res, biovars, gcm, ssp, period });
+    const params = new URLSearchParams({ source, resolution, biovars, gcm, ssp, period });
     const result = await fetch(`${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/climate/check?${params}`);
     if (!result.ok) {
       return c.json({ available: [], missing: [] });
