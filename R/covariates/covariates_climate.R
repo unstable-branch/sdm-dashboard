@@ -48,6 +48,46 @@ find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("wo
   matched
 }
 
+check_internet_connectivity <- function(target_url = "https://os.unil.cloud.switch.ch/",
+                                         retries = 3, timeout = 10, connect_timeout = 5,
+                                         log_fun = NULL) {
+  if (!sdm_internet_check_enabled) return(TRUE)
+  log <- log_fun %||% function(msg, level = "info") {
+    if (tolower(level) %in% c("warn", "error")) message(msg)
+  }
+  for (attempt in seq_len(retries)) {
+    result <- tryCatch({
+      handle <- curl::new_handle(timeout = timeout, connecttimeout = connect_timeout)
+      resp <- curl::curl_fetch_memory(target_url, handle = handle)
+      list(success = TRUE, status = resp$status)
+    }, error = function(e) list(success = FALSE, error = conditionMessage(e)))
+    if (result$success && result$status >= 200 && result$status < 400) return(TRUE)
+    err_detail <- if (!is.null(result$error)) result$error else paste0("HTTP ", result$status)
+    log(paste0("[Connectivity] Attempt ", attempt, "/", retries,
+               " failed for ", target_url, ": ", err_detail,
+               ". Retrying in ", attempt * 5, "s..."), "warn")
+    Sys.sleep(attempt * 5)
+  }
+  log(paste0("[Connectivity] All ", retries, " attempts failed for ", target_url,
+             ". Proceeding with download anyway."), "warn")
+  TRUE
+}
+
+categorize_download_error <- function(error_msg) {
+  if (grepl("Could not resolve host|Name or service not known", error_msg)) {
+    "DNS resolution failed. Check your network and DNS settings."
+  } else if (grepl("Connection refused", error_msg)) {
+    "Connection refused. Check firewall or VPN settings."
+  } else if (grepl("Timeout was reached|connection timed out", error_msg)) {
+    "Connection timed out. Check internet connectivity."
+  } else if (grepl("HTTP [45][0-9][0-9]", error_msg)) {
+    code <- sub(".*HTTP ([0-9]{3}).*", "\\1", error_msg)
+    paste0("Server error (HTTP ", code, "). Try again later.")
+  } else {
+    paste0("Download failed: ", error_msg)
+  }
+}
+
 # CHELSA bioclim-plus extra variables (gdd5, gsl, fcf, npp, etc.)
 # These are available as separate GeoTIFF downloads from CHELSA v2.1.
 chelsa_extra_vars <- c(
@@ -161,54 +201,11 @@ is_valid_geotiff <- function(path) {
   validate_geotiff(path)
 }
 
-# Download a single CHELSA file with retry and timeout (Fix 2 + Fix 6 + Fix 12)
 download_chelsa_file <- function(url, dest, log_fun = NULL) {
   retries <- get_chelsa_retries()
   timeout <- get_chelsa_timeout()
 
-  for (attempt in seq_len(retries)) {
-    if (attempt > 1) {
-      backoff <- 2 ^ (attempt - 1)
-      log_message(log_fun, "  Retry ", attempt, "/", retries, " after ", backoff, "s...")
-      Sys.sleep(backoff)
-    }
-
-    tmp <- tempfile(fileext = ".tif")
-
-    fetch_ok <- tryCatch({
-      handle <- curl::new_handle(timeout = timeout, connecttimeout = 10L)
-      resp <- curl::curl_fetch_disk(url, tmp, handle = handle)
-      fi <- file.info(tmp)
-      !is.na(fi$size) && fi$size > 1024
-    }, error = function(e) {
-      log_message(log_fun, "  Attempt ", attempt, " error: ", conditionMessage(e))
-      if (file.exists(tmp)) unlink(tmp, force = TRUE)
-      FALSE
-    })
-
-    if (fetch_ok && file.exists(tmp) && file.info(tmp)$size > 1024) {
-      if (validate_geotiff(tmp)) {
-        if (file.exists(dest)) file.remove(dest)
-        file.rename(tmp, dest)
-        log_message(log_fun, "  Downloaded: ", basename(dest))
-        return(TRUE)
-      } else {
-        log_message(log_fun, "  Invalid GeoTIFF: ", basename(dest))
-        unlink(tmp, force = TRUE)
-      }
-    } else {
-      if (file.exists(tmp)) unlink(tmp, force = TRUE)
-      log_message(log_fun, "  Attempt ", attempt, " failed (fetch or size check)")
-    }
-  }
-
-  log_message(log_fun, "  All ", retries, " attempts exhausted for: ", basename(dest))
-  FALSE
-}
-
-download_chelsa_file <- function(url, dest, log_fun = NULL) {
-  retries <- get_chelsa_retries()
-  timeout <- get_chelsa_timeout()
+  check_internet_connectivity("https://os.unil.cloud.switch.ch/", log_fun = log_fun)
   expected_size <- get_content_length(url, timeout = min(timeout, 30))
 
   for (attempt in seq_len(retries)) {
@@ -280,6 +277,7 @@ download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa
   dir.create(worldclim_dir, recursive = TRUE, showWarnings = FALSE)
   log_message(log_fun, "Downloading CHELSA bioclim-plus extra variables to ", worldclim_dir)
 
+  check_internet_connectivity("https://os.unil.cloud.switch.ch/", log_fun = log_fun)
   base_url <- get_chelsa_url()
   failed <- character()
 
@@ -307,6 +305,7 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
   ensure_sdm_packages(c("terra", "geodata"), n_cores = n_cores)
   dir.create(worldclim_dir, recursive = TRUE, showWarnings = FALSE)
 
+  check_internet_connectivity("https://geodata.ucdavis.edu/", log_fun = log_fun)
   cache_url <- get_geodata_cache_url()
   if (nzchar(cache_url)) {
     options(gdal_cloud_cache_dir = cache_url)

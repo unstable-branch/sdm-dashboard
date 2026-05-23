@@ -35,6 +35,8 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
 
   if (!quiet) message("Downloading CMIP6 ", gcm, " ", ssp, " ", period, "...")
 
+  check_internet_connectivity("https://geodata.ucdavis.edu/climate/cmip6/5m/", log_fun = log_fun)
+
   tryCatch(
     {
       out <- geodata::cmip6_world(
