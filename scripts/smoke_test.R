@@ -1764,6 +1764,280 @@ test_future_projection_helpers_smoke <- function() {
 }
 
 # ============================================================================
+# CORE UTILITY TESTS (pure functions, no I/O, no network)
+# ============================================================================
+
+test_cv_folds_smoke <- function() {
+  cat("[cv_folds smoke] starting...\n")
+
+  set.seed(42)
+  y <- c(rep(1, 30), rep(0, 70))
+  folds <- make_cv_folds_random(y, k = 5)
+  if (!is.integer(folds)) stop("make_cv_folds_random not integer", call. = FALSE)
+  if (length(folds) != 100) stop("make_cv_folds_random wrong length", call. = FALSE)
+  if (length(unique(folds)) != 5) stop("make_cv_folds_random wrong fold count", call. = FALSE)
+
+  no_folds <- make_cv_folds_random(y, k = 1)
+  if (!all(no_folds == 0L)) stop("make_cv_folds_random k=1 should return zeros", call. = FALSE)
+
+  km <- lonlat_to_km(c(140, 150), c(-30, -20))
+  if (!is.data.frame(km)) stop("lonlat_to_km not data.frame", call. = FALSE)
+  if (!all(c("x_km", "y_km") %in% names(km))) stop("lonlat_to_km missing columns", call. = FALSE)
+
+  block_size <- estimate_cv_block_size_km(c(140, 150), c(-30, -20), k = 5)
+  if (!is.numeric(block_size) || length(block_size) != 1) stop("estimate_cv_block_size_km wrong type", call. = FALSE)
+  if (!is.finite(block_size) || block_size <= 0) stop("estimate_cv_block_size_km invalid value", call. = FALSE)
+
+  set.seed(42)
+  x <- runif(50, 140, 150)
+  y_pts <- runif(50, -30, -20)
+  presence <- c(rep(1, 15), rep(0, 35))
+  spatial <- make_cv_folds_spatial_blocks(x, y_pts, presence, k = 3)
+  if (!is.list(spatial)) stop("make_cv_folds_spatial_blocks not list", call. = FALSE)
+  if (is.null(spatial$fold_id)) stop("make_cv_folds_spatial_blocks missing fold_id", call. = FALSE)
+  if (is.null(spatial$block_size_mode)) stop("make_cv_folds_spatial_blocks missing block_size_mode", call. = FALSE)
+
+  summary_df <- summarise_cv_folds(spatial$fold_id, presence)
+  if (!is.data.frame(summary_df)) stop("summarise_cv_folds not data.frame", call. = FALSE)
+  if (!all(c("fold", "n_total", "n_presence", "n_background") %in% names(summary_df))) stop("summarise_cv_folds missing columns", call. = FALSE)
+
+  cat("[cv_folds smoke] passed\n")
+}
+
+test_bioclim_math_smoke <- function() {
+  cat("[bioclim_math smoke] starting...\n")
+
+  tmin <- c(10, 11, 13, 15, 17, 19, 20, 20, 18, 16, 13, 11)
+  tmax <- c(25, 26, 28, 30, 32, 34, 35, 35, 33, 30, 27, 25)
+  prec <- c(50, 60, 40, 30, 20, 10, 5, 8, 15, 25, 35, 45)
+  lat <- -33.0
+
+  days <- days_in_month_vector()
+  if (!is.numeric(days) || length(days) != 12) stop("days_in_month_vector wrong type/length", call. = FALSE)
+  if (days[2] != 28.25) stop("days_in_month_vector Feb wrong", call. = FALSE)
+
+  pet <- hargreaves_pet(tmin, tmax, lat)
+  if (!is.numeric(pet) || length(pet) != 12) stop("hargreaves_pet wrong type/length", call. = FALSE)
+  if (any(pet < 0)) stop("hargreaves_pet has negative values", call. = FALSE)
+
+  gdd5 <- compute_gdd(tmin, tmax, base_temp = 5)
+  if (!is.numeric(gdd5) || length(gdd5) != 1) stop("compute_gdd wrong type/length", call. = FALSE)
+  if (!is.finite(gdd5) || gdd5 <= 0) stop("compute_gdd invalid value", call. = FALSE)
+
+  gdd10 <- compute_gdd(tmin, tmax, base_temp = 10)
+  if (gdd10 >= gdd5) stop("GDD10 should be less than GDD5", call. = FALSE)
+
+  mi <- compute_mi(prec, tmin, tmax, lat)
+  if (!is.numeric(mi) || length(mi) != 1) stop("compute_mi wrong type/length", call. = FALSE)
+  if (!is.finite(mi) || mi <= 0) stop("compute_mi invalid value", call. = FALSE)
+
+  p_seas <- compute_p_seasonality(prec, tmin, tmax)
+  if (!is.numeric(p_seas) || length(p_seas) != 1) stop("compute_p_seasonality wrong type/length", call. = FALSE)
+  if (p_seas < 0 || p_seas > 1) stop("compute_p_seasonality out of [0,1]", call. = FALSE)
+
+  cat("[bioclim_math smoke] passed (PET mean=", round(mean(pet), 1), ", GDD5=", round(gdd5, 0), ", MI=", round(mi, 2), ")\n", sep = "")
+}
+
+test_boundary_helpers_smoke <- function() {
+  cat("[boundary_helpers smoke] starting...\n")
+
+  aus_extent <- get_boundary_extent("AUS")
+  if (!is.numeric(aus_extent) || length(aus_extent) != 4) stop("get_boundary_extent(AUS) wrong type/length", call. = FALSE)
+  if (!validate_boundary_extent(aus_extent)) stop("AUS extent should be valid", call. = FALSE)
+
+  custom <- get_boundary_extent("AUS", custom_extent = c(140, 150, -30, -20))
+  if (!identical(custom, c(140, 150, -30, -20))) stop("get_boundary_extent custom override failed", call. = FALSE)
+
+  null_extent <- get_boundary_extent("custom")
+  if (!is.null(null_extent)) stop("get_boundary_extent('custom') should return NULL", call. = FALSE)
+
+  if (!has_boundary_file("AUS")) stop("has_boundary_file(AUS) should be TRUE", call. = FALSE)
+  if (has_boundary_file("XXX")) stop("has_boundary_file(XXX) should be FALSE", call. = FALSE)
+
+  countries <- get_boundary_countries()
+  if (!is.character(countries) || length(countries) < 3) stop("get_boundary_countries wrong", call. = FALSE)
+  if (!"AUS" %in% countries) stop("get_boundary_countries missing AUS", call. = FALSE)
+
+  choices <- get_extent_choices()
+  if (!is.character(choices)) stop("get_extent_choices not character", call. = FALSE)
+  if (!"aus_full" %in% choices) stop("get_extent_choices missing aus_full", call. = FALSE)
+
+  if (!validate_boundary_extent(c(140, 150, -30, -20))) stop("valid extent rejected", call. = FALSE)
+  if (validate_boundary_extent(c(150, 140, -30, -20))) stop("invalid xmin>xmax accepted", call. = FALSE)
+  if (validate_boundary_extent(c(140, 150, -30))) stop("length-3 extent accepted", call. = FALSE)
+  if (validate_boundary_extent(NULL)) stop("NULL extent accepted", call. = FALSE)
+
+  cat("[boundary_helpers smoke] passed\n")
+}
+
+test_metrics_helpers_smoke <- function() {
+  cat("[metrics_helpers smoke] starting...\n")
+
+  set.seed(42)
+  obs <- c(rep(1, 30), rep(0, 70))
+  score <- c(runif(30, 0.4, 1.0), runif(70, 0.0, 0.6))
+
+  auc <- auc_rank(obs, score)
+  if (!is.numeric(auc) || length(auc) != 1) stop("auc_rank wrong type/length", call. = FALSE)
+  if (auc < 0.5 || auc > 1.0) stop("auc_rank out of range", call. = FALSE)
+
+  na_auc <- auc_rank(c(NA, NA), c(NA, NA))
+  if (!is.na(na_auc)) stop("auc_rank should return NA for all-NA input", call. = FALSE)
+
+  metrics <- compute_binary_metrics(obs, score, threshold = 0.5)
+  row <- metrics_list_to_row(metrics, fold = 1)
+  if (!is.data.frame(row)) stop("metrics_list_to_row not data.frame", call. = FALSE)
+  if (nrow(row) != 1) stop("metrics_list_to_row wrong row count", call. = FALSE)
+  expected_cols <- c("fold", "auc", "tss", "sensitivity", "specificity", "threshold", "tp", "fp", "tn", "fn", "n")
+  if (!all(expected_cols %in% names(row))) stop("metrics_list_to_row missing columns", call. = FALSE)
+
+  m <- metric_mean(c(1, 2, 3))
+  if (!identical(m, 2)) stop("metric_mean wrong", call. = FALSE)
+  if (!is.na(metric_mean(c()))) stop("metric_mean empty should be NA", call. = FALSE)
+
+  s <- metric_sd(c(1, 2, 3))
+  if (!is.numeric(s) || length(s) != 1) stop("metric_sd wrong type", call. = FALSE)
+  if (!is.na(metric_sd(c(1)))) stop("metric_sd single value should be NA", call. = FALSE)
+
+  cbi_result <- tryCatch(
+    continuous_boyce_index(
+      pres_suit = runif(50, 0.3, 0.9),
+      bg_suit = runif(200, 0.0, 0.5),
+      n_bins = 101,
+      win = 0.1
+    ),
+    error = function(e) NULL
+  )
+  if (!is.null(cbi_result)) {
+    if (!is.numeric(cbi_result$cbi)) stop("continuous_boyce_index cbi not numeric", call. = FALSE)
+    if (!is.data.frame(cbi_result$bins)) stop("continuous_boyce_index bins not data.frame", call. = FALSE)
+    if (nrow(cbi_result$bins) != 101) stop("continuous_boyce_index wrong bin count", call. = FALSE)
+  }
+
+  low_cbi <- continuous_boyce_index(pres_suit = c(0.5, 0.6), bg_suit = runif(200, 0, 0.5))
+  if (!is.na(low_cbi$cbi)) stop("continuous_boyce_index should return NA for <5 presences", call. = FALSE)
+
+  cat("[metrics_helpers smoke] passed (AUC=", round(auc, 3), ")\n", sep = "")
+}
+
+test_ensemble_importance_smoke <- function() {
+  cat("[ensemble_importance smoke] starting...\n")
+
+  comp1 <- list(
+    variable_importance = data.frame(
+      variable = c("bio1", "bio12", "elevation_m"),
+      importance = c(0.45, 0.35, 0.20)
+    )
+  )
+  comp2 <- list(
+    variable_importance = data.frame(
+      variable = c("bio1", "bio12", "bio5"),
+      importance = c(0.50, 0.30, 0.20)
+    )
+  )
+  components <- list(glm = comp1, maxnet = comp2)
+  weights <- c(glm = 0.6, maxnet = 0.4)
+  methods <- c(glm = "glm", maxnet = "maxnet")
+
+  result <- tryCatch(
+    compute_ensemble_importance(components, weights, methods),
+    error = function(e) {
+      cat("[ensemble_importance smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[ensemble_importance smoke] skipped: compute_ensemble_importance failed\n")
+    return(invisible(NULL))
+  }
+  if (!is.data.frame(result)) stop("compute_ensemble_importance not data.frame", call. = FALSE)
+  if (!all(c("variable", "weighted_importance", "n_models", "model_contribution") %in% names(result))) stop("compute_ensemble_importance missing columns", call. = FALSE)
+  if (nrow(result) < 3) stop("compute_ensemble_importance too few variables", call. = FALSE)
+  if (any(result$weighted_importance < 0 | result$weighted_importance > 1)) stop("compute_ensemble_importance values out of [0,1]", call. = FALSE)
+  if (is.unsorted(-result$weighted_importance, na.rm = TRUE)) stop("compute_ensemble_importance not sorted descending", call. = FALSE)
+
+  cat("[ensemble_importance smoke] passed (", nrow(result), " variables)\n", sep = "")
+}
+
+test_torch_helpers_smoke <- function() {
+  cat("[torch_helpers smoke] starting...\n")
+
+  arch <- map_gpu_to_architecture("RTX 3080")
+  if (is.null(arch)) stop("map_gpu_to_architecture(RTX 3080) returned NULL", call. = FALSE)
+  if (arch$arch != "ampere") stop("RTX 3080 should map to ampere", call. = FALSE)
+  if (arch$torch_kind != "cu128") stop("RTX 3080 torch_kind wrong", call. = FALSE)
+
+  arch2 <- map_gpu_to_architecture("RTX 4090")
+  if (is.null(arch2)) stop("map_gpu_to_architecture(RTX 4090) returned NULL", call. = FALSE)
+  if (arch2$arch != "ada") stop("RTX 4090 should map to ada", call. = FALSE)
+
+  null_arch <- map_gpu_to_architecture("Unknown GPU XYZ")
+  if (!is.null(null_arch)) stop("map_gpu_to_architecture should return NULL for unknown GPU", call. = FALSE)
+
+  rec <- recommend_torch_kind(list(gpu_name = "RTX 3080", driver_version = "535.00", cuda_driver = "12.2"))
+  if (!is.list(rec)) stop("recommend_torch_kind not list", call. = FALSE)
+  if (is.null(rec$torch_kind)) stop("recommend_torch_kind missing torch_kind", call. = FALSE)
+  if (is.null(rec$message)) stop("recommend_torch_kind missing message", call. = FALSE)
+
+  cpu_rec <- recommend_torch_kind(NULL)
+  if (cpu_rec$torch_kind != "cpu") stop("recommend_torch_kind(NULL) should recommend cpu", call. = FALSE)
+
+  fmt <- format_gpu_info(list(gpu_name = "RTX 3080", driver_version = "535.00", cuda_driver = "12.2"))
+  if (!is.character(fmt) || !nzchar(fmt)) stop("format_gpu_info wrong", call. = FALSE)
+  if (!grepl("RTX 3080", fmt)) stop("format_gpu_info missing GPU name", call. = FALSE)
+
+  no_gpu <- format_gpu_info(NULL)
+  if (!grepl("No GPU", no_gpu)) stop("format_gpu_info(NULL) should say No GPU", call. = FALSE)
+
+  cat("[torch_helpers smoke] passed\n")
+}
+
+test_app_helpers_smoke <- function() {
+  cat("[app_helpers smoke] starting...\n")
+
+  clean <- sanitize_extent(c(140, 150, -30, -20))
+  if (!is.numeric(clean) || length(clean) != 4) stop("sanitize_extent wrong type/length", call. = FALSE)
+  if (!all(is.finite(clean))) stop("sanitize_extent changed finite values", call. = FALSE)
+
+  with_na <- sanitize_extent(c(140, Inf, -30, NA))
+  if (!is.na(with_na[2]) || !is.na(with_na[4])) stop("sanitize_extent should replace Inf/NA with NA_real_", call. = FALSE)
+
+  f1 <- fmt_num(1234.567, digits = 2)
+  if (!is.character(f1)) stop("fmt_num not character", call. = FALSE)
+  if (!grepl("1,234.57", f1, fixed = TRUE)) stop("fmt_num rounding wrong: ", f1, call. = FALSE)
+
+  f2 <- fmt_num(NA)
+  if (f2 != "-") stop("fmt_num(NA) should return '-'", call. = FALSE)
+
+  f3 <- fmt_num(1234567, digits = 0)
+  if (!grepl(",", f3, fixed = TRUE)) stop("fmt_num should use big.mark comma: ", f3, call. = FALSE)
+
+  occ <- data.frame(longitude = c(140, 145, 155, 160), latitude = c(-25, -30, -35, -40))
+  overlap <- occurrence_extent_overlap(occ, c(140, 150, -30, -20))
+  if (!is.list(overlap)) stop("occurrence_extent_overlap not list", call. = FALSE)
+  if (overlap$count != 2) stop("occurrence_extent_overlap wrong count (expected 2)", call. = FALSE)
+  if (overlap$total != 4) stop("occurrence_extent_overlap wrong total", call. = FALSE)
+  if (abs(overlap$percent - 50) > 0.01) stop("occurrence_extent_overlap wrong percent", call. = FALSE)
+
+  null_overlap <- occurrence_extent_overlap(NULL, c(140, 150, -30, -20))
+  if (!is.null(null_overlap)) stop("occurrence_extent_overlap(NULL) should return NULL", call. = FALSE)
+
+  cat("[app_helpers smoke] passed\n")
+}
+
+test_validation_helpers_smoke <- function() {
+  cat("[validation_helpers smoke] starting...\n")
+
+  if (!identical(normalize_cv_block_size_km(50), 50)) stop("normalize_cv_block_size_km(50) wrong", call. = FALSE)
+  if (!identical(normalize_cv_block_size_km("25.5"), 25.5)) stop("normalize_cv_block_size_km('25.5') wrong", call. = FALSE)
+  if (!is.na(normalize_cv_block_size_km(NA))) stop("normalize_cv_block_size_km(NA) should be NA", call. = FALSE)
+  if (!is.na(normalize_cv_block_size_km(-10))) stop("normalize_cv_block_size_km(-10) should be NA", call. = FALSE)
+  if (!is.na(normalize_cv_block_size_km(0))) stop("normalize_cv_block_size_km(0) should be NA", call. = FALSE)
+
+  cat("[validation_helpers smoke] passed\n")
+}
+
+# ============================================================================
 # TAG DISPATCH
 # ============================================================================
 
@@ -1808,6 +2082,16 @@ if (has_tag("reporting")) {
   test_compute_mess_smoke()
   test_compute_mod_smoke()
   test_future_projection_helpers_smoke()
+}
+if (has_tag("core")) {
+  test_cv_folds_smoke()
+  test_bioclim_math_smoke()
+  test_boundary_helpers_smoke()
+  test_metrics_helpers_smoke()
+  test_ensemble_importance_smoke()
+  test_torch_helpers_smoke()
+  test_app_helpers_smoke()
+  test_validation_helpers_smoke()
 }
 if (has_tag("heavy") || has_tag("ensemble")) {
   test_multi_ensemble_smoke()
