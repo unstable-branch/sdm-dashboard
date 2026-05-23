@@ -228,13 +228,13 @@ sdmRoutes.get("/models", async (c) => {
       { id: "rangebag", label: "Rangebagging", maturity: "experimental", available: true },
       { id: "ensemble_glm_rangebag", label: "Ensemble (GLM + Rangebagging)", maturity: "experimental", available: true },
       { id: "multi_ensemble", label: "Multi-Model Ensemble", maturity: "experimental", available: true },
-      { id: "maxnet", label: "MaxEnt (maxnet)", maturity: "stable", available: false, note: "Requires maxnet package" },
-      { id: "rf", label: "Random Forest (ranger)", maturity: "experimental", available: false, note: "Requires ranger package" },
-      { id: "xgboost", label: "BRT / XGBoost", maturity: "experimental", available: false, note: "Requires xgboost package" },
-      { id: "esm_glm", label: "ESM — GLM (rare species)", maturity: "experimental", available: false, note: "Requires ecospat + biomod2 packages" },
-      { id: "esm_maxnet", label: "ESM — MaxEnt (rare species)", maturity: "experimental", available: false, note: "Requires ecospat + biomod2 + maxnet packages" },
-      { id: "biomod2", label: "biomod2 (multi-algorithm)", maturity: "experimental", available: false, note: "Requires biomod2 package + sdm.enable_biomod2 option" },
-      { id: "dnn", label: "DNN (cito/torch)", maturity: "experimental", available: false, note: "Requires cito + torch packages" },
+      { id: "maxnet", label: "MaxEnt (maxnet)", maturity: "stable", available: false, notes: "Requires maxnet package" },
+      { id: "rf", label: "Random Forest (ranger)", maturity: "experimental", available: false, notes: "Requires ranger package" },
+      { id: "xgboost", label: "BRT / XGBoost", maturity: "experimental", available: false, notes: "Requires xgboost package" },
+      { id: "esm_glm", label: "ESM — GLM (rare species)", maturity: "experimental", available: false, notes: "Requires ecospat + biomod2 packages" },
+      { id: "esm_maxnet", label: "ESM — MaxEnt (rare species)", maturity: "experimental", available: false, notes: "Requires ecospat + biomod2 + maxnet packages" },
+      { id: "biomod2", label: "biomod2 (multi-algorithm)", maturity: "experimental", available: false, notes: "Requires biomod2 package + sdm.enable_biomod2 option" },
+      { id: "dnn", label: "DNN (cito/torch)", maturity: "experimental", available: false, notes: "Requires cito + torch packages" },
     ]);
   }
 });
