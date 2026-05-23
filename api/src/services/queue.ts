@@ -12,6 +12,21 @@ let _queue: Queue | null = null;
 let _worker: Worker<SdmJobData, SdmJobResult> | null = null;
 let _redisDisabled = false;
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let _failCount = 0;
+const MAX_REDIS_FAIL_COUNT = 5;
+
+function getReconnectDelay(): number {
+  const delays = [30000, 60000, 120000, 300000];
+  return delays[Math.min(_failCount, delays.length - 1)];
+}
+
+function logPermanentOffline() {
+  const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+  console.error(
+    `[Redis] Permanently offline after ${MAX_REDIS_FAIL_COUNT} consecutive failures at ${redisUrl}. ` +
+    `Restart the API server to retry, or check that Redis is running.`
+  );
+}
 
 const CLIMATE_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.CLIMATE_DOWNLOAD_TIMEOUT_MS || "1800000", 10);
 const CLIMATE_DOWNLOAD_POLL_INTERVAL_MS = parseInt(process.env.CLIMATE_DOWNLOAD_POLL_INTERVAL_MS || "3000", 10);
@@ -40,13 +55,38 @@ function disableRedis() {
   _connection = null;
   _bullmqConnection = null;
   _queue = null;
+
+  _failCount++;
+  if (_failCount >= MAX_REDIS_FAIL_COUNT) {
+    logPermanentOffline();
+    return;
+  }
+
   if (!_reconnectTimer) {
+    const delay = getReconnectDelay();
+    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    console.warn(`[Redis] Unavailable at ${redisUrl} (attempt ${_failCount}/${MAX_REDIS_FAIL_COUNT}). Retrying in ${delay / 1000}s.`);
     _reconnectTimer = setTimeout(() => {
       _reconnectTimer = null;
       _redisDisabled = false;
       _worker = null;
-    }, 30000);
+      console.log(`[Redis] Reconnect timer fired; next request will retry connection.`);
+    }, delay);
   }
+}
+
+export function resetRedis() {
+  _redisDisabled = false;
+  _failCount = 0;
+  if (_reconnectTimer) {
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = null;
+  }
+  _connection = null;
+  _bullmqConnection = null;
+  _queue = null;
+  _worker = null;
+  console.log("[Redis] Connection state reset by admin request.");
 }
 
 function getConnection(): IORedis | null {
@@ -69,6 +109,9 @@ function getConnection(): IORedis | null {
       }
       return Math.min(times * 200, 2000);
     },
+  });
+  _connection.on("connect", () => {
+    _failCount = 0;
   });
   _connection.on("error", (err) => {
     if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
@@ -115,6 +158,9 @@ function getBullMqConnection(): IORedis | null {
       }
       return Math.min(times * 200, 2000);
     },
+  });
+  _bullmqConnection.on("connect", () => {
+    _failCount = 0;
   });
   _bullmqConnection.on("error", (err) => {
     if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
@@ -472,6 +518,22 @@ export function getJobQueue(): Queue | null {
 export function getQueueClient(): IORedis | null {
   if (_redisDisabled) return null;
   return getConnection();
+}
+
+export function getRedisStatus(): {
+  available: boolean;
+  disabled: boolean;
+  failCount: number;
+  reconnectDelayMs: number;
+  permanentOffline: boolean;
+} {
+  return {
+    available: !_redisDisabled && _connection?.status === "ready",
+    disabled: _redisDisabled,
+    failCount: _failCount,
+    reconnectDelayMs: _reconnectTimer ? getReconnectDelay() : 0,
+    permanentOffline: _failCount >= MAX_REDIS_FAIL_COUNT,
+  };
 }
 
 export interface SdmJobData {

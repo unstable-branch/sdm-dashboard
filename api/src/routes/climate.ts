@@ -71,7 +71,12 @@ climateRoutes.post("/download", async (c) => {
     });
 
     if (jobId === null) {
-      return c.json({ error: "Redis unavailable — climate download queuing is temporarily offline. Try again in 30 seconds." }, 503);
+      const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+      return c.json({
+        error: "Climate download queuing requires Redis.",
+        detail: `Cannot connect to ${redisUrl}. Check that Redis is running, or set REDIS_URL to the correct address.`,
+        tip: "Run 'docker compose up -d redis' to start Redis.",
+      }, 503);
     }
 
     return c.json({ jobId, status: "queued" });
