@@ -43,8 +43,9 @@ Before opening a PR:
 
 1. Rebase or merge the latest target branch.
 2. Run at least the smoke test or explain why it could not run.
-3. Check `git diff --stat` for accidental large/binary/generated files.
-4. Summarize user-visible behavior, test coverage, and known limitations.
+3. Run `pnpm run check:node`, `pnpm run check:compose`, and the R release gates when the change touches the modern platform or release path.
+4. Check `git diff --stat` for accidental large/binary/generated files.
+5. Summarize user-visible behavior, test coverage, and known limitations.
 
 ## Run commands
 
@@ -83,14 +84,11 @@ cd api && pnpm dev
 # Run full stack via Docker Compose
 docker compose -f docker-compose.yml up
 
-# API tests
-cd api && pnpm test
+# Full Node platform gate
+pnpm run check:node
 
-# Frontend tests
-cd frontend && pnpm test
-
-# TypeScript check (frontend)
-cd frontend && pnpm typecheck
+# Compose validation, including production required-secret validation with dummy values
+pnpm run check:compose
 ```
 
 If local R is unavailable, rely on GitHub Actions and say that local R was unavailable in the PR/check notes.
@@ -173,8 +171,8 @@ Rscript launch_app.R
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `.github/workflows/r-quality.yml` | All PRs + push to `dev` | R/Shiny smoke test, testthat, parse check, release audit |
-| `.github/workflows/platform-ci.yml` | Push to `dev` + PRs targeting `dev` | Frontend, API, R, and Docker validation (parallel jobs) |
+| `.github/workflows/r-quality.yml` | All PRs + push to `dev`/`main` | R/Shiny smoke test, testthat, parse check, release audit |
+| `.github/workflows/platform-ci.yml` | Push to `dev`/`main` + PRs targeting `dev`/`main` | Frontend, API, R, and Docker validation (parallel jobs) |
 | `.github/workflows/release.yml` | Git tags `v*` + manual dispatch | Release audit, Docker image build+push, GitHub release creation |
 
 ### Platform CI jobs

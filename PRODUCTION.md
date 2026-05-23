@@ -1,11 +1,13 @@
 # SDM Dashboard - Production Deployment
 
+This deployment target is intended for self-hosted or private-team installations. The public open-source repo should remain generic and should not contain real occurrence data, generated rasters, API keys, deployment hostnames, or user uploads.
+
 ## Quick Start
 
 ```bash
 # 1. Clone and configure
 cp .env.example .env
-# Edit .env with your production values
+# Edit .env with production values before starting services
 
 # 2. Start all services
 docker compose -f docker-compose.prod.yml up -d
@@ -16,6 +18,22 @@ docker compose -f docker-compose.prod.yml exec api npm run db:migrate
 # 4. Verify health
 curl http://localhost/health
 ```
+
+## Required Environment
+
+Production compose fails closed when required secrets are missing.
+
+| Variable | Purpose |
+|----------|---------|
+| `POSTGRES_PASSWORD` | Password for the bundled Postgres service |
+| `DATABASE_URL` | Database connection string used by API and Plumber |
+| `JWT_SECRET` | JWT signing secret for browser/API auth |
+| `PLUMBER_INTERNAL_KEY` | Shared internal token for Hono API to Plumber requests |
+| `GARAGE_ACCESS_KEY` | S3-compatible access key for Garage |
+| `GARAGE_SECRET_KEY` | S3-compatible secret key for Garage |
+| `GRAFANA_PASSWORD` | Grafana admin password |
+
+Use different random values for `JWT_SECRET` and `PLUMBER_INTERNAL_KEY`. Keep `.env`, `ssl/`, backups, and volume data out of git.
 
 ## Architecture
 
@@ -61,6 +79,19 @@ server {
     ssl_certificate_key /etc/nginx/ssl/key.pem;
 }
 ```
+
+For a public hostname, put this stack behind normal HTTPS termination and restrict admin surfaces. Do not expose Postgres, Redis, Garage admin APIs, Prometheus, or Grafana to the public internet without authentication and firewall rules.
+
+## Release Images
+
+The release workflow publishes container images to GitHub Container Registry when a `v*` tag is pushed:
+
+- `ghcr.io/unstable-branch/sdm-dashboard/sdm-frontend:<tag>`
+- `ghcr.io/unstable-branch/sdm-dashboard/sdm-api:<tag>`
+- `ghcr.io/unstable-branch/sdm-dashboard/sdm-plumber:<tag>`
+- `ghcr.io/unstable-branch/sdm-dashboard/sdm-shiny:<tag>`
+
+The compose files currently build from source by default. For a pinned production deployment, either check out the release tag before running compose or override the service definitions to use the matching GHCR images.
 
 ## Monitoring
 
