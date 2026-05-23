@@ -85,7 +85,7 @@ predict_rangebag_values <- function(model, data) {
 
 fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
                              include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
-                             seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
+                             seed = sdm_default_seed, n_cores = 1, log_fun = NULL, progress_fun = NULL,
                              n_bags = sdm_default_rangebag_n_bags,
                              bag_fraction = sdm_default_rangebag_fraction,
                              vars_per_bag = sdm_default_rangebag_vars_per_bag) {

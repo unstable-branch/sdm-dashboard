@@ -48,3 +48,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Coverage
+api/coverage/
+frontend/coverage/

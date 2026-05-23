@@ -167,7 +167,7 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
 }
 
 fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n, include_quadratic = TRUE,
-                         cv_folds = 3, seed = 42, n_cores = 1, log_fun = NULL,
+                         cv_folds = 3, seed = 42, n_cores = 1, log_fun = NULL, progress_fun = NULL,
                          cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
                          threshold = sdm_default_threshold,
                          bias_method = c("uniform", "target_group", "thickened"),
