@@ -51,6 +51,7 @@ function isMaxRetriesError(err: unknown): boolean {
 }
 
 function disableRedis() {
+  if (_redisDisabled) return;
   _redisDisabled = true;
   _connection = null;
   _bullmqConnection = null;
@@ -100,7 +101,6 @@ function getConnection(): IORedis | null {
   }
   _connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
     maxRetriesPerRequest: 1,
-    lazyConnect: true,
     enableReadyCheck: false,
     retryStrategy: (times) => {
       if (times > 2) {
@@ -120,21 +120,6 @@ function getConnection(): IORedis | null {
     }
     console.error("[ioredis] unexpected error:", err);
   });
-  try {
-    _connection.connect().catch((err) => {
-      if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
-        disableRedis();
-        return;
-      }
-      console.error("[ioredis] connect error:", err);
-    });
-  } catch (err) {
-    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
-      disableRedis();
-      return null;
-    }
-    throw err;
-  }
   return _connection;
 }
 
@@ -149,7 +134,6 @@ function getBullMqConnection(): IORedis | null {
   }
   _bullmqConnection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
     maxRetriesPerRequest: null,
-    lazyConnect: true,
     enableReadyCheck: false,
     retryStrategy: (times) => {
       if (times > 2) {
@@ -169,21 +153,6 @@ function getBullMqConnection(): IORedis | null {
     }
     console.error("[ioredis] unexpected error:", err);
   });
-  try {
-    _bullmqConnection.connect().catch((err) => {
-      if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
-        disableRedis();
-        return;
-      }
-      console.error("[ioredis] connect error:", err);
-    });
-  } catch (err) {
-    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
-      disableRedis();
-      return null;
-    }
-    throw err;
-  }
   return _bullmqConnection;
 }
 
@@ -528,7 +497,7 @@ export function getRedisStatus(): {
   permanentOffline: boolean;
 } {
   return {
-    available: !_redisDisabled && _connection?.status === "ready",
+    available: !_redisDisabled && (_connection?.status === "ready" || _bullmqConnection?.status === "ready"),
     disabled: _redisDisabled,
     failCount: _failCount,
     reconnectDelayMs: _reconnectTimer ? getReconnectDelay() : 0,
