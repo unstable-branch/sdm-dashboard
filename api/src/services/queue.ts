@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 
 let _connection: IORedis | null = null;
+let _bullmqConnection: IORedis | null = null;
 let _queue: Queue | null = null;
 let _worker: Worker<SdmJobData, SdmJobResult> | null = null;
 let _redisDisabled = false;
@@ -37,6 +38,7 @@ function isMaxRetriesError(err: unknown): boolean {
 function disableRedis() {
   _redisDisabled = true;
   _connection = null;
+  _bullmqConnection = null;
   _queue = null;
   if (!_reconnectTimer) {
     _reconnectTimer = setTimeout(() => {
@@ -93,10 +95,56 @@ function getConnection(): IORedis | null {
   return _connection;
 }
 
+function getBullMqConnection(): IORedis | null {
+  if (_redisDisabled) return null;
+  if (_bullmqConnection) {
+    if (_bullmqConnection.status === "close" || _bullmqConnection.status === "end") {
+      disableRedis();
+      return null;
+    }
+    return _bullmqConnection;
+  }
+  _bullmqConnection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
+    maxRetriesPerRequest: null,
+    lazyConnect: false,
+    enableReadyCheck: false,
+    retryStrategy: (times) => {
+      if (times > 2) {
+        disableRedis();
+        return null;
+      }
+      return Math.min(times * 200, 2000);
+    },
+  });
+  _bullmqConnection.on("error", (err) => {
+    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+      disableRedis();
+      return;
+    }
+    console.error("[ioredis] unexpected error:", err);
+  });
+  try {
+    _bullmqConnection.connect().catch((err) => {
+      if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+        disableRedis();
+        return;
+      }
+      console.error("[ioredis] connect error:", err);
+    });
+  } catch (err) {
+    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+      disableRedis();
+      return null;
+    }
+    throw err;
+  }
+  return _bullmqConnection;
+}
+
 function getQueue(): Queue | null {
   if (_redisDisabled) return null;
   if (!_queue) {
-    const conn = getConnection();
+    const conn = getBullMqConnection();
     if (!conn) return null;
     _queue = new Queue("sdm-jobs", {
       connection: conn,
@@ -124,7 +172,7 @@ function getQueue(): Queue | null {
 export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
   if (_worker) return _worker;
   if (_redisDisabled) return null;
-  const conn = getConnection();
+  const conn = getBullMqConnection();
   if (!conn) return null;
   _worker = new Worker<SdmJobData, SdmJobResult>(
     "sdm-jobs",
