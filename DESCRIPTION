@@ -9,8 +9,8 @@ Description: A local R/Shiny workbench for species distribution modelling from p
 License: MIT
 Encoding: UTF-8
 Depends: R (>= 4.3)
-URL: https://github.com/mrcanofcatfood/sdm-dashboard
-BugReports: https://github.com/mrcanofcatfood/sdm-dashboard/issues
+URL: https://github.com/unstable-branch/sdm-dashboard
+BugReports: https://github.com/unstable-branch/sdm-dashboard/issues
 Imports:
     blockCV,
     bslib,

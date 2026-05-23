@@ -6,7 +6,7 @@
 
 **Core function:** Clean presence-only occurrence records, fit GLM (and experimental GAM/Rangebagging) presence/background models, generate habitat suitability maps, and export results — all from a local, privacy-first web dashboard.
 
-**Repository:** https://github.com/5p00kyy/sdm-dashboard (upstream) | https://github.com/mrcanofcatfood/sdm-dashboard (origin)
+**Repository:** https://github.com/5p00kyy/sdm-dashboard (upstream) | https://github.com/unstable-branch/sdm-dashboard (origin)
 
 ---
 
