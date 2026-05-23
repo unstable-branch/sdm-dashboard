@@ -2,6 +2,7 @@
   "name": "@sdm/frontend",
   "version": "0.1.0",
   "private": true,
+  "description": "SDM Dashboard — Next.js 15 frontend with React, MapLibre, and TanStack Query",
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",

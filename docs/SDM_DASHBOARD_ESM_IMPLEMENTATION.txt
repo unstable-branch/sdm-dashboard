@@ -1,3 +1,7 @@
+> ⚠️ **Implementation Complete — Reference Only**
+> ESM (Ensembles of Small Models) is fully implemented and tested.
+> This document was the original implementation plan. Kept for historical reference only.
+
 ================================================================================
 SDM DASHBOARD WORKBENCH — ENSEMBLES OF SMALL MODELS (ESM)
 ================================================================================
