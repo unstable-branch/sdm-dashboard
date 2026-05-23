@@ -71,17 +71,17 @@ verify_worldclim_cache <- function(worldclim_dir = sdm_default_worldclim_dir, so
   )
 }
 
-verify_chelsa_extras_cache <- function(worldclim_dir = sdm_default_chelsa_extras_dir,
+verify_chelsa_extras_cache <- function(chelsa_dir = sdm_default_chelsa_extras_dir,
                                        selected_extras = c("gdd5", "gdd10", "gsl", "fcf", "npp", "scd")) {
-  worldclim_dir <- normalizePath(worldclim_dir, winslash = "/", mustWork = FALSE)
-  if (!dir.exists(worldclim_dir)) {
+  chelsa_dir <- normalizePath(chelsa_dir, winslash = "/", mustWork = FALSE)
+  if (!dir.exists(chelsa_dir)) {
     return(list(
       available = character(), missing = selected_extras,
       status = "error", detail = "CHELSA directory not found",
       size_mb = NA_real_
     ))
   }
-  all_files <- list.files(worldclim_dir,
+  all_files <- list.files(chelsa_dir,
     pattern = "\\.tif$", full.names = TRUE,
     recursive = TRUE, ignore.case = TRUE
   )

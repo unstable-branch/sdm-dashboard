@@ -14,6 +14,14 @@ sdm_default_chelsa_timeout <- as.integer(Sys.getenv("SDM_CHELSA_TIMEOUT_SECONDS"
 sdm_default_chelsa_retries <- as.integer(Sys.getenv("SDM_CHELSA_RETRIES", "3"))
 sdm_geodata_cache_url <- Sys.getenv("SDM_GEODATA_CACHE_URL", "")
 sdm_internet_check_enabled <- tolower(Sys.getenv("SDM_INTERNET_CHECK_ENABLED", "true")) %in% c("true", "1")
+chelsa_extra_vars <- c(
+  "gdd5" = "Growing degree days (5°C base)",
+  "gdd10" = "Growing degree days (10°C base)",
+  "gsl" = "Growing season length",
+  "fcf" = "Frost change frequency",
+  "npp" = "Net primary productivity",
+  "scd" = "Snow cover duration"
+)
 sdm_default_output_dir <- "outputs"
 sdm_default_covariate_cache_dir <- "covariates"
 sdm_default_soil_vars <- c("sand", "clay", "phh2o")

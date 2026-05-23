@@ -692,6 +692,7 @@ sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
     allow_download = cfg$allow_download %||% TRUE,
     worldclim_res = cfg$worldclim_res,
     source = cfg$source,
+    selected_chelsa_extras = cfg$selected_chelsa_extras,
     log_fun = log_fun
   )
   list(env = env)

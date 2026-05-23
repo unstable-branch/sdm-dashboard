@@ -99,11 +99,11 @@ chelsa_extra_vars <- c(
   "scd"   = "scd" # Snow cover days
 )
 
-find_chelsa_extra_files <- function(worldclim_dir, selected_extras = names(chelsa_extra_vars)) {
-  if (!dir.exists(worldclim_dir)) {
+find_chelsa_extra_files <- function(chelsa_dir, selected_extras = names(chelsa_extra_vars)) {
+  if (!dir.exists(chelsa_dir)) {
     return(setNames(rep(NA_character_, length(selected_extras)), selected_extras))
   }
-  files <- list.files(worldclim_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  files <- list.files(chelsa_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
   if (length(files) == 0) {
     return(setNames(rep(NA_character_, length(selected_extras)), selected_extras))
   }
@@ -273,21 +273,21 @@ download_chelsa_file <- function(url, dest, log_fun = NULL) {
   FALSE
 }
 
-download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa_extra_vars),
+download_chelsa_extras <- function(chelsa_dir, selected_extras = names(chelsa_extra_vars),
                                    log_fun = NULL, n_cores = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
     stop("curl package required for CHELSA downloads. Install with: install.packages('curl')")
   }
   ensure_sdm_packages(c("terra", "geodata"), n_cores = n_cores)
-  dir.create(worldclim_dir, recursive = TRUE, showWarnings = FALSE)
-  log_message(log_fun, "Downloading CHELSA bioclim-plus extra variables to ", worldclim_dir)
+  dir.create(chelsa_dir, recursive = TRUE, showWarnings = FALSE)
+  log_message(log_fun, "Downloading CHELSA bioclim-plus extra variables to ", chelsa_dir)
 
   check_internet_connectivity("https://os.unil.cloud.switch.ch/", log_fun = log_fun)
   failed <- character()
 
   for (var in selected_extras) {
     fname <- sprintf("CHELSA_%s_1981-2010_V.2.1.tif", var)
-    dest <- file.path(worldclim_dir, fname)
+    dest <- file.path(chelsa_dir, fname)
     if (file.exists(dest)) {
       log_message(log_fun, "CHELSA extra already exists: ", var)
       next
@@ -300,7 +300,7 @@ download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa
   }
 
   list(
-    files = find_chelsa_extra_files(worldclim_dir, selected_extras),
+    files = find_chelsa_extra_files(chelsa_dir, selected_extras),
     failed = failed
   )
 }
@@ -412,17 +412,20 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
                                     aggregation_factor = 1, allow_download = TRUE, worldclim_res = 10,
                                     log_fun = NULL, n_cores = NULL,
                                     source = c("worldclim", "chelsa"),
-                                    selected_chelsa_extras = NULL) {
+                                    selected_chelsa_extras = NULL,
+                                    chelsa_dir = sdm_default_chelsa_dir) {
   source <- match.arg(source)
   ensure_sdm_packages("terra", n_cores = n_cores)
   selected_biovars <- validate_biovars(selected_biovars)
 
-  files <- find_worldclim_files(worldclim_dir, selected_biovars, source = source)
+  climate_dir <- if (source == "chelsa") chelsa_dir else worldclim_dir
+
+  files <- find_worldclim_files(climate_dir, selected_biovars, source = source)
   if (any(is.na(files)) && allow_download) {
     if (identical(source, "chelsa")) {
-      result <- download_chelsa_bio(worldclim_dir, selected_biovars, log_fun, n_cores)
+      result <- download_chelsa_bio(chelsa_dir, selected_biovars, log_fun, n_cores)
       files <- result$files
-      if (length(result$failed) > 0 && identical(source, "chelsa")) {
+      if (length(result$failed) > 0) {
         log_message(log_fun, "Partial failure: ", length(result$failed), " CHELSA BIO layers failed to download")
       }
     } else {
@@ -438,18 +441,18 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
     )
   }
 
-  log_message(log_fun, "Loading ", length(files), " WorldClim layer(s) from ", worldclim_dir)
+  log_message(log_fun, "Loading ", length(files), " ", source, " layer(s) from ", climate_dir)
   terra::terraOptions(memfrac = 0.75, progress = 0)
   env_global <- terra::rast(unname(files))
   names(env_global) <- paste0("bio", selected_biovars)
 
   extra_files <- character(0)
   if (identical(source, "chelsa") && !is.null(selected_chelsa_extras) && length(selected_chelsa_extras) > 0) {
-    chelsa_files <- find_chelsa_extra_files(worldclim_dir, selected_chelsa_extras)
+    chelsa_files <- find_chelsa_extra_files(chelsa_dir, selected_chelsa_extras)
     missing_extras <- names(chelsa_files)[is.na(chelsa_files)]
     if (length(missing_extras) > 0 && allow_download) {
-      downloaded <- download_chelsa_extras(worldclim_dir, missing_extras, log_fun, n_cores)
-      chelsa_files <- find_chelsa_extra_files(worldclim_dir, selected_chelsa_extras)
+      downloaded <- download_chelsa_extras(chelsa_dir, missing_extras, log_fun, n_cores)
+      chelsa_files <- find_chelsa_extra_files(chelsa_dir, selected_chelsa_extras)
       if (length(downloaded$failed) > 0) {
         log_message(log_fun, "Partial failure: ", length(downloaded$failed), " CHELSA extra vars failed to download")
       }
