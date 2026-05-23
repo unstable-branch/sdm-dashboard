@@ -284,8 +284,8 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
 
                   if (runStatus === "running") {
                     const pct = (() => {
-                      for (const line of logs) {
-                        const m = line.match(/\[(\d+)%\]/);
+                      for (let i = logs.length - 1; i >= 0; i--) {
+                        const m = logs[i].match(/\[(\d+)%\]/);
                         if (m) return Math.min(100, parseInt(m[1], 10));
                       }
                       return Math.min(90, 10 + Math.round(logs.length * 0.4));
@@ -337,12 +337,12 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                     });
                   }
                 } catch {
-                  attempts++;
+                  // Polling error — retry on next iteration
                 }
               }
 
               if (!completed) {
-                result = { status: "error", error: "Polling timeout: download did not complete in time" };
+                result = { status: "error", error: "Polling timeout: model run did not complete in time" };
                 const runIdFailed = (payload as Record<string, unknown>)?.runId as string | undefined;
                 jobEventBus.emitJobStatus({
                   jobId: runIdFailed ?? job.id!,
@@ -385,8 +385,8 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
 
                   if (runStatus === "running" || runStatus === "partial") {
                     const pct = (() => {
-                      for (const line of logs) {
-                        const m = line.match(/\[(\d+)%\]/);
+                      for (let i = logs.length - 1; i >= 0; i--) {
+                        const m = logs[i].match(/\[(\d+)%\]/);
                         if (m) {
                           const val = parseInt(m[1], 10);
                           if (val >= 0 && val <= 100) return val;
@@ -451,12 +451,12 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                     }
                   }
                 } catch {
-                  attempts++;
+                  // Polling error — retry on next iteration
                 }
               }
 
               if (!completed) {
-                result = { status: "error", error: "Polling timeout: download did not complete in time" };
+                result = { status: "error", error: "Polling timeout: climate download did not complete in time" };
                 jobEventBus.emitJobStatus({
                   jobId: job.id!,
                   state: "failed",

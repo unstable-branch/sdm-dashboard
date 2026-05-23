@@ -423,8 +423,12 @@ function(req) {
     cat(msg, "\n", file = progress_log, append = TRUE)
   }
 
-  progress_fun <- function(pct, msg) {
-    log_line <- paste0(format(Sys.time(), "%H:%M:%S"), " [", sprintf("%.0f", pct * 100), "%] ", msg)
+  progress_fun <- function(x) {
+    pct <- if (is.list(x)) x$value else x
+    detail <- if (is.list(x)) x$detail else NULL
+    pct_num <- as.numeric(pct)
+    if (!is.finite(pct_num)) pct_num <- 0
+    log_line <- paste0(format(Sys.time(), "%H:%M:%S"), " [", sprintf("%.0f", pct_num * 100), "%] ", detail %||% "")
     cat(log_line, "\n")
     cat(log_line, "\n", file = progress_log, append = TRUE)
   }

@@ -241,7 +241,7 @@ sdmRoutes.post("/run", async (c) => {
             });
           }
         } catch {
-          attempts++;
+          // Polling error — retry on next iteration
         }
       }
 
