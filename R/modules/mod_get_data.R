@@ -349,7 +349,7 @@ mod_get_data_server <- function(id, rv, input) {
         label = "CHELSA extras",
         download_fun = function(extras) {
           source(sdm_resolve_module("covariates_climate.R"))
-          download_chelsa_extras(sdm_default_chelsa_extras_dir, extras = extras, log_fun = function(...) cat(paste(...), "\n"))
+          download_chelsa_extras(sdm_default_chelsa_extras_dir, selected_extras = extras, log_fun = function(...) cat(paste(...), "\n"))
           cat("CHELSA extras download complete.\n")
         },
         args = list(extras = extras),
