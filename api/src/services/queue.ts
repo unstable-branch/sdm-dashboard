@@ -28,6 +28,12 @@ function isRedisUnavailableError(err: unknown): boolean {
   return msg.includes("Connection is closed") || msg.includes("connect ECONNREFUSED");
 }
 
+function isMaxRetriesError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const msg = (err as { message?: string }).message ?? "";
+  return msg.includes("Reached the max retries per request limit");
+}
+
 function disableRedis() {
   _redisDisabled = true;
   _connection = null;
@@ -36,6 +42,7 @@ function disableRedis() {
     _reconnectTimer = setTimeout(() => {
       _reconnectTimer = null;
       _redisDisabled = false;
+      _worker = null;
     }, 30000);
   }
 }
@@ -50,11 +57,11 @@ function getConnection(): IORedis | null {
     return _connection;
   }
   _connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
-    maxRetriesPerRequest: null,
+    maxRetriesPerRequest: 1,
     lazyConnect: false,
     enableReadyCheck: false,
     retryStrategy: (times) => {
-      if (times > 3) {
+      if (times > 2) {
         disableRedis();
         return null;
       }
@@ -62,7 +69,7 @@ function getConnection(): IORedis | null {
     },
   });
   _connection.on("error", (err) => {
-    if (isRedisUnavailableError(err)) {
+    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
       disableRedis();
       return;
     }
@@ -70,14 +77,14 @@ function getConnection(): IORedis | null {
   });
   try {
     _connection.connect().catch((err) => {
-      if (isRedisUnavailableError(err)) {
+      if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
         disableRedis();
         return;
       }
       console.error("[ioredis] connect error:", err);
     });
   } catch (err) {
-    if (isRedisUnavailableError(err)) {
+    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
       disableRedis();
       return null;
     }
@@ -102,6 +109,13 @@ function getQueue(): Queue | null {
         removeOnComplete: { age: 86400, count: 100 },
         removeOnFail: { age: 604800 },
       },
+    });
+    _queue.on("error", (err) => {
+      if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+        disableRedis();
+        return;
+      }
+      console.error("[queue] error:", err);
     });
   }
   return _queue;
@@ -390,32 +404,50 @@ export interface SdmJobResult {
 }
 
 export async function enqueueSdmJob(data: SdmJobData, userId?: string): Promise<string> {
+  if (_redisDisabled) throw new Error("Redis unavailable — cannot enqueue job");
   const q = getQueue();
   if (!q) throw new Error("Redis unavailable — cannot enqueue job");
   const jobData: SdmJobData = userId ? { ...data, userId } : data;
-  const job = await q.add("sdm-task", jobData, {
-    attempts: 2,
-    backoff: { type: "exponential", delay: 1000 },
-    removeOnComplete: { age: 3600 },
-    removeOnFail: { age: 86400 },
-  });
-  return job.id ?? "";
+  try {
+    const job = await q.add("sdm-task", jobData, {
+      attempts: 2,
+      backoff: { type: "exponential", delay: 1000 },
+      removeOnComplete: { age: 3600 },
+      removeOnFail: { age: 86400 },
+    });
+    return job.id ?? "";
+  } catch (err) {
+    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+      disableRedis();
+      throw new Error("Redis unavailable — cannot enqueue job");
+    }
+    throw err;
+  }
 }
 
 export async function getJobStatus(jobId: string) {
+  if (_redisDisabled) return null;
   const q = getQueue();
   if (!q) return null;
-  const job = await q.getJob(jobId);
-  if (!job) return null;
+  try {
+    const job = await q.getJob(jobId);
+    if (!job) return null;
 
-  const state = await job.getState();
-  const progress = job.progress;
+    const state = await job.getState();
+    const progress = job.progress;
 
-  return {
-    id: job.id,
-    state,
-    progress,
-    result: job.returnvalue,
-    failedReason: job.failedReason,
-  };
+    return {
+      id: job.id,
+      state,
+      progress,
+      result: job.returnvalue,
+      failedReason: job.failedReason,
+    };
+  } catch (err) {
+    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+      disableRedis();
+      return null;
+    }
+    throw err;
+  }
 }
