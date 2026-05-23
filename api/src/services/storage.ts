@@ -6,9 +6,18 @@ import {
   HeadBucketCommand,
 } from "@aws-sdk/client-s3";
 
-const GARAGE_ENDPOINT = (process.env.GARAGE_ENDPOINT || "localhost:3900").replace(/^https?:\/\//, "");
-const GARAGE_ACCESS_KEY = process.env.GARAGE_ACCESS_KEY || process.env.GARAGE_ACCESS_KEY_ID || "sdm";
-const GARAGE_SECRET_KEY = process.env.GARAGE_SECRET_KEY || "sdm_garage_secret";
+function envOrDevDefault(name: string, devDefault: string): string {
+  const value = process.env[name];
+  if (value) return value;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(`${name} must be configured in production`);
+  }
+  return devDefault;
+}
+
+const GARAGE_ENDPOINT = envOrDevDefault("GARAGE_ENDPOINT", "localhost:3900").replace(/^https?:\/\//, "");
+const GARAGE_ACCESS_KEY = process.env.GARAGE_ACCESS_KEY || envOrDevDefault("GARAGE_ACCESS_KEY_ID", "sdm");
+const GARAGE_SECRET_KEY = envOrDevDefault("GARAGE_SECRET_KEY", "sdm_garage_secret");
 const GARAGE_BUCKET_RASTERS = process.env.GARAGE_BUCKET_RASTERS || "sdm-rasters";
 const GARAGE_BUCKET_EXPORTS = process.env.GARAGE_BUCKET_EXPORTS || "sdm-exports";
 const USE_SSL = process.env.GARAGE_USE_SSL === "true";
