@@ -90,6 +90,22 @@ export function resetRedis() {
   console.log("[Redis] Connection state reset by admin request.");
 }
 
+export function shutdownQueue() {
+  if (_reconnectTimer) {
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = null;
+  }
+  _worker?.close();
+  _queue?.close();
+  _bullmqConnection?.disconnect(false);
+  _connection?.disconnect(false);
+  _connection = null;
+  _bullmqConnection = null;
+  _queue = null;
+  _worker = null;
+  _redisDisabled = true;
+}
+
 function getConnection(): IORedis | null {
   if (_redisDisabled) return null;
   if (_connection) {
