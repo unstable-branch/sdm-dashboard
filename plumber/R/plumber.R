@@ -652,7 +652,6 @@ function(req) {
   job_id <- paste0("climate_", format(Sys.time(), "%Y%m%d_%H%M%S"), "_", paste(sample(letters, 6), collapse = ""))
   job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
-  progress_log <- file.path(job_dir, "progress.log")
 
   job_meta <- list(
     id = job_id,
@@ -663,114 +662,16 @@ function(req) {
     error = NULL,
     config = body
   )
-  writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE), file.path(job_dir, "meta.json"))
+  writeLines(jsonlite::toJSON(job_meta, null = "null", auto_unbox = TRUE), file.path(job_dir, "meta.json"))
 
-  log_fun <- function(...) {
-    msg <- paste0(...)
-    cat(msg, "\n")
-    cat(msg, "\n", file = progress_log, append = TRUE)
+  script_path <- file.path(app_dir, "plumber", "R", "climate_download.R")
+  if (!file.exists(script_path)) {
+    stop("Climate download script not found at: ", script_path)
   }
 
-  progress_fun <- function(pct, msg) {
-    line <- sprintf("[%d%%] %s", as.integer(pct), msg)
-    cat(line, "\n")
-    cat(line, "\n", file = progress_log, append = TRUE)
-  }
-
-  validate_path_param <- function(x, name) {
-    if (!is.null(x) && grepl("(\\.\\./|\\.\\.\\\\|/)", x)) {
-      stop(paste("Invalid", name, "- path traversal detected"))
-    }
-    x
-  }
-
-  run_bg <- function() {
-    tryCatch({
-      progress_fun(5, "Initializing download")
-      if (download_type %in% c("cmip6", "cmip6_average")) {
-        gcm <- validate_path_param(body$gcm %||% "UKESM1-0-LL", "gcm")
-        ssp <- validate_path_param(body$ssp %||% "SSP2-4.5", "ssp")
-        period <- validate_path_param(body$period %||% "2041-2060", "period")
-        res <- as.integer(body$res %||% 10)
-        if (download_type == "cmip6") {
-          progress_fun(10, "Downloading CMIP6")
-          log_fun("Scenario: ", gcm, " / ", ssp, " / ", period, " (", res, "m)")
-          source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
-          fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res, out_dir = file.path(app_dir, sdm_default_future_worldclim_dir), quiet = FALSE, log_fun = log_fun)
-          progress_fun(90, "CMIP6 download complete")
-        } else {
-          gcm_list <- body$gcm_list %||% character(0)
-          progress_fun(10, "Averaging CMIP6 GCMs")
-          log_fun("GCMs: ", paste(gcm_list, collapse = ", "), " / ", ssp, " / ", period)
-          source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
-          average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res, out_dir = file.path(app_dir, sdm_default_future_worldclim_dir), quiet = FALSE, log_fun = log_fun)
-          progress_fun(90, "GCM averaging complete")
-        }
-      } else if (download_type == "worldclim") {
-        res <- as.integer(body$res %||% 10)
-        biovars <- body$biovars
-        if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
-        worldclim_dir <- file.path(app_dir, sdm_default_worldclim_dir)
-        progress_fun(10, "Downloading WorldClim v2.1 BIO layers (", res, "m)")
-        log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
-        source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
-        result <- download_worldclim_bio(worldclim_dir = worldclim_dir, selected_biovars = biovars, res = res, log_fun = log_fun)
-        if (length(result$failed) > 0) {
-          job_meta$failed_vars <<- result$failed
-          job_meta$status <<- "partial"
-          job_meta$error <<- paste("Failed to download WorldClim BIO:", paste(result$failed, collapse = ", "))
-          log_fun("Partial failure: ", length(result$failed), " layers failed")
-        } else {
-          progress_fun(90, "WorldClim download complete")
-        }
-      } else if (download_type == "chelsa") {
-        biovars <- body$biovars
-        if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
-        chelsa_dir <- file.path(app_dir, sdm_default_chelsa_dir)
-        progress_fun(10, "Downloading CHELSA v2.1 BIO layers")
-        log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
-        source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
-        result <- download_chelsa_bio(chelsa_dir = chelsa_dir, selected_biovars = biovars, log_fun = log_fun)
-        if (length(result$failed) > 0) {
-          job_meta$failed_vars <<- result$failed
-          job_meta$status <<- "partial"
-          job_meta$error <<- paste("Failed to download CHELSA BIO:", paste(result$failed, collapse = ", "))
-          log_fun("Partial failure: ", length(result$failed), " layers failed")
-        } else {
-          progress_fun(90, "CHELSA download complete")
-        }
-      } else {
-        stop("Unknown download type: ", download_type)
-      }
-
-      progress_fun(95, "Finalizing")
-      if (is.null(job_meta$status) || job_meta$status == "running") {
-        job_meta$status <<- "completed"
-      }
-      job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      progress_fun(100, "Complete")
-    }, error = function(e) {
-      # Error categorization (Fix 9)
-      msg <- conditionMessage(e)
-      network_patterns <- c("ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "ENETUNREACH", "EHOSTUNREACH", "EPIPE")
-      http_4xx_pattern <- "HTTP/[45][0-9][0-9]|curl.*error|connection.*fail|timeout"
-      http_5xx_pattern <- "HTTP 5[0-9][0-9]|Service Unavailable|Gateway Timeout"
-      is_network <- any(vapply(network_patterns, function(p) grepl(p, msg, ignore.case = TRUE), logical(1)))
-      is_http_error <- grepl(http_4xx_pattern, msg, ignore.case = TRUE) || grepl(http_5xx_pattern, msg, ignore.case = TRUE)
-      job_meta$error_category <<- if (is_network) "network" else if (is_http_error) "http_error" else "unknown"
-      job_meta$status <<- "failed"
-      job_meta$error <<- msg
-      job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      progress_fun(0, "Failed: ", msg)
-      # Cleanup partial download on failure (Fix 10)
-      unlink(job_dir, recursive = TRUE, force = TRUE)
-    })
-
-    job_meta$progress_log <- tryCatch(tail(readLines(progress_log, warn = FALSE), 50), error = function(e) character(0))
-    writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE), file.path(job_dir, "meta.json"))
-  }
-
-  callr::r_bg(run_bg)
+  callr::r_bg(function(script, job_dir, app_dir) {
+    source(script, local = TRUE)
+  }, args = list(script_path, job_dir, app_dir))
 
   list(
     job_id = job_id,
@@ -795,6 +696,9 @@ function(res, job_id) {
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
 
+  # jsonlite encodes R NULL as {} — normalize to NULL
+  nullify <- function(x) if (is.list(x) && length(x) == 0) NULL else x
+
   progress_lines <- character(0)
   if (file.exists(progress_file)) {
     progress_lines <- tail(readLines(progress_file, warn = FALSE), 50)
@@ -805,11 +709,11 @@ function(res, job_id) {
     type = meta$type,
     status = meta$status,
     started_at = meta$started_at,
-    completed_at = meta$completed_at %||% NULL,
-    error = meta$error %||% NULL,
-    error_category = meta$error_category %||% NULL,
-    failed_vars = meta$failed_vars %||% NULL,
-    config = meta$config %||% NULL,
+    completed_at = nullify(meta$completed_at) %||% NA,
+    error = nullify(meta$error) %||% NA,
+    error_category = nullify(meta$error_category) %||% NA,
+    failed_vars = nullify(meta$failed_vars) %||% NA,
+    config = meta$config %||% NA,
     progress_log = progress_lines
   )
 }

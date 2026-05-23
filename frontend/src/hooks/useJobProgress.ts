@@ -75,12 +75,12 @@ export function useJobProgress(jobId: string | null) {
             id: msg.jobId,
             state: msg.status,
             progress: msg.progress ?? prev?.progress ?? 0,
-            logs: msg.logs ?? prev?.logs ?? [],
+            logs: Array.isArray(msg.logs) ? msg.logs : (prev?.logs ?? []),
             result: msg.result,
             failedReason: msg.failedReason,
           }));
         } else if (msg.type === "progress" && msg.jobId === jobId) {
-          setJob((prev) => prev ? { ...prev, progress: msg.progress, logs: [...prev.logs, msg.message].slice(-20) } : null);
+          setJob((prev) => prev ? { ...prev, progress: msg.progress, logs: [...(Array.isArray(prev.logs) ? prev.logs : []), msg.message].slice(-20) } : null);
         }
       } catch {
         // Ignore parse errors

@@ -33,8 +33,30 @@ function formatNum(v: unknown) {
   return isNaN(n) ? null : n.toFixed(4);
 }
 
+const STICKY_IDS = new Set(["flag", "longitude", "latitude"]);
+const STICKY_LEFT: Record<string, number> = { flag: 0, longitude: 40, latitude: 150 };
+
+function cellStyle(colId: string): React.CSSProperties {
+  const left = STICKY_LEFT[colId];
+  if (left === undefined) return {};
+  return { position: "sticky", left, zIndex: 5 };
+}
+
+function useToggleFlag(flaggedRows: Set<number>, setFlaggedRows: (s: Set<number>) => void, onFlagToggle?: (index: number, flagged: boolean) => void) {
+  return (idx: number) => {
+    const isFlagged = flaggedRows.has(idx);
+    const next = new Set(flaggedRows);
+    if (isFlagged) next.delete(idx);
+    else next.add(idx);
+    setFlaggedRows(next);
+    onFlagToggle?.(idx, !isFlagged);
+  };
+}
+
 export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps) {
   const [flaggedRows, setFlaggedRows] = useState<Set<number>>(new Set());
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+  const toggleFlag = useToggleFlag(flaggedRows, setFlaggedRows, onFlagToggle);
 
   const hasCcFlags = useMemo(() => {
     if (data.length === 0) return false;
@@ -62,15 +84,7 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
       cell: (info: { row: { index: number } }) => (
         <button
           type="button"
-          onClick={() => {
-            const idx = info.row.index;
-            const isFlagged = flaggedRows.has(idx);
-            const next = new Set(flaggedRows);
-            if (isFlagged) next.delete(idx);
-            else next.add(idx);
-            setFlaggedRows(next);
-            onFlagToggle?.(idx, !isFlagged);
-          }}
+          onClick={(e) => { e.stopPropagation(); toggleFlag(info.row.index); }}
           className={cn(
             "h-5 w-5 rounded border-2 transition-colors flex-shrink-0",
             flaggedRows.has(info.row.index)
@@ -202,15 +216,15 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
         </div>
       )}
       <div className="overflow-x-auto max-h-[40vh] overflow-y-auto">
-        <table className="w-full text-sm" style={{ minWidth: 600 }}>
+        <table className="w-full text-sm border-separate border-spacing-0" style={{ minWidth: 600 }}>
           <thead className="sticky top-0 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="border-b border-sdm-border bg-sdm-surface-soft">
+              <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
-                    className="px-3 py-2 text-left font-semibold text-sdm-muted whitespace-nowrap text-xs uppercase tracking-wider"
-                    style={{ width: header.getSize() }}
+                    className="px-3 py-2 text-left font-semibold text-sdm-muted whitespace-nowrap text-xs uppercase tracking-wider bg-sdm-surface-soft border-b border-sdm-border"
+                    style={{ width: header.getSize(), ...cellStyle(header.id) }}
                   >
                     {flexRender(header.column.columnDef.header, header.getContext())}
                   </th>
@@ -219,34 +233,38 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr
-                key={row.id}
-                className={cn(
-                  "border-b border-sdm-border/50 transition-colors",
-                  flaggedRows.has(row.index)
-                    ? "bg-sdm-danger/5"
-                    : "hover:bg-sdm-surface-soft/50"
-                )}
-              >
-                {row.getVisibleCells().map((cell) => {
-                  const cellVal = cell.getValue();
-                  const isFlagged = cell.column.id === "flagged" && (cellVal === true || cellVal === "TRUE" || cellVal === "true");
-                  return (
-                    <td
-                      key={cell.id}
-                      className={cn(
-                        "px-3 py-2 text-sdm-text",
-                        isFlagged ? "text-sdm-danger font-medium" : ""
-                      )}
-                      style={{ width: cell.column.getSize() }}
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+            {table.getRowModel().rows.map((row) => {
+              const rowIsFlagged = flaggedRows.has(row.index);
+              return (
+                  <tr
+                    key={row.id}
+                    onClick={() => toggleFlag(row.index)}
+                    onMouseEnter={() => setHoveredRow(row.index)}
+                    onMouseLeave={() => setHoveredRow(null)}
+                    className="cursor-pointer"
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const cellVal = cell.getValue();
+                      const isFlaggedVal = cell.column.id === "flagged" && (cellVal === true || cellVal === "TRUE" || cellVal === "true");
+                      const isHovered = hoveredRow === row.index && !rowIsFlagged;
+                      const bgClass = rowIsFlagged ? "bg-sdm-danger/5" : (isHovered ? "bg-sdm-surface-soft/50" : "bg-sdm-surface");
+                      return (
+                        <td
+                          key={cell.id}
+                          className={cn(
+                            "px-3 py-2 text-sdm-text border-b border-sdm-border/50",
+                            bgClass,
+                            isFlaggedVal ? "text-sdm-danger font-medium" : ""
+                          )}
+                          style={{ width: cell.column.getSize(), ...cellStyle(cell.column.id) }}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      );
+                    })}
+                  </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

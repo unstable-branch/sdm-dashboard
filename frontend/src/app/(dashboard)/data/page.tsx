@@ -192,9 +192,9 @@ function DataPageContent() {
       );
       const data = (result.data as Record<string, unknown> | undefined) ?? result;
       setUploadResult(data);
-      if (data.file_path) {
-        setOccurrenceFilePath(data.file_path as string);
-        setRecordCount(data.n_rows as number || 0);
+      if (typeof data.file_path === "string" && data.file_path.length > 0) {
+        setOccurrenceFilePath(data.file_path);
+        setRecordCount(typeof data.n_rows === "number" ? data.n_rows : 0);
       }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");

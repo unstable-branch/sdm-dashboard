@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "devtools": "react-devtools"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -50,6 +51,7 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.0.0",
+    "react-devtools": "^6.0.1",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "^8.59.4",

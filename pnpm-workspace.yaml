@@ -4,6 +4,7 @@ packages:
   - "packages/*"
 allowBuilds:
   bcrypt: true
+  electron: true
   esbuild: true
   msgpackr-extract: true
   sharp: true

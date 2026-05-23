@@ -41,7 +41,7 @@ export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgre
   const state = wsJob.state;
   const isComplete = state === "completed";
   const isFailed = state === "failed";
-  const logs = wsJob.logs as string[] | undefined;
+  const logs = Array.isArray(wsJob.logs) ? wsJob.logs : [];
 
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">

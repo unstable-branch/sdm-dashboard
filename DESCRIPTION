@@ -29,6 +29,7 @@ Imports:
     terra
 Suggests:
     CoordinateCleaner,
+    devtools,
     digest,
     ecospat,
     finch,
