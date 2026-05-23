@@ -102,6 +102,7 @@ modules <- c(
   "report.R",
   "report_odmap.R",
   "manifest.R",
+  "diagnostics_plots.R",
   "batch_runner.R",
   "script_export.R",
 

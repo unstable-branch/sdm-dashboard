@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # Lightweight source/API smoke test with tagged filtering.
-# Usage: Rscript scripts/smoke_test.R [--tags=fast,heavy,ensemble,esm,batch]
+# Usage: Rscript scripts/smoke_test.R [--tags=fast,heavy,ensemble,esm,batch,ecology,covariates,reporting,ml,all]
 
 cmd_args <- commandArgs(FALSE)
 file_arg <- grep("^--file=", cmd_args, value = TRUE)
@@ -20,13 +20,47 @@ if (any(parse_errors)) stop("Failed to parse R module(s): ", paste(r_files[parse
 
 source(file.path("R", "core", "optimized_sdm.R"))
 
+# --- Core functions ---
 required_functions <- c(
-  "run_fast_sdm", "load_environment",
-  "opentopo_globaldem_url", "load_soil_covariate", "plot_suitability_map",
-  "write_summary_report", "detect_available_cores", "validate_extent",
-  "normalize_threshold", "safe_slug", "detect_column", "read_occurrence_file", "infer_species_label",
-  "clean_occurrences", "make_training_extent", "make_sdm_formula",
-  "sdm_model_choices", "validate_sdm_model_id", "get_sdm_model", "fit_sdm_model", "predict_sdm_model",
+  "run_fast_sdm", "load_environment", "sdm_config", "is.sdm_config",
+  "log_message", "progress_step", "extent_cache_key", "combine_extents",
+  "detect_available_cores", "validate_extent", "normalize_threshold",
+  "normalize_cv_strategy", "normalize_cv_block_size_km",
+  "safe_slug", "make_training_extent", "make_sdm_formula",
+  # Data
+  "detect_column", "read_occurrence_file", "infer_species_label",
+  "clean_occurrences", "read_dwca",
+  # Covariates
+  "load_climate_covariates", "find_worldclim_files",
+  "load_elevation_covariate", "load_soil_covariate",
+  "load_uv_covariate", "load_vegetation_covariate",
+  "load_lulc_covariate", "load_human_footprint_covariate",
+  "load_bioclim_seasonality", "load_drought_covariate",
+  "load_extra_covariates", "align_covariate_stack",
+  "opentopo_globaldem_url",
+  # Models
+  "sdm_model_choices", "sdm_model_ids", "validate_sdm_model_id",
+  "get_sdm_model", "fit_sdm_model", "predict_sdm_model",
+  "fit_fast_sdm", "fit_gam_sdm", "fit_rangebag_sdm",
+  "fit_ensemble_glm_rangebag_sdm", "fit_multi_model_ensemble",
+  "fit_esm", "fit_maxnet_sdm", "fit_rf_sdm", "fit_xgboost_sdm",
+  "fit_dnn_sdm", "run_biomod2",
+  "make_cv_folds_random", "make_cv_folds_spatial_blocks",
+  "compute_response_curves", "plot_response_curves",
+  "compute_calibration", "tune_maxnet", "tune_gam",
+  "compute_vif", "select_by_vif", "apply_vif_selection",
+  # Ecology
+  "compute_eoo_aoo", "compute_climate_match",
+  "compute_niche_overlap", "stack_species_richness",
+  "simulate_dispersal", "compute_aoa",
+  "apply_climex_params", "compute_response_index",
+  # Output
+  "plot_suitability_map", "write_summary_report", "write_odmap_report",
+  "write_manifest", "save_diagnostic_plots", "export_run_script",
+  "parse_comma_ints", "parse_comma_strings", "parse_comma_doubles",
+  "parse_logical", "build_run_args", "write_batch_summary_csv",
+  "parse_batch_config",
+  # Future
   "future_projection_files", "future_projection_ready", "project_future_suitability"
 )
 missing <- required_functions[!vapply(required_functions, exists, logical(1), mode = "function")]
@@ -34,6 +68,7 @@ if (length(missing) > 0) {
   stop("Missing expected functions: ", paste(missing, collapse = ", "), call. = FALSE)
 }
 
+# --- Default validation ---
 invisible(validate_extent(sdm_default_projection_extent, "smoke extent"))
 if (!identical(normalize_threshold(sdm_default_threshold), 0.5)) stop("Default threshold validation failed.", call. = FALSE)
 if (!identical(validate_biovars(sdm_default_biovars), unique(as.integer(sdm_default_biovars)))) stop("Default BIO variables failed validation.", call. = FALSE)
@@ -47,6 +82,17 @@ if (!"multi_ensemble" %in% sdm_model_ids()) stop("multi_ensemble backend missing
 formula <- make_sdm_formula(c("bio1", "bio12", "elevation_m"), include_quadratic = TRUE)
 if (!inherits(formula, "formula")) stop("Formula helper failed.", call. = FALSE)
 
+# --- CV strategy normalization ---
+if (!identical(normalize_cv_strategy("spatial_blocks"), "spatial_blocks")) stop("CV strategy normalization failed.", call. = FALSE)
+if (!identical(normalize_cv_strategy("spatial block"), "spatial_blocks")) stop("CV strategy normalization (alias) failed.", call. = FALSE)
+if (!identical(normalize_cv_strategy("random"), "random")) stop("CV strategy normalization failed.", call. = FALSE)
+
+# --- Extent helpers ---
+if (!nzchar(extent_cache_key(c(140, 160, -40, -20)))) stop("Extent cache key failed.", call. = FALSE)
+combined <- combine_extents(c(140, 150, -30, -20), c(145, 160, -35, -25))
+if (!identical(combined, c(140, 160, -35, -20))) stop("Combine extents failed.", call. = FALSE)
+
+# --- Occurrence cleaning ---
 smoke_occ <- data.frame(
   species = "Demo species",
   decimalLongitude = c(seq(140, 161), 200, 140),
@@ -62,7 +108,123 @@ if (nrow(cleaned$occ) != 22) stop("Synthetic occurrence cleaning returned the wr
 if (cleaned$removed_bad_coordinates != 1 || cleaned$removed_duplicates != 1) stop("Synthetic occurrence cleaning did not count removals correctly.", call. = FALSE)
 if (!identical(cleaned$columns$longitude, "decimalLongitude") || !identical(cleaned$columns$latitude, "decimalLatitude")) stop("Occurrence column inference failed.", call. = FALSE)
 
+# --- SDM config builder ---
+cfg <- tryCatch(sdm_config(
+  species = "Test", occurrence_file = tmp_occ,
+  projection_extent = c(140, 160, -40, -20)
+), error = function(e) NULL)
+if (is.null(cfg) || !is.sdm_config(cfg)) stop("sdm_config builder failed.", call. = FALSE)
+if (!identical(cfg$species, "Test")) stop("sdm_config species failed.", call. = FALSE)
+if (!identical(cfg$model_id, sdm_default_model_id)) stop("sdm_config default model_id failed.", call. = FALSE)
+
+# --- Batch CSV parsing helpers ---
+if (!identical(parse_comma_ints("1, 4, 12"), c(1L, 4L, 12L))) stop("parse_comma_ints failed.", call. = FALSE)
+if (!identical(parse_comma_ints(" 1 , 4 , 12 "), c(1L, 4L, 12L))) stop("parse_comma_ints whitespace failed.", call. = FALSE)
+if (length(parse_comma_ints("")) != 0) stop("parse_comma_ints empty failed.", call. = FALSE)
+if (!identical(parse_comma_strings("bio1, bio12"), c("bio1", "bio12"))) stop("parse_comma_strings failed.", call. = FALSE)
+if (!identical(parse_comma_doubles("140.0, 160.0"), c(140, 160))) stop("parse_comma_doubles failed.", call. = FALSE)
+if (!identical(parse_logical("TRUE"), TRUE)) stop("parse_logical TRUE failed.", call. = FALSE)
+if (!identical(parse_logical("FALSE"), FALSE)) stop("parse_logical FALSE failed.", call. = FALSE)
+if (!identical(parse_logical("1"), TRUE)) stop("parse_logical 1 failed.", call. = FALSE)
+if (!identical(parse_logical("0"), FALSE)) stop("parse_logical 0 failed.", call. = FALSE)
+if (!identical(parse_logical("yes"), TRUE)) stop("parse_logical yes failed.", call. = FALSE)
+
+# --- build_run_args roundtrip ---
+test_row <- list(
+  species = "Test", occurrences_csv = tmp_occ, model_id = "glm",
+  biovars = "1,4,12", background_n = "100", include_quadratic = "TRUE",
+  threshold = "0.5", cv_folds = "3", aggregation_factor = "1"
+)
+args <- build_run_args(test_row)
+if (!identical(args$species, "Test")) stop("build_run_args species failed.", call. = FALSE)
+if (!identical(args$selected_biovars, c(1L, 4L, 12L))) stop("build_run_args biovars failed.", call. = FALSE)
+if (!identical(args$background_n, 100L)) stop("build_run_args background_n failed.", call. = FALSE)
+if (!identical(args$threshold, 0.5)) stop("build_run_args threshold failed.", call. = FALSE)
+
+# --- Model registry completeness ---
+expected_models <- c("glm", "gam", "rangebag", "ensemble_glm_rangebag", "multi_ensemble")
+for (m in expected_models) {
+  if (!m %in% sdm_model_ids()) stop(paste("Model", m, "missing from registry."), call. = FALSE)
+}
+
+# --- Conditional model registry (logged, not failed) ---
+conditional_models <- c("maxnet", "rf", "xgboost", "dnn", "biomod2", "esm_glm", "esm_maxnet")
+for (m in conditional_models) {
+  if (m %in% sdm_model_ids()) {
+    cat("[fast] Model", m, "registered.\n")
+  } else {
+    cat("[fast] Model", m, "not registered (optional dependency).\n")
+  }
+}
+
+# --- EOO/AOO with synthetic points ---
+synthetic_pts <- data.frame(longitude = c(140, 145, 150, 155), latitude = c(-30, -32, -34, -36))
+eoo_aoo <- compute_eoo_aoo(synthetic_pts)
+if (is.null(eoo_aoo) || is.null(eoo_aoo$eoo_km2)) stop("compute_eoo_aoo failed.", call. = FALSE)
+if (!is.finite(eoo_aoo$eoo_km2) || eoo_aoo$eoo_km2 <= 0) stop("compute_eoo_aoo eoo_km2 invalid.", call. = FALSE)
+
+# --- Response index (CLIMEX) ---
+test_rast <- terra::rast(nrows = 10, ncols = 10, xmin = 0, xmax = 10, ymin = 0, ymax = 10, crs = "EPSG:4326")
+terra::values(test_rast) <- seq(0, 40, length.out = 100)
+resp <- compute_response_index(test_rast, 10, 20, 30, 40)
+if (!inherits(resp, "SpatRaster")) stop("compute_response_index failed.", call. = FALSE)
+resp_vals <- terra::values(resp, na.rm = TRUE)
+if (any(resp_vals < 0 | resp_vals > 1)) stop("compute_response_index values out of [0,1].", call. = FALSE)
+
+# --- ODMAP report with synthetic result ---
+synthetic_result <- list(
+  config = list(species = "Test", model_id = "glm", projection_extent = c(140, 160, -40, -20), threshold = 0.5, aggregation_factor = 1),
+  occurrence = data.frame(x = c(140, 145), y = c(-30, -35)),
+  occurrence_used = data.frame(x = c(140, 145), y = c(-30, -35)),
+  model_info = list(id = "glm", label = "GLM"),
+  cv = list(auc_mean = 0.75, auc_sd = 0.05, tss_mean = 0.5, tss_sd = 0.1, strategy = "random", k = 3),
+  metrics = list(cbi = 0.8),
+  cleaning = list(removed_bad_coordinates = 0, removed_duplicates = 0, original_rows = 2),
+  covariates = c("bio1", "bio12"),
+  paths = list(tif = NA_character_)
+)
+tmp_csv <- tempfile(fileext = ".csv")
+tmp_md <- tempfile(fileext = ".md")
+odmap_result <- tryCatch(write_odmap_report(synthetic_result, tmp_csv, tmp_md), error = function(e) NULL)
+if (is.null(odmap_result) || !file.exists(tmp_csv)) stop("write_odmap_report failed.", call. = FALSE)
+csv_lines <- readLines(tmp_csv)
+if (!any(grepl("AUC,0.750", csv_lines))) stop("ODMAP CSV missing AUC value.", call. = FALSE)
+if (!file.exists(tmp_md)) stop("ODMAP Markdown report not written.", call. = FALSE)
+
+# --- Manifest generation ---
+tmp_manifest_dir <- tempfile()
+dir.create(tmp_manifest_dir)
+manifest_result <- tryCatch(write_manifest(synthetic_result, tmp_manifest_dir, "test"), error = function(e) NULL)
+manifest_path <- file.path(tmp_manifest_dir, "test_manifest.json")
+if (is.null(manifest_result) || !file.exists(manifest_path)) stop("write_manifest failed.", call. = FALSE)
+manifest_content <- jsonlite::read_json(manifest_path)
+if (is.null(manifest_content$model_id) || manifest_content$model_id != "glm") stop("Manifest model_id incorrect.", call. = FALSE)
+
+# --- VIF selection ---
+set.seed(42)
+vif_test_data <- matrix(rnorm(100 * 5), ncol = 5)
+colnames(vif_test_data) <- paste0("bio", c(1, 4, 12, 5, 6))
+vif_result <- tryCatch(compute_vif(vif_test_data), error = function(e) NULL)
+if (!is.null(vif_result) && !is.na(vif_result[1])) {
+  cat("[fast] compute_vif returned values.\n")
+}
+
+# --- Calibration ---
+cal_test_data <- data.frame(
+  observed = c(rep(1, 50), rep(0, 50)),
+  predicted = c(runif(50, 0.4, 1.0), runif(50, 0.0, 0.6))
+)
+cal_result <- tryCatch(compute_calibration(cal_test_data, n_bins = 5), error = function(e) NULL)
+if (!is.null(cal_result) && is.data.frame(cal_result)) {
+  if (!"bin" %in% names(cal_result)) stop("compute_calibration missing bin column.", call. = FALSE)
+  cat("[fast] compute_calibration passed.\n")
+}
+
 cat("SDM smoke test passed. Modules source correctly.\n")
+
+# ============================================================================
+# HEAVY TESTS (require climate data, optional packages)
+# ============================================================================
 
 test_multi_ensemble_smoke <- function() {
   cat("[multi_ensemble smoke] starting...\n")
@@ -70,7 +232,7 @@ test_multi_ensemble_smoke <- function() {
     cat("[multi_ensemble smoke] skipped: maxnet not installed\n")
     return(invisible(NULL))
   }
-  if (!"maxnet" %in% unname(sdm_model_choices())) {
+  if (!"maxnet" %in% sdm_model_ids()) {
     cat("[multi_ensemble smoke] skipped: maxnet not in model registry\n")
     return(invisible(NULL))
   }
@@ -161,7 +323,7 @@ test_esm_smoke <- function() {
     cat("[esm_glm smoke] skipped: biomod2 >= 4.3.0 has ecospat ESM incompatibility\n")
     return(invisible(NULL))
   }
-  if (!"esm_glm" %in% unname(sdm_model_choices())) {
+  if (!"esm_glm" %in% sdm_model_ids()) {
     cat("[esm_glm smoke] skipped: esm_glm not in model registry\n")
     return(invisible(NULL))
   }
@@ -299,8 +461,12 @@ test_batch_runner_smoke <- function() {
   cat("[batch_runner smoke] passed (auc_mean=", round(result[[1]]$cv$auc_mean, 3), ")\n", sep = "")
 }
 
+# ============================================================================
+# TAG DISPATCH
+# ============================================================================
+
 if (has_tag("fast")) {
-  cat("[fast] Parse check and function assertions passed.\n")
+  cat("[fast] Parse check, function assertions, and helper tests passed.\n")
 }
 if (has_tag("heavy") || has_tag("ensemble")) {
   test_multi_ensemble_smoke()
