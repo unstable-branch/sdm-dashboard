@@ -334,40 +334,75 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
 
                 try {
                   status = await client.getClimateStatus(climateJobId);
-                  const runStatus = (status as any).status;
-                  const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log : [];
+                  const runStatus = (status as any).status as string;
+                  const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log as string[] : [];
 
-                  if (runStatus === "running") {
+                  if (runStatus === "running" || runStatus === "partial") {
                     const pct = (() => {
                       for (const line of logs) {
                         const m = line.match(/\[(\d+)%\]/);
-                        if (m) return Math.min(100, parseInt(m[1], 10));
+                        if (m) {
+                          const val = parseInt(m[1], 10);
+                          if (val >= 0 && val <= 100) return val;
+                        }
                       }
                       return Math.min(90, 10 + Math.round(logs.length * 0.4));
                     })();
                     await job.updateProgress(pct);
-                    jobEventBus.emitJobStatus({ jobId: job.id!, state: "active", progress: pct, logs });
-                  }
-
-                  if (runStatus === "completed" || runStatus === "failed") {
-                    completed = true;
-                    const error = (status as any).error;
-
-                    result = {
-                      status: runStatus === "completed" ? "success" : "error",
-                      data: status,
-                      error: error as string | undefined,
-                    };
-
-                    await job.updateProgress(100);
                     jobEventBus.emitJobStatus({
                       jobId: job.id!,
-                      state: runStatus === "completed" ? "completed" : "failed",
-                      progress: 100,
+                      state: runStatus,
+                      progress: pct,
                       logs,
-                      result: status,
-                      failedReason: error as string | undefined,
                     });
+                  }
+
+                  if (runStatus === "completed" || runStatus === "failed" || runStatus === "partial") {
+                    completed = true;
+                    const error = (status as any).error as string | undefined;
+                    const failedVars = (status as any).failed_vars as number[] | undefined;
+
+                    if (runStatus === "partial") {
+                      result = {
+                        status: "success",
+                        data: status,
+                        error: error || "Some layers failed to download",
+                      };
+                      await job.updateProgress(100);
+                      jobEventBus.emitJobStatus({
+                        jobId: job.id!,
+                        state: "completed",
+                        progress: 100,
+                        logs,
+                        result: status,
+                        failedReason: error || undefined,
+                      });
+                    } else {
+                      result = {
+                        status: runStatus === "completed" ? "success" : "error",
+                        data: status,
+                        error,
+                      };
+                      await job.updateProgress(100);
+                      jobEventBus.emitJobStatus({
+                        jobId: job.id!,
+                        state: runStatus,
+                        progress: 100,
+                        logs,
+                        result: status,
+                        failedReason: error,
+                      });
+                    }
+
+                    if (failedVars && failedVars.length > 0) {
+                      jobEventBus.emitJobStatus({
+                        jobId: job.id!,
+                        state: "warning",
+                        progress: 100,
+                        result: { ...status, failed_vars: failedVars },
+                        failedReason: `Failed layers: ${failedVars.join(", ")}`,
+                      });
+                    }
                   }
                 } catch {
                   attempts++;

@@ -7,6 +7,10 @@ sdm_default_occurrence_file <- "presence_data.csv"
 sdm_demo_occurrence_file <- file.path("data", "examples", "synthetic_presence_data.csv")
 sdm_default_worldclim_dir <- "Worldclim"
 sdm_default_chelsa_dir <- "chelsa"
+sdm_default_chelsa_url <- Sys.getenv("SDM_CHELSA_URL", "https://envicloud.wsl.ch/links/chelsaV21/climatologies/")
+sdm_default_chelsa_timeout <- as.integer(Sys.getenv("SDM_CHELSA_TIMEOUT_SECONDS", "300"))
+sdm_default_chelsa_retries <- as.integer(Sys.getenv("SDM_CHELSA_RETRIES", "3"))
+sdm_geodata_cache_url <- Sys.getenv("SDM_GEODATA_CACHE_URL", "")
 sdm_default_future_worldclim_dir <- "Worldclim_future"
 sdm_default_output_dir <- "outputs"
 sdm_default_covariate_cache_dir <- "covariates"

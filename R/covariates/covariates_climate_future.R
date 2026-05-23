@@ -3,9 +3,16 @@
 
 fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period = "2061-2080",
                                   var = "bioc", res = 10, out_dir = "Worldclim_future",
-                                  quiet = FALSE, ...) {
+                                  quiet = FALSE, log_fun = NULL, ...) {
   if (!requireNamespace("geodata", quietly = TRUE)) {
     stop("geodata package required for CMIP6 download. Install with: install.packages('geodata')")
+  }
+
+  # Configurable geodata cache URL (Fix 11)
+  cache_url <- get_geodata_cache_url()
+  if (nzchar(cache_url)) {
+    options(gdal_cloud_cache_dir = cache_url)
+    log_message(log_fun, "Using GDAL cache URL: ", cache_url)
   }
 
   ssp_map <- c("SSP1-2.6" = "126", "SSP2-4.5" = "245", "SSP3-7.0" = "370", "SSP5-8.5" = "585")
@@ -15,8 +22,15 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
 
   cache_subdir <- file.path(out_dir, paste(gcm, ssp, period, sep = "_"))
   if (dir.exists(cache_subdir)) {
-    if (!quiet) message("Using cached CMIP6 data: ", cache_subdir)
-    return(list(dir = cache_subdir, cached = TRUE))
+    # Verify the cached directory has expected files (Fix 7)
+    expected_files <- file.path(cache_subdir, sprintf("wc2.1_%sm_bioc_%d.tif", res, 1:19))
+    missing_files <- expected_files[!file.exists(expected_files)]
+    if (length(missing_files) == 0) {
+      if (!quiet) message("Using cached CMIP6 data: ", cache_subdir)
+      return(list(dir = cache_subdir, cached = TRUE))
+    } else {
+      if (!quiet) message("Cache incomplete (", length(missing_files), " files missing), re-downloading: ", cache_subdir)
+    }
   }
 
   if (!quiet) message("Downloading CMIP6 ", gcm, " ", ssp, " ", period, "...")
@@ -64,8 +78,26 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
         }
         list(dir = cache_subdir, cached = FALSE, raster = out)
       }
+
+      # Verify critical layers exist after download (Fix 7)
+      critical_biovars <- c(1, 12)
+      missing_critical <- character()
+      for (bv in critical_biovars) {
+        expected_path <- file.path(cache_subdir, sprintf("wc2.1_%sm_bioc_%d.tif", res, bv))
+        if (!file.exists(expected_path)) missing_critical <- c(missing_critical, paste0("bio", bv))
+      }
+      if (length(missing_critical) > 0) {
+        stop("CMIP6 download incomplete — missing critical layer(s): ", paste(missing_critical, collapse = ", "),
+             ". GCM: ", gcm, " SSP: ", ssp, " Period: ", period)
+      }
+
+      list(dir = cache_subdir, cached = FALSE, raster = out)
     },
     error = function(e) {
+      # Cleanup partial download on failure (Fix 10)
+      if (dir.exists(cache_subdir)) {
+        unlink(cache_subdir, recursive = TRUE, force = TRUE)
+      }
       message("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
       message("Troubleshooting: Check internet connection, try a different GCM/SSP/period")
       stop("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))

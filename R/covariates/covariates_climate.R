@@ -77,6 +77,149 @@ find_chelsa_extra_files <- function(worldclim_dir, selected_extras = names(chels
   matched
 }
 
+# Configurable CHELSA URL (Fix 1)
+get_chelsa_url <- function() {
+  getOption("sdm.chelsa.url", sdm_default_chelsa_url)
+}
+
+# Configurable CHELSA timeout (Fix 6)
+get_chelsa_timeout <- function() {
+  as.integer(getOption("sdm.chelsa.timeout", sdm_default_chelsa_timeout))
+}
+
+# Configurable CHELSA retry count (Fix 2)
+get_chelsa_retries <- function() {
+  as.integer(getOption("sdm.chelsa.retries", sdm_default_chelsa_retries))
+}
+
+# Configurable geodata cache URL (Fix 11)
+get_geodata_cache_url <- function() {
+  opts <- getOption("sdm.geodata.cache.url")
+  if (nzchar(opts %||% "")) return(opts)
+  if (nzchar(sdm_geodata_cache_url)) return(sdm_geodata_cache_url)
+  ""
+}
+
+# Check if partial file exists and get its size (Fix 12 - resume support)
+get_partial_file_size <- function(path) {
+  if (file.exists(path)) {
+    fi <- file.info(path)
+    if (!is.na(fi$size) && fi$size > 0) as.integer(fi$size) else NA_integer_
+  } else {
+    NA_integer_
+  }
+}
+
+# HTTP HEAD request to get content-length (Fix 12)
+get_content_length <- function(url, timeout = 30) {
+  tryCatch({
+    handle <- curl::new_handle(customrequest = "HEAD", timeout = timeout)
+    response <- curl::curl_fetch_memory(url, handle = handle)
+    headers <- response$headers
+    if (is.null(headers)) return(NULL)
+    header_str <- rawToChar(headers)
+    matches <- regmatches(header_str, regexpr("content-length:\\s*(\\d+)", header_str, ignore.case = TRUE))
+    if (length(matches) == 0) return(NULL)
+    as.integer(gsub("\\D", "", matches))
+  }, error = function(e) NULL)
+}
+
+# Improved GeoTIFF validation — checks magic bytes AND tries to open with terra (Fix 3)
+validate_geotiff <- function(path) {
+  if (!file.exists(path)) return(FALSE)
+  con <- file(path, "rb")
+  bytes <- readBin(con, "raw", n = 4)
+  close(con)
+  if (length(bytes) < 4) return(FALSE)
+  # II*\x00 = TIFF magic (little-endian); MM\x00* = BigTIFF (big-endian)
+  if (identical(bytes[1:2], as.raw(c(0x49, 0x49))) && identical(bytes[3:4], as.raw(c(0x2A, 0x00)))) {
+    tryCatch({
+      r <- terra::rast(path)
+      terra::nlyr(r) >= 1
+    }, error = function(e) FALSE)
+  } else if (identical(bytes[1:2], as.raw(c(0x4D, 0x4D))) && identical(bytes[3:4], as.raw(c(0x00, 0x2A)))) {
+    tryCatch({
+      r <- terra::rast(path)
+      terra::nlyr(r) >= 1
+    }, error = function(e) FALSE)
+  } else if (identical(bytes[1:3], as.raw(c(0x47, 0x49, 0x46)))) {
+    FALSE
+  } else {
+    FALSE
+  }
+}
+
+# Legacy helper — kept for compatibility with any direct callers
+is_valid_geotiff <- function(path) {
+  validate_geotiff(path)
+}
+
+# Download a single CHELSA file with retry, timeout, and resume support (Fix 2 + Fix 6 + Fix 12)
+download_chelsa_file <- function(url, dest, log_fun = NULL) {
+  retries <- get_chelsa_retries()
+  timeout <- get_chelsa_timeout()
+  expected_size <- get_content_length(url, timeout = min(timeout, 30))
+
+  for (attempt in seq_len(retries)) {
+    if (attempt > 1) {
+      backoff <- 2 ^ (attempt - 1)
+      log_message(log_fun, "  Retry ", attempt, "/", retries, " after ", backoff, "s...")
+      Sys.sleep(backoff)
+    }
+
+    partial_size <- get_partial_file_size(dest)
+    tmp <- tempfile(fileext = ".tif")
+
+    fetch_ok <- tryCatch({
+      handle <- curl::new_handle(timeout = timeout)
+
+      if (!is.na(partial_size) && !is.null(expected_size) && partial_size < expected_size) {
+        log_message(log_fun, "  Resuming from byte ", partial_size, " (expected ", expected_size, ")")
+        curl::handle_setheaders(handle, Range = sprintf("bytes=%d-", partial_size))
+        resp <- curl::curl_fetch_disk(url, tmp, handle = handle)
+        fi <- file.info(tmp)
+        if (!is.na(fi$size) && !is.na(partial_size)) {
+          new_size <- partial_size + fi$size
+          if (!is.null(expected_size) && new_size < expected_size * 0.99) {
+            log_message(log_fun, "  Resumed file size (", new_size, ") < expected (", expected_size, ") — re-downloading from scratch")
+            unlink(tmp, force = TRUE)
+            partial_size <<- NA_integer_
+            return(FALSE)
+          }
+        }
+      } else {
+        resp <- curl::curl_fetch_disk(url, tmp, handle = handle)
+      }
+      fi <- file.info(tmp)
+      !is.na(fi$size) && fi$size > 1024
+    }, error = function(e) {
+      log_message(log_fun, "  Attempt ", attempt, " error: ", conditionMessage(e))
+      if (file.exists(tmp)) unlink(tmp, force = TRUE)
+      FALSE
+    })
+
+    if (fetch_ok && file.exists(tmp) && file.info(tmp)$size > 1024) {
+      if (validate_geotiff(tmp)) {
+        if (!is.na(partial_size) && file.exists(dest)) {
+          file.remove(dest)
+        }
+        file.rename(tmp, dest)
+        log_message(log_fun, "  Downloaded: ", basename(dest))
+        return(TRUE)
+      } else {
+        log_message(log_fun, "  Invalid GeoTIFF (failed terra validation): ", basename(dest))
+        unlink(tmp, force = TRUE)
+      }
+    } else {
+      if (file.exists(tmp)) unlink(tmp, force = TRUE)
+      log_message(log_fun, "  Attempt ", attempt, " failed (fetch or size check)")
+    }
+  }
+
+  log_message(log_fun, "  All ", retries, " attempts exhausted for: ", basename(dest))
+  FALSE
+}
+
 download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa_extra_vars),
                                    log_fun = NULL, n_cores = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
@@ -86,7 +229,9 @@ download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa
   dir.create(worldclim_dir, recursive = TRUE, showWarnings = FALSE)
   log_message(log_fun, "Downloading CHELSA bioclim-plus extra variables to ", worldclim_dir)
 
-  base_url <- "https://envicloud.wsl.ch/links/chelsaV21/climatologies/"
+  base_url <- get_chelsa_url()
+  failed <- character()
+
   for (var in selected_extras) {
     fname <- sprintf("CHELSA_%s_1981-2010_V.2.1.tif", var)
     dest <- file.path(worldclim_dir, fname)
@@ -95,31 +240,31 @@ download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa
       next
     }
     url <- paste0(base_url, fname)
-    tmp <- tempfile(fileext = ".tif")
-    ok <- tryCatch(
-      {
-        curl::curl_fetch_disk(url, tmp)
-        fi <- file.info(tmp)
-        !is.na(fi$size) && fi$size > 1024
-      },
-      error = function(e) FALSE
-    )
-    if (ok && file.exists(tmp) && file.info(tmp)$size > 1024) {
-      file.rename(tmp, dest)
-      log_message(log_fun, "Downloaded CHELSA extra: ", var)
-    } else {
-      log_message(log_fun, "Failed to download CHELSA extra: ", var, " — URL: ", url)
-      if (file.exists(tmp)) unlink(tmp, force = TRUE)
+    success <- download_chelsa_file(url, dest, log_fun)
+    if (!success) {
+      failed <- c(failed, var)
     }
   }
-  invisible(find_chelsa_extra_files(worldclim_dir, selected_extras))
+
+  list(
+    files = find_chelsa_extra_files(worldclim_dir, selected_extras),
+    failed = failed
+  )
 }
 
 download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, log_fun = NULL, n_cores = NULL) {
   ensure_sdm_packages(c("terra", "geodata"), n_cores = n_cores)
   dir.create(worldclim_dir, recursive = TRUE, showWarnings = FALSE)
+
+  cache_url <- get_geodata_cache_url()
+  if (nzchar(cache_url)) {
+    options(gdal_cloud_cache_dir = cache_url)
+    log_message(log_fun, "Using GDAL cache URL: ", cache_url)
+  }
+
   log_message(log_fun, "Downloading WorldClim BIO layers to ", worldclim_dir, " (resolution ", res, " arc-min)")
   wc <- geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir)
+  failed <- character()
   for (bv in as.integer(selected_biovars)) {
     idx <- grep(sprintf("bio_?%d$", bv), names(wc), ignore.case = TRUE)
     if (length(idx) == 0) idx <- grep(sprintf("bio%02d$", bv), names(wc), ignore.case = TRUE)
@@ -130,11 +275,17 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
         wr <- try(terra::writeRaster(wc[[idx[1]]], out, overwrite = TRUE), silent = TRUE)
         if (inherits(wr, "try-error")) {
           log_message(log_fun, "Warning: failed to write ", basename(out), ": ", attr(wr, "condition")$message)
+          failed <- c(failed, bv)
         }
       }
+    } else {
+      failed <- c(failed, bv)
     }
   }
-  invisible(find_worldclim_files(worldclim_dir, selected_biovars))
+  list(
+    files = find_worldclim_files(worldclim_dir, selected_biovars),
+    failed = failed
+  )
 }
 
 download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_cores = NULL) {
@@ -145,50 +296,48 @@ download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_
   dir.create(chelsa_dir, recursive = TRUE, showWarnings = FALSE)
   log_message(log_fun, "Downloading CHELSA v2.1 BIO layers to ", chelsa_dir)
 
-  base_url <- "https://envicloud.wsl.ch/links/chelsaV21/climatologies/"
-  for (bv in as.integer(selected_biovars)) {
+  base_url <- get_chelsa_url()
+  biovars <- as.integer(selected_biovars)
+
+  # Determine parallel workers — use at most length(biovars) but cap at n_cores
+  n_workers <- min(length(biovars), max(1L, n_cores %||% 2L))
+
+  log_message(log_fun, "Downloading ", length(biovars), " BIO layers using ", n_workers, " workers")
+
+  # Parallel download using parallel::mclapply
+  results <- parallel::mclapply(biovars, function(bv) {
     bio_num <- if (bv < 10) sprintf("bio0%d", bv) else sprintf("bio%d", bv)
     fname <- sprintf("CHELSA_%s_1979-2013_V.2.1.tif", bio_num)
     dest <- file.path(chelsa_dir, fname)
+
     if (file.exists(dest)) {
-      log_message(log_fun, "CHELSA BIO already exists: ", fname)
-      next
-    }
-    url <- paste0(base_url, fname)
-    tmp <- tempfile(fileext = ".tif")
-    ok <- tryCatch(
-      {
-        resp <- curl::curl_fetch_disk(url, tmp)
-        fi <- file.info(tmp)
-        !is.na(fi$size) && fi$size > 1024
-      },
-      error = function(e) FALSE
-    )
-    if (ok && file.exists(tmp) && file.info(tmp)$size > 1024) {
-      if (is_valid_geotiff(tmp)) {
-        file.rename(tmp, dest)
-        log_message(log_fun, "Downloaded CHELSA BIO: ", bv)
-      } else {
-        log_message(log_fun, "Downloaded file is not a valid GeoTIFF: ", fname)
-        unlink(tmp, force = TRUE)
+      if (validate_geotiff(dest)) {
+        return(list(success = TRUE, bio = bv, file = dest))
       }
-    } else {
-      log_message(log_fun, "Failed to download CHELSA BIO ", bv, " — URL: ", url)
-      if (file.exists(tmp)) unlink(tmp, force = TRUE)
+    }
+
+    url <- paste0(base_url, fname)
+    success <- download_chelsa_file(url, dest, log_fun)
+    list(success = success, bio = bv, file = if (success) dest else NA_character_)
+  }, mc.cores = n_workers, mc.preschedule = FALSE)
+
+  failed_biovars <- character()
+  for (res_item in results) {
+    if (!res_item$success) {
+      failed_biovars <- c(failed_biovars, res_item$bio)
     }
   }
-  invisible(find_worldclim_files(chelsa_dir, selected_biovars, source = "chelsa"))
-}
 
-is_valid_geotiff <- function(path) {
-  if (!file.exists(path)) return(FALSE)
-  con <- file(path, "rb")
-  bytes <- readBin(con, "raw", n = 4)
-  close(con)
-  if (length(bytes) < 4) return(FALSE)
-  if (identical(bytes[1:2], as.raw(c(0x49, 0x49))) && identical(bytes[3:4], as.raw(c(0x2A, 0x00)))) return(TRUE)
-  if (identical(bytes[1:3], as.raw(c(0x47, 0x49, 0x46)))) return(FALSE)
-  FALSE
+  files <- find_worldclim_files(chelsa_dir, biovars, source = "chelsa")
+
+  if (length(failed_biovars) > 0) {
+    log_message(log_fun, "Warning: failed to download CHELSA BIO: ", paste(failed_biovars, collapse = ", "))
+  }
+
+  list(
+    files = files,
+    failed = failed_biovars
+  )
 }
 
 crop_and_optionally_aggregate <- function(r, extent_vec, aggregation_factor = 1) {
@@ -217,9 +366,14 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
   files <- find_worldclim_files(worldclim_dir, selected_biovars, source = source)
   if (any(is.na(files)) && allow_download) {
     if (identical(source, "chelsa")) {
-      files <- download_chelsa_bio(worldclim_dir, selected_biovars, log_fun, n_cores)
+      result <- download_chelsa_bio(worldclim_dir, selected_biovars, log_fun, n_cores)
+      files <- result$files
+      if (length(result$failed) > 0 && identical(source, "chelsa")) {
+        log_message(log_fun, "Partial failure: ", length(result$failed), " CHELSA BIO layers failed to download")
+      }
     } else {
-      files <- download_worldclim_bio(worldclim_dir, selected_biovars, worldclim_res, log_fun, n_cores)
+      result <- download_worldclim_bio(worldclim_dir, selected_biovars, worldclim_res, log_fun, n_cores)
+      files <- result$files
     }
   }
   if (any(is.na(files))) {
@@ -242,6 +396,9 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
     if (length(missing_extras) > 0 && allow_download) {
       downloaded <- download_chelsa_extras(worldclim_dir, missing_extras, log_fun, n_cores)
       chelsa_files <- find_chelsa_extra_files(worldclim_dir, selected_chelsa_extras)
+      if (length(downloaded$failed) > 0) {
+        log_message(log_fun, "Partial failure: ", length(downloaded$failed), " CHELSA extra vars failed to download")
+      }
     }
     valid_extras <- chelsa_files[!is.na(chelsa_files)]
     if (length(valid_extras) > 0) {
