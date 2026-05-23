@@ -19,8 +19,9 @@ const PROJECT_ROOT = resolve(__dirname, "../../..");
 
 export const sdmRoutes = new Hono<AppEnv>();
 
-sdmRoutes.use("*", modelRateLimit);
+sdmRoutes.use("/run", modelRateLimit);
 sdmRoutes.use("/run", authMiddleware);
+sdmRoutes.use("/batch", modelRateLimit);
 sdmRoutes.use("/batch", authMiddleware);
 sdmRoutes.use("/cancel/*", authMiddleware);
 sdmRoutes.use("/runs/delete/*", authMiddleware);
@@ -218,7 +219,7 @@ sdmRoutes.post("/run", async (c) => {
           const status = await plumberClient.getModelStatus(plumberJobId);
           const runStatus = (status as any).status;
 
-          if (runStatus === "completed" || runStatus === "failed") {
+          if (runStatus === "completed" || runStatus === "failed" || runStatus === "cancelled") {
             completed = true;
             const error = (status as any).error;
 
@@ -226,10 +227,10 @@ sdmRoutes.post("/run", async (c) => {
               .update(runs)
               .set({
                 status: runStatus,
-                metrics: (status as any).metrics ?? null,
-                outputFiles: (status as any).output_files ?? null,
+                metrics: runStatus === "completed" ? (status as any).metrics ?? null : null,
+                outputFiles: runStatus === "completed" ? (status as any).output_files ?? null : null,
                 error: error ?? null,
-                completedAt: runStatus === "completed" ? new Date() : null,
+                completedAt: runStatus !== "running" ? new Date() : null,
               })
               .where(eq(runs.id, run.id));
 
@@ -394,15 +395,15 @@ sdmRoutes.get("/status/:jobId", async (c) => {
         const plumberOutputFiles = (plumberStatus as any).output_files;
         const plumberError = (plumberStatus as any).error;
 
-        if (plumberRunStatus === "completed" || plumberRunStatus === "failed") {
+        if (plumberRunStatus === "completed" || plumberRunStatus === "failed" || plumberRunStatus === "cancelled") {
           await db
             .update(runs)
             .set({
               status: plumberRunStatus as any,
-              metrics: plumberMetrics ?? null,
-              outputFiles: plumberOutputFiles ?? null,
+              metrics: plumberRunStatus === "completed" ? plumberMetrics ?? null : null,
+              outputFiles: plumberRunStatus === "completed" ? plumberOutputFiles ?? null : null,
               error: plumberError ?? null,
-              completedAt: plumberRunStatus === "completed" ? new Date() : null,
+              completedAt: plumberRunStatus !== "running" ? new Date() : null,
             })
             .where(eq(runs.id, jobId));
 
