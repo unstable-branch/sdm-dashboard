@@ -232,18 +232,40 @@ jobs:
 
       - name: Start services and verify health
         run: |
+          dump_logs() {
+            docker compose -f docker-compose.yml ps
+            docker compose -f docker-compose.yml logs --no-color --tail=200 plumber api frontend
+          }
+
+          wait_for() {
+            local name="$1"
+            local url="$2"
+            local attempts="${3:-36}"
+            local delay="${4:-5}"
+
+            for attempt in $(seq 1 "$attempts"); do
+              if curl -sf "$url"; then
+                echo "$name health check passed"
+                return 0
+              fi
+              echo "$name not ready yet ($attempt/$attempts)"
+              sleep "$delay"
+            done
+
+            echo "$name health check failed"
+            dump_logs
+            return 1
+          }
+
           docker compose -f docker-compose.yml up -d postgres redis garage
           docker compose -f docker-compose.yml up -d plumber
           docker compose -f docker-compose.yml up -d api
           docker compose -f docker-compose.yml up -d frontend
 
-          : "Waiting for services to become healthy"
-          sleep 10
-
           : "Health checks"
-          curl -sf http://localhost:8000/health || { echo "Plumber health failed"; exit 1; }
-          curl -sf http://localhost:4000/health || { echo "API health failed"; exit 1; }
-          curl -sf http://localhost:3000/ || { echo "Frontend health failed"; exit 1; }
+          wait_for Plumber http://localhost:8000/health
+          wait_for API http://localhost:4000/health
+          wait_for Frontend http://localhost:3000/
 
       - name: Run Playwright e2e tests
         run: |
