@@ -162,6 +162,14 @@ register_sdm_model(
   predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
     log_message(log_fun, "  Predicting Rangebagging component")
     predict_rangebag_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+  },
+  fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+    fit_rangebag_sdm(
+      occ = occ, env_train_scaled = env_train_scaled,
+      background_n = background_n,
+      cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+      log_fun = log_fun
+    )
   }
 )
 
@@ -237,6 +245,16 @@ if (requireNamespace("maxnet", quietly = TRUE)) {
     predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
       log_message(log_fun, "  Predicting MaxNet component")
       predict_maxnet_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+      fit_maxnet_sdm(
+        occ = occ, env_train_scaled = env_train_scaled,
+        background_n = background_n, include_quadratic = include_quadratic,
+        cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+        log_fun = log_fun, maxnet_features = maxnet_features,
+        maxnet_regmult = maxnet_regmult,
+        cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+      )
     }
   )
 }
@@ -311,6 +329,10 @@ if (requireNamespace("ranger", quietly = TRUE)) {
       )
     }
   )
+}
+
+# XGBoost — conditional registration (depends on xgboost, NOT ranger)
+if (requireNamespace("xgboost", quietly = TRUE)) {
   register_sdm_model(
     id = "xgboost",
     label = "BRT / XGBoost",
@@ -342,25 +364,24 @@ if (requireNamespace("ranger", quietly = TRUE)) {
       )
     }
   )
+}
 
-  # DNN (cito/torch) — conditional registration
-  if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietly = TRUE)) {
-    register_sdm_model(
-      id = "dnn",
-      label = "DNN (cito/torch)",
-      method = "Deep Neural Network via cito with torch backend",
-      packages = c("cito", "torch"),
-      maturity = "experimental",
-      fit_fun = function(...) fit_dnn_sdm(...),
-      predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
-        predict_dnn_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
-      },
-      supports_importance = FALSE,
-      supports_uncertainty = FALSE,
-      supports_future = TRUE,
-      diagnostics = list(cv_auc = TRUE, cv_tss = TRUE),
-      notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration if CUDA available. Best with >100 records."
-    )
-  }
-
-} # end get_model_registry()
+# DNN (cito/torch) — conditional registration (depends on cito+torch, NOT ranger)
+if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietly = TRUE)) {
+  register_sdm_model(
+    id = "dnn",
+    label = "DNN (cito/torch)",
+    method = "Deep Neural Network via cito with torch backend",
+    packages = c("cito", "torch"),
+    maturity = "experimental",
+    fit_fun = function(...) fit_dnn_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_dnn_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = FALSE,
+    supports_future = TRUE,
+    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE),
+    notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration if CUDA available. Best with >100 records."
+  )
+}

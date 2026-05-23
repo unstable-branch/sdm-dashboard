@@ -703,7 +703,7 @@ sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
 }
 
 #' Run SDM pipeline: Stage 3 — Fit model
-sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL) {
+sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL, progress_fun = NULL) {
   log_message(log_fun, "Stage 3: Fitting model")
   extra_args <- list()
   # Build extra_args from cfg as in run_fast_sdm...
@@ -711,6 +711,7 @@ sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL) {
     model_id = cfg$model_id, occ = occ, env_train_scaled = env$env_train_scaled,
     background_n = cfg$background_n, include_quadratic = cfg$include_quadratic,
     cv_folds = cfg$cv_folds, seed = cfg$seed, n_cores = cfg$n_cores, log_fun = log_fun,
+    progress_fun = progress_fun,
     cv_strategy = cfg$cv_strategy, cv_block_size_km = cfg$cv_block_size_km,
     bias_method = cfg$bias_method, target_group_occ = cfg$target_group_occ,
     thickening_distance_km = cfg$thickening_distance_km
