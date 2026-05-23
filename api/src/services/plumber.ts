@@ -155,6 +155,15 @@ export class PlumberClient {
     return res.json();
   }
 
+  async deleteModelOutputs(jobId: string): Promise<{ ok: boolean; message: string; deleted: boolean }> {
+    const res = await fetch(`${this.baseUrl}/api/v1/models/delete/${jobId}`, {
+      method: "POST",
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to delete model outputs: ${res.status}`);
+    return res.json();
+  }
+
   async getModelRuns(): Promise<Array<Record<string, unknown>>> {
     const res = await fetch(`${this.baseUrl}/api/v1/models/runs`);
     if (!res.ok) throw new Error(`Failed to get model runs: ${res.status}`);

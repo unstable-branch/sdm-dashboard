@@ -8,14 +8,8 @@ import { eq, desc, count, and, inArray } from "drizzle-orm";
 import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
-import { join, resolve, dirname } from "path";
-import { fileURLToPath } from "url";
-import { existsSync, rmSync } from "fs";
+import { join } from "path";
 import type { AppEnv } from "../middleware/auth.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const PROJECT_ROOT = resolve(__dirname, "../../..");
 
 export const sdmRoutes = new Hono<AppEnv>();
 
@@ -536,10 +530,9 @@ sdmRoutes.delete("/runs/delete/:runId", async (c) => {
       return c.json({ error: "Cannot delete a running or queued run. Cancel it first." }, 400);
     }
 
-    const outputDir = join(PROJECT_ROOT, "outputs", "jobs", run.jobId || runId);
-
-    if (existsSync(outputDir)) {
-      rmSync(outputDir, { recursive: true, force: true });
+    // Delegate filesystem deletion to Plumber (owns the output directory)
+    if (run.jobId) {
+      await plumberClient.deleteModelOutputs(run.jobId).catch(() => {});
     }
 
     await db.delete(runs).where(eq(runs.id, runId));
@@ -564,14 +557,14 @@ sdmRoutes.post("/runs/clear-all", async (c) => {
       .from(runs)
       .where(inArray(runs.status, statusesToDelete as any));
 
-    let deletedDirs = 0;
+    let deletedCount = 0;
 
     for (const run of runsToDelete) {
-      const outputDir = join(PROJECT_ROOT, "outputs", "jobs", run.jobId || run.id);
-      if (existsSync(outputDir)) {
-        rmSync(outputDir, { recursive: true, force: true });
-        deletedDirs++;
+      // Delegate filesystem deletion to Plumber
+      if (run.jobId) {
+        await plumberClient.deleteModelOutputs(run.jobId).catch(() => {});
       }
+      deletedCount++;
     }
 
     if (runsToDelete.length > 0) {
@@ -581,7 +574,7 @@ sdmRoutes.post("/runs/clear-all", async (c) => {
     return c.json({
       ok: true,
       cleared: runsToDelete.length,
-      directoriesDeleted: deletedDirs,
+      directoriesDeleted: deletedCount,
       message: `Cleared ${runsToDelete.length} runs`,
     });
   } catch (err) {

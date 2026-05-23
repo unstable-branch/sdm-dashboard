@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { readFileSync, writeFileSync, mkdirSync, existsSync, accessSync, constants } from "fs";
+import { writeFileSync, mkdirSync, existsSync, accessSync, constants } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { plumberClient } from "../services/plumber.js";
@@ -105,8 +105,9 @@ dataRoutes.post("/occurrences/clean", async (c) => {
           .returning();
       }
 
-      const cleanedRecords = parseCsvRecords(cleanedFileId);
-      const validRecords = cleanedRecords.filter(
+      // Use cleaned_records from Plumber instead of re-parsing CSV
+      const cleanedRecords = (result as any).cleaned_records as Array<Record<string, unknown>> | undefined;
+      const validRecords = (cleanedRecords || []).filter(
         (r) => typeof r.longitude === "number" && typeof r.latitude === "number" && isFinite(r.longitude) && isFinite(r.latitude)
       );
 
@@ -137,60 +138,6 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     return c.json({ error: message }, 502);
   }
 });
-
-function parseCsvRecords(filePath: string): Array<Record<string, unknown>> {
-  try {
-    const content = readFileSync(filePath, "utf-8");
-    const lines = content.trim().split("\n");
-    if (lines.length < 2) return [];
-
-    const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
-    const records: Array<Record<string, unknown>> = [];
-
-    for (let i = 1; i < lines.length; i++) {
-      const values = parseCSVLine(lines[i]);
-      if (values.length !== headers.length) continue;
-
-      const record: Record<string, unknown> = {};
-      for (let j = 0; j < headers.length; j++) {
-        const val = values[j].trim();
-        const num = Number(val);
-        record[headers[j]] = isNaN(num) ? val : num;
-      }
-      records.push(record);
-    }
-
-    return records;
-  } catch {
-    return [];
-  }
-}
-
-function parseCSVLine(line: string): string[] {
-  const result: string[] = [];
-  let current = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (ch === "," && !inQuotes) {
-      result.push(current);
-      current = "";
-    } else {
-      current += ch;
-    }
-  }
-
-  result.push(current);
-  return result;
-}
 
 dataRoutes.post("/occurrences/gbif/search", gbifRateLimit, async (c) => {
   try {
