@@ -16,40 +16,74 @@ const CLIMATE_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.CLIMATE_DOWNLOAD_TIMEOU
 const CLIMATE_DOWNLOAD_POLL_INTERVAL_MS = parseInt(process.env.CLIMATE_DOWNLOAD_POLL_INTERVAL_MS || "3000", 10);
 const CLIMATE_DOWNLOAD_MAX_ATTEMPTS = Math.floor(CLIMATE_DOWNLOAD_TIMEOUT_MS / CLIMATE_DOWNLOAD_POLL_INTERVAL_MS);
 
+const REDIS_UNAVAILABLE_CODES = new Set([
+  "ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET",
+  "ENETUNREACH", "EHOSTUNREACH", "EPIPE",
+]);
+
+function isRedisUnavailableError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const msg = (err as { message?: string }).message ?? "";
+  if (REDIS_UNAVAILABLE_CODES.has(msg)) return true;
+  return msg.includes("Connection is closed") || msg.includes("connect ECONNREFUSED");
+}
+
+function disableRedis() {
+  _redisDisabled = true;
+  _connection = null;
+  _queue = null;
+  if (!_reconnectTimer) {
+    _reconnectTimer = setTimeout(() => {
+      _reconnectTimer = null;
+      _redisDisabled = false;
+    }, 30000);
+  }
+}
+
 function getConnection(): IORedis | null {
   if (_redisDisabled) return null;
   if (_connection) {
     if (_connection.status === "close" || _connection.status === "end") {
-      _redisDisabled = true;
+      disableRedis();
       return null;
     }
     return _connection;
   }
   _connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
     maxRetriesPerRequest: null,
+    lazyConnect: false,
+    enableReadyCheck: false,
     retryStrategy: (times) => {
-      if (times > 10) return null;
-      return Math.min(times * 100, 3000);
+      if (times > 3) {
+        disableRedis();
+        return null;
+      }
+      return Math.min(times * 200, 2000);
     },
-    lazyConnect: true,
-    enableReadyCheck: true,
   });
-  _connection.on("error", () => {});
-  _connection.connect().catch(() => {
-    _redisDisabled = true;
-    scheduleReconnect();
+  _connection.on("error", (err) => {
+    if (isRedisUnavailableError(err)) {
+      disableRedis();
+      return;
+    }
+    console.error("[ioredis] unexpected error:", err);
   });
+  try {
+    _connection.connect().catch((err) => {
+      if (isRedisUnavailableError(err)) {
+        disableRedis();
+        return;
+      }
+      console.error("[ioredis] connect error:", err);
+    });
+  } catch (err) {
+    if (isRedisUnavailableError(err)) {
+      disableRedis();
+      return null;
+    }
+    throw err;
+  }
   return _connection;
-}
-
-function scheduleReconnect() {
-  if (_reconnectTimer) return;
-  _reconnectTimer = setTimeout(() => {
-    _reconnectTimer = null;
-    _redisDisabled = false;
-    _connection = null;
-    _queue = null;
-  }, 30000);
 }
 
 function getQueue(): Queue | null {
