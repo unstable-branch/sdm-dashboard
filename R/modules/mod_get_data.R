@@ -147,10 +147,10 @@ mod_get_data_server <- function(id, rv, input) {
     }
 
     make_status_renderer("gd_worldclim_status", function() {
-      verify_worldclim_cache("Worldclim", source = input$gd_climate_source %||% "worldclim")
+      verify_worldclim_cache(sdm_default_worldclim_dir, source = input$gd_climate_source %||% "worldclim")
     })
     make_status_renderer("gd_chelsa_status", function() {
-      verify_chelsa_extras_cache("Worldclim")
+      verify_chelsa_extras_cache(sdm_default_chelsa_extras_dir)
     })
     make_status_renderer("gd_elevation_status", verify_elevation_cache)
     make_status_renderer("gd_soil_status", verify_soil_cache)
@@ -243,7 +243,7 @@ mod_get_data_server <- function(id, rv, input) {
     observeEvent(input$gd_verify_worldclim, {
       gd_append_log("Verifying WorldClim files...")
       v <- tryCatch(
-        verify_worldclim_cache("Worldclim", source = input$gd_climate_source %||% "worldclim"),
+        verify_worldclim_cache(sdm_default_worldclim_dir, source = input$gd_climate_source %||% "worldclim"),
         error = function(e) list(detail = paste("Error:", conditionMessage(e)))
       )
       gd_append_log(v$detail)
@@ -318,16 +318,16 @@ mod_get_data_server <- function(id, rv, input) {
         download_fun = function() {
           source(sdm_resolve_module("covariates_climate.R"))
           load_climate_covariates(
-            worldclim_dir = "Worldclim", selected_biovars = 1:19,
+            worldclim_dir = sdm_default_worldclim_dir, selected_biovars = 1:19,
             training_extent = NULL, projection_extent = NULL, aggregation_factor = 1,
             allow_download = TRUE, worldclim_res = res, source = source,
             selected_chelsa_extras = NULL, log_fun = function(...) cat(paste(...), "\n")
           )
           cat("WorldClim download complete.\n")
         },
-        verify_fun = function() verify_worldclim_cache("Worldclim", source = source),
+        verify_fun = function() verify_worldclim_cache(sdm_default_worldclim_dir, source = source),
         timeout_sec = 300, estimated_sec = 120,
-        notification_msg = paste0("WorldClim downloaded to ", file.path(sdm_project_root(), "Worldclim"))
+        notification_msg = paste0("WorldClim downloaded to ", file.path(sdm_project_root(), sdm_default_worldclim_dir))
       )
     })
 
@@ -349,13 +349,13 @@ mod_get_data_server <- function(id, rv, input) {
         label = "CHELSA extras",
         download_fun = function(extras) {
           source(sdm_resolve_module("covariates_climate.R"))
-          download_chelsa_extras("Worldclim", extras = extras, log_fun = function(...) cat(paste(...), "\n"))
+          download_chelsa_extras(sdm_default_chelsa_extras_dir, extras = extras, log_fun = function(...) cat(paste(...), "\n"))
           cat("CHELSA extras download complete.\n")
         },
         args = list(extras = extras),
-        verify_fun = function() verify_chelsa_extras_cache("Worldclim"),
+        verify_fun = function() verify_chelsa_extras_cache(sdm_default_chelsa_extras_dir),
         timeout_sec = 300, estimated_sec = 120,
-        notification_msg = paste0("CHELSA extras downloaded to ", file.path(sdm_project_root(), "Worldclim"))
+        notification_msg = paste0("CHELSA extras downloaded to ", file.path(sdm_project_root(), sdm_default_chelsa_extras_dir))
       )
     })
 
@@ -370,7 +370,7 @@ mod_get_data_server <- function(id, rv, input) {
           library(terra)
           source(sdm_resolve_module("covariates_climate_future.R"))
           fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = 10,
-                                 out_dir = "Worldclim_future", quiet = FALSE)
+                                 out_dir = sdm_default_future_worldclim_dir, quiet = FALSE)
           cat("CMIP6 download complete.\n")
         },
         args = list(gcm = gcm, ssp = ssp, period = period),
@@ -395,7 +395,7 @@ mod_get_data_server <- function(id, rv, input) {
           library(terra)
           source(sdm_resolve_module("covariates_climate_future.R"))
           average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc",
-                             res = 10, out_dir = "Worldclim_future", quiet = FALSE)
+                             res = 10, out_dir = sdm_default_future_worldclim_dir, quiet = FALSE)
           cat("GCM averaging complete.\n")
         },
         args = list(gcm_list = gcm_list, ssp = ssp, period = period),

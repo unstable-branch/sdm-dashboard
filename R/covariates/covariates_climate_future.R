@@ -58,7 +58,6 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
           out_path <- file.path(cache_subdir, sprintf("wc2.1_%sm_bioc_%d.tif", res, bv))
           terra::writeRaster(out[[bv]], out_path, overwrite = TRUE)
         }
-        list(dir = cache_subdir, cached = FALSE, raster = out)
       } else {
         if (!dir.exists(cache_subdir)) dir.create(cache_subdir, recursive = TRUE)
         tifs <- list.files(actual_path, pattern = "\\.tif$", full.names = TRUE, recursive = FALSE)
@@ -78,7 +77,6 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
             unlink(parent, recursive = TRUE, force = TRUE)
           }
         }
-        list(dir = cache_subdir, cached = FALSE, raster = out)
       }
 
       # Verify critical layers exist after download (Fix 7)
@@ -255,7 +253,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
     }
   }
 
-  baseline_dir <- "Worldclim"
+  baseline_dir <- sdm_default_worldclim_dir
   if (dir.exists(baseline_dir)) {
     for (bio in all_bio_vars) {
       mean_file <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, ".tif"))
