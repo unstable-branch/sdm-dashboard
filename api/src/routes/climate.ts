@@ -62,7 +62,17 @@ climateRoutes.post("/download", async (c) => {
         payload: body,
       },
       user.id
-    );
+    ).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("Redis unavailable")) {
+        return null;
+      }
+      throw err;
+    });
+
+    if (jobId === null) {
+      return c.json({ error: "Redis unavailable — climate download queuing is temporarily offline. Try again in 30 seconds." }, 503);
+    }
 
     return c.json({ jobId, status: "queued" });
   } catch (err) {
