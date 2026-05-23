@@ -5,6 +5,7 @@ import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
+import { extractProgressPercent } from "@sdm/shared";
 
 let _connection: IORedis | null = null;
 let _bullmqConnection: IORedis | null = null;
@@ -313,11 +314,8 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                   if (runStatus === "running" || runStatus === "partial") {
                     const pct = (() => {
                       for (let i = logs.length - 1; i >= 0; i--) {
-                        const m = logs[i].match(/\[(\d+)%\]/);
-                        if (m) {
-                          const val = parseInt(m[1], 10);
-                          if (val >= 0 && val <= 100) return val;
-                        }
+                        const p = extractProgressPercent(logs[i]);
+                        if (p !== undefined) return p;
                       }
                       return Math.min(90, 10 + Math.round(logs.length * 0.4));
                     })();

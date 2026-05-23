@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
-import { cacheResponse } from "../middleware/cache.js";
 
 vi.mock("ioredis", () => ({
-  Redis: class MockRedis {
+  default: class MockRedis {
     private store = new Map<string, string>();
 
     get = vi.fn((key: string) => Promise.resolve(this.store.get(key) || null));
@@ -19,13 +18,16 @@ vi.mock("ioredis", () => ({
       keys.forEach((k) => this.store.delete(k));
       return Promise.resolve(keys.length);
     });
+    on = vi.fn(() => {});
+    connect = vi.fn(() => Promise.resolve());
   },
 }));
 
 describe("cache middleware", () => {
   let app: Hono;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.resetModules();
     app = new Hono();
   });
 
@@ -34,6 +36,7 @@ describe("cache middleware", () => {
   });
 
   it("caches GET responses", async () => {
+    const { cacheResponse } = await import("../middleware/cache.js");
     let callCount = 0;
     app.use("/cached", cacheResponse({ ttl: 60, keyPrefix: "test" }));
     app.get("/cached", (c) => {
@@ -51,6 +54,7 @@ describe("cache middleware", () => {
   });
 
   it("does not cache POST requests", async () => {
+    const { cacheResponse } = await import("../middleware/cache.js");
     let callCount = 0;
     app.use("/api", cacheResponse({ ttl: 60, keyPrefix: "test" }));
     app.post("/api", (c) => {
@@ -65,6 +69,7 @@ describe("cache middleware", () => {
   });
 
   it("respects method filter", async () => {
+    const { cacheResponse } = await import("../middleware/cache.js");
     let callCount = 0;
     app.use("/filtered", cacheResponse({ ttl: 60, keyPrefix: "test", methods: ["GET"] }));
     app.get("/filtered", (c) => {

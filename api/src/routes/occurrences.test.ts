@@ -56,52 +56,43 @@ describe("data routes", () => {
   });
 
   describe("GET /species", () => {
-    it("returns paginated species list", async () => {
+    it("returns species list", async () => {
       const { db } = await import("../db");
       (db.select as any)
         .mockReturnValueOnce({
           from: vi.fn(() => ({
             orderBy: vi.fn(() => ({
-              limit: vi.fn(() => ({
-                offset: vi.fn(() => Promise.resolve([
-                  { id: "sp-1", name: "Species A", occurrenceCount: 10, createdAt: new Date() },
-                  { id: "sp-2", name: "Species B", occurrenceCount: 20, createdAt: new Date() },
-                ])),
-              })),
+              limit: vi.fn(() => Promise.resolve([
+                { id: "sp-1", name: "Species A", occurrenceCount: 10, createdAt: new Date() },
+                { id: "sp-2", name: "Species B", occurrenceCount: 20, createdAt: new Date() },
+              ])),
             })),
           })),
-        })
-        .mockReturnValueOnce({
-          from: vi.fn(() => Promise.resolve([{ total: 2 }])),
         });
 
-      const res = await app.request("/api/v1/data/species?page=1&limit=10");
+      const res = await app.request("/api/v1/data/species?limit=10");
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data.species).toHaveLength(2);
-      expect(data.pagination.total).toBe(2);
+      expect(data.hasMore).toBe(false);
     });
 
-    it("uses default pagination", async () => {
+    it("uses default limit", async () => {
       const { db } = await import("../db");
       (db.select as any)
         .mockReturnValueOnce({
           from: vi.fn(() => ({
             orderBy: vi.fn(() => ({
-              limit: vi.fn(() => ({
-                offset: vi.fn(() => Promise.resolve([])),
-              })),
+              limit: vi.fn(() => Promise.resolve([])),
             })),
           })),
-        })
-        .mockReturnValueOnce({
-          from: vi.fn(() => Promise.resolve([{ count: 0 }])),
         });
 
       const res = await app.request("/api/v1/data/species");
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.pagination.limit).toBe(50);
+      expect(data.species).toEqual([]);
+      expect(data.hasMore).toBe(false);
     });
   });
 

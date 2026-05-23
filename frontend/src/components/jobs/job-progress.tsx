@@ -5,6 +5,7 @@ import { useJobSSE } from "@/hooks/use-job-sse";
 import { cn } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, Clock, X, Ban } from "lucide-react";
 import { apiPost } from "@/services/api";
+import { extractStage } from "@sdm/shared";
 
 interface JobProgressProps {
   jobId: string | null;
@@ -32,14 +33,6 @@ function formatElapsed(ms: number): string {
   if (h > 0) return `${h}h ${m}m ${s}s`;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
-}
-
-function extractStage(logLine: string): string | null {
-  const withoutTimestamp = logLine.replace(/^\d{2}:\d{2}:\d{2}\s*/, "");
-  const withoutProgress = withoutTimestamp.replace(/\[\d+%\]\s*/, "");
-  const trimmed = withoutProgress.trim();
-  if (!trimmed || trimmed.length < 3) return null;
-  return trimmed;
 }
 
 export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime }: JobProgressProps) {

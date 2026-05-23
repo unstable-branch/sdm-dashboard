@@ -1,8 +1,9 @@
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
-import { eq, and, ne } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
+import { extractProgressPercent } from "@sdm/shared";
 
 const client = new PlumberClient();
 let _syncInterval: ReturnType<typeof setInterval> | null = null;
@@ -30,8 +31,8 @@ async function syncRunningJobs() {
         if (plumberStatus === "running") {
           const pct = (() => {
             for (let i = logs.length - 1; i >= 0; i--) {
-              const m = logs[i].match(/\[(\d+)%\]/);
-              if (m) return Math.min(100, parseInt(m[1], 10));
+              const p = extractProgressPercent(logs[i]);
+              if (p !== undefined) return p;
             }
             return undefined;
           })();
