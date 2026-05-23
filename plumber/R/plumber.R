@@ -249,7 +249,7 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
       source_counts = as.list(source_counts),
       cc_flagged = if ("cc_flag" %in% names(occ)) sum(occ$cc_flag, na.rm = TRUE) else 0L,
       training_extent = make_training_extent(occ, buffer = 2),
-      occurrence_preview = lapply(seq_len(min(5, nrow(occ))), function(i) as.list(occ[i, ]))
+      cleaned_records = lapply(seq_len(nrow(occ)), function(i) as.list(occ[i, ]))
     )
   }, error = function(e) {
     sdm_error(req, 400, conditionMessage(e))
@@ -705,6 +705,23 @@ function(job_id) {
   }
 
   list(ok = TRUE, message = if (killed) "Run cancelled and process terminated" else "Run cancelled (process not found)")
+}
+
+#* Delete a model run's output files
+#* @post /api/v1/models/delete/<job_id>
+function(job_id) {
+  job_dir <- file.path("outputs", "jobs", job_id)
+
+  if (!dir.exists(job_dir)) {
+    return(list(ok = TRUE, message = "Run directory not found (already deleted)", deleted = FALSE))
+  }
+
+  tryCatch({
+    unlink(job_dir, recursive = TRUE, force = TRUE)
+    list(ok = TRUE, message = "Run output files deleted", deleted = TRUE)
+  }, error = function(e) {
+    list(ok = FALSE, message = paste("Failed to delete:", conditionMessage(e)), deleted = FALSE)
+  })
 }
 
 #* List all model runs
