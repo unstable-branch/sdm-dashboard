@@ -9,6 +9,7 @@ fit_esm <- function(occ,
                     data_split = sdm_esm_default_split,
                     seed = sdm_default_seed,
                     log_fun = NULL,
+                    progress_fun = NULL,
                     background_n = 1000,
                     ...) {
   if (!requireNamespace("ecospat", quietly = TRUE)) {
@@ -91,6 +92,7 @@ fit_esm <- function(occ,
   }
 
   log_message(log_fun, "ESM: building BIOMOD data objects...")
+  progress_step(progress_fun, 0.63, "ESM: formatting data objects")
 
   modeling_id <- paste0("esm_", format(Sys.time(), "%Y%m%d%H%M%S"))
 
@@ -110,6 +112,7 @@ fit_esm <- function(occ,
   )
 
   log_message(log_fun, "ESM: calibrating ", n_pairs, " bivariate models...")
+  progress_step(progress_fun, 0.65, sprintf("ESM: calibrating %d bivariate models", n_pairs))
 
   if (isTRUE(getOption("sdm.cancelled"))) {
     stop("ESM modelling cancelled by user.")
@@ -137,6 +140,7 @@ fit_esm <- function(occ,
   }
 
   log_message(log_fun, "ESM: building weighted ensemble (min_auc = ", min_auc, ")...")
+  progress_step(progress_fun, 0.75, "ESM: building weighted ensemble")
 
   esm_ensemble <- ecospat::ecospat.ESM.EnsembleModeling(
     ESM.modeling.output = esm_models,

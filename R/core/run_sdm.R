@@ -266,6 +266,7 @@ run_fast_sdm <- function(...) {
     model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
     background_n = background_n, include_quadratic = include_quadratic,
     cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun,
+    progress_fun = progress_fun,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     bias_method = bias_method, target_group_occ = target_group_occ,
     thickening_distance_km = thickening_distance_km
@@ -274,12 +275,14 @@ run_fast_sdm <- function(...) {
   if (pa_replicates > 1) {
     for (rep_i in seq_len(pa_replicates - 1) + 1) {
       rep_seed <- seed + rep_i * 1000L
-      log_message(log_fun, "  PA replicate ", rep_i, "/", pa_replicates)
+      rep_pct <- 0.60 + (rep_i / pa_replicates) * 0.15
+      progress_step(progress_fun, rep_pct, sprintf("Fitting PA replicate %d/%d", rep_i, pa_replicates))
       replicate_fits[[rep_i]] <- tryCatch({
         do.call(fit_sdm_model, c(list(
           model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
           background_n = background_n, include_quadratic = include_quadratic,
           cv_folds = cv_folds, seed = rep_seed, n_cores = n_cores, log_fun = log_fun,
+          progress_fun = progress_fun,
           cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
           bias_method = bias_method, target_group_occ = target_group_occ,
           thickening_distance_km = thickening_distance_km
@@ -431,6 +434,7 @@ run_fast_sdm <- function(...) {
       log_message(log_fun, "PA-averaged suitability from ", valid_reps, " replicates written to ", output_tif)
     }
   }
+  progress_step(progress_fun, 0.90, "Writing output raster")
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
@@ -546,7 +550,7 @@ run_fast_sdm <- function(...) {
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
-  progress_step(progress_fun, 0.08, "Summarising outputs")
+  progress_step(progress_fun, 1.0, "Summarising outputs")
   suitability_summary <- summarise_suitability(suit, threshold)
   if (!is.null(future)) future$summary <- summarise_suitability(future$suitability, threshold)
 
