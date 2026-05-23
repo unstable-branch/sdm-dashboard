@@ -10,6 +10,11 @@ let _connection: IORedis | null = null;
 let _queue: Queue | null = null;
 let _worker: Worker<SdmJobData, SdmJobResult> | null = null;
 let _redisDisabled = false;
+let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+const CLIMATE_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.CLIMATE_DOWNLOAD_TIMEOUT_MS || "1800000", 10);
+const CLIMATE_DOWNLOAD_POLL_INTERVAL_MS = parseInt(process.env.CLIMATE_DOWNLOAD_POLL_INTERVAL_MS || "3000", 10);
+const CLIMATE_DOWNLOAD_MAX_ATTEMPTS = Math.floor(CLIMATE_DOWNLOAD_TIMEOUT_MS / CLIMATE_DOWNLOAD_POLL_INTERVAL_MS);
 
 function getConnection(): IORedis | null {
   if (_redisDisabled) return null;
@@ -32,8 +37,19 @@ function getConnection(): IORedis | null {
   _connection.on("error", () => {});
   _connection.connect().catch(() => {
     _redisDisabled = true;
+    scheduleReconnect();
   });
   return _connection;
+}
+
+function scheduleReconnect() {
+  if (_reconnectTimer) return;
+  _reconnectTimer = setTimeout(() => {
+    _reconnectTimer = null;
+    _redisDisabled = false;
+    _connection = null;
+    _queue = null;
+  }, 30000);
 }
 
 function getQueue(): Queue | null {
@@ -79,6 +95,11 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
         switch (type) {
           case "clean": {
             await job.updateProgress(20);
+            jobEventBus.emitJobStatus({
+              jobId: job.id!,
+              state: "active",
+              progress: 20,
+            });
             const cleanRes = await client.cleanOccurrences({
               file_id: payload.file_id as string,
               min_source_records: Number(payload.min_source_records) || 15,
@@ -87,6 +108,12 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
               cc_tests: (payload.cc_tests as string) || "all",
             });
             await job.updateProgress(100);
+            jobEventBus.emitJobStatus({
+              jobId: job.id!,
+              state: "completed",
+              progress: 100,
+              result: cleanRes as Record<string, unknown>,
+            });
             result = { status: "success", data: cleanRes };
             break;
           }
@@ -137,8 +164,9 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       return Math.min(90, 10 + Math.round(logs.length * 0.4));
                     })();
                     await job.updateProgress(pct);
+                    const runId = (payload as Record<string, unknown>)?.runId as string | undefined;
                     jobEventBus.emitJobStatus({
-                      jobId: job.id!,
+                      jobId: runId ?? job.id!,
                       state: "active",
                       progress: pct,
                       logs,
@@ -156,8 +184,9 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                     };
 
                     await job.updateProgress(100);
+                    const runIdCompleted = (payload as Record<string, unknown>)?.runId as string | undefined;
                     jobEventBus.emitJobStatus({
-                      jobId: job.id!,
+                      jobId: runIdCompleted ?? job.id!,
                       state: runStatus === "completed" ? "completed" : "failed",
                       progress: 100,
                       logs,
@@ -172,8 +201,9 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
 
               if (!completed) {
                 result = { status: "error", error: "Polling timeout: download did not complete in time" };
+                const runIdFailed = (payload as Record<string, unknown>)?.runId as string | undefined;
                 jobEventBus.emitJobStatus({
-                  jobId: job.id!,
+                  jobId: runIdFailed ?? job.id!,
                   state: "failed",
                   progress: 0,
                   failedReason: "Polling timeout: download did not complete in time",
@@ -182,7 +212,8 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
             } else {
               result = { status: "success", data: modelRes };
               await job.updateProgress(100);
-              jobEventBus.emitJobStatus({ jobId: job.id!, state: "completed", progress: 100, result: modelRes });
+              const runIdElse = (payload as Record<string, unknown>)?.runId as string | undefined;
+              jobEventBus.emitJobStatus({ jobId: runIdElse ?? job.id!, state: "completed", progress: 100, result: modelRes });
             }
             break;
           }
@@ -201,8 +232,8 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
               let completed = false;
               let attempts = 0;
 
-              while (!completed && attempts < 600) {
-                await new Promise((resolve) => setTimeout(resolve, 3000));
+              while (!completed && attempts < CLIMATE_DOWNLOAD_MAX_ATTEMPTS) {
+                await new Promise((resolve) => setTimeout(resolve, CLIMATE_DOWNLOAD_POLL_INTERVAL_MS));
                 attempts++;
 
                 try {

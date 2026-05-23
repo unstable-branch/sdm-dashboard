@@ -108,4 +108,26 @@ source(file.path(app_dir, "plumber", "R", "plumber.R"), local = FALSE)
 
 # Start server with project root as working directory
 setwd(app_dir)
+
+# Orphan job cleanup: remove stale job directories from previous crashed sessions
+orphan_cleanup <- function() {
+  jobs_base <- file.path(app_dir, "outputs", "jobs")
+  if (!dir.exists(jobs_base)) return(NULL)
+  cutoff <- Sys.time() - 86400
+  stale <- list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)
+  for (jd in stale) {
+    mtime <- file.info(jd)$mtime
+    if (!is.na(mtime) && mtime < cutoff) {
+      meta_file <- file.path(jd, "meta.json")
+      if (file.exists(meta_file)) {
+        meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+        if (identical(meta$status, "running")) {
+          unlink(jd, recursive = TRUE, force = TRUE)
+        }
+      }
+    }
+  }
+}
+tryCatch(orphan_cleanup(), error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
+
 plumber::pr_run(pr, host = "0.0.0.0", port = 8000)

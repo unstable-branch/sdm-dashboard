@@ -6,6 +6,7 @@ sdm_default_species <- "Untitled species"
 sdm_default_occurrence_file <- "presence_data.csv"
 sdm_demo_occurrence_file <- file.path("data", "examples", "synthetic_presence_data.csv")
 sdm_default_worldclim_dir <- "Worldclim"
+sdm_default_chelsa_dir <- "chelsa"
 sdm_default_future_worldclim_dir <- "Worldclim_future"
 sdm_default_output_dir <- "outputs"
 sdm_default_covariate_cache_dir <- "covariates"
@@ -129,7 +130,8 @@ sdm_default_dirs <- c(
   file.path(sdm_default_covariate_cache_dir, "drought"),
   file.path(sdm_default_covariate_cache_dir, "bioclim_season"),
   file.path(sdm_default_worldclim_dir, "climate", "wc2.1_10m"),
-  sdm_default_future_worldclim_dir
+  sdm_default_future_worldclim_dir,
+  sdm_default_chelsa_dir
 )
 
 sdm_biovar_choices <- c(

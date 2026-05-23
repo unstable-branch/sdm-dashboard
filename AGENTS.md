@@ -121,8 +121,36 @@ Rscript launch_app.R
 
 ## CI
 
-- **`.github/workflows/r-quality.yml`** — R/Shiny smoke test, testthat, parse check. Runs on ubuntu-latest.
-- **GitHub Actions** — lint/typecheck for Node.js layers run separately.
+### Workflows
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `.github/workflows/r-quality.yml` | All PRs + push to `dev` | R/Shiny smoke test, testthat, parse check, release audit |
+| `.github/workflows/platform-ci.yml` | Push to `dev` + PRs targeting `dev` | Frontend, API, R, and Docker validation (parallel jobs) |
+| `.github/workflows/release.yml` | Git tags `v*` + manual dispatch | Release audit, Docker image build+push, GitHub release creation |
+
+### Platform CI jobs
+
+- **`shared`** — Builds `@sdm/shared` TypeScript package once, uploads artifact
+- **`frontend`** — Downloads shared artifact, then typechecks, lints, tests (with coverage), builds
+- **`api`** — Downloads shared artifact, then typechecks, lints, tests (with coverage), builds
+- **`r-quality`** — Parses R sources, runs smoke test, testthat suite, audit_release
+- **`docker`** — Validates all 3 compose files, builds all 4 Dockerfiles, health-checks live services, runs Playwright e2e, Trivy scan
+
+### Release workflow
+
+Push a semver tag (`git tag v1.2.3 && git push --tags`) to trigger:
+1. **audit** — Runs `audit_release.R` to validate release artifact integrity
+2. **build-images** — Builds and pushes 4 images to GHCR (`sdm-plumber`, `sdm-api`, `sdm-frontend`, `sdm-shiny`)
+3. **release** — Creates a draft GitHub release with `sdm-dashboard-*-source.zip` and `*-windows-ready.zip`
+
+### Artifacts published
+
+- `frontend-coverage/` — LCOV + text coverage report (14-day retention)
+- `api-coverage/` — LCOV + text coverage report (14-day retention)
+- `frontend-dist/` — Next.js build output (5-day retention)
+- `api-dist/` — Compiled TypeScript output (5-day retention)
+- `shared-dist/` — `@sdm/shared` compiled output (5-day retention)
 
 ---
 
@@ -132,11 +160,12 @@ Rscript launch_app.R
 
 | Source | Naming convention | Path |
 |--------|-------------------|------|
-| WorldClim current | `bio1.tif`, `bio4.tif` | `Worldclim/` |
-| WorldClim future | `UKESM1-0-LL_SSP2-4.5_2041-2060/bio1.tif` | `Worldclim_future/` |
-| CHELSA v2.1 | `bio1_1979-2013.tif`, `bio10_1979-2013.tif` | `chelsa/` |
+| WorldClim current | `wc2.1_10m_bio_1.tif` ... `wc2.1_10m_bio_19.tif` | `Worldclim/` |
+| WorldClim future (CMIP6) | `wc2.1_10m_bioc_1.tif` ... inside `GCM_SSP_Period/` subdirs | `Worldclim_future/` |
+| CHELSA v2.1 | `CHELSA_bio01_1979-2013_V.2.1.tif` ... `CHELSA_bio19_1979-2013_V.2.1.tif` | `chelsa/` |
+| CHELSA extras | `CHELSA_gdd5_1981-2010_V.2.1.tif`, `CHELSA_gsl_1981-2010_V.2.1.tif`, etc. | `Worldclim/` |
 
-**Note:** WorldClim uses single/double-digit BIO numbers as filenames. CHELSA v2.1 uses `bio1_1979-2013` (two-digit BIO1-9, single-digit BIO10-19).
+**Note:** WorldClim v2.1 uses `wc2.1_<res>m_bio_<n>.tif` for current and `wc2.1_<res>m_bioc_<n>.tif` for CMIP6 future. CHELSA v2.1 uses `CHELSA_bio<nn>_1979-2013_V.2.1.tif` format.
 
 ### biomod2 gating
 

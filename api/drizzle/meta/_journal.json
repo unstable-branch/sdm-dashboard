@@ -15,6 +15,13 @@
       "when": 1779344798446,
       "tag": "0001_robust_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1748000000000,
+      "tag": "0002_remove_progress_log",
+      "breakpoints": true
     }
   ]
 }

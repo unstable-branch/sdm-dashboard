@@ -68,7 +68,6 @@ export const runs = pgTable("runs", {
   config: jsonb("config").notNull(),
   metrics: jsonb("metrics"),
   outputFiles: jsonb("output_files"),
-  progressLog: jsonb("progress_log").$type<Array<{ timestamp: string; level: string; message: string }>>(),
   error: text("error"),
   resultPath: text("result_path"),
   startedAt: timestamp("started_at"),

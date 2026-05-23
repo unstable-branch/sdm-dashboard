@@ -339,7 +339,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
             error: plumberError ?? null,
             metrics: plumberMetrics ?? null,
             output_files: plumberOutputFiles ?? null,
-            progress_log: (plumberStatus as any).progress_log ?? [],
+            progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
             config: run.config,
           });
         }
@@ -354,7 +354,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
           error: null,
           metrics: null,
           output_files: null,
-          progress_log: (plumberStatus as any).progress_log ?? [],
+          progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
           config: run.config,
         });
       } catch {
@@ -384,7 +384,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       error: run.error ?? null,
       metrics: run.metrics ?? null,
       output_files: run.outputFiles ?? null,
-      progress_log: run.progressLog ?? [],
+      progress_log: [],
       config: run.config,
     });
   } catch (err) {
