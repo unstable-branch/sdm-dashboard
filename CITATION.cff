@@ -6,8 +6,8 @@ authors:
   - name: "SDM Dashboard Workbench contributors"
 abstract: "A local R/Shiny workbench for species distribution modelling from presence-only occurrence records with climate, elevation, and soil covariates."
 license: MIT
-repository-code: "https://github.com/mrcanofcatfood/sdm-dashboard"
-url: "https://github.com/mrcanofcatfood/sdm-dashboard"
+repository-code: "https://github.com/unstable-branch/sdm-dashboard"
+url: "https://github.com/unstable-branch/sdm-dashboard"
 date-released: "2026-05-07"
 version: "0.5.0-beta"
 keywords:

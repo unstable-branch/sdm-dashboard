@@ -24,7 +24,7 @@ The public repository contains source code, documentation, scripts, templates, a
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/mrcanofcatfood/sdm-dashboard.git
+git clone https://github.com/unstable-branch/sdm-dashboard.git
 cd sdm-dashboard
 
 # 2. Start all services
@@ -317,7 +317,7 @@ Most users should use the latest GitHub Release rather than cloning the reposito
 
 Latest beta release:
 
-- Repository: `https://github.com/mrcanofcatfood/sdm-dashboard`
+- Repository: `https://github.com/unstable-branch/sdm-dashboard`
 
 ## Legacy R/Shiny (Desktop)
 

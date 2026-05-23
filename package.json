@@ -4,9 +4,9 @@
   "description": "Species Distribution Modelling Dashboard — Modern stack (Next.js + Hono API + Plumber R)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mrcanofcatfood/sdm-dashboard"
+    "url": "https://github.com/unstable-branch/sdm-dashboard"
   },
-  "homepage": "https://github.com/mrcanofcatfood/sdm-dashboard#readme",
+  "homepage": "https://github.com/unstable-branch/sdm-dashboard#readme",
   "scripts": {
     "dev:api": "cd api && pnpm dev",
     "dev:frontend": "cd frontend && pnpm dev",
