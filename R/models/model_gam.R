@@ -58,7 +58,7 @@ cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, se
 
 fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
                         include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
-                        seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
+                        seed = sdm_default_seed, n_cores = 1, log_fun = NULL, progress_fun = NULL,
                         cv_strategy = sdm_default_cv_strategy,
                         cv_block_size_km = sdm_default_cv_block_size_km,
                         bias_method = c("uniform", "target_group", "thickened"),

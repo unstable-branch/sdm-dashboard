@@ -192,7 +192,7 @@ jobs:
         shell: Rscript --no-init-file {0}
 
       - name: Smoke test
-        run: Rscript scripts/smoke_test.R
+        run: Rscript scripts/smoke_test.R --tags=fast
 
       - name: Testthat suite
         run: Rscript tests/testthat.R

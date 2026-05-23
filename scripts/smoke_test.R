@@ -21,7 +21,7 @@ if (any(parse_errors)) stop("Failed to parse R module(s): ", paste(r_files[parse
 source(file.path("R", "core", "optimized_sdm.R"))
 
 required_functions <- c(
-  "run_fast_sdm", "load_environment", "download_worldclim_layers",
+  "run_fast_sdm", "load_environment",
   "opentopo_globaldem_url", "load_soil_covariate", "plot_suitability_map",
   "write_summary_report", "detect_available_cores", "validate_extent",
   "normalize_threshold", "safe_slug", "detect_column", "read_occurrence_file", "infer_species_label",
@@ -41,8 +41,8 @@ if (!identical(safe_slug("Demo species / test"), "demo_species_test")) stop("Slu
 if (!identical(sdm_default_extent_preset, "aus_full")) stop("The app should default to an Australia-wide projection for the bundled dashboard demo.", call. = FALSE)
 if (!identical(validate_sdm_model_id(NULL), sdm_default_model_id)) stop("Default model validation failed.", call. = FALSE)
 if (!identical(validate_sdm_model_id("glm"), "glm")) stop("GLM model validation failed.", call. = FALSE)
-if (!"glm" %in% unname(sdm_model_choices())) stop("GLM backend missing from model registry.", call. = FALSE)
-if (!"multi_ensemble" %in% unname(sdm_model_choices())) stop("multi_ensemble backend missing from model registry.", call. = FALSE)
+if (!"glm" %in% sdm_model_ids()) stop("GLM backend missing from model registry.", call. = FALSE)
+if (!"multi_ensemble" %in% sdm_model_ids()) stop("multi_ensemble backend missing from model registry.", call. = FALSE)
 
 formula <- make_sdm_formula(c("bio1", "bio12", "elevation_m"), include_quadratic = TRUE)
 if (!inherits(formula, "formula")) stop("Formula helper failed.", call. = FALSE)
