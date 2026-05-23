@@ -714,7 +714,7 @@ function(req) {
         progress_fun(10, "Downloading WorldClim v2.1 BIO layers (", res, "m)")
         log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
         source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
-        result <- download_worldclim_bio(worldclim_dir = worldclim_dir, biovars = biovars, res = res, log_fun = log_fun)
+        result <- download_worldclim_bio(worldclim_dir = worldclim_dir, selected_biovars = biovars, res = res, log_fun = log_fun)
         if (length(result$failed) > 0) {
           job_meta$failed_vars <<- result$failed
           job_meta$status <<- "partial"
@@ -730,7 +730,7 @@ function(req) {
         progress_fun(10, "Downloading CHELSA v2.1 BIO layers")
         log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
         source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
-        result <- download_chelsa_bio(chelsa_dir = chelsa_dir, biovars = biovars, log_fun = log_fun)
+        result <- download_chelsa_bio(chelsa_dir = chelsa_dir, selected_biovars = biovars, log_fun = log_fun)
         if (length(result$failed) > 0) {
           job_meta$failed_vars <<- result$failed
           job_meta$status <<- "partial"

@@ -133,6 +133,12 @@ get_chelsa_bio_url <- function(bio_num, period = "1981-2010") {
   paste0(base, "/", bio_id, "/", period, "/", file_name)
 }
 
+get_chelsa_extra_url <- function(var_name, period = "1981-2010") {
+  base <- get_chelsa_base_url()
+  file_name <- sprintf("CHELSA_%s_%s_V.2.1.tif", var_name, period)
+  paste0(base, "/", var_name, "/", period, "/", file_name)
+}
+
 # Configurable CHELSA timeout (Fix 6)
 get_chelsa_timeout <- function() {
   as.integer(getOption("sdm.chelsa.timeout", sdm_default_chelsa_timeout))
@@ -231,7 +237,6 @@ download_chelsa_file <- function(url, dest, log_fun = NULL) {
           if (!is.null(expected_size) && new_size < expected_size * 0.99) {
             log_message(log_fun, "  Resumed file size (", new_size, ") < expected (", expected_size, ") — re-downloading from scratch")
             unlink(tmp, force = TRUE)
-            partial_size <<- NA_integer_
             return(FALSE)
           }
         }
@@ -278,7 +283,6 @@ download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa
   log_message(log_fun, "Downloading CHELSA bioclim-plus extra variables to ", worldclim_dir)
 
   check_internet_connectivity("https://os.unil.cloud.switch.ch/", log_fun = log_fun)
-  base_url <- get_chelsa_url()
   failed <- character()
 
   for (var in selected_extras) {
@@ -288,7 +292,7 @@ download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa
       log_message(log_fun, "CHELSA extra already exists: ", var)
       next
     }
-    url <- paste0(base_url, fname)
+    url <- get_chelsa_extra_url(var)
     success <- download_chelsa_file(url, dest, log_fun)
     if (!success) {
       failed <- c(failed, var)
@@ -346,6 +350,7 @@ download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_
   dir.create(chelsa_dir, recursive = TRUE, showWarnings = FALSE)
   log_message(log_fun, "Downloading CHELSA v2.1 BIO layers to ", chelsa_dir)
 
+  check_internet_connectivity("https://os.unil.cloud.switch.ch/", log_fun = log_fun)
   biovars <- as.integer(selected_biovars)
 
   # Determine parallel workers — use at most length(biovars) but cap at n_cores
