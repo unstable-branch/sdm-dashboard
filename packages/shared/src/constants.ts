@@ -28,18 +28,18 @@ export const EXTENT_PRESETS: Record<string, { label: string; extent: [number, nu
 };
 
 export const MODEL_BACKENDS = [
-  { id: "glm", label: "GLM / Logistic regression", maturity: "stable" as const, minRecords: 15 },
-  { id: "gam", label: "GAM / Smooth response curves", maturity: "stable" as const, minRecords: 20 },
-  { id: "maxnet", label: "MaxEnt (maxnet)", maturity: "stable" as const, minRecords: 10 },
-  { id: "rf", label: "Random Forest (ranger)", maturity: "experimental" as const, minRecords: 20 },
-  { id: "xgboost", label: "BRT / XGBoost", maturity: "experimental" as const, minRecords: 30 },
-  { id: "rangebag", label: "Rangebagging", maturity: "experimental" as const, minRecords: 15 },
-  { id: "ensemble_glm_rangebag", label: "Ensemble (GLM + Rangebagging)", maturity: "experimental" as const, minRecords: 15 },
-  { id: "esm_glm", label: "ESM — GLM (rare species)", maturity: "experimental" as const, minRecords: 5 },
-  { id: "esm_maxnet", label: "ESM — MaxEnt (rare species)", maturity: "experimental" as const, minRecords: 5 },
-  { id: "multi_ensemble", label: "Multi-Model Ensemble", maturity: "experimental" as const, minRecords: 20 },
-  { id: "biomod2", label: "biomod2 (multi-algorithm)", maturity: "experimental" as const, minRecords: 20 },
-  { id: "dnn", label: "DNN (cito/torch)", maturity: "experimental" as const, minRecords: 30 },
+  { id: "glm", label: "GLM / Logistic regression", maturity: "stable" as const, min_records: 15, available: true },
+  { id: "gam", label: "GAM / Smooth response curves", maturity: "stable" as const, min_records: 20, available: true },
+  { id: "maxnet", label: "MaxEnt (maxnet)", maturity: "stable" as const, min_records: 10, available: false, notes: "Requires maxnet package" },
+  { id: "rf", label: "Random Forest (ranger)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires ranger package" },
+  { id: "xgboost", label: "BRT / XGBoost", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires xgboost package" },
+  { id: "rangebag", label: "Rangebagging", maturity: "experimental" as const, min_records: 15, available: true },
+  { id: "ensemble_glm_rangebag", label: "Ensemble (GLM + Rangebagging)", maturity: "experimental" as const, min_records: 15, available: true },
+  { id: "esm_glm", label: "ESM — GLM (rare species)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires ecospat + biomod2 packages" },
+  { id: "esm_maxnet", label: "ESM — MaxEnt (rare species)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires ecospat + biomod2 + maxnet packages" },
+  { id: "multi_ensemble", label: "Multi-Model Ensemble", maturity: "experimental" as const, min_records: 20, available: true, notes: "Select 2+ models from GLM, GAM, MaxNet, Rangebagging, and biomod2 algorithms. biomod2 requires options(sdm.enable_biomod2 = TRUE)." },
+  { id: "biomod2", label: "biomod2 (multi-algorithm)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires biomod2 package + sdm.enable_biomod2 option" },
+  { id: "dnn", label: "DNN (cito/torch)", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires cito + torch packages" },
 ];
 
 export const SOIL_VARS = [
