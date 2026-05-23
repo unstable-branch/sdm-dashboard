@@ -68,10 +68,8 @@ export const useSDMStore = create<SDMState>()(
         species: state.species,
         occurrenceFilePath: state.occurrenceFilePath,
         recordCount: state.recordCount,
-        uploadResult: state.uploadResult,
-        cleanResult: state.cleanResult,
         flaggedIndices: state.flaggedIndices,
-        // Exclude large df array from localStorage — store metadata only
+        // Exclude large objects from localStorage — store metadata only
         cleanedOccurrence: state.cleanedOccurrence
           ? { ...state.cleanedOccurrence, df: [] }
           : null,

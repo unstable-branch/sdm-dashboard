@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
 
 interface BatchJob {
@@ -19,8 +19,12 @@ interface BatchProgressProps {
 export function BatchProgress({ jobIds, onComplete }: BatchProgressProps) {
   const [jobs, setJobs] = useState<BatchJob[]>([]);
   const [loading, setLoading] = useState(true);
+  const cancelledRef = useRef(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    cancelledRef.current = false;
+
     const fetchStatus = async () => {
       const results = await Promise.all(
         jobIds.map(async (id) => {
@@ -40,6 +44,7 @@ export function BatchProgress({ jobIds, onComplete }: BatchProgressProps) {
           }
         })
       );
+      if (cancelledRef.current) return;
       setJobs(results);
       setLoading(false);
 
@@ -47,11 +52,15 @@ export function BatchProgress({ jobIds, onComplete }: BatchProgressProps) {
       if (allDone) {
         onComplete?.();
       } else {
-        setTimeout(fetchStatus, 5000);
+        timeoutRef.current = setTimeout(fetchStatus, 5000);
       }
     };
 
     fetchStatus();
+    return () => {
+      cancelledRef.current = true;
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
   }, [jobIds, onComplete]);
 
   const completed = jobs.filter((j) => j.status === "completed").length;

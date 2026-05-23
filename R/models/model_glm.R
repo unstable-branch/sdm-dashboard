@@ -193,10 +193,14 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   log_message(log_fun, "Fitting fast GLM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   model_fit_data <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
   model_fit_data$case_weight_sdm <- class_balance_weights(model_fit_data$presence)
-  model <- suppressWarnings(stats::glm(formula,
-    data = model_fit_data, family = stats::binomial(),
-    weights = case_weight_sdm, control = stats::glm.control(maxit = 80)
-  ))
+  model <- tryCatch({
+    suppressWarnings(stats::glm(formula,
+      data = model_fit_data, family = stats::binomial(),
+      weights = case_weight_sdm, control = stats::glm.control(maxit = 80)
+    ))
+  }, error = function(e) {
+    stop("GLM fitting failed: ", conditionMessage(e), call. = FALSE)
+  })
 
   train_pred <- stats::predict(model, newdata = model_fit_data, type = "response")
   train_metrics <- compute_binary_metrics(model_fit_data$presence, train_pred, threshold = threshold)

@@ -20,7 +20,8 @@ make_gam_formula <- function(covariates, data = NULL, max_k = 5) {
 }
 
 cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, seed = sdm_default_seed, n_cores = 1,
-                               cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km) {
+                               cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
+                               log_fun = NULL) {
   fit_fun <- function(i, model_data, fold_id, threshold) {
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
@@ -28,7 +29,10 @@ cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, se
     train_data$case_weight_sdm <- class_balance_weights(train_data$presence)
     model <- tryCatch(
       mgcv::gam(train_formula, data = train_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML"),
-      error = function(e) NULL
+      error = function(e) {
+        log_message(log_fun, "  GAM CV fold ", i, " failed: ", conditionMessage(e))
+        NULL
+      }
     )
     if (is.null(model)) {
       return(metrics_list_to_row(list(
@@ -36,7 +40,10 @@ cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, se
         threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L
       ), fold = i))
     }
-    pred <- tryCatch(stats::predict(model, newdata = test_data, type = "response"), error = function(e) rep(NA_real_, nrow(test_data)))
+    pred <- tryCatch(stats::predict(model, newdata = test_data, type = "response"), error = function(e) {
+      log_message(log_fun, "  GAM CV fold ", i, " prediction failed: ", conditionMessage(e))
+      rep(NA_real_, nrow(test_data))
+    })
     metrics_list_to_row(compute_binary_metrics(test_data$presence, pred, threshold = threshold), fold = i)
   }
 
@@ -44,7 +51,7 @@ cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, se
     k = k, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = sdm_default_threshold, fit_fun = fit_fun,
-    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
+    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "log_message", "make_gam_formula", "class_balance_weights"),
     log_fun = log_fun
   )
 }
@@ -79,7 +86,11 @@ fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   model_data$case_weight_sdm <- class_balance_weights(model_data$presence)
 
   log_message(log_fun, "Fitting GAM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
-  model <- mgcv::gam(formula, data = model_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML")
+  model <- tryCatch({
+    mgcv::gam(formula, data = model_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML")
+  }, error = function(e) {
+    stop("GAM fitting failed: ", conditionMessage(e), call. = FALSE)
+  })
   cv <- cross_validate_gam(model_data, formula, k = cv_folds, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km)
   if (is.finite(cv$auc_mean)) {

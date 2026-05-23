@@ -28,44 +28,46 @@ app.get("/sse", (c) => {
     };
     jobEventBus.on("jobStatus", handler);
 
-    while (!aborted && !stream.closed) {
-      try {
-        const q = getJobQueue();
-        if (!q) {
+    try {
+      while (!aborted && !stream.closed) {
+        try {
+          const q = getJobQueue();
+          if (!q) {
+            await stream.sleep(2000);
+            continue;
+          }
+          const jobs = await q.getJobs(["active", "waiting"]).catch(() => []);
+
+          for (const job of jobs) {
+            const state = await job.getState();
+            const progress = job.progress || 0;
+
+            const runId = (job.data as Record<string, unknown>)?.payload as Record<string, unknown> | undefined;
+            const runIdStr = (runId?.runId as string) || (job.data as Record<string, unknown>)?.runId as string;
+
+            const eventData = {
+              id: runIdStr || job.id,
+              state,
+              progress,
+              type: job.data?.type,
+              result: job.returnvalue,
+              failedReason: job.failedReason,
+            };
+
+            await stream.writeSSE({
+              event: "job-update",
+              data: JSON.stringify(eventData),
+            });
+          }
+
           await stream.sleep(2000);
-          continue;
+        } catch {
+          break;
         }
-        const jobs = await q.getJobs(["active", "waiting", "completed", "failed"]).catch(() => []);
-
-        for (const job of jobs) {
-          const state = await job.getState();
-          const progress = job.progress || 0;
-
-          const runId = (job.data as Record<string, unknown>)?.payload as Record<string, unknown> | undefined;
-          const runIdStr = (runId?.runId as string) || (job.data as Record<string, unknown>)?.runId as string;
-
-          const eventData = {
-            id: runIdStr || job.id,
-            state,
-            progress,
-            type: job.data?.type,
-            result: job.returnvalue,
-            failedReason: job.failedReason,
-          };
-
-          await stream.writeSSE({
-            event: "job-update",
-            data: JSON.stringify(eventData),
-          });
-        }
-
-        await stream.sleep(2000);
-      } catch {
-        break;
       }
+    } finally {
+      jobEventBus.off("jobStatus", handler);
     }
-
-    jobEventBus.off("jobStatus", handler);
   });
 });
 

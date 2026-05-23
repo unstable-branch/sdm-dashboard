@@ -175,18 +175,24 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
       </div>
 
       {job.logs && job.logs.length > 0 && (
-        <div className="rounded bg-sdm-surface-soft p-2 font-mono text-xs text-sdm-muted max-h-24 overflow-y-auto">
-          {job.logs.map((log, i) => (
-            <div key={i} className="truncate">
+        <div className={cn(
+          "rounded bg-sdm-surface-soft p-2 font-mono text-xs text-sdm-muted overflow-y-auto",
+          job.state === "failed" ? "max-h-64" : "max-h-24"
+        )}>
+          {job.logs.slice(-50).map((log, i) => (
+            <div key={i} className="break-words whitespace-pre-wrap">
               {log}
             </div>
           ))}
+          {job.logs.length > 50 && (
+            <div className="text-xs text-sdm-muted italic mt-1">...{job.logs.length - 50} earlier lines hidden</div>
+          )}
         </div>
       )}
 
       {job.state === "failed" && job.failedReason && (
-        <div className="text-sm text-red-500">
-          {job.failedReason}
+        <div className="text-sm text-red-500 break-words">
+          <span className="font-semibold">Error: </span>{job.failedReason}
         </div>
       )}
 

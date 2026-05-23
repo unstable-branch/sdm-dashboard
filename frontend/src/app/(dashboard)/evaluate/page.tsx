@@ -10,29 +10,19 @@ import { ResponseCurvesChart } from "@/components/diagnostics/response-curves-ch
 import { CbiChart } from "@/components/diagnostics/cbi-chart";
 import { VifTable } from "@/components/diagnostics/vif-table";
 import { useRuns } from "@/hooks/use-runs";
+import { apiGet } from "@/services/api";
 import { BarChart3, Loader2, Image } from "lucide-react";
-
-interface RunDetail {
-  id: string;
-  species: string;
-  model_id: string;
-  status: string;
-  started_at: string;
-  completed_at: string | null;
-  metrics: Record<string, number | null> | null;
-  output_files: Record<string, string> | null;
-  progress_log: string[];
-}
+import type { ImportanceData, ResponseCurvesData, CbiData, VifData, RunDetail as ApiRunDetail } from "@/services/types";
 
 export default function EvaluatePage() {
   const { data: runs, isLoading, error, refetch } = useRuns();
-  const [selectedRun, setSelectedRun] = useState<RunDetail | null>(null);
+  const [selectedRun, setSelectedRun] = useState<ApiRunDetail | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const [vifData, setVifData] = useState<Record<string, unknown> | null>(null);
-  const [importanceData, setImportanceData] = useState<Record<string, unknown> | null>(null);
-  const [responseCurvesData, setResponseCurvesData] = useState<Record<string, unknown> | null>(null);
-  const [cbiData, setCbiData] = useState<Record<string, unknown> | null>(null);
+  const [vifData, setVifData] = useState<VifData | null>(null);
+  const [importanceData, setImportanceData] = useState<ImportanceData | null>(null);
+  const [responseCurvesData, setResponseCurvesData] = useState<ResponseCurvesData | null>(null);
+  const [cbiData, setCbiData] = useState<CbiData | null>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
 
   useEffect(() => {
@@ -42,8 +32,7 @@ export default function EvaluatePage() {
     if (completed.length > 0) {
       const first = completed[0];
       setSelectedId(first.id);
-      fetch(`/api/v1/sdm/status/${first.id}`, { signal: AbortSignal.timeout(10000) })
-        .then((res) => res.json())
+      apiGet<ApiRunDetail>(`/api/v1/sdm/status/${first.id}`)
         .then((detail) => setSelectedRun(detail))
         .catch(() => {});
     }
@@ -56,24 +45,27 @@ export default function EvaluatePage() {
     setResponseCurvesData(null);
     setCbiData(null);
     setLoadingDiagnostics(true);
-    fetch(`/api/v1/sdm/status/${id}`, { signal: AbortSignal.timeout(10000) })
-      .then((res) => res.json())
+    apiGet<ApiRunDetail>(`/api/v1/sdm/status/${id}`)
       .then((detail) => {
         setSelectedRun(detail);
-        const endpoints = [
-          { url: `/api/v1/diagnostics/vif/${id}`, setter: setVifData },
-          { url: `/api/v1/diagnostics/importance/${id}`, setter: setImportanceData },
-          { url: `/api/v1/diagnostics/response-curves/${id}`, setter: setResponseCurvesData },
-          { url: `/api/v1/diagnostics/cbi/${id}`, setter: setCbiData },
-        ];
-        Promise.all(
-          endpoints.map(async ({ url, setter }) => {
-            try {
-              const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-              if (res.ok) setter(await res.json());
-            } catch {}
-          })
-        ).finally(() => setLoadingDiagnostics(false));
+        const fetchDiagnostics = async () => {
+          const endpoints = [
+            { url: `/api/v1/diagnostics/vif/${id}`, setter: setVifData },
+            { url: `/api/v1/diagnostics/importance/${id}`, setter: setImportanceData },
+            { url: `/api/v1/diagnostics/response-curves/${id}`, setter: setResponseCurvesData },
+            { url: `/api/v1/diagnostics/cbi/${id}`, setter: setCbiData },
+          ];
+          await Promise.all(
+            endpoints.map(async ({ url, setter }) => {
+              try {
+                const data = await apiGet<VifData | ImportanceData | ResponseCurvesData | CbiData>(url);
+                setter(data);
+              } catch {}
+            })
+          );
+          setLoadingDiagnostics(false);
+        };
+        fetchDiagnostics();
       })
       .catch(() => setLoadingDiagnostics(false));
   };
@@ -187,7 +179,7 @@ export default function EvaluatePage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Variable Importance</h4>
-                      <ImportanceChart data={importanceData as any} loading={loadingDiagnostics} />
+                      <ImportanceChart data={importanceData} loading={loadingDiagnostics} />
                       {outputFiles.variable_importance_png && (
                         <img
                           src={`/api/v1/results/file/${encodeURIComponent(outputFiles.variable_importance_png)}`}
@@ -198,7 +190,7 @@ export default function EvaluatePage() {
                     </div>
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Response Curves</h4>
-                      <ResponseCurvesChart data={responseCurvesData as any} loading={loadingDiagnostics} />
+                      <ResponseCurvesChart data={responseCurvesData} loading={loadingDiagnostics} />
                       {outputFiles.response_curves_png && (
                         <img
                           src={`/api/v1/results/file/${encodeURIComponent(outputFiles.response_curves_png)}`}
@@ -212,7 +204,7 @@ export default function EvaluatePage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">CBI</h4>
-                      <CbiChart data={cbiData as any} loading={loadingDiagnostics} />
+                      <CbiChart data={cbiData} loading={loadingDiagnostics} />
                       {outputFiles.cbi_png && (
                         <img
                           src={`/api/v1/results/file/${encodeURIComponent(outputFiles.cbi_png)}`}
@@ -295,7 +287,7 @@ export default function EvaluatePage() {
                   </button>
                 ))}
               </div>
-              <VifTable data={vifData as any} loading={loadingDiagnostics} />
+              <VifTable data={vifData} loading={loadingDiagnostics} />
             </div>
           ) : (
             <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">

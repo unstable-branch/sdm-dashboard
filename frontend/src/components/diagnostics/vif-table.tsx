@@ -1,24 +1,6 @@
 "use client";
 
-interface VifHistoryEntry {
-  iteration: number;
-  variable_removed: string;
-  max_vif: number;
-}
-
-interface VifData {
-  available: boolean;
-  message?: string;
-  selected?: string[];
-  dropped?: string[];
-  vif_final?: number;
-  vif_history?: VifHistoryEntry[];
-  all_vars?: string[];
-  var_means?: Record<string, number>;
-  var_sds?: Record<string, number>;
-  selected_vars?: string[];
-  error?: string;
-}
+import type { VifData } from "@/services/types";
 
 interface VifTableProps {
   data: VifData | null;

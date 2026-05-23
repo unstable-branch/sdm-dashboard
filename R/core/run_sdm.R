@@ -262,6 +262,7 @@ run_fast_sdm <- function(...) {
 
   # PA replication: fit model N times with different background seeds
   replicate_fits <- vector("list", pa_replicates)
+  last_error <- NULL
   replicate_fits[[1]] <- tryCatch({
     do.call(fit_sdm_model, c(list(
       model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
@@ -273,7 +274,9 @@ run_fast_sdm <- function(...) {
       thickening_distance_km = thickening_distance_km
     ), extra_args))
   }, error = function(e) {
-    log_message(log_fun, "  PA replicate 1/", pa_replicates, " failed: ", conditionMessage(e))
+    err_msg <- conditionMessage(e)
+    last_error <<- err_msg
+    log_message(log_fun, "  PA replicate 1/", pa_replicates, " failed: ", err_msg)
     NULL
   })
 
@@ -293,7 +296,9 @@ run_fast_sdm <- function(...) {
           thickening_distance_km = thickening_distance_km
         ), extra_args))
       }, error = function(e) {
-        log_message(log_fun, "  PA replicate ", rep_i, "/", pa_replicates, " failed: ", conditionMessage(e))
+        err_msg <- conditionMessage(e)
+        last_error <<- err_msg
+        log_message(log_fun, "  PA replicate ", rep_i, "/", pa_replicates, " failed: ", err_msg)
         NULL
       })
     }
@@ -308,8 +313,9 @@ run_fast_sdm <- function(...) {
     }
   }
   if (is.null(fit)) {
-    log_message(log_fun, "All PA replicates failed — cannot continue")
-    return(invisible(NULL))
+    err_msg <- last_error %||% "All PA replicates failed — cannot continue"
+    log_message(log_fun, "All PA replicates failed: ", err_msg)
+    stop(err_msg, call. = FALSE)
   }
   if (pa_replicates > 1) {
     successful <- sum(!vapply(replicate_fits, is.null, logical(1)))

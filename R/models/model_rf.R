@@ -90,18 +90,22 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
     # Auto mtry if not specified
     effective_mtry <- mtry %||% max(1, floor(sqrt(length(covariates))))
 
-    model <- ranger::ranger(
-      formula = presence ~ .,
-      data = rf_data,
-      num.trees = num_trees,
-      mtry = effective_mtry,
-      min.node.size = min_node_size,
-      classification = FALSE,
-      importance = "permutation",
-      seed = seed,
-      num.threads = normalize_core_count(n_cores),
-      verbose = FALSE
-    )
+    model <- tryCatch({
+      ranger::ranger(
+        formula = presence ~ .,
+        data = rf_data,
+        num.trees = num_trees,
+        mtry = effective_mtry,
+        min.node.size = min_node_size,
+        classification = FALSE,
+        importance = "permutation",
+        seed = seed,
+        num.threads = normalize_core_count(n_cores),
+        verbose = FALSE
+      )
+    }, error = function(e) {
+      stop("Random Forest fitting failed: ", conditionMessage(e), call. = FALSE)
+    })
 
     # Training metrics
     train_pred <- model$predictions

@@ -1,5 +1,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
+let _redirecting = false;
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -54,7 +56,8 @@ async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<R
 
   if (!res.ok && retry > 0 && res.status === 401) {
     clearToken();
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && !_redirecting) {
+      _redirecting = true;
       const redirect = encodeURIComponent(window.location.pathname + window.location.search);
       window.location.href = "/login?redirect=" + redirect;
     }
@@ -62,13 +65,13 @@ async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<R
   }
 
   if (!res.ok) {
-    let data: unknown;
+    let data: Record<string, unknown> | null;
     try {
       data = await res.json();
     } catch {
       data = null;
     }
-    const message = (data as any)?.error || `Request failed with status ${res.status}`;
+    const message = data?.error as string | undefined || `Request failed with status ${res.status}`;
     throw new ApiError(res.status, message, data);
   }
 
@@ -97,6 +100,15 @@ export async function apiDelete<T>(url: string, options?: FetchOptions): Promise
 export async function apiPut<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> {
   const res = await fetchWithAuth(url, {
     method: "PUT",
+    body: body ? JSON.stringify(body) : undefined,
+    ...options,
+  });
+  return res.json();
+}
+
+export async function apiPatch<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> {
+  const res = await fetchWithAuth(url, {
+    method: "PATCH",
     body: body ? JSON.stringify(body) : undefined,
     ...options,
   });

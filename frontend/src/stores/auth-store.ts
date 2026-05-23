@@ -31,6 +31,16 @@ export const useAuthStore = create<AuthState>()(
       setProject: (project) => set({ project }),
       setProjects: (projects) => set({ projects }),
     }),
-    { name: "sdm-auth" }
+    {
+      name: "sdm-auth",
+      // Exclude token from persistence — it's managed centrally in api.ts via sdm_token key
+      // This prevents token duplication and sync issues between stores
+      partialize: (state) => ({
+        user: state.user,
+        token: null,
+        project: state.project,
+        projects: state.projects,
+      }),
+    }
   )
 );

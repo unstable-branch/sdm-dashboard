@@ -154,7 +154,7 @@ export function RunComparison({ runs }: RunComparisonProps) {
             {selectedRuns.map((run) => (
               <div key={run.id} className="space-y-1">
                 <p className="text-sdm-muted font-medium">{run.species}</p>
-                <p className="text-sdm-text">Threshold: {(run.config as any)?.threshold ?? "—"}</p>
+                <p className="text-sdm-text">Threshold: {String((run.config as Record<string, unknown> | undefined)?.threshold ?? "—")}</p>
                 <p className="text-sdm-text">Started: {new Date(run.started_at).toLocaleDateString()}</p>
               </div>
             ))}

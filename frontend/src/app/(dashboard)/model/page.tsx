@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ModelConfigForm } from "@/components/model/model-config-form";
 import { RunHistory } from "@/components/model/run-history";
@@ -24,7 +24,17 @@ export default function ModelPage() {
   const recordCount = useSDMStore((s) => s.recordCount);
   const species = useSDMStore((s) => s.species);
   const cleanedOccurrence = useSDMStore((s) => s.cleanedOccurrence);
-  const hasHydrated = useSDMStore.persist.hasHydrated();
+  const [hasHydrated, setHasHydrated] = useState(false);
+
+  useEffect(() => {
+    // Properly track hydration state to avoid flash of "Loading..."
+    const hydrated = useSDMStore.persist.hasHydrated();
+    if (hydrated) {
+      setHasHydrated(true);
+    } else {
+      useSDMStore.persist.onHydrate(() => setHasHydrated(true));
+    }
+  }, []);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +43,8 @@ export default function ModelPage() {
   const [activeRuns, setActiveRuns] = useState<ActiveRun[]>([]);
   const [checkingRuns, setCheckingRuns] = useState(true);
   const [runRefreshKey, setRunRefreshKey] = useState(0);
+  const activeRunsRef = useRef(activeRuns.length);
+  activeRunsRef.current = activeRuns.length;
 
   // SSE-driven active run tracking — no polling needed
   const { getJob } = useJobSSE(true);
@@ -53,17 +65,15 @@ export default function ModelPage() {
     fetchActiveRuns();
   }, [fetchActiveRuns]);
 
-  // Listen for SSE events that affect active run count
+  // Lightweight poll fallback — only when active runs exist
   useEffect(() => {
-    // Re-fetch active runs when SSE events arrive for known runs
     const interval = setInterval(() => {
-      // Only re-check if we have active runs (lightweight poll fallback)
-      if (activeRuns.length > 0) {
+      if (activeRunsRef.current > 0) {
         fetchActiveRuns();
       }
     }, 10000);
     return () => clearInterval(interval);
-  }, [activeRuns.length, fetchActiveRuns]);
+  }, [fetchActiveRuns]);
 
   const handleSubmit = async (config: Partial<ModelConfig>) => {
     if (activeRuns.length > 0) {

@@ -97,3 +97,11 @@ export async function checkRateLimit(key: string, windowMs: number, max: number)
     return true; // Fail-open on Redis errors
   }
 }
+
+export function closeRateLimitRedis(): void {
+  if (redis) {
+    redis.disconnect();
+    redis = null;
+    redisAvailable = false;
+  }
+}

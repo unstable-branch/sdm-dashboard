@@ -1,23 +1,7 @@
 "use client";
 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-
-interface BinEntry {
-  bin_mid: number;
-  ratio: number;
-  smoothed: number;
-}
-
-interface CbiData {
-  available: boolean;
-  message?: string;
-  cbi?: number;
-  pe_ratio?: number;
-  n_bins?: number;
-  bins?: BinEntry[];
-  note?: string | null;
-  error?: string;
-}
+import type { CbiData } from "@/services/types";
 
 interface CbiChartProps {
   data: CbiData | null;

@@ -569,6 +569,8 @@ function(req) {
         )
         job_meta$output_files <<- c(result$paths, diag_files)
       }
+      # Free memory from large terra rasters and dataframes
+      gc(verbose = FALSE)
       writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
     }, error = function(e) {
       job_meta$status <<- "failed"
@@ -582,7 +584,7 @@ function(req) {
     })
   }
 
-  proc <- callr::r_bg(run_bg)
+  proc <- callr::r_bg(run_bg, stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"))
   sdm_process_registry[[job_id]] <- proc
 
   job_meta$process_pid <- proc$get_pid()
@@ -598,7 +600,7 @@ function(req) {
 #* Get model run status
 #* @get /api/v1/models/status/<job_id>
 function(res, job_id) {
-  job_dir <- file.path("outputs", "jobs", job_id)
+  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   meta_file <- file.path(job_dir, "meta.json")
   progress_file <- file.path(job_dir, "progress.log")
 
@@ -641,6 +643,11 @@ function(res, job_id) {
     }
   }
 
+  # Clean up registry for terminal states
+  if (identical(meta$status, "completed") || identical(meta$status, "failed") || identical(meta$status, "cancelled")) {
+    sdm_process_registry[[job_id]] <- NULL
+  }
+
   progress_lines <- character(0)
   if (file.exists(progress_file)) {
     progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
@@ -652,6 +659,7 @@ function(res, job_id) {
     started_at = meta$started_at,
     completed_at = meta$completed_at %||% NULL,
     error = meta$error %||% NULL,
+    error_traceback = meta$error_traceback %||% NULL,
     metrics = meta$metrics %||% NULL,
     output_files = meta$output_files %||% NULL,
     progress_log = progress_lines
@@ -676,7 +684,7 @@ function(job_id) {
     rm(list = job_id, envir = sdm_process_registry)
   }
 
-  job_dir <- file.path("outputs", "jobs", job_id)
+  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   meta_file <- file.path(job_dir, "meta.json")
   progress_log <- file.path(job_dir, "progress.log")
 
@@ -710,7 +718,7 @@ function(job_id) {
 #* Delete a model run's output files
 #* @post /api/v1/models/delete/<job_id>
 function(job_id) {
-  job_dir <- file.path("outputs", "jobs", job_id)
+  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
 
   if (!dir.exists(job_dir)) {
     return(list(ok = TRUE, message = "Run directory not found (already deleted)", deleted = FALSE))
@@ -727,7 +735,7 @@ function(job_id) {
 #* List all model runs
 #* @get /api/v1/models/runs
 function() {
-  jobs_dir <- file.path("outputs", "jobs")
+  jobs_dir <- file.path(app_dir, "outputs", "jobs")
   if (!dir.exists(jobs_dir)) return(list())
 
   job_dirs <- list.dirs(jobs_dir, recursive = FALSE, full.names = FALSE)
@@ -825,9 +833,12 @@ function(req) {
     stop("Climate download script not found at: ", script_path)
   }
 
-  callr::r_bg(function(script, job_dir, app_dir) {
+  proc <- callr::r_bg(function(script, job_dir, app_dir) {
     source(script, local = TRUE)
-  }, args = list(script_path, job_dir, app_dir))
+  }, args = list(script_path, job_dir, app_dir), stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"))
+  sdm_process_registry[[job_id]] <- proc
+  job_meta$process_pid <- proc$get_pid()
+  writeLines(jsonlite::toJSON(job_meta, null = "null", auto_unbox = TRUE), file.path(job_dir, "meta.json"))
 
   list(
     job_id = job_id,
@@ -1079,7 +1090,7 @@ function(res, run_id) {
 #* Get AOA data for a model run
 #* @get /api/v1/ecology/<run_id>/aoa
 function(res, run_id) {
-  job_dir <- file.path("outputs", "jobs", basename(run_id))
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1100,7 +1111,7 @@ function(res, run_id) {
 #* Generate conservation status report text
 #* @get /api/v1/ecology/<run_id>/report
 function(res, run_id) {
-  job_dir <- file.path("outputs", "jobs", basename(run_id))
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1176,8 +1187,8 @@ function(req) {
     return(sdm_error(req, 400, "run_id_1 and run_id_2 are required"))
   }
 
-  job_dir_1 <- file.path("outputs", "jobs", basename(run_id_1))
-  job_dir_2 <- file.path("outputs", "jobs", basename(run_id_2))
+  job_dir_1 <- file.path(app_dir, "outputs", "jobs", basename(run_id_1))
+  job_dir_2 <- file.path(app_dir, "outputs", "jobs", basename(run_id_2))
   meta_file_1 <- file.path(job_dir_1, "meta.json")
   meta_file_2 <- file.path(job_dir_2, "meta.json")
 
@@ -1280,7 +1291,7 @@ function() {
 #* Export reproducible R script for a run
 #* @get /api/v1/output/script/<run_id>
 function(res, run_id, output_dir = NULL) {
-  job_dir <- file.path("outputs", "jobs", basename(run_id))
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1313,7 +1324,7 @@ function(res, run_id, output_dir = NULL) {
 #* Generate run manifest for reproducibility
 #* @get /api/v1/output/manifest/<run_id>
 function(res, run_id) {
-  job_dir <- file.path("outputs", "jobs", basename(run_id))
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1369,7 +1380,7 @@ function(res, run_id) {
 #* Get VIF collinearity screening results for a run
 #* @get /api/v1/diagnostics/vif/<run_id>
 function(res, run_id) {
-  job_dir <- file.path("outputs", "jobs", basename(run_id))
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1425,7 +1436,7 @@ function(res, run_id) {
 #* Get response curve data for a run
 #* @get /api/v1/diagnostics/response-curves/<run_id>
 function(res, run_id) {
-  job_dir <- file.path("outputs", "jobs", basename(run_id))
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1478,7 +1489,7 @@ function(res, run_id) {
 #* Get variable importance data for a run
 #* @get /api/v1/diagnostics/importance/<run_id>
 function(res, run_id) {
-  job_dir <- file.path("outputs", "jobs", basename(run_id))
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1525,7 +1536,7 @@ function(res, run_id) {
 #* Get Continuous Boyce Index data for a run
 #* @get /api/v1/diagnostics/cbi/<run_id>
 function(res, run_id) {
-  job_dir <- file.path("outputs", "jobs", basename(run_id))
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1583,7 +1594,7 @@ function(res, run_id) {
 #* Get MESS extrapolation summary for a run
 #* @get /api/v1/diagnostics/mess/<run_id>
 function(res, run_id) {
-  job_dir <- file.path("outputs", "jobs", basename(run_id))
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1621,7 +1632,7 @@ function(res, run_id) {
 #* Get combined diagnostics summary for a run
 #* @get /api/v1/diagnostics/summary/<run_id>
 function(res, run_id) {
-  job_dir <- file.path("outputs", "jobs", basename(run_id))
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {

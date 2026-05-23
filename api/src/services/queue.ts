@@ -404,6 +404,8 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
         return result;
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Unknown error";
+        const errorDetails = err instanceof Error && 'response' in err ? String((err as any).response) : null;
+        const finalError = errorDetails || errorMsg;
 
         if (type === "model") {
           const runId = payload.runId as string;
@@ -412,7 +414,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
               .update(runs)
               .set({
                 status: "failed",
-                error: errorMsg,
+                error: finalError,
                 completedAt: new Date(),
               })
               .where(eq(runs.id, runId));
@@ -423,12 +425,12 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
           jobId: job.id!,
           state: "failed",
           progress: 0,
-          failedReason: errorMsg,
+          failedReason: finalError,
         });
 
         return {
           status: "error",
-          error: errorMsg,
+          error: finalError,
         };
       }
     },

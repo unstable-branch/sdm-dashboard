@@ -6,9 +6,12 @@ import { plumberClient } from "./services/plumber.js";
 import { ensureBuckets } from "./services/storage.js";
 import { getRedisStatus, ensureWorker, getJobStatus, shutdownQueue } from "./services/queue.js";
 import { startPlumberSync, stopPlumberSync } from "./services/plumber-sync.js";
-import { setupWebSocket } from "./services/websocket.js";
+import { setupWebSocket, cleanupWebSocket } from "./services/websocket.js";
 import { mediumCache, longCache, closeCache } from "./middleware/cache.js";
+import { closeRateLimitRedis } from "./middleware/rate-limit.js";
 import { csrfMiddleware } from "./middleware/csrf.js";
+import { startMemoryMonitor, stopMemoryMonitor, memoryMonitorMiddleware } from "./middleware/memory-monitor.js";
+import { db } from "./db/index.js";
 import { sdmRoutes } from "./routes/sdm.js";
 import { dataRoutes } from "./routes/occurrences.js";
 import { resultsRoutes } from "./routes/results.js";
@@ -37,6 +40,7 @@ const app = new Hono();
 
 app.use("*", cors());
 app.use("*", logger());
+app.use("*", memoryMonitorMiddleware);
 app.use("/api/v1/sdm/*", csrfMiddleware);
 app.use("/api/v1/data/*", csrfMiddleware);
 app.use("/api/v1/climate/*", csrfMiddleware);
@@ -124,6 +128,11 @@ setTimeout(() => {
   startPlumberSync(5000);
 }, 2000);
 
+// Start memory usage monitor — logs warnings if heap exceeds thresholds
+setTimeout(() => {
+  startMemoryMonitor(30000);
+}, 3000);
+
 // Flush stale cache after restart so old data from previous Plumber sessions
 // (e.g. broken endpoints returning empty results) is not served to users
 setTimeout(async () => {
@@ -137,12 +146,21 @@ setTimeout(async () => {
   }
 }, 2000);
 
-// Graceful shutdown: close Redis connections so dev hot-reload (tsx) can kill the process cleanly
-function shutdown() {
+// Graceful shutdown: close all connections so dev hot-reload (tsx) can kill the process cleanly
+async function shutdown() {
   console.log("[Shutdown] Closing connections...");
   stopPlumberSync();
+  stopMemoryMonitor();
+  cleanupWebSocket();
   closeCache();
+  closeRateLimitRedis();
   shutdownQueue();
+  try {
+    await db.$client.end();
+    console.log("[Shutdown] PostgreSQL pool closed");
+  } catch {
+    // Pool shutdown is best-effort
+  }
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 3000).unref();
 }

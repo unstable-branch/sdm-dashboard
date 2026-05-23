@@ -16,11 +16,18 @@ interface Client {
 
 const clients = new Map<string, Client>();
 const subscriptions = new Map<string, Set<string>>();
+let _jobStatusHandler: ((event: any) => void) | null = null;
+let _wss: WebSocketServer | null = null;
 
 export function setupWebSocket(server: ServerType) {
-  const wss = new WebSocketServer({ server: server as any, path: "/ws" });
+  // Prevent duplicate setup — close existing if any
+  if (_wss) {
+    cleanupWebSocket();
+  }
 
-  wss.on("connection", (ws) => {
+  _wss = new WebSocketServer({ server: server as any, path: "/ws" });
+
+  _wss.on("connection", (ws) => {
     const clientId = crypto.randomUUID();
     clients.set(clientId, { ws, subscriptions: new Set() });
 
@@ -59,7 +66,8 @@ export function setupWebSocket(server: ServerType) {
     });
   });
 
-  jobEventBus.on("jobStatus", (event) => {
+  // Track the handler so we can remove it on cleanup
+  _jobStatusHandler = (event) => {
     const subscribers = subscriptions.get(event.jobId);
     if (subscribers) {
       const payload = JSON.stringify({
@@ -78,7 +86,8 @@ export function setupWebSocket(server: ServerType) {
         }
       }
     }
-  });
+  };
+  jobEventBus.on("jobStatus", _jobStatusHandler);
 
   return {
     broadcastProgress: (jobId: string, progress: JobProgress) => {
@@ -106,4 +115,17 @@ export function setupWebSocket(server: ServerType) {
       }
     },
   };
+}
+
+export function cleanupWebSocket() {
+  if (_jobStatusHandler) {
+    jobEventBus.off("jobStatus", _jobStatusHandler);
+    _jobStatusHandler = null;
+  }
+  if (_wss) {
+    _wss.close();
+    _wss = null;
+  }
+  clients.clear();
+  subscriptions.clear();
 }

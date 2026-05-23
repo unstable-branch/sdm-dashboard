@@ -30,13 +30,16 @@ export const EXTENT_PRESETS: Record<string, { label: string; extent: [number, nu
 export const MODEL_BACKENDS = [
   { id: "glm", label: "GLM / Logistic regression", maturity: "stable" as const, minRecords: 15 },
   { id: "gam", label: "GAM / Smooth response curves", maturity: "stable" as const, minRecords: 20 },
-  { id: "maxnet", label: "MaxEnt", maturity: "stable" as const, minRecords: 10 },
-  { id: "rf", label: "Random Forest", maturity: "stable" as const, minRecords: 20 },
-  { id: "xgboost", label: "XGBoost", maturity: "experimental" as const, minRecords: 30 },
+  { id: "maxnet", label: "MaxEnt (maxnet)", maturity: "stable" as const, minRecords: 10 },
+  { id: "rf", label: "Random Forest (ranger)", maturity: "experimental" as const, minRecords: 20 },
+  { id: "xgboost", label: "BRT / XGBoost", maturity: "experimental" as const, minRecords: 30 },
   { id: "rangebag", label: "Rangebagging", maturity: "experimental" as const, minRecords: 15 },
-  { id: "esm_glm", label: "ESM-GLM (rare species)", maturity: "stable" as const, minRecords: 5 },
-  { id: "esm_maxnet", label: "ESM-MaxNet (rare species)", maturity: "stable" as const, minRecords: 5 },
-  { id: "multi_ensemble", label: "Multi-model ensemble", maturity: "stable" as const, minRecords: 20 },
+  { id: "ensemble_glm_rangebag", label: "Ensemble (GLM + Rangebagging)", maturity: "experimental" as const, minRecords: 15 },
+  { id: "esm_glm", label: "ESM — GLM (rare species)", maturity: "experimental" as const, minRecords: 5 },
+  { id: "esm_maxnet", label: "ESM — MaxEnt (rare species)", maturity: "experimental" as const, minRecords: 5 },
+  { id: "multi_ensemble", label: "Multi-Model Ensemble", maturity: "experimental" as const, minRecords: 20 },
+  { id: "biomod2", label: "biomod2 (multi-algorithm)", maturity: "experimental" as const, minRecords: 20 },
+  { id: "dnn", label: "DNN (cito/torch)", maturity: "experimental" as const, minRecords: 30 },
 ];
 
 export const SOIL_VARS = [

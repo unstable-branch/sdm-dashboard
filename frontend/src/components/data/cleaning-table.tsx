@@ -76,7 +76,7 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
     );
   }
 
-  const columns = [
+  const columns = useMemo(() => [
     {
       id: "flag",
       header: "",
@@ -195,7 +195,7 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
         return <span className="truncate block max-w-[120px] text-xs" title={String(value)}>{String(value)}</span>;
       },
     })),
-  ];
+  ], [flaggedRows, hasCcFlags, extraKeys, toggleFlag]);
 
   const table = useReactTable({
     data,

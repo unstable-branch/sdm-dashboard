@@ -73,7 +73,11 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
     names(maxnet_pa)[-1] <- covariates
     maxnet_formula_args <- maxnet::maxnet.formula.arguments(maxnet_features, maxnet_regmult)
     maxnet_data <- maxnet::maxnet.formula(presence ~ ., data = maxnet_pa, maxnet_formula_args)
-    model <- maxnet::maxnet(maxnet_data, data = maxnet_pa)
+    model <- tryCatch({
+      maxnet::maxnet(maxnet_data, data = maxnet_pa)
+    }, error = function(e) {
+      stop("MaxEnt fitting failed: ", conditionMessage(e), call. = FALSE)
+    })
 
     model_for_auc <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
     train_pred <- as.numeric(maxnet::predict.maxnet(model, model_for_auc[, covariates, drop = FALSE], clamp = TRUE, type = "link"))
