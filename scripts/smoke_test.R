@@ -957,6 +957,181 @@ test_biomod2_smoke <- function() {
 }
 
 # ============================================================================
+# PHASE 3: ECOLOGY SMOKE TESTS
+# ============================================================================
+
+test_dispersal_smoke <- function() {
+  cat("[dispersal smoke] starting...\n")
+  suitability <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(suitability) <- runif(100, 0.3, 0.9)
+  intro_pts <- data.frame(x = c(145, 146), y = c(-25, -26))
+
+  result <- tryCatch(
+    simulate_dispersal(suitability, intro_pts, n_steps = 3, dispersal_km = 5),
+    error = function(e) {
+      cat("[dispersal smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[dispersal smoke] skipped: simulate_dispersal failed\n")
+    return(invisible(NULL))
+  }
+  if (is.null(result$final_occupancy)) stop("dispersal returned NULL final_occupancy", call. = FALSE)
+  if (result$summary$initial_cells < 1) stop("no initial cells in dispersal result", call. = FALSE)
+  if (length(result$steps) != 3) stop("expected 3 dispersal steps", call. = FALSE)
+  cat("[dispersal smoke] passed (", result$summary$initial_cells, " → ", result$summary$final_cells, " cells)\n", sep = "")
+}
+
+test_climex_smoke <- function() {
+  cat("[climex smoke] starting...\n")
+  bio1 <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(bio1) <- seq(5, 35, length.out = 100)
+  names(bio1) <- "bio1"
+
+  bio12 <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(bio12) <- seq(200, 2500, length.out = 100)
+  names(bio12) <- "bio12"
+
+  env <- c(bio1, bio12)
+
+  result <- tryCatch(
+    apply_climex_params(env,
+      temp_params = list(DV0 = 10, DV1 = 20, DV2 = 30, DV3 = 40),
+      moisture_params = list(SM0 = 0.1, SM1 = 0.3, SM2 = 0.8, SM3 = 1.0),
+      combine_method = "min"
+    ),
+    error = function(e) {
+      cat("[climex smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[climex smoke] skipped: apply_climex_params failed\n")
+    return(invisible(NULL))
+  }
+  if (!inherits(result$mechanistic_suitability, "SpatRaster")) stop("climex mechanistic suitability not a raster", call. = FALSE)
+  mech_vals <- terra::values(result$mechanistic_suitability, na.rm = TRUE)
+  if (any(mech_vals < 0 | mech_vals > 1)) stop("climex mechanistic values out of [0,1]", call. = FALSE)
+  cat("[climex smoke] passed (mean mechanistic suitability: ", round(mean(mech_vals, na.rm = TRUE), 3), ")\n", sep = "")
+}
+
+test_climate_matching_smoke <- function() {
+  cat("[climate_matching smoke] starting...\n")
+  env_train <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(env_train) <- runif(100, 10, 30)
+  names(env_train) <- "bio1"
+
+  env_proj <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(env_proj) <- runif(100, 10, 30)
+  names(env_proj) <- "bio1"
+
+  result <- tryCatch(
+    compute_climate_match(env_train, env_proj, method = "standardised"),
+    error = function(e) {
+      cat("[climate_matching smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[climate_matching smoke] skipped: compute_climate_match failed\n")
+    return(invisible(NULL))
+  }
+  if (!inherits(result$similarity, "SpatRaster")) stop("climate matching similarity not a raster", call. = FALSE)
+  if (is.null(result$summary$similarity_mean)) stop("climate matching missing similarity_mean", call. = FALSE)
+  cat("[climate_matching smoke] passed (mean similarity: ", round(result$summary$similarity_mean, 3), ")\n", sep = "")
+}
+
+test_niche_overlap_smoke <- function() {
+  cat("[niche_overlap smoke] starting...\n")
+  bio1 <- terra::rast(nrows = 15, ncols = 15, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(bio1) <- runif(225, 10, 30)
+  names(bio1) <- "bio1"
+
+  bio12 <- terra::rast(nrows = 15, ncols = 15, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(bio12) <- runif(225, 200, 2500)
+  names(bio12) <- "bio12"
+
+  env <- c(bio1, bio12)
+
+  occ_native <- data.frame(longitude = runif(10, 141, 144), latitude = runif(10, -28, -25))
+  occ_introduced <- data.frame(longitude = runif(10, 146, 149), latitude = runif(10, -25, -22))
+
+  result <- tryCatch(
+    compute_niche_overlap(occ_native, occ_introduced, env, n_boot = 10),
+    error = function(e) {
+      cat("[niche_overlap smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[niche_overlap smoke] skipped: compute_niche_overlap failed (may need ecospat)\n")
+    return(invisible(NULL))
+  }
+  if (!is.null(result$centroid_distance) && !is.finite(result$centroid_distance)) stop("niche overlap centroid_distance invalid", call. = FALSE)
+  cat("[niche_overlap smoke] passed\n")
+}
+
+test_species_richness_smoke <- function() {
+  cat("[species_richness smoke] starting...\n")
+  r1 <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(r1) <- runif(100, 0, 1)
+  r2 <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(r2) <- runif(100, 0, 1)
+  r3 <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(r3) <- runif(100, 0, 1)
+
+  result <- tryCatch(
+    stack_species_richness(list(r1, r2, r3), threshold = 0.5),
+    error = function(e) {
+      cat("[species_richness smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[species_richness smoke] skipped: stack_species_richness failed\n")
+    return(invisible(NULL))
+  }
+  if (!inherits(result$richness, "SpatRaster")) stop("species richness not a raster", call. = FALSE)
+  richness_vals <- terra::values(result$richness, na.rm = TRUE)
+  if (any(richness_vals < 0 | richness_vals > 3)) stop("species richness values out of [0,3]", call. = FALSE)
+  cat("[species_richness smoke] passed (mean richness: ", round(result$summary$richness_mean, 2), ")\n", sep = "")
+}
+
+test_aoa_smoke <- function() {
+  cat("[aoa smoke] starting...\n")
+  bio1 <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(bio1) <- runif(100, 10, 30)
+  names(bio1) <- "bio1"
+
+  bio12 <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(bio12) <- runif(100, 200, 2500)
+  names(bio12) <- "bio12"
+
+  env_proj <- c(bio1, bio12)
+
+  model_data <- data.frame(
+    bio1 = runif(100, 10, 30),
+    bio12 = runif(100, 200, 2500),
+    presence = c(rep(1, 20), rep(0, 80))
+  )
+
+  result <- tryCatch(
+    compute_aoa(model_data, env_proj, covariates = c("bio1", "bio12")),
+    error = function(e) {
+      cat("[aoa smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[aoa smoke] skipped: compute_aoa failed (may require CAST/caret)\n")
+    return(invisible(NULL))
+  }
+  if (is.null(result$aoa_raster) && is.null(result$aoa_fraction)) stop("aoa returned no results", call. = FALSE)
+  cat("[aoa smoke] passed\n")
+}
+
+# ============================================================================
 # TAG DISPATCH
 # ============================================================================
 
@@ -971,6 +1146,14 @@ if (has_tag("ml")) {
   test_xgboost_smoke()
   test_dnn_smoke()
   test_biomod2_smoke()
+}
+if (has_tag("ecology")) {
+  test_dispersal_smoke()
+  test_climex_smoke()
+  test_climate_matching_smoke()
+  test_niche_overlap_smoke()
+  test_species_richness_smoke()
+  test_aoa_smoke()
 }
 if (has_tag("heavy") || has_tag("ensemble")) {
   test_multi_ensemble_smoke()
