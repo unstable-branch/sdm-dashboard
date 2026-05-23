@@ -39,6 +39,18 @@ export default function DataPage() {
   );
 }
 
+function extractSpeciesFromFilename(filename: string): string | null {
+  const base = filename.replace(/\.(csv|tsv|txt|zip)$/i, "");
+  const cleaned = base.replace(/[_-]/g, " ").trim();
+  const titleCase = cleaned
+    .split(" ")
+    .filter((w) => w.length > 0)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+  if (titleCase.length < 3 || titleCase === cleaned.toUpperCase()) return null;
+  return titleCase;
+}
+
 function DataPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -50,6 +62,7 @@ function DataPageContent() {
   const setUploadResult = useSDMStore((s) => s.setUploadResult);
   const cleanResult = useSDMStore((s) => s.cleanResult);
   const setCleanResult = useSDMStore((s) => s.setCleanResult);
+  const setCleanedOccurrence = useSDMStore((s) => s.setCleanedOccurrence);
   const flaggedIndicesArray = useSDMStore((s) => s.flaggedIndices);
   const setFlaggedIndicesArray = useSDMStore((s) => s.setFlaggedIndices);
   const flaggedIndices = useMemo(() => new Set(flaggedIndicesArray), [flaggedIndicesArray]);
@@ -190,11 +203,22 @@ function DataPageContent() {
       const result = await apiUpload<Record<string, unknown>>(
         "/api/v1/data/occurrences/upload", file, undefined, 600000
       );
-      const data = (result.data as Record<string, unknown> | undefined) ?? result;
-      setUploadResult(data);
-      if (typeof data.file_path === "string" && data.file_path.length > 0) {
-        setOccurrenceFilePath(data.file_path);
-        setRecordCount(typeof data.n_rows === "number" ? data.n_rows : 0);
+      const filePath = (result.file_path as string) || null;
+      const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
+      const detectedSpecies = (result.species_detected as string) || null;
+
+      setUploadResult(result);
+      if (filePath) {
+        setOccurrenceFilePath(filePath);
+        setRecordCount(nRows);
+        if (detectedSpecies) {
+          useSDMStore.getState().setSpecies(detectedSpecies);
+        } else {
+          const extracted = extractSpeciesFromFilename(file.name);
+          if (extracted) {
+            useSDMStore.getState().setSpecies(extracted);
+          }
+        }
       }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
@@ -233,6 +257,16 @@ function DataPageContent() {
         setCleanJobId(result.jobId as string);
       } else {
         setCleanResult(result);
+        const cleanedRowCount = (result.valid_records as number) || 0;
+        setCleanedOccurrence({
+          filePath: (result.cleaned_file_id as string) || "",
+          df: (result.occurrence_preview as Record<string, unknown>[]) || [],
+          sourceCounts: (result.source_counts as Record<string, number>) || {},
+          nAbsentExcluded: (result.n_absent_excluded as number) || 0,
+          originalRows: (result.original_rows as number) || 0,
+          validRecords: cleanedRowCount,
+        });
+        setRecordCount(cleanedRowCount);
       }
     } catch (err) {
       setCleanError(err instanceof Error ? err.message : "Clean failed");
@@ -244,7 +278,21 @@ function DataPageContent() {
   };
 
   const handleCleanComplete = (result: Record<string, unknown>) => {
-    setCleanResult(result.data as Record<string, unknown> | undefined ?? result);
+    const cleanData = (result as any)?.data ?? result;
+    const hasCleanFields = "cleaned_file_id" in cleanData;
+    const finalData = hasCleanFields ? cleanData : (cleanData as any)?.data ?? cleanData;
+
+    setCleanResult(finalData);
+    const cleanedRowCount = (finalData.valid_records as number) || 0;
+    setCleanedOccurrence({
+      filePath: (finalData.cleaned_file_id as string) || "",
+      df: (finalData.occurrence_preview as Record<string, unknown>[]) || [],
+      sourceCounts: (finalData.source_counts as Record<string, number>) || {},
+      nAbsentExcluded: (finalData.n_absent_excluded as number) || 0,
+      originalRows: (finalData.original_rows as number) || 0,
+      validRecords: cleanedRowCount,
+    });
+    setRecordCount(cleanedRowCount);
     setCleanJobId(null);
     setCleanLoading(false);
   };
@@ -266,6 +314,31 @@ function DataPageContent() {
     }
   };
 
+  const [gbifSaving, setGbifSaving] = useState(false);
+  const [gbifSaved, setGbifSaved] = useState(false);
+
+  const handleGbifSave = async () => {
+    if (!gbifResult) return;
+    setGbifSaving(true);
+    try {
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", {
+        taxon: gbifResult.taxon,
+        country: gbifResult.country,
+        max_records: gbifResult.max_records,
+      });
+      if (typeof result.file_path === "string") {
+        setOccurrenceFilePath(result.file_path);
+        setRecordCount(Number(result.n_rows || 0));
+        useSDMStore.getState().setSpecies(String(gbifResult.taxon || "Untitled species"));
+        setGbifSaved(true);
+      }
+    } catch (err) {
+      setGbifError(err instanceof Error ? err.message : "Failed to save GBIF records");
+    } finally {
+      setGbifSaving(false);
+    }
+  };
+
   const handleDwcaUpload = async (file: File) => {
     setDwcaLoading(true);
     setDwcaError(null);
@@ -274,6 +347,10 @@ function DataPageContent() {
     try {
       const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/dwca", file);
       setDwcaResult(result);
+      if (typeof result.file_path === "string") {
+        setOccurrenceFilePath(result.file_path);
+        setRecordCount(Number(result.n_occurrences || result.n_returned || result.n_rows || 0));
+      }
     } catch (err) {
       setDwcaError(err instanceof Error ? err.message : "DwCA parsing failed");
     } finally {
@@ -370,6 +447,31 @@ function DataPageContent() {
 
           {gbifPreview && gbifPreview.length > 0 && (
             <PreviewTable data={gbifPreview} title="GBIF Preview (first 5 records)" />
+          )}
+
+          {gbifResult && typeof gbifResult.n_records === "number" && gbifResult.n_records > 0 && (
+            <div className="space-y-3">
+              {gbifSaved ? (
+                <div className="flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-green-500">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>{Number(gbifResult.n_records).toLocaleString()} GBIF records saved — ready for modeling</span>
+                  </div>
+                  <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
+                    Go to Model tab →
+                  </Link>
+                </div>
+              ) : (
+                <button
+                  onClick={handleGbifSave}
+                  disabled={gbifSaving}
+                  className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {gbifSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  {gbifSaving ? "Saving..." : `Save ${Number(gbifResult.n_records).toLocaleString()} records for modeling`}
+                </button>
+              )}
+            </div>
           )}
         </TabsContent>
 
@@ -504,6 +606,16 @@ function DataPageContent() {
                   onFlagToggle={handleFlagToggle}
                 />
               )}
+
+              <div className="flex items-center justify-between rounded-md border border-indigo-500/30 bg-indigo-500/5 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-indigo-500">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Cleaned: {Number(cleanResult.valid_records).toLocaleString()} valid records ready</span>
+                </div>
+                <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
+                  Run SDM with cleaned data →
+                </Link>
+              </div>
             </div>
           )}
         </TabsContent>

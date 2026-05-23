@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 
 export interface JobEvent {
   id: string;
-  state: "waiting" | "active" | "completed" | "failed" | "delayed" | "paused";
+  state: "waiting" | "active" | "completed" | "failed" | "delayed" | "paused" | "cancelled";
   progress: number;
   type: string;
   logs: string[];

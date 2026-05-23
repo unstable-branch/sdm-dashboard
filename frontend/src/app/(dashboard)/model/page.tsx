@@ -1,40 +1,69 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ModelConfigForm } from "@/components/model/model-config-form";
 import { RunHistory } from "@/components/model/run-history";
 import { JobProgress } from "@/components/jobs/job-progress";
 import { useSDMStore } from "@/stores/sdm-store";
+import { apiPost, apiGet } from "@/services/api";
+import { Ban } from "lucide-react";
 import type { ModelConfig } from "@sdm/shared";
+
+interface ActiveRun {
+  id: string;
+  species: string;
+  model_id: string;
+  status: string;
+}
 
 export default function ModelPage() {
   const router = useRouter();
   const occurrenceFile = useSDMStore((s) => s.occurrenceFilePath);
   const recordCount = useSDMStore((s) => s.recordCount);
   const species = useSDMStore((s) => s.species);
+  const cleanedOccurrence = useSDMStore((s) => s.cleanedOccurrence);
+  const hasHydrated = useSDMStore.persist.hasHydrated();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [activeRuns, setActiveRuns] = useState<ActiveRun[]>([]);
+  const [checkingRuns, setCheckingRuns] = useState(true);
+
+  const checkActiveRuns = useCallback(async () => {
+    try {
+      const data = await apiGet<{ runs: ActiveRun[] }>("/api/v1/sdm/runs");
+      const active = (data.runs || []).filter(
+        (r) => r.status === "queued" || r.status === "running"
+      );
+      setActiveRuns(active);
+    } catch {
+      setActiveRuns([]);
+    } finally {
+      setCheckingRuns(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkActiveRuns();
+    const interval = setInterval(checkActiveRuns, 10000);
+    return () => clearInterval(interval);
+  }, [checkActiveRuns]);
 
   const handleSubmit = async (config: Partial<ModelConfig>) => {
+    if (activeRuns.length > 0) {
+      setError(
+        `A model run is already in progress (${activeRuns.length} active). Wait for it to complete before starting a new one.`
+      );
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch("/api/v1/sdm/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...config, async: true }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Model run failed");
-      }
-
-      const result = await res.json();
+      const result = await apiPost<{ jobId: string }>("/api/v1/sdm/run", { ...config, async: true });
       if (result.jobId) {
         setJobId(result.jobId);
       }
@@ -42,16 +71,31 @@ export default function ModelPage() {
       setError(err instanceof Error ? err.message : "Model run failed");
     } finally {
       setLoading(false);
+      checkActiveRuns();
     }
   };
 
   const handleJobComplete = () => {
+    checkActiveRuns();
     router.refresh();
+  };
+
+  const handleDismissJob = () => {
+    setJobId(null);
+    checkActiveRuns();
   };
 
   const handleRunSelect = (runId: string) => {
     router.push(`/results/${runId}`);
   };
+
+  if (!hasHydrated) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <p className="text-sdm-muted">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -64,10 +108,43 @@ export default function ModelPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
+          {activeRuns.length > 0 && !jobId && (
+            <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 space-y-2">
+              <p className="text-sm text-sdm-warning">
+                {activeRuns.length === 1
+                  ? `A model run is already in progress: ${activeRuns[0].species} (${activeRuns[0].model_id})`
+                  : `${activeRuns.length} model runs are already in progress.`}
+              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-sdm-muted">
+                  Wait for the active run(s) to complete before starting a new one.
+                </p>
+                <button
+                  onClick={async () => {
+                    try {
+                      await Promise.all(
+                        activeRuns.map((run) => apiPost(`/api/v1/sdm/cancel/${run.id}`))
+                      );
+                      checkActiveRuns();
+                    } catch {
+                      setError("Failed to cancel run(s)");
+                    }
+                  }}
+                  className="ml-auto inline-flex items-center gap-1 rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-400 hover:bg-red-500/20"
+                >
+                  <Ban className="h-3 w-3" />
+                  Cancel {activeRuns.length === 1 ? "run" : "all"}
+                </button>
+              </div>
+            </div>
+          )}
+
           <ModelConfigForm
             occurrenceFile={occurrenceFile}
+            recordCount={recordCount}
+            cleanedOccurrence={cleanedOccurrence}
             onSubmit={handleSubmit}
-            loading={loading}
+            loading={loading || checkingRuns || activeRuns.length > 0}
           />
 
           {error && (
@@ -78,7 +155,7 @@ export default function ModelPage() {
 
           {jobId && (
             <div className="mt-4">
-              <JobProgress jobId={jobId} onComplete={handleJobComplete} />
+              <JobProgress jobId={jobId} onComplete={handleJobComplete} onDismiss={handleDismissJob} />
             </div>
           )}
         </div>
@@ -86,7 +163,15 @@ export default function ModelPage() {
         <div className="space-y-6">
           <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
             <h2 className="text-sm font-semibold text-sdm-heading mb-3">Data source</h2>
-            {occurrenceFile ? (
+            {cleanedOccurrence && cleanedOccurrence.filePath ? (
+              <div>
+                <p className="text-sm text-sdm-text font-medium">Cleaned occurrence data</p>
+                <p className="text-xs text-sdm-muted mt-1">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords.toLocaleString()} cleaned records</p>
+                {species && species !== "Untitled species" && (
+                  <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>
+                )}
+              </div>
+            ) : occurrenceFile ? (
               <div>
                 <p className="text-sm text-sdm-text font-mono truncate">{typeof occurrenceFile === "string" ? occurrenceFile.split("/").pop() : String(occurrenceFile)}</p>
                 <p className="text-xs text-sdm-muted mt-1">{recordCount.toLocaleString()} records loaded</p>

@@ -25,7 +25,7 @@ interface RunDetail {
 }
 
 export default function EvaluatePage() {
-  const { data: runs, isLoading } = useRuns();
+  const { data: runs, isLoading, error, refetch } = useRuns();
   const [selectedRun, setSelectedRun] = useState<RunDetail | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -85,6 +85,24 @@ export default function EvaluatePage() {
         <p className="text-sdm-muted">ROC curves, calibration plots, variable importance, and AOA.</p>
         <div className="flex items-center justify-center h-32">
           <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-sdm-heading">Evaluate</h1>
+        <p className="text-sdm-muted">ROC curves, calibration plots, variable importance, and AOA.</p>
+        <div className="rounded-lg border border-red-300/30 bg-red-500/5 p-8 text-center">
+          <p className="text-sm text-sdm-danger">{error.message}</p>
+          <button
+            onClick={() => refetch()}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );

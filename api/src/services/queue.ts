@@ -300,9 +300,11 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                     });
                   }
 
-                  if (runStatus === "completed" || runStatus === "failed") {
+                  if (runStatus === "completed" || runStatus === "failed" || runStatus === "cancelled") {
                     completed = true;
                     const error = (status as any).error;
+
+                    const finalStatus = runStatus === "completed" ? "completed" : runStatus === "cancelled" ? "cancelled" : "failed";
 
                     result = {
                       status: runStatus === "completed" ? "success" : "error",
@@ -310,11 +312,24 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       error: error as string | undefined,
                     };
 
+                    if (runId) {
+                      await db
+                        .update(runs)
+                        .set({
+                          status: finalStatus,
+                          metrics: runStatus === "completed" ? (status as any).metrics ?? null : null,
+                          outputFiles: runStatus === "completed" ? (status as any).output_files ?? null : null,
+                          error: error as string | undefined,
+                          completedAt: runStatus !== "running" ? new Date() : null,
+                        })
+                        .where(eq(runs.id, runId));
+                    }
+
                     await job.updateProgress(100);
                     const runIdCompleted = (payload as Record<string, unknown>)?.runId as string | undefined;
                     jobEventBus.emitJobStatus({
                       jobId: runIdCompleted ?? job.id!,
-                      state: runStatus === "completed" ? "completed" : "failed",
+                      state: finalStatus,
                       progress: 100,
                       logs,
                       result: status,
