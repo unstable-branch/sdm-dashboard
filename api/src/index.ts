@@ -5,6 +5,7 @@ import { logger } from "hono/logger";
 import { plumberClient } from "./services/plumber.js";
 import { ensureBuckets } from "./services/storage.js";
 import { getRedisStatus, ensureWorker, getJobStatus, shutdownQueue } from "./services/queue.js";
+import { startPlumberSync, stopPlumberSync } from "./services/plumber-sync.js";
 import { setupWebSocket } from "./services/websocket.js";
 import { mediumCache, longCache, closeCache } from "./middleware/cache.js";
 import { csrfMiddleware } from "./middleware/csrf.js";
@@ -118,6 +119,11 @@ setTimeout(() => {
   }
 }, 1000);
 
+// Start Plumber status sync — polls Plumber for running jobs and updates DB + SSE
+setTimeout(() => {
+  startPlumberSync(5000);
+}, 2000);
+
 // Flush stale cache after restart so old data from previous Plumber sessions
 // (e.g. broken endpoints returning empty results) is not served to users
 setTimeout(async () => {
@@ -134,6 +140,7 @@ setTimeout(async () => {
 // Graceful shutdown: close Redis connections so dev hot-reload (tsx) can kill the process cleanly
 function shutdown() {
   console.log("[Shutdown] Closing connections...");
+  stopPlumberSync();
   closeCache();
   shutdownQueue();
   server.close(() => process.exit(0));
@@ -153,20 +160,6 @@ const server = serve(
 );
 
 setupWebSocket(server);
-
-process.on("uncaughtException", (err) => {
-  const msg = err?.message ?? "";
-  if (
-    msg.includes("ioredis") ||
-    msg.includes("ECONNREFUSED") ||
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("ECONNRESET") ||
-    msg.includes("ENOTFOUND")
-  ) {
-    return;
-  }
-  throw err;
-});
 
 process.on("unhandledRejection", (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason ?? "");

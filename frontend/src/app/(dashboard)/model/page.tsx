@@ -6,6 +6,7 @@ import { ModelConfigForm } from "@/components/model/model-config-form";
 import { RunHistory } from "@/components/model/run-history";
 import { JobProgress } from "@/components/jobs/job-progress";
 import { useSDMStore } from "@/stores/sdm-store";
+import { useJobSSE } from "@/hooks/use-job-sse";
 import { apiPost, apiGet } from "@/services/api";
 import { Ban } from "lucide-react";
 import type { ModelConfig } from "@sdm/shared";
@@ -31,10 +32,14 @@ export default function ModelPage() {
   const [jobStartTime, setJobStartTime] = useState<string | null>(null);
   const [activeRuns, setActiveRuns] = useState<ActiveRun[]>([]);
   const [checkingRuns, setCheckingRuns] = useState(true);
+  const [runRefreshKey, setRunRefreshKey] = useState(0);
 
-  const checkActiveRuns = useCallback(async () => {
+  // SSE-driven active run tracking — no polling needed
+  const { getJob } = useJobSSE(true);
+
+  const fetchActiveRuns = useCallback(async () => {
     try {
-      const data = await apiGet<{ runs: ActiveRun[] }>("/api/v1/sdm/runs");
+      const data = await apiGet<{ runs: ActiveRun[] }>("/api/v1/sdm/runs?limit=50");
       const active = (data.runs || []).filter(
         (r) => r.status === "queued" || r.status === "running"
       );
@@ -46,11 +51,22 @@ export default function ModelPage() {
     }
   }, []);
 
+  // Initial fetch only — SSE updates handle subsequent changes
   useEffect(() => {
-    checkActiveRuns();
-    const interval = setInterval(checkActiveRuns, 10000);
+    fetchActiveRuns();
+  }, [fetchActiveRuns]);
+
+  // Listen for SSE events that affect active run count
+  useEffect(() => {
+    // Re-fetch active runs when SSE events arrive for known runs
+    const interval = setInterval(() => {
+      // Only re-check if we have active runs (lightweight poll fallback)
+      if (activeRuns.length > 0) {
+        fetchActiveRuns();
+      }
+    }, 10000);
     return () => clearInterval(interval);
-  }, [checkActiveRuns]);
+  }, [activeRuns.length, fetchActiveRuns]);
 
   const handleSubmit = async (config: Partial<ModelConfig>) => {
     if (activeRuns.length > 0) {
@@ -68,24 +84,25 @@ export default function ModelPage() {
       if (result.jobId) {
         setJobId(result.jobId);
         setJobStartTime(new Date().toISOString());
+        setRunRefreshKey(k => k + 1);
+        // Optimistically add to active runs
+        setActiveRuns(prev => [...prev, { id: result.jobId, species: config.species || "Unknown", model_id: config.modelId || "glm", status: "running" }]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Model run failed");
     } finally {
       setLoading(false);
-      checkActiveRuns();
     }
   };
 
   const handleJobComplete = () => {
-    checkActiveRuns();
-    router.refresh();
+    fetchActiveRuns();
   };
 
   const handleDismissJob = () => {
     setJobId(null);
     setJobStartTime(null);
-    checkActiveRuns();
+    fetchActiveRuns();
   };
 
   const handleRunSelect = (runId: string) => {
@@ -125,10 +142,8 @@ export default function ModelPage() {
                 <button
                   onClick={async () => {
                     try {
-                      await Promise.all(
-                        activeRuns.map((run) => apiPost(`/api/v1/sdm/cancel/${run.id}`))
-                      );
-                      checkActiveRuns();
+                      await apiPost("/api/v1/sdm/cancel-all", { status: "active" });
+                      fetchActiveRuns();
                     } catch {
                       setError("Failed to cancel run(s)");
                     }
@@ -189,7 +204,7 @@ export default function ModelPage() {
             )}
           </div>
 
-          <RunHistory onRunSelect={handleRunSelect} />
+          <RunHistory onRunSelect={handleRunSelect} refreshKey={runRefreshKey} />
         </div>
       </div>
     </div>

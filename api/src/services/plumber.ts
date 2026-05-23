@@ -139,7 +139,10 @@ export class PlumberClient {
 
   async getModelStatus(jobId: string): Promise<Record<string, unknown>> {
     const res = await fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Failed to get model status: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Failed to get model status: ${res.status} ${body}`);
+    }
     return res.json();
   }
 

@@ -268,89 +268,16 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
             await job.updateProgress(30);
 
             if (plumberJobId) {
-              let status: Record<string, unknown> = {};
-              let completed = false;
-              let attempts = 0;
+              // Fire-and-forget: Plumber runs in background, plumber-sync polls for status
+              jobEventBus.emitJobStatus({
+                jobId: runId ?? job.id!,
+                state: "active",
+                progress: 30,
+                logs: ["Model run submitted to Plumber, awaiting results..."],
+              });
 
-              while (!completed && attempts < 300) {
-                await new Promise((resolve) => setTimeout(resolve, 3000));
-                attempts++;
-
-                try {
-                  status = await client.getModelStatus(plumberJobId);
-                  const runStatus = (status as any).status;
-
-                  const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log : [];
-
-                  if (runStatus === "running") {
-                    const pct = (() => {
-                      for (let i = logs.length - 1; i >= 0; i--) {
-                        const m = logs[i].match(/\[(\d+)%\]/);
-                        if (m) return Math.min(100, parseInt(m[1], 10));
-                      }
-                      return Math.min(90, 10 + Math.round(logs.length * 0.4));
-                    })();
-                    await job.updateProgress(pct);
-                    const runId = (payload as Record<string, unknown>)?.runId as string | undefined;
-                    jobEventBus.emitJobStatus({
-                      jobId: runId ?? job.id!,
-                      state: "active",
-                      progress: pct,
-                      logs,
-                    });
-                  }
-
-                  if (runStatus === "completed" || runStatus === "failed" || runStatus === "cancelled") {
-                    completed = true;
-                    const error = (status as any).error;
-
-                    const finalStatus = runStatus === "completed" ? "completed" : runStatus === "cancelled" ? "cancelled" : "failed";
-
-                    result = {
-                      status: runStatus === "completed" ? "success" : "error",
-                      data: status,
-                      error: error as string | undefined,
-                    };
-
-                    if (runId) {
-                      await db
-                        .update(runs)
-                        .set({
-                          status: finalStatus,
-                          metrics: runStatus === "completed" ? (status as any).metrics ?? null : null,
-                          outputFiles: runStatus === "completed" ? (status as any).output_files ?? null : null,
-                          error: error as string | undefined,
-                          completedAt: runStatus !== "running" ? new Date() : null,
-                        })
-                        .where(eq(runs.id, runId));
-                    }
-
-                    await job.updateProgress(100);
-                    const runIdCompleted = (payload as Record<string, unknown>)?.runId as string | undefined;
-                    jobEventBus.emitJobStatus({
-                      jobId: runIdCompleted ?? job.id!,
-                      state: finalStatus,
-                      progress: 100,
-                      logs,
-                      result: status,
-                      failedReason: error as string | undefined,
-                    });
-                  }
-                } catch {
-                  // Polling error — retry on next iteration
-                }
-              }
-
-              if (!completed) {
-                result = { status: "error", error: "Polling timeout: model run did not complete in time" };
-                const runIdFailed = (payload as Record<string, unknown>)?.runId as string | undefined;
-                jobEventBus.emitJobStatus({
-                  jobId: runIdFailed ?? job.id!,
-                  state: "failed",
-                  progress: 0,
-                  failedReason: "Polling timeout: download did not complete in time",
-                });
-              }
+              result = { status: "success", data: { job_id: plumberJobId, status: "running" } };
+              await job.updateProgress(30);
             } else {
               result = { status: "success", data: modelRes };
               await job.updateProgress(100);
@@ -450,8 +377,9 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       });
                     }
                   }
-                } catch {
-                  // Polling error — retry on next iteration
+                } catch (pollErr) {
+                  const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr);
+                  console.warn(`[queue] Polling error for climate job ${job.id}: ${pollMsg}`);
                 }
               }
 

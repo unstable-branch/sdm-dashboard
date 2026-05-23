@@ -207,52 +207,18 @@ sdmRoutes.post("/run", async (c) => {
         .update(runs)
         .set({ jobId: plumberJobId, status: "running" })
         .where(eq(runs.id, run.id));
-
-      let attempts = 0;
-      let completed = false;
-
-      while (!completed && attempts < 600) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        attempts++;
-
-        try {
-          const status = await plumberClient.getModelStatus(plumberJobId);
-          const runStatus = (status as any).status;
-
-          if (runStatus === "completed" || runStatus === "failed" || runStatus === "cancelled") {
-            completed = true;
-            const error = (status as any).error;
-
-            await db
-              .update(runs)
-              .set({
-                status: runStatus,
-                metrics: runStatus === "completed" ? (status as any).metrics ?? null : null,
-                outputFiles: runStatus === "completed" ? (status as any).output_files ?? null : null,
-                error: error ?? null,
-                completedAt: runStatus !== "running" ? new Date() : null,
-              })
-              .where(eq(runs.id, run.id));
-
-            return c.json({
-              ...status,
-              runId: run.id,
-              jobId: plumberJobId,
-            });
-          }
-        } catch {
-          // Polling error — retry on next iteration
-        }
-      }
-
-      if (!completed) {
-        return c.json({ error: "Model run timed out" }, 504);
-      }
     }
 
-    return c.json({ ...result, runId: run.id });
+    // Fire-and-forget: plumber-sync polls Plumber and updates DB + SSE
+    return c.json({
+      runId: run.id,
+      jobId: plumberJobId,
+      status: "running",
+      message: "Model run started. Track progress via /runs or SSE.",
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Model run failed";
+    console.error(`[sdm] Model run failed: ${message}`);
     return c.json({ error: message }, 502);
   }
 });
@@ -501,6 +467,58 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
     return c.json({ ok: true, message: "Run cancelled" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to cancel";
+    return c.json({ error: message }, 502);
+  }
+});
+
+sdmRoutes.post("/cancel-all", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const statusFilter = (body.status as string) || "active";
+
+    const statusValues = statusFilter === "active"
+      ? ["queued", "running"]
+      : [statusFilter];
+
+    const allRuns = await db
+      .select({ id: runs.id, jobId: runs.jobId, status: runs.status })
+      .from(runs);
+
+    const toCancel = allRuns.filter(r => statusValues.includes(r.status));
+
+    if (toCancel.length === 0) {
+      return c.json({ ok: true, message: "No runs to cancel", cancelled: 0 });
+    }
+
+    const queue = getJobQueue();
+    let cancelled = 0;
+
+    for (const run of toCancel) {
+      try {
+        if (queue && run.jobId) {
+          const bullJob = await queue.getJob(run.jobId);
+          if (bullJob) {
+            const state = await bullJob.getState();
+            if (state === "active" || state === "waiting" || state === "delayed") {
+              await bullJob.remove();
+            }
+          }
+        }
+
+        if (run.jobId) {
+          await plumberClient.cancelModel(run.jobId).catch(() => {});
+        }
+
+        await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, run.id));
+        cancelled++;
+      } catch {
+        // Continue with other runs even if one fails
+      }
+    }
+
+    return c.json({ ok: true, message: `Cancelled ${cancelled}/${toCancel.length} runs`, cancelled, total: toCancel.length });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to cancel runs";
     return c.json({ error: message }, 502);
   }
 });

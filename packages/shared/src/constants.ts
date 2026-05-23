@@ -120,3 +120,12 @@ export const DEFAULT_CONFIG = {
   vifThreshold: 10,
   climateMatchingMethod: "mahalanobis" as const,
 };
+
+/**
+ * Build the WorldClim future directory path from GCM, SSP, and period.
+ * Convention: Worldclim_future/{GCM}_{SSP}_{period}
+ * Example: Worldclim_future/UKESM1-0-LL_SSP2-4.5_2041-2060
+ */
+export function buildFutureWorldclimPath(gcm: string, ssp: string, period: string): string {
+  return `Worldclim_future/${gcm}_${ssp}_${period}`;
+}
