@@ -45,14 +45,20 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
                              include_quadratic = TRUE, cv_folds = 3, seed = 42, n_cores = 1,
                              log_fun = NULL, cv_strategy = sdm_default_cv_strategy,
                              cv_block_size_km = sdm_default_cv_block_size_km,
+                             bias_method = c("uniform", "target_group", "thickened"),
+                             target_group_occ = NULL,
+                             thickening_distance_km = NULL,
                              threshold = sdm_default_threshold, maxnet_features = sdm_default_maxnet_features,
                              maxnet_regmult = sdm_default_maxnet_regmult) {
+    bias_method <- match.arg(bias_method)
     if (!requireNamespace("maxnet", quietly = TRUE)) {
       stop("maxnet package is required for MaxEnt fitting but is not installed.", call. = FALSE)
     }
 
     d <- prepare_sdm_data(occ, env_train_scaled, background_n,
-      seed = seed, log_fun = log_fun
+      seed = seed, log_fun = log_fun,
+      bias_method = bias_method, target_group_occ = target_group_occ,
+      thickening_distance_km = thickening_distance_km
     )
     occ_used <- d$occ_used
     pres_vals <- d$pres_vals

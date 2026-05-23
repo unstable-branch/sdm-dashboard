@@ -54,14 +54,20 @@ fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
                         seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
                         cv_strategy = sdm_default_cv_strategy,
                         cv_block_size_km = sdm_default_cv_block_size_km,
+                        bias_method = c("uniform", "target_group", "thickened"),
+                        target_group_occ = NULL,
+                        thickening_distance_km = NULL,
                         threshold = sdm_default_threshold) {
+  bias_method <- match.arg(bias_method)
   if (!requireNamespace("mgcv", quietly = TRUE)) {
     stop("The GAM backend requires the mgcv package. Install mgcv or choose a different model backend.", call. = FALSE)
   }
 
   d <- prepare_sdm_data(occ, env_train_scaled, background_n,
     seed = seed, log_fun = log_fun,
-    include_xy = FALSE
+    include_xy = FALSE,
+    bias_method = bias_method, target_group_occ = target_group_occ,
+    thickening_distance_km = thickening_distance_km
   )
   occ_used <- d$occ_used
   pres_vals <- d$pres_vals
