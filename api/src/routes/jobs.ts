@@ -21,8 +21,11 @@ app.get("/sse", (c) => {
           const state = await job.getState();
           const progress = job.progress || 0;
 
+          const runId = (job.data as Record<string, unknown>)?.payload as Record<string, unknown> | undefined;
+          const runIdStr = (runId?.runId as string) || (job.data as Record<string, unknown>)?.runId as string;
+
           const eventData = {
-            id: job.id,
+            id: runIdStr || job.id,
             state,
             progress,
             type: job.data?.type,
@@ -36,7 +39,7 @@ app.get("/sse", (c) => {
           });
 
           jobEventBus.emitJobStatus({
-            jobId: job.id ?? "",
+            jobId: runIdStr || job.id || "",
             state: state as string,
             progress: (progress ?? 0) as number,
             result: job.returnvalue as Record<string, unknown> | undefined,

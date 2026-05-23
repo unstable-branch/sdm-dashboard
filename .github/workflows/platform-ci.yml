@@ -15,10 +15,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  frontend:
-    name: Frontend build + test
+  shared:
+    name: Build shared package
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +35,38 @@ jobs:
 
       - name: Build shared package
         run: pnpm --filter @sdm/shared run build
+
+      - name: Upload shared artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
+          retention-days: 5
+
+  frontend:
+    name: Frontend build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: shared
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: npm install -g pnpm
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Download shared artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
 
       - name: Type check
         run: pnpm --filter frontend run typecheck
@@ -42,16 +74,32 @@ jobs:
       - name: Lint
         run: pnpm --filter frontend run lint
 
-      - name: Unit tests
-        run: pnpm --filter frontend run test
+      - name: Unit tests with coverage
+        run: pnpm --filter frontend run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+          retention-days: 14
 
       - name: Build
         run: pnpm --filter frontend run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/.next
+          retention-days: 5
 
   api:
     name: API build + test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: shared
 
     steps:
       - uses: actions/checkout@v4
@@ -66,8 +114,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build shared package
-        run: pnpm --filter @sdm/shared run build
+      - name: Download shared artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
 
       - name: Type check
         run: pnpm --filter api run typecheck
@@ -75,11 +126,26 @@ jobs:
       - name: Lint
         run: pnpm --filter api run lint
 
-      - name: Unit tests
-        run: pnpm --filter api run test
+      - name: Unit tests with coverage
+        run: pnpm --filter api run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-coverage
+          path: api/coverage/
+          retention-days: 14
 
       - name: Build
         run: pnpm --filter api run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-dist
+          path: api/dist
+          retention-days: 5
 
   r-quality:
     name: R source + tests
@@ -98,8 +164,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            gdal-bin libcurl4-openssl-dev libgdal-dev libgeos-dev \
-            libproj-dev libssl-dev libudunits2-dev libxml2-dev make proj-data
+            gdal-bin \
+            libcurl4-openssl-dev \
+            libgdal-dev \
+            libgeos-dev \
+            libproj-dev \
+            libssl-dev \
+            libudunits2-dev \
+            libxml2-dev \
+            make \
+            proj-data
 
       - name: Install R dependencies
         uses: r-lib/actions/setup-r-dependencies@v2
@@ -112,6 +186,7 @@ jobs:
         run: |
           files <- list.files(pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE)
           files <- files[!grepl("^\\.git/", files)]
+          files <- files[!grepl("/\\.Rprofile$", files)]
           for (file in files) parse(file)
           message("Parsed ", length(files), " R source files.")
         shell: Rscript --no-init-file {0}
@@ -122,16 +197,65 @@ jobs:
       - name: Testthat suite
         run: Rscript tests/testthat.R
 
+      - name: Audit release packaging
+        run: Rscript scripts/audit_release.R
+
   docker:
-    name: Docker compose validation
+    name: Docker build + integration
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Validate compose files
-        run: docker compose -f docker-compose.dev.yml config
+        run: |
+          docker compose -f docker-compose.yml config
+          docker compose -f docker-compose.dev.yml config
+          docker compose -f docker-compose.prod.yml config
 
-      - name: Validate Plumber Dockerfile
-        run: docker build -f plumber/Dockerfile .
+      - name: Build Plumber image
+        run: docker build -f plumber/Dockerfile -t sdm-plumber:test .
+
+      - name: Build API image
+        run: docker build -f Dockerfile.api -t sdm-api:test .
+
+      - name: Build Frontend image
+        run: docker build -f Dockerfile.frontend -t sdm-frontend:test .
+
+      - name: Build legacy SDM image
+        run: docker build -t sdm-shiny:test .
+
+      - name: Start services and verify health
+        run: |
+          docker compose -f docker-compose.yml up -d postgres redis garage
+          docker compose -f docker-compose.yml up -d plumber
+          docker compose -f docker-compose.yml up -d api
+          docker compose -f docker-compose.yml up -d frontend
+
+          : "Waiting for services to become healthy"
+          sleep 10
+
+          : "Health checks"
+          curl -sf http://localhost:8000/health || { echo "Plumber health failed"; exit 1; }
+          curl -sf http://localhost:4000/health || { echo "API health failed"; exit 1; }
+          curl -sf http://localhost:3000/ || { echo "Frontend health failed"; exit 1; }
+
+      - name: Run Playwright e2e tests
+        run: |
+          cd frontend
+          pnpm install --frozen-lockfile
+          pnpm run test:e2e
+        continue-on-error: true
+
+      - name: Scan images for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: sdm-plumber:test
+          format: sarif
+          output: trivy-results.sarif
+        continue-on-error: true
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker-compose.yml down -v

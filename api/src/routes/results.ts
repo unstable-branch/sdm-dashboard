@@ -74,10 +74,7 @@ resultsRoutes.get("/:id", async (c) => {
     error: run.error ?? null,
     metrics: run.metrics ?? null,
     output_files: run.outputFiles ?? null,
-    progress_log: (run.progressLog ?? []).map((entry) => {
-      if (typeof entry === "string") return entry;
-      return `${entry.timestamp} ${entry.message}`;
-    }),
+    progress_log: [],
   });
 });
 

@@ -115,14 +115,13 @@ download_chelsa_extras <- function(worldclim_dir, selected_extras = names(chelsa
   invisible(find_chelsa_extra_files(worldclim_dir, selected_extras))
 }
 
-download_worldclim_layers <- function(worldclim_dir, selected_biovars, res = 10, log_fun = NULL, n_cores = NULL) {
+download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, log_fun = NULL, n_cores = NULL) {
   ensure_sdm_packages(c("terra", "geodata"), n_cores = n_cores)
   dir.create(worldclim_dir, recursive = TRUE, showWarnings = FALSE)
   log_message(log_fun, "Downloading WorldClim BIO layers to ", worldclim_dir, " (resolution ", res, " arc-min)")
   wc <- geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir)
   for (bv in as.integer(selected_biovars)) {
     idx <- grep(sprintf("bio_?%d$", bv), names(wc), ignore.case = TRUE)
-    # geodata names layers bio01-bio19; also try zero-padded form
     if (length(idx) == 0) idx <- grep(sprintf("bio%02d$", bv), names(wc), ignore.case = TRUE)
     if (length(idx) == 0 && bv <= terra::nlyr(wc)) idx <- bv
     if (length(idx) > 0) {
@@ -136,6 +135,60 @@ download_worldclim_layers <- function(worldclim_dir, selected_biovars, res = 10,
     }
   }
   invisible(find_worldclim_files(worldclim_dir, selected_biovars))
+}
+
+download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_cores = NULL) {
+  if (!requireNamespace("curl", quietly = TRUE)) {
+    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')")
+  }
+  ensure_sdm_packages("terra", n_cores = n_cores)
+  dir.create(chelsa_dir, recursive = TRUE, showWarnings = FALSE)
+  log_message(log_fun, "Downloading CHELSA v2.1 BIO layers to ", chelsa_dir)
+
+  base_url <- "https://envicloud.wsl.ch/links/chelsaV21/climatologies/"
+  for (bv in as.integer(selected_biovars)) {
+    bio_num <- if (bv < 10) sprintf("bio0%d", bv) else sprintf("bio%d", bv)
+    fname <- sprintf("CHELSA_%s_1979-2013_V.2.1.tif", bio_num)
+    dest <- file.path(chelsa_dir, fname)
+    if (file.exists(dest)) {
+      log_message(log_fun, "CHELSA BIO already exists: ", fname)
+      next
+    }
+    url <- paste0(base_url, fname)
+    tmp <- tempfile(fileext = ".tif")
+    ok <- tryCatch(
+      {
+        resp <- curl::curl_fetch_disk(url, tmp)
+        fi <- file.info(tmp)
+        !is.na(fi$size) && fi$size > 1024
+      },
+      error = function(e) FALSE
+    )
+    if (ok && file.exists(tmp) && file.info(tmp)$size > 1024) {
+      if (is_valid_geotiff(tmp)) {
+        file.rename(tmp, dest)
+        log_message(log_fun, "Downloaded CHELSA BIO: ", bv)
+      } else {
+        log_message(log_fun, "Downloaded file is not a valid GeoTIFF: ", fname)
+        unlink(tmp, force = TRUE)
+      }
+    } else {
+      log_message(log_fun, "Failed to download CHELSA BIO ", bv, " — URL: ", url)
+      if (file.exists(tmp)) unlink(tmp, force = TRUE)
+    }
+  }
+  invisible(find_worldclim_files(chelsa_dir, selected_biovars, source = "chelsa"))
+}
+
+is_valid_geotiff <- function(path) {
+  if (!file.exists(path)) return(FALSE)
+  con <- file(path, "rb")
+  bytes <- readBin(con, "raw", n = 4)
+  close(con)
+  if (length(bytes) < 4) return(FALSE)
+  if (identical(bytes[1:2], as.raw(c(0x49, 0x49))) && identical(bytes[3:4], as.raw(c(0x2A, 0x00)))) return(TRUE)
+  if (identical(bytes[1:3], as.raw(c(0x47, 0x49, 0x46)))) return(FALSE)
+  FALSE
 }
 
 crop_and_optionally_aggregate <- function(r, extent_vec, aggregation_factor = 1) {
@@ -163,7 +216,11 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
 
   files <- find_worldclim_files(worldclim_dir, selected_biovars, source = source)
   if (any(is.na(files)) && allow_download) {
-    files <- download_worldclim_layers(worldclim_dir, selected_biovars, worldclim_res, log_fun, n_cores)
+    if (identical(source, "chelsa")) {
+      files <- download_chelsa_bio(worldclim_dir, selected_biovars, log_fun, n_cores)
+    } else {
+      files <- download_worldclim_bio(worldclim_dir, selected_biovars, worldclim_res, log_fun, n_cores)
+    }
   }
   if (any(is.na(files))) {
     missing <- selected_biovars[is.na(files)]

@@ -174,6 +174,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
 
   ssp_map <- c("SSP1-2.6" = "126", "SSP2-4.5" = "245", "SSP3-7.0" = "370", "SSP5-8.5" = "585")
   ssp_code <- ssp_map[ssp] %||% gsub("[^0-9]", "", ssp)
+  ssp_display <- gsub("-", "_", ssp)
 
   cached_dirs <- list()
   for (gcm in gcm_list) {
@@ -184,7 +185,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
     cached_dirs[[gcm]] <- result$dir
   }
 
-  out_path <- file.path(out_dir, paste("averaged", paste(gcm_list, collapse = "_"), ssp_code, period, sep = "_"))
+  out_path <- file.path(out_dir, paste("averaged", paste(gcm_list, collapse = "_"), ssp_display, period, sep = "_"))
   if (!dir.exists(out_path)) dir.create(out_path, recursive = TRUE)
 
   all_bio_vars <- paste0("bio", 1:19)
@@ -205,14 +206,14 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
       stacked <- terra::rast(bio_files)
 
       avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
-      out_mean <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_SSP", ssp_code, "_", period, "_", bio, ".tif"))
+      out_mean <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, ".tif"))
       terra::writeRaster(avg, out_mean,
         overwrite = TRUE,
         wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
       )
 
       sd_layer <- terra::app(stacked, fun = "sd", na.rm = TRUE)
-      out_sd <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_SSP", ssp_code, "_", period, "_", bio, "_sd.tif"))
+      out_sd <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, "_sd.tif"))
       terra::writeRaster(sd_layer, out_sd,
         overwrite = TRUE,
         wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
@@ -223,7 +224,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
   baseline_dir <- "Worldclim"
   if (dir.exists(baseline_dir)) {
     for (bio in all_bio_vars) {
-      mean_file <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_SSP", ssp_code, "_", period, "_", bio, ".tif"))
+      mean_file <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, ".tif"))
       if (!file.exists(mean_file)) next
 
       baseline_file <- file.path(baseline_dir, paste0(bio, ".tif"))
@@ -237,7 +238,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
       }
 
       delta <- future_layer - baseline_layer
-      out_delta <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_SSP", ssp_code, "_", period, "_", bio, "_delta.tif"))
+      out_delta <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, "_delta.tif"))
       terra::writeRaster(delta, out_delta,
         overwrite = TRUE,
         wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
@@ -245,7 +246,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
     }
   }
 
-  mean_files <- list.files(out_path, pattern = paste0("_SSP", ssp_code, ".*_bio[0-9]+\\.tif$"), full.names = TRUE)
+  mean_files <- list.files(out_path, pattern = paste0("_", ssp_display, "_.*_bio[0-9]+\\.tif$"), full.names = TRUE)
   first_raster <- if (length(mean_files) > 0) terra::rast(mean_files[1]) else terra::rast()
 
   list(dir = out_path, cached = FALSE, raster = first_raster, averaged = TRUE)

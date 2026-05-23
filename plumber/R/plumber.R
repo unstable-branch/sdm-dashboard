@@ -606,34 +606,36 @@ function() {
 #* Discover available future climate scenarios
 #* @get /api/v1/future/scenarios
 function() {
-  base_dir <- sdm_default_future_worldclim_dir
+  base_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
   if (!dir.exists(base_dir)) {
     return(list(available_scenarios = list(), message = paste("Directory not found:", base_dir)))
   }
 
-  gcm_ids <- c("UKESM1-0-LL", "MPI-ESM1-2-HR", "IPSL-CM6A-LR", "MRI-ESM2-0", "GFDL-ESM4")
-  ssp_ids <- c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0", "SSP5-8.5")
-  period_ids <- c("2021-2040", "2041-2060", "2061-2080", "2081-2100")
-
   available <- list()
-  for (gcm in gcm_ids) {
-    for (ssp in ssp_ids) {
-      for (period in period_ids) {
-        dir_name <- paste0(gcm, "_", ssp, "_", period)
-        dir_path <- file.path(base_dir, dir_name)
-        if (dir.exists(dir_path)) {
-          tif_files <- list.files(dir_path, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
-          available <- c(available, list(list(
-            gcm = gcm,
-            ssp = ssp,
-            period = period,
-            path = dir_path,
-            file_count = length(tif_files),
-            files = tif_files
-          )))
-        }
-      }
-    }
+  subdirs <- list.dirs(base_dir, recursive = FALSE, full.names = FALSE)
+  for (sd_name in subdirs) {
+    sd <- file.path(base_dir, sd_name)
+    tif_files <- list.files(sd, pattern = "\\.tif$", full.names = TRUE)
+    if (length(tif_files) == 0) next
+
+    is_averaged <- startsWith(sd_name, "averaged_")
+    if (is_averaged) next
+
+    parts <- strsplit(sd_name, "_")[[1]]
+    if (length(parts) < 3) next
+    period <- parts[length(parts)]
+    ssp_raw <- parts[length(parts) - 1]
+    ssp <- if (grepl("-", ssp_raw)) ssp_raw else paste0("SSP", substr(ssp_raw, 1, 1), "-", substr(ssp_raw, 2, 3))
+    gcm <- paste(parts[1:(length(parts) - 2)], collapse = "_")
+
+    available <- c(available, list(list(
+      gcm = gcm,
+      ssp = ssp,
+      period = period,
+      path = sd,
+      file_count = length(tif_files),
+      files = tif_files
+    )))
   }
 
   list(available_scenarios = available, base_directory = base_dir)
@@ -694,32 +696,34 @@ function(req) {
           progress_fun(10, "Downloading CMIP6")
           log_fun("Scenario: ", gcm, " / ", ssp, " / ", period, " (", res, "m)")
           source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
-          fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res, out_dir = "Worldclim_future", quiet = FALSE)
+          fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res, out_dir = file.path(app_dir, sdm_default_future_worldclim_dir), quiet = FALSE)
           progress_fun(90, "CMIP6 download complete")
         } else {
           gcm_list <- body$gcm_list %||% character(0)
           progress_fun(10, "Averaging CMIP6 GCMs")
           log_fun("GCMs: ", paste(gcm_list, collapse = ", "), " / ", ssp, " / ", period)
           source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
-          average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res, out_dir = "Worldclim_future", quiet = FALSE)
+          average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res, out_dir = file.path(app_dir, sdm_default_future_worldclim_dir), quiet = FALSE)
           progress_fun(90, "GCM averaging complete")
         }
       } else if (download_type == "worldclim") {
         res <- as.integer(body$res %||% 10)
         biovars <- body$biovars
         if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
+        worldclim_dir <- file.path(app_dir, sdm_default_worldclim_dir)
         progress_fun(10, "Downloading WorldClim v2.1 BIO layers (", res, "m)")
         log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
         source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
-        download_worldclim_bio(worldclim_dir = "Worldclim", biovars = biovars, res = res, quiet = FALSE)
+        download_worldclim_bio(worldclim_dir = worldclim_dir, biovars = biovars, res = res, quiet = FALSE)
         progress_fun(90, "WorldClim download complete")
       } else if (download_type == "chelsa") {
         biovars <- body$biovars
         if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
+        chelsa_dir <- file.path(app_dir, sdm_default_chelsa_dir)
         progress_fun(10, "Downloading CHELSA v2.1 BIO layers")
         log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
         source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
-        download_chelsa_bio(chelsa_dir = "chelsa", biovars = biovars, quiet = FALSE)
+        download_chelsa_bio(chelsa_dir = chelsa_dir, biovars = biovars, quiet = FALSE)
         progress_fun(90, "CHELSA download complete")
       } else {
         stop("Unknown download type: ", download_type)
@@ -785,9 +789,9 @@ function(res, job_id) {
 #* List downloaded climate scenarios
 #* @get /api/v1/climate/scenarios
 function() {
-  future_dir <- sdm_default_future_worldclim_dir
-  current_dir <- sdm_default_worldclim_dir
-  chelsa_dir <- "chelsa"
+  future_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
+  current_dir <- file.path(app_dir, sdm_default_worldclim_dir)
+  chelsa_dir <- file.path(app_dir, sdm_default_chelsa_dir)
 
   scenarios <- list()
 
@@ -866,9 +870,9 @@ function() {
 #* Delete a downloaded climate scenario
 #* @post /api/v1/climate/delete/<scenario_id>
 function(res, scenario_id) {
-  future_dir <- sdm_default_future_worldclim_dir
-  current_dir <- sdm_default_worldclim_dir
-  chelsa_dir <- "chelsa"
+  future_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
+  current_dir <- file.path(app_dir, sdm_default_worldclim_dir)
+  chelsa_dir <- file.path(app_dir, sdm_default_chelsa_dir)
 
   target_dir <- NULL
   if (scenario_id == "worldclim_current") {
@@ -1618,17 +1622,17 @@ function(source = "worldclim", res = "10", biovars = "", gcm = "", ssp = "", per
     if (source == "worldclim") {
       res_esc <- gsub("\\.", "\\\\.", as.character(res))
       pattern <- sprintf("^wc2\\.1_%sm_bio_\\d+\\.tif$", res_esc)
-      files <- list.files(sdm_default_worldclim_dir, pattern = pattern)
+      files <- list.files(file.path(app_dir, sdm_default_worldclim_dir), pattern = pattern)
       existing_nums <- as.integer(gsub("^.*_bio_(\\d+)\\.tif$", "\\1", files))
     } else if (source == "chelsa") {
-      files <- list.files("chelsa", pattern = "^CHELSA_bio\\d+_.*\\.tif$")
+      files <- list.files(file.path(app_dir, sdm_default_chelsa_dir), pattern = "^CHELSA_bio\\d+_.*\\.tif$")
       existing_nums <- as.integer(gsub("^CHELSA_bio0*(\\d+)_.*$", "\\1", files))
     } else if (source == "cmip6") {
       if (nzchar(gcm) && nzchar(ssp) && nzchar(period)) {
         if (grepl("(\\.\\./|\\.\\.\\\\|/)", paste(gcm, ssp, period))) {
           stop("Invalid climate path parameters")
         }
-        future_dir <- file.path(sdm_default_future_worldclim_dir, paste0(gcm, "_", ssp, "_", period))
+        future_dir <- file.path(app_dir, sdm_default_future_worldclim_dir, paste0(gcm, "_", ssp, "_", period))
         if (dir.exists(future_dir)) {
           files <- list.files(future_dir, pattern = "^bio\\d+\\.tif$")
           existing_nums <- as.integer(gsub("^bio(\\d+)\\.tif$", "\\1", files))
