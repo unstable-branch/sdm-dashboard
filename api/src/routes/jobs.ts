@@ -12,6 +12,22 @@ app.get("/sse", (c) => {
       aborted = true;
     });
 
+    // Listen to real-time events from plumber-sync and queue worker
+    const handler = (event: { jobId: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string }) => {
+      stream.writeSSE({
+        event: "job-update",
+        data: JSON.stringify({
+          id: event.jobId,
+          state: event.state,
+          progress: event.progress,
+          logs: event.logs,
+          result: event.result,
+          failedReason: event.failedReason,
+        }),
+      }).catch(() => {});
+    };
+    jobEventBus.on("jobStatus", handler);
+
     while (!aborted && !stream.closed) {
       try {
         const q = getJobQueue();
@@ -41,14 +57,6 @@ app.get("/sse", (c) => {
             event: "job-update",
             data: JSON.stringify(eventData),
           });
-
-          jobEventBus.emitJobStatus({
-            jobId: runIdStr || job.id || "",
-            state: state as string,
-            progress: (progress ?? 0) as number,
-            result: job.returnvalue as Record<string, unknown> | undefined,
-            failedReason: job.failedReason,
-          });
         }
 
         await stream.sleep(2000);
@@ -56,6 +64,8 @@ app.get("/sse", (c) => {
         break;
       }
     }
+
+    jobEventBus.off("jobStatus", handler);
   });
 });
 

@@ -13,4 +13,5 @@ export {
   TIME_PERIOD_CHOICES,
   SSP_CODE_MAP,
   DEFAULT_CONFIG,
+  buildFutureWorldclimPath,
 } from "./constants.js";

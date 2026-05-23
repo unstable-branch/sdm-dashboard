@@ -386,7 +386,13 @@ function(req, file_id, species_filter = NULL, max_coord_uncertainty_m = NULL, ba
 #* @param thickening_distance_km
 #* @param output_dir
 function(req) {
-  body <- tryCatch(jsonlite::fromJSON(req$postBody), error = function(e) NULL)
+  body <- tryCatch(
+    jsonlite::fromJSON(req$postBody),
+    error = function(e) {
+      cat("JSON parse error:", conditionMessage(e), "\n")
+      NULL
+    }
+  )
   if (is.null(body)) return(sdm_error(req, 400, "Invalid JSON body"))
 
   required <- c("species", "model_id", "occurrence_file")
@@ -567,9 +573,12 @@ function(req) {
     }, error = function(e) {
       job_meta$status <<- "failed"
       job_meta$error <<- conditionMessage(e)
+      job_meta$error_traceback <<- paste(utils::tail(traceback(), 10), collapse = "\n")
       job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
       cat("Run failed:", conditionMessage(e), "\n")
+      cat("Traceback:\n")
+      print(utils::tail(traceback(), 10))
     })
   }
 
@@ -598,6 +607,39 @@ function(res, job_id) {
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+
+  # Detect process crash: if status is "running" but process is dead or missing
+  if (identical(meta$status, "running")) {
+    proc <- sdm_process_registry[[job_id]]
+    process_alive <- FALSE
+    if (!is.null(proc)) {
+      tryCatch({
+        process_alive <- proc$is_alive()
+      }, error = function(e) {
+        process_alive <<- FALSE
+      })
+    }
+    # Also check PID directly if stored
+    if (!process_alive && !is.null(meta$process_pid)) {
+      pid <- as.integer(meta$process_pid)
+      if (is.finite(pid)) {
+        tryCatch({
+          ps_info <- tools::ps()
+          process_alive <- pid %in% ps_info$PID
+        }, error = function(e) {
+          process_alive <<- FALSE
+        })
+      }
+    }
+    if (!process_alive) {
+      meta$status <- "failed"
+      meta$error <- "Process crashed or was killed (OOM, segfault, or external signal)"
+      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+      # Clean up registry
+      sdm_process_registry[[job_id]] <- NULL
+    }
+  }
 
   progress_lines <- character(0)
   if (file.exists(progress_file)) {

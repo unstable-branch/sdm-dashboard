@@ -17,6 +17,7 @@ interface Run {
 
 interface RunHistoryProps {
   onRunSelect?: (runId: string) => void;
+  refreshKey?: number;
 }
 
 const statusIcons: Record<string, React.ReactNode> = {
@@ -31,7 +32,7 @@ function hasActiveRuns(runs: Run[]): boolean {
   return runs.some((r) => r.status === "queued" || r.status === "running");
 }
 
-export function RunHistory({ onRunSelect }: RunHistoryProps) {
+export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +60,7 @@ export function RunHistory({ onRunSelect }: RunHistoryProps) {
 
   useEffect(() => {
     fetchRuns();
-  }, [fetchRuns]);
+  }, [fetchRuns, refreshKey]);
 
   useEffect(() => {
     if (!hasActiveRuns(runs)) return;

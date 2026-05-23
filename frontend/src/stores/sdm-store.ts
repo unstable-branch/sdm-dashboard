@@ -21,6 +21,10 @@ interface SDMState {
   } | null;
   setCleanedOccurrence: (data: SDMState["cleanedOccurrence"]) => void;
 
+  // Non-persisted: large dataframe fetched on-demand
+  occurrenceData: Record<string, unknown>[] | null;
+  setOccurrenceData: (data: Record<string, unknown>[] | null) => void;
+
   uploadResult: Record<string, unknown> | null;
   setUploadResult: (result: Record<string, unknown> | null) => void;
 
@@ -46,6 +50,9 @@ export const useSDMStore = create<SDMState>()(
       cleanedOccurrence: null,
       setCleanedOccurrence: (data) => set({ cleanedOccurrence: data }),
 
+      occurrenceData: null,
+      setOccurrenceData: (data) => set({ occurrenceData: data }),
+
       uploadResult: null,
       setUploadResult: (result) => set({ uploadResult: result }),
 
@@ -64,7 +71,10 @@ export const useSDMStore = create<SDMState>()(
         uploadResult: state.uploadResult,
         cleanResult: state.cleanResult,
         flaggedIndices: state.flaggedIndices,
-        cleanedOccurrence: state.cleanedOccurrence,
+        // Exclude large df array from localStorage — store metadata only
+        cleanedOccurrence: state.cleanedOccurrence
+          ? { ...state.cleanedOccurrence, df: [] }
+          : null,
       }),
       onRehydrateStorage: () => (state) => {
         if (state && typeof state.occurrenceFilePath !== "string" && state.occurrenceFilePath !== null) {
@@ -80,6 +90,8 @@ export const useSDMStore = create<SDMState>()(
           } else if (typeof co.validRecords !== "number") {
             co.validRecords = 0;
           }
+          // df was stripped on persist — restore as empty, will be fetched on-demand
+          co.df = [];
         }
         if (state && typeof state.species !== "string") {
           state.species = "Untitled species";

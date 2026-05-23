@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
-import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
+import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath } from "@sdm/shared";
 import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, AlertTriangle, Info, CloudOff, Cloud } from "lucide-react";
@@ -167,7 +167,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       useBioclimSeason,
       useDrought,
       futureProjection,
-      futureWorldclimDir: futureProjection ? `Worldclim_future/${futureGcm}_${futureSsp}_${futurePeriod}` : undefined,
+      futureWorldclimDir: futureProjection ? buildFutureWorldclimPath(futureGcm, futureSsp, futurePeriod) : undefined,
       futureLabel,
       vifReduction,
       climateMatching,
