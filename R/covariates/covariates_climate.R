@@ -82,6 +82,17 @@ get_chelsa_url <- function() {
   getOption("sdm.chelsa.url", sdm_default_chelsa_url)
 }
 
+get_chelsa_base_url <- function() {
+  "https://os.unil.cloud.switch.ch/chelsa02/chelsa/global/bioclim"
+}
+
+get_chelsa_bio_url <- function(bio_num, period = "1981-2010") {
+  base <- get_chelsa_base_url()
+  bio_id <- if (bio_num < 10) sprintf("bio0%d", bio_num) else sprintf("bio%d", bio_num)
+  file_name <- sprintf("CHELSA_%s_%s_V.2.1.tif", bio_id, period)
+  paste0(base, "/", bio_id, "/", period, "/", file_name)
+}
+
 # Configurable CHELSA timeout (Fix 6)
 get_chelsa_timeout <- function() {
   as.integer(getOption("sdm.chelsa.timeout", sdm_default_chelsa_timeout))
@@ -113,7 +124,7 @@ get_partial_file_size <- function(path) {
 # HTTP HEAD request to get content-length (Fix 12)
 get_content_length <- function(url, timeout = 30) {
   tryCatch({
-    handle <- curl::new_handle(customrequest = "HEAD", timeout = timeout)
+    handle <- curl::new_handle(customrequest = "HEAD", timeout = timeout, connecttimeout = 10)
     response <- curl::curl_fetch_memory(url, handle = handle)
     headers <- response$headers
     if (is.null(headers)) return(NULL)
@@ -124,29 +135,25 @@ get_content_length <- function(url, timeout = 30) {
   }, error = function(e) NULL)
 }
 
-# Improved GeoTIFF validation — checks magic bytes AND tries to open with terra (Fix 3)
+# Improved GeoTIFF validation — checks magic bytes (Fix 3)
+# Handles classic TIFF (II*\x00, MM\x00*), BigTIFF (II2B..., MM2B...), and rejects GIF
 validate_geotiff <- function(path) {
   if (!file.exists(path)) return(FALSE)
   con <- file(path, "rb")
-  bytes <- readBin(con, "raw", n = 4)
+  bytes <- readBin(con, "raw", n = 8)
   close(con)
   if (length(bytes) < 4) return(FALSE)
-  # II*\x00 = TIFF magic (little-endian); MM\x00* = BigTIFF (big-endian)
-  if (identical(bytes[1:2], as.raw(c(0x49, 0x49))) && identical(bytes[3:4], as.raw(c(0x2A, 0x00)))) {
-    tryCatch({
-      r <- terra::rast(path)
-      terra::nlyr(r) >= 1
-    }, error = function(e) FALSE)
-  } else if (identical(bytes[1:2], as.raw(c(0x4D, 0x4D))) && identical(bytes[3:4], as.raw(c(0x00, 0x2A)))) {
-    tryCatch({
-      r <- terra::rast(path)
-      terra::nlyr(r) >= 1
-    }, error = function(e) FALSE)
-  } else if (identical(bytes[1:3], as.raw(c(0x47, 0x49, 0x46)))) {
-    FALSE
-  } else {
-    FALSE
-  }
+  # Classic TIFF little-endian: II*\x00 (0x49 0x49 0x2A 0x00)
+  if (identical(bytes[1:4], as.raw(c(0x49, 0x49, 0x2A, 0x00)))) return(TRUE)
+  # Classic TIFF big-endian: MM\x00* (0x4D 0x4D 0x00 0x2A)
+  if (identical(bytes[1:4], as.raw(c(0x4D, 0x4D, 0x00, 0x2A)))) return(TRUE)
+  # BigTIFF little-endian: II2B... (0x49 0x49 0x2B ...)
+  if (identical(bytes[1:2], as.raw(c(0x49, 0x49))) && bytes[3] == 0x2B) return(TRUE)
+  # BigTIFF big-endian: MM2B... (0x4D 0x4D 0x2B ...)
+  if (identical(bytes[1:2], as.raw(c(0x4D, 0x4D))) && bytes[3] == 0x2B) return(TRUE)
+  # GIF
+  if (identical(bytes[1:3], as.raw(c(0x47, 0x49, 0x46)))) return(FALSE)
+  FALSE
 }
 
 # Legacy helper — kept for compatibility with any direct callers
@@ -154,7 +161,51 @@ is_valid_geotiff <- function(path) {
   validate_geotiff(path)
 }
 
-# Download a single CHELSA file with retry, timeout, and resume support (Fix 2 + Fix 6 + Fix 12)
+# Download a single CHELSA file with retry and timeout (Fix 2 + Fix 6 + Fix 12)
+download_chelsa_file <- function(url, dest, log_fun = NULL) {
+  retries <- get_chelsa_retries()
+  timeout <- get_chelsa_timeout()
+
+  for (attempt in seq_len(retries)) {
+    if (attempt > 1) {
+      backoff <- 2 ^ (attempt - 1)
+      log_message(log_fun, "  Retry ", attempt, "/", retries, " after ", backoff, "s...")
+      Sys.sleep(backoff)
+    }
+
+    tmp <- tempfile(fileext = ".tif")
+
+    fetch_ok <- tryCatch({
+      handle <- curl::new_handle(timeout = timeout, connecttimeout = 10L)
+      resp <- curl::curl_fetch_disk(url, tmp, handle = handle)
+      fi <- file.info(tmp)
+      !is.na(fi$size) && fi$size > 1024
+    }, error = function(e) {
+      log_message(log_fun, "  Attempt ", attempt, " error: ", conditionMessage(e))
+      if (file.exists(tmp)) unlink(tmp, force = TRUE)
+      FALSE
+    })
+
+    if (fetch_ok && file.exists(tmp) && file.info(tmp)$size > 1024) {
+      if (validate_geotiff(tmp)) {
+        if (file.exists(dest)) file.remove(dest)
+        file.rename(tmp, dest)
+        log_message(log_fun, "  Downloaded: ", basename(dest))
+        return(TRUE)
+      } else {
+        log_message(log_fun, "  Invalid GeoTIFF: ", basename(dest))
+        unlink(tmp, force = TRUE)
+      }
+    } else {
+      if (file.exists(tmp)) unlink(tmp, force = TRUE)
+      log_message(log_fun, "  Attempt ", attempt, " failed (fetch or size check)")
+    }
+  }
+
+  log_message(log_fun, "  All ", retries, " attempts exhausted for: ", basename(dest))
+  FALSE
+}
+
 download_chelsa_file <- function(url, dest, log_fun = NULL) {
   retries <- get_chelsa_retries()
   timeout <- get_chelsa_timeout()
@@ -288,7 +339,7 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
   )
 }
 
-download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_cores = NULL) {
+download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_cores = NULL, period = "1981-2010") {
   if (!requireNamespace("curl", quietly = TRUE)) {
     stop("curl package required for CHELSA downloads. Install with: install.packages('curl')")
   }
@@ -296,18 +347,17 @@ download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_
   dir.create(chelsa_dir, recursive = TRUE, showWarnings = FALSE)
   log_message(log_fun, "Downloading CHELSA v2.1 BIO layers to ", chelsa_dir)
 
-  base_url <- get_chelsa_url()
   biovars <- as.integer(selected_biovars)
 
   # Determine parallel workers — use at most length(biovars) but cap at n_cores
   n_workers <- min(length(biovars), max(1L, n_cores %||% 2L))
 
-  log_message(log_fun, "Downloading ", length(biovars), " BIO layers using ", n_workers, " workers")
+  log_message(log_fun, "Downloading ", length(biovars), " BIO layers using ", n_workers, " workers (period: ", period, ")")
 
   # Parallel download using parallel::mclapply
   results <- parallel::mclapply(biovars, function(bv) {
-    bio_num <- if (bv < 10) sprintf("bio0%d", bv) else sprintf("bio%d", bv)
-    fname <- sprintf("CHELSA_%s_1979-2013_V.2.1.tif", bio_num)
+    bio_padded <- if (bv < 10) sprintf("bio0%d", bv) else sprintf("bio%d", bv)
+    fname <- sprintf("CHELSA_%s_%s_V.2.1.tif", bio_padded, period)
     dest <- file.path(chelsa_dir, fname)
 
     if (file.exists(dest)) {
@@ -316,7 +366,7 @@ download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_
       }
     }
 
-    url <- paste0(base_url, fname)
+    url <- get_chelsa_bio_url(bv, period)
     success <- download_chelsa_file(url, dest, log_fun)
     list(success = success, bio = bv, file = if (success) dest else NA_character_)
   }, mc.cores = n_workers, mc.preschedule = FALSE)
