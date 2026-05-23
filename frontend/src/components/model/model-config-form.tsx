@@ -5,7 +5,8 @@ import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
 import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, AlertTriangle, Info } from "lucide-react";
+import { CheckCircle2, AlertTriangle, Info, CloudOff, Cloud } from "lucide-react";
+import { useSDMStore } from "@/stores/sdm-store";
 
 interface ModelInfo {
   id: string;
@@ -18,14 +19,23 @@ interface ModelInfo {
 
 interface ModelConfigFormProps {
   occurrenceFile: string | null;
+  recordCount: number;
+  cleanedOccurrence: {
+    filePath: string;
+    df: Record<string, unknown>[];
+    sourceCounts: Record<string, number>;
+    nAbsentExcluded: number;
+    originalRows: number;
+    validRecords: number;
+  } | null;
   onSubmit: (config: Partial<ModelConfig>) => void;
   loading: boolean;
 }
 
-export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConfigFormProps) {
+export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence, onSubmit, loading }: ModelConfigFormProps) {
+  const setSpeciesStore = useSDMStore((s) => s.setSpecies);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>(MODEL_BACKENDS);
-  const [recordCount, setRecordCount] = useState<number | null>(null);
-  const [species, setSpecies] = useState("Untitled species");
+  const [species, setSpecies] = useState(() => useSDMStore.getState().species || "Untitled species");
   const [modelId, setModelId] = useState("glm");
   const [biovars, setBiovars] = useState<number[]>(DEFAULT_CONFIG.biovars);
   const [extentPreset, setExtentPreset] = useState("aus_full");
@@ -68,6 +78,11 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
+  const [climateRes, setClimateRes] = useState(10);
+  const [missingBiovars, setMissingBiovars] = useState<number[]>([]);
+  const [climateCheckLoading, setClimateCheckLoading] = useState(false);
+
   useEffect(() => {
     fetch("/api/v1/sdm/models")
       .then((res) => res.ok ? res.json() : null)
@@ -85,6 +100,22 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (biovars.length < 2) return;
+    const identifier = `${climateSource}_${climateRes}`;
+    setClimateCheckLoading(true);
+    fetch(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovars.join(",")}`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data && Array.isArray(data.available)) {
+          const availableSet = new Set(data.available as number[]);
+          setMissingBiovars(biovars.filter((b) => !availableSet.has(b)));
+        }
+      })
+      .catch(() => setMissingBiovars(biovars))
+      .finally(() => setClimateCheckLoading(false));
+  }, [biovars.join(","), climateSource, climateRes]);
 
   const toggleBiovar = (id: number) => {
     setBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
@@ -110,6 +141,8 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
       setError("Invalid extent preset");
       return;
     }
+
+    const useCleaned = cleanedOccurrence && cleanedOccurrence.filePath;
 
     const config = {
       species,
@@ -149,7 +182,10 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
       aggregationFactor,
       nCores,
       seed,
-      occurrenceFile: occurrenceFile || "",
+      occurrenceFile: useCleaned ? cleanedOccurrence!.filePath : (occurrenceFile || ""),
+      cleanedFilePath: useCleaned ? cleanedOccurrence!.filePath : undefined,
+      source: climateSource,
+      worldclimRes: climateRes,
     };
 
     const parsed = modelConfigSchema.safeParse(config);
@@ -163,7 +199,10 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
 
   const selectedModel = availableModels.find((m) => m.id === modelId);
   const isESM = modelId.startsWith("esm_");
-  const lowRecordWarning = selectedModel?.min_records && recordCount !== null && recordCount < selectedModel.min_records;
+  const effectiveRecordCount = cleanedOccurrence
+    ? cleanedOccurrence.validRecords
+    : recordCount;
+  const lowRecordWarning = selectedModel?.min_records && effectiveRecordCount !== null && effectiveRecordCount < selectedModel.min_records;
 
   return (
     <div className="space-y-6">
@@ -173,7 +212,15 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
         </div>
       )}
 
-      {occurrenceFile && (
+      {cleanedOccurrence && cleanedOccurrence.filePath ? (
+        <div className="rounded-md border border-indigo-500/30 bg-indigo-500/5 px-4 py-3 flex items-center gap-3">
+          <CheckCircle2 className="h-4 w-4 text-indigo-500 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-sdm-text">Cleaned occurrence data ready</p>
+            <p className="text-xs text-sdm-muted">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords.toLocaleString()} cleaned records</p>
+          </div>
+        </div>
+      ) : occurrenceFile && (
         <div className="rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3 flex items-center gap-3">
           <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
           <div className="min-w-0">
@@ -191,7 +238,7 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
           <input
             type="text"
             value={species}
-            onChange={(e) => setSpecies(e.target.value)}
+            onChange={(e) => { setSpecies(e.target.value); setSpeciesStore(e.target.value); }}
             className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
           />
         </div>
@@ -227,7 +274,7 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
             <div className="mt-2 rounded-md bg-red-500/10 border border-red-500/30 p-3 text-xs text-red-400 flex items-start gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
               <span>
-                {selectedModel?.label} recommends ≥ {selectedModel.min_records} records. You have {recordCount}.
+                {selectedModel?.label} recommends ≥ {selectedModel.min_records} records. You have {effectiveRecordCount}.
                 Results may be unreliable.
               </span>
             </div>
@@ -297,6 +344,30 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
         {biovars.length < 2 && (
           <p className="text-xs text-sdm-danger">Select at least 2 BIO variables</p>
         )}
+
+        {climateCheckLoading ? (
+          <div className="flex items-center gap-2 text-xs text-sdm-muted">
+            <span className="animate-pulse">Checking climate data availability...</span>
+          </div>
+        ) : missingBiovars.length > 0 && biovars.length >= 2 ? (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
+            <CloudOff className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-sdm-text">Climate data not available locally</p>
+              <p className="text-xs text-sdm-muted mt-0.5">
+                {missingBiovars.length} BIO {missingBiovars.length === 1 ? "variable is" : "variables are"} missing: BIO{missingBiovars.join(", BIO")}
+              </p>
+              <p className="text-xs text-sdm-muted mt-0.5">
+                Download missing layers from the Data → Climate tab, or enable auto-download.
+              </p>
+            </div>
+          </div>
+        ) : biovars.length >= 2 ? (
+          <div className="flex items-center gap-2 text-xs text-green-500">
+            <Cloud className="h-3.5 w-3.5" />
+            <span>All selected BIO variables available locally</span>
+          </div>
+        ) : null}
       </div>
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
@@ -555,10 +626,10 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
 
       <button
         onClick={handleSubmit}
-        disabled={loading || !occurrenceFile || biovars.length < 2}
+        disabled={loading || !(occurrenceFile || cleanedOccurrence?.filePath) || biovars.length < 2}
         className="w-full rounded-md bg-sdm-accent px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {loading ? "Running..." : "Run SDM"}
+        {loading ? "Running..." : missingBiovars.length > 0 ? "Run SDM (may download climate data)" : "Run SDM"}
       </button>
     </div>
   );

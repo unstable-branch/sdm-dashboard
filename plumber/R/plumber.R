@@ -232,8 +232,15 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
     occ <- result$occ
     source_counts <- result$source_counts
 
+    cleaned_path <- file.path(
+      app_dir, "data", "uploads",
+      paste0("cleaned_", format(Sys.time(), "%Y%m%d_%H%M%S_"), basename(file_id))
+    )
+    utils::write.csv(occ, cleaned_path, row.names = FALSE)
+
     list(
       cleaned_id = file_id,
+      cleaned_file_id = cleaned_path,
       valid_records = nrow(occ),
       original_rows = result$original_rows,
       removed_bad_coordinates = result$removed_bad_coordinates,
@@ -270,12 +277,20 @@ function(req, taxon, country = NULL, max_records = 100) {
       log_fun = message
     )
 
+    upload_dir <- file.path(app_dir, "data", "uploads")
+    dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
+    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", taxon)
+    ts <- format(Sys.time(), "%Y%m%d_%H%M%S")
+    csv_path <- file.path(upload_dir, paste0(ts, "_gbif_", safe_name, ".csv"))
+    utils::write.csv(occ, csv_path, row.names = FALSE)
+
     list(
       taxon = taxon,
       country = country,
       n_records = nrow(occ),
       max_records = max_records,
       doi = if (!is.null(occ$gbif_doi[1]) && nzchar(occ$gbif_doi[1])) occ$gbif_doi[1] else NA_character_,
+      file_path = csv_path,
       preview = lapply(seq_len(min(5, nrow(occ))), function(i) as.list(occ[i, ]))
     )
   }, error = function(e) {
@@ -416,9 +431,21 @@ function(req) {
 
   run_bg <- function() {
     tryCatch({
+      cleaned_occurrence <- NULL
+      if (!is.null(body$cleaned_file_id) && nzchar(body$cleaned_file_id) && file.exists(body$cleaned_file_id)) {
+        cleaned_df <- utils::read.csv(body$cleaned_file_id, stringsAsFactors = FALSE)
+        cleaned_occurrence <- list(
+          df = cleaned_df,
+          source_counts = list(),
+          n_absent_excluded = 0,
+          original_rows = nrow(cleaned_df)
+        )
+      }
+
       cfg <- sdm_config(
         species = body$species,
         occurrence_file = body$occurrence_file,
+        cleaned_occurrence = cleaned_occurrence,
         worldclim_dir = body$worldclim_dir %||% sdm_default_worldclim_dir,
         selected_biovars = biovars,
         projection_extent = projection_extent,
@@ -468,7 +495,27 @@ function(req) {
         seed = as.integer(body$seed %||% sdm_default_seed),
         source = body$source %||% sdm_default_climate_source,
         log_fun = log_fun,
-        progress_fun = progress_fun
+        progress_fun = progress_fun,
+        climate_matching = isTRUE(body$climate_matching),
+        climate_matching_method = body$climate_matching_method %||% "mahalanobis",
+        max_coordinate_uncertainty = if (!is.null(body$max_coordinate_uncertainty)) as.numeric(body$max_coordinate_uncertainty) else NULL,
+        multi_ensemble_models = body$multi_ensemble_models,
+        multi_ensemble_weighting = body$multi_ensemble_weighting,
+        multi_ensemble_power = as.numeric(body$multi_ensemble_power %||% sdm_default_ensemble_power),
+        multi_ensemble_min_auc = as.numeric(body$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc),
+        multi_ensemble_min_tss = as.numeric(body$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss),
+        multi_ensemble_export = isTRUE(body$multi_ensemble_export %||% TRUE),
+        biomod2_models = body$biomod2_models,
+        esm_n_runs = as.integer(body$esm_n_runs %||% sdm_esm_default_n_runs),
+        esm_split = body$esm_split %||% sdm_esm_default_split,
+        esm_min_auc = as.numeric(body$esm_min_auc %||% sdm_esm_default_min_auc),
+        esm_weighting_metric = body$esm_weighting_metric %||% "AUC",
+        esm_power = as.numeric(body$esm_power %||% sdm_esm_default_power),
+        esm_biovars = body$esm_biovars,
+        future_worldclim_dir2 = body$future_worldclim_dir2,
+        future_label2 = body$future_label2 %||% "Future climate 2",
+        use_cc = isTRUE(body$use_cc),
+        cc_tests = body$cc_tests %||% "all"
       )
 
       result <- run_fast_sdm(cfg)
@@ -522,7 +569,11 @@ function(req) {
     })
   }
 
-  callr::r_bg(run_bg)
+  proc <- callr::r_bg(run_bg)
+  sdm_process_registry[[job_id]] <- proc
+
+  job_meta$process_pid <- proc$get_pid()
+  writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
 
   list(
     job_id = job_id,
@@ -561,11 +612,53 @@ function(res, job_id) {
   )
 }
 
+# Global process registry for background model runs
+# Stores callr::r_bg process handles keyed by job_id
+sdm_process_registry <- new.env(parent = emptyenv())
+
 #* Cancel a running model
 #* @post /api/v1/models/cancel/<job_id>
 function(job_id) {
-  options(sdm.cancelled = TRUE)
-  list(ok = TRUE, message = "Cancellation requested")
+  proc <- sdm_process_registry[[job_id]]
+  killed <- FALSE
+
+  if (!is.null(proc) && inherits(proc, "Process")) {
+    if (proc$is_alive()) {
+      proc$kill()
+      killed <- TRUE
+    }
+    rm(list = job_id, envir = sdm_process_registry)
+  }
+
+  job_dir <- file.path("outputs", "jobs", job_id)
+  meta_file <- file.path(job_dir, "meta.json")
+  progress_log <- file.path(job_dir, "progress.log")
+
+  if (file.exists(meta_file)) {
+    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+
+    if (!killed && !is.null(meta$process_pid)) {
+      tryCatch({
+        tools::pskill(meta$process_pid, signal = 9)
+        killed <- TRUE
+      }, error = function(e) NULL)
+    }
+
+    meta$status <- "cancelled"
+    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    meta$error <- "Cancelled by user"
+    writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+  }
+
+  if (killed) {
+    log_line <- paste0(format(Sys.time(), "%H:%M:%S"), " [CANCELLED] Process killed for job ", job_id)
+    cat(log_line, "\n")
+    if (file.exists(progress_log)) {
+      cat(log_line, "\n", file = progress_log, append = TRUE)
+    }
+  }
+
+  list(ok = TRUE, message = if (killed) "Run cancelled and process terminated" else "Run cancelled (process not found)")
 }
 
 #* List all model runs

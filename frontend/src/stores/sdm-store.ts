@@ -12,25 +12,14 @@ interface SDMState {
   setRecordCount: (count: number) => void;
 
   cleanedOccurrence: {
+    filePath: string;
     df: Record<string, unknown>[];
     sourceCounts: Record<string, number>;
     nAbsentExcluded: number;
     originalRows: number;
+    validRecords: number;
   } | null;
   setCleanedOccurrence: (data: SDMState["cleanedOccurrence"]) => void;
-
-  result: Record<string, unknown> | null;
-  setResult: (result: Record<string, unknown> | null) => void;
-
-  running: boolean;
-  setRunning: (running: boolean) => void;
-
-  log: string;
-  appendLog: (message: string) => void;
-  clearLog: () => void;
-
-  error: string | null;
-  setError: (error: string | null) => void;
 
   uploadResult: Record<string, unknown> | null;
   setUploadResult: (result: Record<string, unknown> | null) => void;
@@ -57,22 +46,6 @@ export const useSDMStore = create<SDMState>()(
       cleanedOccurrence: null,
       setCleanedOccurrence: (data) => set({ cleanedOccurrence: data }),
 
-      result: null,
-      setResult: (result) => set({ result }),
-
-      running: false,
-      setRunning: (running) => set({ running }),
-
-      log: "",
-      appendLog: (message) =>
-        set((state) => ({
-          log: state.log + `${new Date().toLocaleTimeString()}  ${message}\n`,
-        })),
-      clearLog: () => set({ log: "" }),
-
-      error: null,
-      setError: (error) => set({ error }),
-
       uploadResult: null,
       setUploadResult: (result) => set({ uploadResult: result }),
 
@@ -91,6 +64,7 @@ export const useSDMStore = create<SDMState>()(
         uploadResult: state.uploadResult,
         cleanResult: state.cleanResult,
         flaggedIndices: state.flaggedIndices,
+        cleanedOccurrence: state.cleanedOccurrence,
       }),
       onRehydrateStorage: () => (state) => {
         if (state && typeof state.occurrenceFilePath !== "string" && state.occurrenceFilePath !== null) {
@@ -98,6 +72,17 @@ export const useSDMStore = create<SDMState>()(
         }
         if (state && typeof state.recordCount !== "number") {
           state.recordCount = 0;
+        }
+        if (state && state.cleanedOccurrence) {
+          const co = state.cleanedOccurrence;
+          if (typeof co.filePath !== "string" || !co.filePath) {
+            state.cleanedOccurrence = null;
+          } else if (typeof co.validRecords !== "number") {
+            co.validRecords = 0;
+          }
+        }
+        if (state && typeof state.species !== "string") {
+          state.species = "Untitled species";
         }
       },
     }

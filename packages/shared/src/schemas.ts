@@ -58,6 +58,7 @@ export const modelConfigSchema = z.object({
   worldclimRes: z.number().default(10),
   source: z.enum(["worldclim", "chelsa"]).default("worldclim"),
   chelsaExtras: z.array(z.string()).default([]),
+  cleanedFilePath: z.string().min(1).optional(),
 });
 
 export type ModelConfig = z.infer<typeof modelConfigSchema>;

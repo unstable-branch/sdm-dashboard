@@ -1,15 +1,21 @@
 import { Hono } from "hono";
 import { modelConfigSchema } from "@sdm/shared";
 import { plumberClient } from "../services/plumber.js";
-import { enqueueSdmJob } from "../services/queue.js";
+import { enqueueSdmJob, getJobQueue } from "../services/queue.js";
 import { db } from "../db/index.js";
 import { runs, species, projectMembers } from "../db/schema.js";
 import { eq, desc, count, and, inArray } from "drizzle-orm";
 import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
-import { join } from "path";
+import { join, resolve, dirname } from "path";
+import { fileURLToPath } from "url";
+import { existsSync, rmSync } from "fs";
 import type { AppEnv } from "../middleware/auth.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const PROJECT_ROOT = resolve(__dirname, "../../..");
 
 export const sdmRoutes = new Hono<AppEnv>();
 
@@ -17,6 +23,8 @@ sdmRoutes.use("*", modelRateLimit);
 sdmRoutes.use("/run", authMiddleware);
 sdmRoutes.use("/batch", authMiddleware);
 sdmRoutes.use("/cancel/*", authMiddleware);
+sdmRoutes.use("/runs/delete/*", authMiddleware);
+sdmRoutes.use("/runs/clear-all", authMiddleware);
 sdmRoutes.use("*", optionalAuth);
 
 sdmRoutes.post("/run", async (c) => {
@@ -67,7 +75,8 @@ sdmRoutes.post("/run", async (c) => {
             runId: run.id,
           species: config.species,
           model_id: config.modelId,
-          occurrence_file: config.occurrenceFile,
+          occurrence_file: config.cleanedFilePath || config.occurrenceFile,
+          cleaned_file_id: config.cleanedFilePath || null,
           biovars: config.biovars.join(","),
           projection_extent: config.projectionExtent.join(","),
           background_n: config.backgroundN,
@@ -140,31 +149,54 @@ sdmRoutes.post("/run", async (c) => {
     const result = await plumberClient.runModel({
       species: config.species,
       model_id: config.modelId,
-      occurrence_file: config.occurrenceFile,
+      occurrence_file: config.cleanedFilePath || config.occurrenceFile,
+      cleaned_file_id: config.cleanedFilePath || null,
       biovars: config.biovars.join(","),
       projection_extent: config.projectionExtent.join(","),
       background_n: config.backgroundN,
       cv_folds: config.cvFolds,
       cv_strategy: config.cvStrategy,
+      cv_block_size_km: config.cvBlockSizeKm,
       threshold: config.threshold,
       include_quadratic: config.includeQuadratic,
-      n_cores: config.nCores,
-      seed: config.seed,
-      worldclim_dir: config.worldclimDir,
-      source: config.source,
-      aggregation_factor: config.aggregationFactor,
-      min_source_records: config.minSourceRecords,
-      merge_small_sources: config.mergeSmallSources,
-      thin_by_cell: config.thinByCell,
       use_elevation: config.useElevation,
+      elevation_demtype: config.elevationDemtype,
+      opentopo_api_key: config.opentopoApiKey,
       use_soil: config.useSoil,
+      soil_vars: config.soilVars,
+      soil_depths: config.soilDepths,
+      use_uv: config.useUv,
+      uv_vars: config.uvVars,
+      use_vegetation: config.useVegetation,
+      veg_year: config.vegYear,
+      veg_products: config.vegProducts,
+      use_lulc: config.useLulc,
+      lulc_year: config.lulcYear,
+      use_hfp: config.useHfp,
+      hfp_year: config.hfpYear,
+      use_bioclim_season: config.useBioclimSeason,
+      use_drought: config.useDrought,
       future_projection: config.futureProjection,
       future_worldclim_dir: config.futureWorldclimDir,
       future_label: config.futureLabel,
       vif_reduction: config.vifReduction,
+      vif_threshold: config.vifThreshold,
+      climate_matching: config.climateMatching,
+      climate_matching_method: config.climateMatchingMethod,
+      thin_by_cell: config.thinByCell,
+      merge_small_sources: config.mergeSmallSources,
+      min_source_records: config.minSourceRecords,
       bias_method: config.biasMethod,
-      pa_replicates: config.paReplicates,
       thickening_distance_km: config.thickeningDistanceKm,
+      pa_replicates: config.paReplicates,
+      maxnet_features: config.maxnetFeatures,
+      maxnet_regmult: config.maxnetRegmult,
+      aggregation_factor: config.aggregationFactor,
+      n_cores: config.nCores,
+      seed: config.seed,
+      worldclim_dir: config.worldclimDir,
+      worldclim_res: config.worldclimRes,
+      source: config.source,
     });
 
     const plumberJobId = (result as any).job_id;
@@ -174,6 +206,47 @@ sdmRoutes.post("/run", async (c) => {
         .update(runs)
         .set({ jobId: plumberJobId, status: "running" })
         .where(eq(runs.id, run.id));
+
+      let attempts = 0;
+      let completed = false;
+
+      while (!completed && attempts < 600) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        attempts++;
+
+        try {
+          const status = await plumberClient.getModelStatus(plumberJobId);
+          const runStatus = (status as any).status;
+
+          if (runStatus === "completed" || runStatus === "failed") {
+            completed = true;
+            const error = (status as any).error;
+
+            await db
+              .update(runs)
+              .set({
+                status: runStatus,
+                metrics: (status as any).metrics ?? null,
+                outputFiles: (status as any).output_files ?? null,
+                error: error ?? null,
+                completedAt: runStatus === "completed" ? new Date() : null,
+              })
+              .where(eq(runs.id, run.id));
+
+            return c.json({
+              ...status,
+              runId: run.id,
+              jobId: plumberJobId,
+            });
+          }
+        } catch {
+          attempts++;
+        }
+      }
+
+      if (!completed) {
+        return c.json({ error: "Model run timed out" }, 504);
+      }
     }
 
     return c.json({ ...result, runId: run.id });
@@ -289,8 +362,12 @@ sdmRoutes.get("/runs", async (c) => {
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to fetch runs";
-    return c.json({ error: message }, 500);
+    console.error("[sdm-runs] Failed to fetch runs:", err);
+    return c.json({
+      runs: [],
+      pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+      warning: "Database unavailable — run history is temporarily inaccessible",
+    }, 200);
   }
 });
 
@@ -402,6 +479,17 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
       return c.json({ error: "Run not found" }, 404);
     }
 
+    const queue = getJobQueue();
+    if (queue && run.jobId) {
+      const bullJob = await queue.getJob(run.jobId);
+      if (bullJob) {
+        const state = await bullJob.getState();
+        if (state === "active" || state === "waiting" || state === "delayed") {
+          await bullJob.remove();
+        }
+      }
+    }
+
     if (run.jobId) {
       const result = await plumberClient.cancelModel(run.jobId);
       await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, jobId));
@@ -412,6 +500,73 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
     return c.json({ ok: true, message: "Run cancelled" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to cancel";
+    return c.json({ error: message }, 502);
+  }
+});
+
+sdmRoutes.delete("/runs/delete/:runId", async (c) => {
+  try {
+    const runId = c.req.param("runId");
+    const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+
+    if (!run) {
+      return c.json({ error: "Run not found" }, 404);
+    }
+
+    if (run.status === "running" || run.status === "queued") {
+      return c.json({ error: "Cannot delete a running or queued run. Cancel it first." }, 400);
+    }
+
+    const outputDir = join(PROJECT_ROOT, "outputs", "jobs", run.jobId || runId);
+
+    if (existsSync(outputDir)) {
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+
+    await db.delete(runs).where(eq(runs.id, runId));
+
+    return c.json({ ok: true, message: "Run deleted" });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to delete run";
+    return c.json({ error: message }, 502);
+  }
+});
+
+sdmRoutes.post("/runs/clear-all", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const includeCompleted = body.includeCompleted !== false;
+
+    const statusesToDelete = ["failed", "cancelled"];
+    if (includeCompleted) statusesToDelete.push("completed");
+
+    const runsToDelete = await db
+      .select({ id: runs.id, jobId: runs.jobId })
+      .from(runs)
+      .where(inArray(runs.status, statusesToDelete as any));
+
+    let deletedDirs = 0;
+
+    for (const run of runsToDelete) {
+      const outputDir = join(PROJECT_ROOT, "outputs", "jobs", run.jobId || run.id);
+      if (existsSync(outputDir)) {
+        rmSync(outputDir, { recursive: true, force: true });
+        deletedDirs++;
+      }
+    }
+
+    if (runsToDelete.length > 0) {
+      await db.delete(runs).where(inArray(runs.id, runsToDelete.map((r) => r.id)));
+    }
+
+    return c.json({
+      ok: true,
+      cleared: runsToDelete.length,
+      directoriesDeleted: deletedDirs,
+      message: `Cleared ${runsToDelete.length} runs`,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to clear runs";
     return c.json({ error: message }, 502);
   }
 });
@@ -443,8 +598,58 @@ sdmRoutes.post("/batch", async (c) => {
         })
         .returning();
 
+      const data = parsed.data;
       const plumberPayload = {
-        ...parsed.data,
+        species: data.species,
+        model_id: data.modelId,
+        occurrence_file: data.cleanedFilePath || data.occurrenceFile,
+        cleaned_file_id: data.cleanedFilePath || null,
+        biovars: data.biovars.join(","),
+        projection_extent: data.projectionExtent.join(","),
+        background_n: data.backgroundN,
+        cv_folds: data.cvFolds,
+        cv_strategy: data.cvStrategy,
+        cv_block_size_km: data.cvBlockSizeKm,
+        threshold: data.threshold,
+        include_quadratic: data.includeQuadratic,
+        use_elevation: data.useElevation,
+        elevation_demtype: data.elevationDemtype,
+        opentopo_api_key: data.opentopoApiKey,
+        use_soil: data.useSoil,
+        soil_vars: data.soilVars,
+        soil_depths: data.soilDepths,
+        use_uv: data.useUv,
+        uv_vars: data.uvVars,
+        use_vegetation: data.useVegetation,
+        veg_year: data.vegYear,
+        veg_products: data.vegProducts,
+        use_lulc: data.useLulc,
+        lulc_year: data.lulcYear,
+        use_hfp: data.useHfp,
+        hfp_year: data.hfpYear,
+        use_bioclim_season: data.useBioclimSeason,
+        use_drought: data.useDrought,
+        future_projection: data.futureProjection,
+        future_worldclim_dir: data.futureWorldclimDir,
+        future_label: data.futureLabel,
+        vif_reduction: data.vifReduction,
+        vif_threshold: data.vifThreshold,
+        climate_matching: data.climateMatching,
+        climate_matching_method: data.climateMatchingMethod,
+        thin_by_cell: data.thinByCell,
+        merge_small_sources: data.mergeSmallSources,
+        min_source_records: data.minSourceRecords,
+        bias_method: data.biasMethod,
+        thickening_distance_km: data.thickeningDistanceKm,
+        pa_replicates: data.paReplicates,
+        maxnet_features: data.maxnetFeatures,
+        maxnet_regmult: data.maxnetRegmult,
+        aggregation_factor: data.aggregationFactor,
+        n_cores: data.nCores,
+        seed: data.seed,
+        worldclim_dir: data.worldclimDir,
+        worldclim_res: data.worldclimRes,
+        source: data.source,
         output_dir: join("outputs", "jobs", run.id),
       };
 

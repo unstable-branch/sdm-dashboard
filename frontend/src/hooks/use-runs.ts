@@ -20,7 +20,10 @@ export function useRuns() {
   return useQuery<RunsResponse>({
     queryKey: ["sdm-runs"],
     queryFn: () => apiGet<RunsResponse>("/api/v1/sdm/runs"),
-    staleTime: 60 * 1000,
+    staleTime: 30 * 1000,
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+    refetchOnWindowFocus: true,
   });
 }
 

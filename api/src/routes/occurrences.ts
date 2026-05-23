@@ -88,8 +88,8 @@ dataRoutes.post("/occurrences/clean", async (c) => {
 
     const result = await plumberClient.cleanOccurrences(body);
 
-    if (result && typeof result === "object" && "cleaned_id" in result) {
-      const cleanedId = result.cleaned_id as string;
+    if (result && typeof result === "object" && "cleaned_file_id" in result) {
+      const cleanedFileId = result.cleaned_file_id as string;
       const speciesName = (body.species as string) || "Untitled species";
 
       let [sp] = await db
@@ -105,7 +105,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
           .returning();
       }
 
-      const cleanedRecords = parseCsvRecords(cleanedId);
+      const cleanedRecords = parseCsvRecords(cleanedFileId);
       const validRecords = cleanedRecords.filter(
         (r) => typeof r.longitude === "number" && typeof r.latitude === "number" && isFinite(r.longitude) && isFinite(r.latitude)
       );
@@ -113,7 +113,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       if (validRecords.length > 0) {
         const recordsToInsert = validRecords.map((row) => ({
           speciesId: sp.id,
-          filePath: cleanedId,
+          filePath: cleanedFileId,
           longitude: Number(row.longitude),
           latitude: Number(row.latitude),
           source: (row.source as string) || null,
@@ -203,6 +203,37 @@ dataRoutes.post("/occurrences/gbif/search", gbifRateLimit, async (c) => {
   }
 });
 
+dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
+  try {
+    const body = await c.req.json();
+    const taxon = body.taxon as string;
+    const country = body.country as string | undefined;
+    const maxRecords = (body.max_records as number) || 100;
+
+    if (!taxon) {
+      return c.json({ error: "taxon is required" }, 400);
+    }
+
+    const searchResult = await plumberClient.searchGbif({ taxon, country, max_records: maxRecords });
+    const filePath = searchResult.file_path as string | undefined;
+    const nRecords = (searchResult.n_records as number) || 0;
+
+    if (!filePath || nRecords === 0) {
+      return c.json({ error: "No GBIF records found" }, 404);
+    }
+
+    return c.json({
+      file_path: filePath,
+      file_id: filePath,
+      n_rows: nRecords,
+      filename: filePath.split("/").pop() || "gbif_records.csv",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to save GBIF records";
+    return c.json({ error: message }, 502);
+  }
+});
+
 dataRoutes.post("/occurrences/dwca", async (c) => {
   try {
     const body = await c.req.parseBody();
@@ -218,7 +249,7 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
     const destPath = saveUpload(buffer, file.name);
     const user = c.get("user");
 
-    const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
+    const result = await plumberClient.withUser(user.id).parseDwca({ file_id: destPath });
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "DwCA parse failed";
