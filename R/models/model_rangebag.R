@@ -88,7 +88,8 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
                              seed = sdm_default_seed, n_cores = 1, log_fun = NULL, progress_fun = NULL,
                              n_bags = sdm_default_rangebag_n_bags,
                              bag_fraction = sdm_default_rangebag_fraction,
-                             vars_per_bag = sdm_default_rangebag_vars_per_bag) {
+                             vars_per_bag = sdm_default_rangebag_vars_per_bag,
+                             ...) {
   covariates <- make.names(names(env_train_scaled))
   if (length(covariates) < 2) stop("At least two covariates are required for Rangebagging.", call. = FALSE)
   n_bags <- suppressWarnings(as.integer(n_bags[1]))

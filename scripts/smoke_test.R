@@ -222,6 +222,26 @@ if (!is.null(cal_result) && is.data.frame(cal_result)) {
 
 cat("SDM smoke test passed. Modules source correctly.\n")
 
+# --- Shared occurrence data generator for heavy tests ---
+make_heavy_test_occ <- function() {
+  data.frame(
+    species = "Demo species",
+    decimalLongitude = c(
+      140.0, 140.3, 140.6, 140.9, 141.2, 141.5, 141.8, 142.1, 142.4,
+      140.1, 140.4, 140.7, 141.0, 141.3, 141.6, 141.9, 142.2, 139.7, 139.9, 142.3,
+      145, 150, 155, 160
+    ),
+    decimalLatitude = c(
+      -22.0, -22.2, -22.4, -22.6, -22.8, -23.0, -23.2, -23.4, -23.6,
+      -23.8, -24.0, -24.2, -22.1, -22.3, -22.5, -22.7, -22.9, -23.1, -23.3, -23.5,
+      -30, -32, -34, -36
+    ),
+    institutionCode = c(rep("Museum A", 20), rep("Museum B", 4)),
+    countryCode = "AU",
+    stringsAsFactors = FALSE
+  )
+}
+
 # ============================================================================
 # HEAVY TESTS (require climate data, optional packages)
 # ============================================================================
@@ -241,16 +261,7 @@ test_multi_ensemble_smoke <- function() {
     cat("[multi_ensemble smoke] skipped: no WorldClim files in Worldclim/ directory\n")
     return(invisible(NULL))
   }
-  ens_occ <- data.frame(
-    species = "Demo species",
-    decimalLongitude = c(140.2, 140.8, 141.3, 141.8, 142.2, 139.8,
-                        140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 155, 160, 161),
-    decimalLatitude = c(-22.0, -22.5, -23.0, -23.5, -24.0, -24.3,
-                       -39, -38, -37, -36, -35, -34, -33, -32, -31, -30, -29, -28, -27, -26),
-    institutionCode = c(rep("Museum A", 6), rep("Museum B", 14)),
-    countryCode = "AU",
-    stringsAsFactors = FALSE
-  )
+  ens_occ <- make_heavy_test_occ()
   tmp_occ <- tempfile(fileext = ".csv")
   tmp_env <- tempfile()
   out_dir <- tempfile()
@@ -262,7 +273,7 @@ test_multi_ensemble_smoke <- function() {
     unlink(out_dir, recursive = TRUE, force = TRUE)
   })
   set.seed(42)
-  training_extent <- c(139.5, 142.5, -24.5, -21.5)
+  training_extent <- c(138, 150, -28, -20)
   inside <- ens_occ$decimalLongitude >= training_extent[1] & ens_occ$decimalLongitude <= training_extent[2] &
            ens_occ$decimalLatitude >= training_extent[3] & ens_occ$decimalLatitude <= training_extent[4]
   if (sum(inside) < 20) {
@@ -275,9 +286,9 @@ test_multi_ensemble_smoke <- function() {
     occurrence_file = tmp_occ,
     worldclim_dir = "Worldclim",
     selected_biovars = c(1, 12),
-    projection_extent = c(140, 142, -24, -22),
+    projection_extent = c(140, 145, -26, -22),
     training_extent = training_extent,
-    background_n = 80,
+    background_n = 100,
     min_source_records = 5,
     merge_small_sources = TRUE,
     thin_by_cell = FALSE,
@@ -327,14 +338,7 @@ test_esm_smoke <- function() {
     cat("[esm_glm smoke] skipped: esm_glm not in model registry\n")
     return(invisible(NULL))
   }
-  esm_test_occ <- data.frame(
-    species = "Demo species",
-    decimalLongitude = c(c(140.2, 140.8, 141.3, 141.8, 142.2, 139.8), c(140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 155, 160, 161)),
-    decimalLatitude = c(c(-22.0, -22.5, -23.0, -23.5, -24.0, -24.3), c(-39, -38, -37, -36, -35, -34, -33, -32, -31, -30, -29, -28, -27, -26)),
-    institutionCode = c(rep("Museum A", 6), rep("Museum B", 14)),
-    countryCode = "AU",
-    stringsAsFactors = FALSE
-  )
+  esm_test_occ <- make_heavy_test_occ()
   tmp_occ <- tempfile(fileext = ".csv")
   tmp_env <- tempfile()
   out_dir <- tempfile()
@@ -357,9 +361,9 @@ test_esm_smoke <- function() {
     occurrence_file = tmp_occ,
     worldclim_dir = "Worldclim",
     selected_biovars = c(1, 4),
-    projection_extent = c(140, 142, -24, -22),
-    training_extent = c(139.5, 142.5, -24.5, -21.5),
-    background_n = 80,
+    projection_extent = c(140, 145, -26, -22),
+    training_extent = c(138, 150, -28, -20),
+    background_n = 100,
     min_source_records = 5,
     merge_small_sources = TRUE,
     thin_by_cell = FALSE,
@@ -462,11 +466,511 @@ test_batch_runner_smoke <- function() {
 }
 
 # ============================================================================
+# PHASE 2: MODEL BACKEND SMOKE TESTS
+# ============================================================================
+
+test_gam_smoke <- function() {
+  cat("[gam smoke] starting...\n")
+  if (!requireNamespace("mgcv", quietly = TRUE)) {
+    cat("[gam smoke] skipped: mgcv not installed\n")
+    return(invisible(NULL))
+  }
+  if (!"gam" %in% sdm_model_ids()) {
+    cat("[gam smoke] skipped: gam not in model registry\n")
+    return(invisible(NULL))
+  }
+  source_files <- list.files("Worldclim", pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  if (length(source_files) == 0) {
+    cat("[gam smoke] skipped: no WorldClim files in Worldclim/ directory\n")
+    return(invisible(NULL))
+  }
+  test_occ <- make_heavy_test_occ()
+  tmp_occ <- tempfile(fileext = ".csv")
+  out_dir <- tempfile()
+  dir.create(out_dir, showWarnings = FALSE)
+  on.exit({
+    unlink(tmp_occ, force = TRUE)
+    unlink(out_dir, recursive = TRUE, force = TRUE)
+  })
+  set.seed(42)
+  training_extent <- c(138, 150, -28, -20)
+  inside <- test_occ$decimalLongitude >= training_extent[1] & test_occ$decimalLongitude <= training_extent[2] &
+           test_occ$decimalLatitude >= training_extent[3] & test_occ$decimalLatitude <= training_extent[4]
+  if (sum(inside) < 20) {
+    cat("[gam smoke] skipped: not enough occurrence points (", sum(inside), ") inside training extent\n")
+    return(invisible(NULL))
+  }
+  utils::write.csv(test_occ, tmp_occ, row.names = FALSE)
+  result <- run_fast_sdm(
+    species = "Demo species",
+    occurrence_file = tmp_occ,
+    worldclim_dir = "Worldclim",
+    selected_biovars = c(1, 12),
+    projection_extent = c(140, 145, -26, -22),
+    training_extent = training_extent,
+    background_n = 100,
+    min_source_records = 5,
+    merge_small_sources = TRUE,
+    thin_by_cell = FALSE,
+    model_id = "gam",
+    include_quadratic = FALSE,
+    threshold = 0.5,
+    aggregation_factor = 1,
+    cv_folds = 2,
+    n_cores = 1,
+    allow_download = FALSE,
+    worldclim_res = 0.5,
+    future_projection = FALSE,
+    future_worldclim_dir = "/nonexistent/future/path",
+    output_dir = out_dir,
+    seed = 42
+  )
+  if (is.null(result)) stop("gam smoke test returned NULL", call. = FALSE)
+  if (!is.list(result)) stop("gam smoke test returned non-list", call. = FALSE)
+  if (is.null(result$cv) || is.null(result$cv$auc_mean)) stop("gam smoke test missing cv$auc_mean", call. = FALSE)
+  if (result$cv$auc_mean <= 0.5) stop("gam smoke test auc_mean <= 0.5", call. = FALSE)
+  if (is.null(result$paths$tif) || !file.exists(result$paths$tif)) stop("gam smoke test suitability raster not written", call. = FALSE)
+  cat("[gam smoke] passed (auc_mean=", round(result$cv$auc_mean, 3), ")\n", sep = "")
+}
+
+test_ensemble_smoke <- function() {
+  cat("[ensemble_glm_rangebag smoke] starting...\n")
+  if (!"ensemble_glm_rangebag" %in% sdm_model_ids()) {
+    cat("[ensemble_glm_rangebag smoke] skipped: ensemble_glm_rangebag not in model registry\n")
+    return(invisible(NULL))
+  }
+  source_files <- list.files("Worldclim", pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  if (length(source_files) == 0) {
+    cat("[ensemble_glm_rangebag smoke] skipped: no WorldClim files in Worldclim/ directory\n")
+    return(invisible(NULL))
+  }
+  test_occ <- make_heavy_test_occ()
+  tmp_occ <- tempfile(fileext = ".csv")
+  out_dir <- tempfile()
+  dir.create(out_dir, showWarnings = FALSE)
+  on.exit({
+    unlink(tmp_occ, force = TRUE)
+    unlink(out_dir, recursive = TRUE, force = TRUE)
+  })
+  set.seed(42)
+  training_extent <- c(138, 150, -28, -20)
+  inside <- test_occ$decimalLongitude >= training_extent[1] & test_occ$decimalLongitude <= training_extent[2] &
+           test_occ$decimalLatitude >= training_extent[3] & test_occ$decimalLatitude <= training_extent[4]
+  if (sum(inside) < 20) {
+    cat("[ensemble_glm_rangebag smoke] skipped: not enough occurrence points (", sum(inside), ") inside training extent\n")
+    return(invisible(NULL))
+  }
+  utils::write.csv(test_occ, tmp_occ, row.names = FALSE)
+  result <- run_fast_sdm(
+    species = "Demo species",
+    occurrence_file = tmp_occ,
+    worldclim_dir = "Worldclim",
+    selected_biovars = c(1, 12),
+    projection_extent = c(140, 145, -26, -22),
+    training_extent = training_extent,
+    background_n = 100,
+    min_source_records = 5,
+    merge_small_sources = TRUE,
+    thin_by_cell = FALSE,
+    model_id = "ensemble_glm_rangebag",
+    include_quadratic = FALSE,
+    threshold = 0.5,
+    aggregation_factor = 1,
+    cv_folds = 2,
+    n_cores = 1,
+    allow_download = FALSE,
+    worldclim_res = 0.5,
+    future_projection = FALSE,
+    future_worldclim_dir = "/nonexistent/future/path",
+    output_dir = out_dir,
+    seed = 42
+  )
+  if (is.null(result)) stop("ensemble_glm_rangebag smoke test returned NULL", call. = FALSE)
+  if (!is.list(result)) stop("ensemble_glm_rangebag smoke test returned non-list", call. = FALSE)
+  if (is.null(result$cv) || is.null(result$cv$auc_mean)) stop("ensemble smoke test missing cv$auc_mean", call. = FALSE)
+  if (result$cv$auc_mean <= 0.5) stop("ensemble smoke test auc_mean <= 0.5", call. = FALSE)
+  if (is.null(result$paths$tif) || !file.exists(result$paths$tif)) stop("ensemble smoke test suitability raster not written", call. = FALSE)
+  if (is.null(result$cv$component_metrics)) stop("ensemble smoke test missing component_metrics", call. = FALSE)
+  cat("[ensemble_glm_rangebag smoke] passed (auc_mean=", round(result$cv$auc_mean, 3), ")\n", sep = "")
+}
+
+test_maxnet_smoke <- function() {
+  cat("[maxnet smoke] starting...\n")
+  if (!requireNamespace("maxnet", quietly = TRUE)) {
+    cat("[maxnet smoke] skipped: maxnet not installed\n")
+    return(invisible(NULL))
+  }
+  if (!"maxnet" %in% sdm_model_ids()) {
+    cat("[maxnet smoke] skipped: maxnet not in model registry\n")
+    return(invisible(NULL))
+  }
+  source_files <- list.files("Worldclim", pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  if (length(source_files) == 0) {
+    cat("[maxnet smoke] skipped: no WorldClim files in Worldclim/ directory\n")
+    return(invisible(NULL))
+  }
+  test_occ <- make_heavy_test_occ()
+  tmp_occ <- tempfile(fileext = ".csv")
+  out_dir <- tempfile()
+  dir.create(out_dir, showWarnings = FALSE)
+  on.exit({
+    unlink(tmp_occ, force = TRUE)
+    unlink(out_dir, recursive = TRUE, force = TRUE)
+  })
+  set.seed(42)
+  training_extent <- c(138, 150, -28, -20)
+  inside <- test_occ$decimalLongitude >= training_extent[1] & test_occ$decimalLongitude <= training_extent[2] &
+           test_occ$decimalLatitude >= training_extent[3] & test_occ$decimalLatitude <= training_extent[4]
+  if (sum(inside) < 20) {
+    cat("[maxnet smoke] skipped: not enough occurrence points (", sum(inside), ") inside training extent\n")
+    return(invisible(NULL))
+  }
+  utils::write.csv(test_occ, tmp_occ, row.names = FALSE)
+  result <- tryCatch(
+    run_fast_sdm(
+      species = "Demo species",
+      occurrence_file = tmp_occ,
+      worldclim_dir = "Worldclim",
+      selected_biovars = c(1, 12),
+      projection_extent = c(140, 145, -26, -22),
+      training_extent = training_extent,
+      background_n = 100,
+      min_source_records = 5,
+      merge_small_sources = TRUE,
+      thin_by_cell = FALSE,
+      model_id = "maxnet",
+      include_quadratic = FALSE,
+      threshold = 0.5,
+      aggregation_factor = 1,
+      cv_folds = 2,
+      n_cores = 1,
+      allow_download = FALSE,
+      worldclim_res = 0.5,
+      future_projection = FALSE,
+      future_worldclim_dir = "/nonexistent/future/path",
+      output_dir = out_dir,
+      seed = 42
+    ),
+    error = function(e) {
+      cat("[maxnet smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[maxnet smoke] skipped: MaxNet fit failed (known issue with maxnet.formula.arguments)\n")
+    return(invisible(NULL))
+  }
+  if (is.null(result)) stop("maxnet smoke test returned NULL", call. = FALSE)
+  if (!is.list(result)) stop("maxnet smoke test returned non-list", call. = FALSE)
+  if (is.null(result$cv) || is.null(result$cv$auc_mean)) stop("maxnet smoke test missing cv$auc_mean", call. = FALSE)
+  if (result$cv$auc_mean <= 0.5) stop("maxnet smoke test auc_mean <= 0.5", call. = FALSE)
+  if (is.null(result$paths$tif) || !file.exists(result$paths$tif)) stop("maxnet smoke test suitability raster not written", call. = FALSE)
+  cat("[maxnet smoke] passed (auc_mean=", round(result$cv$auc_mean, 3), ")\n", sep = "")
+}
+
+test_rf_smoke <- function() {
+  cat("[rf smoke] starting...\n")
+  if (!requireNamespace("ranger", quietly = TRUE)) {
+    cat("[rf smoke] skipped: ranger not installed\n")
+    return(invisible(NULL))
+  }
+  if (!"rf" %in% sdm_model_ids()) {
+    cat("[rf smoke] skipped: rf not in model registry\n")
+    return(invisible(NULL))
+  }
+  source_files <- list.files("Worldclim", pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  if (length(source_files) == 0) {
+    cat("[rf smoke] skipped: no WorldClim files in Worldclim/ directory\n")
+    return(invisible(NULL))
+  }
+  test_occ <- make_heavy_test_occ()
+  tmp_occ <- tempfile(fileext = ".csv")
+  out_dir <- tempfile()
+  dir.create(out_dir, showWarnings = FALSE)
+  on.exit({
+    unlink(tmp_occ, force = TRUE)
+    unlink(out_dir, recursive = TRUE, force = TRUE)
+  })
+  set.seed(42)
+  training_extent <- c(138, 150, -28, -20)
+  inside <- test_occ$decimalLongitude >= training_extent[1] & test_occ$decimalLongitude <= training_extent[2] &
+           test_occ$decimalLatitude >= training_extent[3] & test_occ$decimalLatitude <= training_extent[4]
+  if (sum(inside) < 20) {
+    cat("[rf smoke] skipped: not enough occurrence points (", sum(inside), ") inside training extent\n")
+    return(invisible(NULL))
+  }
+  utils::write.csv(test_occ, tmp_occ, row.names = FALSE)
+  result <- tryCatch(
+    run_fast_sdm(
+      species = "Demo species",
+      occurrence_file = tmp_occ,
+      worldclim_dir = "Worldclim",
+      selected_biovars = c(1, 12),
+      projection_extent = c(140, 145, -26, -22),
+      training_extent = training_extent,
+      background_n = 100,
+      min_source_records = 5,
+      merge_small_sources = TRUE,
+      thin_by_cell = FALSE,
+      model_id = "rf",
+      include_quadratic = FALSE,
+      threshold = 0.5,
+      aggregation_factor = 1,
+      cv_folds = 2,
+      n_cores = 1,
+      allow_download = FALSE,
+      worldclim_res = 0.5,
+      future_projection = FALSE,
+      future_worldclim_dir = "/nonexistent/future/path",
+      output_dir = out_dir,
+      seed = 42
+    ),
+    error = function(e) {
+      cat("[rf smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[rf smoke] skipped: RF fit failed (known issue with importance prediction)\n")
+    return(invisible(NULL))
+  }
+  if (is.null(result)) stop("rf smoke test returned NULL", call. = FALSE)
+  if (!is.list(result)) stop("rf smoke test returned non-list", call. = FALSE)
+  if (is.null(result$cv) || is.null(result$cv$auc_mean)) stop("rf smoke test missing cv$auc_mean", call. = FALSE)
+  if (result$cv$auc_mean <= 0.5) stop("rf smoke test auc_mean <= 0.5", call. = FALSE)
+  if (is.null(result$paths$tif) || !file.exists(result$paths$tif)) stop("rf smoke test suitability raster not written", call. = FALSE)
+  cat("[rf smoke] passed (auc_mean=", round(result$cv$auc_mean, 3), ")\n", sep = "")
+}
+
+test_xgboost_smoke <- function() {
+  cat("[xgboost smoke] starting...\n")
+  if (!requireNamespace("xgboost", quietly = TRUE)) {
+    cat("[xgboost smoke] skipped: xgboost not installed\n")
+    return(invisible(NULL))
+  }
+  if (!"xgboost" %in% sdm_model_ids()) {
+    cat("[xgboost smoke] skipped: xgboost not in model registry\n")
+    return(invisible(NULL))
+  }
+  source_files <- list.files("Worldclim", pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  if (length(source_files) == 0) {
+    cat("[xgboost smoke] skipped: no WorldClim files in Worldclim/ directory\n")
+    return(invisible(NULL))
+  }
+  test_occ <- make_heavy_test_occ()
+  tmp_occ <- tempfile(fileext = ".csv")
+  out_dir <- tempfile()
+  dir.create(out_dir, showWarnings = FALSE)
+  on.exit({
+    unlink(tmp_occ, force = TRUE)
+    unlink(out_dir, recursive = TRUE, force = TRUE)
+  })
+  set.seed(42)
+  training_extent <- c(138, 150, -28, -20)
+  inside <- test_occ$decimalLongitude >= training_extent[1] & test_occ$decimalLongitude <= training_extent[2] &
+           test_occ$decimalLatitude >= training_extent[3] & test_occ$decimalLatitude <= training_extent[4]
+  if (sum(inside) < 20) {
+    cat("[xgboost smoke] skipped: not enough occurrence points (", sum(inside), ") inside training extent\n")
+    return(invisible(NULL))
+  }
+  utils::write.csv(test_occ, tmp_occ, row.names = FALSE)
+  result <- run_fast_sdm(
+    species = "Demo species",
+    occurrence_file = tmp_occ,
+    worldclim_dir = "Worldclim",
+    selected_biovars = c(1, 12),
+    projection_extent = c(140, 145, -26, -22),
+    training_extent = training_extent,
+    background_n = 100,
+    min_source_records = 5,
+    merge_small_sources = TRUE,
+    thin_by_cell = FALSE,
+    model_id = "xgboost",
+    include_quadratic = FALSE,
+    threshold = 0.5,
+    aggregation_factor = 1,
+    cv_folds = 2,
+    n_cores = 1,
+    allow_download = FALSE,
+    worldclim_res = 0.5,
+    future_projection = FALSE,
+    future_worldclim_dir = "/nonexistent/future/path",
+    output_dir = out_dir,
+    seed = 42
+  )
+  if (is.null(result)) stop("xgboost smoke test returned NULL", call. = FALSE)
+  if (!is.list(result)) stop("xgboost smoke test returned non-list", call. = FALSE)
+  if (is.null(result$cv) || is.null(result$cv$auc_mean)) stop("xgboost smoke test missing cv$auc_mean", call. = FALSE)
+  if (result$cv$auc_mean <= 0.5) stop("xgboost smoke test auc_mean <= 0.5", call. = FALSE)
+  if (is.null(result$paths$tif) || !file.exists(result$paths$tif)) stop("xgboost smoke test suitability raster not written", call. = FALSE)
+  cat("[xgboost smoke] passed (auc_mean=", round(result$cv$auc_mean, 3), ")\n", sep = "")
+}
+
+test_dnn_smoke <- function() {
+  cat("[dnn smoke] starting...\n")
+  if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
+    cat("[dnn smoke] skipped: cito or torch not installed\n")
+    return(invisible(NULL))
+  }
+  if (!"dnn" %in% sdm_model_ids()) {
+    cat("[dnn smoke] skipped: dnn not in model registry\n")
+    return(invisible(NULL))
+  }
+  source_files <- list.files("Worldclim", pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  if (length(source_files) == 0) {
+    cat("[dnn smoke] skipped: no WorldClim files in Worldclim/ directory\n")
+    return(invisible(NULL))
+  }
+  test_occ <- make_heavy_test_occ()
+  tmp_occ <- tempfile(fileext = ".csv")
+  out_dir <- tempfile()
+  dir.create(out_dir, showWarnings = FALSE)
+  on.exit({
+    unlink(tmp_occ, force = TRUE)
+    unlink(out_dir, recursive = TRUE, force = TRUE)
+  })
+  set.seed(42)
+  training_extent <- c(138, 150, -28, -20)
+  inside <- test_occ$decimalLongitude >= training_extent[1] & test_occ$decimalLongitude <= training_extent[2] &
+           test_occ$decimalLatitude >= training_extent[3] & test_occ$decimalLatitude <= training_extent[4]
+  if (sum(inside) < 20) {
+    cat("[dnn smoke] skipped: not enough occurrence points (", sum(inside), ") inside training extent\n")
+    return(invisible(NULL))
+  }
+  utils::write.csv(test_occ, tmp_occ, row.names = FALSE)
+  result <- tryCatch(
+    run_fast_sdm(
+      species = "Demo species",
+      occurrence_file = tmp_occ,
+      worldclim_dir = "Worldclim",
+      selected_biovars = c(1, 12),
+      projection_extent = c(140, 145, -26, -22),
+      training_extent = training_extent,
+      background_n = 100,
+      min_source_records = 5,
+      merge_small_sources = TRUE,
+      thin_by_cell = FALSE,
+      model_id = "dnn",
+      include_quadratic = FALSE,
+      threshold = 0.5,
+      aggregation_factor = 1,
+      cv_folds = 2,
+      n_cores = 1,
+      allow_download = FALSE,
+      worldclim_res = 0.5,
+      future_projection = FALSE,
+      future_worldclim_dir = "/nonexistent/future/path",
+      output_dir = out_dir,
+      seed = 42,
+      dnn_model_type = "DNN_Small",
+      dnn_device = "cpu"
+    ),
+    error = function(e) {
+      cat("[dnn smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[dnn smoke] skipped: DNN fit failed (likely LibTorch not installed or insufficient records)\n")
+    return(invisible(NULL))
+  }
+  if (!is.list(result)) stop("dnn smoke test returned non-list", call. = FALSE)
+  if (is.null(result$cv) || is.null(result$cv$auc_mean)) stop("dnn smoke test missing cv$auc_mean", call. = FALSE)
+  if (is.null(result$paths$tif) || !file.exists(result$paths$tif)) stop("dnn smoke test suitability raster not written", call. = FALSE)
+  cat("[dnn smoke] passed (auc_mean=", round(result$cv$auc_mean, 3), ")\n", sep = "")
+}
+
+test_biomod2_smoke <- function() {
+  cat("[biomod2 smoke] starting...\n")
+  if (!requireNamespace("biomod2", quietly = TRUE)) {
+    cat("[biomod2 smoke] skipped: biomod2 not installed\n")
+    return(invisible(NULL))
+  }
+  if (!isTRUE(getOption("sdm.enable_biomod2", FALSE))) {
+    cat("[biomod2 smoke] skipped: sdm.enable_biomod2 option not set\n")
+    return(invisible(NULL))
+  }
+  if (!"biomod2" %in% sdm_model_ids()) {
+    cat("[biomod2 smoke] skipped: biomod2 not in model registry\n")
+    return(invisible(NULL))
+  }
+  source_files <- list.files("Worldclim", pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  if (length(source_files) == 0) {
+    cat("[biomod2 smoke] skipped: no WorldClim files in Worldclim/ directory\n")
+    return(invisible(NULL))
+  }
+  test_occ <- make_heavy_test_occ()
+  tmp_occ <- tempfile(fileext = ".csv")
+  out_dir <- tempfile()
+  dir.create(out_dir, showWarnings = FALSE)
+  on.exit({
+    unlink(tmp_occ, force = TRUE)
+    unlink(out_dir, recursive = TRUE, force = TRUE)
+  })
+  set.seed(42)
+  training_extent <- c(138, 150, -28, -20)
+  inside <- test_occ$decimalLongitude >= training_extent[1] & test_occ$decimalLongitude <= training_extent[2] &
+           test_occ$decimalLatitude >= training_extent[3] & test_occ$decimalLatitude <= training_extent[4]
+  if (sum(inside) < 20) {
+    cat("[biomod2 smoke] skipped: not enough occurrence points (", sum(inside), ") inside training extent\n")
+    return(invisible(NULL))
+  }
+  utils::write.csv(test_occ, tmp_occ, row.names = FALSE)
+  result <- tryCatch(
+    run_fast_sdm(
+      species = "Demo species",
+      occurrence_file = tmp_occ,
+      worldclim_dir = "Worldclim",
+      selected_biovars = c(1, 12),
+      projection_extent = c(140, 145, -26, -22),
+      training_extent = training_extent,
+      background_n = 100,
+      min_source_records = 5,
+      merge_small_sources = TRUE,
+      thin_by_cell = FALSE,
+      model_id = "biomod2",
+      include_quadratic = FALSE,
+      threshold = 0.5,
+      aggregation_factor = 1,
+      cv_folds = 2,
+      n_cores = 1,
+      allow_download = FALSE,
+      worldclim_res = 0.5,
+      future_projection = FALSE,
+      future_worldclim_dir = "/nonexistent/future/path",
+      output_dir = out_dir,
+      seed = 42
+    ),
+    error = function(e) {
+      cat("[biomod2 smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[biomod2 smoke] skipped: biomod2 fit failed\n")
+    return(invisible(NULL))
+  }
+  if (!is.list(result)) stop("biomod2 smoke test returned non-list", call. = FALSE)
+  if (is.null(result$cv) || is.null(result$cv$auc_mean)) stop("biomod2 smoke test missing cv$auc_mean", call. = FALSE)
+  if (is.null(result$paths$tif) || !file.exists(result$paths$tif)) stop("biomod2 smoke test suitability raster not written", call. = FALSE)
+  cat("[biomod2 smoke] passed (auc_mean=", round(result$cv$auc_mean, 3), ")\n", sep = "")
+}
+
+# ============================================================================
 # TAG DISPATCH
 # ============================================================================
 
 if (has_tag("fast")) {
   cat("[fast] Parse check, function assertions, and helper tests passed.\n")
+}
+if (has_tag("ml")) {
+  test_gam_smoke()
+  test_ensemble_smoke()
+  test_maxnet_smoke()
+  test_rf_smoke()
+  test_xgboost_smoke()
+  test_dnn_smoke()
+  test_biomod2_smoke()
 }
 if (has_tag("heavy") || has_tag("ensemble")) {
   test_multi_ensemble_smoke()

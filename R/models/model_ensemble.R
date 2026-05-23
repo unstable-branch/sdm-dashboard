@@ -32,7 +32,8 @@ ensemble_model_weights <- function(glm_fit, rangebag_fit, weighting = sdm_defaul
 fit_ensemble_glm_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
                                           include_quadratic = TRUE, cv_folds = sdm_default_cv_folds,
                                           seed = sdm_default_seed, n_cores = 1, log_fun = NULL, progress_fun = NULL,
-                                          ensemble_weighting = sdm_default_ensemble_weighting) {
+                                          ensemble_weighting = sdm_default_ensemble_weighting,
+                                          ...) {
   log_message(log_fun, "Fitting ensemble component: GLM")
   glm_fit <- fit_fast_sdm(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun)
   glm_fit$model_id <- "glm"
