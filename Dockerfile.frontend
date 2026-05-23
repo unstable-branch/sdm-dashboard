@@ -41,10 +41,9 @@ COPY --from=builder /app/frontend/package.json ./frontend/
 COPY --from=builder /app/frontend/.next ./frontend/.next
 COPY --from=builder /app/frontend/public ./frontend/public
 COPY --from=builder /app/frontend/node_modules ./frontend/node_modules
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
-
-RUN chmod -R 755 /app
 
 USER node
 
@@ -52,4 +51,4 @@ EXPOSE 3000
 
 ENV NODE_ENV=production
 
-CMD ["dumb-init", "node", "frontend/node_modules/.bin/next", "start", "frontend", "-p", "3000"]
+CMD ["dumb-init", "frontend/node_modules/.bin/next", "start", "frontend", "-p", "3000"]
