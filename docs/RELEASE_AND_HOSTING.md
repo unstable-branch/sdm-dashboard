@@ -17,6 +17,8 @@ This matters because SDM workflows often involve sensitive occurrence data, unpu
 
 The release workflow creates draft GitHub Releases for `v*` tags and pushes images to GitHub Container Registry.
 
+The normal platform CI gate builds the modern self-hosting images only: frontend, API, and Plumber. The legacy Shiny image remains in the release workflow so release builds can use registry/cache behavior without slowing every `dev` and PR validation run.
+
 ## Versioning
 
 Use semver with prerelease tags until the platform is stable:
