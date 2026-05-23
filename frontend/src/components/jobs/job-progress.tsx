@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import { cn } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, Clock, X, Ban } from "lucide-react";
@@ -11,6 +11,7 @@ interface JobProgressProps {
   onComplete?: (result: Record<string, unknown>) => void;
   onDismiss?: () => void;
   onCancel?: () => void;
+  startTime?: string;
 }
 
 const stateIcons = {
@@ -23,13 +24,44 @@ const stateIcons = {
   cancelled: <Ban className="h-4 w-4 text-amber-500" />,
 };
 
-export function JobProgress({ jobId, onComplete, onDismiss, onCancel }: JobProgressProps) {
+function formatElapsed(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function extractStage(logLine: string): string | null {
+  const withoutTimestamp = logLine.replace(/^\d{2}:\d{2}:\d{2}\s*/, "");
+  const withoutProgress = withoutTimestamp.replace(/\[\d+%\]\s*/, "");
+  const trimmed = withoutProgress.trim();
+  if (!trimmed || trimmed.length < 3) return null;
+  return trimmed;
+}
+
+export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime }: JobProgressProps) {
   const { getJob, connected } = useJobSSE(!!jobId);
   const [dismissed, setDismissed] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const job = jobId ? getJob(jobId) : null;
+
+  useEffect(() => {
+    if (!startTime && !job) return;
+    const startMs = startTime ? new Date(startTime).getTime() : Date.now();
+    const tick = () => setElapsed(Date.now() - startMs);
+    tick();
+    timerRef.current = setInterval(tick, 1000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [startTime, job?.state]);
 
   useEffect(() => {
     if (job?.state === "completed" && job?.result) {
@@ -55,6 +87,8 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel }: JobProgr
   }
 
   const isTerminal = job.state === "completed" || job.state === "failed" || job.state === "cancelled";
+  const lastLog = job.logs && job.logs.length > 0 ? job.logs[job.logs.length - 1] : null;
+  const currentStage = extractStage(lastLog || "");
 
   return (
     <div className={cn(
@@ -70,7 +104,10 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel }: JobProgr
             {job.state}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-mono text-sdm-muted tabular-nums">
+            {formatElapsed(elapsed)}
+          </span>
           <span className="text-xs text-sdm-muted">
             {connected ? "Live" : "Disconnected"}
           </span>
@@ -94,6 +131,12 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel }: JobProgr
           )}
         </div>
       </div>
+
+      {currentStage && job.state === "active" && (
+        <div className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-3 py-2">
+          <p className="text-xs font-medium text-sdm-text">{currentStage}</p>
+        </div>
+      )}
 
       {showCancelConfirm && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex items-center justify-between">
@@ -156,13 +199,13 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel }: JobProgr
 
       {job.state === "completed" && (
         <div className="text-sm text-green-500">
-          Job completed successfully.
+          Job completed in {formatElapsed(elapsed)}.
         </div>
       )}
 
       {job.state === "cancelled" && (
         <div className="text-sm text-amber-500">
-          Run cancelled by user.
+          Run cancelled after {formatElapsed(elapsed)}.
         </div>
       )}
     </div>
