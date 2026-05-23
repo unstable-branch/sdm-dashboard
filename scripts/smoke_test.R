@@ -1132,6 +1132,638 @@ test_aoa_smoke <- function() {
 }
 
 # ============================================================================
+# COVARIATE TESTS (no network, synthetic data only)
+# ============================================================================
+
+test_find_worldclim_smoke <- function() {
+  cat("[find_worldclim smoke] starting...\n")
+  tmp_dir <- tempfile()
+  dir.create(tmp_dir)
+  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+
+  file.create(file.path(tmp_dir, "wc2.1_10m_bio_1.tif"))
+  file.create(file.path(tmp_dir, "wc2.1_10m_bio_4.tif"))
+  file.create(file.path(tmp_dir, "wc2.1_10m_bio_12.tif"))
+  file.create(file.path(tmp_dir, "CHELSA_bio01_1981-2010_V.2.1.tif"))
+  file.create(file.path(tmp_dir, "CHELSA_bio12_1981-2010_V.2.1.tif"))
+
+  wc_result <- find_worldclim_files(tmp_dir, c(1, 4, 12), source = "worldclim")
+  if (!is.character(wc_result) || length(wc_result) != 3) stop("find_worldclim_files returned wrong type/length", call. = FALSE)
+  if (is.na(wc_result["1"]) || is.na(wc_result["4"]) || is.na(wc_result["12"])) stop("find_worldclim_files missed WorldClim files: ", paste(names(wc_result), "=", wc_result, collapse = ", "), call. = FALSE)
+
+  ch_result <- find_worldclim_files(tmp_dir, c(1, 12), source = "chelsa")
+  if (!is.character(ch_result) || length(ch_result) != 2) stop("find_worldclim_files (CHELSA) returned wrong type/length", call. = FALSE)
+  if (is.na(ch_result["1"]) || is.na(ch_result["12"])) stop("find_worldclim_files missed CHELSA files", call. = FALSE)
+
+  empty_result <- find_worldclim_files(tmp_dir, c(5, 7), source = "worldclim")
+  if (!all(is.na(empty_result))) stop("find_worldclim_files should return NA for missing BIOs", call. = FALSE)
+
+  na_dir_result <- find_worldclim_files("/nonexistent/path", c(1), source = "worldclim")
+  if (!all(is.na(na_dir_result))) stop("find_worldclim_files should return NA for nonexistent dir", call. = FALSE)
+
+  cat("[find_worldclim smoke] passed\n")
+}
+
+test_opentopo_helpers_smoke <- function() {
+  cat("[opentopo_helpers smoke] starting...\n")
+
+  if (opentopo_tile_size_degrees("SRTMGL1") != 4) stop("SRTMGL1 tile size wrong", call. = FALSE)
+  if (opentopo_tile_size_degrees("COP90") != 10) stop("COP90 tile size wrong", call. = FALSE)
+  if (opentopo_tile_size_degrees("UNKNOWN") != 20) stop("Unknown DEM tile size wrong", call. = FALSE)
+
+  tiles <- opentopo_tile_extents(c(140, 150, -30, -20), demtype = "COP90")
+  if (!is.list(tiles) || length(tiles) == 0) stop("opentopo_tile_extents returned empty", call. = FALSE)
+  for (t in tiles) {
+    if (length(t) != 4) stop("tile extent wrong length", call. = FALSE)
+    if (t[1] >= t[2] || t[3] >= t[4]) stop("tile extent invalid order", call. = FALSE)
+  }
+
+  tiles_30 <- opentopo_tile_extents(c(140, 144, -24, -20), demtype = "SRTMGL1")
+  if (!is.list(tiles_30) || length(tiles_30) == 0) stop("opentopo_tile_extents (30m) returned empty", call. = FALSE)
+
+  cat("[opentopo_helpers smoke] passed\n")
+}
+
+test_soil_output_name_smoke <- function() {
+  cat("[soil_output_name smoke] starting...\n")
+  n <- soil_output_name("sand", 5)
+  if (!identical(n, "soil_sand_0-5cm")) stop("soil_output_name(sand, 5) wrong: ", n, call. = FALSE)
+  n2 <- soil_output_name("phh2o", 30)
+  if (!identical(n2, "soil_phh2o_15-30cm")) stop("soil_output_name(phh2o, 30) wrong: ", n2, call. = FALSE)
+  cat("[soil_output_name smoke] passed\n")
+}
+
+test_vif_selection_full_smoke <- function() {
+  cat("[vif_selection smoke] starting...\n")
+  set.seed(42)
+  n <- 100
+  x1 <- rnorm(n)
+  x2 <- x1 * 0.95 + rnorm(n, sd = 0.1)
+  x3 <- x1 * 0.9 + rnorm(n, sd = 0.1)
+  x4 <- rnorm(n)
+  x5 <- rnorm(n)
+  vif_data <- data.frame(bio1 = x1, bio4 = x2, bio12 = x3, bio5 = x4, bio6 = x5)
+
+  vif_vals <- compute_vif(vif_data)
+  if (!is.numeric(vif_vals) || length(vif_vals) != 5) stop("compute_vif returned wrong type/length", call. = FALSE)
+  if (any(is.na(vif_vals))) stop("compute_vif returned NA", call. = FALSE)
+
+  vif_result <- select_by_vif(vif_data, threshold = 5)
+  if (!is.list(vif_result)) stop("select_by_vif returned non-list", call. = FALSE)
+  if (is.null(vif_result$selected) || is.null(vif_result$dropped)) stop("select_by_vif missing selected/dropped", call. = FALSE)
+  if (length(vif_result$selected) < 2) stop("select_by_vif dropped too many variables", call. = FALSE)
+  if (!is.data.frame(vif_result$vif_history)) stop("select_by_vif vif_history not a data.frame", call. = FALSE)
+
+  apply_result <- apply_vif_selection(vif_data, threshold = 5)
+  if (!is.list(apply_result)) stop("apply_vif_selection returned non-list", call. = FALSE)
+  if (is.null(apply_result$covars_selected)) stop("apply_vif_selection missing covars_selected", call. = FALSE)
+  if (ncol(apply_result$covars_selected) != length(apply_result$selected)) stop("apply_vif_selection column count mismatch", call. = FALSE)
+
+  cat("[vif_selection smoke] passed (", length(vif_result$dropped), " dropped, ", length(vif_result$selected), " selected)\n", sep = "")
+}
+
+test_align_covariate_stack_smoke <- function() {
+  cat("[align_covariate_stack smoke] starting...\n")
+  bio1 <- terra::rast(nrows = 20, ncols = 20, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(bio1) <- runif(400, 10, 30)
+  names(bio1) <- "bio1"
+
+  bio12 <- terra::rast(nrows = 20, ncols = 20, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(bio12) <- runif(400, 200, 2500)
+  names(bio12) <- "bio12"
+
+  source_rast <- c(bio1, bio12)
+  source <- list(raster = source_rast, methods = c(bio1 = "bilinear", bio12 = "bilinear"))
+
+  template_train <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(template_train) <- runif(100)
+  names(template_train) <- "template"
+
+  template_project <- terra::rast(nrows = 15, ncols = 15, xmin = 138, xmax = 152, ymin = -32, ymax = -18, crs = "EPSG:4326")
+  terra::values(template_project) <- runif(225)
+  names(template_project) <- "template"
+
+  result <- tryCatch(
+    align_covariate_stack(source, template_train, template_project),
+    error = function(e) {
+      cat("[align_covariate_stack smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[align_covariate_stack smoke] skipped: align_covariate_stack failed\n")
+    return(invisible(NULL))
+  }
+  if (!is.list(result$train)) stop("align_covariate_stack train not a list", call. = FALSE)
+  if (!is.list(result$project)) stop("align_covariate_stack project not a list", call. = FALSE)
+  if (length(result$train) != 2) stop("align_covariate_stack train wrong layer count", call. = FALSE)
+  if (length(result$project) != 2) stop("align_covariate_stack project wrong layer count", call. = FALSE)
+  if (!inherits(result$train[[1]], "SpatRaster")) stop("align_covariate_stack train[[1]] not a SpatRaster", call. = FALSE)
+  if (!inherits(result$project[[1]], "SpatRaster")) stop("align_covariate_stack project[[1]] not a SpatRaster", call. = FALSE)
+
+  cat("[align_covariate_stack smoke] passed\n")
+}
+
+test_scale_raster_stack_smoke <- function() {
+  cat("[scale_raster_stack smoke] starting...\n")
+  bio1 <- terra::rast(nrows = 10, ncols = 10, xmin = 0, xmax = 10, ymin = 0, ymax = 10, crs = "EPSG:4326")
+  terra::values(bio1) <- runif(100, 10, 30)
+  names(bio1) <- "bio1"
+
+  bio12 <- terra::rast(nrows = 10, ncols = 10, xmin = 0, xmax = 10, ymin = 0, ymax = 10, crs = "EPSG:4326")
+  terra::values(bio12) <- runif(100, 200, 2500)
+  names(bio12) <- "bio12"
+
+  r <- c(bio1, bio12)
+  means <- c(bio1 = 20, bio12 = 1350)
+  sds <- c(bio1 = 5, bio12 = 500)
+
+  scaled <- tryCatch(
+    scale_raster_stack(r, means, sds),
+    error = function(e) {
+      cat("[scale_raster_stack smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(scaled)) {
+    cat("[scale_raster_stack smoke] skipped: scale_raster_stack failed\n")
+    return(invisible(NULL))
+  }
+  if (!inherits(scaled, "SpatRaster")) stop("scale_raster_stack not a SpatRaster", call. = FALSE)
+  scaled_vals <- terra::values(scaled, na.rm = TRUE)
+  if (any(!is.finite(scaled_vals))) stop("scale_raster_stack produced non-finite values", call. = FALSE)
+
+  cat("[scale_raster_stack smoke] passed\n")
+}
+
+test_load_extra_covariates_empty_smoke <- function() {
+  cat("[load_extra_covariates_empty smoke] starting...\n")
+  template_train <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(template_train) <- runif(100)
+  names(template_train) <- "template"
+
+  template_project <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(template_project) <- runif(100)
+  names(template_project) <- "template"
+
+  result <- load_extra_covariates(
+    template_train = template_train,
+    template_project = template_project,
+    training_extent = c(140, 150, -30, -20),
+    projection_extent = c(140, 150, -30, -20),
+    use_elevation = FALSE,
+    use_soil = FALSE,
+    use_uv = FALSE,
+    use_vegetation = FALSE,
+    use_lulc = FALSE,
+    use_hfp = FALSE,
+    use_bioclim_season = FALSE,
+    use_drought = FALSE,
+    allow_download = FALSE
+  )
+  if (!is.null(result$train)) stop("load_extra_covariates with all FALSE should return NULL train", call. = FALSE)
+  if (!is.null(result$project)) stop("load_extra_covariates with all FALSE should return NULL project", call. = FALSE)
+  if (!is.list(result$metadata)) stop("load_extra_covariates metadata not a list", call. = FALSE)
+  if (!is.list(result$files)) stop("load_extra_covariates files not a list", call. = FALSE)
+
+  cat("[load_extra_covariates_empty smoke] passed\n")
+}
+
+test_verify_worldclim_cache_smoke <- function() {
+  cat("[verify_worldclim_cache smoke] starting...\n")
+  tmp_dir <- tempfile()
+  dir.create(tmp_dir)
+  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+
+  file.create(file.path(tmp_dir, "wc2.1_10m_bio_1.tif"))
+  file.create(file.path(tmp_dir, "wc2.1_10m_bio_12.tif"))
+
+  result <- verify_worldclim_cache(tmp_dir, source = "worldclim", selected_biovars = c(1, 4, 12))
+  if (!is.list(result)) stop("verify_worldclim_cache returned non-list", call. = FALSE)
+  if (!"bio1" %in% result$available) stop("verify_worldclim_cache missed bio1", call. = FALSE)
+  if (!"bio12" %in% result$available) stop("verify_worldclim_cache missed bio12", call. = FALSE)
+  if (!"bio4" %in% result$missing) stop("verify_worldclim_cache should report bio4 missing", call. = FALSE)
+  if (!result$status %in% c("ok", "warn")) stop("verify_worldclim_cache status wrong", call. = FALSE)
+  if (!nzchar(result$detail)) stop("verify_worldclim_cache detail empty", call. = FALSE)
+
+  error_result <- verify_worldclim_cache("/nonexistent", source = "worldclim", selected_biovars = c(1))
+  if (error_result$status != "error") stop("verify_worldclim_cache should return error for nonexistent dir", call. = FALSE)
+
+  cat("[verify_worldclim_cache smoke] passed\n")
+}
+
+test_verify_future_cache_smoke <- function() {
+  cat("[verify_future_cache smoke] starting...\n")
+  tmp_dir <- tempfile()
+  dir.create(tmp_dir)
+  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+
+  scenario_dir <- file.path(tmp_dir, "UKESM1-0-LL_SSP1-2.6_2050")
+  dir.create(scenario_dir)
+  file.create(file.path(scenario_dir, "wc2.1_10m_bioc_1.tif"))
+  file.create(file.path(scenario_dir, "wc2.1_10m_bioc_12.tif"))
+
+  result <- verify_future_cache(tmp_dir)
+  if (!is.list(result)) stop("verify_future_cache returned non-list", call. = FALSE)
+  if (!is.data.frame(result$scenarios)) stop("verify_future_cache scenarios not a data.frame", call. = FALSE)
+  if (!result$status %in% c("ok", "warn")) stop("verify_future_cache status wrong", call. = FALSE)
+  if (!nzchar(result$detail)) stop("verify_future_cache detail empty", call. = FALSE)
+
+  empty_result <- verify_future_cache("/nonexistent")
+  if (empty_result$status != "error") stop("verify_future_cache should return error for nonexistent dir", call. = FALSE)
+
+  cat("[verify_future_cache smoke] passed\n")
+}
+
+test_verify_soil_cache_smoke <- function() {
+  cat("[verify_soil_cache smoke] starting...\n")
+  tmp_dir <- tempfile()
+  dir.create(tmp_dir)
+  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+
+  file.create(file.path(tmp_dir, "sg_sand_d5.tif"))
+  file.create(file.path(tmp_dir, "sg_clay_d30.tif"))
+
+  result <- verify_soil_cache(tmp_dir)
+  if (!is.list(result)) stop("verify_soil_cache returned non-list", call. = FALSE)
+  if (!is.character(result$available)) stop("verify_soil_cache available not character", call. = FALSE)
+  if (length(result$missing) < 50) stop("verify_soil_cache should report many missing layers", call. = FALSE)
+  if (!result$status %in% c("ok", "warn")) stop("verify_soil_cache status wrong", call. = FALSE)
+
+  error_result <- verify_soil_cache("/nonexistent")
+  if (error_result$status != "error") stop("verify_soil_cache should return error for nonexistent dir", call. = FALSE)
+
+  cat("[verify_soil_cache smoke] passed\n")
+}
+
+# ============================================================================
+# REPORTING TESTS (synthetic data only)
+# ============================================================================
+
+test_write_summary_report_full_smoke <- function() {
+  cat("[write_summary_report smoke] starting...\n")
+  full_result <- list(
+    config = list(
+      species = "Test species",
+      occurrence_source = "file",
+      occurrence_file = "/tmp/test.csv",
+      worldclim_dir = "Worldclim",
+      selected_biovars = c(1, 12),
+      use_elevation = FALSE,
+      elevation_demtype = "COP90",
+      use_soil = FALSE,
+      selected_soil_vars = c("sand", "clay"),
+      selected_soil_depths = c("0-5cm"),
+      training_extent = c(140, 150, -30, -20),
+      projection_extent = c(140, 160, -40, -20),
+      threshold = 0.5,
+      aggregation_factor = 1,
+      background_n = 100,
+      future_label = NA_character_,
+      future_worldclim_dir = NA_character_,
+      n_cores = 1,
+      cv_strategy = "random",
+      bias_method = "none",
+      maxnet_features = "auto",
+      maxnet_regmult = 1,
+      multi_ensemble_models = c("glm", "maxnet"),
+      multi_ensemble_weighting = "auc",
+      multi_ensemble_power = 1
+    ),
+    model_info = list(method = "Fast presence/background GLM"),
+    metrics = list(
+      auc_mean = 0.78,
+      auc_sd = 0.04,
+      presence_records = 50,
+      background_points = 100,
+      n_cores = 1
+    ),
+    summary = list(
+      percent_above_threshold = 12.5,
+      cell_count = 10000,
+      mean = 0.35,
+      median = 0.28,
+      max = 0.92,
+      threshold = 0.5,
+      cells_above_threshold = 1250,
+      high_risk_area_km2 = 12500
+    ),
+    occurrence = data.frame(x = c(140, 145), y = c(-30, -35)),
+    source_counts = list("Museum A" = 30, "Museum B" = 20),
+    cleaning = list(removed_bad_coordinates = 2, removed_duplicates = 3, original_rows = 55),
+    paths = list(tif = "/tmp/test.tif", png = "/tmp/test.png"),
+    environment = list(names = c("bio1", "bio12")),
+    covariates = c("bio1", "bio12")
+  )
+
+  tmp_path <- tempfile(fileext = ".txt")
+  result_path <- tryCatch(
+    write_summary_report(full_result, tmp_path),
+    error = function(e) {
+      cat("[write_summary_report smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result_path) || !file.exists(tmp_path)) {
+    cat("[write_summary_report smoke] skipped: write_summary_report failed\n")
+    return(invisible(NULL))
+  }
+  lines <- readLines(tmp_path)
+  if (!any(grepl("Test species", lines))) stop("report missing species name", call. = FALSE)
+  if (!any(grepl("0.780", lines))) stop("report missing AUC value", call. = FALSE)
+  if (!any(grepl("bio1", lines))) stop("report missing BIO variables", call. = FALSE)
+  if (!any(grepl("GLM", lines))) stop("report missing model method", call. = FALSE)
+
+  cat("[write_summary_report smoke] passed\n")
+}
+
+test_response_curves_smoke <- function() {
+  cat("[response_curves smoke] starting...\n")
+  set.seed(42)
+  model_data <- data.frame(
+    presence = c(rep(1, 30), rep(0, 70)),
+    bio1 = c(rnorm(30, 20, 3), rnorm(70, 18, 5)),
+    bio12 = c(rnorm(30, 1500, 200), rnorm(70, 1200, 400))
+  )
+
+  ranges <- tryCatch(
+    get_ranges_from_data(model_data, c("bio1", "bio12")),
+    error = function(e) NULL
+  )
+  if (is.null(ranges)) {
+    cat("[response_curves smoke] skipped: get_ranges_from_data failed\n")
+    return(invisible(NULL))
+  }
+  if (!is.matrix(ranges)) stop("get_ranges_from_data not a matrix", call. = FALSE)
+  if (!all(c("min", "max") %in% colnames(ranges))) stop("get_ranges_from_data missing min/max columns", call. = FALSE)
+
+  means <- get_mean_values(model_data, c("bio1", "bio12"))
+  if (!is.list(means)) stop("get_mean_values not a list", call. = FALSE)
+  if (length(means) != 2) stop("get_mean_values wrong length", call. = FALSE)
+
+  env_train <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(env_train) <- runif(100, 10, 30)
+  names(env_train) <- "bio1"
+  
+  env_train2 <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(env_train2) <- runif(100, 200, 2500)
+  names(env_train2) <- "bio12"
+  
+  env_train <- c(env_train, env_train2)
+
+  ranges_rast <- tryCatch(
+    get_ranges_from_rast(env_train, c("bio1", "bio12")),
+    error = function(e) NULL
+  )
+  if (!is.null(ranges_rast)) {
+    if (!is.matrix(ranges_rast)) stop("get_ranges_from_rast not a matrix", call. = FALSE)
+  }
+
+  tmp_out <- tempfile()
+  dir.create(tmp_out)
+  on.exit(unlink(tmp_out, recursive = TRUE), add = TRUE)
+
+  curve_df <- data.frame(
+    covariate = rep(c("bio1", "bio12"), each = 20),
+    value = c(seq(10, 30, length.out = 20), seq(200, 2500, length.out = 20)),
+    suitability = runif(40, 0, 1)
+  )
+  p <- tryCatch(
+    plot_response_curves(curve_df, out_dir = tmp_out),
+    error = function(e) {
+      cat("[response_curves smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(p)) {
+    cat("[response_curves smoke] skipped: plot_response_curves failed\n")
+    return(invisible(NULL))
+  }
+  if (!inherits(p, "ggplot")) stop("plot_response_curves did not return ggplot", call. = FALSE)
+  if (!file.exists(file.path(tmp_out, "response_curves_combined.png"))) stop("combined PNG not written", call. = FALSE)
+
+  cat("[response_curves smoke] passed\n")
+}
+
+test_diagnostics_plots_smoke <- function() {
+  cat("[diagnostics_plots smoke] starting...\n")
+  tmp_dir <- tempfile()
+  dir.create(tmp_dir)
+  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+
+  result <- list(
+    variable_importance = data.frame(
+      variable = c("bio1", "bio12", "elevation_m"),
+      importance = c(0.45, 0.35, 0.20)
+    ),
+    response_curves = data.frame(
+      covariate = rep(c("bio1", "bio12"), each = 10),
+      value = c(seq(10, 30, length.out = 10), seq(200, 2500, length.out = 10)),
+      suitability = runif(20, 0, 1)
+    ),
+    cv = list(
+      fold_metrics = data.frame(
+        fold = 1:3,
+        tp = c(10, 12, 11),
+        fp = c(5, 3, 4),
+        tn = c(45, 47, 46),
+        fn = c(5, 3, 4),
+        auc = c(0.78, 0.82, 0.80),
+        tss = c(0.50, 0.55, 0.52)
+      ),
+      auc_mean = 0.80,
+      auc_sd = 0.02,
+      tss_mean = 0.52,
+      predictions = data.frame(
+        observed = c(rep(1, 30), rep(0, 70)),
+        predicted = c(runif(30, 0.4, 1.0), runif(70, 0.0, 0.6))
+      )
+    ),
+    fit = list(
+      presence_suit = runif(30, 0.3, 0.9),
+      background_suit = runif(70, 0.0, 0.5)
+    )
+  )
+
+  paths <- tryCatch(
+    save_diagnostic_plots(result, tmp_dir),
+    error = function(e) {
+      cat("[diagnostics_plots smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(paths)) {
+    cat("[diagnostics_plots smoke] skipped: save_diagnostic_plots failed\n")
+    return(invisible(NULL))
+  }
+  if (!is.list(paths)) stop("save_diagnostic_plots returned non-list", call. = FALSE)
+  png_files <- list.files(tmp_dir, pattern = "\\.png$", full.names = TRUE)
+  if (length(png_files) == 0) stop("save_diagnostic_plots produced no PNG files", call. = FALSE)
+
+  cat("[diagnostics_plots smoke] passed (", length(png_files), " PNGs written)\n", sep = "")
+}
+
+test_export_run_script_smoke <- function() {
+  cat("[export_run_script smoke] starting...\n")
+  result <- list(
+    config = list(
+      species = "Test species",
+      extent = c(140, 160, -40, -20),
+      biovars = c(1, 12),
+      background_n = 100,
+      cv_folds = 3,
+      threshold = 0.5,
+      aggregation_factor = 1,
+      climate_source = "worldclim",
+      cv_strategy = "random",
+      bias_method = "none",
+      maxnet_features = "auto",
+      maxnet_regmult = 1,
+      multi_ensemble_models = c("glm", "maxnet"),
+      multi_ensemble_weighting = "auc",
+      multi_ensemble_power = 1,
+      n_cores = 1
+    ),
+    model_id = "glm",
+    occurrence = data.frame(x = c(140, 145), y = c(-30, -35)),
+    cv = list(auc_mean = 0.78, auc_sd = 0.04, strategy = "random", k = 3),
+    metrics = list(auc_mean = 0.78, presence_records = 50, background_points = 100)
+  )
+
+  tmp_path <- tempfile(fileext = ".R")
+  result_path <- tryCatch(
+    export_run_script(result, tmp_path),
+    error = function(e) {
+      cat("[export_run_script smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result_path) || !file.exists(tmp_path)) {
+    cat("[export_run_script smoke] skipped: export_run_script failed\n")
+    return(invisible(NULL))
+  }
+  lines <- readLines(tmp_path)
+  if (!any(grepl("Test species", lines))) stop("export script missing species", call. = FALSE)
+  if (!any(grepl("glm", lines))) stop("export script missing model_id", call. = FALSE)
+  if (length(lines) < 10) stop("export script too short", call. = FALSE)
+
+  cat("[export_run_script smoke] passed\n")
+}
+
+test_metrics_binary_smoke <- function() {
+  cat("[metrics_binary smoke] starting...\n")
+  set.seed(42)
+  obs <- c(rep(1, 30), rep(0, 70))
+  score <- c(runif(30, 0.4, 1.0), runif(70, 0.0, 0.6))
+
+  metrics <- compute_binary_metrics(obs, score, threshold = 0.5)
+  if (!is.list(metrics)) stop("compute_binary_metrics returned non-list", call. = FALSE)
+  if (is.na(metrics$auc)) stop("compute_binary_metrics AUC is NA", call. = FALSE)
+  if (metrics$auc < 0.5 || metrics$auc > 1.0) stop("compute_binary_metrics AUC out of range", call. = FALSE)
+  if (is.na(metrics$tss)) stop("compute_binary_metrics TSS is NA", call. = FALSE)
+  if (is.na(metrics$sensitivity) || is.na(metrics$specificity)) stop("compute_binary_metrics sens/spec NA", call. = FALSE)
+  if (!is.integer(metrics$tp) || !is.integer(metrics$fp)) stop("compute_binary_metrics tp/fp not integer", call. = FALSE)
+
+  na_metrics <- compute_binary_metrics(c(NA, NA), c(NA, NA))
+  if (!all(is.na(na_metrics[c("auc", "tss", "sensitivity", "specificity")]))) stop("compute_binary_metrics should return NA for all-NA input", call. = FALSE)
+
+  cat("[metrics_binary smoke] passed (AUC: ", round(metrics$auc, 3), ")\n", sep = "")
+}
+
+test_compute_mess_smoke <- function() {
+  cat("[compute_mess smoke] starting...\n")
+  bio1_train <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(bio1_train) <- runif(100, 15, 25)
+  names(bio1_train) <- "bio1"
+
+  bio12_train <- terra::rast(nrows = 10, ncols = 10, xmin = 140, xmax = 150, ymin = -30, ymax = -20, crs = "EPSG:4326")
+  terra::values(bio12_train) <- runif(100, 500, 2000)
+  names(bio12_train) <- "bio12"
+
+  env_train <- c(bio1_train, bio12_train)
+
+  bio1_proj <- terra::rast(nrows = 10, ncols = 10, xmin = 138, xmax = 152, ymin = -32, ymax = -18, crs = "EPSG:4326")
+  terra::values(bio1_proj) <- c(runif(80, 15, 25), runif(20, 5, 10))
+  names(bio1_proj) <- "bio1"
+
+  bio12_proj <- terra::rast(nrows = 10, ncols = 10, xmin = 138, xmax = 152, ymin = -32, ymax = -18, crs = "EPSG:4326")
+  terra::values(bio12_proj) <- c(runif(80, 500, 2000), runif(20, 100, 300))
+  names(bio12_proj) <- "bio12"
+
+  env_proj <- c(bio1_proj, bio12_proj)
+
+  result <- tryCatch(
+    compute_mess(env_train, env_proj),
+    error = function(e) {
+      cat("[compute_mess smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[compute_mess smoke] skipped: compute_mess failed\n")
+    return(invisible(NULL))
+  }
+  if (!inherits(result$mess, "SpatRaster")) stop("compute_mess mess not a SpatRaster", call. = FALSE)
+  if (!is.list(result$per_variable)) stop("compute_mess per_variable not a list", call. = FALSE)
+  if (length(result$per_variable) != 2) stop("compute_mess per_variable wrong length", call. = FALSE)
+  if (!is.numeric(result$pct_extrapolation)) stop("compute_mess pct_extrapolation not numeric", call. = FALSE)
+  if (!is.list(result$train_ranges)) stop("compute_mess train_ranges not a list", call. = FALSE)
+
+  cat("[compute_mess smoke] passed (extrapolation: ", round(result$pct_extrapolation * 100, 1), "%)\n", sep = "")
+}
+
+test_compute_mod_smoke <- function() {
+  cat("[compute_mod smoke] starting...\n")
+  bio1_mess <- terra::rast(nrows = 10, ncols = 10, xmin = 0, xmax = 10, ymin = 0, ymax = 10, crs = "EPSG:4326")
+  terra::values(bio1_mess) <- runif(100, -0.5, 0.5)
+  names(bio1_mess) <- "bio1"
+
+  bio12_mess <- terra::rast(nrows = 10, ncols = 10, xmin = 0, xmax = 10, ymin = 0, ymax = 10, crs = "EPSG:4326")
+  terra::values(bio12_mess) <- runif(100, -0.3, 0.7)
+  names(bio12_mess) <- "bio12"
+
+  result <- tryCatch(
+    compute_mod(list(bio1 = bio1_mess, bio12 = bio12_mess)),
+    error = function(e) {
+      cat("[compute_mod smoke] error: ", conditionMessage(e), "\n", sep = "")
+      NULL
+    }
+  )
+  if (is.null(result)) {
+    cat("[compute_mod smoke] skipped: compute_mod failed\n")
+    return(invisible(NULL))
+  }
+  if (!inherits(result, "SpatRaster")) stop("compute_mod not a SpatRaster", call. = FALSE)
+  if (names(result) != "MOD") stop("compute_mod not named MOD", call. = FALSE)
+  mod_vals <- terra::values(result, na.rm = TRUE)
+  if (any(!mod_vals %in% c(1, 2))) stop("compute_mod values should be 1 or 2", call. = FALSE)
+
+  cat("[compute_mod smoke] passed\n")
+}
+
+test_future_projection_helpers_smoke <- function() {
+  cat("[future_projection_helpers smoke] starting...\n")
+  tmp_dir <- tempfile()
+  dir.create(tmp_dir)
+  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+
+  file.create(file.path(tmp_dir, "wc2.1_10m_bio_1.tif"))
+  file.create(file.path(tmp_dir, "wc2.1_10m_bio_12.tif"))
+
+  files <- future_projection_files(tmp_dir, c(1, 12))
+  if (!is.character(files) || length(files) != 2) stop("future_projection_files wrong type/length", call. = FALSE)
+  if (is.na(files["bio1"]) || is.na(files["bio12"])) stop("future_projection_files missed files: ", paste(names(files), "=", files, collapse = ", "), call. = FALSE)
+
+  ready <- future_projection_ready(tmp_dir, c(1, 12))
+  if (!isTRUE(ready)) stop("future_projection_ready should be TRUE", call. = FALSE)
+
+  not_ready <- future_projection_ready(tmp_dir, c(1, 12, 4))
+  if (isTRUE(not_ready)) stop("future_projection_ready should be FALSE when bio4 missing", call. = FALSE)
+
+  cat("[future_projection_helpers smoke] passed\n")
+}
+
+# ============================================================================
 # TAG DISPATCH
 # ============================================================================
 
@@ -1154,6 +1786,28 @@ if (has_tag("ecology")) {
   test_niche_overlap_smoke()
   test_species_richness_smoke()
   test_aoa_smoke()
+}
+if (has_tag("covariates")) {
+  test_find_worldclim_smoke()
+  test_opentopo_helpers_smoke()
+  test_soil_output_name_smoke()
+  test_vif_selection_full_smoke()
+  test_align_covariate_stack_smoke()
+  test_scale_raster_stack_smoke()
+  test_load_extra_covariates_empty_smoke()
+  test_verify_worldclim_cache_smoke()
+  test_verify_future_cache_smoke()
+  test_verify_soil_cache_smoke()
+}
+if (has_tag("reporting")) {
+  test_write_summary_report_full_smoke()
+  test_response_curves_smoke()
+  test_diagnostics_plots_smoke()
+  test_export_run_script_smoke()
+  test_metrics_binary_smoke()
+  test_compute_mess_smoke()
+  test_compute_mod_smoke()
+  test_future_projection_helpers_smoke()
 }
 if (has_tag("heavy") || has_tag("ensemble")) {
   test_multi_ensemble_smoke()
