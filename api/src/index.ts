@@ -18,6 +18,20 @@ import { projectRoutes } from "./routes/projects.js";
 import { diagnosticsRoutes } from "./routes/diagnostics.js";
 import jobsRoutes from "./routes/jobs.js";
 
+process.on("uncaughtException", (err) => {
+  const msg = err?.message ?? "";
+  if (
+    msg.includes("ioredis") ||
+    msg.includes("ECONNREFUSED") ||
+    msg.includes("ETIMEDOUT") ||
+    msg.includes("ECONNRESET") ||
+    msg.includes("ENOTFOUND")
+  ) {
+    return;
+  }
+  throw err;
+});
+
 const app = new Hono();
 
 app.use("*", cors());
@@ -119,6 +133,31 @@ const server = serve(
 
 setupWebSocket(server);
 
+process.on("uncaughtException", (err) => {
+  const msg = err?.message ?? "";
+  if (
+    msg.includes("ioredis") ||
+    msg.includes("ECONNREFUSED") ||
+    msg.includes("ETIMEDOUT") ||
+    msg.includes("ECONNRESET") ||
+    msg.includes("ENOTFOUND")
+  ) {
+    return;
+  }
+  throw err;
+});
+
 process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason ?? "");
+  if (
+    msg.includes("ioredis") ||
+    msg.includes("ECONNREFUSED") ||
+    msg.includes("ETIMEDOUT") ||
+    msg.includes("ECONNRESET") ||
+    msg.includes("ENOTFOUND") ||
+    msg.includes("Connection is closed")
+  ) {
+    return;
+  }
   console.error("[API] Unhandled rejection:", reason);
 });
