@@ -118,6 +118,19 @@ setTimeout(() => {
   }
 }, 1000);
 
+// Flush stale cache after restart so old data from previous Plumber sessions
+// (e.g. broken endpoints returning empty results) is not served to users
+setTimeout(async () => {
+  try {
+    const { invalidateCache } = await import("./middleware/cache.js");
+    await invalidateCache("long");
+    await invalidateCache("medium");
+    console.log("[Cache] Stale cache flushed on startup");
+  } catch {
+    // Cache flush is best-effort; Redis may be unavailable
+  }
+}, 2000);
+
 // Set up HTTP server with WebSocket support
 const server = serve(
   { fetch: app.fetch, port, hostname: "0.0.0.0" },
