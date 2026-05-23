@@ -162,10 +162,30 @@ Push a semver tag (`git tag v1.2.3 && git push --tags`) to trigger:
 |--------|-------------------|------|
 | WorldClim current | `wc2.1_10m_bio_1.tif` ... `wc2.1_10m_bio_19.tif` | `Worldclim/` |
 | WorldClim future (CMIP6) | `wc2.1_10m_bioc_1.tif` ... inside `GCM_SSP_Period/` subdirs | `Worldclim_future/` |
-| CHELSA v2.1 | `CHELSA_bio01_1979-2013_V.2.1.tif` ... `CHELSA_bio19_1979-2013_V.2.1.tif` | `chelsa/` |
-| CHELSA extras | `CHELSA_gdd5_1981-2010_V.2.1.tif`, `CHELSA_gsl_1981-2010_V.2.1.tif`, etc. | `Worldclim/` |
+| CHELSA v2.1 | `CHELSA_bio01_1981-2010_V.2.1.tif` ... `CHELSA_bio19_1981-2010_V.2.1.tif` | `chelsa/` |
+| CHELSA extras | `CHELSA_gdd5_1981-2010_V.2.1.tif`, `CHELSA_gsl_1981-2010_V.2.1.tif`, `CHELSA_npp_1981-2010_V.2.1.tif`, etc. | `chelsa/` |
 
-**Note:** WorldClim v2.1 uses `wc2.1_<res>m_bio_<n>.tif` for current and `wc2.1_<res>m_bioc_<n>.tif` for CMIP6 future. CHELSA v2.1 uses `CHELSA_bio<nn>_1979-2013_V.2.1.tif` format.
+**Note:** WorldClim v2.1 uses `wc2.1_<res>m_bio_<n>.tif` for current and `wc2.1_<res>m_bioc_<n>.tif` for CMIP6 future. CHELSA v2.1 uses `CHELSA_bio<nn>_<period>_V.2.1.tif` format with period `1981-2010` (not `1979-2013`).
+
+### Offline / air-gapped deployment
+
+Climate data directories and download behavior are configurable via environment variables:
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `SDM_WORLDCLIM_DIR` | `Worldclim` | Directory for current WorldClim BIO layers |
+| `SDM_CHELSA_DIR` | `chelsa` | Directory for CHELSA v2.1 BIO layers |
+| `SDM_CHELSA_EXTRAS_DIR` | `chelsa` | Directory for CHELSA bioclim-plus extra variables |
+| `SDM_FUTURE_WORLDCLIM_DIR` | `Worldclim_future` | Directory for CMIP6 future projections |
+| `SDM_INTERNET_CHECK_ENABLED` | `true` | Set to `false` to disable connectivity probe before downloads |
+
+**CHELSA URL** (configurable via `SDM_CHELSA_URL`): The default URL is `https://os.unil.cloud.switch.ch/chelsa02/chelsa/global/bioclim`. The old envicloud.wsl.ch URL is deprecated and returns 404.
+
+**Offline workflow:**
+1. Place correctly-named `.tif` files in the climate directories (see naming conventions above)
+2. In the Shiny UI, uncheck "Auto-download missing BIO layers"
+3. The readiness panel confirms which BIO variables are found locally
+4. No web upload for climate rasters — files must be placed directly on the filesystem
 
 ### biomod2 gating
 
