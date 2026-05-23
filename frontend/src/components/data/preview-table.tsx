@@ -6,13 +6,22 @@ import {
   flexRender,
 } from "@tanstack/react-table";
 import { useMemo } from "react";
+import { cn } from "@/lib/utils";
 
 interface PreviewTableProps {
   data: Array<Record<string, unknown>>;
   title?: string;
 }
 
-const CORE_KEYS = new Set(["longitude", "latitude", "source", "countryCode", "year", "presence"]);
+const CORE_KEYS = new Set(["longitude", "latitude", "source"]);
+
+const STICKY_LEFT: Record<string, number> = { longitude: 0, latitude: 110 };
+
+function cellStyle(colId: string): React.CSSProperties {
+  const left = STICKY_LEFT[colId];
+  if (left === undefined) return {};
+  return { position: "sticky", left, zIndex: 5 };
+}
 
 function formatNum(v: unknown) {
   const n = Number(v);
@@ -29,7 +38,7 @@ export function PreviewTable({ data, title }: PreviewTableProps) {
   }
 
   const extraKeys = useMemo(() => {
-    return Object.keys(data[0]).filter(k => !CORE_KEYS.has(k) && !k.startsWith("cc_") && k !== "flagged");
+    return Object.keys(data[0]).filter(k => !CORE_KEYS.has(k) && !k.startsWith("cc_") && !["countryCode", "year", "presence", "flagged"].includes(k));
   }, [data]);
 
   const columns = [
@@ -61,6 +70,44 @@ export function PreviewTable({ data, title }: PreviewTableProps) {
         return <span className="truncate block max-w-[160px] text-xs" title={String(v)}>{String(v)}</span>;
       },
     },
+    {
+      accessorKey: "countryCode",
+      header: "Country",
+      size: 80,
+      cell: (info: { getValue: () => unknown }) => {
+        const v = info.getValue();
+        if (v === null || v === undefined || v === "") return <span className="text-sdm-muted italic text-xs">—</span>;
+        return <span className="text-xs">{String(v)}</span>;
+      },
+    },
+    {
+      accessorKey: "year",
+      header: "Year",
+      size: 70,
+      cell: (info: { getValue: () => unknown }) => {
+        const v = info.getValue();
+        if (v === null || v === undefined || v === "") return <span className="text-sdm-muted italic text-xs">—</span>;
+        return <span className="text-xs">{String(v)}</span>;
+      },
+    },
+    {
+      accessorKey: "presence",
+      header: "Presence",
+      size: 80,
+      cell: (info: { getValue: () => unknown }) => {
+        const v = info.getValue();
+        if (v === null || v === undefined || v === "") return <span className="text-sdm-muted italic text-xs">—</span>;
+        const isPresent = String(v) === "1" || v === true || String(v).toLowerCase() === "present";
+        return (
+          <span className={cn(
+            "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase leading-tight",
+            isPresent ? "bg-green-500/15 text-green-500" : "bg-sdm-warning/15 text-sdm-warning"
+          )}>
+            {isPresent ? "present" : "absent"}
+          </span>
+        );
+      },
+    },
     ...extraKeys.map(key => ({
       accessorKey: key,
       header: key,
@@ -86,16 +133,16 @@ export function PreviewTable({ data, title }: PreviewTableProps) {
           <h3 className="text-sm font-semibold text-sdm-heading">{title}</h3>
         </div>
       )}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm" style={{ minWidth: 400 }}>
-          <thead>
+      <div className="overflow-x-auto max-h-[40vh] overflow-y-auto">
+        <table className="w-full text-sm border-separate border-spacing-0" style={{ minWidth: 400 }}>
+          <thead className="sticky top-0 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="border-b border-sdm-border bg-sdm-surface-soft">
+              <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
-                    className="px-3 py-2 text-left font-semibold text-sdm-muted whitespace-nowrap text-xs uppercase tracking-wider"
-                    style={{ width: header.getSize() }}
+                    className="px-3 py-2 text-left font-semibold text-sdm-muted whitespace-nowrap text-xs uppercase tracking-wider bg-sdm-surface-soft border-b border-sdm-border"
+                    style={{ width: header.getSize(), ...cellStyle(header.id) }}
                   >
                     {flexRender(header.column.columnDef.header, header.getContext())}
                   </th>
@@ -105,9 +152,13 @@ export function PreviewTable({ data, title }: PreviewTableProps) {
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="border-b border-sdm-border/50 hover:bg-sdm-surface-soft/50 transition-colors">
+              <tr key={row.id} className="hover:bg-sdm-surface-soft/50 transition-colors">
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-3 py-2 text-sdm-text" style={{ width: cell.column.getSize() }}>
+                  <td
+                    key={cell.id}
+                    className="px-3 py-2 text-sdm-text border-b border-sdm-border/50 bg-sdm-surface"
+                    style={{ width: cell.column.getSize(), ...cellStyle(cell.column.id) }}
+                  >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}

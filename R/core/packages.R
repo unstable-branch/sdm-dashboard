@@ -35,7 +35,7 @@ sdm_app_packages <- c(
   "future", "future.apply",
   "ggplot2", "CAST", "blockCV"
 )
-sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf", "DT", "marginaleffects", "shinyjs", "future", "future.apply", "ggplot2")
+sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf", "DT", "marginaleffects", "shinyjs", "future", "future.apply", "ggplot2", "devtools")
 
 sdm_optional_packages <- list(
   maxnet = c("maxnet", "glmnet"),

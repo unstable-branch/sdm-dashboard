@@ -177,7 +177,7 @@ export function ModelConfigForm({ occurrenceFile, onSubmit, loading }: ModelConf
         <div className="rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3 flex items-center gap-3">
           <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
           <div className="min-w-0">
-            <p className="text-sm font-medium text-sdm-text truncate">{occurrenceFile.split("/").pop()}</p>
+            <p className="text-sm font-medium text-sdm-text truncate">{typeof occurrenceFile === "string" ? occurrenceFile.split("/").pop() : String(occurrenceFile)}</p>
             <p className="text-xs text-sdm-muted truncate">{occurrenceFile}</p>
           </div>
         </div>

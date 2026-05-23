@@ -53,8 +53,8 @@ core_packages <- c(
   # Parallel
   "future", "future.apply",
 
-  # Testing
-  "testthat"
+  # Testing / dev
+  "testthat", "devtools"
 )
 
 cat("Installing core packages (", length(core_packages), "):\n  ", paste(core_packages, collapse = ", "), "\n\n", sep = "")
