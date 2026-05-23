@@ -60,7 +60,7 @@ function getConnection(): IORedis | null {
   }
   _connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
     maxRetriesPerRequest: 1,
-    lazyConnect: false,
+    lazyConnect: true,
     enableReadyCheck: false,
     retryStrategy: (times) => {
       if (times > 2) {
@@ -106,7 +106,7 @@ function getBullMqConnection(): IORedis | null {
   }
   _bullmqConnection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
     maxRetriesPerRequest: null,
-    lazyConnect: false,
+    lazyConnect: true,
     enableReadyCheck: false,
     retryStrategy: (times) => {
       if (times > 2) {
