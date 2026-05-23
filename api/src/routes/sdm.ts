@@ -137,6 +137,7 @@ sdmRoutes.post("/run", async (c) => {
         modelId: config.modelId,
         speciesName: config.species ?? null,
         status: "running",
+        startedAt: new Date(),
         config: config as any,
       })
       .returning();
@@ -199,7 +200,7 @@ sdmRoutes.post("/run", async (c) => {
     if (plumberJobId) {
       await db
         .update(runs)
-        .set({ jobId: plumberJobId, status: "running" })
+        .set({ jobId: plumberJobId, status: "running", startedAt: new Date() })
         .where(eq(runs.id, run.id));
     }
 
