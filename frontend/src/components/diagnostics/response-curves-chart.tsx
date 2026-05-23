@@ -2,24 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
-
-interface CurvePoint {
-  value: number;
-  suitability: number;
-}
-
-interface CurveData {
-  covariate: string;
-  points: CurvePoint[];
-}
-
-interface ResponseCurvesData {
-  available: boolean;
-  message?: string;
-  n_curves?: number;
-  curves?: CurveData[];
-  error?: string;
-}
+import type { ResponseCurvesData } from "@/services/types";
 
 interface ResponseCurvesChartProps {
   data: ResponseCurvesData | null;

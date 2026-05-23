@@ -29,8 +29,10 @@ import {
   FolderKanban,
 } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const pipelineItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -51,6 +53,12 @@ const systemItems = [
 
 export function AppSidebar() {
   const { theme, setTheme } = useTheme();
+  const pathname = usePathname();
+
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname.startsWith(href);
+  };
 
   return (
     <Sidebar>
@@ -67,7 +75,7 @@ export function AppSidebar() {
             <SidebarMenu>
               {pipelineItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild>
+                  <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
                     <Link href={item.href}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
@@ -84,7 +92,7 @@ export function AppSidebar() {
             <SidebarMenu>
               {systemItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild>
+                  <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
                     <Link href={item.href}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>

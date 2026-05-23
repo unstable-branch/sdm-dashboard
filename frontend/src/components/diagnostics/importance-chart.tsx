@@ -1,21 +1,7 @@
 "use client";
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ErrorBar } from "recharts";
-
-interface ImportanceEntry {
-  variable: string;
-  importance: number;
-  sd: number;
-  baseline: number;
-}
-
-interface ImportanceData {
-  available: boolean;
-  message?: string;
-  n_variables?: number;
-  importance?: ImportanceEntry[];
-  error?: string;
-}
+import type { ImportanceData } from "@/services/types";
 
 interface ImportanceChartProps {
   data: ImportanceData | null;

@@ -108,7 +108,16 @@ export class PlumberClient {
       headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error(`Failed to run model: ${res.status}`);
+    if (!res.ok) {
+      let errorMsg = `Failed to run model: ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body.error) errorMsg = body.error;
+      } catch {
+        // ignore parse error, use status code message
+      }
+      throw new Error(errorMsg);
+    }
     return res.json();
   }
 

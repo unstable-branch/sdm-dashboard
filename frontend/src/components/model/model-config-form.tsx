@@ -15,6 +15,7 @@ interface ModelInfo {
   min_records?: number | null;
   packages?: string[];
   notes?: string;
+  available?: boolean;
 }
 
 interface ModelConfigFormProps {
@@ -36,6 +37,9 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const setSpeciesStore = useSDMStore((s) => s.setSpecies);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>(MODEL_BACKENDS);
   const [species, setSpecies] = useState(() => useSDMStore.getState().species || "Untitled species");
+  const [speciesSuggestions, setSpeciesSuggestions] = useState<string[]>([]);
+  const [speciesInputFocused, setSpeciesInputFocused] = useState(false);
+  const [speciesSelectedIndex, setSpeciesSelectedIndex] = useState(-1);
   const [modelId, setModelId] = useState("glm");
   const [biovars, setBiovars] = useState<number[]>(DEFAULT_CONFIG.biovars);
   const [extentPreset, setExtentPreset] = useState("aus_full");
@@ -102,19 +106,33 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   }, []);
 
   useEffect(() => {
-    if (biovars.length < 2) return;
-    const identifier = `${climateSource}_${climateRes}`;
-    setClimateCheckLoading(true);
-    fetch(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovars.join(",")}`)
+    fetch("/api/v1/occurrences/species?limit=100")
       .then((res) => res.ok ? res.json() : null)
       .then((data) => {
-        if (data && Array.isArray(data.available)) {
-          const availableSet = new Set(data.available as number[]);
-          setMissingBiovars(biovars.filter((b) => !availableSet.has(b)));
+        if (data && Array.isArray(data.species)) {
+          setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string));
         }
       })
-      .catch(() => setMissingBiovars(biovars))
-      .finally(() => setClimateCheckLoading(false));
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (biovars.length < 2) return;
+    const identifier = `${climateSource}_${climateRes}`;
+    const timer = setTimeout(() => {
+      setClimateCheckLoading(true);
+      fetch(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovars.join(",")}`)
+        .then((res) => res.ok ? res.json() : null)
+        .then((data) => {
+          if (data && Array.isArray(data.available)) {
+            const availableSet = new Set(data.available as number[]);
+            setMissingBiovars(biovars.filter((b) => !availableSet.has(b)));
+          }
+        })
+        .catch(() => setMissingBiovars(biovars))
+        .finally(() => setClimateCheckLoading(false));
+    }, 300);
+    return () => clearTimeout(timer);
   }, [biovars.join(","), climateSource, climateRes]);
 
   const toggleBiovar = (id: number) => {
@@ -233,14 +251,62 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
         <h2 className="text-lg font-semibold text-sdm-heading">Species & Model</h2>
 
-        <div>
+        <div className="relative">
           <label className="block text-sm font-medium text-sdm-text mb-1">Species / model label</label>
           <input
             type="text"
             value={species}
-            onChange={(e) => { setSpecies(e.target.value); setSpeciesStore(e.target.value); }}
+            onChange={(e) => { setSpecies(e.target.value); setSpeciesStore(e.target.value); setSpeciesSelectedIndex(-1); }}
+            onFocus={() => setSpeciesInputFocused(true)}
+            onBlur={() => setTimeout(() => setSpeciesInputFocused(false), 200)}
+            onKeyDown={(e) => {
+              const filtered = speciesSuggestions
+                .filter((s) => s.toLowerCase().includes(species.toLowerCase()) && s !== species)
+                .slice(0, 10);
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setSpeciesSelectedIndex((prev) => (prev + 1) % filtered.length);
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setSpeciesSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
+              } else if (e.key === "Enter" && speciesSelectedIndex >= 0 && speciesSelectedIndex < filtered.length) {
+                e.preventDefault();
+                setSpecies(filtered[speciesSelectedIndex]);
+                setSpeciesStore(filtered[speciesSelectedIndex]);
+                setSpeciesInputFocused(false);
+              } else if (e.key === "Escape") {
+                setSpeciesInputFocused(false);
+              }
+            }}
             className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
+            placeholder="Enter species name or select from history"
+            role="combobox"
+            aria-expanded={speciesInputFocused && speciesSuggestions.length > 0}
+            aria-haspopup="listbox"
+            aria-autocomplete="list"
           />
+          {speciesInputFocused && speciesSuggestions.length > 0 && (
+            <div className="absolute z-50 mt-1 w-full rounded-md border border-sdm-border bg-sdm-surface shadow-lg max-h-48 overflow-y-auto" role="listbox">
+              {speciesSuggestions
+                .filter((s) => s.toLowerCase().includes(species.toLowerCase()) && s !== species)
+                .slice(0, 10)
+                .map((s, idx) => (
+                  <button
+                    key={s}
+                    type="button"
+                    role="option"
+                    aria-selected={idx === speciesSelectedIndex}
+                    onMouseDown={() => { setSpecies(s); setSpeciesStore(s); setSpeciesInputFocused(false); }}
+                    className={cn(
+                      "w-full text-left px-3 py-2 text-sm text-sdm-text hover:bg-sdm-surface-soft",
+                      idx === speciesSelectedIndex && "bg-sdm-accent/10"
+                    )}
+                  >
+                    {s}
+                  </button>
+                ))}
+            </div>
+          )}
         </div>
 
         <div>
@@ -251,13 +317,16 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
           >
             {availableModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} ({m.maturity})
+              <option key={m.id} value={m.id} disabled={m.available === false}>
+                {m.label} ({m.maturity}){m.available === false ? " — unavailable" : ""}
               </option>
             ))}
           </select>
           {selectedModel?.maturity === "experimental" && (
             <p className="mt-1 text-xs text-sdm-warning">Experimental model — results may vary</p>
+          )}
+          {selectedModel?.available === false && selectedModel.notes && (
+            <p className="mt-1 text-xs text-sdm-muted">{selectedModel.notes}</p>
           )}
           {isESM && (
             <div className="mt-2 rounded-md bg-blue-500/10 border border-blue-500/30 p-3 text-xs text-sdm-text">

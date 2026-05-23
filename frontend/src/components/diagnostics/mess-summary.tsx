@@ -1,14 +1,6 @@
 "use client";
 
-interface MessData {
-  available: boolean;
-  message?: string;
-  mess_tif?: string;
-  mod_tif?: string;
-  pct_extrapolation?: number | null;
-  has_future_projection?: boolean;
-  error?: string;
-}
+import type { MessData } from "@/services/types";
 
 interface MessSummaryProps {
   data: MessData | null;

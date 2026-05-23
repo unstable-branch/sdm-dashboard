@@ -1,18 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Ban, Trash2, AlertTriangle } from "lucide-react";
-import { apiPost, apiDelete } from "@/services/api";
+import { apiGet, apiPost, apiDelete } from "@/services/api";
+import type { RunSummary } from "@/services/types";
 
-interface Run {
-  id: string;
-  species: string;
-  model_id: string;
-  status: string;
-  started_at: string;
-  completed_at: string | null;
-  metrics: Record<string, unknown> | null;
+interface Run extends RunSummary {
+  error: string | null;
 }
 
 interface RunHistoryProps {
@@ -40,13 +35,11 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
   const [actionType, setActionType] = useState<"cancel" | "delete" | null>(null);
   const [clearing, setClearing] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
 
   const fetchRuns = useCallback(() => {
-    fetch("/api/v1/sdm/runs")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch runs");
-        return res.json();
-      })
+    apiGet<{ runs: Run[] }>("/api/v1/sdm/runs")
       .then((data) => {
         setRuns(data.runs || []);
         setError(null);
@@ -63,11 +56,11 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
   }, [fetchRuns, refreshKey]);
 
   useEffect(() => {
-    if (!hasActiveRuns(runs)) return;
+    if (!hasActiveRuns(runsRef.current)) return;
 
     const interval = setInterval(fetchRuns, 10000);
     return () => clearInterval(interval);
-  }, [runs, fetchRuns]);
+  }, [fetchRuns]);
 
   const activeCount = runs.filter((r) => r.status === "queued" || r.status === "running").length;
   const clearableCount = runs.filter((r) => ["completed", "failed", "cancelled"].includes(r.status)).length;
@@ -259,10 +252,13 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
                 {run.metrics && (
                   <>
                     <span>·</span>
-                    <span>AUC: {(run.metrics as any).auc_mean?.toFixed(3) ?? "—"}</span>
+                    <span>AUC: {(run.metrics as Record<string, unknown> | undefined)?.auc_mean ? Number((run.metrics as Record<string, unknown>)?.auc_mean).toFixed(3) : "—"}</span>
                   </>
                 )}
               </div>
+              {run.status === "failed" && run.error && (
+                <div className="mt-2 text-xs text-red-400 break-words">{run.error}</div>
+              )}
 
               {isActioning && actionType === "cancel" && (
                 <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex items-center justify-between">

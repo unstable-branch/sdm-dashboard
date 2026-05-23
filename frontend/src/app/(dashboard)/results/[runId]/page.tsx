@@ -8,60 +8,53 @@ import { MetricCards } from "@/components/results/metric-cards";
 import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
 import { ArrowLeft, Loader2, Download } from "lucide-react";
-
-interface RunStatus {
-  id: string;
-  status: string;
-  species: string;
-  model_id: string;
-  started_at: string;
-  completed_at: string | null;
-  error: string | null;
-  metrics: Record<string, unknown> | null;
-  output_files: Record<string, string> | null;
-  progress_log: string[];
-  config?: Record<string, unknown>;
-}
+import { apiGet } from "@/services/api";
+import type { RunDetail } from "@/services/types";
 
 export default function ResultsPage() {
   const params = useParams();
   const router = useRouter();
   const runId = params.runId as string;
 
-  const [run, setRun] = useState<RunStatus | null>(null);
+  const [run, setRun] = useState<RunDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reportText, setReportText] = useState<string | null>(null);
 
   useEffect(() => {
     if (!runId) return;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const fetchStatus = () => {
-      fetch(`/api/v1/sdm/status/${runId}`, { signal: AbortSignal.timeout(15000) })
-        .then((res) => {
-          if (!res.ok) throw new Error("Run not found");
-          return res.json();
-        })
+      if (cancelled) return;
+      apiGet<RunDetail>(`/api/v1/sdm/status/${runId}`)
         .then((data) => {
+          if (cancelled) return;
           setRun(data);
           setLoading(false);
           if (data.status === "completed") {
             fetch(`/api/v1/results/${runId}/report.txt`)
               .then((res) => res.ok ? res.text() : null)
-              .then((text) => setReportText(text))
+              .then((text) => { if (!cancelled) setReportText(text); })
               .catch(() => {});
           }
           if (data.status === "running") {
-            setTimeout(fetchStatus, 3000);
+            timeoutId = setTimeout(fetchStatus, 3000);
           }
         })
         .catch((err) => {
+          if (cancelled) return;
           setError(err.message);
           setLoading(false);
         });
     };
 
     fetchStatus();
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [runId]);
 
   if (loading) {

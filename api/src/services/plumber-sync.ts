@@ -9,18 +9,43 @@ const client = new PlumberClient();
 let _syncInterval: ReturnType<typeof setInterval> | null = null;
 let _running = false;
 
+const STALLED_RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours — mark as failed if no progress
+
 async function syncRunningJobs() {
   if (_running) return;
   _running = true;
 
   try {
     const activeRuns = await db
-      .select({ id: runs.id, jobId: runs.jobId, status: runs.status })
+      .select({ id: runs.id, jobId: runs.jobId, status: runs.status, startedAt: runs.startedAt })
       .from(runs)
       .where(and(eq(runs.status, "running")));
 
     for (const run of activeRuns) {
       if (!run.jobId) continue;
+
+      // Check for stalled runs (no progress for too long)
+      if (run.startedAt) {
+        const ageMs = Date.now() - new Date(run.startedAt).getTime();
+        if (ageMs > STALLED_RUN_TIMEOUT_MS) {
+          await db
+            .update(runs)
+            .set({
+              status: "failed",
+              error: `Run timed out after ${Math.round(ageMs / 3600000)} hours with no completion`,
+              completedAt: new Date(),
+            })
+            .where(eq(runs.id, run.id));
+
+          jobEventBus.emitJobStatus({
+            jobId: run.id,
+            state: "failed",
+            progress: 0,
+            failedReason: `Run timed out after ${Math.round(ageMs / 3600000)} hours with no completion`,
+          });
+          continue;
+        }
+      }
 
       try {
         const status = await client.getModelStatus(run.jobId);

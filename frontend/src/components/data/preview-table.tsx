@@ -41,7 +41,7 @@ export function PreviewTable({ data, title }: PreviewTableProps) {
     return Object.keys(data[0]).filter(k => !CORE_KEYS.has(k) && !k.startsWith("cc_") && !["countryCode", "year", "presence", "flagged"].includes(k));
   }, [data]);
 
-  const columns = [
+  const columns = useMemo(() => [
     {
       accessorKey: "longitude",
       header: "Longitude",
@@ -118,7 +118,7 @@ export function PreviewTable({ data, title }: PreviewTableProps) {
         return <span className="truncate block max-w-[100px] text-xs" title={String(value)}>{String(value)}</span>;
       },
     })),
-  ];
+  ], [extraKeys]);
 
   const table = useReactTable({
     data,
