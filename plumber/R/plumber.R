@@ -918,7 +918,6 @@ function() {
         gcm = gcm,
         ssp = ssp,
         period = period,
-        path = sd,
         file_count = length(tif_files),
         size_bytes = total_size,
         is_averaged = is_averaged
@@ -933,7 +932,6 @@ function() {
       id = "worldclim_current",
       type = "current",
       source = "worldclim",
-      path = current_dir,
       file_count = length(tif_files),
       size_bytes = total_size
     )))
@@ -946,7 +944,6 @@ function() {
       id = "chelsa_current",
       type = "current",
       source = "chelsa",
-      path = chelsa_dir,
       file_count = length(tif_files),
       size_bytes = total_size
     )))

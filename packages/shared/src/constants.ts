@@ -129,3 +129,26 @@ export const DEFAULT_CONFIG = {
 export function buildFutureWorldclimPath(gcm: string, ssp: string, period: string): string {
   return `Worldclim_future/${gcm}_${ssp}_${period}`;
 }
+
+/**
+ * Extract progress percentage from a log line.
+ * Log format: "HH:MM:SS [42%] Some message"
+ * Returns the percentage as a number (0-100), or undefined if not found.
+ */
+export function extractProgressPercent(logLine: string): number | undefined {
+  const m = logLine.match(/\[(\d+)%\]/);
+  return m ? Math.min(100, parseInt(m[1], 10)) : undefined;
+}
+
+/**
+ * Extract the current stage/message from a log line.
+ * Strips timestamp and progress marker, returns the remaining text.
+ * Returns null if the line is too short to be meaningful.
+ */
+export function extractStage(logLine: string): string | null {
+  const withoutTimestamp = logLine.replace(/^\d{2}:\d{2}:\d{2}\s*/, "");
+  const withoutProgress = withoutTimestamp.replace(/\[\d+%\]\s*/, "");
+  const trimmed = withoutProgress.trim();
+  if (!trimmed || trimmed.length < 3) return null;
+  return trimmed;
+}

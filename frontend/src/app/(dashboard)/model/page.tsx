@@ -39,11 +39,8 @@ export default function ModelPage() {
 
   const fetchActiveRuns = useCallback(async () => {
     try {
-      const data = await apiGet<{ runs: ActiveRun[] }>("/api/v1/sdm/runs?limit=50");
-      const active = (data.runs || []).filter(
-        (r) => r.status === "queued" || r.status === "running"
-      );
-      setActiveRuns(active);
+      const data = await apiGet<{ runs: ActiveRun[] }>("/api/v1/sdm/runs?status=active&limit=50");
+      setActiveRuns(data.runs || []);
     } catch {
       setActiveRuns([]);
     } finally {

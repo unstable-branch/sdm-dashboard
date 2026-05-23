@@ -14,4 +14,6 @@ export {
   SSP_CODE_MAP,
   DEFAULT_CONFIG,
   buildFutureWorldclimPath,
+  extractProgressPercent,
+  extractStage,
 } from "./constants.js";

@@ -263,6 +263,7 @@ sdmRoutes.get("/runs", async (c) => {
   try {
     const page = parseInt(c.req.query("page") || "1", 10);
     const limitVal = parseInt(c.req.query("limit") || "20", 10);
+    const statusFilter = c.req.query("status");
     const offset = (page - 1) * limitVal;
     const user = c.get("user");
 
@@ -276,6 +277,13 @@ sdmRoutes.get("/runs", async (c) => {
       if (projectIds.length > 0) {
         conditions.push(inArray(runs.projectId, projectIds));
       }
+    }
+
+    // DB-side status filtering
+    if (statusFilter === "active") {
+      conditions.push(inArray(runs.status, ["queued", "running"]));
+    } else if (statusFilter && ["queued", "running", "completed", "failed", "cancelled"].includes(statusFilter)) {
+      conditions.push(eq(runs.status, statusFilter as "queued" | "running" | "completed" | "failed" | "cancelled"));
     }
 
     const allRuns = await db
@@ -306,8 +314,8 @@ sdmRoutes.get("/runs", async (c) => {
       species: r.species ?? null,
       model_id: r.model_id ?? null,
       status: r.status ?? "queued",
-      started_at: r.started_at ? new Date(r.started_at).toISOString() : null,
-      completed_at: r.completed_at ? new Date(r.completed_at).toISOString() : null,
+      started_at: r.started_at,
+      completed_at: r.completed_at,
       metrics: r.metrics ?? null,
       output_files: r.outputFiles ?? null,
       error: r.error ?? null,

@@ -206,28 +206,15 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
 
 dataRoutes.get("/species", async (c) => {
   try {
-    const page = parseInt(c.req.query("page") || "1", 10);
-    const limitVal = parseInt(c.req.query("limit") || "50", 10);
-    const offset = (page - 1) * limitVal;
+    const limitVal = Math.min(parseInt(c.req.query("limit") || "200", 10), 500);
 
     const allSpecies = await db
       .select()
       .from(species)
       .orderBy(species.createdAt)
-      .limit(limitVal)
-      .offset(offset);
+      .limit(limitVal);
 
-    const [{ total }] = await db.select({ total: count() }).from(species);
-
-    return c.json({
-      species: allSpecies,
-      pagination: {
-        page,
-        limit: limitVal,
-        total,
-        totalPages: Math.ceil(total / limitVal),
-      },
-    });
+    return c.json({ species: allSpecies, hasMore: allSpecies.length >= limitVal });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch species";
     return c.json({ error: message }, 500);
