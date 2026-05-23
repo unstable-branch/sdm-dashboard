@@ -4,7 +4,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { plumberClient } from "./services/plumber.js";
 import { ensureBuckets } from "./services/storage.js";
-import { getQueueClient, ensureWorker, getJobStatus } from "./services/queue.js";
+import { getRedisStatus, ensureWorker, getJobStatus } from "./services/queue.js";
 import { setupWebSocket } from "./services/websocket.js";
 import { mediumCache, longCache } from "./middleware/cache.js";
 import { csrfMiddleware } from "./middleware/csrf.js";
@@ -51,14 +51,10 @@ app.get("/health", async (c) => {
     plumberStatus = "unreachable";
   }
 
-  let redisStatus = "unknown";
-  try {
-    const client = getQueueClient();
-    await client?.ping();
-    redisStatus = client ? "connected" : "disconnected";
-  } catch {
-    redisStatus = "disconnected";
-  }
+  const rs = getRedisStatus();
+  let redisStatus = "disconnected";
+  if (rs.available) redisStatus = "connected";
+  else if (rs.disabled) redisStatus = "disabled";
 
   return c.json({
     status: "ok",
@@ -115,7 +111,8 @@ const port = parseInt(process.env.PORT || "4000", 10);
 setTimeout(() => {
   const w = ensureWorker();
   if (!w) {
-    console.log("[Worker] Redis unavailable; job worker deferred");
+    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    console.log(`[Worker] Redis unavailable at ${redisUrl}; job worker deferred. Climate downloads will return 503.`);
   } else {
     console.log("[Worker] BullMQ worker started");
   }
