@@ -254,7 +254,7 @@ export function RunHistory({ onRunSelect }: RunHistoryProps) {
               <div className="mt-1 flex items-center gap-3 text-xs text-sdm-muted">
                 <span>{run.model_id}</span>
                 <span>·</span>
-                <span>{new Date(run.started_at).toLocaleDateString()}</span>
+                <span>{new Date(run.started_at).toLocaleString()}</span>
                 {run.metrics && (
                   <>
                     <span>·</span>

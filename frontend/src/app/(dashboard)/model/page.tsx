@@ -28,6 +28,7 @@ export default function ModelPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStartTime, setJobStartTime] = useState<string | null>(null);
   const [activeRuns, setActiveRuns] = useState<ActiveRun[]>([]);
   const [checkingRuns, setCheckingRuns] = useState(true);
 
@@ -66,6 +67,7 @@ export default function ModelPage() {
       const result = await apiPost<{ jobId: string }>("/api/v1/sdm/run", { ...config, async: true });
       if (result.jobId) {
         setJobId(result.jobId);
+        setJobStartTime(new Date().toISOString());
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Model run failed");
@@ -82,6 +84,7 @@ export default function ModelPage() {
 
   const handleDismissJob = () => {
     setJobId(null);
+    setJobStartTime(null);
     checkActiveRuns();
   };
 
@@ -155,7 +158,7 @@ export default function ModelPage() {
 
           {jobId && (
             <div className="mt-4">
-              <JobProgress jobId={jobId} onComplete={handleJobComplete} onDismiss={handleDismissJob} />
+              <JobProgress jobId={jobId} startTime={jobStartTime ?? undefined} onComplete={handleJobComplete} onDismiss={handleDismissJob} />
             </div>
           )}
         </div>
