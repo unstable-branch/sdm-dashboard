@@ -230,9 +230,6 @@ jobs:
       - name: Build Frontend image
         run: docker build -f Dockerfile.frontend -t sdm-frontend:test .
 
-      - name: Build legacy SDM image
-        run: docker build -t sdm-shiny:test .
-
       - name: Start services and verify health
         run: |
           docker compose -f docker-compose.yml up -d postgres redis garage
