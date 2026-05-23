@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "description": "SDM Dashboard — Hono BFF API server with BullMQ job queue, Drizzle ORM, and Plumber proxy",
   "scripts": {
     "dev": "fuser -k 4000/tcp 2>/dev/null; sleep 1; tsx watch --env-file=.env src/index.ts",
     "build": "tsc",

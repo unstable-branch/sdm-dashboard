@@ -1,3 +1,7 @@
+> ⚠️ **Internal Analysis — May 2026 — Archived**
+> This document captures findings from a deep architectural review conducted on 2026-05-19.
+> Many recommendations have since been implemented. Kept for historical reference only.
+
 # SDM Dashboard — Deep Review (2026-05-19)
 
 Beyond the bug fixes in the first review, here's a comprehensive analysis of
