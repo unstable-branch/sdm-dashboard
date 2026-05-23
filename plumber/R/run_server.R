@@ -42,7 +42,7 @@ internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
 
 # Auth helper: stop request with error response
 auth_fail <- function(res, status, msg) {
-  res$status <- status
+  tryCatch(res$status <- status, error = function(e) NULL)
   res$body <- msg
   # Signal an error to stop Plumber from calling the handler
   stop(msg)

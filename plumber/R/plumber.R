@@ -31,7 +31,7 @@ source(load_path)
 
 # Helper for error responses
 sdm_error <- function(req, status, message) {
-  req$res$status <- status
+  tryCatch(req$res$status <- status, error = function(e) NULL)
   list(error = message)
 }
 
@@ -1632,15 +1632,14 @@ function(res, run_id) {
 
 #* Check which BIO variables are already downloaded
 #* @param source data source: worldclim, chelsa, cmip6
-#* @param res resolution for worldclim
+#* @param resolution spatial resolution (for worldclim)
 #* @param biovars comma-separated BIO variable IDs
 #* @param gcm GCM name (for cmip6)
 #* @param ssp SSP scenario (for cmip6)
 #* @param period time period (for cmip6)
 #* @get /api/v1/climate/check
-function(source = "worldclim", res = "10", biovars = "", gcm = "", ssp = "", period = "") {
+function(source = "worldclim", resolution = "10", biovars = "", gcm = "", ssp = "", period = "") {
   tryCatch({
-    # Plumber may split comma query params into a vector; collapse back to string
     if (length(biovars) > 1) biovars <- paste(biovars, collapse = ",")
     requested <- as.integer(unlist(strsplit(as.character(biovars), ",")))
     requested <- unique(requested[!is.na(requested)])
@@ -1648,7 +1647,7 @@ function(source = "worldclim", res = "10", biovars = "", gcm = "", ssp = "", per
     existing_nums <- integer(0)
 
     if (source == "worldclim") {
-      res_esc <- gsub("\\.", "\\\\.", as.character(res))
+      res_esc <- gsub("\\.", "\\\\.", as.character(resolution))
       pattern <- sprintf("^wc2\\.1_%sm_bio_\\d+\\.tif$", res_esc)
       files <- list.files(file.path(app_dir, sdm_default_worldclim_dir), pattern = pattern)
       existing_nums <- as.integer(gsub("^.*_bio_(\\d+)\\.tif$", "\\1", files))
@@ -1673,16 +1672,17 @@ function(source = "worldclim", res = "10", biovars = "", gcm = "", ssp = "", per
 
     list(
       source = source,
-      res = res,
+      res = resolution,
       available = as.list(available),
       missing = as.list(missing)
     )
   }, error = function(e) {
+    requested_safe <- if (exists("requested", inherits = FALSE)) requested else integer(0)
     list(
       source = source,
-      res = res,
+      res = resolution,
       available = as.list(integer(0)),
-      missing = as.list(requested)
+      missing = as.list(requested_safe)
     )
   })
 }
