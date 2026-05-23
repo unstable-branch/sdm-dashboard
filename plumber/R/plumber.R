@@ -696,14 +696,14 @@ function(req) {
           progress_fun(10, "Downloading CMIP6")
           log_fun("Scenario: ", gcm, " / ", ssp, " / ", period, " (", res, "m)")
           source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
-          fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res, out_dir = file.path(app_dir, sdm_default_future_worldclim_dir), quiet = FALSE)
+          fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res, out_dir = file.path(app_dir, sdm_default_future_worldclim_dir), quiet = FALSE, log_fun = log_fun)
           progress_fun(90, "CMIP6 download complete")
         } else {
           gcm_list <- body$gcm_list %||% character(0)
           progress_fun(10, "Averaging CMIP6 GCMs")
           log_fun("GCMs: ", paste(gcm_list, collapse = ", "), " / ", ssp, " / ", period)
           source(sdm_resolve_module("covariates_climate_future.R"), local = TRUE)
-          average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res, out_dir = file.path(app_dir, sdm_default_future_worldclim_dir), quiet = FALSE)
+          average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res, out_dir = file.path(app_dir, sdm_default_future_worldclim_dir), quiet = FALSE, log_fun = log_fun)
           progress_fun(90, "GCM averaging complete")
         }
       } else if (download_type == "worldclim") {
@@ -714,8 +714,15 @@ function(req) {
         progress_fun(10, "Downloading WorldClim v2.1 BIO layers (", res, "m)")
         log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
         source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
-        download_worldclim_bio(worldclim_dir = worldclim_dir, biovars = biovars, res = res, quiet = FALSE)
-        progress_fun(90, "WorldClim download complete")
+        result <- download_worldclim_bio(worldclim_dir = worldclim_dir, biovars = biovars, res = res, log_fun = log_fun)
+        if (length(result$failed) > 0) {
+          job_meta$failed_vars <<- result$failed
+          job_meta$status <<- "partial"
+          job_meta$error <<- paste("Failed to download WorldClim BIO:", paste(result$failed, collapse = ", "))
+          log_fun("Partial failure: ", length(result$failed), " layers failed")
+        } else {
+          progress_fun(90, "WorldClim download complete")
+        }
       } else if (download_type == "chelsa") {
         biovars <- body$biovars
         if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
@@ -723,21 +730,40 @@ function(req) {
         progress_fun(10, "Downloading CHELSA v2.1 BIO layers")
         log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
         source(sdm_resolve_module("covariates_climate.R"), local = TRUE)
-        download_chelsa_bio(chelsa_dir = chelsa_dir, biovars = biovars, quiet = FALSE)
-        progress_fun(90, "CHELSA download complete")
+        result <- download_chelsa_bio(chelsa_dir = chelsa_dir, biovars = biovars, log_fun = log_fun)
+        if (length(result$failed) > 0) {
+          job_meta$failed_vars <<- result$failed
+          job_meta$status <<- "partial"
+          job_meta$error <<- paste("Failed to download CHELSA BIO:", paste(result$failed, collapse = ", "))
+          log_fun("Partial failure: ", length(result$failed), " layers failed")
+        } else {
+          progress_fun(90, "CHELSA download complete")
+        }
       } else {
         stop("Unknown download type: ", download_type)
       }
 
       progress_fun(95, "Finalizing")
-      job_meta$status <<- "completed"
+      if (is.null(job_meta$status) || job_meta$status == "running") {
+        job_meta$status <<- "completed"
+      }
       job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       progress_fun(100, "Complete")
     }, error = function(e) {
+      # Error categorization (Fix 9)
+      msg <- conditionMessage(e)
+      network_patterns <- c("ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "ENETUNREACH", "EHOSTUNREACH", "EPIPE")
+      http_4xx_pattern <- "HTTP/[45][0-9][0-9]|curl.*error|connection.*fail|timeout"
+      http_5xx_pattern <- "HTTP 5[0-9][0-9]|Service Unavailable|Gateway Timeout"
+      is_network <- any(vapply(network_patterns, function(p) grepl(p, msg, ignore.case = TRUE), logical(1)))
+      is_http_error <- grepl(http_4xx_pattern, msg, ignore.case = TRUE) || grepl(http_5xx_pattern, msg, ignore.case = TRUE)
+      job_meta$error_category <<- if (is_network) "network" else if (is_http_error) "http_error" else "unknown"
       job_meta$status <<- "failed"
-      job_meta$error <<- conditionMessage(e)
+      job_meta$error <<- msg
       job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      progress_fun(0, "Failed: ", conditionMessage(e))
+      progress_fun(0, "Failed: ", msg)
+      # Cleanup partial download on failure (Fix 10)
+      unlink(job_dir, recursive = TRUE, force = TRUE)
     })
 
     job_meta$progress_log <- tryCatch(tail(readLines(progress_log, warn = FALSE), 50), error = function(e) character(0))
@@ -781,6 +807,8 @@ function(res, job_id) {
     started_at = meta$started_at,
     completed_at = meta$completed_at %||% NULL,
     error = meta$error %||% NULL,
+    error_category = meta$error_category %||% NULL,
+    failed_vars = meta$failed_vars %||% NULL,
     config = meta$config %||% NULL,
     progress_log = progress_lines
   )
