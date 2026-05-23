@@ -23,6 +23,8 @@ git diff --check
 
 Expected local exception: a lean machine without R spatial packages may fail the R smoke/testthat gate on missing packages such as `sf`. GitHub Actions installs the hard R dependency set and is the final R authority for the PR.
 
+Platform CI builds and health-checks the modern stack images: frontend, API, and Plumber. The legacy Shiny image is a release artifact, not a blocking modern-platform integration gate, because its full CRAN/R spatial image build is slow and already covered by R source/tests plus the release workflow.
+
 ## Manual QA
 
 - Start the modern stack with `docker compose -f docker-compose.yml up`.
