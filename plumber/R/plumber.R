@@ -1274,12 +1274,11 @@ function() {
 #* @get /api/v1/models
 function() {
   ids <- sdm_model_ids()
-  choices <- sdm_model_choices()
   lapply(ids, function(id) {
     spec <- get_sdm_model(id)
     list(
       id = id,
-      label = choices[id],
+      label = spec$label,
       maturity = spec$maturity,
       min_records = if (!is.na(spec$min_records)) spec$min_records else NULL,
       packages = spec$packages,
