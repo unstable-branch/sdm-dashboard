@@ -2,6 +2,7 @@
   "name": "@sdm/frontend",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "SDM Dashboard — Next.js 15 frontend with React, MapLibre, and TanStack Query",
   "scripts": {
     "dev": "next dev --port 3000",
@@ -51,8 +52,8 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/geojson": "^7946.0.16",
     "@types/node": "^22.0.0",
-    "react-devtools": "^6.0.1",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "^8.59.4",
@@ -64,6 +65,7 @@
     "happy-dom": "^20.9.0",
     "jsdom": "^29.1.1",
     "postcss": "^8.4.0",
+    "react-devtools": "^6.0.1",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.6.0",
     "vitest": "^4.1.7"

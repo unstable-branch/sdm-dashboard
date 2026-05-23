@@ -150,13 +150,13 @@ Tests gracefully skip when dependencies are unavailable:
 Smoke tests run in two CI workflows:
 
 ### r-quality.yml
-- **Trigger:** All PRs, push to `dev`
+- **Trigger:** All PRs, push to `dev` and `main`
 - **Command:** `Rscript scripts/smoke_test.R --tags=fast`
 - **Timeout:** 5 minutes
 - **Purpose:** Catch parse errors, missing functions, broken defaults
 
 ### platform-ci.yml
-- **Trigger:** Push to `dev`, PRs targeting `dev`
+- **Trigger:** Push to `dev` and `main`, PRs targeting `dev` and `main`
 - **R quality job:** Parse R sources + `--tags=fast` smoke test + testthat suite
 - **Docker job:** Validates compose files, builds Dockerfiles, health-checks services
 - **Purpose:** Full platform validation including R, frontend, API, and Docker

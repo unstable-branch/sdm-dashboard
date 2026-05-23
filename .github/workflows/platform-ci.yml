@@ -2,9 +2,9 @@ name: Platform CI
 
 on:
   push:
-    branches: [dev]
+    branches: [dev, main]
   pull_request:
-    branches: [dev]
+    branches: [dev, main]
   workflow_dispatch:
 
 permissions:
@@ -212,6 +212,13 @@ jobs:
         run: |
           docker compose -f docker-compose.yml config
           docker compose -f docker-compose.dev.yml config
+          export DATABASE_URL=postgresql://sdm:dummy@postgres:5432/sdm_platform
+          export JWT_SECRET=dummy-jwt-secret-at-least-32-characters
+          export PLUMBER_INTERNAL_KEY=dummy-plumber-internal-key
+          export POSTGRES_PASSWORD=dummy
+          export GARAGE_ACCESS_KEY=dummy
+          export GARAGE_SECRET_KEY=dummy
+          export GRAFANA_PASSWORD=dummy
           docker compose -f docker-compose.prod.yml config
 
       - name: Build Plumber image

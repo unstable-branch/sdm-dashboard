@@ -720,19 +720,39 @@ sdm_stage_clean <- function(cfg, log_fun = NULL) {
 #' Run SDM pipeline: Stage 2 — Load and scale environmental covariates
 sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
   log_message(log_fun, "Stage 2: Loading covariates")
-  env <- load_climate_covariates(
+  load_environment(
     worldclim_dir = cfg$worldclim_dir,
     selected_biovars = cfg$selected_biovars,
-    projection_extent = cfg$projection_extent,
     training_extent = cfg$training_extent,
+    projection_extent = cfg$projection_extent,
     aggregation_factor = cfg$aggregation_factor,
     allow_download = cfg$allow_download %||% TRUE,
     worldclim_res = cfg$worldclim_res,
+    log_fun = log_fun,
+    n_cores = cfg$n_cores,
+    use_elevation = cfg$use_elevation %||% FALSE,
+    elevation_demtype = cfg$elevation_demtype %||% "SRTMGL1",
+    opentopo_api_key = cfg$opentopo_api_key %||% NULL,
+    use_soil = cfg$use_soil %||% FALSE,
+    selected_soil_vars = cfg$selected_soil_vars %||% character(0),
+    selected_soil_depths = cfg$selected_soil_depths %||% character(0),
+    use_uv = cfg$use_uv %||% FALSE,
+    selected_uv_vars = cfg$selected_uv_vars %||% character(0),
+    selected_uv_months = cfg$selected_uv_months %||% character(0),
+    use_vegetation = cfg$use_vegetation %||% FALSE,
+    veg_year = cfg$veg_year %||% NULL,
+    veg_products = cfg$veg_products %||% character(0),
+    use_lulc = cfg$use_lulc %||% FALSE,
+    lulc_year = cfg$lulc_year %||% NULL,
+    use_hfp = cfg$use_hfp %||% FALSE,
+    hfp_year = cfg$hfp_year %||% NULL,
+    use_bioclim_season = cfg$use_bioclim_season %||% FALSE,
+    use_drought = cfg$use_drought %||% FALSE,
+    selected_drought_periods = cfg$selected_drought_periods %||% character(0),
+    covariate_cache_dir = cfg$covariate_cache_dir %||% NULL,
     source = cfg$source,
-    selected_chelsa_extras = cfg$selected_chelsa_extras,
-    log_fun = log_fun
+    selected_chelsa_extras = cfg$selected_chelsa_extras
   )
-  list(env = env)
 }
 
 #' Run SDM pipeline: Stage 3 — Fit model

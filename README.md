@@ -16,7 +16,7 @@ The public repository contains source code, documentation, scripts, templates, a
 
 ### Prerequisites
 
-- **Node.js** 20+ and **pnpm** (`npm install -g pnpm`)
+- **Node.js** 22+ and **pnpm** (`npm install -g pnpm`)
 - **Docker** + **Docker Compose** (for backing services: PostgreSQL, Redis, Plumber, Garage)
 - **R** 4.3+ is only needed inside the Plumber Docker container — not required on the host
 
@@ -93,7 +93,9 @@ This creates all tables: `users`, `projects`, `api_keys`, `species`, `runs`, `oc
 
 ### First-time auth
 
-Once the API is running, register a user:
+Use the browser register/login screens at `http://localhost:3000/register` and `http://localhost:3000/login` for normal use.
+
+For API-only testing, register a user:
 
 ```bash
 curl -s -X POST http://localhost:4000/api/v1/auth/register \
@@ -109,21 +111,13 @@ curl -s -X POST http://localhost:4000/api/v1/auth/login \
   -d '{"email":"user@sdm.local","password":"yourpassword"}'
 ```
 
-Both return a `token` field. Paste it into the browser console at `http://localhost:3000`:
+Both return a `token` field that can be used with direct API requests:
 
-```js
-localStorage.setItem("sdm_token", "<token>")
+```bash
+curl -H "Authorization: Bearer <token>" http://localhost:4000/api/v1/projects
 ```
 
-Then refresh the page. The token expires in 24 hours — log in again to renew.
-
-Alternatively, use API key auth. The dev migration creates a `test-key` API key you can set directly:
-
-```js
-localStorage.setItem("sdm_token", "test-key")  // not yet supported for browser use
-```
-
-For API-only usage (curl, scripts), pass the key as a header:
+For API key usage from curl or scripts, pass the key as a header:
 
 ```bash
 curl -H 'X-API-Key: test-key' http://localhost:4000/api/v1/sdm/runs
@@ -294,7 +288,7 @@ docker-compose.yml  Full-stack orchestration
 | `PLUMBER_INTERNAL_KEY` | api, plumber | Hono→Plumber auth handshake | Yes |
 | `REDIS_URL` | api | Redis connection | Yes, for queue |
 | `GARAGE_ENDPOINT` | api | S3 endpoint | Yes, for storage |
-| `GARAGE_ACCESS_KEY_ID` | api | S3 access key | Yes, for storage |
+| `GARAGE_ACCESS_KEY` | api | S3 access key | Yes, for storage |
 | `GARAGE_SECRET_KEY` | api | S3 secret key | Yes, for storage |
 | `PORT` | api | API listen port (default 4000) | No |
 | `PLUMBER_URL` | api | Plumber URL (default `http://localhost:8000`) | No |
@@ -310,14 +304,17 @@ Create a `.Renviron` file in the project root to set R-specific variables. `.env
 
 ## Which Download
 
-Most users should use the latest GitHub Release rather than cloning the repository.
+Most users should use the latest GitHub Release rather than cloning the repository once releases are published.
 
 - Windows users (legacy Shiny): download `sdm-dashboard-vX.Y.Z-windows-ready.zip` from Releases, extract, then double-click `run_app_windows.bat`.
+- Self-hosted platform users: use the release tag and Docker Compose files, or pull the GHCR images published by the release workflow.
 - Developers: clone the repository or download `sdm-dashboard-vX.Y.Z-source.zip`.
 
-Latest beta release:
+Current beta source:
 
 - Repository: `https://github.com/unstable-branch/sdm-dashboard`
+
+Release and hosting policy is documented in `docs/RELEASE_AND_HOSTING.md`.
 
 ## Legacy R/Shiny (Desktop)
 
@@ -420,9 +417,11 @@ Outputs are habitat suitability or relative occurrence-support maps, not confirm
 # API health
 curl http://localhost:4000/health
 
-# Run tests
-cd api && pnpm test
-cd frontend && pnpm test
+# Node platform checks
+pnpm run check:node
+
+# Compose validation
+pnpm run check:compose
 ```
 
 ### Legacy R/Shiny

@@ -43,7 +43,7 @@ required_functions <- c(
   "get_sdm_model", "fit_sdm_model", "predict_sdm_model",
   "fit_fast_sdm", "fit_gam_sdm", "fit_rangebag_sdm",
   "fit_ensemble_glm_rangebag_sdm", "fit_multi_model_ensemble",
-  "fit_esm", "fit_maxnet_sdm", "fit_rf_sdm", "fit_xgboost_sdm",
+  "fit_esm", "fit_xgboost_sdm",
   "fit_dnn_sdm", "run_biomod2",
   "make_cv_folds_random", "make_cv_folds_spatial_blocks",
   "compute_response_curves", "plot_response_curves",
@@ -66,6 +66,32 @@ required_functions <- c(
 missing <- required_functions[!vapply(required_functions, exists, logical(1), mode = "function")]
 if (length(missing) > 0) {
   stop("Missing expected functions: ", paste(missing, collapse = ", "), call. = FALSE)
+}
+
+optional_backend_functions <- list(
+  maxnet = c("fit_maxnet_sdm", "predict_maxnet_suitability", "cross_validate_maxnet"),
+  ranger = c("fit_rf_sdm", "predict_rf_suitability", "cross_validate_rf")
+)
+for (pkg in names(optional_backend_functions)) {
+  expected <- optional_backend_functions[[pkg]]
+  present <- vapply(expected, exists, logical(1), mode = "function")
+  if (requireNamespace(pkg, quietly = TRUE)) {
+    if (!all(present)) {
+      stop(
+        "Package ", pkg, " is installed but expected backend functions are missing: ",
+        paste(expected[!present], collapse = ", "),
+        call. = FALSE
+      )
+    }
+  } else if (any(present)) {
+    stop(
+      "Package ", pkg, " is not installed but backend functions are partially defined: ",
+      paste(expected[present], collapse = ", "),
+      call. = FALSE
+    )
+  } else {
+    cat("[fast] Optional package", pkg, "not installed; backend function contract skipped.\n")
+  }
 }
 
 # --- Default validation ---
