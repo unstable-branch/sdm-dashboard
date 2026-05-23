@@ -92,14 +92,31 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       .then((res) => res.ok ? res.json() : null)
       .then((models) => {
         if (models && Array.isArray(models)) {
-          setAvailableModels(models.map((m: Record<string, unknown>) => ({
-            id: m.id as string,
-            label: m.label as string,
-            maturity: m.maturity as string,
-            min_records: (m.min_records as number) || null,
-            packages: (m.packages as string[]) || [],
-            notes: (m.notes as string) || "",
-          })));
+          const defaults = MODEL_BACKENDS.reduce<Record<string, { label: string; maturity: string; min_records: number | null; packages?: string[]; notes?: string; available?: boolean }>>((acc, m) => {
+            acc[m.id] = {
+              label: m.label,
+              maturity: m.maturity,
+              min_records: m.min_records ?? null,
+              packages: (m as Record<string, unknown>).packages as string[] | undefined,
+              notes: (m as Record<string, unknown>).notes as string | undefined,
+              available: (m as Record<string, unknown>).available as boolean | undefined,
+            };
+            return acc;
+          }, {});
+
+          setAvailableModels(models.map((m: Record<string, unknown>) => {
+            const id = m.id as string;
+            const def = defaults[id];
+            return {
+              id,
+              label: (m.label as string) || def?.label || id,
+              maturity: (m.maturity as string) || def?.maturity || "experimental",
+              min_records: (m.min_records as number) ?? def?.min_records ?? null,
+              packages: (m.packages as string[]) || def?.packages || [],
+              notes: (m.notes as string) || def?.notes || "",
+              available: (m.available as boolean) ?? def?.available ?? true,
+            };
+          }));
         }
       })
       .catch(() => {});
