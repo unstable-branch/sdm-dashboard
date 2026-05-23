@@ -69,6 +69,13 @@ export const shortCache = cacheResponse({ ttl: 60, keyPrefix: "short" });
 export const mediumCache = cacheResponse({ ttl: 300, keyPrefix: "medium" });
 export const longCache = cacheResponse({ ttl: 3600, keyPrefix: "long" });
 
+export function closeCache() {
+  if (redis) {
+    redis.disconnect(false);
+    redis = null;
+  }
+}
+
 export async function invalidateCache(prefix: string) {
   const r = getCacheRedis();
   if (!r) return;

@@ -4,9 +4,9 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { plumberClient } from "./services/plumber.js";
 import { ensureBuckets } from "./services/storage.js";
-import { getRedisStatus, ensureWorker, getJobStatus } from "./services/queue.js";
+import { getRedisStatus, ensureWorker, getJobStatus, shutdownQueue } from "./services/queue.js";
 import { setupWebSocket } from "./services/websocket.js";
-import { mediumCache, longCache } from "./middleware/cache.js";
+import { mediumCache, longCache, closeCache } from "./middleware/cache.js";
 import { csrfMiddleware } from "./middleware/csrf.js";
 import { sdmRoutes } from "./routes/sdm.js";
 import { dataRoutes } from "./routes/occurrences.js";
@@ -130,6 +130,17 @@ setTimeout(async () => {
     // Cache flush is best-effort; Redis may be unavailable
   }
 }, 2000);
+
+// Graceful shutdown: close Redis connections so dev hot-reload (tsx) can kill the process cleanly
+function shutdown() {
+  console.log("[Shutdown] Closing connections...");
+  closeCache();
+  shutdownQueue();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 3000).unref();
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
 
 // Set up HTTP server with WebSocket support
 const server = serve(
