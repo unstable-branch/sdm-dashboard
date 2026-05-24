@@ -203,7 +203,7 @@ jobs:
   docker:
     name: Docker build + integration
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -237,28 +237,10 @@ jobs:
           cache-to: type=gha,mode=max,scope=sdm-dashboard-plumber
 
       - name: Build API image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile.api
-          load: true
-          tags: |
-            sdm-dashboard-api:latest
-            sdm-api:test
-          cache-from: type=gha,scope=sdm-dashboard-api
-          cache-to: type=gha,mode=max,scope=sdm-dashboard-api
+        run: docker build -f Dockerfile.api -t sdm-dashboard-api:latest -t sdm-api:test .
 
       - name: Build Frontend image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile.frontend
-          load: true
-          tags: |
-            sdm-dashboard-frontend:latest
-            sdm-frontend:test
-          cache-from: type=gha,scope=sdm-dashboard-frontend
-          cache-to: type=gha,mode=max,scope=sdm-dashboard-frontend
+        run: docker build -f Dockerfile.frontend -t sdm-dashboard-frontend:latest -t sdm-frontend:test .
 
       - name: Start services and verify health
         run: |
