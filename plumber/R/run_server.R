@@ -1,0 +1,133 @@
+#!/usr/bin/env Rscript
+# Plumber server entry point with global authentication filter
+# All computation endpoints require either:
+#   - X-API-Key header (direct API key auth)
+#   - X-Hono-Internal header + X-Forwarded-User (Hono-proxied requests with valid JWT)
+# Open endpoints (health, reads) bypass auth
+
+app_dir <- if (dir.exists("/app/R")) {
+  "/app"
+} else if (dir.exists(file.path(getwd(), "R"))) {
+  normalizePath(getwd(), winslash = "/")
+} else {
+  normalizePath(file.path(getwd(), ".."), winslash = "/")
+}
+
+# Source auth helpers (must be in global env before sourcing plumber.R)
+source(file.path(app_dir, "plumber", "R", "auth.R"), local = FALSE)
+
+# Load .env file for env vars (PLUMBER_INTERNAL_KEY, DATABASE_URL, etc.)
+env_file <- file.path(app_dir, ".env")
+if (file.exists(env_file)) {
+  lines <- readLines(env_file, warn = FALSE)
+  for (line in lines) {
+    if (grepl("^[A-Za-z_][A-Za-z0-9_]*=", line)) {
+      kv <- strsplit(sub("^([A-Za-z_][A-Za-z0-9_]*)=(.*)", "\\1\n\\2", line), "\n")[[1]]
+      if (length(kv) == 2L && !nzchar(Sys.getenv(kv[1], ""))) {
+        do.call(Sys.setenv, stats::setNames(list(kv[2]), kv[1]))
+      }
+    }
+  }
+}
+
+# Create plumber router (this sets global `pr`)
+pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
+
+# Unbox single-element vectors so JSON primitives are returned instead of arrays
+# e.g. "file_path" remains string, "n_rows" remains number, not [value]
+pr$setSerializer(plumber::serializer_json(auto_unbox = TRUE))
+
+# Internal auth key set by Hono when proxying authenticated requests
+internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
+
+# Auth helper: stop request with error response
+auth_fail <- function(res, status, msg) {
+  tryCatch(res$status <- status, error = function(e) NULL)
+  res$body <- msg
+  # Signal an error to stop Plumber from calling the handler
+  stop(msg)
+}
+
+# Helper to safely read headers
+get_hdr <- function(req, name) {
+  tryCatch(req$HEADERS[[name]], error = function(e) NULL)
+}
+
+# Global preroute hook - runs before every endpoint
+# Throws an error to stop processing when auth fails
+plumber::pr_hook(pr, "preroute", function(data, req, res) {
+  path <- req$PATH_INFO %||% req$PATH
+
+  # Guard against malformed requests
+  if (is.null(path) || length(path) == 0L) {
+    auth_fail(res, 400L, '{"error":"Malformed request"}')
+  }
+
+  # Disable auth in dev/test if env var set
+  if (identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
+    return(NULL)
+  }
+
+  # Open endpoints: read-only, no state change
+  if (!requires_auth(path)) {
+    return(NULL)
+  }
+
+  # Hono internal proxy: Hono has already validated JWT, forward user ID
+  if (nzchar(internal_key)) {
+    hono_internal <- get_hdr(req, "x-hono-internal")
+    if (!is.null(hono_internal) && identical(hono_internal, internal_key)) {
+      fwd_user <- get_hdr(req, "x-forwarded-user")
+      if (!is.null(fwd_user) && nzchar(fwd_user)) {
+        req$user_id <- fwd_user
+      }
+      return(NULL)
+    }
+  }
+
+  # Direct API key auth
+  api_key <- get_hdr(req, "x-api-key")
+  if (is.null(api_key) || !nzchar(api_key)) {
+    auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}')
+  }
+
+  user_info <- validate_api_key(api_key, app_dir)
+  if (is.null(user_info)) {
+    auth_fail(res, 401L, '{"error":"Invalid or expired API key."}')
+  }
+
+  req$user_id <- user_info$user_id
+  req$user_email <- user_info$email
+  req$user_role <- user_info$role
+
+  NULL
+})
+
+# Now source the plumber routes - they register with global `pr`
+source(file.path(app_dir, "plumber", "R", "plumber.R"), local = FALSE)
+
+# Start server with project root as working directory
+setwd(app_dir)
+
+# Orphan job cleanup: remove stale job directories from previous crashed sessions
+orphan_cleanup <- function() {
+  jobs_base <- file.path(app_dir, "outputs", "jobs")
+  if (!dir.exists(jobs_base)) return(NULL)
+  cutoff <- Sys.time() - 86400
+  stale <- list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)
+  for (jd in stale) {
+    mtime <- file.info(jd)$mtime
+    if (!is.na(mtime) && mtime < cutoff) {
+      meta_file <- file.path(jd, "meta.json")
+      if (file.exists(meta_file)) {
+        meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+        if (identical(meta$status, "running")) {
+          unlink(jd, recursive = TRUE, force = TRUE)
+        }
+      }
+    }
+  }
+}
+tryCatch(orphan_cleanup(), error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
+
+plumber::pr_run(pr, host = "0.0.0.0", port = 8000)

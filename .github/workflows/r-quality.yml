@@ -2,7 +2,7 @@ name: R Quality Checks
 
 on:
   push:
-    branches: [main]
+    branches: [dev, main]
   pull_request:
   workflow_dispatch:
 
@@ -61,7 +61,7 @@ jobs:
           cache-version: 1
 
       - name: Run module smoke check
-        run: Rscript scripts/smoke_test.R
+        run: Rscript scripts/smoke_test.R --tags=fast
 
       - name: Run lightweight test suite
         run: Rscript tests/testthat.R

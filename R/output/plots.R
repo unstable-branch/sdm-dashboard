@@ -133,6 +133,22 @@ save_suitability_png <- function(suitability, occ, projection_extent, species, t
   invisible(output_png)
 }
 
+save_future_pngs <- function(future, occ, projection_extent, species, threshold, scenario_label, output_dir, base_name, suffix = "") {
+  if (is.null(future) || is.null(future$suitability)) {
+    return(list(future_png = NULL, delta_png = NULL))
+  }
+  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  future_png <- file.path(output_dir, paste0(base_name, "_future", suffix, "_suitability.png"))
+  delta_png <- file.path(output_dir, paste0(base_name, "_future", suffix, "_delta.png"))
+  grDevices::png(future_png, width = 1600, height = 950, res = 160)
+  plot_suitability_map(future$suitability, occ = occ, projection_extent = projection_extent, species = paste0(species, " (", scenario_label, ")"), threshold = threshold, add_points = FALSE)
+  grDevices::dev.off()
+  grDevices::png(delta_png, width = 1600, height = 950, res = 160)
+  plot_delta_map(future$delta, scenario_label = scenario_label)
+  grDevices::dev.off()
+  list(future_png = future_png, delta_png = delta_png)
+}
+
 plotVariableImportance <- function(importance_df) {
   if (!is.data.frame(importance_df) || nrow(importance_df) == 0) {
     return(NULL)

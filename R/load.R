@@ -69,7 +69,6 @@ modules <- c(
   "model_maxnet.R",
   "model_rf.R",
   "model_xgboost.R",
-  "model_jsdm.R",
   "model_multi_ensemble.R",
   "model_esm.R",
   "model_dnn.R",
@@ -103,6 +102,7 @@ modules <- c(
   "report.R",
   "report_odmap.R",
   "manifest.R",
+  "diagnostics_plots.R",
   "batch_runner.R",
   "script_export.R",
 

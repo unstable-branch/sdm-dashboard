@@ -3,7 +3,7 @@
 
 test_that("XGBoost backend fits and predicts through the registry", {
   skip_if_not_installed("xgboost")
-  skip_if_not("xgboost" %in% unname(sdm_model_choices()))
+  skip_if_not("xgboost" %in% sdm_model_ids())
 
   set.seed(42)
   env <- make_test_raster(n_layers = 2, layer_names = c("bio1", "bio12"))
@@ -31,7 +31,7 @@ test_that("XGBoost backend fits and predicts through the registry", {
 
 test_that("XGBoost component fit/predict works for ensemble", {
   skip_if_not_installed("xgboost")
-  skip_if_not("xgboost" %in% unname(sdm_model_choices()))
+  skip_if_not("xgboost" %in% sdm_model_ids())
 
   spec <- get_sdm_model("xgboost")
   expect_true(is.function(spec$fit_component_fun))

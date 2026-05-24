@@ -27,7 +27,15 @@ Run the lightweight smoke test before opening a pull request:
 Rscript scripts/smoke_test.R
 ```
 
-For app or modelling changes, also run the Shiny app locally with the synthetic example dataset and confirm exports still work. If your change touches Docker or deployment files, verify `docker build -t sdm-dashboard .` when Docker is available.
+For modern platform changes, run:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm run check:node
+pnpm run check:compose
+```
+
+For app or modelling changes, also run the relevant UI locally with the synthetic example dataset and confirm exports still work. If your local R environment lacks spatial system libraries, note that in the PR and rely on GitHub Actions for the full R gate.
 
 ## Data And Privacy Expectations
 

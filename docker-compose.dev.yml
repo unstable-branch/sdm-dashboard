@@ -1,0 +1,95 @@
+# Development compose — mounts local code, no image builds
+# Usage: docker compose -f docker-compose.dev.yml up
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: sdm
+      POSTGRES_PASSWORD: sdm_password
+      POSTGRES_DB: sdm_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sdm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sdm-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - sdm-network
+
+  garage:
+    image: dxflrs/garage:v2.3.0
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
+    ports:
+      - "3900:3900"
+      - "3901:3901"
+      - "3902:3902"
+      - "3903:3903"
+    environment:
+      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN:-dev-admin-token}
+      - GARAGE_DEFAULT_ACCESS_KEY=${GARAGE_ACCESS_KEY:-dev-access-key}
+      - GARAGE_DEFAULT_SECRET_KEY=${GARAGE_SECRET_KEY:-dev-secret-key-for-local-only}
+      - GARAGE_DEFAULT_BUCKET=${GARAGE_BUCKET:-sdm-artifacts}
+    volumes:
+      - ./garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - sdm-network
+
+  plumber:
+    build:
+      context: .
+      dockerfile: plumber/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./R:/app/R:ro
+      - ./plumber:/app/plumber:ro
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./covariates:/app/covariates
+      - ./Worldclim:/app/Worldclim
+    environment:
+      - SDM_PROJECT_ROOT=/app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    networks:
+      - sdm-network
+
+volumes:
+  postgres-data:
+  redis-data:
+  garage-meta:
+  garage-data:
+
+networks:
+  sdm-network:
+    driver: bridge

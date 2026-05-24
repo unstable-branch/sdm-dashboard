@@ -298,6 +298,7 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
                                      seed = sdm_default_seed,
                                      n_cores = 1,
                                      log_fun = NULL,
+                                     progress_fun = NULL,
                                      cv_strategy = sdm_default_cv_strategy,
                                      cv_block_size_km = sdm_default_cv_block_size_km,
                                      bias_method = c("uniform", "target_group", "thickened"),
@@ -335,8 +336,12 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
   component_k <- integer()
   component_auc <- numeric()
   component_tss <- numeric()
+  n_components <- length(standalone_selected)
 
-  for (m in standalone_selected) {
+  for (i in seq_along(standalone_selected)) {
+    m <- standalone_selected[i]
+    comp_pct <- 0.60 + ((i - 1) / n_components) * 0.15
+    progress_step(progress_fun, comp_pct, sprintf("Fitting ensemble component: %s (%d/%d)", toupper(m), i, n_components))
     log_message(log_fun, "Fitting ensemble component: ", toupper(m))
     spec <- tryCatch(get_sdm_model(m), error = function(e) NULL)
     comp_fit <- if (!is.null(spec) && is.function(spec$fit_component_fun)) {

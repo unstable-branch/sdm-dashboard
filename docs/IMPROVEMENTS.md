@@ -1,3 +1,7 @@
+> ⚠️ **Internal Analysis — May 2026 — Archived**
+> This document consolidates improvement recommendations from the May 2026 review cycle.
+> Many items have since been implemented. Kept for historical reference only.
+
 # SDM Dashboard — Consolidated Improvements Plan
 
 Merged from: code review (2026-05-19), 20 Hermes-era research docs

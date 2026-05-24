@@ -167,7 +167,7 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
 }
 
 fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n, include_quadratic = TRUE,
-                         cv_folds = 3, seed = 42, n_cores = 1, log_fun = NULL,
+                         cv_folds = 3, seed = 42, n_cores = 1, log_fun = NULL, progress_fun = NULL,
                          cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
                          threshold = sdm_default_threshold,
                          bias_method = c("uniform", "target_group", "thickened"),
@@ -193,10 +193,14 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   log_message(log_fun, "Fitting fast GLM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   model_fit_data <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
   model_fit_data$case_weight_sdm <- class_balance_weights(model_fit_data$presence)
-  model <- suppressWarnings(stats::glm(formula,
-    data = model_fit_data, family = stats::binomial(),
-    weights = case_weight_sdm, control = stats::glm.control(maxit = 80)
-  ))
+  model <- tryCatch({
+    suppressWarnings(stats::glm(formula,
+      data = model_fit_data, family = stats::binomial(),
+      weights = case_weight_sdm, control = stats::glm.control(maxit = 80)
+    ))
+  }, error = function(e) {
+    stop("GLM fitting failed: ", conditionMessage(e), call. = FALSE)
+  })
 
   train_pred <- stats::predict(model, newdata = model_fit_data, type = "response")
   train_metrics <- compute_binary_metrics(model_fit_data$presence, train_pred, threshold = threshold)

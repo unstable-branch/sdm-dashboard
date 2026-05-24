@@ -1,0 +1,107 @@
+import { createMiddleware } from "hono/factory";
+import { Redis } from "ioredis";
+
+let redis: Redis | null = null;
+let redisAvailable = false;
+
+function getRedis(): Redis | null {
+  if (redis === null) {
+    redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
+      lazyConnect: true,
+      maxRetriesPerRequest: 0,
+      retryStrategy: () => null,
+    });
+    redis.on("error", () => { redisAvailable = false; });
+    redis.on("ready", () => { redisAvailable = true; });
+    redis.connect().then(() => { redisAvailable = true; }).catch(() => { redisAvailable = false; });
+  }
+  return redisAvailable ? redis : null;
+}
+
+async function redisZremrangebyscore(key: string, min: number, max: number): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  try { await r.zremrangebyscore(key, min, max); } catch { /* skip */ }
+}
+
+async function redisZcard(key: string): Promise<number> {
+  const r = getRedis();
+  if (!r) return 0;
+  try { return await r.zcard(key); } catch { return 0; }
+}
+
+async function redisZadd(key: string, score: number, member: string): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  try { await r.zadd(key, score, member); } catch { /* skip */ }
+}
+
+async function redisExpire(key: string, seconds: number): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  try { await r.expire(key, seconds); } catch { /* skip */ }
+}
+
+export interface RateLimitOptions {
+  windowMs: number;
+  max: number;
+  keyPrefix?: string;
+}
+
+export function rateLimit(options: RateLimitOptions) {
+  return createMiddleware(async (c, next) => {
+    const key = `${options.keyPrefix || "rl"}:${c.req.url}`;
+    const now = Date.now();
+    const windowStart = now - options.windowMs;
+
+    await redisZremrangebyscore(key, 0, windowStart);
+
+    const count = await redisZcard(key);
+
+    if (count >= options.max) {
+      return c.json({ error: "Rate limit exceeded" }, 429);
+    }
+
+    await redisZadd(key, now, `${now}-${Math.random()}`);
+    await redisExpire(key, Math.ceil(options.windowMs / 1000));
+
+    await next();
+  });
+}
+
+export const gbifRateLimit = rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "gbif" });
+export const climateRateLimit = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "climate" });
+export const modelRateLimit = rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "model" });
+export const defaultRateLimit = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "default" });
+export const authRateLimit = rateLimit({ windowMs: 60_000, max: 20, keyPrefix: "auth" });
+
+/**
+ * Check rate limit for a given key (e.g., IP address for auth failures).
+ * Returns true if the request is allowed, false if rate limited.
+ */
+export async function checkRateLimit(key: string, windowMs: number, max: number): Promise<boolean> {
+  const r = getRedis();
+  if (!r) return true; // Allow if Redis unavailable (fail-open)
+
+  const now = Date.now();
+  const windowStart = now - windowMs;
+
+  try {
+    await r.zremrangebyscore(key, 0, windowStart);
+    const count = await r.zcard(key);
+    if (count >= max) return false;
+    await r.zadd(key, now, `${now}-${Math.random()}`);
+    await r.expire(key, Math.ceil(windowMs / 1000));
+    return true;
+  } catch {
+    return true; // Fail-open on Redis errors
+  }
+}
+
+export function closeRateLimitRedis(): void {
+  if (redis) {
+    redis.disconnect();
+    redis = null;
+    redisAvailable = false;
+  }
+}

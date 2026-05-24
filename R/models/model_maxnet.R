@@ -43,16 +43,22 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
 
   fit_maxnet_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
                              include_quadratic = TRUE, cv_folds = 3, seed = 42, n_cores = 1,
-                             log_fun = NULL, cv_strategy = sdm_default_cv_strategy,
+                             log_fun = NULL, progress_fun = NULL, cv_strategy = sdm_default_cv_strategy,
                              cv_block_size_km = sdm_default_cv_block_size_km,
+                             bias_method = c("uniform", "target_group", "thickened"),
+                             target_group_occ = NULL,
+                             thickening_distance_km = NULL,
                              threshold = sdm_default_threshold, maxnet_features = sdm_default_maxnet_features,
                              maxnet_regmult = sdm_default_maxnet_regmult) {
+    bias_method <- match.arg(bias_method)
     if (!requireNamespace("maxnet", quietly = TRUE)) {
       stop("maxnet package is required for MaxEnt fitting but is not installed.", call. = FALSE)
     }
 
     d <- prepare_sdm_data(occ, env_train_scaled, background_n,
-      seed = seed, log_fun = log_fun
+      seed = seed, log_fun = log_fun,
+      bias_method = bias_method, target_group_occ = target_group_occ,
+      thickening_distance_km = thickening_distance_km
     )
     occ_used <- d$occ_used
     pres_vals <- d$pres_vals
@@ -67,7 +73,11 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
     names(maxnet_pa)[-1] <- covariates
     maxnet_formula_args <- maxnet::maxnet.formula.arguments(maxnet_features, maxnet_regmult)
     maxnet_data <- maxnet::maxnet.formula(presence ~ ., data = maxnet_pa, maxnet_formula_args)
-    model <- maxnet::maxnet(maxnet_data, data = maxnet_pa)
+    model <- tryCatch({
+      maxnet::maxnet(maxnet_data, data = maxnet_pa)
+    }, error = function(e) {
+      stop("MaxEnt fitting failed: ", conditionMessage(e), call. = FALSE)
+    })
 
     model_for_auc <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
     train_pred <- as.numeric(maxnet::predict.maxnet(model, model_for_auc[, covariates, drop = FALSE], clamp = TRUE, type = "link"))

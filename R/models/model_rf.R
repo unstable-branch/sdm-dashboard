@@ -50,7 +50,7 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
 
   fit_rf_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
                          include_quadratic = FALSE, cv_folds = 3, seed = 42, n_cores = 1,
-                         log_fun = NULL, cv_strategy = sdm_default_cv_strategy,
+                         log_fun = NULL, progress_fun = NULL, cv_strategy = sdm_default_cv_strategy,
                          cv_block_size_km = sdm_default_cv_block_size_km,
                          threshold = sdm_default_threshold,
                          num_trees = sdm_default_rf_num_trees,
@@ -90,18 +90,22 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
     # Auto mtry if not specified
     effective_mtry <- mtry %||% max(1, floor(sqrt(length(covariates))))
 
-    model <- ranger::ranger(
-      formula = presence ~ .,
-      data = rf_data,
-      num.trees = num_trees,
-      mtry = effective_mtry,
-      min.node.size = min_node_size,
-      classification = FALSE,
-      importance = "permutation",
-      seed = seed,
-      num.threads = normalize_core_count(n_cores),
-      verbose = FALSE
-    )
+    model <- tryCatch({
+      ranger::ranger(
+        formula = presence ~ .,
+        data = rf_data,
+        num.trees = num_trees,
+        mtry = effective_mtry,
+        min.node.size = min_node_size,
+        classification = FALSE,
+        importance = "permutation",
+        seed = seed,
+        num.threads = normalize_core_count(n_cores),
+        verbose = FALSE
+      )
+    }, error = function(e) {
+      stop("Random Forest fitting failed: ", conditionMessage(e), call. = FALSE)
+    })
 
     # Training metrics
     train_pred <- model$predictions

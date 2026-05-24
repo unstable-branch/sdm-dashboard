@@ -6,7 +6,7 @@
 run_biomod2 <- function(occ_df, pred_stack, models = NULL,
                         background_n = 1000, cv_folds = 3,
                         species_name = NULL, seed = 42,
-                        output_dir = tempdir(), log_fun = NULL) {
+                        output_dir = tempdir(), log_fun = NULL, progress_fun = NULL) {
   if (is.null(models)) {
     models <- config$biomod2_default
   }

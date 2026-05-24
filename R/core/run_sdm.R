@@ -262,38 +262,61 @@ run_fast_sdm <- function(...) {
 
   # PA replication: fit model N times with different background seeds
   replicate_fits <- vector("list", pa_replicates)
-  replicate_fits[[1]] <- do.call(fit_sdm_model, c(list(
-    model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
-    background_n = background_n, include_quadratic = include_quadratic,
-    cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun,
-    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    bias_method = bias_method, target_group_occ = target_group_occ,
-    thickening_distance_km = thickening_distance_km
-  ), extra_args))
+  last_error <- NULL
+  replicate_fits[[1]] <- tryCatch({
+    do.call(fit_sdm_model, c(list(
+      model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
+      background_n = background_n, include_quadratic = include_quadratic,
+      cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun,
+      progress_fun = progress_fun,
+      cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+      bias_method = bias_method, target_group_occ = target_group_occ,
+      thickening_distance_km = thickening_distance_km
+    ), extra_args))
+  }, error = function(e) {
+    err_msg <- conditionMessage(e)
+    last_error <<- err_msg
+    log_message(log_fun, "  PA replicate 1/", pa_replicates, " failed: ", err_msg)
+    NULL
+  })
 
   if (pa_replicates > 1) {
     for (rep_i in seq_len(pa_replicates - 1) + 1) {
       rep_seed <- seed + rep_i * 1000L
-      log_message(log_fun, "  PA replicate ", rep_i, "/", pa_replicates)
+      rep_pct <- 0.60 + (rep_i / pa_replicates) * 0.15
+      progress_step(progress_fun, rep_pct, sprintf("Fitting PA replicate %d/%d", rep_i, pa_replicates))
       replicate_fits[[rep_i]] <- tryCatch({
         do.call(fit_sdm_model, c(list(
           model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
           background_n = background_n, include_quadratic = include_quadratic,
           cv_folds = cv_folds, seed = rep_seed, n_cores = n_cores, log_fun = log_fun,
+          progress_fun = progress_fun,
           cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
           bias_method = bias_method, target_group_occ = target_group_occ,
           thickening_distance_km = thickening_distance_km
         ), extra_args))
       }, error = function(e) {
-        log_message(log_fun, "  Replicate ", rep_i, " failed: ", conditionMessage(e))
+        err_msg <- conditionMessage(e)
+        last_error <<- err_msg
+        log_message(log_fun, "  PA replicate ", rep_i, "/", pa_replicates, " failed: ", err_msg)
         NULL
       })
     }
   }
 
   # Use the first successful fit as the primary fit
-  fit <- replicate_fits[[1]]
-  # Store PA replicate info if multiple runs
+  fit <- NULL
+  for (rep_i in seq_along(replicate_fits)) {
+    if (!is.null(replicate_fits[[rep_i]])) {
+      fit <- replicate_fits[[rep_i]]
+      break
+    }
+  }
+  if (is.null(fit)) {
+    err_msg <- last_error %||% "All PA replicates failed — cannot continue"
+    log_message(log_fun, "All PA replicates failed: ", err_msg)
+    stop(err_msg, call. = FALSE)
+  }
   if (pa_replicates > 1) {
     successful <- sum(!vapply(replicate_fits, is.null, logical(1)))
     fit$pa_replicates <- list(
@@ -385,21 +408,28 @@ run_fast_sdm <- function(...) {
   output_png <- file.path(output_dir, paste0(base_name, "_suitability.png"))
   output_report <- file.path(output_dir, paste0(base_name, "_report.txt"))
   extra_paths <- list()
-  if (identical(model_id, "multi_ensemble")) {
-    suit <- predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
-      export_components = isTRUE(multi_ensemble_export),
-      include_uncertainty = isTRUE(multi_ensemble_export),
-      ensemble_weighting = multi_ensemble_weighting,
-      ensemble_power = multi_ensemble_power,
-      user_threshold = threshold
-    )
-  } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
-    suit <- predict_esm_suitability(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
-    esm_pair_sd_tif <- attr(suit, "esm_pair_sd_tif")
-    if (!is.null(esm_pair_sd_tif)) extra_paths[["esm_pair_sd"]] <- esm_pair_sd_tif
-  } else {
-    suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
-  }
+  suit <- tryCatch({
+    if (identical(model_id, "multi_ensemble")) {
+      predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
+        export_components = isTRUE(multi_ensemble_export),
+        include_uncertainty = isTRUE(multi_ensemble_export),
+        ensemble_weighting = multi_ensemble_weighting,
+        ensemble_power = multi_ensemble_power,
+        user_threshold = threshold
+      )
+    } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
+      pred <- predict_esm_suitability(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
+      esm_pair_sd_tif <- attr(pred, "esm_pair_sd_tif")
+      if (!is.null(esm_pair_sd_tif)) extra_paths[["esm_pair_sd"]] <- esm_pair_sd_tif
+      pred
+    } else {
+      predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
+    }
+  }, error = function(e) {
+    log_message(log_fun, "Prediction failed: ", conditionMessage(e))
+    log_message(log_fun, "Traceback: ", paste(utils::tail(traceback(), 5), collapse = " <- "))
+    stop("Prediction failed: ", conditionMessage(e), call. = FALSE)
+  })
 
   # Ensemble variable importance (multi-model) — must come after suit is assigned
   if (identical(model_id, "multi_ensemble") && !is.null(attr(suit, "ensemble_importance"))) {
@@ -417,7 +447,10 @@ run_fast_sdm <- function(...) {
       rep_tif <- tempfile(pattern = paste0("pa_rep", rep_i, "_"), fileext = ".tif")
       rep_suit <- tryCatch(
         predict_sdm_model(rep_fit, env$env_project_scaled, rep_tif, n_cores, log_fun),
-        error = function(e) NULL
+        error = function(e) {
+          log_message(log_fun, "  PA replicate ", rep_i, " prediction failed: ", conditionMessage(e))
+          NULL
+        }
       )
       if (!is.null(rep_suit)) {
         suit_sum <- suit_sum + rep_suit
@@ -431,6 +464,7 @@ run_fast_sdm <- function(...) {
       log_message(log_fun, "PA-averaged suitability from ", valid_reps, " replicates written to ", output_tif)
     }
   }
+  progress_step(progress_fun, 0.90, "Writing output raster")
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
@@ -546,9 +580,17 @@ run_fast_sdm <- function(...) {
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
-  progress_step(progress_fun, 0.08, "Summarising outputs")
+  progress_step(progress_fun, 1.0, "Summarising outputs")
   suitability_summary <- summarise_suitability(suit, threshold)
   if (!is.null(future)) future$summary <- summarise_suitability(future$suitability, threshold)
+
+  future_pngs <- save_future_pngs(future, occ, projection_extent, species, threshold, future_label, output_dir, base_name)
+  if (!is.null(future_pngs$future_png)) extra_paths$future_suitability_png <- future_pngs$future_png
+  if (!is.null(future_pngs$delta_png)) extra_paths$future_delta_png <- future_pngs$delta_png
+
+  future2_pngs <- save_future_pngs(future2, occ, projection_extent, species, threshold, future_label2, output_dir, base_name, suffix = "2")
+  if (!is.null(future2_pngs$future_png)) extra_paths$future2_suitability_png <- future2_pngs$future_png
+  if (!is.null(future2_pngs$delta_png)) extra_paths$future2_delta_png <- future2_pngs$delta_png
 
   # EOO/AOO calculation
   eoo_aoo_result <- NULL
@@ -571,7 +613,10 @@ run_fast_sdm <- function(...) {
         if (is.character(validation_occurrences) && length(validation_occurrences) == 1 && file.exists(validation_occurrences)) {
           validation_occ_df <- tryCatch(
             read.csv(validation_occurrences, stringsAsFactors = FALSE, check.names = FALSE),
-            error = function(e) NULL
+            error = function(e) {
+              log_message(log_fun, "  Validation occurrence file read failed: ", conditionMessage(e))
+              NULL
+            }
           )
         } else if (is.data.frame(validation_occurrences)) {
           validation_occ_df <- validation_occurrences
@@ -675,22 +720,43 @@ sdm_stage_clean <- function(cfg, log_fun = NULL) {
 #' Run SDM pipeline: Stage 2 — Load and scale environmental covariates
 sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
   log_message(log_fun, "Stage 2: Loading covariates")
-  env <- load_climate_covariates(
+  load_environment(
     worldclim_dir = cfg$worldclim_dir,
     selected_biovars = cfg$selected_biovars,
-    projection_extent = cfg$projection_extent,
     training_extent = cfg$training_extent,
+    projection_extent = cfg$projection_extent,
     aggregation_factor = cfg$aggregation_factor,
     allow_download = cfg$allow_download %||% TRUE,
     worldclim_res = cfg$worldclim_res,
+    log_fun = log_fun,
+    n_cores = cfg$n_cores,
+    use_elevation = cfg$use_elevation %||% FALSE,
+    elevation_demtype = cfg$elevation_demtype %||% "SRTMGL1",
+    opentopo_api_key = cfg$opentopo_api_key %||% NULL,
+    use_soil = cfg$use_soil %||% FALSE,
+    selected_soil_vars = cfg$selected_soil_vars %||% character(0),
+    selected_soil_depths = cfg$selected_soil_depths %||% character(0),
+    use_uv = cfg$use_uv %||% FALSE,
+    selected_uv_vars = cfg$selected_uv_vars %||% character(0),
+    selected_uv_months = cfg$selected_uv_months %||% character(0),
+    use_vegetation = cfg$use_vegetation %||% FALSE,
+    veg_year = cfg$veg_year %||% NULL,
+    veg_products = cfg$veg_products %||% character(0),
+    use_lulc = cfg$use_lulc %||% FALSE,
+    lulc_year = cfg$lulc_year %||% NULL,
+    use_hfp = cfg$use_hfp %||% FALSE,
+    hfp_year = cfg$hfp_year %||% NULL,
+    use_bioclim_season = cfg$use_bioclim_season %||% FALSE,
+    use_drought = cfg$use_drought %||% FALSE,
+    selected_drought_periods = cfg$selected_drought_periods %||% character(0),
+    covariate_cache_dir = cfg$covariate_cache_dir %||% NULL,
     source = cfg$source,
-    log_fun = log_fun
+    selected_chelsa_extras = cfg$selected_chelsa_extras
   )
-  list(env = env)
 }
 
 #' Run SDM pipeline: Stage 3 — Fit model
-sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL) {
+sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL, progress_fun = NULL) {
   log_message(log_fun, "Stage 3: Fitting model")
   extra_args <- list()
   # Build extra_args from cfg as in run_fast_sdm...
@@ -698,6 +764,7 @@ sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL) {
     model_id = cfg$model_id, occ = occ, env_train_scaled = env$env_train_scaled,
     background_n = cfg$background_n, include_quadratic = cfg$include_quadratic,
     cv_folds = cfg$cv_folds, seed = cfg$seed, n_cores = cfg$n_cores, log_fun = log_fun,
+    progress_fun = progress_fun,
     cv_strategy = cfg$cv_strategy, cv_block_size_km = cfg$cv_block_size_km,
     bias_method = cfg$bias_method, target_group_occ = cfg$target_group_occ,
     thickening_distance_km = cfg$thickening_distance_km
@@ -721,7 +788,10 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   if (!is.null(fit$occurrence_used)) {
     result$eoo_aoo <- tryCatch(
       compute_eoo_aoo(fit$occurrence_used, aoo_cell_size_km = 2, log_fun = log_fun),
-      error = function(e) NULL
+      error = function(e) {
+        log_message(log_fun, "  EOO/AOO computation failed: ", conditionMessage(e))
+        NULL
+      }
     )
   }
 
@@ -730,7 +800,10 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
     result$aoa <- tryCatch(
       compute_aoa(fit$model_data, env$env_project_scaled, fit$covariates,
         variable_importance = fit$variable_importance, method = "cast", log_fun = log_fun),
-      error = function(e) NULL
+      error = function(e) {
+        log_message(log_fun, "  AOA computation failed: ", conditionMessage(e))
+        NULL
+      }
     )
   }
 
@@ -739,7 +812,10 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
     result$climate_match <- tryCatch(
       compute_climate_match(env$env_train_scaled, env$env_project_scaled,
         method = cfg$climate_matching_method %||% "mahalanobis", log_fun = log_fun),
-      error = function(e) NULL
+      error = function(e) {
+        log_message(log_fun, "  Climate matching failed: ", conditionMessage(e))
+        NULL
+      }
     )
   }
 
