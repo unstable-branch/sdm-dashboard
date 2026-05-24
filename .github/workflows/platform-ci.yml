@@ -221,6 +221,10 @@ jobs:
           export POSTGRES_PASSWORD=dummy
           export GARAGE_ACCESS_KEY=dummy
           export GARAGE_SECRET_KEY=dummy
+          export GARAGE_BUCKET_RASTERS=sdm-rasters
+          export GARAGE_BUCKET_EXPORTS=sdm-exports
+          export GARAGE_RPC_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          export GARAGE_ADMIN_TOKEN=dummy-garage-admin-token
           export GRAFANA_PASSWORD=dummy
           docker compose -f docker-compose.prod.yml config
 
