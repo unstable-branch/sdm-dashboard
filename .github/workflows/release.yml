@@ -22,6 +22,7 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
 
 jobs:
   audit:
@@ -33,6 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
 
       - uses: r-lib/actions/setup-r@v2
         with:
@@ -71,6 +73,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -94,9 +98,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          dockerfile: plumber/Dockerfile
+          file: plumber/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sdm-plumber:${{ github.ref_name }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sdm-plumber:${{ env.RELEASE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -112,9 +116,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          dockerfile: Dockerfile.api
+          file: Dockerfile.api
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sdm-api:${{ github.ref_name }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sdm-api:${{ env.RELEASE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -130,27 +134,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          dockerfile: Dockerfile.frontend
+          file: Dockerfile.frontend
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sdm-frontend:${{ github.ref_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Extract metadata for legacy SDM
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sdm-shiny
-          tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
-
-      - name: Build legacy SDM image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          dockerfile: Dockerfile
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sdm-shiny:${{ github.ref_name }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sdm-frontend:${{ env.RELEASE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -164,23 +150,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Build release zips
-        run: Rscript scripts/make_release_zip.R
+        run: |
+          Rscript scripts/make_release_zip.R source --version=${{ env.RELEASE_TAG }}
+          Rscript scripts/make_release_zip.R windows-ready --version=${{ env.RELEASE_TAG }}
+          mv ../sdm-dashboard-${{ env.RELEASE_TAG }}-source.zip .
+          mv ../sdm-dashboard-${{ env.RELEASE_TAG }}-windows-ready.zip .
 
       - name: Validate release zips exist
         run: |
-          ls -la sdm-dashboard-${{ github.ref_name }}-source.zip sdm-dashboard-${{ github.ref_name }}-windows-ready.zip 2>/dev/null || \
+          ls -la sdm-dashboard-${{ env.RELEASE_TAG }}-source.zip sdm-dashboard-${{ env.RELEASE_TAG }}-windows-ready.zip 2>/dev/null || \
           ls -la sdm-dashboard-*-source.zip sdm-dashboard-*-windows-ready.zip
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           draft: true
-          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          prerelease: ${{ contains(env.RELEASE_TAG, 'alpha') || contains(env.RELEASE_TAG, 'beta') || contains(env.RELEASE_TAG, 'rc') }}
           files: |
-            sdm-dashboard-${{ github.ref_name }}-source.zip
-            sdm-dashboard-${{ github.ref_name }}-windows-ready.zip
+            sdm-dashboard-${{ env.RELEASE_TAG }}-source.zip
+            sdm-dashboard-${{ env.RELEASE_TAG }}-windows-ready.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
