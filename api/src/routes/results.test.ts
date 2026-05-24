@@ -31,6 +31,13 @@ vi.mock("fs", () => ({
   readFileSync: vi.fn(() => "test content"),
 }));
 
+vi.mock("../middleware/auth", () => ({
+  authMiddleware: vi.fn(async (c: any, next: any) => {
+    c.set("user", { id: "user-1", email: "test@example.com", role: "admin" });
+    await next();
+  }),
+}));
+
 describe("results routes", () => {
   const app = new Hono();
   app.route("/api/v1/results", resultsRoutes);

@@ -61,6 +61,8 @@ services:
       - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY:?GARAGE_SECRET_KEY is required}
       - GARAGE_BUCKET_RASTERS=${GARAGE_BUCKET_RASTERS:?GARAGE_BUCKET_RASTERS is required}
       - GARAGE_BUCKET_EXPORTS=${GARAGE_BUCKET_EXPORTS:?GARAGE_BUCKET_EXPORTS is required}
+    volumes:
+      - r-data:/app/outputs:ro
     depends_on:
       postgres:
         condition: service_healthy

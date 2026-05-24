@@ -45,6 +45,21 @@ vi.mock("fs", () => ({
   readFileSync: vi.fn(() => "longitude,latitude\n1,2\n3,4"),
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
+  existsSync: vi.fn(() => true),
+  accessSync: vi.fn(),
+  constants: { W_OK: 2 },
+}));
+
+vi.mock("../middleware/auth", () => ({
+  authMiddleware: vi.fn(async (c: any, next: any) => {
+    c.set("user", { id: "user-1", email: "test@example.com", role: "admin" });
+    await next();
+  }),
+}));
+
+vi.mock("../services/access", () => ({
+  ensureDefaultProject: vi.fn(async () => "proj-1"),
+  getUserProjectIds: vi.fn(async () => null),
 }));
 
 describe("data routes", () => {
@@ -134,6 +149,13 @@ describe("data routes", () => {
     it("returns paginated occurrences", async () => {
       const { db } = await import("../db");
       (db.select as any)
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(() => Promise.resolve([{ id: "sp-1" }])),
+            })),
+          })),
+        })
         .mockReturnValueOnce({
           from: vi.fn(() => ({
             where: vi.fn(() => ({

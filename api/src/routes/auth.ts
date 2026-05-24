@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { sign } from "hono/jwt";
 import { hash, compare } from "bcrypt";
 import { db } from "../db/index.js";
-import { users, apiKeys } from "../db/schema.js";
+import { users, apiKeys, projects, projectMembers } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
@@ -46,6 +46,19 @@ authRoutes.post("/register", async (c) => {
       .insert(users)
       .values({ email, passwordHash, name, role: "viewer" })
       .returning();
+
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: "Default Project",
+        description: "Default project for SDM runs and occurrence data.",
+        ownerId: user.id,
+      })
+      .returning();
+
+    await db
+      .insert(projectMembers)
+      .values({ projectId: project.id, userId: user.id, role: "admin" });
 
     const token = await sign(
       { sub: user.id, email: user.email, role: user.role, exp: Math.floor(Date.now() / 1000) + 86400 },
