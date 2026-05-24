@@ -13,43 +13,15 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import {
-  Database,
-  Brain,
-  BarChart3,
-  Globe,
   Leaf,
   Moon,
   Sun,
-  Download,
-  Users,
-  Settings,
-  Layers,
-  LayoutDashboard,
-  Cloud,
-  FolderKanban,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-
-const pipelineItems = [
-  { title: "Dashboard", href: "/", icon: LayoutDashboard },
-  { title: "Data", href: "/data", icon: Database },
-  { title: "Model", href: "/model", icon: Brain },
-  { title: "Batch", href: "/batch", icon: Layers },
-  { title: "Evaluate", href: "/evaluate", icon: BarChart3 },
-  { title: "Future Projection", href: "/project", icon: Cloud },
-  { title: "Ecology", href: "/ecology", icon: Leaf },
-];
-
-const systemItems = [
-  { title: "Projects", href: "/projects", icon: FolderKanban },
-  { title: "Downloads", href: "/downloads", icon: Download },
-  { title: "Species", href: "/species", icon: Users },
-  { title: "Settings", href: "/settings", icon: Settings },
-];
+import { pipelineItems, systemItems } from "@/components/dashboard-nav";
 
 export function AppSidebar() {
   const { theme, setTheme } = useTheme();
@@ -65,7 +37,7 @@ export function AppSidebar() {
       <SidebarHeader>
         <div className="flex items-center gap-2 px-4 py-3">
           <Leaf className="h-6 w-6 text-sdm-accent" />
-          <span className="font-bold text-lg text-sdm-heading">SDM Platform</span>
+          <span className="text-lg font-bold text-sdm-heading">SDM Platform</span>
         </div>
       </SidebarHeader>
       <SidebarContent>

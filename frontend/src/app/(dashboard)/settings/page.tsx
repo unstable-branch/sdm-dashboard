@@ -62,8 +62,8 @@ export default function SettingsPage() {
         <p className="text-sdm-muted mt-1">System status, service connections, and default configuration.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="min-w-0 rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">
           <h3 className="text-sm font-semibold text-sdm-heading flex items-center gap-2">
             <Database className="h-4 w-4 text-sdm-accent" />
             Service status
@@ -73,9 +73,9 @@ export default function SettingsPage() {
               {Object.entries(health.services).map(([service, status]) => {
                 const s = serviceStatus(status);
                 return (
-                  <div key={service} className="flex items-center justify-between text-sm">
+                  <div key={service} className="flex items-center justify-between gap-3 text-sm">
                     <span className="text-sdm-text capitalize">{service}</span>
-                    <span className={`flex items-center gap-1.5 ${s.color}`}>
+                    <span className={`flex shrink-0 items-center gap-1.5 ${s.color}`}>
                       {s.icon} {s.label}
                     </span>
                   </div>
@@ -85,66 +85,66 @@ export default function SettingsPage() {
           )}
         </div>
 
-        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">
+        <div className="min-w-0 rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">
           <h3 className="text-sm font-semibold text-sdm-heading flex items-center gap-2">
             <Cloud className="h-4 w-4 text-sdm-accent" />
             Climate defaults
           </h3>
           {defaults && (
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-[1fr_auto] sm:items-start">
                 <span className="text-sdm-muted">Default BIO variables</span>
-                <span className="text-sdm-text font-mono">{defaults.biovars?.join(", ") || "—"}</span>
+                <span className="break-words font-mono text-sdm-text sm:text-right">{defaults.biovars?.join(", ") || "—"}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-[1fr_auto] sm:items-start">
                 <span className="text-sdm-muted">Background points</span>
-                <span className="text-sdm-text">{defaults.background_n?.toLocaleString() || "—"}</span>
+                <span className="text-sdm-text sm:text-right">{defaults.background_n?.toLocaleString() || "—"}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-[1fr_auto] sm:items-start">
                 <span className="text-sdm-muted">CV folds</span>
-                <span className="text-sdm-text">{defaults.cv_folds || "—"}</span>
+                <span className="text-sdm-text sm:text-right">{defaults.cv_folds || "—"}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-[1fr_auto] sm:items-start">
                 <span className="text-sdm-muted">CV strategy</span>
-                <span className="text-sdm-text">{defaults.cv_strategy || "—"}</span>
+                <span className="text-sdm-text sm:text-right">{defaults.cv_strategy || "—"}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-[1fr_auto] sm:items-start">
                 <span className="text-sdm-muted">Threshold</span>
-                <span className="text-sdm-text">{defaults.threshold || "—"}</span>
+                <span className="text-sdm-text sm:text-right">{defaults.threshold || "—"}</span>
               </div>
             </div>
           )}
         </div>
 
-        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">
+        <div className="min-w-0 rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">
           <h3 className="text-sm font-semibold text-sdm-heading flex items-center gap-2">
             <HardDrive className="h-4 w-4 text-sdm-accent" />
             Storage
           </h3>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
+            <div className="grid grid-cols-1 gap-1 sm:grid-cols-[1fr_auto] sm:items-start">
               <span className="text-sdm-muted">Object storage</span>
-              <span className="text-sdm-text">Garage (S3-compatible)</span>
+              <span className="break-words text-sdm-text sm:text-right">Garage (S3-compatible)</span>
             </div>
-            <div className="flex justify-between">
+            <div className="grid grid-cols-1 gap-1 sm:grid-cols-[1fr_auto] sm:items-start">
               <span className="text-sdm-muted">Database</span>
-              <span className="text-sdm-text">PostgreSQL 16 + PostGIS</span>
+              <span className="break-words text-sdm-text sm:text-right">PostgreSQL 16 + PostGIS</span>
             </div>
-            <div className="flex justify-between">
+            <div className="grid grid-cols-1 gap-1 sm:grid-cols-[1fr_auto] sm:items-start">
               <span className="text-sdm-muted">Job queue</span>
-              <span className="text-sdm-text">Redis 7 + BullMQ</span>
+              <span className="break-words text-sdm-text sm:text-right">Redis 7 + BullMQ</span>
             </div>
           </div>
         </div>
 
-        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">
+        <div className="min-w-0 rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">
           <h3 className="text-sm font-semibold text-sdm-heading">Extent presets</h3>
           {defaults?.extent_presets && (
             <div className="space-y-1 text-sm">
               {Object.entries(defaults.extent_presets).map(([key, extent]) => (
-                <div key={key} className="flex justify-between">
+                <div key={key} className="grid grid-cols-1 gap-1 sm:grid-cols-[1fr_auto] sm:items-start">
                   <span className="text-sdm-muted capitalize">{key.replace("_", " ")}</span>
-                  <span className="text-sdm-text font-mono text-xs">{Array.isArray(extent) ? extent.join(", ") : String(extent ?? "—")}</span>
+                  <span className="break-all font-mono text-xs text-sdm-text sm:text-right">{Array.isArray(extent) ? extent.join(", ") : String(extent ?? "—")}</span>
                 </div>
               ))}
             </div>

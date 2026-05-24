@@ -2,6 +2,7 @@
 
 import { AuthGuard } from "@/components/auth/auth-guard";
 import { AppSidebar } from "@/components/app-sidebar";
+import { AppShellHeader } from "@/components/app-shell-header";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 
@@ -16,7 +17,8 @@ export default function DashboardLayout({
         <ErrorBoundary>
           <AppSidebar />
           <SidebarInset>
-            <main className="flex-1 p-6">{children}</main>
+            <AppShellHeader />
+            <main className="flex-1 p-4 sm:p-6">{children}</main>
           </SidebarInset>
         </ErrorBoundary>
       </AuthGuard>

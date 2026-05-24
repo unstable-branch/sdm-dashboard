@@ -15,7 +15,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(true);
   return (
     <SidebarContext.Provider value={{ open, setOpen }}>
-      <div className="flex min-h-screen w-full">{children}</div>
+      <div className="flex min-h-screen w-full min-w-0">{children}</div>
     </SidebarContext.Provider>
   );
 }
@@ -31,7 +31,7 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "flex w-64 flex-col border-r bg-sdm-surface transition-all",
+        "hidden w-64 shrink-0 flex-col border-r bg-sdm-surface transition-all md:flex",
         !open && "w-0 overflow-hidden",
         className
       )}
@@ -42,7 +42,7 @@ export function Sidebar({
 }
 
 export function SidebarInset({ children }: { children: React.ReactNode }) {
-  return <div className="flex flex-1 flex-col">{children}</div>;
+  return <div className="flex min-w-0 flex-1 flex-col">{children}</div>;
 }
 
 export function SidebarHeader({ children }: { children: React.ReactNode }) {

@@ -35,18 +35,25 @@ services:
       - sdm-network
 
   garage:
-    image: dxflrs/garage:v2.2.0
+    image: dxflrs/garage:v2.3.0
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
     ports:
       - "3900:3900"
       - "3901:3901"
       - "3902:3902"
       - "3903:3903"
+    environment:
+      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN:-dev-admin-token}
+      - GARAGE_DEFAULT_ACCESS_KEY=${GARAGE_ACCESS_KEY:-dev-access-key}
+      - GARAGE_DEFAULT_SECRET_KEY=${GARAGE_SECRET_KEY:-dev-secret-key-for-local-only}
+      - GARAGE_DEFAULT_BUCKET=${GARAGE_BUCKET:-sdm-artifacts}
     volumes:
       - ./garage.toml:/etc/garage.toml:ro
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3901/ || exit 1"]
+      test: ["CMD", "/garage", "status"]
       interval: 5s
       timeout: 3s
       retries: 10

@@ -19,6 +19,8 @@ The release workflow creates draft GitHub Releases for `v*` tags and pushes imag
 
 The normal platform CI gate builds the modern self-hosting images only: frontend, API, and Plumber. The legacy Shiny image remains in the release workflow so release builds can use registry/cache behavior without slowing every `dev` and PR validation run.
 
+The historical Shiny-first code line is preserved on the `legacy-shiny` branch. Modern platform releases should still keep the desktop artifacts usable during beta, but the branch exists as the stable reference point for anyone who wants the old Shiny-only shape.
+
 ## Versioning
 
 Use semver with prerelease tags until the platform is stable:
@@ -28,6 +30,12 @@ Use semver with prerelease tags until the platform is stable:
 - Reserve `v1.0.0` for a stable API/storage contract, migration policy, documented backups, and a tested self-host install path.
 
 Tag releases from `main` after `dev -> main` CI is green.
+
+The detailed `dev -> main` release-candidate plan is in `docs/DEV_MAIN_RELEASE_PLAN.md`.
+
+## CRAN
+
+Do not advertise the current platform as CRAN-ready. The full repository includes web, Docker, database, queue, and object-storage runtime surfaces. A CRAN submission should be treated as a future extraction of a smaller pure-R modelling/core package. See `docs/LEGACY_AND_CRAN.md`.
 
 ## Main Branch Readiness
 
@@ -55,9 +63,15 @@ Use `docker-compose.prod.yml` for private/team deployments. Production compose r
 - `PLUMBER_INTERNAL_KEY`
 - `GARAGE_ACCESS_KEY`
 - `GARAGE_SECRET_KEY`
+- `GARAGE_BUCKET_RASTERS`
+- `GARAGE_BUCKET_EXPORTS`
+- `GARAGE_RPC_SECRET`
+- `GARAGE_ADMIN_TOKEN`
 - `GRAFANA_PASSWORD`
 
 Operators are responsible for TLS, backups, retention, user access, and firewalling admin surfaces. Do not expose Postgres, Redis, Garage admin ports, Prometheus, or Grafana publicly without access controls.
+
+The local compose file starts Garage in single-node mode with a dev-only bucket so a fresh checkout can boot without manual object-storage setup. Production operators should provision Garage layout, keys, buckets, and backups deliberately before exposing the API. The API container applies Drizzle migrations at startup so empty self-hosted database volumes can bootstrap before workers and Plumber sync begin. Operators should still back up the database before upgrades.
 
 ## Hosted Demo Guidance
 

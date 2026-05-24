@@ -1,13 +1,16 @@
 FROM rocker/geospatial:4.4.2
 
+ARG R_CRAN_REPO=https://packagemanager.posit.co/cran/__linux__/noble/latest
+
 ENV DEBIAN_FRONTEND=noninteractive
+ENV R_CRAN_REPO=${R_CRAN_REPO}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libjq-dev \
     pandoc \
     && rm -rf /var/lib/apt/lists/*
 
-RUN R -e "install.packages(c( \
+RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages(c( \
     'jsonlite', 'plumber', 'httr', 'callr', \
     'randomForest', 'gbm', 'maxnet', 'nnet', \
     'mgcv', 'earth', 'rpart', 'mda', 'gam', 'xgboost', 'ranger', \
@@ -19,7 +22,7 @@ RUN R -e "install.packages(c( \
     'testthat', \
     'DBI', 'RPostgres', 'digest', \
     'Rook' \
-  ), repos='https://cloud.r-project.org', Ncpus=4)"
+  ), Ncpus=4)"
 
 WORKDIR /app
 

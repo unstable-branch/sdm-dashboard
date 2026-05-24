@@ -9,6 +9,8 @@ SDM Dashboard Workbench is now a beta species distribution modelling platform wi
 
 The modern platform is the primary direction for development and deployment. The Shiny app remains useful as a desktop fallback and as a source of mature modelling code, but it should not drive repo architecture decisions.
 
+The Shiny-first history is preserved on the `legacy-shiny` branch. The current beta keeps legacy desktop entry points in-tree, but new release decisions should be evaluated against the modern platform first.
+
 ## Architecture
 
 ```text
@@ -75,6 +77,12 @@ git diff --check
 Release candidates should be tagged from `main` using semver prerelease tags such as `v0.4.0-beta.1`. The release workflow creates draft GitHub Releases, source/Windows-ready zips, and GHCR container images for the platform services.
 
 See `docs/RELEASE_AND_HOSTING.md` for packaging, release, and self-hosting policy.
+
+The `dev` to `main` release plan is maintained in `docs/DEV_MAIN_RELEASE_PLAN.md`.
+
+## CRAN Track
+
+The current repository is not a CRAN package candidate as-is. A CRAN path should be a later extraction of reusable pure-R modelling/core functions with fast tests, portable dependencies, and no dependency on Docker, Node.js, Postgres, Redis, Garage, or the browser platform. See `docs/LEGACY_AND_CRAN.md`.
 
 ## Current Limitations
 

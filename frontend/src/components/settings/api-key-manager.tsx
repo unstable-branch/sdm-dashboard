@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAuthStore } from "@/stores/auth-store";
+import { getAuthToken } from "@/services/api";
 import { Key, Plus, Trash2, Copy, CheckCircle2, AlertTriangle } from "lucide-react";
 
 interface ApiKey {
@@ -13,7 +13,6 @@ interface ApiKey {
 }
 
 export function ApiKeyManager() {
-  const { token } = useAuthStore();
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [newKeyName, setNewKeyName] = useState("");
@@ -27,6 +26,13 @@ export function ApiKeyManager() {
   }, []);
 
   const fetchKeys = async () => {
+    const token = getAuthToken();
+    if (!token) {
+      setKeys([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/v1/auth/api-keys", {
         headers: { Authorization: `Bearer ${token}` },
@@ -46,6 +52,9 @@ export function ApiKeyManager() {
     setError(null);
 
     try {
+      const token = getAuthToken();
+      if (!token) throw new Error("Sign in again before creating API keys");
+
       const res = await fetch("/api/v1/auth/api-keys", {
         method: "POST",
         headers: {
@@ -72,6 +81,9 @@ export function ApiKeyManager() {
 
   const handleDelete = async (id: string) => {
     try {
+      const token = getAuthToken();
+      if (!token) return;
+
       const res = await fetch(`/api/v1/auth/api-keys/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
@@ -91,7 +103,7 @@ export function ApiKeyManager() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <div className="flex items-center gap-2">
         <Key className="h-5 w-5 text-sdm-accent" />
         <h2 className="text-lg font-semibold text-sdm-heading">API Keys</h2>
@@ -106,8 +118,8 @@ export function ApiKeyManager() {
               <p className="text-xs text-sdm-muted">This key will not be shown again</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 mt-2">
-            <code className="flex-1 rounded-md bg-sdm-surface-soft px-3 py-2 text-xs font-mono text-sdm-text">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 mt-2">
+            <code className="min-w-0 break-all rounded-md bg-sdm-surface-soft px-3 py-2 text-xs font-mono text-sdm-text">
               {showNewKey}
             </code>
             <button
@@ -126,26 +138,26 @@ export function ApiKeyManager() {
         </div>
       )}
 
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">
+      <div className="min-w-0 rounded-lg border border-sdm-border bg-sdm-surface p-4 space-y-3">
         <h3 className="text-sm font-medium text-sdm-heading">Create new key</h3>
-        <div className="flex gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
           <input
             type="text"
             value={newKeyName}
             onChange={(e) => setNewKeyName(e.target.value)}
             placeholder="Key name (e.g., CI/CD, Scripts)"
-            className="flex-1 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
+            className="min-w-0 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
           />
           <input
             type="date"
             value={newKeyExpiry}
             onChange={(e) => setNewKeyExpiry(e.target.value)}
-            className="rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
+            className="min-w-0 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
           />
           <button
             onClick={handleCreate}
             disabled={!newKeyName.trim()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
             Create
@@ -158,7 +170,7 @@ export function ApiKeyManager() {
       ) : keys.length === 0 ? (
         <p className="text-sm text-sdm-muted">No API keys yet. Create one to get started.</p>
       ) : (
-        <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
+        <div className="overflow-x-auto rounded-lg border border-sdm-border bg-sdm-surface">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-sdm-border">

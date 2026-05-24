@@ -11,6 +11,8 @@ This is a beta release. Interfaces, defaults, packaging, and outputs may change 
 
 The public repository contains source code, documentation, scripts, templates, and small synthetic examples only. Real occurrence data, downloaded rasters, generated outputs, API keys, screenshots, and release archives should stay local.
 
+Project direction is tracked in [`docs/SPEC.md`](docs/SPEC.md). The legacy desktop and future CRAN extraction policy is documented in [`docs/LEGACY_AND_CRAN.md`](docs/LEGACY_AND_CRAN.md).
+
 
 ## Quick Start (Modern Stack)
 
@@ -30,13 +32,10 @@ cd sdm-dashboard
 # 2. Start all services
 docker compose -f docker-compose.yml up
 
-# 3. Run database migrations
-docker compose -f docker-compose.yml exec api npm run db:migrate
-
 # Open http://localhost:3000
 ```
 
-Services start in dependency order: **postgres** → **redis** → **garage** → **plumber** → **api** → **frontend**. First startup may take several minutes (Plumber installs R packages).
+Services start in dependency order: **postgres** → **redis** → **garage** → **plumber** → **api** → **frontend**. Local compose starts Garage in single-node mode with a dev-only `sdm-artifacts` bucket and matching dev-only credentials, and the API container applies Drizzle migrations before starting the server. First startup may take several minutes while Docker builds the Plumber image.
 
 ### Local development
 
@@ -82,7 +81,7 @@ Starts on `http://localhost:3000`, proxying API calls to port 4000.
 
 **Database setup:**
 
-After starting PostgreSQL, run migrations from the API directory:
+After starting PostgreSQL for host-local development, run migrations from the API directory:
 
 ```bash
 cd api
@@ -225,7 +224,7 @@ API Gateway (Hono BFF, port 4000)
 
 ### Legacy R/Shiny
 
-The `app.R` in the project root is a single-process Shiny app for local desktop use. It runs on port 3838 with no built-in auth or API layer.
+The `app.R` in the project root is a single-process Shiny app for local desktop use. It runs on port 3838 with no built-in auth or API layer. The historical Shiny-first line is preserved on the `legacy-shiny` branch; the current `dev` branch keeps the desktop app available while making the modern stack the primary platform.
 
 ```
 Browser ← Shiny (port 3838) ← R modules (91 modules via R/load.R)
@@ -313,8 +312,13 @@ Most users should use the latest GitHub Release rather than cloning the reposito
 Current beta source:
 
 - Repository: `https://github.com/unstable-branch/sdm-dashboard`
+- Legacy Shiny branch: `legacy-shiny`
 
 Release and hosting policy is documented in `docs/RELEASE_AND_HOSTING.md`.
+
+## CRAN Status
+
+The current repository is not ready to submit to CRAN as-is. The modern platform includes web, Docker, database, queue, and object-storage services that do not belong in a CRAN package. A future CRAN track would extract a smaller pure-R modelling/core package from reusable functions after the modern beta release is stable. See [`docs/LEGACY_AND_CRAN.md`](docs/LEGACY_AND_CRAN.md).
 
 ## Legacy R/Shiny (Desktop)
 
