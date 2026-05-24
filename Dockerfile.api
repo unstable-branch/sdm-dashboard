@@ -41,14 +41,11 @@ WORKDIR /app
 
 COPY --from=builder /app/api/dist ./api/dist
 COPY --from=builder /app/api/package.json ./api/
-COPY --from=builder /app/pnpm-lock.yaml* ./
-COPY --from=builder /app/pnpm-workspace.yaml ./
-COPY --from=builder /app/packages/shared/package.json packages/shared/
+COPY --from=builder /app/api/node_modules ./api/node_modules
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/shared/package.json ./packages/shared/
+COPY --from=builder /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
-COPY --from=builder /app/api/package.json api/
-COPY --from=builder /app/package.json ./
-
-RUN npm install -g pnpm && pnpm install && chmod -R 755 /app
 
 RUN addgroup -g 2000 uploadgroup && \
     adduser node uploadgroup && \

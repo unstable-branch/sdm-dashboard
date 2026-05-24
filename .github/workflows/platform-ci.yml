@@ -208,6 +208,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
       - name: Validate compose files
         run: |
           docker compose -f docker-compose.yml config
@@ -222,13 +225,40 @@ jobs:
           docker compose -f docker-compose.prod.yml config
 
       - name: Build Plumber image
-        run: docker build -f plumber/Dockerfile -t sdm-plumber:test .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: plumber/Dockerfile
+          load: true
+          tags: |
+            sdm-dashboard-plumber:latest
+            sdm-plumber:test
+          cache-from: type=gha,scope=sdm-dashboard-plumber
+          cache-to: type=gha,mode=max,scope=sdm-dashboard-plumber
 
       - name: Build API image
-        run: docker build -f Dockerfile.api -t sdm-api:test .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.api
+          load: true
+          tags: |
+            sdm-dashboard-api:latest
+            sdm-api:test
+          cache-from: type=gha,scope=sdm-dashboard-api
+          cache-to: type=gha,mode=max,scope=sdm-dashboard-api
 
       - name: Build Frontend image
-        run: docker build -f Dockerfile.frontend -t sdm-frontend:test .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.frontend
+          load: true
+          tags: |
+            sdm-dashboard-frontend:latest
+            sdm-frontend:test
+          cache-from: type=gha,scope=sdm-dashboard-frontend
+          cache-to: type=gha,mode=max,scope=sdm-dashboard-frontend
 
       - name: Start services and verify health
         run: |
@@ -257,10 +287,10 @@ jobs:
             return 1
           }
 
-          docker compose -f docker-compose.yml up -d postgres redis garage
-          docker compose -f docker-compose.yml up -d plumber
-          docker compose -f docker-compose.yml up -d api
-          docker compose -f docker-compose.yml up -d frontend
+          docker compose -f docker-compose.yml up -d --no-build postgres redis garage
+          docker compose -f docker-compose.yml up -d --no-build plumber
+          docker compose -f docker-compose.yml up -d --no-build api
+          docker compose -f docker-compose.yml up -d --no-build frontend
 
           : "Health checks"
           wait_for Plumber http://localhost:8000/health
