@@ -22,6 +22,7 @@ flags <- args[grepl("^--", args)]
 positional <- args[!grepl("^--", args)]
 mode <- if (length(positional) >= 1) tolower(positional[[1]]) else "ready"
 include_worldclim <- mode %in% c("ready", "windows-ready", "with-worldclim")
+require_worldclim <- mode %in% c("with-worldclim")
 mode_label <- if (include_worldclim) "windows-ready" else "source"
 dry_run <- any(flags %in% c("--dry-run", "--list"))
 version_arg <- grep("^--version=", flags, value = TRUE)
@@ -101,10 +102,10 @@ release_included_paths <- function(include_worldclim = FALSE) {
 
 if (direct_execution) {
 
-if (include_worldclim) {
+if (require_worldclim) {
   missing <- is.na(find_worldclim_files(sdm_default_worldclim_dir, sdm_default_biovars))
   if (any(missing)) {
-    stop("Ready zip requested, but default WorldClim layers are missing: ",
+    stop("WorldClim-bundled zip requested, but default WorldClim layers are missing: ",
          paste(paste0("BIO", sdm_default_biovars[missing]), collapse = ", "),
          ". Run scripts/download_worldclim.R first or build a source zip.", call. = FALSE)
   }
@@ -147,6 +148,11 @@ on.exit(setwd(old_wd), add = TRUE)
 utils::zip(zipfile = zip_path, files = bundle_name, flags = "-r9X")
 
 cat("Created release zip: ", normalizePath(zip_path, winslash = "/", mustWork = FALSE), "\n", sep = "")
-cat("Mode: ", mode_label, if (include_worldclim) " (includes default WorldClim layers)" else " (source only)", "\n", sep = "")
+included_worldclim <- include_worldclim && length(grep("^Worldclim/.+[.]tif$", include_files, ignore.case = TRUE)) > 0
+cat("Mode: ", mode_label,
+    if (included_worldclim) " (includes default WorldClim layers)"
+    else if (include_worldclim) " (without bundled WorldClim layers)"
+    else " (source only)",
+    "\n", sep = "")
 
 }
