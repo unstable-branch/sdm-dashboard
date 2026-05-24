@@ -2,12 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import { sdmRoutes } from "./sdm.js";
 
-const mockProjectChain = (projects: Array<{ projectId: string }>) => ({
-  from: vi.fn(() => ({
-    where: vi.fn(() => Promise.resolve(projects)),
-  })),
-});
-
 const mockChain = (result: unknown) => ({
   from: vi.fn(() => ({
     where: vi.fn(() => ({
@@ -51,13 +45,18 @@ vi.mock("ioredis", () => ({
 
 vi.mock("../middleware/auth", () => ({
   authMiddleware: vi.fn(async (c: any, next: any) => {
-    c.set("user", { id: "user-1", email: "test@example.com", role: "admin" });
+    c.set("user", { id: "user-1", email: "test@example.com", role: "viewer" });
     await next();
   }),
   optionalAuth: vi.fn(async (c: any, next: any) => {
-    c.set("user", { id: "user-1", email: "test@example.com", role: "admin" });
+    c.set("user", { id: "user-1", email: "test@example.com", role: "viewer" });
     await next();
   }),
+}));
+
+vi.mock("../services/access", () => ({
+  ensureDefaultProject: vi.fn(async () => "proj-1"),
+  getUserProjectIds: vi.fn(async () => ["proj-1"]),
 }));
 
 vi.mock("hono/jwt", () => ({
@@ -76,7 +75,6 @@ describe("SDM routes", () => {
     it("returns paginated runs", async () => {
       const { db } = await import("../db");
       (db.select as any)
-        .mockReturnValueOnce(mockProjectChain([{ projectId: "proj-1" }]))
         .mockReturnValueOnce(mockChain([
           {
             id: "run-1",
@@ -105,7 +103,6 @@ describe("SDM routes", () => {
     it("uses default pagination when no params", async () => {
       const { db } = await import("../db");
       (db.select as any)
-        .mockReturnValueOnce(mockProjectChain([{ projectId: "proj-1" }]))
         .mockReturnValueOnce(mockChain([]))
         .mockReturnValueOnce(mockCountChain(0));
 

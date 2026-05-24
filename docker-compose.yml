@@ -111,6 +111,7 @@ services:
       - GARAGE_BUCKET_EXPORTS=${GARAGE_BUCKET:-sdm-artifacts}
     volumes:
       - upload-data:/app/data/uploads
+      - plumber-outputs:/app/outputs:ro
     depends_on:
       postgres:
         condition: service_healthy

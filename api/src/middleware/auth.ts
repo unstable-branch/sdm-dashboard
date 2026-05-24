@@ -24,6 +24,20 @@ export type AppEnv = {
   };
 };
 
+function getCookieToken(cookieHeader: string | undefined): string | null {
+  if (!cookieHeader) return null;
+  const match = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("sdm_token="));
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match.slice("sdm_token=".length));
+  } catch {
+    return null;
+  }
+}
+
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const authHeader = c.req.header("Authorization");
   const apiKeyHeader = c.req.header("X-API-Key");
@@ -38,12 +52,12 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 
       const keyHash = createHash("sha256").update(apiKeyHeader).digest("hex");
       const [key] = await db
-        .select({ userId: apiKeys.userId })
+        .select({ userId: apiKeys.userId, expiresAt: apiKeys.expiresAt })
         .from(apiKeys)
         .where(and(eq(apiKeys.keyHash, keyHash)))
         .limit(1);
 
-      if (!key) {
+      if (!key || (key.expiresAt && key.expiresAt <= new Date())) {
         return c.json({ error: "Invalid API key" }, 401);
       }
 
@@ -70,11 +84,14 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
     }
   }
 
-  if (!authHeader?.startsWith("Bearer ")) {
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.split(" ")[1]
+    : getCookieToken(c.req.header("Cookie"));
+
+  if (!token) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  const token = authHeader.split(" ")[1];
   const secret = process.env.JWT_SECRET;
   if (!secret) {
     console.warn("[auth] JWT_SECRET not configured");
@@ -102,12 +119,12 @@ export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
     try {
       const keyHash = createHash("sha256").update(apiKeyHeader).digest("hex");
       const [key] = await db
-        .select({ userId: apiKeys.userId })
+        .select({ userId: apiKeys.userId, expiresAt: apiKeys.expiresAt })
         .from(apiKeys)
         .where(eq(apiKeys.keyHash, keyHash))
         .limit(1);
 
-      if (key) {
+      if (key && (!key.expiresAt || key.expiresAt > new Date())) {
         const [user] = await db
           .select({ id: users.id, email: users.email, role: users.role })
           .from(users)
@@ -121,12 +138,18 @@ export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
     } catch {
       // Silently fail for optional auth
     }
-  } else if (authHeader?.startsWith("Bearer ")) {
+  } else {
     try {
-      const token = authHeader.split(" ")[1];
+      const token = authHeader?.startsWith("Bearer ")
+        ? authHeader.split(" ")[1]
+        : getCookieToken(c.req.header("Cookie"));
+      if (!token) {
+        await next();
+        return;
+      }
       const secret = process.env.JWT_SECRET;
       if (secret) {
-    const payload = await verify(token, secret, "HS256");
+        const payload = await verify(token, secret, "HS256");
         c.set("user", {
           id: payload.sub as string,
           email: payload.email as string,
