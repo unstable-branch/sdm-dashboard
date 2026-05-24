@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRouter } from "next/navigation";
-import { Settings, LogOut, Key, User } from "lucide-react";
+import { Settings, LogOut, Key } from "lucide-react";
+import { clearAuthToken } from "@/services/api";
 
 export function UserMenu() {
   const router = useRouter();
@@ -77,7 +78,7 @@ export function UserMenu() {
               API Keys
             </button>
             <button
-              onClick={() => { clearAuth(); router.push("/login"); setIsOpen(false); }}
+              onClick={() => { clearAuthToken(); clearAuth(); router.push("/login"); setIsOpen(false); }}
               className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
               role="menuitem"
             >

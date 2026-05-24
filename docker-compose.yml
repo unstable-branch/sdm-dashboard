@@ -34,18 +34,22 @@ services:
 
   garage:
     image: dxflrs/garage:v2.3.0
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
     ports:
       - "3900:3900"
       - "3901:3901"
       - "3902:3902"
     environment:
-      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:-please-change-in-production-garage-rpc}
+      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN:-dev-admin-token}
+      - GARAGE_DEFAULT_ACCESS_KEY=${GARAGE_ACCESS_KEY:-dev-access-key}
+      - GARAGE_DEFAULT_SECRET_KEY=${GARAGE_SECRET_KEY:-dev-secret-key-for-local-only}
+      - GARAGE_DEFAULT_BUCKET=${GARAGE_BUCKET:-sdm-artifacts}
     volumes:
       - garage-data:/var/lib/garage
       - ./garage/config.toml:/etc/garage.toml:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3901/ || exit 1"]
+      test: ["CMD", "/garage", "status"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -102,13 +106,17 @@ services:
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-6e94feb6699652f8529ed79ee7863a4daab79279286e84f0c4026fe2fb29884e}
       - GARAGE_ENDPOINT=${GARAGE_ENDPOINT:-http://garage:3900}
       - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY:-dev-access-key}
-      - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY:-dev-secret-key}
+      - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY:-dev-secret-key-for-local-only}
+      - GARAGE_BUCKET_RASTERS=${GARAGE_BUCKET:-sdm-artifacts}
+      - GARAGE_BUCKET_EXPORTS=${GARAGE_BUCKET:-sdm-artifacts}
     volumes:
       - upload-data:/app/data/uploads
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      garage:
         condition: service_healthy
       plumber:
         condition: service_healthy
@@ -127,6 +135,7 @@ services:
       dockerfile: Dockerfile.frontend
       args:
         - PNPM_REGISTRY=${PNPM_REGISTRY:-https://registry.npmmirror.com}
+        - API_URL=${FRONTEND_API_URL:-http://api:4000}
     ports:
       - "3000:3000"
     environment:

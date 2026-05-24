@@ -1,26 +1,24 @@
-version = "2"
-replication_factor = 1
-
-data_dir = "/var/lib/garage"
 metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
 rpc_bind_addr = "0.0.0.0:3902"
+rpc_public_addr = "garage:3902"
+replication_factor = 1
 # WARNING: Override via GARAGE_RPC_SECRET env var in production.
-# This value is for local dev only — do not commit real secrets.
-rpc_secret = "please-change-in-production-garage-rpc"
-
-# WARNING: Override via GARAGE_ADMIN_TOKEN env var in production.
-bootstrap_token = "dev-bootstrap-token"
+# This fixed value is for local dev only. Override it in production.
+rpc_secret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 [s3_api]
 api_bind_addr = "0.0.0.0:3900"
-web_bind_addr = "0.0.0.0:3901"
 s3_region = "garage"
+root_domain = ".s3.garage.localhost"
 
-# WARNING: These credentials are for local dev only.
-# Generate a fresh config from template for production.
-[s3_api.credentials]
-access_key_id = "dev-access-key"
-secret_access_key = "dev-secret-key"
+[s3_web]
+bind_addr = "0.0.0.0:3901"
+root_domain = ".web.garage.localhost"
+index = "index.html"
 
-[replication]
-strategy = "none"
+[admin]
+api_bind_addr = "0.0.0.0:3903"
+# WARNING: Override via GARAGE_ADMIN_TOKEN env var in production.
+admin_token = "dev-admin-token"
+metrics_token = "dev-metrics-token"

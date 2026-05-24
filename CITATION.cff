@@ -4,7 +4,7 @@ title: "SDM Dashboard Workbench"
 type: software
 authors:
   - name: "SDM Dashboard Workbench contributors"
-abstract: "A local R/Shiny workbench for species distribution modelling from presence-only occurrence records with climate, elevation, and soil covariates."
+abstract: "A beta species distribution modelling workbench with a modern web platform and a preserved local R/Shiny desktop app."
 license: MIT
 repository-code: "https://github.com/unstable-branch/sdm-dashboard"
 url: "https://github.com/unstable-branch/sdm-dashboard"
@@ -13,10 +13,14 @@ version: "0.5.0-beta"
 keywords:
   - species distribution modelling
   - presence-only
+  - ecological modelling
+  - geospatial
+  - Next.js
+  - Hono
+  - Plumber
+  - PostGIS
   - Shiny
   - R
-  - geospatial
-  - ecological modelling
   - MaxEnt
   - ODMAP
   - WorldClim

@@ -29,6 +29,8 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       target: runner
+      args:
+        - API_URL=${FRONTEND_API_URL:-http://api:4000}
     environment:
       - NODE_ENV=production
       - API_URL=http://api:4000
@@ -57,10 +59,14 @@ services:
       - GARAGE_ENDPOINT=http://garage:3900
       - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY:?GARAGE_ACCESS_KEY is required}
       - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY:?GARAGE_SECRET_KEY is required}
+      - GARAGE_BUCKET_RASTERS=${GARAGE_BUCKET_RASTERS:?GARAGE_BUCKET_RASTERS is required}
+      - GARAGE_BUCKET_EXPORTS=${GARAGE_BUCKET_EXPORTS:?GARAGE_BUCKET_EXPORTS is required}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      garage:
         condition: service_healthy
       plumber:
         condition: service_healthy
@@ -130,15 +136,19 @@ services:
     restart: unless-stopped
 
   garage:
-    image: dxflrs/garage:v2.2.0
+    image: dxflrs/garage:v2.3.0
+    command: ["/garage", "server"]
     ports:
       - "3900:3900"
+    environment:
+      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:?GARAGE_RPC_SECRET is required}
+      - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN:?GARAGE_ADMIN_TOKEN is required}
     volumes:
       - ./garage.toml:/etc/garage.toml:ro
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3901/ || exit 1"]
+      test: ["CMD", "/garage", "status"]
       interval: 15s
       timeout: 5s
       retries: 5
