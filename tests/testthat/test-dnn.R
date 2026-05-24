@@ -52,7 +52,7 @@ test_that("prepare_dnn_data returns expected structure", {
 test_that("DNN backend fits and predicts through the registry", {
   skip_if_not(requireNamespace("cito", quietly = TRUE))
   skip_if_not(requireNamespace("torch", quietly = TRUE))
-  skip_if_not("dnn" %in% unname(sdm_model_choices()))
+  skip_if_not("dnn" %in% sdm_model_ids())
 
   set.seed(42)
   env <- make_test_raster(n_layers = 2, layer_names = c("bio1", "bio12"))

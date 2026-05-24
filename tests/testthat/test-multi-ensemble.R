@@ -136,7 +136,7 @@ test_that("Multi-model ensemble disagreement is max - min range", {
 })
 
 test_that("Multi-model ensemble registered in model registry", {
-  expect_true("multi_ensemble" %in% unname(sdm_model_choices()))
+  expect_true("multi_ensemble" %in% sdm_model_ids())
   spec <- get_sdm_model("multi_ensemble")
   expect_equal(spec$id, "multi_ensemble")
   expect_true(spec$supports_uncertainty)

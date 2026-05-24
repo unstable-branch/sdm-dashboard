@@ -4,7 +4,8 @@
 cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nrounds,
                                    k = sdm_default_cv_folds, seed = sdm_default_seed,
                                    n_cores = 1, cv_strategy = sdm_default_cv_strategy,
-                                   cv_block_size_km = sdm_default_cv_block_size_km) {
+                                   cv_block_size_km = sdm_default_cv_block_size_km,
+                                   log_fun = NULL) {
   fit_fun <- function(i, model_data, fold_id, threshold) {
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
@@ -23,7 +24,10 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
         max_depth = max_depth, eta = eta, nrounds = nrounds,
         verbose = 0, nthread = 1L
       )
-    }, error = function(e) NULL)
+    }, error = function(e) {
+      log_message(log_fun, "  XGBoost CV fold ", i, " failed: ", conditionMessage(e))
+      NULL
+    })
 
     if (is.null(model)) {
       return(metrics_list_to_row(list(
@@ -32,7 +36,10 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
       ), fold = i))
     }
 
-    pred <- tryCatch(predict(model, x_test), error = function(e) rep(NA_real_, nrow(x_test)))
+    pred <- tryCatch(predict(model, x_test), error = function(e) {
+      log_message(log_fun, "  XGBoost CV fold ", i, " prediction failed: ", conditionMessage(e))
+      rep(NA_real_, nrow(x_test))
+    })
     metrics_list_to_row(compute_binary_metrics(y_test, pred, threshold = threshold), fold = i)
   }
 
@@ -41,14 +48,14 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = sdm_default_threshold, fit_fun = fit_fun,
     cluster_exports = c("covariates", "class_balance_weights",
-                        "compute_binary_metrics", "metrics_list_to_row"),
+                        "compute_binary_metrics", "metrics_list_to_row", "log_message"),
     log_fun = log_fun
   )
 }
 
 fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
                             include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
-                            seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
+                            seed = sdm_default_seed, n_cores = 1, log_fun = NULL, progress_fun = NULL,
                             cv_strategy = sdm_default_cv_strategy,
                             cv_block_size_km = sdm_default_cv_block_size_km,
                             threshold = sdm_default_threshold,
@@ -79,12 +86,16 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   log_message(log_fun, "Fitting XGBoost SDM with ", sum(y_train == 1), " presences and ", sum(y_train == 0), " background points")
   log_message(log_fun, "  max_depth=", max_depth, " eta=", eta, " nrounds=", nrounds)
 
-  model <- xgboost::xgboost(
-    data = x_train, label = y_train, weight = weights,
-    objective = "binary:logistic", eval_metric = "auc",
-    max_depth = max_depth, eta = eta, nrounds = nrounds,
-    verbose = 0, nthread = max(1L, as.integer(n_cores))
-  )
+  model <- tryCatch({
+    xgboost::xgboost(
+      data = x_train, label = y_train, weight = weights,
+      objective = "binary:logistic", eval_metric = "auc",
+      max_depth = max_depth, eta = eta, nrounds = nrounds,
+      verbose = 0, nthread = max(1L, as.integer(n_cores))
+    )
+  }, error = function(e) {
+    stop("XGBoost fitting failed: ", conditionMessage(e), call. = FALSE)
+  })
 
   cv <- cross_validate_xgboost(model_data, covariates, max_depth, eta, nrounds,
     k = cv_folds, seed = seed, n_cores = n_cores,

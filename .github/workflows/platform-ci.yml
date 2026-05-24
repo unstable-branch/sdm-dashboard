@@ -1,0 +1,303 @@
+name: Platform CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shared:
+    name: Build shared package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: npm install -g pnpm
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @sdm/shared run build
+
+      - name: Upload shared artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
+          retention-days: 5
+
+  frontend:
+    name: Frontend build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: shared
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: npm install -g pnpm
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Download shared artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
+
+      - name: Type check
+        run: pnpm --filter frontend run typecheck
+
+      - name: Lint
+        run: pnpm --filter frontend run lint
+
+      - name: Unit tests with coverage
+        run: pnpm --filter frontend run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+          retention-days: 14
+
+      - name: Build
+        run: pnpm --filter frontend run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/.next
+          retention-days: 5
+
+  api:
+    name: API build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: shared
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: npm install -g pnpm
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Download shared artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
+
+      - name: Type check
+        run: pnpm --filter api run typecheck
+
+      - name: Lint
+        run: pnpm --filter api run lint
+
+      - name: Unit tests with coverage
+        run: pnpm --filter api run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-coverage
+          path: api/coverage/
+          retention-days: 14
+
+      - name: Build
+        run: pnpm --filter api run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-dist
+          path: api/dist
+          retention-days: 5
+
+  r-quality:
+    name: R source + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gdal-bin \
+            libcurl4-openssl-dev \
+            libgdal-dev \
+            libgeos-dev \
+            libproj-dev \
+            libssl-dev \
+            libudunits2-dev \
+            libxml2-dev \
+            make \
+            proj-data
+
+      - name: Install R dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          dependencies: '"hard"'
+          extra-packages: 'any::testthat'
+          cache-version: 2
+
+      - name: Parse R sources
+        run: |
+          files <- list.files(pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE)
+          files <- files[!grepl("^\\.git/", files)]
+          files <- files[!grepl("/\\.Rprofile$", files)]
+          for (file in files) parse(file)
+          message("Parsed ", length(files), " R source files.")
+        shell: Rscript --no-init-file {0}
+
+      - name: Smoke test
+        run: Rscript scripts/smoke_test.R --tags=fast
+
+      - name: Testthat suite
+        run: Rscript tests/testthat.R
+
+      - name: Audit release packaging
+        run: Rscript scripts/audit_release.R
+
+  docker:
+    name: Docker build + integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Validate compose files
+        run: |
+          docker compose -f docker-compose.yml config
+          docker compose -f docker-compose.dev.yml config
+          export DATABASE_URL=postgresql://sdm:dummy@postgres:5432/sdm_platform
+          export JWT_SECRET=dummy-jwt-secret-at-least-32-characters
+          export PLUMBER_INTERNAL_KEY=dummy-plumber-internal-key
+          export POSTGRES_PASSWORD=dummy
+          export GARAGE_ACCESS_KEY=dummy
+          export GARAGE_SECRET_KEY=dummy
+          export GARAGE_BUCKET_RASTERS=sdm-rasters
+          export GARAGE_BUCKET_EXPORTS=sdm-exports
+          export GARAGE_RPC_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          export GARAGE_ADMIN_TOKEN=dummy-garage-admin-token
+          export GRAFANA_PASSWORD=dummy
+          docker compose -f docker-compose.prod.yml config
+
+      - name: Build Plumber image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: plumber/Dockerfile
+          load: true
+          tags: |
+            sdm-dashboard-plumber:latest
+            sdm-plumber:test
+          cache-from: type=gha,scope=sdm-dashboard-plumber
+          cache-to: type=gha,mode=max,scope=sdm-dashboard-plumber
+
+      - name: Build API image
+        run: docker build -f Dockerfile.api -t sdm-dashboard-api:latest -t sdm-api:test .
+
+      - name: Build Frontend image
+        run: docker build -f Dockerfile.frontend -t sdm-dashboard-frontend:latest -t sdm-frontend:test .
+
+      - name: Start services and verify health
+        run: |
+          dump_logs() {
+            docker compose -f docker-compose.yml ps
+            docker compose -f docker-compose.yml logs --no-color --tail=200 plumber api frontend
+          }
+
+          wait_for() {
+            local name="$1"
+            local url="$2"
+            local attempts="${3:-36}"
+            local delay="${4:-5}"
+
+            for attempt in $(seq 1 "$attempts"); do
+              if curl -sf "$url"; then
+                echo "$name health check passed"
+                return 0
+              fi
+              echo "$name not ready yet ($attempt/$attempts)"
+              sleep "$delay"
+            done
+
+            echo "$name health check failed"
+            dump_logs
+            return 1
+          }
+
+          docker compose -f docker-compose.yml up -d --no-build postgres redis garage
+          docker compose -f docker-compose.yml up -d --no-build plumber
+          docker compose -f docker-compose.yml up -d --no-build api
+          docker compose -f docker-compose.yml up -d --no-build frontend
+
+          : "Health checks"
+          wait_for Plumber http://localhost:8000/health
+          wait_for API http://localhost:4000/health
+          wait_for Frontend http://localhost:3000/
+
+      - name: Run Playwright e2e tests
+        run: |
+          cd frontend
+          pnpm install --frozen-lockfile
+          pnpm run test:e2e
+        continue-on-error: true
+
+      - name: Scan images for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: sdm-plumber:test
+          format: sarif
+          output: trivy-results.sarif
+        continue-on-error: true
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker-compose.yml down -v
