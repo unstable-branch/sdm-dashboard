@@ -5,8 +5,23 @@ config <- new.env()
 sdm_default_species <- "Untitled species"
 sdm_default_occurrence_file <- "presence_data.csv"
 sdm_demo_occurrence_file <- file.path("data", "examples", "synthetic_presence_data.csv")
-sdm_default_worldclim_dir <- "Worldclim"
-sdm_default_future_worldclim_dir <- "Worldclim_future"
+sdm_default_worldclim_dir <- Sys.getenv("SDM_WORLDCLIM_DIR", "Worldclim")
+sdm_default_chelsa_dir <- Sys.getenv("SDM_CHELSA_DIR", "chelsa")
+sdm_default_chelsa_extras_dir <- Sys.getenv("SDM_CHELSA_EXTRAS_DIR", "chelsa")
+sdm_default_future_worldclim_dir <- Sys.getenv("SDM_FUTURE_WORLDCLIM_DIR", "Worldclim_future")
+sdm_default_chelsa_url <- Sys.getenv("SDM_CHELSA_URL", "https://os.unil.cloud.switch.ch/chelsa02/chelsa/global/bioclim")
+sdm_default_chelsa_timeout <- as.integer(Sys.getenv("SDM_CHELSA_TIMEOUT_SECONDS", "300"))
+sdm_default_chelsa_retries <- as.integer(Sys.getenv("SDM_CHELSA_RETRIES", "3"))
+sdm_geodata_cache_url <- Sys.getenv("SDM_GEODATA_CACHE_URL", "")
+sdm_internet_check_enabled <- tolower(Sys.getenv("SDM_INTERNET_CHECK_ENABLED", "true")) %in% c("true", "1")
+chelsa_extra_vars <- c(
+  "gdd5" = "Growing degree days (5°C base)",
+  "gdd10" = "Growing degree days (10°C base)",
+  "gsl" = "Growing season length",
+  "fcf" = "Frost change frequency",
+  "npp" = "Net primary productivity",
+  "scd" = "Snow cover duration"
+)
 sdm_default_output_dir <- "outputs"
 sdm_default_covariate_cache_dir <- "covariates"
 sdm_default_soil_vars <- c("sand", "clay", "phh2o")
@@ -129,7 +144,8 @@ sdm_default_dirs <- c(
   file.path(sdm_default_covariate_cache_dir, "drought"),
   file.path(sdm_default_covariate_cache_dir, "bioclim_season"),
   file.path(sdm_default_worldclim_dir, "climate", "wc2.1_10m"),
-  sdm_default_future_worldclim_dir
+  sdm_default_future_worldclim_dir,
+  sdm_default_chelsa_dir
 )
 
 sdm_biovar_choices <- c(

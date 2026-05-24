@@ -1696,3 +1696,147 @@ body.sdm-dark .dataTables_wrapper table.table.dataTable tbody > tr > td {
   align-items: center;
   gap: 8px;
 }
+
+/* ========================================================================
+   Phase 17: UX Polish — Mobile responsiveness & accessibility
+   ======================================================================== */
+
+/* Focus visible for keyboard navigation */
+*:focus-visible {
+  outline: 2px solid var(--sdm-accent) !important;
+  outline-offset: 2px !important;
+}
+
+/* Skip to content link for accessibility */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--sdm-accent);
+  color: white;
+  padding: 8px 16px;
+  z-index: 100;
+  transition: top 0.2s;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Mobile-first responsive breakpoints */
+@media (max-width: 768px) {
+  /* Stack grid layouts */
+  .grid-cols-2, .grid-cols-3, .grid-cols-4 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Reduce padding on cards */
+  .rounded-lg.border {
+    padding: 0.75rem !important;
+  }
+
+  /* Smaller text on mobile */
+  h1 { font-size: 1.5rem !important; }
+  h2 { font-size: 1.25rem !important; }
+  h3 { font-size: 1.1rem !important; }
+
+  /* Full-width tables with horizontal scroll */
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Touch-friendly buttons */
+  button, [role="button"] {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  /* Sidebar collapses on mobile */
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  /* Metric cards stack */
+  .grid.grid-cols-2.md\:grid-cols-4 {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Single column on small screens */
+  .grid-cols-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Reduce spacing */
+  .space-y-6 > * + * { margin-top: 1rem !important; }
+  .space-y-4 > * + * { margin-top: 0.75rem !important; }
+
+  /* Smaller tabs */
+  .tabs-list {
+    flex-wrap: wrap !important;
+  }
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+  :root {
+    --sdm-border: #000000;
+    --sdm-muted: #333333;
+  }
+
+  body.sdm-dark {
+    --sdm-border: #ffffff;
+    --sdm-muted: #cccccc;
+  }
+}
+
+/* Print styles */
+@media print {
+  .sidebar, .toast-container, button { display: none !important; }
+  body { background: white !important; color: black !important; }
+  a { color: black !important; text-decoration: underline !important; }
+}
+
+/* Loading spinner animation */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Pulse animation for skeleton loaders */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Toast slide-in animation */
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.toast-enter {
+  animation: slideIn 0.3s ease-out;
+}

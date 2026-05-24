@@ -1,242 +1,92 @@
-# SDM Dashboard Workbench — Specification
+# SDM Dashboard Workbench - Current Specification
 
-## 1. Project Overview
+## Project Shape
 
-**Type:** R/Shiny local desktop application for species distribution modelling (SDM).
+SDM Dashboard Workbench is now a beta species distribution modelling platform with two supported surfaces:
 
-**Core function:** Clean presence-only occurrence records, fit GLM (and experimental GAM/Rangebagging) presence/background models, generate habitat suitability maps, and export results — all from a local, privacy-first web dashboard.
+- **Modern platform:** Next.js frontend, Hono API, Plumber R computation service, PostgreSQL/PostGIS, Redis/BullMQ, Garage S3-compatible storage, and Docker Compose.
+- **Legacy desktop app:** root-level R/Shiny app for local single-user workflows.
 
-**Repository:** https://github.com/5p00kyy/sdm-dashboard (upstream) | https://github.com/mrcanofcatfood/sdm-dashboard (origin)
+The modern platform is the primary direction for development and deployment. The Shiny app remains useful as a desktop fallback and as a source of mature modelling code, but it should not drive repo architecture decisions.
 
----
+The Shiny-first history is preserved on the `legacy-shiny` branch. The current beta keeps legacy desktop entry points in-tree, but new release decisions should be evaluated against the modern platform first.
 
-## 2. Architecture
+## Architecture
 
-### Entry points
+```text
+Browser (Next.js 15)
+  -> Hono API/BFF (auth, projects, queues, cache, storage)
+     -> Plumber R API (SDM computation endpoints)
+        -> R modules under R/
+     -> PostgreSQL/PostGIS (users, projects, species, runs, occurrences)
+     -> Redis/BullMQ (queues, rate limits, cache)
+     -> Garage S3-compatible storage (rasters and exports)
+```
 
-| File | Purpose |
+The Hono API authenticates users with JWTs or API keys. Requests from Hono to Plumber use `PLUMBER_INTERNAL_KEY`; direct Plumber mutation endpoints require API key authentication.
+
+## Entry Points
+
+| Path | Purpose |
 |------|---------|
-| `app.R` | Shiny UI — main user-facing dashboard |
-| `pipeline.R` | Non-interactive batch workflow |
-| `launch_app.R` | Opens browser on launch |
-| `R/core/optimized_sdm.R` | Engine loader → `R/load.R` |
+| `frontend/` | Next.js 15 application and dashboard UI |
+| `api/` | Hono API, auth middleware, Drizzle schema, queues, storage, Plumber proxy |
+| `packages/shared/` | Shared TypeScript schemas and constants |
+| `plumber/` | R/Plumber API wrapper around modelling modules |
+| `R/` | SDM modelling, covariate, ecology, output, and legacy Shiny modules |
+| `app.R` | Legacy Shiny desktop entry point |
+| `pipeline.R` | Legacy non-interactive R pipeline |
+| `docker-compose.yml` | Full local stack |
+| `docker-compose.dev.yml` | Backing services for local development |
+| `docker-compose.prod.yml` | Self-hosted production stack |
 
-### Module loader (`R/load.R`)
+## Functional Scope
 
-Sources all modules in dependency order. Each module is self-contained with no circular dependencies.
+The platform supports occurrence upload/cleaning, project and species management, climate and environmental covariate handling, model runs, job progress, result diagnostics, ecology summaries, downloads, and comparison workflows.
 
-**Canonical order:**
-```
-bootstrap → config → packages → logging → validation
-→ occurrences → covariates_climate → covariates_elevation
-→ covariates_soil → covariates_stack
-→ model_glm → model_gam → model_rangebag → model_ensemble → model_registry
-→ prediction → future_projection → plots → report → run_sdm → app_helpers
-```
+Stable or actively wired model backends include GLM, GAM, MaxNet, random forest, XGBoost/BRT, ESM variants, and multi-model ensembles when their R packages are available. Conditional or experimental backends include DNN, HMSC/JSDM, rangebagging, and biomod2 integration.
 
-**Extended order (available modules, loaded when present):**
-```
-biomod2_compat, boundary, metrics_binary, cv_folds, covariates_soilgrid,
-model_biomod2, model_dnn
-```
+Ecology and interpretation tooling includes EOO/AOO, climate matching, AOA, niche overlap, species richness stacking, dispersal simulation, CLIMEX import, range-size change, calibration plots, response curves, permutation importance, MESS/MOD extrapolation checks, and ODMAP-style reporting.
 
-### Key modules
+## Data And Privacy
 
-| Module | Responsibility |
-|--------|---------------|
-| `R/core/bootstrap.R` | Project root detection, path helpers |
-| `R/core/config.R` | Global defaults, choices, `config` environment |
-| `R/core/packages.R` | Package installation, core count, torch setup |
-| `R/data/occurrences.R` | CSV/TSV reading, cleaning, thinning |
-| `R/covariates_*.R` | WorldClim, elevation, soil layer loading |
-| `R/covariates/covariates_stack.R` | Combines covariates into training raster stack |
-| `R/models/model_glm.R` | GLM fitting, background sampling, CV (random + spatial-block) |
-| `R/models/model_gam.R` | GAM backend (experimental) |
-| `R/models/model_rangebag.R` | Rangebagging backend (experimental) |
-| `R/models/model_ensemble.R` | Ensemble of GLM + Rangebagging (experimental) |
-| `R/models/prediction.R` | Suitability map raster prediction |
-| `R/covariates/future_projection.R` | Future climate BIO swap, delta raster export |
-| `R/output/plots.R` | Map rendering with terra/ggplot2 |
-| `R/output/report.R` | Text summary report generation |
-| `R/core/run_sdm.R` | `run_fast_sdm()` — public orchestration API |
-| `R/core/app_helpers.R` | UI helpers, extent resolution, formatting |
+The public repository should contain only source code, docs, templates, and small synthetic examples. Do not commit real occurrence data, downloaded rasters, `.env`, `.Renviron`, API keys, model outputs, logs, screenshots, release zip artifacts, or deployment-specific secrets.
 
----
+Generated working folders such as `outputs/`, `checkpoints/`, `logs/`, `Worldclim/`, `Worldclim_future/`, `covariates/`, and Docker volumes are local state.
 
-## 3. Functionality Specification
+## Verification Gates
 
-### Data inputs
+Use these gates before merging `dev` to `main`:
 
-- **Occurrence CSV/TSV** with `longitude`/`latitude` columns (and aliases: `lon`, `decimalLongitude`, etc.)
-- **Synthetic demo** bundled at `data/examples/synthetic_presence_data.csv`
-- Column detection for species name, source/provider, country code
-
-### Occurrence cleaning
-
-- Minimum records per source threshold (default: 15)
-- Small source merging option
-- Raster-cell thinning (coordinates sharing same climate cell)
-- Distance-based thinning (user-specified km threshold)
-
-### Climate covariates
-
-- **WorldClim BIO layers** (1–19) at 10/5/2.5 arc-min resolution
-- Download-and-cache via `geodata::worldclim_global()`
-- User-specified cache directory
-
-### Optional covariates
-
-- **OpenTopography** elevation DEM (requires API key)
-- **HWSD v2** soil GeoTIFF (user-provided path)
-- **SoilGrids** (extended module, not yet integrated in app)
-
-### Modelling backends
-
-| Backend | Status | Notes |
-|---------|--------|-------|
-| GLM | **Stable** | Quadratic terms, weighted, spatial-block CV |
-| GAM | Experimental | Behind model registry |
-| Rangebagging | Experimental | Behind model registry |
-| GLM + Rangebag ensemble | Experimental | Behind model registry |
-| MaxEnt (maxnet) | Experimental | Direct via maxnet/glmnet, no Java required, regmult + features configurable |
-| biomod2 | Experimental | Gated behind `getOption("sdm.enable_biomod2", FALSE)`, enable to use |
-| DNN (cito/torch) | Dormant | Not wired, do not use |
-
-### Cross-validation
-
-- **Random k-fold** CV (default: 3-fold)
-- **Spatial-block** CV with auto-calculated block size
-- Metrics: AUC, TSS, sensitivity, specificity, Continuous Boyce Index (CBI), confusion counts
-- Permutation importance (algorithm-agnostic, stored in result$variable_importance)
-
-### Output products
-
-- Suitability GeoTIFF (EPSG:4326)
-- PNG preview map
-- Cleaned occurrence CSV
-- Text summary report
-- ODMAP report (CSV + Markdown, Zurell et al. 2020)
-- Reproducible R script export
-- Sidecar raster bundle (when multiple models run)
-- Future suitability GeoTIFF + current-to-future delta raster + MESS extrapolation rasters
-
-### Projection
-
-- Preset extents: Australia full/north/east, world, custom
-- Custom boundary file upload (shp, kml, geojson, tif)
-- Threshold slider (0.05–0.95)
-
----
-
-## 4. UI Specification
-
-### Control panel (left sidebar)
-
-Sections (all collapsible):
-1. **Display** — dark mode toggle
-2. **Input data** — species label, data source, file upload
-3. **Climate data** — WorldClim directory, resolution, BIO variable selection
-4. **Optional covariates** — elevation, soil
-5. **Modelling algorithms** — (extended modules, not yet in clean UI)
-6. **Model settings** — backend, background points, thinning, quadratic, CV strategy
-7. **Projection** — extent preset, threshold, future projection toggle
-
-### Main panel (right, 9/12 width)
-
-- **Dashboard tab** — suitability map + summary panel
-- **Future projection tab** — future suitability + delta map
-- **Observation records tab** — occurrence scatter + top sources table
-- **Model diagnostics tab** — coefficient table + run log
-- **Downloads tab** — all export buttons
-
-### Theme
-
-- bslib v5, bootswatch "flatly", primary `#0B6E69`
-- Dark mode: body class `sdm-dark`, bg `#07111D`, accent `#4ADECB`
-- Mobile-responsive: single-column below 991px
-
----
-
-## 5. Configuration
-
-All configuration lives in `R/core/config.R`:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `sdm_default_biovars` | `c(1,4,6,12,15,18)` | Default BIO variables |
-| `sdm_default_background_n` | `10000` | Background points |
-| `sdm_default_cv_folds` | `3` | CV folds |
-| `sdm_default_cv_strategy` | `"random"` | Random or spatial_blocks |
-| `sdm_default_thinning_mode` | `"auto"` | auto/none/raster_cell/distance |
-| `sdm_default_threshold` | `0.5` | Suitability threshold |
-| `config$biomod2_default` | `c('GLM','RF','GBM','MAXNET')` | (extended) |
-| `config$dnn_default` | `'DNN_Medium'` | (extended) |
-
-Boundary files: `config$sdm_australia_boundary_path`, `config$sdm_world_boundary_path`
-
----
-
-## 6. Verification & Testing
-
-### Smoke test
 ```bash
-Rscript scripts/smoke_test.R
-```
-
-### testthat
-```bash
+pnpm install --frozen-lockfile
+pnpm run check:node
+pnpm run check:compose
+Rscript scripts/smoke_test.R --tags=fast
 Rscript tests/testthat.R
-```
-
-### Release audit
-```bash
 Rscript scripts/audit_release.R
+git diff --check
 ```
 
-### Release builds
-```bash
-Rscript scripts/make_release_zip.R source --version=v0.3.0-beta
-Rscript scripts/make_release_zip.R ready --version=v0.3.0-beta
-```
+`Rscript scripts/smoke_test.R --tags=fast` expects hard R dependencies such as `sf` in environments that run EOO/AOO checks. GitHub Actions installs those system and R dependencies; a lean local container may need dependency installation before the R gate can complete.
 
----
+## Branch And Release Policy
 
-## 7. Privacy & Security
+`dev` is the integration branch. `main` is stable and should move by PR from `dev` after CI passes. Stale feature branches that are already contained in `dev` should be closed rather than merged directly.
 
-- **Never** commit: real occurrence data, API keys, `.Renviron`, `.env`, downloaded rasters, model outputs, logs, screenshots, release zips
-- **Always** review outputs before sharing (coordinates, paths, species names)
-- API keys entered in app are session-only, never persisted
+Release candidates should be tagged from `main` using semver prerelease tags such as `v0.4.0-beta.1`. The release workflow creates draft GitHub Releases, source/Windows-ready zips, and GHCR container images for the platform services.
 
----
+See `docs/RELEASE_AND_HOSTING.md` for packaging, release, and self-hosting policy.
 
-## 8. Dependencies
+The `dev` to `main` release plan is maintained in `docs/DEV_MAIN_RELEASE_PLAN.md`.
 
-**Core (required):** `terra`, `shiny`, `bslib`
+## CRAN Track
 
-**Setup:** `geodata`
+The current repository is not a CRAN package candidate as-is. A CRAN path should be a later extraction of reusable pure-R modelling/core functions with fast tests, portable dependencies, and no dependency on Docker, Node.js, Postgres, Redis, Garage, or the browser platform. See `docs/LEGACY_AND_CRAN.md`.
 
-**Suggested:** `mgcv`, `testthat`
+## Current Limitations
 
-**Extended (loaded but optional):** `biomod2`, `randomForest`, `gbm`, `maxnet`, `nnet`, `mgcv`, `earth`, `rpart`, `mda`, `gam`, `xgboost`, `httr`, `jsonlite`, `cito`, `torch`, `reticulate`
-
----
-
-## 9. Release History
-
-| Tag | Date | Notes |
-|-----|------|-------|
-| `v0.1.0-beta` | — | First public beta |
-| `v0.2.0-beta` | — | Dark UI, Australia-first view |
-| `v0.3.0-beta` | target | Distance thinning, spatial-block CV, expanded diagnostics |
-
----
-
-## 10. Known Issues & Limitations
-
-- biomod2 backend requires `options(sdm.enable_biomod2 = TRUE)` to enable; not installed by default
-- MaxEnt backend requires the maxnet package (`install.packages('maxnet')`); not installed by default
-- Spatial-block CV is implemented for GLM only; experimental backends use their own default CV
-- Future projection requires user-provided future BIO GeoTIFFs or automated CMIP6 download (planned)
-- DNN models (cito/torch) are dormant and not wired to the app UI
-- CoordinateCleaner is optional; requires `install.packages('CoordinateCleaner')` if use_cc = TRUE
-- GBIF integration requires `install.packages('rgbif')` for data fetching
+- The modern platform is beta; APIs and UX may change before `v1.0.0`.
+- Some R backends are conditional on optional packages and should skip gracefully when unavailable.
+- Production hosting requires operator-managed secrets, backups, TLS, and access controls.
+- The legacy Shiny app has no built-in auth and should remain local/private.

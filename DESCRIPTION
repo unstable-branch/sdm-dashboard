@@ -5,10 +5,12 @@ Version: 0.5.0
 Authors@R: c(
     person("SDM Dashboard Workbench contributors", role = c("aut", "cre"))
   )
-Description: A local R/Shiny workbench for species distribution modelling from presence-only observation records with WorldClim climate layers, optional OpenTopography elevation, optional HWSD v2 soil covariates, spatial thinning, and spatial-block cross-validation diagnostics.
+Description: R modelling and legacy Shiny desktop components for SDM Dashboard Workbench, a beta species distribution modelling platform with occurrence cleaning, environmental covariates, model fitting, evaluation, future projection, and ecology tooling.
 License: MIT
 Encoding: UTF-8
 Depends: R (>= 4.3)
+URL: https://github.com/unstable-branch/sdm-dashboard
+BugReports: https://github.com/unstable-branch/sdm-dashboard/issues
 Imports:
     blockCV,
     bslib,
@@ -29,6 +31,7 @@ Imports:
     terra
 Suggests:
     CoordinateCleaner,
+    devtools,
     digest,
     ecospat,
     finch,

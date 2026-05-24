@@ -1,3 +1,7 @@
+> ⚠️ **Internal Analysis — May 2026 — Archived**
+> This document captures findings from a code review conducted on 2026-05-19.
+> Most issues identified here have since been resolved. Kept for historical reference only.
+
 # SDM Dashboard — Code Review (2026-05-19)
 
 **Scope:** Full review of the clean snapshot after replacing project files.

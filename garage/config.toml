@@ -1,0 +1,24 @@
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+rpc_bind_addr = "0.0.0.0:3902"
+rpc_public_addr = "garage:3902"
+replication_factor = 1
+# WARNING: Override via GARAGE_RPC_SECRET env var in production.
+# This fixed value is for local dev only. Override it in production.
+rpc_secret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[s3_api]
+api_bind_addr = "0.0.0.0:3900"
+s3_region = "garage"
+root_domain = ".s3.garage.localhost"
+
+[s3_web]
+bind_addr = "0.0.0.0:3901"
+root_domain = ".web.garage.localhost"
+index = "index.html"
+
+[admin]
+api_bind_addr = "0.0.0.0:3903"
+# WARNING: Override via GARAGE_ADMIN_TOKEN env var in production.
+admin_token = "dev-admin-token"
+metrics_token = "dev-metrics-token"

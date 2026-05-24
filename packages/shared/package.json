@@ -1,0 +1,26 @@
+{
+  "name": "@sdm/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SDM Dashboard — Shared TypeScript types, constants, and Zod schemas",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

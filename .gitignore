@@ -1,117 +1,54 @@
+# Node
+node_modules/
+.next/
+dist/
+.turbo/
+*.tsbuildinfo
+*.csv:Zone.Identifier
+
+# Infrastructure
+postgres-data/
+garage-data/
+redis-data/
+
+# Logs
+*.log
+
+# Temp files
+api/tmp/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# R working files
 .Rhistory
 .RData
-.Ruserdata
 .Rproj.user/
 .Renviron
-.Renviron.*
-.env
-.env.*
-!.env.example
+
+# R data directories
+data/uploads/
+outputs/
+covariates/
+Worldclim/
+Worldclim_future/
+renv/
+species/
+TestSpp/
+
+# Broken symlinks
+/nextcloud
+
+# OS
 .DS_Store
 Thumbs.db
 
-# User occurrence data and local working inputs
-presence_data.csv
-*_presence_data.csv
-*_occurrences.csv
-local_data/
-data/raw/
-data/private/
-data/uploads/
-
-# Generated model outputs, logs, caches, and release archives
-outputs/
-checkpoints/
-logs/
-*.log
-*.zip
-*.tar
-*.tar.gz
-*.tgz
-release/
-releases/
-dist/
-
-# Downloaded/cached covariates can be large and recreated
-Worldclim/
-worldclim/
-WorldClim/
-Worldclim_future/
-worldclim_future/
-WorldClim_future/
-covariates/
-!R/covariates/
-covariates/**/*.tif
-covariates/**/*.tiff
-covariates/opentopo/
-*.tif
-*.tiff
-*.aux.xml
-*.grd
-*.gri
-*.vrt
-*.ovr
-
-# Local study boundaries and masks (often private or bulky)
-Australia Boundary/
-Australia_Boundary/
-boundaries/
-Boundaries/
-masks/
-Masks/
-*.shp
-*.shx
-*.dbf
-*.prj
-*.cpg
-*.sbn
-*.sbx
-*.qix
-*.gpkg
-*.kml
-*.kmz
-
-# Screenshots can expose local paths, coordinates, or unpublished results
-screenshots/
-Screenshots/
-*_screenshot*.png
-*_screenshot*.jpg
-*_screenshot*.jpeg
-*hyprshot*.png
-/*_preview.png
-
-# Keep repo examples/templates trackable
-!data/presence_data_template.csv
-!data/examples/
-!data/examples/**
-!docs/
-!docs/**
-
-# LibTorch (large binary, not needed in repo)
-libtorch/
-torch/
-libtorch-win-shared-with-deps-2.11.0+cu128/
-
-# Local temp files
-species/
-nohup.out
-*_download.log
-all_files.txt
-
-# IDE configuration
+# IDE
 .vscode/
+.idea/
 
-# Windows NTFS alternate data streams (from drag-drop operations)
-*:Zone.Identifier
-
-# R package management (lock file is committed, cache is local)
-renv/
-..Rcheck/
-
-# Local test and working directories
-TestSpp/
-
-# Personal contributor notes (not for upstream)
-*sdm-dashboard-jacob-roadmap*
-*SDM_DASHBOARD_DWCA_SUPPORT*
-*SDM_DASHBOARD_ESM_IMPLEMENTATION*
+# Coverage
+api/coverage/
+frontend/coverage/

@@ -1,0 +1,11 @@
+packages:
+  - "frontend"
+  - "api"
+  - "packages/*"
+allowBuilds:
+  bcrypt: true
+  electron: true
+  esbuild: true
+  msgpackr-extract: true
+  sharp: true
+  unrs-resolver: true

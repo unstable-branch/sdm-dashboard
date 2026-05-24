@@ -3,9 +3,16 @@
 
 fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period = "2061-2080",
                                   var = "bioc", res = 10, out_dir = "Worldclim_future",
-                                  quiet = FALSE, ...) {
+                                  quiet = FALSE, log_fun = NULL, ...) {
   if (!requireNamespace("geodata", quietly = TRUE)) {
     stop("geodata package required for CMIP6 download. Install with: install.packages('geodata')")
+  }
+
+  # Configurable geodata cache URL (Fix 11)
+  cache_url <- get_geodata_cache_url()
+  if (nzchar(cache_url)) {
+    options(gdal_cloud_cache_dir = cache_url)
+    log_message(log_fun, "Using GDAL cache URL: ", cache_url)
   }
 
   ssp_map <- c("SSP1-2.6" = "126", "SSP2-4.5" = "245", "SSP3-7.0" = "370", "SSP5-8.5" = "585")
@@ -15,11 +22,20 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
 
   cache_subdir <- file.path(out_dir, paste(gcm, ssp, period, sep = "_"))
   if (dir.exists(cache_subdir)) {
-    if (!quiet) message("Using cached CMIP6 data: ", cache_subdir)
-    return(list(dir = cache_subdir, cached = TRUE))
+    # Verify the cached directory has expected files (Fix 7)
+    expected_files <- file.path(cache_subdir, sprintf("wc2.1_%sm_bioc_%d.tif", res, 1:19))
+    missing_files <- expected_files[!file.exists(expected_files)]
+    if (length(missing_files) == 0) {
+      if (!quiet) message("Using cached CMIP6 data: ", cache_subdir)
+      return(list(dir = cache_subdir, cached = TRUE))
+    } else {
+      if (!quiet) message("Cache incomplete (", length(missing_files), " files missing), re-downloading: ", cache_subdir)
+    }
   }
 
   if (!quiet) message("Downloading CMIP6 ", gcm, " ", ssp, " ", period, "...")
+
+  check_internet_connectivity("https://geodata.ucdavis.edu/climate/cmip6/5m/", log_fun = log_fun)
 
   tryCatch(
     {
@@ -42,7 +58,6 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
           out_path <- file.path(cache_subdir, sprintf("wc2.1_%sm_bioc_%d.tif", res, bv))
           terra::writeRaster(out[[bv]], out_path, overwrite = TRUE)
         }
-        list(dir = cache_subdir, cached = FALSE, raster = out)
       } else {
         if (!dir.exists(cache_subdir)) dir.create(cache_subdir, recursive = TRUE)
         tifs <- list.files(actual_path, pattern = "\\.tif$", full.names = TRUE, recursive = FALSE)
@@ -62,10 +77,27 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
             unlink(parent, recursive = TRUE, force = TRUE)
           }
         }
-        list(dir = cache_subdir, cached = FALSE, raster = out)
       }
+
+      # Verify critical layers exist after download (Fix 7)
+      critical_biovars <- c(1, 12)
+      missing_critical <- character()
+      for (bv in critical_biovars) {
+        expected_path <- file.path(cache_subdir, sprintf("wc2.1_%sm_bioc_%d.tif", res, bv))
+        if (!file.exists(expected_path)) missing_critical <- c(missing_critical, paste0("bio", bv))
+      }
+      if (length(missing_critical) > 0) {
+        stop("CMIP6 download incomplete — missing critical layer(s): ", paste(missing_critical, collapse = ", "),
+             ". GCM: ", gcm, " SSP: ", ssp, " Period: ", period)
+      }
+
+      list(dir = cache_subdir, cached = FALSE, raster = out)
     },
     error = function(e) {
+      # Cleanup partial download on failure (Fix 10)
+      if (dir.exists(cache_subdir)) {
+        unlink(cache_subdir, recursive = TRUE, force = TRUE)
+      }
       message("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
       message("Troubleshooting: Check internet connection, try a different GCM/SSP/period")
       stop("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
@@ -174,6 +206,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
 
   ssp_map <- c("SSP1-2.6" = "126", "SSP2-4.5" = "245", "SSP3-7.0" = "370", "SSP5-8.5" = "585")
   ssp_code <- ssp_map[ssp] %||% gsub("[^0-9]", "", ssp)
+  ssp_display <- gsub("-", "_", ssp)
 
   cached_dirs <- list()
   for (gcm in gcm_list) {
@@ -184,7 +217,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
     cached_dirs[[gcm]] <- result$dir
   }
 
-  out_path <- file.path(out_dir, paste("averaged", paste(gcm_list, collapse = "_"), ssp_code, period, sep = "_"))
+  out_path <- file.path(out_dir, paste("averaged", paste(gcm_list, collapse = "_"), ssp_display, period, sep = "_"))
   if (!dir.exists(out_path)) dir.create(out_path, recursive = TRUE)
 
   all_bio_vars <- paste0("bio", 1:19)
@@ -205,14 +238,14 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
       stacked <- terra::rast(bio_files)
 
       avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
-      out_mean <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_SSP", ssp_code, "_", period, "_", bio, ".tif"))
+      out_mean <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, ".tif"))
       terra::writeRaster(avg, out_mean,
         overwrite = TRUE,
         wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
       )
 
       sd_layer <- terra::app(stacked, fun = "sd", na.rm = TRUE)
-      out_sd <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_SSP", ssp_code, "_", period, "_", bio, "_sd.tif"))
+      out_sd <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, "_sd.tif"))
       terra::writeRaster(sd_layer, out_sd,
         overwrite = TRUE,
         wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
@@ -220,10 +253,10 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
     }
   }
 
-  baseline_dir <- "Worldclim"
+  baseline_dir <- sdm_default_worldclim_dir
   if (dir.exists(baseline_dir)) {
     for (bio in all_bio_vars) {
-      mean_file <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_SSP", ssp_code, "_", period, "_", bio, ".tif"))
+      mean_file <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, ".tif"))
       if (!file.exists(mean_file)) next
 
       baseline_file <- file.path(baseline_dir, paste0(bio, ".tif"))
@@ -237,7 +270,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
       }
 
       delta <- future_layer - baseline_layer
-      out_delta <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_SSP", ssp_code, "_", period, "_", bio, "_delta.tif"))
+      out_delta <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, "_delta.tif"))
       terra::writeRaster(delta, out_delta,
         overwrite = TRUE,
         wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
@@ -245,7 +278,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
     }
   }
 
-  mean_files <- list.files(out_path, pattern = paste0("_SSP", ssp_code, ".*_bio[0-9]+\\.tif$"), full.names = TRUE)
+  mean_files <- list.files(out_path, pattern = paste0("_", ssp_display, "_.*_bio[0-9]+\\.tif$"), full.names = TRUE)
   first_raster <- if (length(mean_files) > 0) terra::rast(mean_files[1]) else terra::rast()
 
   list(dir = out_path, cached = FALSE, raster = first_raster, averaged = TRUE)
