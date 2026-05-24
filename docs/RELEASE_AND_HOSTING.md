@@ -11,7 +11,7 @@ This matters because SDM workflows often involve sensitive occurrence data, unpu
 | Channel | Audience | Artifact |
 |---------|----------|----------|
 | Source release | Developers and reviewers | Git tag plus `sdm-dashboard-<tag>-source.zip` |
-| Windows-ready legacy Shiny | Desktop users | `sdm-dashboard-<tag>-windows-ready.zip` |
+| Windows-ready legacy Shiny | Desktop users | `sdm-dashboard-<tag>-windows-ready.zip`; bundled WorldClim layers are included only when present in the release build tree |
 | Container images | Self-hosted platform users | GHCR images for frontend, API, and Plumber |
 | Docker Compose | Operators | Version-pinned repo checkout or image override files |
 
