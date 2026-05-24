@@ -40,7 +40,10 @@ RUN apk add --no-cache dumb-init curl
 WORKDIR /app
 
 COPY --from=builder /app/api/dist ./api/dist
+COPY --from=builder /app/api/drizzle ./api/drizzle
+COPY --from=builder /app/api/drizzle.config.ts ./api/
 COPY --from=builder /app/api/package.json ./api/
+COPY --from=builder /app/api/src/db/schema.ts ./api/src/db/schema.ts
 COPY --from=builder /app/api/node_modules ./api/node_modules
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
@@ -57,4 +60,4 @@ USER node
 
 EXPOSE 4000
 
-CMD ["dumb-init", "node", "api/dist/index.js"]
+CMD ["dumb-init", "sh", "-c", "npm --prefix api run db:migrate && node api/dist/index.js"]

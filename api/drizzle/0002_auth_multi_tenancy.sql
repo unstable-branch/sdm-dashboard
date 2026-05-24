@@ -2,7 +2,11 @@
 -- Adds users, projects, project_members, api_keys tables
 -- Adds project_id to species, runs, occurrences
 
-CREATE TYPE "user_role" AS ENUM ('admin', 'editor', 'viewer');
+DO $$ BEGIN
+ CREATE TYPE "user_role" AS ENUM ('admin', 'editor', 'viewer');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
 
 CREATE TABLE IF NOT EXISTS "users" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),

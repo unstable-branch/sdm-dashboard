@@ -6,8 +6,11 @@ Use this checklist for the `dev -> main` release PR.
 
 - `dev` contains the intended release work and is not behind `main`.
 - Stale feature PRs already contained in `dev` are closed.
+- The historical Shiny-first line is preserved on remote branch `legacy-shiny`.
 - `git diff --stat` has no accidental binaries, generated outputs, caches, local data, or release zips.
 - README, `docs/SPEC.md`, production docs, and release notes reflect the modern platform as primary and Shiny as legacy desktop.
+- GitHub repository description/topics reflect the modern platform, not the old Shiny-only app.
+- CRAN is described only as a future extracted R package track, not as a property of the current platform.
 
 ## Automated Gates
 
@@ -28,13 +31,14 @@ Platform CI builds and health-checks the modern stack images: frontend, API, and
 ## Manual QA
 
 - Start the modern stack with `docker compose -f docker-compose.yml up`.
-- Run API migrations.
+- Confirm API startup applies Drizzle migrations before the server starts.
 - Register or log in through the browser UI.
 - Create a project and verify the dashboard loads without console errors.
 - Upload the synthetic occurrence example and verify cleaning/preview state.
 - Start a small model run and verify progress, completion state, and result page navigation.
 - Verify downloads do not leak local absolute paths.
 - Confirm production compose refuses to start without required secrets.
+- Capture desktop, tablet, and mobile screenshots for the primary routes and check for horizontal overflow, clipped labels, placeholder copy, and broken empty states.
 
 ## Release Decision
 
