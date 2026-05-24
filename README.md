@@ -7,11 +7,11 @@ SDM Dashboard Workbench is a species distribution modelling platform with two de
 
 It provides multi-algorithm, multi-species SDM with occurrence cleaning, climate/environmental covariates, model fitting, evaluation, future projection, and a rich ecology toolkit.
 
-This is a beta release. Interfaces, defaults, packaging, and outputs may change before a stable `v1.0.0` release. Validate model outputs carefully before operational use.
+This is a modern-platform beta release. Interfaces, defaults, packaging, and outputs may change before a stable `v2.0.0` release. Validate model outputs carefully before operational use.
 
 The public repository contains source code, documentation, scripts, templates, and small synthetic examples only. Real occurrence data, downloaded rasters, generated outputs, API keys, screenshots, and release archives should stay local.
 
-Project direction is tracked in [`docs/SPEC.md`](docs/SPEC.md). The legacy desktop and future CRAN extraction policy is documented in [`docs/LEGACY_AND_CRAN.md`](docs/LEGACY_AND_CRAN.md).
+Project direction is tracked in [`docs/SPEC.md`](docs/SPEC.md). Release channels are documented in [`docs/RELEASE_AND_HOSTING.md`](docs/RELEASE_AND_HOSTING.md). The legacy desktop and future CRAN extraction policy is documented in [`docs/LEGACY_AND_CRAN.md`](docs/LEGACY_AND_CRAN.md).
 
 
 ## Quick Start (Modern Stack)
