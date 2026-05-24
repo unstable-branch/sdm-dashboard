@@ -1,6 +1,18 @@
 # SDM Dashboard Changelog
 
-## v0.5.0 (unreleased)
+## v2.0.0-beta.1
+
+### Modern Platform
+- Promoted the Next.js + Hono + Plumber/R + PostGIS platform to `main`.
+- Added authenticated browser and API-key flows, project/member data model, queued jobs, object storage, WebSocket/SSE status paths, and production Docker Compose.
+- Added the full workbench UI for projects, species, occurrence cleaning, model runs, evaluation, ecology tools, downloads, settings, and run results.
+- Preserved the historical Shiny-first release line on the `legacy-shiny` branch; `v1.0.0` is the final legacy Shiny release.
+
+### Release Infrastructure
+- Added Platform CI for modern Docker build/integration, R Quality Checks, CodeQL, release audit, and GHCR image publishing.
+- Added explicit self-hosting docs, production fail-closed secret policy, release QA checklist, and legacy/CRAN direction.
+
+## Legacy Shiny development line
 
 ### Testing
 - Expanded smoke test suite from basic parse checks to 42 test functions across 9 tag categories
@@ -43,4 +55,3 @@
 ### Models
 - Added biomod2 adapter with gating strategy (`options(sdm.enable_biomod2 = TRUE)`)
 - Registered 12 model backends: GLM, GAM, Rangebag, Ensemble, Multi-Ensemble (stable), MaxNet, ESM-GLM, ESM-MaxNet, RF, XGBoost, DNN, biomod2 (conditional)
-

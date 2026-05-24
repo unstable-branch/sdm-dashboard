@@ -74,7 +74,7 @@ git diff --check
 
 `dev` is the integration branch. `main` is stable and should move by PR from `dev` after CI passes. Stale feature branches that are already contained in `dev` should be closed rather than merged directly.
 
-Release candidates should be tagged from `main` using semver prerelease tags such as `v0.4.0-beta.1`. The release workflow creates draft GitHub Releases, source/Windows-ready zips, and GHCR container images for the platform services.
+Release candidates should be tagged from `main` using semver prerelease tags such as `v2.0.0-beta.1`. The historical `v0.x`/`v1.0.0` tags belong to the Shiny-first line. The release workflow creates draft GitHub Releases, source/Windows-ready zips, and GHCR container images for the modern platform services.
 
 See `docs/RELEASE_AND_HOSTING.md` for packaging, release, and self-hosting policy.
 
@@ -86,7 +86,7 @@ The current repository is not a CRAN package candidate as-is. A CRAN path should
 
 ## Current Limitations
 
-- The modern platform is beta; APIs and UX may change before `v1.0.0`.
+- The modern platform is beta; APIs and UX may change before stable `v2.0.0`.
 - Some R backends are conditional on optional packages and should skip gracefully when unavailable.
 - Production hosting requires operator-managed secrets, backups, TLS, and access controls.
 - The legacy Shiny app has no built-in auth and should remain local/private.

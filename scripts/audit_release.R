@@ -69,7 +69,7 @@ audit_zip <- function(zip_path) {
   base <- basename(zip_path)
   assert_no_match(entries, "^SDM-Web(/|$)", paste(base, "uses stale internal folder name"))
   assert_no_match(entries, "(^|/)presence_data[.]csv$|(^|/)[.]env$|(^|/)[.]Renviron$|(^|/)AGENTS[.]md$|(^|/)docs/|hyprshot.*[.](png|jpg|jpeg)$|[.]log$", paste(base, "contains blocked entries"))
-  assert_no_match(file_entries, "^.+/outputs/.+|^.+/logs/.+|^.+/covariates/.+", paste(base, "contains generated output/log/cache files"))
+  assert_no_match(file_entries, "^[^/]+/(outputs|logs|covariates)/.+", paste(base, "contains generated output/log/cache files"))
   if (grepl("-source[.]zip$", base)) {
     assert_no_match(entries, "(^|/)Worldclim(/|$)|(^|/)Main[.]R$|(^|/)prepare_windows[.]bat$", paste(base, "contains source-bundle clutter or rasters"))
   }

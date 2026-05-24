@@ -12,22 +12,24 @@ This matters because SDM workflows often involve sensitive occurrence data, unpu
 |---------|----------|----------|
 | Source release | Developers and reviewers | Git tag plus `sdm-dashboard-<tag>-source.zip` |
 | Windows-ready legacy Shiny | Desktop users | `sdm-dashboard-<tag>-windows-ready.zip` |
-| Container images | Self-hosted platform users | GHCR images for frontend, API, Plumber, and legacy Shiny |
+| Container images | Self-hosted platform users | GHCR images for frontend, API, and Plumber |
 | Docker Compose | Operators | Version-pinned repo checkout or image override files |
 
-The release workflow creates draft GitHub Releases for `v*` tags and pushes images to GitHub Container Registry.
+The release workflow creates draft GitHub Releases for `v*` tags and pushes the modern service images to GitHub Container Registry.
 
-The normal platform CI gate builds the modern self-hosting images only: frontend, API, and Plumber. The legacy Shiny image remains in the release workflow so release builds can use registry/cache behavior without slowing every `dev` and PR validation run.
+The normal platform CI gate and release workflow build the modern self-hosting images only: frontend, API, and Plumber. The legacy Shiny app remains available through source, Windows-ready zip artifacts, and the `legacy-shiny` branch; it is not a blocking container-image gate for modern platform tags.
 
 The historical Shiny-first code line is preserved on the `legacy-shiny` branch. Modern platform releases should still keep the desktop artifacts usable during beta, but the branch exists as the stable reference point for anyone who wants the old Shiny-only shape.
 
 ## Versioning
 
-Use semver with prerelease tags until the platform is stable:
+Use semver with prerelease tags until the modern platform is stable:
 
-- `v0.4.0-beta.1` for the first modern-platform beta release.
-- `v0.4.0-beta.2` for fixes discovered during self-host testing.
-- Reserve `v1.0.0` for a stable API/storage contract, migration policy, documented backups, and a tested self-host install path.
+- `v0.x` and `v1.0.0` are the historical Shiny-first release line.
+- `v1.0.0` is the final legacy Shiny release.
+- `v2.0.0-beta.1` is the first modern-platform beta release.
+- `v2.0.0-beta.2` and later beta tags are for fixes discovered during self-host testing.
+- Reserve stable `v2.0.0` for a stable API/storage contract, migration policy, documented backups, and a tested self-host install path.
 
 Tag releases from `main` after `dev -> main` CI is green.
 
