@@ -6,9 +6,10 @@ import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
 import { species, occurrences } from "../db/schema.js";
-import { eq, count } from "drizzle-orm";
+import { and, count, eq, inArray } from "drizzle-orm";
 import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
-import { authMiddleware, optionalAuth } from "../middleware/auth.js";
+import { authMiddleware } from "../middleware/auth.js";
+import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import type { AppEnv } from "../middleware/auth.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -38,11 +39,7 @@ function saveUpload(buffer: Buffer, originalName: string): string {
 export const dataRoutes = new Hono<AppEnv>();
 
 dataRoutes.use("*", defaultRateLimit);
-dataRoutes.use("/occurrences/upload", authMiddleware);
-dataRoutes.use("/occurrences/clean", authMiddleware);
-dataRoutes.use("/occurrences/gbif/search", authMiddleware);
-dataRoutes.use("/occurrences/dwca", authMiddleware);
-dataRoutes.use("*", optionalAuth);
+dataRoutes.use("*", authMiddleware);
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB
 
@@ -74,6 +71,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     const body = await c.req.json();
     const async = body.async === true;
     const user = c.get("user");
+    const projectId = await ensureDefaultProject(user);
 
     if (async) {
       const jobId = await enqueueSdmJob(
@@ -95,13 +93,13 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       let [sp] = await db
         .select()
         .from(species)
-        .where(eq(species.name, speciesName))
+        .where(and(eq(species.name, speciesName), eq(species.projectId, projectId)))
         .limit(1);
 
       if (!sp) {
         [sp] = await db
           .insert(species)
-          .values({ name: speciesName, occurrenceCount: 0 })
+          .values({ name: speciesName, projectId, occurrenceCount: 0 })
           .returning();
       }
 
@@ -114,6 +112,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       if (validRecords.length > 0) {
         const recordsToInsert = validRecords.map((row) => ({
           speciesId: sp.id,
+          projectId,
           filePath: cleanedFileId,
           longitude: Number(row.longitude),
           latitude: Number(row.latitude),
@@ -207,12 +206,16 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
 dataRoutes.get("/species", async (c) => {
   try {
     const limitVal = Math.min(parseInt(c.req.query("limit") || "200", 10), 500);
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+    if (projectIds && projectIds.length === 0) {
+      return c.json({ species: [], hasMore: false });
+    }
 
-    const allSpecies = await db
-      .select()
-      .from(species)
-      .orderBy(species.createdAt)
-      .limit(limitVal);
+    const speciesQuery = db.select().from(species);
+    const allSpecies = await (projectIds
+      ? speciesQuery.where(inArray(species.projectId, projectIds)).orderBy(species.createdAt).limit(limitVal)
+      : speciesQuery.orderBy(species.createdAt).limit(limitVal));
 
     return c.json({ species: allSpecies, hasMore: allSpecies.length >= limitVal });
   } catch (err) {
@@ -224,7 +227,14 @@ dataRoutes.get("/species", async (c) => {
 dataRoutes.get("/species/:id", async (c) => {
   try {
     const id = c.req.param("id");
-    const [sp] = await db.select().from(species).where(eq(species.id, id)).limit(1);
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+    if (projectIds && projectIds.length === 0) return c.json({ error: "Species not found" }, 404);
+    const [sp] = await db
+      .select()
+      .from(species)
+      .where(projectIds ? and(eq(species.id, id), inArray(species.projectId, projectIds)) : eq(species.id, id))
+      .limit(1);
     if (!sp) return c.json({ error: "Species not found" }, 404);
     return c.json(sp);
   } catch (err) {
@@ -239,6 +249,17 @@ dataRoutes.get("/species/:id/occurrences", async (c) => {
     const page = parseInt(c.req.query("page") || "1", 10);
     const limit = parseInt(c.req.query("limit") || "100", 10);
     const offset = (page - 1) * limit;
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+    if (projectIds && projectIds.length === 0) {
+      return c.json({ occurrences: [], pagination: { page, limit, total: 0, totalPages: 0 } });
+    }
+
+    const speciesConditions = projectIds
+      ? and(eq(species.id, id), inArray(species.projectId, projectIds))
+      : eq(species.id, id);
+    const [sp] = await db.select({ id: species.id }).from(species).where(speciesConditions).limit(1);
+    if (!sp) return c.json({ error: "Species not found" }, 404);
 
     const recs = await db
       .select()

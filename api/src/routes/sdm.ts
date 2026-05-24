@@ -3,11 +3,12 @@ import { modelConfigSchema } from "@sdm/shared";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob, getJobQueue } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { runs, species, projectMembers } from "../db/schema.js";
+import { runs, species } from "../db/schema.js";
 import { eq, desc, count, and, inArray } from "drizzle-orm";
 import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
+import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { join } from "path";
 import type { AppEnv } from "../middleware/auth.js";
 
@@ -18,8 +19,11 @@ sdmRoutes.use("/run", authMiddleware);
 sdmRoutes.use("/batch", modelRateLimit);
 sdmRoutes.use("/batch", authMiddleware);
 sdmRoutes.use("/cancel/*", authMiddleware);
+sdmRoutes.use("/cancel-all", authMiddleware);
+sdmRoutes.use("/runs", authMiddleware);
 sdmRoutes.use("/runs/delete/*", authMiddleware);
 sdmRoutes.use("/runs/clear-all", authMiddleware);
+sdmRoutes.use("/status/*", authMiddleware);
 sdmRoutes.use("*", optionalAuth);
 
 sdmRoutes.post("/run", async (c) => {
@@ -33,17 +37,18 @@ sdmRoutes.post("/run", async (c) => {
     const config = parsed.data;
     const async = body.async === true;
     const user = c.get("user");
+    const projectId = await ensureDefaultProject(user);
 
     if (async) {
       let speciesId: string | undefined;
       const speciesName = config.species;
 
       try {
-        let [sp] = await db.select().from(species).where(eq(species.name, speciesName)).limit(1);
+        let [sp] = await db.select().from(species).where(and(eq(species.name, speciesName), eq(species.projectId, projectId))).limit(1);
         if (!sp) {
           [sp] = await db
             .insert(species)
-            .values({ name: speciesName, occurrenceCount: 0 })
+            .values({ name: speciesName, projectId, occurrenceCount: 0 })
             .returning();
         }
         speciesId = sp.id;
@@ -55,6 +60,7 @@ sdmRoutes.post("/run", async (c) => {
         .insert(runs)
         .values({
           speciesId: speciesId ?? null,
+          projectId,
           speciesName: speciesName ?? null,
           modelId: config.modelId,
           status: "queued",
@@ -135,6 +141,7 @@ sdmRoutes.post("/run", async (c) => {
       .insert(runs)
       .values({
         modelId: config.modelId,
+        projectId,
         speciesName: config.species ?? null,
         status: "running",
         startedAt: new Date(),
@@ -270,17 +277,17 @@ sdmRoutes.get("/runs", async (c) => {
     const statusFilter = c.req.query("status");
     const offset = (page - 1) * limitVal;
     const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
 
     const conditions = [];
-    if (user) {
-      const userProjects = await db
-        .select({ projectId: projectMembers.projectId })
-        .from(projectMembers)
-        .where(eq(projectMembers.userId, user.id));
-      const projectIds = userProjects.map((p) => p.projectId);
-      if (projectIds.length > 0) {
-        conditions.push(inArray(runs.projectId, projectIds));
-      }
+    if (projectIds && projectIds.length === 0) {
+      return c.json({
+        runs: [],
+        pagination: { page, limit: limitVal, total: 0, totalPages: 0 },
+      });
+    }
+    if (projectIds) {
+      conditions.push(inArray(runs.projectId, projectIds));
     }
 
     // DB-side status filtering
@@ -347,11 +354,16 @@ sdmRoutes.get("/runs", async (c) => {
 sdmRoutes.get("/status/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+    if (projectIds && projectIds.length === 0) {
+      return c.json({ error: "Run not found" }, 404);
+    }
 
     const [run] = await db
       .select()
       .from(runs)
-      .where(eq(runs.id, jobId))
+      .where(projectIds ? and(eq(runs.id, jobId), inArray(runs.projectId, projectIds)) : eq(runs.id, jobId))
       .limit(1);
 
     if (!run) {
@@ -446,7 +458,16 @@ sdmRoutes.get("/status/:jobId", async (c) => {
 sdmRoutes.post("/cancel/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");
-    const [run] = await db.select().from(runs).where(eq(runs.id, jobId)).limit(1);
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+    if (projectIds && projectIds.length === 0) {
+      return c.json({ error: "Run not found" }, 404);
+    }
+    const [run] = await db
+      .select()
+      .from(runs)
+      .where(projectIds ? and(eq(runs.id, jobId), inArray(runs.projectId, projectIds)) : eq(runs.id, jobId))
+      .limit(1);
 
     if (!run) {
       return c.json({ error: "Run not found" }, 404);
@@ -485,10 +506,16 @@ sdmRoutes.post("/cancel-all", async (c) => {
     const statusValues = statusFilter === "active"
       ? ["queued", "running"]
       : [statusFilter];
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+    if (projectIds && projectIds.length === 0) {
+      return c.json({ ok: true, message: "No runs to cancel", cancelled: 0 });
+    }
 
     const allRuns = await db
       .select({ id: runs.id, jobId: runs.jobId, status: runs.status })
-      .from(runs);
+      .from(runs)
+      .where(projectIds ? inArray(runs.projectId, projectIds) : undefined);
 
     const toCancel = allRuns.filter(r => statusValues.includes(r.status));
 
@@ -532,7 +559,16 @@ sdmRoutes.post("/cancel-all", async (c) => {
 sdmRoutes.delete("/runs/delete/:runId", async (c) => {
   try {
     const runId = c.req.param("runId");
-    const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+    if (projectIds && projectIds.length === 0) {
+      return c.json({ error: "Run not found" }, 404);
+    }
+    const [run] = await db
+      .select()
+      .from(runs)
+      .where(projectIds ? and(eq(runs.id, runId), inArray(runs.projectId, projectIds)) : eq(runs.id, runId))
+      .limit(1);
 
     if (!run) {
       return c.json({ error: "Run not found" }, 404);
@@ -560,6 +596,11 @@ sdmRoutes.post("/runs/clear-all", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const includeCompleted = body.includeCompleted !== false;
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+    if (projectIds && projectIds.length === 0) {
+      return c.json({ ok: true, cleared: 0, directoriesDeleted: 0, message: "Cleared 0 runs" });
+    }
 
     const statusesToDelete = ["failed", "cancelled"];
     if (includeCompleted) statusesToDelete.push("completed");
@@ -567,7 +608,7 @@ sdmRoutes.post("/runs/clear-all", async (c) => {
     const runsToDelete = await db
       .select({ id: runs.id, jobId: runs.jobId })
       .from(runs)
-      .where(inArray(runs.status, statusesToDelete as any));
+      .where(projectIds ? and(inArray(runs.status, statusesToDelete as any), inArray(runs.projectId, projectIds)) : inArray(runs.status, statusesToDelete as any));
 
     let deletedCount = 0;
 
@@ -599,6 +640,8 @@ sdmRoutes.post("/batch", async (c) => {
   try {
     const body = await c.req.json();
     const { configs, parallel } = body;
+    const user = c.get("user");
+    const projectId = await ensureDefaultProject(user);
 
     if (!Array.isArray(configs) || configs.length === 0) {
       return c.json({ error: "configs must be a non-empty array" }, 400);
@@ -616,6 +659,7 @@ sdmRoutes.post("/batch", async (c) => {
         .insert(runs)
         .values({
           speciesName: parsed.data.species,
+          projectId,
           modelId: parsed.data.modelId,
           status: "queued",
           config: parsed.data as any,
