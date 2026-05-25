@@ -85,6 +85,16 @@ export async function ensureBuckets(): Promise<void> {
   }
 }
 
+export async function checkBuckets(): Promise<void> {
+  const s3 = createS3Client();
+  const { rasters, exports } = getBucketNames();
+
+  await Promise.all([
+    s3.send(new HeadBucketCommand({ Bucket: rasters })),
+    s3.send(new HeadBucketCommand({ Bucket: exports })),
+  ]);
+}
+
 export async function uploadFile(
   bucket: string,
   objectName: string,
