@@ -289,6 +289,7 @@ sdmRoutes.get("/runs", async (c) => {
     const page = parseInt(c.req.query("page") || "1", 10);
     const limitVal = parseInt(c.req.query("limit") || "20", 10);
     const statusFilter = c.req.query("status");
+    const fields = c.req.query("fields");
     const offset = (page - 1) * limitVal;
     const user = c.get("user");
     const projectIds = await getUserProjectIds(user);
@@ -310,6 +311,8 @@ sdmRoutes.get("/runs", async (c) => {
     } else if (statusFilter && ["queued", "running", "completed", "failed", "cancelled"].includes(statusFilter)) {
       conditions.push(eq(runs.status, statusFilter as "queued" | "running" | "completed" | "failed" | "cancelled"));
     }
+
+    const isSummary = fields === "summary";
 
     // Parallelize data + count queries (same WHERE clause)
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -344,8 +347,10 @@ sdmRoutes.get("/runs", async (c) => {
       status: r.status ?? "queued",
       started_at: r.started_at,
       completed_at: r.completed_at,
-      metrics: r.metrics ?? null,
-      output_files: r.outputFiles ?? null,
+      ...(!isSummary ? {
+        metrics: r.metrics ?? null,
+        output_files: r.outputFiles ?? null,
+      } : {}),
       error: r.error ?? null,
     }));
 
@@ -481,7 +486,11 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
       return c.json({ error: "Run not found" }, 404);
     }
     const [run] = await db
-      .select()
+      .select({
+        id: runs.id,
+        jobId: runs.jobId,
+        status: runs.status,
+      })
       .from(runs)
       .where(projectIds ? and(eq(runs.id, jobId), inArray(runs.projectId, projectIds)) : eq(runs.id, jobId))
       .limit(1);
@@ -582,7 +591,11 @@ sdmRoutes.delete("/runs/delete/:runId", async (c) => {
       return c.json({ error: "Run not found" }, 404);
     }
     const [run] = await db
-      .select()
+      .select({
+        id: runs.id,
+        status: runs.status,
+        jobId: runs.jobId,
+      })
       .from(runs)
       .where(projectIds ? and(eq(runs.id, runId), inArray(runs.projectId, projectIds)) : eq(runs.id, runId))
       .limit(1);

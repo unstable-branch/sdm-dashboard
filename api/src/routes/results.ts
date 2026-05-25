@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { existsSync, readFileSync } from "fs";
+import { existsSync } from "fs";
+import { readFile } from "fs/promises";
 import { isAbsolute, join, relative, resolve } from "path";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
@@ -58,7 +59,7 @@ resultsRoutes.get("/file/:filePath", async (c) => {
   c.header("Content-Type", contentType);
   c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
 
-  const buffer = readFileSync(fullPath);
+  const buffer = await readFile(fullPath);
   return c.body(buffer);
 });
 
@@ -76,7 +77,17 @@ resultsRoutes.get("/:id", async (c) => {
   }
 
   const [run] = await db
-    .select()
+    .select({
+      id: runs.id,
+      status: runs.status,
+      speciesName: runs.speciesName,
+      modelId: runs.modelId,
+      startedAt: runs.startedAt,
+      completedAt: runs.completedAt,
+      error: runs.error,
+      metrics: runs.metrics,
+      outputFiles: runs.outputFiles,
+    })
     .from(runs)
     .where(and(...conditions))
     .limit(1);
@@ -121,7 +132,7 @@ resultsRoutes.get("/:id/report.txt", async (c) => {
   }
 
   c.header("Content-Type", "text/plain");
-  return c.body(readFileSync(reportPath, "utf-8"));
+  return c.body(await readFile(reportPath, "utf-8"));
 });
 
 resultsRoutes.get("/:id/script", async (c) => {
@@ -153,7 +164,7 @@ resultsRoutes.get("/:id/script", async (c) => {
 
     c.header("Content-Type", "text/x-r-source");
     c.header("Content-Disposition", `attachment; filename="reproducible_run.R"`);
-    return c.body(readFileSync(scriptPath, "utf-8"));
+    return c.body(await readFile(scriptPath, "utf-8"));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Script export failed";
     return c.json({ error: message }, 502);
