@@ -265,6 +265,25 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
         </div>
       )}
 
+      {cleanedOccurrence && cleanedOccurrence.validRecords === 0 && (
+        <div className="rounded-md border border-red-500/30 bg-red-500/5 px-4 py-3 flex items-start gap-3">
+          <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-red-500">Cleaning produced 0 valid records</p>
+            <p className="text-xs text-red-400">The occurrence data has no valid records after cleaning. The model run will likely fail. Go back to the Data page and check your data.</p>
+          </div>
+        </div>
+      )}
+      {!cleanedOccurrence && occurrenceFile && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
+          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-amber-500">No cleaning preview</p>
+            <p className="text-xs text-amber-400">You have not previewed cleaning on the Data page. The model will clean the data automatically during the run, but you may want to review the results first.</p>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
         <h2 className="text-lg font-semibold text-sdm-heading">Species & Model</h2>
 

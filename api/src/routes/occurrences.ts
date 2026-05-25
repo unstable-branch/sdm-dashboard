@@ -201,7 +201,7 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
     const user = c.get("user");
 
     const result = await plumberClient.withUser(user.id).parseDwca({ file_id: destPath });
-    return c.json(result);
+    return c.json({ ...result, file_id: destPath, file_path: destPath });
   } catch (err) {
     const message = err instanceof Error ? err.message : "DwCA parse failed";
     return c.json({ error: message }, 502);
