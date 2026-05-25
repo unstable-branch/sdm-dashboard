@@ -358,6 +358,213 @@ function(req, file_id, species_filter = NULL, max_coord_uncertainty_m = NULL, ba
 # --- Model endpoints ---
 
 #* Run SDM model
+# Standalone function for background model runs — callr::r_bg serializes this to a clean R process
+# All dependencies must be passed as explicit args or sourced internally
+run_model_background <- function(body, biovars, projection_extent, job_dir, app_dir, job_id) {
+  # Source required R files in the clean child process
+  source(file.path(app_dir, "R", "core", "bootstrap.R"))
+  sdm_set_project_root(app_dir)
+  source(file.path(app_dir, "R", "load.R"))
+
+  `%||%` <- function(a, b) if (is.null(a)) b else a
+
+  job_meta_file <- file.path(job_dir, "meta.json")
+  progress_log <- file.path(job_dir, "progress.log")
+  progress_json_path <- file.path(job_dir, "progress.json")
+  progress_json_list <- list()
+
+  detect_stage <- function(detail) {
+    if (is.null(detail)) return("unknown")
+    d <- tolower(detail)
+    if (grepl("clean", d)) return("clean")
+    if (grepl("load|scal|covariate", d)) return("covariates")
+    if (grepl("thin", d)) return("thinning")
+    if (grepl("vif", d)) return("vif")
+    if (grepl("fit|model", d)) return("fit")
+    if (grepl("pa replicate", d)) return("pa_replicates")
+    if (grepl("predict|projection", d)) return("predict")
+    if (grepl("output", d)) return("output")
+    if (grepl("future", d)) return("future")
+    if (grepl("summaris", d)) return("summarize")
+    if (grepl("esm", d)) return("esm")
+    "unknown"
+  }
+
+  log_fun <- function(...) {
+    msg <- paste0(format(Sys.time(), "%H:%M:%S"), " ", ...)
+    cat(msg, "\n")
+    cat(msg, "\n", file = progress_log, append = TRUE)
+  }
+
+  progress_fun <- function(x) {
+    pct <- if (is.list(x)) x$value else x
+    detail <- if (is.list(x)) x$detail else NULL
+    pct_num <- as.numeric(pct)
+    if (!is.finite(pct_num)) pct_num <- 0
+    log_line <- paste0(format(Sys.time(), "%H:%M:%S"), " [", sprintf("%.0f", pct_num * 100), "%] ", detail %||% "")
+    cat(log_line, "\n")
+    cat(log_line, "\n", file = progress_log, append = TRUE)
+    entry <- list(
+      timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+      percent = pct_num,
+      detail = detail %||% "",
+      stage = detect_stage(detail)
+    )
+    progress_json_list[[length(progress_json_list) + 1]] <<- entry
+    writeLines(jsonlite::toJSON(progress_json_list, auto_unbox = TRUE, pretty = TRUE), progress_json_path)
+  }
+
+  job_meta <- list(
+    id = job_id,
+    status = "running",
+    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+    config = as.list(body),
+    output_dir = job_dir
+  )
+
+  tryCatch({
+    cleaned_occurrence <- NULL
+    if (!is.null(body$cleaned_file_id) && nzchar(body$cleaned_file_id) && file.exists(body$cleaned_file_id)) {
+      cleaned_df <- utils::read.csv(body$cleaned_file_id, stringsAsFactors = FALSE)
+      cleaned_occurrence <- list(
+        df = cleaned_df,
+        source_counts = list(),
+        n_absent_excluded = 0,
+        original_rows = nrow(cleaned_df)
+      )
+    }
+
+    cfg <- sdm_config(
+      species = body$species,
+      occurrence_file = body$occurrence_file,
+      cleaned_occurrence = cleaned_occurrence,
+      worldclim_dir = body$worldclim_dir %||% sdm_default_worldclim_dir,
+      selected_biovars = biovars,
+      projection_extent = projection_extent,
+      background_n = as.integer(body$background_n %||% sdm_default_background_n),
+      min_source_records = as.integer(body$min_source_records %||% sdm_default_min_source_records),
+      merge_small_sources = isTRUE(body$merge_small_sources %||% TRUE),
+      thin_by_cell = isTRUE(body$thin_by_cell %||% TRUE),
+      model_id = body$model_id,
+      include_quadratic = isTRUE(body$include_quadratic %||% TRUE),
+      threshold = as.numeric(body$threshold %||% sdm_default_threshold),
+      aggregation_factor = as.integer(body$aggregation_factor %||% 1L),
+      cv_folds = as.integer(body$cv_folds %||% sdm_default_cv_folds),
+      n_cores = as.integer(body$n_cores %||% 1L),
+      allow_download = TRUE,
+      worldclim_res = as.integer(body$worldclim_res %||% sdm_default_worldclim_res),
+      cv_strategy = body$cv_strategy %||% sdm_default_cv_strategy,
+      cv_block_size_km = if (!is.null(body$cv_block_size_km)) as.numeric(body$cv_block_size_km) else sdm_default_cv_block_size_km,
+      use_elevation = isTRUE(body$use_elevation),
+      elevation_demtype = body$elevation_demtype %||% sdm_default_elevation_demtype,
+      opentopo_api_key = body$opentopo_api_key,
+      use_soil = isTRUE(body$use_soil),
+      selected_soil_vars = body$soil_vars %||% sdm_default_soil_vars,
+      selected_soil_depths = body$soil_depths %||% sdm_default_soil_depths,
+      use_uv = isTRUE(body$use_uv),
+      selected_uv_vars = body$uv_vars %||% sdm_default_uv_vars,
+      use_vegetation = isTRUE(body$use_vegetation),
+      veg_year = as.integer(body$veg_year %||% sdm_default_veg_year),
+      veg_products = body$veg_products %||% sdm_default_veg_products,
+      use_lulc = isTRUE(body$use_lulc),
+      lulc_year = as.integer(body$lulc_year %||% sdm_default_lulc_year),
+      use_hfp = isTRUE(body$use_hfp),
+      hfp_year = as.integer(body$hfp_year %||% sdm_default_hfp_year),
+      use_bioclim_season = isTRUE(body$use_bioclim_season),
+      use_drought = isTRUE(body$use_drought),
+      covariate_cache_dir = "covariates",
+      vif_reduction = isTRUE(body$vif_reduction),
+      vif_threshold = as.numeric(body$vif_threshold %||% 10),
+      future_projection = isTRUE(body$future_projection),
+      future_worldclim_dir = body$future_worldclim_dir %||% sdm_default_future_worldclim_dir,
+      future_label = body$future_label %||% "Future climate",
+      maxnet_features = body$maxnet_features %||% sdm_default_maxnet_features,
+      maxnet_regmult = as.numeric(body$maxnet_regmult %||% sdm_default_maxnet_regmult),
+      bias_method = body$bias_method %||% "uniform",
+      thickening_distance_km = as.numeric(body$thickening_distance_km %||% sdm_default_thinning_distance_km),
+      pa_replicates = as.integer(body$pa_replicates %||% sdm_default_pa_replicates),
+      output_dir = job_dir,
+      seed = as.integer(body$seed %||% sdm_default_seed),
+      source = body$source %||% sdm_default_climate_source,
+      log_fun = log_fun,
+      progress_fun = progress_fun,
+      climate_matching = isTRUE(body$climate_matching),
+      climate_matching_method = body$climate_matching_method %||% "mahalanobis",
+      max_coordinate_uncertainty = if (!is.null(body$max_coordinate_uncertainty)) as.numeric(body$max_coordinate_uncertainty) else NULL,
+      multi_ensemble_models = body$multi_ensemble_models,
+      multi_ensemble_weighting = body$multi_ensemble_weighting,
+      multi_ensemble_power = as.numeric(body$multi_ensemble_power %||% sdm_default_ensemble_power),
+      multi_ensemble_min_auc = as.numeric(body$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc),
+      multi_ensemble_min_tss = as.numeric(body$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss),
+      multi_ensemble_export = isTRUE(body$multi_ensemble_export %||% TRUE),
+      biomod2_models = body$biomod2_models,
+      esm_n_runs = as.integer(body$esm_n_runs %||% sdm_esm_default_n_runs),
+      esm_split = body$esm_split %||% sdm_esm_default_split,
+      esm_min_auc = as.numeric(body$esm_min_auc %||% sdm_esm_default_min_auc),
+      esm_weighting_metric = body$esm_weighting_metric %||% "AUC",
+      esm_power = as.numeric(body$esm_power %||% sdm_esm_default_power),
+      esm_biovars = body$esm_biovars,
+      future_worldclim_dir2 = body$future_worldclim_dir2,
+      future_label2 = body$future_label2 %||% "Future climate 2",
+      use_cc = isTRUE(body$use_cc),
+      cc_tests = body$cc_tests %||% "all"
+    )
+
+    result <- run_fast_sdm(cfg)
+
+    diag_files <- list()
+    tryCatch({
+      source(file.path(app_dir, "R", "output", "diagnostics_plots.R"), local = TRUE)
+      diag_files <- save_diagnostic_plots(result, job_dir, log_fun = log_fun)
+    }, error = function(e) {
+      cat("Diagnostic plots failed:", conditionMessage(e), "\n")
+      cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
+    })
+
+    tryCatch({
+      source(file.path(app_dir, "R", "output", "report_odmap.R"), local = TRUE)
+      odmap_csv <- file.path(job_dir, "odmap_report.csv")
+      odmap_md <- file.path(job_dir, "odmap_report.md")
+      write_odmap_report(result, odmap_csv, odmap_md)
+      log_fun("Saved ODMAP report: ", odmap_csv)
+      diag_files$odmap_report_csv <- odmap_csv
+      diag_files$odmap_report_md <- odmap_md
+    }, error = function(e) {
+      cat("ODMAP report failed:", conditionMessage(e), "\n")
+      cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
+    })
+
+    job_meta$status <<- "completed"
+    job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    if (!is.null(result)) {
+      job_meta$metrics <<- list(
+        auc_mean = result$cv$auc_mean,
+        auc_sd = result$cv$auc_sd,
+        tss_mean = result$cv$tss_mean,
+        tss_sd = result$cv$tss_sd,
+        presence_records = result$metrics$presence_records,
+        background_points = result$metrics$background_points,
+        elapsed_seconds = result$metrics$elapsed_seconds,
+        high_suitability_area_km2 = result$summary$high_risk_area_km2
+      )
+      job_meta$output_files <<- c(result$paths, diag_files)
+    }
+    gc(verbose = FALSE)
+    writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
+  }, error = function(e) {
+    job_meta$status <<- "failed"
+    job_meta$error <<- conditionMessage(e)
+    job_meta$error_traceback <<- paste(utils::tail(traceback(), 10), collapse = "\n")
+    job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
+    cat("Run failed:", conditionMessage(e), "\n")
+    cat("Traceback:\n")
+    print(utils::tail(traceback(), 10))
+  })
+
+  NULL
+}
+
 #* @post /api/v1/models/run
 #* @param species
 #* @param model_id
@@ -426,170 +633,8 @@ function(req) {
   job_meta_file <- file.path(job_dir, "meta.json")
   writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
 
-  progress_log <- file.path(job_dir, "progress.log")
-
-  log_fun <- function(...) {
-    msg <- paste0(format(Sys.time(), "%H:%M:%S"), " ", ...)
-    cat(msg, "\n")
-    cat(msg, "\n", file = progress_log, append = TRUE)
-  }
-
-  progress_fun <- function(x) {
-    pct <- if (is.list(x)) x$value else x
-    detail <- if (is.list(x)) x$detail else NULL
-    pct_num <- as.numeric(pct)
-    if (!is.finite(pct_num)) pct_num <- 0
-    log_line <- paste0(format(Sys.time(), "%H:%M:%S"), " [", sprintf("%.0f", pct_num * 100), "%] ", detail %||% "")
-    cat(log_line, "\n")
-    cat(log_line, "\n", file = progress_log, append = TRUE)
-  }
-
-  run_bg <- function() {
-    tryCatch({
-      cleaned_occurrence <- NULL
-      if (!is.null(body$cleaned_file_id) && nzchar(body$cleaned_file_id) && file.exists(body$cleaned_file_id)) {
-        cleaned_df <- utils::read.csv(body$cleaned_file_id, stringsAsFactors = FALSE)
-        cleaned_occurrence <- list(
-          df = cleaned_df,
-          source_counts = list(),
-          n_absent_excluded = 0,
-          original_rows = nrow(cleaned_df)
-        )
-      }
-
-      cfg <- sdm_config(
-        species = body$species,
-        occurrence_file = body$occurrence_file,
-        cleaned_occurrence = cleaned_occurrence,
-        worldclim_dir = body$worldclim_dir %||% sdm_default_worldclim_dir,
-        selected_biovars = biovars,
-        projection_extent = projection_extent,
-        background_n = as.integer(body$background_n %||% sdm_default_background_n),
-        min_source_records = as.integer(body$min_source_records %||% sdm_default_min_source_records),
-        merge_small_sources = isTRUE(body$merge_small_sources %||% TRUE),
-        thin_by_cell = isTRUE(body$thin_by_cell %||% TRUE),
-        model_id = body$model_id,
-        include_quadratic = isTRUE(body$include_quadratic %||% TRUE),
-        threshold = as.numeric(body$threshold %||% sdm_default_threshold),
-        aggregation_factor = as.integer(body$aggregation_factor %||% 1L),
-        cv_folds = as.integer(body$cv_folds %||% sdm_default_cv_folds),
-        n_cores = as.integer(body$n_cores %||% 1L),
-        allow_download = TRUE,
-        worldclim_res = as.integer(body$worldclim_res %||% sdm_default_worldclim_res),
-        cv_strategy = body$cv_strategy %||% sdm_default_cv_strategy,
-        cv_block_size_km = if (!is.null(body$cv_block_size_km)) as.numeric(body$cv_block_size_km) else sdm_default_cv_block_size_km,
-        use_elevation = isTRUE(body$use_elevation),
-        elevation_demtype = body$elevation_demtype %||% sdm_default_elevation_demtype,
-        opentopo_api_key = body$opentopo_api_key,
-        use_soil = isTRUE(body$use_soil),
-        selected_soil_vars = body$soil_vars %||% sdm_default_soil_vars,
-        selected_soil_depths = body$soil_depths %||% sdm_default_soil_depths,
-        use_uv = isTRUE(body$use_uv),
-        selected_uv_vars = body$uv_vars %||% sdm_default_uv_vars,
-        use_vegetation = isTRUE(body$use_vegetation),
-        veg_year = as.integer(body$veg_year %||% sdm_default_veg_year),
-        veg_products = body$veg_products %||% sdm_default_veg_products,
-        use_lulc = isTRUE(body$use_lulc),
-        lulc_year = as.integer(body$lulc_year %||% sdm_default_lulc_year),
-        use_hfp = isTRUE(body$use_hfp),
-        hfp_year = as.integer(body$hfp_year %||% sdm_default_hfp_year),
-        use_bioclim_season = isTRUE(body$use_bioclim_season),
-        use_drought = isTRUE(body$use_drought),
-        covariate_cache_dir = "covariates",
-        vif_reduction = isTRUE(body$vif_reduction),
-        vif_threshold = as.numeric(body$vif_threshold %||% 10),
-        future_projection = isTRUE(body$future_projection),
-        future_worldclim_dir = body$future_worldclim_dir %||% sdm_default_future_worldclim_dir,
-        future_label = body$future_label %||% "Future climate",
-        maxnet_features = body$maxnet_features %||% sdm_default_maxnet_features,
-        maxnet_regmult = as.numeric(body$maxnet_regmult %||% sdm_default_maxnet_regmult),
-        bias_method = body$bias_method %||% "uniform",
-        thickening_distance_km = as.numeric(body$thickening_distance_km %||% sdm_default_thinning_distance_km),
-        pa_replicates = as.integer(body$pa_replicates %||% sdm_default_pa_replicates),
-        output_dir = job_dir,
-        seed = as.integer(body$seed %||% sdm_default_seed),
-        source = body$source %||% sdm_default_climate_source,
-        log_fun = log_fun,
-        progress_fun = progress_fun,
-        climate_matching = isTRUE(body$climate_matching),
-        climate_matching_method = body$climate_matching_method %||% "mahalanobis",
-        max_coordinate_uncertainty = if (!is.null(body$max_coordinate_uncertainty)) as.numeric(body$max_coordinate_uncertainty) else NULL,
-        multi_ensemble_models = body$multi_ensemble_models,
-        multi_ensemble_weighting = body$multi_ensemble_weighting,
-        multi_ensemble_power = as.numeric(body$multi_ensemble_power %||% sdm_default_ensemble_power),
-        multi_ensemble_min_auc = as.numeric(body$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc),
-        multi_ensemble_min_tss = as.numeric(body$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss),
-        multi_ensemble_export = isTRUE(body$multi_ensemble_export %||% TRUE),
-        biomod2_models = body$biomod2_models,
-        esm_n_runs = as.integer(body$esm_n_runs %||% sdm_esm_default_n_runs),
-        esm_split = body$esm_split %||% sdm_esm_default_split,
-        esm_min_auc = as.numeric(body$esm_min_auc %||% sdm_esm_default_min_auc),
-        esm_weighting_metric = body$esm_weighting_metric %||% "AUC",
-        esm_power = as.numeric(body$esm_power %||% sdm_esm_default_power),
-        esm_biovars = body$esm_biovars,
-        future_worldclim_dir2 = body$future_worldclim_dir2,
-        future_label2 = body$future_label2 %||% "Future climate 2",
-        use_cc = isTRUE(body$use_cc),
-        cc_tests = body$cc_tests %||% "all"
-      )
-
-      result <- run_fast_sdm(cfg)
-
-      # Generate diagnostic PNG plots
-      diag_files <- list()
-      tryCatch({
-        source(file.path(app_dir, "R", "output", "diagnostics_plots.R"), local = TRUE)
-        diag_files <- save_diagnostic_plots(result, job_dir, log_fun = log_fun)
-      }, error = function(e) {
-        cat("Diagnostic plots failed:", conditionMessage(e), "\n")
-        cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-      })
-
-      # Generate ODMAP report
-      tryCatch({
-        source(file.path(app_dir, "R", "output", "report_odmap.R"), local = TRUE)
-        odmap_csv <- file.path(job_dir, "odmap_report.csv")
-        odmap_md <- file.path(job_dir, "odmap_report.md")
-        write_odmap_report(result, odmap_csv, odmap_md)
-        log_fun("Saved ODMAP report: ", odmap_csv)
-        diag_files$odmap_report_csv <- odmap_csv
-        diag_files$odmap_report_md <- odmap_md
-      }, error = function(e) {
-        cat("ODMAP report failed:", conditionMessage(e), "\n")
-        cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-      })
-
-      job_meta$status <<- "completed"
-      job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      if (!is.null(result)) {
-        job_meta$metrics <<- list(
-          auc_mean = result$cv$auc_mean,
-          auc_sd = result$cv$auc_sd,
-          tss_mean = result$cv$tss_mean,
-          tss_sd = result$cv$tss_sd,
-          presence_records = result$metrics$presence_records,
-          background_points = result$metrics$background_points,
-          elapsed_seconds = result$metrics$elapsed_seconds,
-          high_suitability_area_km2 = result$summary$high_risk_area_km2
-        )
-        job_meta$output_files <<- c(result$paths, diag_files)
-      }
-      # Free memory from large terra rasters and dataframes
-      gc(verbose = FALSE)
-      writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
-    }, error = function(e) {
-      job_meta$status <<- "failed"
-      job_meta$error <<- conditionMessage(e)
-      job_meta$error_traceback <<- paste(utils::tail(traceback(), 10), collapse = "\n")
-      job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
-      cat("Run failed:", conditionMessage(e), "\n")
-      cat("Traceback:\n")
-      print(utils::tail(traceback(), 10))
-    })
-  }
-
-  proc <- callr::r_bg(run_bg, stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"))
+  proc <- callr::r_bg(run_model_background, args = list(body, biovars, projection_extent, job_dir, app_dir, job_id),
+    stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"))
   sdm_process_registry[[job_id]] <- proc
 
   job_meta$process_pid <- proc$get_pid()
@@ -608,6 +653,7 @@ function(res, job_id) {
   job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   meta_file <- file.path(job_dir, "meta.json")
   progress_file <- file.path(job_dir, "progress.log")
+  progress_json_file <- file.path(job_dir, "progress.json")
 
   if (!file.exists(meta_file)) {
     res$status <- 404L; return(list(error = "Run not found"))
@@ -658,6 +704,11 @@ function(res, job_id) {
     progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
   }
 
+  progress_json <- NULL
+  if (file.exists(progress_json_file)) {
+    progress_json <- jsonlite::fromJSON(progress_json_file, simplifyVector = FALSE)
+  }
+
   list(
     id = meta$id,
     status = meta$status,
@@ -667,7 +718,8 @@ function(res, job_id) {
     error_traceback = meta$error_traceback %||% NULL,
     metrics = meta$metrics %||% NULL,
     output_files = meta$output_files %||% NULL,
-    progress_log = progress_lines
+    progress_log = progress_lines,
+    progress_json = progress_json
   )
 }
 

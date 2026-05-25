@@ -4,7 +4,7 @@ import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob, getJobQueue } from "../services/queue.js";
 import { db } from "../db/index.js";
 import { runs, species } from "../db/schema.js";
-import { eq, desc, count, and, inArray } from "drizzle-orm";
+import { eq, desc, count, and, inArray, sql } from "drizzle-orm";
 import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
@@ -56,6 +56,11 @@ sdmRoutes.post("/run", async (c) => {
         // Species tracking is best-effort; continue without it
       }
 
+      const [maxRun] = await db
+        .select({ maxNum: sql<number>`COALESCE(MAX(run_number), 0)` })
+        .from(runs)
+        .where(eq(runs.projectId, projectId));
+
       const [run] = await db
         .insert(runs)
         .values({
@@ -66,6 +71,7 @@ sdmRoutes.post("/run", async (c) => {
           status: "queued",
           config: config as any,
           jobId: null,
+          runNumber: maxRun.maxNum + 1,
         })
         .returning();
 
@@ -137,6 +143,11 @@ sdmRoutes.post("/run", async (c) => {
       return c.json({ jobId: run.id, queuedAt: new Date().toISOString() });
     }
 
+    const [maxRun] = await db
+      .select({ maxNum: sql<number>`COALESCE(MAX(run_number), 0)` })
+      .from(runs)
+      .where(eq(runs.projectId, projectId));
+
     const [run] = await db
       .insert(runs)
       .values({
@@ -146,6 +157,7 @@ sdmRoutes.post("/run", async (c) => {
         status: "running",
         startedAt: new Date(),
         config: config as any,
+        runNumber: maxRun.maxNum + 1,
       })
       .returning();
 

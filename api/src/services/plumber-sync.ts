@@ -90,6 +90,7 @@ async function syncRunningJobs() {
         const status = await client.getModelStatus(run.jobId);
         const plumberStatus = (status as any).status as string;
         const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log : [];
+        const progressJson = (status as any).progress_json;
         const error = (status as any).error as string | undefined;
 
         consecutive404s.delete(run.id);
@@ -103,11 +104,24 @@ async function syncRunningJobs() {
             return undefined;
           })();
 
+          if (progressJson) {
+            await db
+              .update(runs)
+              .set({ progressLog: progressJson })
+              .where(eq(runs.id, run.id));
+          }
+
+          const currentStage = Array.isArray(progressJson)
+            ? progressJson[progressJson.length - 1]
+            : null;
+
           jobEventBus.emitJobStatus({
             jobId: run.id,
             state: "active",
             progress: pct ?? 50,
             logs,
+            currentStage: currentStage?.stage ?? null,
+            progressJson,
           });
         } else if (plumberStatus === "completed") {
           await db
@@ -117,6 +131,7 @@ async function syncRunningJobs() {
               metrics: (status as any).metrics ?? null,
               outputFiles: (status as any).output_files ?? null,
               completedAt: new Date(),
+              progressLog: progressJson ?? undefined,
             })
             .where(eq(runs.id, run.id));
 
@@ -126,6 +141,7 @@ async function syncRunningJobs() {
             progress: 100,
             logs,
             result: status,
+            progressJson,
           });
         } else if (plumberStatus === "failed") {
           await db
@@ -134,6 +150,7 @@ async function syncRunningJobs() {
               status: "failed",
               error: error ?? "Model run failed",
               completedAt: new Date(),
+              progressLog: progressJson ?? undefined,
             })
             .where(eq(runs.id, run.id));
 
@@ -143,6 +160,7 @@ async function syncRunningJobs() {
             progress: 0,
             logs,
             failedReason: error ?? "Model run failed",
+            progressJson,
           });
         } else if (plumberStatus === "cancelled") {
           await db
@@ -150,6 +168,7 @@ async function syncRunningJobs() {
             .set({
               status: "cancelled",
               completedAt: new Date(),
+              progressLog: progressJson ?? undefined,
             })
             .where(eq(runs.id, run.id));
 
@@ -158,6 +177,7 @@ async function syncRunningJobs() {
             state: "cancelled",
             progress: 0,
             logs,
+            progressJson,
           });
         }
       } catch (err) {
