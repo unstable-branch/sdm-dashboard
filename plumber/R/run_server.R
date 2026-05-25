@@ -35,7 +35,8 @@ pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 
 # Unbox single-element vectors so JSON primitives are returned instead of arrays
 # e.g. "file_path" remains string, "n_rows" remains number, not [value]
-pr$setSerializer(plumber::serializer_json(auto_unbox = TRUE))
+# na="null" preserves NA values as JSON null instead of omitting them
+pr$setSerializer(plumber::serializer_json(auto_unbox = TRUE, na = "null"))
 
 # Enable OpenAPI 3.0 docs generation
 pr$setDocs(plumber::pr_docs(plumber::pr_docs_openapi()))
@@ -112,6 +113,11 @@ source(file.path(app_dir, "plumber", "R", "plumber.R"), local = FALSE)
 # Start server with project root as working directory
 setwd(app_dir)
 
+# Number of worker processes (default 1 for low-memory, set higher for multi-core)
+# Each worker is a separate R process handling one request at a time.
+n_workers <- as.integer(Sys.getenv("PLUMBER_WORKERS", "1"))
+cat("Starting Plumber with", n_workers, "worker(s) on port 8000\n")
+
 # Orphan job cleanup: remove stale job directories from previous crashed sessions
 orphan_cleanup <- function() {
   jobs_base <- file.path(app_dir, "outputs", "jobs")
@@ -133,4 +139,4 @@ orphan_cleanup <- function() {
 }
 tryCatch(orphan_cleanup(), error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
 
-plumber::pr_run(pr, host = "0.0.0.0", port = 8000)
+plumber::pr_run(pr, host = "0.0.0.0", port = 8000, workers = n_workers)
