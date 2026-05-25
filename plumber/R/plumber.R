@@ -934,11 +934,12 @@ sdm_async_submit <- function(job_type, params, app_dir) {
   writeLines(jsonlite::toJSON(input, auto_unbox = TRUE, pretty = TRUE), file.path(job_dir, "input.json"))
 
   dispatcher_path <- file.path(app_dir, "plumber", "R", "async_dispatcher.R")
-  proc <- callr::r_bg(function(app_dir, job_dir, dispatcher_path) {
-    source(dispatcher_path, local = TRUE)
-  }, args = list(app_dir, job_dir, dispatcher_path),
-  stdout = file.path(job_dir, "stdout.log"),
-  stderr = file.path(job_dir, "stderr.log"))
+  proc <- processx::process$new(
+    "Rscript",
+    c("--no-save", "--no-restore", dispatcher_path, app_dir, job_dir),
+    stdout = file.path(job_dir, "stdout.log"),
+    stderr = file.path(job_dir, "stderr.log")
+  )
 
   sdm_process_registry[[job_id]] <- proc
   meta$process_pid <- proc$get_pid()
