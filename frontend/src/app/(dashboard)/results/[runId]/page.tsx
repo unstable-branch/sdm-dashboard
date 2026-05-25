@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import dynamic from "next/dynamic";
@@ -8,6 +8,7 @@ import { MetricCards } from "@/components/results/metric-cards";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
 import { ArrowLeft, Loader2, Download } from "lucide-react";
 import { apiGet } from "@/services/api";
+import { useJobSSE } from "@/hooks/use-job-sse";
 import type { RunDetail } from "@/services/types";
 
 const SuitabilityMap = dynamic(
@@ -30,41 +31,52 @@ export default function ResultsPage() {
   const [error, setError] = useState<string | null>(null);
   const [reportText, setReportText] = useState<string | null>(null);
 
+  // SSE-driven job updates (only connect when initial status is running)
+  const { getJob, connected } = useJobSSE(true);
+
+  const fetchRun = useCallback(async () => {
+    if (!runId) return;
+    try {
+      const data = await apiGet<RunDetail>(`/api/v1/sdm/status/${runId}`);
+      setRun(data);
+      setLoading(false);
+
+      if (data.status === "completed") {
+        fetch(`/api/v1/results/${runId}/report.txt`)
+          .then((res) => res.ok ? res.text() : null)
+          .then((text) => setReportText(text))
+          .catch(() => {});
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load run");
+      setLoading(false);
+    }
+  }, [runId]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchRun();
+  }, [fetchRun]);
+
+  // SSE fallback: poll only if SSE is disconnected and run is still running
+  useEffect(() => {
+    if (!run || run.status !== "running") return;
+    if (connected) return; // SSE is active, no polling needed
+
+    const interval = setInterval(fetchRun, 5000);
+    return () => clearInterval(interval);
+  }, [run?.status, connected, fetchRun]);
+
+  // SSE update: when a job event arrives for this runId, refresh
   useEffect(() => {
     if (!runId) return;
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const job = getJob(runId);
+    if (!job) return;
 
-    const fetchStatus = () => {
-      if (cancelled) return;
-      apiGet<RunDetail>(`/api/v1/sdm/status/${runId}`)
-        .then((data) => {
-          if (cancelled) return;
-          setRun(data);
-          setLoading(false);
-          if (data.status === "completed") {
-            fetch(`/api/v1/results/${runId}/report.txt`)
-              .then((res) => res.ok ? res.text() : null)
-              .then((text) => { if (!cancelled) setReportText(text); })
-              .catch(() => {});
-          }
-          if (data.status === "running") {
-            timeoutId = setTimeout(fetchStatus, 3000);
-          }
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          setError(err.message);
-          setLoading(false);
-        });
-    };
-
-    fetchStatus();
-    return () => {
-      cancelled = true;
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [runId]);
+    if (job.state === "completed" || job.state === "failed" || job.state === "cancelled") {
+      fetchRun();
+    }
+  }, [runId, getJob, fetchRun]);
 
   if (loading) {
     return (
@@ -115,7 +127,7 @@ export default function ResultsPage() {
         <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
           <div className="flex items-center gap-2 text-sm text-sdm-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Model is still running...
+            Model is still running{!connected && " (polling)"}...
           </div>
           {run.progress_log.length > 0 && (
             <div className="mt-2 rounded bg-sdm-surface-soft p-2 font-mono text-xs text-sdm-muted max-h-32 overflow-y-auto">
