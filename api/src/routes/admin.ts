@@ -84,6 +84,8 @@ adminRoutes.get("/overview", async (c) => {
         startedAt: runs.startedAt,
         completedAt: runs.completedAt,
         error: runs.error,
+        cpuTimeMs: runs.cpuTimeMs,
+        peakMemoryMb: runs.peakMemoryMb,
       })
       .from(runs)
       .orderBy(desc(runs.createdAt))
