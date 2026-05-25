@@ -41,22 +41,28 @@ tmux kill-session -t sdm-frontend 2>/dev/null || true
 
 case "$MODE" in
   minimal)
-    PROFILE="core"
+    PROFILES=(core)
     DESC="postgres + redis"
     ;;
   full)
-    PROFILE="all"
+    PROFILES=(all)
     DESC="all services (core + email + storage + computation)"
     ;;
   *)
-    PROFILE="core,email"
+    PROFILES=(core email)
     DESC="postgres, redis, mailpit (+ local API + frontend)"
     ;;
 esac
 
+# Build --profile flags for docker compose
+PROFILE_FLAGS=()
+for p in "${PROFILES[@]}"; do
+  PROFILE_FLAGS+=(--profile "$p")
+done
+
 # 1. Start Docker backing services
 echo -e "${YELLOW}[1/4]${NC} Starting Docker services: ${DESC}..."
-docker compose -f docker-compose.dev.yml --profile "$PROFILE" up -d --remove-orphans 2>&1
+docker compose -f docker-compose.dev.yml "${PROFILE_FLAGS[@]}" up -d --remove-orphans 2>&1
 
 # 2. Wait for healthy
 echo -e "${YELLOW}[2/4]${NC} Waiting for services to be healthy..."
@@ -114,13 +120,13 @@ echo -e "  ${BLUE}Frontend:${NC}  http://localhost:3000"
 echo -e "  ${BLUE}API:${NC}       http://localhost:4000"
 echo -e "  ${BLUE}Postgres:${NC}  localhost:5432"
 echo -e "  ${BLUE}Redis:${NC}     localhost:6379"
-if [[ "$PROFILE" == *"email"* ]] || [[ "$PROFILE" == "all" ]]; then
+if printf '%s\n' "${PROFILES[@]}" | grep -qx "email" || printf '%s\n' "${PROFILES[@]}" | grep -qx "all"; then
     echo -e "  ${BLUE}Mailpit:${NC}   http://localhost:5000 (email inspector)"
 fi
-if [[ "$PROFILE" == *"comput"* ]] || [[ "$PROFILE" == "all" ]]; then
+if printf '%s\n' "${PROFILES[@]}" | grep -qx "all"; then
     echo -e "  ${BLUE}Plumber:${NC}   http://localhost:8000"
 fi
-if [[ "$PROFILE" == *"stor"* ]] || [[ "$PROFILE" == "all" ]]; then
+if printf '%s\n' "${PROFILES[@]}" | grep -qx "all"; then
     echo -e "  ${BLUE}Garage:${NC}    http://localhost:3900"
 fi
 echo ""
