@@ -35,6 +35,8 @@ interface OverviewData {
     error: string | null;
     cpuTimeMs: number | null;
     peakMemoryMb: number | null;
+    rCpuTimeMs: number | null;
+    rPeakMemoryMb: number | null;
   }>;
 }
 
@@ -176,8 +178,10 @@ export default function AdminOverviewPage() {
                   <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Model</th>
                   <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Started</th>
                   <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Completed</th>
-                  <th className="text-right py-2 px-3 text-xs font-medium text-sdm-muted uppercase">CPU</th>
-                  <th className="text-right py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Memory</th>
+                  <th className="text-right py-2 px-3 text-xs font-medium text-sdm-muted uppercase">CPU (API)</th>
+                  <th className="text-right py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Mem (API)</th>
+                  <th className="text-right py-2 px-3 text-xs font-medium text-sdm-muted uppercase">CPU (R)</th>
+                  <th className="text-right py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Mem (R)</th>
                 </tr>
               </thead>
               <tbody>
@@ -210,6 +214,12 @@ export default function AdminOverviewPage() {
                     </td>
                     <td className="py-2 px-3 text-right text-xs font-mono tabular-nums text-sdm-muted">
                       {r.peakMemoryMb != null ? `${r.peakMemoryMb} MB` : "-"}
+                    </td>
+                    <td className="py-2 px-3 text-right text-xs font-mono tabular-nums text-sdm-muted">
+                      {r.rCpuTimeMs != null ? `${(r.rCpuTimeMs / 1000).toFixed(1)}s` : "-"}
+                    </td>
+                    <td className="py-2 px-3 text-right text-xs font-mono tabular-nums text-sdm-muted">
+                      {r.rPeakMemoryMb != null ? `${r.rPeakMemoryMb} MB` : "-"}
                     </td>
                   </tr>
                 ))}
