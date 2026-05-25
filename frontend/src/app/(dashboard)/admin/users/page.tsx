@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/services/api";
 import { Loader2, Search, Plus, Trash2, Edit3, Key, X } from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
 
 interface UserRecord {
   id: string;
@@ -91,11 +92,21 @@ export default function AdminUsersPage() {
                 {users.map((u) => (
                   <tr key={u.id} className="border-b border-sdm-border hover:bg-sdm-surface-soft">
                     <td className="px-4 py-2 text-sdm-text">{u.name || "-"}</td>
-                    <td className="px-4 py-2 text-sdm-text">{u.email}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-1">
+                        <span className="text-sdm-text">{u.email}</span>
+                        <CopyButton value={u.email} />
+                      </div>
+                    </td>
                     <td className="px-4 py-2">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded ${u.role === "admin" ? "bg-sdm-accent/20 text-sdm-accent" : u.role === "editor" ? "bg-sdm-accent-blue/20 text-sdm-accent-blue" : "bg-sdm-surface-soft text-sdm-muted"}`}>{u.role}</span>
                     </td>
-                    <td className="px-4 py-2 text-xs text-sdm-muted">{new Date(u.createdAt).toLocaleDateString()}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-sdm-muted">{new Date(u.createdAt).toLocaleDateString()}</span>
+                        <CopyButton value={u.id} />
+                      </div>
+                    </td>
                     <td className="px-4 py-2 text-right">
                       <div className="flex justify-end gap-1">
                         <button onClick={() => setModal({ type: "edit", user: u })}
