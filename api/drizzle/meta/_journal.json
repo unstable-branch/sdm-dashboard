@@ -50,6 +50,13 @@
       "when": 1779750000000,
       "tag": "0007_add_provenance",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779780000000,
+      "tag": "0008_add_resource_accounting",
+      "breakpoints": true
     }
   ]
 }
