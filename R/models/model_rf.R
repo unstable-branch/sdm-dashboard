@@ -100,7 +100,7 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
         classification = FALSE,
         importance = "permutation",
         seed = seed,
-        num.threads = normalize_core_count(n_cores),
+        num.threads = 1,
         verbose = FALSE
       )
     }, error = function(e) {

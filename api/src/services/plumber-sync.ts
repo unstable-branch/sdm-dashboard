@@ -124,6 +124,25 @@ async function syncRunningJobs() {
             progressJson,
           });
         } else if (plumberStatus === "completed") {
+          // Fetch provenance manifest from Plumber
+          let provenance = null;
+          try {
+            const manifestRes = await fetch(
+              `${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/output/manifest/${run.jobId}`,
+              {
+                headers: {
+                  ...(process.env.PLUMBER_INTERNAL_KEY ? { "X-Hono-Internal": process.env.PLUMBER_INTERNAL_KEY } : {}),
+                },
+              },
+            );
+            if (manifestRes.ok) {
+              const manifestData = await manifestRes.json();
+              provenance = manifestData.manifest || null;
+            }
+          } catch {
+            // Manifest fetch is best-effort
+          }
+
           await db
             .update(runs)
             .set({
@@ -132,6 +151,7 @@ async function syncRunningJobs() {
               outputFiles: (status as any).output_files ?? null,
               completedAt: new Date(),
               progressLog: progressJson ?? undefined,
+              provenance,
             })
             .where(eq(runs.id, run.id));
 

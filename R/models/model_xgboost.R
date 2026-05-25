@@ -91,7 +91,7 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
       data = x_train, label = y_train, weight = weights,
       objective = "binary:logistic", eval_metric = "auc",
       max_depth = max_depth, eta = eta, nrounds = nrounds,
-      verbose = 0, nthread = max(1L, as.integer(n_cores))
+      verbose = 0, nthread = 1L, seed = seed
     )
   }, error = function(e) {
     stop("XGBoost fitting failed: ", conditionMessage(e), call. = FALSE)
