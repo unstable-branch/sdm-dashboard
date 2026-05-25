@@ -41,7 +41,13 @@ vi.mock("../services/plumber", () => ({
   plumberClient: {
     getModelStatus: vi.fn(),
     runModel: vi.fn(),
+    cancelModel: vi.fn(),
   },
+}));
+
+vi.mock("../services/queue", () => ({
+  enqueueSdmJob: vi.fn(),
+  getJobQueue: vi.fn(() => null),
 }));
 
 vi.mock("../services/idempotency", async (importOriginal) => {
@@ -196,6 +202,120 @@ describe("SDM routes", () => {
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data.config).toEqual({ threshold: 0.5, biovars: "1,4,6,12" });
+      expect(data).toEqual(expect.objectContaining({
+        id: "run-1",
+        status: "completed",
+        error: null,
+        status_schema: "workflow_status.v1",
+        run_id: "run-1",
+        workflow_id: "run-1",
+        terminal: true,
+        progress_percent: 100,
+        poll_after_ms: null,
+      }));
+    });
+
+    it("adds workflow polling fields to running SDM status without changing legacy fields", async () => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+      (db.select as any).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([{
+              id: "run-running",
+              status: "running",
+              speciesName: "Test species",
+              modelId: "glm",
+              startedAt: new Date("2024-01-01"),
+              completedAt: null,
+              metrics: null,
+              outputFiles: null,
+              error: null,
+              config: { threshold: 0.5 },
+              jobId: "plumber-1",
+            }])),
+          })),
+        })),
+      });
+      vi.mocked(plumberClient.getModelStatus).mockResolvedValueOnce({
+        status: "running",
+        progress_percent: 37,
+        progress_log: ["Started"],
+      });
+
+      const res = await app.request("/api/v1/sdm/status/run-running");
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data).toEqual(expect.objectContaining({
+        id: "run-running",
+        status: "running",
+        species: "Test species",
+        model_id: "glm",
+        error: null,
+        metrics: null,
+        output_files: null,
+        progress_log: ["Started"],
+        config: { threshold: 0.5 },
+        status_schema: "workflow_status.v1",
+        run_id: "run-running",
+        workflow_id: "run-running",
+        terminal: false,
+        progress_percent: 37,
+        poll_after_ms: 2000,
+      }));
+    });
+
+    it("normalizes terminal Plumber status while preserving the run id as workflow id", async () => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+      (db.select as any).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([{
+              id: "run-failed",
+              status: "running",
+              speciesName: "Test species",
+              modelId: "glm",
+              startedAt: new Date("2024-01-01"),
+              completedAt: null,
+              metrics: null,
+              outputFiles: null,
+              error: null,
+              config: { threshold: 0.5 },
+              jobId: "plumber-2",
+            }])),
+          })),
+        })),
+      });
+      (db.update as any).mockReturnValueOnce({
+        set: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve()),
+        })),
+      });
+      vi.mocked(plumberClient.getModelStatus).mockResolvedValueOnce({
+        status: "failed",
+        error: "Plumber failed",
+        progress: 90,
+        progress_log: ["Started", "Failed"],
+      });
+
+      const res = await app.request("/api/v1/sdm/status/run-failed");
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data).toEqual(expect.objectContaining({
+        id: "run-failed",
+        status: "failed",
+        error: "Plumber failed",
+        metrics: null,
+        output_files: null,
+        progress_log: ["Started", "Failed"],
+        status_schema: "workflow_status.v1",
+        run_id: "run-failed",
+        workflow_id: "run-failed",
+        terminal: true,
+        progress_percent: 90,
+        poll_after_ms: null,
+      }));
     });
 
     it("returns 404 for missing run", async () => {
@@ -429,6 +549,53 @@ describe("SDM routes", () => {
       expect(JSON.stringify(data.comparison)).not.toContain("occurrences");
     });
 
+    it("treats cancelled child runs as terminal in aggregate batch status", async () => {
+      const { db } = await import("../db");
+      (db.select as unknown as MockReturnValueOnce).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve([
+            {
+              id: "run-1",
+              species: "Species A",
+              model_id: "glm",
+              status: "completed",
+              started_at: new Date("2024-01-01T00:10:00Z"),
+              completed_at: new Date("2024-01-01T00:20:00Z"),
+              created_at: new Date("2024-01-01T00:00:00Z"),
+              error: null,
+              metrics: { auc_mean: 0.91 },
+            },
+            {
+              id: "run-2",
+              species: "Species B",
+              model_id: "gam",
+              status: "cancelled",
+              started_at: new Date("2024-01-01T00:12:00Z"),
+              completed_at: new Date("2024-01-01T00:25:00Z"),
+              created_at: new Date("2024-01-01T00:05:00Z"),
+              error: null,
+              metrics: null,
+            },
+          ])),
+        })),
+      });
+
+      const res = await app.request("/api/v1/sdm/batches/batch-123");
+      expect(res.status).toBe(200);
+
+      const data = await res.json();
+      expect(data.counts_by_status).toEqual({
+        queued: 0,
+        running: 0,
+        completed: 1,
+        failed: 0,
+        cancelled: 1,
+      });
+      expect(data.active).toBe(0);
+      expect(data.cancelled).toBe(1);
+      expect(data.completed_at).toBe("2024-01-01T00:25:00.000Z");
+    });
+
     it("returns 404 when batch is not visible", async () => {
       const { db } = await import("../db");
       (db.select as unknown as MockReturnValueOnce).mockReturnValueOnce({
@@ -439,6 +606,76 @@ describe("SDM routes", () => {
 
       const res = await app.request("/api/v1/sdm/batches/missing-batch");
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("POST /cancel/:jobId", () => {
+    it("does not treat a batch parent ID as a cancellable run", async () => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+      (db.select as unknown as MockReturnValueOnce).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([])),
+          })),
+        })),
+      });
+
+      const res = await app.request("/api/v1/sdm/cancel/batch-123", {
+        method: "POST",
+      });
+
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "Run not found" });
+      expect(plumberClient.cancelModel).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it("cancels a batch child run by run ID and records a terminal timestamp", async () => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+      const { getJobQueue } = await import("../services/queue");
+      const removeBullJob = vi.fn(async () => undefined);
+      const getJob = vi.fn(async () => ({
+        getState: vi.fn(async () => "waiting"),
+        remove: removeBullJob,
+      }));
+      vi.mocked(getJobQueue).mockReturnValueOnce({ getJob } as never);
+      vi.mocked(plumberClient.cancelModel).mockResolvedValueOnce({
+        ok: true,
+        message: "cancelled upstream",
+      });
+      const updateWhere = vi.fn(async () => undefined);
+      const updateSet = vi.fn(() => ({ where: updateWhere }));
+
+      (db.select as unknown as MockReturnValueOnce).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([{
+              id: "run-child-1",
+              batchId: "batch-123",
+              projectId: "proj-1",
+              jobId: "plumber-job-1",
+              status: "running",
+            }])),
+          })),
+        })),
+      });
+      (db.update as unknown as MockReturnValueOnce).mockReturnValueOnce({ set: updateSet });
+
+      const res = await app.request("/api/v1/sdm/cancel/run-child-1", {
+        method: "POST",
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, message: "cancelled upstream" });
+      expect(getJob).toHaveBeenCalledWith("plumber-job-1");
+      expect(removeBullJob).toHaveBeenCalled();
+      expect(plumberClient.cancelModel).toHaveBeenCalledWith("plumber-job-1");
+      expect(updateSet).toHaveBeenCalledWith({
+        status: "cancelled",
+        completedAt: expect.any(Date),
+      });
     });
   });
 });
