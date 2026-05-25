@@ -60,6 +60,7 @@ export const species = pgTable("species", {
 export const runs = pgTable("runs", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").references(() => projects.id),
+  batchId: varchar("batch_id", { length: 100 }),
   speciesId: uuid("species_id").references(() => species.id),
   speciesName: varchar("species_name", { length: 255 }),
   modelId: varchar("model_id", { length: 50 }).notNull(),
@@ -75,6 +76,7 @@ export const runs = pgTable("runs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_runs_project").on(t.projectId),
+  index("idx_runs_batch").on(t.batchId),
   index("idx_runs_status").on(t.status),
 ]);
 

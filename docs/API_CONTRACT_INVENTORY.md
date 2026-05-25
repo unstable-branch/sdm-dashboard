@@ -37,13 +37,13 @@ Primary sources:
   - Response shapes are straightforward but not schema-versioned.
 
 ### SDM (`/api/v1/sdm`)
-- Main routes: `POST /run`, `POST /batch`, `GET /runs`, `GET /status/:jobId`, `POST /cancel/:jobId`, `POST /cancel-all`, `DELETE /runs/delete/:runId`, `POST /runs/clear-all`, `GET /models`, `GET /config/defaults`, `GET /future/scenarios` (`api/src/routes/sdm.ts`).
+- Main routes: `POST /run`, `POST /batch`, `GET /batches/:batchId`, `GET /runs`, `GET /status/:jobId`, `POST /cancel/:jobId`, `POST /cancel-all`, `DELETE /runs/delete/:runId`, `POST /runs/clear-all`, `GET /models`, `GET /config/defaults`, `GET /future/scenarios` (`api/src/routes/sdm.ts`).
 - Auth mode: mixed by route middleware.
-  - Auth-required: run, batch, cancel/cancel-all, runs, status, delete/clear-all.
+  - Auth-required: run, batch, batch status, cancel/cancel-all, runs, status, delete/clear-all.
   - Optional auth applied globally after protected paths.
 - Sync/async: mixed.
   - `POST /run` supports `async=true` queue mode and non-async immediate plumber start mode.
-  - `POST /batch` starts multiple runs and returns a batch envelope.
+  - `POST /batch` starts multiple runs and returns a batch envelope; `GET /batches/:batchId` returns aggregate child-run status.
 - Current machine-interface notes:
   - Strong input validation for model config (`modelConfigSchema`).
   - Status lifecycle exists (`queued|running|completed|failed|cancelled`), but identifier semantics are mixed (`run.id` returned as `jobId` in async run response).
@@ -127,7 +127,7 @@ Primary sources:
 - Workflow objects:
   - Run/job/batch are represented by mixed ad hoc envelopes instead of one stable workflow resource shape.
 - Batch parent semantics:
-  - `batch_id` is synthetic/time-based only; no persistent batch parent resource or aggregate status endpoint.
+  - `batch_id` is persisted on child runs and has an aggregate status endpoint, but there is not yet a separate batch resource with owner metadata, idempotency, or server-side comparison filters.
 - Artifact manifests:
   - Artifact/file identity is split between local paths, `file_id`, and upstream manifest data; contract not normalized.
 - Status/error shape:
@@ -140,7 +140,7 @@ Primary sources:
 2. Define shared envelope schemas in API code/docs: `ApiError`, `WorkflowStatus`, `Pagination`, `ArtifactRef`.
 3. Normalize SDM run submission response shape to always return `{ runId, workflowId, status }` (retain compatibility alias temporarily).
 4. Introduce `Idempotency-Key` support for `POST /api/v1/sdm/run`, `POST /api/v1/sdm/batch`, `POST /api/v1/data/occurrences/clean`, and `POST /api/v1/climate/download`.
-5. Add persistent `batch_runs` parent object (or table) and `GET /api/v1/sdm/batches/:id` aggregate status endpoint.
+5. Extend the current `runs.batch_id` aggregate into a fuller batch resource only if owner metadata, idempotency, or long-lived batch history needs require it.
 6. Define and enforce artifact manifest schema at Hono boundary for `GET /api/v1/results/:id/manifest` (adapter from plumber output).
 7. Standardize error mapping middleware so all handlers emit a single error contract with stable `code`, `message`, and optional `details`.
 8. Add explicit auth policy pass for currently open operational routes (`/api/v1/jobs/*`, `/api/v1/ecology/*`, selected diagnostics) and document intended machine scope.

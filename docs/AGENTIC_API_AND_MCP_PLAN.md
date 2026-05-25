@@ -39,6 +39,7 @@ Current useful foundation:
 - `sdm-mcp` already exists as a cautious local-first MCP prototype. Keep it as
   a learning/prototyping lane until the dashboard API has stable workflow
   contracts.
+- Boundary and migration details: [SDM Dashboard <-> sdm-mcp Alignment](./SDM_MCP_ALIGNMENT.md).
 
 Target shape:
 

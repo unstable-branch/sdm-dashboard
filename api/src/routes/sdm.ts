@@ -10,6 +10,7 @@ import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { join } from "path";
+import { randomUUID } from "crypto";
 import type { AppEnv } from "../middleware/auth.js";
 
 export const sdmRoutes = new Hono<AppEnv>();
@@ -23,6 +24,7 @@ sdmRoutes.use("/cancel-all", authMiddleware);
 sdmRoutes.use("/runs", authMiddleware);
 sdmRoutes.use("/runs/delete/*", authMiddleware);
 sdmRoutes.use("/runs/clear-all", authMiddleware);
+sdmRoutes.use("/batches/*", authMiddleware);
 sdmRoutes.use("/status/*", authMiddleware);
 sdmRoutes.use("*", optionalAuth);
 
@@ -351,6 +353,101 @@ sdmRoutes.get("/runs", async (c) => {
   }
 });
 
+sdmRoutes.get("/batches/:batchId", async (c) => {
+  try {
+    const batchId = c.req.param("batchId");
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+    if (projectIds && projectIds.length === 0) {
+      return c.json({ error: "Batch not found" }, 404);
+    }
+
+    const conditions = [eq(runs.batchId, batchId)];
+    if (projectIds) {
+      conditions.push(inArray(runs.projectId, projectIds));
+    }
+
+    const batchRuns = await db
+      .select({
+        id: runs.id,
+        species: runs.speciesName,
+        model_id: runs.modelId,
+        status: runs.status,
+        started_at: runs.startedAt,
+        completed_at: runs.completedAt,
+        created_at: runs.createdAt,
+        error: runs.error,
+      })
+      .from(runs)
+      .where(and(...conditions));
+
+    if (batchRuns.length === 0) {
+      return c.json({ error: "Batch not found" }, 404);
+    }
+
+    const countsByStatus = {
+      queued: 0,
+      running: 0,
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+    };
+
+    for (const run of batchRuns) {
+      countsByStatus[run.status]++;
+    }
+
+    const terminalStatuses = new Set(["completed", "failed", "cancelled"]);
+    const createdAtValues = batchRuns.map((run) => run.created_at.getTime());
+    const startedAtValues = batchRuns
+      .map((run) => run.started_at?.getTime())
+      .filter((value): value is number => typeof value === "number");
+    const completedAtValues = batchRuns
+      .map((run) => run.completed_at?.getTime())
+      .filter((value): value is number => typeof value === "number");
+    const allTerminal = batchRuns.every((run) => terminalStatuses.has(run.status));
+    const completedAtDerivable = allTerminal && completedAtValues.length === batchRuns.length;
+
+    const runsByLatest = [...batchRuns].sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+    const latestErrorRun = runsByLatest.find((run) => run.error);
+    const warningMessages = Array.from(
+      new Set(
+        batchRuns
+          .filter((run) => run.status !== "failed" && run.error)
+          .map((run) => run.error as string),
+      ),
+    );
+
+    return c.json({
+      batch_id: batchId,
+      total: batchRuns.length,
+      counts_by_status: countsByStatus,
+      active: countsByStatus.queued + countsByStatus.running,
+      completed: countsByStatus.completed,
+      failed: countsByStatus.failed,
+      cancelled: countsByStatus.cancelled,
+      runs: batchRuns.map((run) => ({
+        id: run.id,
+        species: run.species ?? null,
+        model_id: run.model_id,
+        status: run.status,
+        started_at: run.started_at?.toISOString() ?? null,
+        completed_at: run.completed_at?.toISOString() ?? null,
+        created_at: run.created_at.toISOString(),
+        error: run.error ?? null,
+      })),
+      created_at: new Date(Math.min(...createdAtValues)).toISOString(),
+      started_at: startedAtValues.length > 0 ? new Date(Math.min(...startedAtValues)).toISOString() : null,
+      completed_at: completedAtDerivable ? new Date(Math.max(...completedAtValues)).toISOString() : null,
+      latest_error: latestErrorRun?.error ?? null,
+      warnings: warningMessages,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to get batch status";
+    return c.json({ error: message }, 502);
+  }
+});
+
 sdmRoutes.get("/status/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");
@@ -642,6 +739,7 @@ sdmRoutes.post("/batch", async (c) => {
     const { configs, parallel } = body;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
+    const batchId = `batch-${randomUUID()}`;
 
     if (!Array.isArray(configs) || configs.length === 0) {
       return c.json({ error: "configs must be a non-empty array" }, 400);
@@ -658,6 +756,7 @@ sdmRoutes.post("/batch", async (c) => {
       const [run] = await db
         .insert(runs)
         .values({
+          batchId,
           speciesName: parsed.data.species,
           projectId,
           modelId: parsed.data.modelId,
@@ -733,7 +832,7 @@ sdmRoutes.post("/batch", async (c) => {
     }
 
     return c.json({
-      batch_id: `batch-${Date.now()}`,
+      batch_id: batchId,
       job_ids: jobIds,
       total: jobIds.length,
       message: `Batch of ${jobIds.length} runs started`,
