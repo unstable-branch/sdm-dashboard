@@ -95,13 +95,18 @@ Primary sources:
 - Sync/async: synchronous retrieval/streaming and plumber proxy calls for script/manifest.
 - Current machine-interface notes:
   - Strong run access checks and path confinement for file retrieval.
-  - `manifest` exists but is upstream-defined; local stable schema is not pinned.
+  - `manifest` is now normalized at the Hono boundary into `run_manifest.v1`
+    with bounded `model`, `data`, `climate`, `validation`, `metrics`,
+    `output_files`, and `artifacts` fields while preserving current Plumber
+    compatibility fields (`ok`, `manifest_path`, `manifest.run_id`, etc.).
 
 ### Jobs (`/api/v1/jobs`)
 - Main routes: `GET /sse`, `GET /:jobId`, `POST /:jobId/cancel` (`api/src/routes/jobs.ts`).
 - Auth mode: currently no auth middleware in this router.
 - Sync/async: async monitoring/cancellation interface over queue; SSE for live updates.
 - Current machine-interface notes:
+  - `GET /:jobId` now retains the queue fields (`id`, `state`, `progress`, `result`, `failedReason`) and adds a polling-friendly normalized layer: `status`, `progress_percent`, `terminal`, `poll_after_ms`, and `error`.
+  - The normalized route maps BullMQ states into `queued|running|completed|failed|cancelled|unknown`; see `docs/ASYNC_JOB_STATUS_CONTRACT.md`.
   - Useful real-time event stream (`job-update`) for agents/UI.
   - Job visibility/cancel surface is global unless externally gated.
 
@@ -132,9 +137,13 @@ Primary sources:
 - Batch parent semantics:
   - `batch_id` is persisted on child runs and has an aggregate status endpoint, but there is not yet a separate batch resource with owner metadata, idempotency, or server-side comparison filters.
 - Artifact manifests:
-  - Occurrence data now has stable dataset IDs, but broader artifact/file identity is still split between local paths, `file_id`, and upstream manifest data.
+  - Occurrence data now has stable dataset IDs, and run manifests now expose a
+    bounded Hono-side `artifacts[]` list derived from Plumber output files.
+    Broader artifact/file identity is still split between local paths,
+    `file_id`, and upstream output conventions outside the run-manifest route.
 - Status/error shape:
   - Error/status payloads vary by route (`error`, `message`, `warning`, pass-through objects), with mixed 200/4xx/5xx fallback behavior.
+  - `GET /api/v1/jobs/:jobId` is the first additive normalized polling response; SDM run status, batch status, and Plumber status pass-throughs are not yet normalized.
 - Scopes/quotas/audit:
   - Auth exists, but route-level machine scopes, quota semantics, and audit event contract are not formalized.
 
@@ -144,7 +153,9 @@ Primary sources:
 3. Normalize SDM run submission response shape to always return `{ runId, workflowId, status }` (retain compatibility alias temporarily).
 4. Add route-specific partial-failure hardening and retry guidance for idempotent SDM batch/run operations.
 5. Extend the current `runs.batch_id` aggregate into a fuller batch resource only if owner metadata, idempotency, or long-lived batch history needs require it.
-6. Define and enforce artifact manifest schema at Hono boundary for `GET /api/v1/results/:id/manifest` (adapter from plumber output).
+6. Extend artifact manifest coverage to batch manifests and document which
+   artifact fields are safe for LLM/notebook summaries versus explicit
+   downloads.
 7. Standardize error mapping middleware so all handlers emit a single error contract with stable `code`, `message`, and optional `details`.
 8. Add explicit auth policy pass for currently open operational routes (`/api/v1/jobs/*`, `/api/v1/ecology/*`, selected diagnostics) and document intended machine scope.
 9. Add readiness checks for DB/storage in `/ready` to match published readiness fields.

@@ -5,6 +5,66 @@ import { jobEventBus } from "../services/job-events.js";
 
 const app = new Hono();
 
+type NormalizedJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "unknown";
+
+type QueueJobStatus = Record<string, unknown> & {
+  state?: unknown;
+  progress?: unknown;
+  result?: unknown;
+  failedReason?: unknown;
+};
+
+const ACTIVE_POLL_AFTER_MS = 2000;
+
+function normalizeQueueState(state: unknown): NormalizedJobStatus {
+  switch (state) {
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "active":
+      return "running";
+    case "waiting":
+    case "waiting-children":
+    case "delayed":
+    case "prioritized":
+    case "paused":
+      return "queued";
+    case "cancelled":
+      return "cancelled";
+    default:
+      return "unknown";
+  }
+}
+
+function normalizeProgressPercent(progress: unknown): number | null {
+  if (typeof progress !== "number" || !Number.isFinite(progress)) return null;
+  return Math.max(0, Math.min(100, progress));
+}
+
+function getResultError(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const error = (result as Record<string, unknown>).error;
+  return typeof error === "string" && error.length > 0 ? error : null;
+}
+
+function withNormalizedJobStatus(status: QueueJobStatus) {
+  const normalizedStatus = normalizeQueueState(status.state);
+  const terminal = normalizedStatus === "completed" || normalizedStatus === "failed" || normalizedStatus === "cancelled";
+  const failedReason = typeof status.failedReason === "string" && status.failedReason.length > 0
+    ? status.failedReason
+    : null;
+
+  return {
+    ...status,
+    status: normalizedStatus,
+    progress_percent: normalizeProgressPercent(status.progress),
+    terminal,
+    poll_after_ms: terminal ? null : ACTIVE_POLL_AFTER_MS,
+    error: normalizedStatus === "failed" ? failedReason ?? getResultError(status.result) : null,
+  };
+}
+
 app.get("/sse", (c) => {
   return streamSSE(c, async (stream) => {
     let aborted = false;
@@ -73,13 +133,13 @@ app.get("/sse", (c) => {
 
 app.get("/:jobId", async (c) => {
   const jobId = c.req.param("jobId");
-  const status = await getJobStatus(jobId).catch(() => null);
+  const status = await getJobStatus(jobId).catch(() => null) as QueueJobStatus | null;
 
   if (!status) {
     return c.json({ error: "Job not found or queue unavailable" }, 404);
   }
 
-  return c.json(status);
+  return c.json(withNormalizedJobStatus(status));
 });
 
 app.post("/:jobId/cancel", async (c) => {

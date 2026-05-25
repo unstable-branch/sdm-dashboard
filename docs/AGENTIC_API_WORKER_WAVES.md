@@ -61,12 +61,23 @@ Keep in main:
 
 Goal: make long-running jobs reliable from code without browser state.
 
+Worker B status:
+
+- Added `docs/ASYNC_JOB_STATUS_CONTRACT.md` with the current async/status
+  inventory and the first normalized polling contract.
+- Implemented the normalized polling response additively for
+  `GET /api/v1/jobs/:jobId` only.
+- Kept existing queue response fields and did not touch results routes or
+  manifest behavior.
+
 Delegable tasks:
 
-- Inventory current status shapes across model runs, climate downloads, clean
+- Continue inventorying current status shapes across model runs, climate downloads, clean
   jobs, BullMQ jobs, and Plumber status.
-- Propose one normalized job status response.
-- Implement polling-friendly status response for one route group.
+- Extend or revise the normalized job status response after main-seat vocabulary
+  review.
+- Implement polling-friendly status response for additional route groups only
+  after ID semantics are settled.
 - Add cancellation semantics tests for batch parent and child runs.
 - Add pagination/filtering tests for run history.
 
@@ -80,11 +91,18 @@ Keep in main:
 
 Goal: make outputs reproducible and safe for LLM/notebook summaries.
 
+Completed so far:
+
+- Added a Hono-side `RunManifest` v1 adapter for
+  `GET /api/v1/results/:id/manifest`, wrapping current Plumber manifests into
+  bounded fields while retaining `ok`, `manifest_path`, and `manifest.*`
+  compatibility aliases.
+
 Delegable tasks:
 
 - Inventory existing `results`, `manifest`, report, and output-file behavior.
 - Define `RunManifest` and `BatchManifest` schemas.
-- Add a completed-run manifest contract test using existing fixtures or mocks.
+- Define `BatchManifest` schema and tests.
 - Add a batch comparison summary shape with metrics and warnings.
 - Add docs for what is safe to summarize versus what requires explicit
   download.
