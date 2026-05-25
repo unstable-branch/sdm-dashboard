@@ -27,9 +27,9 @@ export async function logAction(entry: AuditEntry): Promise<void> {
   }
 }
 
-export function extractClientInfo(c: { req: { header: (name: string) => string | undefined }; env: { incoming?: { socket?: { remoteAddress?: string } } } }) {
+export function extractClientInfo(c: any) {
   return {
-    ipAddress: c.env.incoming?.socket?.remoteAddress || c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || null,
+    ipAddress: c.env?.incoming?.socket?.remoteAddress || c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || null,
     userAgent: c.req.header("user-agent")?.slice(0, 500) || null,
   };
 }
