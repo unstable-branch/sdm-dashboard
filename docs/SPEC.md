@@ -79,6 +79,7 @@ Release candidates should be tagged from `main` using semver prerelease tags suc
 See `docs/RELEASE_AND_HOSTING.md` for packaging, release, and self-hosting policy.
 
 The `dev` to `main` release plan is maintained in `docs/DEV_MAIN_RELEASE_PLAN.md`.
+Future machine-facing workflow work is tracked in `docs/AGENTIC_API_AND_MCP_PLAN.md`.
 
 ## CRAN Track
 

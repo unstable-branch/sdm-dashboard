@@ -21,6 +21,7 @@ import { authRoutes } from "./routes/auth.js";
 import { projectRoutes } from "./routes/projects.js";
 import { diagnosticsRoutes } from "./routes/diagnostics.js";
 import jobsRoutes from "./routes/jobs.js";
+import { openApiDocument } from "./openapi.js";
 
 process.on("uncaughtException", (err) => {
   const msg = err?.message ?? "";
@@ -90,6 +91,8 @@ app.get("/ready", async (c) => {
 
   return c.json({ status, checks }, allOk ? 200 : 503);
 });
+
+app.get("/api/v1/openapi.json", (c) => c.json(openApiDocument));
 
 app.route("/api/v1/auth", authRoutes);
 app.route("/api/v1/projects", projectRoutes);
