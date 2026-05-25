@@ -1248,7 +1248,13 @@ export const openApiDocument = {
         type: "object",
         properties: {
           id: { type: "string" },
+          status_schema: { type: "string", enum: ["workflow_status.v1"] },
+          run_id: { type: "string" },
+          workflow_id: { type: "string" },
           status: { type: "string" },
+          terminal: { type: "boolean" },
+          progress_percent: { type: "number", nullable: true, minimum: 0, maximum: 100 },
+          poll_after_ms: { type: "integer", nullable: true },
           species: { type: "string", nullable: true },
           model_id: { type: "string", nullable: true },
           started_at: { type: "string", format: "date-time", nullable: true },
