@@ -13,6 +13,12 @@ export interface RunDetail extends RunSummary {
   progress_log: string[];
   error: string | null;
   config?: Record<string, unknown>;
+  provenance?: {
+    app_version?: Record<string, unknown>;
+    model?: Record<string, unknown>;
+    data?: Record<string, unknown>;
+    validation?: Record<string, unknown>;
+  } | null;
 }
 
 export interface SpeciesSummary {
