@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import {
   Sidebar,
@@ -50,6 +51,36 @@ export function AppSidebar() {
     return pathname.startsWith(href);
   };
 
+  const pipelineLinks = useMemo(
+    () =>
+      pipelineItems.map((item) => (
+        <SidebarMenuItem key={item.href}>
+          <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
+            <Link href={item.href}>
+              <item.icon className="h-4 w-4" />
+              <span>{item.title}</span>
+            </Link>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      )),
+    [pathname]
+  );
+
+  const systemLinks = useMemo(
+    () =>
+      systemItems.map((item) => (
+        <SidebarMenuItem key={item.href}>
+          <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
+            <Link href={item.href}>
+              <item.icon className="h-4 w-4" />
+              <span>{item.title}</span>
+            </Link>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      )),
+    [pathname]
+  );
+
   return (
     <Sidebar>
       <SidebarHeader>
@@ -63,16 +94,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Pipeline</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {pipelineItems.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
-                    <Link href={item.href}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {pipelineLinks}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -80,16 +102,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>System</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {systemItems.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
-                    <Link href={item.href}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {systemLinks}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
