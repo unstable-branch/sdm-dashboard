@@ -57,12 +57,10 @@ normalize_coord_columns <- function(df) {
   lon_col <- detect_column(names(df), lon_patterns)
   lat_col <- detect_column(names(df), lat_patterns)
   if (!is.na(lon_col) && lon_col != "longitude") {
-    df[["longitude"]] <- df[[lon_col]]
-    df[[lon_col]] <- NULL
+    names(df)[names(df) == lon_col] <- "longitude"
   }
   if (!is.na(lat_col) && lat_col != "latitude") {
-    df[["latitude"]] <- df[[lat_col]]
-    df[[lat_col]] <- NULL
+    names(df)[names(df) == lat_col] <- "latitude"
   }
   df
 }
