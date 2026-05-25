@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import { apiGet, apiPost } from "@/services/api";
 import { Loader2, AlertCircle, CheckCircle2, Clock, XCircle, Play, RefreshCw } from "lucide-react";
 
@@ -128,8 +128,8 @@ export default function AdminDiagnosticsPage() {
           </thead>
           <tbody>
             {runs.map((r) => (
-              <>
-                <tr key={r.id} onClick={() => expandRun(r.id)}
+              <Fragment key={r.id}>
+                <tr onClick={() => expandRun(r.id)}
                   className="border-b border-sdm-border hover:bg-sdm-surface-soft cursor-pointer">
                   <td className="px-4 py-2"><div className="flex items-center gap-1">{statusIcon(r.status)}<span className="text-xs capitalize">{r.status}</span></div></td>
                   <td className="px-4 py-2 text-xs text-sdm-text">{r.speciesName || "-"}</td>
@@ -189,7 +189,7 @@ export default function AdminDiagnosticsPage() {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>
