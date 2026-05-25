@@ -311,28 +311,31 @@ sdmRoutes.get("/runs", async (c) => {
       conditions.push(eq(runs.status, statusFilter as "queued" | "running" | "completed" | "failed" | "cancelled"));
     }
 
-    const allRuns = await db
-      .select({
-        id: runs.id,
-        species: runs.speciesName,
-        model_id: runs.modelId,
-        status: runs.status,
-        started_at: runs.startedAt,
-        completed_at: runs.completedAt,
-        metrics: runs.metrics,
-        outputFiles: runs.outputFiles,
-        error: runs.error,
-      })
-      .from(runs)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(runs.createdAt))
-      .limit(limitVal)
-      .offset(offset);
-
-    const [{ total }] = await db
-      .select({ total: count() })
-      .from(runs)
-      .where(conditions.length > 0 ? and(...conditions) : undefined);
+    // Parallelize data + count queries (same WHERE clause)
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const [allRuns, [{ total }]] = await Promise.all([
+      db
+        .select({
+          id: runs.id,
+          species: runs.speciesName,
+          model_id: runs.modelId,
+          status: runs.status,
+          started_at: runs.startedAt,
+          completed_at: runs.completedAt,
+          metrics: runs.metrics,
+          outputFiles: runs.outputFiles,
+          error: runs.error,
+        })
+        .from(runs)
+        .where(whereClause)
+        .orderBy(desc(runs.createdAt))
+        .limit(limitVal)
+        .offset(offset),
+      db
+        .select({ total: count() })
+        .from(runs)
+        .where(whereClause),
+    ]);
 
     const formatted = allRuns.map((r) => ({
       id: r.id,
