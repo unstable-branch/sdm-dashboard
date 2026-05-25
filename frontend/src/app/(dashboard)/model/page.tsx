@@ -8,7 +8,7 @@ import { JobProgress } from "@/components/jobs/job-progress";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import { apiPost, apiGet } from "@/services/api";
-import { Ban } from "lucide-react";
+import { Ban, AlertTriangle } from "lucide-react";
 import type { ModelConfig } from "@sdm/shared";
 
 interface ActiveRun {
@@ -125,6 +125,25 @@ export default function ModelPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
+          {cleanedOccurrence && cleanedOccurrence.validRecords === 0 && (
+            <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/5 px-4 py-3 flex items-start gap-3">
+              <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-red-500">Cleaning produced 0 valid records</p>
+                <p className="text-xs text-red-400">The occurrence data has no valid records after cleaning. Go back to the Data page and check your data before running a model.</p>
+              </div>
+            </div>
+          )}
+          {!cleanedOccurrence && occurrenceFile && (
+            <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
+              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-amber-500">No cleaning preview performed</p>
+                <p className="text-xs text-amber-400">The model will clean data automatically during the run. To review the cleaning results first, go to the Data page.</p>
+              </div>
+            </div>
+          )}
+
           {activeRuns.length > 0 && !jobId && (
             <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 space-y-2">
               <p className="text-sm text-sdm-warning">
