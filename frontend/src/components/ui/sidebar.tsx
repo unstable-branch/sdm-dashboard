@@ -30,6 +30,7 @@ export function Sidebar({
   const { open } = React.useContext(SidebarContext);
   return (
     <aside
+      aria-label="Main navigation"
       className={cn(
         "hidden w-64 shrink-0 flex-col border-r bg-sdm-surface transition-all md:flex",
         !open && "w-0 overflow-hidden",
