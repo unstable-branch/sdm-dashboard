@@ -1,6 +1,5 @@
 import { Hono } from "hono";
-import { existsSync } from "fs";
-import { readFile } from "fs/promises";
+import { readFile, stat } from "fs/promises";
 import { isAbsolute, join, relative, resolve } from "path";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
@@ -45,7 +44,9 @@ resultsRoutes.get("/file/:filePath", async (c) => {
   }
 
   const { fullPath } = resolved;
-  if (!existsSync(fullPath)) {
+  try {
+    await stat(fullPath);
+  } catch {
     return c.json({ error: "File not found" }, 404);
   }
 
@@ -127,7 +128,9 @@ resultsRoutes.get("/:id/report.txt", async (c) => {
     ? join(appDir, run.resultPath, "report.txt")
     : join(appDir, "outputs", "jobs", id, "report.txt");
 
-  if (!existsSync(reportPath)) {
+  try {
+    await stat(reportPath);
+  } catch {
     return c.json({ error: "Report not found" }, 404);
   }
 
@@ -158,7 +161,12 @@ resultsRoutes.get("/:id/script", async (c) => {
     }
 
     const scriptPath = (data as any).script_path;
-    if (!scriptPath || !existsSync(scriptPath)) {
+    if (!scriptPath) {
+      return c.json({ error: "Script not generated" }, 500);
+    }
+    try {
+      await stat(scriptPath);
+    } catch {
       return c.json({ error: "Script not generated" }, 500);
     }
 

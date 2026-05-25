@@ -3,8 +3,40 @@ import { verify } from "hono/jwt";
 import { createHash } from "crypto";
 import { db } from "../db/index.js";
 import { users, apiKeys, projectMembers } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { checkRateLimit } from "./rate-limit.js";
+
+// Batch lastUsedAt updates — flush every 30s or after 100 queued writes
+const lastUsedBatch = new Map<string, number>();
+let batchTimer: ReturnType<typeof setTimeout> | null = null;
+const BATCH_INTERVAL = 30_000;
+const BATCH_MAX = 100;
+
+async function flushLastUsedBatch() {
+  if (lastUsedBatch.size === 0) return;
+  const keys = Array.from(lastUsedBatch.keys());
+  lastUsedBatch.clear();
+  try {
+    await db
+      .update(apiKeys)
+      .set({ lastUsedAt: new Date() })
+      .where(inArray(apiKeys.keyHash, keys));
+  } catch {
+    // Batch update is best-effort
+  }
+}
+
+function queueLastUsedUpdate(keyHash: string) {
+  lastUsedBatch.set(keyHash, Date.now());
+  if (lastUsedBatch.size >= BATCH_MAX) {
+    flushLastUsedBatch();
+  } else if (!batchTimer) {
+    batchTimer = setTimeout(() => {
+      batchTimer = null;
+      flushLastUsedBatch();
+    }, BATCH_INTERVAL);
+  }
+}
 
 export interface JwtPayload {
   sub: string;
@@ -71,10 +103,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
         return c.json({ error: "User not found" }, 401);
       }
 
-      await db
-        .update(apiKeys)
-        .set({ lastUsedAt: new Date() })
-        .where(eq(apiKeys.keyHash, keyHash));
+      queueLastUsedUpdate(keyHash);
 
       c.set("user", user);
       await next();
