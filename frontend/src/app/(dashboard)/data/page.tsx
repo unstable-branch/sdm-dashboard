@@ -585,7 +585,7 @@ function DataPageContent() {
                 </div>
                 <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Valid</p>
-                  <p className="mt-1 text-xl font-bold text-sdm-accent">{String(cleanResult.valid_records)}</p>
+                  <p className="mt-1 text-xl font-bold text-sdm-accent">{(Number(cleanResult.valid_records) || 0).toLocaleString()}</p>
                 </div>
                 <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Bad coords</p>
@@ -597,7 +597,7 @@ function DataPageContent() {
                 </div>
               </div>
 
-              {sourceCounts && <SourceCounts counts={sourceCounts} total={Number(cleanResult.valid_records)} />}
+              {sourceCounts && <SourceCounts counts={sourceCounts} total={Number(cleanResult.valid_records) || 0} />}
 
               {cleanPreview && cleanPreview.length > 0 && (
                 <CleaningTable
@@ -610,7 +610,7 @@ function DataPageContent() {
               <div className="flex items-center justify-between rounded-md border border-indigo-500/30 bg-indigo-500/5 px-4 py-3">
                 <div className="flex items-center gap-2 text-sm text-indigo-500">
                   <CheckCircle2 className="h-4 w-4" />
-                  <span>Cleaned: {Number(cleanResult.valid_records).toLocaleString()} valid records ready</span>
+                  <span>Cleaned: {(Number(cleanResult.valid_records) || 0).toLocaleString()} valid records ready</span>
                 </div>
                 <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
                   Run SDM with cleaned data →
