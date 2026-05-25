@@ -31,7 +31,10 @@ source(load_path)
 
 # Helper for error responses
 sdm_error <- function(req, status, message) {
-  tryCatch(req$res$status <- status, error = function(e) NULL)
+  res <- tryCatch(req$res, error = function(e) NULL)
+  if (!is.null(res)) {
+    tryCatch(res$status <- status, error = function(e) NULL)
+  }
   list(error = message)
 }
 
