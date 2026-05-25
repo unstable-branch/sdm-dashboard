@@ -23,7 +23,7 @@ COPY package.json pnpm-lock.yaml* ./
 COPY packages/shared/package.json packages/shared/
 COPY frontend/package.json frontend/
 
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 
 ARG API_URL=http://api:4000
 ENV API_URL=${API_URL}
@@ -40,20 +40,17 @@ RUN apk add --no-cache dumb-init curl
 
 WORKDIR /app
 
-COPY --from=builder /app/frontend/package.json ./frontend/
-COPY --from=builder /app/frontend/.next ./frontend/.next
+ENV NODE_ENV=production
+ENV PORT=3000
+ARG API_URL=http://api:4000
+ENV API_URL=${API_URL}
+
+COPY --from=builder /app/frontend/.next/standalone ./
+COPY --from=builder /app/frontend/.next/static ./frontend/.next/static
 COPY --from=builder /app/frontend/public ./frontend/public
-COPY --from=builder /app/frontend/node_modules ./frontend/node_modules
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/shared/package.json ./packages/shared/
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 
 USER node
 
 EXPOSE 3000
 
-ENV NODE_ENV=production
-ARG API_URL=http://api:4000
-ENV API_URL=${API_URL}
-
-CMD ["dumb-init", "frontend/node_modules/.bin/next", "start", "frontend", "-p", "3000"]
+CMD ["dumb-init", "node", "server.js"]
