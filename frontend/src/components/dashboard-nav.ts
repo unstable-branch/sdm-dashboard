@@ -36,4 +36,13 @@ export const systemItems: DashboardNavItem[] = [
   { title: "Settings", href: "/settings", icon: Settings },
 ];
 
+export const adminItems: DashboardNavItem[] = [
+  { title: "Overview", href: "/admin", icon: LayoutDashboard },
+  { title: "Users", href: "/admin/users", icon: Users },
+  { title: "Logs", href: "/admin/logs", icon: BarChart3 },
+  { title: "Database", href: "/admin/database", icon: Database },
+  { title: "System", href: "/admin/system", icon: Settings },
+  { title: "Diagnostics", href: "/admin/diagnostics", icon: Brain },
+];
+
 export const dashboardNavItems = [...pipelineItems, ...systemItems];
