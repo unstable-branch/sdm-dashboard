@@ -10,6 +10,9 @@ interface RunRecord {
   modelId: string | null;
   status: string;
   jobId: string | null;
+  bullmqId: string | null;
+  runNumber: number | null;
+  progressLog: any;
   error: string | null;
   startedAt: string | null;
   completedAt: string | null;
@@ -117,7 +120,9 @@ export default function AdminDiagnosticsPage() {
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Status</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Species</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Model</th>
+              <th className="text-center px-2 py-3 text-xs font-medium text-sdm-muted">#</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Job ID</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">BullMQ</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Created</th>
             </tr>
           </thead>
@@ -129,14 +134,34 @@ export default function AdminDiagnosticsPage() {
                   <td className="px-4 py-2"><div className="flex items-center gap-1">{statusIcon(r.status)}<span className="text-xs capitalize">{r.status}</span></div></td>
                   <td className="px-4 py-2 text-xs text-sdm-text">{r.speciesName || "-"}</td>
                   <td className="px-4 py-2 text-xs text-sdm-muted font-mono">{r.modelId || "-"}</td>
+                  <td className="px-2 py-2 text-xs text-center text-sdm-muted font-mono">{r.runNumber != null ? `#${r.runNumber}` : "-"}</td>
                   <td className="px-4 py-2 text-xs text-sdm-muted font-mono">{r.jobId || "-"}</td>
+                  <td className="px-4 py-2 text-xs text-sdm-muted font-mono">{r.bullmqId || "-"}</td>
                   <td className="px-4 py-2 text-xs text-sdm-muted">{new Date(r.createdAt).toLocaleString()}</td>
                 </tr>
                 {expandedRun === r.id && (
                   <tr key={`${r.id}-detail`} className="border-b border-sdm-border bg-sdm-surface-soft">
-                    <td colSpan={5} className="px-4 py-3">
+                    <td colSpan={7} className="px-4 py-3">
                       {detailLoading ? <Loader2 className="h-4 w-4 animate-spin text-sdm-accent" /> : runDetail ? (
                         <div className="space-y-2">
+                          {r.progressLog && Array.isArray(r.progressLog) && r.progressLog.length > 0 && (
+                            <div>
+                              <h4 className="text-xs font-medium text-sdm-muted mb-1.5">Progress stages</h4>
+                              <div className="flex flex-wrap gap-1.5">
+                                {r.progressLog.map((entry: any, i: number) => (
+                                  <span key={i}
+                                    className={`text-xs rounded px-1.5 py-0.5 ${
+                                      entry.stage === "unknown" ? "bg-sdm-surface text-sdm-muted" :
+                                      i === r.progressLog.length - 1 && r.status === "running"
+                                        ? "bg-sdm-accent/15 text-sdm-accent animate-pulse"
+                                        : "bg-sdm-accent/10 text-sdm-accent"
+                                    }`}>
+                                    {entry.stage}: {Math.round((entry.percent || 0) * 100)}%
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           <div className="grid grid-cols-2 gap-4">
                             <div>
                               <h4 className="text-xs font-medium text-sdm-muted mb-1">Config</h4>

@@ -77,7 +77,7 @@ services:
       - SDM_PROJECT_ROOT=/app
       - DATABASE_URL=postgresql://sdm:sdm_password@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-6e94feb6699652f8529ed79ee7863a4daab79279286e84f0c4026fe2fb29884e}
-      - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
+      - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-true}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 10s

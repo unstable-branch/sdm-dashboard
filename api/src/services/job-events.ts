@@ -7,6 +7,8 @@ export interface JobStatusEvent {
   logs?: string[];
   result?: Record<string, unknown>;
   failedReason?: string;
+  currentStage?: string | null;
+  progressJson?: any;
 }
 
 class JobEventBus extends EventEmitter {

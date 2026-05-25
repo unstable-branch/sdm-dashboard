@@ -252,7 +252,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
             if (runId) {
               await db
                 .update(runs)
-                .set({ status: "running", startedAt: new Date() })
+                .set({ status: "running", startedAt: new Date(), bullmqId: job.id! })
                 .where(eq(runs.id, runId));
             }
 
@@ -262,7 +262,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
             if (runId) {
               await db
                 .update(runs)
-                .set({ jobId: plumberJobId ?? null })
+                .set({ jobId: plumberJobId ?? null, bullmqId: job.id! })
                 .where(eq(runs.id, runId));
             }
 
