@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { compress } from "hono/compress";
 import { plumberClient } from "./services/plumber.js";
 import { ensureBuckets } from "./services/storage.js";
 import { getRedisStatus, ensureWorker, getJobStatus, shutdownQueue } from "./services/queue.js";
@@ -41,6 +42,7 @@ process.on("uncaughtException", (err) => {
 const app = new Hono();
 
 app.use("*", cors());
+app.use("*", compress());
 app.use("*", logger());
 app.use("*", memoryMonitorMiddleware);
 app.use("/api/v1/sdm/*", csrfMiddleware);
