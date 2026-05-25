@@ -14,6 +14,7 @@ Primary sources:
 - `api/src/routes/diagnostics.ts`
 - `api/src/routes/results.ts`
 - `api/src/routes/jobs.ts`
+- `docs/API_AUTH_POLICY_INVENTORY.md`
 
 ## Route Groups
 
@@ -87,7 +88,9 @@ Primary sources:
 - Sync/async: synchronous proxy to plumber-derived outputs.
 - Current machine-interface notes:
   - Simple route shape for downstream analysis.
-  - Missing explicit access guard compared with project-scoped routes.
+  - Missing explicit access guard compared with project-scoped routes; intended
+    v1 policy is `read` scope plus run/project visibility checks, but scoped
+    API keys are not implemented yet.
 
 ### Diagnostics (`/api/v1/diagnostics`)
 - Main routes: `GET /vif/:runId`, `/response-curves/:runId`, `/importance/:runId`, `/cbi/:runId`, `/mess/:runId`, `/summary/:runId` (`api/src/routes/diagnostics.ts`).
@@ -95,7 +98,9 @@ Primary sources:
 - Sync/async: synchronous reads/proxy calls.
 - Current machine-interface notes:
   - Predictable path family by diagnostic type.
-  - Access model is looser than results/data/project surfaces.
+  - Access model is looser than results/data/project surfaces; intended v1
+    policy is `read` scope plus run/project visibility checks, but current
+    optional auth makes these effectively public by run ID.
 
 ### Results (`/api/v1/results`)
 - Main routes: `GET /file/:filePath`, `GET /:id`, `GET /:id/report.txt`, `GET /:id/script`, `GET /:id/manifest` (`api/src/routes/results.ts`).
@@ -116,7 +121,9 @@ Primary sources:
   - `GET /:jobId` now retains the queue fields (`id`, `state`, `progress`, `result`, `failedReason`) and adds a polling-friendly normalized layer: `status`, `progress_percent`, `terminal`, `poll_after_ms`, and `error`.
   - The normalized route maps BullMQ states into `queued|running|completed|failed|cancelled|unknown`; see `docs/ASYNC_JOB_STATUS_CONTRACT.md`.
   - Useful real-time event stream (`job-update`) for agents/UI.
-  - Job visibility/cancel surface is global unless externally gated.
+  - Job visibility/cancel surface is global unless externally gated. Intended
+    v1 policy is `read` for status/SSE and `run` or `batch` for cancellation,
+    after queue jobs can be tied back to user/project ownership.
 
 ### Health / Ready (`/health`, `/ready`)
 - Main routes: `GET /health`, `GET /ready` (`api/src/index.ts`).
@@ -134,6 +141,14 @@ Primary sources:
 - Project-scoped run/species filtering exists on key data/results endpoints.
 
 ## Gaps to Close Before MCP
+- Auth policy:
+  - See `docs/API_AUTH_POLICY_INVENTORY.md` for the current route-by-route
+    auth/security inventory and intended v1 scoped-key policy.
+  - Current client auth mechanisms are bearer JWT/cookie and `X-API-Key`.
+    Future scopes (`read`, `write`, `run`, `batch`, `admin`) are not stored or
+    enforced today.
+  - Highest-priority exposed route gaps are `/api/v1/jobs/*`,
+    `/api/v1/ecology/*`, and `/api/v1/diagnostics/*`.
 - Stable schemas/OpenAPI:
   - A baseline OpenAPI document exists, but schemas are still intentionally partial and should be tightened endpoint-by-endpoint.
   - Several endpoints pass through upstream plumber payloads directly.
@@ -150,6 +165,11 @@ Primary sources:
 - Artifact manifests:
   - Occurrence data now has stable dataset IDs, and run manifests now expose a
     bounded Hono-side `artifacts[]` list derived from Plumber output files.
+  - `batch_manifest.v1` now has a pure builder for already-fetched batch status,
+    comparison, and run-manifest-like summaries. It emits child manifest refs,
+    bounded artifact refs, warning/provenance fields, and an inline/ref
+    comparison summary without raw rasters or occurrence rows. No route wiring
+    has been added yet. See `docs/BATCH_MANIFEST_CONTRACT.md`.
     Broader artifact/file identity is still split between local paths,
     `file_id`, and upstream output conventions outside the run-manifest route.
 - Status/error shape:
@@ -158,7 +178,8 @@ Primary sources:
     additive normalized polling fields; batch status and Plumber status
     pass-throughs are not yet normalized.
 - Scopes/quotas/audit:
-  - Auth exists, but route-level machine scopes, quota semantics, and audit event contract are not formalized.
+  - Auth exists, but route-level machine scopes, quota semantics, and audit
+    event contract are not formalized or enforced.
 
 ## Suggested Phase 1 Tasks (Small Tickets)
 1. Continue tightening `GET /api/v1/openapi.json` schemas from broad placeholders into request/response contracts for each route group.
@@ -168,9 +189,10 @@ Primary sources:
 5. Wire study-area and environment-set summaries only where a specific route
    needs them; keep the helpers pure until then.
 6. Extend the current `runs.batch_id` aggregate into a fuller batch resource only if owner metadata, idempotency, or long-lived batch history needs require it.
-7. Extend artifact manifest coverage to batch manifests and document which
-   artifact fields are safe for LLM/notebook summaries versus explicit
-   downloads.
+7. Wire `batch_manifest.v1` to an API route only after the owning API surface
+   and required provenance fields are chosen.
 8. Standardize error mapping middleware so all handlers emit a single error contract with stable `code`, `message`, and optional `details`.
-9. Add explicit auth policy pass for currently open operational routes (`/api/v1/jobs/*`, `/api/v1/ecology/*`, selected diagnostics) and document intended machine scope.
+9. Implement the auth policy pass documented in
+   `docs/API_AUTH_POLICY_INVENTORY.md`: scoped keys, project/run ownership for
+   jobs/ecology/diagnostics, quotas, and audit events.
 10. Add readiness checks for DB/storage in `/ready` to match published readiness fields.
