@@ -1,4 +1,7 @@
 import { Hono } from "hono";
+import { readdirSync, statSync } from "fs";
+import { join, resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 import { db } from "../db/index.js";
 import { users, runs, auditLogs, systemSettings, maintenanceLog, occurrences, species, projects } from "../db/schema.js";
 import { eq, desc, sql, and, gte, lte, like, inArray, count } from "drizzle-orm";
@@ -7,6 +10,11 @@ import { rateLimit } from "../middleware/rate-limit.js";
 import { hash } from "bcrypt";
 import type { AppEnv } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const PROJECT_ROOT = resolve(__dirname, "../../..");
+const UPLOAD_DIR = join(PROJECT_ROOT, "data", "uploads");
 
 export const adminRoutes = new Hono<AppEnv>();
 
@@ -28,6 +36,38 @@ adminRoutes.get("/overview", async (c) => {
       inArray(runs.status, ["queued", "running"])
     );
 
+    const uploadsByUser = await db
+      .select({
+        userId: auditLogs.userId,
+        count: count(),
+      })
+      .from(auditLogs)
+      .where(eq(auditLogs.action, "occurrence_upload"))
+      .groupBy(auditLogs.userId)
+      .orderBy(desc(count()))
+      .limit(10);
+
+    // Enrich with user names (batched single query)
+    const uploadStats: Array<{ userId: string | null; userName: string; count: number }> = [];
+    const userIds = uploadsByUser.map((u) => u.userId).filter(Boolean) as string[];
+    const userMap = new Map<string, string>();
+    if (userIds.length > 0) {
+      const matchedUsers = await db
+        .select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .where(inArray(users.id, userIds));
+      for (const u of matchedUsers) {
+        userMap.set(u.id, u.name || u.email);
+      }
+    }
+    for (const u of uploadsByUser) {
+      uploadStats.push({
+        userId: u.userId,
+        userName: u.userId ? (userMap.get(u.userId) || "Unknown") : "Unknown",
+        count: u.count,
+      });
+    }
+
     const recentActivity = await db
       .select()
       .from(auditLogs)
@@ -43,6 +83,7 @@ adminRoutes.get("/overview", async (c) => {
         projects: projectCount?.count || 0,
         activeRuns: activeRuns?.count || 0,
       },
+      uploadsByUser: uploadStats,
       recentActivity,
     });
   } catch (err) {
@@ -499,6 +540,141 @@ adminRoutes.post("/system/jobs/cleanup", async (c) => {
     return c.json({ ok: true, message: `Found ${staleRuns.length} stale jobs`, staleJobs: staleRuns.length });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to clean up jobs" }, 500);
+  }
+});
+
+adminRoutes.get("/diagnostics/uploads", async (c) => {
+  try {
+    const page = parseInt(c.req.query("page") || "1");
+    const limit = Math.min(parseInt(c.req.query("limit") || "25"), 100);
+    const offset = (page - 1) * limit;
+
+    // Get upload audit logs with user info
+    const uploadLogs = await db
+      .select({
+        id: auditLogs.id,
+        userId: auditLogs.userId,
+        entityId: auditLogs.entityId,
+        details: auditLogs.details,
+        createdAt: auditLogs.createdAt,
+      })
+      .from(auditLogs)
+      .where(eq(auditLogs.action, "occurrence_upload"))
+      .orderBy(desc(auditLogs.createdAt))
+      .offset(offset)
+      .limit(limit);
+
+    const [countResult] = await db
+      .select({ count: count() })
+      .from(auditLogs)
+      .where(eq(auditLogs.action, "occurrence_upload"));
+    const total = countResult?.count ?? 0;
+
+    // Batch-fetch user names
+    const userIds = uploadLogs.map((l) => l.userId).filter(Boolean) as string[];
+    const userMap = new Map<string, string>();
+    if (userIds.length > 0) {
+      const matchedUsers = await db
+        .select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .where(inArray(users.id, userIds));
+      for (const u of matchedUsers) {
+        userMap.set(u.id, u.name || u.email);
+      }
+    }
+
+    // Batch-fetch occurrence + run counts by pipelineRunId
+    const pipelineRunIds = uploadLogs
+      .map((l) => l.entityId || ((l.details as any)?.pipelineRunId as string | undefined) || null)
+      .filter(Boolean) as string[];
+
+    const [occStatsList, runsStatsList] = await Promise.all([
+      pipelineRunIds.length > 0
+        ? db
+            .select({
+              pipelineRunId: occurrences.pipelineRunId,
+              total: count(),
+              flagged: sql<number>`COALESCE(SUM(CASE WHEN flagged = true THEN 1 ELSE 0 END), 0)`,
+            })
+            .from(occurrences)
+            .where(inArray(occurrences.pipelineRunId, pipelineRunIds))
+            .groupBy(occurrences.pipelineRunId)
+        : Promise.resolve([]),
+      pipelineRunIds.length > 0
+        ? db
+            .select({
+              pipelineRunId: runs.pipelineRunId,
+              count: count(),
+            })
+            .from(runs)
+            .where(inArray(runs.pipelineRunId, pipelineRunIds))
+            .groupBy(runs.pipelineRunId)
+        : Promise.resolve([]),
+    ]);
+
+    const occMap = new Map(occStatsList.map((o) => [o.pipelineRunId, o]));
+    const runsMap = new Map(runsStatsList.map((r) => [r.pipelineRunId, r.count]));
+
+    // Enrich with batched data (no per-row queries)
+    const enriched = uploadLogs.map((log) => {
+      const pipelineRunId = log.entityId || (log.details as any)?.pipelineRunId || null;
+      const occStats = pipelineRunId ? occMap.get(pipelineRunId) : undefined;
+      return {
+        id: log.id,
+        userId: log.userId,
+        userName: log.userId ? userMap.get(log.userId) || "Unknown" : "Unknown",
+        pipelineRunId,
+        details: log.details,
+        createdAt: log.createdAt,
+        recordCount: occStats?.total || 0,
+        flaggedCount: typeof occStats?.flagged === "number" ? occStats.flagged : 0,
+        runCount: pipelineRunId ? runsMap.get(pipelineRunId) || 0 : 0,
+      };
+    });
+
+    return c.json({ uploads: enriched, total, page, limit });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to list uploads" }, 500);
+  }
+});
+
+adminRoutes.get("/diagnostics/filesystem", async (c) => {
+  try {
+    let files: { name: string; size: number; lastModified: string; isCleaned: boolean }[] = [];
+    let totalSize = 0;
+    let rawCount = 0;
+    let cleanedCount = 0;
+
+    try {
+      const entries = readdirSync(UPLOAD_DIR);
+      for (const name of entries) {
+        const fullPath = join(UPLOAD_DIR, name);
+        try {
+          const stat = statSync(fullPath);
+          if (stat.isFile()) {
+            const isCleaned = name.startsWith("cleaned_");
+            files.push({ name, size: stat.size, lastModified: stat.mtime.toISOString(), isCleaned });
+            totalSize += stat.size;
+            if (isCleaned) cleanedCount++; else rawCount++;
+          }
+        } catch { /* skip unreadable */ }
+      }
+    } catch {
+      return c.json({ error: "Uploads directory not accessible" }, 500);
+    }
+
+    // Sort by lastModified descending
+    files.sort((a, b) => b.lastModified.localeCompare(a.lastModified));
+
+    return c.json({
+      files: files.slice(0, 100),
+      totalFiles: rawCount + cleanedCount,
+      totalSize,
+      rawCount,
+      cleanedCount,
+    });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to list filesystem" }, 500);
   }
 });
 

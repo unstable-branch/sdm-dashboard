@@ -28,7 +28,14 @@ export function useRuns() {
 }
 
 export function useCompletedRuns() {
-  const { data, ...rest } = useRuns();
+  const { data, ...rest } = useQuery<RunsResponse>({
+    queryKey: ["sdm-runs", "summary"],
+    queryFn: () => apiGet<RunsResponse>("/api/v1/sdm/runs?fields=summary"),
+    staleTime: 30 * 1000,
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+    refetchOnWindowFocus: false,
+  });
   const completed = (data?.runs || []).filter((r) => r.status === "completed");
   return { data: completed, ...rest };
 }

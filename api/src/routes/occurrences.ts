@@ -11,6 +11,7 @@ import { and, count, eq, inArray } from "drizzle-orm";
 import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
+import { logAction, extractClientInfo } from "../services/audit.js";
 import type { AppEnv } from "../middleware/auth.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -60,6 +61,16 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     const user = c.get("user");
 
     const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
+    const { ipAddress, userAgent } = extractClientInfo(c);
+    logAction({
+      userId: user.id,
+      action: "occurrence_upload",
+      entity: "occurrence",
+      entityId: pipelineRunId,
+      ipAddress,
+      userAgent,
+      details: { filename: file.name, fileSize: file.size, n_rows: result.n_rows, pipelineRunId },
+    });
     return c.json({ ...result, pipelineRunId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
@@ -86,7 +97,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       return c.json({ jobId, status: "queued" });
     }
 
-    const result = await plumberClient.cleanOccurrences(body);
+    const result = await plumberClient.withUser(user.id).cleanOccurrences(body);
 
     if (result && typeof result === "object" && "error" in result) {
       return c.json(result, 502);
@@ -97,7 +108,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       const speciesName = (body.species as string) || "Untitled species";
 
       let [sp] = await db
-        .select()
+        .select({ id: species.id, occurrenceCount: species.occurrenceCount })
         .from(species)
         .where(and(eq(species.name, speciesName), eq(species.projectId, projectId)))
         .limit(1);
@@ -106,7 +117,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
         [sp] = await db
           .insert(species)
           .values({ name: speciesName, projectId, occurrenceCount: 0, userId: user?.id })
-          .returning();
+          .returning({ id: species.id, occurrenceCount: species.occurrenceCount });
       }
 
       // Use cleaned_records from Plumber instead of re-parsing CSV
@@ -181,12 +192,25 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
       return c.json({ error: "No GBIF records found" }, 404);
     }
 
+    const pipelineRunId = randomUUID();
+    const user = c.get("user");
+    const { ipAddress, userAgent } = extractClientInfo(c);
+    logAction({
+      userId: user.id,
+      action: "occurrence_upload",
+      entity: "occurrence",
+      entityId: pipelineRunId,
+      ipAddress,
+      userAgent,
+      details: { source: "gbif", taxon, country, n_rows: nRecords, pipelineRunId },
+    });
+
     return c.json({
       file_path: filePath,
       file_id: filePath,
       n_rows: nRecords,
       filename: filePath.split("/").pop() || "gbif_records.csv",
-      pipelineRunId: randomUUID(),
+      pipelineRunId,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to save GBIF records";
@@ -210,6 +234,16 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
     const user = c.get("user");
 
     const result = await plumberClient.withUser(user.id).parseDwca({ file_id: destPath });
+    const { ipAddress, userAgent } = extractClientInfo(c);
+    logAction({
+      userId: user.id,
+      action: "occurrence_upload",
+      entity: "occurrence",
+      entityId: pipelineRunId,
+      ipAddress,
+      userAgent,
+      details: { filename: file.name, fileSize: file.size, source: "dwca", pipelineRunId },
+    });
     return c.json({ ...result, file_id: destPath, file_path: destPath, pipelineRunId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "DwCA parse failed";
