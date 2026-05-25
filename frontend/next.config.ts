@@ -5,7 +5,7 @@ const API_URL = process.env.API_URL || "http://localhost:4000";
 const nextConfig: NextConfig = {
   output: "standalone",
   experimental: {
-    middlewareClientMaxBodySize: "50mb",
+    middlewareClientMaxBodySize: "100mb",
   },
   images: {
     remotePatterns: [
