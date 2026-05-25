@@ -13,6 +13,7 @@ describe("openApiDocument baseline", () => {
       "/api/v1/sdm/config/defaults",
       "/api/v1/sdm/run",
       "/api/v1/sdm/batch",
+      "/api/v1/sdm/batches/{batchId}",
       "/api/v1/sdm/runs",
       "/api/v1/sdm/status/{jobId}",
       "/api/v1/data/occurrences/upload",

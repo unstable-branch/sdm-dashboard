@@ -380,6 +380,35 @@ export const openApiDocument = {
         },
       },
     },
+    "/api/v1/sdm/batches/{batchId}": {
+      get: {
+        operationId: "getSdmBatchStatus",
+        summary: "Get aggregate SDM batch status",
+        tags: ["sdm"],
+        security: bearerOrApiKeySecurity,
+        parameters: [
+          {
+            name: "batchId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Batch aggregate status",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SdmBatchStatusResponse" },
+              },
+            },
+          },
+          "401": errorResponse,
+          "404": errorResponse,
+          "502": errorResponse,
+        },
+      },
+    },
     "/api/v1/sdm/runs": {
       get: {
         operationId: "listSdmRuns",
@@ -819,6 +848,61 @@ export const openApiDocument = {
           total: { type: "integer" },
           message: { type: "string" },
         },
+      },
+      SdmBatchRunSummary: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          species: { type: "string", nullable: true },
+          model_id: { type: "string", nullable: true },
+          status: { type: "string" },
+          started_at: { type: "string", format: "date-time", nullable: true },
+          completed_at: { type: "string", format: "date-time", nullable: true },
+          created_at: { type: "string", format: "date-time" },
+          error: { type: "string", nullable: true },
+        },
+        required: ["id", "status", "created_at"],
+      },
+      SdmBatchStatusResponse: {
+        type: "object",
+        properties: {
+          batch_id: { type: "string" },
+          total: { type: "integer" },
+          counts_by_status: {
+            type: "object",
+            properties: {
+              queued: { type: "integer" },
+              running: { type: "integer" },
+              completed: { type: "integer" },
+              failed: { type: "integer" },
+              cancelled: { type: "integer" },
+            },
+            required: ["queued", "running", "completed", "failed", "cancelled"],
+          },
+          active: { type: "integer" },
+          completed: { type: "integer" },
+          failed: { type: "integer" },
+          cancelled: { type: "integer" },
+          runs: {
+            type: "array",
+            items: { $ref: "#/components/schemas/SdmBatchRunSummary" },
+          },
+          created_at: { type: "string", format: "date-time", nullable: true },
+          started_at: { type: "string", format: "date-time", nullable: true },
+          completed_at: { type: "string", format: "date-time", nullable: true },
+          latest_error: { type: "string", nullable: true },
+          warnings: { type: "array", items: { type: "string" } },
+        },
+        required: [
+          "batch_id",
+          "total",
+          "counts_by_status",
+          "active",
+          "completed",
+          "failed",
+          "cancelled",
+          "runs",
+        ],
       },
       SdmRunStatusResponse: {
         type: "object",

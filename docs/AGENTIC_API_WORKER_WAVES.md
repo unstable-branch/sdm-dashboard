@@ -35,7 +35,9 @@ Delegable tasks:
 - Define occurrence dataset summary schema and route contract.
 - Define study-area preset/custom extent schema.
 - Define environment set/scenario summary schema.
-- Define batch parent object and child run relationship.
+- Extend batch parent semantics beyond the initial `runs.batch_id` aggregate
+  if later work needs owner metadata, server-side comparison filters, or
+  stronger lifecycle/audit behavior.
 - Add idempotency-key design for create/run/batch endpoints.
 - Add tests for duplicate-safe idempotent requests.
 

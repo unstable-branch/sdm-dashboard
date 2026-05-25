@@ -191,6 +191,7 @@ BATCH_JSON="$(curl -sS -X POST "$SDM_API_BASE/api/v1/sdm/batch" \
   }')"
 
 echo "$BATCH_JSON" | jq
+BATCH_ID="$(echo "$BATCH_JSON" | jq -r '.batch_id')"
 BATCH_RUN_IDS="$(echo "$BATCH_JSON" | jq -r '.job_ids[]')"
 ```
 
@@ -199,6 +200,10 @@ BATCH_RUN_IDS="$(echo "$BATCH_JSON" | jq -r '.job_ids[]')"
 ```bash
 # Run-centric view (recommended for modelling)
 curl -sS "$SDM_API_BASE/api/v1/sdm/runs?status=active&limit=50" \
+  -H "X-API-Key: $SDM_API_KEY" | jq
+
+# Batch aggregate view
+curl -sS "$SDM_API_BASE/api/v1/sdm/batches/$BATCH_ID" \
   -H "X-API-Key: $SDM_API_KEY" | jq
 
 # Optional queue-centric view (useful for async cleaning jobs)
@@ -225,8 +230,8 @@ done
    **Gap:** no first-class dataset object with reusable metadata/version IDs across runs.
 4. Build model configs for eastern Australia extent:
    `[138,154,-44,-10]`, spatial-block CV, multiple models.
-5. Launch batch with `/api/v1/sdm/batch` and poll child runs.
-   **Gap:** `batch_id` is not a durable batch resource with its own status endpoint.
+5. Launch batch with `/api/v1/sdm/batch` and poll
+   `/api/v1/sdm/batches/{batch_id}` for aggregate status.
 6. Triage by AUC:
    fetch each run result and filter `metrics` in notebook code.
    **Gap:** no server-side compare/triage endpoint (for example, `AUC < 0.7`) across a batch.
@@ -235,5 +240,4 @@ done
 
 - Missing workflow-level species/discovery endpoints for agentic pre-run selection.
 - Missing durable occurrence dataset resources (versioned IDs + summary metadata).
-- Missing durable batch resource and aggregate status/summary endpoints.
 - Missing server-side batch comparison/triage filters (AUC/TSS threshold queries).
