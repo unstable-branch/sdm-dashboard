@@ -292,11 +292,30 @@ function(req) {
       # Parse coordinates (handle DMS formats like DD°MM'SS")
       occ <- parse_coordinates(occ)
 
-      # Validate coordinate values
-      coord_err <- validate_coords(occ$longitude, occ$latitude)
-      if (nchar(coord_err) > 0) {
-        return(sdm_error(req, 400, paste0("Coordinate validation failed: ", coord_err,
-          ". Ensure coordinates are numeric decimal degrees or DMS format (e.g., 145.5 or 145°30'00\").")))
+      # Validate coordinate values (non-fatal — always save the file)
+      coord_warnings <- character(0)
+      if ("longitude" %in% names(occ) && "latitude" %in% names(occ)) {
+        n_total <- length(occ$longitude)
+        n_na_lon <- sum(is.na(suppressWarnings(as.numeric(gsub(",", ".", as.character(occ$longitude))))))
+        n_na_lat <- sum(is.na(suppressWarnings(as.numeric(gsub(",", ".", as.character(occ$latitude))))))
+        n_non_numeric <- max(n_na_lon, n_na_lat)
+
+        if (n_non_numeric > 0) {
+          # Show sample values for debugging
+          raw_lon <- utils::head(occ$longitude, 3)
+          raw_lat <- utils::head(occ$latitude, 3)
+          coord_warnings <- c(coord_warnings, paste0(
+            n_non_numeric, " of ", n_total, " record(s) have unparseable coordinates. ",
+            "Sample longitude values: [", paste(shQuote(raw_lon), collapse = ", "), "]. ",
+            "Sample latitude values: [", paste(shQuote(raw_lat), collapse = ", "), "]."
+          ))
+        } else {
+          # Only check bounds if coords are numeric
+          coord_err <- validate_coords(occ$longitude, occ$latitude)
+          if (nchar(coord_err) > 0) {
+            coord_warnings <- c(coord_warnings, paste0("Coordinate validation: ", coord_err))
+          }
+        }
       }
 
       columns_detected <- list(
@@ -316,6 +335,7 @@ function(req) {
         n_rows = n_rows,
         species_detected = species_detected,
         columns_detected = columns_detected,
+        coord_warnings = if (length(coord_warnings) > 0) coord_warnings else NULL,
         preview = preview
       )
     }
