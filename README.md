@@ -11,7 +11,7 @@ This is a modern-platform beta release. Interfaces, defaults, packaging, and out
 
 The public repository contains source code, documentation, scripts, templates, and small synthetic examples only. Real occurrence data, downloaded rasters, generated outputs, API keys, screenshots, and release archives should stay local.
 
-Project direction is tracked in [`docs/SPEC.md`](docs/SPEC.md). Release channels are documented in [`docs/RELEASE_AND_HOSTING.md`](docs/RELEASE_AND_HOSTING.md). The legacy desktop and future CRAN extraction policy is documented in [`docs/LEGACY_AND_CRAN.md`](docs/LEGACY_AND_CRAN.md).
+Project direction is tracked in [`docs/SPEC.md`](docs/SPEC.md). Deployment is documented in [`docs/DEPLOY.md`](docs/DEPLOY.md). Release channels are documented in [`docs/RELEASE_AND_HOSTING.md`](docs/RELEASE_AND_HOSTING.md). The legacy desktop and future CRAN extraction policy is documented in [`docs/LEGACY_AND_CRAN.md`](docs/LEGACY_AND_CRAN.md).
 
 
 ## Quick Start (Modern Stack)
