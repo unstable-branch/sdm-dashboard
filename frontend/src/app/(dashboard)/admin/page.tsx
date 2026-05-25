@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiGet, apiPost } from "@/services/api";
-import { Users, BarChart3, Database, Zap, RefreshCw, Trash2, Loader2, Activity } from "lucide-react";
+import { Users, BarChart3, Database, Zap, RefreshCw, Trash2, Loader2, Activity, Upload, Leaf } from "lucide-react";
 
 interface OverviewData {
   counts: {
@@ -13,6 +13,11 @@ interface OverviewData {
     projects: number;
     activeRuns: number;
   };
+  uploadsByUser: Array<{
+    userId: string | null;
+    userName: string;
+    count: number;
+  }>;
   recentActivity: Array<{
     id: string;
     action: string;
@@ -26,7 +31,7 @@ export default function AdminOverviewPage() {
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-const [clearingCache, setClearingCache] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
   const [cacheMsg, setCacheMsg] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -79,6 +84,8 @@ const [clearingCache, setClearingCache] = useState(false);
     { label: "Total Runs", value: data.counts.runs, icon: BarChart3, color: "text-sdm-accent-blue" },
     { label: "Active Runs", value: data.counts.activeRuns, icon: Zap, color: "text-sdm-warning" },
     { label: "Projects", value: data.counts.projects, icon: Database, color: "text-sdm-accent-2" },
+    { label: "Species", value: data.counts.species, icon: Leaf, color: "text-sdm-accent" },
+    { label: "Occurrences", value: data.counts.occurrences, icon: Upload, color: "text-sdm-accent-blue" },
   ];
 
   return (
@@ -102,7 +109,7 @@ const [clearingCache, setClearingCache] = useState(false);
         <div className="rounded-md bg-sdm-success/10 border border-sdm-success/30 p-3 text-sm text-sdm-success">{cacheMsg}</div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {metrics.map((m) => (
           <div key={m.label} className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
             <div className="flex items-center gap-2 mb-2">
@@ -113,6 +120,33 @@ const [clearingCache, setClearingCache] = useState(false);
           </div>
         ))}
       </div>
+
+      {data.uploadsByUser.length > 0 && (
+        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Upload className="h-5 w-5 text-sdm-accent" />
+            <h2 className="text-lg font-medium text-sdm-heading">Uploads by User</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-sdm-border">
+                  <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">User</th>
+                  <th className="text-right py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Uploads</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.uploadsByUser.map((u) => (
+                  <tr key={u.userId || "unknown"} className="border-b border-sdm-border/50 last:border-0">
+                    <td className="py-2 px-3 text-sdm-text">{u.userName}</td>
+                    <td className="py-2 px-3 text-right font-medium text-sdm-heading">{u.count.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
         <div className="flex items-center gap-2 mb-4">
