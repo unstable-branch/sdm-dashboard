@@ -352,6 +352,8 @@ sdmRoutes.get("/status/:jobId", async (c) => {
               outputFiles: plumberRunStatus === "completed" ? plumberOutputFiles ?? null : null,
               error: plumberError ?? null,
               completedAt: plumberRunStatus !== "running" ? new Date() : null,
+              rCpuTimeMs: (plumberStatus as any).r_cpu_time_ms ?? null,
+              rPeakMemoryMb: (plumberStatus as any).r_peak_memory_mb ?? null,
             })
             .where(eq(runs.id, jobId));
 
@@ -365,6 +367,8 @@ sdmRoutes.get("/status/:jobId", async (c) => {
             error: plumberError ?? null,
             metrics: plumberMetrics ?? null,
             output_files: plumberOutputFiles ?? null,
+            r_cpu_time_ms: (plumberStatus as any).r_cpu_time_ms ?? null,
+            r_peak_memory_mb: (plumberStatus as any).r_peak_memory_mb ?? null,
             progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
             config: run.config,
           });
