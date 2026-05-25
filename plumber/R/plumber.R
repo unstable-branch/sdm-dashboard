@@ -1392,36 +1392,63 @@ function(res, run_id) {
   metrics <- meta$metrics %||% list()
   output_files <- meta$output_files %||% list()
 
+  # Git commit SHA
+  git_sha <- tryCatch(
+    system("git rev-parse HEAD", intern = TRUE, ignore.stderr = TRUE),
+    error = function(e) NA_character_
+  )
+  if (length(git_sha) != 1 || !nzchar(git_sha)) git_sha <- NA_character_
+
+  # Package versions from sessionInfo
+  si <- sessionInfo()
+  pkg_versions <- list()
+  if (!is.null(si$otherPkgs)) {
+    for (pkg_name in names(si$otherPkgs)) {
+      pkg_versions[[pkg_name]] <- si$otherPkgs[[pkg_name]]$Version %||% NA_character_
+    }
+  }
+
+  # SHA-256 hash of occurrence file
+  occ_hash <- NA_character_
+  occ_file <- config$occurrence_file
+  if (!is.null(occ_file) && nzchar(occ_file) && file.exists(occ_file)) {
+    occ_hash <- tryCatch(
+      digest::digest(occ_file, algo = "sha256", file = TRUE),
+      error = function(e) NA_character_
+    )
+  }
+
   manifest <- list(
     run_id = meta$id,
+    run_timestamp = meta$started_at %||% format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
     generated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
     app_version = list(
+      git_sha = git_sha,
       r_version = R.version.string,
       platform = R.version$platform,
-      timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      package_versions = pkg_versions
     ),
     species = config$species,
     model = list(
       id = config$model_id,
+      seed = config$seed %||% NA_integer_,
       parameters = config
     ),
     data = list(
-      occurrence_file = config$occurrence_file,
-      occurrence_hash = if (!is.null(config$occurrence_file) && file.exists(config$occurrence_file)) {
-        tools::md5sum(config$occurrence_file)
-      } else NA_character_,
-      record_count = metrics$presence_records
+      occurrence_file = occ_file,
+      occurrence_hash_sha256 = occ_hash,
+      record_count = metrics$presence_records %||% NA_integer_
     ),
     climate = list(
       source = config$source %||% "worldclim",
-      worldclim_dir = config$worldclim_dir,
-      biovars = config$biovars,
+      worldclim_dir = config$worldclim_dir %||% NA_character_,
+      biovars = config$biovars %||% NA_character_,
       resolution = config$worldclim_res %||% 10
     ),
     validation = list(
-      cv_folds = config$cv_folds,
-      cv_strategy = config$cv_strategy,
-      seed = config$seed
+      cv_folds = config$cv_folds %||% NA_integer_,
+      cv_strategy = config$cv_strategy %||% NA_character_,
+      seed = config$seed %||% NA_integer_
     ),
     metrics = metrics,
     output_files = output_files
