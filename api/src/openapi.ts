@@ -816,8 +816,9 @@ export const openApiDocument = {
         operationId: "getQueueJobStatus",
         summary: "Get queue job status",
         description:
-          "BullMQ queue status endpoint. Currently exposed without public auth middleware in this API slice.",
+          "BullMQ queue status endpoint. Requires bearer/API-key auth and returns queue data only when the job can be attributed to a visible run or the authenticated user.",
         tags: ["jobs"],
+        security: bearerOrApiKeySecurity,
         parameters: [
           {
             name: "jobId",
@@ -838,6 +839,7 @@ export const openApiDocument = {
               },
             },
           },
+          "401": errorResponse,
           "404": errorResponse,
         },
       },
