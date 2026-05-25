@@ -107,4 +107,19 @@ describe("openApiDocument baseline", () => {
       }),
     }));
   });
+
+  it("documents additive SDM workflow status polling fields", () => {
+    const schemas = openApiDocument.components?.schemas;
+    const runStatusSchema = schemas?.SdmRunStatusResponse as ObjectSchemaForTest;
+    expect(runStatusSchema).toEqual(expect.objectContaining({
+      properties: expect.objectContaining({
+        status_schema: expect.objectContaining({ enum: ["workflow_status.v1"] }),
+        run_id: expect.objectContaining({ type: "string" }),
+        workflow_id: expect.objectContaining({ type: "string" }),
+        terminal: expect.objectContaining({ type: "boolean" }),
+        progress_percent: expect.objectContaining({ nullable: true }),
+        poll_after_ms: expect.objectContaining({ nullable: true }),
+      }),
+    }));
+  });
 });
