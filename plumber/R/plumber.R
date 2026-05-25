@@ -1005,16 +1005,16 @@ sdm_async_status <- function(job_id) {
   if (!is.null(result)) {
     if (identical(result$status, "completed")) {
       sdm_process_registry[[basename(job_id)]] <- NULL
-      meta$status <<- "completed"
-      meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      meta$result <<- result$result
+      meta$status <- "completed"
+      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      meta$result <- result$result
       writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
       return(list(available = TRUE, status = "completed", result = result$result))
     } else if (identical(result$status, "failed")) {
       sdm_process_registry[[basename(job_id)]] <- NULL
-      meta$status <<- "failed"
-      meta$error <<- result$error
-      meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      meta$status <- "failed"
+      meta$error <- result$error
+      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
       return(list(available = TRUE, status = "failed", error = result$error))
     }
