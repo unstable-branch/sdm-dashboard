@@ -112,11 +112,6 @@ source(file.path(app_dir, "plumber", "R", "plumber.R"), local = FALSE)
 # Start server with project root as working directory
 setwd(app_dir)
 
-# Number of worker processes (default 1 for low-memory, set higher for multi-core)
-# Each worker is a separate R process handling one request at a time.
-n_workers <- as.integer(Sys.getenv("PLUMBER_WORKERS", "1"))
-cat("Starting Plumber with", n_workers, "worker(s) on port 8000\n")
-
 # Orphan job cleanup: remove stale job directories from previous crashed sessions
 orphan_cleanup <- function() {
   jobs_base <- file.path(app_dir, "outputs", "jobs")
@@ -130,12 +125,51 @@ orphan_cleanup <- function() {
       if (file.exists(meta_file)) {
         meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
         if (identical(meta$status, "running")) {
+          # Kill the process if PID is known, then remove directory
+          if (!is.null(meta$process_pid)) {
+            tryCatch(tools::pskill(meta$process_pid, signal = 9), error = function(e) NULL)
+          }
           unlink(jd, recursive = TRUE, force = TRUE)
         }
       }
     }
   }
 }
-tryCatch(orphan_cleanup(), error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
+tryCatch({
+  cat("Running orphan cleanup (stale jobs >24h)...\n")
+  orphan_cleanup()
+}, error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
+
+# Exit handler: kill all background processes on shutdown to prevent orphans
+plumber::pr_hook(pr, "exit", function() {
+  cat("Plumber shutting down — killing background processes...\n")
+  # sdm_process_registry is created in global env by plumber.R
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.null(reg) && is.environment(reg)) {
+    for (job_id in ls(reg)) {
+      proc <- reg[[job_id]]
+      if (inherits(proc, "process") && proc$is_alive()) {
+        cat("Killing background job:", job_id, "\n")
+        tryCatch(proc$kill(), error = function(e) NULL)
+      }
+    }
+  }
+  # Also kill any leftover processes from meta.json files
+  jobs_base <- file.path(app_dir, "outputs", "jobs")
+  if (dir.exists(jobs_base)) {
+    for (jd in list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)) {
+      meta_file <- file.path(jd, "meta.json")
+      if (file.exists(meta_file)) {
+        meta <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
+        if (!is.null(meta) && identical(meta$status, "running") && !is.null(meta$process_pid)) {
+          tryCatch(tools::pskill(meta$process_pid, signal = 9), error = function(e) NULL)
+        }
+      }
+    }
+  }
+  cat("Background process cleanup complete.\n")
+})
+
+cat("Starting Plumber on port 8000\n")
 
 plumber::pr_run(pr, host = "0.0.0.0", port = 8000)
