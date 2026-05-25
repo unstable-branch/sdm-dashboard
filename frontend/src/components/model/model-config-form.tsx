@@ -123,7 +123,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   }, []);
 
   useEffect(() => {
-    fetch("/api/v1/occurrences/species?limit=100")
+    fetch("/api/v1/data/species?limit=100")
       .then((res) => res.ok ? res.json() : null)
       .then((data) => {
         if (data && Array.isArray(data.species)) {

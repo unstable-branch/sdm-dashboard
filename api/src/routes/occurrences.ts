@@ -99,7 +99,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       if (!sp) {
         [sp] = await db
           .insert(species)
-          .values({ name: speciesName, projectId, occurrenceCount: 0 })
+          .values({ name: speciesName, projectId, occurrenceCount: 0, userId: user?.id })
           .returning();
       }
 
@@ -113,6 +113,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
         const recordsToInsert = validRecords.map((row) => ({
           speciesId: sp.id,
           projectId,
+          userId: user?.id,
           filePath: cleanedFileId,
           longitude: Number(row.longitude),
           latitude: Number(row.latitude),

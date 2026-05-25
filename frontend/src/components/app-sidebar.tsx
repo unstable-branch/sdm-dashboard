@@ -21,11 +21,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
-import { pipelineItems, systemItems } from "@/components/dashboard-nav";
+import { pipelineItems, systemItems, adminItems } from "@/components/dashboard-nav";
+import { useAuthStore } from "@/stores/auth-store";
 
 export function AppSidebar() {
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === "admin";
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -75,6 +78,25 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {isAdmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Admin</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminItems.map((item) => (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
+                      <Link href={item.href}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter>
         <Button
