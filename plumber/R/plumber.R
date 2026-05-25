@@ -67,6 +67,88 @@ sdm_safe_job_dir <- function(run_id) {
   NULL
 }
 
+# --- Coordinate parsing helpers ---
+
+# Convert DMS (Degrees Minutes Seconds) to decimal degrees
+# Handles formats: "DD°MM'SS\"", "DD MM SS", "DD°MM.MMM'", etc.
+dms_to_decimal <- function(x) {
+  x <- trimws(as.character(x))
+  if (length(x) == 0 || is.na(x) || x == "") return(NA_real_)
+  if (suppressWarnings(!is.na(as.numeric(x)))) return(as.numeric(x))
+
+  # Detect and strip hemisphere
+  sign <- 1
+  hemi_map <- list(N = 1, S = -1, E = 1, W = -1)
+  last_char <- substr(x, nchar(x), nchar(x))
+  first_char <- substr(x, 1, 1)
+  if (last_char %in% names(hemi_map)) {
+    sign <- hemi_map[[last_char]]
+    x <- substr(x, 1, nchar(x) - 1)
+  } else if (first_char %in% c("S", "W")) {
+    sign <- -1
+    x <- substr(x, 2, nchar(x))
+  }
+
+  # Replace degree/minute/second symbols with spaces
+  x <- gsub("[°º]", " ", x)
+  x <- gsub("['′]", " ", x)
+  x <- gsub('["″]', " ", x)
+  x <- gsub(",", ".", x)
+  parts <- trimws(strsplit(x, "[[:space:]]+")[[1]])
+  parts <- parts[parts != ""]
+
+  if (length(parts) == 0) return(NA_real_)
+  dd <- tryCatch(as.numeric(parts[1]), warning = function(e) NA_real_)
+  if (is.na(dd)) return(NA_real_)
+  if (length(parts) >= 2) {
+    mm <- tryCatch(as.numeric(parts[2]), warning = function(e) NA_real_)
+    if (!is.na(mm)) dd <- dd + mm / 60
+  }
+  if (length(parts) >= 3) {
+    ss <- tryCatch(as.numeric(parts[3]), warning = function(e) NA_real_)
+    if (!is.na(ss)) dd <- dd + ss / 3600
+  }
+  dd * sign
+}
+
+# Normalize column names: detect lon/lat columns and rename to standard names
+normalize_coord_columns <- function(df) {
+  lon_patterns <- c("^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east")
+  lat_patterns <- c("^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north")
+  lon_col <- detect_column(names(df), lon_patterns)
+  lat_col <- detect_column(names(df), lat_patterns)
+
+  if (!is.na(lon_col) && lon_col != "longitude") {
+    df[["longitude"]] <- df[[lon_col]]
+    df[[lon_col]] <- NULL
+  }
+  if (!is.na(lat_col) && lat_col != "latitude") {
+    df[["latitude"]] <- df[[lat_col]]
+    df[[lat_col]] <- NULL
+  }
+  df
+}
+
+# Parse coordinates in a dataframe, handling DMS and decimal formats
+parse_coordinates <- function(df) {
+  if (!"longitude" %in% names(df) || !"latitude" %in% names(df)) return(df)
+  df$longitude <- vapply(df$longitude, dms_to_decimal, numeric(1))
+  df$latitude <- vapply(df$latitude, dms_to_decimal, numeric(1))
+  df
+}
+
+# Validate coordinate bounds and return error message (empty string = valid)
+validate_coords <- function(lon, lat) {
+  invalid <- !is.finite(lon) | !is.finite(lat) |
+    lon < -180 | lon > 180 | lat < -90 | lat > 90
+  n_invalid <- sum(invalid, na.rm = TRUE)
+  n_na <- sum(is.na(lon) | is.na(lat))
+  errors <- character(0)
+  if (n_na > 0) errors <- c(errors, paste(n_na, "non-numeric coordinate(s)"))
+  if (n_invalid > 0) errors <- c(errors, paste(n_invalid, "coordinate(s) outside valid bounds (lon: -180/180, lat: -90/90)"))
+  paste(errors, collapse = "; ")
+}
+
 # --- Data endpoints ---
 
 #* Upload occurrence file (CSV/TSV/ZIP)
@@ -186,20 +268,17 @@ function(req) {
     } else {
       occ <- read_occurrence_file(file_path, log_fun = message)
       n_rows <- nrow(occ)
-      lon_col <- detect_column(names(occ), c("^(lon|longitude|x)$", "decimal.*lon", "decimallongitude", "^long"))
-      lat_col <- detect_column(names(occ), c("^(lat|latitude|y)$", "decimal.*lat", "decimallatitude", "^lat"))
-      src_col <- detect_column(names(occ), c("^(source|datasource|institution|institutioncode)$"))
-      species_detected <- infer_species_label(file_path)
-      columns_detected <- list(
-        longitude = lon_col,
-        latitude = lat_col,
-        source = src_col
-      )
 
-      # Validate required columns
+      # Normalize column names (detect and rename lon/lat to standard names)
+      occ <- normalize_coord_columns(occ)
+      src_col <- detect_column(names(occ), c("^(source|datasource|institution|institutioncode)$"))
+
+      # Validate required columns exist after normalization
+      has_lon <- "longitude" %in% names(occ)
+      has_lat <- "latitude" %in% names(occ)
       missing_cols <- character(0)
-      if (is.na(lon_col) || is.null(lon_col)) missing_cols <- c(missing_cols, "longitude")
-      if (is.na(lat_col) || is.null(lat_col)) missing_cols <- c(missing_cols, "latitude")
+      if (!has_lon) missing_cols <- c(missing_cols, "longitude")
+      if (!has_lat) missing_cols <- c(missing_cols, "latitude")
       if (length(missing_cols) > 0) {
         found_cols <- names(occ)
         return(sdm_error(req, 400, paste0(
@@ -210,6 +289,22 @@ function(req) {
         )))
       }
 
+      # Parse coordinates (handle DMS formats like DD°MM'SS")
+      occ <- parse_coordinates(occ)
+
+      # Validate coordinate values
+      coord_err <- validate_coords(occ$longitude, occ$latitude)
+      if (nchar(coord_err) > 0) {
+        return(sdm_error(req, 400, paste0("Coordinate validation failed: ", coord_err,
+          ". Ensure coordinates are numeric decimal degrees or DMS format (e.g., 145.5 or 145°30'00\").")))
+      }
+
+      columns_detected <- list(
+        longitude = "longitude",
+        latitude = "latitude",
+        source = src_col
+      )
+      species_detected <- infer_species_label(file_path)
       preview <- head(occ, 5)
       preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
 
