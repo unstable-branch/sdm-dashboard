@@ -2,11 +2,12 @@ import { Hono } from "hono";
 import { sign } from "hono/jwt";
 import { hash, compare } from "bcrypt";
 import { db } from "../db/index.js";
-import { users, apiKeys, projects, projectMembers } from "../db/schema.js";
+import { users, apiKeys, projects, projectMembers, userSettings } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { randomBytes, createHash } from "crypto";
+import { logAction, extractClientInfo } from "../services/audit.js";
 import type { AppEnv } from "../middleware/auth.js";
 
 export const authRoutes = new Hono<AppEnv>();
@@ -60,6 +61,20 @@ authRoutes.post("/register", async (c) => {
       .insert(projectMembers)
       .values({ projectId: project.id, userId: user.id, role: "admin" });
 
+    await db
+      .insert(userSettings)
+      .values({ userId: user.id })
+      .onConflictDoNothing();
+
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "user_register",
+      entity: "users",
+      entityId: user.id,
+      ...client,
+    });
+
     const token = await sign(
       { sub: user.id, email: user.email, role: user.role, exp: Math.floor(Date.now() / 1000) + 86400 },
       JWT_SECRET
@@ -103,6 +118,20 @@ authRoutes.post("/login", async (c) => {
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
+    await db
+      .update(users)
+      .set({ lastLoginAt: new Date() })
+      .where(eq(users.id, user.id));
+
+    const client = extractClientInfo(c as any);
+    logAction({
+      userId: user.id,
+      action: "user_login",
+      entity: "users",
+      entityId: user.id,
+      ...client,
+    });
+
     const token = await sign(
       { sub: user.id, email: user.email, role: user.role, exp: Math.floor(Date.now() / 1000) + 86400 },
       JWT_SECRET
@@ -121,7 +150,17 @@ authRoutes.post("/login", async (c) => {
 authRoutes.get("/me", authMiddleware, async (c) => {
   const user = c.get("user");
   const [dbUser] = await db
-    .select({ id: users.id, email: users.email, name: users.name, role: users.role, createdAt: users.createdAt })
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      role: users.role,
+      avatarUrl: users.avatarUrl,
+      bio: users.bio,
+      organization: users.organization,
+      lastLoginAt: users.lastLoginAt,
+      createdAt: users.createdAt,
+    })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1);
@@ -131,6 +170,96 @@ authRoutes.get("/me", authMiddleware, async (c) => {
   }
 
   return c.json(dbUser);
+});
+
+authRoutes.put("/me", authMiddleware, rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "profile-update" }), async (c) => {
+  const user = c.get("user");
+  const body = await c.req.json();
+
+  const allowed = ["name", "avatarUrl", "bio", "organization"];
+  const updates: Record<string, unknown> = {};
+  for (const key of allowed) {
+    if (body[key] !== undefined) {
+      updates[key] = body[key];
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return c.json({ error: "No valid fields to update" }, 400);
+  }
+
+  const [updated] = await db
+    .update(users)
+    .set({ ...updates, updatedAt: new Date() })
+    .where(eq(users.id, user.id))
+    .returning();
+
+  const client = extractClientInfo(c as any);
+  logAction({
+    userId: user.id,
+    action: "user_profile_update",
+    entity: "users",
+    entityId: user.id,
+    ...client,
+  });
+
+  return c.json({
+    id: updated.id,
+    email: updated.email,
+    name: updated.name,
+    role: updated.role,
+    avatarUrl: updated.avatarUrl,
+    bio: updated.bio,
+    organization: updated.organization,
+    lastLoginAt: updated.lastLoginAt,
+    createdAt: updated.createdAt,
+  });
+});
+
+authRoutes.post("/change-password", authMiddleware, rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "change-password" }), async (c) => {
+  const user = c.get("user");
+  const body = await c.req.json();
+  const { currentPassword, newPassword } = body;
+
+  if (!currentPassword || !newPassword) {
+    return c.json({ error: "Current password and new password are required" }, 400);
+  }
+
+  if (newPassword.length < 8) {
+    return c.json({ error: "New password must be at least 8 characters" }, 400);
+  }
+
+  const [dbUser] = await db
+    .select({ passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1);
+
+  if (!dbUser) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const valid = await compare(currentPassword, dbUser.passwordHash);
+  if (!valid) {
+    return c.json({ error: "Current password is incorrect" }, 401);
+  }
+
+  const newHash = await hash(newPassword, BCRYPT_ROUNDS);
+  await db
+    .update(users)
+    .set({ passwordHash: newHash, updatedAt: new Date() })
+    .where(eq(users.id, user.id));
+
+  const client = extractClientInfo(c as any);
+  await logAction({
+    userId: user.id,
+    action: "user_password_change",
+    entity: "users",
+    entityId: user.id,
+    ...client,
+  });
+
+  return c.json({ ok: true });
 });
 
 authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "apikey-create" }), async (c) => {

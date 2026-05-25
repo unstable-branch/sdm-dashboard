@@ -1,0 +1,142 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { apiGet, apiPost } from "@/services/api";
+import { Users, BarChart3, Database, Zap, RefreshCw, Trash2, Loader2, Activity } from "lucide-react";
+
+interface OverviewData {
+  counts: {
+    users: number;
+    runs: number;
+    occurrences: number;
+    species: number;
+    projects: number;
+    activeRuns: number;
+  };
+  recentActivity: Array<{
+    id: string;
+    action: string;
+    entity: string | null;
+    createdAt: string;
+    details: Record<string, unknown> | null;
+  }>;
+}
+
+export default function AdminOverviewPage() {
+  const [data, setData] = useState<OverviewData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+const [clearingCache, setClearingCache] = useState(false);
+  const [cacheMsg, setCacheMsg] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const d = await apiGet<OverviewData>("/api/v1/admin/overview");
+      setData(d);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  async function clearCache() {
+    setClearingCache(true);
+    setCacheMsg(null);
+    try {
+      const res = await apiPost<{ message: string }>("/api/v1/admin/system/cache/clear");
+      setCacheMsg(res.message);
+      setTimeout(() => setCacheMsg(null), 3000);
+    } catch (err) {
+      setCacheMsg("Failed: " + (err instanceof Error ? err.message : "unknown"));
+    } finally {
+      setClearingCache(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-md bg-red-500/10 border border-red-500/30 p-4 text-sm text-red-400">{error}</div>
+    );
+  }
+
+  if (!data) return null;
+
+  const metrics = [
+    { label: "Users", value: data.counts.users, icon: Users, color: "text-sdm-accent" },
+    { label: "Total Runs", value: data.counts.runs, icon: BarChart3, color: "text-sdm-accent-blue" },
+    { label: "Active Runs", value: data.counts.activeRuns, icon: Zap, color: "text-sdm-warning" },
+    { label: "Projects", value: data.counts.projects, icon: Database, color: "text-sdm-accent-2" },
+  ];
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-sdm-heading">Admin Overview</h1>
+        <div className="flex gap-2">
+          <button onClick={fetchData}
+            className="rounded-md border border-sdm-border bg-sdm-surface px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface-soft">
+            <RefreshCw className="h-3.5 w-3.5 inline mr-1" /> Refresh
+          </button>
+          <button onClick={clearCache} disabled={clearingCache}
+            className="rounded-md bg-sdm-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-sdm-accent/90 disabled:opacity-50">
+            <Trash2 className="h-3.5 w-3.5 inline mr-1" />
+            {clearingCache ? "Clearing..." : "Clear Cache"}
+          </button>
+        </div>
+      </div>
+
+      {cacheMsg && (
+        <div className="rounded-md bg-sdm-success/10 border border-sdm-success/30 p-3 text-sm text-sdm-success">{cacheMsg}</div>
+      )}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {metrics.map((m) => (
+          <div key={m.label} className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <m.icon className={`h-5 w-5 ${m.color}`} />
+              <span className="text-xs text-sdm-muted">{m.label}</span>
+            </div>
+            <p className="text-2xl font-bold text-sdm-heading">{m.value.toLocaleString()}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Activity className="h-5 w-5 text-sdm-accent" />
+          <h2 className="text-lg font-medium text-sdm-heading">Recent Activity</h2>
+        </div>
+        {data.recentActivity.length === 0 ? (
+          <p className="text-sm text-sdm-muted">No activity yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {data.recentActivity.map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs font-medium text-sdm-accent uppercase">{entry.action}</span>
+                  {entry.entity && <span className="text-xs text-sdm-muted">- {entry.entity}</span>}
+                </div>
+                <span className="text-xs text-sdm-muted shrink-0">
+                  {new Date(entry.createdAt).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
