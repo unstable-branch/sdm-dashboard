@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { ModelConfigForm } from "@/components/model/model-config-form";
 import { RunHistory } from "@/components/model/run-history";
 import { JobProgress } from "@/components/jobs/job-progress";
@@ -138,8 +139,8 @@ export default function ModelPage() {
             <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
               <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="text-sm font-medium text-amber-500">No cleaning preview performed</p>
-                <p className="text-xs text-amber-400">The model will clean data automatically during the run. To review the cleaning results first, go to the Data page.</p>
+                <p className="text-sm font-medium text-amber-500">Cleaning recommended</p>
+                <p className="text-xs text-amber-400">Clean your data first on the <Link href="/data?tab=clean" className="underline">Data page</Link>. Without previewing, the model will clean automatically but you won't see the results.</p>
               </div>
             </div>
           )}
@@ -207,8 +208,12 @@ export default function ModelPage() {
               </div>
             ) : occurrenceFile ? (
               <div>
-                <p className="text-sm text-sdm-text font-mono truncate">{typeof occurrenceFile === "string" ? occurrenceFile.split("/").pop() : String(occurrenceFile)}</p>
+                <div className="flex items-center gap-2 text-sm text-amber-500">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <p className="text-sm text-sdm-text font-mono truncate">{typeof occurrenceFile === "string" ? occurrenceFile.split("/").pop() : String(occurrenceFile)}</p>
+                </div>
                 <p className="text-xs text-sdm-muted mt-1">{recordCount.toLocaleString()} records loaded</p>
+                <p className="text-xs text-amber-400 mt-1">Not cleaned. <Link href="/data?tab=clean" className="underline">Clean on Data page</Link> first.</p>
                 {species && species !== "Untitled species" && (
                   <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>
                 )}
