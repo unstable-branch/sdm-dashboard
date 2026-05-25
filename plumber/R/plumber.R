@@ -142,7 +142,9 @@ function(req) {
     dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
     safe_name <- gsub("[^a-zA-Z0-9._-]", "_", uploaded$filename %||% "upload")
     dest_path <- file.path(upload_dir, paste0(format(Sys.time(), "%Y%m%d_%H%M%S_"), safe_name))
-    file.copy(file_path, dest_path, overwrite = TRUE)
+    if (!file.copy(file_path, dest_path, overwrite = TRUE)) {
+      stop(paste("Failed to save uploaded file to:", dest_path), call. = FALSE)
+    }
     rel_path <- file.path("data", "uploads", basename(dest_path))
 
     if (is_dwca) {
@@ -178,8 +180,8 @@ function(req) {
     } else {
       occ <- read_occurrence_file(file_path, log_fun = message)
       n_rows <- nrow(occ)
-      lon_col <- detect_column(names(occ), c("^(lon|longitude|x)$", "^long"))
-      lat_col <- detect_column(names(occ), c("^(lat|latitude|y)$", "^lat"))
+      lon_col <- detect_column(names(occ), c("^(lon|longitude|x)$", "decimal.*lon", "decimallongitude", "^long"))
+      lat_col <- detect_column(names(occ), c("^(lat|latitude|y)$", "decimal.*lat", "decimallatitude", "^lat"))
       src_col <- detect_column(names(occ), c("^(source|datasource|institution|institutioncode)$"))
       species_detected <- infer_species_label(file_path)
       columns_detected <- list(
