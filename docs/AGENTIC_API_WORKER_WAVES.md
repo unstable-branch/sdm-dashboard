@@ -9,7 +9,7 @@ keeps architecture, integration, and release judgment in one place.
 Goal: make the existing Hono API visible and stable enough for scripts,
 notebooks, and later MCP.
 
-Current worker wave:
+Completed initial worker wave:
 
 | Worker | Scope | Output | Verification |
 | --- | --- | --- | --- |
@@ -30,16 +30,23 @@ Main-seat integration tasks:
 
 Goal: replace fragile "files plus run IDs" workflows with stable API objects.
 
-Delegable tasks:
+Completed so far:
 
-- Define occurrence dataset summary schema and route contract.
+- Added `runs.batch_id` persistence plus `GET /api/v1/sdm/batches/:batchId`
+  aggregate status.
+- Added occurrence dataset and idempotency-key tables/service helpers.
+- Added occurrence dataset list/register/get routes and dataset IDs on
+  upload, GBIF save, DwCA parse, and synchronous clean responses.
+
+Next delegable tasks:
+
 - Define study-area preset/custom extent schema.
 - Define environment set/scenario summary schema.
 - Extend batch parent semantics beyond the initial `runs.batch_id` aggregate
   if later work needs owner metadata, server-side comparison filters, or
   stronger lifecycle/audit behavior.
-- Add idempotency-key design for create/run/batch endpoints.
-- Add tests for duplicate-safe idempotent requests.
+- Wire `Idempotency-Key` behavior into mutating workflow routes.
+- Add route-level tests for duplicate-safe idempotent requests.
 
 Keep in main:
 

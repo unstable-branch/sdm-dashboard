@@ -457,6 +457,148 @@ export const openApiDocument = {
         },
       },
     },
+    "/api/v1/data/occurrence-datasets": {
+      get: {
+        operationId: "listOccurrenceDatasets",
+        summary: "List occurrence datasets",
+        tags: ["data"],
+        security: bearerOrApiKeySecurity,
+        parameters: [
+          {
+            name: "project_id",
+            in: "query",
+            schema: { type: "string" },
+          },
+          {
+            name: "species_id",
+            in: "query",
+            schema: { type: "string" },
+          },
+          {
+            name: "parent_dataset_id",
+            in: "query",
+            schema: { type: "string" },
+          },
+          {
+            name: "kind",
+            in: "query",
+            schema: { type: "string", enum: ["upload", "gbif", "dwca", "cleaned", "registered"] },
+          },
+          {
+            name: "status",
+            in: "query",
+            schema: { type: "string", enum: ["pending", "ready", "failed"] },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 500, default: 50 },
+          },
+          {
+            name: "offset",
+            in: "query",
+            schema: { type: "integer", minimum: 0, default: 0 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Occurrence datasets visible in the selected project",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/OccurrenceDatasetListResponse" },
+              },
+            },
+          },
+          "400": errorResponse,
+          "401": errorResponse,
+          "403": errorResponse,
+          "500": errorResponse,
+        },
+      },
+    },
+    "/api/v1/data/occurrence-datasets/register": {
+      post: {
+        operationId: "registerOccurrenceDataset",
+        summary: "Register existing occurrence file as a dataset",
+        tags: ["data"],
+        security: bearerOrApiKeySecurity,
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                description: "Provide either file_id or file_path.",
+                properties: {
+                  file_id: { type: "string" },
+                  file_path: { type: "string" },
+                  project_id: { type: "string" },
+                  species_id: { type: "string", nullable: true },
+                  parent_dataset_id: { type: "string", nullable: true },
+                  kind: { type: "string", enum: ["upload", "gbif", "dwca", "cleaned", "registered"], default: "registered" },
+                  status: { type: "string", enum: ["pending", "ready", "failed"], default: "ready" },
+                  file_name: { type: "string", nullable: true },
+                  record_count: { type: "integer", nullable: true },
+                  valid_count: { type: "integer", nullable: true },
+                  summary: { type: "object", nullable: true, additionalProperties: true },
+                  metadata: { type: "object", nullable: true, additionalProperties: true },
+                },
+                additionalProperties: false,
+              },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Registered occurrence dataset",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/OccurrenceDataset" },
+              },
+            },
+          },
+          "400": errorResponse,
+          "401": errorResponse,
+          "403": errorResponse,
+          "500": errorResponse,
+        },
+      },
+    },
+    "/api/v1/data/occurrence-datasets/{id}": {
+      get: {
+        operationId: "getOccurrenceDataset",
+        summary: "Get occurrence dataset",
+        tags: ["data"],
+        security: bearerOrApiKeySecurity,
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "project_id",
+            in: "query",
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Occurrence dataset",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/OccurrenceDataset" },
+              },
+            },
+          },
+          "401": errorResponse,
+          "403": errorResponse,
+          "404": errorResponse,
+          "500": errorResponse,
+        },
+      },
+    },
     "/api/v1/data/occurrences/upload": {
       post: {
         operationId: "uploadOccurrences",
@@ -487,6 +629,7 @@ export const openApiDocument = {
                   properties: {
                     file_id: { type: "string" },
                     file_path: { type: "string" },
+                    dataset_id: { type: "string", description: "Stable occurrence dataset id when a file id/path is produced" },
                     n_rows: { type: "integer" },
                     filename: { type: "string" },
                   },
@@ -516,6 +659,8 @@ export const openApiDocument = {
                 required: ["file_id", "species"],
                 properties: {
                   file_id: { type: "string", description: "Occurrence CSV file id/path" },
+                  dataset_id: { type: "string", description: "Existing input occurrence dataset id", nullable: true },
+                  project_id: { type: "string", nullable: true },
                   species: { type: "string" },
                   async: { type: "boolean", default: false },
                 },
@@ -531,6 +676,10 @@ export const openApiDocument = {
               "application/json": {
                 schema: {
                   type: "object",
+                  properties: {
+                    input_dataset_id: { type: "string", nullable: true },
+                    output_dataset_id: { type: "string", nullable: true },
+                  },
                   additionalProperties: true,
                 },
               },
@@ -714,6 +863,40 @@ export const openApiDocument = {
           createdAt: { type: "string", format: "date-time", nullable: true },
         },
         required: ["id", "name"],
+      },
+      OccurrenceDataset: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          speciesId: { type: "string", nullable: true },
+          parentDatasetId: { type: "string", nullable: true },
+          kind: { type: "string", enum: ["upload", "gbif", "dwca", "cleaned", "registered"] },
+          status: { type: "string", enum: ["pending", "ready", "failed"] },
+          fileId: { type: "string" },
+          fileName: { type: "string", nullable: true },
+          recordCount: { type: "integer", nullable: true },
+          validCount: { type: "integer", nullable: true },
+          summary: { type: "object", nullable: true, additionalProperties: true },
+          metadata: { type: "object", nullable: true, additionalProperties: true },
+          createdBy: { type: "string", nullable: true },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+        required: ["id", "projectId", "kind", "status", "fileId"],
+      },
+      OccurrenceDatasetListResponse: {
+        type: "object",
+        properties: {
+          occurrence_datasets: {
+            type: "array",
+            items: { $ref: "#/components/schemas/OccurrenceDataset" },
+          },
+          limit: { type: "integer" },
+          offset: { type: "integer" },
+          hasMore: { type: "boolean" },
+        },
+        required: ["occurrence_datasets", "limit", "offset", "hasMore"],
       },
       SdmModel: {
         type: "object",
