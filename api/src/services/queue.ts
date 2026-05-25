@@ -2,8 +2,8 @@ import { Queue, Worker, Job } from "bullmq";
 import IORedis from "ioredis";
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
-import { runs } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { runs, species, occurrences, projectMembers } from "../db/schema.js";
+import { eq, and } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { extractProgressPercent } from "@sdm/shared";
 
@@ -236,6 +236,68 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
               cc_tests: (payload.cc_tests as string) || "all",
               pipelineRunId: (payload.pipelineRunId as string) || null,
             });
+
+            // Persist cleaned occurrences to DB
+            const speciesName = (payload.species as string) || "Untitled species";
+            const pipelineRunId = (payload.pipelineRunId as string) || null;
+
+            if (userId) {
+              const [membership] = await db
+                .select({ projectId: projectMembers.projectId })
+                .from(projectMembers)
+                .where(eq(projectMembers.userId, userId))
+                .limit(1);
+
+              const projectId = membership?.projectId;
+
+              if (projectId) {
+                let [sp] = await db
+                  .select()
+                  .from(species)
+                  .where(and(eq(species.name, speciesName), eq(species.projectId, projectId)))
+                  .limit(1);
+
+                if (!sp) {
+                  [sp] = await db
+                    .insert(species)
+                    .values({ name: speciesName, projectId, occurrenceCount: 0, userId })
+                    .returning();
+                }
+
+                const cleanedRecords = (cleanRes as any).cleaned_records as Array<Record<string, unknown>> | undefined;
+                const validRecords = (cleanedRecords || []).filter(
+                  (r) => typeof r.longitude === "number" && typeof r.latitude === "number" && isFinite(r.longitude) && isFinite(r.latitude)
+                );
+
+                if (validRecords.length > 0) {
+                  const recordsToInsert = validRecords.map((row) => ({
+                    speciesId: sp.id,
+                    projectId,
+                    userId,
+                    filePath: (cleanRes as any).cleaned_file_id as string || null,
+                    pipelineRunId,
+                    longitude: Number(row.longitude),
+                    latitude: Number(row.latitude),
+                    source: (row.source as string) || null,
+                    flagged: Boolean((row as any).flagged || (row as any).cc_flag),
+                    cleaned: true,
+                    raw: row,
+                  }));
+
+                  const BATCH_SIZE = 500;
+                  for (let i = 0; i < recordsToInsert.length; i += BATCH_SIZE) {
+                    const batch = recordsToInsert.slice(i, i + BATCH_SIZE);
+                    await db.insert(occurrences).values(batch);
+                  }
+
+                  await db
+                    .update(species)
+                    .set({ occurrenceCount: (sp.occurrenceCount || 0) + recordsToInsert.length })
+                    .where(eq(species.id, sp.id));
+                }
+              }
+            }
+
             await job.updateProgress(100);
             jobEventBus.emitJobStatus({
               jobId: job.id!,
