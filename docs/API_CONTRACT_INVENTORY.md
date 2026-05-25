@@ -73,14 +73,18 @@ Primary sources:
 ### Climate (`/api/v1/climate`)
 - Main routes: `GET /scenarios`, `GET /check`, `POST /download`, `POST /delete/:scenarioId`, `GET /status/:jobId` (`api/src/routes/climate.ts`).
 - Auth mode: mixed.
-  - Auth-required: `download`, `delete`.
-  - `optionalAuth` on remaining routes.
+  - Auth-required: `download`, `delete`, `status`.
+  - Public/optional-auth: `scenarios`, `check`.
 - Sync/async: mixed.
   - `download` is async queue-first.
   - `check/scenarios/status` are synchronous reads/proxy calls.
 - Current machine-interface notes:
   - Explicit 503 behavior when Redis queue unavailable for downloads.
   - `scenarios` cached (`longCache`), useful for repeated agent fetches.
+  - Climate queue jobs are enqueued with `userId` metadata, allowing `/api/v1/jobs/*`
+    ownership filtering to include climate downloads.
+  - `POST /delete/:scenarioId` remains an authenticated Plumber proxy; durable
+    scenario ownership checks are not implemented yet.
 
 ### Ecology (`/api/v1/ecology`)
 - Main routes: `GET /:runId`, `GET /:runId/eoo-aoo`, `GET /:runId/aoa`, `GET /:runId/report` (`api/src/routes/ecology.ts`).

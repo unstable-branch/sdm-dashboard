@@ -45,8 +45,8 @@ responses now implemented for the generic jobs route group and SDM run status.
 - `POST /api/v1/climate/download` returns `{ jobId, status: "queued" }`, where
   `jobId` is the BullMQ job ID.
 - `GET /api/v1/climate/status/:jobId` proxies the Plumber climate status shape
-  when a Plumber-side job ID is available, while generic queue status remains
-  available through `/api/v1/jobs/:jobId`.
+  for authenticated callers when a Plumber-side job ID is available, while
+  generic queue status remains available through `/api/v1/jobs/:jobId`.
 
 ### Generic BullMQ jobs
 - Before this change, `GET /api/v1/jobs/:jobId` returned the queue helper shape:

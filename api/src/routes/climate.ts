@@ -18,6 +18,7 @@ export const climateRoutes = new Hono<AppEnv>();
 climateRoutes.use("*", climateRateLimit);
 climateRoutes.use("/download", authMiddleware);
 climateRoutes.use("/delete/*", authMiddleware);
+climateRoutes.use("/status/*", authMiddleware);
 climateRoutes.use("*", optionalAuth);
 
 climateRoutes.get("/scenarios", longCache, async (c) => {
