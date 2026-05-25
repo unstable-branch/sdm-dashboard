@@ -302,9 +302,9 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
           <input
             type="text"
             value={species}
-            onChange={(e) => { setSpecies(e.target.value); setSpeciesStore(e.target.value); setSpeciesSelectedIndex(-1); }}
+            onChange={(e) => setSpecies(e.target.value)}
             onFocus={() => setSpeciesInputFocused(true)}
-            onBlur={() => setTimeout(() => setSpeciesInputFocused(false), 200)}
+            onBlur={() => { setSpeciesStore(species); setTimeout(() => setSpeciesInputFocused(false), 200); }}
             onKeyDown={(e) => {
               const filtered = speciesSuggestions
                 .filter((s) => s.toLowerCase().includes(species.toLowerCase()) && s !== species)

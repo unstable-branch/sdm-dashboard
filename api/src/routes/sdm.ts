@@ -10,6 +10,31 @@ import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { join } from "path";
+
+type ModelConfigRecord = Record<string, unknown> & {
+  species?: string;
+  modelId?: string;
+  cleanedFilePath?: string;
+  occurrenceFile?: string;
+  biovars?: number[];
+  projectionExtent?: number[];
+  backgroundN?: number;
+  cvFolds?: number;
+};
+
+function buildModelPayload(config: ModelConfigRecord, runId: string): Record<string, unknown> {
+  const { biovars, projectionExtent, ...rest } = config;
+  return {
+    ...rest,
+    species: config.species,
+    model_id: config.modelId,
+    occurrence_file: config.cleanedFilePath || config.occurrenceFile,
+    cleaned_file_id: config.cleanedFilePath || null,
+    biovars: Array.isArray(config.biovars) ? config.biovars.join(",") : "",
+    projection_extent: Array.isArray(config.projectionExtent) ? config.projectionExtent.join(",") : "",
+    output_dir: join("outputs", "jobs", runId),
+  };
+}
 import type { AppEnv } from "../middleware/auth.js";
 
 export const sdmRoutes = new Hono<AppEnv>();
@@ -79,60 +104,8 @@ sdmRoutes.post("/run", async (c) => {
       const jobId = await enqueueSdmJob(
         {
           type: "model",
-          payload: {
-            runId: run.id,
-          species: config.species,
-          model_id: config.modelId,
-          occurrence_file: config.cleanedFilePath || config.occurrenceFile,
-          cleaned_file_id: config.cleanedFilePath || null,
-          biovars: config.biovars.join(","),
-          projection_extent: config.projectionExtent.join(","),
-          background_n: config.backgroundN,
-          cv_folds: config.cvFolds,
-          cv_strategy: config.cvStrategy,
-          cv_block_size_km: config.cvBlockSizeKm,
-          threshold: config.threshold,
-          include_quadratic: config.includeQuadratic,
-          use_elevation: config.useElevation,
-          elevation_demtype: config.elevationDemtype,
-          opentopo_api_key: config.opentopoApiKey,
-          use_soil: config.useSoil,
-          soil_vars: config.soilVars,
-          soil_depths: config.soilDepths,
-          use_uv: config.useUv,
-          uv_vars: config.uvVars,
-          use_vegetation: config.useVegetation,
-          veg_year: config.vegYear,
-          veg_products: config.vegProducts,
-          use_lulc: config.useLulc,
-          lulc_year: config.lulcYear,
-          use_hfp: config.useHfp,
-          hfp_year: config.hfpYear,
-          use_bioclim_season: config.useBioclimSeason,
-          use_drought: config.useDrought,
-          future_projection: config.futureProjection,
-          future_worldclim_dir: config.futureWorldclimDir,
-          future_label: config.futureLabel,
-          vif_reduction: config.vifReduction,
-          vif_threshold: config.vifThreshold,
-          climate_matching: config.climateMatching,
-          climate_matching_method: config.climateMatchingMethod,
-          thin_by_cell: config.thinByCell,
-          merge_small_sources: config.mergeSmallSources,
-          min_source_records: config.minSourceRecords,
-          bias_method: config.biasMethod,
-          thickening_distance_km: config.thickeningDistanceKm,
-          pa_replicates: config.paReplicates,
-          maxnet_features: config.maxnetFeatures,
-          maxnet_regmult: config.maxnetRegmult,
-          aggregation_factor: config.aggregationFactor,
-          n_cores: config.nCores,
-          seed: config.seed,
-          worldclim_dir: config.worldclimDir,
-          worldclim_res: config.worldclimRes,
-          source: config.source,
-        },
-      }, user.id);
+          payload: buildModelPayload(config as unknown as ModelConfigRecord, run.id),
+        }, user.id);
 
       if (jobId) {
         await db
@@ -163,58 +136,7 @@ sdmRoutes.post("/run", async (c) => {
       })
       .returning();
 
-    const result = await plumberClient.runModel({
-      species: config.species,
-      model_id: config.modelId,
-      occurrence_file: config.cleanedFilePath || config.occurrenceFile,
-      cleaned_file_id: config.cleanedFilePath || null,
-      biovars: config.biovars.join(","),
-      projection_extent: config.projectionExtent.join(","),
-      background_n: config.backgroundN,
-      cv_folds: config.cvFolds,
-      cv_strategy: config.cvStrategy,
-      cv_block_size_km: config.cvBlockSizeKm,
-      threshold: config.threshold,
-      include_quadratic: config.includeQuadratic,
-      use_elevation: config.useElevation,
-      elevation_demtype: config.elevationDemtype,
-      opentopo_api_key: config.opentopoApiKey,
-      use_soil: config.useSoil,
-      soil_vars: config.soilVars,
-      soil_depths: config.soilDepths,
-      use_uv: config.useUv,
-      uv_vars: config.uvVars,
-      use_vegetation: config.useVegetation,
-      veg_year: config.vegYear,
-      veg_products: config.vegProducts,
-      use_lulc: config.useLulc,
-      lulc_year: config.lulcYear,
-      use_hfp: config.useHfp,
-      hfp_year: config.hfpYear,
-      use_bioclim_season: config.useBioclimSeason,
-      use_drought: config.useDrought,
-      future_projection: config.futureProjection,
-      future_worldclim_dir: config.futureWorldclimDir,
-      future_label: config.futureLabel,
-      vif_reduction: config.vifReduction,
-      vif_threshold: config.vifThreshold,
-      climate_matching: config.climateMatching,
-      climate_matching_method: config.climateMatchingMethod,
-      thin_by_cell: config.thinByCell,
-      merge_small_sources: config.mergeSmallSources,
-      min_source_records: config.minSourceRecords,
-      bias_method: config.biasMethod,
-      thickening_distance_km: config.thickeningDistanceKm,
-      pa_replicates: config.paReplicates,
-      maxnet_features: config.maxnetFeatures,
-      maxnet_regmult: config.maxnetRegmult,
-      aggregation_factor: config.aggregationFactor,
-      n_cores: config.nCores,
-      seed: config.seed,
-      worldclim_dir: config.worldclimDir,
-      worldclim_res: config.worldclimRes,
-      source: config.source,
-    });
+    const result = await plumberClient.runModel(buildModelPayload(config as unknown as ModelConfigRecord, run.id));
 
     const plumberJobId = (result as any).job_id;
 
@@ -541,18 +463,19 @@ sdmRoutes.post("/cancel-all", async (c) => {
     const allRuns = await db
       .select({ id: runs.id, jobId: runs.jobId, status: runs.status })
       .from(runs)
-      .where(projectIds ? inArray(runs.projectId, projectIds) : undefined);
+      .where(and(
+        inArray(runs.status, statusValues as any),
+        projectIds ? inArray(runs.projectId, projectIds) : undefined,
+      ));
 
-    const toCancel = allRuns.filter(r => statusValues.includes(r.status));
-
-    if (toCancel.length === 0) {
+    if (allRuns.length === 0) {
       return c.json({ ok: true, message: "No runs to cancel", cancelled: 0 });
     }
 
     const queue = getJobQueue();
     let cancelled = 0;
 
-    for (const run of toCancel) {
+    for (const run of allRuns) {
       try {
         if (queue && run.jobId) {
           const bullJob = await queue.getJob(run.jobId);
@@ -575,7 +498,7 @@ sdmRoutes.post("/cancel-all", async (c) => {
       }
     }
 
-    return c.json({ ok: true, message: `Cancelled ${cancelled}/${toCancel.length} runs`, cancelled, total: toCancel.length });
+    return c.json({ ok: true, message: `Cancelled ${cancelled}/${allRuns.length} runs`, cancelled, total: allRuns.length });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to cancel runs";
     return c.json({ error: message }, 502);
@@ -669,7 +592,7 @@ sdmRoutes.post("/runs/clear-all", async (c) => {
 sdmRoutes.post("/batch", async (c) => {
   try {
     const body = await c.req.json();
-    const { configs, parallel } = body;
+    const { configs } = body;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
 
@@ -697,68 +620,20 @@ sdmRoutes.post("/batch", async (c) => {
         })
         .returning();
 
-      const data = parsed.data;
-      const plumberPayload = {
-        species: data.species,
-        model_id: data.modelId,
-        occurrence_file: data.cleanedFilePath || data.occurrenceFile,
-        cleaned_file_id: data.cleanedFilePath || null,
-        biovars: data.biovars.join(","),
-        projection_extent: data.projectionExtent.join(","),
-        background_n: data.backgroundN,
-        cv_folds: data.cvFolds,
-        cv_strategy: data.cvStrategy,
-        cv_block_size_km: data.cvBlockSizeKm,
-        threshold: data.threshold,
-        include_quadratic: data.includeQuadratic,
-        use_elevation: data.useElevation,
-        elevation_demtype: data.elevationDemtype,
-        opentopo_api_key: data.opentopoApiKey,
-        use_soil: data.useSoil,
-        soil_vars: data.soilVars,
-        soil_depths: data.soilDepths,
-        use_uv: data.useUv,
-        uv_vars: data.uvVars,
-        use_vegetation: data.useVegetation,
-        veg_year: data.vegYear,
-        veg_products: data.vegProducts,
-        use_lulc: data.useLulc,
-        lulc_year: data.lulcYear,
-        use_hfp: data.useHfp,
-        hfp_year: data.hfpYear,
-        use_bioclim_season: data.useBioclimSeason,
-        use_drought: data.useDrought,
-        future_projection: data.futureProjection,
-        future_worldclim_dir: data.futureWorldclimDir,
-        future_label: data.futureLabel,
-        vif_reduction: data.vifReduction,
-        vif_threshold: data.vifThreshold,
-        climate_matching: data.climateMatching,
-        climate_matching_method: data.climateMatchingMethod,
-        thin_by_cell: data.thinByCell,
-        merge_small_sources: data.mergeSmallSources,
-        min_source_records: data.minSourceRecords,
-        bias_method: data.biasMethod,
-        thickening_distance_km: data.thickeningDistanceKm,
-        pa_replicates: data.paReplicates,
-        maxnet_features: data.maxnetFeatures,
-        maxnet_regmult: data.maxnetRegmult,
-        aggregation_factor: data.aggregationFactor,
-        n_cores: data.nCores,
-        seed: data.seed,
-        worldclim_dir: data.worldclimDir,
-        worldclim_res: data.worldclimRes,
-        source: data.source,
-        output_dir: join("outputs", "jobs", run.id),
-      };
+      const queuedJobId = await enqueueSdmJob(
+        {
+          type: "model",
+          payload: buildModelPayload(parsed.data as unknown as ModelConfigRecord, run.id),
+        },
+        user.id,
+      );
 
-      const plumberRes = await plumberClient.runModel(plumberPayload);
-      const plumberJobId = (plumberRes as any).job_id;
-
-      await db
-        .update(runs)
-        .set({ jobId: plumberJobId, status: "running", startedAt: new Date() })
-        .where(eq(runs.id, run.id));
+      if (queuedJobId) {
+        await db
+          .update(runs)
+          .set({ jobId: queuedJobId })
+          .where(eq(runs.id, run.id));
+      }
 
       jobIds.push(run.id);
     }
@@ -767,7 +642,7 @@ sdmRoutes.post("/batch", async (c) => {
       batch_id: `batch-${Date.now()}`,
       job_ids: jobIds,
       total: jobIds.length,
-      message: `Batch of ${jobIds.length} runs started`,
+      message: `Batch of ${jobIds.length} runs started via queue`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Batch run failed";

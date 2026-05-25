@@ -7,7 +7,6 @@ import dynamic from "next/dynamic";
 import { RunHistory } from "@/components/model/run-history";
 import { JobProgress } from "@/components/jobs/job-progress";
 import { useSDMStore } from "@/stores/sdm-store";
-import { useJobSSE } from "@/hooks/use-job-sse";
 import { apiPost, apiGet } from "@/services/api";
 import { Ban, AlertTriangle, Loader2 } from "lucide-react";
 import type { ModelConfig } from "@sdm/shared";
@@ -30,7 +29,6 @@ export default function ModelPage() {
   const recordCount = useSDMStore((s) => s.recordCount);
   const species = useSDMStore((s) => s.species);
   const cleanedOccurrence = useSDMStore((s) => s.cleanedOccurrence);
-  const hasHydrated = true;
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,9 +39,6 @@ export default function ModelPage() {
   const [runRefreshKey, setRunRefreshKey] = useState(0);
   const activeRunsRef = useRef(activeRuns.length);
   activeRunsRef.current = activeRuns.length;
-
-  // SSE-driven active run tracking — no polling needed
-  const { getJob } = useJobSSE(true);
 
   const fetchActiveRuns = useCallback(async () => {
     try {
@@ -111,14 +106,6 @@ export default function ModelPage() {
   const handleRunSelect = (runId: string) => {
     router.push(`/results/${runId}`);
   };
-
-  if (!hasHydrated) {
-    return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <p className="text-sdm-muted">Loading...</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
