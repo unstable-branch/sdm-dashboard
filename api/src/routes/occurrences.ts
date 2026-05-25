@@ -65,9 +65,14 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     // Quick CSV header validation before sending to Plumber
     const isCsv = !file.name.toLowerCase().endsWith(".zip");
     if (isCsv) {
-      const headerLine = buffer.toString("utf-8").split("\n")[0];
+      let rawHeader = buffer.toString("utf-8");
+      // Strip UTF-8 BOM
+      if (rawHeader.charCodeAt(0) === 0xFEFF) rawHeader = rawHeader.slice(1);
+      const headerLine = rawHeader.split("\n")[0];
       if (headerLine) {
-        const headers = headerLine.split(",").map((h) => h.trim().toLowerCase());
+        // Detect delimiter: try comma first, fall back to tab
+        const delim = headerLine.includes("\t") ? "\t" : ",";
+        const headers = headerLine.split(delim).map((h) => h.trim().toLowerCase());
         const lonPatterns = ["^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east"];
         const latPatterns = ["^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north"];
         const hasLon = headers.some((h) => lonPatterns.some((p) => new RegExp(p).test(h)));
