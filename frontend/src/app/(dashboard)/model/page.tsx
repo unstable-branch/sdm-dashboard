@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { RunHistory } from "@/components/model/run-history";
@@ -39,6 +39,21 @@ export default function ModelPage() {
   const [runRefreshKey, setRunRefreshKey] = useState(0);
   const activeRunsRef = useRef(activeRuns.length);
   activeRunsRef.current = activeRuns.length;
+
+  // Fork from existing run: pre-fill species from ?fork=<runId>
+  const searchParams = useSearchParams();
+  const forkId = searchParams.get("fork");
+  useEffect(() => {
+    if (!forkId) return;
+    apiGet<Record<string, unknown>>(`/api/v1/sdm/status/${forkId}`)
+      .then((data) => {
+        const speciesName = (data as any).species || (data as any).speciesName;
+        if (speciesName) {
+          useSDMStore.getState().setSpecies(speciesName);
+        }
+      })
+      .catch(() => {});
+  }, [forkId]);
 
   const fetchActiveRuns = useCallback(async () => {
     try {
