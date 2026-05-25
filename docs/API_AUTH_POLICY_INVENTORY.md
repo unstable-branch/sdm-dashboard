@@ -131,10 +131,10 @@ Proposed scope meaning:
 | `/api/v1/data/*` | Required bearer/API-key auth plus default rate limit. Project scoping is route/helper based. CSRF applies to non-API-key unsafe methods. | `read` for dataset/species reads; `write` for upload/register/clean/GBIF save/DwCA; `run` optional if async clean is treated as compute. | No scoped key; quotas are not file-size/project/key aware; audit missing for uploads and derived datasets. |
 | `/api/v1/climate/scenarios`, `/check`, `/status/:jobId` | Climate rate limit plus optional auth. `scenarios` cached. | `read`, or public for static catalogs if product policy chooses. | Current status can be queried anonymously by job ID. |
 | `/api/v1/climate/download`, `/delete/:scenarioId` | Required auth plus climate rate limit. Download supports `Idempotency-Key`. | `run` for download; `admin` or `run` plus ownership checks for delete. | Climate delete proxies by scenario ID without project/user ownership semantics. No scoped key/quota/audit. |
-| `/api/v1/ecology/*` | No auth middleware in the router. CSRF applies, but all current routes are GET and bypass CSRF. Proxies to Plumber by run ID. | `read` with run/project visibility checks. | Currently globally readable by run ID at the Hono layer. |
-| `/api/v1/diagnostics/*` | Default rate limit plus optional auth. Proxies to Plumber by run ID. No CSRF registration, all current routes are GET. | `read` with run/project visibility checks. | Currently anonymously readable by run ID. |
+| `/api/v1/ecology/*` | Required bearer/API-key auth. Checks run visibility through the caller's project memberships before proxying to Plumber. CSRF applies, but all current routes are GET and bypass CSRF. | `read` with run/project visibility checks. | No scoped-key distinction, quota, or audit event yet; ecology output redaction remains delegated to current Plumber responses. |
+| `/api/v1/diagnostics/*` | Required bearer/API-key auth plus default rate limit. Checks run visibility through the caller's project memberships before proxying to Plumber. No CSRF registration, all current routes are GET. | `read` with run/project visibility checks. | No scoped-key distinction or download/audit event yet. |
 | `/api/v1/results/*` | Required auth for all routes, with run/project checks and path confinement for file reads. | `read`; potentially separate artifact-download allowance if large downloads need quota. | Good baseline, but manifests/logs/errors still need redaction rules and audit for downloads. |
-| `/api/v1/jobs/sse`, `/api/v1/jobs/:jobId`, `/api/v1/jobs/:jobId/cancel` | No auth middleware in the router. No CSRF registration. `POST /:jobId/cancel` can remove queued/active jobs by queue job ID. | `read` for status/SSE with owner filtering; `run` for cancel; maybe `batch` for batch jobs. | Highest-priority gap: global queue visibility and cancellation by job ID. |
+| `/api/v1/jobs/sse`, `/api/v1/jobs/:jobId`, `/api/v1/jobs/:jobId/cancel` | Required bearer/API-key auth. Queue jobs with `job.data.payload.runId` or `job.data.runId` are checked against run/project visibility. Queue jobs without a run ID are visible/cancellable only when `job.data.userId` or `job.data.payload.userId` matches the caller, preserving current clean/climate async polling. SSE filters active/waiting jobs by the same available queue data. No CSRF registration. | `read` for status/SSE with owner filtering; `run` for cancel; maybe `batch` for batch jobs. | Remaining gap: queue jobs that carry neither run ID nor user ID cannot be safely attributed and are hidden; scoped keys, quotas, and cancellation audit are still missing. |
 
 ## Machine-Facing Risk Notes
 
@@ -159,15 +159,16 @@ Proposed scope meaning:
    `created_by_key_id` or equivalent metadata to `api_keys`.
 2. Add a central `requireScope()` or route-policy middleware that combines
    authentication, required scope, and project/run ownership checks.
-3. Lock down `/api/v1/jobs/*`, `/api/v1/ecology/*`, and
-   `/api/v1/diagnostics/*` behind `read`/`run` checks before treating them as
-   machine-safe.
+3. Add scoped-key policy, quotas, and cancellation audit for `/api/v1/jobs/*`;
+   required auth and best-effort queue-data visibility checks are now in place.
+   Ecology and diagnostics now have required auth and run/project visibility
+   checks but still lack scoped-key policy.
 4. Add per-key quota/concurrency counters for `run` and `batch` operations,
    with Redis acceleration and DB-backed audit truth.
 5. Add an `api_audit_events` table for key creation/rotation/deletion,
    workflow starts, cancellations, destructive clears/deletes, downloads, and
    auth failures.
 6. Add tests proving scoped keys cannot use routes outside their scope and that
-   anonymous requests cannot read diagnostics/ecology/jobs by guessed IDs.
+   anonymous requests cannot read ecology/diagnostics/jobs by guessed IDs.
 7. Update OpenAPI security metadata after scopes exist; until then, keep it to
    bearer/API-key schemes without false scope claims.

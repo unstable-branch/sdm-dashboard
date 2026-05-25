@@ -84,23 +84,26 @@ Primary sources:
 
 ### Ecology (`/api/v1/ecology`)
 - Main routes: `GET /:runId`, `GET /:runId/eoo-aoo`, `GET /:runId/aoa`, `GET /:runId/report` (`api/src/routes/ecology.ts`).
-- Auth mode: currently no auth middleware applied in this router.
+- Auth mode: auth required for all routes (`ecologyRoutes.use("*", authMiddleware)`), with per-run/project checks before Plumber proxying.
 - Sync/async: synchronous proxy to plumber-derived outputs.
 - Current machine-interface notes:
   - Simple route shape for downstream analysis.
-  - Missing explicit access guard compared with project-scoped routes; intended
-    v1 policy is `read` scope plus run/project visibility checks, but scoped
-    API keys are not implemented yet.
+  - Invisible or missing runs return 404 before the Hono API proxies to
+    Plumber.
+  - Intended v1 policy remains `read` scope plus run/project visibility checks,
+    but scoped API keys are not implemented yet.
 
 ### Diagnostics (`/api/v1/diagnostics`)
 - Main routes: `GET /vif/:runId`, `/response-curves/:runId`, `/importance/:runId`, `/cbi/:runId`, `/mess/:runId`, `/summary/:runId` (`api/src/routes/diagnostics.ts`).
-- Auth mode: `optionalAuth` with rate limit.
+- Auth mode: auth required for all routes (`diagnosticsRoutes.use("*", authMiddleware)`) with rate limit.
 - Sync/async: synchronous reads/proxy calls.
 - Current machine-interface notes:
   - Predictable path family by diagnostic type.
-  - Access model is looser than results/data/project surfaces; intended v1
-    policy is `read` scope plus run/project visibility checks, but current
-    optional auth makes these effectively public by run ID.
+  - Run visibility is checked against the caller's project memberships before
+    proxying. Unauthorized requests return 401; missing or invisible runs
+    return 404 without calling Plumber.
+  - Intended v1 policy is still `read` scope plus run/project visibility
+    checks, but scoped API keys are not implemented yet.
 
 ### Results (`/api/v1/results`)
 - Main routes: `GET /file/:filePath`, `GET /:id`, `GET /:id/report.txt`, `GET /:id/script`, `GET /:id/manifest` (`api/src/routes/results.ts`).
@@ -115,15 +118,19 @@ Primary sources:
 
 ### Jobs (`/api/v1/jobs`)
 - Main routes: `GET /sse`, `GET /:jobId`, `POST /:jobId/cancel` (`api/src/routes/jobs.ts`).
-- Auth mode: currently no auth middleware in this router.
+- Auth mode: required bearer/API-key auth. Queue jobs with
+  `job.data.payload.runId` or `job.data.runId` require run/project visibility;
+  queue jobs without a run ID require matching `job.data.userId` or
+  `job.data.payload.userId`.
 - Sync/async: async monitoring/cancellation interface over queue; SSE for live updates.
 - Current machine-interface notes:
   - `GET /:jobId` now retains the queue fields (`id`, `state`, `progress`, `result`, `failedReason`) and adds a polling-friendly normalized layer: `status`, `progress_percent`, `terminal`, `poll_after_ms`, and `error`.
   - The normalized route maps BullMQ states into `queued|running|completed|failed|cancelled|unknown`; see `docs/ASYNC_JOB_STATUS_CONTRACT.md`.
-  - Useful real-time event stream (`job-update`) for agents/UI.
-  - Job visibility/cancel surface is global unless externally gated. Intended
-    v1 policy is `read` for status/SSE and `run` or `batch` for cancellation,
-    after queue jobs can be tied back to user/project ownership.
+  - Real-time event stream (`job-update`) now filters active/waiting queue jobs
+    by the same available run/user queue data.
+  - Remaining limitation: jobs that carry neither run ID nor user ID cannot be
+    safely attributed and are hidden; cancellation still lacks scoped-key
+    policy, quotas, and audit events.
 
 ### Health / Ready (`/health`, `/ready`)
 - Main routes: `GET /health`, `GET /ready` (`api/src/index.ts`).
@@ -147,8 +154,8 @@ Primary sources:
   - Current client auth mechanisms are bearer JWT/cookie and `X-API-Key`.
     Future scopes (`read`, `write`, `run`, `batch`, `admin`) are not stored or
     enforced today.
-  - Highest-priority exposed route gaps are `/api/v1/jobs/*`,
-    `/api/v1/ecology/*`, and `/api/v1/diagnostics/*`.
+  - Jobs, ecology, and diagnostics now require auth and object visibility
+    checks, but none of those route groups has scoped-key policy yet.
 - Stable schemas/OpenAPI:
   - A baseline OpenAPI document exists, but schemas are still intentionally partial and should be tightened endpoint-by-endpoint.
   - Several endpoints pass through upstream plumber payloads directly.

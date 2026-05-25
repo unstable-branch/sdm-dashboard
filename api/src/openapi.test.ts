@@ -122,4 +122,11 @@ describe("openApiDocument baseline", () => {
       }),
     }));
   });
+
+  it("documents auth on queue job status", () => {
+    const operation = openApiDocument.paths["/api/v1/jobs/{jobId}"].get;
+    expect(operation?.security).toEqual(openApiDocument.paths["/api/v1/sdm/run"].post?.security);
+    expect(operation?.responses["401"]).toBeDefined();
+    expect(operation?.description).toContain("visible run");
+  });
 });
