@@ -82,6 +82,8 @@ export const runs = pgTable("runs", {
   outputFiles: jsonb("output_files"),
   error: text("error"),
   resultPath: text("result_path"),
+  parentRunId: uuid("parent_run_id"),
+  provenance: jsonb("provenance"),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -89,6 +91,7 @@ export const runs = pgTable("runs", {
   index("idx_runs_project").on(t.projectId),
   index("idx_runs_status").on(t.status),
   index("idx_runs_pipeline").on(t.pipelineRunId),
+  index("idx_runs_parent").on(t.parentRunId),
 ]);
 
 export const occurrences = pgTable("occurrences", {
