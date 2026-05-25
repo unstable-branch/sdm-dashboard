@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import dynamic from "next/dynamic";
 import { MetricCards } from "@/components/results/metric-cards";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
-import { ArrowLeft, Loader2, Download } from "lucide-react";
+import { ArrowLeft, Loader2, Download, GitBranch } from "lucide-react";
 import { apiGet } from "@/services/api";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import type { RunDetail } from "@/services/types";
@@ -121,6 +122,13 @@ export default function ResultsPage() {
         }>
           {run.status}
         </span>
+        <Link
+          href={`/model?fork=${run.id}`}
+          className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface-soft"
+        >
+          <GitBranch className="h-3.5 w-3.5" />
+          Fork this run
+        </Link>
       </div>
 
       {run.status === "running" && (
