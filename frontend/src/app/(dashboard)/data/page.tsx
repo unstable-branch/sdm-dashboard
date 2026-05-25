@@ -262,7 +262,7 @@ function DataPageContent() {
         const cleanedRowCount = (result.valid_records as number) || 0;
         setCleanedOccurrence({
           filePath: (result.cleaned_file_id as string) || "",
-          df: (result.occurrence_preview as Record<string, unknown>[]) || [],
+          df: (result.cleaned_records as Record<string, unknown>[]) || [],
           sourceCounts: (result.source_counts as Record<string, number>) || {},
           nAbsentExcluded: (result.n_absent_excluded as number) || 0,
           originalRows: (result.original_rows as number) || 0,
@@ -288,7 +288,7 @@ function DataPageContent() {
     const cleanedRowCount = (finalData.valid_records as number) || 0;
     setCleanedOccurrence({
       filePath: (finalData.cleaned_file_id as string) || "",
-      df: (finalData.occurrence_preview as Record<string, unknown>[]) || [],
+      df: (finalData.cleaned_records as Record<string, unknown>[]) || [],
       sourceCounts: (finalData.source_counts as Record<string, number>) || {},
       nAbsentExcluded: (finalData.n_absent_excluded as number) || 0,
       originalRows: (finalData.original_rows as number) || 0,
@@ -353,7 +353,7 @@ function DataPageContent() {
       setUploadResult(result);
       if (typeof result.file_path === "string") {
         setOccurrenceFilePath(result.file_path);
-        setRecordCount(Number(result.n_occurrences || result.n_returned || result.n_rows || 0));
+        setRecordCount(Number(result.n_returned || result.n_rows || result.n_records || 0));
       }
     } catch (err) {
       setDwcaError(err instanceof Error ? err.message : "DwCA parsing failed");
@@ -364,7 +364,7 @@ function DataPageContent() {
 
   const uploadPreview = uploadResult?.preview as Array<Record<string, unknown>> | undefined;
   const gbifPreview = gbifResult?.preview as Array<Record<string, unknown>> | undefined;
-  const cleanPreview = cleanResult?.occurrence_preview as OccurrencePoint[] | undefined;
+  const cleanPreview = cleanResult?.cleaned_records as OccurrencePoint[] | undefined;
   const sourceCounts = cleanResult?.source_counts as Record<string, number> | undefined;
 
   return (
@@ -456,13 +456,13 @@ function DataPageContent() {
           {gbifResult && typeof gbifResult.n_records === "number" && gbifResult.n_records > 0 && (
             <div className="space-y-3">
               {gbifSaved ? (
-                <div className="flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
-                  <div className="flex items-center gap-2 text-sm text-green-500">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>{Number(gbifResult.n_records).toLocaleString()} GBIF records saved — ready for modeling</span>
+                <div className="flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-amber-500">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span>{Number(gbifResult.n_records).toLocaleString()} GBIF records saved — clean before modeling</span>
                   </div>
-                  <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
-                    Go to Model tab →
+                  <Link href="/data?tab=clean" className="text-sm font-medium text-sdm-accent hover:underline">
+                    Clean data →
                   </Link>
                 </div>
               ) : (
@@ -504,15 +504,15 @@ function DataPageContent() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Datasets</p>
-                  <p className="mt-1 text-xl font-bold text-sdm-heading">{String(dwcaResult.n_datasets || 0)}</p>
+                  <p className="mt-1 text-xl font-bold text-sdm-heading">{String((dwcaResult.datasets as Array<unknown>)?.length ?? 0)}</p>
                 </div>
                 <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Records</p>
-                  <p className="mt-1 text-xl font-bold text-sdm-accent">{Number(dwcaResult.n_occurrences || 0).toLocaleString()}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Returned</p>
+                  <p className="mt-1 text-xl font-bold text-sdm-accent">{Number(dwcaResult.n_returned ?? 0).toLocaleString()}</p>
                 </div>
                 <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">With coords</p>
-                  <p className="mt-1 text-xl font-bold text-sdm-heading">{Number(dwcaResult.n_with_coords || 0).toLocaleString()}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Raw</p>
+                  <p className="mt-1 text-xl font-bold text-sdm-heading">{Number(dwcaResult.n_raw ?? 0).toLocaleString()}</p>
                 </div>
                 <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">DOI</p>
@@ -525,13 +525,13 @@ function DataPageContent() {
               )}
 
               {typeof dwcaResult.file_path === "string" && (
-                <div className="mt-3 flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
-                  <div className="flex items-center gap-2 text-sm text-green-500">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>DwC-A parsed — {Number(dwcaResult.n_occurrences ?? 0).toLocaleString()} records extracted</span>
+                <div className="mt-3 flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-amber-500">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span>DwC-A parsed — {Number(dwcaResult.n_returned ?? 0).toLocaleString()} records. Clean before modeling.</span>
                   </div>
-                  <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
-                    Go to Model tab →
+                  <Link href="/data?tab=clean" className="text-sm font-medium text-sdm-accent hover:underline">
+                    Clean data →
                   </Link>
                 </div>
               )}

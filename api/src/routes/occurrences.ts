@@ -69,11 +69,11 @@ dataRoutes.post("/occurrences/upload", async (c) => {
 dataRoutes.post("/occurrences/clean", async (c) => {
   try {
     const body = await c.req.json();
-    const async = body.async === true;
+    const isAsync = body.async === true;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
 
-    if (async) {
+    if (isAsync) {
       const jobId = await enqueueSdmJob(
         {
           type: "clean",
