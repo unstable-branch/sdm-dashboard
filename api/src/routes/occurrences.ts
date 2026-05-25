@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { mkdirSync, existsSync, accessSync, constants } from "fs";
 import { writeFile } from "fs/promises";
-import { join, resolve, dirname } from "path";
+import { join, resolve, dirname, extname } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import { plumberClient } from "../services/plumber.js";
@@ -61,6 +61,29 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     const { destPath, pipelineRunId } = saveUpload(buffer, file.name);
     await writeUploadFile(destPath, buffer);
     const user = c.get("user");
+
+    // Quick CSV header validation before sending to Plumber
+    const isCsv = !file.name.toLowerCase().endsWith(".zip");
+    if (isCsv) {
+      const headerLine = buffer.toString("utf-8").split("\n")[0];
+      if (headerLine) {
+        const headers = headerLine.split(",").map((h) => h.trim().toLowerCase());
+        const lonPatterns = ["^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long"];
+        const latPatterns = ["^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "^lat"];
+        const hasLon = headers.some((h) => lonPatterns.some((p) => new RegExp(p).test(h)));
+        const hasLat = headers.some((h) => latPatterns.some((p) => new RegExp(p).test(h)));
+        const missing: string[] = [];
+        if (!hasLon) missing.push("longitude");
+        if (!hasLat) missing.push("latitude");
+        if (missing.length > 0) {
+          return c.json({
+            error: `CSV is missing required coordinate column(s): ${missing.join(", ")}. ` +
+              `Detected columns: ${headers.join(", ")}. ` +
+              `Expected: longitude/long/lon/x/decimalLongitude for X, and latitude/lat/y/decimalLatitude for Y.`,
+          }, 400);
+        }
+      }
+    }
 
     let result: Record<string, unknown>;
     try {
