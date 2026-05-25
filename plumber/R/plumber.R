@@ -195,6 +195,21 @@ function(req) {
         latitude = lat_col,
         source = src_col
       )
+
+      # Validate required columns
+      missing_cols <- character(0)
+      if (is.na(lon_col) || is.null(lon_col)) missing_cols <- c(missing_cols, "longitude")
+      if (is.na(lat_col) || is.null(lat_col)) missing_cols <- c(missing_cols, "latitude")
+      if (length(missing_cols) > 0) {
+        found_cols <- names(occ)
+        return(sdm_error(req, 400, paste0(
+          "CSV is missing required coordinate columns: ", paste(missing_cols, collapse = ", "),
+          ". Detected columns: ", paste(found_cols, collapse = ", "),
+          ". Expected column names: longitude/long/lon/x/decimalLongitude for X, ",
+          "and latitude/lat/y/decimalLatitude for Y."
+        )))
+      }
+
       preview <- head(occ, 5)
       preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
 
