@@ -6,6 +6,7 @@ import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { authMiddleware, type AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds } from "../services/access.js";
+import { ManifestAdapterError, normalizeRunManifestResponse } from "../services/artifact-manifest.js";
 
 export const resultsRoutes = new Hono<AppEnv>();
 
@@ -196,14 +197,18 @@ resultsRoutes.get("/:id/manifest", async (c) => {
         "X-Forwarded-User": user.id,
       },
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({ error: "Invalid manifest response from Plumber" }));
 
     if (!res.ok) {
       return c.json(data, res.status as any);
     }
 
-    return c.json(data);
+    return c.json(normalizeRunManifestResponse(data, id));
   } catch (err) {
+    if (err instanceof ManifestAdapterError) {
+      return c.json({ error: err.message }, 502);
+    }
+
     const message = err instanceof Error ? err.message : "Manifest generation failed";
     return c.json({ error: message }, 502);
   }

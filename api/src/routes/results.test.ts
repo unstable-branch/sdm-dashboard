@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
 import { resultsRoutes } from "./results.js";
+
+const fetchMock = vi.fn();
 
 vi.mock("../db", () => ({
   db: {
@@ -44,6 +46,11 @@ describe("results routes", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("GET /:id returns run data", async () => {
@@ -82,5 +89,86 @@ describe("results routes", () => {
   it("GET /file/:filePath serves valid files", async () => {
     const res = await app.request("/api/v1/results/file/outputs%2Fjobs%2Frun-123%2Fsuitability.tif");
     expect(res.status).toBe(200);
+  });
+
+  it("GET /:id/manifest normalizes Plumber manifests", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          manifest_path: "/app/outputs/jobs/run-123/manifest.json",
+          manifest: {
+            run_id: "run-123",
+            generated_at: "2026-05-26T00:00:00Z",
+            species: "Test species",
+            model: { id: "glm", parameters: { seed: 123 } },
+            metrics: { auc_mean: 0.85 },
+            output_files: {
+              suitability_tif: "outputs/jobs/run-123/suitability.tif",
+            },
+          },
+        }),
+    });
+
+    const res = await app.request("/api/v1/results/run-123/manifest");
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.ok).toBe(true);
+    expect(data.schema_version).toBe("run_manifest.v1");
+    expect(data.manifest_path).toBe("/app/outputs/jobs/run-123/manifest.json");
+    expect(data.manifest.run_id).toBe("run-123");
+    expect(data.manifest.model.id).toBe("glm");
+    expect(data.manifest.artifacts).toEqual([
+      {
+        key: "suitability_tif",
+        path: "outputs/jobs/run-123/suitability.tif",
+        kind: "raster",
+        media_type: "image/tiff",
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/output/manifest/run-123",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "X-Forwarded-User": "user-1" }),
+      }),
+    );
+  });
+
+  it("GET /:id/manifest returns upstream non-ok responses", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: () => Promise.resolve({ error: "Run not found" }),
+    });
+
+    const res = await app.request("/api/v1/results/run-123/manifest");
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Run not found" });
+  });
+
+  it("GET /:id/manifest rejects missing manifest objects", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ ok: true }),
+    });
+
+    const res = await app.request("/api/v1/results/run-123/manifest");
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "Malformed manifest response: missing manifest object" });
+  });
+
+  it("GET /:id/manifest reports fetch failures", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("network down"));
+
+    const res = await app.request("/api/v1/results/run-123/manifest");
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "network down" });
   });
 });
