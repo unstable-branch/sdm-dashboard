@@ -2,8 +2,9 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { sql } from "drizzle-orm";
 import { plumberClient } from "./services/plumber.js";
-import { ensureBuckets } from "./services/storage.js";
+import { checkBuckets, ensureBuckets } from "./services/storage.js";
 import { getRedisStatus, ensureWorker, getJobStatus, shutdownQueue } from "./services/queue.js";
 import { startPlumberSync, stopPlumberSync } from "./services/plumber-sync.js";
 import { setupWebSocket, cleanupWebSocket } from "./services/websocket.js";
@@ -83,7 +84,21 @@ app.get("/ready", async (c) => {
     await plumberClient.healthCheck();
     checks.plumber = true;
   } catch {
-    // Plumber is optional for readiness
+    // Report degraded readiness below.
+  }
+
+  try {
+    await db.execute(sql`select 1`);
+    checks.database = true;
+  } catch {
+    // Report degraded readiness below.
+  }
+
+  try {
+    await checkBuckets();
+    checks.storage = true;
+  } catch {
+    // Report degraded readiness below.
   }
 
   const allOk = Object.values(checks).every(Boolean);
