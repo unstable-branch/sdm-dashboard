@@ -38,8 +38,7 @@ pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 # na="null" preserves NA values as JSON null instead of omitting them
 pr$setSerializer(plumber::serializer_json(auto_unbox = TRUE, na = "null"))
 
-# Enable OpenAPI 3.0 docs generation
-pr$setDocs(plumber::pr_docs(plumber::pr_docs_openapi()))
+# OpenAPI 3.0 docs are available at /__docs__/openapi.json by default in plumber 1.x
 
 # Internal auth key set by Hono when proxying authenticated requests
 internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
@@ -139,4 +138,4 @@ orphan_cleanup <- function() {
 }
 tryCatch(orphan_cleanup(), error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
 
-plumber::pr_run(pr, host = "0.0.0.0", port = 8000, workers = n_workers)
+plumber::pr_run(pr, host = "0.0.0.0", port = 8000)
