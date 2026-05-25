@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiGet, apiPost } from "@/services/api";
-import { Users, BarChart3, Database, Zap, RefreshCw, Trash2, Loader2, Activity, Upload, Leaf } from "lucide-react";
+import { Users, BarChart3, Database, Zap, RefreshCw, Trash2, Loader2, Activity, Upload, Leaf, Play, CheckCircle2, XCircle, Clock } from "lucide-react";
 
 interface OverviewData {
   counts: {
@@ -24,6 +24,15 @@ interface OverviewData {
     entity: string | null;
     createdAt: string;
     details: Record<string, unknown> | null;
+  }>;
+  recentRuns: Array<{
+    id: string;
+    speciesName: string | null;
+    modelId: string | null;
+    status: string;
+    startedAt: string | null;
+    completedAt: string | null;
+    error: string | null;
   }>;
 }
 
@@ -147,6 +156,58 @@ export default function AdminOverviewPage() {
           </div>
         </div>
       )}
+
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Play className="h-5 w-5 text-sdm-accent" />
+          <h2 className="text-lg font-medium text-sdm-heading">Recent Runs</h2>
+        </div>
+        {data.recentRuns.length === 0 ? (
+          <p className="text-sm text-sdm-muted">No runs yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-sdm-border">
+                  <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Status</th>
+                  <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Species</th>
+                  <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Model</th>
+                  <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Started</th>
+                  <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Completed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.recentRuns.map((r) => (
+                  <tr key={r.id} className="border-b border-sdm-border/50 hover:bg-sdm-surface-soft">
+                    <td className="py-2 px-3">
+                      <span className={`inline-flex items-center gap-1 text-xs font-medium ${
+                        r.status === "completed" ? "text-green-500" :
+                        r.status === "failed" ? "text-red-400" :
+                        r.status === "running" ? "text-blue-400" :
+                        "text-sdm-muted"
+                      }`}>
+                        {r.status === "completed" ? <CheckCircle2 className="h-3 w-3" /> :
+                         r.status === "failed" ? <XCircle className="h-3 w-3" /> :
+                         r.status === "running" ? <Play className="h-3 w-3 animate-pulse" /> :
+                         <Clock className="h-3 w-3" />}
+                        {r.status}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-sdm-text font-mono text-xs">{r.speciesName || "-"}</td>
+                    <td className="py-2 px-3 text-sdm-muted text-xs">{r.modelId || "-"}</td>
+                    <td className="py-2 px-3 text-sdm-muted text-xs whitespace-nowrap">
+                      {r.startedAt ? new Date(r.startedAt).toLocaleString() : "-"}
+                    </td>
+                    <td className="py-2 px-3 text-sdm-muted text-xs whitespace-nowrap">
+                      {r.completedAt ? new Date(r.completedAt).toLocaleString() : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
         <div className="flex items-center gap-2 mb-4">

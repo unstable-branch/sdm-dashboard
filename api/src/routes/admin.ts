@@ -74,6 +74,21 @@ adminRoutes.get("/overview", async (c) => {
       .orderBy(desc(auditLogs.createdAt))
       .limit(20);
 
+    // Recent runs for run activity view
+    const recentRuns = await db
+      .select({
+        id: runs.id,
+        speciesName: runs.speciesName,
+        modelId: runs.modelId,
+        status: runs.status,
+        startedAt: runs.startedAt,
+        completedAt: runs.completedAt,
+        error: runs.error,
+      })
+      .from(runs)
+      .orderBy(desc(runs.createdAt))
+      .limit(15);
+
     return c.json({
       counts: {
         users: userCount?.count || 0,
@@ -85,6 +100,7 @@ adminRoutes.get("/overview", async (c) => {
       },
       uploadsByUser: uploadStats,
       recentActivity,
+      recentRuns,
     });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to load overview" }, 500);
