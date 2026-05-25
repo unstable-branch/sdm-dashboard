@@ -87,7 +87,15 @@ export function useJobSSE(enabled = true) {
 
   useEffect(() => {
     const es = connect();
+
+    const onPageHide = () => {
+      es?.close();
+      eventSourceRef.current = null;
+    };
+    window.addEventListener("pagehide", onPageHide);
+
     return () => {
+      window.removeEventListener("pagehide", onPageHide);
       es?.close();
       eventSourceRef.current = null;
     };
