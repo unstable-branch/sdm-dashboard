@@ -128,7 +128,12 @@ dataRoutes.post("/occurrences/clean", async (c) => {
           raw: row,
         }));
 
-        await db.insert(occurrences).values(recordsToInsert);
+        const BATCH_SIZE = 500;
+        for (let i = 0; i < recordsToInsert.length; i += BATCH_SIZE) {
+          const batch = recordsToInsert.slice(i, i + BATCH_SIZE);
+          await db.insert(occurrences).values(batch);
+        }
+
         await db
           .update(species)
           .set({ occurrenceCount: (sp.occurrenceCount || 0) + recordsToInsert.length })
