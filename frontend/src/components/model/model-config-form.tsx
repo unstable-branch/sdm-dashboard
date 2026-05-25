@@ -225,6 +225,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       seed,
       occurrenceFile: useCleaned ? cleanedOccurrence!.filePath : (occurrenceFile || ""),
       cleanedFilePath: useCleaned ? cleanedOccurrence!.filePath : undefined,
+      pipelineRunId: useSDMStore.getState().pipelineRunId || undefined,
       source: climateSource,
       worldclimRes: climateRes,
     };

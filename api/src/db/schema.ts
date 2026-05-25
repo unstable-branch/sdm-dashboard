@@ -75,6 +75,7 @@ export const runs = pgTable("runs", {
   runNumber: integer("run_number"),
   progressLog: jsonb("progress_log").default([]),
   config: jsonb("config").notNull(),
+  pipelineRunId: uuid("pipeline_run_id"),
   metrics: jsonb("metrics"),
   outputFiles: jsonb("output_files"),
   error: text("error"),
@@ -85,6 +86,7 @@ export const runs = pgTable("runs", {
 }, (t) => [
   index("idx_runs_project").on(t.projectId),
   index("idx_runs_status").on(t.status),
+  index("idx_runs_pipeline").on(t.pipelineRunId),
 ]);
 
 export const occurrences = pgTable("occurrences", {
@@ -93,6 +95,7 @@ export const occurrences = pgTable("occurrences", {
   userId: uuid("user_id").references(() => users.id),
   speciesId: uuid("species_id").references(() => species.id).notNull(),
   filePath: text("file_path"),
+  pipelineRunId: uuid("pipeline_run_id"),
   longitude: doublePrecision("longitude").notNull(),
   latitude: doublePrecision("latitude").notNull(),
   source: varchar("source", { length: 255 }),
@@ -105,6 +108,7 @@ export const occurrences = pgTable("occurrences", {
   index("idx_occurrences_project").on(t.projectId),
   index("idx_occurrences_species").on(t.speciesId),
   index("idx_occurrences_user_id").on(t.userId),
+  index("idx_occurrences_pipeline").on(t.pipelineRunId),
 ]);
 
 export const userSettings = pgTable("user_settings", {

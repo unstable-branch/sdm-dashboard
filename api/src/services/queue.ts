@@ -234,6 +234,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
               merge_small_sources: payload.merge_small_sources !== false,
               use_cc: Boolean(payload.use_cc),
               cc_tests: (payload.cc_tests as string) || "all",
+              pipelineRunId: (payload.pipelineRunId as string) || null,
             });
             await job.updateProgress(100);
             jobEventBus.emitJobStatus({
