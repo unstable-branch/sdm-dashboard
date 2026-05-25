@@ -18,12 +18,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://a.basemaps.cartocdn.com" />
-        <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
-        <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
-        <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-      </head>
       <body className={inter.className}>
         <ThemeProvider
           attribute="class"
