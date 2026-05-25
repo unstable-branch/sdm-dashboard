@@ -6,8 +6,21 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
       process = NULL,
       result_file = NULL,
       log_file = NULL,
-      active = FALSE
+      active = FALSE,
+      last_log_lines = 0,
+      start_time = NULL,
+      progress = NULL
     )
+
+    # Kill orphaned background process when session ends
+    session$onSessionEnded(function() {
+      if (!is.null(bg_state$process) && bg_state$process$is_alive()) {
+        bg_state$process$kill()
+      }
+      if (!is.null(bg_state$progress)) {
+        bg_state$progress$close()
+      }
+    })
 
     observeEvent(input$cancel_model, {
       if (!isTRUE(rv$running)) return()
@@ -17,6 +30,7 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
         bg_state$process$kill()
         append_log("Background model run killed by user.")
       }
+      if (!is.null(bg_state$progress)) bg_state$progress$close()
       rv$running <- FALSE
       rv$error <- "Run cancelled."
       bg_state$active <- FALSE
@@ -37,11 +51,30 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
       poll_timer <- reactiveTimer(500, session)
       observe({
         poll_timer()
+
+        # Timeout watchdog: kill process if running too long
+        if (!is.null(bg_state$start_time)) {
+          elapsed <- as.numeric(difftime(Sys.time(), bg_state$start_time, units = "secs"))
+          if (elapsed > 7200) {
+            bg_state$process$kill()
+            rv$error <- "Model run timed out after 2 hours."
+            append_log(rv$error)
+            rv$running <- FALSE
+            bg_state$active <- FALSE
+            if (!is.null(bg_state$progress)) bg_state$progress$close()
+            unlink(c(bg_state$result_file, bg_state$log_file))
+            return()
+          }
+        }
+
         if (!bg_state$process$is_alive()) {
+          if (!is.null(bg_state$progress)) bg_state$progress$close()
           exit_status <- bg_state$process$get_exit_status()
           if (file.exists(bg_state$log_file)) {
-            log_text <- tryCatch(paste(readLines(bg_state$log_file, warn = FALSE), collapse = "\n"), error = function(e) "")
-            if (nzchar(log_text)) append_log(log_text)
+            log_lines <- tryCatch(readLines(bg_state$log_file, warn = FALSE), error = function(e) character(0))
+            if (length(log_lines) > bg_state$last_log_lines) {
+              append_log(paste(log_lines[(bg_state$last_log_lines + 1):length(log_lines)], collapse = "\n"))
+            }
           }
           if (exit_status == 0 && file.exists(bg_state$result_file)) {
             result <- tryCatch(readRDS(bg_state$result_file), error = function(e) {
@@ -64,8 +97,15 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           message("SDM: Model run finished")
         } else {
           if (file.exists(bg_state$log_file)) {
-            log_text <- tryCatch(paste(tail(readLines(bg_state$log_file, warn = FALSE), 5), collapse = "\n"), error = function(e) "")
-            if (nzchar(log_text)) append_log(log_text)
+            log_lines <- tryCatch(readLines(bg_state$log_file, warn = FALSE), error = function(e) character(0))
+            if (length(log_lines) > bg_state$last_log_lines) {
+              new_lines <- log_lines[(bg_state$last_log_lines + 1):length(log_lines)]
+              append_log(paste(new_lines, collapse = "\n"))
+              bg_state$last_log_lines <- length(log_lines)
+            }
+          }
+          if (!is.null(bg_state$progress)) {
+            bg_state$progress$inc(0.02)
           }
         }
       }, label = "sdm_bg_poll")
@@ -247,6 +287,10 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           bg_state$result_file <- result_file
           bg_state$log_file <- log_file
           bg_state$active <- TRUE
+          bg_state$start_time <- Sys.time()
+          bg_state$last_log_lines <- 0
+          bg_state$progress <- Progress$new(session, min = 0, max = 1)
+          bg_state$progress$set(message = "Running SDM", value = 0.1)
         } else {
           result <- tryCatch(
             withCallingHandlers(
