@@ -101,13 +101,14 @@ Completed so far:
 - Added `batch_comparison.v1` summaries to
   `GET /api/v1/sdm/batches/:batchId`, with numeric scalar metrics grouped by
   run/species/model and warnings for failed/incomplete/missing-metric runs.
+- Added a pure `batch_manifest.v1` contract builder and documentation for
+  already-fetched batch status, comparison, and run-manifest-like summaries.
 
 Delegable tasks:
 
 - Inventory existing `results`, `manifest`, report, and output-file behavior.
-- Define `BatchManifest` schema and tests.
-- Add docs for what is safe to summarize versus what requires explicit
-  download.
+- Wire `batch_manifest.v1` to a route only after the owning API surface is
+  chosen.
 
 Keep in main:
 
@@ -151,9 +152,19 @@ Keep in main:
 
 Goal: make machine access safe enough for real users.
 
+Worker J status:
+
+- Added `docs/API_AUTH_POLICY_INVENTORY.md` with the current bearer/API-key,
+  optional-auth, CSRF, rate-limit, and route exposure inventory.
+- Documented intended v1 scope names (`read`, `write`, `run`, `batch`,
+  `admin`) as future policy only; current API keys are bearer-equivalent user
+  credentials with expiry and last-used tracking, not scoped machine tokens.
+- Flagged `/api/v1/jobs/*`, `/api/v1/ecology/*`, and
+  `/api/v1/diagnostics/*` as the highest-priority route gaps before external
+  machine clients rely on them.
+
 Delegable tasks:
 
-- Inventory current API-key model and route authorization.
 - Design scope fields for read/write/run/batch/admin keys.
 - Add audit event schema proposal.
 - Add quota/concurrency test cases.
