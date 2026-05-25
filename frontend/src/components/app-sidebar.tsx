@@ -27,7 +27,7 @@ import { useAuthStore } from "@/stores/auth-store";
 export function AppSidebar() {
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
-  const { user } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
   const isAdmin = user?.role === "admin";
 
   const isActive = (href: string) => {
