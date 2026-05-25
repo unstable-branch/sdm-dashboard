@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -12,6 +13,31 @@ import { cn } from "@/lib/utils";
 export function AppShellHeader() {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
+  const [visible, setVisible] = useState(true);
+  const lastScrollY = useRef(0);
+
+  useEffect(() => {
+    let ticking = false;
+    const onScroll = () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY;
+          if (currentScrollY < 10) {
+            setVisible(true);
+          } else if (currentScrollY > lastScrollY.current + 5) {
+            setVisible(false);
+          } else if (currentScrollY < lastScrollY.current - 5) {
+            setVisible(true);
+          }
+          lastScrollY.current = currentScrollY;
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -19,7 +45,12 @@ export function AppShellHeader() {
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b border-sdm-border bg-sdm-bg/95 backdrop-blur">
+    <header
+      className={cn(
+        "sticky top-0 z-40 border-b border-sdm-border bg-sdm-bg/95 backdrop-blur transition-transform duration-300",
+        visible ? "translate-y-0" : "-translate-y-full"
+      )}
+    >
       <div className="flex min-h-16 items-center justify-between gap-3 px-4 sm:px-6">
         <Link href="/" className="flex min-w-0 items-center gap-2 md:hidden">
           <Leaf className="h-5 w-5 shrink-0 text-sdm-accent" />

@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# scripts/dev-start.sh
+# Starts all 6 SDM Dashboard services:
+#   Docker: postgres, redis, garage, plumber
+#   Local:  api (Hono), frontend (Next.js) via tmux
+
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$SCRIPT_DIR"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo ""
+echo "========================================="
+echo "  SDM Dashboard — Development Mode"
+echo "========================================="
+echo ""
+
+# Check prerequisites
+command -v docker >/dev/null 2>&1 || { echo -e "${RED}docker is required but not installed.${NC}"; exit 1; }
+command -v tmux >/dev/null 2>&1 || { echo -e "${RED}tmux is required but not installed.${NC}"; exit 1; }
+
+# Kill existing sessions if they exist
+tmux kill-session -t sdm-api 2>/dev/null || true
+tmux kill-session -t sdm-frontend 2>/dev/null || true
+
+# 1. Start Docker backing services
+echo -e "${YELLOW}[1/4]${NC} Starting Docker services (postgres, redis, garage, plumber)..."
+docker compose -f docker-compose.dev.yml up -d --remove-orphans 2>&1
+
+# 2. Wait for healthy
+echo -e "${YELLOW}[2/4]${NC} Waiting for services to be healthy..."
+MAX_WAIT=60
+ELAPSED=0
+while [ $ELAPSED -lt $MAX_WAIT ]; do
+    UNHEALTHY=$(docker compose -f docker-compose.dev.yml ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | grep -c -i "unhealthy\|starting" || true)
+    if [ "$UNHEALTHY" -eq 0 ]; then
+        echo -e "${GREEN}All services healthy.${NC}"
+        break
+    fi
+    sleep 3
+    ELAPSED=$((ELAPSED + 3))
+done
+
+if [ $ELAPSED -ge $MAX_WAIT ]; then
+    echo -e "${RED}Warning: Some services may not be healthy yet. Continuing anyway...${NC}"
+fi
+
+# 3. Start API locally in tmux
+echo -e "${YELLOW}[3/4]${NC} Starting API (Hono) on port 4000..."
+tmux new-session -d -s sdm-api "cd '${SCRIPT_DIR}/api' && npx tsx --env-file=.env src/index.ts" 2>&1
+
+# Wait for API to start
+sleep 5
+if curl -s -o /dev/null http://localhost:4000/health; then
+    echo -e "${GREEN}API started (tmux: sdm-api)${NC}"
+else
+    echo -e "${RED}API failed to start.${NC}"
+    tmux capture-pane -t sdm-api -p
+    exit 1
+fi
+
+# 4. Start Frontend locally in tmux
+echo -e "${YELLOW}[4/4]${NC} Starting Frontend (Next.js) on port 3000..."
+tmux new-session -d -s sdm-frontend "cd '${SCRIPT_DIR}/frontend' && npx next dev --port 3000" 2>&1
+
+# Wait for frontend to start
+sleep 8
+if curl -s -o /dev/null http://localhost:3000; then
+    echo -e "${GREEN}Frontend started (tmux: sdm-frontend)${NC}"
+else
+    echo -e "${RED}Frontend failed to start.${NC}"
+    tmux capture-pane -t sdm-frontend -p
+    exit 1
+fi
+
+# Print status
+echo ""
+echo "========================================="
+echo -e "  ${GREEN}All services running!${NC}"
+echo "========================================="
+echo ""
+echo -e "  ${BLUE}Frontend:${NC}  http://localhost:3000"
+echo -e "  ${BLUE}API:${NC}       http://localhost:4000"
+echo -e "  ${BLUE}Plumber:${NC}   http://localhost:8000"
+echo -e "  ${BLUE}Garage:${NC}    http://localhost:3900"
+echo -e "  ${BLUE}Postgres:${NC}  localhost:5432"
+echo -e "  ${BLUE}Redis:${NC}     localhost:6379"
+echo ""
+echo -e "  ${BLUE}tmux sessions:${NC}"
+echo "    API:       tmux attach -t sdm-api"
+echo "    Frontend:  tmux attach -t sdm-frontend"
+echo ""
+echo -e "  ${BLUE}To stop local services:${NC}"
+echo "    ./scripts/dev-stop.sh"
+echo ""
+echo -e "  ${BLUE}To stop Docker services:${NC}"
+echo "    docker compose -f docker-compose.dev.yml down"
+echo ""
+
+# Open browser if available
+if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open http://localhost:3000 2>/dev/null &
+elif command -v sensible-browser >/dev/null 2>&1; then
+    sensible-browser http://localhost:3000 2>/dev/null &
+fi

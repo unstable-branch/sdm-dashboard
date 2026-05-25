@@ -24,17 +24,7 @@ export default function ModelPage() {
   const recordCount = useSDMStore((s) => s.recordCount);
   const species = useSDMStore((s) => s.species);
   const cleanedOccurrence = useSDMStore((s) => s.cleanedOccurrence);
-  const [hasHydrated, setHasHydrated] = useState(false);
-
-  useEffect(() => {
-    // Properly track hydration state to avoid flash of "Loading..."
-    const hydrated = useSDMStore.persist.hasHydrated();
-    if (hydrated) {
-      setHasHydrated(true);
-    } else {
-      useSDMStore.persist.onHydrate(() => setHasHydrated(true));
-    }
-  }, []);
+  const hasHydrated = true;
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
