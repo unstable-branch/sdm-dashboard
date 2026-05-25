@@ -214,7 +214,7 @@ function(req) {
   })
 }
 
-#* Clean occurrence data with configurable options
+#* Clean occurrence data with configurable options (async)
 #* @param file_id The uploaded file path or ID
 #* @param min_source_records Minimum records per source to keep (default: 15)
 #* @param merge_small_sources Merge small sources (default: true)
@@ -230,44 +230,22 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
     return(sdm_error(req, 400, "Invalid file_id"))
   }
 
-  tryCatch({
-    result <- clean_occurrences(
-      path = safe_path,
-      min_source_records = min_source_records,
-      merge_small_sources = as.logical(merge_small_sources),
-      use_cc = as.logical(use_cc),
-      cc_tests = cc_tests,
-      log_fun = message
-    )
+  job_id <- sdm_async_submit("clean", list(
+    file_id = file_id,
+    min_source_records = min_source_records,
+    merge_small_sources = merge_small_sources,
+    use_cc = use_cc,
+    cc_tests = cc_tests
+  ), app_dir)
 
-    occ <- result$occ
-    source_counts <- result$source_counts
-
-    cleaned_path <- file.path(
-      app_dir, "data", "uploads",
-      paste0("cleaned_", format(Sys.time(), "%Y%m%d_%H%M%S_"), basename(file_id))
-    )
-    utils::write.csv(occ, cleaned_path, row.names = FALSE)
-
-    list(
-      cleaned_id = file_id,
-      cleaned_file_id = cleaned_path,
-      valid_records = nrow(occ),
-      original_rows = result$original_rows,
-      removed_bad_coordinates = result$removed_bad_coordinates,
-      removed_duplicates = result$removed_duplicates,
-      n_absent_excluded = result$n_absent_excluded,
-      source_counts = as.list(source_counts),
-      cc_flagged = if ("cc_flag" %in% names(occ)) sum(occ$cc_flag, na.rm = TRUE) else 0L,
-      training_extent = make_training_extent(occ, buffer = 2),
-      cleaned_records = lapply(seq_len(nrow(occ)), function(i) as.list(occ[i, ]))
-    )
-  }, error = function(e) {
-    sdm_error(req, 400, conditionMessage(e))
-  })
+  list(
+    job_id = job_id,
+    status = "running",
+    message = "Occurrence cleaning started in background"
+  )
 }
 
-#* Search GBIF for occurrence records
+#* Search GBIF for occurrence records (async)
 #* @param taxon Species name (e.g., "Acacia mearnsii")
 #* @param country Country code filter (e.g., "AU")
 #* @param max_records Maximum records to fetch (default: 100)
@@ -280,36 +258,20 @@ function(req, taxon, country = NULL, max_records = 100) {
   max_records <- suppressWarnings(as.integer(max_records))
   if (!is.finite(max_records) || max_records < 1) max_records <- 100L
 
-  tryCatch({
-    occ <- read_gbif_records(
-      taxon = taxon,
-      country = if (!is.null(country) && nzchar(country)) country else NULL,
-      max_records = max_records,
-      log_fun = message
-    )
+  job_id <- sdm_async_submit("gbif", list(
+    taxon = taxon,
+    country = country,
+    max_records = max_records
+  ), app_dir)
 
-    upload_dir <- file.path(app_dir, "data", "uploads")
-    dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
-    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", taxon)
-    ts <- format(Sys.time(), "%Y%m%d_%H%M%S")
-    csv_path <- file.path(upload_dir, paste0(ts, "_gbif_", safe_name, ".csv"))
-    utils::write.csv(occ, csv_path, row.names = FALSE)
-
-    list(
-      taxon = taxon,
-      country = country,
-      n_records = nrow(occ),
-      max_records = max_records,
-      doi = if (!is.null(occ$gbif_doi[1]) && nzchar(occ$gbif_doi[1])) occ$gbif_doi[1] else NA_character_,
-      file_path = csv_path,
-      preview = lapply(seq_len(min(5, nrow(occ))), function(i) as.list(occ[i, ]))
-    )
-  }, error = function(e) {
-    sdm_error(req, 502, paste("GBIF search failed:", conditionMessage(e)))
-  })
+  list(
+    job_id = job_id,
+    status = "running",
+    message = "GBIF search started in background"
+  )
 }
 
-#* Parse a Darwin Core Archive (.zip file)
+#* Parse a Darwin Core Archive (.zip file) (async)
 #* @param file_id Path to the uploaded .zip file
 #* @param species_filter Optional species name filter
 #* @param max_coord_uncertainty_m Max coordinate uncertainty in meters
@@ -338,27 +300,18 @@ function(req, file_id, species_filter = NULL, max_coord_uncertainty_m = NULL, ba
     return(sdm_error(req, 400, "Invalid file_id"))
   }
 
-  tryCatch({
-    result <- read_dwca(
-      dwca_path = safe_path,
-      species_filter = if (!is.null(species_filter) && nzchar(species_filter)) species_filter else NULL,
-      max_coord_uncertainty_m = max_unc,
-      basis_of_record_filter = bor_filter,
-      log_fun = message
-    )
+  job_id <- sdm_async_submit("dwca", list(
+    file_id = file_id,
+    species_filter = if (!is.null(species_filter) && nzchar(species_filter)) species_filter else NULL,
+    max_coord_uncertainty_m = max_unc,
+    basis_of_record_filter = bor_filter
+  ), app_dir)
 
-    occ <- result$occurrences
-    list(
-      doi = result$doi,
-      n_raw = result$n_raw,
-      n_returned = result$n_returned,
-      datasets = result$datasets,
-      issues_flagged_count = if (!is.null(result$issues_flagged)) nrow(result$issues_flagged) else 0L,
-      preview = lapply(seq_len(min(5, nrow(occ))), function(i) as.list(occ[i, ]))
-    )
-  }, error = function(e) {
-    sdm_error(req, 400, conditionMessage(e))
-  })
+  list(
+    job_id = job_id,
+    status = "running",
+    message = "Darwin Core Archive parsing started in background"
+  )
 }
 
 # --- Model endpoints ---
@@ -960,6 +913,144 @@ function() {
   Filter(Negate(is.null), runs)
 }
 
+# --- Async data job helpers ---
+
+sdm_async_submit <- function(job_type, params, app_dir) {
+  job_id <- paste0("data-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
+  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
+  dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+
+  meta <- list(
+    id = job_id,
+    type = job_type,
+    status = "running",
+    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+    params = params
+  )
+  writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), file.path(job_dir, "meta.json"))
+
+  input <- params
+  input$type <- job_type
+  writeLines(jsonlite::toJSON(input, auto_unbox = TRUE, pretty = TRUE), file.path(job_dir, "input.json"))
+
+  dispatcher_path <- file.path(app_dir, "plumber", "R", "async_dispatcher.R")
+  proc <- callr::r_bg(function(app_dir, job_dir, dispatcher_path) {
+    source(dispatcher_path, local = TRUE)
+  }, args = list(app_dir, job_dir, dispatcher_path),
+  stdout = file.path(job_dir, "stdout.log"),
+  stderr = file.path(job_dir, "stderr.log"))
+
+  sdm_process_registry[[job_id]] <- proc
+  meta$process_pid <- proc$get_pid()
+  writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), file.path(job_dir, "meta.json"))
+
+  job_id
+}
+
+sdm_async_status <- function(job_id) {
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
+  meta_file <- file.path(job_dir, "meta.json")
+  result_file <- file.path(job_dir, "result.json")
+  progress_file <- file.path(job_dir, "progress.log")
+
+  if (!file.exists(meta_file)) {
+    return(list(available = FALSE, error = "Job not found"))
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  result <- NULL
+  if (file.exists(result_file)) {
+    result <- jsonlite::fromJSON(result_file, simplifyVector = FALSE)
+  }
+
+  if (identical(meta$status, "running") && is.null(result)) {
+    proc <- sdm_process_registry[[basename(job_id)]]
+    process_alive <- FALSE
+    if (!is.null(proc)) {
+      tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
+    }
+    if (!process_alive && !is.null(meta$process_pid)) {
+      pid <- as.integer(meta$process_pid)
+      if (is.finite(pid)) {
+        tryCatch({
+          ps_info <- tools::ps()
+          process_alive <- pid %in% ps_info$PID
+        }, error = function(e) NULL)
+      }
+    }
+    if (!process_alive) {
+      meta$status <- "failed"
+      meta$error <- "Process crashed"
+      writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+      sdm_process_registry[[basename(job_id)]] <- NULL
+    }
+  }
+
+  if (!is.null(result)) {
+    if (identical(result$status, "completed")) {
+      sdm_process_registry[[basename(job_id)]] <- NULL
+      meta$status <<- "completed"
+      meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      meta$result <<- result$result
+      writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+      return(list(available = TRUE, status = "completed", result = result$result))
+    } else if (identical(result$status, "failed")) {
+      sdm_process_registry[[basename(job_id)]] <- NULL
+      meta$status <<- "failed"
+      meta$error <<- result$error
+      meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+      return(list(available = TRUE, status = "failed", error = result$error))
+    }
+  }
+
+  progress_lines <- character(0)
+  if (file.exists(progress_file)) {
+    progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
+  }
+
+  list(available = TRUE, status = "running", progress_log = progress_lines)
+}
+
+#* Get async job status
+#* @get /api/v1/jobs/status/<job_id>
+function(res, job_id) {
+  status <- sdm_async_status(job_id)
+  if (!status$available) {
+    res$status <- 404L
+    return(list(error = "Job not found"))
+  }
+  status
+}
+
+#* Cancel an async data job
+#* @post /api/v1/jobs/cancel/<job_id>
+function(job_id) {
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
+  meta_file <- file.path(job_dir, "meta.json")
+
+  proc <- sdm_process_registry[[basename(job_id)]]
+  killed <- FALSE
+  if (!is.null(proc) && inherits(proc, "Process") && proc$is_alive()) {
+    proc$kill()
+    killed <- TRUE
+    rm(list = basename(job_id), envir = sdm_process_registry)
+  }
+
+  if (file.exists(meta_file)) {
+    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    if (!killed && !is.null(meta$process_pid)) {
+      tryCatch({ tools::pskill(meta$process_pid, signal = 9); killed <- TRUE }, error = function(e) NULL)
+    }
+    meta$status <- "cancelled"
+    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+    unlink(job_dir, recursive = TRUE, force = TRUE)
+  }
+
+  list(ok = TRUE, message = if (killed) "Job cancelled" else "Job not found")
+}
+
 #* Health check
 #* @get /health
 function() {
@@ -1378,7 +1469,7 @@ function(res, run_id) {
   paste(lines, collapse = "\n")
 }
 
-#* Compute niche overlap between two runs
+#* Compute niche overlap between two runs (async)
 #* @post /api/v1/ecology/niche-overlap
 function(req) {
   body <- tryCatch(jsonlite::fromJSON(req$postBody), error = function(e) NULL)
@@ -1399,65 +1490,17 @@ function(req) {
     return(sdm_error(req, 404, "One or both runs not found"))
   }
 
-  meta_1 <- jsonlite::fromJSON(meta_file_1, simplifyVector = FALSE)
-  meta_2 <- jsonlite::fromJSON(meta_file_2, simplifyVector = FALSE)
+  job_id <- sdm_async_submit("niche_overlap", list(
+    run_id_1 = run_id_1,
+    run_id_2 = run_id_2,
+    n_boot = body$n_boot %||% 100
+  ), app_dir)
 
-  occ_file_1 <- meta_1$config$occurrence_file
-  occ_file_2 <- meta_2$config$occurrence_file
-
-  if (!file.exists(occ_file_1) || !file.exists(occ_file_2)) {
-    return(sdm_error(req, 400, "Occurrence files not found for one or both runs"))
-  }
-
-  env_dir <- meta_1$config$worldclim_dir %||% sdm_default_worldclim_dir
-  if (!dir.exists(env_dir)) {
-    return(sdm_error(req, 400, "Climate data directory not found"))
-  }
-
-  tryCatch({
-    occ_1 <- read_occurrence_file(occ_file_1, log_fun = message)
-    occ_2 <- read_occurrence_file(occ_file_2, log_fun = message)
-
-    biovars <- as.integer(unlist(strsplit(as.character(meta_1$config$biovars %||% "1,4,6,12,15,18"), ",")))
-    tif_pattern <- paste0("bio", biovars, "\\.tif$")
-    tif_files <- list.files(env_dir, pattern = tif_pattern, full.names = TRUE, recursive = TRUE)
-    if (length(tif_files) == 0) {
-      return(sdm_error(req, 400, "No climate TIFF files found"))
-    }
-    env <- terra::rast(tif_files[1])
-    if (length(tif_files) > 1) {
-      env <- terra::rast(tif_files)
-    }
-
-    source(sdm_resolve_module("niche_overlap.R"), local = TRUE)
-    overlap <- compute_niche_overlap(occ_1, occ_2, env, n_boot = 100, log_fun = message)
-
-    if (is.null(overlap)) {
-      return(sdm_error(req, 500, "Niche overlap computation failed"))
-    }
-
-    result <- list(
-      run_id_1 = run_id_1,
-      run_id_2 = run_id_2,
-      species_1 = meta_1$config$species,
-      species_2 = meta_2$config$species,
-      D = overlap$D,
-      I = overlap$I,
-      stability = overlap$stability,
-      unfilling = overlap$unfilling,
-      expansion = overlap$expansion,
-      centroid_distance = overlap$centroid_distance,
-      n_native = overlap$n_native,
-      n_introduced = overlap$n_introduced
-    )
-
-    out_file <- file.path(job_dir_1, "niche_overlap.json")
-    writeLines(jsonlite::toJSON(result, auto_unbox = TRUE, pretty = TRUE), out_file)
-
-    result
-  }, error = function(e) {
-    sdm_error(req, 500, paste("Niche overlap failed:", conditionMessage(e)))
-  })
+  list(
+    job_id = job_id,
+    status = "running",
+    message = "Niche overlap computation started in background"
+  )
 }
 
 #* Get model config defaults
