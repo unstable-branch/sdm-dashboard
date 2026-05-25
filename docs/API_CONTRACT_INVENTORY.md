@@ -47,6 +47,13 @@ Primary sources:
 - Current machine-interface notes:
   - Strong input validation for model config (`modelConfigSchema`).
   - Status lifecycle exists (`queued|running|completed|failed|cancelled`), but identifier semantics are mixed (`run.id` returned as `jobId` in async run response).
+  - `POST /cancel/:jobId` is run-centric: it cancels child runs by run ID,
+    not batch parents by `batch_id`. Batch parent cancellation is not a
+    separate route contract today.
+  - `GET /status/:jobId` keeps the existing run-centric fields and appends a
+    normalized `workflow_status.v1` polling layer with `run_id`, `workflow_id`,
+    `terminal`, `progress_percent`, and `poll_after_ms`; `workflow_id` is the
+    existing run ID, not a queue or Plumber ID.
   - Some endpoints degrade to success-with-warning behavior when backing services fail (`GET /runs` fallback 200).
   - Batch comparison summaries expose numeric scalar metrics by run/species/model and low-quality warnings, while omitting raw raster, occurrence, and output-file payloads. See `docs/BATCH_COMPARISON_CONTRACT.md`.
 
@@ -147,7 +154,9 @@ Primary sources:
     `file_id`, and upstream output conventions outside the run-manifest route.
 - Status/error shape:
   - Error/status payloads vary by route (`error`, `message`, `warning`, pass-through objects), with mixed 200/4xx/5xx fallback behavior.
-  - `GET /api/v1/jobs/:jobId` is the first additive normalized polling response; SDM run status, batch status, and Plumber status pass-throughs are not yet normalized.
+  - `GET /api/v1/jobs/:jobId` and `GET /api/v1/sdm/status/:jobId` now have
+    additive normalized polling fields; batch status and Plumber status
+    pass-throughs are not yet normalized.
 - Scopes/quotas/audit:
   - Auth exists, but route-level machine scopes, quota semantics, and audit event contract are not formalized.
 

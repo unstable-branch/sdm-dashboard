@@ -20,8 +20,34 @@ import { join } from "path";
 import { randomUUID } from "crypto";
 import type { AppEnv } from "../middleware/auth.js";
 import { buildBatchComparisonSummary } from "../services/batch-comparison.js";
+import { buildWorkflowStatusLayer } from "../services/workflow-status.js";
 
 export const sdmRoutes = new Hono<AppEnv>();
+
+type PlumberModelStatus = {
+  status?: unknown;
+  metrics?: unknown;
+  output_files?: unknown;
+  error?: unknown;
+  completed_at?: unknown;
+  progress_log?: unknown;
+  progress?: unknown;
+  progress_percent?: unknown;
+};
+
+type TerminalRunStatus = "completed" | "failed" | "cancelled";
+
+function isTerminalRunStatus(value: unknown): value is TerminalRunStatus {
+  return value === "completed" || value === "failed" || value === "cancelled";
+}
+
+function asStringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function asProgressLog(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
 
 sdmRoutes.use("/run", modelRateLimit);
 sdmRoutes.use("/run", authMiddleware);
@@ -530,82 +556,87 @@ sdmRoutes.get("/status/:jobId", async (c) => {
 
     if (run.status === "running" && run.jobId) {
       try {
-        const plumberStatus = await plumberClient.getModelStatus(run.jobId);
+        const plumberStatus: PlumberModelStatus = await plumberClient.getModelStatus(run.jobId);
 
-        const plumberRunStatus = (plumberStatus as any).status;
-        const plumberMetrics = (plumberStatus as any).metrics;
-        const plumberOutputFiles = (plumberStatus as any).output_files;
-        const plumberError = (plumberStatus as any).error;
+        const plumberRunStatus = plumberStatus.status;
+        const plumberMetrics = plumberStatus.metrics;
+        const plumberOutputFiles = plumberStatus.output_files;
+        const plumberError = plumberStatus.error;
 
-        if (plumberRunStatus === "completed" || plumberRunStatus === "failed" || plumberRunStatus === "cancelled") {
+        if (isTerminalRunStatus(plumberRunStatus)) {
           await db
             .update(runs)
             .set({
-              status: plumberRunStatus as any,
+              status: plumberRunStatus,
               metrics: plumberRunStatus === "completed" ? plumberMetrics ?? null : null,
               outputFiles: plumberRunStatus === "completed" ? plumberOutputFiles ?? null : null,
-              error: plumberError ?? null,
-              completedAt: plumberRunStatus !== "running" ? new Date() : null,
+              error: asStringOrNull(plumberError),
+              completedAt: new Date(),
             })
             .where(eq(runs.id, jobId));
 
           return c.json({
             id: run.id,
-            status: plumberRunStatus,
             species: run.speciesName,
             model_id: run.modelId,
             started_at: run.startedAt?.toISOString() ?? null,
-            completed_at: plumberStatus && (plumberStatus as any).completed_at,
-            error: plumberError ?? null,
+            completed_at: asStringOrNull(plumberStatus.completed_at),
             metrics: plumberMetrics ?? null,
             output_files: plumberOutputFiles ?? null,
-            progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
+            progress_log: asProgressLog(plumberStatus.progress_log),
             config: run.config,
+            ...buildWorkflowStatusLayer(run, {
+              status: plumberRunStatus,
+              error: plumberError,
+              progress: plumberStatus.progress,
+              progress_percent: plumberStatus.progress_percent,
+            }),
           });
         }
 
         return c.json({
           id: run.id,
-          status: run.status,
           species: run.speciesName,
           model_id: run.modelId,
           started_at: run.startedAt?.toISOString() ?? null,
           completed_at: run.completedAt?.toISOString() ?? null,
-          error: null,
           metrics: null,
           output_files: null,
-          progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
+          progress_log: asProgressLog(plumberStatus.progress_log),
           config: run.config,
+          ...buildWorkflowStatusLayer(run, {
+            error: null,
+            progress: plumberStatus.progress,
+            progress_percent: plumberStatus.progress_percent,
+          }),
         });
       } catch {
         return c.json({
           id: run.id,
-          status: run.status,
           species: run.speciesName,
           model_id: run.modelId,
           started_at: run.startedAt?.toISOString() ?? null,
           completed_at: run.completedAt?.toISOString() ?? null,
-          error: null,
           metrics: null,
           output_files: null,
           progress_log: [],
           config: run.config,
+          ...buildWorkflowStatusLayer(run, { error: null }),
         });
       }
     }
 
     return c.json({
       id: run.id,
-      status: run.status,
       species: run.speciesName,
       model_id: run.modelId,
       started_at: run.startedAt?.toISOString() ?? null,
       completed_at: run.completedAt?.toISOString() ?? null,
-      error: run.error ?? null,
       metrics: run.metrics ?? null,
       output_files: run.outputFiles ?? null,
       progress_log: [],
       config: run.config,
+      ...buildWorkflowStatusLayer(run),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get status";
@@ -644,11 +675,11 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
 
     if (run.jobId) {
       const result = await plumberClient.cancelModel(run.jobId);
-      await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, jobId));
+      await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(eq(runs.id, jobId));
       return c.json(result);
     }
 
-    await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, jobId));
+    await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(eq(runs.id, jobId));
     return c.json({ ok: true, message: "Run cancelled" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to cancel";
@@ -700,7 +731,7 @@ sdmRoutes.post("/cancel-all", async (c) => {
           await plumberClient.cancelModel(run.jobId).catch(() => {});
         }
 
-        await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, run.id));
+        await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(eq(runs.id, run.id));
         cancelled++;
       } catch {
         // Continue with other runs even if one fails

@@ -1,10 +1,15 @@
 # SDM Dashboard Agentic API Workflow (Notebook/CLI First)
 
-This is an **early API-first workflow** for scripts/notebooks. It proves the
-machine workflow direction before MCP. MCP is intentionally a later adapter
-over these API primitives, not part of this flow yet.
+This is an **API-first workflow** for scripts/notebooks. It exercises the
+current machine contracts before MCP exists as a supported adapter. MCP should
+remain a later, curated layer over these API primitives; do not claim live MCP
+tool support from this example.
 
 All values below use placeholders. Do not paste real keys into docs/notebooks.
+
+The example uses deterministic `Idempotency-Key` values so repeated submissions
+can be replayed safely when the request body is identical. Change the workflow
+suffix whenever the body changes.
 
 ## 0) Environment setup
 
@@ -13,6 +18,7 @@ export SDM_API_BASE="https://<sdm-api-host>"
 export SDM_EMAIL="user+demo@example.com"
 export SDM_PASSWORD="<strong-password>"
 export SDM_API_KEY="<api-key-from-auth-endpoint>"
+export WORKFLOW_TAG="acacia-east-au-v1"
 ```
 
 ## 1) Health check
@@ -77,6 +83,11 @@ curl -sS "$SDM_API_BASE/api/v1/sdm/config/defaults" \
 
 ## 5) Upload or reference occurrence data
 
+Occurrence upload, saved GBIF, DwCA parse, and synchronous clean responses now
+return stable occurrence dataset IDs when the API can attach one. Use those IDs
+for lineage and dataset lookup. SDM model submission still takes file IDs/paths
+(`occurrenceFile`, `cleanedFilePath`) today, so the example keeps both.
+
 Option A: upload local CSV.
 
 ```bash
@@ -104,7 +115,9 @@ SOURCE_FILE_ID="$(echo "$SOURCE_UPLOAD_JSON" | jq -r '.file_id // .file_path')"
 SOURCE_DATASET_ID="$(echo "$SOURCE_UPLOAD_JSON" | jq -r '.dataset_id')"
 ```
 
-List or fetch stable dataset identity.
+List or fetch stable dataset identity. The dataset endpoints are project-scoped
+and support filters such as `species_id`, `parent_dataset_id`, `kind`, and
+`status`.
 
 ```bash
 curl -sS "$SDM_API_BASE/api/v1/data/occurrence-datasets?project_id=$PROJECT_ID" \
@@ -119,7 +132,7 @@ curl -sS "$SDM_API_BASE/api/v1/data/occurrence-datasets/$SOURCE_DATASET_ID?proje
 ```bash
 CLEANED_JSON="$(curl -sS -X POST "$SDM_API_BASE/api/v1/data/occurrences/clean" \
   -H "X-API-Key: $SDM_API_KEY" \
-  -H "Idempotency-Key: clean-acacia-mearnsii-v1" \
+  -H "Idempotency-Key: clean-$WORKFLOW_TAG" \
   -H "Content-Type: application/json" \
   -d '{
     "project_id": "'"$PROJECT_ID"'",
@@ -131,14 +144,49 @@ CLEANED_JSON="$(curl -sS -X POST "$SDM_API_BASE/api/v1/data/occurrences/clean" \
   }')"
 CLEANED_FILE_ID="$(echo "$CLEANED_JSON" | jq -r '.cleaned_file_id // .file_id // .file_path')"
 CLEANED_DATASET_ID="$(echo "$CLEANED_JSON" | jq -r '.output_dataset_id')"
+
+curl -sS "$SDM_API_BASE/api/v1/data/occurrence-datasets/$CLEANED_DATASET_ID?project_id=$PROJECT_ID" \
+  -H "X-API-Key: $SDM_API_KEY" | jq
+```
+
+Optional async clean jobs return a queue job ID. Poll those with the normalized
+generic jobs contract:
+
+```bash
+CLEAN_JOB_ID="$(curl -sS -X POST "$SDM_API_BASE/api/v1/data/occurrences/clean" \
+  -H "X-API-Key: $SDM_API_KEY" \
+  -H "Idempotency-Key: clean-async-$WORKFLOW_TAG" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "async": true,
+    "project_id": "'"$PROJECT_ID"'",
+    "dataset_id": "'"$SOURCE_DATASET_ID"'",
+    "species": "Acacia mearnsii",
+    "file_id": "'"$SOURCE_FILE_ID"'",
+    "remove_invalid_coordinates": true,
+    "drop_duplicates": true
+  }' | jq -r '.jobId')"
+
+while true; do
+  JOB_JSON="$(curl -sS "$SDM_API_BASE/api/v1/jobs/$CLEAN_JOB_ID" \
+    -H "X-API-Key: $SDM_API_KEY")"
+  echo "$JOB_JSON" | jq '{id,state,status,progress,progress_percent,terminal,poll_after_ms,error}'
+
+  if [ "$(echo "$JOB_JSON" | jq -r '.terminal')" = "true" ]; then
+    echo "$JOB_JSON" | jq
+    break
+  fi
+
+  sleep "$(echo "$JOB_JSON" | jq -r '(.poll_after_ms // 2000) / 1000')"
+done
 ```
 
 ## 7) Start async single run
 
 ```bash
-RUN_ID="$(curl -sS -X POST "$SDM_API_BASE/api/v1/sdm/run" \
+RUN_START_JSON="$(curl -sS -X POST "$SDM_API_BASE/api/v1/sdm/run" \
   -H "X-API-Key: $SDM_API_KEY" \
-  -H "Idempotency-Key: run-acacia-mearnsii-glm-v1" \
+  -H "Idempotency-Key: run-glm-$WORKFLOW_TAG" \
   -H "Content-Type: application/json" \
   -d '{
     "async": true,
@@ -155,10 +203,18 @@ RUN_ID="$(curl -sS -X POST "$SDM_API_BASE/api/v1/sdm/run" \
     "threshold": 0.5,
     "nCores": 2,
     "seed": 42
-  }' | jq -r '.jobId')"
+  }')"
+
+echo "$RUN_START_JSON" | jq
+RUN_ID="$(echo "$RUN_START_JSON" | jq -r '.jobId // .runId')"
 ```
 
 ## 8) Poll status
+
+For async SDM model runs, `POST /api/v1/sdm/run` currently returns the run ID
+as `jobId`. Poll `/api/v1/sdm/status/:runId` for run-centric status. The
+normalized `/api/v1/jobs/:jobId` fields shown above apply to queue-backed job
+IDs, not every SDM run ID yet.
 
 ```bash
 while true; do
@@ -176,12 +232,28 @@ done
 
 ## 9) Fetch result summary and manifest
 
+The manifest route normalizes Plumber output into `run_manifest.v1` at the Hono
+API boundary while preserving compatibility fields such as `ok`,
+`manifest_path`, and `manifest.run_id`.
+
 ```bash
 curl -sS "$SDM_API_BASE/api/v1/results/$RUN_ID" \
   -H "X-API-Key: $SDM_API_KEY" | jq
 
 curl -sS "$SDM_API_BASE/api/v1/results/$RUN_ID/manifest" \
-  -H "X-API-Key: $SDM_API_KEY" | jq
+  -H "X-API-Key: $SDM_API_KEY" \
+  | jq '{
+      ok,
+      schema_version,
+      run_id,
+      manifest_path,
+      model: .manifest.model,
+      data: .manifest.data,
+      climate: .manifest.climate,
+      validation: .manifest.validation,
+      metrics: .manifest.metrics,
+      artifacts: .manifest.artifacts
+    }'
 ```
 
 ## 10) Start batch run
@@ -189,7 +261,7 @@ curl -sS "$SDM_API_BASE/api/v1/results/$RUN_ID/manifest" \
 ```bash
 BATCH_JSON="$(curl -sS -X POST "$SDM_API_BASE/api/v1/sdm/batch" \
   -H "X-API-Key: $SDM_API_KEY" \
-  -H "Idempotency-Key: batch-acacia-mearnsii-east-au-v1" \
+  -H "Idempotency-Key: batch-$WORKFLOW_TAG" \
   -H "Content-Type: application/json" \
   -d '{
     "parallel": 2,
@@ -218,20 +290,39 @@ BATCH_ID="$(echo "$BATCH_JSON" | jq -r '.batch_id')"
 BATCH_RUN_IDS="$(echo "$BATCH_JSON" | jq -r '.job_ids[]')"
 ```
 
-## 11) Inspect jobs
+## 11) Inspect batch status and comparison
+
+`GET /api/v1/sdm/batches/:batchId` returns aggregate status plus an additive
+`comparison` object with schema `batch_comparison.v1`. The comparison is
+bounded to numeric scalar metrics and warnings; it intentionally omits raw
+rasters, occurrence rows, and output files.
 
 ```bash
 # Run-centric view (recommended for modelling)
 curl -sS "$SDM_API_BASE/api/v1/sdm/runs?status=active&limit=50" \
   -H "X-API-Key: $SDM_API_KEY" | jq
 
-# Batch aggregate view
-curl -sS "$SDM_API_BASE/api/v1/sdm/batches/$BATCH_ID" \
-  -H "X-API-Key: $SDM_API_KEY" | jq
+# Batch aggregate view with comparison summary
+BATCH_STATUS_JSON="$(curl -sS "$SDM_API_BASE/api/v1/sdm/batches/$BATCH_ID" \
+  -H "X-API-Key: $SDM_API_KEY")"
 
-# Optional queue-centric view (useful for async cleaning jobs)
-curl -sS "$SDM_API_BASE/api/v1/jobs/<queue-job-id>" \
-  -H "X-API-Key: $SDM_API_KEY" | jq
+echo "$BATCH_STATUS_JSON" | jq '{
+  batch_id,
+  total,
+  counts_by_status,
+  active,
+  completed,
+  failed,
+  cancelled,
+  latest_error,
+  comparison_schema: .comparison.schema,
+  comparison_counts: .comparison.counts,
+  warnings: .comparison.warnings
+}'
+
+echo "$BATCH_STATUS_JSON" | jq '.comparison.metrics.by_run'
+echo "$BATCH_STATUS_JSON" | jq '.comparison.metrics.by_species'
+echo "$BATCH_STATUS_JSON" | jq '.comparison.metrics.by_model'
 
 # Inspect each batch child run directly
 for RID in $BATCH_RUN_IDS; do
@@ -258,10 +349,26 @@ done
 5. Launch batch with `/api/v1/sdm/batch` and poll
    `/api/v1/sdm/batches/{batch_id}` for aggregate status.
 6. Triage by AUC:
-   fetch each run result and filter `metrics` in notebook code.
-   **Gap:** no server-side compare/triage endpoint (for example, `AUC < 0.7`) across a batch.
+   read `comparison.metrics.by_run`, `comparison.metrics.by_species`, and
+   `comparison.metrics.by_model` from the batch response.
+   **Remaining gap:** the API has a bounded comparison summary, but no
+   server-side compare/triage filter endpoint yet (for example, `AUC < 0.7`
+   across a batch).
+7. Fetch final artifacts deliberately:
+   use `/api/v1/results/{run_id}/manifest` for `run_manifest.v1` summaries and
+   explicit file/report endpoints when the workflow needs downloads.
 
 ## API gaps exposed by this example
 
 - Missing workflow-level species/discovery endpoints for agentic pre-run selection.
-- Missing server-side batch comparison/triage filters (AUC/TSS threshold queries).
+- Occurrence dataset IDs are stable, but SDM model configs still require
+  file/path inputs instead of dataset IDs as canonical inputs.
+- `GET /api/v1/jobs/:jobId` has normalized queue polling fields, but SDM run,
+  batch, climate proxy, and Plumber pass-through status shapes are not yet one
+  normalized workflow resource.
+- Batch responses include `batch_comparison.v1`, but there is no server-side
+  comparison/triage filter endpoint yet (AUC/TSS threshold queries).
+- `run_manifest.v1` is normalized for individual runs; there is no batch
+  manifest contract yet.
+- MCP remains a future adapter boundary. Current docs should map prospective
+  MCP tools to these API calls, not imply the MCP tools are live.
