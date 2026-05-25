@@ -37,6 +37,9 @@ pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 # e.g. "file_path" remains string, "n_rows" remains number, not [value]
 pr$setSerializer(plumber::serializer_json(auto_unbox = TRUE))
 
+# Enable OpenAPI 3.0 docs generation
+pr$setDocs(plumber::pr_docs(plumber::pr_docs_openapi()))
+
 # Internal auth key set by Hono when proxying authenticated requests
 internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
 

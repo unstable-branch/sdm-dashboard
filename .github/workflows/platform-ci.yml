@@ -290,6 +290,15 @@ jobs:
           pnpm run test:e2e
         continue-on-error: true
 
+      - name: Type contract check (Plumber OpenAPI → TS types)
+        run: |
+          npm install -g pnpm
+          pnpm install --frozen-lockfile
+          cd api && pnpm run generate:types --url=http://localhost:8000
+          echo "Verifying generated types compile..."
+          cd ../packages/shared && pnpm run build
+        continue-on-error: true
+
       - name: Scan images for vulnerabilities
         uses: aquasecurity/trivy-action@master
         with:
