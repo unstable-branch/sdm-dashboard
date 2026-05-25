@@ -86,6 +86,10 @@ dataRoutes.post("/occurrences/clean", async (c) => {
 
     const result = await plumberClient.cleanOccurrences(body);
 
+    if (result && typeof result === "object" && "error" in result) {
+      return c.json(result, 502);
+    }
+
     if (result && typeof result === "object" && "cleaned_file_id" in result) {
       const cleanedFileId = result.cleaned_file_id as string;
       const speciesName = (body.species as string) || "Untitled species";
