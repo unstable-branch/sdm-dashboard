@@ -11,6 +11,80 @@ detect_column <- function(names_vec, patterns) {
   NA_character_
 }
 
+# Convert DMS (Degrees Minutes Seconds) to decimal degrees
+# Handles formats: "DD°MM'SS\"", "DD MM SS", "DD°MM.MMM'", etc.
+dms_to_decimal <- function(x) {
+  x <- trimws(as.character(x))
+  if (length(x) == 0 || is.na(x) || x == "") return(NA_real_)
+  if (suppressWarnings(!is.na(as.numeric(x)))) return(as.numeric(x))
+
+  sign <- 1
+  hemi_map <- list(N = 1, S = -1, E = 1, W = -1)
+  last_char <- substr(x, nchar(x), nchar(x))
+  first_char <- substr(x, 1, 1)
+  if (last_char %in% names(hemi_map)) {
+    sign <- hemi_map[[last_char]]
+    x <- substr(x, 1, nchar(x) - 1)
+  } else if (first_char %in% c("S", "W")) {
+    sign <- -1
+    x <- substr(x, 2, nchar(x))
+  }
+
+  x <- gsub("[°º]", " ", x)
+  x <- gsub("['′]", " ", x)
+  x <- gsub('["″]', " ", x)
+  x <- gsub(",", ".", x)
+  parts <- trimws(strsplit(x, "[[:space:]]+")[[1]])
+  parts <- parts[parts != ""]
+
+  if (length(parts) == 0) return(NA_real_)
+  dd <- tryCatch(as.numeric(parts[1]), warning = function(e) NA_real_)
+  if (is.na(dd)) return(NA_real_)
+  if (length(parts) >= 2) {
+    mm <- tryCatch(as.numeric(parts[2]), warning = function(e) NA_real_)
+    if (!is.na(mm)) dd <- dd + mm / 60
+  }
+  if (length(parts) >= 3) {
+    ss <- tryCatch(as.numeric(parts[3]), warning = function(e) NA_real_)
+    if (!is.na(ss)) dd <- dd + ss / 3600
+  }
+  dd * sign
+}
+
+normalize_coord_columns <- function(df) {
+  lon_patterns <- c("^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east")
+  lat_patterns <- c("^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north")
+  lon_col <- detect_column(names(df), lon_patterns)
+  lat_col <- detect_column(names(df), lat_patterns)
+  if (!is.na(lon_col) && lon_col != "longitude") {
+    df[["longitude"]] <- df[[lon_col]]
+    df[[lon_col]] <- NULL
+  }
+  if (!is.na(lat_col) && lat_col != "latitude") {
+    df[["latitude"]] <- df[[lat_col]]
+    df[[lat_col]] <- NULL
+  }
+  df
+}
+
+parse_coordinates <- function(df) {
+  if (!"longitude" %in% names(df) || !"latitude" %in% names(df)) return(df)
+  df$longitude <- vapply(df$longitude, dms_to_decimal, numeric(1))
+  df$latitude <- vapply(df$latitude, dms_to_decimal, numeric(1))
+  df
+}
+
+validate_coords <- function(lon, lat) {
+  invalid <- !is.finite(lon) | !is.finite(lat) |
+    lon < -180 | lon > 180 | lat < -90 | lat > 90
+  n_invalid <- sum(invalid, na.rm = TRUE)
+  n_na <- sum(is.na(lon) | is.na(lat))
+  errors <- character(0)
+  if (n_na > 0) errors <- c(errors, paste(n_na, "non-numeric coordinate(s)"))
+  if (n_invalid > 0) errors <- c(errors, paste(n_invalid, "coordinate(s) outside valid bounds (lon: -180/180, lat: -90/90)"))
+  paste(errors, collapse = "; ")
+}
+
 read_occurrence_file <- function(path, log_fun = NULL) {
   if (is.null(path) || !file.exists(path)) {
     stop("Occurrence file not found. Upload a CSV or restore presence_data.csv.", call. = FALSE)
@@ -58,8 +132,10 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   original_n <- nrow(raw)
   if (original_n == 0) stop("Occurrence file is empty.", call. = FALSE)
 
-  lon_col <- detect_column(names(raw), c("^(lon|longitude|x)$", "decimal.*lon", "decimallongitude", "^long"))
-  lat_col <- detect_column(names(raw), c("^(lat|latitude|y)$", "decimal.*lat", "decimallatitude"))
+  raw <- normalize_coord_columns(raw)
+
+  lon_col <- detect_column(names(raw), c("^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east"))
+  lat_col <- detect_column(names(raw), c("^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north"))
   src_col <- detect_column(names(raw), c("^(source|datasource|data_source|institution|institutioncode|herbarium|provider)$", "basisofrecord", "dataset"))
   country_col <- detect_column(names(raw), c("^(countrycode|country|iso2)$"))
   status_col <- detect_column(names(raw), c("occurrenceStatus"))
@@ -80,8 +156,8 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   n_absent_excluded <- sum(tolower(raw_status) == "absent", na.rm = TRUE)
 
   occ <- data.frame(
-    longitude = suppressWarnings(as.numeric(raw[[lon_col]])),
-    latitude = suppressWarnings(as.numeric(raw[[lat_col]])),
+    longitude = vapply(raw[[lon_col]], dms_to_decimal, numeric(1)),
+    latitude = vapply(raw[[lat_col]], dms_to_decimal, numeric(1)),
     source = source,
     stringsAsFactors = FALSE
   )
