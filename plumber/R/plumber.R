@@ -29,6 +29,12 @@ if (!file.exists(load_path)) {
 }
 source(load_path)
 
+# Load structured error code taxonomy
+error_codes_path <- file.path(app_dir, "plumber", "R", "error_codes.R")
+if (file.exists(error_codes_path)) {
+  source(error_codes_path)
+}
+
 # Helper for error responses
 sdm_error <- function(req, status, message) {
   res <- tryCatch(req$res, error = function(e) NULL)
@@ -552,14 +558,16 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
     gc(verbose = FALSE)
     writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
   }, error = function(e) {
+    err_msg <- conditionMessage(e)
+    err_code <- tryCatch(sdm_classify_error(err_msg), error = function(ee) "INTERNAL_ERROR")
     job_meta$status <<- "failed"
-    job_meta$error <<- conditionMessage(e)
+    job_meta$error <<- err_msg
+    job_meta$error_code <<- err_code
+    job_meta$error_hint <<- SDM_ERR_CODES[[err_code]]$hint %||% NA_character_
     job_meta$error_traceback <<- paste(utils::tail(traceback(), 10), collapse = "\n")
     job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
     writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
-    cat("Run failed:", conditionMessage(e), "\n")
-    cat("Traceback:\n")
-    print(utils::tail(traceback(), 10))
+    cat("Run failed [", err_code, "]:", err_msg, "\n")
   })
 
   NULL
@@ -605,18 +613,18 @@ function(req) {
       NULL
     }
   )
-  if (is.null(body)) return(sdm_error(req, 400, "Invalid JSON body"))
+  if (is.null(body)) return(sdm_error_code(req, "INVALID_INPUT", "Request body is empty or not valid JSON"))
 
   required <- c("species", "model_id", "occurrence_file")
   missing <- setdiff(required, names(body))
   if (length(missing) > 0) {
-    return(sdm_error(req, 400, paste("Missing required fields:", paste(missing, collapse = ", "))))
+    return(sdm_error_code(req, "INVALID_INPUT", paste("Missing required fields:", paste(missing, collapse = ", "))))
   }
 
   biovars <- as.integer(unlist(strsplit(as.character(body$biovars %||% "1,4,6,12,15,18"), ",")))
   projection_extent <- as.numeric(unlist(strsplit(as.character(body$projection_extent %||% "112,154,-44,-10"), ",")))
   if (length(projection_extent) != 4) {
-    return(sdm_error(req, 400, "projection_extent must have 4 values: xmin,xmax,ymin,ymax"))
+    return(sdm_error_code(req, "INVALID_INPUT", "projection_extent must have 4 values: xmin,xmax,ymin,ymax"))
   }
 
   job_id <- paste0("run-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
@@ -759,6 +767,11 @@ function(job_id) {
     meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
     meta$error <- "Cancelled by user"
     writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+
+    # Clean up partial output files
+    tryCatch({
+      unlink(job_dir, recursive = TRUE, force = TRUE)
+    }, error = function(e) NULL)
   }
 
   if (killed) {
