@@ -88,6 +88,7 @@ resultsRoutes.get("/:id", async (c) => {
       error: runs.error,
       metrics: runs.metrics,
       outputFiles: runs.outputFiles,
+      provenance: runs.provenance,
     })
     .from(runs)
     .where(and(...conditions))
@@ -107,6 +108,7 @@ resultsRoutes.get("/:id", async (c) => {
     error: run.error ?? null,
     metrics: run.metrics ?? null,
     output_files: run.outputFiles ?? null,
+    provenance: run.provenance ?? null,
     progress_log: [],
   });
 });
