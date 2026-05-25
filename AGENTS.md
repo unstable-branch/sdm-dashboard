@@ -130,17 +130,46 @@ The `app.R` file in the project root is a **Shiny-based SDM workbench**. It is m
 
 ### Modern stack (Docker Compose)
 
+Docker Compose uses **profiles** to control which services start. Only enable what you need:
+
 ```bash
-docker compose -f docker-compose.yml up
+# Core only (postgres + redis) — for local API/frontend dev
+docker compose -f docker-compose.dev.yml --profile core up -d
+
+# Core + email (mailpit) — adds email inspection
+docker compose -f docker-compose.dev.yml --profile core --profile email up -d
+
+# Everything (core + email + storage + computation)
+docker compose -f docker-compose.dev.yml --profile all up -d
+
+# Production full stack (all services, no dev mounts)
+docker compose -f docker-compose.yml --profile full up -d
+```
+
+The `scripts/dev-start.sh` script wraps this with sensible defaults:
+
+```bash
+./scripts/dev-start.sh           # core + email + local API + frontend
+./scripts/dev-start.sh minimal   # postgres + redis only
+./scripts/dev-start.sh full      # all Docker services
 ```
 
 Services start in dependency order:
-1. **postgres** — PostgreSQL + PostGIS, port 5432
-2. **redis** — Redis 7, port 6379
-3. **garage** — S3-compatible storage, port 3900
-4. **plumber** — R/Plumber API, port 8000 (requires `PLUMBER_INTERNAL_KEY`)
-5. **api** — Hono BFF, port 4000 (proxies to plumber, manages auth)
-6. **frontend** — Next.js 15, port 3000
+1. **postgres** — PostgreSQL + PostGIS, port 5432 (profile: `core`)
+2. **redis** — Redis 7, port 6379 (profile: `core`)
+3. **garage** — S3-compatible storage, port 3900 (profile: `storage`)
+4. **mailpit** — Email inspector, port 5000 UI / 2525 SMTP (profile: `email`)
+5. **plumber** — R/Plumber API, port 8000, requires `PLUMBER_INTERNAL_KEY` (profile: `computation`)
+6. **api** — Hono BFF, port 4000, proxies to plumber, manages auth (profile: `proxy`)
+7. **frontend** — Next.js 15, port 3000 (profile: `proxy`)
+
+**Image sizes** (after optimizations):
+
+| Image | Size | Previously |
+|-------|------|-----------|
+| `sdm-dashboard-frontend` | ~200 MB | 3.74 GB |
+| `sdm-dashboard-plumber` | ~1.5 GB | 7.92 GB |
+| `sdm-dashboard-api` | ~350 MB | 935 MB |
 
 ### API-only (local development)
 
