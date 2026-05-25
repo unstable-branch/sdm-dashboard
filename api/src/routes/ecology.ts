@@ -1,11 +1,19 @@
 import { Hono } from "hono";
 import { plumberClient } from "../services/plumber.js";
+import { authMiddleware, type AppEnv } from "../middleware/auth.js";
+import { canAccessRun } from "../services/access.js";
 
-export const ecologyRoutes = new Hono();
+export const ecologyRoutes = new Hono<AppEnv>();
+
+ecologyRoutes.use("*", authMiddleware);
 
 ecologyRoutes.get("/:runId", async (c) => {
   try {
     const runId = c.req.param("runId");
+    const user = c.get("user");
+    if (!(await canAccessRun(user.id, user.role, runId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const data = await plumberClient.getEcologyData(runId);
     return c.json(data);
   } catch (err) {
@@ -17,6 +25,10 @@ ecologyRoutes.get("/:runId", async (c) => {
 ecologyRoutes.get("/:runId/eoo-aoo", async (c) => {
   try {
     const runId = c.req.param("runId");
+    const user = c.get("user");
+    if (!(await canAccessRun(user.id, user.role, runId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const data = await plumberClient.getEooAoo(runId);
     return c.json(data);
   } catch (err) {
@@ -28,6 +40,10 @@ ecologyRoutes.get("/:runId/eoo-aoo", async (c) => {
 ecologyRoutes.get("/:runId/aoa", async (c) => {
   try {
     const runId = c.req.param("runId");
+    const user = c.get("user");
+    if (!(await canAccessRun(user.id, user.role, runId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const data = await plumberClient.getAoa(runId);
     return c.json(data);
   } catch (err) {
@@ -39,6 +55,10 @@ ecologyRoutes.get("/:runId/aoa", async (c) => {
 ecologyRoutes.get("/:runId/report", async (c) => {
   try {
     const runId = c.req.param("runId");
+    const user = c.get("user");
+    if (!(await canAccessRun(user.id, user.role, runId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const report = await plumberClient.getEcologyReport(runId);
     return c.json({ report });
   } catch (err) {

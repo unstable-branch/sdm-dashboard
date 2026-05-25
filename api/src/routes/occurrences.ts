@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { writeFileSync, mkdirSync, existsSync, accessSync, constants } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { randomUUID } from "crypto";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
@@ -17,7 +18,7 @@ const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, "../../..");
 const UPLOAD_DIR = join(PROJECT_ROOT, "data", "uploads");
 
-function saveUpload(buffer: Buffer, originalName: string): string {
+function saveUpload(buffer: Buffer, originalName: string): { destPath: string; pipelineRunId: string } {
   if (!existsSync(UPLOAD_DIR)) {
     mkdirSync(UPLOAD_DIR, { recursive: true });
   }
@@ -29,11 +30,11 @@ function saveUpload(buffer: Buffer, originalName: string): string {
       "Run: sudo chown -R $USER:$USER data/uploads"
     );
   }
+  const pipelineRunId = randomUUID();
   const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const ts = new Date().toISOString().replace(/[:.]/g, "").replace("T", "_").slice(0, 15);
-  const destPath = join(UPLOAD_DIR, `${ts}_${safeName}`);
+  const destPath = join(UPLOAD_DIR, `${pipelineRunId}_${safeName}`);
   writeFileSync(destPath, buffer);
-  return destPath;
+  return { destPath, pipelineRunId };
 }
 
 export const dataRoutes = new Hono<AppEnv>();
@@ -55,11 +56,11 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const destPath = saveUpload(buffer, file.name);
+    const { destPath, pipelineRunId } = saveUpload(buffer, file.name);
     const user = c.get("user");
 
     const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
-    return c.json(result);
+    return c.json({ ...result, pipelineRunId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
     return c.json({ error: message }, 502);
@@ -72,12 +73,13 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     const isAsync = body.async === true;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
+    const pipelineRunId = (body.pipelineRunId as string) || null;
 
     if (isAsync) {
       const jobId = await enqueueSdmJob(
         {
           type: "clean",
-          payload: body,
+          payload: { ...body, pipelineRunId },
         },
         user.id
       );
@@ -119,6 +121,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
           projectId,
           userId: user?.id,
           filePath: cleanedFileId,
+          pipelineRunId,
           longitude: Number(row.longitude),
           latitude: Number(row.latitude),
           source: (row.source as string) || null,
@@ -141,7 +144,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       }
     }
 
-    return c.json(result);
+    return c.json({ ...(result as Record<string, unknown>), pipelineRunId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Clean failed";
     return c.json({ error: message }, 502);
@@ -183,6 +186,7 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
       file_id: filePath,
       n_rows: nRecords,
       filename: filePath.split("/").pop() || "gbif_records.csv",
+      pipelineRunId: randomUUID(),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to save GBIF records";
@@ -202,11 +206,11 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const destPath = saveUpload(buffer, file.name);
+    const { destPath, pipelineRunId } = saveUpload(buffer, file.name);
     const user = c.get("user");
 
     const result = await plumberClient.withUser(user.id).parseDwca({ file_id: destPath });
-    return c.json({ ...result, file_id: destPath, file_path: destPath });
+    return c.json({ ...result, file_id: destPath, file_path: destPath, pipelineRunId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "DwCA parse failed";
     return c.json({ error: message }, 502);
@@ -271,17 +275,21 @@ dataRoutes.get("/species/:id/occurrences", async (c) => {
     const [sp] = await db.select({ id: species.id }).from(species).where(speciesConditions).limit(1);
     if (!sp) return c.json({ error: "Species not found" }, 404);
 
+    const occConditions = projectIds
+      ? and(eq(occurrences.speciesId, id), inArray(occurrences.projectId, projectIds))
+      : eq(occurrences.speciesId, id);
+
     const recs = await db
       .select()
       .from(occurrences)
-      .where(eq(occurrences.speciesId, id))
+      .where(occConditions)
       .limit(limit)
       .offset(offset);
 
     const [{ total }] = await db
       .select({ total: count() })
       .from(occurrences)
-      .where(eq(occurrences.speciesId, id));
+      .where(occConditions);
 
     return c.json({
       occurrences: recs,
