@@ -5,6 +5,7 @@
 # Usage:
 #   ./scripts/dev-start.sh            # starts core + email + api + frontend
 #   ./scripts/dev-start.sh minimal    # postgres + redis only (api/frontend local)
+#   ./scripts/dev-start.sh plumber    # core + email + plumber + api + frontend
 #   ./scripts/dev-start.sh full       # everything including plumber + garage
 #
 # Profiles:
@@ -47,6 +48,10 @@ case "$MODE" in
   full)
     PROFILES=(all)
     DESC="all services (core + email + storage + computation)"
+    ;;
+  plumber)
+    PROFILES=(core email computation)
+    DESC="postgres, redis, mailpit, plumber (+ local API + frontend)"
     ;;
   *)
     PROFILES=(core email)
@@ -123,7 +128,7 @@ echo -e "  ${BLUE}Redis:${NC}     localhost:6379"
 if printf '%s\n' "${PROFILES[@]}" | grep -qx "email" || printf '%s\n' "${PROFILES[@]}" | grep -qx "all"; then
     echo -e "  ${BLUE}Mailpit:${NC}   http://localhost:5000 (email inspector)"
 fi
-if printf '%s\n' "${PROFILES[@]}" | grep -qx "all"; then
+if printf '%s\n' "${PROFILES[@]}" | grep -qx "computation" || printf '%s\n' "${PROFILES[@]}" | grep -qx "all"; then
     echo -e "  ${BLUE}Plumber:${NC}   http://localhost:8000"
 fi
 if printf '%s\n' "${PROFILES[@]}" | grep -qx "all"; then
@@ -137,6 +142,7 @@ echo ""
 echo -e "  ${BLUE}Usage:${NC}"
 echo "    ./scripts/dev-start.sh          default (core + email + local API/frontend)"
 echo "    ./scripts/dev-start.sh minimal  postgres + redis only"
+echo "    ./scripts/dev-start.sh plumber  core + email + plumber + local API/frontend"
 echo "    ./scripts/dev-start.sh full     all Docker services"
 echo ""
 echo -e "  ${BLUE}To stop:${NC}  ./scripts/dev-stop.sh"
