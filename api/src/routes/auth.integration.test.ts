@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
+import type { AppEnv } from "../middleware/auth.js";
 
 vi.mock("bcrypt", () => ({
   hash: vi.fn(() => Promise.resolve("$2b$10$hashed")),
@@ -17,7 +18,7 @@ describe("Auth Integration", () => {
     it("allows admin to pass", async () => {
       const { requireRole } = await import("../middleware/auth");
       const guard = requireRole(["admin"]);
-      const app = new Hono();
+      const app = new Hono<AppEnv>();
       app.use("/test", async (c, next) => {
         c.set("user", { id: "u1", email: "[EMAIL]", role: "admin" });
         await next();
@@ -32,7 +33,7 @@ describe("Auth Integration", () => {
     it("blocks viewer with 403", async () => {
       const { requireRole } = await import("../middleware/auth");
       const guard = requireRole(["admin"]);
-      const app = new Hono();
+      const app = new Hono<AppEnv>();
       app.use("/test", async (c, next) => {
         c.set("user", { id: "u2", email: "[EMAIL]", role: "viewer" });
         await next();
@@ -47,7 +48,7 @@ describe("Auth Integration", () => {
     it("blocks editor with 403", async () => {
       const { requireRole } = await import("../middleware/auth");
       const guard = requireRole(["admin"]);
-      const app = new Hono();
+      const app = new Hono<AppEnv>();
       app.use("/test", async (c, next) => {
         c.set("user", { id: "u3", email: "[EMAIL]", role: "editor" });
         await next();
@@ -73,7 +74,7 @@ describe("Auth Integration", () => {
     it("allows editor when role list includes editor", async () => {
       const { requireRole } = await import("../middleware/auth");
       const guard = requireRole(["admin", "editor"]);
-      const app = new Hono();
+      const app = new Hono<AppEnv>();
       app.use("/test", async (c, next) => {
         c.set("user", { id: "u3", email: "[EMAIL]", role: "editor" });
         await next();
