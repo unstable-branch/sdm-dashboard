@@ -1,5 +1,10 @@
 const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
 const PLUMBER_INTERNAL_KEY = process.env.PLUMBER_INTERNAL_KEY || "";
+import { Agent } from "node:http";
+import { Agent as HttpsAgent } from "node:https";
+
+const keepAliveAgent = new Agent({ keepAlive: true, keepAliveMsecs: 1000 });
+const keepAliveHttpsAgent = new HttpsAgent({ keepAlive: true, keepAliveMsecs: 1000 });
 
 const TIMEOUT_FAST = 10_000;
 const TIMEOUT_NORMAL = 30_000;
@@ -30,9 +35,12 @@ export class PlumberClient {
 
   private async _fetch(url: string, options: RequestInit & { timeout?: number } = {}): Promise<Response> {
     const { timeout = TIMEOUT_NORMAL, ...fetchOpts } = options;
+    const agent = url.startsWith("https") ? keepAliveHttpsAgent : keepAliveAgent;
     const res = await fetch(url, {
       ...fetchOpts,
       signal: AbortSignal.timeout(timeout),
+      // @ts-expect-error - Node.js fetch supports agent despite TS types
+      agent,
     });
     return res;
   }

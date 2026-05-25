@@ -497,7 +497,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
         };
       }
     },
-    { connection: conn }
+    { connection: conn, concurrency: 3 }
   );
   return _worker;
 }
