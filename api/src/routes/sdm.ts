@@ -305,7 +305,20 @@ sdmRoutes.get("/status/:jobId", async (c) => {
     }
 
     const [run] = await db
-      .select()
+      .select({
+        id: runs.id,
+        status: runs.status,
+        jobId: runs.jobId,
+        speciesName: runs.speciesName,
+        modelId: runs.modelId,
+        startedAt: runs.startedAt,
+        completedAt: runs.completedAt,
+        config: runs.config,
+        error: runs.error,
+        metrics: runs.metrics,
+        outputFiles: runs.outputFiles,
+        provenance: runs.provenance,
+      })
       .from(runs)
       .where(projectIds ? and(eq(runs.id, jobId), inArray(runs.projectId, projectIds)) : eq(runs.id, jobId))
       .limit(1);
@@ -313,6 +326,13 @@ sdmRoutes.get("/status/:jobId", async (c) => {
     if (!run) {
       return c.json({ error: "Run not found" }, 404);
     }
+
+    const errCode = run.provenance && typeof run.provenance === "object" && "error_code" in (run.provenance as object)
+      ? (run.provenance as Record<string, unknown>).error_code as string
+      : undefined;
+    const errHint = run.provenance && typeof run.provenance === "object" && "error_hint" in (run.provenance as object)
+      ? (run.provenance as Record<string, unknown>).error_hint as string
+      : undefined;
 
     if (run.status === "running" && run.jobId) {
       try {
@@ -388,6 +408,8 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       started_at: run.startedAt?.toISOString() ?? null,
       completed_at: run.completedAt?.toISOString() ?? null,
       error: run.error ?? null,
+      error_code: errCode ?? null,
+      error_hint: errHint ?? null,
       metrics: run.metrics ?? null,
       output_files: run.outputFiles ?? null,
       progress_log: [],
