@@ -3,13 +3,22 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SuitabilityMap } from "@/components/results/suitability-map";
+import dynamic from "next/dynamic";
 import { MetricCards } from "@/components/results/metric-cards";
-import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
 import { ArrowLeft, Loader2, Download } from "lucide-react";
 import { apiGet } from "@/services/api";
 import type { RunDetail } from "@/services/types";
+
+const SuitabilityMap = dynamic(
+  () => import("@/components/results/suitability-map").then(m => m.SuitabilityMap),
+  { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
+);
+
+const DiagnosticsPanel = dynamic(
+  () => import("@/components/results/diagnostics-panel").then(m => m.DiagnosticsPanel),
+  { ssr: false, loading: () => <div className="h-64 rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading diagnostics...</div> }
+);
 
 export default function ResultsPage() {
   const params = useParams();

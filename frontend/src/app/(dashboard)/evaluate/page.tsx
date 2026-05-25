@@ -2,17 +2,19 @@
 
 import { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import dynamic from "next/dynamic";
 import { RunComparison } from "@/components/evaluate/run-comparison";
 import { ThresholdExplorer } from "@/components/evaluate/threshold-explorer";
-import { NicheOverlap } from "@/components/evaluate/niche-overlap";
-import { ImportanceChart } from "@/components/diagnostics/importance-chart";
-import { ResponseCurvesChart } from "@/components/diagnostics/response-curves-chart";
-import { CbiChart } from "@/components/diagnostics/cbi-chart";
 import { VifTable } from "@/components/diagnostics/vif-table";
 import { useRuns } from "@/hooks/use-runs";
 import { apiGet } from "@/services/api";
 import { BarChart3, Loader2, Image } from "lucide-react";
 import type { ImportanceData, ResponseCurvesData, CbiData, VifData, RunDetail as ApiRunDetail } from "@/services/types";
+
+const NicheOverlap = dynamic(() => import("@/components/evaluate/niche-overlap").then(m => m.NicheOverlap), { ssr: false });
+const ImportanceChart = dynamic(() => import("@/components/diagnostics/importance-chart").then(m => m.ImportanceChart), { ssr: false });
+const ResponseCurvesChart = dynamic(() => import("@/components/diagnostics/response-curves-chart").then(m => m.ResponseCurvesChart), { ssr: false });
+const CbiChart = dynamic(() => import("@/components/diagnostics/cbi-chart").then(m => m.CbiChart), { ssr: false });
 
 export default function EvaluatePage() {
   const { data: runs, isLoading, error, refetch } = useRuns();
