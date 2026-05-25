@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # scripts/dev-start.sh
-# Starts all 6 SDM Dashboard services:
-#   Docker: postgres, redis, garage, plumber
-#   Local:  api (Hono), frontend (Next.js) via tmux
+# Starts SDM Dashboard services with profile selection.
+#
+# Usage:
+#   ./scripts/dev-start.sh            # starts core + email + api + frontend
+#   ./scripts/dev-start.sh minimal    # postgres + redis only (api/frontend local)
+#   ./scripts/dev-start.sh full       # everything including plumber + garage
+#
+# Profiles:
+#   core        postgres, redis
+#   email       mailpit (email inspection)
+#   storage     garage (S3-compatible storage)
+#   computation plumber (R model backend)
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,6 +22,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+
+MODE="${1:-dev}"
 
 echo ""
 echo "========================================="
@@ -28,9 +39,24 @@ command -v tmux >/dev/null 2>&1 || { echo -e "${RED}tmux is required but not ins
 tmux kill-session -t sdm-api 2>/dev/null || true
 tmux kill-session -t sdm-frontend 2>/dev/null || true
 
+case "$MODE" in
+  minimal)
+    PROFILE="core"
+    DESC="postgres + redis"
+    ;;
+  full)
+    PROFILE="all"
+    DESC="all services (core + email + storage + computation)"
+    ;;
+  *)
+    PROFILE="core,email"
+    DESC="postgres, redis, mailpit (+ local API + frontend)"
+    ;;
+esac
+
 # 1. Start Docker backing services
-echo -e "${YELLOW}[1/4]${NC} Starting Docker services (postgres, redis, garage, plumber)..."
-docker compose -f docker-compose.dev.yml up -d --remove-orphans 2>&1
+echo -e "${YELLOW}[1/4]${NC} Starting Docker services: ${DESC}..."
+docker compose -f docker-compose.dev.yml --profile "$PROFILE" up -d --remove-orphans 2>&1
 
 # 2. Wait for healthy
 echo -e "${YELLOW}[2/4]${NC} Waiting for services to be healthy..."
@@ -86,20 +112,28 @@ echo "========================================="
 echo ""
 echo -e "  ${BLUE}Frontend:${NC}  http://localhost:3000"
 echo -e "  ${BLUE}API:${NC}       http://localhost:4000"
-echo -e "  ${BLUE}Plumber:${NC}   http://localhost:8000"
-echo -e "  ${BLUE}Garage:${NC}    http://localhost:3900"
 echo -e "  ${BLUE}Postgres:${NC}  localhost:5432"
 echo -e "  ${BLUE}Redis:${NC}     localhost:6379"
+if [[ "$PROFILE" == *"email"* ]] || [[ "$PROFILE" == "all" ]]; then
+    echo -e "  ${BLUE}Mailpit:${NC}   http://localhost:5000 (email inspector)"
+fi
+if [[ "$PROFILE" == *"comput"* ]] || [[ "$PROFILE" == "all" ]]; then
+    echo -e "  ${BLUE}Plumber:${NC}   http://localhost:8000"
+fi
+if [[ "$PROFILE" == *"stor"* ]] || [[ "$PROFILE" == "all" ]]; then
+    echo -e "  ${BLUE}Garage:${NC}    http://localhost:3900"
+fi
 echo ""
 echo -e "  ${BLUE}tmux sessions:${NC}"
 echo "    API:       tmux attach -t sdm-api"
 echo "    Frontend:  tmux attach -t sdm-frontend"
 echo ""
-echo -e "  ${BLUE}To stop local services:${NC}"
-echo "    ./scripts/dev-stop.sh"
+echo -e "  ${BLUE}Usage:${NC}"
+echo "    ./scripts/dev-start.sh          default (core + email + local API/frontend)"
+echo "    ./scripts/dev-start.sh minimal  postgres + redis only"
+echo "    ./scripts/dev-start.sh full     all Docker services"
 echo ""
-echo -e "  ${BLUE}To stop Docker services:${NC}"
-echo "    docker compose -f docker-compose.dev.yml down"
+echo -e "  ${BLUE}To stop:${NC}  ./scripts/dev-stop.sh"
 echo ""
 
 # Open browser if available
