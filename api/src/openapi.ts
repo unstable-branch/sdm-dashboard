@@ -97,6 +97,15 @@ const bearerOrApiKeySecurity: SecurityRequirementObject[] = [
   { apiKeyAuth: [] },
 ];
 
+const idempotencyKeyParameter: ParameterObject = {
+  name: "Idempotency-Key",
+  in: "header",
+  required: false,
+  description:
+    "Optional client-generated key for expensive or mutating POST requests. Reusing the same key with the same route, scope, and request body replays the stored response; reusing it with a different body returns 409.",
+  schema: { type: "string" },
+};
+
 export const openApiDocument = {
   openapi: "3.0.3",
   info: {
@@ -322,6 +331,7 @@ export const openApiDocument = {
         summary: "Run SDM model",
         tags: ["sdm"],
         security: bearerOrApiKeySecurity,
+        parameters: [idempotencyKeyParameter],
         requestBody: {
           required: true,
           content: {
@@ -347,6 +357,7 @@ export const openApiDocument = {
           },
           "400": errorResponse,
           "401": errorResponse,
+          "409": errorResponse,
           "502": errorResponse,
         },
       },
@@ -357,6 +368,7 @@ export const openApiDocument = {
         summary: "Run batch SDM jobs",
         tags: ["sdm"],
         security: bearerOrApiKeySecurity,
+        parameters: [idempotencyKeyParameter],
         requestBody: {
           required: true,
           content: {
@@ -376,6 +388,7 @@ export const openApiDocument = {
           },
           "400": errorResponse,
           "401": errorResponse,
+          "409": errorResponse,
           "500": errorResponse,
         },
       },
@@ -650,6 +663,7 @@ export const openApiDocument = {
         summary: "Clean occurrence data",
         tags: ["data"],
         security: bearerOrApiKeySecurity,
+        parameters: [idempotencyKeyParameter],
         requestBody: {
           required: true,
           content: {
@@ -686,6 +700,53 @@ export const openApiDocument = {
             },
           },
           "401": errorResponse,
+          "409": errorResponse,
+          "502": errorResponse,
+        },
+      },
+    },
+    "/api/v1/climate/download": {
+      post: {
+        operationId: "downloadClimate",
+        summary: "Queue climate data download",
+        tags: ["climate"],
+        security: bearerOrApiKeySecurity,
+        parameters: [idempotencyKeyParameter],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  type: { type: "string", enum: ["cmip6", "cmip6_average", "worldclim", "chelsa"], default: "cmip6" },
+                  gcm_list: { type: "array", items: { type: "string" }, nullable: true },
+                },
+                additionalProperties: true,
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Climate download queued",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    jobId: { type: "string" },
+                    status: { type: "string", enum: ["queued"] },
+                  },
+                  required: ["jobId", "status"],
+                },
+              },
+            },
+          },
+          "400": errorResponse,
+          "401": errorResponse,
+          "409": errorResponse,
+          "503": errorResponse,
           "502": errorResponse,
         },
       },

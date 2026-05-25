@@ -27,11 +27,17 @@ export type IdempotencyEntry = Pick<
   | "updatedAt"
 >;
 
+export type IdempotentResponseStatusCode = 200 | 201 | 202 | 400 | 401 | 403 | 404 | 409 | 500 | 502 | 503;
+
 export type BeginIdempotentRequestResult =
   | { outcome: "started"; entry: IdempotencyEntry; reusedFailedEntry: boolean; reusedExpiredEntry: boolean }
   | { outcome: "processing"; entry: IdempotencyEntry }
   | { outcome: "replay"; entry: IdempotencyEntry }
   | { outcome: "conflict"; entry: IdempotencyEntry; reason: "hash_mismatch" };
+
+export type IdempotentRouteDecision =
+  | { action: "continue"; entry: IdempotencyEntry }
+  | { action: "respond"; statusCode: IdempotentResponseStatusCode; body: Record<string, unknown> };
 
 export interface BeginIdempotentRequestInput {
   projectId?: string | null;
@@ -189,6 +195,62 @@ export function getIdempotencyKeyFromHeaders(headers: HeaderSource): string | nu
   }
 
   return null;
+}
+
+function toIdempotentResponseStatusCode(statusCode: number | null): IdempotentResponseStatusCode {
+  if (
+    statusCode === 200 ||
+    statusCode === 201 ||
+    statusCode === 202 ||
+    statusCode === 400 ||
+    statusCode === 401 ||
+    statusCode === 403 ||
+    statusCode === 404 ||
+    statusCode === 409 ||
+    statusCode === 500 ||
+    statusCode === 502 ||
+    statusCode === 503
+  ) {
+    return statusCode;
+  }
+
+  return 200;
+}
+
+export function getIdempotentRouteDecision(result: BeginIdempotentRequestResult): IdempotentRouteDecision {
+  if (result.outcome === "started") {
+    return { action: "continue", entry: result.entry };
+  }
+
+  if (result.outcome === "replay") {
+    return {
+      action: "respond",
+      statusCode: toIdempotentResponseStatusCode(result.entry.statusCode),
+      body: result.entry.responseBody ?? {},
+    };
+  }
+
+  if (result.outcome === "conflict") {
+    return {
+      action: "respond",
+      statusCode: 409,
+      body: {
+        error: "Idempotency key conflict",
+        detail: "This idempotency key was already used for the same route and scope with a different request body.",
+        status: "conflict",
+      },
+    };
+  }
+
+  return {
+    action: "respond",
+    statusCode: 409,
+    body: {
+      error: "Idempotency key is already processing",
+      detail: "The original request is still processing. Retry later or check the associated resource status.",
+      status: "processing",
+    },
+  };
 }
 
 export async function beginIdempotentRequest(input: BeginIdempotentRequestInput): Promise<BeginIdempotentRequestResult> {

@@ -119,6 +119,7 @@ curl -sS "$SDM_API_BASE/api/v1/data/occurrence-datasets/$SOURCE_DATASET_ID?proje
 ```bash
 CLEANED_JSON="$(curl -sS -X POST "$SDM_API_BASE/api/v1/data/occurrences/clean" \
   -H "X-API-Key: $SDM_API_KEY" \
+  -H "Idempotency-Key: clean-acacia-mearnsii-v1" \
   -H "Content-Type: application/json" \
   -d '{
     "project_id": "'"$PROJECT_ID"'",
@@ -137,6 +138,7 @@ CLEANED_DATASET_ID="$(echo "$CLEANED_JSON" | jq -r '.output_dataset_id')"
 ```bash
 RUN_ID="$(curl -sS -X POST "$SDM_API_BASE/api/v1/sdm/run" \
   -H "X-API-Key: $SDM_API_KEY" \
+  -H "Idempotency-Key: run-acacia-mearnsii-glm-v1" \
   -H "Content-Type: application/json" \
   -d '{
     "async": true,
@@ -187,6 +189,7 @@ curl -sS "$SDM_API_BASE/api/v1/results/$RUN_ID/manifest" \
 ```bash
 BATCH_JSON="$(curl -sS -X POST "$SDM_API_BASE/api/v1/sdm/batch" \
   -H "X-API-Key: $SDM_API_KEY" \
+  -H "Idempotency-Key: batch-acacia-mearnsii-east-au-v1" \
   -H "Content-Type: application/json" \
   -d '{
     "parallel": 2,
