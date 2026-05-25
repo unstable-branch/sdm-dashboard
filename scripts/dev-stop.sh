@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/dev-stop.sh
-# Stops all SDM Dashboard services (local + Docker)
+# Stops all SDM Dashboard services (local tmux + Docker)
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,5 +22,9 @@ tmux kill-session -t sdm-frontend 2>/dev/null && echo -e "    ${GREEN}Frontend s
 
 # Stop Docker services
 echo "  Stopping Docker services..."
-docker compose -f docker-compose.dev.yml down 2>&1
-echo -e "${GREEN}All services stopped.${NC}"
+if docker compose -f docker-compose.dev.yml ps -q 2>/dev/null | grep -q .; then
+    docker compose -f docker-compose.dev.yml down 2>&1
+    echo -e "${GREEN}Docker services stopped.${NC}"
+else
+    echo "    No Docker services were running."
+fi
