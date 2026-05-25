@@ -39,11 +39,12 @@ Completed so far:
   upload, GBIF save, DwCA parse, and synchronous clean responses.
 - Wired `Idempotency-Key` replay/conflict/processing behavior into SDM run,
   SDM batch, occurrence clean, and climate download routes.
+- Added pure `study_area.v1`, `environment_scenario_summary.v1`, and
+  `environment_set_summary.v1` schema helpers; route wiring is intentionally
+  deferred until a specific endpoint needs them.
 
 Next delegable tasks:
 
-- Define study-area preset/custom extent schema.
-- Define environment set/scenario summary schema.
 - Extend batch parent semantics beyond the initial `runs.batch_id` aggregate
   if later work needs owner metadata, server-side comparison filters, or
   stronger lifecycle/audit behavior.
@@ -97,13 +98,14 @@ Completed so far:
   `GET /api/v1/results/:id/manifest`, wrapping current Plumber manifests into
   bounded fields while retaining `ok`, `manifest_path`, and `manifest.*`
   compatibility aliases.
+- Added `batch_comparison.v1` summaries to
+  `GET /api/v1/sdm/batches/:batchId`, with numeric scalar metrics grouped by
+  run/species/model and warnings for failed/incomplete/missing-metric runs.
 
 Delegable tasks:
 
 - Inventory existing `results`, `manifest`, report, and output-file behavior.
-- Define `RunManifest` and `BatchManifest` schemas.
 - Define `BatchManifest` schema and tests.
-- Add a batch comparison summary shape with metrics and warnings.
 - Add docs for what is safe to summarize versus what requires explicit
   download.
 

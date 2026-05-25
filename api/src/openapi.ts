@@ -1107,6 +1107,100 @@ export const openApiDocument = {
         },
         required: ["id", "status", "created_at"],
       },
+      SdmBatchComparisonMetricSummary: {
+        type: "object",
+        properties: {
+          count: { type: "integer" },
+          min: { type: "number" },
+          max: { type: "number" },
+          mean: { type: "number" },
+        },
+        required: ["count", "min", "max", "mean"],
+      },
+      SdmBatchComparisonMetricGroup: {
+        type: "object",
+        properties: {
+          key: { type: "string", nullable: true },
+          runs: { type: "integer" },
+          with_metrics: { type: "integer" },
+          metrics: {
+            type: "object",
+            additionalProperties: { $ref: "#/components/schemas/SdmBatchComparisonMetricSummary" },
+          },
+        },
+        required: ["key", "runs", "with_metrics", "metrics"],
+      },
+      SdmBatchComparisonWarning: {
+        type: "object",
+        properties: {
+          code: {
+            type: "string",
+            enum: ["failed_run", "cancelled_run", "incomplete_run", "missing_metrics", "non_numeric_metrics"],
+          },
+          severity: { type: "string", enum: ["warning"] },
+          message: { type: "string" },
+          run_id: { type: "string" },
+          species: { type: "string", nullable: true },
+          model_id: { type: "string", nullable: true },
+        },
+        required: ["code", "severity", "message", "run_id", "species", "model_id"],
+      },
+      SdmBatchComparison: {
+        type: "object",
+        properties: {
+          schema: { type: "string", enum: ["batch_comparison.v1"] },
+          counts: {
+            type: "object",
+            properties: {
+              total: { type: "integer" },
+              queued: { type: "integer" },
+              running: { type: "integer" },
+              completed: { type: "integer" },
+              failed: { type: "integer" },
+              cancelled: { type: "integer" },
+              with_metrics: { type: "integer" },
+              missing_metrics: { type: "integer" },
+            },
+            required: ["total", "queued", "running", "completed", "failed", "cancelled", "with_metrics", "missing_metrics"],
+          },
+          metrics: {
+            type: "object",
+            properties: {
+              by_run: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    run_id: { type: "string" },
+                    species: { type: "string", nullable: true },
+                    model_id: { type: "string", nullable: true },
+                    status: { type: "string" },
+                    metrics: {
+                      type: "object",
+                      additionalProperties: { type: "number" },
+                    },
+                  },
+                  required: ["run_id", "species", "model_id", "status", "metrics"],
+                },
+              },
+              by_species: {
+                type: "array",
+                items: { $ref: "#/components/schemas/SdmBatchComparisonMetricGroup" },
+              },
+              by_model: {
+                type: "array",
+                items: { $ref: "#/components/schemas/SdmBatchComparisonMetricGroup" },
+              },
+            },
+            required: ["by_run", "by_species", "by_model"],
+          },
+          warnings: {
+            type: "array",
+            items: { $ref: "#/components/schemas/SdmBatchComparisonWarning" },
+          },
+        },
+        required: ["schema", "counts", "metrics", "warnings"],
+      },
       SdmBatchStatusResponse: {
         type: "object",
         properties: {
@@ -1136,6 +1230,7 @@ export const openApiDocument = {
           completed_at: { type: "string", format: "date-time", nullable: true },
           latest_error: { type: "string", nullable: true },
           warnings: { type: "array", items: { type: "string" } },
+          comparison: { $ref: "#/components/schemas/SdmBatchComparison" },
         },
         required: [
           "batch_id",
@@ -1146,6 +1241,7 @@ export const openApiDocument = {
           "failed",
           "cancelled",
           "runs",
+          "comparison",
         ],
       },
       SdmRunStatusResponse: {

@@ -19,6 +19,7 @@ import {
 import { join } from "path";
 import { randomUUID } from "crypto";
 import type { AppEnv } from "../middleware/auth.js";
+import { buildBatchComparisonSummary } from "../services/batch-comparison.js";
 
 export const sdmRoutes = new Hono<AppEnv>();
 
@@ -428,6 +429,7 @@ sdmRoutes.get("/batches/:batchId", async (c) => {
         completed_at: runs.completedAt,
         created_at: runs.createdAt,
         error: runs.error,
+        metrics: runs.metrics,
       })
       .from(runs)
       .where(and(...conditions));
@@ -492,6 +494,14 @@ sdmRoutes.get("/batches/:batchId", async (c) => {
       completed_at: completedAtDerivable ? new Date(Math.max(...completedAtValues)).toISOString() : null,
       latest_error: latestErrorRun?.error ?? null,
       warnings: warningMessages,
+      comparison: buildBatchComparisonSummary(batchRuns.map((run) => ({
+        id: run.id,
+        species: run.species ?? null,
+        model_id: run.model_id,
+        status: run.status,
+        metrics: run.metrics,
+        error: run.error ?? null,
+      }))),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get batch status";

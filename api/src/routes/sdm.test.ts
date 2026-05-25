@@ -3,6 +3,14 @@ import { Hono } from "hono";
 import { sdmRoutes } from "./sdm.js";
 import { beginIdempotentRequest } from "../services/idempotency.js";
 
+type MockReturnValueOnce = {
+  mockReturnValueOnce: (value: unknown) => unknown;
+};
+
+type BatchComparisonWarningForTest = {
+  code: string;
+};
+
 const mockChain = (result: unknown) => ({
   from: vi.fn(() => ({
     where: vi.fn(() => ({
@@ -303,6 +311,7 @@ describe("SDM routes", () => {
               completed_at: null,
               created_at: new Date("2024-01-01T00:00:00Z"),
               error: null,
+              metrics: null,
             },
             {
               id: "run-2",
@@ -313,6 +322,7 @@ describe("SDM routes", () => {
               completed_at: new Date("2024-01-01T00:20:00Z"),
               created_at: new Date("2024-01-01T00:05:00Z"),
               error: "Plumber failed",
+              metrics: null,
             },
             {
               id: "run-3",
@@ -323,6 +333,7 @@ describe("SDM routes", () => {
               completed_at: new Date("2024-01-01T00:30:00Z"),
               created_at: new Date("2024-01-01T00:06:00Z"),
               error: null,
+              metrics: { auc_mean: 0.87, tss_mean: 0.71 },
             },
           ])),
         })),
@@ -350,11 +361,77 @@ describe("SDM routes", () => {
       expect(data.started_at).toBe("2024-01-01T00:06:00.000Z");
       expect(data.completed_at).toBeNull();
       expect(data.latest_error).toBe("Plumber failed");
+      expect(data.comparison).toEqual(expect.objectContaining({
+        schema: "batch_comparison.v1",
+        counts: expect.objectContaining({
+          total: 3,
+          completed: 1,
+          failed: 1,
+          with_metrics: 1,
+          missing_metrics: 2,
+        }),
+      }));
+      expect(data.comparison.metrics.by_run).toEqual([
+        {
+          run_id: "run-3",
+          species: "Species C",
+          model_id: "gam",
+          status: "completed",
+          metrics: { auc_mean: 0.87, tss_mean: 0.71 },
+        },
+      ]);
+      expect(data.comparison.warnings.map((warning: BatchComparisonWarningForTest) => warning.code)).toEqual([
+        "incomplete_run",
+        "failed_run",
+      ]);
+    });
+
+    it("keeps batch comparison summaries bounded to scalar metrics", async () => {
+      const { db } = await import("../db");
+      (db.select as unknown as MockReturnValueOnce).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve([
+            {
+              id: "run-1",
+              species: "Species A",
+              model_id: "glm",
+              status: "completed",
+              started_at: new Date("2024-01-01T00:10:00Z"),
+              completed_at: new Date("2024-01-01T00:20:00Z"),
+              created_at: new Date("2024-01-01T00:00:00Z"),
+              error: null,
+              metrics: {
+                auc_mean: 0.91,
+                tss_mean: 0.74,
+                suitability_tif: "outputs/jobs/run-1/suitability.tif",
+                occurrences: [{ longitude: 1, latitude: 2 }],
+              },
+            },
+          ])),
+        })),
+      });
+
+      const res = await app.request("/api/v1/sdm/batches/batch-123");
+      expect(res.status).toBe(200);
+
+      const data = await res.json();
+      expect(data.runs[0]).not.toHaveProperty("metrics");
+      expect(data.comparison.metrics.by_run).toEqual([
+        {
+          run_id: "run-1",
+          species: "Species A",
+          model_id: "glm",
+          status: "completed",
+          metrics: { auc_mean: 0.91, tss_mean: 0.74 },
+        },
+      ]);
+      expect(JSON.stringify(data.comparison)).not.toContain("suitability.tif");
+      expect(JSON.stringify(data.comparison)).not.toContain("occurrences");
     });
 
     it("returns 404 when batch is not visible", async () => {
       const { db } = await import("../db");
-      (db.select as any).mockReturnValueOnce({
+      (db.select as unknown as MockReturnValueOnce).mockReturnValueOnce({
         from: vi.fn(() => ({
           where: vi.fn(() => Promise.resolve([])),
         })),
