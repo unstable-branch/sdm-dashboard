@@ -198,6 +198,7 @@ function DataPageContent() {
     setUploadError(null);
     setUploadResult(null);
     setCleanResult(null);
+    setCleanedOccurrence(null);
 
     try {
       const result = await apiUpload<Record<string, unknown>>(
