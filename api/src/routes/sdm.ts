@@ -71,6 +71,7 @@ sdmRoutes.post("/run", async (c) => {
           status: "queued",
           config: config as any,
           jobId: null,
+          pipelineRunId: (config as any).pipelineRunId || null,
           runNumber: maxRun.maxNum + 1,
         })
         .returning();
@@ -157,6 +158,7 @@ sdmRoutes.post("/run", async (c) => {
         status: "running",
         startedAt: new Date(),
         config: config as any,
+        pipelineRunId: (config as any).pipelineRunId || null,
         runNumber: maxRun.maxNum + 1,
       })
       .returning();
@@ -675,6 +677,7 @@ sdmRoutes.post("/batch", async (c) => {
           modelId: parsed.data.modelId,
           status: "queued",
           config: parsed.data as any,
+          pipelineRunId: (parsed.data as any).pipelineRunId || null,
         })
         .returning();
 

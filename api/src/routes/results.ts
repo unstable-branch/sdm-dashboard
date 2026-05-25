@@ -5,7 +5,7 @@ import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { authMiddleware, type AppEnv } from "../middleware/auth.js";
-import { getUserProjectIds } from "../services/access.js";
+import { getUserProjectIds, canAccessRun } from "../services/access.js";
 
 export const resultsRoutes = new Hono<AppEnv>();
 
@@ -28,26 +28,6 @@ function resolveResultFilePath(filePath: string): { fullPath: string; runId: str
   }
 
   return { fullPath, runId };
-}
-
-async function canAccessRun(userId: string, role: string, runId: string): Promise<boolean> {
-  if (role === "admin") {
-    const [run] = await db.select({ id: runs.id }).from(runs).where(eq(runs.id, runId)).limit(1);
-    return Boolean(run);
-  }
-
-  const projectIds = await getUserProjectIds({ id: userId, email: "", role });
-  if (!projectIds || projectIds.length === 0) {
-    return false;
-  }
-
-  const [run] = await db
-    .select({ id: runs.id })
-    .from(runs)
-    .where(and(eq(runs.id, runId), inArray(runs.projectId, projectIds)))
-    .limit(1);
-
-  return Boolean(run);
 }
 
 resultsRoutes.get("/file/:filePath", async (c) => {

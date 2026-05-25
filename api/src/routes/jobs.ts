@@ -2,18 +2,45 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { getJobStatus, getJobQueue } from "../services/queue.js";
 import { jobEventBus } from "../services/job-events.js";
+import { authMiddleware, type AppEnv } from "../middleware/auth.js";
+import { getUserProjectIds } from "../services/access.js";
+import { db } from "../db/index.js";
+import { runs } from "../db/schema.js";
+import { eq, and, inArray, or } from "drizzle-orm";
 
-const app = new Hono();
+const app = new Hono<AppEnv>();
+
+app.use("/sse", authMiddleware);
 
 app.get("/sse", (c) => {
+  const user = c.get("user");
+
   return streamSSE(c, async (stream) => {
     let aborted = false;
     stream.onAbort(() => {
       aborted = true;
     });
 
+    // Get user's project IDs once (admin = null = all)
+    const myProjectIds = await getUserProjectIds(user);
+
+    // Helper: check if a job's runId belongs to this user
+    const isMyRun = async (runId: string | undefined | null): Promise<boolean> => {
+      if (!runId) return false;
+      if (myProjectIds === null) return true; // admin sees everything
+      const [run] = await db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(and(eq(runs.id, runId), inArray(runs.projectId, myProjectIds)))
+        .limit(1);
+      return Boolean(run);
+    };
+
     // Listen to real-time events from plumber-sync and queue worker
-    const handler = (event: { jobId: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string }) => {
+    const handler = async (event: { jobId: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string }) => {
+      // Check if this event's jobId maps to a run the user can access
+      if (!(await isMyRun(event.jobId))) return;
+
       stream.writeSSE({
         event: "job-update",
         data: JSON.stringify({
@@ -42,14 +69,17 @@ app.get("/sse", (c) => {
             const state = await job.getState();
             const progress = job.progress || 0;
 
-            const runId = (job.data as Record<string, unknown>)?.payload as Record<string, unknown> | undefined;
-            const runIdStr = (runId?.runId as string) || (job.data as Record<string, unknown>)?.runId as string;
+            const jobData = job.data as Record<string, unknown> | undefined;
+            const payload = jobData?.payload as Record<string, unknown> | undefined;
+            const runId = (payload?.runId as string) || jobData?.runId as string | undefined;
+
+            if (!(await isMyRun(runId))) continue;
 
             const eventData = {
-              id: runIdStr || job.id,
+              id: runId || job.id,
               state,
               progress,
-              type: job.data?.type,
+              type: jobData?.type,
               result: job.returnvalue,
               failedReason: job.failedReason,
             };
@@ -71,8 +101,28 @@ app.get("/sse", (c) => {
   });
 });
 
+app.use("/:jobId", authMiddleware);
+
 app.get("/:jobId", async (c) => {
   const jobId = c.req.param("jobId");
+  const user = c.get("user");
+  const myProjectIds = await getUserProjectIds(user);
+
+  // Verify the job's run belongs to this user
+  if (myProjectIds !== null) {
+    const [run] = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(
+        eq(runs.id, jobId),
+        inArray(runs.projectId, myProjectIds)
+      ))
+      .limit(1);
+    if (!run) {
+      return c.json({ error: "Job not found" }, 404);
+    }
+  }
+
   const status = await getJobStatus(jobId).catch(() => null);
 
   if (!status) {
@@ -84,6 +134,24 @@ app.get("/:jobId", async (c) => {
 
 app.post("/:jobId/cancel", async (c) => {
   const jobId = c.req.param("jobId");
+  const user = c.get("user");
+  const myProjectIds = await getUserProjectIds(user);
+
+  // Verify the job's run belongs to this user
+  if (myProjectIds !== null) {
+    const [run] = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(
+        eq(runs.id, jobId),
+        inArray(runs.projectId, myProjectIds)
+      ))
+      .limit(1);
+    if (!run) {
+      return c.json({ error: "Job not found" }, 404);
+    }
+  }
+
   const q = getJobQueue();
   if (!q) return c.json({ error: "Queue unavailable" }, 503);
   const job = await q.getJob(jobId).catch(() => null);
