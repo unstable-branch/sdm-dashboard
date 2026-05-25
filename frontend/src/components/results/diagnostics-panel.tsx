@@ -40,6 +40,7 @@ function DiagnosticImage({
     <img
       src={src}
       alt={label}
+      loading="lazy"
       className={cn("rounded-lg border border-sdm-border w-full object-contain", className)}
     />
   );

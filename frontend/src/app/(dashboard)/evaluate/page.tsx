@@ -182,10 +182,11 @@ export default function EvaluatePage() {
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Variable Importance</h4>
                       <ImportanceChart data={importanceData} loading={loadingDiagnostics} />
-                      {outputFiles.variable_importance_png && (
+                      {!importanceData && outputFiles.variable_importance_png && (
                         <img
                           src={`/api/v1/results/file/${encodeURIComponent(outputFiles.variable_importance_png)}`}
                           alt="Variable importance PNG"
+                          loading="lazy"
                           className="w-full mt-3 rounded border border-sdm-border/50"
                         />
                       )}
@@ -193,10 +194,11 @@ export default function EvaluatePage() {
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Response Curves</h4>
                       <ResponseCurvesChart data={responseCurvesData} loading={loadingDiagnostics} />
-                      {outputFiles.response_curves_png && (
+                      {!responseCurvesData && outputFiles.response_curves_png && (
                         <img
                           src={`/api/v1/results/file/${encodeURIComponent(outputFiles.response_curves_png)}`}
                           alt="Response curves PNG"
+                          loading="lazy"
                           className="w-full mt-3 rounded border border-sdm-border/50"
                         />
                       )}
@@ -207,10 +209,11 @@ export default function EvaluatePage() {
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">CBI</h4>
                       <CbiChart data={cbiData} loading={loadingDiagnostics} />
-                      {outputFiles.cbi_png && (
+                      {!cbiData && outputFiles.cbi_png && (
                         <img
                           src={`/api/v1/results/file/${encodeURIComponent(outputFiles.cbi_png)}`}
                           alt="CBI PNG"
+                          loading="lazy"
                           className="w-full mt-3 rounded border border-sdm-border/50"
                         />
                       )}
