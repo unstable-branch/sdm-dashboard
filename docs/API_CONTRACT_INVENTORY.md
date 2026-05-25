@@ -125,7 +125,8 @@ Primary sources:
   - A baseline OpenAPI document exists, but schemas are still intentionally partial and should be tightened endpoint-by-endpoint.
   - Several endpoints pass through upstream plumber payloads directly.
 - Idempotency:
-  - No idempotency keys on mutating run/clean/download operations; retries can create duplicate work.
+  - `Idempotency-Key` support exists on expensive mutation routes: SDM run, SDM batch, occurrence clean, and climate download.
+  - Remaining risk: partial side effects from downstream failures still need route-specific hardening where operations are not transactional.
 - Workflow objects:
   - Run/job/batch are represented by mixed ad hoc envelopes instead of one stable workflow resource shape.
 - Batch parent semantics:
@@ -141,7 +142,7 @@ Primary sources:
 1. Continue tightening `GET /api/v1/openapi.json` schemas from broad placeholders into request/response contracts for each route group.
 2. Define shared envelope schemas in API code/docs: `ApiError`, `WorkflowStatus`, `Pagination`, `ArtifactRef`.
 3. Normalize SDM run submission response shape to always return `{ runId, workflowId, status }` (retain compatibility alias temporarily).
-4. Introduce `Idempotency-Key` support for `POST /api/v1/sdm/run`, `POST /api/v1/sdm/batch`, `POST /api/v1/data/occurrences/clean`, and `POST /api/v1/climate/download`.
+4. Add route-specific partial-failure hardening and retry guidance for idempotent SDM batch/run operations.
 5. Extend the current `runs.batch_id` aggregate into a fuller batch resource only if owner metadata, idempotency, or long-lived batch history needs require it.
 6. Define and enforce artifact manifest schema at Hono boundary for `GET /api/v1/results/:id/manifest` (adapter from plumber output).
 7. Standardize error mapping middleware so all handlers emit a single error contract with stable `code`, `message`, and optional `details`.

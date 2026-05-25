@@ -37,6 +37,8 @@ Completed so far:
 - Added occurrence dataset and idempotency-key tables/service helpers.
 - Added occurrence dataset list/register/get routes and dataset IDs on
   upload, GBIF save, DwCA parse, and synchronous clean responses.
+- Wired `Idempotency-Key` replay/conflict/processing behavior into SDM run,
+  SDM batch, occurrence clean, and climate download routes.
 
 Next delegable tasks:
 
@@ -45,8 +47,8 @@ Next delegable tasks:
 - Extend batch parent semantics beyond the initial `runs.batch_id` aggregate
   if later work needs owner metadata, server-side comparison filters, or
   stronger lifecycle/audit behavior.
-- Wire `Idempotency-Key` behavior into mutating workflow routes.
-- Add route-level tests for duplicate-safe idempotent requests.
+- Add route-specific partial-failure hardening where downstream work can create
+  side effects before an error is returned.
 
 Keep in main:
 

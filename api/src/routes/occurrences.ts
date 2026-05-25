@@ -11,6 +11,13 @@ import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import {
+  beginIdempotentRequest,
+  completeIdempotentRequest,
+  failIdempotentRequest,
+  getIdempotencyKeyFromHeaders,
+  getIdempotentRouteDecision,
+} from "../services/idempotency.js";
+import {
   createOccurrenceDataset,
   getOccurrenceDatasetForUser,
   listOccurrenceDatasets,
@@ -268,6 +275,7 @@ dataRoutes.post("/occurrences/upload", async (c) => {
 });
 
 dataRoutes.post("/occurrences/clean", async (c) => {
+  let idempotencyEntryId: string | null = null;
   try {
     const body = await c.req.json();
     const async = body.async === true;
@@ -278,6 +286,45 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     }
     const projectId = scoped.projectId;
 
+    const idempotencyKey = getIdempotencyKeyFromHeaders(c.req.raw.headers);
+    if (idempotencyKey) {
+      const idempotency = await beginIdempotentRequest({
+        projectId,
+        userId: user.id,
+        method: "POST",
+        route: "/api/v1/data/occurrences/clean",
+        idempotencyKey,
+        requestBody: body,
+      });
+      const decision = getIdempotentRouteDecision(idempotency);
+      if (decision.action === "respond") {
+        return c.json(decision.body, decision.statusCode);
+      }
+      idempotencyEntryId = decision.entry.id;
+    }
+
+    const inputDatasetId = getString(body.dataset_id);
+    let inputDataset: OccurrenceDatasetAggregate | null = null;
+    if (!async && inputDatasetId) {
+      inputDataset = await getOccurrenceDatasetForUser({
+        datasetId: inputDatasetId,
+        userId: user.id,
+        userRole: user.role,
+        projectId,
+      });
+      if (!inputDataset) {
+        const response = { error: "Occurrence dataset not found" };
+        if (idempotencyEntryId) {
+          await failIdempotentRequest({
+            id: idempotencyEntryId,
+            statusCode: 404,
+            responseBody: response,
+          }).catch(() => {});
+        }
+        return c.json(response, 404);
+      }
+    }
+
     if (async) {
       const jobId = await enqueueSdmJob(
         {
@@ -286,21 +333,17 @@ dataRoutes.post("/occurrences/clean", async (c) => {
         },
         user.id
       );
-      return c.json({ jobId, status: "queued" });
-    }
-
-    const inputDatasetId = getString(body.dataset_id);
-    let inputDataset: OccurrenceDatasetAggregate | null = null;
-    if (inputDatasetId) {
-      inputDataset = await getOccurrenceDatasetForUser({
-        datasetId: inputDatasetId,
-        userId: user.id,
-        userRole: user.role,
-        projectId,
-      });
-      if (!inputDataset) {
-        return c.json({ error: "Occurrence dataset not found" }, 404);
+      const response = { jobId, status: "queued" };
+      if (idempotencyEntryId) {
+        await completeIdempotentRequest({
+          id: idempotencyEntryId,
+          statusCode: 200,
+          responseBody: response,
+          resourceType: "clean",
+          resourceId: jobId,
+        });
       }
+      return c.json(response);
     }
 
     const result = await plumberClient.cleanOccurrences(body);
@@ -352,6 +395,15 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     }
 
     if (!resultRecord) {
+      if (idempotencyEntryId) {
+        await completeIdempotentRequest({
+          id: idempotencyEntryId,
+          statusCode: 200,
+          responseBody: result,
+          resourceType: "clean",
+          resourceId: null,
+        });
+      }
       return c.json(result);
     }
 
@@ -374,9 +426,25 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       response.output_dataset_id = outputDataset.id;
     }
 
+    if (idempotencyEntryId) {
+      await completeIdempotentRequest({
+        id: idempotencyEntryId,
+        statusCode: 200,
+        responseBody: response,
+        resourceType: "clean",
+        resourceId: outputDataset?.id ?? getString(response.cleaned_file_id) ?? getString(response.file_id) ?? null,
+      });
+    }
     return c.json(response);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Clean failed";
+    if (idempotencyEntryId) {
+      await failIdempotentRequest({
+        id: idempotencyEntryId,
+        statusCode: 502,
+        responseBody: { error: message },
+      }).catch(() => {});
+    }
     return c.json({ error: message }, 502);
   }
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import { sdmRoutes } from "./sdm.js";
+import { beginIdempotentRequest } from "../services/idempotency.js";
 
 const mockChain = (result: unknown) => ({
   from: vi.fn(() => ({
@@ -23,14 +24,27 @@ const mockCountChain = (count: number) => ({
 vi.mock("../db", () => ({
   db: {
     select: vi.fn(),
+    insert: vi.fn(),
+    update: vi.fn(),
   },
 }));
 
 vi.mock("../services/plumber", () => ({
   plumberClient: {
     getModelStatus: vi.fn(),
+    runModel: vi.fn(),
   },
 }));
+
+vi.mock("../services/idempotency", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/idempotency.js")>();
+  return {
+    ...actual,
+    beginIdempotentRequest: vi.fn(),
+    completeIdempotentRequest: vi.fn(),
+    failIdempotentRequest: vi.fn(),
+  };
+});
 
 vi.mock("ioredis", () => ({
   Redis: class MockRedis {
@@ -70,6 +84,37 @@ describe("SDM routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
+  const idempotencyEntry = {
+    id: "idem-1",
+    projectId: "proj-1",
+    userId: "user-1",
+    method: "POST",
+    route: "/api/v1/sdm/batch",
+    idempotencyKey: "retry-key",
+    requestHash: "hash-1",
+    state: "completed" as const,
+    statusCode: 200,
+    responseBody: {
+      batch_id: "batch-existing",
+      job_ids: ["run-existing"],
+      total: 1,
+      message: "Batch of 1 runs started",
+    },
+    resourceType: "batch",
+    resourceId: "batch-existing",
+    expiresAt: new Date("2026-05-26T00:00:00Z"),
+    createdAt: new Date("2026-05-25T00:00:00Z"),
+    updatedAt: new Date("2026-05-25T00:00:00Z"),
+  };
+
+  const validConfig = {
+    species: "Test species",
+    modelId: "glm",
+    biovars: [1, 4],
+    projectionExtent: [112, 154, -44, -10],
+    occurrenceFile: "/tmp/occurrences.csv",
+  };
 
   describe("GET /runs", () => {
     it("returns paginated runs", async () => {
@@ -179,6 +224,67 @@ describe("SDM routes", () => {
       });
 
       expect(res.status).toBe(400);
+    });
+
+    it("replays a completed idempotent batch response", async () => {
+      vi.mocked(beginIdempotentRequest).mockResolvedValueOnce({
+        outcome: "replay",
+        entry: idempotencyEntry,
+      });
+      const { plumberClient } = await import("../services/plumber");
+
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": "retry-key" },
+        body: JSON.stringify({ configs: [validConfig] }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(idempotencyEntry.responseBody);
+      expect(plumberClient.runModel).not.toHaveBeenCalled();
+    });
+
+    it("rejects a reused idempotency key with a different batch body", async () => {
+      vi.mocked(beginIdempotentRequest).mockResolvedValueOnce({
+        outcome: "conflict",
+        entry: idempotencyEntry,
+        reason: "hash_mismatch",
+      });
+      const { plumberClient } = await import("../services/plumber");
+
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": "retry-key" },
+        body: JSON.stringify({ configs: [validConfig] }),
+      });
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual(expect.objectContaining({
+        error: "Idempotency key conflict",
+        status: "conflict",
+      }));
+      expect(plumberClient.runModel).not.toHaveBeenCalled();
+    });
+
+    it("rejects a duplicate batch request while the first is processing", async () => {
+      vi.mocked(beginIdempotentRequest).mockResolvedValueOnce({
+        outcome: "processing",
+        entry: { ...idempotencyEntry, state: "processing", responseBody: null, statusCode: null },
+      });
+      const { plumberClient } = await import("../services/plumber");
+
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": "retry-key" },
+        body: JSON.stringify({ configs: [validConfig] }),
+      });
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual(expect.objectContaining({
+        error: "Idempotency key is already processing",
+        status: "processing",
+      }));
+      expect(plumberClient.runModel).not.toHaveBeenCalled();
     });
   });
 

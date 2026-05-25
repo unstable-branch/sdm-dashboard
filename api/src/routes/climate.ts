@@ -4,6 +4,13 @@ import { enqueueSdmJob } from "../services/queue.js";
 import { climateRateLimit } from "../middleware/rate-limit.js";
 import { longCache } from "../middleware/cache.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
+import {
+  beginIdempotentRequest,
+  completeIdempotentRequest,
+  failIdempotentRequest,
+  getIdempotencyKeyFromHeaders,
+  getIdempotentRouteDecision,
+} from "../services/idempotency.js";
 import type { AppEnv } from "../middleware/auth.js";
 
 export const climateRoutes = new Hono<AppEnv>();
@@ -43,6 +50,7 @@ climateRoutes.get("/check", async (c) => {
 });
 
 climateRoutes.post("/download", async (c) => {
+  let idempotencyEntryId: string | null = null;
   try {
     const body = await c.req.json();
     const type = (body.type as string) || "cmip6";
@@ -54,6 +62,23 @@ climateRoutes.post("/download", async (c) => {
 
     if (type === "cmip6_average" && (!Array.isArray(body.gcm_list) || body.gcm_list.length < 2)) {
       return c.json({ error: "Multi-GCM averaging requires at least 2 GCMs in gcm_list" }, 400);
+    }
+
+    const idempotencyKey = getIdempotencyKeyFromHeaders(c.req.raw.headers);
+    if (idempotencyKey) {
+      const idempotency = await beginIdempotentRequest({
+        projectId: null,
+        userId: user.id,
+        method: "POST",
+        route: "/api/v1/climate/download",
+        idempotencyKey,
+        requestBody: body,
+      });
+      const decision = getIdempotentRouteDecision(idempotency);
+      if (decision.action === "respond") {
+        return c.json(decision.body, decision.statusCode);
+      }
+      idempotencyEntryId = decision.entry.id;
     }
 
     const jobId = await enqueueSdmJob(
@@ -72,16 +97,41 @@ climateRoutes.post("/download", async (c) => {
 
     if (jobId === null) {
       const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-      return c.json({
+      const response = {
         error: "Climate download queuing requires Redis.",
         detail: `Cannot connect to ${redisUrl}. Check that Redis is running, or set REDIS_URL to the correct address.`,
         tip: "Run 'docker compose up -d redis' to start Redis.",
-      }, 503);
+      };
+      if (idempotencyEntryId) {
+        await failIdempotentRequest({
+          id: idempotencyEntryId,
+          statusCode: 503,
+          responseBody: response,
+        }).catch(() => {});
+      }
+      return c.json(response, 503);
     }
 
-    return c.json({ jobId, status: "queued" });
+    const response = { jobId, status: "queued" };
+    if (idempotencyEntryId) {
+      await completeIdempotentRequest({
+        id: idempotencyEntryId,
+        statusCode: 200,
+        responseBody: response,
+        resourceType: "climate_download",
+        resourceId: jobId,
+      });
+    }
+    return c.json(response);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Climate download failed";
+    if (idempotencyEntryId) {
+      await failIdempotentRequest({
+        id: idempotencyEntryId,
+        statusCode: 502,
+        responseBody: { error: message },
+      }).catch(() => {});
+    }
     return c.json({ error: message }, 502);
   }
 });

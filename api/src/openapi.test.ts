@@ -25,6 +25,7 @@ describe("openApiDocument baseline", () => {
       "/api/v1/data/occurrence-datasets/{id}",
       "/api/v1/data/occurrences/upload",
       "/api/v1/data/occurrences/clean",
+      "/api/v1/climate/download",
       "/api/v1/results/{id}",
       "/api/v1/results/{id}/manifest",
       "/api/v1/jobs/{jobId}",
@@ -74,5 +75,23 @@ describe("openApiDocument baseline", () => {
         output_dataset_id: expect.objectContaining({ type: "string" }),
       }),
     }));
+  });
+
+  it("documents Idempotency-Key on expensive workflow routes", () => {
+    const idempotentOperations = [
+      openApiDocument.paths["/api/v1/sdm/run"].post,
+      openApiDocument.paths["/api/v1/sdm/batch"].post,
+      openApiDocument.paths["/api/v1/data/occurrences/clean"].post,
+      openApiDocument.paths["/api/v1/climate/download"].post,
+    ];
+
+    for (const operation of idempotentOperations) {
+      expect(operation?.parameters).toContainEqual(expect.objectContaining({
+        name: "Idempotency-Key",
+        in: "header",
+        required: false,
+      }));
+      expect(operation?.responses["409"]).toBeDefined();
+    }
   });
 });

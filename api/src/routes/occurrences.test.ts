@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import { dataRoutes } from "./occurrences.js";
+import { beginIdempotentRequest } from "../services/idempotency.js";
 import {
   createOccurrenceDataset,
   getOccurrenceDatasetForUser,
@@ -59,6 +60,16 @@ vi.mock("../services/occurrence-datasets", () => ({
   getOccurrenceDatasetForUser: vi.fn(),
   listOccurrenceDatasets: vi.fn(),
 }));
+
+vi.mock("../services/idempotency", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/idempotency.js")>();
+  return {
+    ...actual,
+    beginIdempotentRequest: vi.fn(),
+    completeIdempotentRequest: vi.fn(),
+    failIdempotentRequest: vi.fn(),
+  };
+});
 
 vi.mock("../services/queue", () => ({
   enqueueSdmJob: vi.fn(() => Promise.resolve("job-123")),
@@ -130,6 +141,28 @@ describe("data routes", () => {
     vi.mocked(listOccurrenceDatasets).mockResolvedValue([datasetFixture()]);
     vi.mocked(getOccurrenceDatasetForUser).mockResolvedValue(datasetFixture());
   });
+
+  const cleanIdempotencyEntry = {
+    id: "idem-clean-1",
+    projectId: "proj-1",
+    userId: "user-1",
+    method: "POST",
+    route: "/api/v1/data/occurrences/clean",
+    idempotencyKey: "clean-key",
+    requestHash: "hash-1",
+    state: "completed" as const,
+    statusCode: 200,
+    responseBody: {
+      cleaned_file_id: "/tmp/cleaned.csv",
+      valid_records: 8,
+      output_dataset_id: "ds-cleaned",
+    },
+    resourceType: "clean",
+    resourceId: "ds-cleaned",
+    expiresAt: new Date("2026-05-26T00:00:00Z"),
+    createdAt: new Date("2026-05-25T00:00:00Z"),
+    updatedAt: new Date("2026-05-25T00:00:00Z"),
+  };
 
   describe("occurrence dataset identity", () => {
     it("lists datasets with query filters", async () => {
@@ -215,6 +248,69 @@ describe("data routes", () => {
       const data = await res.json();
       expect(data.file_id).toBe("/tmp/test.csv");
       expect(data.dataset_id).toBe("ds-created");
+    });
+  });
+
+  describe("POST /occurrences/clean idempotency", () => {
+    it("replays a completed clean response", async () => {
+      vi.mocked(beginIdempotentRequest).mockResolvedValueOnce({
+        outcome: "replay",
+        entry: cleanIdempotencyEntry,
+      });
+      const { plumberClient } = await import("../services/plumber");
+
+      const res = await app.request("/api/v1/data/occurrences/clean", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": "clean-key" },
+        body: JSON.stringify({ file_id: "/tmp/raw.csv", species: "Test species" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(cleanIdempotencyEntry.responseBody);
+      expect(plumberClient.cleanOccurrences).not.toHaveBeenCalled();
+    });
+
+    it("rejects a reused clean key with a different body", async () => {
+      vi.mocked(beginIdempotentRequest).mockResolvedValueOnce({
+        outcome: "conflict",
+        entry: cleanIdempotencyEntry,
+        reason: "hash_mismatch",
+      });
+      const { plumberClient } = await import("../services/plumber");
+
+      const res = await app.request("/api/v1/data/occurrences/clean", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": "clean-key" },
+        body: JSON.stringify({ file_id: "/tmp/raw.csv", species: "Test species" }),
+      });
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual(expect.objectContaining({
+        error: "Idempotency key conflict",
+        status: "conflict",
+      }));
+      expect(plumberClient.cleanOccurrences).not.toHaveBeenCalled();
+    });
+
+    it("rejects a duplicate clean request while the first is processing", async () => {
+      vi.mocked(beginIdempotentRequest).mockResolvedValueOnce({
+        outcome: "processing",
+        entry: { ...cleanIdempotencyEntry, state: "processing", responseBody: null, statusCode: null },
+      });
+      const { plumberClient } = await import("../services/plumber");
+
+      const res = await app.request("/api/v1/data/occurrences/clean", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": "clean-key" },
+        body: JSON.stringify({ file_id: "/tmp/raw.csv", species: "Test species" }),
+      });
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual(expect.objectContaining({
+        error: "Idempotency key is already processing",
+        status: "processing",
+      }));
+      expect(plumberClient.cleanOccurrences).not.toHaveBeenCalled();
     });
   });
 

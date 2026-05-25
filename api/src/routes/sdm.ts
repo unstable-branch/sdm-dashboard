@@ -9,6 +9,13 @@ import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
+import {
+  beginIdempotentRequest,
+  completeIdempotentRequest,
+  failIdempotentRequest,
+  getIdempotencyKeyFromHeaders,
+  getIdempotentRouteDecision,
+} from "../services/idempotency.js";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import type { AppEnv } from "../middleware/auth.js";
@@ -29,6 +36,7 @@ sdmRoutes.use("/status/*", authMiddleware);
 sdmRoutes.use("*", optionalAuth);
 
 sdmRoutes.post("/run", async (c) => {
+  let idempotencyEntryId: string | null = null;
   try {
     const body = await c.req.json();
     const parsed = modelConfigSchema.safeParse(body);
@@ -40,6 +48,22 @@ sdmRoutes.post("/run", async (c) => {
     const async = body.async === true;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
+    const idempotencyKey = getIdempotencyKeyFromHeaders(c.req.raw.headers);
+    if (idempotencyKey) {
+      const idempotency = await beginIdempotentRequest({
+        projectId,
+        userId: user.id,
+        method: "POST",
+        route: "/api/v1/sdm/run",
+        idempotencyKey,
+        requestBody: body,
+      });
+      const decision = getIdempotentRouteDecision(idempotency);
+      if (decision.action === "respond") {
+        return c.json(decision.body, decision.statusCode);
+      }
+      idempotencyEntryId = decision.entry.id;
+    }
 
     if (async) {
       let speciesId: string | undefined;
@@ -136,7 +160,17 @@ sdmRoutes.post("/run", async (c) => {
           .where(eq(runs.id, run.id));
       }
 
-      return c.json({ jobId: run.id, queuedAt: new Date().toISOString() });
+      const response = { jobId: run.id, queuedAt: new Date().toISOString() };
+      if (idempotencyEntryId) {
+        await completeIdempotentRequest({
+          id: idempotencyEntryId,
+          statusCode: 200,
+          responseBody: response,
+          resourceType: "run",
+          resourceId: run.id,
+        });
+      }
+      return c.json(response);
     }
 
     const [run] = await db
@@ -214,15 +248,32 @@ sdmRoutes.post("/run", async (c) => {
     }
 
     // Fire-and-forget: plumber-sync polls Plumber and updates DB + SSE
-    return c.json({
-      runId: run.id,
-      jobId: plumberJobId,
-      status: "running",
-      message: "Model run started. Track progress via /runs or SSE.",
-    });
+    const response: Record<string, unknown> = { runId: run.id };
+    if (plumberJobId !== undefined) {
+      response.jobId = plumberJobId;
+    }
+    response.status = "running";
+    response.message = "Model run started. Track progress via /runs or SSE.";
+    if (idempotencyEntryId) {
+      await completeIdempotentRequest({
+        id: idempotencyEntryId,
+        statusCode: 200,
+        responseBody: response,
+        resourceType: "run",
+        resourceId: run.id,
+      });
+    }
+    return c.json(response);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Model run failed";
     console.error(`[sdm] Model run failed: ${message}`);
+    if (idempotencyEntryId) {
+      await failIdempotentRequest({
+        id: idempotencyEntryId,
+        statusCode: 502,
+        responseBody: { error: message },
+      }).catch(() => {});
+    }
     return c.json({ error: message }, 502);
   }
 });
@@ -734,9 +785,10 @@ sdmRoutes.post("/runs/clear-all", async (c) => {
 });
 
 sdmRoutes.post("/batch", async (c) => {
+  let idempotencyEntryId: string | null = null;
   try {
     const body = await c.req.json();
-    const { configs, parallel } = body;
+    const { configs } = body;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
     const batchId = `batch-${randomUUID()}`;
@@ -745,27 +797,47 @@ sdmRoutes.post("/batch", async (c) => {
       return c.json({ error: "configs must be a non-empty array" }, 400);
     }
 
-    const jobIds: string[] = [];
-
+    const parsedConfigs = [];
     for (const config of configs) {
       const parsed = modelConfigSchema.safeParse(config);
       if (!parsed.success) {
         return c.json({ error: `Invalid config: ${parsed.error.message}` }, 400);
       }
+      parsedConfigs.push(parsed.data);
+    }
 
+    const idempotencyKey = getIdempotencyKeyFromHeaders(c.req.raw.headers);
+    if (idempotencyKey) {
+      const idempotency = await beginIdempotentRequest({
+        projectId,
+        userId: user.id,
+        method: "POST",
+        route: "/api/v1/sdm/batch",
+        idempotencyKey,
+        requestBody: body,
+      });
+      const decision = getIdempotentRouteDecision(idempotency);
+      if (decision.action === "respond") {
+        return c.json(decision.body, decision.statusCode);
+      }
+      idempotencyEntryId = decision.entry.id;
+    }
+
+    const jobIds: string[] = [];
+
+    for (const data of parsedConfigs) {
       const [run] = await db
         .insert(runs)
         .values({
           batchId,
-          speciesName: parsed.data.species,
+          speciesName: data.species,
           projectId,
-          modelId: parsed.data.modelId,
+          modelId: data.modelId,
           status: "queued",
-          config: parsed.data as any,
+          config: data as any,
         })
         .returning();
 
-      const data = parsed.data;
       const plumberPayload = {
         species: data.species,
         model_id: data.modelId,
@@ -831,14 +903,31 @@ sdmRoutes.post("/batch", async (c) => {
       jobIds.push(run.id);
     }
 
-    return c.json({
+    const response = {
       batch_id: batchId,
       job_ids: jobIds,
       total: jobIds.length,
       message: `Batch of ${jobIds.length} runs started`,
-    });
+    };
+    if (idempotencyEntryId) {
+      await completeIdempotentRequest({
+        id: idempotencyEntryId,
+        statusCode: 200,
+        responseBody: response,
+        resourceType: "batch",
+        resourceId: batchId,
+      });
+    }
+    return c.json(response);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Batch run failed";
+    if (idempotencyEntryId) {
+      await failIdempotentRequest({
+        id: idempotencyEntryId,
+        statusCode: 500,
+        responseBody: { error: message },
+      }).catch(() => {});
+    }
     return c.json({ error: message }, 500);
   }
 });
