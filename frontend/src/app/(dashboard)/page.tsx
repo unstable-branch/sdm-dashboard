@@ -5,7 +5,7 @@ import { MetricCard } from "@/components/ecology/metric-card";
 import { WelcomePanel } from "@/components/ecology/welcome-panel";
 import dynamic from "next/dynamic";
 import { useCompletedRuns } from "@/hooks/use-runs";
-import { Loader2, ArrowRight, Database, Brain, BarChart3, Map, Upload, CheckCircle2, Circle } from "lucide-react";
+import { ArrowRight, Database, Brain, BarChart3, Map, Upload, CheckCircle2, Circle } from "lucide-react";
 
 const SuitabilityMap = dynamic(
   () => import("@/components/results/suitability-map").then((mod) => ({ default: mod.SuitabilityMap })),
@@ -61,15 +61,7 @@ function EmptyWorkbenchPanel() {
 
 export default function DashboardPage() {
   const { data: completedRuns, isLoading } = useCompletedRuns();
-  const latestRun = completedRuns.length > 0 ? completedRuns[0] : null;
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />
-      </div>
-    );
-  }
+  const latestRun = !isLoading && completedRuns.length > 0 ? completedRuns[0] : null;
 
   return (
     <div className="space-y-6">
