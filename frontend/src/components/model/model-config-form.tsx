@@ -6,6 +6,7 @@ import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHO
 import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, AlertTriangle, Info, CloudOff, Cloud } from "lucide-react";
+import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 
 interface ModelInfo {
@@ -278,8 +279,8 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
         <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
           <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-medium text-amber-500">No cleaning preview</p>
-            <p className="text-xs text-amber-400">You have not previewed cleaning on the Data page. The model will clean the data automatically during the run, but you may want to review the results first.</p>
+            <p className="text-sm font-medium text-amber-500">Cleaning recommended</p>
+            <p className="text-xs text-amber-400">Clean your occurrence data on the <Link href="/data?tab=clean" className="underline">Data page</Link> before running the model. The model will clean inline if you proceed without previewing.</p>
           </div>
         </div>
       )}

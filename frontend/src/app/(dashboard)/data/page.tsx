@@ -13,7 +13,7 @@ import { JobProgress } from "@/components/jobs/job-progress";
 import { DownloadProgress } from "@/components/climate/download-progress";
 import { ScenarioList } from "@/components/climate/scenario-list";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, FileArchive, Wand2, Map, Cloud, Loader2, CheckCircle2, Download } from "lucide-react";
+import { Upload, Globe, FileArchive, Wand2, Map, Cloud, Loader2, CheckCircle2, Download, AlertTriangle } from "lucide-react";
 import { useSDMStore } from "@/stores/sdm-store";
 import { apiUpload, apiPost, apiGet } from "@/services/api";
 import { BIOVAR_CHOICES, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
@@ -423,13 +423,13 @@ function DataPageContent() {
           )}
 
           {typeof uploadResult?.file_path === "string" && (
-            <div className="mt-3 flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm text-green-500">
-                <CheckCircle2 className="h-4 w-4" />
-                <span>Ready for modeling — {Number(uploadResult.n_rows ?? 0).toLocaleString()} records loaded</span>
+            <div className="mt-3 flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-amber-500">
+                <AlertTriangle className="h-4 w-4" />
+                <span>Upload complete — {Number(uploadResult.n_rows ?? 0).toLocaleString()} records. Clean before modeling.</span>
               </div>
-              <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
-                Go to Model tab →
+              <Link href="/data?tab=clean" className="text-sm font-medium text-sdm-accent hover:underline">
+                Clean data →
               </Link>
             </div>
           )}
