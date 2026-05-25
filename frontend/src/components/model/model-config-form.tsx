@@ -172,6 +172,11 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const handleSubmit = () => {
     setError(null);
 
+    if (cleanedOccurrence && cleanedOccurrence.validRecords === 0) {
+      setError("Cleaned data has 0 valid records. Cannot run model. Go back to the Data page and check your occurrence data.");
+      return;
+    }
+
     const extent = extentPreset === "custom" ? customExtent : EXTENT_PRESETS[extentPreset]?.extent;
     if (!extent) {
       setError("Invalid extent preset");

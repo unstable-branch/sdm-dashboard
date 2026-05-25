@@ -620,15 +620,24 @@ function DataPageContent() {
                 />
               )}
 
-              <div className="flex items-center justify-between rounded-md border border-indigo-500/30 bg-indigo-500/5 px-4 py-3">
-                <div className="flex items-center gap-2 text-sm text-indigo-500">
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>Cleaned: {(Number(cleanResult.valid_records) || 0).toLocaleString()} valid records ready</span>
+              {(Number(cleanResult.valid_records) || 0) > 0 ? (
+                <div className="flex items-center justify-between rounded-md border border-indigo-500/30 bg-indigo-500/5 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-indigo-500">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Cleaned: {(Number(cleanResult.valid_records) || 0).toLocaleString()} valid records ready</span>
+                  </div>
+                  <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
+                    Run SDM with cleaned data →
+                  </Link>
                 </div>
-                <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
-                  Run SDM with cleaned data →
-                </Link>
-              </div>
+              ) : (
+                <div className="flex items-center justify-between rounded-md border border-red-500/30 bg-red-500/5 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-red-500">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span>Cleaning produced 0 valid records — check your data</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </TabsContent>
