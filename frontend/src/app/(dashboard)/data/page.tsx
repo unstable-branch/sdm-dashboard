@@ -63,6 +63,7 @@ function DataPageContent() {
   const cleanResult = useSDMStore((s) => s.cleanResult);
   const setCleanResult = useSDMStore((s) => s.setCleanResult);
   const setCleanedOccurrence = useSDMStore((s) => s.setCleanedOccurrence);
+  const setPipelineRunId = useSDMStore((s) => s.setPipelineRunId);
   const flaggedIndicesArray = useSDMStore((s) => s.flaggedIndices);
   const setFlaggedIndicesArray = useSDMStore((s) => s.setFlaggedIndices);
   const flaggedIndices = useMemo(() => new Set(flaggedIndicesArray), [flaggedIndicesArray]);
@@ -208,8 +209,10 @@ function DataPageContent() {
       const filePath = (result.file_path as string) || null;
       const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
       const detectedSpecies = (result.species_detected as string) || null;
+      const pipelineRunId = (result.pipelineRunId as string) || null;
 
       setUploadResult(result);
+      setPipelineRunId(pipelineRunId);
       if (filePath) {
         setOccurrenceFilePath(filePath);
         setRecordCount(nRows);
@@ -245,6 +248,8 @@ function DataPageContent() {
     setCleanError(null);
     setFlaggedIndicesArray([]);
 
+    const effectiveAsync = useAsync || useCc;
+    const pipelineRunId = useSDMStore.getState().pipelineRunId;
     try {
       const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", {
         file_id: uploadResult.file_id,
@@ -252,10 +257,11 @@ function DataPageContent() {
         merge_small_sources: true,
         use_cc: useCc,
         cc_tests: "all",
-        async: useAsync,
-      });
+        async: effectiveAsync,
+        pipelineRunId,
+      }, { timeout: 120000 });
 
-      if (useAsync && result.jobId) {
+      if (effectiveAsync && result.jobId) {
         setCleanJobId(result.jobId as string);
       } else {
         setCleanResult(result);
@@ -269,11 +275,13 @@ function DataPageContent() {
           validRecords: cleanedRowCount,
         });
         setRecordCount(cleanedRowCount);
+        const respPipelineRunId = (result.pipelineRunId as string) || pipelineRunId;
+        if (respPipelineRunId) setPipelineRunId(respPipelineRunId);
       }
     } catch (err) {
       setCleanError(err instanceof Error ? err.message : "Clean failed");
     } finally {
-      if (!useAsync) {
+      if (!effectiveAsync) {
         setCleanLoading(false);
       }
     }
@@ -333,6 +341,7 @@ function DataPageContent() {
         setRecordCount(Number(result.n_rows || 0));
         useSDMStore.getState().setSpecies(String(gbifResult.taxon || "Untitled species"));
         setUploadResult(result);
+        setPipelineRunId((result.pipelineRunId as string) || null);
         setGbifSaved(true);
       }
     } catch (err) {
@@ -351,6 +360,7 @@ function DataPageContent() {
       const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/dwca", file);
       setDwcaResult(result);
       setUploadResult(result);
+      setPipelineRunId((result.pipelineRunId as string) || null);
       if (typeof result.file_path === "string") {
         setOccurrenceFilePath(result.file_path);
         setRecordCount(Number(result.n_returned || result.n_rows || result.n_records || 0));

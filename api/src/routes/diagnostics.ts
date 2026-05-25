@@ -1,15 +1,20 @@
 import { Hono } from "hono";
 import { plumberClient } from "../services/plumber.js";
 import { defaultRateLimit } from "../middleware/rate-limit.js";
-import { optionalAuth } from "../middleware/auth.js";
+import { authMiddleware, type AppEnv } from "../middleware/auth.js";
+import { canAccessRun } from "../services/access.js";
 
-export const diagnosticsRoutes = new Hono();
+export const diagnosticsRoutes = new Hono<AppEnv>();
 
 diagnosticsRoutes.use("*", defaultRateLimit);
-diagnosticsRoutes.use("*", optionalAuth);
+diagnosticsRoutes.use("*", authMiddleware);
 
 diagnosticsRoutes.get("/vif/:runId", async (c) => {
   const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
   try {
     const data = await plumberClient.getDiagnosticsVif(runId);
     return c.json(data);
@@ -21,6 +26,10 @@ diagnosticsRoutes.get("/vif/:runId", async (c) => {
 
 diagnosticsRoutes.get("/response-curves/:runId", async (c) => {
   const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
   try {
     const data = await plumberClient.getDiagnosticsResponseCurves(runId);
     return c.json(data);
@@ -32,6 +41,10 @@ diagnosticsRoutes.get("/response-curves/:runId", async (c) => {
 
 diagnosticsRoutes.get("/importance/:runId", async (c) => {
   const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
   try {
     const data = await plumberClient.getDiagnosticsImportance(runId);
     return c.json(data);
@@ -43,6 +56,10 @@ diagnosticsRoutes.get("/importance/:runId", async (c) => {
 
 diagnosticsRoutes.get("/cbi/:runId", async (c) => {
   const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
   try {
     const data = await plumberClient.getDiagnosticsCbi(runId);
     return c.json(data);
@@ -54,6 +71,10 @@ diagnosticsRoutes.get("/cbi/:runId", async (c) => {
 
 diagnosticsRoutes.get("/mess/:runId", async (c) => {
   const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
   try {
     const data = await plumberClient.getDiagnosticsMess(runId);
     return c.json(data);
@@ -65,6 +86,10 @@ diagnosticsRoutes.get("/mess/:runId", async (c) => {
 
 diagnosticsRoutes.get("/summary/:runId", async (c) => {
   const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
   try {
     const data = await plumberClient.getDiagnosticsSummary(runId);
     return c.json(data);
