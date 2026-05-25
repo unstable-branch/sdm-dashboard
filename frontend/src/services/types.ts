@@ -12,6 +12,8 @@ export interface RunSummary {
 export interface RunDetail extends RunSummary {
   progress_log: string[];
   error: string | null;
+  error_code?: string | null;
+  error_hint?: string | null;
   config?: Record<string, unknown>;
   provenance?: {
     app_version?: Record<string, unknown>;

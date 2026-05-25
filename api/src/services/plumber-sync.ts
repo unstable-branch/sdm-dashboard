@@ -164,6 +164,8 @@ async function syncRunningJobs() {
             progressJson,
           });
         } else if (plumberStatus === "failed") {
+          const errorCode = (status as any).error_code as string | undefined;
+          const errorHint = (status as any).error_hint as string | undefined;
           await db
             .update(runs)
             .set({
@@ -171,6 +173,7 @@ async function syncRunningJobs() {
               error: error ?? "Model run failed",
               completedAt: new Date(),
               progressLog: progressJson ?? undefined,
+              provenance: errorCode ? { error_code: errorCode, error_hint: errorHint } : undefined,
             })
             .where(eq(runs.id, run.id));
 

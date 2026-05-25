@@ -98,6 +98,13 @@ resultsRoutes.get("/:id", async (c) => {
     return c.json({ error: "Run not found" }, 404);
   }
 
+  const errCode = run.provenance && typeof run.provenance === "object" && "error_code" in (run.provenance as object)
+    ? (run.provenance as Record<string, unknown>).error_code as string
+    : undefined;
+  const errHint = run.provenance && typeof run.provenance === "object" && "error_hint" in (run.provenance as object)
+    ? (run.provenance as Record<string, unknown>).error_hint as string
+    : undefined;
+
   return c.json({
     id: run.id,
     status: run.status,
@@ -106,6 +113,8 @@ resultsRoutes.get("/:id", async (c) => {
     started_at: run.startedAt?.toISOString() ?? null,
     completed_at: run.completedAt?.toISOString() ?? null,
     error: run.error ?? null,
+    error_code: errCode ?? null,
+    error_hint: errHint ?? null,
     metrics: run.metrics ?? null,
     output_files: run.outputFiles ?? null,
     provenance: run.provenance ?? null,
