@@ -50,14 +50,16 @@ Primary sources:
   - Some endpoints degrade to success-with-warning behavior when backing services fail (`GET /runs` fallback 200).
 
 ### Data / Occurrences (`/api/v1/data`)
-- Main routes: upload/clean/GBIF/DwCA under `/occurrences/*`, plus species endpoints `/species`, `/species/:id`, `/species/:id/occurrences` (`api/src/routes/occurrences.ts`).
+- Main routes: occurrence dataset identity endpoints under `/occurrence-datasets*`, upload/clean/GBIF/DwCA under `/occurrences/*`, plus species endpoints `/species`, `/species/:id`, `/species/:id/occurrences` (`api/src/routes/occurrences.ts`).
 - Auth mode: auth required for all routes (`dataRoutes.use("*", authMiddleware)`).
 - Sync/async: mixed.
   - Upload/GBIF search/save/DwCA are synchronous request-response.
   - Clean supports async queue (`body.async === true`).
 - Current machine-interface notes:
   - Handles file-based workflows and DB persistence of cleaned occurrences.
-  - Uses local file paths/file IDs from plumber; artifact identity contract is not yet normalized.
+  - Occurrence dataset identity now has stable project-scoped list/register/get routes.
+  - Upload, GBIF save, DwCA parse, and synchronous clean attach stable dataset IDs when file outputs exist while retaining existing file path/file ID aliases.
+  - Broader artifact identity is still not normalized outside occurrence datasets.
 
 ### Climate (`/api/v1/climate`)
 - Main routes: `GET /scenarios`, `GET /check`, `POST /download`, `POST /delete/:scenarioId`, `GET /status/:jobId` (`api/src/routes/climate.ts`).
@@ -109,7 +111,7 @@ Primary sources:
 - Sync/async: synchronous health/readiness snapshots.
 - Current machine-interface notes:
   - Health returns service status envelope (`plumber`, `redis`).
-  - Ready exposes `status` + `checks`, but currently only plumber check is attempted in code while `database`/`storage` remain false defaults.
+  - Ready exposes `status` + `checks` for plumber, database, and storage bucket availability.
 
 ## Current Strengths for Agentic/API Work
 - Clear route grouping and versioned API prefixes (`/api/v1/*`) from a single mount point (`api/src/index.ts`).
@@ -120,7 +122,7 @@ Primary sources:
 
 ## Gaps to Close Before MCP
 - Stable schemas/OpenAPI:
-  - No canonical OpenAPI/JSON Schema contract for request/response bodies per endpoint.
+  - A baseline OpenAPI document exists, but schemas are still intentionally partial and should be tightened endpoint-by-endpoint.
   - Several endpoints pass through upstream plumber payloads directly.
 - Idempotency:
   - No idempotency keys on mutating run/clean/download operations; retries can create duplicate work.
@@ -129,14 +131,14 @@ Primary sources:
 - Batch parent semantics:
   - `batch_id` is persisted on child runs and has an aggregate status endpoint, but there is not yet a separate batch resource with owner metadata, idempotency, or server-side comparison filters.
 - Artifact manifests:
-  - Artifact/file identity is split between local paths, `file_id`, and upstream manifest data; contract not normalized.
+  - Occurrence data now has stable dataset IDs, but broader artifact/file identity is still split between local paths, `file_id`, and upstream manifest data.
 - Status/error shape:
   - Error/status payloads vary by route (`error`, `message`, `warning`, pass-through objects), with mixed 200/4xx/5xx fallback behavior.
 - Scopes/quotas/audit:
   - Auth exists, but route-level machine scopes, quota semantics, and audit event contract are not formalized.
 
 ## Suggested Phase 1 Tasks (Small Tickets)
-1. Add `docs/openapi/` seed spec for all current route groups with placeholder schemas wired to exact paths.
+1. Continue tightening `GET /api/v1/openapi.json` schemas from broad placeholders into request/response contracts for each route group.
 2. Define shared envelope schemas in API code/docs: `ApiError`, `WorkflowStatus`, `Pagination`, `ArtifactRef`.
 3. Normalize SDM run submission response shape to always return `{ runId, workflowId, status }` (retain compatibility alias temporarily).
 4. Introduce `Idempotency-Key` support for `POST /api/v1/sdm/run`, `POST /api/v1/sdm/batch`, `POST /api/v1/data/occurrences/clean`, and `POST /api/v1/climate/download`.

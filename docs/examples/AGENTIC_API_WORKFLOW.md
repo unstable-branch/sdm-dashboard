@@ -80,36 +80,56 @@ curl -sS "$SDM_API_BASE/api/v1/sdm/config/defaults" \
 Option A: upload local CSV.
 
 ```bash
-SOURCE_FILE_ID="$(curl -sS -X POST "$SDM_API_BASE/api/v1/data/occurrences/upload" \
+SOURCE_UPLOAD_JSON="$(curl -sS -X POST "$SDM_API_BASE/api/v1/data/occurrences/upload" \
   -H "X-API-Key: $SDM_API_KEY" \
-  -F "file=@./data/examples/acacia_mearnsii_standard.csv" | jq -r '.file_id // .file_path')"
+  -F "project_id=$PROJECT_ID" \
+  -F "file=@./data/examples/acacia_mearnsii_standard.csv")"
+SOURCE_FILE_ID="$(echo "$SOURCE_UPLOAD_JSON" | jq -r '.file_id // .file_path')"
+SOURCE_DATASET_ID="$(echo "$SOURCE_UPLOAD_JSON" | jq -r '.dataset_id')"
 ```
 
 Option B: reference saved GBIF pull.
 
 ```bash
-SOURCE_FILE_ID="$(curl -sS -X POST "$SDM_API_BASE/api/v1/data/occurrences/gbif/save" \
+SOURCE_UPLOAD_JSON="$(curl -sS -X POST "$SDM_API_BASE/api/v1/data/occurrences/gbif/save" \
   -H "X-API-Key: $SDM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
+    "project_id": "'"$PROJECT_ID"'",
     "taxon": "Acacia mearnsii",
     "country": "AU",
     "max_records": 5000
-  }' | jq -r '.file_id // .file_path')"
+  }')"
+SOURCE_FILE_ID="$(echo "$SOURCE_UPLOAD_JSON" | jq -r '.file_id // .file_path')"
+SOURCE_DATASET_ID="$(echo "$SOURCE_UPLOAD_JSON" | jq -r '.dataset_id')"
+```
+
+List or fetch stable dataset identity.
+
+```bash
+curl -sS "$SDM_API_BASE/api/v1/data/occurrence-datasets?project_id=$PROJECT_ID" \
+  -H "X-API-Key: $SDM_API_KEY" | jq
+
+curl -sS "$SDM_API_BASE/api/v1/data/occurrence-datasets/$SOURCE_DATASET_ID?project_id=$PROJECT_ID" \
+  -H "X-API-Key: $SDM_API_KEY" | jq
 ```
 
 ## 6) Clean occurrences
 
 ```bash
-CLEANED_FILE_ID="$(curl -sS -X POST "$SDM_API_BASE/api/v1/data/occurrences/clean" \
+CLEANED_JSON="$(curl -sS -X POST "$SDM_API_BASE/api/v1/data/occurrences/clean" \
   -H "X-API-Key: $SDM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
+    "project_id": "'"$PROJECT_ID"'",
+    "dataset_id": "'"$SOURCE_DATASET_ID"'",
     "species": "Acacia mearnsii",
     "file_id": "'"$SOURCE_FILE_ID"'",
     "remove_invalid_coordinates": true,
     "drop_duplicates": true
-  }' | jq -r '.cleaned_file_id // .file_id // .file_path')"
+  }')"
+CLEANED_FILE_ID="$(echo "$CLEANED_JSON" | jq -r '.cleaned_file_id // .file_id // .file_path')"
+CLEANED_DATASET_ID="$(echo "$CLEANED_JSON" | jq -r '.output_dataset_id')"
 ```
 
 ## 7) Start async single run
@@ -226,8 +246,10 @@ done
    use upload or `gbif/save` with AU scope.
    **Gap:** no server endpoint for richer discovery filters (state/region, basisOfRecord, coordinate uncertainty buckets) before file creation.
 3. Clean and standardize occurrences:
-   call `/api/v1/data/occurrences/clean` and capture `cleaned_file_id`.
-   **Gap:** no first-class dataset object with reusable metadata/version IDs across runs.
+   call `/api/v1/data/occurrences/clean` and capture both `cleaned_file_id`
+   and `output_dataset_id`.
+   **Remaining gap:** dataset previews/summaries are currently metadata-only; richer
+   server-side discovery and QA filters still need workflow endpoints.
 4. Build model configs for eastern Australia extent:
    `[138,154,-44,-10]`, spatial-block CV, multiple models.
 5. Launch batch with `/api/v1/sdm/batch` and poll
@@ -239,5 +261,4 @@ done
 ## API gaps exposed by this example
 
 - Missing workflow-level species/discovery endpoints for agentic pre-run selection.
-- Missing durable occurrence dataset resources (versioned IDs + summary metadata).
 - Missing server-side batch comparison/triage filters (AUC/TSS threshold queries).
