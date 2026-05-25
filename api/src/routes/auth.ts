@@ -4,15 +4,17 @@ import { hash, compare } from "bcrypt";
 import { db } from "../db/index.js";
 import { users, apiKeys, projects, projectMembers } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
-import { authMiddleware } from "../middleware/auth.js";
+import { authMiddleware, LEGACY_API_KEY_SCOPES, requireApiKeyScope, type ApiKeyScope } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { randomBytes, createHash } from "crypto";
 import type { AppEnv } from "../middleware/auth.js";
+import { recordAuditEventBestEffort } from "../services/audit.js";
 
 export const authRoutes = new Hono<AppEnv>();
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const BCRYPT_ROUNDS = 12;
+const VALID_API_KEY_SCOPES = new Set<ApiKeyScope>(LEGACY_API_KEY_SCOPES);
 
 authRoutes.use("/register", rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "register" }));
 authRoutes.use("/login", rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "login" }));
@@ -133,14 +135,35 @@ authRoutes.get("/me", authMiddleware, async (c) => {
   return c.json(dbUser);
 });
 
-authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "apikey-create" }), async (c) => {
+function normalizeRequestedScopes(value: unknown): ApiKeyScope[] | null {
+  if (value === undefined) return LEGACY_API_KEY_SCOPES;
+  if (!Array.isArray(value)) return null;
+  const scopes = value.filter((scope): scope is ApiKeyScope =>
+    typeof scope === "string" && VALID_API_KEY_SCOPES.has(scope as ApiKeyScope)
+  );
+  if (scopes.length !== value.length || scopes.length === 0) return null;
+  return Array.from(new Set(scopes));
+}
+
+function getNullableString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+authRoutes.post("/api-keys", authMiddleware, requireApiKeyScope("admin"), rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "apikey-create" }), async (c) => {
   const user = c.get("user");
+  const auth = c.get("auth");
   const body = await c.req.json();
   const { name, expiresAt } = body;
 
   if (!name) {
     return c.json({ error: "Name is required" }, 400);
   }
+
+  const scopes = normalizeRequestedScopes(body.scopes);
+  if (!scopes) {
+    return c.json({ error: "Invalid API key scopes" }, 400);
+  }
+  const projectId = getNullableString(body.projectId ?? body.project_id);
 
   const rawKey = `sdm_${randomBytes(32).toString("hex")}`;
   const keyHash = createHash("sha256").update(rawKey).digest("hex");
@@ -151,31 +174,58 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
       keyHash,
       name,
       userId: user.id,
+      scopes,
+      projectId,
+      createdByKeyId: auth?.method === "api_key" ? auth.apiKeyId : null,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
     })
     .returning();
+
+  await recordAuditEventBestEffort({
+    actorUserId: user.id,
+    actorApiKeyId: auth?.method === "api_key" ? auth.apiKeyId : null,
+    action: "api_key_created",
+    targetType: "api_key",
+    targetId: apiKey.id,
+    method: c.req.method,
+    route: c.req.path,
+    statusCode: 200,
+    metadata: { scopes, projectId },
+  });
 
   return c.json({
     id: apiKey.id,
     name: apiKey.name,
     key: rawKey,
+    scopes: apiKey.scopes,
+    projectId: apiKey.projectId,
     createdAt: apiKey.createdAt,
     expiresAt: apiKey.expiresAt,
   });
 });
 
-authRoutes.get("/api-keys", authMiddleware, async (c) => {
+authRoutes.get("/api-keys", authMiddleware, requireApiKeyScope("read"), async (c) => {
   const user = c.get("user");
   const userKeys = await db
-    .select({ id: apiKeys.id, name: apiKeys.name, createdAt: apiKeys.createdAt, lastUsedAt: apiKeys.lastUsedAt, expiresAt: apiKeys.expiresAt })
+    .select({
+      id: apiKeys.id,
+      name: apiKeys.name,
+      scopes: apiKeys.scopes,
+      projectId: apiKeys.projectId,
+      createdAt: apiKeys.createdAt,
+      lastUsedAt: apiKeys.lastUsedAt,
+      expiresAt: apiKeys.expiresAt,
+      revokedAt: apiKeys.revokedAt,
+    })
     .from(apiKeys)
     .where(eq(apiKeys.userId, user.id));
 
   return c.json(userKeys);
 });
 
-authRoutes.delete("/api-keys/:id", authMiddleware, async (c) => {
+authRoutes.delete("/api-keys/:id", authMiddleware, requireApiKeyScope("admin"), async (c) => {
   const user = c.get("user");
+  const auth = c.get("auth");
   const id = c.req.param("id");
 
   const [key] = await db
@@ -189,11 +239,22 @@ authRoutes.delete("/api-keys/:id", authMiddleware, async (c) => {
   }
 
   await db.delete(apiKeys).where(eq(apiKeys.id, id));
+  await recordAuditEventBestEffort({
+    actorUserId: user.id,
+    actorApiKeyId: auth?.method === "api_key" ? auth.apiKeyId : null,
+    action: "api_key_deleted",
+    targetType: "api_key",
+    targetId: id,
+    method: c.req.method,
+    route: c.req.path,
+    statusCode: 200,
+  });
   return c.json({ ok: true });
 });
 
-authRoutes.post("/api-keys/:id/rotate", authMiddleware, rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "apikey-rotate" }), async (c) => {
+authRoutes.post("/api-keys/:id/rotate", authMiddleware, requireApiKeyScope("admin"), rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "apikey-rotate" }), async (c) => {
   const user = c.get("user");
+  const auth = c.get("auth");
   const id = c.req.param("id");
 
   const [key] = await db
@@ -214,10 +275,23 @@ authRoutes.post("/api-keys/:id/rotate", authMiddleware, rateLimit({ windowMs: 60
     .set({ keyHash, lastUsedAt: null })
     .where(eq(apiKeys.id, id));
 
+  await recordAuditEventBestEffort({
+    actorUserId: user.id,
+    actorApiKeyId: auth?.method === "api_key" ? auth.apiKeyId : null,
+    action: "api_key_rotated",
+    targetType: "api_key",
+    targetId: id,
+    method: c.req.method,
+    route: c.req.path,
+    statusCode: 200,
+  });
+
   return c.json({
     id: key.id,
     name: key.name,
     key: rawKey,
+    scopes: key.scopes,
+    projectId: key.projectId,
     createdAt: key.createdAt,
     expiresAt: key.expiresAt,
   });
