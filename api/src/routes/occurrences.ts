@@ -102,21 +102,7 @@ dataRoutes.post("/occurrences/upload", async (c) => {
 dataRoutes.post("/occurrences/clean", async (c) => {
   try {
     const body = await c.req.json();
-    const isAsync = body.async === true;
     const user = c.get("user");
-    const projectId = await ensureDefaultProject(user);
-    const pipelineRunId = (body.pipelineRunId as string) || null;
-
-    if (isAsync) {
-      const jobId = await enqueueSdmJob(
-        {
-          type: "clean",
-          payload: { ...body, pipelineRunId },
-        },
-        user.id
-      );
-      return c.json({ jobId, status: "queued" });
-    }
 
     const result = await plumberClient.withUser(user.id).cleanOccurrences(body);
 
@@ -124,59 +110,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       return c.json(result, 502);
     }
 
-    if (result && typeof result === "object" && "cleaned_file_id" in result) {
-      const cleanedFileId = result.cleaned_file_id as string;
-      const speciesName = (body.species as string) || "Untitled species";
-
-      let [sp] = await db
-        .select({ id: species.id, occurrenceCount: species.occurrenceCount })
-        .from(species)
-        .where(and(eq(species.name, speciesName), eq(species.projectId, projectId)))
-        .limit(1);
-
-      if (!sp) {
-        [sp] = await db
-          .insert(species)
-          .values({ name: speciesName, projectId, occurrenceCount: 0, userId: user?.id })
-          .returning({ id: species.id, occurrenceCount: species.occurrenceCount });
-      }
-
-      // Use cleaned_records from Plumber instead of re-parsing CSV
-      const cleanedRecords = (result as any).cleaned_records as Array<Record<string, unknown>> | undefined;
-      const validRecords = (cleanedRecords || []).filter(
-        (r) => typeof r.longitude === "number" && typeof r.latitude === "number" && isFinite(r.longitude) && isFinite(r.latitude)
-      );
-
-      if (validRecords.length > 0) {
-        const recordsToInsert = validRecords.map((row) => ({
-          speciesId: sp.id,
-          projectId,
-          userId: user?.id,
-          filePath: cleanedFileId,
-          pipelineRunId,
-          longitude: Number(row.longitude),
-          latitude: Number(row.latitude),
-          source: (row.source as string) || null,
-          flagged: Boolean(row.flagged || row.cc_flag),
-          flagReason: (row.flag_reason as string) || null,
-          cleaned: true,
-          raw: row,
-        }));
-
-        const BATCH_SIZE = 500;
-        for (let i = 0; i < recordsToInsert.length; i += BATCH_SIZE) {
-          const batch = recordsToInsert.slice(i, i + BATCH_SIZE);
-          await db.insert(occurrences).values(batch);
-        }
-
-        await db
-          .update(species)
-          .set({ occurrenceCount: (sp.occurrenceCount || 0) + recordsToInsert.length })
-          .where(eq(species.id, sp.id));
-      }
-    }
-
-    return c.json({ ...(result as Record<string, unknown>), pipelineRunId });
+    return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Clean failed";
     return c.json({ error: message }, 502);
@@ -358,5 +292,26 @@ dataRoutes.get("/species/:id/occurrences", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch occurrences";
     return c.json({ error: message }, 500);
+  }
+});
+
+// Proxy route for async data job status (clean/dwca/gbif jobs run by Plumber)
+dataRoutes.get("/jobs/:jobId", async (c) => {
+  try {
+    const jobId = c.req.param("jobId");
+    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
+    const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
+    const user = c.get("user");
+    const res = await fetch(`${plumberUrl}/api/v1/jobs/status/${jobId}`, {
+      headers: {
+        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
+        "X-Forwarded-User": user.id,
+      },
+    });
+    const data = await res.json();
+    return c.json(data, res.status as any);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to get job status";
+    return c.json({ error: message }, 502);
   }
 });

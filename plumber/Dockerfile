@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM rocker/r-ver:4.4.2
 
 ARG R_CRAN_REPO=https://packagemanager.posit.co/cran/__linux__/noble/latest
@@ -5,7 +6,8 @@ ARG R_CRAN_REPO=https://packagemanager.posit.co/cran/__linux__/noble/latest
 ENV DEBIAN_FRONTEND=noninteractive
 ENV R_CRAN_REPO=${R_CRAN_REPO}
 
-# System deps: terra + sf need GDAL, GEOS, PROJ; httr/rgbif/finch need libcurl
+# System deps: terra + sf need GDAL, GEOS, PROJ; httr/rgbif/finch need libcurl;
+# plumber 1.3.3 needs sodium which needs libsodium-dev
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdal-dev \
     libgeos-dev \
@@ -14,38 +16,59 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libudunits2-dev \
     libjq-dev \
     libcurl4-openssl-dev \
+    libsodium-dev \
     pandoc \
     && rm -rf /var/lib/apt/lists/*
 
-# Stage 1: Core packages (must succeed)
-RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); \
-  install.packages(c( \
-    'jsonlite', 'plumber', 'httr', 'callr', \
-    'randomForest', 'gbm', 'maxnet', 'nnet', \
-    'mgcv', 'earth', 'rpart', 'mda', 'gam', \
-    'PresenceAbsence', 'pROC', 'ecospat', 'plotrix', \
-    'ggplot2', 'DBI', 'RPostgres', 'digest', 'Rook' \
-  ), Ncpus=2); \
-  rm -rf /tmp/downloaded_packages /tmp/R*"
+# Stage 1: All packages needed for model backends (must succeed).
+# pkgType="both" uses pre-compiled binaries from Posit PGM when available,
+# falling back to source compilation. Ncpus=1 avoids OOM on the few packages
+# that need source compilation. --no-test-load prevents crash-on-load.
+RUN R --no-save --no-restore <<'EOF'
+options(repos = c(CRAN = Sys.getenv("R_CRAN_REPO")))
+pkgs <- c(
+  "jsonlite", "sodium", "plumber", "httr", "callr",
+  "randomForest", "gbm", "maxnet", "nnet",
+  "mgcv", "earth", "rpart", "mda", "gam",
+  "xgboost", "ranger", "CAST", "blockCV",
+  "PresenceAbsence", "pROC", "ecospat", "plotrix",
+  "ggplot2", "DBI", "RPostgres", "digest", "Rook",
+  "CoordinateCleaner", "rgbif", "finch",
+  "future", "future.apply", "marginaleffects"
+)
+for (pkg in pkgs) {
+  message("Installing: ", pkg)
+  install.packages(pkg, Ncpus=1, INSTALL_opts = c("--no-test-load"))
+}
+unlink("/tmp/downloaded_packages", recursive = TRUE)
+unlink(list.files("/tmp", pattern = "^Rtmp", full.names = TRUE), recursive = TRUE)
+EOF
 
 # Stage 2: Spatial packages (hard deps)
-RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); \
-  install.packages(c('terra', 'sf'), Ncpus=2); \
-  rm -rf /tmp/downloaded_packages /tmp/R*"
+RUN R --no-save --no-restore <<'EOF'
+options(repos = c(CRAN = Sys.getenv("R_CRAN_REPO")))
+for (pkg in c("terra", "sf")) {
+  message("Installing: ", pkg)
+  install.packages(pkg, Ncpus=1, INSTALL_opts = c("--no-test-load"))
+}
+unlink("/tmp/downloaded_packages", recursive = TRUE)
+unlink(list.files("/tmp", pattern = "^Rtmp", full.names = TRUE), recursive = TRUE)
+EOF
 
-# Stage 3: Optional packages (fail gracefully with hints)
-RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); \
-  optional <- c('xgboost', 'ranger', 'CAST', 'blockCV', \
-    'CoordinateCleaner', 'rgbif', 'finch', 'future', 'future.apply', \
-    'testthat', 'marginaleffects'); \
-  for (pkg in optional) { \
-    tryCatch({ \
-      message('Installing: ', pkg); \
-      install.packages(pkg, Ncpus=2); \
-    }, error = function(e) \
-      message('SKIP: ', pkg, ' - ', conditionMessage(e))) \
-  }; \
-  rm -rf /tmp/downloaded_packages /tmp/R*"
+# Stage 3: dev-only packages (fail gracefully)
+RUN R --no-save --no-restore <<'EOF'
+options(repos = c(CRAN = Sys.getenv("R_CRAN_REPO")))
+for (pkg in c("testthat")) {
+  tryCatch({
+    message("Installing: ", pkg)
+    install.packages(pkg, Ncpus=1, INSTALL_opts = c("--no-test-load"))
+  }, error = function(e) {
+    message("SKIP: ", pkg, " - ", conditionMessage(e))
+  })
+}
+unlink("/tmp/downloaded_packages", recursive = TRUE)
+unlink(list.files("/tmp", pattern = "^Rtmp", full.names = TRUE), recursive = TRUE)
+EOF
 
 WORKDIR /app
 
