@@ -5,7 +5,7 @@ ARG R_CRAN_REPO=https://packagemanager.posit.co/cran/__linux__/noble/latest
 ENV DEBIAN_FRONTEND=noninteractive
 ENV R_CRAN_REPO=${R_CRAN_REPO}
 
-# System deps: terra + sf need GDAL, GEOS, PROJ
+# System deps: terra + sf need GDAL, GEOS, PROJ; httr/rgbif/finch need libcurl
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdal-dev \
     libgeos-dev \
@@ -13,25 +13,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsqlite3-dev \
     libudunits2-dev \
     libjq-dev \
+    libcurl4-openssl-dev \
     pandoc \
     && rm -rf /var/lib/apt/lists/*
 
-# Install only needed R packages (no geospatial bloat from rocker/geospatial)
-RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages(c( \
-    'terra', 'sf', \
+# Stage 1: Core packages (must succeed)
+RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); \
+  install.packages(c( \
     'jsonlite', 'plumber', 'httr', 'callr', \
     'randomForest', 'gbm', 'maxnet', 'nnet', \
-    'mgcv', 'earth', 'rpart', 'mda', 'gam', 'xgboost', 'ranger', \
-    'PresenceAbsence', 'pROC', 'ecospat', \
-    'marginaleffects', 'plotrix', 'ggplot2', \
-    'CAST', 'blockCV', \
-    'CoordinateCleaner', 'rgbif', 'finch', \
-    'future', 'future.apply', \
-    'testthat', \
-    'DBI', 'RPostgres', 'digest', \
-    'Rook' \
-  ), Ncpus=4); \
-  # Clean up R package installation cache
+    'mgcv', 'earth', 'rpart', 'mda', 'gam', \
+    'PresenceAbsence', 'pROC', 'ecospat', 'plotrix', \
+    'ggplot2', 'DBI', 'RPostgres', 'digest', 'Rook' \
+  ), Ncpus=2); \
+  rm -rf /tmp/downloaded_packages /tmp/R*"
+
+# Stage 2: Spatial packages (hard deps)
+RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); \
+  install.packages(c('terra', 'sf'), Ncpus=2); \
+  rm -rf /tmp/downloaded_packages /tmp/R*"
+
+# Stage 3: Optional packages (fail gracefully with hints)
+RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); \
+  optional <- c('xgboost', 'ranger', 'CAST', 'blockCV', \
+    'CoordinateCleaner', 'rgbif', 'finch', 'future', 'future.apply', \
+    'testthat', 'marginaleffects'); \
+  for (pkg in optional) { \
+    tryCatch({ \
+      message('Installing: ', pkg); \
+      install.packages(pkg, Ncpus=2); \
+    }, error = function(e) \
+      message('SKIP: ', pkg, ' - ', conditionMessage(e))) \
+  }; \
   rm -rf /tmp/downloaded_packages /tmp/R*"
 
 WORKDIR /app

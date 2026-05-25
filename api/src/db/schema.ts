@@ -86,6 +86,8 @@ export const runs = pgTable("runs", {
   provenance: jsonb("provenance"),
   cpuTimeMs: integer("cpu_time_ms"),
   peakMemoryMb: integer("peak_memory_mb"),
+  rCpuTimeMs: integer("r_cpu_time_ms"),
+  rPeakMemoryMb: integer("r_peak_memory_mb"),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
