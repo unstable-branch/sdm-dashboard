@@ -8,6 +8,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { randomBytes, createHash } from "crypto";
 import { logAction, extractClientInfo } from "../services/audit.js";
+import { sendPasswordResetEmail, generateToken, hashToken } from "../services/email.js";
 import type { AppEnv } from "../middleware/auth.js";
 
 export const authRoutes = new Hono<AppEnv>();
@@ -16,6 +17,8 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const BCRYPT_ROUNDS = 12;
 
 authRoutes.use("/register", rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "register" }));
+authRoutes.use("/forgot-password", rateLimit({ windowMs: 60_000, max: 3, keyPrefix: "forgot-pw" }));
+authRoutes.use("/reset-password", rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "reset-pw" }));
 authRoutes.use("/login", rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "login" }));
 
 authRoutes.post("/register", async (c) => {
@@ -350,4 +353,94 @@ authRoutes.post("/api-keys/:id/rotate", authMiddleware, rateLimit({ windowMs: 60
     createdAt: key.createdAt,
     expiresAt: key.expiresAt,
   });
+});
+
+authRoutes.post("/forgot-password", async (c) => {
+  const body = await c.req.json();
+  const { email } = body;
+
+  if (!email) {
+    return c.json({ error: "Email is required" }, 400);
+  }
+
+  const [user] = await db
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .where(eq(users.email, email.toLowerCase().trim()))
+    .limit(1);
+
+  const client = extractClientInfo(c as any);
+
+  if (user) {
+    const token = generateToken();
+    const hashedToken = hashToken(token);
+    const expiry = new Date(Date.now() + 60 * 60 * 1000);
+
+    await db
+      .update(users)
+      .set({ resetToken: hashedToken, resetTokenExpiry: expiry, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+
+    const appUrl = process.env.APP_URL || "http://localhost:3000";
+    await sendPasswordResetEmail(user.email, token, appUrl);
+
+    await logAction({
+      userId: user.id,
+      action: "password_reset_requested",
+      entity: "users",
+      entityId: user.id,
+      ...client,
+    });
+  }
+
+  return c.json({
+    message: "If that email is registered, a password reset link has been sent.",
+  });
+});
+
+authRoutes.post("/reset-password", async (c) => {
+  const body = await c.req.json();
+  const { token, password } = body;
+
+  if (!token || !password) {
+    return c.json({ error: "Token and new password are required" }, 400);
+  }
+
+  if (password.length < 8) {
+    return c.json({ error: "Password must be at least 8 characters" }, 400);
+  }
+
+  const hashedToken = hashToken(token);
+
+  const [user] = await db
+    .select({ id: users.id, email: users.email, resetToken: users.resetToken, resetTokenExpiry: users.resetTokenExpiry })
+    .from(users)
+    .where(eq(users.resetToken, hashedToken))
+    .limit(1);
+
+  if (!user) {
+    return c.json({ error: "Invalid or expired reset token" }, 400);
+  }
+
+  if (!user.resetTokenExpiry || new Date(user.resetTokenExpiry) < new Date()) {
+    return c.json({ error: "Invalid or expired reset token" }, 400);
+  }
+
+  const newHash = await hash(password, BCRYPT_ROUNDS);
+
+  await db
+    .update(users)
+    .set({ passwordHash: newHash, resetToken: null, resetTokenExpiry: null, updatedAt: new Date() })
+    .where(eq(users.id, user.id));
+
+  const client = extractClientInfo(c as any);
+  await logAction({
+    userId: user.id,
+    action: "password_reset_completed",
+    entity: "users",
+    entityId: user.id,
+    ...client,
+  });
+
+  return c.json({ ok: true });
 });
