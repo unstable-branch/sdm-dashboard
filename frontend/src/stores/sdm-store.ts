@@ -10,6 +10,9 @@ interface SDMState {
   recordCount: number;
   setRecordCount: (count: number) => void;
 
+  pipelineRunId: string | null;
+  setPipelineRunId: (id: string | null) => void;
+
   cleanedOccurrence: {
     filePath: string;
     df: Record<string, unknown>[];
@@ -45,6 +48,9 @@ export const useSDMStore = create<SDMState>()((set) => ({
   recordCount: 0,
   setRecordCount: (count) => set({ recordCount: count }),
 
+  pipelineRunId: null,
+  setPipelineRunId: (id) => set({ pipelineRunId: id }),
+
   cleanedOccurrence: null,
   setCleanedOccurrence: (data) => set({ cleanedOccurrence: data }),
 
@@ -65,6 +71,7 @@ export const useSDMStore = create<SDMState>()((set) => ({
       species: "Untitled species",
       occurrenceFilePath: null,
       recordCount: 0,
+      pipelineRunId: null,
       cleanedOccurrence: null,
       occurrenceData: null,
       uploadResult: null,
