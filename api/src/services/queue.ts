@@ -219,6 +219,14 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
 
       let result: SdmJobResult = { status: "error", error: "Job processing failed" };
 
+      // Track resource usage for model runs
+      let cpuStart: NodeJS.CpuUsage | undefined;
+      let wallStart: number | undefined;
+      if (type === "model") {
+        cpuStart = process.cpuUsage();
+        wallStart = Date.now();
+      }
+
       try {
         switch (type) {
           case "clean": {
@@ -323,9 +331,15 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
             const plumberJobId = (modelRes as any).job_id as string | undefined;
 
             if (runId) {
+              const cpuDelta = cpuStart ? process.cpuUsage(cpuStart) : undefined;
               await db
                 .update(runs)
-                .set({ jobId: plumberJobId ?? null, bullmqId: job.id! })
+                .set({
+                  jobId: plumberJobId ?? null,
+                  bullmqId: job.id!,
+                  cpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
+                  peakMemoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+                })
                 .where(eq(runs.id, runId));
             }
 
@@ -473,12 +487,15 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
         if (type === "model") {
           const runId = payload.runId as string;
           if (runId) {
+            const cpuDelta = cpuStart ? process.cpuUsage(cpuStart) : undefined;
             await db
               .update(runs)
               .set({
                 status: "failed",
                 error: finalError,
                 completedAt: new Date(),
+                cpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
+                peakMemoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
               })
               .where(eq(runs.id, runId));
           }

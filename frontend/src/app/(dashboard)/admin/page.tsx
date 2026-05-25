@@ -33,6 +33,8 @@ interface OverviewData {
     startedAt: string | null;
     completedAt: string | null;
     error: string | null;
+    cpuTimeMs: number | null;
+    peakMemoryMb: number | null;
   }>;
 }
 
@@ -174,6 +176,8 @@ export default function AdminOverviewPage() {
                   <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Model</th>
                   <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Started</th>
                   <th className="text-left py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Completed</th>
+                  <th className="text-right py-2 px-3 text-xs font-medium text-sdm-muted uppercase">CPU</th>
+                  <th className="text-right py-2 px-3 text-xs font-medium text-sdm-muted uppercase">Memory</th>
                 </tr>
               </thead>
               <tbody>
@@ -200,6 +204,12 @@ export default function AdminOverviewPage() {
                     </td>
                     <td className="py-2 px-3 text-sdm-muted text-xs whitespace-nowrap">
                       {r.completedAt ? new Date(r.completedAt).toLocaleString() : "-"}
+                    </td>
+                    <td className="py-2 px-3 text-right text-xs font-mono tabular-nums text-sdm-muted">
+                      {r.cpuTimeMs != null ? `${(r.cpuTimeMs / 1000).toFixed(1)}s` : "-"}
+                    </td>
+                    <td className="py-2 px-3 text-right text-xs font-mono tabular-nums text-sdm-muted">
+                      {r.peakMemoryMb != null ? `${r.peakMemoryMb} MB` : "-"}
                     </td>
                   </tr>
                 ))}
