@@ -68,8 +68,8 @@ dataRoutes.post("/occurrences/upload", async (c) => {
       const headerLine = buffer.toString("utf-8").split("\n")[0];
       if (headerLine) {
         const headers = headerLine.split(",").map((h) => h.trim().toLowerCase());
-        const lonPatterns = ["^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long"];
-        const latPatterns = ["^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "^lat"];
+        const lonPatterns = ["^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east"];
+        const latPatterns = ["^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north"];
         const hasLon = headers.some((h) => lonPatterns.some((p) => new RegExp(p).test(h)));
         const hasLat = headers.some((h) => latPatterns.some((p) => new RegExp(p).test(h)));
         const missing: string[] = [];
@@ -79,7 +79,9 @@ dataRoutes.post("/occurrences/upload", async (c) => {
           return c.json({
             error: `CSV is missing required coordinate column(s): ${missing.join(", ")}. ` +
               `Detected columns: ${headers.join(", ")}. ` +
-              `Expected: longitude/long/lon/x/decimalLongitude for X, and latitude/lat/y/decimalLatitude for Y.`,
+              `Expected: longitude/long/lon/x/easting/decimalLongitude for X, ` +
+              `and latitude/lat/y/northing/decimalLatitude for Y. ` +
+              `DMS formats (DD°MM'SS") are also supported.`,
           }, 400);
         }
       }
