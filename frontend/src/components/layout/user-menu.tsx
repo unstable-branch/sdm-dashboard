@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRouter } from "next/navigation";
-import { Settings, LogOut, Key } from "lucide-react";
+import { Settings, LogOut, Key, User } from "lucide-react";
 import { clearAuthToken } from "@/services/api";
 
 export function UserMenu() {
@@ -61,6 +61,14 @@ export function UserMenu() {
           )}
 
           <div className="p-2">
+            <button
+              onClick={() => { router.push("/profile"); setIsOpen(false); }}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-xs text-sdm-text hover:bg-sdm-surface-soft transition-colors"
+              role="menuitem"
+            >
+              <User className="h-3.5 w-3.5" />
+              Profile
+            </button>
             <button
               onClick={() => { router.push("/settings"); setIsOpen(false); }}
               className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-xs text-sdm-text hover:bg-sdm-surface-soft transition-colors"
