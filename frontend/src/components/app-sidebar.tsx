@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import {
   Sidebar,
   SidebarContent,
@@ -21,8 +22,22 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
-import { pipelineItems, systemItems, adminItems } from "@/components/dashboard-nav";
+import { pipelineItems, systemItems } from "@/components/dashboard-nav";
 import { useAuthStore } from "@/stores/auth-store";
+
+const AdminSidebarGroup = dynamic(() => import("@/components/layout/admin-sidebar-group").then(m => ({ default: m.AdminSidebarGroup })), {
+  loading: () => (
+    <SidebarGroup>
+      <SidebarGroupLabel>Admin</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <div className="space-y-1 px-3">
+          <div className="h-8 rounded bg-sdm-surface-soft animate-pulse" />
+          <div className="h-8 rounded bg-sdm-surface-soft animate-pulse" />
+        </div>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  ),
+});
 
 export function AppSidebar() {
   const { theme, setTheme } = useTheme();
@@ -78,25 +93,7 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        {isAdmin && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Admin</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {adminItems.map((item) => (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
-                      <Link href={item.href}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+        {isAdmin && <AdminSidebarGroup />}
       </SidebarContent>
       <SidebarFooter>
         <Button
