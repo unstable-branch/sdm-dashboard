@@ -74,6 +74,7 @@ function DataPageContent() {
   const [cleanError, setCleanError] = useState<string | null>(null);
   const [cleanJobId, setCleanJobId] = useState<string | null>(null);
   const [useAsync, setUseAsync] = useState(false);
+  const [useCc, setUseCc] = useState(true);
 
   const [gbifLoading, setGbifLoading] = useState(false);
   const [gbifError, setGbifError] = useState<string | null>(null);
@@ -249,7 +250,7 @@ function DataPageContent() {
         file_id: uploadResult.file_id,
         min_source_records: 15,
         merge_small_sources: true,
-        use_cc: false,
+        use_cc: useCc,
         cc_tests: "all",
         async: useAsync,
       });
@@ -331,6 +332,7 @@ function DataPageContent() {
         setOccurrenceFilePath(result.file_path);
         setRecordCount(Number(result.n_rows || 0));
         useSDMStore.getState().setSpecies(String(gbifResult.taxon || "Untitled species"));
+        setUploadResult(result);
         setGbifSaved(true);
       }
     } catch (err) {
@@ -348,6 +350,7 @@ function DataPageContent() {
     try {
       const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/dwca", file);
       setDwcaResult(result);
+      setUploadResult(result);
       if (typeof result.file_path === "string") {
         setOccurrenceFilePath(result.file_path);
         setRecordCount(Number(result.n_occurrences || result.n_returned || result.n_rows || 0));
@@ -552,6 +555,15 @@ function DataPageContent() {
                   className="rounded border-sdm-border bg-sdm-surface-soft"
                 />
                 Run in background (for large datasets)
+              </label>
+              <label className="flex items-center gap-2 text-sm text-sdm-text">
+                <input
+                  type="checkbox"
+                  checked={useCc}
+                  onChange={(e) => setUseCc(e.target.checked)}
+                  className="rounded border-sdm-border bg-sdm-surface-soft"
+                />
+                CoordinateCleaner
               </label>
             </div>
 
