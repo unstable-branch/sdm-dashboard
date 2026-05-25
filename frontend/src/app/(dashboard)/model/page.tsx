@@ -202,6 +202,7 @@ export default function ModelPage() {
               <div>
                 <p className="text-sm text-sdm-text font-medium">Cleaned occurrence data</p>
                 <p className="text-xs text-sdm-muted mt-1">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords.toLocaleString()} cleaned records</p>
+                <p className="text-xs text-sdm-accent mt-1"><Link href="/data?tab=clean" className="underline">Review on Data page</Link></p>
                 {species && species !== "Untitled species" && (
                   <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>
                 )}
