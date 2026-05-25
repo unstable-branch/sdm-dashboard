@@ -94,4 +94,17 @@ describe("openApiDocument baseline", () => {
       expect(operation?.responses["409"]).toBeDefined();
     }
   });
+
+  it("documents additive batch comparison summaries", () => {
+    const schemas = openApiDocument.components?.schemas;
+    expect(schemas?.SdmBatchComparison).toBeDefined();
+    expect(schemas?.SdmBatchComparisonMetricGroup).toBeDefined();
+
+    const batchStatusSchema = schemas?.SdmBatchStatusResponse as ObjectSchemaForTest;
+    expect(batchStatusSchema).toEqual(expect.objectContaining({
+      properties: expect.objectContaining({
+        comparison: expect.objectContaining({ $ref: "#/components/schemas/SdmBatchComparison" }),
+      }),
+    }));
+  });
 });

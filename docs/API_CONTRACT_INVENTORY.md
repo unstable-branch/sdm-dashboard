@@ -43,11 +43,12 @@ Primary sources:
   - Optional auth applied globally after protected paths.
 - Sync/async: mixed.
   - `POST /run` supports `async=true` queue mode and non-async immediate plumber start mode.
-  - `POST /batch` starts multiple runs and returns a batch envelope; `GET /batches/:batchId` returns aggregate child-run status.
+  - `POST /batch` starts multiple runs and returns a batch envelope; `GET /batches/:batchId` returns aggregate child-run status plus a bounded `comparison` summary (`batch_comparison.v1`).
 - Current machine-interface notes:
   - Strong input validation for model config (`modelConfigSchema`).
   - Status lifecycle exists (`queued|running|completed|failed|cancelled`), but identifier semantics are mixed (`run.id` returned as `jobId` in async run response).
   - Some endpoints degrade to success-with-warning behavior when backing services fail (`GET /runs` fallback 200).
+  - Batch comparison summaries expose numeric scalar metrics by run/species/model and low-quality warnings, while omitting raw raster, occurrence, and output-file payloads. See `docs/BATCH_COMPARISON_CONTRACT.md`.
 
 ### Data / Occurrences (`/api/v1/data`)
 - Main routes: occurrence dataset identity endpoints under `/occurrence-datasets*`, upload/clean/GBIF/DwCA under `/occurrences/*`, plus species endpoints `/species`, `/species/:id`, `/species/:id/occurrences` (`api/src/routes/occurrences.ts`).
@@ -133,9 +134,12 @@ Primary sources:
   - `Idempotency-Key` support exists on expensive mutation routes: SDM run, SDM batch, occurrence clean, and climate download.
   - Remaining risk: partial side effects from downstream failures still need route-specific hardening where operations are not transactional.
 - Workflow objects:
+  - Study-area and environment-set summary schemas now have a conservative
+    pure TypeScript/Zod foundation in `api/src/services/workflow-object-schemas.ts`
+    and are documented in `docs/WORKFLOW_OBJECT_SCHEMAS.md`.
   - Run/job/batch are represented by mixed ad hoc envelopes instead of one stable workflow resource shape.
 - Batch parent semantics:
-  - `batch_id` is persisted on child runs and has an aggregate status endpoint, but there is not yet a separate batch resource with owner metadata, idempotency, or server-side comparison filters.
+  - `batch_id` is persisted on child runs and has an aggregate status endpoint with additive comparison summaries, but there is not yet a separate batch resource with owner metadata, idempotency, or server-side comparison filters.
 - Artifact manifests:
   - Occurrence data now has stable dataset IDs, and run manifests now expose a
     bounded Hono-side `artifacts[]` list derived from Plumber output files.
@@ -152,10 +156,12 @@ Primary sources:
 2. Define shared envelope schemas in API code/docs: `ApiError`, `WorkflowStatus`, `Pagination`, `ArtifactRef`.
 3. Normalize SDM run submission response shape to always return `{ runId, workflowId, status }` (retain compatibility alias temporarily).
 4. Add route-specific partial-failure hardening and retry guidance for idempotent SDM batch/run operations.
-5. Extend the current `runs.batch_id` aggregate into a fuller batch resource only if owner metadata, idempotency, or long-lived batch history needs require it.
-6. Extend artifact manifest coverage to batch manifests and document which
+5. Wire study-area and environment-set summaries only where a specific route
+   needs them; keep the helpers pure until then.
+6. Extend the current `runs.batch_id` aggregate into a fuller batch resource only if owner metadata, idempotency, or long-lived batch history needs require it.
+7. Extend artifact manifest coverage to batch manifests and document which
    artifact fields are safe for LLM/notebook summaries versus explicit
    downloads.
-7. Standardize error mapping middleware so all handlers emit a single error contract with stable `code`, `message`, and optional `details`.
-8. Add explicit auth policy pass for currently open operational routes (`/api/v1/jobs/*`, `/api/v1/ecology/*`, selected diagnostics) and document intended machine scope.
-9. Add readiness checks for DB/storage in `/ready` to match published readiness fields.
+8. Standardize error mapping middleware so all handlers emit a single error contract with stable `code`, `message`, and optional `details`.
+9. Add explicit auth policy pass for currently open operational routes (`/api/v1/jobs/*`, `/api/v1/ecology/*`, selected diagnostics) and document intended machine scope.
+10. Add readiness checks for DB/storage in `/ready` to match published readiness fields.
