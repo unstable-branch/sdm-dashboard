@@ -43,6 +43,13 @@
       "when": 1779716791000,
       "tag": "0004_occurrence_datasets_idempotency",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1779739200000,
+      "tag": "0005_api_key_scopes_audit",
+      "breakpoints": true
     }
   ]
 }

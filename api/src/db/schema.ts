@@ -1,4 +1,5 @@
 import { pgTable, uuid, varchar, text, timestamp, integer, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex } from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { relations } from "drizzle-orm";
 
@@ -42,11 +43,36 @@ export const apiKeys = pgTable("api_keys", {
   keyHash: text("key_hash").notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   userId: uuid("user_id").references(() => users.id).notNull(),
+  scopes: text("scopes").array().notNull().default(sql`ARRAY['read','write','run','batch','admin']::text[]`),
+  projectId: uuid("project_id").references(() => projects.id),
+  revokedAt: timestamp("revoked_at"),
+  createdByKeyId: uuid("created_by_key_id").references((): AnyPgColumn => apiKeys.id),
   lastUsedAt: timestamp("last_used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   expiresAt: timestamp("expires_at"),
 }, (t) => [
   index("idx_api_keys_user").on(t.userId),
+  index("idx_api_keys_key_hash").on(t.keyHash),
+  index("idx_api_keys_project").on(t.projectId),
+]);
+
+export const apiAuditEvents = pgTable("api_audit_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  actorUserId: uuid("actor_user_id").references(() => users.id),
+  actorApiKeyId: uuid("actor_api_key_id").references(() => apiKeys.id),
+  action: varchar("action", { length: 100 }).notNull(),
+  targetType: varchar("target_type", { length: 100 }),
+  targetId: text("target_id"),
+  method: varchar("method", { length: 16 }),
+  route: text("route"),
+  statusCode: integer("status_code"),
+  metadata: jsonb("metadata").$type<Record<string, unknown> | null>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_api_audit_events_actor_user").on(t.actorUserId),
+  index("idx_api_audit_events_actor_api_key").on(t.actorApiKeyId),
+  index("idx_api_audit_events_action").on(t.action),
+  index("idx_api_audit_events_created_at").on(t.createdAt),
 ]);
 
 export const species = pgTable("species", {

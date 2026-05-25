@@ -5,6 +5,7 @@ import { db } from "../db/index.js";
 import { users, apiKeys, projectMembers } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { checkRateLimit } from "./rate-limit.js";
+import { recordAuditEventBestEffort } from "../services/audit.js";
 
 export interface JwtPayload {
   sub: string;
@@ -21,8 +22,27 @@ export type AppEnv = {
       email: string;
       role: string;
     };
+    auth: AuthContext;
   };
 };
+
+export type ApiKeyScope = "read" | "write" | "run" | "batch" | "admin";
+
+export type AuthContext =
+  | { method: "jwt" }
+  | { method: "api_key"; apiKeyId: string; scopes: ApiKeyScope[]; projectId: string | null };
+
+export const LEGACY_API_KEY_SCOPES: ApiKeyScope[] = ["read", "write", "run", "batch", "admin"];
+
+const VALID_API_KEY_SCOPES = new Set<ApiKeyScope>(LEGACY_API_KEY_SCOPES);
+
+function normalizeScopes(scopes: unknown): ApiKeyScope[] {
+  if (!Array.isArray(scopes)) return LEGACY_API_KEY_SCOPES;
+  const valid = scopes.filter((scope): scope is ApiKeyScope =>
+    typeof scope === "string" && VALID_API_KEY_SCOPES.has(scope as ApiKeyScope)
+  );
+  return valid.length > 0 ? Array.from(new Set(valid)) : LEGACY_API_KEY_SCOPES;
+}
 
 function getCookieToken(cookieHeader: string | undefined): string | null {
   if (!cookieHeader) return null;
@@ -52,12 +72,19 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 
       const keyHash = createHash("sha256").update(apiKeyHeader).digest("hex");
       const [key] = await db
-        .select({ userId: apiKeys.userId, expiresAt: apiKeys.expiresAt })
+        .select({
+          id: apiKeys.id,
+          userId: apiKeys.userId,
+          scopes: apiKeys.scopes,
+          projectId: apiKeys.projectId,
+          expiresAt: apiKeys.expiresAt,
+          revokedAt: apiKeys.revokedAt,
+        })
         .from(apiKeys)
         .where(and(eq(apiKeys.keyHash, keyHash)))
         .limit(1);
 
-      if (!key || (key.expiresAt && key.expiresAt <= new Date())) {
+      if (!key || key.revokedAt || (key.expiresAt && key.expiresAt <= new Date())) {
         return c.json({ error: "Invalid API key" }, 401);
       }
 
@@ -77,6 +104,12 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
         .where(eq(apiKeys.keyHash, keyHash));
 
       c.set("user", user);
+      c.set("auth", {
+        method: "api_key",
+        apiKeyId: key.id,
+        scopes: normalizeScopes(key.scopes),
+        projectId: key.projectId ?? null,
+      });
       await next();
       return;
     } catch {
@@ -105,6 +138,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
       email: payload.email as string,
       role: payload.role as string,
     });
+    c.set("auth", { method: "jwt" });
     await next();
   } catch {
     return c.json({ error: "Invalid token" }, 401);
@@ -119,12 +153,19 @@ export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
     try {
       const keyHash = createHash("sha256").update(apiKeyHeader).digest("hex");
       const [key] = await db
-        .select({ userId: apiKeys.userId, expiresAt: apiKeys.expiresAt })
+        .select({
+          id: apiKeys.id,
+          userId: apiKeys.userId,
+          scopes: apiKeys.scopes,
+          projectId: apiKeys.projectId,
+          expiresAt: apiKeys.expiresAt,
+          revokedAt: apiKeys.revokedAt,
+        })
         .from(apiKeys)
         .where(eq(apiKeys.keyHash, keyHash))
         .limit(1);
 
-      if (key && (!key.expiresAt || key.expiresAt > new Date())) {
+      if (key && !key.revokedAt && (!key.expiresAt || key.expiresAt > new Date())) {
         const [user] = await db
           .select({ id: users.id, email: users.email, role: users.role })
           .from(users)
@@ -133,6 +174,12 @@ export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
 
         if (user) {
           c.set("user", user);
+          c.set("auth", {
+            method: "api_key",
+            apiKeyId: key.id,
+            scopes: normalizeScopes(key.scopes),
+            projectId: key.projectId ?? null,
+          });
         }
       }
     } catch {
@@ -155,6 +202,7 @@ export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
           email: payload.email as string,
           role: payload.role as string,
         });
+        c.set("auth", { method: "jwt" });
       }
     } catch {
       // Silently fail for optional auth
@@ -169,6 +217,26 @@ export const requireRole = (roles: string[]) => {
     const user = c.get("user");
     if (!user || !roles.includes(user.role)) {
       return c.json({ error: "Forbidden" }, 403);
+    }
+    await next();
+  });
+};
+
+export const requireApiKeyScope = (scope: ApiKeyScope) => {
+  return createMiddleware<AppEnv>(async (c, next) => {
+    const auth = c.get("auth");
+    if (auth?.method === "api_key" && !auth.scopes.includes(scope) && !auth.scopes.includes("admin")) {
+      const user = c.get("user");
+      await recordAuditEventBestEffort({
+        actorUserId: user?.id ?? null,
+        actorApiKeyId: auth.apiKeyId,
+        action: "api_key_scope_denied",
+        method: c.req.method,
+        route: c.req.path,
+        statusCode: 403,
+        metadata: { required_scope: scope },
+      });
+      return c.json({ error: "API key scope required", required_scope: scope }, 403);
     }
     await next();
   });

@@ -32,10 +32,12 @@ Primary sources:
   - `Authorization: Bearer <jwt>` signed with `JWT_SECRET`.
   - `sdm_token` cookie as a bearer-token fallback.
 - API keys take precedence over bearer/cookie auth when both are present.
-- API keys are user-bound only. The current `api_keys` table stores key hash,
-  name, user ID, timestamps, last-used timestamp, and optional expiry. It does
-  not store scopes, quotas, project restrictions, allowed origins/IPs, or
-  revocation metadata beyond deletion/rotation.
+- API keys are user-bound credentials with key hash, name, user ID, scopes,
+  optional project ID, optional revocation timestamp, creator-key metadata,
+  timestamps, last-used timestamp, and optional expiry.
+- API-key scopes currently exist for lifecycle-route enforcement only. Broader
+  route groups still treat API keys as bearer-equivalent unless a route-specific
+  check has been added.
 - API-key use updates `last_used_at` after a user lookup succeeds.
 - Expired or unknown API keys return 401. Auth-service failures return 503.
 - JWT auth trusts payload `sub`, `email`, and `role` after signature
@@ -80,8 +82,10 @@ Primary sources:
   - Data routes: 60/minute, with GBIF search additionally 10/minute.
   - Diagnostics routes: 60/minute.
   - API-key authentication failures: 20/minute by forwarded IP or real IP.
-- There is no current quota ledger, per-key concurrency policy, per-project
-  allowance, or durable usage/audit event table.
+- There is no current quota ledger, per-key concurrency policy, or per-project
+  allowance.
+- `api_audit_events` exists for API-key lifecycle and scope-denial events first;
+  broader workflow/download/cancellation audit coverage is still future work.
 
 ### Service-to-service auth
 - Public client auth is bearer JWT or `X-API-Key`.
@@ -94,10 +98,11 @@ The intended v1 policy is:
 - Public system/auth bootstrap routes remain public where noted.
 - Machine clients authenticate with `X-API-Key`; browser/human clients may use
   bearer JWT/cookie flows.
-- API-key scopes are future enforcement work. The planned scope names are:
-  `read`, `write`, `run`, `batch`, and `admin`.
-- Until scoped keys are implemented, docs and OpenAPI should describe current
-  bearer/API-key authentication only and avoid claiming scope enforcement.
+- API-key scopes exist with names `read`, `write`, `run`, `batch`, and `admin`.
+  Enforcement is deliberately narrow in the first slice: `/api/v1/auth/api-keys*`
+  only.
+- Until route-group scope checks are implemented, docs and OpenAPI should avoid
+  claiming broad scope enforcement beyond API-key lifecycle routes.
 - Project membership remains the base object-access boundary for user data,
   runs, results, projects, and datasets.
 - Expensive or mutating workflows should combine auth, route class limits,
@@ -107,11 +112,11 @@ Proposed scope meaning:
 
 | Scope | Intended meaning | Current state |
 | --- | --- | --- |
-| `read` | Read project-scoped metadata, datasets, runs, results, diagnostics, ecology summaries, climate catalogs/status, and job status visible to the owner. | Not stored or enforced. |
-| `write` | Create/update project metadata and upload/register/clean occurrence data. | Not stored or enforced. |
-| `run` | Start, cancel, and manage single expensive workflows such as SDM runs and climate downloads/deletes. | Not stored or enforced. |
-| `batch` | Start, inspect, compare, and cancel multi-run batch workflows. | Not stored or enforced. |
-| `admin` | Manage API keys, project members, administrative project actions, future quota overrides, and audit access. | Not stored or enforced. |
+| `read` | Read project-scoped metadata, datasets, runs, results, diagnostics, ecology summaries, climate catalogs/status, and job status visible to the owner. | Stored; enforced for API-key listing only. |
+| `write` | Create/update project metadata and upload/register/clean occurrence data. | Stored; not broadly enforced yet. |
+| `run` | Start, cancel, and manage single expensive workflows such as SDM runs and climate downloads/deletes. | Stored; not broadly enforced yet. |
+| `batch` | Start, inspect, compare, and cancel multi-run batch workflows. | Stored; not broadly enforced yet. |
+| `admin` | Manage API keys, project members, administrative project actions, future quota overrides, and audit access. | Stored; enforced for API-key create/delete/rotate. |
 
 ## Route Policy Matrix
 
@@ -120,8 +125,8 @@ Proposed scope meaning:
 | `/health`, `/ready` | Public. `/ready` checks Plumber, DB, and storage and may return 503. | Public liveness/readiness; no user data. | None for auth; avoid leaking sensitive config in future checks. |
 | `/api/v1/openapi.json` | Public. | Public contract document; mark current auth truthfully. | OpenAPI is partial and does not express future scopes. |
 | `/api/v1/auth/register`, `/login` | Public, rate-limited. Returns JWT. | Public bootstrap, rate-limited. | No refresh-token contract; rate limit is route URL keyed, not per account/IP except API-key failure helper. |
-| `/api/v1/auth/me` | Required bearer/API-key auth. | `read` for self profile. | No scoped-key distinction. |
-| `/api/v1/auth/api-keys*` | Required bearer/API-key auth. Create/rotate are rate-limited. Keys can create/rotate/delete other keys for the same user. | `admin` only; consider requiring bearer/session auth for key creation and rotation. | Current API keys have no scopes and can manage peer keys for their user. No audit event. |
+| `/api/v1/auth/me` | Required bearer/API-key auth. | `read` for self profile. | No scoped-key distinction yet. |
+| `/api/v1/auth/api-keys*` | Required bearer/API-key auth. Create/rotate are rate-limited. JWT callers retain existing UI behavior. API-key callers need `read` for list and `admin` for create/delete/rotate. Create accepts optional `scopes` and `projectId`; omitted scopes default to legacy broad scopes for compatibility. Best-effort audit events are written for create/delete/rotate and scope denial. | `read` for list; `admin` for create/delete/rotate. | Scoped enforcement is limited to this route family; no API-key lifecycle UI for revocation/project restriction yet. |
 | `/api/v1/projects` | Required bearer/API-key auth. Per-route membership/admin checks for reads/mutations. `GET /:id/members` currently lists members by project ID without checking caller membership in that handler. | `read` for list/get/member reads; `write` or `admin` for project edits; `admin` for member changes. | Inconsistent member-read guard; no scoped keys; no audit for membership changes. |
 | `/api/v1/sdm/models`, `/config/defaults`, `/future/scenarios` | Optional auth after protected route registrations; no required auth. CSRF is safe-method bypass. | Public or `read`; choose explicitly before v1. | Current optional auth allows anonymous catalog/default reads. |
 | `/api/v1/sdm/run` | Required auth plus model rate limit. Supports `Idempotency-Key`. CSRF applies to non-API-key browser-style POSTs. | `run`; quota/concurrency/audit required. | No scope/quota/concurrency/audit; idempotency cannot prevent all partial downstream side effects. |
@@ -139,8 +144,8 @@ Proposed scope meaning:
 
 ## Machine-Facing Risk Notes
 
-- Current API keys are bearer-equivalent user credentials, not scoped machine
-  tokens.
+- Current API keys carry scopes, but most route groups still treat them as
+  bearer-equivalent user credentials until route-level scope checks are added.
 - Optional-auth route groups should be assumed public unless handlers add their
   own checks.
 - Run ID, queue job ID, Plumber job ID, and batch ID are not a complete access
@@ -148,28 +153,26 @@ Proposed scope meaning:
   authorization.
 - Route-level rate limiting is not quota enforcement. It is Redis-dependent,
   fail-open, and currently URL keyed.
-- Cancellation and deletion routes need audit events before being exposed to
-  unattended agents.
+- Cancellation and deletion routes need broader audit events before being
+  exposed to unattended agents.
 - Results file path confinement is strong relative to `outputs/jobs`, but
   artifact download policy still needs per-run authorization, redaction, and
   quota rules as manifests become richer.
 
 ## Next Tickets
 
-1. Add `scopes text[]`, optional `project_id`, `revoked_at`, and
-   `created_by_key_id` or equivalent metadata to `api_keys`.
-2. Add a central `requireScope()` or route-policy middleware that combines
-   authentication, required scope, and project/run ownership checks.
-3. Add scoped-key policy, quotas, and cancellation audit for `/api/v1/jobs/*`;
+1. Add route-policy middleware that combines authentication, required scope,
+   and project/run ownership checks for workflow/result routes.
+2. Add scoped-key policy, quotas, and cancellation audit for `/api/v1/jobs/*`;
    required auth and best-effort queue-data visibility checks are now in place.
    Ecology and diagnostics now have required auth and run/project visibility
    checks but still lack scoped-key policy.
-4. Add per-key quota/concurrency counters for `run` and `batch` operations,
+3. Add per-key quota/concurrency counters for `run` and `batch` operations,
    with Redis acceleration and DB-backed audit truth.
-5. Add an `api_audit_events` table for key creation/rotation/deletion,
+4. Extend `api_audit_events` coverage from API-key lifecycle events to
    workflow starts, cancellations, destructive clears/deletes, downloads, and
    auth failures.
-6. Add tests proving scoped keys cannot use routes outside their scope and that
+5. Add tests proving scoped keys cannot use routes outside their scope and that
    anonymous requests cannot read ecology/diagnostics/jobs by guessed IDs.
-7. Update OpenAPI security metadata after scopes exist; until then, keep it to
-   bearer/API-key schemes without false scope claims.
+6. Update OpenAPI security metadata after route-level scopes exist; until then,
+   keep it to bearer/API-key schemes without broad false scope claims.
