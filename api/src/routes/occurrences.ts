@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { writeFileSync, mkdirSync, existsSync, accessSync, constants } from "fs";
+import { mkdirSync, existsSync, accessSync, constants } from "fs";
+import { writeFile } from "fs/promises";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
@@ -26,18 +27,18 @@ function saveUpload(buffer: Buffer, originalName: string): { destPath: string; p
   try {
     accessSync(UPLOAD_DIR, constants.W_OK);
   } catch {
-    throw new Error(
-      `Uploads directory not writable: ${UPLOAD_DIR}. ` +
-      "Run: sudo chown -R $USER:$USER data/uploads"
-    );
+    throw new Error(`Upload directory is not writable: ${UPLOAD_DIR}. Run: sudo chown -R $USER:$USER data/uploads`);
   }
+
   const pipelineRunId = randomUUID();
   const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const destPath = join(UPLOAD_DIR, `${pipelineRunId}_${safeName}`);
-  writeFileSync(destPath, buffer);
+  const destPath = join(UPLOAD_DIR, safeName);
   return { destPath, pipelineRunId };
 }
 
+async function writeUploadFile(destPath: string, buffer: Buffer): Promise<void> {
+  await writeFile(destPath, buffer);
+}
 export const dataRoutes = new Hono<AppEnv>();
 
 dataRoutes.use("*", defaultRateLimit);
@@ -58,9 +59,24 @@ dataRoutes.post("/occurrences/upload", async (c) => {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const { destPath, pipelineRunId } = saveUpload(buffer, file.name);
+    await writeUploadFile(destPath, buffer);
     const user = c.get("user");
 
-    const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
+    let result: Record<string, unknown>;
+    try {
+      result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
+    } catch (plumberErr) {
+      const pm = plumberErr instanceof Error ? plumberErr.message : "Unknown error";
+      if (pm.includes("fetch failed") || pm.includes("ECONNREFUSED") || pm.includes("connect") || pm.includes("timeout")) {
+        return c.json({
+          error: "Upload saved to disk but Plumber backend is not responding. The occurrence file will be processed when Plumber is available.",
+          filePath: destPath,
+          pipelineRunId,
+          plumberStatus: pm,
+        }, 202);
+      }
+      throw plumberErr;
+    }
     const { ipAddress, userAgent } = extractClientInfo(c);
     logAction({
       userId: user.id,
@@ -74,7 +90,12 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     return c.json({ ...result, pipelineRunId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
-    return c.json({ error: message }, 502);
+    const isPlumberDown = message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("connect");
+    return c.json({
+      error: isPlumberDown
+        ? "Upload failed: Plumber backend is not running. Start it with: docker compose -f docker-compose.dev.yml --profile computation up -d"
+        : message,
+    }, isPlumberDown ? 503 : 502);
   }
 });
 

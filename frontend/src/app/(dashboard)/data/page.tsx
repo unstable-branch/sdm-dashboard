@@ -378,7 +378,7 @@ function DataPageContent() {
     setDwcaResult(null);
 
     try {
-      const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/dwca", file);
+      const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/dwca", file, undefined, 600000);
       setDwcaResult(result);
       setUploadResult(result);
       setPipelineRunId((result.pipelineRunId as string) || null);
