@@ -157,7 +157,7 @@ authRoutes.post("/login", async (c) => {
 
     const isSecure = process.env.NODE_ENV === "production";
     const maxAge = 86400;
-    c.res.appendHeader("Set-Cookie", `sdm_token=${token}; Path=/; HttpOnly; SameSite=Strict${isSecure ? "; Secure" : ""}; Max-Age=${maxAge}`);
+    c.header("Set-Cookie", `sdm_token=${token}; Path=/; HttpOnly; SameSite=Strict${isSecure ? "; Secure" : ""}; Max-Age=${maxAge}`);
 
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
