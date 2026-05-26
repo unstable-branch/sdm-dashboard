@@ -48,7 +48,7 @@ const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB
 
 dataRoutes.post("/occurrences/upload", async (c) => {
   try {
-    const body = await c.req.parseBody();
+    const body = await c.req.parseBody({ maxSize: MAX_UPLOAD_BYTES });
     const file = body["file"];
     if (!file || !(file instanceof File)) {
       return c.json({ error: "No file uploaded" }, 400);
@@ -148,13 +148,32 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     const body = await c.req.json();
     const user = c.get("user");
 
-    const result = await plumberClient.withUser(user.id).cleanOccurrences(body);
+    const initial = await plumberClient.withUser(user.id).cleanOccurrences(body);
 
-    if (result && typeof result === "object" && "error" in result) {
-      return c.json(result, 502);
+    if (initial && typeof initial === "object" && "error" in initial) {
+      return c.json(initial, 502);
     }
 
-    return c.json(result);
+    // Plumber now runs clean asynchronously — poll until complete
+    const jobId = initial?.job_id as string | undefined;
+    if (jobId) {
+      const maxPolls = 120;
+      const pollInterval = 2000;
+      for (let i = 0; i < maxPolls; i++) {
+        const status = await plumberClient.getJobStatus(jobId);
+        const s = status?.status as string;
+        if (s === "completed") {
+          return c.json(status?.result || status);
+        }
+        if (s === "failed") {
+          return c.json({ error: status?.error || "Clean job failed" }, 502);
+        }
+        await new Promise(r => setTimeout(r, pollInterval));
+      }
+      return c.json({ error: "Clean job timed out" }, 504);
+    }
+
+    return c.json(initial);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Clean failed";
     return c.json({ error: message }, 502);
@@ -219,7 +238,7 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
 
 dataRoutes.post("/occurrences/dwca", async (c) => {
   try {
-    const body = await c.req.parseBody();
+    const body = await c.req.parseBody({ maxSize: MAX_UPLOAD_BYTES });
     const file = body["file"];
     if (!file || !(file instanceof File)) {
       return c.json({ error: "No file uploaded" }, 400);

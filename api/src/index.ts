@@ -180,7 +180,7 @@ process.on("SIGINT", shutdown);
 
 // Set up HTTP server with WebSocket support
 const server = serve(
-  { fetch: app.fetch, port, hostname: "0.0.0.0" },
+  { fetch: app.fetch, port, hostname: process.env.HOST || "127.0.0.1" },
   (info) => {
     console.log(`SDM API server running on http://${info.address}:${info.port}`);
     console.log(`HTTP server listening on port ${info.port}`);

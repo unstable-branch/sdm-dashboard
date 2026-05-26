@@ -194,13 +194,13 @@ export class PlumberClient {
   }
 
   async getJobStatus(jobId: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`, { headers: this.headers() });
+    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/status/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
     return res.json();
   }
 
   async cancelJob(jobId: string): Promise<{ ok: boolean }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`, {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/cancel/${jobId}`, {
       method: "DELETE",
       headers: this.headers(),
     });

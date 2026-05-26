@@ -104,9 +104,7 @@ modules <- c(
   "manifest.R",
   "diagnostics_plots.R",
   "batch_runner.R",
-  "script_export.R",
-
-  # --- ui / modules (EXCLUDED — Shiny-only, loaded by app.R directly)
+  "script_export.R"
 )
 
 for (m in modules) {
