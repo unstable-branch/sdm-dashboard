@@ -15,6 +15,8 @@ feature branch -> dev -> main
 - Never rewrite shared branch history after pushing. No force-push to `main` or `dev`.
 - Commit locally at logical checkpoints: a bug fixed, a feature working, a refactor complete, or a test added.
 - Avoid committing broken states to `dev` or `main`. WIP belongs on a feature branch.
+- Do NOT commit to local git until a substantial change is complete (multiple related fixes working together).
+- After each substantial batch of work, ask the user if they want to commit to remote before pushing.
 
 Branch names should use a short area or repo-local alias, then the topic. No real names needed.
 
