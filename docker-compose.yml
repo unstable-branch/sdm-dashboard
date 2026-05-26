@@ -108,6 +108,7 @@ services:
       - "4000:4000"
     environment:
       - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${FRONTEND_API_URL:-}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
@@ -125,10 +126,10 @@ services:
       - SMTP_PASS=${SMTP_PASS:-}
       - SMTP_FROM=${SMTP_FROM:-noreply@sdm-dashboard.local}
       - APP_URL=${APP_URL:-}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     volumes:
       - upload-data:/app/data/uploads
       - plumber-outputs:/app/outputs:ro
-    depends_on:
       postgres:
         condition: service_healthy
       redis:

@@ -378,6 +378,9 @@ read_gbif_records <- function(taxon, country = NULL, max_records = 100,
 
   taxon_key <- rgbif::name_backbone(taxon)$speciesKey
 
+  if (max_records > 10000) {
+    log_message(log_fun, sprintf("GBIF API limit is 10,000 records per search (requested %d); capping at 10,000", max_records))
+  }
   result <- rgbif::occ_search(
     taxonKey = taxon_key,
     country = country,
@@ -467,6 +470,7 @@ read_gbif_download <- function(taxon, country = NULL, gbif_user = NULL, gbif_pwd
     email = trimws(email)
   )
 
+  log_message(NULL, "Starting GBIF download (blocking — up to ~5 minutes). Consider using the async endpoint for non-interactive contexts.")
   status <- "running"
   attempts <- 0
   while (status == "running" && attempts < max_attempts) {
