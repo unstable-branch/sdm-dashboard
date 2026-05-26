@@ -395,7 +395,7 @@ run_fast_sdm <- function(...) {
   response_curves <- compute_response_curves(
     fit = fit,
     model_data = fit$model_data,
-    env_train = env$env_train,
+    env_train = env$env_train_scaled,
     n_points = 50
   )
 
