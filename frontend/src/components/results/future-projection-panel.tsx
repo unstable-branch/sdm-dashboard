@@ -31,8 +31,8 @@ export function FutureProjectionPanel({ outputFiles, config }: FutureProjectionP
     if (futurePng || deltaPng) {
       found.push({
         label: (config?.future_label as string) || "Future climate",
-        futurePng: futurePng ? `/api/v1/results/file/${encodeURIComponent(futurePng)}` : null,
-        deltaPng: deltaPng ? `/api/v1/results/file/${encodeURIComponent(deltaPng)}` : null,
+        futurePng: futurePng ? `/api/v1/results/file/download?path=${encodeURIComponent(futurePng)}` : null,
+        deltaPng: deltaPng ? `/api/v1/results/file/download?path=${encodeURIComponent(deltaPng)}` : null,
         futureTif: outputFiles.future_tif || outputFiles.future_suitability_tif || null,
         deltaTif: outputFiles.delta_tif || outputFiles.future_delta_tif || null,
         messTif: outputFiles.mess_tif || outputFiles.future_mess_tif || null,
@@ -45,8 +45,8 @@ export function FutureProjectionPanel({ outputFiles, config }: FutureProjectionP
     if (future2Png || delta2Png) {
       found.push({
         label: (config?.future_label2 as string) || "Future climate 2",
-        futurePng: future2Png ? `/api/v1/results/file/${encodeURIComponent(future2Png)}` : null,
-        deltaPng: delta2Png ? `/api/v1/results/file/${encodeURIComponent(delta2Png)}` : null,
+        futurePng: future2Png ? `/api/v1/results/file/download?path=${encodeURIComponent(future2Png)}` : null,
+        deltaPng: delta2Png ? `/api/v1/results/file/download?path=${encodeURIComponent(delta2Png)}` : null,
         futureTif: outputFiles.future2_suitability_tif || null,
         deltaTif: outputFiles.future2_delta_tif || null,
         messTif: outputFiles.future2_mess_tif || null,
@@ -94,7 +94,7 @@ export function FutureProjectionPanel({ outputFiles, config }: FutureProjectionP
             <div className="px-4 py-2 border-t border-sdm-border flex items-center justify-between text-xs text-sdm-muted">
               <span>{scenario.label} — predicted suitability</span>
               {scenario.futureTif && (
-                <a href={`/api/v1/results/file/${encodeURIComponent(scenario.futureTif)}`} className="text-sdm-accent hover:underline">
+                <a href={`/api/v1/results/file/download?path=${encodeURIComponent(scenario.futureTif)}`} className="text-sdm-accent hover:underline">
                   Download GeoTIFF
                 </a>
               )}
@@ -108,7 +108,7 @@ export function FutureProjectionPanel({ outputFiles, config }: FutureProjectionP
             <div className="px-4 py-2 border-t border-sdm-border flex items-center justify-between text-xs text-sdm-muted">
               <span>{scenario.label} — suitability delta (future minus current)</span>
               {scenario.deltaTif && (
-                <a href={`/api/v1/results/file/${encodeURIComponent(scenario.deltaTif)}`} className="text-sdm-accent hover:underline">
+                <a href={`/api/v1/results/file/download?path=${encodeURIComponent(scenario.deltaTif)}`} className="text-sdm-accent hover:underline">
                   Download GeoTIFF
                 </a>
               )}
@@ -122,12 +122,12 @@ export function FutureProjectionPanel({ outputFiles, config }: FutureProjectionP
           <h3 className="text-sm font-semibold text-sdm-heading mb-2">Extrapolation diagnostics</h3>
           <div className="flex flex-wrap gap-3 text-xs text-sdm-muted">
             {scenario.messTif && (
-              <a href={`/api/v1/results/file/${encodeURIComponent(scenario.messTif)}`} className="text-sdm-accent hover:underline">
+              <a href={`/api/v1/results/file/download?path=${encodeURIComponent(scenario.messTif)}`} className="text-sdm-accent hover:underline">
                 MESS surface (TIFF)
               </a>
             )}
             {scenario.modTif && (
-              <a href={`/api/v1/results/file/${encodeURIComponent(scenario.modTif)}`} className="text-sdm-accent hover:underline">
+              <a href={`/api/v1/results/file/download?path=${encodeURIComponent(scenario.modTif)}`} className="text-sdm-accent hover:underline">
                 MOD surface (TIFF)
               </a>
             )}
