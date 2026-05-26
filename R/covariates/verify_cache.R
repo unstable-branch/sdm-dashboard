@@ -34,8 +34,8 @@ verify_worldclim_cache <- function(worldclim_dir = sdm_default_worldclim_dir, so
   for (bio in selected_biovars) {
     nm1 <- paste0("bio", bio)
     nm2 <- if (bio < 10) paste0("bio0", bio) else paste0("bio", bio)
-    pat1 <- paste0("_(", nm1, ")[^0-9]")
-    pat2 <- paste0("_(", nm2, ")[^0-9]")
+    pat1 <- paste0("_(", nm1, ")($|[^0-9])")
+    pat2 <- paste0("_(", nm2, ")($|[^0-9])")
     pat3 <- paste0("bio_", bio, "($|[^0-9])")
     matched <- c(
       all_files[grepl(pat1, basename(all_files), ignore.case = TRUE)],

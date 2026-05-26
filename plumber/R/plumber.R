@@ -916,11 +916,6 @@ function(req, job_id) {
     meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
     meta$error <- "Cancelled by user"
     writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
-
-    # Clean up partial output files
-    tryCatch({
-      unlink(job_dir, recursive = TRUE, force = TRUE)
-    }, error = function(e) NULL)
   }
 
   if (killed) {
