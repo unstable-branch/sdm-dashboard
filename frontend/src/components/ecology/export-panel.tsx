@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Download, FileText, Copy, Check } from "lucide-react";
+import { apiGet } from "@/services/api";
 
 interface ExportPanelProps {
   runId: string;
@@ -15,11 +16,8 @@ export function ExportPanel({ runId }: ExportPanelProps) {
   const fetchReport = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/ecology/${runId}/report`);
-      if (res.ok) {
-        const text = await res.text();
-        setReport(text);
-      }
+      const data = await apiGet<{ report: string }>(`/api/v1/ecology/${runId}/report`);
+      setReport(data.report);
     } catch {
     } finally {
       setLoading(false);
