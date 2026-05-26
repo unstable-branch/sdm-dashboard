@@ -193,6 +193,27 @@ export class PlumberClient {
     return res.json();
   }
 
+  async getClimateStatus(climateJobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/status/${climateJobId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get climate status: ${res.status}`);
+    return res.json();
+  }
+
+  async getClimateScenarios(): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/scenarios`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get climate scenarios: ${res.status}`);
+    return res.json();
+  }
+
+  async deleteClimateScenario(scenarioId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/delete/${scenarioId}`, {
+      method: "POST",
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to delete climate scenario: ${res.status}`);
+    return res.json();
+  }
+
   async getJobStatus(jobId: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/status/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);

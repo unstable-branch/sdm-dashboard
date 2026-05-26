@@ -39,6 +39,19 @@ function saveUpload(buffer: Buffer, originalName: string): { destPath: string; p
 async function writeUploadFile(destPath: string, buffer: Buffer): Promise<void> {
   await writeFile(destPath, buffer);
 }
+
+async function pollPlumberJob(jobId: string, timeoutMs = 240000): Promise<Record<string, unknown>> {
+  const maxPolls = Math.floor(timeoutMs / 2000);
+  for (let i = 0; i < maxPolls; i++) {
+    const status = await plumberClient.getJobStatus(jobId);
+    const s = status?.status as string;
+    if (s === "completed") return (status?.result as Record<string, unknown>) || status;
+    if (s === "failed") throw new Error((status?.error as string) || "Job failed");
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  throw new Error("Job timed out");
+}
+
 export const dataRoutes = new Hono<AppEnv>();
 
 dataRoutes.use("*", defaultRateLimit);
@@ -154,23 +167,10 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       return c.json(initial, 502);
     }
 
-    // Plumber now runs clean asynchronously — poll until complete
     const jobId = initial?.job_id as string | undefined;
     if (jobId) {
-      const maxPolls = 120;
-      const pollInterval = 2000;
-      for (let i = 0; i < maxPolls; i++) {
-        const status = await plumberClient.getJobStatus(jobId);
-        const s = status?.status as string;
-        if (s === "completed") {
-          return c.json(status?.result || status);
-        }
-        if (s === "failed") {
-          return c.json({ error: status?.error || "Clean job failed" }, 502);
-        }
-        await new Promise(r => setTimeout(r, pollInterval));
-      }
-      return c.json({ error: "Clean job timed out" }, 504);
+      const result = await pollPlumberJob(jobId);
+      return c.json(result);
     }
 
     return c.json(initial);
@@ -183,8 +183,15 @@ dataRoutes.post("/occurrences/clean", async (c) => {
 dataRoutes.post("/occurrences/gbif/search", gbifRateLimit, async (c) => {
   try {
     const body = await c.req.json();
-    const result = await plumberClient.searchGbif(body);
-    return c.json(result);
+    const initial = await plumberClient.searchGbif(body);
+
+    const jobId = initial?.job_id as string | undefined;
+    if (jobId) {
+      const result = await pollPlumberJob(jobId);
+      return c.json(result);
+    }
+
+    return c.json(initial);
   } catch (err) {
     const message = err instanceof Error ? err.message : "GBIF search failed";
     return c.json({ error: message }, 502);
@@ -202,7 +209,10 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
       return c.json({ error: "taxon is required" }, 400);
     }
 
-    const searchResult = await plumberClient.searchGbif({ taxon, country, max_records: maxRecords });
+    const initial = await plumberClient.searchGbif({ taxon, country, max_records: maxRecords });
+
+    const jobId = initial?.job_id as string | undefined;
+    const searchResult = jobId ? await pollPlumberJob(jobId) : initial;
     const filePath = searchResult.file_path as string | undefined;
     const nRecords = (searchResult.n_records as number) || 0;
 
@@ -249,9 +259,14 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const { destPath, pipelineRunId } = saveUpload(buffer, file.name);
+    await writeUploadFile(destPath, buffer);
     const user = c.get("user");
 
-    const result = await plumberClient.withUser(user.id).parseDwca({ file_id: destPath });
+    const initial = await plumberClient.withUser(user.id).parseDwca({ file_id: destPath });
+
+    const jobId = initial?.job_id as string | undefined;
+    const result = jobId ? await pollPlumberJob(jobId) : initial;
+
     const { ipAddress, userAgent } = extractClientInfo(c);
     logAction({
       userId: user.id,

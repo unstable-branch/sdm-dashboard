@@ -383,6 +383,10 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
   sdm_set_project_root(app_dir)
   source(file.path(app_dir, "R", "engine_load.R"))
 
+  # Load error code taxonomy (for error handler in run_sdm_async)
+  error_codes_path <- file.path(app_dir, "plumber", "R", "error_codes.R")
+  if (file.exists(error_codes_path)) source(error_codes_path)
+
   `%||%` <- function(a, b) if (is.null(a)) b else a
 
   # Resource tracking helpers
@@ -670,14 +674,14 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
       cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
     })
 
-    job_meta$status <<- "completed"
-    job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    job_meta$status <- "completed"
+    job_meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
     cpu_ms <- r_get_cpu_time_ms(proc.time() - cpu_start)
     peak_mb <- r_get_peak_memory_mb()
-    job_meta$r_cpu_time_ms <<- cpu_ms
-    job_meta$r_peak_memory_mb <<- peak_mb
+    job_meta$r_cpu_time_ms <- cpu_ms
+    job_meta$r_peak_memory_mb <- peak_mb
     if (!is.null(result)) {
-      job_meta$metrics <<- list(
+      job_meta$metrics <- list(
         auc_mean = result$cv$auc_mean,
         auc_sd = result$cv$auc_sd,
         tss_mean = result$cv$tss_mean,
@@ -687,26 +691,36 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
         elapsed_seconds = result$metrics$elapsed_seconds,
         high_suitability_area_km2 = result$summary$high_risk_area_km2
       )
-      job_meta$output_files <<- c(result$paths, diag_files)
+      job_meta$output_files <- c(result$paths, diag_files)
       manifest_path <- write_run_manifest(result, job_dir, body, biovars, projection_extent, cpu_ms, peak_mb, job_id)
-      job_meta$manifest_path <<- manifest_path
+      job_meta$manifest_path <- manifest_path
     }
     gc(verbose = FALSE)
     writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
   }, error = function(e) {
     err_msg <- conditionMessage(e)
     err_code <- tryCatch(sdm_classify_error(err_msg), error = function(ee) "INTERNAL_ERROR")
-    job_meta$status <<- "failed"
-    job_meta$error <<- err_msg
-    job_meta$error_code <<- err_code
-    job_meta$error_hint <<- SDM_ERR_CODES[[err_code]]$hint %||% NA_character_
-    job_meta$error_traceback <<- paste(utils::tail(traceback(), 10), collapse = "\n")
-    job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    cpu_ms <- r_get_cpu_time_ms(proc.time() - cpu_start)
-    peak_mb <- r_get_peak_memory_mb()
-    job_meta$r_cpu_time_ms <<- cpu_ms
-    job_meta$r_peak_memory_mb <<- peak_mb
-    writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
+    error_hint <- tryCatch(
+      { h <- SDM_ERR_CODES[[err_code]]$hint; if (is.null(h)) NA_character_ else h },
+      error = function(ee) NA_character_
+    )
+    cpu_ms <- tryCatch(r_get_cpu_time_ms(proc.time() - cpu_start), error = function(ee) NA_real_)
+    peak_mb <- tryCatch(r_get_peak_memory_mb(), error = function(ee) NA_real_)
+    err_meta <- list(
+      id = job_id,
+      status = "failed",
+      started_at = job_meta$started_at %||% format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+      config = as.list(body),
+      output_dir = job_dir,
+      error = err_msg,
+      error_code = err_code,
+      error_hint = error_hint,
+      error_traceback = paste(utils::tail(traceback(), 10), collapse = "\n"),
+      completed_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+      r_cpu_time_ms = cpu_ms,
+      r_peak_memory_mb = peak_mb
+    )
+    writeLines(jsonlite::toJSON(err_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
     cat("Run failed [", err_code, "]:", err_msg, "\n")
   })
 
@@ -1016,6 +1030,8 @@ sdm_async_submit <- function(job_type, params, app_dir, user_id = "anonymous") {
 
   input <- params
   input$type <- job_type
+  # Strip NULL entries — jsonlite toJSON with auto_unbox converts NULL to {} not null
+  input <- input[!sapply(input, is.null)]
   writeLines(jsonlite::toJSON(input, auto_unbox = TRUE, pretty = TRUE), file.path(job_dir, "input.json"))
 
   dispatcher_path <- file.path(app_dir, "plumber", "R", "async_dispatcher.R")
