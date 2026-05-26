@@ -140,7 +140,7 @@ save_diagnostic_plots <- function(result, job_dir, log_fun = NULL) {
     pres_suit <- result$fit$presence_suit
     bg_suit <- result$fit$background_suit
     if (is.null(pres_suit) || is.null(bg_suit)) {
-      return(NULL)
+      NULL
     }
     cbi_result <- continuous_boyce_index(pres_suit, bg_suit, n_bins = 51, win = 0.1)
     if (!is.null(cbi_result) && is.data.frame(cbi_result$bins) && nrow(cbi_result$bins) > 0) {
