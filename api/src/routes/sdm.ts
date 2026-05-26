@@ -11,6 +11,8 @@ import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
 import { join } from "path";
+import { readFileSync, writeFileSync } from "fs";
+import { decrypt } from "../services/encryption.js";
 
 type ModelConfigRecord = Record<string, unknown> & {
   species?: string;
@@ -23,20 +25,44 @@ type ModelConfigRecord = Record<string, unknown> & {
   cvFolds?: number;
 };
 
+function resolveEncryptedFile(filePath: string | undefined | null): string | null {
+  if (!filePath || !filePath.endsWith(".enc")) return filePath ?? null;
+  try {
+    const ciphertext = readFileSync(filePath);
+    const plaintext = decrypt(ciphertext);
+    const resolvedPath = filePath.replace(/\.enc$/, "");
+    writeFileSync(resolvedPath, plaintext);
+    return resolvedPath;
+  } catch {
+    return filePath;
+  }
+}
+
 function buildModelPayload(config: ModelConfigRecord, runId: string): Record<string, unknown> {
   const { biovars, projectionExtent, ...rest } = config;
+  const occurrenceFile = resolveEncryptedFile(config.cleanedFilePath || config.occurrenceFile);
+  const cleanedFile = resolveEncryptedFile(config.cleanedFilePath);
   return {
     ...rest,
     species: config.species,
     model_id: config.modelId,
-    occurrence_file: config.cleanedFilePath || config.occurrenceFile,
-    cleaned_file_id: config.cleanedFilePath || null,
+    occurrence_file: occurrenceFile,
+    cleaned_file_id: cleanedFile,
     biovars: Array.isArray(config.biovars) ? config.biovars.join(",") : "",
     projection_extent: Array.isArray(config.projectionExtent) ? config.projectionExtent.join(",") : "",
     output_dir: join("outputs", "jobs", runId),
   };
 }
 import type { AppEnv } from "../middleware/auth.js";
+
+function normalizeConfig(config: unknown): Record<string, unknown> | null {
+  if (!config || typeof config !== "object") return null;
+  const normalized = { ...(config as Record<string, unknown>) };
+  if (typeof normalized.projection_extent === "string") {
+    normalized.projectionExtent = normalized.projection_extent.split(",").map(Number);
+  }
+  return normalized;
+}
 
 export const sdmRoutes = new Hono<AppEnv>();
 
@@ -377,7 +403,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
             r_cpu_time_ms: (plumberStatus as any).r_cpu_time_ms ?? null,
             r_peak_memory_mb: (plumberStatus as any).r_peak_memory_mb ?? null,
             progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
-            config: run.config,
+            config: normalizeConfig(run.config),
           });
         }
 
@@ -392,7 +418,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
           metrics: null,
           output_files: null,
           progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
-          config: run.config,
+          config: normalizeConfig(run.config),
         });
       } catch {
         return c.json({
@@ -406,7 +432,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
           metrics: null,
           output_files: null,
           progress_log: [],
-          config: run.config,
+          config: normalizeConfig(run.config),
         });
       }
     }
@@ -424,7 +450,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       metrics: run.metrics ?? null,
       output_files: run.outputFiles ?? null,
       progress_log: [],
-      config: run.config,
+      config: normalizeConfig(run.config),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get status";
@@ -466,7 +492,7 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
     }
 
     if (run.jobId) {
-      const result = await plumberClient.cancelModel(run.jobId);
+      const result = await plumberClient.cancelModelRun(run.jobId);
       await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, jobId));
       return c.json(result);
     }
@@ -521,7 +547,7 @@ sdmRoutes.post("/cancel-all", async (c) => {
         }
 
         if (run.jobId) {
-          await plumberClient.cancelModel(run.jobId).catch(() => {});
+          await plumberClient.cancelModelRun(run.jobId).catch(() => {});
         }
 
         await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, run.id));

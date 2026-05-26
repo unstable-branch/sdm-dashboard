@@ -43,14 +43,28 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, log_fun = NULL) {
       # Project to equal-area for area calculation
       # Use appropriate UTM zone based on centroid
       centroid <- sf::st_coordinates(sf::st_centroid(hull))
-      utm_zone <- min(max(floor((centroid[1] + 180) / 6) + 1, 1), 60)
-      utm_crs <- sf::st_crs(paste0("+proj=utm +zone=", utm_zone, " +datum=WGS84 +units=m"))
+      if (is.finite(centroid[1])) {
+        utm_zone <- min(max(floor((centroid[1] + 180) / 6) + 1, 1), 60)
+        utm_crs <- sf::st_crs(paste0("+proj=utm +zone=", utm_zone, " +datum=WGS84 +units=m"))
+        zone_label <- paste("UTM zone", utm_zone)
+      } else {
+        lon <- if (is.finite(centroid[1])) centroid[1] else 0
+        lat <- if (is.finite(centroid[2])) centroid[2] else 0
+        utm_crs <- sf::st_crs(paste0("+proj=laea +lon_0=", lon, " +lat_0=", lat, " +datum=WGS84 +units=m"))
+        zone_label <- "LAEA fallback"
+      }
 
       hull_proj <- sf::st_transform(hull, utm_crs)
       area_km2 <- as.numeric(sf::st_area(hull_proj)) / 1e6  # m2 to km2
 
-      log_message(log_fun, "  EOO: ", sprintf("%.1f km2", area_km2), " (MCP, UTM zone ", utm_zone, ")")
-      area_km2
+      # Detect degenerate hull (zero or near-zero area from collinear points)
+      if (is.na(area_km2) || area_km2 < 1e-6) {
+        log_message(log_fun, "  EOO: degenerate hull (points may be collinear)")
+        NA_real_
+      } else {
+        log_message(log_fun, "  EOO: ", sprintf("%.1f km2", area_km2), " (MCP, ", zone_label, ")")
+        area_km2
+      }
     }, error = function(e) {
       log_message(log_fun, "  EOO computation failed: ", conditionMessage(e))
       NA_real_
@@ -67,8 +81,14 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, log_fun = NULL) {
 
     # Project to equal-area for grid
     centroid <- sf::st_coordinates(sf::st_centroid(sf::st_union(pts_sf)))
-    utm_zone <- floor((centroid[1] + 180) / 6) + 1
-    utm_crs <- sf::st_crs(paste0("+proj=utm +zone=", utm_zone, " +datum=WGS84 +units=m"))
+    if (is.finite(centroid[1])) {
+      utm_zone <- floor((centroid[1] + 180) / 6) + 1
+      utm_crs <- sf::st_crs(paste0("+proj=utm +zone=", utm_zone, " +datum=WGS84 +units=m"))
+    } else {
+      lon <- if (is.finite(centroid[1])) centroid[1] else 0
+      lat <- if (is.finite(centroid[2])) centroid[2] else 0
+      utm_crs <- sf::st_crs(paste0("+proj=laea +lon_0=", lon, " +lat_0=", lat, " +datum=WGS84 +units=m"))
+    }
     pts_proj <- sf::st_transform(pts_sf, utm_crs)
 
     bbox <- sf::st_bbox(pts_proj)

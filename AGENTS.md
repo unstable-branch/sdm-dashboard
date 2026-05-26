@@ -162,6 +162,7 @@ Services start in dependency order:
 3. **garage** — S3-compatible storage, port 3900 (profile: `storage`)
 4. **mailpit** — Email inspector, port 5000 UI / 2525 SMTP (profile: `email`)
 5. **plumber** — R/Plumber API, port 8000, requires `PLUMBER_INTERNAL_KEY` (profile: `computation`)
+6. **titiler** — FastAPI/rio-tiler dynamic tile server, port 9000 (maps 8000 internal), reads COGs from shared `./outputs:/data/outputs:ro` volume (profile: `computation`)
 6. **api** — Hono BFF, port 4000, proxies to plumber, manages auth (profile: `proxy`)
 7. **frontend** — Next.js 15, port 3000 (profile: `proxy`)
 
