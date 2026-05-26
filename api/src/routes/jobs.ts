@@ -45,6 +45,7 @@ app.get("/sse", (c) => {
         event: "job-update",
         data: JSON.stringify({
           id: event.jobId,
+          type: "sdm_model",
           state: event.state,
           progress: event.progress,
           logs: event.logs,

@@ -184,7 +184,8 @@ const server = serve(
   (info) => {
     console.log(`SDM API server running on http://${info.address}:${info.port}`);
     console.log(`HTTP server listening on port ${info.port}`);
-    console.log(`WebSocket available at ws://${info.address}:${info.port}/ws`);
+    const wsProto = process.env.NODE_ENV === "production" ? "wss" : "ws";
+    console.log(`WebSocket available at ${wsProto}://${info.address}:${info.port}/ws`);
   }
 );
 

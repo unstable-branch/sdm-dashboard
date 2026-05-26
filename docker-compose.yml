@@ -68,8 +68,6 @@ services:
     build:
       context: .
       dockerfile: plumber/Dockerfile
-    ports:
-      - "8000:8000"
     volumes:
       - plumber-data:/app/data
       - upload-data:/app/data/uploads
