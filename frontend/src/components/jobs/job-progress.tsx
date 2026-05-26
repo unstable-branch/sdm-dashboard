@@ -69,7 +69,9 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
       await apiPost(`/api/v1/sdm/cancel/${jobId}`);
       setShowCancelConfirm(false);
       onCancel?.();
-    } catch {
+    } catch (err) {
+      console.error("[cancel] Failed to cancel job:", err);
+      setShowCancelConfirm(false);
     } finally {
       setCancelling(false);
     }

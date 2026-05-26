@@ -4,6 +4,16 @@ import { runs } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { extractProgressPercent } from "@sdm/shared";
+import { readFile } from "fs/promises";
+import { readFileSync, writeFileSync, rmSync, existsSync, readdirSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join, resolve, extname } from "path";
+import { uploadFile, getBucketNames } from "./storage.js";
+import { encrypt } from "./encryption.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const PROJECT_ROOT = resolve(__dirname, "../../..");
 
 const client = new PlumberClient();
 let _syncInterval: ReturnType<typeof setInterval> | null = null;
@@ -155,6 +165,20 @@ async function syncRunningJobs() {
             })
             .where(eq(runs.id, run.id));
 
+          // Upload the 3857 COG to Garage S3 for TiTiler serving
+          const tif3857Path = (status as any)?.output_files?.tif_3857;
+          if (tif3857Path) {
+            uploadCogToGarage(tif3857Path, run.id).catch((err) => {
+              console.warn(`[Garage] Failed to upload COG for run ${run.id}:`, err instanceof Error ? err.message : err);
+            });
+          }
+
+          // Encrypt output files at rest
+          if (run.jobId) {
+            const jobDir = join(PROJECT_ROOT, "outputs", "jobs", run.jobId);
+            encryptOutputs(jobDir);
+          }
+
           jobEventBus.emitJobStatus({
             jobId: run.id,
             state: "completed",
@@ -279,6 +303,46 @@ async function syncRunningJobs() {
     console.error("[plumber-sync] Sync error:", err instanceof Error ? err.message : err);
   } finally {
     _running = false;
+  }
+}
+
+async function uploadCogToGarage(containerPath: string, runId: string): Promise<void> {
+  let hostPath = containerPath;
+  if (hostPath.startsWith("/app/")) {
+    hostPath = join(PROJECT_ROOT, hostPath.slice(5));
+  }
+  const data = await readFile(hostPath);
+  const { rasters } = getBucketNames();
+  const objectName = `runs/${runId}/suitability_3857.tif`;
+  await uploadFile(rasters, objectName, data, "image/tiff");
+  console.log(`[Garage] Uploaded COG for run ${runId}: runs/${runId}/suitability_3857.tif`);
+}
+
+const ENCRYPTABLE_EXTENSIONS = new Set([
+  ".tif", ".tiff", ".csv", ".json", ".png", ".rds", ".txt",
+]);
+
+function encryptOutputs(jobDir: string) {
+  let files: string[];
+  try {
+    files = readdirSync(jobDir);
+  } catch {
+    return;
+  }
+  for (const f of files) {
+    const ext = extname(f).toLowerCase();
+    if (!ENCRYPTABLE_EXTENSIONS.has(ext)) continue;
+    const fp = join(jobDir, f);
+    const encPath = fp + ".enc";
+    if (existsSync(encPath)) continue;
+    try {
+      const data = readFileSync(fp);
+      const encrypted = encrypt(data);
+      writeFileSync(encPath, encrypted);
+      rmSync(fp);
+    } catch (err) {
+      console.warn(`[encrypt] Failed to encrypt ${fp}:`, err);
+    }
   }
 }
 
