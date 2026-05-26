@@ -13,11 +13,6 @@ export const csrfMiddleware = createMiddleware(async (c, next) => {
     return;
   }
 
-  if (c.req.header("X-Requested-With")) {
-    await next();
-    return;
-  }
-
   const origin = c.req.header("Origin");
   const referer = c.req.header("Referer");
   const host = c.req.header("Host") || c.req.header("x-forwarded-host");
@@ -46,7 +41,7 @@ export const csrfMiddleware = createMiddleware(async (c, next) => {
     }
   }
 
-  const token = c.req.header("X-CSRF-Token") || c.req.header("X-Requested-With");
+  const token = c.req.header("X-CSRF-Token");
   if (!token) {
     return c.json({ error: "CSRF validation failed: missing token" }, 403);
   }

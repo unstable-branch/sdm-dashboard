@@ -44,7 +44,7 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, log_fun = NULL) {
       # Use appropriate UTM zone based on centroid
       centroid <- sf::st_coordinates(sf::st_centroid(hull))
       utm_zone <- floor((centroid[1] + 180) / 6) + 1
-      utm_crs <- sf::st_crs(paste0("+proj=utm +zone=", utm_zone, " +datum=WGS84 +units=km"))
+      utm_crs <- sf::st_crs(paste0("+proj=utm +zone=", utm_zone, " +datum=WGS84 +units=m"))
 
       hull_proj <- sf::st_transform(hull, utm_crs)
       area_km2 <- as.numeric(sf::st_area(hull_proj)) / 1e6  # m2 to km2

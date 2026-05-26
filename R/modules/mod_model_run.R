@@ -45,71 +45,68 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
       })
     })
 
-    # Single polling observer — created once, reacts to bg_state$active
-    observeEvent(bg_state$active, {
-      if (!bg_state$active || is.null(bg_state$process)) return()
-      poll_timer <- reactiveTimer(500, session)
-      observe({
-        poll_timer()
+    # Single polling observer — created once, uses invalidateLater for polling
+    observe({
+      req(bg_state$active, bg_state$process)
+      invalidateLater(500, session)
 
-        # Timeout watchdog: kill process if running too long
-        if (!is.null(bg_state$start_time)) {
-          elapsed <- as.numeric(difftime(Sys.time(), bg_state$start_time, units = "secs"))
-          if (elapsed > 7200) {
-            bg_state$process$kill()
-            rv$error <- "Model run timed out after 2 hours."
-            append_log(rv$error)
-            rv$running <- FALSE
-            bg_state$active <- FALSE
-            if (!is.null(bg_state$progress)) bg_state$progress$close()
-            unlink(c(bg_state$result_file, bg_state$log_file))
-            return()
-          }
-        }
-
-        if (!bg_state$process$is_alive()) {
-          if (!is.null(bg_state$progress)) bg_state$progress$close()
-          exit_status <- bg_state$process$get_exit_status()
-          if (file.exists(bg_state$log_file)) {
-            log_lines <- tryCatch(readLines(bg_state$log_file, warn = FALSE), error = function(e) character(0))
-            if (length(log_lines) > bg_state$last_log_lines) {
-              append_log(paste(log_lines[(bg_state$last_log_lines + 1):length(log_lines)], collapse = "\n"))
-            }
-          }
-          if (exit_status == 0 && file.exists(bg_state$result_file)) {
-            result <- tryCatch(readRDS(bg_state$result_file), error = function(e) {
-              rv$error <- paste("Failed to read model result:", conditionMessage(e))
-              NULL
-            })
-            if (!is.null(result)) {
-              rv$result <- result
-              store_past_run(rv, result)
-            }
-            append_log("Model run completed.")
-          } else {
-            stderr_text <- tryCatch(bg_state$process$read_error(), error = function(e) "")
-            rv$error <- paste0("Model run failed (exit ", exit_status, "): ", stderr_text)
-            append_log(rv$error)
-          }
+      # Timeout watchdog: kill process if running too long
+      if (!is.null(bg_state$start_time)) {
+        elapsed <- as.numeric(difftime(Sys.time(), bg_state$start_time, units = "secs"))
+        if (elapsed > 7200) {
+          bg_state$process$kill()
+          rv$error <- "Model run timed out after 2 hours."
+          append_log(rv$error)
           rv$running <- FALSE
           bg_state$active <- FALSE
+          if (!is.null(bg_state$progress)) bg_state$progress$close()
           unlink(c(bg_state$result_file, bg_state$log_file))
-          message("SDM: Model run finished")
-        } else {
-          if (file.exists(bg_state$log_file)) {
-            log_lines <- tryCatch(readLines(bg_state$log_file, warn = FALSE), error = function(e) character(0))
-            if (length(log_lines) > bg_state$last_log_lines) {
-              new_lines <- log_lines[(bg_state$last_log_lines + 1):length(log_lines)]
-              append_log(paste(new_lines, collapse = "\n"))
-              bg_state$last_log_lines <- length(log_lines)
-            }
-          }
-          if (!is.null(bg_state$progress)) {
-            bg_state$progress$inc(0.02)
+          return()
+        }
+      }
+
+      if (!bg_state$process$is_alive()) {
+        if (!is.null(bg_state$progress)) bg_state$progress$close()
+        exit_status <- bg_state$process$get_exit_status()
+        if (file.exists(bg_state$log_file)) {
+          log_lines <- tryCatch(readLines(bg_state$log_file, warn = FALSE), error = function(e) character(0))
+          if (length(log_lines) > bg_state$last_log_lines) {
+            append_log(paste(log_lines[(bg_state$last_log_lines + 1):length(log_lines)], collapse = "\n"))
           }
         }
-      }, label = "sdm_bg_poll")
-    })
+        if (exit_status == 0 && file.exists(bg_state$result_file)) {
+          result <- tryCatch(readRDS(bg_state$result_file), error = function(e) {
+            rv$error <- paste("Failed to read model result:", conditionMessage(e))
+            NULL
+          })
+          if (!is.null(result)) {
+            rv$result <- result
+            store_past_run(rv, result)
+          }
+          append_log("Model run completed.")
+        } else {
+          stderr_text <- tryCatch(bg_state$process$read_error(), error = function(e) "")
+          rv$error <- paste0("Model run failed (exit ", exit_status, "): ", stderr_text)
+          append_log(rv$error)
+        }
+        rv$running <- FALSE
+        bg_state$active <- FALSE
+        unlink(c(bg_state$result_file, bg_state$log_file))
+        message("SDM: Model run finished")
+      } else {
+        if (file.exists(bg_state$log_file)) {
+          log_lines <- tryCatch(readLines(bg_state$log_file, warn = FALSE), error = function(e) character(0))
+          if (length(log_lines) > bg_state$last_log_lines) {
+            new_lines <- log_lines[(bg_state$last_log_lines + 1):length(log_lines)]
+            append_log(paste(new_lines, collapse = "\n"))
+            bg_state$last_log_lines <- length(log_lines)
+          }
+        }
+        if (!is.null(bg_state$progress)) {
+          bg_state$progress$inc(0.02)
+        }
+      }
+    }, label = "sdm_bg_poll")
 
     observeEvent(input$run_model, {
       message("SDM: Run SDM button clicked")
