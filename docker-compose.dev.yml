@@ -104,6 +104,23 @@ services:
     networks:
       - sdm-network
 
+  titiler:
+    profiles: ["computation", "all"]
+    image: ghcr.io/developmentseed/titiler:latest
+    ports:
+      - "9000:8000"
+    volumes:
+      - ./outputs:/data/outputs:ro
+    command: >
+      uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 2
+    environment:
+      - HOST=0.0.0.0
+      - TITILER_API_PORT=8000
+      # S3 credentials for future Garage integration (requires boto3 in TiTiler image)
+    networks:
+      - sdm-network
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   redis-data:

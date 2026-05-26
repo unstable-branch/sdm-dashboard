@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, doublePrecision, jsonb, boolean, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, integer, doublePrecision, jsonb, boolean, bigint, pgEnum, index } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 const statusEnum = pgEnum("run_status", ["queued", "running", "completed", "failed", "cancelled"]);
@@ -16,6 +16,8 @@ export const users = pgTable("users", {
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
   lastLoginAt: timestamp("last_login_at"),
+  storageQuotaBytes: bigint("storage_quota_bytes", { mode: "number" }),
+  storageUsedBytes: bigint("storage_used_bytes", { mode: "number" }).notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -214,6 +216,25 @@ export const occurrencesRelations = relations(occurrences, ({ one }) => ({
 
 export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
   user: one(users, { fields: [auditLogs.userId], references: [users.id] }),
+}));
+
+export const uploadedFiles = pgTable("uploaded_files", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  filePath: text("file_path").notNull(),
+  originalName: text("original_name").notNull(),
+  fileSize: bigint("file_size", { mode: "number" }).notNull(),
+  nRows: integer("n_rows"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_uploaded_files_user").on(t.userId),
+  index("idx_uploaded_files_project").on(t.projectId),
+]);
+
+export const uploadedFilesRelations = relations(uploadedFiles, ({ one }) => ({
+  user: one(users, { fields: [uploadedFiles.userId], references: [users.id] }),
+  project: one(projects, { fields: [uploadedFiles.projectId], references: [projects.id] }),
 }));
 
 export const systemSettingsRelations = relations(systemSettings, ({ one }) => ({

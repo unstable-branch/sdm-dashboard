@@ -387,6 +387,13 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
   error_codes_path <- file.path(app_dir, "plumber", "R", "error_codes.R")
   if (file.exists(error_codes_path)) source(error_codes_path)
 
+  # Resolve occurrence_file path: accept both container paths (/app/data/uploads/...)
+  # and host paths (/home/jacob/.../data/uploads/...)
+  if (!is.null(body$occurrence_file) && nzchar(body$occurrence_file) && !file.exists(body$occurrence_file)) {
+    alt_path <- file.path(app_dir, "data", "uploads", basename(body$occurrence_file))
+    if (file.exists(alt_path)) body$occurrence_file <- alt_path
+  }
+
   `%||%` <- function(a, b) if (is.null(a)) b else a
 
   # Resource tracking helpers
@@ -691,6 +698,25 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
         elapsed_seconds = result$metrics$elapsed_seconds,
         high_suitability_area_km2 = result$summary$high_risk_area_km2
       )
+      # Write EPSG:3857 COG for web map display
+      if (!is.null(result$paths$tif) && !is.null(result$suitability)) {
+        tif_3857_path <- sub("_suitability\\.tif$", "_3857.tif", result$paths$tif)
+        tryCatch({
+          r_3857 <- terra::project(result$suitability, "EPSG:3857", method = "bilinear")
+          terra::writeRaster(r_3857, tif_3857_path,
+            filetype = "COG",
+            gdal = c("COMPRESS=LZW", "BLOCKSIZE=512",
+                     "OVERVIEWS=AUTO", "OVERVIEW_RESAMPLING=BILINEAR",
+                     "NODATA=-9999"),
+            overwrite = TRUE
+          )
+          result$paths$tif_3857 <- tif_3857_path
+          log_fun("Written EPSG:3857 COG: ", tif_3857_path)
+        }, error = function(e) {
+          cat("EPSG:3857 COG failed:", conditionMessage(e), "\n")
+          cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
+        })
+      }
       job_meta$output_files <- c(result$paths, diag_files)
       manifest_path <- write_run_manifest(result, job_dir, body, biovars, projection_extent, cpu_ms, peak_mb, job_id)
       job_meta$manifest_path <- manifest_path
