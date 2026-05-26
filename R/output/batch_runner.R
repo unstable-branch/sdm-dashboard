@@ -263,10 +263,10 @@ batch_run_parallel <- function(species_configs,
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
   if (n_cores == 1) {
-    future::plan(future::sequential, .skip = TRUE)
+    future::plan(future::sequential)
     message("[batch] Using sequential execution (n_cores = 1)")
   } else {
-    future::plan(future::multisession, workers = n_cores, .skip = TRUE)
+    future::plan(future::multisession, workers = n_cores)
     message("[batch] Using parallel execution with ", n_cores, " workers")
   }
 

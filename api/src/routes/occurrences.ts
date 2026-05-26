@@ -58,12 +58,26 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
+
+    // Basic file type validation via magic bytes
+    const isZip = buffer.length > 4 && buffer[0] === 0x50 && buffer[1] === 0x4B && buffer[2] === 0x03 && buffer[3] === 0x04;
+    const isCsv = file.name.toLowerCase().endsWith(".csv") || file.name.toLowerCase().endsWith(".tsv") || file.name.toLowerCase().endsWith(".txt");
+    const isZipExt = file.name.toLowerCase().endsWith(".zip");
+    if (!isCsv && !isZipExt) {
+      return c.json({ error: "Unsupported file type. Accepted: .csv, .tsv, .txt, .zip (Darwin Core Archive)" }, 400);
+    }
+    if (isZipExt && !isZip) {
+      return c.json({ error: "File extension is .zip but file is not a valid ZIP archive" }, 400);
+    }
+    if (isCsv && isZip) {
+      return c.json({ error: "File appears to be a ZIP archive but extension is not .zip" }, 400);
+    }
+
     const { destPath, pipelineRunId } = saveUpload(buffer, file.name);
     await writeUploadFile(destPath, buffer);
     const user = c.get("user");
 
     // Quick CSV header validation before sending to Plumber
-    const isCsv = !file.name.toLowerCase().endsWith(".zip");
     if (isCsv) {
       let rawHeader = buffer.toString("utf-8");
       // Strip UTF-8 BOM
