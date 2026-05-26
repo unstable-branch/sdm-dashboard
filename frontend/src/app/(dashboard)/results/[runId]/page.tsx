@@ -48,10 +48,16 @@ export default function ResultsPage() {
           .then((res) => res.ok ? res.text() : null)
           .then((text) => setReportText(text))
           .catch(() => {});
-        fetch(`/api/v1/results/${runId}/manifest`)
-          .then((res) => res.ok ? res.json() : null)
-          .then((m) => setManifest(m?.manifest || null))
-          .catch(() => {});
+        // Use provenance from the status endpoint directly; fall back
+        // to a separate manifest fetch if it's not populated yet.
+        if (data.provenance) {
+          setManifest(data.provenance as Record<string, unknown>);
+        } else {
+          fetch(`/api/v1/results/${runId}/manifest`)
+            .then((res) => res.ok ? res.json() : null)
+            .then((m) => setManifest(m?.manifest || null))
+            .catch(() => {});
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load run");
@@ -172,7 +178,7 @@ export default function ResultsPage() {
             </TabsList>
 
             <TabsContent value="map">
-              <SuitabilityMap outputFiles={run.output_files} />
+              <SuitabilityMap outputFiles={run.output_files} projectionExtent={(run.config?.projectionExtent as number[]) ?? null} />
             </TabsContent>
 
             <TabsContent value="diagnostics">
