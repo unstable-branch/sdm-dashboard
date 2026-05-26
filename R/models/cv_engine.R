@@ -8,6 +8,13 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
                                  cluster_exports = NULL,
                                  fold_id = NULL,
                                  log_fun = NULL) {
+  if (is.null(model_data) || nrow(model_data) == 0) {
+    return(list(
+      k = 0, strategy = "none", auc_mean = NA_real_, auc_sd = NA_real_,
+      tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
+      fold_metrics = data.frame(), fold_sizes = data.frame()
+    ))
+  }
   k <- as.integer(k)
   cv_strategy <- normalize_cv_strategy(cv_strategy)
   threshold <- normalize_threshold(threshold)
