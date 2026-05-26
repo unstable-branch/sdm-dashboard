@@ -56,6 +56,33 @@ app.get("/sse", (c) => {
     };
     jobEventBus.on("jobStatus", handler);
 
+    // Send initial state: active runs from DB (catches jobs that missed early SSE events)
+    try {
+      const conditions = myProjectIds
+        ? and(inArray(runs.projectId, myProjectIds), inArray(runs.status, ["queued", "running"]))
+        : inArray(runs.status, ["queued", "running"]);
+      const activeRuns = await db
+        .select({ id: runs.id, status: runs.status })
+        .from(runs)
+        .where(conditions)
+        .limit(20);
+
+      for (const run of activeRuns) {
+        stream.writeSSE({
+          event: "job-update",
+          data: JSON.stringify({
+            id: run.id,
+            type: "sdm_model",
+            state: run.status,
+            progress: 0,
+            logs: ["Model run in progress..."],
+          }),
+        }).catch(() => {});
+      }
+    } catch {
+      // Best-effort — initial state is non-critical
+    }
+
     try {
       while (!aborted && !stream.closed) {
         try {

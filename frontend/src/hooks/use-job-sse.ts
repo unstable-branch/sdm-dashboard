@@ -79,7 +79,33 @@ export function useJobSSE(enabled = true) {
       }
     });
 
-    es.onopen = () => setConnected(true);
+    es.onopen = () => {
+      setConnected(true);
+      // Fetch active runs as initial state — catches jobs that emitted events before SSE connected
+      fetch("/api/v1/sdm/runs?status=running&limit=10")
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          if (data?.runs) {
+            const now = Date.now();
+            const map = new Map(jobsRef.current);
+            for (const run of data.runs) {
+              if (!map.has(run.id)) {
+                map.set(run.id, {
+                  id: run.id,
+                  state: "active",
+                  progress: 0,
+                  type: "sdm_model",
+                  logs: ["Model run in progress..."],
+                  _receivedAt: now,
+                });
+              }
+            }
+            jobsRef.current = map;
+            setJobs(new Map(map));
+          }
+        })
+        .catch(() => {});
+    };
     es.onerror = () => setConnected(false);
 
     return es;
