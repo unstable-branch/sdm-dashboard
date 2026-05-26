@@ -51,7 +51,7 @@ tryCatch({
 
   source(file.path(app_dir, "R", "core", "bootstrap.R"))
   sdm_set_project_root(app_dir)
-  source(file.path(app_dir, "R", "load.R"))
+  source(file.path(app_dir, "R", "engine_load.R"))
 
   if (download_type %in% c("cmip6", "cmip6_average")) {
     gcm <- config$gcm %||% "UKESM1-0-LL"
