@@ -25,7 +25,7 @@ job_dir <- args[2]
 # Source project infrastructure
 source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
-source(file.path(app_dir, "R", "load.R"))
+source(file.path(app_dir, "R", "engine_load.R"))
 
 input_file <- file.path(job_dir, "input.json")
 result_file <- file.path(job_dir, "result.json")
