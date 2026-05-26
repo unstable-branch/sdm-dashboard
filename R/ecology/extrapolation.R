@@ -5,7 +5,7 @@ compute_mess <- function(env_train, env_proj) {
   stopifnot("env_train must be SpatRaster or data.frame" = inherits(env_train, "SpatRaster") || is.data.frame(env_train))
   stopifnot("env_proj must be SpatRaster" = inherits(env_proj, "SpatRaster"))
 
-  train_vars <- if (is.data.frame(env_train)) names(env_train) else names(env_train)
+  train_vars <- names(env_train)
   proj_vars <- names(env_proj)
 
   if (!identical(sort(train_vars), sort(proj_vars))) {

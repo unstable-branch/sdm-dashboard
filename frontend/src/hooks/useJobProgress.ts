@@ -13,14 +13,19 @@ export interface JobProgress {
 export function useJobProgress(jobId: string | null) {
   const [job, setJob] = useState<JobProgress | null>(null);
   const [connected, setConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchedRef = useRef(false);
+  const jobIdRef = useRef(jobId);
+
+  useEffect(() => { jobIdRef.current = jobId; }, [jobId]);
 
   // Fetch initial job status via REST API
   useEffect(() => {
     if (!jobId || fetchedRef.current) return;
     fetchedRef.current = true;
+    setError(null);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -40,7 +45,7 @@ export function useJobProgress(jobId: string | null) {
           failedReason: data.failedReason as string | undefined,
         });
       })
-      .catch(() => {})
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to fetch job status"))
       .finally(() => clearTimeout(timeoutId));
 
     return () => clearTimeout(timeoutId);
@@ -92,7 +97,7 @@ export function useJobProgress(jobId: string | null) {
       setConnected(false);
       if (jobId) {
         reconnectTimeoutRef.current = setTimeout(() => {
-          connect();
+          if (jobIdRef.current === jobId) connect();
         }, 5000);
       }
     };
