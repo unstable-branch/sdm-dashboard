@@ -30,8 +30,8 @@ function resolveResultFilePath(filePath: string): { fullPath: string; runId: str
   return { fullPath, runId };
 }
 
-resultsRoutes.get("/file/:filePath", async (c) => {
-  const filePath = decodeURIComponent(c.req.param("filePath"));
+resultsRoutes.get("/file/*filePath", async (c) => {
+  const filePath = decodeURIComponent(c.req.param("filePath") || "");
   const resolved = resolveResultFilePath(filePath);
 
   if (!resolved) {
