@@ -77,8 +77,24 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
     }
   }, [jobId, onCancel]);
 
-  if (!jobId || !job || dismissed) {
+  if (!jobId || dismissed) {
     return null;
+  }
+
+  // Show connecting state while waiting for first SSE event
+  if (!job) {
+    return (
+      <div className={cn("rounded-lg border bg-sdm-surface p-4 space-y-3")}>
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 text-sdm-accent animate-spin" />
+          <span className="text-sm text-sdm-text">Model run submitted — waiting for progress...</span>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-sdm-muted">
+          <span>{formatElapsed(elapsed)}</span>
+          <span>{connected ? "Connected" : "Connecting..."}</span>
+        </div>
+      </div>
+    );
   }
 
   const isTerminal = job.state === "completed" || job.state === "failed" || job.state === "cancelled";
