@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Loader2, BarChart3 } from "lucide-react";
 import { apiGet } from "@/services/api";
+import type { RunDetail } from "@/services/types";
 
 interface RunSummary {
   id: string;
@@ -31,7 +32,7 @@ export function RunComparison({ runs }: RunComparisonProps) {
       await Promise.all(
         completedRuns.map(async (r) => {
           try {
-            const full = await apiGet<Record<string, unknown>>(`/api/v1/sdm/status/${r.id}`);
+            const full = await apiGet<RunDetail>(`/api/v1/sdm/status/${r.id}`);
             details[r.id] = { ...r, config: full.config };
           } catch {
             details[r.id] = r;

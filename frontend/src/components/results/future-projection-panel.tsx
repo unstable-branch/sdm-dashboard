@@ -33,10 +33,10 @@ export function FutureProjectionPanel({ outputFiles, config }: FutureProjectionP
         label: (config?.future_label as string) || "Future climate",
         futurePng: futurePng ? `/api/v1/results/file/${encodeURIComponent(futurePng)}` : null,
         deltaPng: deltaPng ? `/api/v1/results/file/${encodeURIComponent(deltaPng)}` : null,
-        futureTif: outputFiles.future_suitability_tif || null,
-        deltaTif: outputFiles.future_delta_tif || null,
-        messTif: outputFiles.future_mess_tif || null,
-        modTif: outputFiles.future_mod_tif || null,
+        futureTif: outputFiles.future_tif || outputFiles.future_suitability_tif || null,
+        deltaTif: outputFiles.delta_tif || outputFiles.future_delta_tif || null,
+        messTif: outputFiles.mess_tif || outputFiles.future_mess_tif || null,
+        modTif: outputFiles.mod_tif || outputFiles.future_mod_tif || null,
       });
     }
 
