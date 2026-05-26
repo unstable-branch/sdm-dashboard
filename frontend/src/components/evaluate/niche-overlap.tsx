@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, Legend } from "recharts";
 import { Loader2, GitCompare } from "lucide-react";
+import { apiPost } from "@/services/api";
 
 interface RunOption {
   id: string;
@@ -43,18 +44,7 @@ export function NicheOverlap({ runs }: NicheOverlapProps) {
     setResult(null);
 
     try {
-      const res = await fetch("/api/v1/ecology/niche-overlap", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ run_id_1: run1, run_id_2: run2 }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Niche overlap computation failed");
-      }
-
-      const data = await res.json();
+      const data = await apiPost<{ job_id: string; status: string }>("/api/v1/ecology/niche-overlap", { run_id_1: run1, run_id_2: run2 });
       setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
