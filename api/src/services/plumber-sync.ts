@@ -318,8 +318,11 @@ async function uploadCogToGarage(containerPath: string, runId: string): Promise<
   console.log(`[Garage] Uploaded COG for run ${runId}: runs/${runId}/suitability_3857.tif`);
 }
 
+// Do NOT encrypt metadata files (.json, .rds, .txt) — Plumber's own
+// diagnostics and status endpoints need to read these as plaintext.
+// Only encrypt raw spatial/output data files.
 const ENCRYPTABLE_EXTENSIONS = new Set([
-  ".tif", ".tiff", ".csv", ".json", ".png", ".rds", ".txt",
+  ".tif", ".tiff", ".csv", ".png",
 ]);
 
 function encryptOutputs(jobDir: string) {
