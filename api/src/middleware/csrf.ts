@@ -2,6 +2,11 @@ import { createMiddleware } from "hono/factory";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+function getKnownOrigins(): string[] {
+  const raw = process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:3000";
+  return raw.split(",").map(s => s.trim()).filter(Boolean);
+}
+
 export const csrfMiddleware = createMiddleware(async (c, next) => {
   if (SAFE_METHODS.has(c.req.method)) {
     await next();
@@ -19,6 +24,20 @@ export const csrfMiddleware = createMiddleware(async (c, next) => {
 
   if (!origin && !referer) {
     return c.json({ error: "CSRF validation failed: missing Origin/Referer" }, 403);
+  }
+
+  // Allow known frontend origins (handles SSH tunnel / proxy scenarios)
+  if (origin) {
+    const knownOrigins = getKnownOrigins().map(o => new URL(o).host);
+    try {
+      const originHost = new URL(origin).host;
+      if (knownOrigins.includes(originHost)) {
+        await next();
+        return;
+      }
+    } catch {
+      return c.json({ error: "CSRF validation failed: invalid Origin" }, 403);
+    }
   }
 
   if (origin) {

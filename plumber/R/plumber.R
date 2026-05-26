@@ -282,6 +282,8 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
     return(sdm_error(req, 400, "Invalid file_id"))
   }
 
+  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
+
   job_id <- sdm_async_submit("clean", list(
     file_id = file_id,
     min_source_records = min_source_records,
