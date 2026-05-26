@@ -226,6 +226,8 @@ export const uploadedFiles = pgTable("uploaded_files", {
   originalName: text("original_name").notNull(),
   fileSize: bigint("file_size", { mode: "number" }).notNull(),
   nRows: integer("n_rows"),
+  cleaned: boolean("cleaned").notNull().default(false),
+  cleanedFilePath: text("cleaned_file_path"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_uploaded_files_user").on(t.userId),
