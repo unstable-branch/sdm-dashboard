@@ -1138,7 +1138,6 @@ function(req, job_id) {
     meta$status <- "cancelled"
     meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
     writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
-    unlink(job_dir, recursive = TRUE, force = TRUE)
   }
 
   list(ok = TRUE, message = if (killed) "Job cancelled" else "Job not found")
