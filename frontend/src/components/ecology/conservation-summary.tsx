@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Loader2, AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { apiGet } from "@/services/api";
 
 interface EcologyData {
   run_id: string;
@@ -66,12 +67,8 @@ export function ConservationSummary({ runId }: ConservationSummaryProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/v1/ecology/${runId}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Run not found");
-        return res.json();
-      })
-      .then((d: EcologyData) => {
+    apiGet<EcologyData>(`/api/v1/ecology/${runId}`)
+      .then((d) => {
         setData(d);
         setLoading(false);
       })

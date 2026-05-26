@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { apiGet } from "@/services/api";
 
 interface BatchJob {
   id: string;
@@ -29,9 +30,7 @@ export function BatchProgress({ jobIds, onComplete }: BatchProgressProps) {
       const results = await Promise.all(
         jobIds.map(async (id) => {
           try {
-            const res = await fetch(`/api/v1/sdm/status/${id}`);
-            if (!res.ok) return { id, species: "Unknown", model_id: "", status: "error" };
-            const data = await res.json();
+            const data = await apiGet<Record<string, unknown>>(`/api/v1/sdm/status/${id}`);
             return {
               id: data.id,
               species: data.species,

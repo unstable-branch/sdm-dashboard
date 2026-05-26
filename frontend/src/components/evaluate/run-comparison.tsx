@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Loader2, BarChart3 } from "lucide-react";
+import { apiGet } from "@/services/api";
 
 interface RunSummary {
   id: string;
@@ -30,13 +31,8 @@ export function RunComparison({ runs }: RunComparisonProps) {
       await Promise.all(
         completedRuns.map(async (r) => {
           try {
-            const res = await fetch(`/api/v1/sdm/status/${r.id}`);
-            if (res.ok) {
-              const full = await res.json();
-              details[r.id] = { ...r, config: full.config };
-            } else {
-              details[r.id] = r;
-            }
+            const full = await apiGet<Record<string, unknown>>(`/api/v1/sdm/status/${r.id}`);
+            details[r.id] = { ...r, config: full.config };
           } catch {
             details[r.id] = r;
           }
