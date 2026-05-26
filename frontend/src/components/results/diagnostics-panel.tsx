@@ -49,29 +49,15 @@ function DiagnosticImage({
 export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   const outputFiles = run.output_files || {};
 
-  const cvFoldsPng = outputFiles.cv_folds_png
-    ? `/api/v1/results/file/${encodeURIComponent(outputFiles.cv_folds_png)}`
-    : null;
+  const toFileUrl = (path: string | undefined) =>
+    path ? `/api/v1/results/file/download?path=${encodeURIComponent(path)}` : null;
 
-  const variableImportancePng = outputFiles.variable_importance_png
-    ? `/api/v1/results/file/${encodeURIComponent(outputFiles.variable_importance_png)}`
-    : null;
-
-  const responseCurvesPng = outputFiles.response_curves_png
-    ? `/api/v1/results/file/${encodeURIComponent(outputFiles.response_curves_png)}`
-    : null;
-
-  const rocCurvePng = outputFiles.roc_curve_png
-    ? `/api/v1/results/file/${encodeURIComponent(outputFiles.roc_curve_png)}`
-    : null;
-
-  const cbiPng = outputFiles.cbi_png
-    ? `/api/v1/results/file/${encodeURIComponent(outputFiles.cbi_png)}`
-    : null;
-
-  const calibrationPng = outputFiles.calibration_png
-    ? `/api/v1/results/file/${encodeURIComponent(outputFiles.calibration_png)}`
-    : null;
+  const cvFoldsPng = toFileUrl(outputFiles.cv_folds_png);
+  const variableImportancePng = toFileUrl(outputFiles.variable_importance_png);
+  const responseCurvesPng = toFileUrl(outputFiles.response_curves_png);
+  const rocCurvePng = toFileUrl(outputFiles.roc_curve_png);
+  const cbiPng = toFileUrl(outputFiles.cbi_png);
+  const calibrationPng = toFileUrl(outputFiles.calibration_png);
 
   const [vifData, setVifData] = useState<VifData | null>(null);
   const [importanceData, setImportanceData] = useState<ImportanceData | null>(null);
