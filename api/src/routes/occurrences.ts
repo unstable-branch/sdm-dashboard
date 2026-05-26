@@ -440,6 +440,35 @@ dataRoutes.get("/species/:id/occurrences", async (c) => {
   }
 });
 
+dataRoutes.patch("/uploads/:fileId", async (c) => {
+  try {
+    const fileId = decodeURIComponent(c.req.param("fileId"));
+    const body = await c.req.json();
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+    if (projectIds && projectIds.length === 0) {
+      return c.json({ error: "File not found" }, 404);
+    }
+
+    const updateData: Record<string, unknown> = {};
+    if (typeof body.cleaned === "boolean") updateData.cleaned = body.cleaned;
+    if (typeof body.cleaned_file_path === "string") updateData.cleanedFilePath = body.cleaned_file_path;
+
+    await db
+      .update(uploadedFiles)
+      .set(updateData as any)
+      .where(and(
+        eq(uploadedFiles.filePath, fileId),
+        projectIds ? inArray(uploadedFiles.projectId, projectIds) : undefined,
+      ));
+
+    return c.json({ ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to update upload";
+    return c.json({ error: message }, 500);
+  }
+});
+
 dataRoutes.get("/uploads", async (c) => {
   try {
     const user = c.get("user");
@@ -461,6 +490,8 @@ dataRoutes.get("/uploads", async (c) => {
       file_size: f.fileSize,
       n_rows: f.nRows ?? 0,
       modified_at: f.createdAt.toISOString(),
+      cleaned: f.cleaned,
+      cleaned_file_id: f.cleanedFilePath,
     }));
 
     return c.json({ uploads });

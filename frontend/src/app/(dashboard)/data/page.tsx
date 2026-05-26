@@ -12,7 +12,7 @@ import { ScenarioList } from "@/components/climate/scenario-list";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Globe, FileArchive, Wand2, Map, Cloud, Loader2, CheckCircle2, Download, AlertTriangle } from "lucide-react";
 import { useSDMStore } from "@/stores/sdm-store";
-import { apiUpload, apiPost, apiGet } from "@/services/api";
+import { apiUpload, apiPost, apiGet, apiPatch } from "@/services/api";
 import { BIOVAR_CHOICES, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 
 const GbifSearch = dynamic(() => import("@/components/data/gbif-search").then(m => m.GbifSearch), { ssr: false });
@@ -260,7 +260,20 @@ function DataPageContent() {
     setUploadResult({ file_id: filePath, file_path: filePath, file_name: fileName, n_rows: nRows });
     setPipelineRunId(null);
     setCleanResult(null);
-    setCleanedOccurrence(null);
+
+    if (file.cleaned && file.cleaned_file_id) {
+      // Bypass cleaning — file was already cleaned
+      setCleanedOccurrence({
+        filePath: file.cleaned_file_id as string,
+        df: [],
+        sourceCounts: {},
+        nAbsentExcluded: 0,
+        originalRows: nRows,
+        validRecords: nRows,
+      });
+    } else {
+      setCleanedOccurrence(null);
+    }
 
     if (filePath) {
       setOccurrenceFilePath(filePath);
@@ -385,6 +398,15 @@ function DataPageContent() {
     else if (pipelineRunId) setPipelineRunId(pipelineRunId);
     setCleanJobId(null);
     setCleanLoading(false);
+
+    // Mark the upload as cleaned in the backend
+    const currentFileId = useSDMStore.getState().uploadResult?.file_id;
+    if (currentFileId && finalData.cleaned_file_id) {
+      apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId as string)}`, {
+        cleaned: true,
+        cleaned_file_path: finalData.cleaned_file_id,
+      }).catch(() => {});
+    }
   };
 
   const handleGbifSearch = async (taxon: string, country: string, maxRecords: number) => {
@@ -555,7 +577,14 @@ function DataPageContent() {
                         }`}
                       >
                         <div className="min-w-0 flex-1">
-                          <p className="font-medium text-sdm-text truncate">{fileName}</p>
+                          <p className="font-medium text-sdm-text truncate">
+                            {fileName}
+                            {(f as any).cleaned && (
+                              <span className="ml-1.5 inline-flex items-center rounded-full bg-green-500/10 px-1.5 py-0.5 text-xs font-medium text-green-500">
+                                Cleaned
+                              </span>
+                            )}
+                          </p>
                           <p className="text-xs text-sdm-muted">
                             {sizeStr}
                             {nRows > 0 && ` · ${nRows.toLocaleString()} rows`}

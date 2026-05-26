@@ -1,0 +1,2 @@
+ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS cleaned BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS cleaned_file_path TEXT;
