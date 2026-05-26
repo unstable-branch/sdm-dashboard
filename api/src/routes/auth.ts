@@ -16,6 +16,14 @@ export const authRoutes = new Hono<AppEnv>();
 const JWT_SECRET = process.env.JWT_SECRET;
 const BCRYPT_ROUNDS = 12;
 
+function validatePassword(password: string): string | null {
+  if (password.length < 8) return "Password must be at least 8 characters";
+  if (!/[A-Z]/.test(password)) return "Password must contain an uppercase letter";
+  if (!/[a-z]/.test(password)) return "Password must contain a lowercase letter";
+  if (!/[0-9]/.test(password)) return "Password must contain a digit";
+  return null;
+}
+
 authRoutes.use("/register", rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "register" }));
 authRoutes.use("/forgot-password", rateLimit({ windowMs: 60_000, max: 3, keyPrefix: "forgot-pw" }));
 authRoutes.use("/reset-password", rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "reset-pw" }));
@@ -33,6 +41,11 @@ authRoutes.post("/register", async (c) => {
     if (!email || !password) {
       return c.json({ error: "Email and password are required" }, 400);
     }
+
+    const pwErr = validatePassword(password);
+    if (pwErr) return c.json({ error: pwErr }, 400);
+
+    const existing = await db
 
     const existing = await db
       .select()
@@ -228,9 +241,8 @@ authRoutes.post("/change-password", authMiddleware, rateLimit({ windowMs: 60_000
     return c.json({ error: "Current password and new password are required" }, 400);
   }
 
-  if (newPassword.length < 8) {
-    return c.json({ error: "New password must be at least 8 characters" }, 400);
-  }
+  const pwErr = validatePassword(newPassword);
+  if (pwErr) return c.json({ error: pwErr }, 400);
 
   const [dbUser] = await db
     .select({ passwordHash: users.passwordHash })
@@ -406,9 +418,8 @@ authRoutes.post("/reset-password", async (c) => {
     return c.json({ error: "Token and new password are required" }, 400);
   }
 
-  if (password.length < 8) {
-    return c.json({ error: "Password must be at least 8 characters" }, 400);
-  }
+  const pwErr = validatePassword(password);
+  if (pwErr) return c.json({ error: pwErr }, 400);
 
   const hashedToken = hashToken(token);
 

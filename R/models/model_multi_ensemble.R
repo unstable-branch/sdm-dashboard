@@ -320,10 +320,19 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     biomod2_models <- config$biomod2_default
   }
   has_biomod2 <- requireNamespace("biomod2", quietly = TRUE) && isTRUE(getOption("sdm.enable_biomod2", FALSE))
+  has_ecospat <- requireNamespace("ecospat", quietly = TRUE)
 
   if (!has_biomod2 && any(grepl("biomod2", selected_models, ignore.case = TRUE))) {
     selected_models <- setdiff(selected_models, "biomod2")
     log_message(log_fun, "biomod2 not available; removed from ensemble selection.")
+  }
+
+  if (!has_ecospat) {
+    esm_models <- intersect(selected_models, c("esm_glm", "esm_maxnet"))
+    if (length(esm_models) > 0) {
+      selected_models <- setdiff(selected_models, esm_models)
+      log_message(log_fun, "ecospat/biomod2 not available; removed ESM models from ensemble selection.")
+    }
   }
 
   standalone_ids <- c("glm", "gam", "maxnet", "rf", "xgboost", "rangebag", "esm_glm", "esm_maxnet")
