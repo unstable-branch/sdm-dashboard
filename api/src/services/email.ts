@@ -18,6 +18,7 @@ function getTransporter(): nodemailer.Transporter | null {
             pass: process.env.SMTP_PASS || "",
           }
         : undefined,
+      debug: false,
     });
   }
   return transporter;
