@@ -41,7 +41,12 @@ process.on("uncaughtException", (err) => {
 
 const app = new Hono();
 
-app.use("*", cors());
+const frontendOrigin = process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:3000";
+const corsOrigins = frontendOrigin.split(",").map(s => s.trim()).filter(Boolean);
+app.use("*", cors({
+  origin: corsOrigins.length > 0 ? corsOrigins : ["http://localhost:3000"],
+  credentials: true,
+}));
 app.use("*", compress());
 app.use("*", logger());
 app.use("*", memoryMonitorMiddleware);
