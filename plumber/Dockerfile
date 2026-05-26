@@ -20,7 +20,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc \
     && rm -rf /var/lib/apt/lists/*
 
-# Stage 1: All packages needed for model backends (must succeed).
+# Stage 1: Spatial packages (hard deps — must be installed before model backends)
+RUN R --no-save --no-restore <<'EOF'
+options(repos = c(CRAN = Sys.getenv("R_CRAN_REPO")))
+for (pkg in c("terra", "sf")) {
+  message("Installing: ", pkg)
+  install.packages(pkg, Ncpus=1, INSTALL_opts = c("--no-test-load"))
+}
+unlink("/tmp/downloaded_packages", recursive = TRUE)
+unlink(list.files("/tmp", pattern = "^Rtmp", full.names = TRUE), recursive = TRUE)
+EOF
+
+# Stage 2: All packages needed for model backends (must succeed).
 # pkgType="both" uses pre-compiled binaries from Posit PGM when available,
 # falling back to source compilation. Ncpus=1 avoids OOM on the few packages
 # that need source compilation. --no-test-load prevents crash-on-load.
@@ -37,17 +48,6 @@ pkgs <- c(
   "future", "future.apply", "marginaleffects"
 )
 for (pkg in pkgs) {
-  message("Installing: ", pkg)
-  install.packages(pkg, Ncpus=1, INSTALL_opts = c("--no-test-load"))
-}
-unlink("/tmp/downloaded_packages", recursive = TRUE)
-unlink(list.files("/tmp", pattern = "^Rtmp", full.names = TRUE), recursive = TRUE)
-EOF
-
-# Stage 2: Spatial packages (hard deps)
-RUN R --no-save --no-restore <<'EOF'
-options(repos = c(CRAN = Sys.getenv("R_CRAN_REPO")))
-for (pkg in c("terra", "sf")) {
   message("Installing: ", pkg)
   install.packages(pkg, Ncpus=1, INSTALL_opts = c("--no-test-load"))
 }
