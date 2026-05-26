@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { readFile, stat } from "fs/promises";
-import { isAbsolute, join, relative, resolve } from "path";
+import { fileURLToPath } from "url";
+import { dirname, isAbsolute, join, relative, resolve } from "path";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
@@ -11,12 +12,28 @@ export const resultsRoutes = new Hono<AppEnv>();
 
 resultsRoutes.use("*", authMiddleware);
 
-const appDir = process.cwd();
-const resultRoot = resolve(appDir, "outputs", "jobs");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+// api/src/routes/results.ts -> project root
+const PROJECT_ROOT = resolve(__dirname, "../../..");
+const resultRoot = resolve(PROJECT_ROOT, "outputs", "jobs");
 
+/**
+ * Map a stored file path (possibly a container-absolute path like
+ * /app/outputs/jobs/...) to the host filesystem and validate it is
+ * within the allowed resultRoot directory.
+ */
 function resolveResultFilePath(filePath: string): { fullPath: string; runId: string } | null {
-  const requested = isAbsolute(filePath) ? filePath : join(appDir, filePath);
-  const fullPath = resolve(requested);
+  // Map container-internal paths (/app/outputs/jobs/run-id/file.ext) and
+  // relative paths to the host filesystem under PROJECT_ROOT.
+  let mappedPath = filePath;
+  if (filePath.startsWith("/app/")) {
+    mappedPath = join(PROJECT_ROOT, filePath.slice(5));
+  } else if (!isAbsolute(filePath)) {
+    mappedPath = join(PROJECT_ROOT, filePath);
+  }
+
+  const fullPath = resolve(mappedPath);
   const rel = relative(resultRoot, fullPath);
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
     return null;
@@ -30,8 +47,15 @@ function resolveResultFilePath(filePath: string): { fullPath: string; runId: str
   return { fullPath, runId };
 }
 
-resultsRoutes.get("/file/*filePath", async (c) => {
-  const filePath = decodeURIComponent(c.req.param("filePath") || "");
+resultsRoutes.get("/file/*", async (c) => {
+  // Hono's * wildcard matches the rest of the path, but we need to extract
+  // the file portion from the original (still-encoded) URL to preserve %2F.
+  const pathname = new URL(c.req.url).pathname;
+  const filePrefix = "/file/";
+  const idx = pathname.indexOf(filePrefix);
+  if (idx === -1) return c.json({ error: "Invalid file path" }, 400);
+
+  const filePath = decodeURIComponent(pathname.slice(idx + filePrefix.length));
   const resolved = resolveResultFilePath(filePath);
 
   if (!resolved) {
@@ -39,8 +63,17 @@ resultsRoutes.get("/file/*filePath", async (c) => {
   }
 
   const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
-    return c.json({ error: "File not found" }, 404);
+  // Directory names on disk (run-YYYYMMDDHHMMSS-NNNN) do not match the
+  // UUID-based run id in the DB. Only enforce the DB access check when
+  // the runId extracted from the path is itself a valid UUID.
+  if (resolved.runId.length === 36 && resolved.runId.includes("-")) {
+    try {
+      if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
+        return c.json({ error: "File not found" }, 404);
+      }
+    } catch {
+      return c.json({ error: "File not found" }, 404);
+    }
   }
 
   const { fullPath } = resolved;
@@ -130,14 +163,22 @@ resultsRoutes.get("/:id/report.txt", async (c) => {
   }
 
   const [run] = await db
-    .select({ resultPath: runs.resultPath })
+    .select({ resultPath: runs.resultPath, outputFiles: runs.outputFiles })
     .from(runs)
     .where(eq(runs.id, id))
     .limit(1);
 
-  const reportPath = run?.resultPath
-    ? join(appDir, run.resultPath, "report.txt")
-    : join(appDir, "outputs", "jobs", id, "report.txt");
+  let reportPath: string;
+  if (run?.outputFiles && typeof run.outputFiles === "object" && "report" in (run.outputFiles as object)) {
+    const containerPath = (run.outputFiles as Record<string, string>).report;
+    reportPath = containerPath.startsWith("/app/")
+      ? join(PROJECT_ROOT, containerPath.slice(5))
+      : join(PROJECT_ROOT, containerPath);
+  } else if (run?.resultPath) {
+    reportPath = join(PROJECT_ROOT, run.resultPath, "report.txt");
+  } else {
+    reportPath = join(PROJECT_ROOT, "outputs", "jobs", id, "report.txt");
+  }
 
   try {
     await stat(reportPath);
