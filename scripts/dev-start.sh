@@ -34,11 +34,6 @@ echo ""
 
 # Check prerequisites
 command -v docker >/dev/null 2>&1 || { echo -e "${RED}docker is required but not installed.${NC}"; exit 1; }
-command -v tmux >/dev/null 2>&1 || { echo -e "${RED}tmux is required but not installed.${NC}"; exit 1; }
-
-# Kill existing sessions if they exist
-tmux kill-session -t sdm-api 2>/dev/null || true
-tmux kill-session -t sdm-frontend 2>/dev/null || true
 
 case "$MODE" in
   minimal)
@@ -46,14 +41,17 @@ case "$MODE" in
     DESC="postgres + redis"
     ;;
   full)
+    command -v tmux >/dev/null 2>&1 || { echo -e "${RED}tmux is required for full mode (api + frontend in tmux).${NC}"; exit 1; }
     PROFILES=(all)
     DESC="all services (core + email + storage + computation)"
     ;;
   plumber)
+    command -v tmux >/dev/null 2>&1 || { echo -e "${RED}tmux is required for plumber mode (api + frontend in tmux).${NC}"; exit 1; }
     PROFILES=(core email computation)
     DESC="postgres, redis, mailpit, plumber (+ local API + frontend)"
     ;;
   *)
+    command -v tmux >/dev/null 2>&1 || { echo -e "${RED}tmux is required for dev mode (api + frontend in tmux).${NC}"; exit 1; }
     PROFILES=(core email)
     DESC="postgres, redis, mailpit (+ local API + frontend)"
     ;;
