@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { CheckCircle2, AlertTriangle, Info, CloudOff, Cloud } from "lucide-react";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
+import { apiGet } from "@/services/api";
 
 interface ModelInfo {
   id: string;
@@ -89,8 +90,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [climateCheckLoading, setClimateCheckLoading] = useState(false);
 
   useEffect(() => {
-    fetch("/api/v1/sdm/models")
-      .then((res) => res.ok ? res.json() : null)
+    apiGet<Record<string, unknown>[]>("/api/v1/sdm/models")
       .then((models) => {
         if (models && Array.isArray(models)) {
           const defaults = MODEL_BACKENDS.reduce<Record<string, { label: string; maturity: string; min_records: number | null; packages?: string[]; notes?: string; available?: boolean }>>((acc, m) => {
@@ -124,8 +124,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   }, []);
 
   useEffect(() => {
-    fetch("/api/v1/data/species?limit=100")
-      .then((res) => res.ok ? res.json() : null)
+    apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100")
       .then((data) => {
         if (data && Array.isArray(data.species)) {
           setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string));

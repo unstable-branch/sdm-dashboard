@@ -23,9 +23,13 @@ source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
 
 # Source existing R modules
-load_path <- file.path(app_dir, "R", "load.R")
-if (!file.exists(load_path)) {
-  stop("Could not find R/load.R at: ", load_path, call. = FALSE)
+load_path <- file.path(app_dir, "R", "engine_load.R")
+  if (!file.exists(load_path)) {
+    # Fall back to full load.R for backward compatibility
+    load_path <- file.path(app_dir, "R", "load.R")
+  }
+  if (!file.exists(load_path)) {
+    stop("Could not find R/load.R at: ", load_path, call. = FALSE)
 }
 source(load_path)
 
@@ -375,7 +379,7 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
   # Source required R files in the clean child process
   source(file.path(app_dir, "R", "core", "bootstrap.R"))
   sdm_set_project_root(app_dir)
-  source(file.path(app_dir, "R", "load.R"))
+  source(file.path(app_dir, "R", "engine_load.R"))
 
   `%||%` <- function(a, b) if (is.null(a)) b else a
 
