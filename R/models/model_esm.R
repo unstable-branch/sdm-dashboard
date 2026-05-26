@@ -114,7 +114,7 @@ fit_esm <- function(occ,
   log_message(log_fun, "ESM: calibrating ", n_pairs, " bivariate models...")
   progress_step(progress_fun, 0.65, sprintf("ESM: calibrating %d bivariate models", n_pairs))
 
-  if (isTRUE(getOption("sdm.cancelled"))) {
+  if (isTRUE(getOption("sdm_cancelled")) || isTRUE(getOption("sdm.cancelled"))) {
     stop("ESM modelling cancelled by user.")
   }
 
@@ -135,7 +135,7 @@ fit_esm <- function(occ,
     }
   )
 
-  if (isTRUE(getOption("sdm.cancelled"))) {
+  if (isTRUE(getOption("sdm_cancelled")) || isTRUE(getOption("sdm.cancelled"))) {
     stop("ESM modelling cancelled by user.")
   }
 

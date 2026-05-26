@@ -401,9 +401,15 @@ adminRoutes.get("/database/:table", async (c) => {
       ORDER BY ordinal_position
     `);
 
-    const data = await db.execute(sql.raw(`SELECT * FROM "${tableName}" ORDER BY created_at DESC NULLS LAST LIMIT ${limit} OFFSET ${offset}`));
+    const data = await db.execute(sql`
+      SELECT * FROM ${sql.identifier(tableName)}
+      ORDER BY created_at DESC NULLS LAST
+      LIMIT ${limit} OFFSET ${offset}
+    `);
 
-    const countResult = await db.execute(sql.raw(`SELECT COUNT(*) as total FROM "${tableName}"`));
+    const countResult = await db.execute(sql`
+      SELECT COUNT(*) as total FROM ${sql.identifier(tableName)}
+    `);
     const total = Number((countResult as any).rows?.[0]?.total || 0);
 
     return c.json({
@@ -440,9 +446,9 @@ adminRoutes.get("/database/:table/stats", async (c) => {
       WHERE relname = ${tableName}
     `);
 
-    const size = await db.execute(sql.raw(`
-      SELECT pg_size_pretty(pg_total_relation_size('${tableName}')) as total_size
-    `));
+    const size = await db.execute(sql`
+      SELECT pg_size_pretty(pg_total_relation_size(${sql.identifier(tableName)})) as total_size
+    `);
 
     return c.json({
       table: tableName,

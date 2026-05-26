@@ -284,7 +284,7 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
     merge_small_sources = merge_small_sources,
     use_cc = use_cc,
     cc_tests = cc_tests
-  ), app_dir)
+  ), app_dir, user_id)
 
   list(
     job_id = job_id,
@@ -306,11 +306,13 @@ function(req, taxon, country = NULL, max_records = 100) {
   max_records <- suppressWarnings(as.integer(max_records))
   if (!is.finite(max_records) || max_records < 1) max_records <- 100L
 
+  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
+
   job_id <- sdm_async_submit("gbif", list(
     taxon = taxon,
     country = country,
     max_records = max_records
-  ), app_dir)
+  ), app_dir, user_id)
 
   list(
     job_id = job_id,
@@ -348,12 +350,14 @@ function(req, file_id, species_filter = NULL, max_coord_uncertainty_m = NULL, ba
     return(sdm_error(req, 400, "Invalid file_id"))
   }
 
+  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
+
   job_id <- sdm_async_submit("dwca", list(
     file_id = file_id,
     species_filter = if (!is.null(species_filter) && nzchar(species_filter)) species_filter else NULL,
     max_coord_uncertainty_m = max_unc,
     basis_of_record_filter = bor_filter
-  ), app_dir)
+  ), app_dir, user_id)
 
   list(
     job_id = job_id,
@@ -607,7 +611,7 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
       maxnet_features = body$maxnet_features %||% sdm_default_maxnet_features,
       maxnet_regmult = as.numeric(body$maxnet_regmult %||% sdm_default_maxnet_regmult),
       bias_method = body$bias_method %||% "uniform",
-      thickening_distance_km = as.numeric(body$thickening_distance_km %||% sdm_default_thinning_distance_km),
+      thickening_distance_km = as.numeric(body$thickening_distance_km %||% sdm_default_thickening_distance_km),
       pa_replicates = as.integer(body$pa_replicates %||% sdm_default_pa_replicates),
       output_dir = job_dir,
       seed = as.integer(body$seed %||% sdm_default_seed),
@@ -761,8 +765,11 @@ function(req) {
   job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
 
+  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
+
   job_meta <- list(
     id = job_id,
+    user_id = user_id,
     status = "running",
     started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
     config = as.list(body),
@@ -869,7 +876,19 @@ sdm_process_registry <- new.env(parent = emptyenv())
 
 #* Cancel a running model
 #* @post /api/v1/models/cancel/<job_id>
-function(job_id) {
+function(req, job_id) {
+  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (file.exists(meta_file)) {
+    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
+      if (as.character(meta$user_id) != as.character(req$user_id)) {
+        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this run"))
+      }
+    }
+  }
+
   proc <- sdm_process_registry[[job_id]]
   killed <- FALSE
 
@@ -881,8 +900,6 @@ function(job_id) {
     rm(list = job_id, envir = sdm_process_registry)
   }
 
-  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
-  meta_file <- file.path(job_dir, "meta.json")
   progress_log <- file.path(job_dir, "progress.log")
 
   if (file.exists(meta_file)) {
@@ -919,8 +936,18 @@ function(job_id) {
 
 #* Delete a model run's output files
 #* @post /api/v1/models/delete/<job_id>
-function(job_id) {
+function(req, job_id) {
   job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (file.exists(meta_file)) {
+    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
+      if (as.character(meta$user_id) != as.character(req$user_id)) {
+        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to delete this run"))
+      }
+    }
+  }
 
   if (!dir.exists(job_dir)) {
     return(list(ok = TRUE, message = "Run directory not found (already deleted)", deleted = FALSE))
@@ -934,9 +961,9 @@ function(job_id) {
   })
 }
 
-#* List all model runs
+#* List all model runs (filtered by user if authenticated)
 #* @get /api/v1/models/runs
-function() {
+function(req) {
   jobs_dir <- file.path(app_dir, "outputs", "jobs")
   if (!dir.exists(jobs_dir)) return(list())
 
@@ -945,6 +972,14 @@ function() {
     meta_file <- file.path(jobs_dir, jd, "meta.json")
     if (file.exists(meta_file)) {
       meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+
+      # Filter by user if authenticated
+      if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) {
+        if (is.null(meta$user_id) || as.character(meta$user_id) != as.character(req$user_id)) {
+          return(NULL)
+        }
+      }
+
       list(
         id = meta$id,
         species = meta$config$species,
@@ -963,13 +998,14 @@ function() {
 
 # --- Async data job helpers ---
 
-sdm_async_submit <- function(job_type, params, app_dir) {
+sdm_async_submit <- function(job_type, params, app_dir, user_id = "anonymous") {
   job_id <- paste0("data-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
   job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
 
   meta <- list(
     id = job_id,
+    user_id = user_id,
     type = job_type,
     status = "running",
     started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
@@ -1074,9 +1110,18 @@ function(res, job_id) {
 
 #* Cancel an async data job
 #* @post /api/v1/jobs/cancel/<job_id>
-function(job_id) {
+function(req, job_id) {
   job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
   meta_file <- file.path(job_dir, "meta.json")
+
+  if (file.exists(meta_file)) {
+    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
+      if (as.character(meta$user_id) != as.character(req$user_id)) {
+        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this job"))
+      }
+    }
+  }
 
   proc <- sdm_process_registry[[basename(job_id)]]
   killed <- FALSE
@@ -1539,11 +1584,13 @@ function(req) {
     return(sdm_error(req, 404, "One or both runs not found"))
   }
 
+  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
+
   job_id <- sdm_async_submit("niche_overlap", list(
     run_id_1 = run_id_1,
     run_id_2 = run_id_2,
     n_boot = body$n_boot %||% 100
-  ), app_dir)
+  ), app_dir, user_id)
 
   list(
     job_id = job_id,
