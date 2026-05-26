@@ -46,8 +46,6 @@ authRoutes.post("/register", async (c) => {
     if (pwErr) return c.json({ error: pwErr }, 400);
 
     const existing = await db
-
-    const existing = await db
       .select()
       .from(users)
       .where(eq(users.email, email))

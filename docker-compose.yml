@@ -128,6 +128,7 @@ services:
     volumes:
       - upload-data:/app/data/uploads
       - plumber-outputs:/app/outputs:ro
+    depends_on:
       postgres:
         condition: service_healthy
       redis:
