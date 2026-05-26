@@ -238,6 +238,12 @@ export class PlumberClient {
     return res.json();
   }
 
+  async getModelStatus(jobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get model status: ${res.status}`);
+    return res.json();
+  }
+
   async getEcologyData(runId: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/ecology/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get ecology data: ${res.status}`);
