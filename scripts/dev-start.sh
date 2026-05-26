@@ -24,6 +24,12 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# tmux socket fix: use explicit TMPDIR and socket name to avoid permission issues
+TMUX_CMD="TMPDIR=/tmp tmux -L sdm"
+
+# Ensure npx doesn't prompt for install confirmation
+export PATH="$HOME/.npm-global/bin:$PATH"
+
 MODE="${1:-dev}"
 
 echo ""
@@ -58,21 +64,21 @@ case "$MODE" in
 esac
 
 # Build --profile flags for docker compose
-PROFILE_FLAGS=()
+PROFILE_FLAGS=""
 for p in "${PROFILES[@]}"; do
-  PROFILE_FLAGS+=(--profile "$p")
+  PROFILE_FLAGS+=" --profile $p"
 done
 
 # 1. Start Docker backing services
 echo -e "${YELLOW}[1/4]${NC} Starting Docker services: ${DESC}..."
-docker compose -f docker-compose.dev.yml "${PROFILE_FLAGS[@]}" up -d --remove-orphans 2>&1
+sg docker -c "docker compose -f docker-compose.dev.yml${PROFILE_FLAGS} up -d --remove-orphans" 2>&1
 
 # 2. Wait for healthy
 echo -e "${YELLOW}[2/4]${NC} Waiting for services to be healthy..."
 MAX_WAIT=60
 ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
-    UNHEALTHY=$(docker compose -f docker-compose.dev.yml ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | grep -c -i "unhealthy\|starting" || true)
+    UNHEALTHY=$(sg docker -c "docker compose -f docker-compose.dev.yml ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | grep -c -i 'unhealthy\|starting' || true")
     if [ "$UNHEALTHY" -eq 0 ]; then
         echo -e "${GREEN}All services healthy.${NC}"
         break
@@ -85,33 +91,42 @@ if [ $ELAPSED -ge $MAX_WAIT ]; then
     echo -e "${RED}Warning: Some services may not be healthy yet. Continuing anyway...${NC}"
 fi
 
-# 3. Start API locally in tmux
-echo -e "${YELLOW}[3/4]${NC} Starting API (Hono) on port 4000..."
-tmux new-session -d -s sdm-api "cd '${SCRIPT_DIR}/api' && npx tsx --env-file=.env src/index.ts" 2>&1
+# 3. Run database migrations
+echo -e "${YELLOW}[3/4]${NC} Running database migrations..."
+cd "${SCRIPT_DIR}/api"
+npx --yes drizzle-kit migrate 2>&1
+cd "${SCRIPT_DIR}"
+
+# 4. Start API locally in tmux
+echo -e "${YELLOW}[4/5]${NC} Starting API (Hono) on port 4000..."
+eval "$TMUX_CMD new-session -d -s sdm-api \"cd '${SCRIPT_DIR}/api' && npx --yes tsx --env-file=../.env src/index.ts\"" 2>&1
 
 # Wait for API to start
-sleep 5
+sleep 8
 if curl -s -o /dev/null http://localhost:4000/health; then
     echo -e "${GREEN}API started (tmux: sdm-api)${NC}"
 else
     echo -e "${RED}API failed to start.${NC}"
-    tmux capture-pane -t sdm-api -p
+    eval "$TMUX_CMD capture-pane -t sdm-api -p"
     exit 1
 fi
 
-# 4. Start Frontend locally in tmux
-echo -e "${YELLOW}[4/4]${NC} Starting Frontend (Next.js) on port 3000..."
-tmux new-session -d -s sdm-frontend "cd '${SCRIPT_DIR}/frontend' && npx next dev --port 3000" 2>&1
+# 5. Start Frontend locally in tmux
+echo -e "${YELLOW}[5/5]${NC} Starting Frontend (Next.js) on port 3000..."
+eval "$TMUX_CMD new-session -d -s sdm-frontend \"cd '${SCRIPT_DIR}/frontend' && npx --yes next dev --port 3000 -H 127.0.0.1\"" 2>&1
 
 # Wait for frontend to start
-sleep 8
+sleep 12
 if curl -s -o /dev/null http://localhost:3000; then
     echo -e "${GREEN}Frontend started (tmux: sdm-frontend)${NC}"
 else
     echo -e "${RED}Frontend failed to start.${NC}"
-    tmux capture-pane -t sdm-frontend -p
+    eval "$TMUX_CMD capture-pane -t sdm-frontend -p"
     exit 1
 fi
+
+# Get network IP for remote access
+IP=$(hostname -I | awk '{print $1}')
 
 # Print status
 echo ""
@@ -133,9 +148,12 @@ if printf '%s\n' "${PROFILES[@]}" | grep -qx "all"; then
     echo -e "  ${BLUE}Garage:${NC}    http://localhost:3900"
 fi
 echo ""
+echo -e "  ${YELLOW}Remote access:${NC} SSH tunnel from your local machine:"
+echo -e "    ssh -L 3000:localhost:3000 -L 4000:localhost:4000 -L 8000:localhost:8000 ${USER}@${IP}"
+echo ""
 echo -e "  ${BLUE}tmux sessions:${NC}"
-echo "    API:       tmux attach -t sdm-api"
-echo "    Frontend:  tmux attach -t sdm-frontend"
+echo "    API:       TMPDIR=/tmp tmux -L sdm attach -t sdm-api"
+echo "    Frontend:  TMPDIR=/tmp tmux -L sdm attach -t sdm-frontend"
 echo ""
 echo -e "  ${BLUE}Usage:${NC}"
 echo "    ./scripts/dev-start.sh          default (core + email + local API/frontend)"

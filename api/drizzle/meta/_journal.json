@@ -33,26 +33,40 @@
     {
       "idx": 4,
       "version": "7",
+      "when": 1779445100000,
+      "tag": "0003_user_profiles_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779445150000,
+      "tag": "0004_admin_dashboard",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
       "when": 1779445200000,
       "tag": "0005_add_pipeline_run_id",
       "breakpoints": true
     },
     {
-      "idx": 5,
+      "idx": 7,
       "version": "7",
       "when": 1779692000000,
       "tag": "0006_add_reset_token",
       "breakpoints": true
     },
     {
-      "idx": 6,
+      "idx": 8,
       "version": "7",
       "when": 1779750000000,
       "tag": "0007_add_provenance",
       "breakpoints": true
     },
     {
-      "idx": 7,
+      "idx": 9,
       "version": "7",
       "when": 1779780000000,
       "tag": "0008_add_resource_accounting",
