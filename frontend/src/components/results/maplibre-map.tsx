@@ -52,13 +52,15 @@ const DARK_STYLE = {
   ],
 };
 
-const AUSTRALIA_BOUNDS = {
+type Coords = [[number, number], [number, number], [number, number], [number, number]];
+
+const DEFAULT_BOUNDS = {
   longitude: 133,
   latitude: -27,
   zoom: 4,
 };
 
-const SUITABILITY_COORDS: [[number, number], [number, number], [number, number], [number, number]] = [
+const DEFAULT_COORDS: Coords = [
   [112, -10],
   [154, -10],
   [154, -44],
@@ -68,14 +70,25 @@ const SUITABILITY_COORDS: [[number, number], [number, number], [number, number],
 interface MaplibreMapProps {
   pngUrl: string;
   theme: string | undefined;
+  coordinates?: Coords;
 }
 
-export default function MaplibreMap({ pngUrl, theme }: MaplibreMapProps) {
+export default function MaplibreMap({ pngUrl, theme, coordinates }: MaplibreMapProps) {
   const mapStyle = theme === "dark" ? DARK_STYLE : LIGHT_STYLE;
+
+  const coords = coordinates ?? DEFAULT_COORDS;
+  // Compute view state center from the extent corners
+  const lons = coords.map(c => c[0]);
+  const lats = coords.map(c => c[1]);
+  const viewState = {
+    longitude: (Math.min(...lons) + Math.max(...lons)) / 2,
+    latitude: (Math.min(...lats) + Math.max(...lats)) / 2,
+    zoom: 4,
+  };
 
   return (
     <Map
-      initialViewState={AUSTRALIA_BOUNDS}
+      initialViewState={viewState}
       style={{ width: "100%", height: "100%" }}
       mapStyle={mapStyle}
       maxZoom={18}
@@ -84,7 +97,7 @@ export default function MaplibreMap({ pngUrl, theme }: MaplibreMapProps) {
         id="suitability"
         type="image"
         url={pngUrl}
-        coordinates={SUITABILITY_COORDS}
+        coordinates={coords}
       >
         <Layer
           id="suitability-overlay"
