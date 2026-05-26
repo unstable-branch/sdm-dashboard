@@ -9,6 +9,7 @@ import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
+import { jobEventBus } from "../services/job-events.js";
 import { join } from "path";
 
 type ModelConfigRecord = Record<string, unknown> & {
@@ -101,18 +102,24 @@ sdmRoutes.post("/run", async (c) => {
         })
         .returning();
 
-      const jobId = await enqueueSdmJob(
-        {
-          type: "model",
-          payload: buildModelPayload(config as unknown as ModelConfigRecord, run.id),
-        }, user.id);
+      // Submit directly to Plumber (bypass BullMQ which crashes in dev)
+      const plumberPayload = buildModelPayload(config as unknown as ModelConfigRecord, run.id);
+      const plumberResult = await plumberClient.withUser(user.id).runModel(plumberPayload);
+      const plumberJobId = (plumberResult as any).job_id as string | undefined;
 
-      if (jobId) {
+      if (plumberJobId) {
         await db
           .update(runs)
-          .set({ jobId })
+          .set({ jobId: plumberJobId, status: "running", startedAt: new Date() })
           .where(eq(runs.id, run.id));
       }
+
+      jobEventBus.emitJobStatus({
+        jobId: run.id,
+        state: "active",
+        progress: 5,
+        logs: ["Model run submitted to Plumber."],
+      });
 
       return c.json({ jobId: run.id, queuedAt: new Date().toISOString() });
     }
