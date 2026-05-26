@@ -33,6 +33,10 @@ const CLIMATE_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.CLIMATE_DOWNLOAD_TIMEOU
 const CLIMATE_DOWNLOAD_POLL_INTERVAL_MS = parseInt(process.env.CLIMATE_DOWNLOAD_POLL_INTERVAL_MS || "3000", 10);
 const CLIMATE_DOWNLOAD_MAX_ATTEMPTS = Math.floor(CLIMATE_DOWNLOAD_TIMEOUT_MS / CLIMATE_DOWNLOAD_POLL_INTERVAL_MS);
 
+const MODEL_RUN_TIMEOUT_MS = parseInt(process.env.MODEL_RUN_TIMEOUT_MS || "7200000", 10);
+const MODEL_RUN_POLL_INTERVAL_MS = parseInt(process.env.MODEL_RUN_POLL_INTERVAL_MS || "5000", 10);
+const MODEL_RUN_MAX_ATTEMPTS = Math.floor(MODEL_RUN_TIMEOUT_MS / MODEL_RUN_POLL_INTERVAL_MS);
+
 const REDIS_UNAVAILABLE_CODES = new Set([
   "ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET",
   "ENETUNREACH", "EHOSTUNREACH", "EPIPE",
@@ -410,16 +414,122 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
             await job.updateProgress(30);
 
             if (plumberJobId) {
-              // Fire-and-forget: Plumber runs in background, plumber-sync polls for status
+              await job.updateProgress(35);
               jobEventBus.emitJobStatus({
                 jobId: runId ?? job.id!,
                 state: "active",
-                progress: 30,
-                logs: ["Model run submitted to Plumber, awaiting results..."],
+                progress: 35,
+                logs: ["Model run submitted to Plumber, waiting for completion..."],
               });
 
-              result = { status: "success", data: { job_id: plumberJobId, status: "running" } };
-              await job.updateProgress(30);
+              let modelStatus: Record<string, unknown> = {};
+              let modelCompleted = false;
+              let modelAttempts = 0;
+
+              while (!modelCompleted && modelAttempts < MODEL_RUN_MAX_ATTEMPTS) {
+                await new Promise((resolve) => setTimeout(resolve, MODEL_RUN_POLL_INTERVAL_MS));
+                modelAttempts++;
+
+                try {
+                  modelStatus = await client.getModelStatus(plumberJobId);
+                  const pollState = (modelStatus as any).status as string;
+                  const logs = Array.isArray((modelStatus as any).progress_log)
+                    ? (modelStatus as any).progress_log as string[]
+                    : [];
+                  const pollProgress = (modelStatus as any).progress as number | undefined;
+
+                  if (pollState === "running") {
+                    const pct = Math.min(90, 35 + Math.round(modelAttempts * 0.5));
+                    await job.updateProgress(pollProgress ?? pct);
+                    jobEventBus.emitJobStatus({
+                      jobId: runId ?? job.id!,
+                      state: "active",
+                      progress: pollProgress ?? pct,
+                      logs,
+                    });
+                  }
+
+                  if (pollState === "completed") {
+                    modelCompleted = true;
+                    const metrics = (modelStatus as any).metrics as Record<string, unknown> | undefined;
+
+                    if (runId) {
+                      await db
+                        .update(runs)
+                        .set({
+                          status: "completed",
+                          completedAt: new Date(),
+                          error: null,
+                          metrics: metrics as any,
+                        })
+                        .where(eq(runs.id, runId));
+                    }
+
+                    await job.updateProgress(100);
+                    jobEventBus.emitJobStatus({
+                      jobId: runId ?? job.id!,
+                      state: "completed",
+                      progress: 100,
+                      logs: logs.concat(["Model run completed."]),
+                      result: modelStatus as Record<string, unknown>,
+                    });
+                    result = { status: "success", data: modelStatus };
+                  } else if (pollState === "cancelled") {
+                    modelCompleted = true;
+                    if (runId) {
+                      await db
+                        .update(runs)
+                        .set({ status: "cancelled", completedAt: new Date() })
+                        .where(eq(runs.id, runId));
+                    }
+                    await job.updateProgress(100);
+                    jobEventBus.emitJobStatus({
+                      jobId: runId ?? job.id!,
+                      state: "failed",
+                      progress: 100,
+                      failedReason: "Model run cancelled by user",
+                    });
+                    result = { status: "error", error: "Cancelled" };
+                  } else if (pollState === "failed" || pollState === "error") {
+                    modelCompleted = true;
+                    const errMsg = (modelStatus as any).error as string || "Model run failed";
+                    if (runId) {
+                      await db
+                        .update(runs)
+                        .set({ status: "failed", completedAt: new Date(), error: errMsg })
+                        .where(eq(runs.id, runId));
+                    }
+                    await job.updateProgress(100);
+                    jobEventBus.emitJobStatus({
+                      jobId: runId ?? job.id!,
+                      state: "failed",
+                      progress: 100,
+                      failedReason: errMsg,
+                    });
+                    result = { status: "error", error: errMsg };
+                  }
+                } catch (pollErr) {
+                  const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr);
+                  console.warn(`[queue] Polling error for model job ${job.id}: ${pollMsg}`);
+                }
+              }
+
+              if (!modelCompleted) {
+                const timeoutMsg = "Model run polling timeout — Plumber did not complete in time";
+                if (runId) {
+                  await db
+                    .update(runs)
+                    .set({ status: "failed", completedAt: new Date(), error: timeoutMsg })
+                    .where(eq(runs.id, runId));
+                }
+                result = { status: "error", error: timeoutMsg };
+                jobEventBus.emitJobStatus({
+                  jobId: runId ?? job.id!,
+                  state: "failed",
+                  progress: 0,
+                  failedReason: timeoutMsg,
+                });
+              }
             } else {
               result = { status: "success", data: modelRes };
               await job.updateProgress(100);

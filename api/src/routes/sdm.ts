@@ -626,6 +626,10 @@ sdmRoutes.post("/batch", async (c) => {
       return c.json({ error: "configs must be a non-empty array" }, 400);
     }
 
+    if (configs.length > 50) {
+      return c.json({ error: "Batch limited to 50 configs per request" }, 400);
+    }
+
     const jobIds: string[] = [];
 
     for (const config of configs) {

@@ -1477,7 +1477,8 @@ function(res, run_id) {
 #* Get AOA data for a model run
 #* @get /api/v1/ecology/<run_id>/aoa
 function(res, run_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1498,7 +1499,8 @@ function(res, run_id) {
 #* Generate conservation status report text
 #* @get /api/v1/ecology/<run_id>/report
 function(res, run_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1574,8 +1576,11 @@ function(req) {
     return(sdm_error(req, 400, "run_id_1 and run_id_2 are required"))
   }
 
-  job_dir_1 <- file.path(app_dir, "outputs", "jobs", basename(run_id_1))
-  job_dir_2 <- file.path(app_dir, "outputs", "jobs", basename(run_id_2))
+  job_dir_1 <- sdm_safe_job_dir(run_id_1)
+  job_dir_2 <- sdm_safe_job_dir(run_id_2)
+  if (is.null(job_dir_1) || is.null(job_dir_2)) {
+    return(sdm_error(req, 404, "One or both runs not found"))
+  }
   meta_file_1 <- file.path(job_dir_1, "meta.json")
   meta_file_2 <- file.path(job_dir_2, "meta.json")
 
@@ -1631,7 +1636,8 @@ function() {
 #* Export reproducible R script for a run
 #* @get /api/v1/output/script/<run_id>
 function(res, run_id, output_dir = NULL) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1664,7 +1670,8 @@ function(res, run_id, output_dir = NULL) {
 #* Generate run manifest for reproducibility
 #* @get /api/v1/output/manifest/<run_id>
 function(res, run_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1747,7 +1754,8 @@ function(res, run_id) {
 #* Get VIF collinearity screening results for a run
 #* @get /api/v1/diagnostics/vif/<run_id>
 function(res, run_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1803,7 +1811,8 @@ function(res, run_id) {
 #* Get response curve data for a run
 #* @get /api/v1/diagnostics/response-curves/<run_id>
 function(res, run_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1856,7 +1865,8 @@ function(res, run_id) {
 #* Get variable importance data for a run
 #* @get /api/v1/diagnostics/importance/<run_id>
 function(res, run_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1903,7 +1913,8 @@ function(res, run_id) {
 #* Get Continuous Boyce Index data for a run
 #* @get /api/v1/diagnostics/cbi/<run_id>
 function(res, run_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1961,7 +1972,8 @@ function(res, run_id) {
 #* Get MESS extrapolation summary for a run
 #* @get /api/v1/diagnostics/mess/<run_id>
 function(res, run_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
@@ -1999,7 +2011,8 @@ function(res, run_id) {
 #* Get combined diagnostics summary for a run
 #* @get /api/v1/diagnostics/summary/<run_id>
 function(res, run_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(run_id))
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (!file.exists(meta_file)) {
