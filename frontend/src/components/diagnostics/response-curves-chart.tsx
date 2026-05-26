@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { ResponseCurvesData } from "@/services/types";
 
@@ -20,12 +20,6 @@ export function ResponseCurvesChart({ data, loading }: ResponseCurvesChartProps)
   const [activeCurves, setActiveCurves] = useState<Set<string>>(
     () => new Set(curves.map((c) => c.covariate))
   );
-
-  useEffect(() => {
-    if (curves.length > 0 && activeCurves.size === 0) {
-      setActiveCurves(new Set(curves.map((c) => c.covariate)));
-    }
-  }, [data, curves, activeCurves.size]);
 
   if (loading) {
     return <div className="text-sm text-sdm-muted">Loading response curves...</div>;

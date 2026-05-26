@@ -32,6 +32,12 @@ export function useRasterData(url: string | null) {
         // bboxRaw is [xmin, ymin, xmax, ymax] in the TIFF's CRS (EPSG:4326 → lng, lat)
         const width = image.getWidth();
         const height = image.getHeight();
+
+        // Skip loading rasters larger than 5 million pixels (~20 MB Float32)
+        if (width * height > 5_000_000) {
+          throw new Error(`Raster too large for hover data (${(width * height / 1_000_000).toFixed(0)}M pixels). Map tiles still work.`);
+        }
+
         const rasters = await image.readRasters({ samples: [0] });
         const data = rasters[0] as Float32Array;
 
