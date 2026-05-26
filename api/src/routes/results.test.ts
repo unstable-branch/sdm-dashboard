@@ -31,6 +31,11 @@ vi.mock("fs", () => ({
   readFileSync: vi.fn(() => "test content"),
 }));
 
+vi.mock("fs/promises", () => ({
+  stat: vi.fn().mockResolvedValue(undefined),
+  readFile: vi.fn().mockResolvedValue(Buffer.from("test content")),
+}));
+
 vi.mock("../middleware/auth", () => ({
   authMiddleware: vi.fn(async (c: any, next: any) => {
     c.set("user", { id: "user-1", email: "test@example.com", role: "admin" });
