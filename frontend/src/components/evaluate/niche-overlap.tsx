@@ -44,8 +44,8 @@ export function NicheOverlap({ runs }: NicheOverlapProps) {
     setResult(null);
 
     try {
-      const data = await apiPost<{ job_id: string; status: string }>("/api/v1/ecology/niche-overlap", { run_id_1: run1, run_id_2: run2 });
-      setResult(data);
+      const data = await apiPost("/api/v1/ecology/niche-overlap", { run_id_1: run1, run_id_2: run2 }) as NicheOverlapResult;
+      setResult(data as unknown as NicheOverlapResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {

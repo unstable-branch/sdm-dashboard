@@ -3,13 +3,14 @@
 import { useState, useEffect, useRef } from "react";
 import { Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { apiGet } from "@/services/api";
+import type { RunSummary } from "@/services/types";
 
 interface BatchJob {
   id: string;
   species: string;
   model_id: string;
   status: string;
-  metrics?: Record<string, unknown>;
+  metrics?: Record<string, unknown> | null;
 }
 
 interface BatchProgressProps {
@@ -30,7 +31,7 @@ export function BatchProgress({ jobIds, onComplete }: BatchProgressProps) {
       const results = await Promise.all(
         jobIds.map(async (id) => {
           try {
-            const data = await apiGet<Record<string, unknown>>(`/api/v1/sdm/status/${id}`);
+            const data = await apiGet<RunSummary>(`/api/v1/sdm/status/${id}`);
             return {
               id: data.id,
               species: data.species,
