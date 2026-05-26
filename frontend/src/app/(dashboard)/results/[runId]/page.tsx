@@ -178,7 +178,7 @@ export default function ResultsPage() {
             </TabsList>
 
             <TabsContent value="map">
-              <SuitabilityMap outputFiles={run.output_files} projectionExtent={(run.config?.projectionExtent as number[]) ?? null} />
+              <SuitabilityMap outputFiles={run.output_files} projectionExtent={((run.config?.projectionExtent as number[]) ?? (run.config?.projection_extent as string)?.split(",").map(Number) ?? null) as number[] | null} />
             </TabsContent>
 
             <TabsContent value="diagnostics">
@@ -196,7 +196,7 @@ export default function ResultsPage() {
                   <div className="flex gap-3">
                     {run.output_files?.odmap_report_csv && (
                       <a
-                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.odmap_report_csv)}`}
+                        href={`/api/v1/results/file/download?path=${encodeURIComponent(run.output_files.odmap_report_csv)}`}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP CSV
@@ -204,7 +204,7 @@ export default function ResultsPage() {
                     )}
                     {run.output_files?.odmap_report_md && (
                       <a
-                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.odmap_report_md)}`}
+                        href={`/api/v1/results/file/download?path=${encodeURIComponent(run.output_files.odmap_report_md)}`}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP Markdown
@@ -212,7 +212,7 @@ export default function ResultsPage() {
                     )}
                     {run.output_files?.report && (
                       <a
-                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.report)}`}
+                        href={`/api/v1/results/file/download?path=${encodeURIComponent(run.output_files.report)}`}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
                       >
                         <Download className="h-3.5 w-3.5" /> Download report

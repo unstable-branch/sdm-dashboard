@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { readFile, stat } from "fs/promises";
+import { readFile, stat, open } from "fs/promises";
+import { existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, isAbsolute, join, relative, resolve } from "path";
 import { db } from "../db/index.js";
@@ -7,6 +8,7 @@ import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { authMiddleware, type AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds, canAccessRun } from "../services/access.js";
+import { decrypt } from "../services/encryption.js";
 
 export const resultsRoutes = new Hono<AppEnv>();
 
@@ -47,15 +49,54 @@ function resolveResultFilePath(filePath: string): { fullPath: string; runId: str
   return { fullPath, runId };
 }
 
-resultsRoutes.get("/file/*", async (c) => {
-  // Hono's * wildcard matches the rest of the path, but we need to extract
-  // the file portion from the original (still-encoded) URL to preserve %2F.
-  const pathname = new URL(c.req.url).pathname;
-  const filePrefix = "/file/";
-  const idx = pathname.indexOf(filePrefix);
-  if (idx === -1) return c.json({ error: "Invalid file path" }, 400);
+/**
+ * Parse an HTTP Range header value for a single range.
+ * Returns { start, end } or null if invalid / multi-range.
+ */
+function parseRangeHeader(
+  rangeHeader: string,
+  fileSize: number,
+): { start: number; end: number } | null {
+  const match = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+  if (!match) return null;
 
-  const filePath = decodeURIComponent(pathname.slice(idx + filePrefix.length));
+  let start: number;
+  let end: number;
+
+  if (match[1] === "" && match[2] !== "") {
+    // suffix-range: bytes=-500  →  last 500 bytes
+    const suffixLength = parseInt(match[2], 10);
+    start = Math.max(0, fileSize - suffixLength);
+    end = fileSize - 1;
+  } else if (match[1] !== "" && match[2] === "") {
+    // open-ended: bytes=1024-  →  from pos 1024 to end
+    start = parseInt(match[1], 10);
+    end = fileSize - 1;
+  } else {
+    start = parseInt(match[1], 10);
+    end = parseInt(match[2], 10);
+  }
+
+  if (start >= fileSize || start > end) return null;
+  end = Math.min(end, fileSize - 1);
+
+  return { start, end };
+}
+
+/**
+ * Resolve the Plumber job ID from a run UUID.
+ * Falls back to the UUID itself if no jobId is stored.
+ */
+async function plumberJobId(runId: string): Promise<string> {
+  const [run] = await db
+    .select({ jobId: runs.jobId })
+    .from(runs)
+    .where(eq(runs.id, runId))
+    .limit(1);
+  return run?.jobId ?? runId;
+}
+
+async function serveFile(c: any, filePath: string) {
   const resolved = resolveResultFilePath(filePath);
 
   if (!resolved) {
@@ -63,9 +104,6 @@ resultsRoutes.get("/file/*", async (c) => {
   }
 
   const user = c.get("user");
-  // Directory names on disk (run-YYYYMMDDHHMMSS-NNNN) do not match the
-  // UUID-based run id in the DB. Only enforce the DB access check when
-  // the runId extracted from the path is itself a valid UUID.
   if (resolved.runId.length === 36 && resolved.runId.includes("-")) {
     try {
       if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
@@ -77,8 +115,9 @@ resultsRoutes.get("/file/*", async (c) => {
   }
 
   const { fullPath } = resolved;
+  let stats;
   try {
-    await stat(fullPath);
+    stats = await stat(fullPath);
   } catch {
     return c.json({ error: "File not found" }, 404);
   }
@@ -90,11 +129,120 @@ resultsRoutes.get("/file/*", async (c) => {
                       ext === "csv" ? "text/csv" :
                       "application/octet-stream";
 
+  const rangeHeader = c.req.header("range");
+  if (rangeHeader) {
+    const range = parseRangeHeader(rangeHeader, stats.size);
+    if (range) {
+      const { start, end } = range;
+      const length = end - start + 1;
+      const fd = await open(fullPath, "r");
+      const buffer = Buffer.alloc(length);
+      await fd.read(buffer, 0, length, start);
+      await fd.close();
+
+      c.status(206);
+      c.header("Content-Range", `bytes ${start}-${end}/${stats.size}`);
+      c.header("Content-Length", String(length));
+      c.header("Content-Type", contentType);
+      c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
+      return c.body(buffer);
+    }
+    c.status(416);
+    c.header("Content-Range", `bytes */${stats.size}`);
+    return c.body("Range Not Satisfiable");
+  }
+
   c.header("Content-Type", contentType);
   c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
 
   const buffer = await readFile(fullPath);
   return c.body(buffer);
+}
+
+// Shared file serving logic used by both /file/* and /file/download routes
+async function serveFileFromPath(c: any, filePath: string) {
+  const resolved = resolveResultFilePath(filePath);
+  if (!resolved) return c.json({ error: "Invalid file path" }, 400);
+
+  const user = c.get("user");
+  if (resolved.runId.length === 36 && resolved.runId.includes("-")) {
+    try {
+      if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
+        return c.json({ error: "File not found" }, 404);
+      }
+    } catch {
+      return c.json({ error: "File not found" }, 404);
+    }
+  }
+
+  const { fullPath } = resolved;
+
+  // Check for encrypted (.enc) sibling file
+  const encPath = fullPath + ".enc";
+  const isEncrypted = existsSync(encPath);
+  const servePath = isEncrypted ? encPath : fullPath;
+
+  let stats;
+  try {
+    stats = await stat(servePath);
+  } catch {
+    return c.json({ error: "File not found" }, 404);
+  }
+
+  const ext = filePath.split(".").pop()?.toLowerCase();
+  const contentType = ext === "tif" || ext === "tiff" ? "image/tiff" :
+                      ext === "png" ? "image/png" :
+                      ext === "txt" ? "text/plain" :
+                      ext === "csv" ? "text/csv" :
+                      "application/octet-stream";
+
+  // Read and optionally decrypt
+  const raw = await readFile(servePath);
+  const buffer = isEncrypted ? decrypt(raw) : raw;
+
+  const rangeHeader = c.req.header("range");
+  if (rangeHeader) {
+    const range = parseRangeHeader(rangeHeader, buffer.length);
+    if (range) {
+      const { start, end } = range;
+      const length = end - start + 1;
+
+      c.status(206);
+      c.header("Content-Range", `bytes ${start}-${end}/${buffer.length}`);
+      c.header("Content-Length", String(length));
+      c.header("Content-Type", contentType);
+      c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
+      return c.body(buffer.subarray(start, end + 1));
+    }
+    c.status(416);
+    c.header("Content-Range", `bytes */${buffer.length}`);
+    return c.body("Range Not Satisfiable");
+  }
+
+  c.header("Content-Type", contentType);
+  c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
+
+  return c.body(buffer);
+}
+
+// Query-parameter based file serving — avoids Next.js %2F redirect issue
+resultsRoutes.get("/file/download", async (c) => {
+  const filePath = c.req.query("path");
+  if (!filePath || typeof filePath !== "string") {
+    return c.json({ error: "path query parameter required" }, 400);
+  }
+  return serveFileFromPath(c, filePath);
+});
+
+// Path-encoded file serving (legacy, subject to Next.js %2F redirect)
+resultsRoutes.get("/file/*", async (c) => {
+  const pathname = new URL(c.req.url).pathname;
+  const filePrefix = "/file/";
+  const idx = pathname.indexOf(filePrefix);
+  if (idx === -1) return c.json({ error: "Invalid file path" }, 400);
+
+  const filePath = decodeURIComponent(pathname.slice(idx + filePrefix.length));
+  return serveFileFromPath(c, filePath);
 });
 
 resultsRoutes.get("/:id", async (c) => {
@@ -197,10 +345,11 @@ resultsRoutes.get("/:id/script", async (c) => {
     return c.json({ error: "Script not found" }, 404);
   }
 
+  const jobId = await plumberJobId(id);
   try {
     const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
     const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
-    const res = await fetch(`${plumberUrl}/api/v1/output/script/${id}`, {
+    const res = await fetch(`${plumberUrl}/api/v1/output/script/${jobId}`, {
       headers: {
         ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
         "X-Forwarded-User": user.id,
@@ -238,10 +387,11 @@ resultsRoutes.get("/:id/manifest", async (c) => {
     return c.json({ error: "Manifest not found" }, 404);
   }
 
+  const jobId = await plumberJobId(id);
   try {
     const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
     const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
-    const res = await fetch(`${plumberUrl}/api/v1/output/manifest/${id}`, {
+    const res = await fetch(`${plumberUrl}/api/v1/output/manifest/${jobId}`, {
       headers: {
         ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
         "X-Forwarded-User": user.id,
