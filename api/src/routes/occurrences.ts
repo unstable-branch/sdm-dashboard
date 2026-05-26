@@ -1,43 +1,78 @@
 import { Hono } from "hono";
-import { mkdirSync, existsSync, accessSync, constants } from "fs";
+import { mkdirSync, existsSync, accessSync, constants, readdirSync, statSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { writeFile } from "fs/promises";
-import { join, resolve, dirname, extname } from "path";
+import { join, resolve, dirname, extname, basename } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { species, occurrences } from "../db/schema.js";
-import { and, count, eq, inArray } from "drizzle-orm";
+import { species, occurrences, users, uploadedFiles } from "../db/schema.js";
+import { and, count, eq, inArray, sql, desc } from "drizzle-orm";
 import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import type { AppEnv } from "../middleware/auth.js";
+import { encrypt, decrypt, isEncrypted } from "../services/encryption.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, "../../..");
 const UPLOAD_DIR = join(PROJECT_ROOT, "data", "uploads");
 
-function saveUpload(buffer: Buffer, originalName: string): { destPath: string; pipelineRunId: string } {
-  if (!existsSync(UPLOAD_DIR)) {
-    mkdirSync(UPLOAD_DIR, { recursive: true });
+function ensureDir(dir: string) {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  try { accessSync(dir, constants.W_OK); } catch {
+    throw new Error(`Directory not writable: ${dir}`);
   }
-  try {
-    accessSync(UPLOAD_DIR, constants.W_OK);
-  } catch {
-    throw new Error(`Upload directory is not writable: ${UPLOAD_DIR}. Run: sudo chown -R $USER:$USER data/uploads`);
-  }
-
-  const pipelineRunId = randomUUID();
-  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const destPath = join(UPLOAD_DIR, safeName);
-  return { destPath, pipelineRunId };
 }
 
-async function writeUploadFile(destPath: string, buffer: Buffer): Promise<void> {
-  await writeFile(destPath, buffer);
+function saveUploadEncrypted(buffer: Buffer, originalName: string): { encPath: string; pipelineRunId: string } {
+  ensureDir(UPLOAD_DIR);
+  const pipelineRunId = randomUUID();
+  const uuid = randomUUID();
+  const ext = extname(originalName) || ".csv";
+  const encPath = join(UPLOAD_DIR, `${uuid}${ext}.enc`);
+  const encrypted = encrypt(buffer);
+  writeFileSync(encPath, encrypted);
+  return { encPath, pipelineRunId };
+}
+
+function decryptToUploads(encPath: string): string | null {
+  if (!existsSync(encPath)) {
+    console.warn(`[encrypt] File not found: ${encPath}`);
+    return null;
+  }
+  if (!encPath.endsWith(".enc")) return null;
+  const plaintextPath = encPath.replace(/\.enc$/, "");
+  if (existsSync(plaintextPath)) return plaintextPath;
+  try {
+    const ciphertext = readFileSync(encPath);
+    const plaintext = decrypt(ciphertext);
+    writeFileSync(plaintextPath, plaintext);
+    const lineCount = plaintext.toString().split("\n").filter((l) => l.trim().length > 0).length - 1;
+    console.log(`[encrypt] Decrypted ${encPath} → ${plaintextPath} (${lineCount} lines)`);
+    return plaintextPath;
+  } catch (err) {
+    console.error(`[encrypt] Failed to decrypt ${encPath}:`, err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+function resolveFilePath(fileId: string): { path: string; cleanup: () => void } {
+  if (fileId.endsWith(".enc")) {
+    const decPath = decryptToUploads(fileId);
+    if (decPath) {
+      return {
+        path: decPath,
+        cleanup: () => { try { rmSync(decPath, { force: true }); } catch {} },
+      };
+    }
+    // Should never happen: the .enc file was just written by saveUploadEncrypted
+    console.error(`[encrypt] Failed to decrypt ${fileId} — DATA_ENCRYPTION_KEY may be missing or mismatched`);
+  }
+  return { path: fileId, cleanup: () => {} };
 }
 
 async function pollPlumberJob(jobId: string, timeoutMs = 240000): Promise<Record<string, unknown>> {
@@ -86,54 +121,48 @@ dataRoutes.post("/occurrences/upload", async (c) => {
       return c.json({ error: "File appears to be a ZIP archive but extension is not .zip" }, 400);
     }
 
-    const { destPath, pipelineRunId } = saveUpload(buffer, file.name);
-    await writeUploadFile(destPath, buffer);
     const user = c.get("user");
 
-    // Quick CSV header validation before sending to Plumber
-    if (isCsv) {
-      let rawHeader = buffer.toString("utf-8");
-      // Strip UTF-8 BOM
-      if (rawHeader.charCodeAt(0) === 0xFEFF) rawHeader = rawHeader.slice(1);
-      const headerLine = rawHeader.split("\n")[0];
-      if (headerLine) {
-        // Detect delimiter: try comma first, fall back to tab
-        const delim = headerLine.includes("\t") ? "\t" : ",";
-        const headers = headerLine.split(delim).map((h) => h.trim().toLowerCase());
-        const lonPatterns = ["^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east"];
-        const latPatterns = ["^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north"];
-        const hasLon = headers.some((h) => lonPatterns.some((p) => new RegExp(p).test(h)));
-        const hasLat = headers.some((h) => latPatterns.some((p) => new RegExp(p).test(h)));
-        const missing: string[] = [];
-        if (!hasLon) missing.push("longitude");
-        if (!hasLat) missing.push("latitude");
-        if (missing.length > 0) {
-          return c.json({
-            error: `CSV is missing required coordinate column(s): ${missing.join(", ")}. ` +
-              `Detected columns: ${headers.join(", ")}. ` +
-              `Expected: longitude/long/lon/x/easting/decimalLongitude for X, ` +
-              `and latitude/lat/y/northing/decimalLatitude for Y. ` +
-              `DMS formats (DD°MM'SS") are also supported.`,
-          }, 400);
-        }
+    // Quota check for non-admin users
+    const adminRoles = ["admin", "superadmin"];
+    if (!adminRoles.includes(user.role)) {
+      const [quota] = await db
+        .select({ quota: users.storageQuotaBytes, used: users.storageUsedBytes })
+        .from(users)
+        .where(eq(users.id, user.id))
+        .limit(1);
+      if (quota && quota.quota != null && (Number(quota.used) + file.size) > Number(quota.quota)) {
+        return c.json({
+          error: `Upload would exceed storage quota (${(Number(quota.quota) / 1024 / 1024).toFixed(0)} MB). Used: ${(Number(quota.used) / 1024 / 1024).toFixed(1)} MB, File: ${(file.size / 1024 / 1024).toFixed(1)} MB. Delete old uploads or contact an admin.`,
+        }, 413);
       }
     }
 
+    // Save encrypted at rest
+    const { encPath, pipelineRunId } = saveUploadEncrypted(buffer, file.name);
+    const projectId = await ensureDefaultProject(user);
+
+    // Decrypt to temp path for Plumber processing
+    const resolved = resolveFilePath(encPath);
+    console.log(`[upload] resolved.path: ${resolved.path}, endsWith .enc: ${resolved.path.endsWith(".enc")}`);
     let result: Record<string, unknown>;
     try {
-      result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
+      result = await plumberClient.withUser(user.id).uploadOccurrence(resolved.path, file.name);
+      console.log(`[upload] Plumber response n_rows: ${result?.n_rows}, status: ${(result as any)?.status || "ok"}`);
     } catch (plumberErr) {
+      resolved.cleanup();
       const pm = plumberErr instanceof Error ? plumberErr.message : "Unknown error";
       if (pm.includes("fetch failed") || pm.includes("ECONNREFUSED") || pm.includes("connect") || pm.includes("timeout")) {
         return c.json({
           error: "Upload saved to disk but Plumber backend is not responding. The occurrence file will be processed when Plumber is available.",
-          filePath: destPath,
+          filePath: encPath,
           pipelineRunId,
           plumberStatus: pm,
         }, 202);
       }
       throw plumberErr;
     }
+    resolved.cleanup();
     const { ipAddress, userAgent } = extractClientInfo(c);
     logAction({
       userId: user.id,
@@ -144,7 +173,28 @@ dataRoutes.post("/occurrences/upload", async (c) => {
       userAgent,
       details: { filename: file.name, fileSize: file.size, n_rows: result.n_rows, pipelineRunId },
     });
-    return c.json({ ...result, pipelineRunId });
+
+    // Record in uploaded_files table for per-user tracking
+    try {
+      await db.insert(uploadedFiles).values({
+        userId: user.id,
+        projectId,
+        filePath: encPath,
+        originalName: file.name,
+        fileSize: buffer.length,
+        nRows: (result.n_rows as number) ?? null,
+      });
+    } catch {}
+
+    // Update storage usage
+    if (!adminRoles.includes(user.role)) {
+      await db
+        .update(users)
+        .set({ storageUsedBytes: sql`${users.storageUsedBytes} + ${buffer.length}` })
+        .where(eq(users.id, user.id));
+    }
+
+    return c.json({ ...result, file_id: encPath, file_path: encPath, pipelineRunId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
     const isPlumberDown = message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("connect");
@@ -161,15 +211,29 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     const body = await c.req.json();
     const user = c.get("user");
 
+    // Resolve encrypted file path to plaintext for Plumber async job
+    // Note: cleanup is NOT called — the async Plumber job reads this file later
+    const fileId = (body.file_id || body.fileId) as string | undefined;
+    if (fileId) {
+      const resolved = resolveFilePath(fileId);
+      body.file_id = resolved.path;
+    }
+
     const initial = await plumberClient.withUser(user.id).cleanOccurrences(body);
 
     if (initial && typeof initial === "object" && "error" in initial) {
       return c.json(initial, 502);
     }
 
-    const jobId = initial?.job_id as string | undefined;
+    const jobId = (initial?.job_id || (initial as any)?.jobId) as string | undefined;
+
+    // When async is requested, return immediately with the job_id for client polling
+    if (body.async && jobId) {
+      return c.json({ job_id: jobId, status: "running" } as Record<string, unknown>);
+    }
+
     if (jobId) {
-      const result = await pollPlumberJob(jobId);
+      const result = await pollPlumberJob(jobId, 600000);
       return c.json(result);
     }
 
@@ -258,11 +322,14 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const { destPath, pipelineRunId } = saveUpload(buffer, file.name);
-    await writeUploadFile(destPath, buffer);
     const user = c.get("user");
 
-    const initial = await plumberClient.withUser(user.id).parseDwca({ file_id: destPath });
+    // Save encrypted at rest
+    const { encPath, pipelineRunId } = saveUploadEncrypted(buffer, file.name);
+
+    // Decrypt to temp for Plumber (no cleanup — async Plumber job reads this later)
+    const resolved = resolveFilePath(encPath);
+    const initial = await plumberClient.withUser(user.id).parseDwca({ file_id: resolved.path });
 
     const jobId = initial?.job_id as string | undefined;
     const result = jobId ? await pollPlumberJob(jobId) : initial;
@@ -277,7 +344,7 @@ dataRoutes.post("/occurrences/dwca", async (c) => {
       userAgent,
       details: { filename: file.name, fileSize: file.size, source: "dwca", pipelineRunId },
     });
-    return c.json({ ...result, file_id: destPath, file_path: destPath, pipelineRunId });
+    return c.json({ ...result, file_id: encPath, file_path: encPath, pipelineRunId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "DwCA parse failed";
     return c.json({ error: message }, 502);
@@ -369,6 +436,36 @@ dataRoutes.get("/species/:id/occurrences", async (c) => {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch occurrences";
+    return c.json({ error: message }, 500);
+  }
+});
+
+dataRoutes.get("/uploads", async (c) => {
+  try {
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+    if (projectIds && projectIds.length === 0) {
+      return c.json({ uploads: [] });
+    }
+
+    const records = await db
+      .select()
+      .from(uploadedFiles)
+      .where(projectIds ? inArray(uploadedFiles.projectId, projectIds) : undefined)
+      .orderBy(desc(uploadedFiles.createdAt))
+      .limit(100);
+
+    const uploads = records.map((f) => ({
+      file_id: f.filePath,
+      file_name: f.originalName,
+      file_size: f.fileSize,
+      n_rows: f.nRows ?? 0,
+      modified_at: f.createdAt.toISOString(),
+    }));
+
+    return c.json({ uploads });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to list uploads";
     return c.json({ error: message }, 500);
   }
 });

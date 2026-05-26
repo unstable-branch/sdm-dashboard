@@ -69,6 +69,8 @@ function DataPageContent() {
 
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [previousUploads, setPreviousUploads] = useState<Array<Record<string, unknown>>>([]);
+  const [previousUploadsLoading, setPreviousUploadsLoading] = useState(false);
 
   const [cleanLoading, setCleanLoading] = useState(false);
   const [cleanError, setCleanError] = useState<string | null>(null);
@@ -201,6 +203,14 @@ function DataPageContent() {
       .catch(() => setAvailableBiovars(new Set()));
   }, [climateSource, climateRes]);
 
+  useEffect(() => {
+    setPreviousUploadsLoading(true);
+    apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/uploads")
+      .then((data) => setPreviousUploads(data.uploads || []))
+      .catch((err) => console.warn("[uploads] Failed to fetch previous uploads:", err))
+      .finally(() => setPreviousUploadsLoading(false));
+  }, []);
+
   const handleDeleteScenario = (id: string) => {
     setScenarios((prev) => prev.filter((s) => s.id !== id));
   };
@@ -242,6 +252,26 @@ function DataPageContent() {
     }
   };
 
+  const handleSelectUpload = (file: Record<string, unknown>) => {
+    const filePath = file.file_id as string;
+    const fileName = file.file_name as string;
+    const nRows = (file.n_rows as number) || 0;
+
+    setUploadResult({ file_id: filePath, file_path: filePath, file_name: fileName, n_rows: nRows });
+    setPipelineRunId(null);
+    setCleanResult(null);
+    setCleanedOccurrence(null);
+
+    if (filePath) {
+      setOccurrenceFilePath(filePath);
+      setRecordCount(nRows);
+      const extracted = extractSpeciesFromFilename(fileName);
+      if (extracted) {
+        useSDMStore.getState().setSpecies(extracted);
+      }
+    }
+  };
+
   const handleFlagToggle = useCallback((idx: number, flagged: boolean) => {
     const current = useSDMStore.getState().flaggedIndices;
     setFlaggedIndicesArray(
@@ -270,10 +300,39 @@ function DataPageContent() {
         cc_tests: "all",
         async: effectiveAsync,
         pipelineRunId,
-      }, { timeout: 120000 });
+      }, { timeout: 600000 });
 
-      if (effectiveAsync && result.jobId) {
-        setCleanJobId(result.jobId as string);
+      if (effectiveAsync && (result.job_id || result.jobId)) {
+        const jid = (result.job_id || result.jobId) as string;
+        setCleanJobId(jid);
+
+        // Poll job status via REST (clean jobs don't emit SSE events)
+        const poll = async () => {
+          const maxPolls = 150; // 5 minutes at 2s intervals
+          for (let i = 0; i < maxPolls; i++) {
+            try {
+              const status = await apiGet<Record<string, unknown>>(`/api/v1/data/jobs/${jid}`);
+              const s = status?.status as string;
+              if (s === "completed") {
+                handleCleanComplete(status?.result as Record<string, unknown> || status);
+                return;
+              }
+              if (s === "failed") {
+                setCleanError((status?.error as string) || "Clean job failed");
+                setCleanJobId(null);
+                setCleanLoading(false);
+                return;
+              }
+            } catch {
+              // Continue polling on transient errors
+            }
+            await new Promise(r => setTimeout(r, 2000));
+          }
+          setCleanError("Clean job timed out after 5 minutes");
+          setCleanJobId(null);
+          setCleanLoading(false);
+        };
+        poll();
       } else {
         setCleanResult(result);
         const cleanedRowCount = (result.valid_records as number) || 0;
@@ -465,6 +524,60 @@ function DataPageContent() {
                 </button>
               </div>
             )}
+
+            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
+              <h3 className="text-sm font-semibold text-sdm-heading mb-3">Previous uploads</h3>
+              {previousUploadsLoading ? (
+                <div className="flex items-center gap-2 text-sm text-sdm-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading...
+                </div>
+              ) : previousUploads.length === 0 ? (
+                <p className="text-sm text-sdm-muted">No previous uploads found.</p>
+              ) : (
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {previousUploads.map((f) => {
+                    const fileName = f.file_name as string;
+                    const fileSize = f.file_size as number;
+                    const nRows = f.n_rows as number;
+                    const modifiedAt = f.modified_at as string;
+                    const isSelected = uploadResult?.file_id === f.file_id;
+                    const sizeStr = fileSize > 1024 * 1024
+                      ? `${(fileSize / 1024 / 1024).toFixed(1)} MB`
+                      : `${(fileSize / 1024).toFixed(0)} KB`;
+                    return (
+                      <div
+                        key={f.file_id as string}
+                        className={`flex items-center justify-between rounded-md border px-4 py-2.5 text-sm transition-colors ${
+                          isSelected
+                            ? "border-sdm-accent bg-sdm-accent/5"
+                            : "border-sdm-border bg-sdm-surface-soft hover:border-sdm-accent/50"
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-sdm-text truncate">{fileName}</p>
+                          <p className="text-xs text-sdm-muted">
+                            {sizeStr}
+                            {nRows > 0 && ` · ${nRows.toLocaleString()} rows`}
+                            {modifiedAt && ` · ${new Date(modifiedAt).toLocaleString()}`}
+                          </p>
+                        </div>
+                        {isSelected ? (
+                          <span className="shrink-0 text-xs font-medium text-sdm-accent ml-3">Selected</span>
+                        ) : (
+                          <button
+                            onClick={() => handleSelectUpload(f)}
+                            className="shrink-0 rounded border border-sdm-border bg-sdm-surface px-3 py-1 text-xs font-medium text-sdm-text hover:bg-sdm-surface-soft ml-3"
+                          >
+                            Use
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -623,6 +736,12 @@ function DataPageContent() {
               {cleanJobId && (
                 <div className="mt-4">
                   <JobProgress jobId={cleanJobId} onComplete={handleCleanComplete} />
+                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+                    <div className="flex items-center gap-2 text-sm text-sdm-muted">
+                      <Loader2 className="h-4 w-4 animate-spin text-sdm-accent" />
+                      Cleaning in background...
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

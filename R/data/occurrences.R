@@ -227,7 +227,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     cc_test_map <- c(
       .sea = "cc_test_sea", .cap = "cc_test_capitals",
       .inst = "cc_test_institutions", .cen = "cc_test_centroids",
-      .otl = "cc_test_urban", .zer = "cc_test_zero",
+      .urb = "cc_test_urban", .zer = "cc_test_zero",
       .equ = "cc_test_equal", .gbf = "cc_test_gbif"
     )
     for (col in names(cc_result)) {

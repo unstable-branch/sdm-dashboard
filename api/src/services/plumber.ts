@@ -222,10 +222,19 @@ export class PlumberClient {
 
   async cancelJob(jobId: string): Promise<{ ok: boolean }> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/cancel/${jobId}`, {
-      method: "DELETE",
+      method: "POST",
       headers: this.headers(),
     });
     if (!res.ok) throw new Error(`Failed to cancel job: ${res.status}`);
+    return res.json();
+  }
+
+  async cancelModelRun(jobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/cancel/${jobId}`, {
+      method: "POST",
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to cancel model run: ${res.status}`);
     return res.json();
   }
 

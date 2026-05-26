@@ -8,13 +8,17 @@ import { ThresholdExplorer } from "@/components/evaluate/threshold-explorer";
 import { VifTable } from "@/components/diagnostics/vif-table";
 import { useRuns } from "@/hooks/use-runs";
 import { apiGet } from "@/services/api";
-import { BarChart3, Loader2, Image } from "lucide-react";
+import { BarChart3, Loader2, Image, Map as MapIcon } from "lucide-react";
 import type { ImportanceData, ResponseCurvesData, CbiData, VifData, RunDetail as ApiRunDetail } from "@/services/types";
 
 const NicheOverlap = dynamic(() => import("@/components/evaluate/niche-overlap").then(m => m.NicheOverlap), { ssr: false });
 const ImportanceChart = dynamic(() => import("@/components/diagnostics/importance-chart").then(m => m.ImportanceChart), { ssr: false });
 const ResponseCurvesChart = dynamic(() => import("@/components/diagnostics/response-curves-chart").then(m => m.ResponseCurvesChart), { ssr: false });
 const CbiChart = dynamic(() => import("@/components/diagnostics/cbi-chart").then(m => m.CbiChart), { ssr: false });
+const SuitabilityMap = dynamic(
+  () => import("@/components/results/suitability-map").then(m => m.SuitabilityMap),
+  { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
+);
 
 export default function EvaluatePage() {
   const { data: runs, isLoading, error, refetch } = useRuns();
@@ -126,8 +130,12 @@ export default function EvaluatePage() {
         </p>
       </div>
 
-      <Tabs defaultValue="comparison" className="space-y-4">
-        <TabsList className="grid w-full max-w-lg grid-cols-5">
+      <Tabs defaultValue="map" className="space-y-4">
+        <TabsList className="grid w-full max-w-2xl grid-cols-6">
+          <TabsTrigger value="map" className="flex items-center gap-1.5">
+            <MapIcon className="h-3.5 w-3.5" />
+            Map
+          </TabsTrigger>
           <TabsTrigger value="comparison" className="flex items-center gap-1.5">
             <BarChart3 className="h-3.5 w-3.5" />
             Compare
@@ -137,6 +145,39 @@ export default function EvaluatePage() {
           <TabsTrigger value="niche">Niche</TabsTrigger>
           <TabsTrigger value="vif">VIF</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="map">
+          {completedRuns.length > 0 ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {completedRuns.map((run) => (
+                  <button
+                    key={run.id}
+                    onClick={() => selectRun(run.id)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
+                      selectedId === run.id
+                        ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
+                        : "border-sdm-border bg-sdm-surface-soft text-sdm-muted hover:text-sdm-text"
+                    }`}
+                  >
+                    {run.species} ({run.model_id})
+                  </button>
+                ))}
+              </div>
+              {selectedRun ? (
+                <SuitabilityMap outputFiles={selectedRun.output_files} projectionExtent={(selectedRun.config?.projectionExtent as number[]) ?? null} />
+              ) : (
+                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
+                  Select a run to view its suitability map.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
+              No completed runs available. Run a model first to view suitability maps.
+            </div>
+          )}
+        </TabsContent>
 
         <TabsContent value="comparison">
           <RunComparison runs={allRuns} />
