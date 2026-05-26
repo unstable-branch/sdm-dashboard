@@ -44,17 +44,13 @@ export default function ResultsPage() {
       setLoading(false);
 
       if (data.status === "completed") {
-        fetch(`/api/v1/results/${runId}/report.txt`)
-          .then((res) => res.ok ? res.text() : null)
-          .then((text) => setReportText(text))
-          .catch(() => {});
+        apiGet<string>(`/api/v1/results/${runId}/report.txt`).catch(() => null).then((text) => setReportText(text));
         // Use provenance from the status endpoint directly; fall back
         // to a separate manifest fetch if it's not populated yet.
         if (data.provenance) {
           setManifest(data.provenance as Record<string, unknown>);
         } else {
-          fetch(`/api/v1/results/${runId}/manifest`)
-            .then((res) => res.ok ? res.json() : null)
+          apiGet<{ manifest: Record<string, unknown> }>(`/api/v1/results/${runId}/manifest`)
             .then((m) => setManifest(m?.manifest || null))
             .catch(() => {});
         }

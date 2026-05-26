@@ -1,17 +1,22 @@
+function num(v: unknown): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 interface MetricCardsProps {
   metrics: Record<string, unknown>;
 }
 
 export function MetricCards({ metrics }: MetricCardsProps) {
   const cards = [
-    { label: "AUC (mean)", value: (metrics.auc_mean as number)?.toFixed(3) ?? "—", accent: "text-sdm-accent" },
-    { label: "AUC (SD)", value: (metrics.auc_sd as number)?.toFixed(3) ?? "—", accent: "text-sdm-muted" },
-    { label: "TSS (mean)", value: (metrics.tss_mean as number)?.toFixed(3) ?? "—", accent: "text-sdm-accent" },
-    { label: "TSS (SD)", value: (metrics.tss_sd as number)?.toFixed(3) ?? "—", accent: "text-sdm-muted" },
-    { label: "Presence records", value: (metrics.presence_records as number)?.toLocaleString() ?? "—", accent: "text-sdm-heading" },
-    { label: "Background points", value: (metrics.background_points as number)?.toLocaleString() ?? "—", accent: "text-sdm-heading" },
-    { label: "High-suitability area", value: (metrics.high_suitability_area_km2 as number) ? `${(metrics.high_suitability_area_km2 as number).toLocaleString()} km²` : "—", accent: "text-sdm-heading" },
-    { label: "Elapsed time", value: (metrics.elapsed_seconds as number) ? `${Math.round(metrics.elapsed_seconds as number)}s` : "—", accent: "text-sdm-heading" },
+    { label: "AUC (mean)", value: num(metrics.auc_mean)?.toFixed(3) ?? "—", accent: "text-sdm-accent" },
+    { label: "AUC (SD)", value: num(metrics.auc_sd)?.toFixed(3) ?? "—", accent: "text-sdm-muted" },
+    { label: "TSS (mean)", value: num(metrics.tss_mean)?.toFixed(3) ?? "—", accent: "text-sdm-accent" },
+    { label: "TSS (SD)", value: num(metrics.tss_sd)?.toFixed(3) ?? "—", accent: "text-sdm-muted" },
+    { label: "Presence records", value: num(metrics.presence_records)?.toLocaleString() ?? "—", accent: "text-sdm-heading" },
+    { label: "Background points", value: num(metrics.background_points)?.toLocaleString() ?? "—", accent: "text-sdm-heading" },
+    { label: "High-suitability area", value: num(metrics.high_suitability_area_km2) ? `${num(metrics.high_suitability_area_km2)!.toLocaleString()} km²` : "—", accent: "text-sdm-heading" },
+    { label: "Elapsed time", value: num(metrics.elapsed_seconds) ? `${Math.round(num(metrics.elapsed_seconds)!)}s` : "—", accent: "text-sdm-heading" },
   ];
 
   return (
