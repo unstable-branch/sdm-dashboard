@@ -67,7 +67,10 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(true);
 
   useEffect(() => {
-    if (run.status !== "completed") return;
+    if (run.status !== "completed") {
+      setLoadingDiagnostics(false);
+      return;
+    }
 
     setLoadingDiagnostics(true);
     const fetchDiagnostics = async () => {
@@ -97,7 +100,8 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
 
   const getMetric = (key: string) => {
     const val = run.metrics?.[key];
-    return typeof val === "number" ? val.toFixed(3) : "—";
+    const num = val as number | undefined;
+    return num != null && Number.isFinite(num) ? num.toFixed(3) : "—";
   };
 
   return (
