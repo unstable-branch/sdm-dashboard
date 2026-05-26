@@ -112,7 +112,7 @@ result <- tryCatch({
         result_dwca <- read_dwca(
           dwca_path = safe_path,
           species_filter = input$species_filter %||% NULL,
-          max_coord_uncertainty_m = input$max_coord_uncertainty_m %||% Inf,
+          max_coord_uncertainty_m = suppressWarnings(as.numeric(input$max_coord_uncertainty_m)) %||% Inf,
           basis_of_record_filter = input$basis_of_record_filter %||% NULL,
           log_fun = log_msg
         )
