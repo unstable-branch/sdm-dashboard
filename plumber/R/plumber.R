@@ -717,6 +717,15 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
           cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
         })
       }
+      # Save full result object for diagnostics endpoints
+      result_rds_path <- file.path(job_dir, "result.rds")
+      tryCatch({
+        saveRDS(result, result_rds_path)
+        result$paths$result_rds <- result_rds_path
+      }, error = function(e) {
+        cat("Failed to save result.rds:", conditionMessage(e), "\n")
+        cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
+      })
       job_meta$output_files <- c(result$paths, diag_files)
       manifest_path <- write_run_manifest(result, job_dir, body, biovars, projection_extent, cpu_ms, peak_mb, job_id)
       job_meta$manifest_path <- manifest_path
