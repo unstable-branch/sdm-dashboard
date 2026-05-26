@@ -76,18 +76,22 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, log_fun = NULL) {
 
   # AOO: count 2x2 km cells occupied
   aoo_result <- tryCatch({
-    # Create a grid of 2x2 km cells covering the extent
     pts_sf <- sf::st_as_sf(xy_unique, coords = c("longitude", "latitude"), crs = 4326)
 
-    # Project to equal-area for grid
-    centroid <- sf::st_coordinates(sf::st_centroid(sf::st_union(pts_sf)))
-    if (is.finite(centroid[1])) {
-      utm_zone <- floor((centroid[1] + 180) / 6) + 1
+    # Determine projection — use mean coordinates if centroid is NaN
+    centroid <- tryCatch(
+      sf::st_coordinates(sf::st_centroid(sf::st_union(pts_sf))),
+      error = function(e) NULL
+    )
+    if (is.null(centroid) || !is.finite(centroid[1])) {
+      coords <- sf::st_coordinates(pts_sf)
+      centroid <- colMeans(coords, na.rm = TRUE)
+    }
+    utm_zone <- floor((centroid[1] + 180) / 6) + 1
+    if (utm_zone >= 1 && utm_zone <= 60) {
       utm_crs <- sf::st_crs(paste0("+proj=utm +zone=", utm_zone, " +datum=WGS84 +units=m"))
     } else {
-      lon <- if (is.finite(centroid[1])) centroid[1] else 0
-      lat <- if (is.finite(centroid[2])) centroid[2] else 0
-      utm_crs <- sf::st_crs(paste0("+proj=laea +lon_0=", lon, " +lat_0=", lat, " +datum=WGS84 +units=m"))
+      utm_crs <- sf::st_crs(paste0("+proj=laea +lon_0=", centroid[1], " +lat_0=", centroid[2], " +datum=WGS84 +units=m"))
     }
     pts_proj <- sf::st_transform(pts_sf, utm_crs)
 
@@ -97,40 +101,48 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, log_fun = NULL) {
     # Grid origin aligned to round numbers
     x0 <- floor(bbox["xmin"] / cell_size) * cell_size
     y0 <- floor(bbox["ymin"] / cell_size) * cell_size
-    x1 <- ceiling(bbox["xmax"] / cell_size) * cell_size
-    y1 <- ceiling(bbox["ymax"] / cell_size) * cell_size
+    nx <- ceiling((bbox["xmax"] - x0) / cell_size)
+    ny <- ceiling((bbox["ymax"] - y0) / cell_size)
 
-    # Create grid polygons
-    nx <- ceiling((x1 - x0) / cell_size)
-    ny <- ceiling((y1 - y0) / cell_size)
+    # For large extents, use point-based counting to avoid creating millions of cells
+    if (nx * ny > 10000) {
+      log_message(log_fun, "  Large AOO grid (", nx, "x", ny, " = ", nx * ny, " cells); using point-based counting")
+      pts_coords <- sf::st_coordinates(pts_proj)
+      cell_x <- pmax(pmin(floor((pts_coords[, "X"] - x0) / cell_size) + 1, nx), 1)
+      cell_y <- pmax(pmin(floor((pts_coords[, "Y"] - y0) / cell_size) + 1, ny), 1)
+      n_occupied <- length(unique(paste(cell_x, cell_y)))
 
-    grid_cells <- expand.grid(ix = seq_len(nx), iy = seq_len(ny))
-    grid_polys <- lapply(seq_len(nrow(grid_cells)), function(i) {
-      x_min <- x0 + (grid_cells$ix[i] - 1) * cell_size
-      y_min <- y0 + (grid_cells$iy[i] - 1) * cell_size
-      sf::st_polygon(list(matrix(c(
-        x_min, y_min,
-        x_min + cell_size, y_min,
-        x_min + cell_size, y_min + cell_size,
-        x_min, y_min + cell_size,
-        x_min, y_min
-      ), ncol = 2, byrow = TRUE)))
-    })
+      log_message(log_fun, "  AOO: ", n_occupied, " cells (", aoo_cell_size_km, "x", aoo_cell_size_km, " km) = ",
+        sprintf("%.0f km2", n_occupied * aoo_cell_size_km^2))
 
-    grid_sf <- sf::st_sf(
-      geometry = sf::st_sfc(grid_polys, crs = utm_crs)
-    )
+      list(n_cells = n_occupied, area_km2 = n_occupied * aoo_cell_size_km^2,
+           cell_size_km = aoo_cell_size_km, grid = NULL)
+    } else {
+      # Create grid polygons for smaller extents
+      grid_cells <- expand.grid(ix = seq_len(nx), iy = seq_len(ny))
+      grid_polys <- lapply(seq_len(nrow(grid_cells)), function(i) {
+        x_min <- x0 + (grid_cells$ix[i] - 1) * cell_size
+        y_min <- y0 + (grid_cells$iy[i] - 1) * cell_size
+        sf::st_polygon(list(matrix(c(
+          x_min, y_min,
+          x_min + cell_size, y_min,
+          x_min + cell_size, y_min + cell_size,
+          x_min, y_min + cell_size,
+          x_min, y_min
+        ), ncol = 2, byrow = TRUE)))
+      })
+      grid_sf <- sf::st_sf(geometry = sf::st_sfc(grid_polys, crs = utm_crs))
 
-    # Which cells contain at least one point?
-    intersects <- sf::st_intersects(pts_proj, grid_sf, sparse = FALSE)
-    occupied <- which(colSums(intersects) > 0)
-    n_occupied <- length(occupied)
+      intersects <- sf::st_intersects(pts_proj, grid_sf, sparse = FALSE)
+      occupied <- which(colSums(intersects) > 0)
+      n_occupied <- length(occupied)
 
-    log_message(log_fun, "  AOO: ", n_occupied, " cells (", aoo_cell_size_km, "x", aoo_cell_size_km, " km) = ",
-      sprintf("%.0f km2", n_occupied * aoo_cell_size_km^2))
+      log_message(log_fun, "  AOO: ", n_occupied, " cells (", aoo_cell_size_km, "x", aoo_cell_size_km, " km) = ",
+        sprintf("%.0f km2", n_occupied * aoo_cell_size_km^2))
 
-    list(n_cells = n_occupied, area_km2 = n_occupied * aoo_cell_size_km^2,
-         cell_size_km = aoo_cell_size_km, grid = grid_sf[occupied, ])
+      list(n_cells = n_occupied, area_km2 = n_occupied * aoo_cell_size_km^2,
+           cell_size_km = aoo_cell_size_km, grid = grid_sf[occupied, ])
+    }
   }, error = function(e) {
     log_message(log_fun, "  AOO computation failed: ", conditionMessage(e))
     list(n_cells = NA_integer_, area_km2 = NA_real_, cell_size_km = aoo_cell_size_km, grid = NULL)
