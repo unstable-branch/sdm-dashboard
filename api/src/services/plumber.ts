@@ -12,6 +12,42 @@ const TIMEOUT_MODEL_RUN = 30 * 60 * 1000;
 const TIMEOUT_CLIMATE = 60 * 60 * 1000;
 const TIMEOUT_UPLOAD = 300_000;
 
+export interface CleanResponse {
+  job_id: string;
+  status: string;
+}
+
+export interface ModelRunResponse {
+  job_id: string;
+  status: string;
+  message: string;
+}
+
+export interface ModelStatusResponse {
+  id?: string;
+  status: string;
+  progress?: number;
+  progress_log?: string[];
+  metrics?: Record<string, unknown>;
+  error?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface AsyncJobStatusResponse {
+  available?: boolean;
+  status?: string;
+  error?: string;
+  result?: Record<string, unknown>;
+}
+
+export interface EcologyDataResponse {
+  run_id?: string;
+  species?: string;
+  model_id?: string;
+  eoo_aoo?: Record<string, unknown>;
+  error?: string;
+}
+
 export class PlumberClient {
   private baseUrl: string;
   private forwardedUser: string | null = null;
@@ -96,7 +132,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async cleanOccurrences(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async cleanOccurrences(data: Record<string, unknown>): Promise<CleanResponse> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/occurrences/clean`, {
       method: "POST",
       headers: { ...this.headers(), "Content-Type": "application/json" },
@@ -126,7 +162,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async runModel(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async runModel(data: Record<string, unknown>): Promise<ModelRunResponse> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/run`, {
       method: "POST",
       headers: { ...this.headers(), "Content-Type": "application/json" },
@@ -172,73 +208,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getModelStatus(jobId: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`, { headers: this.headers() });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`Failed to get model status: ${res.status} ${body}`);
-    }
-    return res.json();
-  }
-
-  async cancelModel(jobId: string): Promise<{ ok: boolean; message: string }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models/cancel/${jobId}`, {
-      method: "POST",
-      headers: this.headers(),
-    });
-    if (!res.ok) throw new Error(`Failed to cancel model: ${res.status}`);
-    return res.json();
-  }
-
-  async deleteModelOutputs(jobId: string): Promise<{ ok: boolean; message: string; deleted: boolean }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models/delete/${jobId}`, {
-      method: "POST",
-      headers: this.headers(),
-    });
-    if (!res.ok) throw new Error(`Failed to delete model outputs: ${res.status}`);
-    return res.json();
-  }
-
-  async getModelRuns(): Promise<Array<Record<string, unknown>>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models/runs`, { timeout: TIMEOUT_FAST });
-    if (!res.ok) throw new Error(`Failed to get model runs: ${res.status}`);
-    return res.json();
-  }
-
-  async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; base_directory: string; message?: string }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`);
-    if (!res.ok) throw new Error(`Failed to get future scenarios: ${res.status}`);
-    return res.json();
-  }
-
-  async getClimateScenarios(): Promise<{ scenarios: Array<Record<string, unknown>> }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/scenarios`);
-    if (!res.ok) throw new Error(`Failed to get climate scenarios: ${res.status}`);
-    return res.json();
-  }
-
-  async deleteClimateScenario(scenarioId: string): Promise<{ ok: boolean; message: string }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/delete/${scenarioId}`, {
-      method: "POST",
-      headers: this.headers(),
-    });
-    if (!res.ok) throw new Error(`Failed to delete scenario: ${res.status}`);
-    return res.json();
-  }
-
-  async getClimateStatus(jobId: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/status/${jobId}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Failed to get climate status: ${res.status}`);
-    return res.json();
-  }
-
-  async getAsyncJobStatus(jobId: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/status/${jobId}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
-    return res.json();
-  }
-
-  async getModelStatus(jobId: string): Promise<Record<string, unknown>> {
+  async getModelStatus(jobId: string): Promise<ModelStatusResponse> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get model status: ${res.status}`);
     return res.json();
@@ -266,6 +236,12 @@ export class PlumberClient {
     const res = await this._fetch(`${this.baseUrl}/api/v1/ecology/${runId}/report`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get ecology report: ${res.status}`);
     return res.text();
+  }
+
+  async getAsyncJobStatus(jobId: string): Promise<AsyncJobStatusResponse> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/status/${jobId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
+    return res.json();
   }
 
   async getDiagnosticsVif(runId: string): Promise<Record<string, unknown>> {
