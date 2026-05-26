@@ -50,7 +50,7 @@ export function ResponseCurvesChart({ data, loading }: ResponseCurvesChartProps)
     curves.forEach((c) => {
       if (activeCurves.has(c.covariate)) {
         const point = c.points.find((p) => Math.abs(p.value - val) < 0.001);
-        entry[c.covariate] = point?.suitability ?? NaN;
+        entry[c.covariate] = Number.isFinite(point?.suitability) ? point!.suitability : 0;
       }
     });
     return entry;
