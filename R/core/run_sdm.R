@@ -199,6 +199,7 @@ run_fast_sdm <- function(...) {
       sample_size <- 20000
       log_message(log_fun, "VIF sample size adapted to ", sample_size, " for large raster (1% of ", n_cells, " cells)")
     }
+    sample_size <- min(sample_size, n_cells)
     sample_cells <- sample(n_cells, size = sample_size)
     sample_xy <- terra::xyFromCell(env$env_train_scaled[[1]], sample_cells)
     covar_samples <- terra::extract(env$env_train_scaled, sample_xy)
