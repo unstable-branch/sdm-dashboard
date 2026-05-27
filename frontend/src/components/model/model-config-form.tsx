@@ -81,6 +81,22 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [climateMatching, setClimateMatching] = useState(false);
   const [maxnetFeatures, setMaxnetFeatures] = useState(DEFAULT_CONFIG.maxnetFeatures);
   const [maxnetRegmult, setMaxnetRegmult] = useState(DEFAULT_CONFIG.maxnetRegmult);
+  const [dnnArchitecture, setDnnArchitecture] = useState(DEFAULT_CONFIG.dnnArchitecture);
+  const [dnnNSeeds, setDnnNSeeds] = useState(DEFAULT_CONFIG.dnnNSeeds);
+  const [dnnDevice, setDnnDevice] = useState(DEFAULT_CONFIG.dnnDevice);
+  const [brtNTrees, setBrtNTrees] = useState(DEFAULT_CONFIG.brtNTrees);
+  const [brtInteractionDepth, setBrtInteractionDepth] = useState(DEFAULT_CONFIG.brtInteractionDepth);
+  const [brtShrinkage, setBrtShrinkage] = useState(DEFAULT_CONFIG.brtShrinkage);
+  const [brtBagFraction, setBrtBagFraction] = useState(DEFAULT_CONFIG.brtBagFraction);
+  const [ctaCp, setCtaCp] = useState(DEFAULT_CONFIG.ctaCp);
+  const [ctaMaxdepth, setCtaMaxdepth] = useState(DEFAULT_CONFIG.ctaMaxdepth);
+  const [ctaMinsplit, setCtaMinsplit] = useState(DEFAULT_CONFIG.ctaMinsplit);
+  const [marsDegree, setMarsDegree] = useState(DEFAULT_CONFIG.marsDegree);
+  const [marsPenalty, setMarsPenalty] = useState(DEFAULT_CONFIG.marsPenalty);
+  const [fdaDegree, setFdaDegree] = useState(DEFAULT_CONFIG.fdaDegree);
+  const [annSize, setAnnSize] = useState(DEFAULT_CONFIG.annSize);
+  const [annDecay, setAnnDecay] = useState(DEFAULT_CONFIG.annDecay);
+  const [annMaxit, setAnnMaxit] = useState(DEFAULT_CONFIG.annMaxit);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -219,6 +235,22 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       paReplicates,
       maxnetFeatures,
       maxnetRegmult,
+      dnnArchitecture,
+      dnnNSeeds,
+      dnnDevice,
+      brtNTrees,
+      brtInteractionDepth,
+      brtShrinkage,
+      brtBagFraction,
+      ctaCp,
+      ctaMaxdepth,
+      ctaMinsplit,
+      marsDegree,
+      marsPenalty,
+      fdaDegree,
+      annSize,
+      annDecay,
+      annMaxit,
       aggregationFactor,
       nCores,
       seed,
@@ -426,6 +458,131 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
                 className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text"
               />
             </div>
+          </div>
+        )}
+
+        {(modelId === "dnn") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">DNN architecture</label>
+              <select
+                value={dnnArchitecture}
+                onChange={(e) => setDnnArchitecture(e.target.value as typeof dnnArchitecture)}
+                className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text"
+              >
+                <option value="DNN_Small">Small (1×64)</option>
+                <option value="DNN_Medium">Medium (2×100)</option>
+                <option value="DNN_Large">Large (3×100)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Ensemble seeds (uncertainty)</label>
+              <input
+                type="number"
+                value={dnnNSeeds}
+                onChange={(e) => setDnnNSeeds(Number(e.target.value))}
+                min={1} max={20} step={1}
+                className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text"
+              />
+              <p className="mt-1 text-xs text-sdm-muted">Multiple seeds with different initialisations; prediction SD measures uncertainty</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Device</label>
+              <select
+                value={dnnDevice}
+                onChange={(e) => setDnnDevice(e.target.value as typeof dnnDevice)}
+                className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text"
+              >
+                <option value="auto">Auto-detect</option>
+                <option value="cpu">CPU only</option>
+                <option value="gpu">GPU if available</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {(modelId === "brt") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Number of trees</label>
+              <input type="number" value={brtNTrees} onChange={(e) => setBrtNTrees(Number(e.target.value))} min={100} max={10000} step={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Interaction depth</label>
+              <input type="number" value={brtInteractionDepth} onChange={(e) => setBrtInteractionDepth(Number(e.target.value))} min={1} max={10} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Learning rate (shrinkage)</label>
+              <input type="number" value={brtShrinkage} onChange={(e) => setBrtShrinkage(Number(e.target.value))} min={0.001} max={0.5} step={0.001} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Bag fraction</label>
+              <input type="number" value={brtBagFraction} onChange={(e) => setBrtBagFraction(Number(e.target.value))} min={0.1} max={1} step={0.05} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "cta") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Complexity parameter (cp)</label>
+              <input type="number" value={ctaCp} onChange={(e) => setCtaCp(Number(e.target.value))} min={0.001} max={0.5} step={0.001} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Max tree depth</label>
+              <input type="number" value={ctaMaxdepth} onChange={(e) => setCtaMaxdepth(Number(e.target.value))} min={3} max={30} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Min split size</label>
+              <input type="number" value={ctaMinsplit} onChange={(e) => setCtaMinsplit(Number(e.target.value))} min={2} max={100} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "mars") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Max interaction degree</label>
+              <input type="number" value={marsDegree} onChange={(e) => setMarsDegree(Number(e.target.value))} min={1} max={5} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Penalty per knot</label>
+              <input type="number" value={marsPenalty} onChange={(e) => setMarsPenalty(Number(e.target.value))} min={0} max={10} step={0.5} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "fda") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">MARS degree</label>
+              <input type="number" value={fdaDegree} onChange={(e) => setFdaDegree(Number(e.target.value))} min={1} max={5} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "ann") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Hidden layer size</label>
+              <input type="number" value={annSize} onChange={(e) => setAnnSize(Number(e.target.value))} min={2} max={50} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Weight decay</label>
+              <input type="number" value={annDecay} onChange={(e) => setAnnDecay(Number(e.target.value))} min={0.0001} max={1} step={0.001} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Max iterations</label>
+              <input type="number" value={annMaxit} onChange={(e) => setAnnMaxit(Number(e.target.value))} min={50} max={1000} step={50} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "bioclim") && (
+          <div className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-4 py-3">
+            <p className="text-xs text-sdm-muted">
+              BIOCLIM is a presence-only environmental envelope model. It computes suitability as the percentile of environmental distance to training presences. No additional parameters needed.
+            </p>
           </div>
         )}
       </div>
