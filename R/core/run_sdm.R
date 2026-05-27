@@ -256,7 +256,7 @@ run_fast_sdm <- function(...) {
 
   if (pa_replicates > 1) {
     log_message(log_fun, "Running ", pa_replicates, " PA replicates with different background samples")
-    if (model_id %in% c("multi_ensemble", "esm_glm", "esm_maxnet", "ensemble_glm_rangebag")) {
+    if (model_id %in% c("multi_ensemble", "esm_glm", "esm_maxnet", "ensemble_glm_rangebag", "bioclim")) {
       log_message(log_fun, "Note: PA replication applies to single-model backends only; ensemble/ESM models use one PA set.")
       pa_replicates <- 1L
     }

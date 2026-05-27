@@ -30,6 +30,12 @@ export const EXTENT_PRESETS: Record<string, { label: string; extent: [number, nu
 export const MODEL_BACKENDS = [
   { id: "glm", label: "GLM / Logistic regression", maturity: "stable" as const, min_records: 15, available: true },
   { id: "gam", label: "GAM / Smooth response curves", maturity: "stable" as const, min_records: 20, available: true },
+  { id: "bioclim", label: "BIOCLIM / Mahalanobis envelope", maturity: "experimental" as const, min_records: 5, available: true, notes: "Presence-only environmental envelope" },
+  { id: "brt", label: "BRT / Boosted Regression Trees (gbm)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires gbm package" },
+  { id: "cta", label: "CTA / Classification Tree Analysis (rpart)", maturity: "experimental" as const, min_records: 15, available: false, notes: "Requires rpart package" },
+  { id: "mars", label: "MARS / Multivariate Adaptive Regression Splines (earth)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires earth package" },
+  { id: "fda", label: "FDA / Flexible Discriminant Analysis (mda)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires mda + earth packages" },
+  { id: "ann", label: "ANN / Artificial Neural Network (nnet)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires nnet package" },
   { id: "maxnet", label: "MaxEnt (maxnet)", maturity: "stable" as const, min_records: 10, available: false, notes: "Requires maxnet package" },
   { id: "rf", label: "Random Forest (ranger)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires ranger package" },
   { id: "xgboost", label: "BRT / XGBoost", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires xgboost package" },
