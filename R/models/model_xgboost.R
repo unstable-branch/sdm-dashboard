@@ -22,7 +22,7 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
         data = x_train, label = y_train, weight = weights,
         objective = "binary:logistic", eval_metric = "auc",
         max_depth = max_depth, eta = eta, nrounds = nrounds,
-        verbose = 0, nthread = 1L
+        verbose = 0, nthread = 1L, seed = seed
       )
     }, error = function(e) {
       log_message(log_fun, "  XGBoost CV fold ", i, " failed: ", conditionMessage(e))
