@@ -1,0 +1,15 @@
+{
+  "id": "elapid",
+  "label": "Elapid (Python MaxEnt)",
+  "method": "Maximum entropy SDM via the Python elapid package",
+  "min_records": 10,
+  "supports_importance": true,
+  "supports_uncertainty": false,
+  "params": {
+    "n_estimators": {"type": "integer", "default": 100, "description": "Number of estimators"},
+    "max_iterations": {"type": "integer", "default": 500, "description": "Max iterations"}
+  },
+  "requirements": ["elapid>=0.4", "scikit-learn>=1.2"],
+  "fit_script": "fit.py",
+  "predict_script": "predict.py"
+}

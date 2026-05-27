@@ -207,6 +207,8 @@ sdmRoutes.get("/models", async (c) => {
       { id: "bart", label: "BART / Bayesian Additive Regression Trees", maturity: "experimental", available: false, notes: "Requires dbarts package" },
       { id: "occupancy", label: "Occupancy (unmarked)", maturity: "experimental", available: false, notes: "Requires unmarked package + detection-history data" },
       { id: "brms", label: "brms / General Bayesian (Stan)", maturity: "experimental", available: false, notes: "Requires brms + cmdstanr packages (compilation: 5-15 min)" },
+      { id: "python_elapid", label: "Elapid (Python MaxEnt)", maturity: "experimental", available: false, notes: "Requires Python + elapid package" },
+      { id: "python_sklearn_rf", label: "sklearn Random Forest (Python)", maturity: "experimental", available: false, notes: "Requires Python + scikit-learn package" },
       { id: "brt", label: "BRT / Boosted Regression Trees (gbm)", maturity: "experimental", available: false, notes: "Requires gbm package" },
       { id: "cta", label: "CTA / Classification Tree Analysis (rpart)", maturity: "experimental", available: false, notes: "Requires rpart package" },
       { id: "mars", label: "MARS / Multivariate Adaptive Regression Splines (earth)", maturity: "experimental", available: false, notes: "Requires earth package" },
