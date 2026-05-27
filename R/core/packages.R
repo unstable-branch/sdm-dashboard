@@ -45,6 +45,7 @@ sdm_optional_packages <- list(
   inla = c("INLA", "inlabru"),
   bart = c("dbarts"),
   unmarked = c("unmarked"),
+  brms = c("brms", "cmdstanr"),
   dwca = c("finch"),
   esm = c("ecospat", "biomod2"),
   targets = c("targets", "tarchetypes", "geotargets")
