@@ -91,6 +91,9 @@ sdm_default_inla_mesh_cutoff <- NULL
 sdm_default_inla_prior_range <- NULL
 sdm_default_inla_prior_sigma <- NULL
 sdm_default_inla_n_samples <- 100L
+sdm_default_bart_ntree <- 200L
+sdm_default_bart_ndpost <- 1000L
+sdm_default_bart_nskip <- 500L
 
 sdm_default_validation_occurrences <- NULL
 sdm_default_pa_replicates <- 1L
