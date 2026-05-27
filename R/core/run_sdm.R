@@ -248,6 +248,16 @@ run_fast_sdm <- function(...) {
     list(size = cfg$ann_size %||% 5L, decay = cfg$ann_decay %||% 0.01, maxit = cfg$ann_maxit %||% 200L)
   } else if (identical(model_id, "dnn")) {
     list(n_seeds = cfg$dnn_n_seeds %||% 5L, dnn_model_type = cfg$dnn_model_type %||% "DNN_Medium", dnn_device = cfg$dnn_device %||% "auto")
+  } else if (identical(model_id, "rf")) {
+    list(num_trees = cfg$rf_num_trees %||% 500L, mtry = cfg$rf_mtry %||% NULL, min_node_size = cfg$rf_min_node_size %||% 10L)
+  } else if (identical(model_id, "xgboost")) {
+    list(max_depth = cfg$xgb_max_depth %||% 6L, eta = cfg$xgb_eta %||% 0.3, nrounds = cfg$xgb_nrounds %||% 100L)
+  } else if (identical(model_id, "bart")) {
+    list(ntree = cfg$bart_ntree %||% 200L, ndpost = cfg$bart_ndpost %||% 1000L, nskip = cfg$bart_nskip %||% 500L)
+  } else if (identical(model_id, "brms")) {
+    list(chains = cfg$brms_chains %||% 4L, iter = cfg$brms_iter %||% 2000L, warmup = cfg$brms_warmup %||% 1000L)
+  } else if (identical(model_id, "inla_spde")) {
+    list(mesh_max_edge = cfg$inla_mesh_max_edge %||% NULL, mesh_cutoff = cfg$inla_mesh_cutoff %||% NULL, prior_range = cfg$inla_prior_range %||% NULL, prior_sigma = cfg$inla_prior_sigma %||% NULL)
   } else if (identical(model_id, "multi_ensemble")) {
     list(
       selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,
