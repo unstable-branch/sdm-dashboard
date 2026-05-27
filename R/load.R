@@ -67,6 +67,7 @@ modules <- c(
   "model_inla.R",
   "model_bart.R",
   "model_unmarked.R",
+  "model_brms.R",
   "model_gbm.R",
   "model_rpart.R",
   "model_earth.R",
