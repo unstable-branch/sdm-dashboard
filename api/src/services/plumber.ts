@@ -17,13 +17,13 @@ export interface CleanResponse {
   status: string;
 }
 
-export interface ModelRunResponse {
+export interface ModelRunResponse extends Record<string, unknown> {
   job_id: string;
   status: string;
   message: string;
 }
 
-export interface ModelStatusResponse {
+export interface ModelStatusResponse extends Record<string, unknown> {
   id?: string;
   status: string;
   progress?: number;
@@ -33,7 +33,7 @@ export interface ModelStatusResponse {
   config?: Record<string, unknown>;
 }
 
-export interface AsyncJobStatusResponse {
+export interface AsyncJobStatusResponse extends Record<string, unknown> {
   available?: boolean;
   status?: string;
   error?: string;
@@ -241,6 +241,21 @@ export class PlumberClient {
   async getModelStatus(jobId: string): Promise<ModelStatusResponse> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get model status: ${res.status}`);
+    return res.json();
+  }
+
+  async deleteModelOutputs(jobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/delete/${jobId}`, {
+      method: "POST",
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to delete model outputs: ${res.status}`);
+    return res.json();
+  }
+
+  async getFutureScenarios(): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get future scenarios: ${res.status}`);
     return res.json();
   }
 
