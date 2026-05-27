@@ -165,7 +165,7 @@ export default function EvaluatePage() {
                 ))}
               </div>
               {selectedRun ? (
-                <SuitabilityMap outputFiles={selectedRun.output_files} projectionExtent={(selectedRun.config?.projectionExtent as number[]) ?? null} />
+                <SuitabilityMap outputFiles={selectedRun.output_files} projectionExtent={(selectedRun.config?.projectionExtent as number[]) ?? null} runId={selectedRun.id} />
               ) : (
                 <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
                   Select a run to view its suitability map.
