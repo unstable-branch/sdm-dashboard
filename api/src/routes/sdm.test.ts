@@ -23,6 +23,8 @@ const mockCountChain = (count: number) => ({
 vi.mock("../db", () => ({
   db: {
     select: vi.fn(),
+    insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn(async () => [{}]) })) })),
+    update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => [{}]) })) })),
   },
 }));
 
@@ -57,6 +59,13 @@ vi.mock("../middleware/auth", () => ({
 vi.mock("../services/access", () => ({
   ensureDefaultProject: vi.fn(async () => "proj-1"),
   getUserProjectIds: vi.fn(async () => ["proj-1"]),
+}));
+
+vi.mock("../services/queue", () => ({
+  enqueueSdmJob: vi.fn(async () => "job-1"),
+  getJobQueue: vi.fn(() => ({
+    remove: vi.fn(async () => {}),
+  })),
 }));
 
 vi.mock("hono/jwt", () => ({
@@ -179,6 +188,36 @@ describe("SDM routes", () => {
       });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe("POST /batch/cancel", () => {
+    it("returns 404 for nonexistent batch", async () => {
+      const { db } = await import("../db");
+      (db.select as any).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve([])),
+        })),
+      });
+      const res = await app.request("/api/v1/sdm/batch/nonexistent/cancel", {
+        method: "POST",
+      });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe("POST /batch/retry", () => {
+    it("returns 404 for nonexistent batch", async () => {
+      const { db } = await import("../db");
+      (db.select as any).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve([])),
+        })),
+      });
+      const res = await app.request("/api/v1/sdm/batch/nonexistent/retry", {
+        method: "POST",
+      });
+      expect(res.status).toBe(404);
     });
   });
 });
