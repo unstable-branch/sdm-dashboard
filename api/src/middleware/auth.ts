@@ -44,6 +44,7 @@ export interface JwtPayload {
   role: string;
   iat: number;
   exp: number;
+  iss: string;
 }
 
 export type AppEnv = {
@@ -129,6 +130,11 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 
   try {
     const payload = await verify(token, secret, "HS256");
+    const expectedIss = process.env.JWT_ISSUER || "sdm-dashboard";
+    if (payload.iss !== expectedIss) {
+      console.warn(`[auth] Token issuer mismatch: expected ${expectedIss}, got ${payload.iss}`);
+      return c.json({ error: "Invalid token issuer" }, 401);
+    }
     c.set("user", {
       id: payload.sub as string,
       email: payload.email as string,
@@ -179,11 +185,14 @@ export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
       const secret = process.env.JWT_SECRET;
       if (secret) {
         const payload = await verify(token, secret, "HS256");
-        c.set("user", {
-          id: payload.sub as string,
-          email: payload.email as string,
-          role: payload.role as string,
-        });
+        const expectedIss = process.env.JWT_ISSUER || "sdm-dashboard";
+        if (payload.iss === expectedIss) {
+          c.set("user", {
+            id: payload.sub as string,
+            email: payload.email as string,
+            role: payload.role as string,
+          });
+        }
       }
     } catch {
       // Silently fail for optional auth
