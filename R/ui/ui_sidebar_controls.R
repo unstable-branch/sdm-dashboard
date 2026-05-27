@@ -302,7 +302,7 @@ ui_sidebar_controls <- function() {
           numericInput("multi_ensemble_min_tss", "Minimum TSS to include:",
             value = sdm_default_ensemble_min_tss, min = 0.0, max = 1.0, step = 0.05
           ),
-          checkboxInput("multi_ensemble_export", "Export individual model rasters", value = TRUE),
+          checkboxInput("multi_ensemble_export", "Export individual model rasters", value = FALSE),
           uiOutput("multi_ensemble_validation"),
           div(class = "small-muted", "Select at least 2 models. biomod2 requires options(sdm.enable_biomod2 = TRUE).")
         ),
