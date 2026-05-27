@@ -156,6 +156,68 @@ export interface NicheOverlapResult {
   n_introduced: number;
 }
 
+export interface RocData {
+  available: boolean;
+  message?: string;
+  auc?: number;
+  auc_sd?: number;
+  fpr?: number[];
+  tpr?: number[];
+  error?: string;
+}
+
+export interface CalibrationBin {
+  bin_mid: number;
+  observed_freq: number;
+  count: number;
+}
+
+export interface CalibrationData {
+  available: boolean;
+  message?: string;
+  bins?: CalibrationBin[];
+  error?: string;
+}
+
+export interface CvFoldEntry {
+  fold: number;
+  auc: number;
+  tss: number;
+}
+
+export interface CvFoldsData {
+  available: boolean;
+  message?: string;
+  auc_mean?: number;
+  auc_sd?: number;
+  tss_mean?: number;
+  tss_sd?: number;
+  folds?: CvFoldEntry[];
+  error?: string;
+}
+
+export interface ThresholdEntry {
+  threshold: number;
+  sensitivity: number;
+  specificity: number;
+  tss: number;
+}
+
+export interface ThresholdData {
+  available: boolean;
+  message?: string;
+  thresholds?: ThresholdEntry[];
+  error?: string;
+}
+
+export interface DensityData {
+  available: boolean;
+  message?: string;
+  presence?: { x: number[]; y: number[] };
+  background?: { x: number[]; y: number[] };
+  error?: string;
+}
+
 export interface ClimateScenario {
   id: string;
   type: string;

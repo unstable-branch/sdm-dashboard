@@ -310,6 +310,36 @@ export class PlumberClient {
     return res.json();
   }
 
+  async getDiagnosticsRoc(runId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/roc/${runId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get ROC data: ${res.status}`);
+    return res.json();
+  }
+
+  async getDiagnosticsCalibration(runId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/calibration/${runId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get calibration data: ${res.status}`);
+    return res.json();
+  }
+
+  async getDiagnosticsCvFolds(runId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/cv-folds/${runId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get CV folds data: ${res.status}`);
+    return res.json();
+  }
+
+  async getDiagnosticsThreshold(runId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/threshold/${runId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get threshold data: ${res.status}`);
+    return res.json();
+  }
+
+  async getDiagnosticsDensity(runId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/density/${runId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get density data: ${res.status}`);
+    return res.json();
+  }
+
   async generatePlots(runId: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/plots/${runId}`, {
       method: "POST",
