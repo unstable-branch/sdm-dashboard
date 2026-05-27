@@ -135,6 +135,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   lon_col <- detect_column(names(raw), c("^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east"))
   lat_col <- detect_column(names(raw), c("^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north"))
   src_col <- detect_column(names(raw), c("^(source|datasource|data_source|institution|institutioncode|herbarium|provider)$", "basisofrecord", "dataset"))
+  species_col <- detect_column(names(raw), c("^(species|scientificname|scientific_name|taxon)$"))
   country_col <- detect_column(names(raw), c("^(countrycode|country|iso2)$"))
   status_col <- detect_column(names(raw), c("occurrenceStatus"))
 
@@ -160,6 +161,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     stringsAsFactors = FALSE
   )
   if (!is.na(country_col)) occ$countryCode <- as.character(raw[[country_col]])
+  if (!is.na(species_col)) occ$species <- as.character(raw[[species_col]])
 
   complete_ok <- stats::complete.cases(occ[, c("longitude", "latitude", "source")])
   finite_ok <- is.finite(occ$longitude) & is.finite(occ$latitude)
