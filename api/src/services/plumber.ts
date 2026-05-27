@@ -305,6 +305,12 @@ export class PlumberClient {
     return res.json();
   }
 
+  async getDiagnosticsAle(runId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/ale/${runId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get ALE data: ${res.status}`);
+    return res.json();
+  }
+
   async getDiagnosticsResponseCurves(runId: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/response-curves/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get response curves: ${res.status}`);
