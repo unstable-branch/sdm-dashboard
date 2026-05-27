@@ -247,6 +247,9 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           ann_size = input$ann_size %||% 5L,
           ann_decay = input$ann_decay %||% 0.01,
           ann_maxit = input$ann_maxit %||% 200L,
+          dnn_n_seeds = input$dnn_n_seeds %||% 5L,
+          dnn_model_type = input$dnn_model_type %||% "DNN_Medium",
+          dnn_device = input$dnn_device %||% "auto",
           bias_method = input$bias_method %||% "uniform",
           target_group_occ = if (isTRUE(input$bias_method == "target_group") && !is.null(input$target_group_file)) {
             tryCatch(read.csv(input$target_group_file$datapath, header = TRUE), error = function(e) NULL)
