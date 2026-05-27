@@ -305,6 +305,12 @@ export class PlumberClient {
     return res.json();
   }
 
+  async getDiagnosticsClimateDrivers(runId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/climate-drivers/${runId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get climate driver data: ${res.status}`);
+    return res.json();
+  }
+
   async getDiagnosticsAle(runId: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/ale/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get ALE data: ${res.status}`);
