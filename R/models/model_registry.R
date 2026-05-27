@@ -121,6 +121,41 @@ if (requireNamespace("INLA", quietly = TRUE)) {
   )
 }
 
+# BART (Bayesian Additive Regression Trees) — conditional on dbarts
+if (requireNamespace("dbarts", quietly = TRUE)) {
+  register_sdm_model(
+    id = "bart",
+    label = "BART / Bayesian Additive Regression Trees",
+    method = "Bayesian sum-of-trees model with uncertainty quantification via dbarts",
+    packages = "dbarts",
+    maturity = "experimental",
+    fit_fun = function(...) fit_bart_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_bart_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = TRUE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, variable_importance = TRUE),
+    notes = "Bayesian Additive Regression Trees. Provides native posterior uncertainty (95% CI). Tune ntree/ndpost/nskip.",
+    predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+      log_message(log_fun, "  Predicting BART component")
+      predict_bart_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+      fit_bart_sdm(
+        occ = occ, env_train_scaled = env_train_scaled,
+        background_n = background_n,
+        cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+        log_fun = log_fun, bias_method = bias_method,
+        target_group_occ = target_group_occ,
+        thickening_distance_km = thickening_distance_km,
+        cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+      )
+    }
+  )
+}
+
 if (requireNamespace("gbm", quietly = TRUE)) {
   register_sdm_model(
     id = "brt",
