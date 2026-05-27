@@ -62,6 +62,12 @@ modules <- c(
 
   # --- models ---
   "model_helpers.R",
+  "model_gbm.R",
+  "model_rpart.R",
+  "model_earth.R",
+  "model_mda.R",
+  "model_nnet.R",
+  "model_bioclim.R",
   "model_glm.R",
   "model_gam.R",
   "model_rangebag.R",
