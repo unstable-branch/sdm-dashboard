@@ -77,6 +77,12 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [futureGcm, setFutureGcm] = useState("UKESM1-0-LL");
   const [futureSsp, setFutureSsp] = useState("SSP2-4.5");
   const [futurePeriod, setFuturePeriod] = useState("2041-2060");
+  const [future2Enabled, setFuture2Enabled] = useState(false);
+  const [future2Label, setFuture2Label] = useState("Future climate 2");
+  const [future2Gcm, setFuture2Gcm] = useState("MPI-ESM1-2-HR");
+  const [future2Ssp, setFuture2Ssp] = useState("SSP3-7.0");
+  const [future2Period, setFuture2Period] = useState("2041-2060");
+  const [extrapolationMask, setExtrapolationMask] = useState(true);
   const [vifReduction, setVifReduction] = useState(false);
   const [climateMatching, setClimateMatching] = useState(false);
   const [maxnetFeatures, setMaxnetFeatures] = useState(DEFAULT_CONFIG.maxnetFeatures);
@@ -225,6 +231,10 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       futureProjection,
       futureWorldclimDir: futureProjection ? buildFutureWorldclimPath(futureGcm, futureSsp, futurePeriod) : undefined,
       futureLabel,
+      futureWorldclimDir2: future2Enabled ? buildFutureWorldclimPath(future2Gcm, future2Ssp, future2Period) : undefined,
+      futureLabel2: future2Enabled ? future2Label : undefined,
+      extrapolationMask,
+      messThreshold: 0,
       vifReduction,
       climateMatching,
       thinByCell,
@@ -703,6 +713,12 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
         {futureProjection && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            {climateSource === "chelsa" && (
+              <p className="text-xs text-amber-500">
+                Future projection uses WorldClim CMIP6 data regardless of current climate source selection.
+                CHELSA v2.1 future data is not currently supported.
+              </p>
+            )}
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Scenario label</label>
               <input type="text" value={futureLabel} onChange={(e) => setFutureLabel(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
@@ -733,6 +749,51 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             </div>
             <p className="text-xs text-sdm-muted font-mono">
               Path: Worldclim_future/{futureGcm}_{futureSsp}_{futurePeriod}
+            </p>
+
+            <label className="flex items-center gap-2 text-sm text-sdm-text">
+              <input type="checkbox" checked={future2Enabled} onChange={(e) => setFuture2Enabled(e.target.checked)} />
+              Compare second scenario
+            </label>
+            {future2Enabled && (
+              <div className="space-y-3 ml-4 border-l-2 border-sdm-border/50 pl-3">
+                <div>
+                  <label className="block text-sm font-medium text-sdm-text mb-1">Label</label>
+                  <input type="text" value={future2Label} onChange={(e) => setFuture2Label(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-sdm-text mb-1">GCM</label>
+                  <select value={future2Gcm} onChange={(e) => setFuture2Gcm(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                    {GCM_CHOICES.map((gcm) => (
+                      <option key={gcm.id} value={gcm.id}>{gcm.label} — {gcm.description}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-sdm-text mb-1">SSP</label>
+                  <select value={future2Ssp} onChange={(e) => setFuture2Ssp(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                    {SSP_CHOICES.map((ssp) => (
+                      <option key={ssp.id} value={ssp.id}>{ssp.label} — {ssp.description}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-sdm-text mb-1">Period</label>
+                  <select value={future2Period} onChange={(e) => setFuture2Period(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                    {TIME_PERIOD_CHOICES.map((p) => (
+                      <option key={p.id} value={p.id}>{p.label} — {p.description}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <label className="flex items-center gap-2 text-sm text-sdm-text">
+              <input type="checkbox" checked={extrapolationMask} onChange={(e) => setExtrapolationMask(e.target.checked)} />
+              Mask extrapolation zones (MESS &lt; 0)
+            </label>
+            <p className="text-xs text-sdm-muted -mt-2">
+              Cells where the future climate is outside the training range will be masked as unsuitable
             </p>
           </div>
         )}

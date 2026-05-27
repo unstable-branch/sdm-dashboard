@@ -1130,14 +1130,22 @@ function() {
     if (length(tif_files) == 0) next
 
     is_averaged <- startsWith(sd_name, "averaged_")
-    if (is_averaged) next
-
-    parts <- strsplit(sd_name, "_")[[1]]
-    if (length(parts) < 3) next
-    period <- parts[length(parts)]
-    ssp_raw <- parts[length(parts) - 1]
-    ssp <- if (grepl("-", ssp_raw)) ssp_raw else paste0("SSP", substr(ssp_raw, 1, 1), "-", substr(ssp_raw, 2, 3))
-    gcm <- paste(parts[1:(length(parts) - 2)], collapse = "_")
+    if (is_averaged) {
+      parts <- strsplit(sub("^averaged_", "", sd_name), "_")[[1]]
+      if (length(parts) < 4) next
+      period <- parts[length(parts)]
+      ssp_raw <- parts[length(parts) - 1]
+      ssp <- if (grepl("-", ssp_raw)) ssp_raw else paste0("SSP", substr(ssp_raw, 1, 1), "-", substr(ssp_raw, 2, 3))
+      gcm <- paste(parts[1:(length(parts) - 2)], collapse = "_")
+      gcm <- paste0("Averaged (", gcm, ")")
+    } else {
+      parts <- strsplit(sd_name, "_")[[1]]
+      if (length(parts) < 3) next
+      period <- parts[length(parts)]
+      ssp_raw <- parts[length(parts) - 1]
+      ssp <- if (grepl("-", ssp_raw)) ssp_raw else paste0("SSP", substr(ssp_raw, 1, 1), "-", substr(ssp_raw, 2, 3))
+      gcm <- paste(parts[1:(length(parts) - 2)], collapse = "_")
+    }
 
     available <- c(available, list(list(
       gcm = gcm,
