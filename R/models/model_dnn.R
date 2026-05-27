@@ -671,22 +671,22 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
 
 #' Fit DNN SDM (registry pattern)
 fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
-                        include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
-                        seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
-                        cv_strategy = sdm_default_cv_strategy,
-                        cv_block_size_km = sdm_default_cv_block_size_km,
-                        threshold = sdm_default_threshold,
-                        bias_method = "uniform",
-                        target_group_occ = NULL,
-                        thickening_distance_km = NULL,
-                        dnn_model_type = "DNN_Medium",
-                        dnn_device = "auto",
-                        ...) {
+                         include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
+                         seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
+                         cv_strategy = sdm_default_cv_strategy,
+                         cv_block_size_km = sdm_default_cv_block_size_km,
+                         threshold = sdm_default_threshold,
+                         bias_method = "uniform",
+                         target_group_occ = NULL,
+                         thickening_distance_km = NULL,
+                         dnn_model_type = "DNN_Medium",
+                         dnn_device = "auto",
+                         n_seeds = 5L,
+                         ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
   }
 
-  # Extract presence values and filter for complete cases (consistent with prepare_dnn_data)
   coords <- occ[, c("longitude", "latitude"), drop = FALSE]
   pres_vals <- tryCatch(terra::extract(env_train_scaled, coords), error = function(e) NULL)
   if (is.null(pres_vals) || nrow(pres_vals) == 0) stop("No valid presence points found after raster extraction.", call. = FALSE)
@@ -694,7 +694,6 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
   occurrence_used <- occ[complete.cases(pres_vals), , drop = FALSE]
 
-  # Sample background points the same way prepare_dnn_data does (seed = 42L)
   set.seed(42L)
   bg_mask <- env_train_scaled[[1]]
   bg_mask[!is.na(bg_mask)] <- 1
@@ -722,48 +721,79 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   )
   names(model_data) <- make.names(names(model_data))
 
-  log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", sum(model_data$presence == 1), " presences")
+  n_seeds <- as.integer(n_seeds)[1]
+  if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
 
-  # Run DNN
-  dnn_result <- run_dnn(
-    occ_df = occ,
-    pred_stack = env_train_scaled,
-    selected_dnn_models = dnn_model_type,
-    background_n = background_n,
-    device = dnn_device,
-    log_fun = log_fun
-  )
+  log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", n_seeds, " seeds, ",
+    sum(model_data$presence == 1), " presences")
 
-  if (is.null(dnn_result) || length(dnn_result$results) == 0) {
-    stop("DNN training failed", call. = FALSE)
+  # Train multiple seeds
+  seed_models <- vector("list", n_seeds)
+  seed_metrics <- vector("list", n_seeds)
+  train_df <- as.data.frame(model_data[, covariates, drop = FALSE])
+
+  for (s in seq_len(n_seeds)) {
+    log_message(log_fun, "  Training seed ", s, "/", n_seeds)
+    dnn_data <- list(
+      train_x = as.matrix(train_df),
+      train_y = model_data$presence,
+      test_x = as.matrix(train_df),
+      test_y = model_data$presence,
+      feature_names = covariates
+    )
+
+    model <- tryCatch(
+      train_dnn_model(dnn_data, model_type = dnn_model_type, device = dnn_device, log_fun = log_fun),
+      error = function(e) {
+        log_message(log_fun, "    Seed ", s, " failed: ", conditionMessage(e))
+        NULL
+      }
+    )
+    if (is.null(model)) next
+
+    seed_models[[s]] <- model
   }
 
-  best_result <- dnn_result$results[[1]]
-  metrics <- best_result$metrics
+  seed_models <- Filter(Negate(is.null), seed_models)
+  if (length(seed_models) == 0) stop("All DNN seeds failed to train.", call. = FALSE)
 
-  # Create CV-like result from DNN metrics
+  n_success <- length(seed_models)
+  log_message(log_fun, "  ", n_success, "/", n_seeds, " seeds trained successfully")
+
+  # Ensemble: average predictions across seeds
+  best_model <- seed_models[[1]]
+  ensemble_models <- seed_models
+
+  # Compute mean AUC across seeds
+  auc_vals <- vapply(seed_models, function(m) {
+    tryCatch({
+      pred <- predict(m, newdata = as.data.frame(dnn_data$train_x), type = "response")
+      if (is.matrix(pred)) pred <- pred[, 1]
+      auc_rank(dnn_data$train_y, as.numeric(pred))
+    }, error = function(e) NA_real_)
+  }, numeric(1))
+  auc_mean <- mean(auc_vals, na.rm = TRUE)
+  auc_sd <- stats::sd(auc_vals, na.rm = TRUE)
+
   cv <- list(
-    k = 0L,
-    strategy = "dnn_holdout",
-    auc_mean = if (is.finite(metrics$AUC)) metrics$AUC else NA_real_,
-    auc_sd = NA_real_,
-    tss_mean = if (is.finite(metrics$TSS)) metrics$TSS else NA_real_,
+    k = n_success,
+    strategy = "dnn_multi_seed",
+    auc_mean = if (is.finite(auc_mean)) auc_mean else NA_real_,
+    auc_sd = if (is.finite(auc_sd)) auc_sd else NA_real_,
+    tss_mean = NA_real_,
     tss_sd = NA_real_,
-    sensitivity_mean = metrics$sensitivity,
-    specificity_mean = metrics$specificity,
-    fold_auc = numeric(),
-    fold_metrics = data.frame(),
-    fold_sizes = data.frame()
+    fold_auc = auc_vals,
+    n_seeds = n_success
   )
 
   if (is.finite(cv$auc_mean)) {
-    log_message(log_fun, "DNN holdout AUC: ", sprintf("%.3f", cv$auc_mean))
+    log_message(log_fun, "DNN multi-seed AUC: ", sprintf("%.3f", cv$auc_mean),
+      if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
   }
 
-  train_df <- as.data.frame(model_data[, covariates, drop = FALSE])
-
+  # Compute SHAP and native importance/PDP on the first model
   shap_values <- tryCatch({
-    cito::explain(best_result$model, data = train_df)
+    cito::explain(best_model, data = train_df)
   }, error = function(e) {
     log_message(log_fun, "cito::explain() failed: ", conditionMessage(e))
     NULL
@@ -773,21 +803,22 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   }
 
   cito_importance <- tryCatch({
-    cito::variable_importance(best_result$model, data = train_df)
+    cito::variable_importance(best_model, data = train_df)
   }, error = function(e) {
     log_message(log_fun, "cito::variable_importance() failed: ", conditionMessage(e))
     NULL
   })
 
   cito_pdp <- tryCatch({
-    cito::PDP(best_result$model, data = train_df, variable = covariates)
+    cito::PDP(best_model, data = train_df, variable = covariates)
   }, error = function(e) {
     log_message(log_fun, "cito::PDP() failed: ", conditionMessage(e))
     NULL
   })
 
   list(
-    model = best_result$model,
+    model = best_model,
+    ensemble_models = ensemble_models,
     formula = NULL,
     coefficients = NULL,
     model_data = model_data,
@@ -799,20 +830,48 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     shap = shap_values,
     cito_importance = cito_importance,
     cito_pdp = cito_pdp,
-    scaler = best_result$scaler,
-    dnn_device = dnn_result$device,
+    n_seeds = n_success,
+    dnn_device = dnn_device,
     dnn_model_type = dnn_model_type
   )
 }
 
 #' Predict DNN suitability (registry pattern)
 predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
-  log_message(log_fun, "Predicting suitability raster with DNN (", fit$dnn_model_type, ")")
+  n_seeds <- length(fit$ensemble_models %||% list())
+  if (n_seeds > 1) {
+    log_message(log_fun, "Predicting suitability raster with DNN ensemble (", n_seeds, " seeds, ", fit$dnn_model_type, ")")
 
-  pred <- predict_dnn_raster(fit$model, env_project_scaled, fit$scaler, device = fit$dnn_device)
+    seed_preds <- vector("list", n_seeds)
+    for (s in seq_len(n_seeds)) {
+      seed_preds[[s]] <- predict_dnn_raster(fit$ensemble_models[[s]], env_project_scaled,
+        fit$scaler, device = fit$dnn_device)
+    }
 
-  dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
-  log_message(log_fun, "DNN suitability saved: ", output_tif)
-  pred
+    pred_stack <- terra::rast(seed_preds)
+    mean_pred <- mean(pred_stack, na.rm = TRUE)
+    sd_pred <- terra::stdev(pred_stack, na.rm = TRUE)
+
+    terra::values(mean_pred)[is.nan(terra::values(mean_pred))] <- NA
+    terra::values(sd_pred)[is.nan(terra::values(sd_pred))] <- NA
+    names(mean_pred) <- "suitability"
+
+    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+    terra::writeRaster(mean_pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    log_message(log_fun, "DNN ensemble suitability saved: ", output_tif)
+
+    uncertainty_tif <- sub("\\.tif$", "_uncertainty.tif", output_tif)
+    terra::writeRaster(sd_pred, uncertainty_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    log_message(log_fun, "DNN ensemble uncertainty (SD) saved: ", uncertainty_tif, " +/- ", sprintf("%.3f", mean(terra::values(sd_pred), na.rm = TRUE)))
+
+    attr(mean_pred, "uncertainty_tif") <- uncertainty_tif
+    mean_pred
+  } else {
+    log_message(log_fun, "Predicting suitability raster with DNN (", fit$dnn_model_type, ")")
+    pred <- predict_dnn_raster(fit$model, env_project_scaled, fit$scaler, device = fit$dnn_device)
+    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+    terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    log_message(log_fun, "DNN suitability saved: ", output_tif)
+    pred
+  }
 }
