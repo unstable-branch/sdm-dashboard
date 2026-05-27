@@ -122,6 +122,27 @@ if (requireNamespace("INLA", quietly = TRUE)) {
 }
 
 # BART (Bayesian Additive Regression Trees) — conditional on dbarts
+# Occupancy (unmarked) — conditional on unmarked package
+if (requireNamespace("unmarked", quietly = TRUE)) {
+  register_sdm_model(
+    id = "occupancy",
+    label = "Occupancy (unmarked)",
+    method = "Single-season occupancy model accounting for imperfect detection via unmarked",
+    packages = "unmarked",
+    maturity = "experimental",
+    fit_fun = function(...) fit_occupancy_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_occupancy_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    diagnostics = list(state_coefficients = TRUE, detection_coefficients = TRUE),
+    notes = "Requires detection-history data (repeated surveys), not presence/background. Use read_detection_history() to load data. Detection probability is modeled explicitly.",
+    min_records = 10L
+  )
+}
+
 if (requireNamespace("dbarts", quietly = TRUE)) {
   register_sdm_model(
     id = "bart",
