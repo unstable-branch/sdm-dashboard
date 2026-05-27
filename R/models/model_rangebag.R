@@ -229,7 +229,7 @@ predict_rangebag_suitability <- function(fit, env_project_scaled, output_tif, n_
     filename = output_tif,
     overwrite = TRUE,
     cores = normalize_core_count(n_cores),
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
   )
   names(suit) <- "suitability"
   suit

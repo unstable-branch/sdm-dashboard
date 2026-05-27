@@ -129,7 +129,7 @@ download_opentopo_dem <- function(extent_vec, demtype, cache_file, api_key = NUL
   dem <- if (length(rasters) == 1L) rasters[[1L]] else do.call(terra::merge, rasters)
   dem <- terra::crop(dem, terra::ext(extent_vec[1], extent_vec[2], extent_vec[3], extent_vec[4]), snap = "out")
   names(dem) <- "elevation_m"
-  terra::writeRaster(dem, cache_file, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  terra::writeRaster(dem, cache_file, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES")))
   cache_file
 }
 

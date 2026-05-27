@@ -101,7 +101,7 @@ load_human_footprint_covariate <- function(hfp_year = 2020,
 
   terra::writeRaster(r, cached_file,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
   )
   log_message(log_fun, "Human Footprint cached: ", names(r))
 

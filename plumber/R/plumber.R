@@ -612,7 +612,7 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
           r_3857 <- terra::project(result$suitability, "EPSG:3857", method = "bilinear")
           terra::writeRaster(r_3857, tif_3857_path,
             filetype = "COG",
-            gdal = c("COMPRESS=LZW", "BLOCKSIZE=512",
+            gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
                      "OVERVIEWS=AUTO", "OVERVIEW_RESAMPLING=BILINEAR",
                      "NODATA=-9999"),
             overwrite = TRUE
