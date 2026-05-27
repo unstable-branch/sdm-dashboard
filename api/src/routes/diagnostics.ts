@@ -215,6 +215,18 @@ diagnosticsRoutes.post("/ensemble-rasters/:runId", async (c) => {
 });
 
 // On-demand PNG generation for diagnostic plots
+diagnosticsRoutes.post("/shap/cell", async (c) => {
+  const user = c.get("user");
+  try {
+    const body = await c.req.json<{ run_id: string; longitude: number; latitude: number }>();
+    const data = await plumberClient.postDiagnosticsShapCell(body.run_id, body.longitude, body.latitude);
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "SHAP cell explanation unavailable";
+    return c.json({ error: message }, 502);
+  }
+});
+
 diagnosticsRoutes.post("/plots/:runId", async (c) => {
   const runId = c.req.param("runId");
   const user = c.get("user");

@@ -53,6 +53,9 @@ core_packages <- c(
   # Python bridge
   "arrow", "reticulate",
 
+  # XAI / explainability
+  "fastshap", "iml",
+
   # Parallel
   "future", "future.apply",
 
