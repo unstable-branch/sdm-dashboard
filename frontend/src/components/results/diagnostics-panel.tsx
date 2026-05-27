@@ -12,7 +12,6 @@ import { CalibrationChart } from "@/components/diagnostics/calibration-chart";
 import { CvFoldsChart } from "@/components/diagnostics/cv-folds-chart";
 import { ThresholdChart } from "@/components/diagnostics/threshold-chart";
 import { DensityChart } from "@/components/diagnostics/density-chart";
-import { ShapChart } from "@/components/diagnostics/shap-chart";
 import { AleChart } from "@/components/diagnostics/ale-chart";
 import { ClimateDriverChart } from "@/components/diagnostics/climate-driver-chart";
 import { apiGet, apiPost } from "@/services/api";
@@ -45,9 +44,6 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   const [densityData, setDensityData] = useState<DensityData | null>(null);
   const [aleData, setAleData] = useState<any>(null);
   const [climateDriverData, setClimateDriverData] = useState<any>(null);
-  const [shapData, setShapData] = useState<any>(null);
-  const [shapLoading, setShapLoading] = useState(false);
-  const [shapCell, setShapCell] = useState<{ lng: number; lat: number } | null>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(true);
 
   useEffect(() => {
@@ -170,7 +166,15 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
         </TabsContent>
 
         <TabsContent value="shap">
-          <ShapChart data={shapData} loading={shapLoading} />
+          <div className="rounded-lg border border-sdm-border bg-sdm-surface-soft p-6 text-center">
+            <p className="text-sm text-sdm-muted">
+              Click a cell on the <strong>suitability map</strong> (Results → Map tab) to get a per-pixel SHAP explanation.
+            </p>
+            <p className="text-xs text-sdm-muted mt-2">
+              SHAP values decompose the model prediction into per-covariate contributions,
+              showing which environmental variables drive suitability at each location.
+            </p>
+          </div>
         </TabsContent>
 
         <TabsContent value="log">
