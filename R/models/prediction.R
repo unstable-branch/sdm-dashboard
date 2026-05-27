@@ -7,7 +7,7 @@ predict_suitability <- function(model, env_project_scaled, output_tif, n_cores =
   predict_args <- list(
     object = env_project_scaled, model = model, type = "response", na.rm = TRUE,
     filename = output_tif, overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999"))
   )
   if (n_cores > 1) predict_args$cores <- n_cores
   suit <- tryCatch(do.call(terra::predict, predict_args), error = function(e) {

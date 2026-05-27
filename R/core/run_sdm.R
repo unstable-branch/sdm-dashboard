@@ -476,7 +476,7 @@ run_fast_sdm <- function(...) {
     }
     if (valid_reps > 1) {
       suit <- suit_sum / valid_reps
-      terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999")))
       log_message(log_fun, "PA-averaged suitability from ", valid_reps, " replicates written to ", output_tif)
     }
   }
@@ -512,7 +512,7 @@ run_fast_sdm <- function(...) {
     if (!is.null(climate_match_result)) {
       cm_tif <- file.path(output_dir, paste0(base_name, "_climatch.tif"))
       terra::writeRaster(climate_match_result$similarity, cm_tif,
-        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999")))
       extra_paths[["climate_matching_tif"]] <- cm_tif
     }
   }
