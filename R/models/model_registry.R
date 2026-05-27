@@ -692,10 +692,10 @@ if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietl
     predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
       predict_dnn_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
     },
-    supports_importance = FALSE,
+    supports_importance = TRUE,
     supports_uncertainty = FALSE,
     supports_future = TRUE,
-    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE),
-    notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration if CUDA available. Best with >100 records."
+    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, shap = TRUE, pdp = TRUE),
+    notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration if CUDA available. cito::explain() provides SHAP-like feature attribution."
   )
 }

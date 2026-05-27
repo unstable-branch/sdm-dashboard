@@ -760,6 +760,17 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     log_message(log_fun, "DNN holdout AUC: ", sprintf("%.3f", cv$auc_mean))
   }
 
+  shap_values <- tryCatch({
+    cito::explain(best_result$model, data = as.data.frame(model_data[, covariates, drop = FALSE]))
+  }, error = function(e) {
+    log_message(log_fun, "cito::explain() failed: ", conditionMessage(e))
+    NULL
+  })
+
+  if (!is.null(shap_values)) {
+    log_message(log_fun, "SHAP feature attribution computed (", length(shap_values), " variables)")
+  }
+
   list(
     model = best_result$model,
     formula = NULL,
@@ -770,6 +781,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     cv = cv,
     covariates = covariates,
     variable_importance = NULL,
+    shap = shap_values,
     scaler = best_result$scaler,
     dnn_device = dnn_result$device,
     dnn_model_type = dnn_model_type
