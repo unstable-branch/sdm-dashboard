@@ -123,6 +123,12 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [dnnMultispeciesArchitecture, setDnnMultispeciesArchitecture] = useState<"DNN_Small" | "DNN_Medium" | "DNN_Large">(DEFAULT_CONFIG.dnnArchitecture as "DNN_Small" | "DNN_Medium" | "DNN_Large");
   const [dnnMultispeciesNSeeds, setDnnMultispeciesNSeeds] = useState(3);
   const [biomod2Models, setBiomod2Models] = useState<string[]>(["GLM", "MAXNET", "RF"]);
+  const [multiEnsembleModels, setMultiEnsembleModels] = useState<string[]>(["glm", "rangebag"]);
+  const [multiEnsembleBiomod2, setMultiEnsembleBiomod2] = useState<string[]>(["MAXNET", "RF"]);
+  const [multiEnsembleWeighting, setMultiEnsembleWeighting] = useState<"equal" | "auc" | "tss">("auc");
+  const [multiEnsemblePower, setMultiEnsemblePower] = useState(2);
+  const [multiEnsembleMinAuc, setMultiEnsembleMinAuc] = useState(0.7);
+  const [multiEnsembleMinTss, setMultiEnsembleMinTss] = useState(0.5);
   const toggleBiomod2Model = (algo: string) => {
     setBiomod2Models(prev => prev.includes(algo) ? prev.filter(a => a !== algo) : [...prev]);
   };
@@ -273,6 +279,12 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       dnnMultispeciesArchitecture,
       dnnMultispeciesNSeeds,
       biomod2Models,
+      multiEnsembleModels,
+      multiEnsembleBiomod2,
+      multiEnsembleWeighting,
+      multiEnsemblePower,
+      multiEnsembleMinAuc,
+      multiEnsembleMinTss,
       vifReduction,
       climateMatching,
       thinByCell,
@@ -815,7 +827,50 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
         {(modelId === "multi_ensemble") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
             <p className="text-xs text-amber-500 mb-2">Select at least 2 models. biomod2 requires options(sdm.enable_biomod2 = TRUE).</p>
-            <p className="text-xs text-sdm-muted">Multi-model ensemble configuration is available in the R/Shiny interface. The API will use defaults (GLM + Rangebagging, AUC-weighted).</p>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Standalone models</label>
+              <div className="space-y-1">
+                {[{ id: "glm", label: "GLM" }, { id: "gam", label: "GAM" }, { id: "maxnet", label: "MaxEnt" }, { id: "rf", label: "Random Forest" }, { id: "xgboost", label: "XGBoost" }, { id: "rangebag", label: "Rangebagging" }].map((m) => (
+                  <label key={m.id} className="flex items-center gap-2 text-xs text-sdm-text">
+                    <input type="checkbox" checked={multiEnsembleModels.includes(m.id)} onChange={() => setMultiEnsembleModels(prev => prev.includes(m.id) ? prev.filter(x => x !== m.id) : [...prev, m.id])} className="rounded" />
+                    {m.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">biomod2 algorithms</label>
+              <div className="space-y-1">
+                {[{ id: "GAM", label: "GAM" }, { id: "FDA", label: "FDA" }, { id: "MARS", label: "MARS" }, { id: "RF", label: "RF" }, { id: "GBM", label: "GBM" }, { id: "BRT", label: "BRT" }, { id: "MAXNET", label: "MAXNET" }, { id: "SRE", label: "SRE" }, { id: "CTA", label: "CTA" }, { id: "XGBOOST", label: "XGBOOST" }].map((a) => (
+                  <label key={a.id} className="flex items-center gap-2 text-xs text-sdm-text ml-4">
+                    <input type="checkbox" checked={multiEnsembleBiomod2.includes(a.id)} onChange={() => setMultiEnsembleBiomod2(prev => prev.includes(a.id) ? prev.filter(x => x !== a.id) : [...prev, a.id])} className="rounded" />
+                    {a.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Weighting</label>
+              <select value={multiEnsembleWeighting} onChange={(e) => setMultiEnsembleWeighting(e.target.value as "equal" | "auc" | "tss")} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                <option value="equal">Equal average</option>
+                <option value="auc">AUC-weighted</option>
+                <option value="tss">TSS-weighted</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Weight power</label>
+              <input type="number" value={multiEnsemblePower} onChange={(e) => setMultiEnsemblePower(Number(e.target.value))} min={1} max={5} step={0.5} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-sdm-text mb-1">Min AUC</label>
+                <input type="number" value={multiEnsembleMinAuc} onChange={(e) => setMultiEnsembleMinAuc(Number(e.target.value))} min={0.5} max={1} step={0.05} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-sdm-text mb-1">Min TSS</label>
+                <input type="number" value={multiEnsembleMinTss} onChange={(e) => setMultiEnsembleMinTss(Number(e.target.value))} min={0} max={1} step={0.05} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+              </div>
+            </div>
           </div>
         )}
 
