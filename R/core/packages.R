@@ -43,7 +43,8 @@ sdm_optional_packages <- list(
   leaflet = c("leaflet", "mapview", "sf"),
   rgee = c("rgee", "reticulate"),
   dwca = c("finch"),
-  esm = c("ecospat", "biomod2")
+  esm = c("ecospat", "biomod2"),
+  targets = c("targets", "tarchetypes", "geotargets")
 )
 
 detect_available_cores <- function(logical = TRUE) {

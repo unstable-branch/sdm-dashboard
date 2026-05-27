@@ -54,7 +54,10 @@ core_packages <- c(
   "future", "future.apply",
 
   # Testing / dev
-  "testthat", "devtools"
+  "testthat", "devtools",
+
+  # Workflow pipelines (optional — for reproducible batch processing)
+  "targets", "tarchetypes", "geotargets"
 )
 
 cat("Installing core packages (", length(core_packages), "):\n  ", paste(core_packages, collapse = ", "), "\n\n", sep = "")
