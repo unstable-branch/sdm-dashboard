@@ -14,6 +14,7 @@ import { ThresholdChart } from "@/components/diagnostics/threshold-chart";
 import { DensityChart } from "@/components/diagnostics/density-chart";
 import { ShapChart } from "@/components/diagnostics/shap-chart";
 import { AleChart } from "@/components/diagnostics/ale-chart";
+import { ClimateDriverChart } from "@/components/diagnostics/climate-driver-chart";
 import { apiGet, apiPost } from "@/services/api";
 import { Download } from "lucide-react";
 import type {
@@ -43,6 +44,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   const [thresholdData, setThresholdData] = useState<ThresholdData | null>(null);
   const [densityData, setDensityData] = useState<DensityData | null>(null);
   const [aleData, setAleData] = useState<any>(null);
+  const [climateDriverData, setClimateDriverData] = useState<any>(null);
   const [shapData, setShapData] = useState<any>(null);
   const [shapLoading, setShapLoading] = useState(false);
   const [shapCell, setShapCell] = useState<{ lng: number; lat: number } | null>(null);
@@ -68,6 +70,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
         { url: `/api/v1/diagnostics/threshold/${run.id}`, setter: setThresholdData },
         { url: `/api/v1/diagnostics/density/${run.id}`, setter: setDensityData },
         { url: `/api/v1/diagnostics/ale/${run.id}`, setter: setAleData },
+        { url: `/api/v1/diagnostics/climate-drivers/${run.id}`, setter: setClimateDriverData },
       ];
 
       await Promise.all(
@@ -113,6 +116,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
           <TabsTrigger value="vif" className="text-xs">VIF</TabsTrigger>
           <TabsTrigger value="mess" className="text-xs">MESS</TabsTrigger>
           <TabsTrigger value="ale" className="text-xs">ALE</TabsTrigger>
+          <TabsTrigger value="climate-drivers" className="text-xs">Climate</TabsTrigger>
           <TabsTrigger value="shap" className="text-xs">SHAP</TabsTrigger>
           <TabsTrigger value="log" className="text-xs">Log</TabsTrigger>
         </TabsList>
@@ -159,6 +163,10 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
 
         <TabsContent value="ale">
           <AleChart data={aleData} loading={loadingDiagnostics} />
+        </TabsContent>
+
+        <TabsContent value="climate-drivers">
+          <ClimateDriverChart data={climateDriverData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="shap">
