@@ -241,14 +241,14 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
       out_mean <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, ".tif"))
       terra::writeRaster(avg, out_mean,
         overwrite = TRUE,
-        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
       )
 
       sd_layer <- terra::app(stacked, fun = "sd", na.rm = TRUE)
       out_sd <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, "_sd.tif"))
       terra::writeRaster(sd_layer, out_sd,
         overwrite = TRUE,
-        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
       )
     }
   }
@@ -273,7 +273,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
       out_delta <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, "_delta.tif"))
       terra::writeRaster(delta, out_delta,
         overwrite = TRUE,
-        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
       )
     }
   }
@@ -390,7 +390,7 @@ average_gcm_layers <- function(gcm_names, future_worldclim_dir, bio_variables,
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     terra::writeRaster(averaged_stack, out_tif,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
     )
     log_message(log_fun, "Averaged raster written to: ", out_tif)
   }

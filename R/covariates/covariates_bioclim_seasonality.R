@@ -240,7 +240,7 @@ load_bioclim_seasonality <- function(extent_vec,
 
   terra::writeRaster(result, cached_file,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
   )
   log_message(log_fun, "Bioclimatic seasonality cached: ", paste(names(result), collapse = ", "))
 
