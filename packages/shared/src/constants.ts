@@ -28,31 +28,42 @@ export const EXTENT_PRESETS: Record<string, { label: string; extent: [number, nu
 };
 
 export const MODEL_BACKENDS = [
-  { id: "glm", label: "GLM / Logistic regression", maturity: "stable" as const, min_records: 15, available: true },
-  { id: "gam", label: "GAM / Smooth response curves", maturity: "stable" as const, min_records: 20, available: true },
-  { id: "bioclim", label: "BIOCLIM / Mahalanobis envelope", maturity: "experimental" as const, min_records: 5, available: true, notes: "Presence-only environmental envelope" },
-  { id: "inla_spde", label: "INLA / Bayesian spatial (SPDE)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires INLA package (install from r-inla-download.org)" },
-  { id: "bart", label: "BART / Bayesian Additive Regression Trees", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires dbarts package" },
-  { id: "occupancy", label: "Occupancy (unmarked)", maturity: "experimental" as const, min_records: 10, available: false, notes: "Requires unmarked package + detection-history data" },
-  { id: "brms", label: "brms / General Bayesian (Stan)", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires brms + cmdstanr packages (compilation: 5-15 min)" },
-  { id: "python_elapid", label: "Elapid (Python MaxEnt)", maturity: "experimental" as const, min_records: 10, available: false, notes: "Requires Python + elapid package" },
-  { id: "python_sklearn_rf", label: "sklearn Random Forest (Python)", maturity: "experimental" as const, min_records: 15, available: false, notes: "Requires Python + scikit-learn package" },
-  { id: "brt", label: "BRT / Boosted Regression Trees (gbm)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires gbm package" },
-  { id: "cta", label: "CTA / Classification Tree Analysis (rpart)", maturity: "experimental" as const, min_records: 15, available: false, notes: "Requires rpart package" },
-  { id: "mars", label: "MARS / Multivariate Adaptive Regression Splines (earth)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires earth package" },
-  { id: "fda", label: "FDA / Flexible Discriminant Analysis (mda)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires mda + earth packages" },
-  { id: "ann", label: "ANN / Artificial Neural Network (nnet)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires nnet package" },
+  // Tier 1 — Core Standards (always available or very common)
+  { id: "glm", label: "GLM / Logistic Regression", maturity: "stable" as const, min_records: 15, available: true },
+  { id: "gam", label: "GAM / Smooth Response Curves", maturity: "stable" as const, min_records: 20, available: true },
   { id: "maxnet", label: "MaxEnt (maxnet)", maturity: "stable" as const, min_records: 10, available: false, notes: "Requires maxnet package" },
   { id: "rf", label: "Random Forest (ranger)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires ranger package" },
-  { id: "xgboost", label: "BRT / XGBoost", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires xgboost package" },
+  { id: "brt", label: "BRT / Boosted Regression Trees (gbm)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires gbm package" },
+  { id: "xgboost", label: "XGBoost / Gradient Boosting", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires xgboost package" },
+
+  // Tier 2 — Interpretable / Dependency-Free
   { id: "rangebag", label: "Rangebagging", maturity: "experimental" as const, min_records: 15, available: true },
+  { id: "mars", label: "MARS / Multivariate Adaptive Regression Splines (earth)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires earth package" },
+  { id: "ann", label: "ANN / Artificial Neural Network (nnet)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires nnet package" },
+  { id: "cta", label: "CTA / Classification Tree Analysis (rpart)", maturity: "experimental" as const, min_records: 15, available: false, notes: "Requires rpart package" },
+  { id: "fda", label: "FDA / Flexible Discriminant Analysis (mda)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires mda + earth packages" },
+
+  // Tier 3 — Ensembles
   { id: "ensemble_glm_rangebag", label: "Ensemble (GLM + Rangebagging)", maturity: "experimental" as const, min_records: 15, available: true },
-  { id: "esm_glm", label: "ESM — GLM (rare species)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires ecospat + biomod2 packages" },
-  { id: "esm_maxnet", label: "ESM — MaxEnt (rare species)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires ecospat + biomod2 + maxnet packages" },
   { id: "multi_ensemble", label: "Multi-Model Ensemble", maturity: "experimental" as const, min_records: 20, available: true, notes: "Select 2+ models from GLM, GAM, MaxNet, Rangebagging, and biomod2 algorithms. biomod2 requires options(sdm.enable_biomod2 = TRUE)." },
-  { id: "biomod2", label: "biomod2 (multi-algorithm)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires biomod2 package + sdm.enable_biomod2 option" },
-  { id: "dnn", label: "DNN (cito/torch)", maturity: "experimental" as const, min_records: 50, available: false, notes: "Requires cito + torch packages (R-side hard block at 50 records)" },
-  { id: "dnn_multispecies", label: "Multi-species DNN (cito)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires cito + torch. Predicts 2+ species simultaneously with shared covariates." },
+  { id: "dnn", label: "DNN / Deep Neural Network (cito/torch)", maturity: "experimental" as const, min_records: 50, available: false, notes: "Requires cito + torch packages (R-side hard block at 50 records)" },
+  { id: "bioclim", label: "BIOCLIM / Mahalanobis Envelope", maturity: "experimental" as const, min_records: 5, available: true, notes: "Presence-only environmental envelope" },
+
+  // Tier 4 — Rare Species
+  { id: "esm_glm", label: "ESM — GLM (Rare Species)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires ecospat + biomod2 packages" },
+  { id: "esm_maxnet", label: "ESM — MaxEnt (Rare Species)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires ecospat + biomod2 + maxnet packages" },
+  { id: "biomod2", label: "biomod2 / Multi-Algorithm Ensemble", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires biomod2 package + sdm.enable_biomod2 option" },
+
+  // Tier 5 — Bayesian / Heavy
+  { id: "bart", label: "BART / Bayesian Additive Regression Trees (dbarts)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires dbarts package" },
+  { id: "brms", label: "brms / General Bayesian Model (Stan)", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires brms + cmdstanr packages (compilation: 5-15 min)" },
+  { id: "inla_spde", label: "INLA / Bayesian Spatial Model (SPDE)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires INLA package (install from r-inla-download.org)" },
+
+  // Tier 6 — Niche / Specialised
+  { id: "occupancy", label: "Occupancy Model (unmarked)", maturity: "experimental" as const, min_records: 10, available: false, notes: "Requires unmarked package + detection-history data" },
+  { id: "dnn_multispecies", label: "Multi-Species DNN (cito)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires cito + torch. Predicts 2+ species simultaneously with shared covariates." },
+  { id: "python_elapid", label: "Elapid — Python MaxEnt", maturity: "experimental" as const, min_records: 10, available: false, notes: "Requires Python + elapid package" },
+  { id: "python_sklearn_rf", label: "Scikit-Learn Random Forest (Python)", maturity: "experimental" as const, min_records: 15, available: false, notes: "Requires Python + scikit-learn package" },
 ];
 
 export const SOIL_VARS = [
