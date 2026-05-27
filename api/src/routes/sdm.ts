@@ -255,7 +255,7 @@ sdmRoutes.get("/config/defaults", async (c) => {
   } catch {
     return c.json({
       biovars: [1, 4, 6, 12, 15, 18],
-      backgroundN: 10000,
+      backgroundN: 3000,
       cvFolds: 3,
       cvStrategy: "spatial_blocks",
       threshold: 0.5,
