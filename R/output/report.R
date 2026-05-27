@@ -136,6 +136,30 @@ write_summary_report <- function(result, path) {
     } else {
       character()
     },
+    if (!is.null(result$variable_importance) && is.data.frame(result$variable_importance) && nrow(result$variable_importance) > 0) {
+      imp <- result$variable_importance
+      top5 <- head(imp, 5)
+      c(
+        "",
+        "Variable importance",
+        paste0("- Method: permutation (AUC drop, ", getOption("sdm.n_perm", sdm_default_n_perm), " permutations)"),
+        paste0("- Baseline AUC: ", sprintf("%.4f", imp$baseline[1])),
+        "",
+        "Top 5 variables:",
+        paste0("  ", seq_len(nrow(top5)), ". ", top5$variable, ": ", sprintf("%.3f", top5$importance), " (AUC drop)")
+      )
+    } else {
+      character()
+    },
+    if (!is.null(result$response_curves) && length(result$response_curves) > 0) {
+      c(
+        "",
+        paste0("Response curves: ", length(result$response_curves), " covariates analysed"),
+        paste0("File: response_curves_combined.png")
+      )
+    } else {
+      character()
+    },
     "", "Projection summary",
     paste0("- Valid projected cells: ", fmt_num(result$summary$cell_count)),
     paste0("- Mean suitability: ", fmt_num(result$summary$mean, 3)),

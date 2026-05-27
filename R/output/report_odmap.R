@@ -315,6 +315,25 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
     paste0("sensitivity,", sensitivity_text),
     paste0("specificity,", specificity_text),
     paste0("Boyce_index,", boyce_index),
+    if (!is.null(result$variable_importance) && is.data.frame(result$variable_importance) && nrow(result$variable_importance) > 0) {
+      imp <- result$variable_importance
+      c(
+        paste0("importance_method,", "permutation"),
+        paste0("n_variables,", nrow(imp)),
+        paste0("top_variable,", imp$variable[1]),
+        paste0("top_importance,", sprintf("%.4f", imp$importance[1])),
+        paste0("baseline_auc,", sprintf("%.4f", imp$baseline[1])),
+        paste0("importance_", imp$variable, ",", sprintf("%.4f", imp$importance), collapse = "\n")
+      )
+    } else {
+      character()
+    },
+    "",
+    if (!is.null(result$response_curves) && length(result$response_curves) > 0) {
+      paste0("response_curves,", length(result$response_curves), " covariates analysed")
+    } else {
+      character()
+    },
     "",
     "# Prediction",
     paste0("projection_extent,", projection_extent_text),
@@ -406,6 +425,21 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
       paste0("- **Sensitivity:** ", sensitivity_text),
       paste0("- **Specificity:** ", specificity_text),
       paste0("- **Boyce index:** ", boyce_index),
+      if (!is.null(result$variable_importance) && is.data.frame(result$variable_importance) && nrow(result$variable_importance) > 0) {
+        imp <- result$variable_importance
+        top5 <- head(imp, 5)
+        top5_text <- paste(
+          sprintf("    %d. **%s**: %.3f (AUC drop)", seq_len(nrow(top5)), top5$variable, top5$importance),
+          collapse = "\n"
+        )
+        c(
+          paste0("- **Variable importance:** Top 5 by permutation"),
+          top5_text,
+          paste0("- **Baseline AUC:** ", sprintf("%.4f", imp$baseline[1]))
+        )
+      } else {
+        character()
+      },
       "",
       "## Prediction",
       paste0("- **Projection extent:** ", projection_extent_text),
