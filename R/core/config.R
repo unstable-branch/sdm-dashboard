@@ -50,7 +50,7 @@ sdm_default_min_source_records <- 15L
 sdm_default_threshold <- "max_tss"
 sdm_default_aggregation_factor <- 1L
 sdm_default_cv_folds <- 5L
-sdm_default_cv_strategy <- "random"
+sdm_default_cv_strategy <- "spatial_blocks"
 sdm_default_cv_block_size_km <- NA_real_
 sdm_default_thinning_mode <- "auto"
 sdm_default_thinning_distance_km <- 10

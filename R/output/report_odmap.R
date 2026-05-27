@@ -444,7 +444,11 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
       "## Prediction",
       paste0("- **Projection extent:** ", projection_extent_text),
       paste0("- **Mean suitability:** ", mean_suitability),
-      paste0("- **Threshold area:** ", threshold_area),
+        paste0("- **Threshold area:** ", threshold_area,
+          if (!is.null(result$summary) && is.finite(result$summary$high_risk_area_uncertainty_km2 %||% NA_real_) && result$summary$high_risk_area_uncertainty_km2 > 0) {
+            paste0(" (", .fmt_num(result$summary$high_risk_area_ci95_lower, 0),
+              " - ", .fmt_num(result$summary$high_risk_area_ci95_upper, 0), " km2, 95% CI)")
+          } else ""),
       paste0("- **Future projection:** ", future_projection_text),
       paste0("- **Extrapolation diagnostics:** ", extrapolation_diagnostics)
     )

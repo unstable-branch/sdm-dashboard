@@ -113,7 +113,7 @@ export const DEFAULT_CONFIG = {
   biovars: [1, 4, 6, 12, 15, 18],
   backgroundN: 10000,
   cvFolds: 3,
-  cvStrategy: "random" as const,
+  cvStrategy: "spatial_blocks" as const,
   threshold: 0.5,
   nCores: 1,
   seed: 42,
