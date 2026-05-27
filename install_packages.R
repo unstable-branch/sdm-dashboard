@@ -50,6 +50,9 @@ core_packages <- c(
   # Occurrence handling
   "CoordinateCleaner", "rgbif", "finch",
 
+  # Python bridge
+  "arrow", "reticulate",
+
   # Parallel
   "future", "future.apply",
 
