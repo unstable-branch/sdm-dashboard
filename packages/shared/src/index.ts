@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./schemas.js";
+export * from "./data-sources.js";
 export {
   BIOVAR_CHOICES,
   EXTENT_PRESETS,
