@@ -783,7 +783,7 @@ predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores
   pred <- predict_dnn_raster(fit$model, env_project_scaled, fit$scaler, device = fit$dnn_device)
 
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999")))
   log_message(log_fun, "DNN suitability saved: ", output_tif)
   pred
 }
