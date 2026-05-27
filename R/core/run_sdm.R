@@ -246,6 +246,8 @@ run_fast_sdm <- function(...) {
     list(degree = cfg$fda_degree %||% 2L)
   } else if (identical(model_id, "ann")) {
     list(size = cfg$ann_size %||% 5L, decay = cfg$ann_decay %||% 0.01, maxit = cfg$ann_maxit %||% 200L)
+  } else if (identical(model_id, "dnn")) {
+    list(n_seeds = cfg$dnn_n_seeds %||% 5L, dnn_model_type = cfg$dnn_model_type %||% "DNN_Medium", dnn_device = cfg$dnn_device %||% "auto")
   } else if (identical(model_id, "multi_ensemble")) {
     list(
       selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,
