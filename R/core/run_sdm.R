@@ -261,6 +261,11 @@ run_fast_sdm <- function(...) {
     }
   }
 
+  cv_threshold <- if (is.na(threshold)) 0.5 else threshold
+  if (is.na(threshold)) {
+    log_message(log_fun, "Using 0.5 for initial CV; will select optimal threshold post-fit")
+  }
+
   # PA replication: fit model N times with different background seeds
   replicate_fits <- vector("list", pa_replicates)
   last_error <- NULL
@@ -269,7 +274,7 @@ run_fast_sdm <- function(...) {
       model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
       background_n = background_n, include_quadratic = include_quadratic,
       cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun,
-      progress_fun = progress_fun,
+      progress_fun = progress_fun, threshold = cv_threshold,
       cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
       bias_method = bias_method, target_group_occ = target_group_occ,
       thickening_distance_km = thickening_distance_km
@@ -291,7 +296,7 @@ run_fast_sdm <- function(...) {
           model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
           background_n = background_n, include_quadratic = include_quadratic,
           cv_folds = cv_folds, seed = rep_seed, n_cores = n_cores, log_fun = log_fun,
-          progress_fun = progress_fun,
+          progress_fun = progress_fun, threshold = cv_threshold,
           cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
           bias_method = bias_method, target_group_occ = target_group_occ,
           thickening_distance_km = thickening_distance_km
@@ -327,6 +332,17 @@ run_fast_sdm <- function(...) {
       cv_tss_means = vapply(replicate_fits, function(f) if (is.null(f)) NA_real_ else f$cv$tss_mean, numeric(1))
     )
     log_message(log_fun, "PA replication: ", successful, "/", pa_replicates, " successful")
+  }
+
+  threshold_source <- if (identical(cfg$threshold, "max_tss")) "auto (max-TSS)" else "user-specified"
+  if (is.na(threshold) && !is.null(fit$presence_suit) && !is.null(fit$background_suit)) {
+    tss_result <- select_threshold(fit$presence_suit, fit$background_suit)
+    threshold <- tss_result$threshold
+    log_message(log_fun, "Threshold selected via max-TSS: ", sprintf("%.2f", threshold),
+      " (max TSS = ", sprintf("%.3f", tss_result$max_tss), ")")
+  } else if (is.na(threshold)) {
+    threshold <- 0.5
+    log_message(log_fun, "Could not compute max-TSS threshold; falling back to 0.5")
   }
 
   importance_result <- NULL
