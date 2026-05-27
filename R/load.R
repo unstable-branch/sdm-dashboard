@@ -112,6 +112,10 @@ modules <- c(
   "metrics_binary.R",
   "metrics_helper.R",
   "response_curves.R",
+
+  # --- xai ---
+  "xai_methods.R",
+  "ale.R",
   "plots.R",
   "report.R",
   "report_odmap.R",
