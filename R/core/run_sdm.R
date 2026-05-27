@@ -235,6 +235,17 @@ run_fast_sdm <- function(...) {
   log_message(log_fun, "Model backend: ", model_spec$label)
   extra_args <- if (identical(model_id, "maxnet")) {
     list(maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
+  } else if (identical(model_id, "brt")) {
+    list(n_trees = cfg$brt_n_trees %||% 2000L, interaction_depth = cfg$brt_interaction_depth %||% 3L,
+      shrinkage = cfg$brt_shrinkage %||% 0.01, bag_fraction = cfg$brt_bag_fraction %||% 0.75)
+  } else if (identical(model_id, "cta")) {
+    list(cp = cfg$cta_cp %||% 0.01, maxdepth = cfg$cta_maxdepth %||% 10L, minsplit = cfg$cta_minsplit %||% 20L)
+  } else if (identical(model_id, "mars")) {
+    list(degree = cfg$mars_degree %||% 2L, penalty = cfg$mars_penalty %||% 3.0)
+  } else if (identical(model_id, "fda")) {
+    list(degree = cfg$fda_degree %||% 2L)
+  } else if (identical(model_id, "ann")) {
+    list(size = cfg$ann_size %||% 5L, decay = cfg$ann_decay %||% 0.01, maxit = cfg$ann_maxit %||% 200L)
   } else if (identical(model_id, "multi_ensemble")) {
     list(
       selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,
