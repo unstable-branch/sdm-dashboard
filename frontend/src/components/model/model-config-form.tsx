@@ -161,7 +161,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             return acc;
           }, {});
 
-          setAvailableModels(models.map((m: Record<string, unknown>) => {
+          const apiModels = models.map((m: Record<string, unknown>) => {
             const id = m.id as string;
             const def = defaults[id];
             return {
@@ -173,7 +173,20 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
               notes: (m.notes as string) || def?.notes || "",
               available: (m.available as boolean) ?? def?.available ?? true,
             };
+          });
+          // Merge API models with MODEL_BACKENDS — keep all models from defaults,
+          // updated with any fields from the API response
+          const mergedIds = new Set(apiModels.map(m => m.id));
+          const missingFromApi = MODEL_BACKENDS.filter(m => !mergedIds.has(m.id)).map(m => ({
+            id: m.id,
+            label: m.label,
+            maturity: m.maturity,
+            min_records: m.min_records ?? null,
+            packages: (m as any).packages as string[] | undefined,
+            notes: (m as any).notes as string | undefined,
+            available: (m as any).available as boolean | undefined,
           }));
+          setAvailableModels([...apiModels, ...missingFromApi]);
         }
       })
       .catch(() => {});
