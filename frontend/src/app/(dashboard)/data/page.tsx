@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FileUpload } from "@/components/data/file-upload";
 import { PreviewTable } from "@/components/data/preview-table";
 import { SourceCounts } from "@/components/data/source-counts";
+import { DetectedColumns } from "@/components/data/detected-columns";
 import { JobProgress } from "@/components/jobs/job-progress";
 import { DownloadProgress } from "@/components/climate/download-progress";
 import { ScenarioList } from "@/components/climate/scenario-list";
@@ -524,6 +525,19 @@ function DataPageContent() {
                 Upload a CSV, TSV, or ZIP file containing occurrence records.
                 The file must have longitude and latitude columns (aliases like lon/lat/x/y are detected automatically).
               </p>
+              <details className="mb-4 rounded-lg border border-sdm-border/50 bg-sdm-surface-soft">
+                <summary className="cursor-pointer px-4 py-2 text-xs font-semibold text-sdm-heading">
+                  Preparing detection-history data for occupancy models
+                </summary>
+                <div className="px-4 pb-4 space-y-2 text-xs text-sdm-muted">
+                  <p>Occupancy models require detection/non-detection data with repeated surveys at each site.</p>
+                  <pre className="bg-sdm-surface p-3 rounded overflow-x-auto mt-2">{`site_id,longitude,latitude,survey_1,survey_2,survey_3,elevation
+site_A,140.0,-23.0,1,0,1,200
+site_B,141.5,-24.0,0,1,0,450
+site_C,142.0,-25.0,0,0,0,800`}</pre>
+                  <p className="mt-2">Required columns: <code>site_id</code>, <code>longitude</code>, <code>latitude</code>, and 2+ survey columns (<code>survey_1</code>..<code>survey_N</code>) with values 1 (detected), 0 (not detected), or NA (no survey). Optional: site-level occupancy covariates and survey-level detection covariates.</p>
+                </div>
+              </details>
               <FileUpload
                 onUpload={handleUpload}
                 loading={uploadLoading}
@@ -531,12 +545,29 @@ function DataPageContent() {
               />
             </div>
 
+            {(() => {
+              const cols = uploadResult?.columns_detected as Record<string, string | null> | undefined;
+              if (!cols || Object.keys(cols).length === 0) return null;
+              return <DetectedColumns columns={cols} />;
+            })()}
+
+            {(() => {
+              const warnings = uploadResult?.coord_warnings as string[] | undefined;
+              if (!warnings || warnings.length === 0) return null;
+              return (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+                  {warnings.join("; ")}
+                </div>
+              );
+            })()}
+
             {uploadPreview && uploadPreview.length > 0 && (
               <PreviewTable data={uploadPreview} title="Preview (first 5 records)" />
             )}
 
             {typeof uploadResult?.file_path === "string" && (
-              <div className="mt-3 flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+              <div className="flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
                 <div className="flex items-center gap-2 text-sm text-amber-500">
                   <AlertTriangle className="h-4 w-4" />
                   <span>Upload complete — {Number(uploadResult.n_rows ?? 0).toLocaleString()} records. Clean before modeling.</span>
