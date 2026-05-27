@@ -377,6 +377,16 @@ export class PlumberClient {
   async getDiagnosticDataCsv(runId: string, type: string): Promise<Response> {
     return this._fetch(`${this.baseUrl}/api/v1/diagnostics/data/${runId}/${type}`, { headers: this.headers() });
   }
+
+  async postDiagnosticsShapCell(runId: string, longitude: number, latitude: number): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/shap/cell`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({ run_id: runId, longitude, latitude }),
+    });
+    if (!res.ok) throw new Error(`Failed to get SHAP cell explanation: ${res.status}`);
+    return res.json();
+  }
 }
 
 export const plumberClient = new PlumberClient();
