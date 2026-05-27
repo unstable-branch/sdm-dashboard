@@ -151,6 +151,8 @@ export const DEFAULT_CONFIG = {
   hfpYear: 2020,
   vifThreshold: 10,
   climateMatchingMethod: "mahalanobis" as const,
+  extrapolationMask: true,
+  messThreshold: 0,
 };
 
 /**

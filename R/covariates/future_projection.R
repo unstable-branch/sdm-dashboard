@@ -12,7 +12,8 @@ future_projection_ready <- function(future_worldclim_dir, selected_biovars) {
 project_future_suitability <- function(fit, current_suitability, env, future_worldclim_dir,
                                        selected_biovars, projection_extent, aggregation_factor = 1,
                                        output_future_tif, output_delta_tif, n_cores = 1,
-                                       log_fun = NULL) {
+                                       log_fun = NULL, mask_extrapolation = TRUE,
+                                       mess_threshold = 0) {
   if (!dir.exists(future_worldclim_dir)) {
     stop("Future WorldClim/CMIP6 folder does not exist: ", future_worldclim_dir, call. = FALSE)
   }
@@ -82,6 +83,17 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   )
 
   log_message(log_fun, sprintf("MESS: %.1f%% of cells extrapolate beyond training envelope", mess_result$pct_extrapolation * 100))
+
+  if (isTRUE(mask_extrapolation)) {
+    mess_vals <- terra::values(mess_result$mess)
+    mask_cells <- is.finite(mess_vals) & mess_vals < mess_threshold
+    n_masked <- sum(mask_cells, na.rm = TRUE)
+    if (n_masked > 0) {
+      future_suitability[mask_cells] <- NA
+      delta[mask_cells] <- NA
+      log_message(log_fun, "Masked ", n_masked, " cells (", sprintf("%.1f%%", n_masked / length(mess_vals) * 100), ") where MESS < ", mess_threshold, " — predictions may be unreliable in extrapolation zones")
+    }
+  }
 
   list(
     suitability = future_suitability,
