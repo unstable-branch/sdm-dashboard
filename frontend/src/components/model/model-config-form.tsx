@@ -46,7 +46,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [biovars, setBiovars] = useState<number[]>(DEFAULT_CONFIG.biovars);
   const [extentPreset, setExtentPreset] = useState("aus_full");
   const [customExtent, setCustomExtent] = useState<[number, number, number, number]>([112, 154, -44, -10]);
-  const [backgroundN, setBackgroundN] = useState(DEFAULT_CONFIG.backgroundN);
+  const [backgroundN, setBackgroundN] = useState(3000);
   const [cvFolds, setCvFolds] = useState(DEFAULT_CONFIG.cvFolds);
   const [cvStrategy, setCvStrategy] = useState<"random" | "spatial_blocks">("spatial_blocks");
   const [cvBlockSizeKm, setCvBlockSizeKm] = useState(50);

@@ -110,7 +110,7 @@ export const modelConfigSchema = z.object({
   chelsaExtras: z.array(z.string()).default([]),
   cleanedFilePath: z.string().min(1).optional(),
   pipelineRunId: z.string().optional(),
-});
+}).passthrough();
 
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 
