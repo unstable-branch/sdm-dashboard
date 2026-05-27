@@ -234,3 +234,84 @@ export interface EooAooData {
   eooMethod: string | null;
   iucnEooStatus: string | null;
 }
+
+// ── Frontend-facing API response types (camelCase canonical forms) ──────────
+
+export interface RunSummary {
+  id: string;
+  species: string;
+  modelId: string;
+  status: string;
+  startedAt: string;
+  completedAt: string | null;
+  metrics: Record<string, unknown> | null;
+  outputFiles: Record<string, string> | null;
+}
+
+export interface RunDetail extends RunSummary {
+  progressLog: string[];
+  error: string | null;
+  errorCode?: string | null;
+  errorHint?: string | null;
+  config?: Record<string, unknown>;
+  provenance?: Record<string, unknown> | null;
+}
+
+export interface SpeciesSummary {
+  id: string;
+  name: string;
+  occurrenceCount: number | null;
+  createdAt: string;
+}
+
+export interface OccurrenceRecord {
+  id: string;
+  longitude: number;
+  latitude: number;
+  source?: string;
+  date?: string;
+  [key: string]: unknown;
+}
+
+export interface PaginationInfo {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface ClimateScenario {
+  id: string;
+  type: string;
+  gcm?: string;
+  ssp?: string;
+  period?: string;
+  source?: string;
+  path?: string;
+  fileCount: number;
+  sizeBytes: number;
+  isAveraged?: boolean;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  role: string;
+  createdAt: string;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+}
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+}
