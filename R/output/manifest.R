@@ -78,6 +78,25 @@ write_manifest <- function(result, output_dir, base_name, cpu_ms = NA_real_, pea
           elapsed_seconds = result$metrics$elapsed_seconds %||% NA_real_,
           high_suitability_area_km2 = result$summary$high_risk_area_km2 %||% NA_real_
         ) else NULL,
+        xai = if (!is.null(result$variable_importance) && is.data.frame(result$variable_importance) && nrow(result$variable_importance) > 0) {
+          imp <- result$variable_importance
+          list(
+            available = TRUE,
+            n_variables = nrow(imp),
+            top_variable = imp$variable[1],
+            top_importance = imp$importance[1],
+            baseline_auc = imp$baseline[1],
+            importance = lapply(seq_len(nrow(imp)), function(i) list(
+              variable = imp$variable[i],
+              importance = imp$importance[i],
+              sd = imp$sd[i]
+            )),
+            response_curves_available = !is.null(result$response_curves) && length(result$response_curves) > 0,
+            n_response_curves = length(result$response_curves %||% list())
+          )
+        } else {
+          list(available = FALSE)
+        },
         resources = list(
           r_cpu_time_ms = as.numeric(cpu_ms),
           r_peak_memory_mb = as.numeric(peak_mb)
