@@ -45,7 +45,8 @@ pkgs <- c(
   "PresenceAbsence", "pROC", "ecospat", "plotrix",
   "ggplot2", "DBI", "RPostgres", "digest", "Rook",
   "CoordinateCleaner", "rgbif", "finch",
-  "future", "future.apply", "marginaleffects"
+  "future", "future.apply", "marginaleffects",
+  "fastshap", "iml"
 )
 for (pkg in pkgs) {
   message("Installing: ", pkg)
@@ -75,6 +76,7 @@ WORKDIR /app
 COPY R/ /app/R/
 COPY plumber/ /app/plumber/
 COPY data/ /app/data/
+COPY python_models/ /app/python_models/
 
 RUN groupadd -g 2000 uploadgroup && \
     useradd -m -s /bin/bash -G uploadgroup sdm && \
