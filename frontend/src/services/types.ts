@@ -1,14 +1,14 @@
 // ── Frontend Type Definitions ─────────────────────────────────────────────
 // SOURCE OF TRUTH: @sdm/shared (camelCase types in packages/shared/src/types.ts)
 //
-// This file provides snake_case re-exports matching Plumber API responses.
+// This file provides snake_case versions matching Plumber API responses.
 // New components should import directly from @sdm/shared and use camelCase.
-// Existing components continue to work unchanged via these re-exports.
+// Existing components continue to work unchanged via these aliases.
 //
-// Migration: when adding a new field, add it to @sdm/shared first,
+// When adding a new field: add the camelCase type to @sdm/shared first,
 // then add the snake_case alias here if the Plumber API returns it.
 //
-// Types that are purely UI state (not from the API) are defined here.
+// UI-only types that are never returned by the API are defined here.
 
 import type {
   CurvePoint,
@@ -18,10 +18,15 @@ import type {
   ThresholdEntry,
   ThresholdData,
   DensityData,
+  ClimateScenario,
+  Project,
+  User,
+  ApiKey,
 } from "@sdm/shared";
 
-// ── API types that directly mirror Plumber snake_case ──────────────────────
+// ── API types — snake_case to match Plumber API responses ──────────────────
 
+// Per-run summary from the runs list — snake_case mirrors Plumber response
 export interface RunSummary {
   id: string;
   species: string;
@@ -47,33 +52,10 @@ export interface RunDetail extends RunSummary {
   } | null;
 }
 
-export interface SpeciesSummary {
-  id: string;
-  name: string;
-  occurrence_count: number | null;
-  created_at: string;
-}
+// Types with matching field names — direct re-exports from @sdm/shared
+export type { CurvePoint, CurveData, CvFoldEntry, ThresholdEntry, ThresholdData, DensityData };
 
-export interface OccurrenceRecord {
-  id: string;
-  longitude: number;
-  latitude: number;
-  source?: string;
-  date?: string;
-  [key: string]: unknown;
-}
-
-export interface PaginationInfo {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-}
-
-// ── Diagnostic types — re-exported from @sdm/shared with snake_case ────────
-// These alias the camelCase canonical types. Add snake_case fields here as
-// needed for Plumber API compatibility.
-
+// Snake_case diagnostic types matching Plumber API responses
 export interface VifData {
   available: boolean;
   message?: string;
@@ -102,11 +84,6 @@ export interface ImportanceData {
   error?: string;
 }
 
-// Types with matching field names (same in snake_case and camelCase)
-// These are direct re-exports from @sdm/shared
-export type { CurvePoint, CurveData, CvFoldEntry, ThresholdEntry, ThresholdData, DensityData };
-
-// Calibration types — Plumber returns snake_case, must be defined locally
 export interface CalibrationBin {
   bin_mid: number;
   observed_freq: number;
@@ -209,40 +186,36 @@ export interface CvFoldsData {
   error?: string;
 }
 
-// ── UI-only types (not from Plumber API) ───────────────────────────────────
+export interface EooAooData {
+  eoo_km2: number | null;
+  aoo_cells: number | null;
+  aoo_km2: number | null;
+  eoo_method: string | null;
+  iucn_eoo_status: string | null;
+}
 
-export interface ClimateScenario {
+export interface SpeciesSummary {
   id: string;
-  type: string;
-  gcm?: string;
-  ssp?: string;
-  period?: string;
+  name: string;
+  occurrence_count: number | null;
+  created_at: string;
+}
+
+export interface OccurrenceRecord {
+  id: string;
+  longitude: number;
+  latitude: number;
   source?: string;
-  path?: string;
-  file_count: number;
-  size_bytes: number;
-  is_averaged?: boolean;
+  date?: string;
+  [key: string]: unknown;
 }
 
-export interface Project {
-  id: string;
-  name: string;
-  description: string | null;
-  role: string;
-  createdAt: string;
+export interface PaginationInfo {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 }
 
-export interface User {
-  id: string;
-  email: string;
-  name: string | null;
-  role: string;
-}
-
-export interface ApiKey {
-  id: string;
-  name: string;
-  createdAt: string;
-  lastUsedAt: string | null;
-  expiresAt: string | null;
-}
+// UI-only types (never returned by Plumber API)
+export type { ClimateScenario, Project, User, ApiKey };
