@@ -143,6 +143,84 @@ build_run_args <- function(row) {
   args
 }
 
+#' Convert a CSV config row to an sdm_config object.
+#' Reuses parse_* helpers and the same column names as build_run_args().
+#' @param row named list with config fields (CSV column names as keys).
+#' @param seed integer random seed.
+#' @return sdm_config object.
+build_config_from_row <- function(row, seed = 42L) {
+  args <- build_run_args(row)
+  args$seed <- seed %||% 42L
+  do.call(sdm_config, args)
+}
+
+#' Run a multi-species batch using the targets pipeline.
+#' Reads the CSV, triggers _targets.R branching via env vars.
+#' @param config_csv path to batch config CSV.
+#' @param output_dir output directory.
+#' @param workers number of parallel workers (NULL = auto).
+#' @param seed random seed.
+batch_run_targets <- function(config_csv, output_dir = "batch_results/",
+                               workers = NULL, seed = 42L) {
+  if (!requireNamespace("targets", quietly = TRUE)) {
+    stop("targets package required. Install with: install.packages('targets')")
+  }
+
+  config_csv <- normalizePath(config_csv, mustWork = TRUE)
+  out_dir <- normalizePath(output_dir, mustWork = FALSE)
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  Sys.setenv(SDM_BATCH_CONFIG = config_csv)
+  Sys.setenv(SDM_BATCH_OUTPUT = out_dir)
+  if (!is.null(workers)) Sys.setenv(SDM_TARGETS_WORKERS = as.character(workers))
+  if (!is.na(seed)) Sys.setenv(SDM_BATCH_SEED = as.character(seed))
+
+  message("[targets] Running batch pipeline from: ", config_csv)
+  message("[targets] Output directory: ", out_dir)
+
+  targets::tar_make(
+    store = file.path(out_dir, "_targets")
+  )
+}
+
+#' Build a crew controller for distributed computing.
+#' @param backend character: "local", "slurm", "sge", "pbs", "aws".
+#' @param workers integer: number of workers.
+#' @param ... additional arguments passed to the crew controller constructor.
+#' @return a crew controller object, or NULL if crew is unavailable.
+build_crew_controller <- function(backend = "local", workers = NULL, ...) {
+  if (!requireNamespace("crew", quietly = TRUE)) {
+    return(NULL)
+  }
+  n <- workers %||% max(1, parallel::detectCores() - 1, na.rm = TRUE)
+  switch(backend,
+    local = crew::crew_controller_local(workers = n, ...),
+    slurm = {
+      if (!requireNamespace("crew.cluster", quietly = TRUE)) {
+        warning("crew.cluster not installed; falling back to local")
+        return(crew::crew_controller_local(workers = n, ...))
+      }
+      crew.cluster::crew_controller_slurm(workers = n, ...)
+    },
+    sge = {
+      if (!requireNamespace("crew.cluster", quietly = TRUE)) return(NULL)
+      crew.cluster::crew_controller_sge(workers = n, ...)
+    },
+    pbs = {
+      if (!requireNamespace("crew.cluster", quietly = TRUE)) return(NULL)
+      crew.cluster::crew_controller_pbs(workers = n, ...)
+    },
+    aws = {
+      if (!requireNamespace("crew.aws.batch", quietly = TRUE)) return(NULL)
+      crew.aws.batch::crew_controller_aws_batch(workers = n, ...)
+    },
+    {
+      warning("Unknown cluster backend: ", backend, "; using local")
+      crew::crew_controller_local(workers = n, ...)
+    }
+  )
+}
+
 if (!exists("normalize_core_count", envir = globalenv())) {
   normalize_core_count <- function(n_cores = NULL, reserve_one = FALSE) {
     if (is.null(n_cores)) {
