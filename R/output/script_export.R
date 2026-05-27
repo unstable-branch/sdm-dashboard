@@ -58,6 +58,9 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
   lines <- c(lines, "# Run parameters")
   lines <- c(lines, paste0("species_name <- '", config$species, "'"))
   lines <- c(lines, paste0("model_id <- '", result$model_id, "'"))
+  if (!is.null(result$manifest$data$occurrence_hash_sha256)) {
+    lines <- c(lines, paste0("expected_occurrence_hash <- '", result$manifest$data$occurrence_hash_sha256, "'"))
+  }
 
   if (!is.null(config$extent)) {
     lines <- c(lines, paste0("projection_extent <- c(", paste(config$extent, collapse = ", "), ")"))
@@ -140,6 +143,16 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
   lines <- c(lines, "# LOAD OCCURRENCE DATA")
   lines <- c(lines, "# ------------------------------------------------------------------------------")
   lines <- c(lines, "")
+  if (!is.null(result$manifest$data$occurrence_hash_sha256)) {
+    lines <- c(lines, paste0("# Expected occurrence file SHA256: ", result$manifest$data$occurrence_hash_sha256))
+    lines <- c(lines, "# To verify your input file matches:")
+    lines <- c(lines, "# if (requireNamespace('digest', quietly = TRUE)) {")
+    lines <- c(lines, "#   actual_hash <- digest::digest(occ_file, algo = 'sha256', file = TRUE)")
+    lines <- c(lines, "#   if (actual_hash != expected_occurrence_hash) {")
+    lines <- c(lines, "#     warning('Occurrence file hash mismatch. Results may differ from the original run.')")
+    lines <- c(lines, "#   }")
+    lines <- c(lines, "# }")
+  }
   lines <- c(lines, "# If you have a cleaned occurrence file from the previous run:")
   lines <- c(lines, "# occ_file <- 'cleaned_occurrences.csv'  # Update path as needed")
   lines <- c(lines, "# occ <- read.csv(occ_file)")
