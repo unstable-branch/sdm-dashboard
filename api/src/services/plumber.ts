@@ -309,6 +309,19 @@ export class PlumberClient {
     if (!res.ok) throw new Error(`Failed to get diagnostics summary: ${res.status}`);
     return res.json();
   }
+
+  async generatePlots(runId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/plots/${runId}`, {
+      method: "POST",
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to generate plots: ${res.status}`);
+    return res.json();
+  }
+
+  async getDiagnosticDataCsv(runId: string, type: string): Promise<Response> {
+    return this._fetch(`${this.baseUrl}/api/v1/diagnostics/data/${runId}/${type}`, { headers: this.headers() });
+  }
 }
 
 export const plumberClient = new PlumberClient();
