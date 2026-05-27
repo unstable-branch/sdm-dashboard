@@ -593,7 +593,7 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
       multi_ensemble_min_auc = as.numeric(body$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc),
       multi_ensemble_min_tss = as.numeric(body$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss),
       multi_ensemble_export = isTRUE(body$multi_ensemble_export %||% TRUE),
-      biomod2_models = body$biomod2_models,
+      biomod2_models = body$biomod2Models %||% body$biomod2_models,
       esm_n_runs = as.integer(body$esm_n_runs %||% sdm_esm_default_n_runs),
       esm_split = body$esm_split %||% sdm_esm_default_split,
       esm_min_auc = as.numeric(body$esm_min_auc %||% sdm_esm_default_min_auc),
