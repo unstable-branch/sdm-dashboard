@@ -1822,6 +1822,65 @@ function(res, run_id) {
   })
 }
 
+#* Get Accumulated Local Effects data for a run
+#* @get /api/v1/diagnostics/ale/<run_id>
+function(res, run_id) {
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (!file.exists(meta_file)) {
+    res$status <- 404L; return(list(error = "Run not found"))
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") {
+    res$status <- 400L; return(list(error = "Run not completed yet"))
+  }
+
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+
+  if (is.null(result_rds) || !file.exists(result_rds)) {
+    res$status <- 404L; return(list(error = "Result file not found"))
+  }
+
+  tryCatch({
+    result <- readRDS(result_rds)
+    fit_obj <- result$fit
+    if (is.null(fit_obj) || is.null(fit_obj$model_data)) {
+      return(list(available = FALSE, message = "Model data not available for ALE"))
+    }
+
+    ale_data <- compute_ale(fit_obj, model_data = fit_obj$model_data, n_points = 50)
+
+    if (is.null(ale_data) || length(ale_data) == 0) {
+      return(list(available = FALSE, message = "ALE computation returned no data"))
+    }
+
+    curves <- lapply(names(ale_data), function(var) {
+      df <- ale_data[[var]]
+      if (is.null(df) || !is.data.frame(df)) return(NULL)
+      list(
+        covariate = var,
+        points = lapply(seq_len(nrow(df)), function(i) list(
+          value = df$value[i],
+          ale = df$ale[i]
+        ))
+      )
+    })
+    curves <- Filter(Negate(is.null), curves)
+
+    list(
+      available = TRUE,
+      n_curves = length(curves),
+      curves = curves
+    )
+  }, error = function(e) {
+    list(error = paste("ALE failed:", conditionMessage(e)))
+  })
+}
+
 #* Get variable importance data for a run
 #* @get /api/v1/diagnostics/importance/<run_id>
 function(res, run_id) {
