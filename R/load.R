@@ -101,6 +101,9 @@ modules <- c(
   "hyperparameter_tuning.R",
   "prediction.R",
 
+  # --- output ---
+  "compare.R",
+
   # --- ecology ---
   "climate_matching.R",
   "eoo_aoo.R",
