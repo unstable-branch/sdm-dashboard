@@ -88,6 +88,7 @@ modules <- c(
   "model_registry.R",
   "model_biomod2.R",
   "biomod2_compat.R",
+  # jsdm removed — dead code, replaced by brms + inla_spde
   "torch_setup.R",
   "cv_folds.R",
   "cv_engine.R",

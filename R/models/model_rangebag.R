@@ -171,7 +171,7 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
       }
 
       cv <- cross_validate_model(model_data_rb,
-        k = k_rb, seed = seed, n_cores = 1,
+        k = k_rb, seed = seed, n_cores = normalize_core_count(n_cores),
         cv_strategy = "presence_only_stratified", cv_block_size_km = NA_real_,
         threshold = sdm_default_threshold, fit_fun = fit_fun_rb,
         cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
