@@ -205,6 +205,7 @@ sdmRoutes.get("/models", async (c) => {
       { id: "bioclim", label: "BIOCLIM / Mahalanobis envelope", maturity: "experimental", available: true, notes: "Presence-only environmental envelope" },
       { id: "inla_spde", label: "INLA / Bayesian spatial (SPDE)", maturity: "experimental", available: false, notes: "Requires INLA package (install from r-inla-download.org)" },
       { id: "bart", label: "BART / Bayesian Additive Regression Trees", maturity: "experimental", available: false, notes: "Requires dbarts package" },
+      { id: "occupancy", label: "Occupancy (unmarked)", maturity: "experimental", available: false, notes: "Requires unmarked package + detection-history data" },
       { id: "brt", label: "BRT / Boosted Regression Trees (gbm)", maturity: "experimental", available: false, notes: "Requires gbm package" },
       { id: "cta", label: "CTA / Classification Tree Analysis (rpart)", maturity: "experimental", available: false, notes: "Requires rpart package" },
       { id: "mars", label: "MARS / Multivariate Adaptive Regression Splines (earth)", maturity: "experimental", available: false, notes: "Requires earth package" },
