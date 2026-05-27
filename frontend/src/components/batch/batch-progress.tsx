@@ -141,26 +141,24 @@ export function BatchProgress({ jobIds, batchId, onComplete, onRetryFailed, onCa
             )}
           </div>
 
-          {!hasRunning && (
-            <div className="flex gap-2">
-              {hasFailed && onRetryFailed && (
-                <button
-                  onClick={onRetryFailed}
-                  className="inline-flex items-center gap-1 rounded-md border border-sdm-border bg-sdm-surface-soft px-2.5 py-1 text-xs text-sdm-text hover:bg-sdm-surface transition-colors"
-                >
-                  <RotateCcw className="h-3 w-3" /> Retry failed
-                </button>
-              )}
-              {onCancel && (
-                <button
-                  onClick={onCancel}
-                  className="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/5 px-2.5 py-1 text-xs text-red-500 hover:bg-red-500/10 transition-colors"
-                >
-                  <X className="h-3 w-3" /> Cancel
-                </button>
-              )}
-            </div>
-          )}
+          <div className="flex gap-2">
+            {hasFailed && !hasRunning && onRetryFailed && (
+              <button
+                onClick={onRetryFailed}
+                className="inline-flex items-center gap-1 rounded-md border border-sdm-border bg-sdm-surface-soft px-2.5 py-1 text-xs text-sdm-text hover:bg-sdm-surface transition-colors"
+              >
+                <RotateCcw className="h-3 w-3" /> Retry failed
+              </button>
+            )}
+            {hasRunning && onCancel && (
+              <button
+                onClick={onCancel}
+                className="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/5 px-2.5 py-1 text-xs text-red-500 hover:bg-red-500/10 transition-colors"
+              >
+                <X className="h-3 w-3" /> Cancel
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
