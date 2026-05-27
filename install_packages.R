@@ -73,6 +73,15 @@ if (length(missing_core) > 0) {
 }
 
 # ---------------------------------------------------------------------------
+# Optional: INLA (Bayesian spatial) — special repo, not CRAN
+# ---------------------------------------------------------------------------
+# Uncomment the lines below if you need INLA spatial SDM support.
+# INLA must be installed from its own repository.
+
+# cat("\nInstalling INLA (optional — Bayesian spatial)...\n")
+# install.packages("INLA", repos = c("https://inla.r-inla-download.org/R/stable", repos), dep = TRUE, Ncpus = n_cores, lib = .libPaths()[1])
+
+# ---------------------------------------------------------------------------
 # Optional: Deep learning (torch / cito)
 # ---------------------------------------------------------------------------
 # Uncomment the lines below if you need DNN model support.

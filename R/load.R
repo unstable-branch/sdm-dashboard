@@ -62,6 +62,8 @@ modules <- c(
 
   # --- models ---
   "model_helpers.R",
+  "inla_mesh.R",
+  "model_inla.R",
   "model_gbm.R",
   "model_rpart.R",
   "model_earth.R",
