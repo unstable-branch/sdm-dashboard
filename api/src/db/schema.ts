@@ -67,6 +67,22 @@ export const species = pgTable("species", {
   index("idx_species_user_id").on(t.userId),
 ]);
 
+export const batches = pgTable("batches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").references(() => projects.id).notNull(),
+  userId: uuid("user_id").references(() => users.id).notNull(),
+  name: varchar("name", { length: 255 }),
+  totalJobs: integer("total_jobs").notNull().default(0),
+  completedJobs: integer("completed_jobs").notNull().default(0),
+  failedJobs: integer("failed_jobs").notNull().default(0),
+  status: varchar("status", { length: 20 }).notNull().default("running"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (t) => [
+  index("idx_batches_project").on(t.projectId),
+  index("idx_batches_user").on(t.userId),
+]);
+
 export const runs = pgTable("runs", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").references(() => projects.id),

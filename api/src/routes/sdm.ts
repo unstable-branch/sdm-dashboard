@@ -3,7 +3,7 @@ import { modelConfigSchema } from "@sdm/shared";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob, getJobQueue } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { runs, species } from "../db/schema.js";
+import { runs, species, batches } from "../db/schema.js";
 import { eq, desc, count, and, inArray, sql } from "drizzle-orm";
 import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
@@ -679,7 +679,7 @@ sdmRoutes.post("/runs/clear-all", async (c) => {
 sdmRoutes.post("/batch", async (c) => {
   try {
     const body = await c.req.json();
-    const { configs } = body;
+    const { configs, name } = body;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
 
@@ -690,6 +690,17 @@ sdmRoutes.post("/batch", async (c) => {
     if (configs.length > 50) {
       return c.json({ error: "Batch limited to 50 configs per request" }, 400);
     }
+
+    const [batch] = await db
+      .insert(batches)
+      .values({
+        projectId,
+        userId: user.id,
+        name: name || `Batch ${new Date().toLocaleDateString()}`,
+        totalJobs: configs.length,
+        status: "running",
+      })
+      .returning();
 
     const jobIds: string[] = [];
 
@@ -707,6 +718,7 @@ sdmRoutes.post("/batch", async (c) => {
           modelId: parsed.data.modelId,
           status: "queued",
           config: parsed.data as any,
+          parentRunId: batch.id,
           pipelineRunId: (parsed.data as any).pipelineRunId || null,
         })
         .returning();
@@ -730,13 +742,122 @@ sdmRoutes.post("/batch", async (c) => {
     }
 
     return c.json({
-      batch_id: `batch-${Date.now()}`,
+      batch_id: batch.id,
       job_ids: jobIds,
       total: jobIds.length,
-      message: `Batch of ${jobIds.length} runs started via queue`,
+      message: `Batch of ${jobIds.length} runs started`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Batch run failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+sdmRoutes.get("/batch/:batchId", async (c) => {
+  try {
+    const batchId = c.req.param("batchId");
+    const user = c.get("user");
+
+    const [batch] = await db
+      .select()
+      .from(batches)
+      .where(eq(batches.id, batchId));
+    if (!batch) return c.json({ error: "Batch not found" }, 404);
+
+    const projectIds = await getUserProjectIds(user);
+    if (!projectIds?.includes(batch.projectId)) {
+      return c.json({ error: "Batch not found" }, 404);
+    }
+
+    const runRows = await db
+      .select({ id: runs.id, speciesName: runs.speciesName, modelId: runs.modelId, status: runs.status, metrics: runs.metrics, error: runs.error })
+      .from(runs)
+      .where(eq(runs.parentRunId, batchId));
+
+    return c.json({
+      batch: {
+        id: batch.id,
+        name: batch.name,
+        status: batch.status,
+        total_jobs: batch.totalJobs,
+        completed_jobs: batch.completedJobs,
+        failed_jobs: batch.failedJobs,
+        created_at: batch.createdAt,
+        completed_at: batch.completedAt,
+      },
+      runs: runRows,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Batch status failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+sdmRoutes.post("/batch/:batchId/cancel", async (c) => {
+  try {
+    const batchId = c.req.param("batchId");
+    const user = c.get("user");
+
+    const [batch] = await db.select().from(batches).where(eq(batches.id, batchId));
+    if (!batch) return c.json({ error: "Batch not found" }, 404);
+
+    const projectIds = await getUserProjectIds(user);
+    if (!projectIds?.includes(batch.projectId)) return c.json({ error: "Batch not found" }, 404);
+
+    const runRows = await db.select().from(runs).where(eq(runs.parentRunId, batchId));
+    const cancellable = runRows.filter(r => r.status === "queued" || r.status === "running");
+    const queue = getJobQueue();
+
+    for (const r of cancellable) {
+      if (r.bullmqId && queue) await queue.remove(r.bullmqId);
+      await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, r.id));
+    }
+
+    await db.update(batches).set({ status: "cancelled", completedAt: new Date() }).where(eq(batches.id, batchId));
+
+    return c.json({ ok: true, cancelled: cancellable.length, total: runRows.length });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Batch cancel failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+sdmRoutes.post("/batch/:batchId/retry", async (c) => {
+  try {
+    const batchId = c.req.param("batchId");
+    const user = c.get("user");
+
+    const [batch] = await db.select().from(batches).where(eq(batches.id, batchId));
+    if (!batch) return c.json({ error: "Batch not found" }, 404);
+
+    const projectIds = await getUserProjectIds(user);
+    if (!projectIds?.includes(batch.projectId)) return c.json({ error: "Batch not found" }, 404);
+
+    const failedRuns = await db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.parentRunId, batchId), eq(runs.status, "failed")));
+
+    const retriedIds: string[] = [];
+    for (const r of failedRuns) {
+      const [updated] = await db.update(runs).set({ status: "queued", error: null, jobId: null }).where(eq(runs.id, r.id)).returning();
+      const queuedJobId = await enqueueSdmJob(
+        { type: "model", payload: buildModelPayload((r.config as unknown as ModelConfigRecord), r.id) },
+        user.id,
+      );
+      if (queuedJobId) {
+        await db.update(runs).set({ jobId: queuedJobId }).where(eq(runs.id, r.id));
+      }
+      retriedIds.push(r.id);
+    }
+
+    if (retriedIds.length > 0) {
+      await db.update(batches).set({ status: "running", failedJobs: 0 }).where(eq(batches.id, batchId));
+    }
+
+    return c.json({ ok: true, retried: retriedIds.length, job_ids: retriedIds });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Batch retry failed";
     return c.json({ error: message }, 500);
   }
 });
