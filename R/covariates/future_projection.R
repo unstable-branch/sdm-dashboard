@@ -61,7 +61,7 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   names(delta) <- "suitability_delta"
   terra::writeRaster(delta, output_delta_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999"))
   )
 
   log_message(log_fun, "Computing MESS extrapolation surface")
@@ -72,7 +72,7 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
 
   terra::writeRaster(mess_result$mess, output_mess_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999"))
   )
 
   mod_raster <- compute_mod(mess_result$per_variable)
