@@ -258,6 +258,12 @@ run_fast_sdm <- function(...) {
     list(chains = cfg$brms_chains %||% 4L, iter = cfg$brms_iter %||% 2000L, warmup = cfg$brms_warmup %||% 1000L)
   } else if (identical(model_id, "inla_spde")) {
     list(mesh_max_edge = cfg$inla_mesh_max_edge %||% NULL, mesh_cutoff = cfg$inla_mesh_cutoff %||% NULL, prior_range = cfg$inla_prior_range %||% NULL, prior_sigma = cfg$inla_prior_sigma %||% NULL)
+  } else if (identical(model_id, "rangebag")) {
+    list(n_bags = cfg$n_bags %||% sdm_default_rangebag_n_bags, bag_fraction = cfg$bag_fraction %||% sdm_default_rangebag_fraction, vars_per_bag = cfg$vars_per_bag %||% sdm_default_rangebag_vars_per_bag)
+  } else if (identical(model_id, "occupancy")) {
+    list(detection_formula = cfg$detection_formula %||% "~1", model_type = cfg$occupancy_model_type %||% "occu")
+  } else if (identical(model_id, "dnn_multispecies")) {
+    list(dnn_model_type = cfg$dnn_architecture %||% "DNN_Medium", n_seeds = cfg$dnn_multispecies_n_seeds %||% 3L, dnn_device = cfg$dnn_device %||% "auto")
   } else if (identical(model_id, "multi_ensemble")) {
     list(
       selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,
