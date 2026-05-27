@@ -32,7 +32,11 @@ option_list <- list(
   make_option(c("-n", "--cores"), type = "integer", default = NULL,
               help = "Number of parallel workers [default: detectCores() - 1]"),
   make_option(c("-s", "--seed"), type = "integer", default = 42,
-              help = "Random seed for reproducibility [default: %default]")
+              help = "Random seed for reproducibility [default: %default]"),
+  make_option(c("-t", "--targets"), action = "store_true", default = FALSE,
+              help = "Use targets pipeline instead of future_lapply [default: %default]"),
+  make_option(c("--cluster"), type = "character", default = "local",
+              help = "Cluster backend: local, slurm, sge, pbs, aws [default: %default]")
 )
 
 parser <- OptionParser(
@@ -90,6 +94,27 @@ if (is.null(opts$cores)) {
 }
 
 message("\nStarting batch run...\n")
+
+if (opts$targets) {
+  if (opts$cluster != "local") {
+    Sys.setenv(SDM_CLUSTER_BACKEND = opts$cluster)
+    if (!is.null(opts$cores)) Sys.setenv(SDM_CLUSTER_WORKERS = as.character(opts$cores))
+  }
+  batch_run_targets(
+    config_csv = opts$config,
+    output_dir = opts$output,
+    workers = opts$cores,
+    seed = opts$seed
+  )
+  message("\n========================================")
+  message("SDM Batch Complete (targets pipeline)")
+  message("========================================")
+  message("Output dir: ", normalizePath(opts$output))
+  message("See tar_progress() for per-species status")
+  message("========================================")
+  quit(status = 0)
+}
+
 results <- batch_run_parallel(
   species_configs = species_configs,
   n_cores = opts$cores,
