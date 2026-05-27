@@ -224,6 +224,7 @@ sdmRoutes.get("/models", async (c) => {
       { id: "esm_maxnet", label: "ESM — MaxEnt (rare species)", maturity: "experimental", available: false, notes: "Requires ecospat + biomod2 + maxnet packages" },
       { id: "biomod2", label: "biomod2 (multi-algorithm)", maturity: "experimental", available: false, notes: "Requires biomod2 package + sdm.enable_biomod2 option" },
       { id: "dnn", label: "DNN (cito/torch)", maturity: "experimental", available: false, notes: "Requires cito + torch packages" },
+      { id: "dnn_multispecies", label: "Multi-species DNN (cito)", maturity: "experimental", available: false, notes: "Requires cito + torch packages" },
     ]);
   }
 });
