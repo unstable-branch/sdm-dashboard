@@ -501,6 +501,100 @@ dataRoutes.get("/uploads", async (c) => {
   }
 });
 
+// Delete an uploaded occurrence file and reclaim storage
+dataRoutes.delete("/uploads/:fileId", async (c) => {
+  try {
+    const fileId = decodeURIComponent(c.req.param("fileId"));
+    const user = c.get("user");
+    const projectIds = await getUserProjectIds(user);
+
+    // Find the file record (scoped to user's projects)
+    const [record] = await db
+      .select({
+        id: uploadedFiles.id,
+        filePath: uploadedFiles.filePath,
+        cleanedFilePath: uploadedFiles.cleanedFilePath,
+        fileSize: uploadedFiles.fileSize,
+      })
+      .from(uploadedFiles)
+      .where(projectIds
+        ? and(eq(uploadedFiles.filePath, fileId), inArray(uploadedFiles.projectId, projectIds))
+        : eq(uploadedFiles.filePath, fileId))
+      .limit(1);
+
+    if (!record) {
+      return c.json({ error: "Upload not found" }, 404);
+    }
+
+    // Remove files from disk
+    const encPath = record.filePath;
+    if (encPath && existsSync(encPath)) {
+      rmSync(encPath, { force: true });
+    }
+    // Remove decrypted version if exists
+    const plainPath = encPath?.replace(/\.enc$/, "");
+    if (plainPath && existsSync(plainPath)) {
+      rmSync(plainPath, { force: true });
+    }
+    // Remove cleaned file if exists
+    if (record.cleanedFilePath) {
+      const cleanedEnc = record.cleanedFilePath;
+      if (existsSync(cleanedEnc)) rmSync(cleanedEnc, { force: true });
+      const cleanedPlain = cleanedEnc.replace(/\.enc$/, "");
+      if (existsSync(cleanedPlain)) rmSync(cleanedPlain, { force: true });
+    }
+
+    // Delete DB record
+    await db.delete(uploadedFiles).where(eq(uploadedFiles.id, record.id));
+
+    // Update storage usage
+    await db
+      .update(users)
+      .set({ storageUsedBytes: sql`greatest(0, ${users.storageUsedBytes} - ${record.fileSize})` })
+      .where(eq(users.id, user.id));
+
+    return c.json({ ok: true, message: "Upload deleted" });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to delete upload";
+    return c.json({ error: message }, 500);
+  }
+});
+
+// Get storage usage and quota for the current user
+dataRoutes.get("/storage", async (c) => {
+  try {
+    const user = c.get("user");
+    const [record] = await db
+      .select({
+        storageQuotaBytes: users.storageQuotaBytes,
+        storageUsedBytes: users.storageUsedBytes,
+      })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+
+    if (!record) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const quota = Number(record.storageQuotaBytes) || 500 * 1024 * 1024;
+    const used = Number(record.storageUsedBytes) || 0;
+
+    return c.json({
+      quota_bytes: quota,
+      used_bytes: used,
+      available_bytes: Math.max(0, quota - used),
+      quota_mb: Math.round(quota / (1024 * 1024)),
+      used_mb: Math.round(used / (1024 * 1024)),
+      available_mb: Math.round(Math.max(0, quota - used) / (1024 * 1024)),
+      pct_used: quota > 0 ? Math.round((used / quota) * 100) : 0,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to get storage info";
+    return c.json({ error: message }, 500);
+  }
+});
+
 // Proxy route for async data job status (clean/dwca/gbif jobs run by Plumber)
 dataRoutes.get("/jobs/:jobId", async (c) => {
   try {

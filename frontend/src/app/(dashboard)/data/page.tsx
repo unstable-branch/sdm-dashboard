@@ -10,9 +10,9 @@ import { JobProgress } from "@/components/jobs/job-progress";
 import { DownloadProgress } from "@/components/climate/download-progress";
 import { ScenarioList } from "@/components/climate/scenario-list";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, FileArchive, Wand2, Map, Cloud, Loader2, CheckCircle2, Download, AlertTriangle } from "lucide-react";
+import { Upload, Globe, FileArchive, Wand2, Map, Cloud, Loader2, CheckCircle2, Download, AlertTriangle, Trash2, HardDrive } from "lucide-react";
 import { useSDMStore } from "@/stores/sdm-store";
-import { apiUpload, apiPost, apiGet, apiPatch } from "@/services/api";
+import { apiUpload, apiPost, apiGet, apiPatch, apiDelete } from "@/services/api";
 import { BIOVAR_CHOICES, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 
 const GbifSearch = dynamic(() => import("@/components/data/gbif-search").then(m => m.GbifSearch), { ssr: false });
@@ -115,6 +115,66 @@ function DataPageContent() {
 
   const [scenarios, setScenarios] = useState<Array<Record<string, unknown>>>([]);
   const [scenariosLoading, setScenariosLoading] = useState(false);
+
+  // File management state
+  const [storageInfo, setStorageInfo] = useState<{
+    quota_bytes: number;
+    used_bytes: number;
+    available_bytes: number;
+    quota_mb: number;
+    used_mb: number;
+    available_mb: number;
+    pct_used: number;
+  } | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{
+    file_id: string;
+    file_name: string;
+    file_size: number;
+    n_rows: number;
+    modified_at: string;
+    cleaned: boolean;
+    deleting?: boolean;
+  }>>([]);
+  const [filesLoading, setFilesLoading] = useState(false);
+
+  const loadStorageInfo = useCallback(async () => {
+    try {
+      const [storage, uploads] = await Promise.all([
+        apiGet<typeof storageInfo>("/api/v1/data/storage"),
+        apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/uploads"),
+      ]);
+      setStorageInfo(storage);
+      setUploadedFiles((uploads.uploads || []).map((f: Record<string, unknown>) => ({
+        file_id: f.file_id as string,
+        file_name: f.file_name as string,
+        file_size: f.file_size as number,
+        n_rows: f.n_rows as number,
+        modified_at: f.modified_at as string,
+        cleaned: f.cleaned as boolean,
+        deleting: false,
+      })));
+    } catch {
+      // silently fail
+    }
+  }, []);
+
+  const handleDeleteFile = useCallback(async (fileId: string) => {
+    setUploadedFiles((prev) => prev.map((f) => f.file_id === fileId ? { ...f, deleting: true } : f));
+    try {
+      await apiDelete(`/api/v1/data/uploads/${encodeURIComponent(fileId)}`);
+      await loadStorageInfo();
+    } catch {
+      setUploadedFiles((prev) => prev.map((f) => f.file_id === fileId ? { ...f, deleting: false } : f));
+    }
+  }, [loadStorageInfo]);
+
+  // Load file management data when the tab is active
+  useEffect(() => {
+    if (activeTab === "files") {
+      setFilesLoading(true);
+      loadStorageInfo().finally(() => setFilesLoading(false));
+    }
+  }, [activeTab, loadStorageInfo]);
 
   const onTabChange = useCallback((value: string) => {
     router.replace(`/data?tab=${value}`, { scroll: false });
@@ -489,7 +549,7 @@ function DataPageContent() {
       </div>
 
       <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
-        <TabsList className="grid w-full max-w-2xl grid-cols-6">
+        <TabsList className="grid w-full max-w-2xl grid-cols-7">
           <TabsTrigger value="upload" className="flex items-center gap-1.5">
             <Upload className="h-3.5 w-3.5" />
             Upload
@@ -513,6 +573,10 @@ function DataPageContent() {
           <TabsTrigger value="climate" className="flex items-center gap-1.5">
             <Cloud className="h-3.5 w-3.5" />
             Climate
+          </TabsTrigger>
+          <TabsTrigger value="files" className="flex items-center gap-1.5">
+            <Trash2 className="h-3.5 w-3.5" />
+            Manage Files
           </TabsTrigger>
         </TabsList>
 
@@ -1032,6 +1096,100 @@ function DataPageContent() {
               onDelete={handleDeleteScenario}
               loading={scenariosLoading}
             />
+          </div>
+        )}
+        {activeTab === "files" && (
+          <div className="space-y-6">
+            {(() => {
+              if (filesLoading && !storageInfo) {
+                return (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-sdm-muted" />
+                  </div>
+                );
+              }
+
+              const pct = storageInfo?.pct_used ?? 0;
+              const barColor = pct > 90 ? "bg-red-500" : pct > 70 ? "bg-amber-500" : "bg-sdm-accent";
+
+              return (
+                <>
+                  {/* Storage usage card */}
+                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <HardDrive className="h-5 w-5 text-sdm-muted" />
+                        <h2 className="text-lg font-semibold text-sdm-heading">Storage</h2>
+                      </div>
+                      <button
+                        onClick={loadStorageInfo}
+                        className="text-xs text-sdm-muted hover:text-sdm-accent transition-colors"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-sdm-muted">
+                          {storageInfo?.used_mb ?? 0} MB used of {storageInfo?.quota_mb ?? 500} MB
+                        </span>
+                        <span className={pct > 90 ? "text-red-500 font-medium" : "text-sdm-muted"}>
+                          {pct}%
+                        </span>
+                      </div>
+                      <div className="h-2.5 w-full rounded-full bg-sdm-surface-soft overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                          style={{ width: `${Math.min(pct, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Uploaded files list */}
+                  <div className="rounded-lg border border-sdm-border bg-sdm-surface">
+                    <div className="border-b border-sdm-border px-6 py-4">
+                      <h2 className="text-lg font-semibold text-sdm-heading">Uploaded occurrence files</h2>
+                      <p className="text-sm text-sdm-muted mt-1">
+                        Delete files you no longer need to free up storage space.
+                      </p>
+                    </div>
+
+                    {uploadedFiles.length === 0 ? (
+                      <div className="px-6 py-8 text-center text-sm text-sdm-muted">
+                        No uploaded files yet.
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-sdm-border">
+                        {uploadedFiles.map((file) => (
+                          <div key={file.file_id} className="flex items-center justify-between px-6 py-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-sdm-text truncate">{file.file_name}</p>
+                              <p className="text-xs text-sdm-muted">
+                                {(file.file_size / (1024 * 1024)).toFixed(1)} MB
+                                {file.n_rows > 0 && ` · ${file.n_rows.toLocaleString()} records`}
+                                {file.cleaned && " · cleaned"}
+                                {` · ${new Date(file.modified_at).toLocaleDateString()}`}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteFile(file.file_id)}
+                              disabled={file.deleting}
+                              className="ml-4 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-500/10 border border-red-500/30 transition-colors disabled:opacity-50"
+                            >
+                              {file.deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                              {file.deleting ? "Deleting..." : "Delete"}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+
           </div>
         )}
       </Tabs>
