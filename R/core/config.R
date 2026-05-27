@@ -49,7 +49,7 @@ sdm_default_background_n <- 10000L
 sdm_default_min_source_records <- 15L
 sdm_default_threshold <- 0.5
 sdm_default_aggregation_factor <- 1L
-sdm_default_cv_folds <- 3L
+sdm_default_cv_folds <- 5L
 sdm_default_cv_strategy <- "random"
 sdm_default_cv_block_size_km <- NA_real_
 sdm_default_thinning_mode <- "auto"
