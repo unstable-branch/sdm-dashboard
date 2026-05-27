@@ -96,7 +96,7 @@ const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB
 
 dataRoutes.post("/occurrences/upload", async (c) => {
   try {
-    const body = await c.req.parseBody({ maxSize: MAX_UPLOAD_BYTES });
+    const body = await c.req.parseBody();
     const file = body["file"];
     if (!file || !(file instanceof File)) {
       return c.json({ error: "No file uploaded" }, 400);
@@ -312,7 +312,7 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
 
 dataRoutes.post("/occurrences/dwca", async (c) => {
   try {
-    const body = await c.req.parseBody({ maxSize: MAX_UPLOAD_BYTES });
+    const body = await c.req.parseBody();
     const file = body["file"];
     if (!file || !(file instanceof File)) {
       return c.json({ error: "No file uploaded" }, 400);
