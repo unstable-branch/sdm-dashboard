@@ -472,11 +472,14 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
           {selectedModel?.notes && (
             <p className="mt-1 text-xs text-sdm-muted italic">{selectedModel.notes}</p>
           )}
-          {selectedModel?.packages && selectedModel.packages.length > 0 && (
-            <p className="mt-1 text-xs text-sdm-muted">
-              Requires: <code className="text-sdm-text">{selectedModel.packages.join(", ")}</code>
-            </p>
-          )}
+          {selectedModel?.packages && (() => {
+            const pkgs = Array.isArray(selectedModel.packages) ? selectedModel.packages : [selectedModel.packages];
+            return pkgs.length > 0 ? (
+              <p className="mt-1 text-xs text-sdm-muted">
+                Requires: <code className="text-sdm-text">{pkgs.join(", ")}</code>
+              </p>
+            ) : null;
+          })()}
         </div>
 
         {(modelId === "maxnet") && (
@@ -584,45 +587,6 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Min split size</label>
               <input type="number" value={ctaMinsplit} onChange={(e) => setCtaMinsplit(Number(e.target.value))} min={2} max={100} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "mars") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Max interaction degree</label>
-              <input type="number" value={marsDegree} onChange={(e) => setMarsDegree(Number(e.target.value))} min={1} max={5} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Penalty per knot</label>
-              <input type="number" value={marsPenalty} onChange={(e) => setMarsPenalty(Number(e.target.value))} min={0} max={10} step={0.5} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "fda") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">MARS degree</label>
-              <input type="number" value={fdaDegree} onChange={(e) => setFdaDegree(Number(e.target.value))} min={1} max={5} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "ann") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Hidden layer size</label>
-              <input type="number" value={annSize} onChange={(e) => setAnnSize(Number(e.target.value))} min={2} max={50} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Weight decay</label>
-              <input type="number" value={annDecay} onChange={(e) => setAnnDecay(Number(e.target.value))} min={0.0001} max={1} step={0.001} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Max iterations</label>
-              <input type="number" value={annMaxit} onChange={(e) => setAnnMaxit(Number(e.target.value))} min={50} max={1000} step={50} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
             </div>
           </div>
         )}
