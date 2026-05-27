@@ -541,7 +541,12 @@ run_fast_sdm <- function(...) {
   }
 
   if (isTRUE(future_projection)) {
+    if (identical(cfg$source %||% "worldclim", "chelsa")) {
+      log_message(log_fun, "Note: Future projection uses WorldClim CMIP6 data regardless of current climate source. CHELSA v2.1 future data is not supported. Future layers will be loaded from: ", future_worldclim_dir)
+    }
     progress_step(progress_fun, 0.95, "Projecting future climate scenario")
+    mask_extrapolation <- isTRUE(cfg$extrapolation_mask %||% TRUE)
+    mess_threshold <- cfg$mess_threshold %||% 0
     future <- project_future_suitability(
       fit = fit,
       current_suitability = suit,
@@ -553,7 +558,9 @@ run_fast_sdm <- function(...) {
       output_future_tif = file.path(output_dir, paste0(base_name, "_future_suitability.tif")),
       output_delta_tif = file.path(output_dir, paste0(base_name, "_future_delta.tif")),
       n_cores = n_cores,
-      log_fun = log_fun
+      log_fun = log_fun,
+      mask_extrapolation = mask_extrapolation,
+      mess_threshold = mess_threshold
     )
     extra_paths <- c(extra_paths, future$paths)
   }

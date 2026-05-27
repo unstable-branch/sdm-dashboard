@@ -42,6 +42,8 @@ export const modelConfigSchema = z.object({
   vifThreshold: z.number().min(1).max(20).default(10),
   climateMatching: z.boolean().default(false),
   climateMatchingMethod: z.enum(["mahalanobis", "standardised", "euclidean"]).default("mahalanobis"),
+  extrapolationMask: z.boolean().default(true),
+  messThreshold: z.number().default(0),
   thinByCell: z.boolean().default(true),
   mergeSmallSources: z.boolean().default(true),
   minSourceRecords: z.number().int().min(1).max(100).default(15),
