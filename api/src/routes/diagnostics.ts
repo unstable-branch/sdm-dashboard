@@ -37,6 +37,22 @@ diagnosticsRoutes.get("/vif/:runId", async (c) => {
   }
 });
 
+diagnosticsRoutes.get("/ale/:runId", async (c) => {
+  const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+  try {
+    const jobId = await plumberJobId(runId);
+    const data = await plumberClient.getDiagnosticsAle(jobId);
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "ALE data unavailable";
+    return c.json({ error: message }, 502);
+  }
+});
+
 diagnosticsRoutes.get("/response-curves/:runId", async (c) => {
   const runId = c.req.param("runId");
   const user = c.get("user");
