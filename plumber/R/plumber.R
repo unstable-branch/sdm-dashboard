@@ -417,101 +417,6 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
     round((pt["user.self"] + pt["sys.self"]) * 1000, 0)
   }
 
-  write_run_manifest <- function(result, job_dir, body, biovars, projection_extent, cpu_ms, peak_mb, job_id) {
-    git_sha <- tryCatch(system("git rev-parse HEAD", intern = TRUE, ignore.stderr = TRUE), error = function(e) NA_character_)
-    if (length(git_sha) != 1 || !nzchar(git_sha)) git_sha <- NA_character_
-
-    si <- sessionInfo()
-    pkg_versions <- list()
-    if (!is.null(si$otherPkgs)) {
-      for (pkg_name in names(si$otherPkgs)) {
-        pkg_versions[[pkg_name]] <- si$otherPkgs[[pkg_name]]$Version %||% NA_character_
-      }
-    }
-
-    occ_hash <- NA_character_
-    occ_file <- body$occurrence_file
-    if (!is.null(occ_file) && nzchar(occ_file) && file.exists(occ_file)) {
-      occ_hash <- tryCatch(digest::digest(occ_file, algo = "sha256", file = TRUE), error = function(e) NA_character_)
-    }
-
-    occ_rows <- NA_integer_
-    if (!is.null(occ_file) && nzchar(occ_file) && file.exists(occ_file)) {
-      occ_rows <- tryCatch(nrow(utils::read.csv(occ_file, stringsAsFactors = FALSE)), error = function(e) NA_integer_)
-    }
-
-    covariate_files <- character(0)
-    wc_dir <- body$worldclim_dir %||% sdm_default_worldclim_dir
-    if (dir.exists(wc_dir)) {
-      pattern <- paste0("bio", biovars, "\\.tif$")
-      covariate_files <- list.files(wc_dir, pattern = pattern, full.names = TRUE, recursive = TRUE)
-    }
-
-    manifest <- list(
-      run_id = job_id,
-      run_timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-      generated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-      app_version = list(
-        git_sha = git_sha,
-        r_version = R.version.string,
-        platform = R.version$platform,
-        package_versions = pkg_versions
-      ),
-      species = body$species,
-      model = list(
-        id = body$model_id,
-        seed = as.integer(body$seed %||% sdm_default_seed),
-        nthread = 1L,
-        parameters = as.list(body)
-      ),
-      data = list(
-        occurrence_file = occ_file,
-        occurrence_hash_sha256 = occ_hash,
-        occurrence_rows = occ_rows,
-        cleaned_file = body$cleaned_file_id %||% NA_character_
-      ),
-      covariates = list(
-        source = body$source %||% "worldclim",
-        worldclim_dir = wc_dir,
-        biovars = biovars,
-        resolution = as.integer(body$worldclim_res %||% sdm_default_worldclim_res),
-        files_loaded = basename(covariate_files),
-        file_count = length(covariate_files)
-      ),
-      extent = list(
-        xmin = projection_extent[1],
-        xmax = projection_extent[2],
-        ymin = projection_extent[3],
-        ymax = projection_extent[4]
-      ),
-      validation = list(
-        cv_folds = as.integer(body$cv_folds %||% sdm_default_cv_folds),
-        cv_strategy = body$cv_strategy %||% sdm_default_cv_strategy,
-        cv_block_size_km = if (!is.null(body$cv_block_size_km)) as.numeric(body$cv_block_size_km) else sdm_default_cv_block_size_km,
-        seed = as.integer(body$seed %||% sdm_default_seed)
-      ),
-      metrics = if (!is.null(result)) list(
-        auc_mean = result$cv$auc_mean,
-        auc_sd = result$cv$auc_sd,
-        tss_mean = result$cv$tss_mean,
-        tss_sd = result$cv$tss_sd,
-        presence_records = result$metrics$presence_records,
-        background_points = result$metrics$background_points,
-        elapsed_seconds = result$metrics$elapsed_seconds,
-        high_suitability_area_km2 = result$summary$high_risk_area_km2
-      ) else NULL,
-      resources = list(
-        r_cpu_time_ms = cpu_ms,
-        r_peak_memory_mb = peak_mb
-      ),
-      output_files = if (!is.null(result)) result$paths else NULL
-    )
-
-    manifest_path <- file.path(job_dir, "manifest.json")
-    writeLines(jsonlite::toJSON(manifest, auto_unbox = TRUE, pretty = TRUE), manifest_path)
-    manifest_path
-  }
-
   cpu_start <- proc.time()
   mem_start <- r_get_peak_memory_mb()
 
@@ -729,7 +634,8 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
         cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
       })
       job_meta$output_files <- c(result$paths, diag_files)
-      manifest_path <- write_run_manifest(result, job_dir, body, biovars, projection_extent, cpu_ms, peak_mb, job_id)
+      base_name <- paste0(safe_slug(body$species %||% "species"), "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
+      manifest_path <- write_manifest(result, job_dir, base_name, cpu_ms = cpu_ms, peak_mb = peak_mb)
       job_meta$manifest_path <- manifest_path
     }
     gc(verbose = FALSE)
