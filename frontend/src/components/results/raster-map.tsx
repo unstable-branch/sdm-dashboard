@@ -60,9 +60,10 @@ interface RasterMapProps {
   bounds: [number, number, number, number];
   geotiffUrl?: string;
   theme: string | undefined;
+  onCellClick?: (lng: number, lat: number, value: number | null) => void;
 }
 
-export function RasterMap({ tileUrl, bounds, geotiffUrl, theme }: RasterMapProps) {
+export function RasterMap({ tileUrl, bounds, geotiffUrl, theme, onCellClick }: RasterMapProps) {
   const { data, loading, error } = useRasterData(geotiffUrl ?? null);
   const [hoverInfo, setHoverInfo] = useState<{ value: number; lng: number; lat: number } | null>(null);
   const [tileErrors, setTileErrors] = useState(0);
@@ -113,6 +114,27 @@ export function RasterMap({ tileUrl, bounds, geotiffUrl, theme }: RasterMapProps
     setHoverInfo(null);
   }, []);
 
+  const handleClick = useCallback((evt: any) => {
+    const d = dataRef.current;
+    const ext = extentRef.current;
+    if (!d || !ext || !onCellClick) return;
+    const { lng, lat } = evt.lngLat;
+    const [xmin, xmax, ymin, ymax] = ext;
+    const { width, height, data: raster } = d;
+    if (lng < xmin || lng > xmax || lat < ymin || lat > ymax) {
+      onCellClick(lng, lat, null);
+      return;
+    }
+    const col = Math.floor(((lng - xmin) / (xmax - xmin)) * width);
+    const row = Math.floor(((ymax - lat) / (ymax - ymin)) * height);
+    if (col >= 0 && col < width && row >= 0 && row < height) {
+      const val = raster[row * width + col];
+      onCellClick(lng, lat, (!isNaN(val) && val >= 0 && val <= 1) ? val : null);
+    } else {
+      onCellClick(lng, lat, null);
+    }
+  }, [onCellClick]);
+
   const handleMapError = useCallback((evt: any) => {
     if (evt?.error?.status === 404 || evt?.error?.status === 500) {
       setTileErrors((prev) => prev + 1);
@@ -149,6 +171,7 @@ export function RasterMap({ tileUrl, bounds, geotiffUrl, theme }: RasterMapProps
         style={{ width: "100%", height: "100%" }}
         mapStyle={theme === "dark" ? DARK_STYLE : LIGHT_STYLE}
         onMouseMove={handleMouseMove}
+        onClick={handleClick}
         onError={handleMapError}
         cursor={data ? "crosshair" : "grab"}
         maxZoom={18}
