@@ -39,6 +39,7 @@ modules <- c(
   "occurrences.R",
   "occurrences_dwca.R",
   "occurrences_detection.R",
+  "community_matrix.R",
 
   # --- covariates ---
   "covariates_climate.R",
@@ -85,6 +86,7 @@ modules <- c(
   "model_multi_ensemble.R",
   "model_esm.R",
   "model_dnn.R",
+  "model_dnn_multispecies.R",
   "model_registry.R",
   "model_biomod2.R",
   "biomod2_compat.R",

@@ -131,6 +131,8 @@ dnn_device_choices <- c(
   "GPU if available (faster)" = "gpu"
 )
 config$dnn_weight_default <- 0.3
+config$dnn_multispecies_default <- "DNN_Medium"
+config$dnn_multispecies_n_seeds <- 3L
 config$ensemble_method_default <- "weighted_average"
 config$use_rangebag <- FALSE
 

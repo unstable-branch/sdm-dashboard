@@ -686,6 +686,27 @@ if (requireNamespace("xgboost", quietly = TRUE)) {
   )
 }
 
+# Multi-species DNN (cito/torch) — conditional
+if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietly = TRUE)) {
+  register_sdm_model(
+    id = "dnn_multispecies",
+    label = "Multi-species DNN (cito)",
+    method = "Multi-species deep neural network with shared environmental response structure via cito",
+    packages = c("cito", "torch"),
+    maturity = "experimental",
+    fit_fun = function(...) fit_dnn_multispecies_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_dnn_multispecies_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    diagnostics = list(n_species = TRUE, species_presence = TRUE),
+    notes = "Multi-species DNN with shared covariates. Predicts all species simultaneously using a multi-output network. Requires cito and torch.",
+    min_records = 5L
+  )
+}
+
 # DNN (cito/torch) — conditional registration (depends on cito+torch, NOT ranger)
 if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietly = TRUE)) {
   register_sdm_model(
