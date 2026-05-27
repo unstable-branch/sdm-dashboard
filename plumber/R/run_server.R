@@ -38,7 +38,13 @@ pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 # na="null" preserves NA values as JSON null instead of omitting them
 pr$setSerializer(plumber::serializer_json(auto_unbox = TRUE, na = "null"))
 
-# OpenAPI 3.0 docs are available at /__docs__/openapi.json by default in plumber 1.x
+# Disable OpenAPI docs in production (they reveal the API surface)
+# Re-enable with PLUMBER_DOCS_ENABLED=true for development
+if (identical(Sys.getenv("PLUMBER_DOCS_ENABLED"), "true")) {
+  cat("OpenAPI docs enabled at /__docs__/\n")
+} else {
+  tryCatch(pr$setDocs(FALSE), error = function(e) NULL)
+}
 
 # Internal auth key set by Hono when proxying authenticated requests
 internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
