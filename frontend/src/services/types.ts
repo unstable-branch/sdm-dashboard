@@ -1,6 +1,26 @@
-// Frontend type definitions matching the Plumber API (snake_case JSON responses).
-// Source-of-truth camelCase equivalents live in @sdm/shared.
-// New components should prefer importing from @sdm/shared and mapping responses.
+// ── Frontend Type Definitions ─────────────────────────────────────────────
+// SOURCE OF TRUTH: @sdm/shared (camelCase types in packages/shared/src/types.ts)
+//
+// This file provides snake_case re-exports matching Plumber API responses.
+// New components should import directly from @sdm/shared and use camelCase.
+// Existing components continue to work unchanged via these re-exports.
+//
+// Migration: when adding a new field, add it to @sdm/shared first,
+// then add the snake_case alias here if the Plumber API returns it.
+//
+// Types that are purely UI state (not from the API) are defined here.
+
+import type {
+  CurvePoint,
+  CurveData,
+  CbiBin,
+  CvFoldEntry,
+  ThresholdEntry,
+  ThresholdData,
+  DensityData,
+} from "@sdm/shared";
+
+// ── API types that directly mirror Plumber snake_case ──────────────────────
 
 export interface RunSummary {
   id: string;
@@ -50,6 +70,10 @@ export interface PaginationInfo {
   totalPages: number;
 }
 
+// ── Diagnostic types — re-exported from @sdm/shared with snake_case ────────
+// These alias the camelCase canonical types. Add snake_case fields here as
+// needed for Plumber API compatibility.
+
 export interface VifData {
   available: boolean;
   message?: string;
@@ -78,14 +102,22 @@ export interface ImportanceData {
   error?: string;
 }
 
-export interface CurvePoint {
-  value: number;
-  suitability: number;
+// Types with matching field names (same in snake_case and camelCase)
+// These are direct re-exports from @sdm/shared
+export type { CurvePoint, CurveData, CvFoldEntry, ThresholdEntry, ThresholdData, DensityData };
+
+// Calibration types — Plumber returns snake_case, must be defined locally
+export interface CalibrationBin {
+  bin_mid: number;
+  observed_freq: number;
+  count: number;
 }
 
-export interface CurveData {
-  covariate: string;
-  points: CurvePoint[];
+export interface CalibrationData {
+  available: boolean;
+  message?: string;
+  bins?: CalibrationBin[];
+  error?: string;
 }
 
 export interface ResponseCurvesData {
@@ -96,11 +128,7 @@ export interface ResponseCurvesData {
   error?: string;
 }
 
-export interface BinEntry {
-  bin_mid: number;
-  ratio: number;
-  smoothed: number;
-}
+export interface BinEntry extends CbiBin {}
 
 export interface CbiData {
   available: boolean;
@@ -170,25 +198,6 @@ export interface RocData {
   error?: string;
 }
 
-export interface CalibrationBin {
-  bin_mid: number;
-  observed_freq: number;
-  count: number;
-}
-
-export interface CalibrationData {
-  available: boolean;
-  message?: string;
-  bins?: CalibrationBin[];
-  error?: string;
-}
-
-export interface CvFoldEntry {
-  fold: number;
-  auc: number;
-  tss: number;
-}
-
 export interface CvFoldsData {
   available: boolean;
   message?: string;
@@ -200,27 +209,7 @@ export interface CvFoldsData {
   error?: string;
 }
 
-export interface ThresholdEntry {
-  threshold: number;
-  sensitivity: number;
-  specificity: number;
-  tss: number;
-}
-
-export interface ThresholdData {
-  available: boolean;
-  message?: string;
-  thresholds?: ThresholdEntry[];
-  error?: string;
-}
-
-export interface DensityData {
-  available: boolean;
-  message?: string;
-  presence?: { x: number[]; y: number[] };
-  background?: { x: number[]; y: number[] };
-  error?: string;
-}
+// ── UI-only types (not from Plumber API) ───────────────────────────────────
 
 export interface ClimateScenario {
   id: string;
