@@ -123,6 +123,27 @@ if (requireNamespace("INLA", quietly = TRUE)) {
 
 # BART (Bayesian Additive Regression Trees) — conditional on dbarts
 # Occupancy (unmarked) — conditional on unmarked package
+# brms (general Bayesian) — conditional on brms package
+if (requireNamespace("brms", quietly = TRUE)) {
+  register_sdm_model(
+    id = "brms",
+    label = "brms / General Bayesian (Stan)",
+    method = "Full Bayesian inference via brms with cmdstanr backend",
+    packages = c("brms", "cmdstanr"),
+    maturity = "experimental",
+    fit_fun = function(...) fit_brms_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_brms_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    diagnostics = list(waic = TRUE, looic = TRUE, coefficients = TRUE, rhat = TRUE),
+    notes = "Full Bayesian SDM via brms (Stan backend). First fit compiles Stan code (5-15 min). Subsequent fits use cached model. Provides posterior uncertainty maps.",
+    min_records = 30L
+  )
+}
+
 if (requireNamespace("unmarked", quietly = TRUE)) {
   register_sdm_model(
     id = "occupancy",
