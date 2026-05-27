@@ -288,6 +288,19 @@ ui_sidebar_controls <- function() {
           numericInput("ann_decay", "Weight decay", value = 0.01, min = 0.0001, max = 1, step = 0.001),
           numericInput("ann_maxit", "Max iterations", value = 200, min = 50, max = 1000, step = 50)
         ),
+        conditionalPanel(
+          "input.model_id == 'dnn'",
+          selectInput("dnn_model_type", "DNN architecture",
+            choices = c("Small (1×64)" = "DNN_Small", "Medium (2×100)" = "DNN_Medium", "Large (3×100)" = "DNN_Large"),
+            selected = "DNN_Medium"
+          ),
+          numericInput("dnn_n_seeds", "Ensemble seeds (for uncertainty)", value = 5, min = 1, max = 20, step = 1),
+          selectInput("dnn_device", "Device",
+            choices = c("Auto" = "auto", "CPU" = "cpu", "GPU" = "gpu"),
+            selected = "auto"
+          ),
+          div(class = "small-muted", "Multiple seeds train independent networks with different random initialisations. Prediction SD across seeds measures epistemic uncertainty.")
+        ),
         div(class = "small-muted", "Rangebagging is experimental; GLM remains the stable default."),
         conditionalPanel(
           "input.model_id == 'biomod2'",
