@@ -138,7 +138,7 @@ predict_biomod2_suitability <- function(fit, env_project_scaled, output_tif,
   if (!is.null(output_tif)) {
     terra::writeRaster(terra::rast(final_file), output_tif,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999"))
     )
   }
 
