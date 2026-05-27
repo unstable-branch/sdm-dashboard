@@ -660,6 +660,16 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
     result <- run_fast_sdm(cfg)
 
     diag_files <- list()
+    # Export diagnostic data as lightweight CSV ZIP (replaces old save_diagnostic_plots)
+    tryCatch({
+      source(file.path(app_dir, "R", "output", "export_diagnostics.R"), local = TRUE)
+      zip_path <- export_diagnostics_csv(result, job_dir, log_fun = log_fun)
+      if (!is.null(zip_path)) diag_files$diagnostics_zip <- zip_path
+    }, error = function(e) {
+      cat("Diagnostics CSV export failed:", conditionMessage(e), "\n")
+      cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
+    })
+
     tryCatch({
       source(file.path(app_dir, "R", "output", "report_odmap.R"), local = TRUE)
       odmap_csv <- file.path(job_dir, "odmap_report.csv")
@@ -2120,6 +2130,188 @@ function(res, run_id) {
       cv_folds_png = output_files$cv_folds_png %||% NULL
     )
   )
+}
+
+#* Get ROC curve data for a run
+#* @get /api/v1/diagnostics/roc/<run_id>
+function(res, run_id) {
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta_file <- file.path(job_dir, "meta.json")
+  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
+  tryCatch({
+    result <- readRDS(result_rds)
+    cv <- result$cv
+    if (is.null(cv) || !is.data.frame(cv$fold_metrics) || nrow(cv$fold_metrics) == 0) {
+      return(list(available = FALSE, message = "CV fold metrics not available"))
+    }
+    fm <- cv$fold_metrics
+    mean_fpr <- seq(0, 1, length.out = 100)
+    tpr_list <- apply(fm[, c("tp", "fp", "tn", "fn")], 1, function(row) {
+      tp <- row["tp"]; fp <- row["fp"]; tn <- row["tn"]; fn <- row["fn"]
+      n_pos <- tp + fn; n_neg <- fp + tn
+      if (n_pos < 2 || n_neg < 2) return(rep(NA_real_, 100))
+      fpr_val <- seq(0, 1, length.out = 100)
+      tpr_val <- sapply(fpr_val, function(f) {
+        threshold <- f * max(c(1, sqrt(n_pos * n_neg))) / sqrt(n_pos * n_neg) + 0.5
+        tp_at_fpr <- tp - f * n_pos
+        max(0, min(1, (tp_at_fpr + tn) / (n_pos + n_neg)))
+      })
+      tpr_val
+    })
+    mean_tpr <- if (is.matrix(tpr_list)) rowMeans(tpr_list, na.rm = TRUE) else rep(0.5, 100)
+    list(
+      available = TRUE,
+      auc = cv$auc_mean %||% NA_real_,
+      auc_sd = cv$auc_sd %||% NA_real_,
+      fpr = as.list(mean_fpr),
+      tpr = as.list(mean_tpr)
+    )
+  }, error = function(e) {
+    list(error = paste("ROC computation failed:", conditionMessage(e)))
+  })
+}
+
+#* Get calibration curve data for a run
+#* @get /api/v1/diagnostics/calibration/<run_id>
+function(res, run_id) {
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta_file <- file.path(job_dir, "meta.json")
+  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
+  tryCatch({
+    result <- readRDS(result_rds)
+    cv <- result$cv
+    if (is.null(cv) || !is.data.frame(cv$predictions) || length(cv$predictions$predicted) == 0) {
+      return(list(available = FALSE, message = "CV predictions not available"))
+    }
+    preds <- cv$predictions
+    n_bins <- 10
+    preds$bin <- cut(preds$predicted, breaks = seq(0, 1, length.out = n_bins + 1), include.lowest = TRUE)
+    cal_df <- aggregate(observed ~ bin, data = preds, FUN = function(x) c(mean = mean(x), count = length(x)))
+    cal_list <- lapply(seq_len(nrow(cal_df)), function(i) {
+      b <- cal_df$bin[i]
+      mid <- mean(as.numeric(gsub("[\\[\\]()]", "", strsplit(as.character(b), ",")[[1]])))
+      list(bin_mid = mid, observed_freq = cal_df$observed[i, "mean"], count = as.integer(cal_df$observed[i, "count"]))
+    })
+    list(available = TRUE, bins = cal_list)
+  }, error = function(e) {
+    list(error = paste("Calibration computation failed:", conditionMessage(e)))
+  })
+}
+
+#* Get per-fold cross-validation metrics
+#* @get /api/v1/diagnostics/cv-folds/<run_id>
+function(res, run_id) {
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta_file <- file.path(job_dir, "meta.json")
+  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
+  tryCatch({
+    result <- readRDS(result_rds)
+    cv <- result$cv
+    if (is.null(cv) || !is.data.frame(cv$fold_metrics) || nrow(cv$fold_metrics) == 0) {
+      return(list(available = FALSE, message = "CV fold metrics not available"))
+    }
+    fm <- cv$fold_metrics
+    fold_list <- lapply(seq_len(nrow(fm)), function(i) list(
+      fold = as.integer(fm$fold[i]),
+      auc = as.numeric(fm$auc[i]),
+      tss = as.numeric(fm$tss[i])
+    ))
+    list(
+      available = TRUE,
+      auc_mean = cv$auc_mean %||% NA_real_,
+      auc_sd = cv$auc_sd %||% NA_real_,
+      tss_mean = cv$tss_mean %||% NA_real_,
+      tss_sd = cv$tss_sd %||% NA_real_,
+      folds = fold_list
+    )
+  }, error = function(e) {
+    list(error = paste("CV folds computation failed:", conditionMessage(e)))
+  })
+}
+
+#* Get threshold performance data
+#* @get /api/v1/diagnostics/threshold/<run_id>
+function(res, run_id) {
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta_file <- file.path(job_dir, "meta.json")
+  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
+  tryCatch({
+    result <- readRDS(result_rds)
+    pres <- result$fit$presence_suit
+    bg <- result$fit$background_suit
+    if (is.null(pres) || is.null(bg)) {
+      return(list(available = FALSE, message = "Prediction data not available"))
+    }
+    thresholds <- seq(0, 1, length.out = 100)
+    threshold_list <- lapply(thresholds, function(t) {
+      tp <- sum(pres >= t, na.rm = TRUE)
+      fn <- sum(pres < t, na.rm = TRUE)
+      fp <- sum(bg >= t, na.rm = TRUE)
+      tn <- sum(bg < t, na.rm = TRUE)
+      sensitivity <- if ((tp + fn) > 0) tp / (tp + fn) else NA_real_
+      specificity <- if ((tn + fp) > 0) tn / (tn + fp) else NA_real_
+      tss <- if (is.finite(sensitivity) && is.finite(specificity)) sensitivity + specificity - 1 else NA_real_
+      list(threshold = t, sensitivity = sensitivity, specificity = specificity, tss = tss)
+    })
+    list(available = TRUE, thresholds = threshold_list)
+  }, error = function(e) {
+    list(error = paste("Threshold computation failed:", conditionMessage(e)))
+  })
+}
+
+#* Get presence vs background density data
+#* @get /api/v1/diagnostics/density/<run_id>
+function(res, run_id) {
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta_file <- file.path(job_dir, "meta.json")
+  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
+  tryCatch({
+    result <- readRDS(result_rds)
+    pres <- result$fit$presence_suit
+    bg <- result$fit$background_suit
+    if (is.null(pres) || is.null(bg)) {
+      return(list(available = FALSE, message = "Prediction data not available"))
+    }
+    pres_d <- stats::density(pres, from = 0, to = 1, na.rm = TRUE)
+    bg_d <- stats::density(bg, from = 0, to = 1, na.rm = TRUE)
+    list(
+      available = TRUE,
+      presence = list(x = as.list(pres_d$x), y = as.list(pres_d$y)),
+      background = list(x = as.list(bg_d$x), y = as.list(bg_d$y))
+    )
+  }, error = function(e) {
+    list(error = paste("Density computation failed:", conditionMessage(e)))
+  })
 }
 
 #* Generate diagnostic PNG plots on demand for a completed run

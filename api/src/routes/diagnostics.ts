@@ -101,6 +101,86 @@ diagnosticsRoutes.get("/mess/:runId", async (c) => {
   }
 });
 
+diagnosticsRoutes.get("/roc/:runId", async (c) => {
+  const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+  try {
+    const jobId = await plumberJobId(runId);
+    const data = await plumberClient.getDiagnosticsRoc(jobId);
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "ROC data unavailable";
+    return c.json({ error: message }, 502);
+  }
+});
+
+diagnosticsRoutes.get("/calibration/:runId", async (c) => {
+  const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+  try {
+    const jobId = await plumberJobId(runId);
+    const data = await plumberClient.getDiagnosticsCalibration(jobId);
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Calibration data unavailable";
+    return c.json({ error: message }, 502);
+  }
+});
+
+diagnosticsRoutes.get("/cv-folds/:runId", async (c) => {
+  const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+  try {
+    const jobId = await plumberJobId(runId);
+    const data = await plumberClient.getDiagnosticsCvFolds(jobId);
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "CV folds data unavailable";
+    return c.json({ error: message }, 502);
+  }
+});
+
+diagnosticsRoutes.get("/threshold/:runId", async (c) => {
+  const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+  try {
+    const jobId = await plumberJobId(runId);
+    const data = await plumberClient.getDiagnosticsThreshold(jobId);
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Threshold data unavailable";
+    return c.json({ error: message }, 502);
+  }
+});
+
+diagnosticsRoutes.get("/density/:runId", async (c) => {
+  const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+  try {
+    const jobId = await plumberJobId(runId);
+    const data = await plumberClient.getDiagnosticsDensity(jobId);
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Density data unavailable";
+    return c.json({ error: message }, 502);
+  }
+});
+
 diagnosticsRoutes.get("/summary/:runId", async (c) => {
   const runId = c.req.param("runId");
   const user = c.get("user");
