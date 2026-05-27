@@ -51,7 +51,7 @@ export const MODEL_BACKENDS = [
   { id: "esm_maxnet", label: "ESM — MaxEnt (rare species)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires ecospat + biomod2 + maxnet packages" },
   { id: "multi_ensemble", label: "Multi-Model Ensemble", maturity: "experimental" as const, min_records: 20, available: true, notes: "Select 2+ models from GLM, GAM, MaxNet, Rangebagging, and biomod2 algorithms. biomod2 requires options(sdm.enable_biomod2 = TRUE)." },
   { id: "biomod2", label: "biomod2 (multi-algorithm)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires biomod2 package + sdm.enable_biomod2 option" },
-  { id: "dnn", label: "DNN (cito/torch)", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires cito + torch packages" },
+  { id: "dnn", label: "DNN (cito/torch)", maturity: "experimental" as const, min_records: 50, available: false, notes: "Requires cito + torch packages (R-side hard block at 50 records)" },
 ];
 
 export const SOIL_VARS = [
