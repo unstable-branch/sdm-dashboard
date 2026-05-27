@@ -1,3 +1,7 @@
+// Frontend type definitions matching the Plumber API (snake_case JSON responses).
+// Source-of-truth camelCase equivalents live in @sdm/shared.
+// New components should prefer importing from @sdm/shared and mapping responses.
+
 export interface RunSummary {
   id: string;
   species: string;
