@@ -45,7 +45,7 @@ sdm_world_boundary_path <- config$sdm_world_boundary_path
 
 sdm_default_biovars <- c(1, 4, 6, 12, 15, 18)
 
-sdm_default_background_n <- 10000L
+sdm_default_background_n <- 3000L
 sdm_default_min_source_records <- 15L
 sdm_default_threshold <- "max_tss"
 sdm_default_aggregation_factor <- 1L
