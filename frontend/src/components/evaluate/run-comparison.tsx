@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, BarChart3 } from "lucide-react";
+import { Loader2, BarChart3, ArrowRight } from "lucide-react";
 import { apiGet } from "@/services/api";
 import type { RunDetail } from "@/services/types";
+import { RunComparisonReport } from "./run-comparison-report";
 
 interface RunSummary {
   id: string;
@@ -23,6 +24,7 @@ interface RunComparisonProps {
 export function RunComparison({ runs }: RunComparisonProps) {
   const [selected, setSelected] = useState<string[]>([]);
   const [runDetails, setRunDetails] = useState<Record<string, RunSummary>>({});
+  const [detailedReport, setDetailedReport] = useState(false);
 
   const completedRuns = runs.filter((r) => r.status === "completed");
 
@@ -157,6 +159,21 @@ export function RunComparison({ runs }: RunComparisonProps) {
             ))}
           </div>
         </div>
+      )}
+
+      {selectedRuns.length === 2 && (
+        <div className="flex justify-center">
+          <button
+            onClick={() => setDetailedReport(!detailedReport)}
+            className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white hover:bg-sdm-accent/90 transition-colors"
+          >
+            {detailedReport ? "Hide" : "Show"} detailed comparison <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {detailedReport && selectedRuns.length === 2 && (
+        <RunComparisonReport run1={selectedRuns[0] as RunDetail} run2={selectedRuns[1] as RunDetail} />
       )}
     </div>
   );
