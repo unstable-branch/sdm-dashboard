@@ -116,3 +116,45 @@ diagnosticsRoutes.get("/summary/:runId", async (c) => {
     return c.json({ error: message }, 502);
   }
 });
+
+// On-demand PNG generation for diagnostic plots
+diagnosticsRoutes.post("/plots/:runId", async (c) => {
+  const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+  try {
+    const jobId = await plumberJobId(runId);
+    const result = await plumberClient.generatePlots(jobId);
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Plot generation failed";
+    return c.json({ error: message }, 502);
+  }
+});
+
+// Download raw diagnostic data as CSV
+diagnosticsRoutes.get("/data/:runId/:type", async (c) => {
+  const runId = c.req.param("runId");
+  const type = c.req.param("type");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+  try {
+    const jobId = await plumberJobId(runId);
+    const res = await plumberClient.getDiagnosticDataCsv(jobId, type);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return c.json({ error: (body as any).error || `Data unavailable: ${res.status}` }, res.status as any);
+    }
+    const csv = await res.text();
+    c.header("Content-Type", "text/csv");
+    c.header("Content-Disposition", `attachment; filename="${type}_${runId}.csv"`);
+    return c.body(csv);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Data download failed";
+    return c.json({ error: message }, 502);
+  }
+});
