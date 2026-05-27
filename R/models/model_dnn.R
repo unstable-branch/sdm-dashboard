@@ -687,39 +687,25 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
   }
 
-  coords <- occ[, c("longitude", "latitude"), drop = FALSE]
-  pres_vals <- tryCatch(terra::extract(env_train_scaled, coords), error = function(e) NULL)
-  if (is.null(pres_vals) || nrow(pres_vals) == 0) stop("No valid presence points found after raster extraction.", call. = FALSE)
-  pres_vals <- pres_vals[complete.cases(pres_vals), , drop = FALSE]
-  if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
-  occurrence_used <- occ[complete.cases(pres_vals), , drop = FALSE]
-
-  set.seed(42L)
-  bg_mask <- env_train_scaled[[1]]
-  bg_mask[!is.na(bg_mask)] <- 1
-  bg_points <- tryCatch(terra::spatSample(bg_mask, size = background_n * 2, method = "random", na.rm = TRUE, as.points = TRUE), error = function(e) NULL)
-  if (is.null(bg_points) || terra::nrow(bg_points) == 0) stop("No background points could be sampled.", call. = FALSE)
-  if (terra::nrow(bg_points) > background_n) bg_points <- bg_points[sample(terra::nrow(bg_points), background_n), ]
-  bg_vals <- terra::extract(env_train_scaled, bg_points)
-  bg_vals <- bg_vals[complete.cases(bg_vals), , drop = FALSE]
-  bg_xy <- tryCatch({
-    bg_geom <- terra::geom(bg_points)
-    data.frame(x = bg_geom[, 1], y = bg_geom[, 2], check.names = FALSE)
-  }, error = function(e) NULL)
-  if (is.null(bg_xy)) stop("Failed to extract background coordinates.", call. = FALSE)
-  bg_xy <- bg_xy[complete.cases(bg_vals), , drop = FALSE]
-  bg_vals <- bg_vals[complete.cases(bg_vals), , drop = FALSE]
-  if (nrow(bg_vals) < 100) stop("Too few background points could be sampled.", call. = FALSE)
-
-  covariates <- make.names(names(env_train_scaled))
-  names(pres_vals) <- covariates
-  names(bg_vals) <- covariates
-
-  model_data <- rbind(
-    data.frame(presence = 1L, pres_vals, check.names = FALSE),
-    data.frame(presence = 0L, bg_vals, check.names = FALSE)
+  d <- prepare_sdm_data(occ, env_train_scaled, background_n,
+    seed = seed, log_fun = log_fun,
+    bias_method = bias_method %||% "uniform",
+    target_group_occ = target_group_occ %||% NULL,
+    thickening_distance_km = thickening_distance_km %||% NULL
   )
-  names(model_data) <- make.names(names(model_data))
+  occ_used <- d$occ_used
+  bg_xy <- d$bg_xy
+  model_data <- d$model_data
+  covariates <- d$covariates
+
+  x_train <- as.matrix(model_data[, covariates, drop = FALSE])
+  scaler <- list(
+    mean = colMeans(x_train, na.rm = TRUE),
+    sd = apply(x_train, 2, stats::sd, na.rm = TRUE)
+  )
+  scaler$sd[scaler$sd == 0 | !is.finite(scaler$sd)] <- 1
+  x_train_scaled <- sweep(x_train, 2, scaler$mean, "-")
+  x_train_scaled <- sweep(x_train_scaled, 2, scaler$sd, "/")
 
   n_seeds <- as.integer(n_seeds)[1]
   if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
@@ -730,14 +716,15 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   # Train multiple seeds
   seed_models <- vector("list", n_seeds)
   seed_metrics <- vector("list", n_seeds)
-  train_df <- as.data.frame(model_data[, covariates, drop = FALSE])
+  train_df <- as.data.frame(x_train_scaled)
+  names(train_df) <- covariates
 
   for (s in seq_len(n_seeds)) {
     log_message(log_fun, "  Training seed ", s, "/", n_seeds)
     dnn_data <- list(
-      train_x = as.matrix(train_df),
+      train_x = x_train_scaled,
       train_y = model_data$presence,
-      test_x = as.matrix(train_df),
+      test_x = x_train_scaled,
       test_y = model_data$presence,
       feature_names = covariates
     )
@@ -830,6 +817,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     shap = shap_values,
     cito_importance = cito_importance,
     cito_pdp = cito_pdp,
+    scaler = scaler,
     n_seeds = n_success,
     dnn_device = dnn_device,
     dnn_model_type = dnn_model_type
