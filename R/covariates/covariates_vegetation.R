@@ -206,7 +206,7 @@ load_gimms_ndvi_period <- function(period, ndvi_year, extent_vec,
     if (!is.null(r)) {
       terra::writeRaster(r, cached,
         overwrite = TRUE,
-        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
       )
       log_message(log_fun, "GIMMS NDVI month ", period, " cached.")
     }
@@ -253,7 +253,7 @@ load_gimms_evi <- function(extent_vec, cache_dir, allow_download, log_fun) {
         names(evi_nc) <- evi_layer_name
         terra::writeRaster(evi_nc, evi_cached,
           overwrite = TRUE,
-          wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+          wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
         )
         log_message(log_fun, "GIMMS AVHRR EVI cached.")
         evi_r <- evi_nc
@@ -370,7 +370,7 @@ load_vegetation_covariate <- function(
             r <- terra::app(do.call(c, tiles), fun = "mean", na.rm = TRUE)
             terra::writeRaster(r, clim_cached,
               overwrite = TRUE,
-              wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+              wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
             )
             log_message(log_fun, "GIMMS NDVI climatology cached (", length(tiles), " tiles).")
           }
@@ -428,7 +428,7 @@ load_vegetation_covariate <- function(
             }
             terra::writeRaster(r, cached_ann,
               overwrite = TRUE,
-              wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+              wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
             )
             log_message(log_fun, "GIMMS NDVI ", period, " cached (", length(tiles), " tiles).")
           }

@@ -258,7 +258,7 @@ predict_esm_suitability <- function(fit, env_project_scaled,
     pair_sd_tif <- sub("\\.tif$", "_pair_sd.tif", output_tif)
     terra::writeRaster(pair_sd, pair_sd_tif,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
     )
     log_message(log_fun, "ESM between-pair uncertainty written to: ", pair_sd_tif)
   }
@@ -278,7 +278,7 @@ predict_esm_suitability <- function(fit, env_project_scaled,
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
   terra::writeRaster(suit_raster, output_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
   )
   log_message(log_fun, "ESM suitability written to: ", output_tif)
 
