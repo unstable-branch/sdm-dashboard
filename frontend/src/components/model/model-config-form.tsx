@@ -103,6 +103,23 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [annSize, setAnnSize] = useState(DEFAULT_CONFIG.annSize);
   const [annDecay, setAnnDecay] = useState(DEFAULT_CONFIG.annDecay);
   const [annMaxit, setAnnMaxit] = useState(DEFAULT_CONFIG.annMaxit);
+  const [annRang, setAnnRang] = useState(DEFAULT_CONFIG.annRang);
+  const [marsNk, setMarsNk] = useState<number | undefined>(undefined);
+  const [fdaNprune, setFdaNprune] = useState<number | undefined>(undefined);
+  const [rfNumTrees, setRfNumTrees] = useState(DEFAULT_CONFIG.rfNumTrees);
+  const [rfMtry, setRfMtry] = useState<number | undefined>(undefined);
+  const [rfMinNodeSize, setRfMinNodeSize] = useState(DEFAULT_CONFIG.rfMinNodeSize);
+  const [xgbMaxDepth, setXgbMaxDepth] = useState(DEFAULT_CONFIG.xgbMaxDepth);
+  const [xgbEta, setXgbEta] = useState(DEFAULT_CONFIG.xgbEta);
+  const [xgbNrounds, setXgbNrounds] = useState(DEFAULT_CONFIG.xgbNrounds);
+  const [bartNtree, setBartNtree] = useState(DEFAULT_CONFIG.bartNtree);
+  const [bartNdpost, setBartNdpost] = useState(DEFAULT_CONFIG.bartNdpost);
+  const [bartNskip, setBartNskip] = useState(DEFAULT_CONFIG.bartNskip);
+  const [brmsChains, setBrmsChains] = useState(DEFAULT_CONFIG.brmsChains);
+  const [brmsIter, setBrmsIter] = useState(DEFAULT_CONFIG.brmsIter);
+  const [brmsWarmup, setBrmsWarmup] = useState(DEFAULT_CONFIG.brmsWarmup);
+  const [inlaMeshMaxEdge, setInlaMeshMaxEdge] = useState<number | undefined>(undefined);
+  const [inlaMeshCutoff, setInlaMeshCutoff] = useState<number | undefined>(undefined);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -235,6 +252,8 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       futureLabel2: future2Enabled ? future2Label : undefined,
       extrapolationMask,
       messThreshold: 0,
+      inlaMeshMaxEdge,
+      inlaMeshCutoff,
       vifReduction,
       climateMatching,
       thinByCell,
@@ -261,6 +280,21 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       annSize,
       annDecay,
       annMaxit,
+      annRang,
+      marsNk,
+      fdaNprune,
+      rfNumTrees,
+      rfMtry,
+      rfMinNodeSize,
+      xgbMaxDepth,
+      xgbEta,
+      xgbNrounds,
+      bartNtree,
+      bartNdpost,
+      bartNskip,
+      brmsChains,
+      brmsIter,
+      brmsWarmup,
       aggregationFactor,
       nCores,
       seed,
@@ -438,6 +472,11 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
           {selectedModel?.notes && (
             <p className="mt-1 text-xs text-sdm-muted italic">{selectedModel.notes}</p>
           )}
+          {selectedModel?.packages && selectedModel.packages.length > 0 && (
+            <p className="mt-1 text-xs text-sdm-muted">
+              Requires: <code className="text-sdm-text">{selectedModel.packages.join(", ")}</code>
+            </p>
+          )}
         </div>
 
         {(modelId === "maxnet") && (
@@ -584,6 +623,147 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Max iterations</label>
               <input type="number" value={annMaxit} onChange={(e) => setAnnMaxit(Number(e.target.value))} min={50} max={1000} step={50} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "ann") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Hidden layer size</label>
+              <input type="number" value={annSize} onChange={(e) => setAnnSize(Number(e.target.value))} min={2} max={50} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Weight decay</label>
+              <input type="number" value={annDecay} onChange={(e) => setAnnDecay(Number(e.target.value))} min={0.0001} max={1} step={0.001} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Max iterations</label>
+              <input type="number" value={annMaxit} onChange={(e) => setAnnMaxit(Number(e.target.value))} min={50} max={1000} step={50} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Initial weight range (rang)</label>
+              <input type="number" value={annRang} onChange={(e) => setAnnRang(Number(e.target.value))} min={0.01} max={10} step={0.1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "mars") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Max interaction degree</label>
+              <input type="number" value={marsDegree} onChange={(e) => setMarsDegree(Number(e.target.value))} min={1} max={5} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Penalty per knot</label>
+              <input type="number" value={marsPenalty} onChange={(e) => setMarsPenalty(Number(e.target.value))} min={0} max={10} step={0.5} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Max number of terms (nk)</label>
+              <input type="number" value={marsNk ?? ""} onChange={(e) => setMarsNk(e.target.value ? Number(e.target.value) : undefined)} min={1} max={100} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+              <p className="mt-1 text-xs text-sdm-muted">Leave empty for automatic selection</p>
+            </div>
+          </div>
+        )}
+
+        {(modelId === "fda") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">MARS degree</label>
+              <input type="number" value={fdaDegree} onChange={(e) => setFdaDegree(Number(e.target.value))} min={1} max={5} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">MARS term pruning (nprune)</label>
+              <input type="number" value={fdaNprune ?? ""} onChange={(e) => setFdaNprune(e.target.value ? Number(e.target.value) : undefined)} min={1} max={100} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+              <p className="mt-1 text-xs text-sdm-muted">Leave empty for no pruning</p>
+            </div>
+          </div>
+        )}
+
+        {(modelId === "rf") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs text-amber-500 mb-2">Requires the ranger package to be installed.</p>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Number of trees</label>
+              <input type="number" value={rfNumTrees} onChange={(e) => setRfNumTrees(Number(e.target.value))} min={10} max={10000} step={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Mtry (variables per split)</label>
+              <input type="number" value={rfMtry ?? ""} onChange={(e) => setRfMtry(e.target.value ? Number(e.target.value) : undefined)} min={1} max={100} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+              <p className="mt-1 text-xs text-sdm-muted">Leave empty for auto (sqrt of variables)</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Min node size</label>
+              <input type="number" value={rfMinNodeSize} onChange={(e) => setRfMinNodeSize(Number(e.target.value))} min={1} max={100} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "xgboost") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs text-amber-500 mb-2">Requires the xgboost package to be installed.</p>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Max tree depth</label>
+              <input type="number" value={xgbMaxDepth} onChange={(e) => setXgbMaxDepth(Number(e.target.value))} min={1} max={20} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Learning rate (eta)</label>
+              <input type="number" value={xgbEta} onChange={(e) => setXgbEta(Number(e.target.value))} min={0.001} max={1} step={0.01} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Number of rounds</label>
+              <input type="number" value={xgbNrounds} onChange={(e) => setXgbNrounds(Number(e.target.value))} min={10} max={10000} step={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "bart") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs text-amber-500 mb-2">Requires the dbarts package to be installed.</p>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Number of trees</label>
+              <input type="number" value={bartNtree} onChange={(e) => setBartNtree(Number(e.target.value))} min={10} max={10000} step={50} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Posterior draws</label>
+              <input type="number" value={bartNdpost} onChange={(e) => setBartNdpost(Number(e.target.value))} min={100} max={10000} step={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Burn-in (skip)</label>
+              <input type="number" value={bartNskip} onChange={(e) => setBartNskip(Number(e.target.value))} min={50} max={5000} step={50} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "brms") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs text-amber-500 mb-2">Requires brms and cmdstanr packages. First fit compiles Stan code (5-15 min).</p>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Chains</label>
+              <input type="number" value={brmsChains} onChange={(e) => setBrmsChains(Number(e.target.value))} min={1} max={8} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Total iterations</label>
+              <input type="number" value={brmsIter} onChange={(e) => setBrmsIter(Number(e.target.value))} min={500} max={10000} step={500} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Warmup</label>
+              <input type="number" value={brmsWarmup} onChange={(e) => setBrmsWarmup(Number(e.target.value))} min={100} max={5000} step={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "inla_spde") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs text-amber-500 mb-2">Requires INLA package from r-inla-download.org. Mesh and prior parameters control spatial model complexity.</p>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Mesh max edge</label>
+              <input type="number" value={inlaMeshMaxEdge ?? ""} onChange={(e) => setInlaMeshMaxEdge(e.target.value ? Number(e.target.value) : undefined)} min={0.01} max={100} step={0.5} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+              <p className="mt-1 text-xs text-sdm-muted">Max triangle edge length. Leave empty for auto.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Mesh cutoff</label>
+              <input type="number" value={inlaMeshCutoff ?? ""} onChange={(e) => setInlaMeshCutoff(e.target.value ? Number(e.target.value) : undefined)} min={0.001} max={10} step={0.1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
             </div>
           </div>
         )}
