@@ -25,9 +25,12 @@ validate_biovars <- function(selected_biovars) {
 }
 
 normalize_threshold <- function(threshold = sdm_default_threshold) {
+  if (is.character(threshold) && identical(tolower(threshold[1]), "max_tss")) {
+    return(NA_real_)
+  }
   threshold <- suppressWarnings(as.numeric(threshold[1]))
   if (is.na(threshold) || threshold < 0 || threshold > 1) {
-    stop("threshold must be between 0 and 1.", call. = FALSE)
+    stop("threshold must be between 0 and 1, or 'max_tss' for automatic selection.", call. = FALSE)
   }
   threshold
 }

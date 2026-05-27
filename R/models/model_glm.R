@@ -250,6 +250,7 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
     cbi_detail = cbi_result, covariates = covariates,
     bias_method = bias_method,
     thickening_distance_km = if (identical(bias_method, "thickened")) thickening_distance_km else NULL,
-    presence_suit = train_pred[model_fit_data$presence == 1]
+    presence_suit = train_pred[model_fit_data$presence == 1],
+    background_suit = train_pred[model_fit_data$presence == 0]
   )
 }
