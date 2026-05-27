@@ -760,16 +760,31 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     log_message(log_fun, "DNN holdout AUC: ", sprintf("%.3f", cv$auc_mean))
   }
 
+  train_df <- as.data.frame(model_data[, covariates, drop = FALSE])
+
   shap_values <- tryCatch({
-    cito::explain(best_result$model, data = as.data.frame(model_data[, covariates, drop = FALSE]))
+    cito::explain(best_result$model, data = train_df)
   }, error = function(e) {
     log_message(log_fun, "cito::explain() failed: ", conditionMessage(e))
     NULL
   })
-
   if (!is.null(shap_values)) {
     log_message(log_fun, "SHAP feature attribution computed (", length(shap_values), " variables)")
   }
+
+  cito_importance <- tryCatch({
+    cito::variable_importance(best_result$model, data = train_df)
+  }, error = function(e) {
+    log_message(log_fun, "cito::variable_importance() failed: ", conditionMessage(e))
+    NULL
+  })
+
+  cito_pdp <- tryCatch({
+    cito::PDP(best_result$model, data = train_df, variable = covariates)
+  }, error = function(e) {
+    log_message(log_fun, "cito::PDP() failed: ", conditionMessage(e))
+    NULL
+  })
 
   list(
     model = best_result$model,
@@ -780,8 +795,10 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     background_xy = bg_xy,
     cv = cv,
     covariates = covariates,
-    variable_importance = NULL,
+    variable_importance = cito_importance,
     shap = shap_values,
+    cito_importance = cito_importance,
+    cito_pdp = cito_pdp,
     scaler = best_result$scaler,
     dnn_device = dnn_result$device,
     dnn_model_type = dnn_model_type

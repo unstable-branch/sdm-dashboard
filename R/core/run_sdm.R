@@ -359,47 +359,16 @@ run_fast_sdm <- function(...) {
 
   importance_result <- NULL
   if (isTRUE(model_spec$supports_importance) && !is.null(fit$cv) && is.finite(fit$cv$auc_mean)) {
-    pred_fun <- switch(model_id,
-      glm = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        stats::predict.glm(mod$model, newdata = df, type = "response")
-      },
-      gam = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        predict(mod$model, newdata = df, type = "response")
-      },
-      rangebag = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        predict_rangebag_values(mod$model, df)
-      },
-      maxnet = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        as.numeric(maxnet::predict.maxnet(mod$model, df, clamp = TRUE, type = "link"))
-      },
-      function(mod, newdata) stop("No importance prediction defined for model: ", model_id)
+    importance_result <- tryCatch(
+      xai_importance(fit, method = "auto", seed = seed, n_cores = n_cores),
+      error = function(e) {
+        log_message(log_fun, "Importance computation failed: ", conditionMessage(e))
+        NULL
+      }
     )
-    importance_result <- permutation_importance(
-      fit = fit,
-      model_data = fit$model_data,
-      predict_fun = pred_fun,
-      metric_fun = auc_rank,
-      n_perm = getOption("sdm.n_perm", sdm_default_n_perm),
-      seed = seed,
-      n_cores = n_cores
-    )
-    log_message(log_fun, "Permutation importance computed for ", nrow(importance_result), " variables")
+    if (is.data.frame(importance_result) && nrow(importance_result) > 0) {
+      log_message(log_fun, "Importance computed for ", nrow(importance_result), " variables")
+    }
   } else if (!is.null(fit$variable_importance) && is.data.frame(fit$variable_importance)) {
     importance_result <- fit$variable_importance
   }
