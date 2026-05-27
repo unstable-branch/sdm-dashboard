@@ -12,7 +12,7 @@ if (!dir.exists(mod_dir)) {
 if (!exists("sdm_resolve_module", mode = "function")) {
   sdm_resolve_module <- function(m) {
     mod_dir <- file.path(sdm_project_root(), "R")
-    subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "output")
+    subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "xai", "output")
     for (sub in subdirs) {
       p <- file.path(mod_dir, sub, m)
       if (file.exists(p)) return(p)
@@ -35,9 +35,14 @@ modules <- c(
   "sdm_config.R",
   "run_sdm.R",
 
+  # --- core extras ---
+  "python_setup.R",
+
   # --- data ---
   "occurrences.R",
   "occurrences_dwca.R",
+  "occurrences_detection.R",
+  "community_matrix.R",
 
   # --- covariates ---
   "covariates_climate.R",
@@ -62,6 +67,17 @@ modules <- c(
 
   # --- models ---
   "model_helpers.R",
+  "model_gbm.R",
+  "model_rpart.R",
+  "model_earth.R",
+  "model_mda.R",
+  "model_nnet.R",
+  "model_bioclim.R",
+  "inla_mesh.R",
+  "model_inla.R",
+  "model_bart.R",
+  "model_unmarked.R",
+  "model_brms.R",
   "model_glm.R",
   "model_gam.R",
   "model_rangebag.R",
@@ -72,6 +88,8 @@ modules <- c(
   "model_multi_ensemble.R",
   "model_esm.R",
   "model_dnn.R",
+  "model_dnn_multispecies.R",
+  "model_python.R",
   "model_registry.R",
   "model_biomod2.R",
   "biomod2_compat.R",
@@ -93,6 +111,12 @@ modules <- c(
   "species_richness.R",
   "dispersal.R",
   "climex.R",
+
+  # --- xai ---
+  "xai_methods.R",
+  "ale.R",
+  "shap.R",
+  "climate_driver.R",
 
   # --- output ---
   "metrics_binary.R",
