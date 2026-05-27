@@ -38,6 +38,7 @@ modules <- c(
   # --- data ---
   "occurrences.R",
   "occurrences_dwca.R",
+  "occurrences_detection.R",
 
   # --- covariates ---
   "covariates_climate.R",
@@ -65,6 +66,7 @@ modules <- c(
   "inla_mesh.R",
   "model_inla.R",
   "model_bart.R",
+  "model_unmarked.R",
   "model_gbm.R",
   "model_rpart.R",
   "model_earth.R",

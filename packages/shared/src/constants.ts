@@ -33,6 +33,7 @@ export const MODEL_BACKENDS = [
   { id: "bioclim", label: "BIOCLIM / Mahalanobis envelope", maturity: "experimental" as const, min_records: 5, available: true, notes: "Presence-only environmental envelope" },
   { id: "inla_spde", label: "INLA / Bayesian spatial (SPDE)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires INLA package (install from r-inla-download.org)" },
   { id: "bart", label: "BART / Bayesian Additive Regression Trees", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires dbarts package" },
+  { id: "occupancy", label: "Occupancy (unmarked)", maturity: "experimental" as const, min_records: 10, available: false, notes: "Requires unmarked package + detection-history data" },
   { id: "brt", label: "BRT / Boosted Regression Trees (gbm)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires gbm package" },
   { id: "cta", label: "CTA / Classification Tree Analysis (rpart)", maturity: "experimental" as const, min_records: 15, available: false, notes: "Requires rpart package" },
   { id: "mars", label: "MARS / Multivariate Adaptive Regression Splines (earth)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires earth package" },
