@@ -116,6 +116,7 @@ modules <- c(
   # --- xai ---
   "xai_methods.R",
   "ale.R",
+  "shap.R",
   "plots.R",
   "report.R",
   "report_odmap.R",

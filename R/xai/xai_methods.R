@@ -79,7 +79,7 @@ xai_shap <- function(fit, method = "auto", ...) {
   if (use_native) {
     spec$shap_fun(fit, ...)
   } else {
-    compute_shap_fastshap(fit, ...)
+    compute_shap(fit, ...)
   }
 }
 
