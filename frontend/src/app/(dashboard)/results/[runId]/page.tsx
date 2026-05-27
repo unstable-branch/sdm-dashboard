@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import dynamic from "next/dynamic";
 import { MetricCards } from "@/components/results/metric-cards";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
-import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers } from "lucide-react";
+import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers, TrendingUp, TrendingDown } from "lucide-react";
 import { apiGet, apiPost } from "@/services/api";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import type { RunDetail } from "@/services/types";
@@ -28,6 +28,12 @@ export default function ResultsPage() {
   const runId = params.runId as string;
 
   const [run, setRun] = useState<RunDetail | null>(null);
+  const [benchmark, setBenchmark] = useState<{
+    bestRun: { species: string; model_id: string; auc: number | null };
+    diff: number;
+    improving: boolean;
+  } | null>(null);
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reportText, setReportText] = useState<string | null>(null);
@@ -76,6 +82,31 @@ export default function ResultsPage() {
       setLoading(false);
     }
   }, [runId]);
+
+  // Auto-benchmark: compare against best previous run for same species
+  useEffect(() => {
+    if (run?.status !== "completed" || run.metrics?.auc_mean == null || typeof run.metrics.auc_mean !== "number") return;
+    const currentAuc = run.metrics.auc_mean as number;
+    setBenchmarkLoading(true);
+    apiGet<{ runs: Array<{ id: string; species: string; model_id: string; metrics: { auc_mean?: number } | null }> }>(
+      `/api/v1/sdm/runs?limit=50&species=${encodeURIComponent(run.species)}`
+    )
+      .then((data) => {
+        const past = (data.runs || []).filter(
+          (r) => r.id !== run.id && r.metrics?.auc_mean && typeof r.metrics.auc_mean === "number"
+        );
+        if (past.length === 0) { setBenchmarkLoading(false); return; }
+        const best = past.reduce((a, b) => ((a.metrics?.auc_mean as number ?? 0) > (b.metrics?.auc_mean as number ?? 0) ? a : b));
+        const bestAuc = best.metrics?.auc_mean as number;
+        setBenchmark({
+          bestRun: { species: best.species, model_id: best.model_id, auc: bestAuc },
+          diff: currentAuc - bestAuc,
+          improving: currentAuc > bestAuc,
+        });
+        setBenchmarkLoading(false);
+      })
+      .catch(() => setBenchmarkLoading(false));
+  }, [run?.id, run?.status, run?.metrics?.auc_mean, run?.species]);
 
   // Initial fetch
   useEffect(() => {
@@ -195,6 +226,30 @@ export default function ResultsPage() {
       {run.status === "completed" && (
         <>
           {run.metrics && <MetricCards metrics={run.metrics} />}
+
+          {benchmark && (
+            <div className={`rounded-lg border p-4 flex items-center gap-3 ${
+              benchmark.improving
+                ? "border-green-500/30 bg-green-500/5"
+                : "border-amber-500/30 bg-amber-500/5"
+            }`}>
+              {benchmark.improving
+                ? <TrendingUp className="h-5 w-5 text-green-500 shrink-0" />
+                : <TrendingDown className="h-5 w-5 text-amber-500 shrink-0" />
+              }
+              <div className="text-sm">
+                <span className="text-sdm-text font-medium">
+                  {benchmark.improving ? "Improving" : "Below best"}
+                </span>
+                <span className="text-sdm-muted ml-1">
+                  vs previous best ({benchmark.bestRun.model_id}, AUC {benchmark.bestRun.auc?.toFixed(3)}):
+                  {' '}<strong className={benchmark.improving ? 'text-green-500' : 'text-amber-500'}>
+                    {benchmark.improving ? '+' : ''}{benchmark.diff.toFixed(3)}
+                  </strong>
+                </span>
+              </div>
+            </div>
+          )}
 
           <Tabs defaultValue="map" className="space-y-4">
             <TabsList className="grid w-full max-w-lg grid-cols-5">
