@@ -5,6 +5,7 @@ import {
   Database,
   Download,
   FolderKanban,
+  HardDrive,
   Layers,
   LayoutDashboard,
   Leaf,
@@ -33,6 +34,7 @@ export const pipelineItems: DashboardNavItem[] = [
 
 export const systemItems: DashboardNavItem[] = [
   { title: "Projects", href: "/projects", icon: FolderKanban },
+  { title: "Storage", href: "/storage", icon: HardDrive },
   { title: "Downloads", href: "/downloads", icon: Download },
   { title: "Species", href: "/species", icon: Users },
   { title: "Settings", href: "/settings", icon: Settings },
