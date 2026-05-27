@@ -75,7 +75,8 @@ run_fast_sdm <- function(...) {
   multi_ensemble_power <- cfg$multi_ensemble_power
   multi_ensemble_min_auc <- cfg$multi_ensemble_min_auc
   multi_ensemble_min_tss <- cfg$multi_ensemble_min_tss
-  multi_ensemble_export <- cfg$multi_ensemble_export
+  export_ensemble_components <- cfg$export_ensemble_components
+  export_ensemble_stats <- cfg$export_ensemble_stats
   biomod2_models <- cfg$biomod2_models
   esm_n_runs <- cfg$esm_n_runs
   esm_split <- cfg$esm_split
@@ -419,7 +420,7 @@ run_fast_sdm <- function(...) {
       mess_tag <- format(Sys.time(), "%Y%m%d_%H%M%S")
       output_mess_tif <- file.path(output_dir, paste0("mess_", mess_tag, ".tif"))
       terra::writeRaster(mess_result$mess, output_mess_tif,
-        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999")))
+        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
       extra_paths[["mess_tif"]] <- output_mess_tif
       log_message(log_fun, "MESS surface: ", sprintf("%.1f%%", mess_result$pct_extrapolation * 100), " of projection area is extrapolation")
     }
@@ -447,8 +448,9 @@ run_fast_sdm <- function(...) {
   suit <- tryCatch({
     if (identical(model_id, "multi_ensemble")) {
       predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
-        export_components = isTRUE(multi_ensemble_export),
-        include_uncertainty = isTRUE(multi_ensemble_export),
+        export_components = isTRUE(export_ensemble_components),
+        include_uncertainty = isTRUE(cfg$include_uncertainty),
+        export_stats = isTRUE(export_ensemble_stats),
         ensemble_weighting = multi_ensemble_weighting,
         ensemble_power = multi_ensemble_power,
         user_threshold = threshold
@@ -496,7 +498,7 @@ run_fast_sdm <- function(...) {
     }
     if (valid_reps > 1) {
       suit <- suit_sum / valid_reps
-      terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999")))
+      terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
       log_message(log_fun, "PA-averaged suitability from ", valid_reps, " replicates written to ", output_tif)
     }
   }
@@ -532,7 +534,7 @@ run_fast_sdm <- function(...) {
     if (!is.null(climate_match_result)) {
       cm_tif <- file.path(output_dir, paste0(base_name, "_climatch.tif"))
       terra::writeRaster(climate_match_result$similarity, cm_tif,
-        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999")))
+        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
       extra_paths[["climate_matching_tif"]] <- cm_tif
     }
   }
