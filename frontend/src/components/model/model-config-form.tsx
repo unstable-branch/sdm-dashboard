@@ -120,6 +120,13 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [brmsWarmup, setBrmsWarmup] = useState(DEFAULT_CONFIG.brmsWarmup);
   const [inlaMeshMaxEdge, setInlaMeshMaxEdge] = useState<number | undefined>(undefined);
   const [inlaMeshCutoff, setInlaMeshCutoff] = useState<number | undefined>(undefined);
+  const [dnnMultispeciesArchitecture, setDnnMultispeciesArchitecture] = useState<"DNN_Small" | "DNN_Medium" | "DNN_Large">(DEFAULT_CONFIG.dnnArchitecture as "DNN_Small" | "DNN_Medium" | "DNN_Large");
+  const [dnnMultispeciesNSeeds, setDnnMultispeciesNSeeds] = useState(3);
+  const [rangebagNBags, setRangebagNBags] = useState(100);
+  const [rangebagBagFraction, setRangebagBagFraction] = useState(0.5);
+  const [rangebagVarsPerBag, setRangebagVarsPerBag] = useState(1);
+  const [detectionFormula, setDetectionFormula] = useState("~1");
+  const [detectionModelType, setDetectionModelType] = useState<"occu" | "occuRN">("occu");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -254,6 +261,13 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       messThreshold: 0,
       inlaMeshMaxEdge,
       inlaMeshCutoff,
+      rangebagNBags,
+      rangebagBagFraction,
+      rangebagVarsPerBag,
+      detectionFormula,
+      detectionModelType,
+      dnnMultispeciesArchitecture,
+      dnnMultispeciesNSeeds,
       vifReduction,
       climateMatching,
       thinByCell,
@@ -729,6 +743,98 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
               <label className="block text-sm font-medium text-sdm-text mb-1">Mesh cutoff</label>
               <input type="number" value={inlaMeshCutoff ?? ""} onChange={(e) => setInlaMeshCutoff(e.target.value ? Number(e.target.value) : undefined)} min={0.001} max={10} step={0.1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
             </div>
+          </div>
+        )}
+
+        {(modelId === "rangebag") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Number of bags</label>
+              <input type="number" value={rangebagNBags} onChange={(e) => setRangebagNBags(Number(e.target.value))} min={10} max={1000} step={10} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Bag fraction</label>
+              <input type="number" value={rangebagBagFraction} onChange={(e) => setRangebagBagFraction(Number(e.target.value))} min={0.1} max={1} step={0.05} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Variables per bag</label>
+              <input type="number" value={rangebagVarsPerBag} onChange={(e) => setRangebagVarsPerBag(Number(e.target.value))} min={1} max={10} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "occupancy") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs text-amber-500 mb-2">Requires detection-history data with repeated surveys. Use the Data page to upload properly formatted detection/non-detection data.</p>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Model type</label>
+              <select value={detectionModelType} onChange={(e) => setDetectionModelType(e.target.value as "occu" | "occuRN")} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                <option value="occu">Single-season occupancy (occu)</option>
+                <option value="occuRN">Royle-Nichols (occuRN)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Detection formula</label>
+              <input type="text" value={detectionFormula} onChange={(e) => setDetectionFormula(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text font-mono" />
+              <p className="mt-1 text-xs text-sdm-muted">R formula for detection covariates (e.g., ~1 for constant, ~temperature + wind)</p>
+            </div>
+          </div>
+        )}
+
+        {(modelId === "dnn_multispecies") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs text-amber-500 mb-2">Requires cito and torch packages. Multi-species DNN predicts all species simultaneously using a shared neural network.</p>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">DNN architecture</label>
+              <select value={dnnMultispeciesArchitecture} onChange={(e) => setDnnMultispeciesArchitecture(e.target.value as "DNN_Small" | "DNN_Medium" | "DNN_Large")} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                <option value="DNN_Small">Small (1×64)</option>
+                <option value="DNN_Medium">Medium (2×100)</option>
+                <option value="DNN_Large">Large (3×100)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Ensemble seeds</label>
+              <input type="number" value={dnnMultispeciesNSeeds} onChange={(e) => setDnnMultispeciesNSeeds(Number(e.target.value))} min={1} max={10} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+        )}
+
+        {(modelId === "ensemble_glm_rangebag") && (
+          <div className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-4 py-3">
+            <p className="text-xs text-sdm-muted">
+              AUC-weighted ensemble combining GLM and Rangebagging predictions. No additional parameters needed.
+            </p>
+          </div>
+        )}
+
+        {(modelId === "multi_ensemble") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs text-amber-500 mb-2">Select at least 2 models. biomod2 requires options(sdm.enable_biomod2 = TRUE).</p>
+            <p className="text-xs text-sdm-muted">Multi-model ensemble configuration is available in the R/Shiny interface. The API will use defaults (GLM + Rangebagging, AUC-weighted).</p>
+          </div>
+        )}
+
+        {(modelId === "esm_glm" || modelId === "esm_maxnet") && (
+          <div className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-4 py-3">
+            <p className="text-xs text-sdm-muted">
+              Ensembles of Small Models — recommended for rare species with fewer than 30 records. ESM parameters (runs, split, min AUC, weighting) are configured in the API. See the R/Shiny interface for full control.
+            </p>
+          </div>
+        )}
+
+        {(modelId === "biomod2") && (
+          <div className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-4 py-3">
+            <p className="text-xs text-sdm-muted">
+              biomod2 multi-algorithm ensemble. Enable with options(sdm.enable_biomod2 = TRUE) in R. Algorithm selection is available in the R/Shiny interface.
+            </p>
+          </div>
+        )}
+
+        {(modelId === "python_elapid" || modelId === "python_sklearn_rf") && (
+          <div className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-4 py-3">
+            <p className="text-xs text-sdm-muted">
+              Python model bridge. Requires Python + required pip packages. Configure model type and parameters via the Python manifest.
+            </p>
           </div>
         )}
 
