@@ -133,6 +133,8 @@ dnn_device_choices <- c(
 config$dnn_weight_default <- 0.3
 config$dnn_multispecies_default <- "DNN_Medium"
 config$dnn_multispecies_n_seeds <- 3L
+config$sdm_default_extrapolation_mask <- TRUE
+config$sdm_default_mess_threshold <- 0
 config$ensemble_method_default <- "weighted_average"
 config$use_rangebag <- FALSE
 
