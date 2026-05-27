@@ -202,6 +202,12 @@ sdmRoutes.get("/models", async (c) => {
     return c.json([
       { id: "glm", label: "GLM / Logistic regression", maturity: "stable", available: true },
       { id: "gam", label: "GAM / Smooth response curves", maturity: "stable", available: true },
+      { id: "bioclim", label: "BIOCLIM / Mahalanobis envelope", maturity: "experimental", available: true, notes: "Presence-only environmental envelope" },
+      { id: "brt", label: "BRT / Boosted Regression Trees (gbm)", maturity: "experimental", available: false, notes: "Requires gbm package" },
+      { id: "cta", label: "CTA / Classification Tree Analysis (rpart)", maturity: "experimental", available: false, notes: "Requires rpart package" },
+      { id: "mars", label: "MARS / Multivariate Adaptive Regression Splines (earth)", maturity: "experimental", available: false, notes: "Requires earth package" },
+      { id: "fda", label: "FDA / Flexible Discriminant Analysis (mda)", maturity: "experimental", available: false, notes: "Requires mda + earth packages" },
+      { id: "ann", label: "ANN / Artificial Neural Network (nnet)", maturity: "experimental", available: false, notes: "Requires nnet package" },
       { id: "rangebag", label: "Rangebagging", maturity: "experimental", available: true },
       { id: "ensemble_glm_rangebag", label: "Ensemble (GLM + Rangebagging)", maturity: "experimental", available: true },
       { id: "multi_ensemble", label: "Multi-Model Ensemble", maturity: "experimental", available: true },
