@@ -264,6 +264,8 @@ run_fast_sdm <- function(...) {
     list(detection_formula = cfg$detection_formula %||% "~1", model_type = cfg$occupancy_model_type %||% "occu")
   } else if (identical(model_id, "dnn_multispecies")) {
     list(dnn_model_type = cfg$dnn_architecture %||% "DNN_Medium", n_seeds = cfg$dnn_multispecies_n_seeds %||% 3L, dnn_device = cfg$dnn_device %||% "auto")
+  } else if (identical(model_id, "biomod2")) {
+    list(models = cfg$biomod2_models %||% config$biomod2_default %||% c("GLM", "MAXNET", "RF"))
   } else if (identical(model_id, "multi_ensemble")) {
     list(
       selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,

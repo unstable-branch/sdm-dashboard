@@ -122,6 +122,10 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [inlaMeshCutoff, setInlaMeshCutoff] = useState<number | undefined>(undefined);
   const [dnnMultispeciesArchitecture, setDnnMultispeciesArchitecture] = useState<"DNN_Small" | "DNN_Medium" | "DNN_Large">(DEFAULT_CONFIG.dnnArchitecture as "DNN_Small" | "DNN_Medium" | "DNN_Large");
   const [dnnMultispeciesNSeeds, setDnnMultispeciesNSeeds] = useState(3);
+  const [biomod2Models, setBiomod2Models] = useState<string[]>(["GLM", "MAXNET", "RF"]);
+  const toggleBiomod2Model = (algo: string) => {
+    setBiomod2Models(prev => prev.includes(algo) ? prev.filter(a => a !== algo) : [...prev]);
+  };
   const [rangebagNBags, setRangebagNBags] = useState(100);
   const [rangebagBagFraction, setRangebagBagFraction] = useState(0.5);
   const [rangebagVarsPerBag, setRangebagVarsPerBag] = useState(1);
@@ -268,6 +272,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       detectionModelType,
       dnnMultispeciesArchitecture,
       dnnMultispeciesNSeeds,
+      biomod2Models,
       vifReduction,
       climateMatching,
       thinByCell,
@@ -823,10 +828,19 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
         )}
 
         {(modelId === "biomod2") && (
-          <div className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-4 py-3">
-            <p className="text-xs text-sdm-muted">
-              biomod2 multi-algorithm ensemble. Enable with options(sdm.enable_biomod2 = TRUE) in R. Algorithm selection is available in the R/Shiny interface.
-            </p>
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs text-amber-500 mb-2">Requires biomod2 package + options(sdm.enable_biomod2 = TRUE) in R.</p>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">biomod2 algorithms</label>
+              <div className="space-y-1">
+                {[{ id: "GLM", label: "GLM" }, { id: "GAM", label: "GAM" }, { id: "MAXNET", label: "MaxEnt (MAXNET)" }, { id: "RF", label: "Random Forest" }].map((algo) => (
+                  <label key={algo.id} className="flex items-center gap-2 text-xs text-sdm-text">
+                    <input type="checkbox" checked={biomod2Models.includes(algo.id)} onChange={() => toggleBiomod2Model(algo.id)} className="rounded" />
+                    {algo.label}
+                  </label>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
