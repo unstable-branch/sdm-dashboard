@@ -86,6 +86,12 @@ sdm_esm_default_n_runs <- 5L
 sdm_esm_default_split <- 70
 sdm_esm_max_vars_warn <- 10L
 
+sdm_default_inla_mesh_max_edge <- NULL
+sdm_default_inla_mesh_cutoff <- NULL
+sdm_default_inla_prior_range <- NULL
+sdm_default_inla_prior_sigma <- NULL
+sdm_default_inla_n_samples <- 100L
+
 sdm_default_validation_occurrences <- NULL
 sdm_default_pa_replicates <- 1L
 
