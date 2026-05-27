@@ -53,7 +53,14 @@ write_manifest <- function(result, output_dir, base_name, cpu_ms = NA_real_, pea
           biovars = cfg$selected_biovars %||% list(),
           resolution = as.integer(cfg$worldclim_res %||% sdm_default_worldclim_res),
           vif_reduction = isTRUE(cfg$vif_reduction),
-          vif_threshold = cfg$vif_threshold %||% NA_real_
+          vif_threshold = cfg$vif_threshold %||% NA_real_,
+          file_hashes_sha256 = {
+            cov_files <- result$environment$files %||% list()
+            hashes <- lapply(unlist(cov_files), function(f) {
+              if (file.exists(f)) tryCatch(digest::digest(f, algo = "sha256", file = TRUE), error = function(e) NA_character_) else NA_character_
+            })
+            stats::setNames(hashes, basename(unlist(cov_files)))
+          }
         ),
         validation = list(
           cv_folds = as.integer(cfg$cv_folds %||% sdm_default_cv_folds),
