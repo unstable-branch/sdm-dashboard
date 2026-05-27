@@ -7,7 +7,9 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
                                supports_importance = FALSE, supports_uncertainty = FALSE,
                                supports_future = TRUE, diagnostics = list(), notes = character(),
                                predict_component_fun = NULL, fit_component_fun = NULL,
-                               min_records = NULL) {
+                               min_records = NULL,
+                               importance_fun = NULL, pdp_fun = NULL,
+                               ale_fun = NULL, shap_fun = NULL) {
   id <- as.character(id)[1]
   if (is.na(id) || !nzchar(id)) stop("Model id must be a non-empty string.", call. = FALSE)
   if (!is.function(fit_fun)) stop("fit_fun must be a function for model id: ", id, call. = FALSE)
@@ -28,7 +30,11 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
     notes = as.character(notes),
     predict_component_fun = if (!is.null(predict_component_fun)) predict_component_fun else predict_fun,
     fit_component_fun = fit_component_fun,
-    min_records = as.integer(min_records)[1] %||% NA_integer_
+    min_records = as.integer(min_records)[1] %||% NA_integer_,
+    importance_fun = if (is.function(importance_fun)) importance_fun else NULL,
+    pdp_fun = if (is.function(pdp_fun)) pdp_fun else NULL,
+    ale_fun = if (is.function(ale_fun)) ale_fun else NULL,
+    shap_fun = if (is.function(shap_fun)) shap_fun else NULL
   )
   assign(id, spec, envir = sdm_model_registry)
   invisible(spec)
@@ -696,6 +702,9 @@ if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietl
     supports_uncertainty = FALSE,
     supports_future = TRUE,
     diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, shap = TRUE, pdp = TRUE),
+    importance_fun = function(fit, ...) fit$cito_importance,
+    pdp_fun = function(fit, ...) fit$cito_pdp,
+    shap_fun = function(fit, ...) fit$shap,
     notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration if CUDA available. cito::explain() provides SHAP-like feature attribution."
   )
 }
