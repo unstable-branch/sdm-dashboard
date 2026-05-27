@@ -89,6 +89,7 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
                              n_bags = sdm_default_rangebag_n_bags,
                              bag_fraction = sdm_default_rangebag_fraction,
                              vars_per_bag = sdm_default_rangebag_vars_per_bag,
+                             model_data = NULL,
                              ...) {
   covariates <- make.names(names(env_train_scaled))
   if (length(covariates) < 2) stop("At least two covariates are required for Rangebagging.", call. = FALSE)
@@ -97,17 +98,26 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
   seed <- suppressWarnings(as.integer(seed[1]))
   if (!is.finite(seed) || seed < 1) seed <- sdm_default_seed
 
-  pres_xy <- occ[, c("longitude", "latitude"), drop = FALSE]
-  names(pres_xy) <- c("x", "y")
-  pres_vals <- extract_covariates(env_train_scaled, pres_xy)
-  pres_keep <- stats::complete.cases(pres_vals)
-  if (sum(!pres_keep) > 0) log_message(log_fun, "Dropped ", sum(!pres_keep), " occurrence records with missing covariates")
-  pres_vals <- as.data.frame(pres_vals[pres_keep, , drop = FALSE], check.names = FALSE)
-  names(pres_vals) <- make.names(names(pres_vals))
-  occ_used <- occ[pres_keep, , drop = FALSE]
-  if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data for Rangebagging.", call. = FALSE)
+  if (!is.null(model_data)) {
+    d <- model_data
+    pres_vals <- d$pres_vals
+    bg_vals <- d$bg_vals
+    pres_xy <- d$pres_xy_used
+    bg_xy <- d$bg_xy
+    occ_used <- d$occ_used
+  } else {
+    pres_xy <- occ[, c("longitude", "latitude"), drop = FALSE]
+    names(pres_xy) <- c("x", "y")
+    pres_vals <- extract_covariates(env_train_scaled, pres_xy)
+    pres_keep <- stats::complete.cases(pres_vals)
+    if (sum(!pres_keep) > 0) log_message(log_fun, "Dropped ", sum(!pres_keep), " occurrence records with missing covariates")
+    pres_vals <- as.data.frame(pres_vals[pres_keep, , drop = FALSE], check.names = FALSE)
+    names(pres_vals) <- make.names(names(pres_vals))
+    occ_used <- occ[pres_keep, , drop = FALSE]
+    if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data for Rangebagging.", call. = FALSE)
 
-  bg_xy <- sample_background_points(env_train_scaled, background_n, seed = seed, presence_xy = pres_xy[pres_keep, , drop = FALSE])
+    bg_xy <- sample_background_points(env_train_scaled, background_n, seed = seed, presence_xy = pres_xy[pres_keep, , drop = FALSE])
+  }
   bg_vals <- extract_covariates(env_train_scaled, bg_xy)
   bg_keep <- stats::complete.cases(bg_vals)
   bg_vals <- as.data.frame(bg_vals[bg_keep, , drop = FALSE], check.names = FALSE)
