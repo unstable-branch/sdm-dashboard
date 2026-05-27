@@ -4,39 +4,37 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BatchUpload } from "@/components/batch/batch-upload";
 import { BatchProgress } from "@/components/batch/batch-progress";
-import { ArrowLeft, Play, Loader2 } from "lucide-react";
+import { ArrowLeft, Play, Loader2, Download, RotateCcw } from "lucide-react";
+import { apiGet, apiPost } from "@/services/api";
 
 export default function BatchPage() {
   const router = useRouter();
   const [configs, setConfigs] = useState<Array<Record<string, unknown>> | null>(null);
+  const [batchId, setBatchId] = useState<string | null>(null);
   const [jobIds, setJobIds] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [summaryUrl, setSummaryUrl] = useState<string | null>(null);
 
   const handleConfigsParsed = (parsedConfigs: Array<Record<string, unknown>>) => {
     setConfigs(parsedConfigs);
     setJobIds(null);
+    setBatchId(null);
     setError(null);
+    setSummaryUrl(null);
   };
 
   const handleRunBatch = async () => {
     if (!configs || configs.length === 0) return;
-
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch("/api/v1/sdm/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ configs }),
+      const data = await apiPost<any>("/api/v1/sdm/batch", {
+        configs,
+        name: `Batch ${new Date().toLocaleDateString()} (${configs.length} species)`,
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Batch run failed");
-      }
-
+      setBatchId(data.batch_id);
       setJobIds(data.job_ids);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Batch run failed");
@@ -45,8 +43,26 @@ export default function BatchPage() {
     }
   };
 
-  const handleBatchComplete = () => {
-    router.refresh();
+  const handleRetryFailed = async () => {
+    if (!batchId) return;
+    try {
+      const data = await apiPost<any>(`/api/v1/sdm/batch/${batchId}/retry`, {});
+      if (data.retried > 0) {
+        setError(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Retry failed");
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!batchId) return;
+    try {
+      await apiPost<any>(`/api/v1/sdm/batch/${batchId}/cancel`, {});
+      setJobIds(jobIds); // force re-render of BatchProgress
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed");
+    }
   };
 
   return (
@@ -97,7 +113,6 @@ export default function BatchPage() {
                   )}
                 </button>
               </div>
-
               <div className="rounded bg-sdm-surface-soft p-3 font-mono text-xs text-sdm-muted max-h-48 overflow-y-auto">
                 <table className="w-full">
                   <thead>
@@ -124,7 +139,14 @@ export default function BatchPage() {
           )}
         </div>
       ) : (
-        <BatchProgress jobIds={jobIds} onComplete={handleBatchComplete} />
+        <div className="space-y-4">
+          <BatchProgress
+            jobIds={jobIds}
+            batchId={batchId ?? undefined}
+            onRetryFailed={handleRetryFailed}
+            onCancel={handleCancel}
+          />
+        </div>
       )}
     </div>
   );
