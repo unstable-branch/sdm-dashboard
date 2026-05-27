@@ -143,7 +143,7 @@ attribute_climate_drivers <- function(fit, env_current, env_future,
     delta_range = range(delta, na.rm = TRUE),
     n_cells_attributed = length(complete_idx),
     n_covariates = length(covariates),
-    dominant_driver = as.factor(dominant_driver)
+    dominant_driver = as.character(dominant_driver)
   )
 }
 

@@ -301,6 +301,10 @@ ui_sidebar_controls <- function() {
           ),
           div(class = "small-muted", "Multiple seeds train independent networks with different random initialisations. Prediction SD across seeds measures epistemic uncertainty.")
         ),
+        conditionalPanel(
+          "input.model_id == 'bioclim'",
+          div(class = "small-muted", "BIOCLIM is a presence-only environmental envelope model. It does not produce variable importance scores — there is no mechanism for per-variable permutation. The model computes suitability as the percentile of environmental distance to training presences.")
+        ),
         div(class = "small-muted", "Rangebagging is experimental; GLM remains the stable default."),
         conditionalPanel(
           "input.model_id == 'biomod2'",
