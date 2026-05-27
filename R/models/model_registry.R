@@ -122,7 +122,7 @@ if (requireNamespace("INLA", quietly = TRUE)) {
     supports_uncertainty = TRUE,
     supports_future = TRUE,
     diagnostics = list(waic = TRUE, dic = TRUE, fixed_effects = TRUE),
-    notes = "Bayesian spatial model with Matern covariance via INLA-SPDE. Models spatial autocorrelation natively. Requires INLA package from https://inla.r-inla-download.org/R/stable/",
+    notes = "Bayesian spatial model with Matern covariance via INLA-SPDE. Models spatial autocorrelation natively. CV not yet implemented — uses WAIC/DIC for model comparison. Requires INLA package from https://inla.r-inla-download.org/R/stable/",
     min_records = 20L
   )
 }
