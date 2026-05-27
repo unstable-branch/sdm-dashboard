@@ -197,6 +197,23 @@ diagnosticsRoutes.get("/summary/:runId", async (c) => {
   }
 });
 
+// On-demand ensemble statistics raster generation (multi-ensemble only)
+diagnosticsRoutes.post("/ensemble-rasters/:runId", async (c) => {
+  const runId = c.req.param("runId");
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+  try {
+    const jobId = await plumberJobId(runId);
+    const result = await plumberClient.generateEnsembleRasters(jobId);
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Ensemble raster generation failed";
+    return c.json({ error: message }, 502);
+  }
+});
+
 // On-demand PNG generation for diagnostic plots
 diagnosticsRoutes.post("/plots/:runId", async (c) => {
   const runId = c.req.param("runId");

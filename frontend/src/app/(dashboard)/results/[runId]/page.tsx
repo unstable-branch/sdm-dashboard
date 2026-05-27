@@ -7,8 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import dynamic from "next/dynamic";
 import { MetricCards } from "@/components/results/metric-cards";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
-import { ArrowLeft, Loader2, Download, GitBranch } from "lucide-react";
-import { apiGet } from "@/services/api";
+import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers } from "lucide-react";
+import { apiGet, apiPost } from "@/services/api";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import type { RunDetail } from "@/services/types";
 
@@ -32,9 +32,25 @@ export default function ResultsPage() {
   const [error, setError] = useState<string | null>(null);
   const [reportText, setReportText] = useState<string | null>(null);
   const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
+  const [ensembleGenerating, setEnsembleGenerating] = useState(false);
+  const [ensembleGenerated, setEnsembleGenerated] = useState(false);
 
   // SSE-driven job updates (only connect when initial status is running)
   const { getJob, connected } = useJobSSE(true);
+
+  const isMultiEnsemble = run?.model_id === "multi_ensemble";
+
+  const handleGenerateEnsemble = useCallback(async () => {
+    setEnsembleGenerating(true);
+    try {
+      await apiPost(`/api/v1/diagnostics/ensemble-rasters/${runId}`);
+      setEnsembleGenerated(true);
+    } catch {
+      // silently fail
+    } finally {
+      setEnsembleGenerating(false);
+    }
+  }, [runId]);
 
   const fetchRun = useCallback(async () => {
     if (!runId) return;
@@ -136,6 +152,22 @@ export default function ResultsPage() {
           <GitBranch className="h-3.5 w-3.5" />
           Fork this run
         </Link>
+        {isMultiEnsemble && (
+          <button
+            onClick={handleGenerateEnsemble}
+            disabled={ensembleGenerating || ensembleGenerated}
+            className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface-soft disabled:opacity-50"
+          >
+            {ensembleGenerating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : ensembleGenerated ? (
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            ) : (
+              <Layers className="h-3.5 w-3.5" />
+            )}
+            {ensembleGenerating ? "Generating..." : ensembleGenerated ? "Ensemble stats generated" : "Generate ensemble rasters"}
+          </button>
+        )}
       </div>
 
       {run.status === "running" && (
