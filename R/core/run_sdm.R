@@ -405,6 +405,26 @@ run_fast_sdm <- function(...) {
     )
   }
 
+  # MESS extrapolation detection (uses raw unscaled values)
+  mess_result <- NULL
+  if (!is.null(env$env_train) && !is.null(env$env_project)) {
+    mess_result <- tryCatch(
+      compute_mess(env$env_train, env$env_project),
+      error = function(e) {
+        log_message(log_fun, "MESS computation failed: ", conditionMessage(e))
+        NULL
+      }
+    )
+    if (!is.null(mess_result)) {
+      mess_tag <- format(Sys.time(), "%Y%m%d_%H%M%S")
+      output_mess_tif <- file.path(output_dir, paste0("mess_", mess_tag, ".tif"))
+      terra::writeRaster(mess_result$mess, output_mess_tif,
+        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999")))
+      extra_paths[["mess_tif"]] <- output_mess_tif
+      log_message(log_fun, "MESS surface: ", sprintf("%.1f%%", mess_result$pct_extrapolation * 100), " of projection area is extrapolation")
+    }
+  }
+
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
@@ -703,6 +723,7 @@ run_fast_sdm <- function(...) {
     variable_importance = importance_result,
     response_curves = response_curves,
     suitability = suit, future = future, future2 = future2, climate_match = climate_match_result,
+    mess = mess_result,
     eoo_aoo = eoo_aoo_result,
     aoa = aoa_result,
     summary = suitability_summary, metrics = metrics,
