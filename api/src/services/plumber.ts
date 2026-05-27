@@ -311,6 +311,12 @@ export class PlumberClient {
     return res.json();
   }
 
+  async getRunComparison(runId1: string, runId2: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/output/compare/${runId1}/${runId2}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get run comparison: ${res.status}`);
+    return res.json();
+  }
+
   async getDiagnosticsAle(runId: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/ale/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get ALE data: ${res.status}`);

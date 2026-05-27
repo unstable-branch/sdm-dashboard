@@ -14,6 +14,14 @@ import { join } from "path";
 import { readFileSync, writeFileSync } from "fs";
 import { decrypt } from "../services/encryption.js";
 
+async function plumberJobId(runId: string): Promise<string> {
+  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+  if (!run) throw new Error("Run not found");
+  const pid = run.jobId;
+  if (!pid) throw new Error("Run has no Plumber job ID");
+  return pid;
+}
+
 type ModelConfigRecord = Record<string, unknown> & {
   species?: string;
   modelId?: string;
@@ -860,6 +868,20 @@ sdmRoutes.post("/batch/:batchId/retry", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Batch retry failed";
     return c.json({ error: message }, 500);
+  }
+});
+
+sdmRoutes.get("/compare/:runId1/:runId2", async (c) => {
+  try {
+    const runId1 = c.req.param("runId1");
+    const runId2 = c.req.param("runId2");
+    const jobId1 = await plumberJobId(runId1);
+    const jobId2 = await plumberJobId(runId2);
+    const data = await plumberClient.getRunComparison(jobId1, jobId2);
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Comparison unavailable";
+    return c.json({ error: message }, 502);
   }
 });
 
