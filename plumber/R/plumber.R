@@ -1601,6 +1601,38 @@ function() {
   })
 }
 
+#* Compare two completed model runs
+#* @get /api/v1/output/compare/<run_id1>/<run_id2>
+function(res, run_id1, run_id2) {
+  load_result <- function(rid) {
+    job_dir <- sdm_safe_job_dir(rid)
+    if (is.null(job_dir)) return(NULL)
+    meta_file <- file.path(job_dir, "meta.json")
+    if (!file.exists(meta_file)) return(NULL)
+    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    if (meta$status != "completed") return(NULL)
+    result_rds <- meta$output_files$result_rds
+    if (is.null(result_rds) || !file.exists(result_rds)) return(NULL)
+    readRDS(result_rds)
+  }
+
+  r1 <- load_result(run_id1)
+  r2 <- load_result(run_id2)
+
+  if (is.null(r1) || is.null(r2)) {
+    res$status <- 404L
+    return(list(error = "One or both runs not found or not completed"))
+  }
+
+  tryCatch({
+    comp <- compare_runs(r1, r2)
+    comp$report_text <- format_comparison_text(comp)
+    comp
+  }, error = function(e) {
+    list(error = paste("Comparison failed:", conditionMessage(e)))
+  })
+}
+
 #* Export reproducible R script for a run
 #* @get /api/v1/output/script/<run_id>
 function(res, run_id, output_dir = NULL) {
