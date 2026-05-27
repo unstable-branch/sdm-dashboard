@@ -42,4 +42,6 @@ Suggests:
     testthat,
     targets,
     tarchetypes,
-    geotargets
+    geotargets,
+    crew,
+    crew.cluster
