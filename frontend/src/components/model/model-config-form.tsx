@@ -457,8 +457,8 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
           >
             {availableModels.map((m) => (
-              <option key={m.id} value={m.id} disabled={m.available === false}>
-                {m.label} ({m.maturity}){m.available === false ? " — unavailable" : ""}
+              <option key={m.id} value={m.id}>
+                {m.label} ({m.maturity}){m.available === false ? " — requires package installation" : ""}
               </option>
             ))}
           </select>
