@@ -709,7 +709,7 @@ run_fast_sdm <- function(...) {
     paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)
   )
   result$report_text <- output_report
-  write_manifest(result, output_dir, base_name)
+  write_manifest(result, output_dir, base_name, cpu_ms = metrics$elapsed_seconds * 1000)
   write_summary_report(result, result$report_text)
   result
 }
