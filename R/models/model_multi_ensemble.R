@@ -168,7 +168,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   mean_tif <- sub(".tif$", "_ensemble_mean.tif", output_tif)
   terra::writeRaster(ensemble_mean, mean_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999"))
   )
   log_message(log_fun, "Ensemble mean raster written to: ", mean_tif)
 
@@ -177,7 +177,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   median_tif <- sub(".tif$", "_ensemble_median.tif", output_tif)
   terra::writeRaster(ensemble_median, median_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999"))
   )
   log_message(log_fun, "Ensemble median raster written to: ", median_tif)
 
@@ -186,7 +186,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   names(ensemble_weighted) <- "suitability"
   terra::writeRaster(ensemble_weighted, output_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999"))
   )
   log_message(log_fun, "Ensemble raster written to: ", output_tif)
 
@@ -202,7 +202,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   committee_tif <- sub(".tif$", "_ensemble_committee.tif", output_tif)
   terra::writeRaster(ensemble_committee, committee_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999"))
   )
   log_message(log_fun, "Ensemble committee raster written to: ", committee_tif)
 
@@ -212,7 +212,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     sd_tif <- sub(".tif$", "_ensemble_sd.tif", output_tif)
     terra::writeRaster(ensemble_sd, sd_tif,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999"))
     )
     log_message(log_fun, "Ensemble SD raster written to: ", sd_tif)
   }
@@ -224,7 +224,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
   terra::writeRaster(disagreement, disagreement_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999"))
   )
   component_paths$multi_ens_disagreement_tif <- disagreement_tif
 
@@ -280,7 +280,7 @@ pred_biomod2_component <- function(comp_fit, env_project_scaled, output_tif, n_c
   if (!is.null(output_tif)) {
     terra::writeRaster(r, output_tif,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999"))
     )
   }
   r
