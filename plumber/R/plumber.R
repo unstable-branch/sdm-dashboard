@@ -2010,6 +2010,72 @@ function(res, run_id = "", longitude = NULL, latitude = NULL) {
   })
 }
 
+#* Get climate-change driver attribution summary
+#* @get /api/v1/diagnostics/climate-drivers/<run_id>
+function(res, run_id) {
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (!file.exists(meta_file)) {
+    res$status <- 404L; return(list(error = "Run not found"))
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") {
+    res$status <- 400L; return(list(error = "Run not completed yet"))
+  }
+
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+
+  if (is.null(result_rds) || !file.exists(result_rds)) {
+    res$status <- 404L; return(list(error = "Result file not found"))
+  }
+
+  tryCatch({
+    result <- readRDS(result_rds)
+    paths <- result$paths %||% list()
+    delta_tif <- paths$delta_tif
+
+    if (is.null(delta_tif) || !file.exists(delta_tif)) {
+      return(list(available = FALSE, message = "Future projection not available for this run"))
+    }
+
+    delta <- terra::rast(delta_tif)
+    delta_vals <- terra::values(delta)
+    delta_vals <- delta_vals[is.finite(delta_vals)]
+
+    if (length(delta_vals) == 0) {
+      return(list(available = FALSE, message = "Delta raster has no valid values"))
+    }
+
+    pct_loss <- mean(delta_vals < 0, na.rm = TRUE) * 100
+    pct_gain <- mean(delta_vals > 0, na.rm = TRUE) * 100
+    pct_stable <- 100 - pct_loss - pct_gain
+    mean_delta <- mean(delta_vals, na.rm = TRUE)
+    sd_delta <- stats::sd(delta_vals, na.rm = TRUE)
+
+    list(
+      available = TRUE,
+      has_future_projection = TRUE,
+      summary = list(
+        mean_delta = mean_delta,
+        sd_delta = sd_delta,
+        min_delta = min(delta_vals, na.rm = TRUE),
+        max_delta = max(delta_vals, na.rm = TRUE),
+        pct_loss = pct_loss,
+        pct_gain = pct_gain,
+        pct_stable = pct_stable,
+        n_cells = length(delta_vals)
+      ),
+      note = "Full per-variable attribution available via SHAP cell click on the suitability map"
+    )
+  }, error = function(e) {
+    list(error = paste("Climate driver analysis failed:", conditionMessage(e)))
+  })
+}
+
 #* Get Continuous Boyce Index data for a run
 #* @get /api/v1/diagnostics/cbi/<run_id>
 function(res, run_id) {
