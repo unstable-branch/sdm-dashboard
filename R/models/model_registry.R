@@ -100,6 +100,27 @@ register_sdm_model(
   min_records = 5L
 )
 
+# INLA Bayesian spatial — conditional on INLA package (special repo, not CRAN)
+if (requireNamespace("INLA", quietly = TRUE)) {
+  register_sdm_model(
+    id = "inla_spde",
+    label = "INLA / Bayesian spatial (SPDE)",
+    method = "Bayesian spatial SDM via INLA with SPDE Matern covariance",
+    packages = "INLA",
+    maturity = "experimental",
+    fit_fun = function(...) fit_inla_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_inla_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    diagnostics = list(waic = TRUE, dic = TRUE, fixed_effects = TRUE),
+    notes = "Bayesian spatial model with Matern covariance via INLA-SPDE. Models spatial autocorrelation natively. Requires INLA package from https://inla.r-inla-download.org/R/stable/",
+    min_records = 20L
+  )
+}
+
 if (requireNamespace("gbm", quietly = TRUE)) {
   register_sdm_model(
     id = "brt",
