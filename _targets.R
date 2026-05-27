@@ -10,10 +10,18 @@ library(targets)
 library(tarchetypes)
 library(geotargets)
 
+# Cache mode — controls how much data targets stores between runs.
+#   minimal:    ~0.5 GB per 10 species — re-computes env on crash
+#   standard:   ~2 GB per 10 species — full caching (default)
+#   persistent: ~3 GB per 10 species — full caching + history
+cache_mode <- Sys.getenv("SDM_TARGETS_CACHE", "standard")
+
 tar_option_set(
   store = file.path("outputs", "_targets"),
-  memory = "transient",
-  garbage_collection = TRUE,
+  memory = if (cache_mode == "minimal") "transient" else "persistent",
+  garbage_collection = cache_mode != "persistent",
+  storage = if (cache_mode == "minimal") "worker" else "main",
+  retrieval = if (cache_mode == "minimal") "worker" else "main",
   packages = c("terra", "sf")
 )
 

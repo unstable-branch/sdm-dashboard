@@ -225,7 +225,7 @@ load_lulc_covariate <- function(lulc_year = 2020,
   # Write to cache
   terra::writeRaster(lulc_frac, cached_frac,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
   )
   log_message(log_fun, "LULC fractional layers cached: ", paste(names(lulc_frac), collapse = ", "))
 

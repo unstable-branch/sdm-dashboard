@@ -138,11 +138,11 @@ predict_ensemble_glm_rangebag_suitability <- function(fit, env_project_scaled, o
   weights <- fit$model$weights
   ensemble_suit <- (glm_suit * weights[["glm"]]) + (rangebag_suit * weights[["rangebag"]])
   names(ensemble_suit) <- "suitability"
-  terra::writeRaster(ensemble_suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999")))
+  terra::writeRaster(ensemble_suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
 
   disagreement <- abs(glm_suit - rangebag_suit)
   names(disagreement) <- "model_disagreement"
-  terra::writeRaster(disagreement, disagreement_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES", "NAflag=-9999")))
+  terra::writeRaster(disagreement, disagreement_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
 
   attr(ensemble_suit, "component_paths") <- list(glm = glm_tif, rangebag = rangebag_tif, disagreement = disagreement_tif)
   ensemble_suit
