@@ -32,6 +32,12 @@ api/tmp/
 data/uploads/
 outputs/
 covariates/
+
+# Database dumps and backups (never commit production data)
+*.dump
+*.backup
+*.pgdump
+*.sql.gz
 Worldclim/
 Worldclim_future/
 renv/
