@@ -15,7 +15,9 @@ const PALETTE = [
 ];
 
 function CurveChart({ curve, color }: { curve: NonNullable<ResponseCurvesData["curves"]>[number]; color: string }) {
-  const data = curve.points.map((p) => ({ x: Number.isFinite(p.value) ? p.value : 0, suitability: Number.isFinite(p.suitability) ? p.suitability : 0 }));
+  const data = curve.points
+    .filter((p) => Number.isFinite(p.value) && Number.isFinite(p.suitability))
+    .map((p) => ({ x: p.value, suitability: p.suitability }));
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
       <p className="text-xs font-medium text-sdm-text mb-1 font-mono">{curve.covariate}</p>
@@ -25,6 +27,7 @@ function CurveChart({ curve, color }: { curve: NonNullable<ResponseCurvesData["c
           <XAxis dataKey="x" tick={{ fontSize: 10, fill: "#9ca3af" }} />
           <YAxis domain={[0, 1]} tick={{ fontSize: 10, fill: "#9ca3af" }} width={30} />
           <Tooltip
+            formatter={(value: number) => [Number.isFinite(value) ? value.toFixed(4) : "N/A", "Suitability"]}
             contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "6px", fontSize: "11px" }}
           />
           <Line type="monotone" dataKey="suitability" stroke={color} strokeWidth={2} dot={false} />
