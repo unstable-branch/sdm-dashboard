@@ -166,7 +166,13 @@ write_summary_report <- function(result, path) {
     paste0("- Median suitability: ", fmt_num(result$summary$median, 3)),
     paste0("- Maximum suitability: ", fmt_num(result$summary$max, 3)),
     paste0("- Cells above threshold ", fmt_num(result$summary$threshold, 2), ": ", fmt_num(result$summary$cells_above_threshold), " (", percent_text, ")"),
-    paste0("- Estimated high-suitability area (km2): ", fmt_num(result$summary$high_risk_area_km2)),
+    paste0("- Estimated high-suitability area (km2): ", fmt_num(result$summary$high_risk_area_km2),
+      if (finite_one(result$summary$high_risk_area_uncertainty_km2) && result$summary$high_risk_area_uncertainty_km2 > 0) {
+        paste0(" +/- ", fmt_num(result$summary$high_risk_area_uncertainty_km2, 0),
+          " (95% CI: ", fmt_num(result$summary$high_risk_area_ci95_lower, 0), " - ",
+          fmt_num(result$summary$high_risk_area_ci95_upper, 0), ")")
+      } else ""
+    ),
     if (!is.null(result$metrics$projection)) {
       pm <- result$metrics$projection
       proj_cbi_text <- if (finite_one(pm$projection_cbi)) sprintf("%.3f", pm$projection_cbi) else "not available"

@@ -48,7 +48,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [customExtent, setCustomExtent] = useState<[number, number, number, number]>([112, 154, -44, -10]);
   const [backgroundN, setBackgroundN] = useState(DEFAULT_CONFIG.backgroundN);
   const [cvFolds, setCvFolds] = useState(DEFAULT_CONFIG.cvFolds);
-  const [cvStrategy, setCvStrategy] = useState<"random" | "spatial_blocks">(DEFAULT_CONFIG.cvStrategy);
+  const [cvStrategy, setCvStrategy] = useState<"random" | "spatial_blocks">("spatial_blocks");
   const [cvBlockSizeKm, setCvBlockSizeKm] = useState(50);
   const [threshold, setThreshold] = useState(DEFAULT_CONFIG.threshold);
   const [includeQuadratic, setIncludeQuadratic] = useState(true);
