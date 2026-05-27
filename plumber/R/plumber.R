@@ -661,14 +661,6 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
 
     diag_files <- list()
     tryCatch({
-      source(file.path(app_dir, "R", "output", "diagnostics_plots.R"), local = TRUE)
-      diag_files <- save_diagnostic_plots(result, job_dir, log_fun = log_fun)
-    }, error = function(e) {
-      cat("Diagnostic plots failed:", conditionMessage(e), "\n")
-      cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-    })
-
-    tryCatch({
       source(file.path(app_dir, "R", "output", "report_odmap.R"), local = TRUE)
       odmap_csv <- file.path(job_dir, "odmap_report.csv")
       odmap_md <- file.path(job_dir, "odmap_report.md")
@@ -2128,6 +2120,86 @@ function(res, run_id) {
       cv_folds_png = output_files$cv_folds_png %||% NULL
     )
   )
+}
+
+#* Generate diagnostic PNG plots on demand for a completed run
+#* @post /api/v1/diagnostics/plots/<run_id>
+function(res, run_id) {
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta_file <- file.path(job_dir, "meta.json")
+  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
+  result <- readRDS(result_rds)
+  source(file.path(app_dir, "R", "output", "diagnostics_plots.R"), local = TRUE)
+  diag_files <- save_diagnostic_plots(result, job_dir, log_fun = function(...) {})
+  # Merge new diagnostic paths into meta.json output_files
+  meta$output_files <- c(meta$output_files %||% list(), diag_files)
+  writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+  list(ok = TRUE, files = diag_files)
+}
+
+#* Download diagnostic data as CSV for a completed run
+#* @param type diagnostic type: importance, response_curves, cbi, vif
+#* @get /api/v1/diagnostics/data/<run_id>/<type>
+function(res, run_id, type) {
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta_file <- file.path(job_dir, "meta.json")
+  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
+  result <- readRDS(result_rds)
+  csv_data <- switch(type,
+    importance = {
+      imp <- result$variable_importance
+      if (is.null(imp) || !is.data.frame(imp)) return(NULL)
+      imp
+    },
+    response_curves = {
+      rc <- result$response_curves
+      if (is.null(rc) || length(rc) == 0) return(NULL)
+      do.call(rbind, lapply(names(rc), function(nm) { df <- rc[[nm]]; df$covariate <- nm; df }))
+    },
+    cbi = {
+      cbi_result <- tryCatch({
+        pres <- result$fit$presence_suit; bg <- result$fit$background_suit
+        if (is.null(pres) || is.null(bg)) NULL else {
+          source(file.path(app_dir, "R", "output", "diagnostics_plots.R"), local = TRUE)
+          continuous_boyce_index(pres, bg, n_bins = 51, win = 0.1)
+        }
+      }, error = function(e) NULL)
+      if (is.null(cbi_result) || is.null(cbi_result$bins)) return(NULL)
+      cbi_result$bins
+    },
+    vif = {
+      env <- result$environment
+      if (is.null(env) || is.null(env$vif_result)) return(NULL)
+      vif <- env$vif_result
+      combined <- data.frame(
+        variable = c(vif$selected %||% character(0), vif$dropped %||% character(0)),
+        status = c(rep("retained", length(vif$selected %||% character(0))), rep("dropped", length(vif$dropped %||% character(0)))),
+        stringsAsFactors = FALSE
+      )
+      if (!is.null(vif$vif_final)) combined$vif_final <- vif$vif_final
+      combined
+    },
+    mess = {
+      list(pct_extrapolation = meta$metrics$projection$mess_pct_extrapolation %||% NA)
+    },
+    NULL
+  )
+  if (is.null(csv_data)) { res$status <- 404L; return(list(error = paste0("Data not available for type: ", type))) }
+  res$headers[["Content-Type"]] <- "text/csv"
+  res$headers[["Content-Disposition"]] <- paste0("attachment; filename=\"", type, "_", run_id, ".csv\"")
+  write.csv(csv_data, row.names = FALSE)
 }
 
 #* Check which BIO variables are already downloaded
