@@ -1870,6 +1870,87 @@ function(res, run_id) {
   })
 }
 
+#* Get per-cell SHAP explanation
+#* @post /api/v1/diagnostics/shap/cell
+function(res, run_id = "", longitude = NULL, latitude = NULL) {
+  if (!nzchar(run_id) || is.null(longitude) || is.null(latitude)) {
+    res$status <- 400L; return(list(error = "run_id, longitude, and latitude required"))
+  }
+
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
+  meta_file <- file.path(job_dir, "meta.json")
+
+  if (!file.exists(meta_file)) {
+    res$status <- 404L; return(list(error = "Run not found"))
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  if (meta$status != "completed") {
+    res$status <- 400L; return(list(error = "Run not completed yet"))
+  }
+
+  output_files <- meta$output_files %||% list()
+  result_rds <- output_files$result_rds
+
+  if (is.null(result_rds) || !file.exists(result_rds)) {
+    res$status <- 404L; return(list(error = "Result file not found"))
+  }
+
+  tryCatch({
+    result <- readRDS(result_rds)
+    if (is.null(result$fit) || is.null(result$fit$model_data)) {
+      return(list(available = FALSE, message = "Model data not available for SHAP"))
+    }
+
+    model_data <- result$fit$model_data
+    covariates <- result$fit$covariates
+    if (is.null(covariates) || length(covariates) == 0) {
+      return(list(available = FALSE, message = "Covariates not available"))
+    }
+
+    if (!requireNamespace("fastshap", quietly = TRUE)) {
+      return(list(available = FALSE, message = "fastshap package required for SHAP"))
+    }
+
+    coord_df <- data.frame(x = as.numeric(longitude), y = as.numeric(latitude))
+    env_rast <- tryCatch(terra::rast(meta$output_files$env_tif %||% ""), error = function(e) NULL)
+    if (!is.null(env_rast)) {
+      cell_vals <- terra::extract(env_rast, coord_df)
+      if (is.null(cell_vals) || nrow(cell_vals) == 0) {
+        return(list(available = FALSE, message = "Cell coordinates outside raster extent"))
+      }
+      cell_vals <- as.numeric(cell_vals[1, ])
+      names(cell_vals) <- names(env_rast)
+      cell_vals <- cell_vals[!is.na(cell_vals)]
+    } else {
+      return(list(available = FALSE, message = "Environmental raster not available"))
+    }
+
+    shap_vals <- tryCatch(
+      compute_shap_cell(result$fit, cell_vals, background = model_data, n_samples = 200L),
+      error = function(e) NULL
+    )
+
+    if (is.null(shap_vals)) {
+      return(list(available = FALSE, message = "SHAP computation failed"))
+    }
+
+    shap_list <- lapply(names(shap_vals), function(v) list(
+      variable = v, value = cell_vals[v],
+      shap_value = shap_vals[v]
+    ))
+    pred_fun <- build_importance_predict_fun(result$fit)
+    prediction <- if (!is.null(pred_fun)) {
+      as.numeric(pred_fun(result$fit, as.data.frame(t(cell_vals))))
+    } else NA_real_
+
+    list(available = TRUE, prediction = prediction, shap = shap_list)
+  }, error = function(e) {
+    list(error = paste("SHAP cell explanation failed:", conditionMessage(e)))
+  })
+}
+
 #* Get Continuous Boyce Index data for a run
 #* @get /api/v1/diagnostics/cbi/<run_id>
 function(res, run_id) {
