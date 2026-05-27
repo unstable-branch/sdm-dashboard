@@ -122,7 +122,7 @@ export const SSP_CODE_MAP: Record<string, string> = {
 
 export const DEFAULT_CONFIG = {
   biovars: [1, 4, 6, 12, 15, 18],
-  backgroundN: 10000,
+  backgroundN: 3000,
   cvFolds: 3,
   cvStrategy: "spatial_blocks" as const,
   threshold: 0.5,
