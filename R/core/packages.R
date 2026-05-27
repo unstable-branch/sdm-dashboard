@@ -46,6 +46,7 @@ sdm_optional_packages <- list(
   bart = c("dbarts"),
   unmarked = c("unmarked"),
   brms = c("brms", "cmdstanr"),
+  python = c("arrow", "reticulate"),
   dwca = c("finch"),
   esm = c("ecospat", "biomod2"),
   targets = c("targets", "tarchetypes", "geotargets")

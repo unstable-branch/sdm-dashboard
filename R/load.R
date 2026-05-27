@@ -68,6 +68,7 @@ modules <- c(
   "model_bart.R",
   "model_unmarked.R",
   "model_brms.R",
+  "model_python.R",
   "model_gbm.R",
   "model_rpart.R",
   "model_earth.R",
@@ -116,6 +117,7 @@ modules <- c(
   "manifest.R",
   "diagnostics_plots.R",
   "batch_runner.R",
+  "python_setup.R",
   "script_export.R",
 
   # --- ui / modules ---
