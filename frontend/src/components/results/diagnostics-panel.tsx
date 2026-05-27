@@ -12,7 +12,8 @@ import { CalibrationChart } from "@/components/diagnostics/calibration-chart";
 import { CvFoldsChart } from "@/components/diagnostics/cv-folds-chart";
 import { ThresholdChart } from "@/components/diagnostics/threshold-chart";
 import { DensityChart } from "@/components/diagnostics/density-chart";
-import { apiGet } from "@/services/api";
+import { ShapChart } from "@/components/diagnostics/shap-chart";
+import { apiGet, apiPost } from "@/services/api";
 import { Download } from "lucide-react";
 import type {
   VifData, ImportanceData, ResponseCurvesData, CbiData, MessData,
@@ -40,6 +41,9 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   const [cvFoldsData, setCvFoldsData] = useState<CvFoldsData | null>(null);
   const [thresholdData, setThresholdData] = useState<ThresholdData | null>(null);
   const [densityData, setDensityData] = useState<DensityData | null>(null);
+  const [shapData, setShapData] = useState<any>(null);
+  const [shapLoading, setShapLoading] = useState(false);
+  const [shapCell, setShapCell] = useState<{ lng: number; lat: number } | null>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(true);
 
   useEffect(() => {
@@ -105,6 +109,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
           <TabsTrigger value="density" className="text-xs">Density</TabsTrigger>
           <TabsTrigger value="vif" className="text-xs">VIF</TabsTrigger>
           <TabsTrigger value="mess" className="text-xs">MESS</TabsTrigger>
+          <TabsTrigger value="shap" className="text-xs">SHAP</TabsTrigger>
           <TabsTrigger value="log" className="text-xs">Log</TabsTrigger>
         </TabsList>
 
@@ -146,6 +151,10 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
 
         <TabsContent value="mess">
           <MessSummary data={messData} loading={loadingDiagnostics} />
+        </TabsContent>
+
+        <TabsContent value="shap">
+          <ShapChart data={shapData} loading={shapLoading} />
         </TabsContent>
 
         <TabsContent value="log">

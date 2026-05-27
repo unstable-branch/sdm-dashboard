@@ -206,7 +206,7 @@ export default function ResultsPage() {
             </TabsList>
 
             <TabsContent value="map">
-              <SuitabilityMap outputFiles={run.output_files} projectionExtent={((run.config?.projectionExtent as number[]) ?? (run.config?.projection_extent as string)?.split(",").map(Number) ?? null) as number[] | null} />
+              <SuitabilityMap outputFiles={run.output_files} projectionExtent={((run.config?.projectionExtent as number[]) ?? (run.config?.projection_extent as string)?.split(",").map(Number) ?? null) as number[] | null} runId={runId} />
             </TabsContent>
 
             <TabsContent value="diagnostics">
