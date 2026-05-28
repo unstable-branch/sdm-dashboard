@@ -50,7 +50,7 @@ export function BatchProgress({ jobIds, batchId, onComplete, onRetryFailed, onCa
       );
       if (cancelledRef.current) return;
       setJobs(results);
-      setLoading(false);
+      _setLoading(false);
 
       if (batchId) {
         try {
