@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useDeferredValue, useMemo } from "react";
 import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
 import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath } from "@sdm/shared";
 import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
@@ -146,6 +146,14 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [climateRes, setClimateRes] = useState(10);
   const [missingBiovars, setMissingBiovars] = useState<number[]>([]);
   const [climateCheckLoading, setClimateCheckLoading] = useState(false);
+  const deferredSpecies = useDeferredValue(species);
+  const speciesFiltered = useMemo(
+    () =>
+      speciesSuggestions
+        .filter((s) => s.toLowerCase().includes(deferredSpecies.toLowerCase()) && s !== deferredSpecies)
+        .slice(0, 10),
+    [deferredSpecies, speciesSuggestions]
+  );
 
   useEffect(() => {
     apiGet<Record<string, unknown>[]>("/api/v1/sdm/models")
@@ -431,19 +439,16 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             onFocus={() => setSpeciesInputFocused(true)}
             onBlur={() => { setSpeciesStore(species); setTimeout(() => setSpeciesInputFocused(false), 200); }}
             onKeyDown={(e) => {
-              const filtered = speciesSuggestions
-                .filter((s) => s.toLowerCase().includes(species.toLowerCase()) && s !== species)
-                .slice(0, 10);
               if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setSpeciesSelectedIndex((prev) => (prev + 1) % filtered.length);
+                setSpeciesSelectedIndex((prev) => (prev + 1) % Math.max(speciesFiltered.length, 1));
               } else if (e.key === "ArrowUp") {
                 e.preventDefault();
-                setSpeciesSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
-              } else if (e.key === "Enter" && speciesSelectedIndex >= 0 && speciesSelectedIndex < filtered.length) {
+                setSpeciesSelectedIndex((prev) => (prev - 1 + Math.max(speciesFiltered.length, 1)) % Math.max(speciesFiltered.length, 1));
+              } else if (e.key === "Enter" && speciesSelectedIndex >= 0 && speciesSelectedIndex < speciesFiltered.length) {
                 e.preventDefault();
-                setSpecies(filtered[speciesSelectedIndex]);
-                setSpeciesStore(filtered[speciesSelectedIndex]);
+                setSpecies(speciesFiltered[speciesSelectedIndex]);
+                setSpeciesStore(speciesFiltered[speciesSelectedIndex]);
                 setSpeciesInputFocused(false);
               } else if (e.key === "Escape") {
                 setSpeciesInputFocused(false);
@@ -456,12 +461,9 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             aria-haspopup="listbox"
             aria-autocomplete="list"
           />
-          {speciesInputFocused && speciesSuggestions.length > 0 && (
+          {speciesInputFocused && speciesFiltered.length > 0 && (
             <div className="absolute z-50 mt-1 w-full rounded-md border border-sdm-border bg-sdm-surface shadow-lg max-h-48 overflow-y-auto" role="listbox">
-              {speciesSuggestions
-                .filter((s) => s.toLowerCase().includes(species.toLowerCase()) && s !== species)
-                .slice(0, 10)
-                .map((s, idx) => (
+              {speciesFiltered.map((s, idx) => (
                   <button
                     key={s}
                     type="button"

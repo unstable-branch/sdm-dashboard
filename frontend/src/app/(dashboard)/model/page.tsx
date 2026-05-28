@@ -74,6 +74,7 @@ export default function ModelPage() {
   // Lightweight poll fallback — only when active runs exist (30s interval, SSE is primary)
   useEffect(() => {
     const interval = setInterval(() => {
+      if (document.hidden) return;
       if (activeRunsRef.current > 0) {
         fetchActiveRuns();
       }

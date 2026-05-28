@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import {
   Sidebar,
@@ -48,36 +49,44 @@ export function AppSidebar() {
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
-    return pathname.startsWith(href);
+    return pathname === href || pathname.startsWith(href + "/");
   };
+
+  const navLinkClass = "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-sdm-text hover:bg-sdm-surface-soft hover:text-sdm-accent transition-colors";
 
   const pipelineLinks = useMemo(
     () =>
-      pipelineItems.map((item) => (
-        <SidebarMenuItem key={item.href}>
-          <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
-            <Link href={item.href}>
-              <item.icon className="h-4 w-4" />
-              <span>{item.title}</span>
-            </Link>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      )),
+      pipelineItems.map((item) => {
+        const active = isActive(item.href);
+        return (
+          <SidebarMenuItem key={item.href}>
+            <SidebarMenuButton asChild className={active ? "bg-sdm-accent/10" : ""}>
+              <Link href={item.href} className={cn(navLinkClass, active && "text-sdm-accent")}>
+                <item.icon className="h-4 w-4 shrink-0" />
+                <span>{item.title}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      }),
     [pathname]
   );
 
   const systemLinks = useMemo(
     () =>
-      systemItems.map((item) => (
-        <SidebarMenuItem key={item.href}>
-          <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
-            <Link href={item.href}>
-              <item.icon className="h-4 w-4" />
-              <span>{item.title}</span>
-            </Link>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      )),
+      systemItems.map((item) => {
+        const active = isActive(item.href);
+        return (
+          <SidebarMenuItem key={item.href}>
+            <SidebarMenuButton asChild className={active ? "bg-sdm-accent/10" : ""}>
+              <Link href={item.href} className={cn(navLinkClass, active && "text-sdm-accent")}>
+                <item.icon className="h-4 w-4 shrink-0" />
+                <span>{item.title}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      }),
     [pathname]
   );
 
