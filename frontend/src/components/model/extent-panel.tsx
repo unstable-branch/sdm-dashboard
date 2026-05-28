@@ -60,15 +60,38 @@ export function ExtentPanel({
       </div>
 
       {extentPreset === "custom" && (
-        <div className="grid grid-cols-2 gap-3">
-          {(["xmin", "xmax", "ymin", "ymax"] as const).map((label, i) => (
-            <div key={label}>
-              <label className="block text-xs font-medium text-sdm-muted mb-1">{label}</label>
-              <input type="number" value={customExtent[i]}
-                onChange={(e) => { const n = [...customExtent]; n[i] = Number(e.target.value); onSetCustomExtent(n as [number,number,number,number]); }}
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">xmin (longitude)</label>
+              <input type="number" value={customExtent[0]} min={-180} max={customExtent[1]} step={0.1}
+                onChange={(e) => { const n = [...customExtent]; n[0] = Math.max(-180, Math.min(customExtent[1], Number(e.target.value))); onSetCustomExtent(n as [number,number,number,number]); }}
                 className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
             </div>
-          ))}
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">xmax (longitude)</label>
+              <input type="number" value={customExtent[1]} min={customExtent[0]} max={180} step={0.1}
+                onChange={(e) => { const n = [...customExtent]; n[1] = Math.max(customExtent[0], Math.min(180, Number(e.target.value))); onSetCustomExtent(n as [number,number,number,number]); }}
+                className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">ymin (latitude)</label>
+              <input type="number" value={customExtent[2]} min={-90} max={customExtent[3]} step={0.1}
+                onChange={(e) => { const n = [...customExtent]; n[2] = Math.max(-90, Math.min(customExtent[3], Number(e.target.value))); onSetCustomExtent(n as [number,number,number,number]); }}
+                className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">ymax (latitude)</label>
+              <input type="number" value={customExtent[3]} min={customExtent[2]} max={90} step={0.1}
+                onChange={(e) => { const n = [...customExtent]; n[3] = Math.max(customExtent[2], Math.min(90, Number(e.target.value))); onSetCustomExtent(n as [number,number,number,number]); }}
+                className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          </div>
+          <p className="text-xs text-sdm-muted">
+            Bounds: longitude -180..180, latitude -90..90
+          </p>
         </div>
       )}
 
