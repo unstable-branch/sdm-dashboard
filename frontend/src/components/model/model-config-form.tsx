@@ -3,36 +3,29 @@
 import { useState, useEffect, useDeferredValue, useMemo } from "react";
 import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
 import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath } from "@sdm/shared";
-import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
-import { cn } from "@/lib/utils";
-import { CheckCircle2, AlertTriangle, Info, CloudOff, Cloud } from "lucide-react";
+import { CheckCircle2, AlertTriangle, Info } from "lucide-react";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { apiGet } from "@/services/api";
 import { ModelSelector } from "./model-selector";
+import { SpeciesInput } from "./species-input";
+import { ModelParamPanel } from "./model-param-panel";
+import { ClimatePanel } from "./climate-panel";
+import { ExtentPanel } from "./extent-panel";
+import { ModelSettings } from "./model-settings";
+import { CovariatePanel } from "./covariate-panel";
+import { AdvancedSettings } from "./advanced-settings";
 
 interface ModelInfo {
-  id: string;
-  label: string;
-  maturity: string;
-  min_records?: number | null;
-  packages?: string[];
-  notes?: string;
-  available?: boolean;
+  id: string; label: string; maturity: string;
+  min_records?: number | null; packages?: string[]; notes?: string; available?: boolean;
 }
 
 interface ModelConfigFormProps {
   occurrenceFile: string | null;
   recordCount: number;
-  cleanedOccurrence: {
-    filePath: string;
-    df: Record<string, unknown>[];
-    sourceCounts: Record<string, number>;
-    nAbsentExcluded: number;
-    originalRows: number;
-    validRecords: number;
-  } | null;
+  cleanedOccurrence: { filePath: string; df: Record<string, unknown>[]; sourceCounts: Record<string, number>; nAbsentExcluded: number; originalRows: number; validRecords: number; } | null;
   onSubmit: (config: Partial<ModelConfig>) => void;
   loading: boolean;
 }
@@ -131,9 +124,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [multiEnsemblePower, setMultiEnsemblePower] = useState(2);
   const [multiEnsembleMinAuc, setMultiEnsembleMinAuc] = useState(0.7);
   const [multiEnsembleMinTss, setMultiEnsembleMinTss] = useState(0.5);
-  const toggleBiomod2Model = (algo: string) => {
-    setBiomod2Models(prev => prev.includes(algo) ? prev.filter(a => a !== algo) : [...prev]);
-  };
+  const toggleBiomod2Model = (algo: string) => { setBiomod2Models(prev => prev.includes(algo) ? prev.filter(a => a !== algo) : [...prev]); };
   const [rangebagNBags, setRangebagNBags] = useState(100);
   const [rangebagBagFraction, setRangebagBagFraction] = useState(0.5);
   const [rangebagVarsPerBag, setRangebagVarsPerBag] = useState(1);
@@ -141,264 +132,128 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [detectionModelType, setDetectionModelType] = useState<"occu" | "occuRN">("occu");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
   const [missingBiovars, setMissingBiovars] = useState<number[]>([]);
   const [climateCheckLoading, setClimateCheckLoading] = useState(false);
   const deferredSpecies = useDeferredValue(species);
-  const speciesFiltered = useMemo(
-    () =>
-      speciesSuggestions
-        .filter((s) => s.toLowerCase().includes(deferredSpecies.toLowerCase()) && s !== deferredSpecies)
-        .slice(0, 10),
-    [deferredSpecies, speciesSuggestions]
-  );
+  const speciesFiltered = useMemo(() => speciesSuggestions.filter((s) => s.toLowerCase().includes(deferredSpecies.toLowerCase()) && s !== deferredSpecies).slice(0, 10), [deferredSpecies, speciesSuggestions]);
 
   useEffect(() => {
-    apiGet<Record<string, unknown>[]>("/api/v1/sdm/models")
-      .then((models) => {
-        if (models && Array.isArray(models)) {
-          const defaults = MODEL_BACKENDS.reduce<Record<string, { label: string; maturity: string; min_records: number | null; packages?: string[]; notes?: string; available?: boolean }>>((acc, m) => {
-            acc[m.id] = {
-              label: m.label,
-              maturity: m.maturity,
-              min_records: m.min_records ?? null,
-              packages: (m as Record<string, unknown>).packages as string[] | undefined,
-              notes: (m as Record<string, unknown>).notes as string | undefined,
-              available: (m as Record<string, unknown>).available as boolean | undefined,
-            };
-            return acc;
-          }, {});
-
-          const apiModels = models.map((m: Record<string, unknown>) => {
-            const id = m.id as string;
-            const def = defaults[id];
-            return {
-              id,
-              label: (m.label as string) || def?.label || id,
-              maturity: (m.maturity as string) || def?.maturity || "experimental",
-              min_records: (m.min_records as number) ?? def?.min_records ?? null,
-              packages: (m.packages as string[]) || def?.packages || [],
-              notes: (m.notes as string) || def?.notes || "",
-              available: (m.available as boolean) ?? def?.available ?? true,
-            };
-          });
-          // Merge API models with MODEL_BACKENDS — keep all models from defaults,
-          // updated with any fields from the API response
-          const mergedIds = new Set(apiModels.map(m => m.id));
-          const missingFromApi = MODEL_BACKENDS.filter(m => !mergedIds.has(m.id)).map(m => ({
-            id: m.id,
-            label: m.label,
-            maturity: m.maturity,
-            min_records: m.min_records ?? null,
-            packages: (m as any).packages as string[] | undefined,
-            notes: (m as any).notes as string | undefined,
-            available: (m as any).available as boolean | undefined,
-          }));
-          setAvailableModels([...apiModels, ...missingFromApi]);
-        }
-      })
-      .catch(() => {});
+    apiGet<Record<string, unknown>[]>("/api/v1/sdm/models").then((models) => {
+      if (!models || !Array.isArray(models)) return;
+      const defaults = MODEL_BACKENDS.reduce<Record<string, { label: string; maturity: string; min_records: number | null; packages?: string[]; notes?: string; available?: boolean }>>((acc, m) => { acc[m.id] = { label: m.label, maturity: m.maturity, min_records: m.min_records ?? null, packages: (m as any).packages as string[] | undefined, notes: (m as any).notes as string | undefined, available: (m as any).available as boolean | undefined }; return acc; }, {});
+      const apiModels = models.map((m: Record<string, unknown>) => { const id = m.id as string; const def = defaults[id]; return { id, label: (m.label as string) || def?.label || id, maturity: (m.maturity as string) || def?.maturity || "experimental", min_records: (m.min_records as number) ?? def?.min_records ?? null, packages: (m.packages as string[]) || def?.packages || [], notes: (m.notes as string) || def?.notes || "", available: (m.available as boolean) ?? def?.available ?? true }; });
+      const mergedIds = new Set(apiModels.map(m => m.id));
+      const missingFromApi = MODEL_BACKENDS.filter(m => !mergedIds.has(m.id)).map(m => ({ id: m.id, label: m.label, maturity: m.maturity, min_records: m.min_records ?? null, packages: (m as any).packages as string[] | undefined, notes: (m as any).notes as string | undefined, available: (m as any).available as boolean | undefined }));
+      setAvailableModels([...apiModels, ...missingFromApi]);
+    }).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    useSettingsStore.getState().fetchSettings();
-  }, []);
-
-  useEffect(() => {
-    apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100")
-      .then((data) => {
-        if (data && Array.isArray(data.species)) {
-          setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string));
-        }
-      })
-      .catch(() => {});
-  }, []);
+  useEffect(() => { useSettingsStore.getState().fetchSettings(); }, []);
+  useEffect(() => { apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100").then((data) => { if (data && Array.isArray(data.species)) setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string)); }).catch(() => {}); }, []);
 
   useEffect(() => {
     if (biovars.length < 2) return;
-    const identifier = `${climateSource}_${climateRes}`;
     const timer = setTimeout(() => {
       setClimateCheckLoading(true);
-      fetch(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovars.join(",")}`)
-        .then((res) => res.ok ? res.json() : null)
-        .then((data) => {
-          if (data && Array.isArray(data.available)) {
-            const availableSet = new Set(data.available as number[]);
-            setMissingBiovars(biovars.filter((b) => !availableSet.has(b)));
-          }
-        })
-        .catch(() => setMissingBiovars(biovars))
-        .finally(() => setClimateCheckLoading(false));
+      fetch(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovars.join(",")}`).then((res) => res.ok ? res.json() : null).then((data) => { if (data && Array.isArray(data.available)) setMissingBiovars(biovars.filter((b) => !(data.available as number[]).includes(b))); }).catch(() => setMissingBiovars(biovars)).finally(() => setClimateCheckLoading(false));
     }, 300);
     return () => clearTimeout(timer);
   }, [biovars.join(","), climateSource, climateRes]);
 
-  const toggleBiovar = (id: number) => {
-    setBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
-  };
+  const toggleBiovar = (id: number) => setBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
+  const toggleSoilVar = (id: string) => setSoilVars((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]);
+  const toggleSoilDepth = (depth: string) => setSoilDepths((prev) => prev.includes(depth) ? prev.filter((d) => d !== depth) : [...prev, depth]);
+  const toggleUvVar = (id: string) => setUvVars((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]);
 
-  const toggleSoilVar = (id: string) => {
-    setSoilVars((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]);
-  };
+  const paramSetters: Record<string, (v: any) => void> = {
+    maxnetFeatures: (v) => setMaxnetFeatures(v),
+    maxnetRegmult: (v) => setMaxnetRegmult(v as number),
+    dnnArchitecture: (v) => setDnnArchitecture(v),
+    dnnNSeeds: (v) => setDnnNSeeds(v as number),
+    dnnDevice: (v) => setDnnDevice(v),
+    brtNTrees: (v) => setBrtNTrees(v as number),
+    brtInteractionDepth: (v) => setBrtInteractionDepth(v as number),
+    brtShrinkage: (v) => setBrtShrinkage(v as number),
+    brtBagFraction: (v) => setBrtBagFraction(v as number),
+    ctaCp: (v) => setCtaCp(v as number),
+    ctaMaxdepth: (v) => setCtaMaxdepth(v as number),
+    ctaMinsplit: (v) => setCtaMinsplit(v as number),
+    annSize: (v) => setAnnSize(v as number),
+    annDecay: (v) => setAnnDecay(v as number),
+    annMaxit: (v) => setAnnMaxit(v as number),
+    annRang: (v) => setAnnRang(v as number),
+    marsDegree: (v) => setMarsDegree(v as number),
+    marsPenalty: (v) => setMarsPenalty(v as number),
+    marsNk: (v) => setMarsNk(v as number | undefined),
+    fdaDegree: (v) => setFdaDegree(v as number),
+    fdaNprune: (v) => setFdaNprune(v as number | undefined),
+    rfNumTrees: (v) => setRfNumTrees(v as number),
+    rfMtry: (v) => setRfMtry(v as number | undefined),
+    rfMinNodeSize: (v) => setRfMinNodeSize(v as number),
+    xgbMaxDepth: (v) => setXgbMaxDepth(v as number),
+    xgbEta: (v) => setXgbEta(v as number),
+    xgbNrounds: (v) => setXgbNrounds(v as number),
+    bartNtree: (v) => setBartNtree(v as number),
+    bartNdpost: (v) => setBartNdpost(v as number),
+    bartNskip: (v) => setBartNskip(v as number),
+    brmsChains: (v) => setBrmsChains(v as number),
+    brmsIter: (v) => setBrmsIter(v as number),
+    brmsWarmup: (v) => setBrmsWarmup(v as number),
+    inlaMeshMaxEdge: (v) => setInlaMeshMaxEdge(v as number | undefined),
+    inlaMeshCutoff: (v) => setInlaMeshCutoff(v as number | undefined),
+    rangebagNBags: (v) => setRangebagNBags(v as number),
+    rangebagBagFraction: (v) => setRangebagBagFraction(v as number),
+    rangebagVarsPerBag: (v) => setRangebagVarsPerBag(v as number),
+    detectionFormula: (v) => setDetectionFormula(v as string),
+    detectionModelType: (v) => setDetectionModelType(v),
+    dnnMultispeciesArchitecture: (v) => setDnnMultispeciesArchitecture(v),
 
-  const toggleSoilDepth = (depth: string) => {
-    setSoilDepths((prev) => prev.includes(depth) ? prev.filter((d) => d !== depth) : [...prev, depth]);
-  };
-
-  const toggleUvVar = (id: string) => {
-    setUvVars((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]);
+    multiEnsembleWeighting: (v) => setMultiEnsembleWeighting(v),
+    multiEnsemblePower: (v) => setMultiEnsemblePower(v as number),
+    multiEnsembleMinAuc: (v) => setMultiEnsembleMinAuc(v as number),
+    multiEnsembleMinTss: (v) => setMultiEnsembleMinTss(v as number),
   };
 
   const handleSubmit = () => {
     setError(null);
-
-    if (cleanedOccurrence && cleanedOccurrence.validRecords === 0) {
-      setError("Cleaned data has 0 valid records. Cannot run model. Go back to the Data page and check your occurrence data.");
-      return;
-    }
-
+    if (cleanedOccurrence && cleanedOccurrence.validRecords === 0) { setError("Cleaned data has 0 valid records. Cannot run model."); return; }
     const extent = extentPreset === "custom" ? customExtent : EXTENT_PRESETS[extentPreset]?.extent;
-    if (!extent) {
-      setError("Invalid extent preset");
-      return;
-    }
-
+    if (!extent) { setError("Invalid extent preset"); return; }
     const useCleaned = cleanedOccurrence && cleanedOccurrence.filePath;
-
-    const config = {
-      species,
-      modelId,
-      biovars,
-      projectionExtent: extent,
-      backgroundN,
-      cvFolds,
-      cvStrategy,
-      cvBlockSizeKm: cvStrategy === "spatial_blocks" ? cvBlockSizeKm : undefined,
-      threshold,
-      includeQuadratic,
-      useElevation,
-      useSoil,
-      soilVars,
-      soilDepths,
-      useUv,
-      uvVars,
-      useVegetation,
-      useLulc,
-      useHfp,
-      useBioclimSeason,
-      useDrought,
-      futureProjection,
-      futureWorldclimDir: futureProjection ? buildFutureWorldclimPath(futureGcm, futureSsp, futurePeriod) : undefined,
-      futureLabel,
-      futureWorldclimDir2: future2Enabled ? buildFutureWorldclimPath(future2Gcm, future2Ssp, future2Period) : undefined,
-      futureLabel2: future2Enabled ? future2Label : undefined,
-      extrapolationMask,
-      messThreshold: 0,
-      inlaMeshMaxEdge,
-      inlaMeshCutoff,
-      rangebagNBags,
-      rangebagBagFraction,
-      rangebagVarsPerBag,
-      detectionFormula,
-      detectionModelType,
-      dnnMultispeciesArchitecture,
-      dnnMultispeciesNSeeds,
-      biomod2Models,
-      multiEnsembleModels,
-      multiEnsembleBiomod2,
-      multiEnsembleWeighting,
-      multiEnsemblePower,
-      multiEnsembleMinAuc,
-      multiEnsembleMinTss,
-      vifReduction,
-      climateMatching,
-      thinByCell,
-      mergeSmallSources,
-      minSourceRecords,
-      biasMethod,
-      thickeningDistanceKm,
-      paReplicates,
-      maxnetFeatures,
-      maxnetRegmult,
-      dnnArchitecture,
-      dnnNSeeds,
-      dnnDevice,
-      brtNTrees,
-      brtInteractionDepth,
-      brtShrinkage,
-      brtBagFraction,
-      ctaCp,
-      ctaMaxdepth,
-      ctaMinsplit,
-      marsDegree,
-      marsPenalty,
-      fdaDegree,
-      annSize,
-      annDecay,
-      annMaxit,
-      annRang,
-      marsNk,
-      fdaNprune,
-      rfNumTrees,
-      rfMtry,
-      rfMinNodeSize,
-      xgbMaxDepth,
-      xgbEta,
-      xgbNrounds,
-      bartNtree,
-      bartNdpost,
-      bartNskip,
-      brmsChains,
-      brmsIter,
-      brmsWarmup,
-      aggregationFactor,
-      nCores,
-      seed,
-      occurrenceFile: useCleaned ? cleanedOccurrence!.filePath : (occurrenceFile || ""),
-      cleanedFilePath: useCleaned ? cleanedOccurrence!.filePath : undefined,
-      pipelineRunId: useSDMStore.getState().pipelineRunId || undefined,
-      source: climateSource,
-      worldclimRes: climateRes,
-    };
-
+    const config = { species, modelId, biovars, projectionExtent: extent, backgroundN, cvFolds, cvStrategy, cvBlockSizeKm: cvStrategy === "spatial_blocks" ? cvBlockSizeKm : undefined, threshold, includeQuadratic, useElevation, useSoil, soilVars, soilDepths, useUv, uvVars, useVegetation, useLulc, useHfp, useBioclimSeason, useDrought, futureProjection, futureWorldclimDir: futureProjection ? buildFutureWorldclimPath(futureGcm, futureSsp, futurePeriod) : undefined, futureLabel, futureWorldclimDir2: future2Enabled ? buildFutureWorldclimPath(future2Gcm, future2Ssp, future2Period) : undefined, futureLabel2: future2Enabled ? future2Label : undefined, extrapolationMask, messThreshold: 0, inlaMeshMaxEdge, inlaMeshCutoff, rangebagNBags, rangebagBagFraction, rangebagVarsPerBag, detectionFormula, detectionModelType, dnnMultispeciesArchitecture, dnnMultispeciesNSeeds, biomod2Models, multiEnsembleModels, multiEnsembleBiomod2, multiEnsembleWeighting, multiEnsemblePower, multiEnsembleMinAuc, multiEnsembleMinTss, vifReduction, climateMatching, thinByCell, mergeSmallSources, minSourceRecords, biasMethod, thickeningDistanceKm, paReplicates, maxnetFeatures, maxnetRegmult, dnnArchitecture, dnnNSeeds, dnnDevice, brtNTrees, brtInteractionDepth, brtShrinkage, brtBagFraction, ctaCp, ctaMaxdepth, ctaMinsplit, marsDegree, marsPenalty, fdaDegree, annSize, annDecay, annMaxit, annRang, marsNk, fdaNprune, rfNumTrees, rfMtry, rfMinNodeSize, xgbMaxDepth, xgbEta, xgbNrounds, bartNtree, bartNdpost, bartNskip, brmsChains, brmsIter, brmsWarmup, aggregationFactor, nCores, seed, occurrenceFile: useCleaned ? cleanedOccurrence!.filePath : (occurrenceFile || ""), cleanedFilePath: useCleaned ? cleanedOccurrence!.filePath : undefined, pipelineRunId: useSDMStore.getState().pipelineRunId || undefined, source: climateSource, worldclimRes: climateRes };
     const parsed = modelConfigSchema.safeParse(config);
-    if (!parsed.success) {
-      setError(parsed.error.errors[0].message);
-      return;
-    }
-
+    if (!parsed.success) { setError(parsed.error.errors[0].message); return; }
     onSubmit(config);
   };
 
   const selectedModel = availableModels.find((m) => m.id === modelId);
   const isESM = modelId.startsWith("esm_");
-  const effectiveRecordCount = cleanedOccurrence
-    ? cleanedOccurrence.validRecords
-    : recordCount;
+  const effectiveRecordCount = cleanedOccurrence ? cleanedOccurrence.validRecords : recordCount;
   const lowRecordWarning = selectedModel?.min_records && effectiveRecordCount !== null && effectiveRecordCount < selectedModel.min_records;
+
+  const handleSpeciesKeyNav = (dir: "up" | "down" | "enter" | "escape") => {
+    if (dir === "down") setSpeciesSelectedIndex((prev) => (prev + 1) % Math.max(speciesFiltered.length, 1));
+    else if (dir === "up") setSpeciesSelectedIndex((prev) => (prev - 1 + Math.max(speciesFiltered.length, 1)) % Math.max(speciesFiltered.length, 1));
+    else if (dir === "enter" && speciesSelectedIndex >= 0 && speciesSelectedIndex < speciesFiltered.length) { setSpecies(speciesFiltered[speciesSelectedIndex]); setSpeciesStore(speciesFiltered[speciesSelectedIndex]); setSpeciesInputFocused(false); }
+    else if (dir === "escape") setSpeciesInputFocused(false);
+  };
 
   return (
     <div className="space-y-6">
-      {error && (
-        <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
-          {error}
-        </div>
-      )}
+      {error && <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">{error}</div>}
 
-      {cleanedOccurrence && cleanedOccurrence.filePath ? (
+      {cleanedOccurrence?.filePath ? (
         <div className="rounded-md border border-indigo-500/30 bg-indigo-500/5 px-4 py-3 flex items-center gap-3">
           <CheckCircle2 className="h-4 w-4 text-indigo-500 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-sdm-text">Cleaned occurrence data ready</p>
             <p className="text-xs text-sdm-muted">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords.toLocaleString()} cleaned records</p>
           </div>
-          <Link href="/data?tab=clean" className="text-xs font-medium text-sdm-accent hover:underline shrink-0">
-            Review →
-          </Link>
+          <Link href="/data?tab=clean" className="text-xs font-medium text-sdm-accent hover:underline shrink-0">Review →</Link>
         </div>
-      ) : occurrenceFile && (
+      ) : occurrenceFile ? (
         <div className="rounded-md border border-sdm-success/30 bg-sdm-success/5 px-4 py-3 flex items-center gap-3">
           <CheckCircle2 className="h-4 w-4 text-sdm-success shrink-0" />
           <div className="min-w-0">
@@ -406,14 +261,14 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <p className="text-xs text-sdm-muted truncate">{occurrenceFile}</p>
           </div>
         </div>
-      )}
+      ) : null}
 
       {cleanedOccurrence && cleanedOccurrence.validRecords === 0 && (
         <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 px-4 py-3 flex items-start gap-3">
           <AlertTriangle className="h-4 w-4 text-sdm-danger shrink-0 mt-0.5" />
           <div className="min-w-0">
             <p className="text-sm font-medium text-sdm-danger">Cleaning produced 0 valid records</p>
-            <p className="text-xs text-sdm-danger">The occurrence data has no valid records after cleaning. The model run will likely fail. Go back to the Data page and check your data.</p>
+            <p className="text-xs text-sdm-danger">The occurrence data has no valid records after cleaning. Go back to the Data page and check your data.</p>
           </div>
         </div>
       )}
@@ -422,7 +277,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
           <AlertTriangle className="h-4 w-4 text-sdm-warning shrink-0 mt-0.5" />
           <div className="min-w-0">
             <p className="text-sm font-medium text-sdm-warning">Cleaning recommended</p>
-            <p className="text-xs text-sdm-warning">Clean your occurrence data on the <Link href="/data?tab=clean" className="underline">Data page</Link> before running the model. The model will clean inline if you proceed without previewing.</p>
+            <p className="text-xs text-sdm-warning">Clean your occurrence data on the <Link href="/data?tab=clean" className="underline">Data page</Link> before running the model.</p>
           </div>
         </div>
       )}
@@ -430,865 +285,50 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
         <h2 className="text-lg font-semibold text-sdm-heading">Species & Model</h2>
 
-        <div className="relative">
-          <label className="block text-sm font-medium text-sdm-text mb-1">Species / model label</label>
-          <input
-            type="text"
-            value={species}
-            onChange={(e) => setSpecies(e.target.value)}
-            onFocus={() => setSpeciesInputFocused(true)}
-            onBlur={() => { setSpeciesStore(species); setTimeout(() => setSpeciesInputFocused(false), 200); }}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setSpeciesSelectedIndex((prev) => (prev + 1) % Math.max(speciesFiltered.length, 1));
-              } else if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setSpeciesSelectedIndex((prev) => (prev - 1 + Math.max(speciesFiltered.length, 1)) % Math.max(speciesFiltered.length, 1));
-              } else if (e.key === "Enter" && speciesSelectedIndex >= 0 && speciesSelectedIndex < speciesFiltered.length) {
-                e.preventDefault();
-                setSpecies(speciesFiltered[speciesSelectedIndex]);
-                setSpeciesStore(speciesFiltered[speciesSelectedIndex]);
-                setSpeciesInputFocused(false);
-              } else if (e.key === "Escape") {
-                setSpeciesInputFocused(false);
-              }
-            }}
-            className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
-            placeholder="Enter species name or select from history"
-            role="combobox"
-            aria-expanded={speciesInputFocused && speciesSuggestions.length > 0}
-            aria-haspopup="listbox"
-            aria-autocomplete="list"
-          />
-          {speciesInputFocused && speciesFiltered.length > 0 && (
-            <div className="absolute z-50 mt-1 w-full rounded-md border border-sdm-border bg-sdm-surface shadow-lg max-h-48 overflow-y-auto" role="listbox">
-              {speciesFiltered.map((s, idx) => (
-                  <button
-                    key={s}
-                    type="button"
-                    role="option"
-                    aria-selected={idx === speciesSelectedIndex}
-                    onMouseDown={() => { setSpecies(s); setSpeciesStore(s); setSpeciesInputFocused(false); }}
-                    className={cn(
-                      "w-full text-left px-3 py-2 text-sm text-sdm-text hover:bg-sdm-surface-soft",
-                      idx === speciesSelectedIndex && "bg-sdm-accent/10"
-                    )}
-                  >
-                    {s}
-                  </button>
-                ))}
-            </div>
-          )}
-        </div>
+        <SpeciesInput
+          species={species}
+          speciesFiltered={speciesFiltered}
+          speciesSelectedIndex={speciesSelectedIndex}
+          focused={speciesInputFocused}
+          onSpeciesChange={setSpecies}
+          onSelect={(s) => { setSpecies(s); setSpeciesStore(s); setSpeciesInputFocused(false); }}
+          onFocus={setSpeciesInputFocused}
+          onKeyNav={handleSpeciesKeyNav}
+        />
 
         <div>
           <label className="block text-sm font-medium text-sdm-text mb-1">Model backend</label>
-          <ModelSelector
-            models={availableModels}
-            selected={modelId}
-            onSelect={setModelId}
-          />
+          <ModelSelector models={availableModels} selected={modelId} onSelect={setModelId} />
           {isESM && (
             <div className="mt-2 rounded-md bg-sdm-accent-blue/10 border border-sdm-accent-blue/30 p-3 text-xs text-sdm-text">
-              <p className="font-medium flex items-center gap-1.5">
-                <Info className="h-3.5 w-3.5" />
-                Ensembles of Small Models (ESM)
-              </p>
-              <p className="mt-1 text-sdm-muted">
-                Recommended for rare species with few occurrence records. Uses bivariate models weighted by AUC.
-              </p>
+              <p className="font-medium flex items-center gap-1.5"><Info className="h-3.5 w-3.5" /> Ensembles of Small Models (ESM)</p>
+              <p className="mt-1 text-sdm-muted">Recommended for rare species with few occurrence records.</p>
             </div>
           )}
           {lowRecordWarning && (
             <div className="mt-2 rounded-md bg-sdm-danger/10 border border-sdm-danger/30 p-3 text-xs text-sdm-danger flex items-start gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>
-                {selectedModel?.label} recommends ≥ {selectedModel.min_records} records. You have {effectiveRecordCount}.
-                Results may be unreliable.
-              </span>
+              <span>{selectedModel?.label} recommends ≥ {selectedModel.min_records} records. You have {effectiveRecordCount}. Results may be unreliable.</span>
             </div>
           )}
-          {selectedModel?.notes && (
-            <p className="mt-1 text-xs text-sdm-muted italic">{selectedModel.notes}</p>
-          )}
-          {selectedModel?.packages && (() => {
-            const pkgs = Array.isArray(selectedModel.packages) ? selectedModel.packages : [selectedModel.packages];
-            return pkgs.length > 0 ? (
-              <p className="mt-1 text-xs text-sdm-muted">
-                Requires: <code className="text-sdm-text">{pkgs.join(", ")}</code>
-              </p>
-            ) : null;
-          })()}
+          {selectedModel?.notes && <p className="mt-1 text-xs text-sdm-muted italic">{selectedModel.notes}</p>}
+          {selectedModel?.packages && (() => { const pkgs = Array.isArray(selectedModel.packages) ? selectedModel.packages : [selectedModel.packages]; return pkgs.length > 0 ? (<p className="mt-1 text-xs text-sdm-muted">Requires: <code className="text-sdm-text">{pkgs.join(", ")}</code></p>) : null; })()}
         </div>
 
-        {(modelId === "maxnet") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">MaxEnt features</label>
-              <select
-                value={maxnetFeatures}
-                onChange={(e) => setMaxnetFeatures(e.target.value as typeof maxnetFeatures)}
-                className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text"
-              >
-                <option value="l">Linear</option>
-                <option value="lq">Linear + Quadratic</option>
-                <option value="lqp">Linear + Quadratic + Product</option>
-                <option value="lqh">Linear + Quadratic + Hinge</option>
-                <option value="lqpht">All</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Regularization multiplier</label>
-              <input
-                type="number"
-                value={maxnetRegmult}
-                onChange={(e) => setMaxnetRegmult(Number(e.target.value))}
-                min={0.1}
-                max={10}
-                step={0.1}
-                className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text"
-              />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "dnn") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">DNN architecture</label>
-              <select
-                value={dnnArchitecture}
-                onChange={(e) => setDnnArchitecture(e.target.value as typeof dnnArchitecture)}
-                className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text"
-              >
-                <option value="DNN_Small">Small (1×64)</option>
-                <option value="DNN_Medium">Medium (2×100)</option>
-                <option value="DNN_Large">Large (3×100)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Ensemble seeds (uncertainty)</label>
-              <input
-                type="number"
-                value={dnnNSeeds}
-                onChange={(e) => setDnnNSeeds(Number(e.target.value))}
-                min={1} max={20} step={1}
-                className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text"
-              />
-              <p className="mt-1 text-xs text-sdm-muted">Multiple seeds with different initialisations; prediction SD measures uncertainty</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Device</label>
-              <select
-                value={dnnDevice}
-                onChange={(e) => setDnnDevice(e.target.value as typeof dnnDevice)}
-                className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text"
-              >
-                <option value="auto">Auto-detect</option>
-                <option value="cpu">CPU only</option>
-                <option value="gpu">GPU if available</option>
-              </select>
-            </div>
-          </div>
-        )}
-
-        {(modelId === "brt") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Number of trees</label>
-              <input type="number" value={brtNTrees} onChange={(e) => setBrtNTrees(Number(e.target.value))} min={100} max={10000} step={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Interaction depth</label>
-              <input type="number" value={brtInteractionDepth} onChange={(e) => setBrtInteractionDepth(Number(e.target.value))} min={1} max={10} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Learning rate (shrinkage)</label>
-              <input type="number" value={brtShrinkage} onChange={(e) => setBrtShrinkage(Number(e.target.value))} min={0.001} max={0.5} step={0.001} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Bag fraction</label>
-              <input type="number" value={brtBagFraction} onChange={(e) => setBrtBagFraction(Number(e.target.value))} min={0.1} max={1} step={0.05} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "cta") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Complexity parameter (cp)</label>
-              <input type="number" value={ctaCp} onChange={(e) => setCtaCp(Number(e.target.value))} min={0.001} max={0.5} step={0.001} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Max tree depth</label>
-              <input type="number" value={ctaMaxdepth} onChange={(e) => setCtaMaxdepth(Number(e.target.value))} min={3} max={30} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Min split size</label>
-              <input type="number" value={ctaMinsplit} onChange={(e) => setCtaMinsplit(Number(e.target.value))} min={2} max={100} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "ann") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Hidden layer size</label>
-              <input type="number" value={annSize} onChange={(e) => setAnnSize(Number(e.target.value))} min={2} max={50} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Weight decay</label>
-              <input type="number" value={annDecay} onChange={(e) => setAnnDecay(Number(e.target.value))} min={0.0001} max={1} step={0.001} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Max iterations</label>
-              <input type="number" value={annMaxit} onChange={(e) => setAnnMaxit(Number(e.target.value))} min={50} max={1000} step={50} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Initial weight range (rang)</label>
-              <input type="number" value={annRang} onChange={(e) => setAnnRang(Number(e.target.value))} min={0.01} max={10} step={0.1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "mars") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Max interaction degree</label>
-              <input type="number" value={marsDegree} onChange={(e) => setMarsDegree(Number(e.target.value))} min={1} max={5} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Penalty per knot</label>
-              <input type="number" value={marsPenalty} onChange={(e) => setMarsPenalty(Number(e.target.value))} min={0} max={10} step={0.5} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Max number of terms (nk)</label>
-              <input type="number" value={marsNk ?? ""} onChange={(e) => setMarsNk(e.target.value ? Number(e.target.value) : undefined)} min={1} max={100} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-              <p className="mt-1 text-xs text-sdm-muted">Leave empty for automatic selection</p>
-            </div>
-          </div>
-        )}
-
-        {(modelId === "fda") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">MARS degree</label>
-              <input type="number" value={fdaDegree} onChange={(e) => setFdaDegree(Number(e.target.value))} min={1} max={5} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">MARS term pruning (nprune)</label>
-              <input type="number" value={fdaNprune ?? ""} onChange={(e) => setFdaNprune(e.target.value ? Number(e.target.value) : undefined)} min={1} max={100} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-              <p className="mt-1 text-xs text-sdm-muted">Leave empty for no pruning</p>
-            </div>
-          </div>
-        )}
-
-        {(modelId === "rf") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-sdm-warning mb-2">Requires the ranger package to be installed.</p>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Number of trees</label>
-              <input type="number" value={rfNumTrees} onChange={(e) => setRfNumTrees(Number(e.target.value))} min={10} max={10000} step={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Mtry (variables per split)</label>
-              <input type="number" value={rfMtry ?? ""} onChange={(e) => setRfMtry(e.target.value ? Number(e.target.value) : undefined)} min={1} max={100} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-              <p className="mt-1 text-xs text-sdm-muted">Leave empty for auto (sqrt of variables)</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Min node size</label>
-              <input type="number" value={rfMinNodeSize} onChange={(e) => setRfMinNodeSize(Number(e.target.value))} min={1} max={100} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "xgboost") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-sdm-warning mb-2">Requires the xgboost package to be installed.</p>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Max tree depth</label>
-              <input type="number" value={xgbMaxDepth} onChange={(e) => setXgbMaxDepth(Number(e.target.value))} min={1} max={20} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Learning rate (eta)</label>
-              <input type="number" value={xgbEta} onChange={(e) => setXgbEta(Number(e.target.value))} min={0.001} max={1} step={0.01} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Number of rounds</label>
-              <input type="number" value={xgbNrounds} onChange={(e) => setXgbNrounds(Number(e.target.value))} min={10} max={10000} step={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "bart") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-sdm-warning mb-2">Requires the dbarts package to be installed.</p>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Number of trees</label>
-              <input type="number" value={bartNtree} onChange={(e) => setBartNtree(Number(e.target.value))} min={10} max={10000} step={50} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Posterior draws</label>
-              <input type="number" value={bartNdpost} onChange={(e) => setBartNdpost(Number(e.target.value))} min={100} max={10000} step={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Burn-in (skip)</label>
-              <input type="number" value={bartNskip} onChange={(e) => setBartNskip(Number(e.target.value))} min={50} max={5000} step={50} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "brms") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-sdm-warning mb-2">Requires brms and cmdstanr packages. First fit compiles Stan code (5-15 min).</p>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Chains</label>
-              <input type="number" value={brmsChains} onChange={(e) => setBrmsChains(Number(e.target.value))} min={1} max={8} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Total iterations</label>
-              <input type="number" value={brmsIter} onChange={(e) => setBrmsIter(Number(e.target.value))} min={500} max={10000} step={500} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Warmup</label>
-              <input type="number" value={brmsWarmup} onChange={(e) => setBrmsWarmup(Number(e.target.value))} min={100} max={5000} step={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "inla_spde") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-sdm-warning mb-2">Requires INLA package from r-inla-download.org. Mesh and prior parameters control spatial model complexity.</p>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Mesh max edge</label>
-              <input type="number" value={inlaMeshMaxEdge ?? ""} onChange={(e) => setInlaMeshMaxEdge(e.target.value ? Number(e.target.value) : undefined)} min={0.01} max={100} step={0.5} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-              <p className="mt-1 text-xs text-sdm-muted">Max triangle edge length. Leave empty for auto.</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Mesh cutoff</label>
-              <input type="number" value={inlaMeshCutoff ?? ""} onChange={(e) => setInlaMeshCutoff(e.target.value ? Number(e.target.value) : undefined)} min={0.001} max={10} step={0.1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "rangebag") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Number of bags</label>
-              <input type="number" value={rangebagNBags} onChange={(e) => setRangebagNBags(Number(e.target.value))} min={10} max={1000} step={10} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Bag fraction</label>
-              <input type="number" value={rangebagBagFraction} onChange={(e) => setRangebagBagFraction(Number(e.target.value))} min={0.1} max={1} step={0.05} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Variables per bag</label>
-              <input type="number" value={rangebagVarsPerBag} onChange={(e) => setRangebagVarsPerBag(Number(e.target.value))} min={1} max={10} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "occupancy") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-sdm-warning mb-2">Requires detection-history data with repeated surveys. Use the Data page to upload properly formatted detection/non-detection data.</p>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Model type</label>
-              <select value={detectionModelType} onChange={(e) => setDetectionModelType(e.target.value as "occu" | "occuRN")} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
-                <option value="occu">Single-season occupancy (occu)</option>
-                <option value="occuRN">Royle-Nichols (occuRN)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Detection formula</label>
-              <input type="text" value={detectionFormula} onChange={(e) => setDetectionFormula(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text font-mono" />
-              <p className="mt-1 text-xs text-sdm-muted">R formula for detection covariates (e.g., ~1 for constant, ~temperature + wind)</p>
-            </div>
-          </div>
-        )}
-
-        {(modelId === "dnn_multispecies") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-sdm-warning mb-2">Requires cito and torch packages. Multi-species DNN predicts all species simultaneously using a shared neural network.</p>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">DNN architecture</label>
-              <select value={dnnMultispeciesArchitecture} onChange={(e) => setDnnMultispeciesArchitecture(e.target.value as "DNN_Small" | "DNN_Medium" | "DNN_Large")} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
-                <option value="DNN_Small">Small (1×64)</option>
-                <option value="DNN_Medium">Medium (2×100)</option>
-                <option value="DNN_Large">Large (3×100)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Ensemble seeds</label>
-              <input type="number" value={dnnMultispeciesNSeeds} onChange={(e) => setDnnMultispeciesNSeeds(Number(e.target.value))} min={1} max={10} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        {(modelId === "ensemble_glm_rangebag") && (
-          <div className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-4 py-3">
-            <p className="text-xs text-sdm-muted">
-              AUC-weighted ensemble combining GLM and Rangebagging predictions. No additional parameters needed.
-            </p>
-          </div>
-        )}
-
-        {(modelId === "multi_ensemble") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-sdm-warning mb-2">Select at least 2 models. biomod2 requires options(sdm.enable_biomod2 = TRUE).</p>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Standalone models</label>
-              <div className="space-y-1">
-                {[{ id: "glm", label: "GLM" }, { id: "gam", label: "GAM" }, { id: "maxnet", label: "MaxEnt" }, { id: "rf", label: "Random Forest" }, { id: "xgboost", label: "XGBoost" }, { id: "rangebag", label: "Rangebagging" }].map((m) => (
-                  <label key={m.id} className="flex items-center gap-2 text-xs text-sdm-text">
-                    <input type="checkbox" checked={multiEnsembleModels.includes(m.id)} onChange={() => setMultiEnsembleModels(prev => prev.includes(m.id) ? prev.filter(x => x !== m.id) : [...prev, m.id])} className="rounded" />
-                    {m.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">biomod2 algorithms</label>
-              <div className="space-y-1">
-                {[{ id: "GAM", label: "GAM" }, { id: "FDA", label: "FDA" }, { id: "MARS", label: "MARS" }, { id: "RF", label: "RF" }, { id: "GBM", label: "GBM" }, { id: "BRT", label: "BRT" }, { id: "MAXNET", label: "MAXNET" }, { id: "SRE", label: "SRE" }, { id: "CTA", label: "CTA" }, { id: "XGBOOST", label: "XGBOOST" }].map((a) => (
-                  <label key={a.id} className="flex items-center gap-2 text-xs text-sdm-text ml-4">
-                    <input type="checkbox" checked={multiEnsembleBiomod2.includes(a.id)} onChange={() => setMultiEnsembleBiomod2(prev => prev.includes(a.id) ? prev.filter(x => x !== a.id) : [...prev, a.id])} className="rounded" />
-                    {a.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Weighting</label>
-              <select value={multiEnsembleWeighting} onChange={(e) => setMultiEnsembleWeighting(e.target.value as "equal" | "auc" | "tss")} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
-                <option value="equal">Equal average</option>
-                <option value="auc">AUC-weighted</option>
-                <option value="tss">TSS-weighted</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Weight power</label>
-              <input type="number" value={multiEnsemblePower} onChange={(e) => setMultiEnsemblePower(Number(e.target.value))} min={1} max={5} step={0.5} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-sdm-text mb-1">Min AUC</label>
-                <input type="number" value={multiEnsembleMinAuc} onChange={(e) => setMultiEnsembleMinAuc(Number(e.target.value))} min={0.5} max={1} step={0.05} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-sdm-text mb-1">Min TSS</label>
-                <input type="number" value={multiEnsembleMinTss} onChange={(e) => setMultiEnsembleMinTss(Number(e.target.value))} min={0} max={1} step={0.05} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {(modelId === "esm_glm" || modelId === "esm_maxnet") && (
-          <div className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-4 py-3">
-            <p className="text-xs text-sdm-muted">
-              Ensembles of Small Models — recommended for rare species with fewer than 30 records. ESM parameters (runs, split, min AUC, weighting) are configured in the API. See the R/Shiny interface for full control.
-            </p>
-          </div>
-        )}
-
-        {(modelId === "biomod2") && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-sdm-warning mb-2">Requires biomod2 package + options(sdm.enable_biomod2 = TRUE) in R.</p>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">biomod2 algorithms</label>
-              <div className="space-y-1">
-                {[{ id: "GLM", label: "GLM" }, { id: "GAM", label: "GAM" }, { id: "MAXNET", label: "MaxEnt (MAXNET)" }, { id: "RF", label: "Random Forest" }].map((algo) => (
-                  <label key={algo.id} className="flex items-center gap-2 text-xs text-sdm-text">
-                    <input type="checkbox" checked={biomod2Models.includes(algo.id)} onChange={() => toggleBiomod2Model(algo.id)} className="rounded" />
-                    {algo.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {(modelId === "python_elapid" || modelId === "python_sklearn_rf") && (
-          <div className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-4 py-3">
-            <p className="text-xs text-sdm-muted">
-              Python model bridge. Requires Python + required pip packages. Configure model type and parameters via the Python manifest.
-            </p>
-          </div>
-        )}
-
-        {(modelId === "bioclim") && (
-          <div className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-4 py-3">
-            <p className="text-xs text-sdm-muted">
-              BIOCLIM is a presence-only environmental envelope model. It computes suitability as the percentile of environmental distance to training presences. No additional parameters needed.
-            </p>
-          </div>
-        )}
+        <ModelParamPanel modelId={modelId} maxnetFeatures={maxnetFeatures} maxnetRegmult={maxnetRegmult} dnnArchitecture={dnnArchitecture} dnnNSeeds={dnnNSeeds} dnnDevice={dnnDevice} brtNTrees={brtNTrees} brtInteractionDepth={brtInteractionDepth} brtShrinkage={brtShrinkage} brtBagFraction={brtBagFraction} ctaCp={ctaCp} ctaMaxdepth={ctaMaxdepth} ctaMinsplit={ctaMinsplit} annSize={annSize} annDecay={annDecay} annMaxit={annMaxit} annRang={annRang} marsDegree={marsDegree} marsPenalty={marsPenalty} marsNk={marsNk} fdaDegree={fdaDegree} fdaNprune={fdaNprune} rfNumTrees={rfNumTrees} rfMtry={rfMtry} rfMinNodeSize={rfMinNodeSize} xgbMaxDepth={xgbMaxDepth} xgbEta={xgbEta} xgbNrounds={xgbNrounds} bartNtree={bartNtree} bartNdpost={bartNdpost} bartNskip={bartNskip} brmsChains={brmsChains} brmsIter={brmsIter} brmsWarmup={brmsWarmup} inlaMeshMaxEdge={inlaMeshMaxEdge} inlaMeshCutoff={inlaMeshCutoff} rangebagNBags={rangebagNBags} rangebagBagFraction={rangebagBagFraction} rangebagVarsPerBag={rangebagVarsPerBag} detectionFormula={detectionFormula} detectionModelType={detectionModelType} dnnMultispeciesArchitecture={dnnMultispeciesArchitecture} dnnMultispeciesNSeeds={dnnMultispeciesNSeeds} biomod2Models={biomod2Models} multiEnsembleModels={multiEnsembleModels} multiEnsembleBiomod2={multiEnsembleBiomod2} multiEnsembleWeighting={multiEnsembleWeighting} multiEnsemblePower={multiEnsemblePower} multiEnsembleMinAuc={multiEnsembleMinAuc} multiEnsembleMinTss={multiEnsembleMinTss} onSet={(k, v) => paramSetters[k]?.(v)} />
       </div>
 
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
-        <h2 className="text-lg font-semibold text-sdm-heading">Climate & BIO variables</h2>
-        <p className="text-sm text-sdm-muted">Select at least 2 climate variables</p>
+      <ClimatePanel biovars={biovars} climateCheckLoading={climateCheckLoading} missingBiovars={missingBiovars} onToggleBiovar={toggleBiovar} />
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-          {BIOVAR_CHOICES.map((bio) => (
-            <label
-              key={bio.id}
-              className={cn(
-                "flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors",
-                biovars.includes(bio.id)
-                  ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
-                  : "border-sdm-border bg-sdm-surface-soft text-sdm-text hover:border-sdm-accent/50"
-              )}
-            >
-              <input
-                type="checkbox"
-                checked={biovars.includes(bio.id)}
-                onChange={() => toggleBiovar(bio.id)}
-                className="sr-only"
-              />
-              <span className="font-medium">{bio.label}</span>
-            </label>
-          ))}
-        </div>
-        {biovars.length < 2 && (
-          <p className="text-xs text-sdm-danger">Select at least 2 BIO variables</p>
-        )}
+      <ExtentPanel extentPreset={extentPreset} customExtent={customExtent} threshold={threshold} futureProjection={futureProjection} futureLabel={futureLabel} futureGcm={futureGcm} futureSsp={futureSsp} futurePeriod={futurePeriod} future2Enabled={future2Enabled} future2Label={future2Label} future2Gcm={future2Gcm} future2Ssp={future2Ssp} future2Period={future2Period} extrapolationMask={extrapolationMask} climateSource={climateSource} onSetExtentPreset={setExtentPreset} onSetCustomExtent={setCustomExtent} onSetThreshold={setThreshold} onSetFutureProjection={setFutureProjection} onSetFutureLabel={setFutureLabel} onSetFutureGcm={setFutureGcm} onSetFutureSsp={setFutureSsp} onSetFuturePeriod={setFuturePeriod} onSetFuture2Enabled={setFuture2Enabled} onSetFuture2Label={setFuture2Label} onSetFuture2Gcm={setFuture2Gcm} onSetFuture2Ssp={setFuture2Ssp} onSetFuture2Period={setFuture2Period} onSetExtrapolationMask={setExtrapolationMask} />
 
-        {climateCheckLoading ? (
-          <div className="flex items-center gap-2 text-xs text-sdm-muted">
-            <span className="animate-pulse">Checking climate data availability...</span>
-          </div>
-        ) : missingBiovars.length > 0 && biovars.length >= 2 ? (
-          <div className="rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 flex items-start gap-3">
-            <CloudOff className="h-4 w-4 text-sdm-warning shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-sdm-text">Climate data not available locally</p>
-              <p className="text-xs text-sdm-muted mt-0.5">
-                {missingBiovars.length} BIO {missingBiovars.length === 1 ? "variable is" : "variables are"} missing: BIO{missingBiovars.join(", BIO")}
-              </p>
-              <p className="text-xs text-sdm-muted mt-0.5">
-                Download missing layers from the Data → Climate tab, or enable auto-download.
-              </p>
-            </div>
-          </div>
-        ) : biovars.length >= 2 ? (
-          <div className="flex items-center gap-2 text-xs text-sdm-success">
-            <Cloud className="h-3.5 w-3.5" />
-            <span>All selected BIO variables available locally</span>
-          </div>
-        ) : null}
-      </div>
+      <ModelSettings backgroundN={backgroundN} nCores={nCores} cvFolds={cvFolds} cvStrategy={cvStrategy} paReplicates={paReplicates} aggregationFactor={aggregationFactor} includeQuadratic={includeQuadratic} onSetBackgroundN={setBackgroundN} onSetNCores={setNCores} onSetCvFolds={setCvFolds} onSetCvStrategy={(v) => setCvStrategy(v as any)} onSetPaReplicates={setPaReplicates} onSetAggregationFactor={setAggregationFactor} onSetIncludeQuadratic={setIncludeQuadratic} />
 
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
-        <h2 className="text-lg font-semibold text-sdm-heading">Projection</h2>
+      <CovariatePanel useElevation={useElevation} useSoil={useSoil} soilVars={soilVars} soilDepths={soilDepths} useUv={useUv} uvVars={uvVars} useVegetation={useVegetation} useLulc={useLulc} useHfp={useHfp} useBioclimSeason={useBioclimSeason} useDrought={useDrought} onSetUseElevation={setUseElevation} onSetUseSoil={setUseSoil} onToggleSoilVar={toggleSoilVar} onToggleSoilDepth={toggleSoilDepth} onSetUseUv={setUseUv} onToggleUvVar={toggleUvVar} onSetUseVegetation={setUseVegetation} onSetUseLulc={setUseLulc} onSetUseHfp={setUseHfp} onSetUseBioclimSeason={setUseBioclimSeason} onSetUseDrought={setUseDrought} />
 
-        <div>
-          <label className="block text-sm font-medium text-sdm-text mb-1">Extent preset</label>
-          <select
-            value={extentPreset}
-            onChange={(e) => setExtentPreset(e.target.value)}
-            className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
-          >
-            {Object.entries(EXTENT_PRESETS).map(([key, val]) => (
-              <option key={key} value={key}>{val.label}</option>
-            ))}
-            <option value="custom">Custom extent</option>
-          </select>
-        </div>
+      <AdvancedSettings vifReduction={vifReduction} climateMatching={climateMatching} thinByCell={thinByCell} mergeSmallSources={mergeSmallSources} biasMethod={biasMethod} thickeningDistanceKm={thickeningDistanceKm} minSourceRecords={minSourceRecords} onSetVifReduction={setVifReduction} onSetClimateMatching={setClimateMatching} onSetThinByCell={setThinByCell} onSetMergeSmallSources={setMergeSmallSources} onSetBiasMethod={(v) => setBiasMethod(v as any)} onSetThickeningDistanceKm={setThickeningDistanceKm} onSetMinSourceRecords={setMinSourceRecords} />
 
-        {extentPreset === "custom" && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-sdm-muted mb-1">xmin</label>
-              <input type="number" value={customExtent[0]} onChange={(e) => setCustomExtent([Number(e.target.value), customExtent[1], customExtent[2], customExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-sdm-muted mb-1">xmax</label>
-              <input type="number" value={customExtent[1]} onChange={(e) => setCustomExtent([customExtent[0], Number(e.target.value), customExtent[2], customExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-sdm-muted mb-1">ymin</label>
-              <input type="number" value={customExtent[2]} onChange={(e) => setCustomExtent([customExtent[0], customExtent[1], Number(e.target.value), customExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-sdm-muted mb-1">ymax</label>
-              <input type="number" value={customExtent[3]} onChange={(e) => setCustomExtent([customExtent[0], customExtent[1], customExtent[2], Number(e.target.value)])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          </div>
-        )}
-
-        <div>
-          <label className="block text-sm font-medium text-sdm-text mb-1">High-suitability threshold</label>
-          <input
-            type="range"
-            min={0.05}
-            max={0.95}
-            step={0.05}
-            value={threshold}
-            onChange={(e) => setThreshold(Number(e.target.value))}
-            className="w-full"
-          />
-          <span className="text-sm text-sdm-muted">{threshold.toFixed(2)}</span>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-sdm-text mb-1">Future climate projection</label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={futureProjection} onChange={(e) => setFutureProjection(e.target.checked)} />
-            Project future scenario
-          </label>
-        </div>
-
-        {futureProjection && (
-          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            {climateSource === "chelsa" && (
-              <p className="text-xs text-sdm-warning">
-                Future projection uses WorldClim CMIP6 data regardless of current climate source selection.
-                CHELSA v2.1 future data is not currently supported.
-              </p>
-            )}
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Scenario label</label>
-              <input type="text" value={futureLabel} onChange={(e) => setFutureLabel(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">GCM</label>
-              <select value={futureGcm} onChange={(e) => setFutureGcm(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
-                {GCM_CHOICES.map((gcm) => (
-                  <option key={gcm.id} value={gcm.id}>{gcm.label} — {gcm.description}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">SSP scenario</label>
-              <select value={futureSsp} onChange={(e) => setFutureSsp(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
-                {SSP_CHOICES.map((ssp) => (
-                  <option key={ssp.id} value={ssp.id}>{ssp.label} — {ssp.description}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Time period</label>
-              <select value={futurePeriod} onChange={(e) => setFuturePeriod(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
-                {TIME_PERIOD_CHOICES.map((p) => (
-                  <option key={p.id} value={p.id}>{p.label} — {p.description}</option>
-                ))}
-              </select>
-            </div>
-            <p className="text-xs text-sdm-muted font-mono">
-              Path: Worldclim_future/{futureGcm}_{futureSsp}_{futurePeriod}
-            </p>
-
-            <label className="flex items-center gap-2 text-sm text-sdm-text">
-              <input type="checkbox" checked={future2Enabled} onChange={(e) => setFuture2Enabled(e.target.checked)} />
-              Compare second scenario
-            </label>
-            {future2Enabled && (
-              <div className="space-y-3 ml-4 border-l-2 border-sdm-border/50 pl-3">
-                <div>
-                  <label className="block text-sm font-medium text-sdm-text mb-1">Label</label>
-                  <input type="text" value={future2Label} onChange={(e) => setFuture2Label(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-sdm-text mb-1">GCM</label>
-                  <select value={future2Gcm} onChange={(e) => setFuture2Gcm(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
-                    {GCM_CHOICES.map((gcm) => (
-                      <option key={gcm.id} value={gcm.id}>{gcm.label} — {gcm.description}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-sdm-text mb-1">SSP</label>
-                  <select value={future2Ssp} onChange={(e) => setFuture2Ssp(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
-                    {SSP_CHOICES.map((ssp) => (
-                      <option key={ssp.id} value={ssp.id}>{ssp.label} — {ssp.description}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-sdm-text mb-1">Period</label>
-                  <select value={future2Period} onChange={(e) => setFuture2Period(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
-                    {TIME_PERIOD_CHOICES.map((p) => (
-                      <option key={p.id} value={p.id}>{p.label} — {p.description}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
-
-            <label className="flex items-center gap-2 text-sm text-sdm-text">
-              <input type="checkbox" checked={extrapolationMask} onChange={(e) => setExtrapolationMask(e.target.checked)} />
-              Mask extrapolation zones (MESS &lt; 0)
-            </label>
-            <p className="text-xs text-sdm-muted -mt-2">
-              Cells where the future climate is outside the training range will be masked as unsuitable
-            </p>
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
-        <h2 className="text-lg font-semibold text-sdm-heading">Model settings</h2>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">Background points</label>
-            <input type="number" value={backgroundN} onChange={(e) => setBackgroundN(Number(e.target.value))} min={500} max={100000} step={500} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">CPU cores</label>
-            <input type="number" value={nCores} onChange={(e) => setNCores(Number(e.target.value))} min={1} max={64} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">Cross-validation folds</label>
-            <select value={cvFolds} onChange={(e) => setCvFolds(Number(e.target.value))} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
-              <option value={0}>Off</option>
-              <option value={3}>3-fold</option>
-              <option value={5}>5-fold</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">CV strategy</label>
-            <select value={cvStrategy} onChange={(e) => setCvStrategy(e.target.value as typeof cvStrategy)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
-              <option value="random">Random</option>
-              <option value="spatial_blocks">Spatial blocks</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">PA replicates</label>
-            <input type="number" value={paReplicates} onChange={(e) => setPaReplicates(Number(e.target.value))} min={1} max={10} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">Raster aggregation</label>
-            <input type="number" value={aggregationFactor} onChange={(e) => setAggregationFactor(Number(e.target.value))} min={1} max={8} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-          </div>
-        </div>
-
-        <label className="flex items-center gap-2 text-sm text-sdm-text">
-          <input type="checkbox" checked={includeQuadratic} onChange={(e) => setIncludeQuadratic(e.target.checked)} />
-          Include quadratic climate responses
-        </label>
-      </div>
-
-      <details className="rounded-lg border border-sdm-border bg-sdm-surface">
-        <summary className="cursor-pointer px-6 py-4 text-sm font-semibold text-sdm-heading">Optional covariates</summary>
-        <div className="px-6 pb-6 space-y-4">
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useElevation} onChange={(e) => setUseElevation(e.target.checked)} />
-            Add elevation (OpenTopography)
-          </label>
-
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useSoil} onChange={(e) => setUseSoil(e.target.checked)} />
-            Add SoilGrids covariates
-          </label>
-          {useSoil && (
-            <div className="space-y-2 ml-6">
-              <div className="flex flex-wrap gap-2">
-                {SOIL_VARS.map((v: { id: string; label: string }) => (
-                  <label key={v.id} className={cn("px-2 py-1 rounded text-xs cursor-pointer border", soilVars.includes(v.id) ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent" : "border-sdm-border text-sdm-muted")}>
-                    <input type="checkbox" checked={soilVars.includes(v.id)} onChange={() => toggleSoilVar(v.id)} className="sr-only" />
-                    {v.label}
-                  </label>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {SOIL_DEPTHS.map((d: string) => (
-                  <label key={d} className={cn("px-2 py-1 rounded text-xs cursor-pointer border", soilDepths.includes(d) ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent" : "border-sdm-border text-sdm-muted")}>
-                    <input type="checkbox" checked={soilDepths.includes(d)} onChange={() => toggleSoilDepth(d)} className="sr-only" />
-                    {d}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useUv} onChange={(e) => setUseUv(e.target.checked)} />
-            Add UV-B covariates (glUV)
-          </label>
-          {useUv && (
-            <div className="flex flex-wrap gap-2 ml-6">
-              {UV_VARS.map((v: { id: string; label: string }) => (
-                <label key={v.id} className={cn("px-2 py-1 rounded text-xs cursor-pointer border", uvVars.includes(v.id) ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent" : "border-sdm-border text-sdm-muted")}>
-                  <input type="checkbox" checked={uvVars.includes(v.id)} onChange={() => toggleUvVar(v.id)} className="sr-only" />
-                  {v.label}
-                </label>
-              ))}
-            </div>
-          )}
-
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useVegetation} onChange={(e) => setUseVegetation(e.target.checked)} />
-            Add vegetation productivity
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useLulc} onChange={(e) => setUseLulc(e.target.checked)} />
-            Add LULC (MODIS)
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useHfp} onChange={(e) => setUseHfp(e.target.checked)} />
-            Add Human Footprint
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useBioclimSeason} onChange={(e) => setUseBioclimSeason(e.target.checked)} />
-            Add bioclimatic seasonality
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useDrought} onChange={(e) => setUseDrought(e.target.checked)} />
-            Add drought index (scPDSI)
-          </label>
-        </div>
-      </details>
-
-      <details className="rounded-lg border border-sdm-border bg-sdm-surface">
-        <summary className="cursor-pointer px-6 py-4 text-sm font-semibold text-sdm-heading">Advanced settings</summary>
-        <div className="px-6 pb-6 space-y-4">
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={vifReduction} onChange={(e) => setVifReduction(e.target.checked)} />
-            Drop collinear covariates (VIF reduction)
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={climateMatching} onChange={(e) => setClimateMatching(e.target.checked)} />
-            Compute climate matching
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={thinByCell} onChange={(e) => setThinByCell(e.target.checked)} />
-            Thin duplicate records in same climate cell
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={mergeSmallSources} onChange={(e) => setMergeSmallSources(e.target.checked)} />
-            Merge small occurrence sources
-          </label>
-
-          <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">Background sampling bias correction</label>
-            <select value={biasMethod} onChange={(e) => setBiasMethod(e.target.value as typeof biasMethod)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
-              <option value="uniform">Uniform random</option>
-              <option value="target_group">Target-group</option>
-              <option value="thickened">Thickened</option>
-            </select>
-          </div>
-
-          {biasMethod === "thickened" && (
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Kernel distance (km)</label>
-              <input type="number" value={thickeningDistanceKm} onChange={(e) => setThickeningDistanceKm(Number(e.target.value))} min={1} max={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          )}
-
-          <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">Merge sources with fewer than</label>
-            <input type="number" value={minSourceRecords} onChange={(e) => setMinSourceRecords(Number(e.target.value))} min={1} max={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-          </div>
-        </div>
-      </details>
-
-      <button
-        onClick={handleSubmit}
-        disabled={loading || !(occurrenceFile || cleanedOccurrence?.filePath) || biovars.length < 2}
-        className="w-full rounded-md bg-sdm-accent px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
+      <button onClick={handleSubmit} disabled={loading || !(occurrenceFile || cleanedOccurrence?.filePath) || biovars.length < 2} className="w-full rounded-md bg-sdm-accent px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed">
         {loading ? "Running..." : missingBiovars.length > 0 ? "Run SDM (may download climate data)" : "Run SDM"}
       </button>
     </div>
