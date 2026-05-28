@@ -12,7 +12,7 @@ import { Ban, AlertTriangle, Loader2 } from "lucide-react";
 import type { ModelConfig } from "@sdm/shared";
 
 const ModelConfigForm = dynamic(
-  () => import("@/components/model/model-config-form").then(m => m.ModelConfigForm),
+  () => import("@/components/model/model-config-form"),
   { ssr: false, loading: () => <div className="h-96 rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted"><Loader2 className="h-6 w-6 animate-spin" /></div> }
 );
 

@@ -30,7 +30,7 @@ interface ModelConfigFormProps {
   loading: boolean;
 }
 
-export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence, onSubmit, loading }: ModelConfigFormProps) {
+export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence, onSubmit, loading }: ModelConfigFormProps) {
   const setSpeciesStore = useSDMStore((s) => s.setSpecies);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>(MODEL_BACKENDS);
   const [species, setSpecies] = useState(() => useSDMStore.getState().species || "Untitled species");

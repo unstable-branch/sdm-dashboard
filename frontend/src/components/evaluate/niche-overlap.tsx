@@ -207,3 +207,4 @@ export function NicheOverlap({ runs }: NicheOverlapProps) {
     </div>
   );
 }
+export { NicheOverlap as default }

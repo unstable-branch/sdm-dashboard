@@ -13,12 +13,12 @@ import { useJobSSE } from "@/hooks/use-job-sse";
 import { useRunDetail } from "@/hooks/use-queries";
 
 const SuitabilityMap = dynamic(
-  () => import("@/components/results/suitability-map").then(m => m.SuitabilityMap),
+  () => import("@/components/results/suitability-map"),
   { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
 );
 
 const DiagnosticsPanel = dynamic(
-  () => import("@/components/results/diagnostics-panel").then(m => m.DiagnosticsPanel),
+  () => import("@/components/results/diagnostics-panel"),
   { ssr: false, loading: () => <div className="h-64 rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading diagnostics...</div> }
 );
 

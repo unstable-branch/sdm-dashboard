@@ -11,12 +11,12 @@ import { apiGet } from "@/services/api";
 import { BarChart3, Loader2, Image, Map as MapIcon } from "lucide-react";
 import type { ImportanceData, ResponseCurvesData, CbiData, VifData, RunDetail as ApiRunDetail } from "@/services/types";
 
-const NicheOverlap = dynamic(() => import("@/components/evaluate/niche-overlap").then(m => m.NicheOverlap), { ssr: false });
-const ImportanceChart = dynamic(() => import("@/components/diagnostics/importance-chart").then(m => m.ImportanceChart), { ssr: false });
-const ResponseCurvesChart = dynamic(() => import("@/components/diagnostics/response-curves-chart").then(m => m.ResponseCurvesChart), { ssr: false });
-const CbiChart = dynamic(() => import("@/components/diagnostics/cbi-chart").then(m => m.CbiChart), { ssr: false });
+const NicheOverlap = dynamic(() => import("@/components/evaluate/niche-overlap"), { ssr: false });
+const ImportanceChart = dynamic(() => import("@/components/diagnostics/importance-chart"), { ssr: false });
+const ResponseCurvesChart = dynamic(() => import("@/components/diagnostics/response-curves-chart"), { ssr: false });
+const CbiChart = dynamic(() => import("@/components/diagnostics/cbi-chart"), { ssr: false });
 const SuitabilityMap = dynamic(
-  () => import("@/components/results/suitability-map").then(m => m.SuitabilityMap),
+  () => import("@/components/results/suitability-map"),
   { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
 );
 

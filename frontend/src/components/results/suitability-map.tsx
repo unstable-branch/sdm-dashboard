@@ -163,3 +163,4 @@ export function SuitabilityMap({ outputFiles, projectionExtent, runId }: Suitabi
     </div>
   );
 }
+export { SuitabilityMap as default }

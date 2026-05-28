@@ -73,3 +73,4 @@ export function ImportanceChart({ data, loading }: ImportanceChartProps) {
     </div>
   );
 }
+export { ImportanceChart as default }
