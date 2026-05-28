@@ -58,7 +58,7 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
   useEffect(() => {
     if (!hasActiveRuns(runsRef.current)) return;
 
-    const interval = setInterval(fetchRuns, 10000);
+    const interval = setInterval(() => { if (!document.hidden) fetchRuns(); }, 10000);
     return () => clearInterval(interval);
   }, [fetchRuns]);
 
@@ -228,7 +228,7 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
                       onClick={() => handleCancel(run.id)}
                       disabled={isActioning}
                       className="p-1 rounded hover:bg-sdm-danger/10 text-sdm-muted hover:text-sdm-danger disabled:opacity-50"
-                      title="Cancel run"
+                      aria-label="Cancel run"
                     >
                       <Ban className="h-3.5 w-3.5" />
                     </button>
@@ -238,7 +238,7 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
                       onClick={() => handleDelete(run.id)}
                       disabled={isActioning}
                       className="p-1 rounded hover:bg-sdm-danger/10 text-sdm-muted hover:text-sdm-danger disabled:opacity-50"
-                      title="Delete run"
+                      aria-label="Delete run"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

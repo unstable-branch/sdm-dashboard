@@ -127,10 +127,9 @@ function RunsTab() {
   async function cleanupJobs() {
     try {
       const res = await apiPost<{ message: string }>("/api/v1/admin/system/jobs/cleanup");
-      alert(res.message);
       fetchRuns();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      setError(err instanceof Error ? err.message : "Failed");
     }
   }
 
