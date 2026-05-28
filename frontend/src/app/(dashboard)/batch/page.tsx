@@ -108,7 +108,7 @@ export default function BatchPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <button onClick={() => router.back()} className="text-sdm-muted hover:text-sdm-text">
+        <button onClick={() => router.back()} className="text-sdm-muted hover:text-sdm-text" aria-label="Go back">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div>
