@@ -134,26 +134,26 @@ export default function ModelPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           {cleanedOccurrence && cleanedOccurrence.validRecords === 0 && (
-            <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/5 px-4 py-3 flex items-start gap-3">
-              <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+            <div className="mb-4 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 px-4 py-3 flex items-start gap-3">
+              <AlertTriangle className="h-4 w-4 text-sdm-danger shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="text-sm font-medium text-red-500">Cleaning produced 0 valid records</p>
-                <p className="text-xs text-red-400">The occurrence data has no valid records after cleaning. Go back to the Data page and check your data before running a model.</p>
+                <p className="text-sm font-medium text-sdm-danger">Cleaning produced 0 valid records</p>
+                <p className="text-xs text-sdm-danger">The occurrence data has no valid records after cleaning. Go back to the Data page and check your data before running a model.</p>
               </div>
             </div>
           )}
           {!cleanedOccurrence && occurrenceFile && (
-            <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
-              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+            <div className="mb-4 rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 flex items-start gap-3">
+              <AlertTriangle className="h-4 w-4 text-sdm-warning shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="text-sm font-medium text-amber-500">Cleaning recommended</p>
-                <p className="text-xs text-amber-400">Clean your data first on the <Link href="/data?tab=clean" className="underline">Data page</Link>. Without previewing, the model will clean automatically but you won't see the results.</p>
+                <p className="text-sm font-medium text-sdm-warning">Cleaning recommended</p>
+                <p className="text-xs text-sdm-warning">Clean your data first on the <Link href="/data?tab=clean" className="underline">Data page</Link>. Without previewing, the model will clean automatically but you won't see the results.</p>
               </div>
             </div>
           )}
 
           {activeRuns.length > 0 && !jobId && (
-            <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 space-y-2">
+            <div className="mb-4 rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 space-y-2">
               <p className="text-sm text-sdm-warning">
                 {activeRuns.length === 1
                   ? `A model run is already in progress: ${activeRuns[0].species} (${activeRuns[0].model_id})`
@@ -172,7 +172,7 @@ export default function ModelPage() {
                       setError("Failed to cancel run(s)");
                     }
                   }}
-                  className="ml-auto inline-flex items-center gap-1 rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-400 hover:bg-red-500/20"
+                  className="ml-auto inline-flex items-center gap-1 rounded border border-sdm-danger/30 bg-sdm-danger/10 px-2 py-1 text-xs text-sdm-danger hover:bg-sdm-danger/20"
                 >
                   <Ban className="h-3 w-3" />
                   Cancel {activeRuns.length === 1 ? "run" : "all"}
@@ -190,7 +190,7 @@ export default function ModelPage() {
           />
 
           {error && (
-            <div className="mt-4 rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
+            <div className="mt-4 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
               {error}
             </div>
           )}
@@ -216,12 +216,12 @@ export default function ModelPage() {
               </div>
             ) : occurrenceFile ? (
               <div>
-                <div className="flex items-center gap-2 text-sm text-amber-500">
+                <div className="flex items-center gap-2 text-sm text-sdm-warning">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
                   <p className="text-sm text-sdm-text font-mono truncate">{typeof occurrenceFile === "string" ? occurrenceFile.split("/").pop() : String(occurrenceFile)}</p>
                 </div>
                 <p className="text-xs text-sdm-muted mt-1">{recordCount.toLocaleString()} records loaded</p>
-                <p className="text-xs text-amber-400 mt-1">Not cleaned. <Link href="/data?tab=clean" className="underline">Clean on Data page</Link> first.</p>
+                <p className="text-xs text-sdm-warning mt-1">Not cleaned. <Link href="/data?tab=clean" className="underline">Clean on Data page</Link> first.</p>
                 {species && species !== "Untitled species" && (
                   <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>
                 )}
