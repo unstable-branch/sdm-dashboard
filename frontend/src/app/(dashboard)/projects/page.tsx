@@ -5,6 +5,7 @@ import { apiGet, apiPost, apiDelete, apiPut } from "@/services/api";
 import type { Project } from "@/services/types";
 import { Loader2, Plus, Pencil, Trash2, Users } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { CardSkeleton } from "@/components/ui/skeleton";
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -85,8 +86,8 @@ export default function ProjectsPage() {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-sdm-heading">Projects</h1>
-        <div className="flex items-center justify-center h-32">
-          <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <CardSkeleton /><CardSkeleton /><CardSkeleton />
         </div>
       </div>
     );
