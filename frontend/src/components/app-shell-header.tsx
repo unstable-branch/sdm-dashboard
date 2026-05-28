@@ -92,6 +92,7 @@ export function AppShellHeader() {
               "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-transparent px-3 py-1.5 text-xs font-medium text-sdm-muted",
               isActive(item.href) && "border-sdm-accent/30 bg-sdm-accent/10 text-sdm-accent"
             )}
+            aria-current={isActive(item.href) ? "page" : undefined}
           >
             <item.icon className="h-3.5 w-3.5" />
             {item.title}

@@ -61,7 +61,7 @@ export function AppSidebar() {
         return (
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton asChild className={active ? "bg-sdm-accent/10" : ""}>
-              <Link href={item.href} className={cn(navLinkClass, active && "text-sdm-accent")}>
+              <Link href={item.href} className={cn(navLinkClass, active && "text-sdm-accent")} aria-current={active ? "page" : undefined}>
                 <item.icon className="h-4 w-4 shrink-0" />
                 <span>{item.title}</span>
               </Link>
@@ -79,7 +79,7 @@ export function AppSidebar() {
         return (
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton asChild className={active ? "bg-sdm-accent/10" : ""}>
-              <Link href={item.href} className={cn(navLinkClass, active && "text-sdm-accent")}>
+              <Link href={item.href} className={cn(navLinkClass, active && "text-sdm-accent")} aria-current={active ? "page" : undefined}>
                 <item.icon className="h-4 w-4 shrink-0" />
                 <span>{item.title}</span>
               </Link>
@@ -94,7 +94,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader>
         <div className="flex items-center gap-2 px-4 py-3">
-          <Leaf className="h-6 w-6 text-sdm-accent" />
+          <Leaf className="h-6 w-6 text-sdm-accent" aria-hidden="true" />
           <span className="text-lg font-bold text-sdm-heading">SDM Platform</span>
         </div>
       </SidebarHeader>
