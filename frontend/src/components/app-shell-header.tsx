@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useContext } from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Leaf, Moon, Sun, Menu, X } from "lucide-react";
@@ -10,12 +9,7 @@ import { Button } from "@/components/ui/button";
 import { dashboardNavItems } from "@/components/dashboard-nav";
 import { SidebarContext } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
-
-const UserMenu = dynamic(() => import("@/components/layout/user-menu").then(m => ({ default: m.UserMenu })), {
-  loading: () => (
-    <div className="h-8 w-24 rounded-md bg-sdm-surface-soft animate-pulse" />
-  ),
-});
+import { UserMenu } from "@/components/layout/user-menu";
 
 export function AppShellHeader() {
   const pathname = usePathname();
