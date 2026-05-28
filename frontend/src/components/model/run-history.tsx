@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Ban, Trash2, AlertTriangle } from "lucide-react";
 import { apiGet, apiPost, apiDelete } from "@/services/api";
@@ -62,8 +62,8 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
     return () => clearInterval(interval);
   }, [fetchRuns]);
 
-  const activeCount = runs.filter((r) => r.status === "queued" || r.status === "running").length;
-  const clearableCount = runs.filter((r) => ["completed", "failed", "cancelled"].includes(r.status)).length;
+  const activeCount = useMemo(() => runs.filter((r) => r.status === "queued" || r.status === "running").length, [runs]);
+  const clearableCount = useMemo(() => runs.filter((r) => ["completed", "failed", "cancelled"].includes(r.status)).length, [runs]);
 
   const handleCancel = async (runId: string) => {
     setActionRunId(runId);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,6 +10,7 @@ import { FutureProjectionPanel } from "@/components/results/future-projection-pa
 import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers, TrendingUp, TrendingDown } from "lucide-react";
 import { apiGet, apiPost } from "@/services/api";
 import { useJobSSE } from "@/hooks/use-job-sse";
+import { useRunDetail } from "@/hooks/use-queries";
 import type { RunDetail } from "@/services/types";
 
 const SuitabilityMap = dynamic(
@@ -27,19 +28,19 @@ export default function ResultsPage() {
   const router = useRouter();
   const runId = params.runId as string;
 
-  const [run, setRun] = useState<RunDetail | null>(null);
   const [benchmark, setBenchmark] = useState<{
     bestRun: { species: string; model_id: string; auc: number | null };
     diff: number;
     improving: boolean;
   } | null>(null);
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [reportText, setReportText] = useState<string | null>(null);
   const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
   const [ensembleGenerating, setEnsembleGenerating] = useState(false);
   const [ensembleGenerated, setEnsembleGenerated] = useState(false);
+
+  const { data: run, isLoading: loading, error: fetchError, refetch } = useRunDetail(runId);
+  const error = fetchError ? (fetchError as Error).message : null;
 
   // SSE-driven job updates (only connect when initial status is running)
   const { getJob, connected } = useJobSSE(true);
@@ -52,36 +53,23 @@ export default function ResultsPage() {
       await apiPost(`/api/v1/diagnostics/ensemble-rasters/${runId}`);
       setEnsembleGenerated(true);
     } catch {
-      // silently fail
     } finally {
       setEnsembleGenerating(false);
     }
   }, [runId]);
 
-  const fetchRun = useCallback(async () => {
-    if (!runId) return;
-    try {
-      const data = await apiGet<RunDetail>(`/api/v1/sdm/status/${runId}`);
-      setRun(data);
-      setLoading(false);
-
-      if (data.status === "completed") {
-        apiGet<string>(`/api/v1/results/${runId}/report.txt`).catch(() => null).then((text) => setReportText(text));
-        // Use provenance from the status endpoint directly; fall back
-        // to a separate manifest fetch if it's not populated yet.
-        if (data.provenance) {
-          setManifest(data.provenance as Record<string, unknown>);
-        } else {
-          apiGet<{ manifest: Record<string, unknown> }>(`/api/v1/results/${runId}/manifest`)
-            .then((m) => setManifest(m?.manifest || null))
-            .catch(() => {});
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load run");
-      setLoading(false);
+  // Fetch report + manifest after run loads
+  useEffect(() => {
+    if (!run || run.status !== "completed") return;
+    apiGet<string>(`/api/v1/results/${runId}/report.txt`).catch(() => null).then((text) => setReportText(text));
+    if (run.provenance) {
+      setManifest(run.provenance as Record<string, unknown>);
+    } else {
+      apiGet<{ manifest: Record<string, unknown> }>(`/api/v1/results/${runId}/manifest`)
+        .then((m) => setManifest(m?.manifest || null))
+        .catch(() => {});
     }
-  }, [runId]);
+  }, [run?.id, run?.status, runId]);
 
   // Auto-benchmark: compare against best previous run for same species
   useEffect(() => {
@@ -108,19 +96,14 @@ export default function ResultsPage() {
       .catch(() => setBenchmarkLoading(false));
   }, [run?.id, run?.status, run?.metrics?.auc_mean, run?.species]);
 
-  // Initial fetch
-  useEffect(() => {
-    fetchRun();
-  }, [fetchRun]);
-
   // SSE fallback: poll only if SSE is disconnected and run is still running
   useEffect(() => {
     if (!run || run.status !== "running") return;
-    if (connected) return; // SSE is active, no polling needed
+    if (connected) return;
 
-    const interval = setInterval(() => { if (!document.hidden) fetchRun(); }, 5000);
+    const interval = setInterval(() => { if (!document.hidden) refetch(); }, 5000);
     return () => clearInterval(interval);
-  }, [run?.status, connected, fetchRun]);
+  }, [run?.id, run?.status, connected, refetch]);
 
   // SSE update: when a job event arrives for this runId, refresh
   useEffect(() => {
@@ -129,9 +112,9 @@ export default function ResultsPage() {
     if (!job) return;
 
     if (job.state === "completed" || job.state === "failed" || job.state === "cancelled") {
-      fetchRun();
+      refetch();
     }
-  }, [runId, getJob, fetchRun]);
+  }, [runId, getJob, refetch]);
 
   if (loading) {
     return (
