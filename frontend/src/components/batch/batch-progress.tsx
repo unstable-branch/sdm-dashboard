@@ -64,7 +64,7 @@ export function BatchProgress({ jobIds, batchId, onComplete, onRetryFailed, onCa
       );
       if (allDone) {
         onComplete?.();
-      } else {
+      } else if (!document.hidden) {
         timeoutRef.current = setTimeout(fetchStatus, 5000);
       }
     };
