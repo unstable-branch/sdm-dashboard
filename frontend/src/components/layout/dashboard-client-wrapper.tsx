@@ -1,13 +1,11 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { AuthGuard } from "@/components/auth/auth-guard";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppShellHeader } from "@/components/app-shell-header";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { ToastProvider } from "@/components/toast-wrapper";
-
-const ErrorBoundary = dynamic(() => import("@/components/ui/error-boundary").then(m => ({ default: m.ErrorBoundary })));
+import ErrorBoundary from "@/components/ui/error-boundary";
 
 export function DashboardClientWrapper({ children }: { children: React.ReactNode }) {
   return (
