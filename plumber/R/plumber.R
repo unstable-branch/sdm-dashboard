@@ -659,7 +659,10 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
         presence_records = result$metrics$presence_records,
         background_points = result$metrics$background_points,
         elapsed_seconds = result$metrics$elapsed_seconds,
-        high_suitability_area_km2 = result$summary$high_risk_area_km2
+        high_suitability_area_km2 = result$summary$high_risk_area_km2,
+        high_suitability_area_uncertainty_km2 = result$summary$high_risk_area_uncertainty_km2 %||% NULL,
+        high_suitability_area_ci95_lower = result$summary$high_risk_area_ci95_lower %||% NULL,
+        high_suitability_area_ci95_upper = result$summary$high_risk_area_ci95_upper %||% NULL
       )
       # Write EPSG:3857 COG for web map display
       if (!is.null(result$paths$tif) && !is.null(result$suitability)) {
