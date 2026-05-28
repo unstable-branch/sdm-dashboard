@@ -1362,12 +1362,49 @@ function(res, job_id) {
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
 
+  # Crash detection: if status is "running" but process is dead or missing
+  if (identical(meta$status, "running")) {
+    proc <- sdm_process_registry[[basename(job_id)]]
+    process_alive <- FALSE
+    if (!is.null(proc)) {
+      tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
+    }
+    if (!process_alive && !is.null(meta$process_pid)) {
+      pid <- as.integer(meta$process_pid)
+      if (is.finite(pid)) {
+        tryCatch({ ps_info <- tools::ps(); process_alive <- pid %in% ps_info$PID }, error = function(e) NULL)
+      }
+    }
+    if (!process_alive) {
+      meta$status <- "failed"
+      meta$error <- "Process crashed"
+      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      sdm_write_json(meta, meta_file)
+      sdm_process_registry[[basename(job_id)]] <- NULL
+    }
+  }
+
+  # Cancel check via Redis — catches cancel before process reacts
+  if (identical(meta$status, "running") && sdm_redis_cancel_check(basename(job_id))) {
+    meta$status <- "cancelled"
+    meta$error <- "Cancelled by user"
+    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    sdm_write_json(meta, meta_file)
+    sdm_process_registry[[basename(job_id)]] <- NULL
+  }
+
   # jsonlite encodes R NULL as {} — normalize to NULL
   nullify <- function(x) if (is.list(x) && length(x) == 0) NULL else x
 
-  progress_lines <- character(0)
-  if (file.exists(progress_file)) {
-    progress_lines <- tail(readLines(progress_file, warn = FALSE), 50)
+  # Try Redis progress first, fall back to file progress
+  redis_progress <- sdm_redis_progress_get(basename(job_id), 50)
+  if (!is.null(redis_progress) && length(redis_progress) > 0) {
+    progress_lines <- redis_progress
+  } else {
+    progress_lines <- character(0)
+    if (file.exists(progress_file)) {
+      progress_lines <- tail(readLines(progress_file, warn = FALSE), 50)
+    }
   }
 
   list(
