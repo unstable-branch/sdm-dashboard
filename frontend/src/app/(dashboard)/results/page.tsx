@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRuns } from "@/hooks/use-runs";
-import { Loader2, BarChart3, ArrowRight, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { CardSkeleton } from "@/components/ui/skeleton";
+import { BarChart3, ArrowRight, Clock, CheckCircle2, XCircle } from "lucide-react";
 
 export default function ResultsIndexPage() {
   const { data, isLoading, error, refetch } = useRuns();
@@ -12,8 +13,10 @@ export default function ResultsIndexPage() {
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-sdm-heading">Results</h1>
         <p className="text-sdm-muted">Browse completed model runs.</p>
-        <div className="flex items-center justify-center h-32">
-          <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />
+        <div className="space-y-3">
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
         </div>
       </div>
     );
