@@ -25,7 +25,7 @@ export function useJobProgress(jobId: string | null) {
   useEffect(() => {
     if (!jobId || fetchedRef.current) return;
     fetchedRef.current = true;
-    setError(null);
+    _setError(null);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -45,7 +45,7 @@ export function useJobProgress(jobId: string | null) {
           failedReason: data.failedReason as string | undefined,
         });
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to fetch job status"))
+      .catch((err) => _setError(err instanceof Error ? err.message : "Failed to fetch job status"))
       .finally(() => clearTimeout(timeoutId));
 
     return () => clearTimeout(timeoutId);
