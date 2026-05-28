@@ -19,4 +19,7 @@ export {
   buildFutureWorldclimPath,
   extractProgressPercent,
   extractStage,
+  MODEL_TIERS,
+  TIER_ORDER,
+  tierSortKey,
 } from "./constants.js";
