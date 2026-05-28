@@ -233,53 +233,7 @@ run_fast_sdm <- function(...) {
   }
   progress_step(progress_fun, 0.60, "Fitting model")
   log_message(log_fun, "Model backend: ", model_spec$label)
-  extra_args <- if (identical(model_id, "maxnet")) {
-    list(maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
-  } else if (identical(model_id, "brt")) {
-    list(n_trees = cfg$brt_n_trees %||% 2000L, interaction_depth = cfg$brt_interaction_depth %||% 3L,
-      shrinkage = cfg$brt_shrinkage %||% 0.01, bag_fraction = cfg$brt_bag_fraction %||% 0.75)
-  } else if (identical(model_id, "cta")) {
-    list(cp = cfg$cta_cp %||% 0.01, maxdepth = cfg$cta_maxdepth %||% 10L, minsplit = cfg$cta_minsplit %||% 20L)
-  } else if (identical(model_id, "mars")) {
-    list(degree = cfg$mars_degree %||% 2L, penalty = cfg$mars_penalty %||% 3.0)
-  } else if (identical(model_id, "fda")) {
-    list(degree = cfg$fda_degree %||% 2L)
-  } else if (identical(model_id, "ann")) {
-    list(size = cfg$ann_size %||% 5L, decay = cfg$ann_decay %||% 0.01, maxit = cfg$ann_maxit %||% 200L)
-  } else if (identical(model_id, "dnn")) {
-    list(n_seeds = cfg$dnn_n_seeds %||% 5L, dnn_model_type = cfg$dnn_model_type %||% "DNN_Medium", dnn_device = cfg$dnn_device %||% "auto")
-  } else if (identical(model_id, "rf")) {
-    list(num_trees = cfg$rf_num_trees %||% 500L, mtry = cfg$rf_mtry %||% NULL, min_node_size = cfg$rf_min_node_size %||% 10L)
-  } else if (identical(model_id, "xgboost")) {
-    list(max_depth = cfg$xgb_max_depth %||% 6L, eta = cfg$xgb_eta %||% 0.3, nrounds = cfg$xgb_nrounds %||% 100L)
-  } else if (identical(model_id, "bart")) {
-    list(ntree = cfg$bart_ntree %||% 200L, ndpost = cfg$bart_ndpost %||% 1000L, nskip = cfg$bart_nskip %||% 500L)
-  } else if (identical(model_id, "brms")) {
-    list(chains = cfg$brms_chains %||% 4L, iter = cfg$brms_iter %||% 2000L, warmup = cfg$brms_warmup %||% 1000L)
-  } else if (identical(model_id, "inla_spde")) {
-    list(mesh_max_edge = cfg$inla_mesh_max_edge %||% NULL, mesh_cutoff = cfg$inla_mesh_cutoff %||% NULL, prior_range = cfg$inla_prior_range %||% NULL, prior_sigma = cfg$inla_prior_sigma %||% NULL)
-  } else if (identical(model_id, "rangebag")) {
-    list(n_bags = cfg$n_bags %||% sdm_default_rangebag_n_bags, bag_fraction = cfg$bag_fraction %||% sdm_default_rangebag_fraction, vars_per_bag = cfg$vars_per_bag %||% sdm_default_rangebag_vars_per_bag)
-  } else if (identical(model_id, "occupancy")) {
-    list(detection_formula = cfg$detection_formula %||% "~1", model_type = cfg$occupancy_model_type %||% "occu")
-  } else if (identical(model_id, "dnn_multispecies")) {
-    list(dnn_model_type = cfg$dnn_architecture %||% "DNN_Medium", n_seeds = cfg$dnn_multispecies_n_seeds %||% 3L, dnn_device = cfg$dnn_device %||% "auto")
-  } else if (identical(model_id, "biomod2")) {
-    list(models = cfg$biomod2_models %||% config$biomod2_default %||% c("GLM", "MAXNET", "RF"))
-  } else if (identical(model_id, "multi_ensemble")) {
-    list(
-      selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,
-      ensemble_power = multi_ensemble_power, min_auc = multi_ensemble_min_auc,
-      min_tss = multi_ensemble_min_tss, biomod2_models = biomod2_models
-    )
-  } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
-    list(
-      biovars = esm_biovars, min_auc = esm_min_auc, weighting_metric = esm_weighting_metric, power = esm_power,
-      n_runs_eval = esm_n_runs, data_split = esm_split
-    )
-  } else {
-    character(0)
-  }
+  extra_args <- build_stage_extra_args(cfg, model_id)
   bias_method <- match.arg(bias_method, c("uniform", "target_group", "thickened"))
   pa_replicates <- cfg$pa_replicates %||% 1L
   if (is.null(pa_replicates) || !is.finite(pa_replicates) || pa_replicates < 1) pa_replicates <- 1L
@@ -749,6 +703,60 @@ run_fast_sdm <- function(...) {
 # Each stage function takes a partial result and returns an updated one.
 
 #' Run SDM pipeline: Stage 1 — Clean occurrence data
+# Build model-specific extra_args from cfg (shared between run_fast_sdm and sdm_stage_fit)
+build_stage_extra_args <- function(cfg, model_id) {
+  if (identical(model_id, "maxnet")) {
+    list(maxnet_features = cfg$maxnet_features, maxnet_regmult = cfg$maxnet_regmult)
+  } else if (identical(model_id, "brt")) {
+    list(n_trees = cfg$brt_n_trees %||% 2000L, interaction_depth = cfg$brt_interaction_depth %||% 3L,
+      shrinkage = cfg$brt_shrinkage %||% 0.01, bag_fraction = cfg$brt_bag_fraction %||% 0.75)
+  } else if (identical(model_id, "cta")) {
+    list(cp = cfg$cta_cp %||% 0.01, maxdepth = cfg$cta_maxdepth %||% 10L, minsplit = cfg$cta_minsplit %||% 20L)
+  } else if (identical(model_id, "mars")) {
+    list(degree = cfg$mars_degree %||% 2L, penalty = cfg$mars_penalty %||% 3.0)
+  } else if (identical(model_id, "fda")) {
+    list(degree = cfg$fda_degree %||% 2L)
+  } else if (identical(model_id, "ann")) {
+    list(size = cfg$ann_size %||% 5L, decay = cfg$ann_decay %||% 0.01, maxit = cfg$ann_maxit %||% 200L)
+  } else if (identical(model_id, "dnn")) {
+    list(n_seeds = cfg$dnn_n_seeds %||% 5L, dnn_model_type = cfg$dnn_model_type %||% "DNN_Medium", dnn_device = cfg$dnn_device %||% "auto")
+  } else if (identical(model_id, "rf")) {
+    list(num_trees = cfg$rf_num_trees %||% 500L, mtry = cfg$rf_mtry %||% NULL, min_node_size = cfg$rf_min_node_size %||% 10L)
+  } else if (identical(model_id, "xgboost")) {
+    list(max_depth = cfg$xgb_max_depth %||% 6L, eta = cfg$xgb_eta %||% 0.3, nrounds = cfg$xgb_nrounds %||% 100L)
+  } else if (identical(model_id, "bart")) {
+    list(ntree = cfg$bart_ntree %||% 200L, ndpost = cfg$bart_ndpost %||% 1000L, nskip = cfg$bart_nskip %||% 500L)
+  } else if (identical(model_id, "brms")) {
+    list(chains = cfg$brms_chains %||% 4L, iter = cfg$brms_iter %||% 2000L, warmup = cfg$brms_warmup %||% 1000L)
+  } else if (identical(model_id, "inla_spde")) {
+    list(mesh_max_edge = cfg$inla_mesh_max_edge %||% NULL, mesh_cutoff = cfg$inla_mesh_cutoff %||% NULL,
+      prior_range = cfg$inla_prior_range %||% NULL, prior_sigma = cfg$inla_prior_sigma %||% NULL)
+  } else if (identical(model_id, "rangebag")) {
+    list(n_bags = cfg$n_bags %||% sdm_default_rangebag_n_bags, bag_fraction = cfg$bag_fraction %||% sdm_default_rangebag_fraction,
+      vars_per_bag = cfg$vars_per_bag %||% sdm_default_rangebag_vars_per_bag)
+  } else if (identical(model_id, "occupancy")) {
+    list(detection_formula = cfg$detection_formula %||% "~1", model_type = cfg$occupancy_model_type %||% "occu")
+  } else if (identical(model_id, "dnn_multispecies")) {
+    list(dnn_model_type = cfg$dnn_architecture %||% "DNN_Medium", n_seeds = cfg$dnn_multispecies_n_seeds %||% 3L,
+      dnn_device = cfg$dnn_device %||% "auto")
+  } else if (identical(model_id, "biomod2")) {
+    list(models = cfg$biomod2_models %||% config$biomod2_default %||% c("GLM", "MAXNET", "RF"))
+  } else if (identical(model_id, "multi_ensemble")) {
+    list(
+      selected_models = cfg$multi_ensemble_models, ensemble_weighting = cfg$multi_ensemble_weighting,
+      ensemble_power = cfg$multi_ensemble_power, min_auc = cfg$multi_ensemble_min_auc,
+      min_tss = cfg$multi_ensemble_min_tss, biomod2_models = cfg$biomod2_models
+    )
+  } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
+    list(
+      biovars = cfg$esm_biovars, min_auc = cfg$esm_min_auc, weighting_metric = cfg$esm_weighting_metric,
+      power = cfg$esm_power, n_runs_eval = cfg$esm_n_runs, data_split = cfg$esm_split
+    )
+  } else {
+    character(0)
+  }
+}
+
 sdm_stage_clean <- function(cfg, log_fun = NULL) {
   log_message(log_fun, "Stage 1: Cleaning occurrence data")
   cleaned <- clean_occurrences(
@@ -804,10 +812,10 @@ sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
 #' Run SDM pipeline: Stage 3 — Fit model
 sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL, progress_fun = NULL) {
   log_message(log_fun, "Stage 3: Fitting model")
-  extra_args <- list()
-  # Build extra_args from cfg as in run_fast_sdm...
+  model_id <- cfg$model_id %||% "glm"
+  extra_args <- build_stage_extra_args(cfg, model_id)
   fit <- do.call(fit_sdm_model, c(list(
-    model_id = cfg$model_id, occ = occ, env_train_scaled = env$env_train_scaled,
+    model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
     background_n = cfg$background_n, include_quadratic = cfg$include_quadratic,
     cv_folds = cfg$cv_folds, seed = cfg$seed, n_cores = cfg$n_cores, log_fun = log_fun,
     progress_fun = progress_fun,
