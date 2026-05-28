@@ -121,7 +121,7 @@ opentopo_key_is_configured <- function() {
 # Used by load.R and on-demand source() calls (e.g., mod_get_data.R).
 sdm_resolve_module <- function(m) {
   mod_dir <- file.path(sdm_project_root(), "R")
-  subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "output")
+  subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "xai", "output")
   for (sub in subdirs) {
     p <- file.path(mod_dir, sub, m)
     if (file.exists(p)) return(p)
