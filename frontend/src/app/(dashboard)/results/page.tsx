@@ -67,9 +67,9 @@ export default function ResultsIndexPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3 min-w-0">
                 {run.status === "completed" ? (
-                  <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                  <CheckCircle2 className="h-5 w-5 text-sdm-success shrink-0" />
                 ) : run.status === "failed" ? (
-                  <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+                  <XCircle className="h-5 w-5 text-sdm-danger shrink-0" />
                 ) : (
                   <Clock className="h-5 w-5 text-sdm-accent shrink-0 animate-pulse" />
                 )}
@@ -83,8 +83,8 @@ export default function ResultsIndexPage() {
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                  run.status === "completed" ? "bg-green-500/10 text-green-500" :
-                  run.status === "failed" ? "bg-red-500/10 text-red-500" :
+                  run.status === "completed" ? "bg-sdm-success/10 text-sdm-success" :
+                  run.status === "failed" ? "bg-sdm-danger/10 text-sdm-danger" :
                   "bg-sdm-accent/10 text-sdm-accent"
                 }`}>
                   {run.status}
