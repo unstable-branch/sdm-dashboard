@@ -5,6 +5,7 @@ export interface UserSettings {
   id: string;
   userId: string;
   defaultModelId: string;
+  pinnedModelIds: string[];
   defaultBiovars: string;
   defaultClimateSource: string;
   defaultClimateRes: number;

@@ -8,7 +8,9 @@ import { cn } from "@/lib/utils";
 import { CheckCircle2, AlertTriangle, Info, CloudOff, Cloud } from "lucide-react";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { apiGet } from "@/services/api";
+import { ModelSelector } from "./model-selector";
 
 interface ModelInfo {
   id: string;
@@ -190,6 +192,10 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
         }
       })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    useSettingsStore.getState().fetchSettings();
   }, []);
 
   useEffect(() => {
@@ -476,23 +482,11 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
         <div>
           <label className="block text-sm font-medium text-sdm-text mb-1">Model backend</label>
-          <select
-            value={modelId}
-            onChange={(e) => setModelId(e.target.value)}
-            className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
-          >
-            {availableModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} ({m.maturity}){m.available === false ? " — requires package installation" : ""}
-              </option>
-            ))}
-          </select>
-          {selectedModel?.maturity === "experimental" && (
-            <p className="mt-1 text-xs text-sdm-warning">Experimental model — results may vary</p>
-          )}
-          {selectedModel?.available === false && selectedModel.notes && (
-            <p className="mt-1 text-xs text-sdm-muted">{selectedModel.notes}</p>
-          )}
+          <ModelSelector
+            models={availableModels}
+            selected={modelId}
+            onSelect={setModelId}
+          />
           {isESM && (
             <div className="mt-2 rounded-md bg-blue-500/10 border border-blue-500/30 p-3 text-xs text-sdm-text">
               <p className="font-medium flex items-center gap-1.5">

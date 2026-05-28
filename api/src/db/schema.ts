@@ -140,6 +140,7 @@ export const userSettings = pgTable("user_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   defaultModelId: varchar("default_model_id", { length: 50 }).default("glm"),
+  pinnedModelIds: text("pinned_model_ids").array().default([]),
   defaultBiovars: text("default_biovars").default("1,4,6,12,15,18"),
   defaultClimateSource: varchar("default_climate_source", { length: 20 }).default("worldclim"),
   defaultClimateRes: doublePrecision("default_climate_res").default(10),
