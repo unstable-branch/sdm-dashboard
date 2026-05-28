@@ -168,17 +168,19 @@ export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps
                               </span>
                             )}
                           </div>
-                          <button
-                            type="button"
+                          <span
+                            role="button"
+                            tabIndex={0}
                             onClick={(e) => { e.stopPropagation(); togglePin(m.id); }}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); togglePin(m.id); } }}
                             className={cn(
-                              "shrink-0 p-0.5 transition-colors",
+                              "shrink-0 p-0.5 transition-colors cursor-pointer",
                               isPinned ? "text-sdm-warning" : "text-sdm-muted/40 hover:text-sdm-warning/60"
                             )}
                             title={isPinned ? "Unpin" : "Pin to top"}
                           >
                             <Star className={cn("h-3.5 w-3.5", isPinned ? "fill-sdm-warning" : "")} />
-                          </button>
+                          </span>
                         </div>
 
                         {(isSelected || isPinned || search) && (
