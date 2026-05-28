@@ -34,12 +34,18 @@ export interface Run {
 }
 
 export interface RunMetrics {
-  auc: number;
-  tss: number;
-  cbi: number;
-  presenceRecords: number;
-  backgroundPoints: number;
-  elapsedSeconds: number;
+  auc_mean: number | null;
+  auc_sd: number | null;
+  tss_mean: number | null;
+  tss_sd: number | null;
+  cbi: number | null;
+  presence_records: number | null;
+  background_points: number | null;
+  elapsed_seconds: number | null;
+  high_suitability_area_km2: number | null;
+  high_suitability_area_uncertainty_km2: number | null;
+  high_suitability_area_ci95_lower: number | null;
+  high_suitability_area_ci95_upper: number | null;
 }
 
 export interface JobStatus {
