@@ -833,7 +833,28 @@ sdm_stage_predict <- function(cfg, fit, env, output_tif, log_fun = NULL) {
   list(suit = suit, output_tif = output_tif)
 }
 
-#' Run SDM pipeline: Stage 5 — Post-processing (climate match, EOO/AOO, AOA)
+#' Run SDM pipeline: Stage 4b — Future climate projection
+sdm_stage_future <- function(cfg, fit, suit, env, output_dir, base_name, log_fun = NULL) {
+  if (!isTRUE(cfg$future_projection) || is.null(cfg$future_worldclim_dir)) {
+    return(list(future = NULL))
+  }
+  log_message(log_fun, "Stage 4b: Projecting future climate scenario")
+  future <- project_future_suitability(
+    fit = fit, current_suitability = suit, env = env,
+    future_worldclim_dir = cfg$future_worldclim_dir,
+    selected_biovars = cfg$selected_biovars,
+    projection_extent = cfg$projection_extent,
+    aggregation_factor = cfg$aggregation_factor %||% 1,
+    output_future_tif = file.path(output_dir, paste0(base_name, "_future_suitability.tif")),
+    output_delta_tif = file.path(output_dir, paste0(base_name, "_future_delta.tif")),
+    n_cores = cfg$n_cores %||% 1, log_fun = log_fun,
+    mask_extrapolation = isTRUE(cfg$extrapolation_mask %||% TRUE),
+    mess_threshold = cfg$mess_threshold %||% 0
+  )
+  list(future = future)
+}
+
+#' Run SDM pipeline: Stage 5 — Post-processing (climate match, EOO/AOO, AOA, XAI)
 sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   log_message(log_fun, "Stage 5: Post-processing")
   result <- list()
@@ -858,6 +879,21 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
         log_message(log_fun, "  AOA computation failed: ", conditionMessage(e))
         NULL
       }
+    )
+  }
+
+  # Variable importance
+  model_spec <- tryCatch(get_sdm_model(cfg$model_id %||% "glm"), error = function(e) NULL)
+  if (!is.null(model_spec) && isTRUE(model_spec$supports_importance) && !is.null(fit$model_data)) {
+    result$importance <- tryCatch(
+      xai_importance(fit, seed = cfg$seed %||% 42, n_cores = cfg$n_cores %||% 1),
+      error = function(e) { log_message(log_fun, "  Importance skipped: ", conditionMessage(e)); NULL }
+    )
+  }
+  if (!is.null(fit$model_data)) {
+    result$response_curves <- tryCatch(
+      compute_response_curves(fit, fit$model_data, n_points = 50),
+      error = function(e) { log_message(log_fun, "  Response curves skipped: ", conditionMessage(e)); NULL }
     )
   }
 
