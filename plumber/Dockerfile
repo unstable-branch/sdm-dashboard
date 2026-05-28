@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4-openssl-dev \
     libsodium-dev \
     libhiredis-dev \
+    curl \
     pandoc \
     && rm -rf /var/lib/apt/lists/*
 
