@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,7 +15,6 @@ import { ClimateTab } from "./climate-tab";
 import type { OccurrencePoint } from "./types";
 
 const GbifSearch = dynamic(() => import("@/components/data/gbif-search").then(m => m.GbifSearch), { ssr: false });
-const CleaningTable = dynamic(() => import("@/components/data/cleaning-table").then(m => m.CleaningTable), { ssr: false });
 const OccurrenceMap = dynamic(() => import("@/components/data/occurrence-map").then(m => m.OccurrenceMap), {
   ssr: false,
   loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div>,
@@ -50,9 +49,8 @@ function DataPageContent() {
   const setCleanResult = useSDMStore((s) => s.setCleanResult);
   const setCleanedOccurrence = useSDMStore((s) => s.setCleanedOccurrence);
   const setPipelineRunId = useSDMStore((s) => s.setPipelineRunId);
-  const flaggedIndicesArray = useSDMStore((s) => s.flaggedIndices);
+  const _flaggedIndicesArray = useSDMStore((s) => s.flaggedIndices);
   const setFlaggedIndicesArray = useSDMStore((s) => s.setFlaggedIndices);
-  const flaggedIndices = useMemo(() => new Set(flaggedIndicesArray), [flaggedIndicesArray]);
 
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -238,7 +236,6 @@ function DataPageContent() {
   };
 
   const cleanPreview = cleanResult?.cleaned_records as OccurrencePoint[] | undefined;
-  const uploadPreview = uploadResult?.preview as Record<string, unknown>[] | undefined;
   const gbifPreview = gbifResult?.preview as Record<string, unknown>[] | undefined;
 
   return (
@@ -321,7 +318,7 @@ function DataPageContent() {
         {activeTab === "clean" && (
           <CleanTab uploadResult={uploadResult} cleanResult={cleanResult} cleanLoading={cleanLoading}
             cleanError={cleanError} cleanJobId={cleanJobId} useAsync={useAsync} useCc={useCc}
-            flaggedIndices={flaggedIndices} onSetUseAsync={setUseAsync} onSetUseCc={setUseCc}
+             onSetUseAsync={setUseAsync} onSetUseCc={setUseCc}
             onClean={handleClean} onCleanComplete={handleCleanComplete} onFlagToggle={handleFlagToggle}
             onRunModel={() => router.push("/model")} />
         )}
@@ -330,7 +327,7 @@ function DataPageContent() {
           <div className="space-y-4">
             {cleanPreview && cleanPreview.length > 0 ? (
               <>
-                <OccurrenceMap points={cleanPreview} flaggedIndices={flaggedIndices} />
+                <OccurrenceMap points={cleanPreview}  />
                 <div className="flex items-center gap-4 text-sm text-sdm-muted">
                   <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-sdm-accent-blue" /> Clean</span>
                   <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-sdm-danger" /> Flagged</span>

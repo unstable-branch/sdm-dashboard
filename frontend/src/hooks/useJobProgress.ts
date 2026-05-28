@@ -13,7 +13,7 @@ export interface JobProgress {
 export function useJobProgress(jobId: string | null) {
   const [job, setJob] = useState<JobProgress | null>(null);
   const [connected, setConnected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [_error, _setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchedRef = useRef(false);

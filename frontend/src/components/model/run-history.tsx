@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Ban, Trash2, AlertTriangle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Ban, Trash2 } from "lucide-react";
 import { apiGet, apiPost, apiDelete } from "@/services/api";
 import type { RunSummary } from "@/services/types";
 

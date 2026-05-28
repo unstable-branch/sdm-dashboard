@@ -36,7 +36,7 @@ interface RunComparisonReportProps {
   run2: RunDetail;
 }
 
-function DiffIndicator({ diff, better }: { diff: number; better: string }) {
+function DiffIndicator({ diff }: { diff: number; better: string }) {
   if (!isFinite(diff) || diff === 0) return <Minus className="h-4 w-4 text-sdm-muted" />;
   if (diff > 0) return <ArrowUp className="h-4 w-4 text-green-500" />;
   return <ArrowDown className="h-4 w-4 text-red-500" />;

@@ -5,7 +5,7 @@ import { useTheme } from "next-themes";
 import { Map, Source, Layer, Popup } from "react-map-gl/maplibre";
 import type { MapRef } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { FeatureCollection, Feature, Point } from "geojson";
+import type { FeatureCollection, Point } from "geojson";
 
 interface OccurrencePoint {
   longitude: number;

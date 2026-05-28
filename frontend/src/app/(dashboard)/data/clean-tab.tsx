@@ -14,7 +14,7 @@ interface CleanTabProps {
   cleanJobId: string | null;
   useAsync: boolean;
   useCc: boolean;
-  flaggedIndices: Set<number>;
+  
   onSetUseAsync: (v: boolean) => void;
   onSetUseCc: (v: boolean) => void;
   onClean: () => void;
@@ -25,7 +25,7 @@ interface CleanTabProps {
 
 export function CleanTab({
   uploadResult, cleanResult, cleanLoading, cleanError, cleanJobId,
-  useAsync, useCc, flaggedIndices,
+  useAsync, useCc,
   onSetUseAsync, onSetUseCc, onClean, onCleanComplete, onFlagToggle, onRunModel,
 }: CleanTabProps) {
   const cleanPreview = cleanResult?.cleaned_records as OccurrencePoint[] | undefined;
