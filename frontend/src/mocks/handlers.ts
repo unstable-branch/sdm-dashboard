@@ -61,7 +61,7 @@ export function getHandlers() {
     }),
 
     http.get(`${API_BASE}/api/v1/admin/users`, async ({ request: _request }) => {
-      const url = new URL(request.url);
+      const url = new URL(_request.url);
       const page = parseInt(url.searchParams.get("page") || "1");
       const limit = parseInt(url.searchParams.get("limit") || "25");
       await new Promise((r) => setTimeout(r, delay("users")));
@@ -78,7 +78,7 @@ export function getHandlers() {
     }),
 
     http.post(`${API_BASE}/api/v1/admin/users`, async ({ request: _request }) => {
-      const body = await request.json() as Record<string, unknown>;
+      const body = await _request.json() as Record<string, unknown>;
       return HttpResponse.json({
         id: "u-new",
         email: body.email,
@@ -100,7 +100,7 @@ export function getHandlers() {
     }),
 
     http.get(`${API_BASE}/api/v1/admin/logs`, async ({ request: _request }) => {
-      const url = new URL(request.url);
+      const url = new URL(_request.url);
       await new Promise((r) => setTimeout(r, delay("logs")));
       return HttpResponse.json({
         logs: [
@@ -158,7 +158,7 @@ export function getHandlers() {
     }),
 
     http.put(`${API_BASE}/api/v1/admin/system/settings`, async ({ request: _request }) => {
-      const body = await request.json() as Record<string, unknown>;
+      const body = await _request.json() as Record<string, unknown>;
       return HttpResponse.json({
         id: "s1",
         key: body.key,
