@@ -1,5 +1,8 @@
-import { db } from "../db/index.js";
-import { auditLogs } from "../db/schema.js";
+// Audit logging has been removed (task 12: drop audit_logs table)
+// This file is kept as a stub to avoid import errors.
+// logAction is now a no-op; callers have been updated.
+
+import type { Context } from "hono";
 
 export interface AuditEntry {
   userId?: string | null;
@@ -11,25 +14,13 @@ export interface AuditEntry {
   details?: Record<string, unknown> | null;
 }
 
-export async function logAction(entry: AuditEntry): Promise<void> {
-  try {
-    await db.insert(auditLogs).values({
-      userId: entry.userId ?? null,
-      action: entry.action,
-      entity: entry.entity ?? null,
-      entityId: entry.entityId ?? null,
-      ipAddress: entry.ipAddress ?? null,
-      userAgent: entry.userAgent ?? null,
-      details: entry.details ?? null,
-    });
-  } catch (err) {
-    console.error("[Audit] Failed to log action:", err instanceof Error ? err.message : String(err));
-  }
+export async function logAction(_entry: AuditEntry): Promise<void> {
+  // No-op: audit_logs table has been removed
 }
 
-export function extractClientInfo(c: any) {
+export function extractClientInfo(_c: Context | any) {
   return {
-    ipAddress: c.env?.incoming?.socket?.remoteAddress || c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || null,
-    userAgent: c.req.header("user-agent")?.slice(0, 500) || null,
+    ipAddress: null as string | null,
+    userAgent: null as string | null,
   };
 }

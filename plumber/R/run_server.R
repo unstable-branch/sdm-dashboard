@@ -16,6 +16,32 @@ app_dir <- if (dir.exists("/app/R")) {
 # Source auth helpers (must be in global env before sourcing plumber.R)
 source(file.path(app_dir, "plumber", "R", "auth.R"), local = FALSE)
 
+# Source Redis helper
+source(file.path(app_dir, "plumber", "R", "redis.R"), local = FALSE)
+
+# Set up DB connection pool for auth and other DB queries
+library(pool)
+db_pool <- tryCatch({
+  db_url <- Sys.getenv("DATABASE_URL", "")
+  if (nzchar(db_url)) {
+    dbPool(
+      RPostgres::Postgres(),
+      url = db_url,
+      minSize = 1,
+      maxSize = 5,
+      idleTimeout = 60000
+    )
+  } else {
+    NULL
+  }
+}, error = function(e) {
+  cat("WARNING: Failed to create DB connection pool:", conditionMessage(e), "\n")
+  NULL
+})
+if (!is.null(db_pool)) {
+  cat("DB connection pool created (min=1, max=5)\n")
+}
+
 # Load .env file for env vars (PLUMBER_INTERNAL_KEY, DATABASE_URL, etc.)
 env_file <- file.path(app_dir, ".env")
 if (file.exists(env_file)) {
@@ -100,7 +126,7 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}')
   }
 
-  user_info <- validate_api_key(api_key, app_dir)
+  user_info <- validate_api_key(api_key, pool = db_pool, app_dir = app_dir)
   if (is.null(user_info)) {
     auth_fail(res, 401L, '{"error":"Invalid or expired API key."}')
   }
@@ -148,6 +174,11 @@ tryCatch({
 
 # Exit handler: kill all background processes on shutdown to prevent orphans
 plumber::pr_hook(pr, "exit", function() {
+  # Close DB connection pool
+  if (!is.null(db_pool)) {
+    tryCatch(pool::poolClose(db_pool), error = function(e) NULL)
+    cat("DB connection pool closed.\n")
+  }
   cat("Plumber shutting down — killing background processes...\n")
   # sdm_process_registry is created in global env by plumber.R
   reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
@@ -160,6 +191,9 @@ plumber::pr_hook(pr, "exit", function() {
       }
     }
   }
+  # Close Redis connection
+  sdm_redis_close()
+
   # Also kill any leftover processes from meta.json files
   jobs_base <- file.path(app_dir, "outputs", "jobs")
   if (dir.exists(jobs_base)) {
