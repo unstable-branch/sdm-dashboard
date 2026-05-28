@@ -668,12 +668,18 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
       if (!is.null(result$paths$tif) && !is.null(result$suitability)) {
         tif_3857_path <- sub("_suitability\\.tif$", "_3857.tif", result$paths$tif)
         tryCatch({
-          r_3857 <- terra::project(result$suitability, "EPSG:3857", method = "bilinear")
+          src_crs <- terra::crs(result$suitability)
+          if (!grepl("EPSG:4326", src_crs)) {
+            cat("WARNING: Suitability raster CRS is", src_crs, "expected EPSG:4326\n")
+          }
+          r_3857 <- terra::project(result$suitability, "EPSG:3857", method = "near")
           terra::writeRaster(r_3857, tif_3857_path,
             filetype = "COG",
             gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
                      "OVERVIEWS=AUTO", "OVERVIEW_RESAMPLING=BILINEAR",
                      "NODATA=-9999"),
+            NAflag = -9999,
+            datatype = "FLT4S",
             overwrite = TRUE
           )
           result$paths$tif_3857 <- tif_3857_path
