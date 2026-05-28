@@ -141,3 +141,4 @@ export function ThresholdExplorer({ aucMean, sensitivity, specificity }: Thresho
     </div>
   );
 }
+export { ThresholdExplorer as default }
