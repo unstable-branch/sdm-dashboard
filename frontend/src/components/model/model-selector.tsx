@@ -23,9 +23,9 @@ interface ModelSelectorProps {
 }
 
 const maturityColors: Record<string, string> = {
-  stable: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  experimental: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  deprecated: "bg-red-500/15 text-red-400 border-red-500/30",
+  stable: "bg-sdm-success/15 text-sdm-success border-sdm-success/30",
+  experimental: "bg-sdm-warning/15 text-sdm-warning border-sdm-warning/30",
+  deprecated: "bg-sdm-danger/15 text-sdm-danger border-sdm-danger/30",
 };
 
 export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps) {
@@ -173,11 +173,11 @@ export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps
                             onClick={(e) => { e.stopPropagation(); togglePin(m.id); }}
                             className={cn(
                               "shrink-0 p-0.5 transition-colors",
-                              isPinned ? "text-amber-400" : "text-sdm-muted/40 hover:text-amber-400/60"
+                              isPinned ? "text-sdm-warning" : "text-sdm-muted/40 hover:text-sdm-warning/60"
                             )}
                             title={isPinned ? "Unpin" : "Pin to top"}
                           >
-                            <Star className={cn("h-3.5 w-3.5", isPinned ? "fill-amber-400" : "")} />
+                            <Star className={cn("h-3.5 w-3.5", isPinned ? "fill-sdm-warning" : "")} />
                           </button>
                         </div>
 
