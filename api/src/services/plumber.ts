@@ -1,3 +1,19 @@
+import type {
+  PlumberRunResponse,
+  PlumberStatusResponse,
+  PlumberUploadResponse,
+  PlumberCleanResponse,
+  PlumberModelInfo,
+  PlumberConfigDefaults,
+  PlumberDiagnosticsShapCell,
+  PlumberDiagnosticsImportance,
+  PlumberDiagnosticsResponseCurves,
+  PlumberDiagnosticsAle,
+  PlumberDiagnosticsVif,
+  PlumberDiagnosticsClimateDrivers,
+  PlumberClimateStatus,
+} from "@sdm/shared";
+
 const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
 const PLUMBER_INTERNAL_KEY = process.env.PLUMBER_INTERNAL_KEY || "";
 import { Agent } from "node:http";
@@ -17,29 +33,14 @@ export interface CleanResponse {
   status: string;
 }
 
-export interface ModelRunResponse extends Record<string, unknown> {
-  job_id: string;
-  status: string;
-  message: string;
-}
-
-export interface ModelStatusResponse extends Record<string, unknown> {
-  id?: string;
-  status: string;
-  progress?: number;
-  progress_log?: string[];
-  metrics?: Record<string, unknown>;
-  error?: string;
-  config?: Record<string, unknown>;
-}
-
+export interface ModelRunResponse extends PlumberRunResponse, Record<string, unknown> {}
+export interface ModelStatusResponse extends PlumberStatusResponse, Record<string, unknown> {}
 export interface AsyncJobStatusResponse extends Record<string, unknown> {
   available?: boolean;
   status?: string;
   error?: string;
   result?: Record<string, unknown>;
 }
-
 export interface EcologyDataResponse {
   run_id?: string;
   species?: string;
@@ -87,19 +88,19 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getConfigDefaults(): Promise<Record<string, unknown>> {
+  async getConfigDefaults(): Promise<PlumberConfigDefaults> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/config/defaults`, { timeout: TIMEOUT_FAST });
     if (!res.ok) throw new Error(`Failed to get config defaults: ${res.status}`);
     return res.json();
   }
 
-  async getModels(): Promise<Array<{ id: string; label: string }>> {
+  async getModels(): Promise<PlumberModelInfo[]> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models`, { timeout: TIMEOUT_FAST });
     if (!res.ok) throw new Error(`Failed to get models: ${res.status}`);
     return res.json();
   }
 
-  async uploadOccurrence(file: Buffer | string, filename?: string): Promise<Record<string, unknown>> {
+  async uploadOccurrence(file: Buffer | string, filename?: string): Promise<PlumberUploadResponse> {
     const headers = this.headers();
     if (typeof file === "string") {
       const res = await this._fetch(`${this.baseUrl}/api/v1/occurrences/upload`, {
@@ -182,7 +183,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async downloadClimate(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async downloadClimate(data: Record<string, unknown>): Promise<{ job_id: string; status: string; message: string }> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/climate/download`, {
       method: "POST",
       headers: { ...this.headers(), "Content-Type": "application/json" },
@@ -193,7 +194,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getClimateStatus(climateJobId: string): Promise<Record<string, unknown>> {
+  async getClimateStatus(climateJobId: string): Promise<PlumberClimateStatus> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/climate/status/${climateJobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get climate status: ${res.status}`);
     return res.json();
@@ -299,13 +300,13 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getDiagnosticsVif(runId: string): Promise<Record<string, unknown>> {
+  async getDiagnosticsVif(runId: string): Promise<PlumberDiagnosticsVif> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/vif/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get VIF diagnostics: ${res.status}`);
     return res.json();
   }
 
-  async getDiagnosticsClimateDrivers(runId: string): Promise<Record<string, unknown>> {
+  async getDiagnosticsClimateDrivers(runId: string): Promise<PlumberDiagnosticsClimateDrivers> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/climate-drivers/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get climate driver data: ${res.status}`);
     return res.json();
@@ -317,19 +318,19 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getDiagnosticsAle(runId: string): Promise<Record<string, unknown>> {
+  async getDiagnosticsAle(runId: string): Promise<PlumberDiagnosticsAle> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/ale/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get ALE data: ${res.status}`);
     return res.json();
   }
 
-  async getDiagnosticsResponseCurves(runId: string): Promise<Record<string, unknown>> {
+  async getDiagnosticsResponseCurves(runId: string): Promise<PlumberDiagnosticsResponseCurves> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/response-curves/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get response curves: ${res.status}`);
     return res.json();
   }
 
-  async getDiagnosticsImportance(runId: string): Promise<Record<string, unknown>> {
+  async getDiagnosticsImportance(runId: string): Promise<PlumberDiagnosticsImportance> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/importance/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get variable importance: ${res.status}`);
     return res.json();
@@ -396,7 +397,7 @@ export class PlumberClient {
     return this._fetch(`${this.baseUrl}/api/v1/diagnostics/data/${runId}/${type}`, { headers: this.headers() });
   }
 
-  async postDiagnosticsShapCell(runId: string, longitude: number, latitude: number): Promise<Record<string, unknown>> {
+  async postDiagnosticsShapCell(runId: string, longitude: number, latitude: number): Promise<PlumberDiagnosticsShapCell> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/shap/cell`, {
       method: "POST",
       headers: this.headers(),
