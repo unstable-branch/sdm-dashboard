@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { apiGet, apiPut, apiDelete } from "../services/api.js";
+import { apiGet, apiPut, apiDelete } from "../services/api";
 
 export interface UserSettings {
   id: string;
