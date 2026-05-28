@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiGet, apiDelete } from "@/services/api";
 import { Loader2, HardDrive, Trash2, Database, FolderOpen, RefreshCw } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface UploadedFile {
   file_id: string;
@@ -30,12 +31,12 @@ export default function StoragePage() {
     available_bytes: number;
     quota_mb: number;
     used_mb: number;
-    available_mb: number;
     pct_used: number;
   } | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmDelete, setConfirmDelete] = useState<{ type: "file" | "run"; id: string; label: string } | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -64,25 +65,28 @@ export default function StoragePage() {
     loadData().finally(() => setLoading(false));
   }, [loadData]);
 
-  const handleDeleteFile = useCallback(async (fileId: string) => {
-    setUploadedFiles((prev) => prev.map((f) => f.file_id === fileId ? { ...f, deleting: true } : f));
-    try {
-      await apiDelete(`/api/v1/data/uploads/${encodeURIComponent(fileId)}`);
-      await loadData();
-    } catch {
-      setUploadedFiles((prev) => prev.map((f) => f.file_id === fileId ? { ...f, deleting: false } : f));
+  const confirmDeleteAction = useCallback(async () => {
+    if (!confirmDelete) return;
+    const { type, id } = confirmDelete;
+    if (type === "file") {
+      setUploadedFiles((prev) => prev.map((f) => f.file_id === id ? { ...f, deleting: true } : f));
+      try {
+        await apiDelete(`/api/v1/data/uploads/${encodeURIComponent(id)}`);
+        await loadData();
+      } catch {
+        setUploadedFiles((prev) => prev.map((f) => f.file_id === id ? { ...f, deleting: false } : f));
+      }
+    } else {
+      setRuns((prev) => prev.map((r) => r.id === id ? { ...r, deleting: true } : r));
+      try {
+        await apiDelete(`/api/v1/sdm/runs/delete/${id}`);
+        await loadData();
+      } catch {
+        setRuns((prev) => prev.map((r) => r.id === id ? { ...r, deleting: false } : r));
+      }
     }
-  }, [loadData]);
-
-  const handleDeleteRun = useCallback(async (runId: string) => {
-    setRuns((prev) => prev.map((r) => r.id === runId ? { ...r, deleting: true } : r));
-    try {
-      await apiDelete(`/api/v1/sdm/runs/delete/${runId}`);
-      await loadData();
-    } catch {
-      setRuns((prev) => prev.map((r) => r.id === runId ? { ...r, deleting: false } : r));
-    }
-  }, [loadData]);
+    setConfirmDelete(null);
+  }, [confirmDelete, loadData]);
 
   const totalRunSize = runs.length;
 
@@ -95,7 +99,7 @@ export default function StoragePage() {
   }
 
   const pct = storageInfo?.pct_used ?? 0;
-  const barColor = pct > 90 ? "bg-red-500" : pct > 70 ? "bg-amber-500" : "bg-sdm-accent";
+  const barColor = pct > 90 ? "bg-sdm-danger" : pct > 70 ? "bg-sdm-warning" : "bg-sdm-accent";
 
   return (
     <div className="space-y-6">
@@ -163,7 +167,7 @@ export default function StoragePage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => handleDeleteFile(file.file_id)}
+                  onClick={() => setConfirmDelete({ type: "file", id: file.file_id, label: file.file_name })}
                   disabled={file.deleting}
                   className="ml-4 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-500/10 border border-red-500/30 transition-colors disabled:opacity-50"
                 >
@@ -201,7 +205,7 @@ export default function StoragePage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => handleDeleteRun(run.id)}
+                  onClick={() => setConfirmDelete({ type: "run", id: run.id, label: `${run.species || "Unknown"} (${run.model_id})` })}
                   disabled={run.deleting}
                   className="ml-4 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-500/10 border border-red-500/30 transition-colors disabled:opacity-50"
                 >
@@ -213,6 +217,16 @@ export default function StoragePage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={confirmDelete?.type === "file" ? "Delete file" : "Delete run"}
+        message={`Delete "${confirmDelete?.label}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={confirmDeleteAction}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
