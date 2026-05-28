@@ -70,101 +70,43 @@ parse_logical <- function(x) {
 #' run_fast_sdm applies its own defaults for any missing parameters.
 #' @param row named list with config fields (CSV column names as keys).
 #' @return named list ready for do.call(run_fast_sdm, ...).
-# Model-specific params known to sdm_config (not handled individually above)
-MODEL_SPECIFIC_PARAMS <- c(
-  "maxnet_features", "maxnet_regmult",
-  "dnn_model_type", "dnn_n_seeds", "dnn_device",
-  "brt_n_trees", "brt_interaction_depth", "brt_shrinkage", "brt_bag_fraction",
-  "cta_cp", "cta_maxdepth", "cta_minsplit",
-  "mars_degree", "mars_penalty", "mars_nk",
-  "fda_degree", "fda_nprune",
-  "ann_size", "ann_decay", "ann_maxit", "ann_rang",
-  "rf_num_trees", "rf_mtry", "rf_min_node_size",
-  "xgb_max_depth", "xgb_eta", "xgb_nrounds",
-  "bart_ntree", "bart_ndpost", "bart_nskip",
-  "brms_chains", "brms_iter", "brms_warmup",
-  "inla_mesh_max_edge", "inla_mesh_cutoff", "inla_prior_range", "inla_prior_sigma",
-  "rangebag_n_bags", "rangebag_bag_fraction", "rangebag_vars_per_bag",
-  "detection_formula", "occupancy_model_type",
-  "dnn_architecture", "dnn_multispecies_n_seeds",
-  "multi_ensemble_models", "multi_ensemble_weighting", "multi_ensemble_power",
-  "multi_ensemble_min_auc", "multi_ensemble_min_tss", "biomod2_models",
-  "esm_n_runs", "esm_split", "esm_min_auc", "esm_weighting_metric", "esm_power",
-  "extrapolation_mask", "mess_threshold"
-)
-
 build_run_args <- function(row) {
   args <- list()
 
-  if (nzchar(row$species %||% "")) args$species <- row$species
-  if (nzchar(row$occurrences_csv %||% "")) args$occurrence_file <- row$occurrences_csv
-  if (nzchar(row$worldclim_dir %||% "")) args$worldclim_dir <- row$worldclim_dir
-  if (nzchar(row$biovars %||% "")) args$selected_biovars <- parse_comma_ints(row$biovars)
-  if (nzchar(row$model_id %||% "")) args$model_id <- row$model_id
-  if (nzchar(row$projection_extent %||% "")) args$projection_extent <- parse_comma_doubles(row$projection_extent)
-  if (nzchar(row$training_extent %||% "")) args$training_extent <- parse_comma_doubles(row$training_extent)
-
-  bg <- suppressWarnings(as.integer(row$background_n %||% NA_integer_))
-  if (!is.na(bg)) args$background_n <- bg
-
-  mi <- suppressWarnings(as.integer(row$min_source_records %||% NA_integer_))
-  if (!is.na(mi)) args$min_source_records <- mi
-
-  args$include_quadratic <- parse_logical(row$include_quadratic %||% "TRUE")
-
-  th <- suppressWarnings(as.numeric(row$threshold %||% NA_real_))
-  if (!is.na(th)) args$threshold <- th
-
-  af <- suppressWarnings(as.integer(row$aggregation_factor %||% NA_integer_))
-  if (!is.na(af)) args$aggregation_factor <- af
-
-  cv <- suppressWarnings(as.integer(row$cv_folds %||% NA_integer_))
-  if (!is.na(cv)) args$cv_folds <- cv
-
-  if (nzchar(row$elevation_demtype %||% "")) args$elevation_demtype <- row$elevation_demtype
-
-  args$use_elevation <- parse_logical(row$use_elevation)
-  args$use_soil <- parse_logical(row$use_soil)
-  if (nzchar(row$soil_vars %||% "")) args$selected_soil_vars <- parse_comma_strings(row$soil_vars)
-  if (nzchar(row$soil_depths %||% "")) args$selected_soil_depths <- parse_comma_strings(row$soil_depths)
-
-  args$use_uv <- parse_logical(row$use_uv)
-  if (nzchar(row$uv_vars %||% "")) args$selected_uv_vars <- parse_comma_strings(row$uv_vars)
-
-  args$use_vegetation <- parse_logical(row$use_vegetation)
-  vy <- suppressWarnings(as.integer(row$veg_year %||% NA_integer_))
-  if (!is.na(vy)) args$veg_year <- vy
-  if (nzchar(row$veg_products %||% "")) args$veg_products <- parse_comma_strings(row$veg_products)
-
-  args$use_lulc <- parse_logical(row$use_lulc)
-  ly <- suppressWarnings(as.integer(row$lulc_year %||% NA_integer_))
-  if (!is.na(ly)) args$lulc_year <- ly
-
-  args$use_hfp <- parse_logical(row$use_hfp)
-  hy <- suppressWarnings(as.integer(row$hfp_year %||% NA_integer_))
-  if (!is.na(hy)) args$hfp_year <- hy
-
-  args$use_bioclim_season <- parse_logical(row$use_bioclim_season)
-  args$use_drought <- parse_logical(row$use_drought)
-  if (nzchar(row$drought_periods %||% "")) args$selected_drought_periods <- parse_comma_strings(row$drought_periods)
-
-  args$vif_reduction <- parse_logical(row$vif_reduction)
-
-  if (nzchar(row$bias_method %||% "")) args$bias_method <- row$bias_method
-
-  args$future_projection <- parse_logical(row$future_projection)
-  if (nzchar(row$future_worldclim_dir %||% "")) args$future_worldclim_dir <- row$future_worldclim_dir
-
-  sd <- suppressWarnings(as.integer(row$seed %||% NA_integer_))
-  if (!is.na(sd)) args$seed <- sd
-
-  # Pass through model-specific params from CSV row
+  # Pass through all snake_case params that match sdm_config parameter names
   row_names <- names(row)
-  for (p in MODEL_SPECIFIC_PARAMS) {
-    if (p %in% row_names && nzchar(row[[p]] %||% "")) {
-      val <- suppressWarnings(as.numeric(row[[p]]))
-      args[[p]] <- if (is.na(val)) row[[p]] else val
+
+  for (p in row_names) {
+    val <- row[[p]]
+    if (is.null(val) || length(val) == 0 || (!is.character(val) && !is.numeric(val))) next
+    if (is.character(val) && !nzchar(val)) next
+
+    # Special handling for known comma-separated list columns
+    if (p %in% c("biovars", "soil_vars", "soil_depths", "uv_vars", "veg_products",
+                  "drought_periods", "multi_ensemble_models", "biomod2_models")) {
+      args[[p]] <- parse_comma_strings(val)
+      if (p == "biovars") args[[p]] <- parse_comma_ints(val)
+      next
     }
+
+    # Special handling for comma-separated numeric lists
+    if (p %in% c("projection_extent", "training_extent")) {
+      args[[p]] <- parse_comma_doubles(val)
+      next
+    }
+
+    # Special handling for logical columns
+    if (p %in% c("include_quadratic", "use_elevation", "use_soil", "use_uv",
+                  "use_vegetation", "use_lulc", "use_hfp", "use_bioclim_season",
+                  "use_drought", "vif_reduction", "future_projection",
+                  "merge_small_sources", "thin_by_cell", "extrapolation_mask")) {
+      args[[p]] <- parse_logical(as.character(val))
+      next
+    }
+
+    # Default: pass value through as-is (sdm_config handles type coercion)
+    val_num <- suppressWarnings(as.numeric(val))
+    args[[p]] <- if (is.na(val_num)) val else val_num
   }
 
   args$use_cc <- FALSE
