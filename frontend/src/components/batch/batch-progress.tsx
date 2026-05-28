@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Loader2, CheckCircle2, XCircle, Clock, RotateCcw, X, Download } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Clock, RotateCcw, X } from "lucide-react";
 import { apiGet } from "@/services/api";
 import type { RunSummary } from "@/services/types";
 
@@ -23,7 +23,7 @@ interface BatchProgressProps {
 
 export function BatchProgress({ jobIds, batchId, onComplete, onRetryFailed, onCancel }: BatchProgressProps) {
   const [jobs, setJobs] = useState<BatchJob[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [_loading, _setLoading] = useState(true);
   const [batchInfo, setBatchInfo] = useState<any>(null);
   const cancelledRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);

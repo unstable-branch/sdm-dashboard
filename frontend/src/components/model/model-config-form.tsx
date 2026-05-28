@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useDeferredValue, useMemo } from "react";
 import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
-import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath } from "@sdm/shared";
+import { EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG } from "@sdm/shared";
 import { CheckCircle2, AlertTriangle, Info } from "lucide-react";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
@@ -44,11 +44,12 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [backgroundN, setBackgroundN] = useState(3000);
   const [cvFolds, setCvFolds] = useState(DEFAULT_CONFIG.cvFolds);
   const [cvStrategy, setCvStrategy] = useState<"random" | "spatial_blocks">("spatial_blocks");
-  const [cvBlockSizeKm, setCvBlockSizeKm] = useState(50);
+  const [cvBlockSizeKm, _setCvBlockSizeKm] = useState(50);
   const [threshold, setThreshold] = useState(DEFAULT_CONFIG.threshold);
   const [includeQuadratic, setIncludeQuadratic] = useState(true);
   const [nCores, setNCores] = useState(DEFAULT_CONFIG.nCores);
-  const [seed, setSeed] = useState(DEFAULT_CONFIG.seed);
+
+  const seed = DEFAULT_CONFIG.seed;
   const [aggregationFactor, setAggregationFactor] = useState(DEFAULT_CONFIG.aggregationFactor);
   const [paReplicates, setPaReplicates] = useState(DEFAULT_CONFIG.paReplicates);
   const [biasMethod, setBiasMethod] = useState<"uniform" | "target_group" | "thickened">(DEFAULT_CONFIG.biasMethod);
@@ -116,24 +117,24 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [inlaMeshMaxEdge, setInlaMeshMaxEdge] = useState<number | undefined>(undefined);
   const [inlaMeshCutoff, setInlaMeshCutoff] = useState<number | undefined>(undefined);
   const [dnnMultispeciesArchitecture, setDnnMultispeciesArchitecture] = useState<"DNN_Small" | "DNN_Medium" | "DNN_Large">(DEFAULT_CONFIG.dnnArchitecture as "DNN_Small" | "DNN_Medium" | "DNN_Large");
-  const [dnnMultispeciesNSeeds, setDnnMultispeciesNSeeds] = useState(3);
+  const [dnnMultispeciesNSeeds, _setDnnMultispeciesNSeeds] = useState(3);
   const [biomod2Models, setBiomod2Models] = useState<string[]>(["GLM", "MAXNET", "RF"]);
-  const [multiEnsembleModels, setMultiEnsembleModels] = useState<string[]>(["glm", "rangebag"]);
-  const [multiEnsembleBiomod2, setMultiEnsembleBiomod2] = useState<string[]>(["MAXNET", "RF"]);
+  const [multiEnsembleModels, _setMultiEnsembleModels] = useState<string[]>(["glm", "rangebag"]);
+  const [multiEnsembleBiomod2, _setMultiEnsembleBiomod2] = useState<string[]>(["MAXNET", "RF"]);
   const [multiEnsembleWeighting, setMultiEnsembleWeighting] = useState<"equal" | "auc" | "tss">("auc");
   const [multiEnsemblePower, setMultiEnsemblePower] = useState(2);
   const [multiEnsembleMinAuc, setMultiEnsembleMinAuc] = useState(0.7);
   const [multiEnsembleMinTss, setMultiEnsembleMinTss] = useState(0.5);
-  const toggleBiomod2Model = (algo: string) => { setBiomod2Models(prev => prev.includes(algo) ? prev.filter(a => a !== algo) : [...prev]); };
+  const _toggleBiomod2Model = (algo: string) => { setBiomod2Models(prev => prev.includes(algo) ? prev.filter(a => a !== algo) : [...prev]); };
   const [rangebagNBags, setRangebagNBags] = useState(100);
   const [rangebagBagFraction, setRangebagBagFraction] = useState(0.5);
   const [rangebagVarsPerBag, setRangebagVarsPerBag] = useState(1);
   const [detectionFormula, setDetectionFormula] = useState("~1");
   const [detectionModelType, setDetectionModelType] = useState<"occu" | "occuRN">("occu");
-  const [showAdvanced, setShowAdvanced] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
-  const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
-  const [climateRes, setClimateRes] = useState(10);
+  const [climateSource, _setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
+  const [climateRes, _setClimateRes] = useState(10);
   const [missingBiovars, setMissingBiovars] = useState<number[]>([]);
   const [climateCheckLoading, setClimateCheckLoading] = useState(false);
   const deferredSpecies = useDeferredValue(species);

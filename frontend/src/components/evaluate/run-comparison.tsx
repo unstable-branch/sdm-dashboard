@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, BarChart3, ArrowRight } from "lucide-react";
+import { BarChart3, ArrowRight } from "lucide-react";
 import { apiGet } from "@/services/api";
 import type { RunDetail } from "@/services/types";
 import { RunComparisonReport } from "./run-comparison-report";
