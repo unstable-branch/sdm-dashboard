@@ -374,7 +374,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   return (
     <div className="space-y-6">
       {error && (
-        <div className="rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
+        <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
           {error}
         </div>
       )}
@@ -391,8 +391,8 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
           </Link>
         </div>
       ) : occurrenceFile && (
-        <div className="rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3 flex items-center gap-3">
-          <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+        <div className="rounded-md border border-sdm-success/30 bg-sdm-success/5 px-4 py-3 flex items-center gap-3">
+          <CheckCircle2 className="h-4 w-4 text-sdm-success shrink-0" />
           <div className="min-w-0">
             <p className="text-sm font-medium text-sdm-text truncate">{typeof occurrenceFile === "string" ? occurrenceFile.split("/").pop() : String(occurrenceFile)}</p>
             <p className="text-xs text-sdm-muted truncate">{occurrenceFile}</p>
@@ -401,20 +401,20 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       )}
 
       {cleanedOccurrence && cleanedOccurrence.validRecords === 0 && (
-        <div className="rounded-md border border-red-500/30 bg-red-500/5 px-4 py-3 flex items-start gap-3">
-          <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+        <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 px-4 py-3 flex items-start gap-3">
+          <AlertTriangle className="h-4 w-4 text-sdm-danger shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-medium text-red-500">Cleaning produced 0 valid records</p>
-            <p className="text-xs text-red-400">The occurrence data has no valid records after cleaning. The model run will likely fail. Go back to the Data page and check your data.</p>
+            <p className="text-sm font-medium text-sdm-danger">Cleaning produced 0 valid records</p>
+            <p className="text-xs text-sdm-danger">The occurrence data has no valid records after cleaning. The model run will likely fail. Go back to the Data page and check your data.</p>
           </div>
         </div>
       )}
       {!cleanedOccurrence && occurrenceFile && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
-          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 flex items-start gap-3">
+          <AlertTriangle className="h-4 w-4 text-sdm-warning shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-medium text-amber-500">Cleaning recommended</p>
-            <p className="text-xs text-amber-400">Clean your occurrence data on the <Link href="/data?tab=clean" className="underline">Data page</Link> before running the model. The model will clean inline if you proceed without previewing.</p>
+            <p className="text-sm font-medium text-sdm-warning">Cleaning recommended</p>
+            <p className="text-xs text-sdm-warning">Clean your occurrence data on the <Link href="/data?tab=clean" className="underline">Data page</Link> before running the model. The model will clean inline if you proceed without previewing.</p>
           </div>
         </div>
       )}
@@ -488,7 +488,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             onSelect={setModelId}
           />
           {isESM && (
-            <div className="mt-2 rounded-md bg-blue-500/10 border border-blue-500/30 p-3 text-xs text-sdm-text">
+            <div className="mt-2 rounded-md bg-sdm-accent-blue/10 border border-sdm-accent-blue/30 p-3 text-xs text-sdm-text">
               <p className="font-medium flex items-center gap-1.5">
                 <Info className="h-3.5 w-3.5" />
                 Ensembles of Small Models (ESM)
@@ -499,7 +499,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             </div>
           )}
           {lowRecordWarning && (
-            <div className="mt-2 rounded-md bg-red-500/10 border border-red-500/30 p-3 text-xs text-red-400 flex items-start gap-1.5">
+            <div className="mt-2 rounded-md bg-sdm-danger/10 border border-sdm-danger/30 p-3 text-xs text-sdm-danger flex items-start gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
               <span>
                 {selectedModel?.label} recommends ≥ {selectedModel.min_records} records. You have {effectiveRecordCount}.
@@ -684,7 +684,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
         {(modelId === "rf") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-amber-500 mb-2">Requires the ranger package to be installed.</p>
+            <p className="text-xs text-sdm-warning mb-2">Requires the ranger package to be installed.</p>
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Number of trees</label>
               <input type="number" value={rfNumTrees} onChange={(e) => setRfNumTrees(Number(e.target.value))} min={10} max={10000} step={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
@@ -703,7 +703,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
         {(modelId === "xgboost") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-amber-500 mb-2">Requires the xgboost package to be installed.</p>
+            <p className="text-xs text-sdm-warning mb-2">Requires the xgboost package to be installed.</p>
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Max tree depth</label>
               <input type="number" value={xgbMaxDepth} onChange={(e) => setXgbMaxDepth(Number(e.target.value))} min={1} max={20} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
@@ -721,7 +721,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
         {(modelId === "bart") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-amber-500 mb-2">Requires the dbarts package to be installed.</p>
+            <p className="text-xs text-sdm-warning mb-2">Requires the dbarts package to be installed.</p>
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Number of trees</label>
               <input type="number" value={bartNtree} onChange={(e) => setBartNtree(Number(e.target.value))} min={10} max={10000} step={50} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
@@ -739,7 +739,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
         {(modelId === "brms") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-amber-500 mb-2">Requires brms and cmdstanr packages. First fit compiles Stan code (5-15 min).</p>
+            <p className="text-xs text-sdm-warning mb-2">Requires brms and cmdstanr packages. First fit compiles Stan code (5-15 min).</p>
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Chains</label>
               <input type="number" value={brmsChains} onChange={(e) => setBrmsChains(Number(e.target.value))} min={1} max={8} step={1} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
@@ -757,7 +757,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
         {(modelId === "inla_spde") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-amber-500 mb-2">Requires INLA package from r-inla-download.org. Mesh and prior parameters control spatial model complexity.</p>
+            <p className="text-xs text-sdm-warning mb-2">Requires INLA package from r-inla-download.org. Mesh and prior parameters control spatial model complexity.</p>
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Mesh max edge</label>
               <input type="number" value={inlaMeshMaxEdge ?? ""} onChange={(e) => setInlaMeshMaxEdge(e.target.value ? Number(e.target.value) : undefined)} min={0.01} max={100} step={0.5} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
@@ -789,7 +789,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
         {(modelId === "occupancy") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-amber-500 mb-2">Requires detection-history data with repeated surveys. Use the Data page to upload properly formatted detection/non-detection data.</p>
+            <p className="text-xs text-sdm-warning mb-2">Requires detection-history data with repeated surveys. Use the Data page to upload properly formatted detection/non-detection data.</p>
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Model type</label>
               <select value={detectionModelType} onChange={(e) => setDetectionModelType(e.target.value as "occu" | "occuRN")} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
@@ -807,7 +807,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
         {(modelId === "dnn_multispecies") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-amber-500 mb-2">Requires cito and torch packages. Multi-species DNN predicts all species simultaneously using a shared neural network.</p>
+            <p className="text-xs text-sdm-warning mb-2">Requires cito and torch packages. Multi-species DNN predicts all species simultaneously using a shared neural network.</p>
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">DNN architecture</label>
               <select value={dnnMultispeciesArchitecture} onChange={(e) => setDnnMultispeciesArchitecture(e.target.value as "DNN_Small" | "DNN_Medium" | "DNN_Large")} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
@@ -833,7 +833,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
         {(modelId === "multi_ensemble") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-amber-500 mb-2">Select at least 2 models. biomod2 requires options(sdm.enable_biomod2 = TRUE).</p>
+            <p className="text-xs text-sdm-warning mb-2">Select at least 2 models. biomod2 requires options(sdm.enable_biomod2 = TRUE).</p>
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Standalone models</label>
               <div className="space-y-1">
@@ -891,7 +891,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
         {(modelId === "biomod2") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
-            <p className="text-xs text-amber-500 mb-2">Requires biomod2 package + options(sdm.enable_biomod2 = TRUE) in R.</p>
+            <p className="text-xs text-sdm-warning mb-2">Requires biomod2 package + options(sdm.enable_biomod2 = TRUE) in R.</p>
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">biomod2 algorithms</label>
               <div className="space-y-1">
@@ -957,8 +957,8 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <span className="animate-pulse">Checking climate data availability...</span>
           </div>
         ) : missingBiovars.length > 0 && biovars.length >= 2 ? (
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
-            <CloudOff className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+          <div className="rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 flex items-start gap-3">
+            <CloudOff className="h-4 w-4 text-sdm-warning shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium text-sdm-text">Climate data not available locally</p>
               <p className="text-xs text-sdm-muted mt-0.5">
@@ -970,7 +970,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             </div>
           </div>
         ) : biovars.length >= 2 ? (
-          <div className="flex items-center gap-2 text-xs text-green-500">
+          <div className="flex items-center gap-2 text-xs text-sdm-success">
             <Cloud className="h-3.5 w-3.5" />
             <span>All selected BIO variables available locally</span>
           </div>
@@ -1040,7 +1040,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
         {futureProjection && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
             {climateSource === "chelsa" && (
-              <p className="text-xs text-amber-500">
+              <p className="text-xs text-sdm-warning">
                 Future projection uses WorldClim CMIP6 data regardless of current climate source selection.
                 CHELSA v2.1 future data is not currently supported.
               </p>
