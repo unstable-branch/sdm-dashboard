@@ -37,7 +37,7 @@ app.get("/sse", (c) => {
     };
 
     // Listen to real-time events from plumber-sync and queue worker
-    const handler = async (event: { jobId: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string }) => {
+    const handler = async (event: { jobId: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string; error_code?: string | null; error_hint?: string | null }) => {
       // Check if this event's jobId maps to a run the user can access
       if (!(await isMyRun(event.jobId))) return;
 
@@ -51,6 +51,8 @@ app.get("/sse", (c) => {
           logs: event.logs,
           result: event.result,
           failedReason: event.failedReason,
+          error_code: event.error_code ?? null,
+          error_hint: event.error_hint ?? null,
         }),
       }).catch(() => {});
     };
@@ -84,44 +86,9 @@ app.get("/sse", (c) => {
     }
 
     try {
+      // Keep connection open — jobEventBus handles all updates
       while (!aborted && !stream.closed) {
-        try {
-          const q = getJobQueue();
-          if (!q) {
-            await stream.sleep(2000);
-            continue;
-          }
-          const jobs = await q.getJobs(["active", "waiting"]).catch(() => []);
-
-          for (const job of jobs) {
-            const state = await job.getState();
-            const progress = job.progress || 0;
-
-            const jobData = job.data as Record<string, unknown> | undefined;
-            const payload = jobData?.payload as Record<string, unknown> | undefined;
-            const runId = (payload?.runId as string) || jobData?.runId as string | undefined;
-
-            if (!(await isMyRun(runId))) continue;
-
-            const eventData = {
-              id: runId || job.id,
-              state,
-              progress,
-              type: jobData?.type,
-              result: job.returnvalue,
-              failedReason: job.failedReason,
-            };
-
-            await stream.writeSSE({
-              event: "job-update",
-              data: JSON.stringify(eventData),
-            });
-          }
-
-          await stream.sleep(2000);
-        } catch {
-          break;
-        }
+        await stream.sleep(5000);
       }
     } finally {
       jobEventBus.off("jobStatus", handler);
