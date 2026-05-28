@@ -8,7 +8,7 @@ import { useCompletedRuns } from "@/hooks/use-runs";
 import { ArrowRight, Database, Brain, BarChart3, Map, Upload, CheckCircle2, Circle, Loader2 } from "lucide-react";
 
 const SuitabilityMap = dynamic(
-  () => import("@/components/results/suitability-map").then((mod) => ({ default: mod.SuitabilityMap })),
+  () => import("@/components/results/suitability-map"),
   { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
 );
 

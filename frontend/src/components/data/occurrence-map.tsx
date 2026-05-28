@@ -223,3 +223,5 @@ export const OccurrenceMap = React.memo(function OccurrenceMap({
     </div>
   );
 });
+
+export { OccurrenceMap as default }
