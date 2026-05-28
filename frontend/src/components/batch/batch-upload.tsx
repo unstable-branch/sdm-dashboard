@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { Upload, FileText, AlertTriangle, Loader2, CheckCircle2 } from "lucide-react";
+import { Upload, FileText, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 interface BatchUploadProps {
   onConfigsParsed: (configs: Array<Record<string, unknown>>) => void;

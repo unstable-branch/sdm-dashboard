@@ -60,7 +60,7 @@ export function getHandlers() {
       });
     }),
 
-    http.get(`${API_BASE}/api/v1/admin/users`, async ({ request }) => {
+    http.get(`${API_BASE}/api/v1/admin/users`, async ({ request: _request }) => {
       const url = new URL(request.url);
       const page = parseInt(url.searchParams.get("page") || "1");
       const limit = parseInt(url.searchParams.get("limit") || "25");
@@ -77,7 +77,7 @@ export function getHandlers() {
       });
     }),
 
-    http.post(`${API_BASE}/api/v1/admin/users`, async ({ request }) => {
+    http.post(`${API_BASE}/api/v1/admin/users`, async ({ request: _request }) => {
       const body = await request.json() as Record<string, unknown>;
       return HttpResponse.json({
         id: "u-new",
@@ -99,7 +99,7 @@ export function getHandlers() {
       return HttpResponse.json({ ok: true });
     }),
 
-    http.get(`${API_BASE}/api/v1/admin/logs`, async ({ request }) => {
+    http.get(`${API_BASE}/api/v1/admin/logs`, async ({ request: _request }) => {
       const url = new URL(request.url);
       await new Promise((r) => setTimeout(r, delay("logs")));
       return HttpResponse.json({
@@ -157,7 +157,7 @@ export function getHandlers() {
       ]);
     }),
 
-    http.put(`${API_BASE}/api/v1/admin/system/settings`, async ({ request }) => {
+    http.put(`${API_BASE}/api/v1/admin/system/settings`, async ({ request: _request }) => {
       const body = await request.json() as Record<string, unknown>;
       return HttpResponse.json({
         id: "s1",
@@ -176,7 +176,7 @@ export function getHandlers() {
       return HttpResponse.json({ ok: true, message: "Found 2 stale jobs", staleJobs: 2 });
     }),
 
-    http.get(`${API_BASE}/api/v1/admin/diagnostics/runs`, async ({ request }) => {
+    http.get(`${API_BASE}/api/v1/admin/diagnostics/runs`, async ({ __request }) => {
       return HttpResponse.json({
         runs: [
           { id: "r1", speciesName: "Test species", modelId: "glm", status: "completed", jobId: "j1", error: null, startedAt: null, completedAt: null, createdAt: new Date().toISOString() },
