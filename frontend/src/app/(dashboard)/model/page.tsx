@@ -13,7 +13,7 @@ import type { ModelConfig } from "@sdm/shared";
 
 const ModelConfigForm = dynamic(
   () => import("@/components/model/model-config-form").then(m => m.ModelConfigForm),
-  { loading: () => <div className="h-96 rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted"><Loader2 className="h-6 w-6 animate-spin" /></div> }
+  { ssr: false, loading: () => <div className="h-96 rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted"><Loader2 className="h-6 w-6 animate-spin" /></div> }
 );
 
 interface ActiveRun {

@@ -224,24 +224,28 @@ export default function EvaluatePage() {
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Variable Importance</h4>
                       <ImportanceChart data={importanceData} loading={loadingDiagnostics} />
                       {!importanceData && outputFiles.variable_importance_png && (
-                        <img
-                          src={`/api/v1/results/file/${encodeURIComponent(outputFiles.variable_importance_png)}`}
-                          alt="Variable importance PNG"
-                          loading="lazy"
-                          className="w-full mt-3 rounded border border-sdm-border/50"
-                        />
+                        <div className="mt-3 aspect-video relative">
+                          <img
+                            src={`/api/v1/results/file/${encodeURIComponent(outputFiles.variable_importance_png)}`}
+                            alt="Variable importance PNG"
+                            loading="lazy"
+                            className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain"
+                          />
+                        </div>
                       )}
                     </div>
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Response Curves</h4>
                       <ResponseCurvesChart data={responseCurvesData} loading={loadingDiagnostics} />
                       {!responseCurvesData && outputFiles.response_curves_png && (
-                        <img
-                          src={`/api/v1/results/file/${encodeURIComponent(outputFiles.response_curves_png)}`}
-                          alt="Response curves PNG"
-                          loading="lazy"
-                          className="w-full mt-3 rounded border border-sdm-border/50"
-                        />
+                        <div className="mt-3 aspect-video relative">
+                          <img
+                            src={`/api/v1/results/file/${encodeURIComponent(outputFiles.response_curves_png)}`}
+                            alt="Response curves PNG"
+                            loading="lazy"
+                            className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain"
+                          />
+                        </div>
                       )}
                     </div>
                   </div>
@@ -251,18 +255,22 @@ export default function EvaluatePage() {
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">CBI</h4>
                       <CbiChart data={cbiData} loading={loadingDiagnostics} />
                       {!cbiData && outputFiles.cbi_png && (
-                        <img
-                          src={`/api/v1/results/file/${encodeURIComponent(outputFiles.cbi_png)}`}
-                          alt="CBI PNG"
-                          loading="lazy"
-                          className="w-full mt-3 rounded border border-sdm-border/50"
-                        />
+                        <div className="mt-3 aspect-video relative">
+                          <img
+                            src={`/api/v1/results/file/${encodeURIComponent(outputFiles.cbi_png)}`}
+                            alt="CBI PNG"
+                            loading="lazy"
+                            className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain"
+                          />
+                        </div>
                       )}
                     </div>
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">ROC Curve</h4>
                       {rocCurvePng ? (
-                        <img src={rocCurvePng} alt="ROC curve" className="w-full rounded border border-sdm-border/50" />
+                        <div className="aspect-video relative">
+                          <img src={rocCurvePng} alt="ROC curve" className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain" loading="lazy" />
+                        </div>
                       ) : (
                         <div className="flex items-center justify-center h-48 text-sm text-sdm-muted italic">
                           <Image className="h-4 w-4 mr-1" /> Not available
@@ -275,7 +283,9 @@ export default function EvaluatePage() {
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Calibration</h4>
                       {calibrationPng ? (
-                        <img src={calibrationPng} alt="Calibration curve" className="w-full rounded border border-sdm-border/50" />
+                        <div className="aspect-video relative">
+                          <img src={calibrationPng} alt="Calibration curve" className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain" loading="lazy" />
+                        </div>
                       ) : (
                         <div className="flex items-center justify-center h-48 text-sm text-sdm-muted italic">
                           <Image className="h-4 w-4 mr-1" /> Not available
@@ -285,7 +295,9 @@ export default function EvaluatePage() {
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">CV Folds</h4>
                       {cvFoldsPng ? (
-                        <img src={cvFoldsPng} alt="CV folds" className="w-full rounded border border-sdm-border/50" />
+                        <div className="aspect-video relative">
+                          <img src={cvFoldsPng} alt="CV folds" className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain" loading="lazy" />
+                        </div>
                       ) : (
                         <div className="flex items-center justify-center h-48 text-sm text-sdm-muted italic">
                           <Image className="h-4 w-4 mr-1" /> Not available
