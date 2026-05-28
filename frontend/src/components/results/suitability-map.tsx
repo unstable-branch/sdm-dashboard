@@ -70,7 +70,9 @@ export function SuitabilityMap({ outputFiles, projectionExtent, runId }: Suitabi
     ? `/api/v1/results/file/download?path=${encodeURIComponent(outputFiles.tif)}`
     : null;
 
-  const tileUrl = outputFiles?.tif
+  const tileUrl = outputFiles?.tif_3857
+    ? buildTileUrl(outputFiles.tif_3857)
+    : outputFiles?.tif
     ? buildTileUrl(outputFiles.tif)
     : null;
 
