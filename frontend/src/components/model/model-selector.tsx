@@ -186,7 +186,7 @@ export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps
                             {m.min_records != null && (
                               <span>≥ {m.min_records} records</span>
                             )}
-                            {isInstalled && m.packages && m.packages.length > 0 && (
+                            {isInstalled && Array.isArray(m.packages) && m.packages.length > 0 && (
                               <span>Packages: {m.packages.join(", ")}</span>
                             )}
                             {!isInstalled && m.notes && (
