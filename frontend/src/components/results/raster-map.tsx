@@ -79,11 +79,20 @@ export function RasterMap({ tileUrl, bounds, geotiffUrl, theme, onCellClick }: R
   }, [data]);
 
   const [west, south, east, north] = bounds;
+  const lngSpan = east - west;
+  const latSpan = north - south;
+  const initialZoom = Math.max(1, Math.min(10, Math.round(13 - Math.log2(Math.max(lngSpan, latSpan)))));
   const viewState = {
     longitude: (west + east) / 2,
     latitude: (north + south) / 2,
-    zoom: 4,
+    zoom: initialZoom,
   };
+
+  const fitBoundsToExtent = useCallback(() => {
+    if (mapRef.current) {
+      mapRef.current.fitBounds(bounds, { padding: 40, maxZoom: 10, duration: 500 });
+    }
+  }, [bounds.join(",")]);
 
   const handleMouseMove = useCallback((evt: any) => {
     const d = dataRef.current;
@@ -170,6 +179,7 @@ export function RasterMap({ tileUrl, bounds, geotiffUrl, theme, onCellClick }: R
         initialViewState={viewState}
         style={{ width: "100%", height: "100%" }}
         mapStyle={theme === "dark" ? DARK_STYLE : LIGHT_STYLE}
+        onLoad={fitBoundsToExtent}
         onMouseMove={handleMouseMove}
         onClick={handleClick}
         onError={handleMapError}
