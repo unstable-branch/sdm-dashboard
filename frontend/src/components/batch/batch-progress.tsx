@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Loader2, CheckCircle2, XCircle, Clock, RotateCcw, X, Download } from "lucide-react";
 import { apiGet } from "@/services/api";
 import type { RunSummary } from "@/services/types";
@@ -76,10 +76,10 @@ export function BatchProgress({ jobIds, batchId, onComplete, onRetryFailed, onCa
     };
   }, [jobIds, batchId, onComplete]);
 
-  const completed = jobs.filter((j) => j.status === "completed").length;
-  const failed = jobs.filter((j) => j.status === "failed").length;
-  const running = jobs.filter((j) => j.status === "running" || j.status === "queued").length;
-  const cancelled = jobs.filter((j) => j.status === "cancelled").length;
+  const completed = useMemo(() => jobs.filter((j) => j.status === "completed").length, [jobs]);
+  const failed = useMemo(() => jobs.filter((j) => j.status === "failed").length, [jobs]);
+  const running = useMemo(() => jobs.filter((j) => j.status === "running" || j.status === "queued").length, [jobs]);
+  const cancelled = useMemo(() => jobs.filter((j) => j.status === "cancelled").length, [jobs]);
   const progress = jobs.length > 0 ? (completed / jobs.length) * 100 : 0;
 
   const hasFailed = failed > 0;
