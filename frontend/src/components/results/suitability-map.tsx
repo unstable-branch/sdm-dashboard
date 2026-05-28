@@ -26,10 +26,9 @@ function encodeColormap(): string {
   return encodeURIComponent(SDM_COLORMAP_JSON);
 }
 
-function buildTileUrl(tif4326Path: string): string {
+function buildTileUrl(tifPath: string): string {
   const colormapEncoded = encodeColormap();
-  // Serve the 4326 TIFF directly with on-the-fly reprojection to Web Mercator
-  const dataUrlEncoded = encodeURIComponent(tif4326Path.replace("/app/outputs/", "/data/outputs/"));
+  const dataUrlEncoded = encodeURIComponent(tifPath.replace("/app/outputs/", "/data/outputs/"));
   return `${TITILER_URL}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=${dataUrlEncoded}&tilesize=256&resampling=bilinear&reproject=bilinear&rescale=0,1&colormap=${colormapEncoded}`;
 }
 
