@@ -208,9 +208,23 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
         </div>
       )}
 
-      {job.state === "failed" && job.failedReason && (
-        <div className="text-sm text-red-500 break-words">
-          <span className="font-semibold">Error: </span>{job.failedReason}
+      {job.state === "failed" && (
+        <div className="space-y-1">
+          {job.failedReason && (
+            <div className="text-sm text-red-500 break-words">
+              <span className="font-semibold">Error: </span>{job.failedReason}
+            </div>
+          )}
+          {job.error_code && (
+            <div className="text-xs text-sdm-muted font-mono">
+              Code: {job.error_code}
+            </div>
+          )}
+          {job.error_hint && (
+            <div className="text-xs text-sdm-warning">
+              Hint: {job.error_hint}
+            </div>
+          )}
         </div>
       )}
 

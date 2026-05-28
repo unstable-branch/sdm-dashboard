@@ -240,6 +240,12 @@ jobs:
           cache-from: type=gha,scope=sdm-dashboard-plumber
           cache-to: type=gha,mode=max,scope=sdm-dashboard-plumber
 
+      - name: Download shared package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
+
       - name: Build API image
         run: docker build -f Dockerfile.api -t sdm-dashboard-api:latest -t sdm-api:test .
 

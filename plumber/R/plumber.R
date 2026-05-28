@@ -39,6 +39,14 @@ if (file.exists(error_codes_path)) {
   source(error_codes_path)
 }
 
+# Atomically write JSON to a file (tempfile + rename to avoid partial reads)
+sdm_write_json <- function(obj, path, ...) {
+  tmp_path <- tempfile(pattern = basename(path), tmpdir = dirname(path))
+  on.exit(unlink(tmp_path))
+  writeLines(jsonlite::toJSON(obj, auto_unbox = TRUE, pretty = TRUE, ...), tmp_path)
+  file.rename(tmp_path, path)
+}
+
 # Helper for error responses
 sdm_error <- function(req, status, message) {
   res <- tryCatch(req$res, error = function(e) NULL)
@@ -464,6 +472,11 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
     )
     progress_json_list[[length(progress_json_list) + 1]] <<- entry
     writeLines(jsonlite::toJSON(progress_json_list, auto_unbox = TRUE, pretty = TRUE), progress_json_path)
+    entry_json <- jsonlite::toJSON(entry, auto_unbox = TRUE)
+    sdm_redis_progress_set(job_id, entry_json)
+    if (sdm_redis_cancel_check(job_id)) {
+      stop("CANCELLED")
+    }
   }
 
   job_meta <- list(
@@ -682,10 +695,11 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
       job_meta$manifest_path <- manifest_path
     }
     gc(verbose = FALSE)
-    writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
+    sdm_write_json(job_meta, job_meta_file)
   }, error = function(e) {
     err_msg <- conditionMessage(e)
-    err_code <- tryCatch(sdm_classify_error(err_msg), error = function(ee) "INTERNAL_ERROR")
+    is_cancelled <- identical(err_msg, "CANCELLED") || sdm_redis_cancel_check(job_id)
+    err_code <- if (is_cancelled) "CANCELLED" else tryCatch(sdm_classify_error(err_msg), error = function(ee) "INTERNAL_ERROR")
     error_hint <- tryCatch(
       { h <- SDM_ERR_CODES[[err_code]]$hint; if (is.null(h)) NA_character_ else h },
       error = function(ee) NA_character_
@@ -694,11 +708,11 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
     peak_mb <- tryCatch(r_get_peak_memory_mb(), error = function(ee) NA_real_)
     err_meta <- list(
       id = job_id,
-      status = "failed",
+      status = if (is_cancelled) "cancelled" else "failed",
       started_at = job_meta$started_at %||% format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
       config = as.list(body),
       output_dir = job_dir,
-      error = err_msg,
+      error = if (is_cancelled) "Cancelled by user" else err_msg,
       error_code = err_code,
       error_hint = error_hint,
       error_traceback = paste(utils::tail(traceback(), 10), collapse = "\n"),
@@ -706,8 +720,8 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
       r_cpu_time_ms = cpu_ms,
       r_peak_memory_mb = peak_mb
     )
-    writeLines(jsonlite::toJSON(err_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
-    cat("Run failed [", err_code, "]:", err_msg, "\n")
+    sdm_write_json(err_meta, job_meta_file)
+    cat("Run", if (is_cancelled) "cancelled" else "failed", "[", err_code, "]:", err_msg, "\n")
   })
 
   NULL
@@ -782,14 +796,14 @@ function(req) {
     output_dir = job_dir
   )
   job_meta_file <- file.path(job_dir, "meta.json")
-  writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
+  sdm_write_json(job_meta, job_meta_file)
 
   proc <- callr::r_bg(run_model_background, args = list(body, biovars, projection_extent, job_dir, app_dir, job_id),
     stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"))
   sdm_process_registry[[job_id]] <- proc
 
   job_meta$process_pid <- proc$get_pid()
-  writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
+  sdm_write_json(job_meta, job_meta_file)
 
   list(
     job_id = job_id,
@@ -839,20 +853,40 @@ function(res, job_id) {
       meta$status <- "failed"
       meta$error <- "Process crashed or was killed (OOM, segfault, or external signal)"
       meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
-      # Clean up registry
+      sdm_write_json(meta, meta_file)
       sdm_process_registry[[job_id]] <- NULL
+      sdm_redis_progress_clear(job_id)
+      sdm_redis_cancel_clear(job_id)
     }
+  }
+
+  # Check Redis cancellation signal — catches cancel before background process reacts
+  if (identical(meta$status, "running") && sdm_redis_cancel_check(job_id)) {
+    meta$status <- "cancelled"
+    meta$error <- "Cancelled by user"
+    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    sdm_write_json(meta, meta_file)
+    sdm_process_registry[[job_id]] <- NULL
+    sdm_redis_progress_clear(job_id)
+    sdm_redis_cancel_clear(job_id)
   }
 
   # Clean up registry for terminal states
   if (identical(meta$status, "completed") || identical(meta$status, "failed") || identical(meta$status, "cancelled")) {
     sdm_process_registry[[job_id]] <- NULL
+    sdm_redis_progress_clear(job_id)
+    sdm_redis_cancel_clear(job_id)
   }
 
-  progress_lines <- character(0)
-  if (file.exists(progress_file)) {
-    progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
+  # Try Redis progress first, fall back to file progress
+  redis_progress <- sdm_redis_progress_get(job_id, 20)
+  if (!is.null(redis_progress) && length(redis_progress) > 0) {
+    progress_lines <- redis_progress
+  } else {
+    progress_lines <- character(0)
+    if (file.exists(progress_file)) {
+      progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
+    }
   }
 
   progress_json <- NULL
@@ -869,6 +903,8 @@ function(res, job_id) {
     error_traceback = meta$error_traceback %||% NULL,
     metrics = meta$metrics %||% NULL,
     output_files = meta$output_files %||% NULL,
+    error_code = meta$error_code %||% NULL,
+    error_hint = meta$error_hint %||% NULL,
     r_cpu_time_ms = meta$r_cpu_time_ms %||% NULL,
     r_peak_memory_mb = meta$r_peak_memory_mb %||% NULL,
     progress_log = progress_lines,
@@ -921,7 +957,8 @@ function(req, job_id) {
     meta$status <- "cancelled"
     meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
     meta$error <- "Cancelled by user"
-    writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+    sdm_write_json(meta, meta_file)
+    sdm_redis_cancel_set(job_id)
   }
 
   if (killed) {
@@ -1012,7 +1049,7 @@ sdm_async_submit <- function(job_type, params, app_dir, user_id = "anonymous") {
     started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
     params = params
   )
-  writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), file.path(job_dir, "meta.json"))
+  sdm_write_json(meta, file.path(job_dir, "meta.json"))
 
   input <- params
   input$type <- job_type
@@ -1030,7 +1067,7 @@ sdm_async_submit <- function(job_type, params, app_dir, user_id = "anonymous") {
 
   sdm_process_registry[[job_id]] <- proc
   meta$process_pid <- proc$get_pid()
-  writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), file.path(job_dir, "meta.json"))
+  sdm_write_json(meta, file.path(job_dir, "meta.json"))
 
   job_id
 }
@@ -1051,6 +1088,30 @@ sdm_async_status <- function(job_id) {
     result <- jsonlite::fromJSON(result_file, simplifyVector = FALSE)
   }
 
+  # Check for terminal states from meta.json
+  if (identical(meta$status, "cancelled")) {
+    sdm_process_registry[[basename(job_id)]] <- NULL
+    sdm_redis_progress_clear(basename(job_id))
+    sdm_redis_cancel_clear(basename(job_id))
+    return(list(available = TRUE, status = "cancelled", error = meta$error %||% "Cancelled by user",
+                error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
+  }
+  if (identical(meta$status, "completed") && is.null(result)) {
+    sdm_process_registry[[basename(job_id)]] <- NULL
+    sdm_redis_progress_clear(basename(job_id))
+    sdm_redis_cancel_clear(basename(job_id))
+    return(list(available = TRUE, status = "completed",
+                error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
+  }
+  if (identical(meta$status, "failed") && is.null(result)) {
+    sdm_process_registry[[basename(job_id)]] <- NULL
+    sdm_redis_progress_clear(basename(job_id))
+    sdm_redis_cancel_clear(basename(job_id))
+    return(list(available = TRUE, status = "failed", error = meta$error %||% "Unknown error",
+                error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
+  }
+
+  # Crash detection for running jobs
   if (identical(meta$status, "running") && is.null(result)) {
     proc <- sdm_process_registry[[basename(job_id)]]
     process_alive <- FALSE
@@ -1069,10 +1130,30 @@ sdm_async_status <- function(job_id) {
     if (!process_alive) {
       meta$status <- "failed"
       meta$error <- "Process crashed"
-      writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+      sdm_write_json(meta, meta_file)
       sdm_process_registry[[basename(job_id)]] <- NULL
+      sdm_redis_progress_clear(basename(job_id))
+      sdm_redis_cancel_clear(basename(job_id))
+      return(list(available = TRUE, status = "failed", error = "Process crashed",
+                  error_code = "PROCESS_CRASH", error_hint = "The R process terminated unexpectedly"))
     }
   }
+
+  # Check Redis cancellation signal for running jobs
+  if (identical(meta$status, "running") && is.null(result) && sdm_redis_cancel_check(basename(job_id))) {
+    meta$status <- "cancelled"
+    meta$error <- "Cancelled by user"
+    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    sdm_write_json(meta, meta_file)
+    sdm_process_registry[[basename(job_id)]] <- NULL
+    sdm_redis_progress_clear(basename(job_id))
+    sdm_redis_cancel_clear(basename(job_id))
+    return(list(available = TRUE, status = "cancelled", error = "Cancelled by user",
+                error_code = NULL, error_hint = NULL))
+  }
+
+  error_code <- meta$error_code %||% NULL
+  error_hint <- meta$error_hint %||% NULL
 
   if (!is.null(result)) {
     if (identical(result$status, "completed")) {
@@ -1080,24 +1161,34 @@ sdm_async_status <- function(job_id) {
       meta$status <- "completed"
       meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       meta$result <- result$result
-      writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
-      return(list(available = TRUE, status = "completed", result = result$result))
+      sdm_write_json(meta, meta_file)
+      sdm_redis_progress_clear(basename(job_id))
+      sdm_redis_cancel_clear(basename(job_id))
+      return(list(available = TRUE, status = "completed", result = result$result, error_code = error_code, error_hint = error_hint))
     } else if (identical(result$status, "failed")) {
       sdm_process_registry[[basename(job_id)]] <- NULL
       meta$status <- "failed"
       meta$error <- result$error
       meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
-      return(list(available = TRUE, status = "failed", error = result$error))
+      sdm_write_json(meta, meta_file)
+      sdm_redis_progress_clear(basename(job_id))
+      sdm_redis_cancel_clear(basename(job_id))
+      return(list(available = TRUE, status = "failed", error = result$error, error_code = error_code, error_hint = error_hint))
     }
   }
 
-  progress_lines <- character(0)
-  if (file.exists(progress_file)) {
-    progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
+  # Try Redis progress first, fall back to file progress
+  redis_progress <- sdm_redis_progress_get(basename(job_id), 20)
+  if (!is.null(redis_progress) && length(redis_progress) > 0) {
+    progress_lines <- redis_progress
+  } else {
+    progress_lines <- character(0)
+    if (file.exists(progress_file)) {
+      progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
+    }
   }
 
-  list(available = TRUE, status = "running", progress_log = progress_lines)
+  list(available = TRUE, status = "running", progress_log = progress_lines, error_code = error_code, error_hint = error_hint)
 }
 
 #* Get async job status
@@ -1141,7 +1232,8 @@ function(req, job_id) {
     }
     meta$status <- "cancelled"
     meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+    sdm_write_json(meta, meta_file)
+    sdm_redis_cancel_set(basename(job_id))
   }
 
   list(ok = TRUE, message = if (killed) "Job cancelled" else "Job not found")
@@ -1224,7 +1316,7 @@ function(req) {
     error = NULL,
     config = body
   )
-  writeLines(jsonlite::toJSON(job_meta, null = "null", auto_unbox = TRUE), file.path(job_dir, "meta.json"))
+  sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
 
   script_path <- file.path(app_dir, "plumber", "R", "climate_download.R")
   if (!file.exists(script_path)) {
@@ -1236,7 +1328,7 @@ function(req) {
   }, args = list(script_path, job_dir, app_dir), stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"))
   sdm_process_registry[[job_id]] <- proc
   job_meta$process_pid <- proc$get_pid()
-  writeLines(jsonlite::toJSON(job_meta, null = "null", auto_unbox = TRUE), file.path(job_dir, "meta.json"))
+  sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
 
   list(
     job_id = job_id,
@@ -2526,7 +2618,7 @@ function(res, run_id) {
   diag_files <- save_diagnostic_plots(result, job_dir, log_fun = function(...) {})
   # Merge new diagnostic paths into meta.json output_files
   meta$output_files <- c(meta$output_files %||% list(), diag_files)
-  writeLines(jsonlite::toJSON(meta, auto_unbox = TRUE, pretty = TRUE), meta_file)
+  sdm_write_json(meta, meta_file)
   list(ok = TRUE, files = diag_files)
 }
 

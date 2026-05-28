@@ -2,6 +2,7 @@ export * from "./types.js";
 export * from "./schemas.js";
 export * from "./plumber-types.js";
 export * from "./data-sources.js";
+export * from "./error-codes.js";
 export {
   BIOVAR_CHOICES,
   EXTENT_PRESETS,

@@ -92,6 +92,20 @@
       "when": 1779950000000,
       "tag": "0011_add_cleaned_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1738000000000,
+      "tag": "0012_add_batches",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1746000000000,
+      "tag": "0013_cleanup_dead_columns",
+      "breakpoints": true
     }
   ]
 }

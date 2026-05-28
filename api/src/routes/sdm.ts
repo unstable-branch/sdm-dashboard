@@ -5,7 +5,7 @@ import { enqueueSdmJob, getJobQueue } from "../services/queue.js";
 import { db } from "../db/index.js";
 import { runs, species, batches } from "../db/schema.js";
 import { eq, desc, count, and, inArray, sql } from "drizzle-orm";
-import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
+import { getErrorHttpStatus, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
@@ -249,23 +249,23 @@ sdmRoutes.post("/run", async (c) => {
         })
         .returning();
 
-      // Submit directly to Plumber (bypass BullMQ which crashes in dev)
+      // Enqueue via BullMQ for async processing
       const plumberPayload = buildModelPayload(config as unknown as ModelConfigRecord, run.id);
-      const plumberResult = await plumberClient.withUser(user.id).runModel(plumberPayload);
-      const plumberJobId = (plumberResult as any).job_id as string | undefined;
+      const bullmqId = await enqueueSdmJob(
+        { type: "model", payload: { ...plumberPayload, runId: run.id } },
+        user.id
+      );
 
-      if (plumberJobId) {
-        await db
-          .update(runs)
-          .set({ jobId: plumberJobId, status: "running", startedAt: new Date() })
-          .where(eq(runs.id, run.id));
-      }
+      await db
+        .update(runs)
+        .set({ jobId: bullmqId, status: "queued" })
+        .where(eq(runs.id, run.id));
 
       jobEventBus.emitJobStatus({
         jobId: run.id,
         state: "active",
         progress: 5,
-        logs: ["Model run submitted to Plumber."],
+        logs: ["Model run queued for async processing."],
       });
 
       return c.json({ jobId: run.id, queuedAt: new Date().toISOString() });
@@ -551,6 +551,9 @@ sdmRoutes.get("/status/:jobId", async (c) => {
             })
             .where(eq(runs.id, jobId));
 
+          const errCode = (plumberStatus as any).error_code as string | undefined;
+          const httpStatus = plumberRunStatus === "failed" ? getErrorHttpStatus(errCode) : 200;
+
           return c.json({
             id: run.id,
             status: plumberRunStatus,
@@ -559,13 +562,15 @@ sdmRoutes.get("/status/:jobId", async (c) => {
             started_at: run.startedAt?.toISOString() ?? null,
             completed_at: plumberStatus && (plumberStatus as any).completed_at,
             error: plumberError ?? null,
+            error_code: errCode ?? null,
+            error_hint: (plumberStatus as any).error_hint ?? null,
             metrics: plumberMetrics ?? null,
             output_files: plumberOutputFiles ?? null,
             r_cpu_time_ms: (plumberStatus as any).r_cpu_time_ms ?? null,
             r_peak_memory_mb: (plumberStatus as any).r_peak_memory_mb ?? null,
             progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
             config: normalizeConfig(run.config),
-          });
+          }, httpStatus as any);
         }
 
         return c.json({
@@ -598,6 +603,8 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       }
     }
 
+    const httpStatus = run.status === "failed" ? getErrorHttpStatus(errCode) : 200;
+
     return c.json({
       id: run.id,
       status: run.status,
@@ -612,7 +619,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       output_files: run.outputFiles ?? null,
       progress_log: [],
       config: normalizeConfig(run.config),
-    });
+    }, httpStatus as any);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get status";
     return c.json({ error: message }, 502);
