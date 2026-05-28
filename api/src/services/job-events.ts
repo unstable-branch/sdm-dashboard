@@ -7,6 +7,8 @@ export interface JobStatusEvent {
   logs?: string[];
   result?: Record<string, unknown>;
   failedReason?: string;
+  error_code?: string | null;
+  error_hint?: string | null;
   currentStage?: string | null;
   progressJson?: any;
 }
