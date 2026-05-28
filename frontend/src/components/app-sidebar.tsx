@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
-import dynamic from "next/dynamic";
 import {
   Sidebar,
   SidebarContent,
@@ -27,19 +26,7 @@ import { Button } from "@/components/ui/button";
 import { pipelineItems, systemItems } from "@/components/dashboard-nav";
 import { useAuthStore } from "@/stores/auth-store";
 
-const AdminSidebarGroup = dynamic(() => import("@/components/layout/admin-sidebar-group").then(m => ({ default: m.AdminSidebarGroup })), {
-  loading: () => (
-    <SidebarGroup>
-      <SidebarGroupLabel>Admin</SidebarGroupLabel>
-      <SidebarGroupContent>
-        <div className="space-y-1 px-3">
-          <div className="h-8 rounded bg-sdm-surface-soft animate-pulse" />
-          <div className="h-8 rounded bg-sdm-surface-soft animate-pulse" />
-        </div>
-      </SidebarGroupContent>
-    </SidebarGroup>
-  ),
-});
+import { AdminSidebarGroup } from "@/components/layout/admin-sidebar-group";
 
 export function AppSidebar() {
   const { theme, setTheme } = useTheme();
