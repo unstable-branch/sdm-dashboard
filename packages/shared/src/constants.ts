@@ -66,6 +66,50 @@ export const MODEL_BACKENDS = [
   { id: "python_sklearn_rf", label: "Scikit-Learn Random Forest (Python)", maturity: "experimental" as const, min_records: 15, available: false, notes: "Requires Python + scikit-learn package" },
 ];
 
+export const MODEL_TIERS: Record<string, string> = {
+  glm: "Core Standards",
+  gam: "Core Standards",
+  maxnet: "Core Standards",
+  rf: "Core Standards",
+  brt: "Core Standards",
+  xgboost: "Core Standards",
+  rangebag: "Dependency-Free",
+  mars: "Dependency-Free",
+  ann: "Dependency-Free",
+  cta: "Dependency-Free",
+  fda: "Dependency-Free",
+  ensemble_glm_rangebag: "Ensembles",
+  multi_ensemble: "Ensembles",
+  dnn: "Ensembles",
+  bioclim: "Ensembles",
+  esm_glm: "Rare Species",
+  esm_maxnet: "Rare Species",
+  biomod2: "Rare Species",
+  bart: "Bayesian / Heavy",
+  brms: "Bayesian / Heavy",
+  inla_spde: "Bayesian / Heavy",
+  occupancy: "Specialised",
+  dnn_multispecies: "Specialised",
+  python_elapid: "Specialised",
+  python_sklearn_rf: "Specialised",
+};
+
+export const TIER_ORDER = [
+  "Core Standards",
+  "Dependency-Free",
+  "Ensembles",
+  "Rare Species",
+  "Bayesian / Heavy",
+  "Specialised",
+];
+
+const TIER_SORT_ORDER: Record<string, number> = {};
+TIER_ORDER.forEach((t, i) => { TIER_SORT_ORDER[t] = i; });
+
+export function tierSortKey(tier: string | undefined): number {
+  return tier ? TIER_SORT_ORDER[tier] ?? 99 : 99;
+}
+
 export const SOIL_VARS = [
   { id: "bdod", label: "Bulk density" },
   { id: "cfvo", label: "Coarse fragments" },

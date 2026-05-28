@@ -35,6 +35,7 @@ settingsRoutes.put("/", async (c) => {
 
   const allowed = [
     "defaultModelId",
+    "pinnedModelIds",
     "defaultBiovars",
     "defaultClimateSource",
     "defaultClimateRes",
