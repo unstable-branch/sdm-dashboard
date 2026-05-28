@@ -45,7 +45,7 @@ pkgs <- c(
   "mgcv", "earth", "rpart", "mda", "gam",
   "xgboost", "ranger", "CAST", "blockCV",
   "PresenceAbsence", "pROC", "ecospat", "plotrix",
-  "ggplot2", "DBI", "RPostgres", "digest", "Rook",
+  "ggplot2",   "DBI", "RPostgres", "pool", "digest", "Rook",
   "CoordinateCleaner", "rgbif", "finch",
   "future", "future.apply", "marginaleffects",
   "fastshap", "iml", "redux"
