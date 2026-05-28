@@ -17,10 +17,10 @@ interface RunHistoryProps {
 
 const statusIcons: Record<string, React.ReactNode> = {
   running: <Loader2 className="h-4 w-4 text-sdm-accent animate-spin" />,
-  completed: <CheckCircle2 className="h-4 w-4 text-green-500" />,
-  failed: <XCircle className="h-4 w-4 text-red-500" />,
+  completed: <CheckCircle2 className="h-4 w-4 text-sdm-success" />,
+  failed: <XCircle className="h-4 w-4 text-sdm-danger" />,
   queued: <Clock className="h-4 w-4 text-sdm-muted" />,
-  cancelled: <Ban className="h-4 w-4 text-amber-500" />,
+  cancelled: <Ban className="h-4 w-4 text-sdm-warning" />,
 };
 
 function hasActiveRuns(runs: Run[]): boolean {
@@ -171,13 +171,13 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
         <div className="text-xs text-sdm-warning">Showing cached data — connection issue</div>
       )}
       {showClearConfirm && (
-        <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 flex items-center justify-between">
-          <p className="text-xs text-red-400">Clear {clearableCount} run{clearableCount === 1 ? "" : "s"} and delete all output files? This cannot be undone.</p>
+        <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 px-3 py-2 flex items-center justify-between">
+          <p className="text-xs text-sdm-danger">Clear {clearableCount} run{clearableCount === 1 ? "" : "s"} and delete all output files? This cannot be undone.</p>
           <div className="flex items-center gap-2 ml-3 shrink-0">
             <button
               onClick={confirmClearAll}
               disabled={clearing}
-              className="rounded bg-red-500 px-2 py-1 text-xs text-white hover:bg-red-600 disabled:opacity-50"
+              className="rounded bg-sdm-danger px-2 py-1 text-xs text-white hover:bg-sdm-danger disabled:opacity-50"
             >
               {clearing ? "Clearing..." : "Yes, clear"}
             </button>
@@ -215,9 +215,9 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
                 <div className="flex items-center gap-2 shrink-0 ml-2">
                   <span className={cn(
                     "text-xs font-medium px-2 py-0.5 rounded-full",
-                    run.status === "completed" ? "bg-green-500/10 text-green-500" :
-                    run.status === "failed" ? "bg-red-500/10 text-red-500" :
-                    run.status === "cancelled" ? "bg-amber-500/10 text-amber-500" :
+                    run.status === "completed" ? "bg-sdm-success/10 text-sdm-success" :
+                    run.status === "failed" ? "bg-sdm-danger/10 text-sdm-danger" :
+                    run.status === "cancelled" ? "bg-sdm-warning/10 text-sdm-warning" :
                     run.status === "running" ? "bg-sdm-accent/10 text-sdm-accent" :
                     "bg-sdm-muted/10 text-sdm-muted"
                   )}>
@@ -227,7 +227,7 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
                     <button
                       onClick={() => handleCancel(run.id)}
                       disabled={isActioning}
-                      className="p-1 rounded hover:bg-red-500/10 text-sdm-muted hover:text-red-400 disabled:opacity-50"
+                      className="p-1 rounded hover:bg-sdm-danger/10 text-sdm-muted hover:text-sdm-danger disabled:opacity-50"
                       title="Cancel run"
                     >
                       <Ban className="h-3.5 w-3.5" />
@@ -237,7 +237,7 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
                     <button
                       onClick={() => handleDelete(run.id)}
                       disabled={isActioning}
-                      className="p-1 rounded hover:bg-red-500/10 text-sdm-muted hover:text-red-400 disabled:opacity-50"
+                      className="p-1 rounded hover:bg-sdm-danger/10 text-sdm-muted hover:text-sdm-danger disabled:opacity-50"
                       title="Delete run"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -257,16 +257,16 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
                 )}
               </div>
               {run.status === "failed" && run.error && (
-                <div className="mt-2 text-xs text-red-400 break-words">{run.error}</div>
+                <div className="mt-2 text-xs text-sdm-danger break-words">{run.error}</div>
               )}
 
               {isActioning && actionType === "cancel" && (
-                <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex items-center justify-between">
+                <div className="mt-2 rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-3 py-2 flex items-center justify-between">
                   <p className="text-xs text-sdm-warning">Cancel this run? Partial results will be lost.</p>
                   <div className="flex items-center gap-2 ml-3 shrink-0">
                     <button
                       onClick={confirmAction}
-                      className="rounded bg-red-500 px-2 py-1 text-xs text-white hover:bg-red-600"
+                      className="rounded bg-sdm-danger px-2 py-1 text-xs text-white hover:bg-sdm-danger"
                     >
                       Yes, cancel
                     </button>
@@ -281,12 +281,12 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
               )}
 
               {isActioning && actionType === "delete" && (
-                <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 flex items-center justify-between">
-                  <p className="text-xs text-red-400">Delete this run and all output files? This cannot be undone.</p>
+                <div className="mt-2 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 px-3 py-2 flex items-center justify-between">
+                  <p className="text-xs text-sdm-danger">Delete this run and all output files? This cannot be undone.</p>
                   <div className="flex items-center gap-2 ml-3 shrink-0">
                     <button
                       onClick={confirmAction}
-                      className="rounded bg-red-500 px-2 py-1 text-xs text-white hover:bg-red-600"
+                      className="rounded bg-sdm-danger px-2 py-1 text-xs text-white hover:bg-sdm-danger"
                     >
                       Delete
                     </button>
