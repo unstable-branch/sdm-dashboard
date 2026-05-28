@@ -32,6 +32,11 @@ progress_fun <- function(pct, msg) {
   line <- sprintf("[%d%%] %s", as.integer(pct), msg)
   cat(line, "\n")
   cat(line, "\n", file = progress_file, append = TRUE)
+  if (exists("sdm_redis_cancel_check", inherits = FALSE) && job_id %||% "" != "") {
+    if (sdm_redis_cancel_check(job_id)) {
+      stop("CANCELLED")
+    }
+  }
 }
 
 read_meta <- function() {
@@ -45,6 +50,7 @@ write_meta <- function(meta) {
 meta <- read_meta()
 config <- meta$config %||% list()
 download_type <- config$type %||% "cmip6"
+job_id <- meta$id %||% basename(job_dir)
 
 tryCatch({
   progress_fun(5, "Initializing download")
@@ -124,6 +130,14 @@ tryCatch({
   write_meta(meta)
 }, error = function(e) {
   msg <- conditionMessage(e)
+  if (identical(msg, "CANCELLED")) {
+    meta$status <- "cancelled"
+    meta$error <- "Cancelled by user"
+    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    write_meta(meta)
+    log_fun("Download cancelled by user")
+    quit(save = "no", status = 0)
+  }
   network_patterns <- c("ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "ENETUNREACH", "EHOSTUNREACH", "EPIPE")
   http_4xx_pattern <- "HTTP/[45][0-9][0-9]|curl.*error|connection.*fail|timeout"
   http_5xx_pattern <- "HTTP 5[0-9][0-9]|Service Unavailable|Gateway Timeout"

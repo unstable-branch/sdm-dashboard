@@ -96,6 +96,16 @@ function DataPageContent() {
   const [gbifSaving, setGbifSaving] = useState(false);
   const [gbifSaved, setGbifSaved] = useState(false);
 
+  const handleCancelDownload = useCallback(async () => {
+    const active = climateDownloadJob || cmip6DownloadJob || avgDownloadJob;
+    if (active) {
+      try { await apiPost(`/api/v1/climate/cancel/${active}`); } catch { /* best-effort */ }
+    }
+    setClimateDownloadJob(null);
+    setCmip6DownloadJob(null);
+    setAvgDownloadJob(null);
+  }, [climateDownloadJob, cmip6DownloadJob, avgDownloadJob]);
+
   const onTabChange = useCallback((value: string) => { router.replace(`/data?tab=${value}`, { scroll: false }); }, [router]);
   const toggleClimateBiovar = (id: number) => setClimateBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
   const toggleAvgGcm = (id: string) => setAvgGcms((prev) => prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]);
@@ -119,12 +129,21 @@ function DataPageContent() {
     catch (err) { setClimateError(err instanceof Error ? err.message : "Download failed"); }
   };
 
-  const handleDownloadComplete = useCallback((completedJobId: string) => {
-    setClimateDownloadJob(prev => prev === completedJobId ? null : prev);
-    setCmip6DownloadJob(prev => prev === completedJobId ? null : prev);
-    setAvgDownloadJob(prev => prev === completedJobId ? null : prev);
-    fetchScenarios();
+  const clearDownloadJob = useCallback((jobId: string) => {
+    setClimateDownloadJob(prev => prev === jobId ? null : prev);
+    setCmip6DownloadJob(prev => prev === jobId ? null : prev);
+    setAvgDownloadJob(prev => prev === jobId ? null : prev);
   }, []);
+
+  const handleDownloadComplete = useCallback((completedJobId: string) => {
+    clearDownloadJob(completedJobId);
+    fetchScenarios();
+  }, [clearDownloadJob]);
+
+  const handleDownloadFailed = useCallback((failedJobId: string) => {
+    clearDownloadJob(failedJobId);
+    fetchScenarios();
+  }, [clearDownloadJob]);
 
   const fetchScenarios = useCallback(async () => {
     setScenariosLoading(true);
@@ -349,7 +368,7 @@ function DataPageContent() {
             onToggleClimateBiovar={toggleClimateBiovar} onClimateDownload={handleClimateDownload}
             onSetCmip6Gcm={setCmip6Gcm} onSetCmip6Ssp={setCmip6Ssp} onSetCmip6Period={setCmip6Period}
             onCmip6Download={handleCmip6Download} onToggleAvgGcm={toggleAvgGcm} onAvgDownload={handleAvgDownload}
-            onDownloadComplete={handleDownloadComplete} onCancelDownload={() => { setClimateDownloadJob(null); setCmip6DownloadJob(null); setAvgDownloadJob(null); }}
+            onDownloadComplete={handleDownloadComplete} onDownloadFailed={handleDownloadFailed} onCancelDownload={handleCancelDownload}
             onFetchScenarios={fetchScenarios} onDeleteScenario={handleDeleteScenario} />
         )}
       </Tabs>
