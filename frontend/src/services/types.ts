@@ -9,9 +9,6 @@ import type {
   CurveData,
   CbiBin,
   CvFoldEntry,
-  ThresholdEntry,
-  ThresholdData,
-  DensityData,
 } from "@sdm/shared";
 
 export type {

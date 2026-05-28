@@ -9,7 +9,7 @@ interface ThresholdExplorerProps {
   specificity?: number | null;
 }
 
-export function ThresholdExplorer({ aucMean, tssMean, sensitivity, specificity }: ThresholdExplorerProps) {
+export function ThresholdExplorer({ aucMean, sensitivity, specificity }: ThresholdExplorerProps) {
   const [threshold, setThreshold] = useState(0.5);
 
   const simulatedSensitivity = sensitivity != null

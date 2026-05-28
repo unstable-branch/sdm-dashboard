@@ -1,6 +1,6 @@
 "use client";
 
-import { EXTENT_PRESETS, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath } from "@sdm/shared";
+import { EXTENT_PRESETS, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 
 interface ExtentPanelProps {
   extentPreset: string;
