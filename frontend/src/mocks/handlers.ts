@@ -176,7 +176,7 @@ export function getHandlers() {
       return HttpResponse.json({ ok: true, message: "Found 2 stale jobs", staleJobs: 2 });
     }),
 
-    http.get(`${API_BASE}/api/v1/admin/diagnostics/runs`, async ({ __request }) => {
+    http.get(`${API_BASE}/api/v1/admin/diagnostics/runs`, async ({ request: _request }) => {
       return HttpResponse.json({
         runs: [
           { id: "r1", speciesName: "Test species", modelId: "glm", status: "completed", jobId: "j1", error: null, startedAt: null, completedAt: null, createdAt: new Date().toISOString() },
