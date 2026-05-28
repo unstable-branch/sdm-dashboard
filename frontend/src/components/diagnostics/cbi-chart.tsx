@@ -127,3 +127,4 @@ export function CbiChart({ data, loading }: CbiChartProps) {
     </div>
   );
 }
+export { CbiChart as default }

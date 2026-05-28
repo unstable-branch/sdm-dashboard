@@ -217,3 +217,4 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
     </div>
   );
 }
+export { DiagnosticsPanel as default }

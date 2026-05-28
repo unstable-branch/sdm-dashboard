@@ -73,3 +73,4 @@ export function ResponseCurvesChart({ data, loading }: ResponseCurvesChartProps)
     </div>
   );
 }
+export { ResponseCurvesChart as default }

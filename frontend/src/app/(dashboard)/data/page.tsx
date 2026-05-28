@@ -14,8 +14,8 @@ import { CleanTab } from "./clean-tab";
 import { ClimateTab } from "./climate-tab";
 import type { OccurrencePoint } from "./types";
 
-const GbifSearch = dynamic(() => import("@/components/data/gbif-search").then(m => m.GbifSearch), { ssr: false });
-const OccurrenceMap = dynamic(() => import("@/components/data/occurrence-map").then(m => m.OccurrenceMap), {
+const GbifSearch = dynamic(() => import("@/components/data/gbif-search"), { ssr: false });
+const OccurrenceMap = dynamic(() => import("@/components/data/occurrence-map"), {
   ssr: false,
   loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div>,
 });
