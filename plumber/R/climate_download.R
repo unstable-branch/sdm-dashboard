@@ -58,6 +58,26 @@ meta <- read_meta()
 config <- meta$config %||% list()
 download_type <- config$type %||% "cmip6"
 job_id <- meta$id %||% basename(job_dir)
+created_files <- character()
+
+cleanup_on_failure <- function() {
+  if (length(created_files) > 0) {
+    log_fun("Cleaning up ", length(created_files), " partially downloaded files...")
+    unlink(created_files)
+  }
+  if (download_type %in% c("cmip6", "cmip6_average")) {
+    out_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
+    if (download_type == "cmip6_average") {
+      scenario_dir <- file.path(out_dir, paste0("averaged_", config$gcm_list %||% "unknown", "_", config$ssp %||% "SSP", "_", config$period %||% "period"))
+    } else {
+      scenario_dir <- file.path(out_dir, paste0(config$gcm %||% "GCM", "_", config$ssp %||% "SSP", "_", config$period %||% "period"))
+    }
+    if (dir.exists(scenario_dir)) {
+      unlink(scenario_dir, recursive = TRUE)
+      log_fun("Removed incomplete scenario directory: ", scenario_dir)
+    }
+  }
+}
 
 tryCatch({
   progress_fun(5, "Initializing download")
@@ -99,12 +119,14 @@ tryCatch({
     log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
     source(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
     result <- download_worldclim_bio(worldclim_dir = worldclim_dir, selected_biovars = biovars,
-                                     res = res, log_fun = log_fun)
+      res = climate_res, log_fun = log_fun)
+    created_files <- result$files %||% character()
     if (length(result$failed) > 0) {
       meta$failed_vars <- result$failed
       meta$status <- "partial"
       meta$error <- paste("Failed to download WorldClim BIO:", paste(result$failed, collapse = ", "))
       log_fun("Partial failure: ", length(result$failed), " layers failed")
+      cleanup_on_failure()
     } else {
       progress_fun(90, "WorldClim download complete")
     }
@@ -116,11 +138,13 @@ tryCatch({
     log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
     source(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
     result <- download_chelsa_bio(chelsa_dir = chelsa_dir, selected_biovars = biovars, log_fun = log_fun)
+    created_files <- result$files %||% character()
     if (length(result$failed) > 0) {
       meta$failed_vars <- result$failed
       meta$status <- "partial"
       meta$error <- paste("Failed to download CHELSA BIO:", paste(result$failed, collapse = ", "))
       log_fun("Partial failure: ", length(result$failed), " layers failed")
+      cleanup_on_failure()
     } else {
       progress_fun(90, "CHELSA download complete")
     }
@@ -145,6 +169,7 @@ tryCatch({
     log_fun("Download cancelled by user")
     quit(save = "no", status = 0)
   }
+  cleanup_on_failure()
   network_patterns <- c("ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "ENETUNREACH", "EHOSTUNREACH", "EPIPE")
   http_4xx_pattern <- "HTTP/[45][0-9][0-9]|curl.*error|connection.*fail|timeout"
   http_5xx_pattern <- "HTTP 5[0-9][0-9]|Service Unavailable|Gateway Timeout"
