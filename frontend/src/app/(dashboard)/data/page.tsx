@@ -555,7 +555,7 @@ site_C,142.0,-25.0,0,0,0,800`}</pre>
               const warnings = uploadResult?.coord_warnings as string[] | undefined;
               if (!warnings || warnings.length === 0) return null;
               return (
-                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-600 dark:text-amber-400">
+                <div className="rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 text-sm text-sdm-warning dark:text-sdm-warning">
                   <AlertTriangle className="h-4 w-4 inline mr-1.5 -mt-0.5" />
                   {warnings.join("; ")}
                 </div>
@@ -567,8 +567,8 @@ site_C,142.0,-25.0,0,0,0,800`}</pre>
             )}
 
             {typeof uploadResult?.file_path === "string" && (
-              <div className="flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
-                <div className="flex items-center gap-2 text-sm text-amber-500">
+              <div className="flex items-center justify-between rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-sdm-warning">
                   <AlertTriangle className="h-4 w-4" />
                   <span>Upload complete — {Number(uploadResult.n_rows ?? 0).toLocaleString()} records. Clean before modeling.</span>
                 </div>
@@ -611,7 +611,7 @@ site_C,142.0,-25.0,0,0,0,800`}</pre>
                           <p className="font-medium text-sdm-text truncate">
                             {fileName}
                             {(f as any).cleaned && (
-                              <span className="ml-1.5 inline-flex items-center rounded-full bg-green-500/10 px-1.5 py-0.5 text-xs font-medium text-green-500">
+                              <span className="ml-1.5 inline-flex items-center rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success">
                                 Cleaned
                               </span>
                             )}
@@ -663,8 +663,8 @@ site_C,142.0,-25.0,0,0,0,800`}</pre>
             {gbifResult && typeof gbifResult.n_records === "number" && gbifResult.n_records > 0 && (
               <div className="space-y-3">
                 {gbifSaved ? (
-                  <div className="flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
-                    <div className="flex items-center gap-2 text-sm text-amber-500">
+                  <div className="flex items-center justify-between rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3">
+                    <div className="flex items-center gap-2 text-sm text-sdm-warning">
                       <AlertTriangle className="h-4 w-4" />
                       <span>{Number(gbifResult.n_records).toLocaleString()} GBIF records saved — clean before modeling</span>
                     </div>
@@ -703,7 +703,7 @@ site_C,142.0,-25.0,0,0,0,800`}</pre>
             </div>
 
             {dwcaError && (
-              <div className="rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
+              <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
                 {dwcaError}
               </div>
             )}
@@ -734,8 +734,8 @@ site_C,142.0,-25.0,0,0,0,800`}</pre>
                 )}
 
                 {typeof dwcaResult.file_path === "string" && (
-                  <div className="mt-3 flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
-                    <div className="flex items-center gap-2 text-sm text-amber-500">
+                  <div className="mt-3 flex items-center justify-between rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3">
+                    <div className="flex items-center gap-2 text-sm text-sdm-warning">
                       <AlertTriangle className="h-4 w-4" />
                       <span>DwC-A parsed — {Number(dwcaResult.n_returned ?? 0).toLocaleString()} records. Clean before modeling.</span>
                     </div>
@@ -788,7 +788,7 @@ site_C,142.0,-25.0,0,0,0,800`}</pre>
               </button>
 
               {cleanError && (
-                <div className="mt-4 flex items-center gap-2 rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
+                <div className="mt-4 flex items-center gap-2 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
                   <span>{cleanError}</span>
                 </div>
               )}
@@ -848,8 +848,8 @@ site_C,142.0,-25.0,0,0,0,800`}</pre>
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between rounded-md border border-red-500/30 bg-red-500/5 px-4 py-3">
-                    <div className="flex items-center gap-2 text-sm text-red-500">
+                  <div className="flex items-center justify-between rounded-md border border-sdm-danger/30 bg-sdm-danger/5 px-4 py-3">
+                    <div className="flex items-center gap-2 text-sm text-sdm-danger">
                       <AlertTriangle className="h-4 w-4" />
                       <span>Cleaning produced 0 valid records — check your data</span>
                     </div>
@@ -867,11 +867,11 @@ site_C,142.0,-25.0,0,0,0,800`}</pre>
                 <OccurrenceMap points={cleanPreview} flaggedIndices={flaggedIndices} />
                 <div className="flex items-center gap-4 text-sm text-sdm-muted">
                   <span className="flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-full bg-blue-500" />
+                    <span className="h-3 w-3 rounded-full bg-sdm-accent-blue" />
                     Clean
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-full bg-red-500" />
+                    <span className="h-3 w-3 rounded-full bg-sdm-danger" />
                     Flagged
                   </span>
                 </div>
@@ -933,7 +933,7 @@ site_C,142.0,-25.0,0,0,0,800`}</pre>
                             }`}
                           >
                             {isAvailable && (
-                              <span className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-green-500 translate-x-1/3 -translate-y-1/3" />
+                              <span className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-sdm-success translate-x-1/3 -translate-y-1/3" />
                             )}
                             <input type="checkbox" checked={climateBiovars.includes(bio.id)} onChange={() => toggleClimateBiovar(bio.id)} className="sr-only" />
                             {bio.label}
@@ -1036,7 +1036,7 @@ site_C,142.0,-25.0,0,0,0,800`}</pre>
             </div>
 
             {climateError && (
-              <div className="rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
+              <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
                 {climateError}
               </div>
             )}
