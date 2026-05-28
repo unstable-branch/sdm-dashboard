@@ -558,7 +558,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                 attempts++;
 
                 try {
-                  status = await client.getClimateStatus(climateJobId);
+                  status = await client.getClimateStatus(climateJobId) as unknown as Record<string, unknown>;
                   const runStatus = (status as any).status as string;
                   const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log as string[] : [];
 

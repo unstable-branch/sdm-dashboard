@@ -15,6 +15,7 @@ import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { encrypt, decrypt, isEncrypted } from "../services/encryption.js";
+import type { PlumberUploadResponse } from "@sdm/shared";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -145,10 +146,10 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     // Decrypt to temp path for Plumber processing
     const resolved = resolveFilePath(encPath);
     console.log(`[upload] resolved.path: ${resolved.path}, endsWith .enc: ${resolved.path.endsWith(".enc")}`);
-    let result: Record<string, unknown>;
+    let result: PlumberUploadResponse | null = null;
     try {
       result = await plumberClient.withUser(user.id).uploadOccurrence(resolved.path, file.name);
-      console.log(`[upload] Plumber response n_rows: ${result?.n_rows}, status: ${(result as any)?.status || "ok"}`);
+      console.log(`[upload] Plumber response n_rows: ${result?.n_rows}`);
     } catch (plumberErr) {
       resolved.cleanup();
       const pm = plumberErr instanceof Error ? plumberErr.message : "Unknown error";

@@ -184,7 +184,7 @@ async function syncRunningJobs() {
             state: "completed",
             progress: 100,
             logs,
-            result: status,
+            result: status as Record<string, unknown>,
             progressJson,
           });
         } else if (plumberStatus === "failed") {
