@@ -14,7 +14,7 @@ const typeLabel = "climate download";
 
 export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgressProps) {
   const [progress, setProgress] = useState(10);
-  const { job: wsJob, connected } = useJobProgress(jobId);
+  const { job: wsJob } = useJobProgress(jobId);
 
   useEffect(() => {
     if (!wsJob) return;

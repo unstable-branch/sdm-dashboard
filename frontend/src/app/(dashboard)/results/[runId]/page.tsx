@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,7 +11,6 @@ import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers, Trending
 import { apiGet, apiPost } from "@/services/api";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import { useRunDetail } from "@/hooks/use-queries";
-import type { RunDetail } from "@/services/types";
 
 const SuitabilityMap = dynamic(
   () => import("@/components/results/suitability-map").then(m => m.SuitabilityMap),
@@ -33,7 +32,7 @@ export default function ResultsPage() {
     diff: number;
     improving: boolean;
   } | null>(null);
-  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
+  // benchmark loading state removed
   const [reportText, setReportText] = useState<string | null>(null);
   const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
   const [ensembleGenerating, setEnsembleGenerating] = useState(false);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { MODEL_TIERS, TIER_ORDER, tierSortKey } from "@sdm/shared";
+import { MODEL_TIERS, TIER_ORDER } from "@sdm/shared";
 import { Star, Search, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/stores/settings-store";

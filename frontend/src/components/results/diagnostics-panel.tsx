@@ -14,7 +14,7 @@ import { ThresholdChart } from "@/components/diagnostics/threshold-chart";
 import { DensityChart } from "@/components/diagnostics/density-chart";
 import { AleChart } from "@/components/diagnostics/ale-chart";
 import { ClimateDriverChart } from "@/components/diagnostics/climate-driver-chart";
-import { apiGet, apiPost } from "@/services/api";
+import { apiGet } from "@/services/api";
 import { Download } from "lucide-react";
 import type {
   VifData, ImportanceData, ResponseCurvesData, CbiData, MessData,

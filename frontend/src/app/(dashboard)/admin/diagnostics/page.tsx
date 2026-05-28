@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, Fragment } from "react";
 import { apiGet, apiPost } from "@/services/api";
-import { Loader2, AlertCircle, CheckCircle2, Clock, XCircle, Play, RefreshCw, Upload, FileText, HardDrive, Search } from "lucide-react";
+import { Loader2, AlertCircle, CheckCircle2, Clock, XCircle, Play, RefreshCw, Upload, HardDrive, Search } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 
 interface RunRecord {
@@ -126,7 +126,7 @@ function RunsTab() {
 
   async function cleanupJobs() {
     try {
-      const res = await apiPost<{ message: string }>("/api/v1/admin/system/jobs/cleanup");
+      const _res = await apiPost<{ message: string }>("/api/v1/admin/system/jobs/cleanup");
       fetchRuns();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
@@ -281,7 +281,7 @@ function UploadsTab() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [_error, _setError_2] = useState<string | null>(null);
   const [expandedUpload, setExpandedUpload] = useState<string | null>(null);
   const [filesystem, setFilesystem] = useState<FilesystemResponse | null>(null);
   const [fsLoading, setFsLoading] = useState(true);
@@ -295,7 +295,7 @@ function UploadsTab() {
       setUploads(data.uploads);
       setTotal(data.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load uploads");
+      _setError_2(err instanceof Error ? err.message : "Failed to load uploads");
     } finally {
       setLoading(false);
     }
