@@ -103,9 +103,12 @@ list(
     tif
   }, pattern = map(fit), format = "file"),
 
+  tar_target(future_result, sdm_stage_future(cfg, fit$fit, terra::rast(suit_tif), env,
+    batch_output_dir, cfg$species), pattern = map(suit_tif)),
+
   tar_target(post, sdm_stage_postprocess(
     cfg, fit$fit, terra::rast(suit_tif), env),
-    pattern = map(suit_tif))
+    pattern = map(suit_tif)),
 )
 
 # ── Usage ──────────────────────────────────────────────────────────────────

@@ -70,6 +70,29 @@ parse_logical <- function(x) {
 #' run_fast_sdm applies its own defaults for any missing parameters.
 #' @param row named list with config fields (CSV column names as keys).
 #' @return named list ready for do.call(run_fast_sdm, ...).
+# Model-specific params known to sdm_config (not handled individually above)
+MODEL_SPECIFIC_PARAMS <- c(
+  "maxnet_features", "maxnet_regmult",
+  "dnn_model_type", "dnn_n_seeds", "dnn_device",
+  "brt_n_trees", "brt_interaction_depth", "brt_shrinkage", "brt_bag_fraction",
+  "cta_cp", "cta_maxdepth", "cta_minsplit",
+  "mars_degree", "mars_penalty", "mars_nk",
+  "fda_degree", "fda_nprune",
+  "ann_size", "ann_decay", "ann_maxit", "ann_rang",
+  "rf_num_trees", "rf_mtry", "rf_min_node_size",
+  "xgb_max_depth", "xgb_eta", "xgb_nrounds",
+  "bart_ntree", "bart_ndpost", "bart_nskip",
+  "brms_chains", "brms_iter", "brms_warmup",
+  "inla_mesh_max_edge", "inla_mesh_cutoff", "inla_prior_range", "inla_prior_sigma",
+  "rangebag_n_bags", "rangebag_bag_fraction", "rangebag_vars_per_bag",
+  "detection_formula", "occupancy_model_type",
+  "dnn_architecture", "dnn_multispecies_n_seeds",
+  "multi_ensemble_models", "multi_ensemble_weighting", "multi_ensemble_power",
+  "multi_ensemble_min_auc", "multi_ensemble_min_tss", "biomod2_models",
+  "esm_n_runs", "esm_split", "esm_min_auc", "esm_weighting_metric", "esm_power",
+  "extrapolation_mask", "mess_threshold"
+)
+
 build_run_args <- function(row) {
   args <- list()
 
@@ -134,6 +157,15 @@ build_run_args <- function(row) {
 
   sd <- suppressWarnings(as.integer(row$seed %||% NA_integer_))
   if (!is.na(sd)) args$seed <- sd
+
+  # Pass through model-specific params from CSV row
+  row_names <- names(row)
+  for (p in MODEL_SPECIFIC_PARAMS) {
+    if (p %in% row_names && nzchar(row[[p]] %||% "")) {
+      val <- suppressWarnings(as.numeric(row[[p]]))
+      args[[p]] <- if (is.na(val)) row[[p]] else val
+    }
+  }
 
   args$use_cc <- FALSE
   args$cleaned_occurrence <- NULL
