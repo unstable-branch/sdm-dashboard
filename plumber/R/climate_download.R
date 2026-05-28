@@ -111,11 +111,11 @@ tryCatch({
       progress_fun(90, "GCM averaging complete")
     }
   } else if (download_type == "worldclim") {
-    res <- as.integer(config$res %||% 10)
+    climate_res <- as.integer(config$res %||% 10)
     biovars <- config$biovars
     if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
     worldclim_dir <- file.path(app_dir, sdm_default_worldclim_dir)
-    progress_fun(10, paste0("Downloading WorldClim v2.1 BIO layers (", res, "m)"))
+    progress_fun(10, paste0("Downloading WorldClim v2.1 BIO layers (", climate_res, "m)"))
     log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
     source(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
     result <- download_worldclim_bio(worldclim_dir = worldclim_dir, selected_biovars = biovars,
