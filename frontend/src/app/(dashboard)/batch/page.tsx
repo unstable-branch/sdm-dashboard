@@ -53,6 +53,7 @@ export default function BatchPage() {
   const [jobIds, setJobIds] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [_summaryUrl, setSummaryUrl] = useState<string | null>(null);
 
   const handleConfigsParsed = (parsedConfigs: Array<Record<string, unknown>>) => {
     setConfigs(parsedConfigs);

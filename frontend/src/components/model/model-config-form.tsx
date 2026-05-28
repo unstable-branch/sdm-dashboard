@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useDeferredValue, useMemo } from "react";
 import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
-import { EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG } from "@sdm/shared";
+import { EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, buildFutureWorldclimPath } from "@sdm/shared";
 import { CheckCircle2, AlertTriangle, Info } from "lucide-react";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
