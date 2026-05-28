@@ -1,12 +1,14 @@
+"use client";
+
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-interface SidebarContextValue {
+export interface SidebarContextValue {
   open: boolean;
   setOpen: (open: boolean) => void;
 }
 
-const SidebarContext = React.createContext<SidebarContextValue>({
+export const SidebarContext = React.createContext<SidebarContextValue>({
   open: true,
   setOpen: () => {},
 });
@@ -27,18 +29,39 @@ export function Sidebar({
   children: React.ReactNode;
   className?: string;
 }) {
-  const { open } = React.useContext(SidebarContext);
+  const { open, setOpen } = React.useContext(SidebarContext);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, setOpen]);
+
   return (
-    <aside
-      aria-label="Main navigation"
-      className={cn(
-        "hidden w-64 shrink-0 flex-col border-r bg-sdm-surface transition-all md:flex",
-        !open && "w-0 overflow-hidden",
-        className
+    <>
+      {/* Mobile overlay backdrop */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setOpen(false)}
+          aria-hidden="true"
+        />
       )}
-    >
-      {children}
-    </aside>
+      <aside
+        aria-label="Main navigation"
+        className={cn(
+          "flex-col border-r bg-sdm-surface transition-all z-50",
+          "fixed inset-y-0 left-0 md:relative md:flex",
+          "w-64 shrink-0",
+          !open && "-translate-x-full md:translate-x-0 md:w-0 md:overflow-hidden",
+          open && "translate-x-0",
+          className
+        )}
+      >
+        {children}
+      </aside>
+    </>
   );
 }
 
