@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/components/query-provider";
+import { WebVitals } from "@/components/web-vitals";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], display: "optional" });
@@ -25,6 +26,7 @@ export default function RootLayout({
           enableSystem={false}
         >
           <QueryProvider>
+            <WebVitals />
             {children}
           </QueryProvider>
         </ThemeProvider>
