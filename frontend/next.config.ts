@@ -4,8 +4,15 @@ const API_URL = process.env.API_URL || "http://localhost:4000";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  reactStrictMode: true,
+  modularizeImports: {
+    "lucide-react": {
+      transform: "lucide-react/dist/esm/icons/{{kebabCase member}}",
+    },
+  },
   experimental: {
-    middlewareClientMaxBodySize: "100mb",
+    proxyClientMaxBodySize: "100mb",
+    optimizePackageImports: ["lucide-react", "@tanstack/react-table", "recharts"],
   },
   images: {
     remotePatterns: [
@@ -43,10 +50,6 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
-      {
-        source: "/_next/static/:path*",
-        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
-      },
       {
         source: "/(.*)",
         headers: [
