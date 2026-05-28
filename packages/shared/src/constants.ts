@@ -24,6 +24,13 @@ export const EXTENT_PRESETS: Record<string, { label: string; extent: [number, nu
   aus_full: { label: "Australia - full", extent: [112, 154, -44, -10] },
   aus_north: { label: "Northern Australia", extent: [112, 154, -26, -10] },
   aus_east: { label: "Eastern Australia", extent: [138, 154, -44, -10] },
+  australia_sw: { label: "SW Australia", extent: [113, 125, -35, -21] },
+  oceania: { label: "Oceania", extent: [100, 180, -48, -6] },
+  southeast_asia: { label: "Southeast Asia", extent: [92, 142, -12, 22] },
+  south_america: { label: "South America", extent: [-82, -34, -56, 13] },
+  africa: { label: "Africa", extent: [-18, 52, -35, 38] },
+  europe: { label: "Europe", extent: [-10, 40, 35, 60] },
+  north_america: { label: "North America", extent: [-130, -60, 20, 52] },
   world: { label: "Full world", extent: [-180, 180, -90, 90] },
 };
 
