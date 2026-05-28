@@ -83,7 +83,7 @@ export function DownloadProgress({ jobId, onComplete, onFailed, onCancel }: Down
 
       {isFailed && wsJob.failedReason && (
         <div className="text-xs text-red-500 font-mono bg-red-500/5 rounded p-2">
-          {wsJob.failedReason}
+          {typeof wsJob.failedReason === "string" ? wsJob.failedReason : JSON.stringify(wsJob.failedReason)}
         </div>
       )}
 
