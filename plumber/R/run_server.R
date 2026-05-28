@@ -24,13 +24,24 @@ library(pool)
 db_pool <- tryCatch({
   db_url <- Sys.getenv("DATABASE_URL", "")
   if (nzchar(db_url)) {
-    dbPool(
-      RPostgres::Postgres(),
-      url = db_url,
-      minSize = 1,
-      maxSize = 5,
-      idleTimeout = 60000
-    )
+    clean_url <- sub("^postgresql://", "postgres://", db_url)
+    parts <- regmatches(clean_url, regexec("postgres://([^:]+):([^@]+)@([^:]+):([^/]+)/(.+)", clean_url))[[1]]
+    if (length(parts) == 6) {
+      dbPool(
+        RPostgres::Postgres(),
+        host = parts[4],
+        port = as.integer(parts[5]),
+        dbname = parts[6],
+        user = parts[2],
+        password = parts[3],
+        minSize = 1,
+        maxSize = 5,
+        idleTimeout = 60000
+      )
+    } else {
+      cat("WARNING: Could not parse DATABASE_URL:", db_url, "\n")
+      NULL
+    }
   } else {
     NULL
   }
