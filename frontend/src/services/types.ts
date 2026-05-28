@@ -101,7 +101,7 @@ export interface ImportanceData {
   error?: string;
 }
 
-export interface BinEntry extends CbiBin {}
+export type BinEntry = CbiBin;
 
 export interface CbiData {
   available: boolean;
