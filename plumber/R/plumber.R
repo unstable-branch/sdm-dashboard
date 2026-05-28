@@ -1393,8 +1393,13 @@ function(res, job_id) {
     sdm_process_registry[[basename(job_id)]] <- NULL
   }
 
-  # jsonlite encodes R NULL as {} — normalize to NULL
-  nullify <- function(x) if (is.list(x) && length(x) == 0) NULL else x
+  # jsonlite encodes R NULL/NA as {} — normalize to NULL
+  nullify <- function(x) {
+    if (is.null(x)) return(NULL)
+    if (is.list(x) && length(x) == 0) return(NULL)
+    if (length(x) == 1 && is.na(x)) return(NULL)
+    x
+  }
 
   # Try Redis progress first, fall back to file progress
   redis_progress <- sdm_redis_progress_get(basename(job_id), 50)
@@ -1416,7 +1421,7 @@ function(res, job_id) {
     error = nullify(meta$error) %||% NA,
     error_category = nullify(meta$error_category) %||% NA,
     failed_vars = nullify(meta$failed_vars) %||% NA,
-    config = meta$config %||% NA,
+    config = nullify(meta$config) %||% NA,
     progress_log = progress_lines
   )
 }
