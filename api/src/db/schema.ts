@@ -99,10 +99,8 @@ export const runs = pgTable("runs", {
   metrics: jsonb("metrics"),
   outputFiles: jsonb("output_files"),
   error: text("error"),
-  resultPath: text("result_path"),
   parentRunId: uuid("parent_run_id"),
   provenance: jsonb("provenance"),
-  cpuTimeMs: integer("cpu_time_ms"),
   peakMemoryMb: integer("peak_memory_mb"),
   rCpuTimeMs: integer("r_cpu_time_ms"),
   rPeakMemoryMb: integer("r_peak_memory_mb"),
@@ -158,23 +156,6 @@ export const userSettings = pgTable("user_settings", {
   index("idx_user_settings_user_id").on(t.userId),
 ]);
 
-export const auditLogs = pgTable("audit_logs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-  action: varchar("action", { length: 50 }).notNull(),
-  entity: varchar("entity", { length: 100 }),
-  entityId: uuid("entity_id"),
-  ipAddress: varchar("ip_address", { length: 45 }),
-  userAgent: text("user_agent"),
-  details: jsonb("details"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (t) => [
-  index("idx_audit_logs_user").on(t.userId),
-  index("idx_audit_logs_action").on(t.action),
-  index("idx_audit_logs_created").on(t.createdAt),
-  index("idx_audit_logs_entity").on(t.entity, t.entityId),
-]);
-
 export const systemSettings = pgTable("system_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   key: varchar("key", { length: 100 }).notNull().unique(),
@@ -186,24 +167,12 @@ export const systemSettings = pgTable("system_settings", {
   index("idx_system_settings_key").on(t.key),
 ]);
 
-export const maintenanceLog = pgTable("maintenance_log", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  type: varchar("type", { length: 50 }).notNull(),
-  status: varchar("status", { length: 20 }).notNull().default("running"),
-  details: jsonb("details"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (t) => [
-  index("idx_maintenance_log_type").on(t.type),
-  index("idx_maintenance_log_created").on(t.createdAt),
-]);
-
 export const usersRelations = relations(users, ({ many }) => ({
   projects: many(projects),
   apiKeys: many(apiKeys),
   settings: many(userSettings),
   species: many(species),
   occurrences: many(occurrences),
-  auditLogs: many(auditLogs),
 }));
 
 export const userSettingsRelations = relations(userSettings, ({ one }) => ({
@@ -228,10 +197,6 @@ export const occurrencesRelations = relations(occurrences, ({ one }) => ({
   project: one(projects, { fields: [occurrences.projectId], references: [projects.id] }),
   user: one(users, { fields: [occurrences.userId], references: [users.id] }),
   species: one(species, { fields: [occurrences.speciesId], references: [species.id] }),
-}));
-
-export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
-  user: one(users, { fields: [auditLogs.userId], references: [users.id] }),
 }));
 
 export const uploadedFiles = pgTable("uploaded_files", {

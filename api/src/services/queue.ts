@@ -6,6 +6,8 @@ import { runs, species, occurrences, projectMembers } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { extractProgressPercent } from "@sdm/shared";
+import { syncOutputsToS3 } from "./storage.js";
+import { join } from "path";
 
 let _connection: IORedis | null = null;
 let _bullmqConnection: IORedis | null = null;
@@ -405,7 +407,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                 .set({
                   jobId: plumberJobId ?? null,
                   bullmqId: job.id!,
-                  cpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
+                  rCpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
                   peakMemoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
                 })
                 .where(eq(runs.id, runId));
@@ -465,6 +467,15 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                         .where(eq(runs.id, runId));
                     }
 
+                    // Upload output files to S3 in background
+                    const outputFiles = (modelStatus as any).output_files as Record<string, string> | undefined;
+                    if (outputFiles && runId) {
+                      const jobDir = join("outputs", "jobs", runId);
+                      syncOutputsToS3(jobDir, runId, outputFiles).catch((err) => {
+                        console.warn(`[S3] Background sync failed for run ${runId}:`, err);
+                      });
+                    }
+
                     await job.updateProgress(100);
                     jobEventBus.emitJobStatus({
                       jobId: runId ?? job.id!,
@@ -472,6 +483,8 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       progress: 100,
                       logs: logs.concat(["Model run completed."]),
                       result: modelStatus as Record<string, unknown>,
+                      error_code: (modelStatus as any).error_code ?? null,
+                      error_hint: (modelStatus as any).error_hint ?? null,
                     });
                     result = { status: "success", data: modelStatus };
                   } else if (pollState === "cancelled") {
@@ -488,15 +501,24 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       state: "failed",
                       progress: 100,
                       failedReason: "Model run cancelled by user",
+                      error_code: "CANCELLED",
+                      error_hint: null,
                     });
                     result = { status: "error", error: "Cancelled" };
                   } else if (pollState === "failed" || pollState === "error") {
                     modelCompleted = true;
                     const errMsg = (modelStatus as any).error as string || "Model run failed";
+                    const errCode = (modelStatus as any).error_code as string | undefined;
+                    const errHint = (modelStatus as any).error_hint as string | undefined;
                     if (runId) {
                       await db
                         .update(runs)
-                        .set({ status: "failed", completedAt: new Date(), error: errMsg })
+                        .set({
+                          status: "failed",
+                          completedAt: new Date(),
+                          error: errMsg,
+                          provenance: errCode ? { error_code: errCode, error_hint: errHint ?? null } : undefined,
+                        })
                         .where(eq(runs.id, runId));
                     }
                     await job.updateProgress(100);
@@ -505,6 +527,8 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       state: "failed",
                       progress: 100,
                       failedReason: errMsg,
+                      error_code: errCode ?? null,
+                      error_hint: errHint ?? null,
                     });
                     result = { status: "error", error: errMsg };
                   }
@@ -668,7 +692,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                 status: "failed",
                 error: finalError,
                 completedAt: new Date(),
-                cpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
+                rCpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
                 peakMemoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
               })
               .where(eq(runs.id, runId));

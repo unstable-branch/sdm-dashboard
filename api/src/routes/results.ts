@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "path";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
+import { getErrorHttpStatus } from "@sdm/shared";
 import { authMiddleware, type AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds, canAccessRun } from "../services/access.js";
 import { decrypt } from "../services/encryption.js";
@@ -286,6 +287,8 @@ resultsRoutes.get("/:id", async (c) => {
     ? (run.provenance as Record<string, unknown>).error_hint as string
     : undefined;
 
+  const httpStatus = run.status === "failed" ? getErrorHttpStatus(errCode) : 200;
+
   return c.json({
     id: run.id,
     status: run.status,
@@ -300,7 +303,7 @@ resultsRoutes.get("/:id", async (c) => {
     output_files: run.outputFiles ?? null,
     provenance: run.provenance ?? null,
     progress_log: [],
-  });
+  }, httpStatus as any);
 });
 
 resultsRoutes.get("/:id/report.txt", async (c) => {
@@ -311,7 +314,7 @@ resultsRoutes.get("/:id/report.txt", async (c) => {
   }
 
   const [run] = await db
-    .select({ resultPath: runs.resultPath, outputFiles: runs.outputFiles })
+    .select({ outputFiles: runs.outputFiles })
     .from(runs)
     .where(eq(runs.id, id))
     .limit(1);
@@ -322,8 +325,6 @@ resultsRoutes.get("/:id/report.txt", async (c) => {
     reportPath = containerPath.startsWith("/app/")
       ? join(PROJECT_ROOT, containerPath.slice(5))
       : join(PROJECT_ROOT, containerPath);
-  } else if (run?.resultPath) {
-    reportPath = join(PROJECT_ROOT, run.resultPath, "report.txt");
   } else {
     reportPath = join(PROJECT_ROOT, "outputs", "jobs", id, "report.txt");
   }

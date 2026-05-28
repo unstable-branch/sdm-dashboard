@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjq-dev \
     libcurl4-openssl-dev \
     libsodium-dev \
+    libhiredis-dev \
     pandoc \
     && rm -rf /var/lib/apt/lists/*
 
@@ -46,7 +47,7 @@ pkgs <- c(
   "ggplot2", "DBI", "RPostgres", "digest", "Rook",
   "CoordinateCleaner", "rgbif", "finch",
   "future", "future.apply", "marginaleffects",
-  "fastshap", "iml"
+  "fastshap", "iml", "redux"
 )
 for (pkg in pkgs) {
   message("Installing: ", pkg)
