@@ -32,7 +32,7 @@ export default function ResultsPage() {
     diff: number;
     improving: boolean;
   } | null>(null);
-  // benchmark loading state removed
+  const [_benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [reportText, setReportText] = useState<string | null>(null);
   const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
   const [ensembleGenerating, setEnsembleGenerating] = useState(false);
