@@ -7,12 +7,13 @@ import { useJobProgress } from "@/hooks/useJobProgress";
 interface DownloadProgressProps {
   jobId: string;
   onComplete: () => void;
+  onFailed?: () => void;
   onCancel: () => void;
 }
 
 const typeLabel = "climate download";
 
-export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgressProps) {
+export function DownloadProgress({ jobId, onComplete, onFailed, onCancel }: DownloadProgressProps) {
   const [progress, setProgress] = useState(10);
   const { job: wsJob } = useJobProgress(jobId);
 
@@ -24,8 +25,9 @@ export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgre
       onComplete();
     } else if (wsJob.state === "failed") {
       setProgress(0);
+      onFailed?.();
     }
-  }, [wsJob, onComplete]);
+  }, [wsJob, onComplete, onFailed]);
 
   if (!wsJob) {
     return (
@@ -61,6 +63,11 @@ export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgre
         {!isComplete && !isFailed && (
           <button onClick={onCancel} className="text-xs text-sdm-muted hover:text-sdm-danger flex items-center gap-1">
             <X className="h-3 w-3" /> Cancel
+          </button>
+        )}
+        {isFailed && onFailed && (
+          <button onClick={onFailed} className="text-xs text-sdm-muted hover:text-sdm-text flex items-center gap-1">
+            <X className="h-3 w-3" /> Dismiss
           </button>
         )}
       </div>
