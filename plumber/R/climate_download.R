@@ -32,9 +32,16 @@ progress_fun <- function(pct, msg) {
   line <- sprintf("[%d%%] %s", as.integer(pct), msg)
   cat(line, "\n")
   cat(line, "\n", file = progress_file, append = TRUE)
-  if (exists("sdm_redis_cancel_check", inherits = FALSE) && job_id %||% "" != "") {
-    if (sdm_redis_cancel_check(job_id)) {
-      stop("CANCELLED")
+  if (job_id %||% "" != "") {
+    entry <- list(timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"), percent = pct, detail = msg, stage = "download")
+    entry_json <- jsonlite::toJSON(entry, auto_unbox = TRUE)
+    if (exists("sdm_redis_progress_set", inherits = FALSE)) {
+      tryCatch(sdm_redis_progress_set(job_id, entry_json), error = function(e) NULL)
+    }
+    if (exists("sdm_redis_cancel_check", inherits = FALSE)) {
+      if (sdm_redis_cancel_check(job_id)) {
+        stop("CANCELLED")
+      }
     }
   }
 }
