@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import { apiGet } from "@/services/api";
 import { Loader2, ChevronDown, ChevronRight, Download, Calendar, X } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -136,7 +136,7 @@ export default function AdminLogsPage() {
           </thead>
           <tbody>
             {logs.map((l) => (
-              <tbody key={l.id}>
+              <Fragment key={l.id}>
                 <tr className="border-b border-sdm-border hover:bg-sdm-surface-soft cursor-pointer"
                   onClick={() => setExpandedId(expandedId === l.id ? null : l.id)}>
                   <td className="px-4 py-2">
@@ -172,7 +172,7 @@ export default function AdminLogsPage() {
                     </td>
                   </tr>
                 )}
-              </tbody>
+              </Fragment>
             ))}
           </tbody>
         </table>
