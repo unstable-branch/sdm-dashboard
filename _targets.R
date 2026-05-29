@@ -71,8 +71,13 @@ list(
   # Config source: either a CSV file or a single hardcoded row
   tar_target(config_rows, {
     if (batch_enabled) {
-      df <- read.csv(batch_config_path, stringsAsFactors = FALSE,
-        check.names = FALSE)
+      df <- tryCatch(
+        read.csv(batch_config_path, stringsAsFactors = FALSE,
+          check.names = FALSE),
+        error = function(e) {
+          stop("Failed to read batch config file '", batch_config_path, "': ",
+            conditionMessage(e), call. = FALSE)
+        })
       split(df, seq_len(nrow(df)))
     } else {
       list(list(
