@@ -468,6 +468,15 @@ function(req) {
     cat(log_line, "\n", file = progress_log, append = TRUE)
   }
 
+  meta_write <- function(updates) {
+    base <- list()
+    if (file.exists(job_meta_file)) {
+      tryCatch(base <- jsonlite::fromJSON(job_meta_file, simplifyVector = FALSE), error = function(e) NULL)
+    }
+    for (n in names(updates)) base[[n]] <- updates[[n]]
+    writeLines(jsonlite::toJSON(base, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
+  }
+
   run_bg <- function() {
     tryCatch({
       cleaned_occurrence <- NULL
@@ -583,10 +592,9 @@ function(req) {
         cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
       })
 
-      job_meta$status <<- "completed"
-      job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      updates <- list(status = "completed", completed_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"))
       if (!is.null(result)) {
-        job_meta$metrics <<- list(
+        updates$metrics <- list(
           auc_mean = result$cv$auc_mean,
           auc_sd = result$cv$auc_sd,
           tss_mean = result$cv$tss_mean,
@@ -596,17 +604,17 @@ function(req) {
           elapsed_seconds = result$metrics$elapsed_seconds,
           high_suitability_area_km2 = result$summary$high_risk_area_km2
         )
-        job_meta$output_files <<- c(result$paths, diag_files)
+        updates$output_files <- c(result$paths, diag_files)
       }
-      # Free memory from large terra rasters and dataframes
+      meta_write(updates)
       gc(verbose = FALSE)
-      writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
     }, error = function(e) {
-      job_meta$status <<- "failed"
-      job_meta$error <<- conditionMessage(e)
-      job_meta$error_traceback <<- paste(utils::tail(traceback(), 10), collapse = "\n")
-      job_meta$completed_at <<- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      writeLines(jsonlite::toJSON(job_meta, auto_unbox = TRUE, pretty = TRUE), job_meta_file)
+      meta_write(list(
+        status = "failed",
+        error = conditionMessage(e),
+        error_traceback = paste(utils::tail(traceback(), 10), collapse = "\n"),
+        completed_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      ))
       cat("Run failed:", conditionMessage(e), "\n")
       cat("Traceback:\n")
       print(utils::tail(traceback(), 10))
