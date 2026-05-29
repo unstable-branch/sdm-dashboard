@@ -78,6 +78,12 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   if (apiKeyHeader) {
     try {
       const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown";
+
+      if (apiKeyHeader.length < 8) {
+        console.warn(`[auth] Rejected short API key (len=${apiKeyHeader.length}) from ${ip}`);
+        return c.json({ error: "Invalid API key format" }, 401);
+      }
+
       const allowed = await checkRateLimit(`auth:${ip}`, 60_000, 20);
       if (!allowed) {
         return c.json({ error: "Too many failed authentication attempts" }, 429);
@@ -91,6 +97,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
         .limit(1);
 
       if (!key || (key.expiresAt && key.expiresAt <= new Date())) {
+        console.warn(`[audit] API key auth FAILED (expired/missing) from ${ip}`);
         return c.json({ error: "Invalid API key" }, 401);
       }
 
@@ -101,9 +108,11 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
         .limit(1);
 
       if (!user) {
+        console.warn(`[audit] API key auth FAILED (orphaned key userId=${key.userId}) from ${ip}`);
         return c.json({ error: "User not found" }, 401);
       }
 
+      console.info(`[audit] API key auth OK: user=${user.id} role=${user.role} from ${ip}`);
       queueLastUsedUpdate(keyHash);
 
       c.set("user", user);
@@ -124,7 +133,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    console.warn("[auth] JWT_SECRET not configured");
+    console.warn("[audit] JWT_SECRET not configured");
     return c.json({ error: "Authentication unavailable (server not configured)" }, 401);
   }
 
@@ -132,16 +141,20 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
     const payload = await verify(token, secret, "HS256");
     const expectedIss = process.env.JWT_ISSUER || "sdm-dashboard";
     if (payload.iss !== expectedIss) {
-      console.warn(`[auth] Token issuer mismatch: expected ${expectedIss}, got ${payload.iss}`);
+      console.warn(`[audit] JWT issuer mismatch: expected ${expectedIss}, got ${payload.iss} for sub=${payload.sub}`);
       return c.json({ error: "Invalid token issuer" }, 401);
     }
+    const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown";
+    console.info(`[audit] JWT auth OK: user=${payload.sub} role=${payload.role} from ${ip}`);
     c.set("user", {
       id: payload.sub as string,
       email: payload.email as string,
       role: payload.role as string,
     });
     await next();
-  } catch {
+  } catch (err) {
+    const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown";
+    console.warn(`[audit] JWT auth FAILED from ${ip}: ${err instanceof Error ? err.message : "token verification error"}`);
     return c.json({ error: "Invalid token" }, 401);
   }
 });
