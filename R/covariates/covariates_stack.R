@@ -232,6 +232,8 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
     format(terra::ncell(env_project_scaled), big.mark = ",")
   )
 
+  gc(verbose = FALSE)
+
   list(
     env_train = env_train, env_project = env_project,
     env_train_scaled = env_train_scaled, env_project_scaled = env_project_scaled,

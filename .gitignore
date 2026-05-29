@@ -1,5 +1,8 @@
 # Node
 node_modules/
+__pycache__/
+*.pyc
+python_models/
 .next/
 dist/
 .turbo/

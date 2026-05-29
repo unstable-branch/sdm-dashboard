@@ -152,6 +152,22 @@ export const systemSettings = pgTable("system_settings", {
   index("idx_system_settings_key").on(t.key),
 ]);
 
+export const uploads = pgTable("uploads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id),
+  filename: varchar("filename", { length: 255 }).notNull(),
+  filePath: text("file_path").notNull(),
+  fileSize: integer("file_size").default(0),
+  format: varchar("format", { length: 20 }).default("csv"),
+  nRows: integer("n_rows"),
+  species: varchar("species", { length: 255 }),
+  columnsDetected: jsonb("columns_detected"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_uploads_user_id").on(t.userId),
+  index("idx_uploads_created").on(t.createdAt),
+]);
+
 export const maintenanceLog = pgTable("maintenance_log", {
   id: uuid("id").primaryKey().defaultRandom(),
   type: varchar("type", { length: 50 }).notNull(),

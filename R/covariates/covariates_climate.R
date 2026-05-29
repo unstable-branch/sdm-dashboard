@@ -442,7 +442,6 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
   }
 
   log_message(log_fun, "Loading ", length(files), " ", source, " layer(s) from ", climate_dir)
-  terra::terraOptions(memfrac = 0.75, progress = 0)
   env_global <- terra::rast(unname(files))
   names(env_global) <- paste0("bio", selected_biovars)
 
@@ -470,6 +469,8 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
   # Allow NULL extents for download-only calls (Get Data tab)
   env_train <- if (!is.null(training_extent)) crop_and_optionally_aggregate(env_global, training_extent, aggregation_factor) else env_global
   env_project <- if (!is.null(projection_extent)) crop_and_optionally_aggregate(env_global, projection_extent, aggregation_factor) else env_global
+
+  terra::terraOptions(memfrac = 0.5, progress = 0)
 
   list(
     env_train = env_train,
