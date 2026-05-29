@@ -317,7 +317,14 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
   }
 
   log_message(log_fun, "Downloading WorldClim BIO layers to ", worldclim_dir, " (resolution ", res, " arc-min)")
-  wc <- geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir)
+  wc <- tryCatch(
+    geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir),
+    error = function(e) {
+      stop("WorldClim download failed: ", conditionMessage(e),
+        ". Check internet connectivity or place BIO layers manually in ", worldclim_dir,
+        call. = FALSE)
+    }
+  )
   failed <- character()
   for (bv in as.integer(selected_biovars)) {
     idx <- grep(sprintf("bio_?%d$", bv), names(wc), ignore.case = TRUE)

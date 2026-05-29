@@ -1,10 +1,18 @@
 # Build the complete environmental covariate stack used by the model.
 
-align_covariate_to_template <- function(r, template, method = "bilinear") {
+align_covariate_to_template <- function(r, template, method = "bilinear", log_fun = NULL) {
   same_crs <- tryCatch(isTRUE(terra::same.crs(r, template)), error = function(e) FALSE)
-  if (!same_crs) r <- terra::project(r, template, method = method)
-  r <- terra::crop(r, terra::ext(template), snap = "out")
-  terra::resample(r, template, method = method)
+  if (!same_crs) {
+    r <- tryCatch(terra::project(r, template, method = method), error = function(e) {
+      stop("CRS reprojection failed: ", conditionMessage(e), call. = FALSE)
+    })
+  }
+  r <- tryCatch(terra::crop(r, terra::ext(template), snap = "out"), error = function(e) {
+    stop("Raster crop failed: ", conditionMessage(e), call. = FALSE)
+  })
+  tryCatch(terra::resample(r, template, method = method), error = function(e) {
+    stop("Raster resample failed: ", conditionMessage(e), call. = FALSE)
+  })
 }
 
 align_covariate_stack <- function(source, template_train, template_project) {
@@ -210,8 +218,14 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
     log_message(log_fun, "Added optional covariates: ", paste(names(extras$train), collapse = ", "))
   }
 
-  means <- terra::global(env_train, "mean", na.rm = TRUE)[, 1]
-  sds <- terra::global(env_train, "sd", na.rm = TRUE)[, 1]
+  means <- tryCatch(terra::global(env_train, "mean", na.rm = TRUE)[, 1],
+    error = function(e) {
+      stop("Failed to compute covariate means: ", conditionMessage(e), call. = FALSE)
+    })
+  sds <- tryCatch(terra::global(env_train, "sd", na.rm = TRUE)[, 1],
+    error = function(e) {
+      stop("Failed to compute covariate standard deviations: ", conditionMessage(e), call. = FALSE)
+    })
   names(means) <- names(env_train)
   names(sds) <- names(env_train)
   keep <- is.finite(means) & is.finite(sds) & sds > 0
