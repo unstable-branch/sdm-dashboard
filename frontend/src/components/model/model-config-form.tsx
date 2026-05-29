@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { apiGet } from "@/services/api";
-import ModelSelector from "./model-selector";
+import { ModelSelector } from "./model-selector";
 import { SpeciesInput } from "./species-input";
 import { ModelParamPanel } from "./model-param-panel";
 import { ClimatePanel } from "./climate-panel";
