@@ -28,12 +28,16 @@ app.get("/sse", (c) => {
     const isMyRun = async (runId: string | undefined | null): Promise<boolean> => {
       if (!runId) return false;
       if (myProjectIds === null) return true; // admin sees everything
-      const [run] = await db
-        .select({ id: runs.id })
-        .from(runs)
-        .where(and(eq(runs.id, runId), inArray(runs.projectId, myProjectIds)))
-        .limit(1);
-      return Boolean(run);
+      try {
+        const [run] = await db
+          .select({ id: runs.id })
+          .from(runs)
+          .where(and(eq(runs.id, runId), inArray(runs.projectId, myProjectIds)))
+          .limit(1);
+        return Boolean(run);
+      } catch {
+        return false;
+      }
     };
 
     // Listen to real-time events from plumber-sync and queue worker
@@ -105,16 +109,20 @@ app.get("/:jobId", async (c) => {
 
   // Verify the job's run belongs to this user
   if (myProjectIds !== null) {
-    const [run] = await db
-      .select({ id: runs.id })
-      .from(runs)
-      .where(and(
-        eq(runs.id, jobId),
-        inArray(runs.projectId, myProjectIds)
-      ))
-      .limit(1);
-    if (!run) {
-      return c.json({ error: "Job not found" }, 404);
+    try {
+      const [run] = await db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(and(
+          eq(runs.id, jobId),
+          inArray(runs.projectId, myProjectIds)
+        ))
+        .limit(1);
+      if (!run) {
+        return c.json({ error: "Job not found" }, 404);
+      }
+    } catch {
+      return c.json({ error: "Internal error" }, 500);
     }
   }
 
@@ -134,16 +142,20 @@ app.post("/:jobId/cancel", async (c) => {
 
   // Verify the job's run belongs to this user
   if (myProjectIds !== null) {
-    const [run] = await db
-      .select({ id: runs.id })
-      .from(runs)
-      .where(and(
-        eq(runs.id, jobId),
-        inArray(runs.projectId, myProjectIds)
-      ))
-      .limit(1);
-    if (!run) {
-      return c.json({ error: "Job not found" }, 404);
+    try {
+      const [run] = await db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(and(
+          eq(runs.id, jobId),
+          inArray(runs.projectId, myProjectIds)
+        ))
+        .limit(1);
+      if (!run) {
+        return c.json({ error: "Job not found" }, 404);
+      }
+    } catch {
+      return c.json({ error: "Internal error" }, 500);
     }
   }
 

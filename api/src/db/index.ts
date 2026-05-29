@@ -10,6 +10,10 @@ const pool = new Pool({
   statement_timeout: 10000,
 });
 
+pool.on("error", (err) => {
+  console.error("[DB] Unexpected pool error:", err.message);
+});
+
 export const db = drizzle(pool, { schema });
 
 export type DB = typeof db;
