@@ -113,6 +113,20 @@ run_fast_sdm <- function(...) {
     return(invisible(NULL))
   }
 
+  tryCatch({
+    mem_info <- terra::mem_info()
+    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+      if (mem_info$memavail < 0.5) {
+        stop(sprintf("System memory critically low (%.1f GB available). Aborting run.", mem_info$memavail), call. = FALSE)
+      }
+      if (mem_info$memavail < 2.0) {
+        log_message(log_fun, sprintf("Low memory warning: %.1f GB available", mem_info$memavail))
+      }
+    }
+  }, error = function(e) {
+    if (grepl("^System memory", conditionMessage(e))) stop(e)
+  })
+
   progress_step(progress_fun, 0.10, "Cleaning occurrence data")
   if (!is.null(occurrence_source) && nzchar(occurrence_source)) log_message(log_fun, "Observation record source: ", occurrence_source)
   if (!is.null(cleaned_occurrence) && is.list(cleaned_occurrence) && is.data.frame(cleaned_occurrence$df) && nrow(cleaned_occurrence$df) > 0) {
