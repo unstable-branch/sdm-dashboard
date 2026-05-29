@@ -3,6 +3,12 @@
 # Used consistently across Plumber API, model backends, and frontend.
 
 SDM_ERR_CODES <- list(
+  PROCESS_CRASH = list(
+    code = "PROCESS_CRASH",
+    http_status = 500L,
+    message = "The R computation process crashed or was killed",
+    hint = "The process was terminated by the OS (OOM, segfault, or external signal). Check system memory, reduce raster resolution, or run with fewer covariates."
+  ),
   INSUFFICIENT_RECORDS = list(
     code = "INSUFFICIENT_RECORDS",
     http_status = 400L,

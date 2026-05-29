@@ -201,7 +201,8 @@ sdmRoutes.use("*", optionalAuth);
 
 sdmRoutes.post("/run", async (c) => {
   try {
-    const body = await c.req.json();
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: "Invalid JSON body" }, 400);
     const parsed = modelConfigSchema.safeParse(body);
     if (!parsed.success) {
       return c.json({ error: parsed.error.flatten() }, 400);
@@ -485,7 +486,7 @@ sdmRoutes.get("/runs", async (c) => {
       runs: [],
       pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
       warning: "Database unavailable — run history is temporarily inaccessible",
-    }, 200);
+    }, 503);
   }
 });
 
@@ -818,7 +819,8 @@ sdmRoutes.post("/runs/clear-all", async (c) => {
 
 sdmRoutes.post("/batch", async (c) => {
   try {
-    const body = await c.req.json();
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: "Invalid JSON body" }, 400);
     const { configs, name } = body;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);

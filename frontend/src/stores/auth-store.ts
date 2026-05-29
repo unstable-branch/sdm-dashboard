@@ -18,12 +18,14 @@ interface AuthState {
   token: string | null;
   project: { id: string; name: string; role: string } | null;
   projects: Array<{ id: string; name: string; role: string }>;
+  error: string | null;
   setAuth: (user: User, token: string) => void;
   clearAuth: () => void;
   setProject: (project: { id: string; name: string; role: string }) => void;
   setProjects: (projects: Array<{ id: string; name: string; role: string }>) => void;
   updateProfile: (profile: Partial<User>) => void;
   hydrateProfile: (profile: Partial<User>) => void;
+  setError: (error: string | null) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -33,10 +35,12 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       project: null,
       projects: [],
-      setAuth: (user, token) => set({ user, token }),
-      clearAuth: () => set({ user: null, token: null, project: null, projects: [] }),
+      error: null,
+      setAuth: (user, token) => set({ user, token, error: null }),
+      clearAuth: () => set({ user: null, token: null, project: null, projects: [], error: null }),
       setProject: (project) => set({ project }),
       setProjects: (projects) => set({ projects }),
+      setError: (error) => set({ error }),
       updateProfile: (profile) =>
         set((state) => ({
           user: state.user ? { ...state.user, ...profile } : null,
