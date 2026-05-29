@@ -5,7 +5,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
                                   var = "bioc", res = 10, out_dir = "Worldclim_future",
                                   quiet = FALSE, log_fun = NULL, ...) {
   if (!requireNamespace("geodata", quietly = TRUE)) {
-    stop("geodata package required for CMIP6 download. Install with: install.packages('geodata')")
+    stop("geodata package required for CMIP6 download. Install with: install.packages('geodata')", call. = FALSE)
   }
 
   # Configurable geodata cache URL (Fix 11)
@@ -88,7 +88,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
       }
       if (length(missing_critical) > 0) {
         stop("CMIP6 download incomplete — missing critical layer(s): ", paste(missing_critical, collapse = ", "),
-             ". GCM: ", gcm, " SSP: ", ssp, " Period: ", period)
+             ". GCM: ", gcm, " SSP: ", ssp, " Period: ", period, call. = FALSE)
       }
 
       list(dir = cache_subdir, cached = FALSE, raster = out)
@@ -100,7 +100,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
       }
       message("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
       message("Troubleshooting: Check internet connection, try a different GCM/SSP/period")
-      stop("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
+      stop("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e), call. = FALSE)
     }
   )
 }
@@ -115,7 +115,7 @@ cmip6_load_future_covariates <- function(cmip6_dir, selected_biovars, training_e
     stop(
       "Missing CMIP6 layers for BIO", paste(missing, collapse = ", "),
       ". Ensure all selected variables are available in ", cmip6_dir
-    )
+    , call. = FALSE)
   }
 
   log_message(log_fun, "Loading ", length(files), " CMIP6 future climate layers from ", cmip6_dir)
@@ -208,7 +208,7 @@ cmip6_period_choices <- c(
 average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
                                out_dir = "Worldclim_future", quiet = FALSE, ...) {
   if (length(gcm_list) < 2) {
-    stop("average_cmip6_gcms requires at least 2 GCMs")
+    stop("average_cmip6_gcms requires at least 2 GCMs", call. = FALSE)
   }
 
   ssp_map <- c("SSP1-2.6" = "126", "SSP2-4.5" = "245", "SSP3-7.0" = "370", "SSP5-8.5" = "585")

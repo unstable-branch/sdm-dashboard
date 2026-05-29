@@ -716,7 +716,7 @@ sdmRoutes.post("/cancel-all", async (c) => {
         }
 
         if (run.jobId) {
-          await plumberClient.cancelModelRun(run.jobId).catch(() => {});
+          await plumberClient.cancelModelRun(run.jobId).catch(() => console.warn("[sdm] Failed to cancel Plumber run", run.jobId));
         }
 
         await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, run.id));
@@ -761,7 +761,7 @@ sdmRoutes.delete("/runs/delete/:runId", async (c) => {
 
     // Delegate filesystem deletion to Plumber (owns the output directory)
     if (run.jobId) {
-      await plumberClient.deleteModelOutputs(run.jobId).catch(() => {});
+      await plumberClient.deleteModelOutputs(run.jobId).catch(() => console.warn("[sdm] Failed to delete Plumber outputs for run", run.jobId));
     }
 
     await db.delete(runs).where(eq(runs.id, runId));
@@ -796,7 +796,7 @@ sdmRoutes.post("/runs/clear-all", async (c) => {
     for (const run of runsToDelete) {
       // Delegate filesystem deletion to Plumber
       if (run.jobId) {
-        await plumberClient.deleteModelOutputs(run.jobId).catch(() => {});
+        await plumberClient.deleteModelOutputs(run.jobId).catch(() => console.warn("[sdm] Batch clear: failed to delete Plumber outputs for run", run.jobId));
       }
       deletedCount++;
     }

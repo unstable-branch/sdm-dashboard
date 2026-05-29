@@ -13,7 +13,7 @@ find_sdm_root <- function() {
       return(candidate)
     }
   }
-  stop("Could not find SDM project root")
+  stop("Could not find SDM project root", call. = FALSE)
 }
 project_root <- find_sdm_root()
 source(file.path(project_root, "R", "core", "bootstrap.R"))

@@ -58,7 +58,7 @@ app.get("/sse", (c) => {
           error_code: event.error_code ?? null,
           error_hint: event.error_hint ?? null,
         }),
-      }).catch(() => {});
+      }).catch(() => console.warn("[jobs] SSE write failed for job status event"));
     };
     jobEventBus.on("jobStatus", handler);
 
@@ -83,7 +83,7 @@ app.get("/sse", (c) => {
             progress: 0,
             logs: ["Model run in progress..."],
           }),
-        }).catch(() => {});
+        }).catch(() => console.warn("[jobs] SSE write failed for initial active-run event"));
       }
     } catch {
       // Best-effort — initial state is non-critical
