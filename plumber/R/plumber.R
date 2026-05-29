@@ -29,6 +29,24 @@ if (!file.exists(load_path)) {
 }
 source(load_path)
 
+# Maximum concurrent model runs to prevent OOM
+SDM_MAX_CONCURRENT_RUNS <- as.integer(Sys.getenv("SDM_MAX_CONCURRENT_RUNS", "2"))
+
+# Count currently running model processes
+sdm_count_active_runs <- function() {
+  if (!exists("sdm_process_registry", envir = .GlobalEnv, inherits = FALSE)) return(0L)
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(0L)
+  count <- 0L
+  for (key in ls(reg)) {
+    proc <- reg[[key]]
+    if (inherits(proc, "process") && tryCatch(proc$is_alive(), error = function(e) FALSE)) {
+      count <- count + 1L
+    }
+  }
+  count
+}
+
 # Helper for error responses
 sdm_error <- function(req, status, message) {
   res <- tryCatch(req$res, error = function(e) NULL)
@@ -410,6 +428,15 @@ function(req) {
     return(sdm_error(req, 400, "projection_extent must have 4 values: xmin,xmax,ymin,ymax"))
   }
 
+  # Concurrency limit: reject if too many runs in-flight to prevent OOM
+  active <- sdm_count_active_runs()
+  if (active >= SDM_MAX_CONCURRENT_RUNS) {
+    return(sdm_error(req, 429, paste0(
+      "Server busy: ", active, " model run(s) in progress (max ", SDM_MAX_CONCURRENT_RUNS,
+      "). Please wait and retry."
+    )))
+  }
+
   job_id <- paste0("run-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
   job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
@@ -624,13 +651,12 @@ function(res, job_id) {
         process_alive <<- FALSE
       })
     }
-    # Also check PID directly if stored
+    # Also check PID directly if stored (uses signal 0 which tests existence without sending signal)
     if (!process_alive && !is.null(meta$process_pid)) {
       pid <- as.integer(meta$process_pid)
       if (is.finite(pid)) {
         tryCatch({
-          ps_info <- tools::ps()
-          process_alive <- pid %in% ps_info$PID
+          process_alive <- tools::pskill(pid, signal = 0)
         }, error = function(e) {
           process_alive <<- FALSE
         })
@@ -763,10 +789,14 @@ function() {
 #* Health check
 #* @get /health
 function() {
+  mem_avail <- tryCatch(terra::mem_info()$memavail, error = function(e) NULL)
   list(
     status = "ok",
     r_version = R.version.string,
-    timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+    active_runs = sdm_count_active_runs(),
+    max_concurrent_runs = SDM_MAX_CONCURRENT_RUNS,
+    memory_gb = if (is.numeric(mem_avail)) mem_avail else NULL
   )
 }
 

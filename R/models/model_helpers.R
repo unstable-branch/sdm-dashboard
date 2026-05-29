@@ -15,7 +15,7 @@ prepare_sdm_data <- function(occ, env_train_scaled, background_n,
   pres_vals <- pres_vals[pres_keep, , drop = FALSE]
   pres_xy_used <- pres_xy[pres_keep, , drop = FALSE]
   occ_used <- occ[pres_keep, , drop = FALSE]
-  if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
+  if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data after removing ", sum(!pres_keep), " records with missing covariate values (", nrow(pres_vals), " remaining, minimum 20).", call. = FALSE)
 
   bg_xy <- sample_background_points(env_train_scaled, background_n,
     seed = seed, presence_xy = pres_xy_used,

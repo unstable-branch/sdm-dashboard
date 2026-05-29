@@ -141,12 +141,17 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     } else {
       cc_tests
     }
+    cc_tests_filtered <- cc_tests_active
+    if (!"species" %in% names(occ)) {
+      cc_tests_filtered <- setdiff(cc_tests_filtered, c("capitals", "centroids"))
+    }
+    cc_species <- if ("species" %in% names(occ)) "species" else NULL
     cc_result <- CoordinateCleaner::clean_coordinates(
       occ,
       lon = "longitude",
       lat = "latitude",
-      species = NULL,
-      tests = cc_tests_active,
+      species = cc_species,
+      tests = cc_tests_filtered,
       value = "spatialvalid"
     )
     occ$cc_flag <- !cc_result$.summary
