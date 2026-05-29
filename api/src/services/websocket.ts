@@ -77,19 +77,28 @@ export function setupWebSocket(server: ServerType) {
       }
     });
 
+    ws.on("error", (err) => {
+      console.error("[ws] Client error:", err.message);
+      cleanupClient(clientId);
+    });
+
     ws.on("close", () => {
-      const client = clients.get(clientId);
-      if (client) {
-        for (const jobId of client.subscriptions) {
-          subscriptions.get(jobId)?.delete(clientId);
-          if (subscriptions.get(jobId)?.size === 0) {
-            subscriptions.delete(jobId);
-          }
-        }
-        clients.delete(clientId);
-      }
+      cleanupClient(clientId);
     });
   });
+
+  function cleanupClient(clientId: string) {
+    const client = clients.get(clientId);
+    if (client) {
+      for (const jobId of client.subscriptions) {
+        subscriptions.get(jobId)?.delete(clientId);
+        if (subscriptions.get(jobId)?.size === 0) {
+          subscriptions.delete(jobId);
+        }
+      }
+      clients.delete(clientId);
+    }
+  }
 
   _jobStatusHandler = (event) => {
     const subscribers = subscriptions.get(event.jobId);
@@ -147,6 +156,9 @@ export function cleanupWebSocket() {
     _jobStatusHandler = null;
   }
   if (_wss) {
+    for (const [, client] of clients) {
+      try { client.ws.terminate(); } catch { /* ignore */ }
+    }
     _wss.close();
     _wss = null;
   }

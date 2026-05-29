@@ -394,6 +394,9 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
   # Load error code taxonomy (for error handler in run_sdm_async)
   error_codes_path <- file.path(app_dir, "plumber", "R", "error_codes.R")
   if (file.exists(error_codes_path)) source(error_codes_path)
+  # Load Redis helpers for background progress reporting
+  redis_r <- file.path(app_dir, "plumber", "R", "redis.R")
+  if (file.exists(redis_r)) source(redis_r, local = TRUE)
 
   # Resolve occurrence_file path: accept both container paths (/app/data/uploads/...)
   # and host paths (/home/jacob/.../data/uploads/...)
@@ -473,9 +476,13 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
     progress_json_list[[length(progress_json_list) + 1]] <<- entry
     writeLines(jsonlite::toJSON(progress_json_list, auto_unbox = TRUE, pretty = TRUE), progress_json_path)
     entry_json <- jsonlite::toJSON(entry, auto_unbox = TRUE)
-    sdm_redis_progress_set(job_id, entry_json)
-    if (sdm_redis_cancel_check(job_id)) {
-      stop("CANCELLED")
+    if (exists("sdm_redis_progress_set", inherits = TRUE)) {
+      tryCatch(sdm_redis_progress_set(job_id, entry_json), error = function(e) NULL)
+    }
+    if (exists("sdm_redis_cancel_check", inherits = TRUE)) {
+      if (sdm_redis_cancel_check(job_id)) {
+        stop("CANCELLED")
+      }
     }
   }
 
