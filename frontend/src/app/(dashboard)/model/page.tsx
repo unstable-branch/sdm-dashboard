@@ -3,18 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import dynamic from "next/dynamic";
+import ModelConfigForm from "@/components/model/model-config-form";
 import { RunHistory } from "@/components/model/run-history";
 import { JobProgress } from "@/components/jobs/job-progress";
 import { useSDMStore } from "@/stores/sdm-store";
 import { apiPost, apiGet } from "@/services/api";
 import { Ban, AlertTriangle, Loader2 } from "lucide-react";
 import type { ModelConfig } from "@sdm/shared";
-
-const ModelConfigForm = dynamic(
-  () => import("@/components/model/model-config-form"),
-  { ssr: false, loading: () => <div className="h-96 rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted"><Loader2 className="h-6 w-6 animate-spin" /></div> }
-);
 
 interface ActiveRun {
   id: string;
