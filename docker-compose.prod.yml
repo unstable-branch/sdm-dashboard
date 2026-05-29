@@ -16,7 +16,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      test: ["CMD", "curl", "-f", "--connect-timeout", "3", "http://localhost:80/health"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -127,8 +127,9 @@ services:
       - DATABASE_URL=${DATABASE_URL:?Database connection string is required}
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - PLUMBER_AUTH_DISABLED=false
+    stop_grace_period: 60s
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
