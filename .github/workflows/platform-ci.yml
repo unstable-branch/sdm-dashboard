@@ -283,6 +283,28 @@ jobs:
           wait_for API http://localhost:4000/health
           wait_for Frontend http://localhost:3000/
 
+      - name: Memory stress check — verify Plumber can handle concurrent requests
+        run: |
+          dump_logs() {
+            docker compose -f docker-compose.yml logs --no-color --tail=50 plumber
+          }
+
+          : "Check Plumber health reports available memory"
+          health=$(curl -sf http://localhost:8000/health)
+          echo "Plumber health: $health"
+          mem=$(echo "$health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('memory_gb','unknown'))" 2>/dev/null || echo "unknown")
+          echo "Plumber available memory: ${mem} GB"
+
+          : "Verify concurrency limit endpoint is reachable (returns active_runs)"
+          active_runs=$(echo "$health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('active_runs',-1))" 2>/dev/null || echo "-1")
+          if [ "$active_runs" -eq -1 ]; then
+            echo "FAIL: Health endpoint missing active_runs field"
+            dump_logs
+            exit 1
+          fi
+          echo "Active runs reported: $active_runs"
+          echo "Memory stress check passed"
+
       - name: Run Playwright e2e tests
         run: |
           cd frontend

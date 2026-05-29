@@ -356,10 +356,10 @@ download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_
   # Determine parallel workers — use at most length(biovars) but cap at n_cores
   n_workers <- min(length(biovars), max(1L, n_cores %||% 2L))
 
-  log_message(log_fun, "Downloading ", length(biovars), " BIO layers using ", n_workers, " workers (period: ", period, ")")
+  log_message(log_fun, "Downloading ", length(biovars), " BIO layers using lapply (fork-safe serial; parallel disabled to avoid RPostgres fork deadlock) (period: ", period, ")")
 
-  # Parallel download using parallel::mclapply
-  results <- parallel::mclapply(biovars, function(bv) {
+  # Serial download using lapply — mclapply (fork) is unsafe inside Plumber (inherits DB pool, Redis connections)
+  results <- lapply(biovars, function(bv) {
     bio_padded <- if (bv < 10) sprintf("bio0%d", bv) else sprintf("bio%d", bv)
     fname <- sprintf("CHELSA_%s_%s_V.2.1.tif", bio_padded, period)
     dest <- file.path(chelsa_dir, fname)
@@ -373,12 +373,12 @@ download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_
     url <- get_chelsa_bio_url(bv, period)
     success <- download_chelsa_file(url, dest, log_fun)
     list(success = success, bio = bv, file = if (success) dest else NA_character_)
-  }, mc.cores = n_workers, mc.preschedule = FALSE)
+  })
 
   failed_biovars <- character()
   for (res_item in results) {
-    if (!res_item$success) {
-      failed_biovars <- c(failed_biovars, res_item$bio)
+    if (is.null(res_item$success) || !res_item$success) {
+      failed_biovars <- c(failed_biovars, res_item$bio %||% "unknown")
     }
   }
 
