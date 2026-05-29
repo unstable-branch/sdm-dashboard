@@ -66,6 +66,18 @@ dataRoutes.post("/occurrences/upload", async (c) => {
   }
 });
 
+dataRoutes.get("/occurrences/uploads", async (c) => {
+  try {
+    const limit = c.req.query("limit") || "50";
+    const user = c.get("user");
+    const result = await plumberClient.withUser(user.id).getUploads(parseInt(limit, 10));
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to list uploads";
+    return c.json({ error: message }, 502);
+  }
+});
+
 dataRoutes.post("/occurrences/clean", async (c) => {
   try {
     const body = await c.req.json();
