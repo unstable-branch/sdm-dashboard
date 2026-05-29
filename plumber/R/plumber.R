@@ -824,7 +824,10 @@ function(req) {
 #* Get model run status
 #* @get /api/v1/models/status/<job_id>
 function(res, job_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
+  job_dir <- sdm_safe_job_dir(job_id)
+  if (is.null(job_dir)) {
+    res$status <- 404L; return(list(error = "Invalid job ID"))
+  }
   meta_file <- file.path(job_dir, "meta.json")
   progress_file <- file.path(job_dir, "progress.log")
   progress_json_file <- file.path(job_dir, "progress.json")
@@ -928,7 +931,10 @@ sdm_process_registry <- new.env(parent = emptyenv())
 #* Cancel a running model
 #* @post /api/v1/models/cancel/<job_id>
 function(req, job_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
+  job_dir <- sdm_safe_job_dir(job_id)
+  if (is.null(job_dir)) {
+    return(list(ok = FALSE, message = "Invalid job ID"))
+  }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (file.exists(meta_file)) {
@@ -984,7 +990,10 @@ function(req, job_id) {
 #* Delete a model run's output files
 #* @post /api/v1/models/delete/<job_id>
 function(req, job_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
+  job_dir <- sdm_safe_job_dir(job_id)
+  if (is.null(job_dir)) {
+    return(list(ok = TRUE, message = "Invalid job ID", deleted = FALSE))
+  }
   meta_file <- file.path(job_dir, "meta.json")
 
   if (file.exists(meta_file)) {
@@ -1838,7 +1847,7 @@ function(res, run_id1, run_id2) {
     if (meta$status != "completed") return(NULL)
     result_rds <- meta$output_files$result_rds
     if (is.null(result_rds) || !file.exists(result_rds)) return(NULL)
-    readRDS(result_rds)
+    tryCatch(readRDS(result_rds), error = function(e) NULL)
   }
 
   r1 <- load_result(run_id1)
@@ -2703,7 +2712,10 @@ function(res, run_id) {
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
   if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
-  result <- readRDS(result_rds)
+  result <- tryCatch(readRDS(result_rds), error = function(e) NULL)
+  if (is.null(result)) {
+    res$status <- 500L; return(list(error = "Failed to load result file"))
+  }
   source(file.path(app_dir, "R", "output", "diagnostics_plots.R"), local = TRUE)
   diag_files <- save_diagnostic_plots(result, job_dir, log_fun = function(...) {})
   # Merge new diagnostic paths into meta.json output_files
@@ -2725,7 +2737,8 @@ function(res, run_id, type) {
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
   if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
-  result <- readRDS(result_rds)
+  result <- tryCatch(readRDS(result_rds), error = function(e) NULL)
+  if (is.null(result)) { res$status <- 500L; return(list(error = "Failed to load result file")) }
   csv_data <- switch(type,
     importance = {
       imp <- result$variable_importance

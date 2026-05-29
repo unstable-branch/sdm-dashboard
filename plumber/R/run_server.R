@@ -39,7 +39,8 @@ db_pool <- tryCatch({
         idleTimeout = 60000
       )
     } else {
-      cat("WARNING: Could not parse DATABASE_URL:", db_url, "\n")
+      masked <- sub("://[^:]+:[^@]+@", "://USER:PASSWORD@", db_url)
+      cat("WARNING: Could not parse DATABASE_URL:", masked, "\n")
       NULL
     }
   } else {
@@ -145,6 +146,14 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   req$user_id <- user_info$user_id
   req$user_email <- user_info$email
   req$user_role <- user_info$role
+
+  # Rate limit: use hashed API key or user ID as bucket key
+  rate_key <- api_key %||% user_info$user_id %||% fwd_user
+  if (!is.null(rate_key) && nzchar(rate_key)) {
+    if (!sdm_check_rate_limit(rate_key, max_requests = 120, window_seconds = 60)) {
+      auth_fail(res, 429L, '{"error":"Rate limit exceeded. Try again in 60 seconds."}')
+    }
+  }
 
   NULL
 })

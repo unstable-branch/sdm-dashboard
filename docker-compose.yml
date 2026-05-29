@@ -2,6 +2,7 @@ services:
   # ── Core (always needed) ──
   postgres:
     profiles: ["core", "dev", "full"]
+    restart: unless-stopped
     image: postgis/postgis:16-3.4
     environment:
       POSTGRES_USER: sdm
@@ -22,6 +23,7 @@ services:
 
   redis:
     profiles: ["core", "dev", "full"]
+    restart: unless-stopped
     image: redis:7-alpine
     ports:
       - "6379:6379"
@@ -38,6 +40,7 @@ services:
   # ── Storage ──
   garage:
     profiles: ["storage", "dev", "full"]
+    restart: unless-stopped
     image: dxflrs/garage:v2.3.0
     command: ["/garage", "server", "--single-node", "--default-bucket"]
     ports:
@@ -64,6 +67,7 @@ services:
   # ── Computation ──
   plumber:
     profiles: ["computation", "dev", "full"]
+    restart: unless-stopped
     image: sdm-dashboard-plumber:latest
     build:
       context: .
@@ -96,6 +100,7 @@ services:
   # ── Web proxy ──
   api:
     profiles: ["proxy", "dev", "full"]
+    restart: unless-stopped
     image: sdm-dashboard-api:latest
     build:
       context: .
@@ -147,6 +152,7 @@ services:
 
   frontend:
     profiles: ["proxy", "dev", "full"]
+    restart: unless-stopped
     image: sdm-dashboard-frontend:latest
     build:
       context: .
