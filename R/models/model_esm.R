@@ -285,6 +285,8 @@ predict_esm_suitability <- function(fit, env_project_scaled,
   if (!is.null(pair_sd_tif)) {
     attr(suit_raster, "esm_pair_sd_tif") <- pair_sd_tif
   }
+  rm(env_df, proj_out, ens_proj, pair_preds, suit_values)
+  gc(verbose = FALSE)
   suit_raster
 }
 

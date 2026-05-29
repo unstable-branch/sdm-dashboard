@@ -152,6 +152,7 @@ run_fast_sdm <- function(...) {
     log_message(log_fun, "DwC-A GBIF dataset DOI: ", dwca_doi)
   }
   cleaned$raw <- NULL
+  gc(verbose = FALSE)
   if (is.null(training_extent)) training_extent <- make_training_extent(occ, buffer = 2)
   log_message(log_fun, "Training extent: ", paste(training_extent, collapse = ", "))
   log_message(log_fun, "Projection extent: ", paste(projection_extent, collapse = ", "))
@@ -344,6 +345,8 @@ run_fast_sdm <- function(...) {
     log_message(log_fun, "PA replication: ", successful, "/", pa_replicates, " successful")
   }
 
+  gc(verbose = FALSE)
+
   importance_result <- NULL
   if (isTRUE(model_spec$supports_importance) && !is.null(fit$cv) && is.finite(fit$cv$auc_mean)) {
     pred_fun <- switch(model_id,
@@ -425,6 +428,27 @@ run_fast_sdm <- function(...) {
   }, error = function(e) {
     if (grepl("^Estimated prediction memory", conditionMessage(e))) stop(e)
   })
+
+  # ESM-specific memory guard: ecospat loads entire raster into R memory,
+  # bypassing terra's chunked processing. ESM memory multiplier is ~8x.
+  if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
+    tryCatch({
+      mem_info <- terra::mem_info()
+      if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+        n_cells <- terra::ncell(env$env_project_scaled)
+        n_layers <- terra::nlyr(env$env_project_scaled)
+        esm_est_gb <- n_cells * n_layers * 8 / (1024^3) * 8.0
+        if (is.finite(esm_est_gb) && esm_est_gb > mem_info$memavail * 0.6) {
+          stop(sprintf(
+            "ESM prediction estimated at %.1f GB — exceeds 60%% of available RAM (%.1f GB). ",
+            esm_est_gb, mem_info$memavail
+          ), call. = FALSE)
+        }
+      }
+    }, error = function(e) {
+      if (grepl("^ESM prediction estimated", conditionMessage(e))) stop(e)
+    })
+  }
 
   response_curves <- compute_response_curves(
     fit = fit,

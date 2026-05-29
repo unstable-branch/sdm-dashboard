@@ -83,6 +83,8 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
 
   log_message(log_fun, sprintf("MESS: %.1f%% of cells extrapolate beyond training envelope", mess_result$pct_extrapolation * 100))
 
+  gc(verbose = FALSE)
+
   list(
     suitability = future_suitability,
     delta = delta,
