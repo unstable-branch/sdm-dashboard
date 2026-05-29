@@ -112,15 +112,19 @@ read_occurrence_file <- function(path, log_fun = NULL) {
   }
   is_tab <- grepl("\\.(tsv|txt)$", path, ignore.case = TRUE)
   log_message(log_fun, "Reading occurrences from ", normalizePath(path, winslash = "/", mustWork = FALSE))
-  if (is_tab) {
-    utils::read.delim(path, quote = "", stringsAsFactors = FALSE, check.names = FALSE)
-  } else {
-    if (requireNamespace("data.table", quietly = TRUE)) {
-      data.table::fread(path, stringsAsFactors = FALSE, check.names = FALSE)
+  tryCatch({
+    if (is_tab) {
+      utils::read.delim(path, quote = "", stringsAsFactors = FALSE, check.names = FALSE)
     } else {
-      utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+      if (requireNamespace("data.table", quietly = TRUE)) {
+        data.table::fread(path, stringsAsFactors = FALSE, check.names = FALSE)
+      } else {
+        utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+      }
     }
-  }
+  }, error = function(e) {
+    stop("Failed to read occurrence file: ", conditionMessage(e), call. = FALSE)
+  })
 }
 
 clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE,
@@ -381,7 +385,7 @@ thin_occurrences_by_distance <- function(occ, min_distance_km = sdm_default_thin
 read_gbif_records <- function(taxon, country = NULL, max_records = 100,
                               token = NULL, log_fun = NULL) {
   if (!requireNamespace("rgbif", quietly = TRUE)) {
-    stop("rgbif package required for GBIF fetching. Install with: install.packages('rgbif')")
+    stop("rgbif package required for GBIF fetching. Install with: install.packages('rgbif')", call. = FALSE)
   }
 
   log_message(log_fun, "Fetching GBIF records for: ", taxon)
@@ -455,19 +459,19 @@ read_gbif_download <- function(taxon, country = NULL, gbif_user = NULL, gbif_pwd
     gbif_pwd <- token
   }
   if (is.null(gbif_user) || !nzchar(trimws(gbif_user))) {
-    stop("GBIF download requires 'gbif_user' (your GBIF username).")
+    stop("GBIF download requires 'gbif_user' (your GBIF username).", call. = FALSE)
   }
   if (is.null(gbif_pwd) || !nzchar(trimws(gbif_pwd))) {
-    stop("GBIF download requires 'gbif_pwd' (your GBIF password or API key).")
+    stop("GBIF download requires 'gbif_pwd' (your GBIF password or API key).", call. = FALSE)
   }
   if (!requireNamespace("rgbif", quietly = TRUE)) {
-    stop("rgbif package required for GBIF downloading. Install with: install.packages('rgbif')")
+    stop("rgbif package required for GBIF downloading. Install with: install.packages('rgbif')", call. = FALSE)
   }
   if (is.null(email) || !nzchar(trimws(email))) {
     email <- Sys.getenv("SDM_GBIF_EMAIL", unset = "")
   }
   if (!nzchar(trimws(email))) {
-    stop("GBIF download requires a valid email. Provide via 'email' parameter or set SDM_GBIF_EMAIL.")
+    stop("GBIF download requires a valid email. Provide via 'email' parameter or set SDM_GBIF_EMAIL.", call. = FALSE)
   }
 
   taxon_key <- tryCatch(rgbif::name_backbone(taxon)$speciesKey,

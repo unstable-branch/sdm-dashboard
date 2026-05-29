@@ -285,7 +285,7 @@ load_vegetation_covariate <- function(
   log_fun = NULL
 ) {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for vegetation downloads. Install with: install.packages('curl')")
+    stop("curl package required for vegetation downloads. Install with: install.packages('curl')", call. = FALSE)
   }
 
   current_year <- as.integer(format(Sys.Date(), "%Y"))

@@ -89,7 +89,7 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
                                 allow_download = TRUE,
                                 log_fun = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for NDVI downloads. Install with: install.packages('curl')")
+    stop("curl package required for NDVI downloads. Install with: install.packages('curl')", call. = FALSE)
   }
 
   selected_periods <- unique(as.character(selected_periods))

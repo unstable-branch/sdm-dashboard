@@ -20,7 +20,7 @@ if (!file.exists(engine_file)) {
   stop(
     "Could not find R/core/optimized_sdm.R.\n",
     "Your zip/extraction may be incomplete."
-  )
+  , call. = FALSE)
 }
 source(engine_file)
 

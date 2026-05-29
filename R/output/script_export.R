@@ -64,7 +64,9 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE,
 
   lines <- c(lines, "# Run parameters")
   lines <- c(lines, paste0("species_name <- '", config$species, "'"))
-  lines <- c(lines, paste0("model_id <- '", result$model_id, "'"))
+  if (!is.null(result$model_id)) {
+    lines <- c(lines, paste0("model_id <- '", result$model_id, "'"))
+  }
   if (!is.null(result$manifest$data$occurrence_hash_sha256)) {
     lines <- c(lines, paste0("expected_occurrence_hash <- '", result$manifest$data$occurrence_hash_sha256, "'"))
   }
