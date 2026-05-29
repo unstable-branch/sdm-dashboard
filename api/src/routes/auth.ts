@@ -125,14 +125,14 @@ authRoutes.post("/login", async (c) => {
 
     if (!user) {
       const client = extractClientInfo(c as any);
-      logAction({ action: "login_failed", entity: "users", details: { email, reason: "not_found" }, ...client }).catch(() => {});
+      logAction({ action: "login_failed", entity: "users", details: { email, reason: "not_found" }, ...client }).catch((e) => console.warn("[auth] Failed to log login_failed (not_found):", e));
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
     const valid = await compare(password, user.passwordHash);
     if (!valid) {
       const client = extractClientInfo(c as any);
-      logAction({ userId: user.id, action: "login_failed", entity: "users", entityId: user.id, details: { reason: "wrong_password" }, ...client }).catch(() => {});
+      logAction({ userId: user.id, action: "login_failed", entity: "users", entityId: user.id, details: { reason: "wrong_password" }, ...client }).catch((e) => console.warn("[auth] Failed to log login_failed (wrong_password):", e));
       return c.json({ error: "Invalid credentials" }, 401);
     }
 

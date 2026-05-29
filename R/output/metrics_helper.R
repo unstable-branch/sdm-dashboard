@@ -65,7 +65,7 @@ combine_ensemble <- function(biomod_pred, dnn_results, method = "weighted_averag
     # Single DNN result
     dnn_pred <- dnn_results$prediction
   } else {
-    stop("Invalid dnn_results format")
+    stop("Invalid dnn_results format", call. = FALSE)
   }
 
   # Align extents if needed
@@ -96,7 +96,7 @@ combine_ensemble <- function(biomod_pred, dnn_results, method = "weighted_averag
         sum(x, na.rm = TRUE) >= 1
       })
     },
-    stop("Unknown ensemble method: ", method)
+    stop("Unknown ensemble method: ", method, call. = FALSE)
   )
 
   combined

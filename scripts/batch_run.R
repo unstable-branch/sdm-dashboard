@@ -75,7 +75,7 @@ project_root_candidates <- c(".", "..", file.path("..", ".."))
 project_root <- project_root_candidates[vapply(project_root_candidates,
                                                function(p) file.exists(file.path(p, "R", "load.R")), logical(1))][1]
 if (is.na(project_root)) {
-  stop("Could not find project root (R/load.R not found in ancestor dirs)")
+  stop("Could not find project root (R/load.R not found in ancestor dirs)", call. = FALSE)
 }
 
 source(file.path(project_root, "R", "core", "bootstrap.R"))

@@ -171,7 +171,7 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
 
   # DNN-104: Check raster stack has valid layers
   if (is.null(pred_stack) || terra::nlyr(pred_stack) < 1) {
-    stop("DNN-104: Raster stack is empty or has no layers. Ensure covariates are properly loaded.")
+    stop("DNN-104: Raster stack is empty or has no layers. Ensure covariates are properly loaded.", call. = FALSE)
   }
 
   # DNN-101: Extract presence points
@@ -181,13 +181,13 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
       terra::extract(pred_stack, coords)
     },
     error = function(e) {
-      stop(paste("DNN-101: Failed to extract presence points from raster:", conditionMessage(e)))
+      stop(paste("DNN-101: Failed to extract presence points from raster:", conditionMessage(e)), call. = FALSE)
     }
   )
   pres_vals <- pres_vals[complete.cases(pres_vals), , drop = FALSE]
 
   if (nrow(pres_vals) == 0) {
-    stop("DNN-101: No valid presence points found after raster extraction. Check that occurrence coordinates overlap with covariate raster extent.")
+    stop("DNN-101: No valid presence points found after raster extraction. Check that occurrence coordinates overlap with covariate raster extent.", call. = FALSE)
   }
 
   # DNN-102: Sample background points
@@ -198,12 +198,12 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
       terra::spatSample(bg_mask, size = background_n * 2, method = "random", na.rm = TRUE, as.points = TRUE)
     },
     error = function(e) {
-      stop(paste("DNN-102: Failed to sample background points:", conditionMessage(e)))
+      stop(paste("DNN-102: Failed to sample background points:", conditionMessage(e)), call. = FALSE)
     }
   )
 
   if (terra::nrow(bg_points) == 0) {
-    stop("DNN-102: No background points could be sampled. Ensure the raster extent contains valid data.")
+    stop("DNN-102: No background points could be sampled. Ensure the raster extent contains valid data.", call. = FALSE)
   }
 
   if (terra::nrow(bg_points) > background_n) {
@@ -215,13 +215,13 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
       terra::extract(pred_stack, bg_points)
     },
     error = function(e) {
-      stop(paste("DNN-102: Failed to extract background values from raster:", conditionMessage(e)))
+      stop(paste("DNN-102: Failed to extract background values from raster:", conditionMessage(e)), call. = FALSE)
     }
   )
   bg_vals <- bg_vals[complete.cases(bg_vals), , drop = FALSE]
 
   if (nrow(bg_vals) == 0) {
-    stop("DNN-102: No valid background points found after raster extraction.")
+    stop("DNN-102: No valid background points found after raster extraction.", call. = FALSE)
   }
 
   # Combine and create labels
@@ -234,7 +234,7 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
   # DNN-103: Train/test split (80/20)
   n_total <- length(labels)
   if (n_total < 10) {
-    stop(paste("DNN-103: Insufficient total data points (", n_total, "). Minimum 10 points required for train/test split."))
+    stop(paste("DNN-103: Insufficient total data points (", n_total, "). Minimum 10 points required for train/test split."), call. = FALSE)
   }
 
   test_indices <- sample(n_total, size = floor(0.2 * n_total))
@@ -280,12 +280,12 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
 train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu", log_fun = NULL) {
   # DNN-201: Check cito package is installed
   if (!requireNamespace("cito", quietly = TRUE)) {
-    stop("DNN-201: cito package not installed. Install with: install.packages('cito')")
+    stop("DNN-201: cito package not installed. Install with: install.packages('cito')", call. = FALSE)
   }
 
   # DNN-201b: Verify torch is installed and working
   if (!requireNamespace("torch", quietly = TRUE)) {
-    stop("DNN-201b: torch package missing. Install with: install.packages('torch')")
+    stop("DNN-201b: torch package missing. Install with: install.packages('torch')", call. = FALSE)
   }
 
   if (!torch::torch_is_installed()) {
@@ -293,19 +293,19 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
       "DNN-201b: LibTorch not installed.",
       "\n  Fix: Run in R: library(torch); torch::install_torch()",
       "\n  For GPU: Ensure CUDA Toolkit 12.8 + cuDNN installed, then: torch::install_torch(reinstall = TRUE)"
-    ))
+    ), call. = FALSE)
   }
 
   # DNN-202: Validate architecture
   arch <- config$dnn_arch[[model_type]]
   if (is.null(arch)) {
-    stop(paste("DNN-202: Unknown DNN architecture:", model_type, ". Valid options: DNN_Small, DNN_Medium, DNN_Large"))
+    stop(paste("DNN-202: Unknown DNN architecture:", model_type, ". Valid options: DNN_Small, DNN_Medium, DNN_Large"), call. = FALSE)
   }
 
   # DNN-203: Check training data size
   n_train <- length(train_data$train_y)
   if (n_train < 20) {
-    stop(paste("DNN-203: Training data too small (", n_train, "samples). Minimum 20 samples required for DNN training."))
+    stop(paste("DNN-203: Training data too small (", n_train, "samples). Minimum 20 samples required for DNN training."), call. = FALSE)
   }
 
   if (!is.null(log_fun)) {
@@ -365,7 +365,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
           "\n  1. Verify CUDA Toolkit 12.8 is installed: nvidia-smi",
           "\n  2. Reinstall torch with GPU: torch::install_torch(reinstall = TRUE)",
           "\n  3. Try CPU device instead: device = 'cpu'"
-        ))
+        ), call. = FALSE)
       } else if (grepl("memory|Memory", err_msg, ignore.case = TRUE)) {
         stop(paste(
           "DNN-204: Out of memory error:", err_msg,
@@ -373,7 +373,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
           "\n  1. Reduce model size (use DNN_Small instead of DNN_Large)",
           "\n  2. Reduce batch size or epochs in config$dnn_arch",
           "\n  3. Use CPU with more available RAM"
-        ))
+        ), call. = FALSE)
       } else {
         stop(paste(
           "DNN-204: Training failed:", err_msg,
@@ -381,7 +381,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
           "\n  1. Check data: ensure covariate values are not all NA/NaN",
           "\n  2. Try CPU device: device = 'cpu'",
           "\n  3. Try simpler architecture: DNN_Small"
-        ))
+        ), call. = FALSE)
       }
     }
   )
@@ -401,7 +401,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
 predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_size = 1000) {
   # DNN-301: Validate model object
   if (is.null(model)) {
-    stop("DNN-301: Model object is NULL or invalid. Ensure training completed successfully.")
+    stop("DNN-301: Model object is NULL or invalid. Ensure training completed successfully.", call. = FALSE)
   }
 
   # DNN-302: Check raster has valid cells
@@ -409,7 +409,7 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
   valid_cells <- which(!is.na(terra::values(pred_stack[[1]])))
 
   if (length(valid_cells) == 0) {
-    stop("DNN-302: Raster stack has no valid cells to predict. Check that the projection extent overlaps with covariate rasters.")
+    stop("DNN-302: Raster stack has no valid cells to predict. Check that the projection extent overlaps with covariate rasters.", call. = FALSE)
   }
 
   # Process in batches with error handling
@@ -423,7 +423,7 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
         terra::extract(pred_stack, batch_xy)
       },
       error = function(e) {
-        stop(paste("DNN-303: Failed to extract raster values for prediction:", conditionMessage(e)))
+        stop(paste("DNN-303: Failed to extract raster values for prediction:", conditionMessage(e)), call. = FALSE)
       }
     )
 
@@ -444,7 +444,7 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
           if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
         },
         error = function(e) {
-          stop(paste("DNN-303: Prediction failed for batch:", conditionMessage(e)))
+          stop(paste("DNN-303: Prediction failed for batch:", conditionMessage(e)), call. = FALSE)
         }
       )
 
@@ -468,11 +468,11 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
 get_dnn_metrics <- function(model, test_data) {
   # DNN-401: Check test data is not empty
   if (is.null(test_data) || is.null(test_data$test_x) || is.null(test_data$test_y)) {
-    stop("DNN-401: Test data is NULL or missing. Ensure prepare_dnn_data completed successfully.")
+    stop("DNN-401: Test data is NULL or missing. Ensure prepare_dnn_data completed successfully.", call. = FALSE)
   }
 
   if (length(test_data$test_y) == 0) {
-    stop("DNN-401: Test data is empty. Cannot calculate metrics.")
+    stop("DNN-401: Test data is empty. Cannot calculate metrics.", call. = FALSE)
   }
 
   # DNN-402: Get predictions with error handling
@@ -482,7 +482,7 @@ get_dnn_metrics <- function(model, test_data) {
       if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
     },
     error = function(e) {
-      stop(paste("DNN-402: Failed to get predictions on test data:", conditionMessage(e)))
+      stop(paste("DNN-402: Failed to get predictions on test data:", conditionMessage(e)), call. = FALSE)
     }
   )
 
@@ -556,7 +556,7 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
       "but minimum", config$dnn_hard_block, "required."
     )
     if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
-    stop(err_msg)
+    stop(err_msg, call. = FALSE)
   }
 
   # Determine device
@@ -583,7 +583,7 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
     error = function(e) {
       err_msg <- paste("DNN-502: Data preparation failed:", conditionMessage(e))
       if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
-      stop(err_msg)
+      stop(err_msg, call. = FALSE)
     }
   )
 
@@ -614,7 +614,7 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
       error = function(e) {
         err_msg <- paste("DNN-503: Model training failed for", model_type, ":", conditionMessage(e))
         if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
-        stop(err_msg)
+        stop(err_msg, call. = FALSE)
       }
     )
 
@@ -642,7 +642,7 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
       error = function(e) {
         err_msg <- paste("DNN-504: Prediction failed for", model_type, ":", conditionMessage(e))
         if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
-        stop(err_msg)
+        stop(err_msg, call. = FALSE)
       }
     )
 

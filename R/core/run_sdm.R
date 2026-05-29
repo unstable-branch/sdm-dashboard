@@ -132,7 +132,7 @@ run_fast_sdm <- function(...) {
     stop(sprintf(
       "Model '%s' requires at least %d presence records. Got %d.",
       model_id, min_rec_req, n_pres
-    ))
+    ), call. = FALSE)
   }
   dwca_doi <- attr(cleaned$raw, "gbif_doi")
   if (!is.null(dwca_doi) && !is.na(dwca_doi) && nzchar(dwca_doi)) {

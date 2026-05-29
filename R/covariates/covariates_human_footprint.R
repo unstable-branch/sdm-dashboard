@@ -18,7 +18,7 @@ load_human_footprint_covariate <- function(hfp_year = 2020,
                                            allow_download = TRUE,
                                            log_fun = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for Human Footprint downloads. Install with: install.packages('curl')")
+    stop("curl package required for Human Footprint downloads. Install with: install.packages('curl')", call. = FALSE)
   }
 
   hfp_year <- as.integer(hfp_year[1])

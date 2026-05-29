@@ -185,7 +185,7 @@ dataRoutes.post("/occurrences/upload", async (c) => {
         fileSize: buffer.length,
         nRows: (result.n_rows as number) ?? null,
       });
-    } catch {}
+    } catch (e) { console.warn("[occurrences] Failed to record uploaded file metadata:", e); }
 
     // Update storage usage
     if (!adminRoles.includes(user.role)) {

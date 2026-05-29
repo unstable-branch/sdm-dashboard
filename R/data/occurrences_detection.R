@@ -4,7 +4,11 @@ read_detection_history <- function(file_path, site_col = "site_id",
                                    lon_col = "longitude", lat_col = "latitude",
                                    survey_prefix = "survey_",
                                    occ_covs = NULL, det_covs = NULL) {
-  raw <- utils::read.csv(file_path, stringsAsFactors = FALSE)
+  raw <- tryCatch({
+    utils::read.csv(file_path, stringsAsFactors = FALSE)
+  }, error = function(e) {
+    stop("Failed to read detection history file: ", conditionMessage(e), call. = FALSE)
+  })
   if (nrow(raw) == 0) stop("Detection history file is empty.", call. = FALSE)
 
   if (!site_col %in% names(raw)) stop("Site column '", site_col, "' not found.", call. = FALSE)
