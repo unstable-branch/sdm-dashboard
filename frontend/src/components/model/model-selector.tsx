@@ -31,13 +31,14 @@ const maturityColors: Record<string, string> = {
 export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps) {
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
-  const pinned = settings?.pinnedModelIds ?? [];
+  const [pinned, setPinned] = useState<string[]>(() => settings?.pinnedModelIds ?? []);
   const [search, setSearch] = useState("");
 
   const togglePin = (id: string) => {
     const next = pinned.includes(id)
       ? pinned.filter((p) => p !== id)
       : [...pinned, id];
+    setPinned(next);
     updateSettings({ pinnedModelIds: next });
   };
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -179,9 +180,10 @@ export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps
 
                         {(itemSelected || isPinned || search) && (
                           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-sdm-muted">
-                            {m.min_records != null && (
-                              <span>{`≥ ${m.min_records} records`}</span>
-                            )}
+                            {(() => {
+                              const val = m.min_records;
+                              return Number.isFinite(val) ? <span>{`≥ ${val} records`}</span> : null;
+                            })()}
                             {isInstalled && Array.isArray(m.packages) && m.packages.length > 0 && (
                               <span>{`Packages: ${m.packages.join(", ")}`}</span>
                             )}

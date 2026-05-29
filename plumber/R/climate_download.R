@@ -51,7 +51,10 @@ read_meta <- function() {
 }
 
 write_meta <- function(meta) {
-  writeLines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE), meta_file)
+  tmp_path <- tempfile(pattern = "meta", tmpdir = dirname(meta_file))
+  on.exit(unlink(tmp_path))
+  writeLines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE), tmp_path)
+  file.rename(tmp_path, meta_file)
 }
 
 meta <- read_meta()

@@ -34,12 +34,12 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2,
   log_message(log_fun, "Computing EOO/AOO from ", nrow(occ), " records (", n_unique, " unique locations)")
 
   eoo_method <- match.arg(eoo_method)
+  eoo_method_used <- "none"
 
   if (n_unique < 3) {
     log_message(log_fun, "  Too few unique points for EOO (need >= 3); EOO = NA")
     eoo_km2 <- NA_real_
     eoo_polygon <- NULL
-    eoo_method_used <- "none"
   } else {
     pts <- sf::st_as_sf(xy_unique, coords = c("longitude", "latitude"), crs = 4326)
 

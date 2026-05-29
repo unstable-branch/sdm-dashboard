@@ -102,5 +102,25 @@ requires_auth <- function(path) {
   TRUE
 }
 
+# Simple in-memory rate limiter for Plumber auth filter
+# Tracks request counts per unique key (API key hash or user ID)
+rate_limit_buckets <- new.env(parent = emptyenv())
+
+sdm_check_rate_limit <- function(key, max_requests = 60, window_seconds = 60) {
+  current <- as.numeric(Sys.time())
+  window_start <- current - window_seconds
+  if (exists(key, envir = rate_limit_buckets)) {
+    timestamps <- rate_limit_buckets[[key]]
+    timestamps <- timestamps[timestamps > window_start]
+    if (length(timestamps) >= max_requests) {
+      return(FALSE)
+    }
+    rate_limit_buckets[[key]] <- c(timestamps, current)
+  } else {
+    rate_limit_buckets[[key]] <- current
+  }
+  TRUE
+}
+
 # validate_api_key now accepts an optional pool argument for connection pooling
 # (pool is set up in run_server.R and passed as an option)
