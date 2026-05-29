@@ -217,28 +217,36 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     } else {
       cc_tests
     }
-    cc_result <- CoordinateCleaner::clean_coordinates(
-      occ,
-      lon = "longitude",
-      lat = "latitude",
-      species = NULL,
-      tests = cc_tests_active,
-      value = "spatialvalid"
-    )
-    occ$cc_flag <- !cc_result$.summary
-    cc_test_map <- c(
-      .sea = "cc_test_sea", .cap = "cc_test_capitals",
-      .inst = "cc_test_institutions", .cen = "cc_test_centroids",
-      .urb = "cc_test_urban", .zer = "cc_test_zero",
-      .equ = "cc_test_equal", .gbf = "cc_test_gbif"
-    )
-    for (col in names(cc_result)) {
-      if (col %in% names(cc_test_map)) {
-        occ[[cc_test_map[[col]]]] <- !cc_result[[col]]
+    cc_result <- tryCatch(
+      CoordinateCleaner::clean_coordinates(
+        occ,
+        lon = "longitude",
+        lat = "latitude",
+        species = NULL,
+        tests = cc_tests_active,
+        value = "spatialvalid"
+      ),
+      error = function(e) {
+        log_message(log_fun, "CoordinateCleaner failed: ", conditionMessage(e), "; skipping CC tests")
+        NULL
       }
+    )
+    if (!is.null(cc_result)) {
+      occ$cc_flag <- !cc_result$.summary
+      cc_test_map <- c(
+        .sea = "cc_test_sea", .cap = "cc_test_capitals",
+        .inst = "cc_test_institutions", .cen = "cc_test_centroids",
+        .urb = "cc_test_urban", .zer = "cc_test_zero",
+        .equ = "cc_test_equal", .gbf = "cc_test_gbif"
+      )
+      for (col in names(cc_result)) {
+        if (col %in% names(cc_test_map)) {
+          occ[[cc_test_map[[col]]]] <- !cc_result[[col]]
+        }
+      }
+      n_flagged <- sum(!cc_result$.summary, na.rm = TRUE)
+      log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", nrow(occ), " records")
     }
-    n_flagged <- sum(!cc_result$.summary, na.rm = TRUE)
-    log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", nrow(occ), " records")
   } else if (use_cc && !requireNamespace("CoordinateCleaner", quietly = TRUE)) {
     warning("CoordinateCleaner not installed. Install with: install.packages('CoordinateCleaner')")
   }
@@ -378,17 +386,24 @@ read_gbif_records <- function(taxon, country = NULL, max_records = 100,
 
   log_message(log_fun, "Fetching GBIF records for: ", taxon)
 
-  taxon_key <- rgbif::name_backbone(taxon)$speciesKey
+  taxon_key <- tryCatch(rgbif::name_backbone(taxon)$speciesKey,
+    error = function(e) {
+      stop("GBIF name lookup failed for '", taxon, "': ", conditionMessage(e),
+        ". Check internet connectivity or GBIF API availability.", call. = FALSE)
+    })
 
   if (max_records > 10000) {
     log_message(log_fun, sprintf("GBIF API limit is 10,000 records per search (requested %d); capping at 10,000", max_records))
   }
-  result <- rgbif::occ_search(
+  result <- tryCatch(rgbif::occ_search(
     taxonKey = taxon_key,
     country = country,
     limit = min(max_records, 10000),
     hasCoordinate = TRUE
-  )
+  ), error = function(e) {
+    stop("GBIF occurrence search failed for '", taxon, "': ", conditionMessage(e),
+      ". Check internet connectivity or GBIF API availability.", call. = FALSE)
+  })
 
   if (is.null(result$data) || nrow(result$data) == 0) {
     log_message(log_fun, "No GBIF records found for: ", taxon)
@@ -455,7 +470,11 @@ read_gbif_download <- function(taxon, country = NULL, gbif_user = NULL, gbif_pwd
     stop("GBIF download requires a valid email. Provide via 'email' parameter or set SDM_GBIF_EMAIL.")
   }
 
-  taxon_key <- rgbif::name_backbone(taxon)$speciesKey
+  taxon_key <- tryCatch(rgbif::name_backbone(taxon)$speciesKey,
+    error = function(e) {
+      stop("GBIF name lookup failed for '", taxon, "': ", conditionMessage(e),
+        ". Check internet connectivity or GBIF API availability.", call. = FALSE)
+    })
 
   pred_list <- list(
     rgbif::pred("taxonKey", taxon_key),
@@ -465,31 +484,42 @@ read_gbif_download <- function(taxon, country = NULL, gbif_user = NULL, gbif_pwd
     pred_list <- c(pred_list, rgbif::pred("country", country))
   }
 
-  download_key <- rgbif::occ_download(
+  download_key <- tryCatch(rgbif::occ_download(
     !!!pred_list,
     user = trimws(gbif_user),
     pwd = trimws(gbif_pwd),
     email = trimws(email)
-  )
+  ), error = function(e) {
+    stop("GBIF download failed for '", taxon, "': ", conditionMessage(e),
+      ". Check credentials and internet connectivity.", call. = FALSE)
+  })
 
   log_message(NULL, "Starting GBIF download (blocking — up to ~5 minutes). Consider using the async endpoint for non-interactive contexts.")
   status <- "running"
   attempts <- 0
   while (status == "running" && attempts < max_attempts) {
     Sys.sleep(poll_interval)
-    status_info <- rgbif::occ_download_meta(download_key)
+    status_info <- tryCatch(rgbif::occ_download_meta(download_key),
+      error = function(e) {
+        log_message(NULL, "GBIF status check failed (attempt ", attempts + 1, "): ", conditionMessage(e))
+        list(status = "running")
+      })
     status <- status_info$status
     attempts <- attempts + 1
     log_message(NULL, "GBIF download status: ", status, " (attempt ", attempts, "/", max_attempts, ")")
   }
 
   if (status != "succeeded") {
-    stop("GBIF download failed or timed out after ", max_attempts, " attempts")
+    stop("GBIF download failed or timed out after ", max_attempts, " attempts (final status: ", status, ")", call. = FALSE)
   }
 
-  doi <- rgbif::occ_download_meta(download_key)$doi
+  doi <- tryCatch(rgbif::occ_download_meta(download_key)$doi,
+    error = function(e) NA_character_)
 
-  occ_data <- rgbif::occ_download_get(download_key, path = tempdir())
+  occ_data <- tryCatch(rgbif::occ_download_get(download_key, path = tempdir()),
+    error = function(e) {
+      stop("GBIF download retrieval failed: ", conditionMessage(e), call. = FALSE)
+    })
 
   list(
     occurrences = occ_data,
