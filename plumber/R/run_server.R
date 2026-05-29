@@ -5,6 +5,21 @@
 #   - X-Hono-Internal header + X-Forwarded-User (Hono-proxied requests with valid JWT)
 # Open endpoints (health, reads) bypass auth
 
+# Fatal error handler: dump stack + variables to crash log so OOM/segfault leaves a trail
+options(error = function() {
+  crash_file <- file.path(tempdir(), "sdm_crash_dump.rda")
+  tryCatch({
+    dump.frames("sdm_crash_dump", to.file = TRUE)
+    cat("FATAL: R process crashed at", format(Sys.time()), "\n",
+      "  Error:", geterrmessage(), "\n",
+      "  Dump written to:", crash_file, "\n",
+      file = file.path(Sys.getenv("SDM_CRASH_LOG", tempdir()), "sdm_crash.log"),
+      append = TRUE)
+  }, error = function(e) NULL)
+  # Signal to the Plumber health check process monitor
+  cat("FATAL: Unrecoverable R error — process terminating\n")
+})
+
 app_dir <- if (dir.exists("/app/R")) {
   "/app"
 } else if (dir.exists(file.path(getwd(), "R"))) {
@@ -129,5 +144,19 @@ orphan_cleanup <- function() {
   }
 }
 tryCatch(orphan_cleanup(), error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
+
+# Pre-flight OOM check: warn if available RAM is too low for model runs
+tryCatch({
+  mem_info <- terra::mem_info()
+  if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+    if (mem_info$memavail < 2.0) {
+      cat("WARNING: Available RAM (", sprintf("%.1f GB", mem_info$memavail),
+        ") is below 2 GB. Model runs may fail with OOM.\n", sep = "")
+    } else {
+      cat("Available RAM: ", sprintf("%.1f GB", mem_info$memavail),
+        " — sufficient for model runs.\n", sep = "")
+    }
+  }
+}, error = function(e) cat("WARNING: Could not check available RAM:", conditionMessage(e), "\n"))
 
 plumber::pr_run(pr, host = "0.0.0.0", port = 8000)
