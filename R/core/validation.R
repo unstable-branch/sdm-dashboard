@@ -25,6 +25,9 @@ validate_biovars <- function(selected_biovars) {
 }
 
 normalize_threshold <- function(threshold = sdm_default_threshold) {
+  if (is.null(threshold) || length(threshold) == 0) {
+    return(sdm_default_threshold)
+  }
   if (is.character(threshold) && identical(tolower(threshold[1]), "max_tss")) {
     return(NA_real_)
   }
