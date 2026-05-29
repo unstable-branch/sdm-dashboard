@@ -47,7 +47,7 @@ export default function ModelPage() {
           useSDMStore.getState().setSpecies(speciesName);
         }
       })
-      .catch(() => {});
+      .catch(() => console.warn("[model] Failed to fetch fork run status"));
   }, [forkId]);
 
   const fetchActiveRuns = useCallback(async () => {

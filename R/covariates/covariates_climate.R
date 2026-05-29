@@ -276,7 +276,7 @@ download_chelsa_file <- function(url, dest, log_fun = NULL) {
 download_chelsa_extras <- function(chelsa_dir, selected_extras = names(chelsa_extra_vars),
                                    log_fun = NULL, n_cores = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')")
+    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')", call. = FALSE)
   }
   ensure_sdm_packages(c("terra", "geodata"), n_cores = n_cores)
   dir.create(chelsa_dir, recursive = TRUE, showWarnings = FALSE)
@@ -351,7 +351,7 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
 
 download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_cores = NULL, period = "1981-2010") {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')")
+    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')", call. = FALSE)
   }
   ensure_sdm_packages("terra", n_cores = n_cores)
   dir.create(chelsa_dir, recursive = TRUE, showWarnings = FALSE)
@@ -444,8 +444,7 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
     missing <- selected_biovars[is.na(files)]
     stop("Missing WorldClim layer(s): ", paste(paste0("BIO", missing), collapse = ", "),
       ". Restore the Worldclim folder or enable Download missing WorldClim layers.",
-      call. = FALSE
-    )
+      call. = FALSE)
   }
 
   log_message(log_fun, "Loading ", length(files), " ", source, " layer(s) from ", climate_dir)

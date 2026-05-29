@@ -481,7 +481,7 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
     }
     if (exists("sdm_redis_cancel_check", inherits = TRUE)) {
       if (sdm_redis_cancel_check(job_id)) {
-        stop("CANCELLED")
+        stop("CANCELLED", call. = FALSE)
       }
     }
   }
@@ -1353,7 +1353,7 @@ function(req) {
 
   script_path <- file.path(app_dir, "plumber", "R", "climate_download.R")
   if (!file.exists(script_path)) {
-    stop("Climate download script not found at: ", script_path)
+    stop("Climate download script not found at: ", script_path, call. = FALSE)
   }
 
   proc <- callr::r_bg(function(script, job_dir, app_dir) {
@@ -2826,7 +2826,7 @@ function(source = "worldclim", resolution = "10", biovars = "", gcm = "", ssp = 
     } else if (source == "cmip6") {
       if (nzchar(gcm) && nzchar(ssp) && nzchar(period)) {
         if (grepl("(\\.\\./|\\.\\.\\\\|/)", paste(gcm, ssp, period))) {
-          stop("Invalid climate path parameters")
+          stop("Invalid climate path parameters", call. = FALSE)
         }
         future_dir <- file.path(app_dir, sdm_default_future_worldclim_dir, paste0(gcm, "_", ssp, "_", period))
         if (dir.exists(future_dir)) {

@@ -66,7 +66,7 @@ export default function ResultsPage() {
     } else {
       apiGet<{ manifest: Record<string, unknown> }>(`/api/v1/results/${runId}/manifest`)
         .then((m) => setManifest(m?.manifest || null))
-        .catch(() => {});
+        .catch(() => console.warn("[results] Failed to fetch manifest for run", runId));
     }
   }, [run?.id, run?.status, runId]);
 

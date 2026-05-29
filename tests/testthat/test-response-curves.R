@@ -141,7 +141,7 @@ test_that("MaxNet response curves use type='response' via explicit predict.maxne
   mock_predict_maxnet <- function(model, newdata, clamp, type) {
     assign("predict_called_with_type", type, envir = model_env)
     if (!identical(type, "response")) {
-      stop("predict.maxnet was called with type='", type, "', expected 'response'")
+      stop("predict.maxnet was called with type='", type, "', expected 'response'", call. = FALSE)
     }
     rep(0.5, nrow(newdata))
   }

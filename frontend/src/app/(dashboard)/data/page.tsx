@@ -162,7 +162,7 @@ function DataPageContent() {
   useEffect(() => {
     setPreviousUploadsLoading(true);
     apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/uploads")
-      .then((data) => setPreviousUploads(data.uploads || [])).catch(() => {}).finally(() => setPreviousUploadsLoading(false));
+      .then((data) => setPreviousUploads(data.uploads || [])).catch(() => console.warn("[data] Failed to fetch previous uploads")).finally(() => setPreviousUploadsLoading(false));
   }, []);
 
   const handleDeleteScenario = (id: string) => setScenarios((prev) => prev.filter((s) => s.id !== id));
@@ -228,7 +228,7 @@ function DataPageContent() {
     setRecordCount(cleanedRowCount);
     const pipelineRunId = useSDMStore.getState().pipelineRunId; if (finalData.pipelineRunId) setPipelineRunId(finalData.pipelineRunId as string); else if (pipelineRunId) setPipelineRunId(pipelineRunId);
     setCleanJobId(null); setCleanLoading(false);
-    const currentFileId = useSDMStore.getState().uploadResult?.file_id; if (currentFileId && finalData.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId as string)}`, { cleaned: true, cleaned_file_path: finalData.cleaned_file_id }).catch(() => {});
+    const currentFileId = useSDMStore.getState().uploadResult?.file_id; if (currentFileId && finalData.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId as string)}`, { cleaned: true, cleaned_file_path: finalData.cleaned_file_id }).catch(() => console.warn("[data] Failed to update upload cleaned status"));
   };
 
   const handleGbifSearch = async (taxon: string, country: string, maxRecords: number) => {

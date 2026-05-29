@@ -16,8 +16,8 @@ if (!exists("app_dir", inherits = FALSE) || is.null(app_dir) || length(app_dir) 
     is.na(app_dir) || !nzchar(app_dir)) {
   app_dir <- commandArgs(trailingOnly = TRUE)[2]
 }
-if (is.na(job_dir) || !nzchar(job_dir)) stop("job_dir is required")
-if (is.na(app_dir) || !nzchar(app_dir)) stop("app_dir is required")
+if (is.na(job_dir) || !nzchar(job_dir)) stop("job_dir is required", call. = FALSE)
+if (is.na(app_dir) || !nzchar(app_dir)) stop("app_dir is required", call. = FALSE)
 
 meta_file <- file.path(job_dir, "meta.json")
 progress_file <- file.path(job_dir, "progress.log")
@@ -40,7 +40,7 @@ progress_fun <- function(pct, msg) {
     }
     if (exists("sdm_redis_cancel_check", inherits = TRUE)) {
       if (sdm_redis_cancel_check(job_id)) {
-        stop("CANCELLED")
+        stop("CANCELLED", call. = FALSE)
       }
     }
   }
@@ -155,7 +155,7 @@ tryCatch({
       progress_fun(90, "CHELSA download complete")
     }
   } else {
-    stop("Unknown download type: ", download_type)
+    stop("Unknown download type: ", download_type, call. = FALSE)
   }
 
   progress_fun(95, "Finalizing")
