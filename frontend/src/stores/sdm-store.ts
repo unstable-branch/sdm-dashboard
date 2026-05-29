@@ -35,6 +35,9 @@ interface SDMState {
   flaggedIndices: number[];
   setFlaggedIndices: (indices: number[]) => void;
 
+  error: string | null;
+  setError: (error: string | null) => void;
+
   reset: () => void;
 }
 
@@ -66,6 +69,9 @@ export const useSDMStore = create<SDMState>()((set) => ({
   flaggedIndices: [],
   setFlaggedIndices: (indices) => set({ flaggedIndices: indices }),
 
+  error: null,
+  setError: (error) => set({ error }),
+
   reset: () =>
     set({
       species: "Untitled species",
@@ -77,5 +83,6 @@ export const useSDMStore = create<SDMState>()((set) => ({
       uploadResult: null,
       cleanResult: null,
       flaggedIndices: [],
+      error: null,
     }),
 }));

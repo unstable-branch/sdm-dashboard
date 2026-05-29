@@ -715,6 +715,13 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
     )
     cpu_ms <- tryCatch(r_get_cpu_time_ms(proc.time() - cpu_start), error = function(ee) NA_real_)
     peak_mb <- tryCatch(r_get_peak_memory_mb(), error = function(ee) NA_real_)
+    stderr_tail <- tryCatch({
+      stderr_path <- file.path(job_dir, "stderr.log")
+      if (file.exists(stderr_path)) {
+        paste(utils::tail(readLines(stderr_path, warn = FALSE), 20), collapse = "\n")
+      } else ""
+    }, error = function(ee) "")
+
     err_meta <- list(
       id = job_id,
       status = if (is_cancelled) "cancelled" else "failed",
@@ -725,6 +732,7 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
       error_code = err_code,
       error_hint = error_hint,
       error_traceback = paste(utils::tail(traceback(), 10), collapse = "\n"),
+      error_stderr_tail = stderr_tail,
       completed_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
       r_cpu_time_ms = cpu_ms,
       r_peak_memory_mb = peak_mb
@@ -1147,13 +1155,13 @@ sdm_async_status <- function(job_id) {
     }
     if (!process_alive) {
       meta$status <- "failed"
-      meta$error <- "Process crashed"
+      meta$error <- "Process crashed or was killed (OOM, segfault, or external signal)"
       sdm_write_json(meta, meta_file)
       sdm_process_registry[[basename(job_id)]] <- NULL
       sdm_redis_progress_clear(basename(job_id))
       sdm_redis_cancel_clear(basename(job_id))
-      return(list(available = TRUE, status = "failed", error = "Process crashed",
-                  error_code = "PROCESS_CRASH", error_hint = "The R process terminated unexpectedly"))
+      return(list(available = TRUE, status = "failed", error = "Process crashed or was killed (OOM, segfault, or external signal)",
+                  error_code = "PROCESS_CRASH", error_hint = "The R process was terminated by the OS. Check system memory, reduce raster resolution, or run with fewer covariates."))
     }
   }
 

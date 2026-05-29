@@ -67,6 +67,15 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
 
       if (!bg_state$process$is_alive()) {
         if (!is.null(bg_state$progress)) bg_state$progress$close()
+
+        # Cancel check: user already cancelled — don't overwrite with "failed"
+        if (isTRUE(getOption("sdm_cancelled", FALSE))) {
+          rv$running <- FALSE
+          bg_state$active <- FALSE
+          unlink(c(bg_state$result_file, bg_state$log_file))
+          return()
+        }
+
         exit_status <- bg_state$process$get_exit_status()
         if (file.exists(bg_state$log_file)) {
           log_lines <- tryCatch(readLines(bg_state$log_file, warn = FALSE), error = function(e) character(0))
@@ -74,7 +83,7 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
             append_log(paste(log_lines[(bg_state$last_log_lines + 1):length(log_lines)], collapse = "\n"))
           }
         }
-        if (exit_status == 0 && file.exists(bg_state$result_file)) {
+        if (isTRUE(exit_status == 0) && file.exists(bg_state$result_file)) {
           result <- tryCatch(readRDS(bg_state$result_file), error = function(e) {
             rv$error <- paste("Failed to read model result:", conditionMessage(e))
             NULL
@@ -86,7 +95,11 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           append_log("Model run completed.")
         } else {
           stderr_text <- tryCatch(bg_state$process$read_error(), error = function(e) "")
-          rv$error <- paste0("Model run failed (exit ", exit_status, "): ", stderr_text)
+          if (is.na(exit_status)) {
+            rv$error <- "Model run killed by OOM, segfault, or external signal (exit status unavailable)"
+          } else {
+            rv$error <- paste0("Model run failed (exit ", exit_status, "): ", stderr_text)
+          }
           append_log(rv$error)
         }
         rv$running <- FALSE
