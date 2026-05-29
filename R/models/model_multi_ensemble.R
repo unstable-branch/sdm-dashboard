@@ -171,6 +171,8 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
   )
   log_message(log_fun, "Ensemble mean raster written to: ", mean_tif)
+  rm(ensemble_mean)
+  gc(verbose = FALSE)
 
   ensemble_median <- terra::app(pred_stack, median, na.rm = TRUE)
   names(ensemble_median) <- "ensemble_median"
@@ -180,6 +182,8 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
   )
   log_message(log_fun, "Ensemble median raster written to: ", median_tif)
+  rm(ensemble_median)
+  gc(verbose = FALSE)
 
   weighted_layers <- mapply(function(pred, wi) pred * wi, preds, weights[names(preds)], SIMPLIFY = FALSE)
   ensemble_weighted <- Reduce("+", weighted_layers)
@@ -189,6 +193,8 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
   )
   log_message(log_fun, "Ensemble raster written to: ", output_tif)
+  rm(weighted_layers)
+  gc(verbose = FALSE)
 
   binary_preds <- lapply(seq_along(preds), function(i) {
     mid <- names(preds)[i]
@@ -205,6 +211,8 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
   )
   log_message(log_fun, "Ensemble committee raster written to: ", committee_tif)
+  rm(committee_stack, binary_preds, ensemble_committee)
+  gc(verbose = FALSE)
 
   if (include_uncertainty) {
     ensemble_sd <- terra::app(pred_stack, sd, na.rm = TRUE)
@@ -215,6 +223,8 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
       wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
     )
     log_message(log_fun, "Ensemble SD raster written to: ", sd_tif)
+    rm(ensemble_sd)
+    gc(verbose = FALSE)
   }
 
   disagreement <- terra::app(pred_stack, function(x) {
@@ -227,6 +237,11 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
   )
   component_paths$multi_ens_disagreement_tif <- disagreement_tif
+  rm(disagreement)
+  gc(verbose = FALSE)
+
+  rm(pred_stack, preds)
+  gc(verbose = FALSE)
 
   attr(ensemble_weighted, "component_paths") <- component_paths
   attr(ensemble_weighted, "ensemble_mean_tif") <- mean_tif

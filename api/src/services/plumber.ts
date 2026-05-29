@@ -1,6 +1,7 @@
 const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
 const PLUMBER_INTERNAL_KEY = process.env.PLUMBER_INTERNAL_KEY || "";
 const PLUMBER_MAX_CONCURRENT = parseInt(process.env.PLUMBER_MAX_CONCURRENT || "8", 10);
+const PLUMBER_DEFAULT_TIMEOUT_MS = parseInt(process.env.PLUMBER_TIMEOUT_MS || "30000", 10);
 let plumberActiveRequests = 0;
 
 async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
@@ -36,8 +37,13 @@ export class PlumberClient {
     return h;
   }
 
-  private async _fetch(url: string, options?: RequestInit): Promise<Response> {
-    return plumberSemaphore(() => fetch(url, options));
+  private async _fetch(url: string, options?: RequestInit, timeoutMs?: number): Promise<Response> {
+    const ms = timeoutMs ?? PLUMBER_DEFAULT_TIMEOUT_MS;
+    const opts = options ?? {};
+    if (!opts.signal) {
+      opts.signal = AbortSignal.timeout(ms);
+    }
+    return plumberSemaphore(() => fetch(url, opts));
   }
 
   async healthCheck(): Promise<{ status: string; r_version: string; timestamp: string }> {
@@ -218,6 +224,13 @@ export class PlumberClient {
       headers: this.headers(),
     });
     if (!res.ok) throw new Error(`Failed to delete scenario: ${res.status}`);
+    return res.json();
+  }
+
+  async getUploads(limit?: number): Promise<{ uploads: Array<Record<string, unknown>> }> {
+    const params = limit ? `?limit=${limit}` : "";
+    const res = await this._fetch(`${this.baseUrl}/api/v1/occurrences/uploads${params}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to list uploads: ${res.status}`);
     return res.json();
   }
 

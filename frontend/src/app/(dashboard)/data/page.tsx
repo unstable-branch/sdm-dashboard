@@ -69,6 +69,8 @@ function DataPageContent() {
 
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadHistory, setUploadHistory] = useState<Array<Record<string, unknown>>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const [cleanLoading, setCleanLoading] = useState(false);
   const [cleanError, setCleanError] = useState<string | null>(null);
@@ -194,6 +196,22 @@ function DataPageContent() {
     setScenarios((prev) => prev.filter((s) => s.id !== id));
   };
 
+  const fetchUploads = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const data = await apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/occurrences/uploads");
+      setUploadHistory(data.uploads || []);
+    } catch {
+      setUploadHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUploads();
+  }, [fetchUploads]);
+
   const handleUpload = async (file: File) => {
     setUploadLoading(true);
     setUploadError(null);
@@ -226,6 +244,7 @@ function DataPageContent() {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploadLoading(false);
+      fetchUploads();
     }
   };
 
@@ -417,6 +436,41 @@ function DataPageContent() {
               error={uploadError}
             />
           </div>
+
+          {uploadHistory.length > 0 && !uploadLoading && (
+            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-sdm-heading">Previous uploads</h3>
+                <button onClick={fetchUploads} disabled={historyLoading} className="text-xs text-sdm-accent hover:underline disabled:opacity-50">
+                  {historyLoading ? "Refreshing..." : "Refresh"}
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-sdm-text">
+                  <thead>
+                    <tr className="border-b border-sdm-border">
+                      <th className="text-left py-2 pr-3 font-medium text-sdm-muted">Filename</th>
+                      <th className="text-right py-2 px-3 font-medium text-sdm-muted">Records</th>
+                      <th className="text-right py-2 px-3 font-medium text-sdm-muted">Size</th>
+                      <th className="text-left py-2 pl-3 font-medium text-sdm-muted">Species</th>
+                      <th className="text-left py-2 pl-3 font-medium text-sdm-muted">Uploaded</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uploadHistory.slice(0, 10).map((u) => (
+                      <tr key={String(u.id)} className="border-b border-sdm-border/50 hover:bg-sdm-surface-soft/50">
+                        <td className="py-2 pr-3 font-mono max-w-[200px] truncate" title={String(u.filename || "")}>{String(u.filename || "—")}</td>
+                        <td className="py-2 px-3 text-right">{Number(u.n_rows || 0).toLocaleString()}</td>
+                        <td className="py-2 px-3 text-right">{Number(u.file_size || 0) > 1024 * 1024 ? `${(Number(u.file_size) / 1024 / 1024).toFixed(1)} MB` : `${(Number(u.file_size) / 1024).toFixed(0)} KB`}</td>
+                        <td className="py-2 pl-3 max-w-[120px] truncate" title={String(u.species || "")}>{String(u.species || "—")}</td>
+                        <td className="py-2 pl-3 whitespace-nowrap">{String(u.created_at || "").slice(0, 19).replace("T", " ")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {uploadPreview && uploadPreview.length > 0 && (
             <PreviewTable data={uploadPreview} title="Preview (first 5 records)" />
