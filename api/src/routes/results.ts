@@ -15,7 +15,8 @@ const appDir = process.cwd();
 const resultRoot = resolve(appDir, "outputs", "jobs");
 
 function resolveResultFilePath(filePath: string): { fullPath: string; runId: string } | null {
-  const requested = isAbsolute(filePath) ? filePath : join(appDir, filePath);
+  const hostPath = filePath.startsWith("/app/") ? join(appDir, filePath.slice(5)) : filePath;
+  const requested = isAbsolute(hostPath) ? hostPath : join(appDir, hostPath);
   const fullPath = resolve(requested);
   const rel = relative(resultRoot, fullPath);
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
