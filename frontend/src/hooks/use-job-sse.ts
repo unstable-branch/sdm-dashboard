@@ -106,7 +106,7 @@ export function useJobSSE(enabled = true) {
             setJobs(new Map(map));
           }
         })
-        .catch(() => {});
+        .catch(() => console.warn("[use-job-sse] Failed to process SSE data"));
     };
     es.onerror = () => setConnected(false);
 

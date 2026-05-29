@@ -36,7 +36,7 @@ load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
                               allow_download = TRUE,
                               log_fun = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for UV downloads. Install with: install.packages('curl')")
+    stop("curl package required for UV downloads. Install with: install.packages('curl')", call. = FALSE)
   }
   selected_uv_vars <- unique(as.character(selected_uv_vars))
   selected_uv_vars <- selected_uv_vars[nzchar(selected_uv_vars)]
@@ -99,7 +99,7 @@ load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
       r <- tryCatch(
         {
           curl::curl_fetch_disk(remote, tmp)
-          if (!file.exists(tmp) || file.info(tmp)$size < 1024) stop("Downloaded file too small")
+          if (!file.exists(tmp) || file.info(tmp)$size < 1024) stop("Downloaded file too small", call. = FALSE)
           file.rename(tmp, cached_file)
           terra::rast(cached_file)
         },
@@ -152,7 +152,7 @@ load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
       r <- tryCatch(
         {
           curl::curl_fetch_disk(remote, tmp)
-          if (!file.exists(tmp) || file.info(tmp)$size < 1024) stop("Downloaded file too small")
+          if (!file.exists(tmp) || file.info(tmp)$size < 1024) stop("Downloaded file too small", call. = FALSE)
           file.rename(tmp, cached_file)
           terra::rast(cached_file)
         },

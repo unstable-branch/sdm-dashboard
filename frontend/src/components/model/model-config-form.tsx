@@ -149,11 +149,11 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       const mergedIds = new Set(apiModels.map(m => m.id));
       const missingFromApi = MODEL_BACKENDS.filter(m => !mergedIds.has(m.id)).map(m => ({ id: m.id, label: m.label, maturity: m.maturity, min_records: m.min_records ?? null, packages: toPackages((m as any).packages), notes: (m as any).notes as string | undefined, available: (m as any).available as boolean | undefined }));
       setAvailableModels([...apiModels, ...missingFromApi]);
-    }).catch(() => {});
+    }).catch(() => console.warn("[model-config] Failed to fetch available models from API"));
   }, []);
 
   useEffect(() => { useSettingsStore.getState().fetchSettings(); }, []);
-  useEffect(() => { apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100").then((data) => { if (data && Array.isArray(data.species)) setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string)); }).catch(() => {}); }, []);
+  useEffect(() => { apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100").then((data) => { if (data && Array.isArray(data.species)) setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string)); }).catch(() => console.warn("[model-config] Failed to fetch species suggestions")); }, []);
 
   useEffect(() => {
     if (biovars.length < 2) return;

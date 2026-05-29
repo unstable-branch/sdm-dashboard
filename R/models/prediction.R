@@ -17,7 +17,7 @@ predict_suitability <- function(model, env_project_scaled, output_tif, n_cores =
       predict_args$cores <- NULL
       do.call(terra::predict, predict_args)
     } else {
-      stop(e)
+      stop(e, call. = FALSE)
     }
   })
   names(suit) <- "suitability"

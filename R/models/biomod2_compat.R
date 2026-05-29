@@ -64,7 +64,7 @@ log_biomod2_capabilities <- function(logger = NULL) {
 #' Build argument list for BIOMOD_Modeling respecting installed signature
 biomod2_modeling_args <- function(user_args) {
   caps <- biomod2_detect_capabilities()
-  if (!caps$has_BIOMOD_Modeling) stop("BIOMOD_Modeling not available")
+  if (!caps$has_BIOMOD_Modeling) stop("BIOMOD_Modeling not available", call. = FALSE)
   formals <- caps$modeling_formals
   # keep only args that exist in the installed function
   retained <- user_args[names(user_args) %in% formals]
@@ -78,7 +78,7 @@ biomod2_modeling_args <- function(user_args) {
 #' Build argument list for BIOMOD_EnsembleModeling respecting installed signature
 biomod2_ensemble_args <- function(user_args) {
   caps <- biomod2_detect_capabilities()
-  if (!caps$has_BIOMOD_EnsembleModeling) stop("BIOMOD_EnsembleModeling not available")
+  if (!caps$has_BIOMOD_EnsembleModeling) stop("BIOMOD_EnsembleModeling not available", call. = FALSE)
   formals <- caps$ensemble_formals
   retained <- user_args[names(user_args) %in% formals]
   retained
@@ -86,7 +86,7 @@ biomod2_ensemble_args <- function(user_args) {
 
 #' Update biomod2 to latest CRAN version, unload and re‑probe
 update_biomod2 <- function() {
-  if (!requireNamespace("utils", quietly = TRUE)) stop("utils needed for update")
+  if (!requireNamespace("utils", quietly = TRUE)) stop("utils needed for update", call. = FALSE)
   utils::install.packages("biomod2")
   # unload namespace if loaded
   if ("biomod2" %in% loadedNamespaces()) {

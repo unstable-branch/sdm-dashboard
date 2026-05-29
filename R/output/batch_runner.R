@@ -137,7 +137,7 @@ build_config_from_row <- function(row, seed = 42L) {
 batch_run_targets <- function(config_csv, output_dir = "batch_results/",
                                workers = NULL, seed = 42L) {
   if (!requireNamespace("targets", quietly = TRUE)) {
-    stop("targets package required. Install with: install.packages('targets')")
+    stop("targets package required. Install with: install.packages('targets')", call. = FALSE)
   }
 
   config_csv <- normalizePath(config_csv, mustWork = TRUE)
@@ -400,10 +400,14 @@ parse_batch_config <- function(config_csv) {
   if (!file.exists(config_csv)) {
     stop("Batch config CSV not found: ", config_csv, call. = FALSE)
   }
-  df <- read.csv(config_csv,
-    stringsAsFactors = FALSE, header = TRUE,
-    check.names = FALSE
-  )
+  df <- tryCatch({
+    read.csv(config_csv,
+      stringsAsFactors = FALSE, header = TRUE,
+      check.names = FALSE
+    )
+  }, error = function(e) {
+    stop("Failed to read batch config CSV: ", conditionMessage(e), call. = FALSE)
+  })
   if (nrow(df) == 0) {
     stop("Batch config CSV is empty: ", config_csv, call. = FALSE)
   }

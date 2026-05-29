@@ -92,7 +92,7 @@ auth_fail <- function(res, status, msg) {
   tryCatch(res$status <- status, error = function(e) NULL)
   res$body <- msg
   # Signal an error to stop Plumber from calling the handler
-  stop(msg)
+  stop(msg, call. = FALSE)
 }
 
 # Helper to safely read headers

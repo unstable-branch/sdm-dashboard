@@ -40,7 +40,7 @@ export default function EvaluatePage() {
       setSelectedId(first.id);
       apiGet<ApiRunDetail>(`/api/v1/sdm/status/${first.id}`)
         .then((detail) => setSelectedRun(detail))
-        .catch(() => {});
+        .catch(() => console.warn("[evaluate] Failed to fetch initial run details"));
     }
   }, [runs]);
 

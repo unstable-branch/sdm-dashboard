@@ -19,7 +19,7 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
                                    allow_download = TRUE,
                                    log_fun = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for drought downloads. Install with: install.packages('curl')")
+    stop("curl package required for drought downloads. Install with: install.packages('curl')", call. = FALSE)
   }
 
   # CRU scPDSI file — direct URL
