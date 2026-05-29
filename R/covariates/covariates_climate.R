@@ -443,7 +443,15 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
 
   log_message(log_fun, "Loading ", length(files), " ", source, " layer(s) from ", climate_dir)
   terra::terraOptions(memfrac = 0.75, progress = 0)
-  env_global <- terra::rast(unname(files))
+  env_global <- tryCatch(terra::rast(unname(files)), error = function(e) {
+    existing <- files[file.exists(files)]
+    if (length(existing) > 0) {
+      log_message(log_fun, "Partial read failure: ", conditionMessage(e), "; trying with ", length(existing), " available files")
+      terra::rast(unname(existing))
+    } else {
+      stop("Failed to load any climate raster files: ", conditionMessage(e), call. = FALSE)
+    }
+  })
   names(env_global) <- paste0("bio", selected_biovars)
 
   extra_files <- character(0)

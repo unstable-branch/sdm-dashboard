@@ -383,15 +383,31 @@ run_fast_sdm <- function(...) {
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
-  response_curves <- compute_response_curves(
-    fit = fit,
-    model_data = fit$model_data,
-    n_points = 50
+  response_curves <- tryCatch(
+    compute_response_curves(fit = fit, model_data = fit$model_data, n_points = 50),
+    error = function(e) {
+      log_message(log_fun, "Response curves failed: ", conditionMessage(e))
+      NULL
+    }
   )
 
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
+
+  # Pre-flight memory check: warn if raster prediction may exceed available RAM
+  tryCatch({
+    if (requireNamespace("terra", quietly = TRUE)) {
+      mem_avail <- terra::mem_info()$memavail
+      n_cells <- terra::ncell(env$env_project_scaled)
+      est_gb <- n_cells * length(names(env$env_project_scaled)) * 8 / (1024^3) * 2.5
+      if (is.finite(est_gb) && is.finite(mem_avail) && est_gb > mem_avail * 0.8) {
+        log_message(log_fun, "WARNING: Estimated prediction memory (", sprintf("%.1f GB", est_gb),
+          ") exceeds 80% of available RAM (", sprintf("%.1f GB", mem_avail),
+          "). Prediction may fail with OOM.")
+      }
+    }
+  }, error = function(e) NULL)
 
   progress_step(progress_fun, 0.80, "Predicting projection raster")
   base_name <- paste0(safe_slug(species), "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
@@ -431,12 +447,15 @@ run_fast_sdm <- function(...) {
 
   # PA replication: average predictions across replicates
   if (pa_replicates > 1 && !is.null(fit$pa_replicates)) {
+    pa_temp_files <- character(0)
+    on.exit(unlink(pa_temp_files), add = TRUE)
     suit_sum <- suit
     valid_reps <- 1L
     for (rep_i in seq_len(pa_replicates)[-1]) {
       rep_fit <- replicate_fits[[rep_i]]
       if (is.null(rep_fit)) next
       rep_tif <- tempfile(pattern = paste0("pa_rep", rep_i, "_"), fileext = ".tif")
+      pa_temp_files <- c(pa_temp_files, rep_tif)
       rep_suit <- tryCatch(
         predict_sdm_model(rep_fit, env$env_project_scaled, rep_tif, n_cores, log_fun),
         error = function(e) {
@@ -519,22 +538,28 @@ run_fast_sdm <- function(...) {
     progress_step(progress_fun, 0.95, "Projecting future climate scenario")
     mask_extrapolation <- isTRUE(cfg$extrapolation_mask %||% TRUE)
     mess_threshold <- cfg$mess_threshold %||% 0
-    future <- project_future_suitability(
-      fit = fit,
-      current_suitability = suit,
-      env = env,
-      future_worldclim_dir = future_worldclim_dir,
-      selected_biovars = selected_biovars,
-      projection_extent = projection_extent,
-      aggregation_factor = aggregation_factor,
-      output_future_tif = file.path(output_dir, paste0(base_name, "_future_suitability.tif")),
-      output_delta_tif = file.path(output_dir, paste0(base_name, "_future_delta.tif")),
-      n_cores = n_cores,
-      log_fun = log_fun,
-      mask_extrapolation = mask_extrapolation,
-      mess_threshold = mess_threshold
+    future <- tryCatch(
+      project_future_suitability(
+        fit = fit,
+        current_suitability = suit,
+        env = env,
+        future_worldclim_dir = future_worldclim_dir,
+        selected_biovars = selected_biovars,
+        projection_extent = projection_extent,
+        aggregation_factor = aggregation_factor,
+        output_future_tif = file.path(output_dir, paste0(base_name, "_future_suitability.tif")),
+        output_delta_tif = file.path(output_dir, paste0(base_name, "_future_delta.tif")),
+        n_cores = n_cores,
+        log_fun = log_fun,
+        mask_extrapolation = mask_extrapolation,
+        mess_threshold = mess_threshold
+      ),
+      error = function(e) {
+        log_message(log_fun, "Future projection failed: ", conditionMessage(e))
+        NULL
+      }
     )
-    extra_paths <- c(extra_paths, future$paths)
+    if (!is.null(future)) extra_paths <- c(extra_paths, future$paths)
   }
 
   # Second future scenario (multi-SSP comparison)
@@ -693,8 +718,10 @@ run_fast_sdm <- function(...) {
     paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)
   )
   result$report_text <- output_report
-  write_manifest(result, output_dir, base_name, cpu_ms = metrics$elapsed_seconds * 1000)
-  write_summary_report(result, result$report_text)
+  tryCatch(write_manifest(result, output_dir, base_name, cpu_ms = metrics$elapsed_seconds * 1000),
+    error = function(e) log_message(log_fun, "Manifest write failed: ", conditionMessage(e)))
+  tryCatch(write_summary_report(result, result$report_text),
+    error = function(e) log_message(log_fun, "Summary report write failed: ", conditionMessage(e)))
   result
 }
 
