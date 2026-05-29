@@ -60,9 +60,10 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   files <- list()
 
   if (isTRUE(use_elevation)) {
-    elev <- load_elevation_covariate(
-      training_extent, projection_extent, covariate_cache_dir,
-      elevation_demtype, opentopo_api_key, allow_download, log_fun
+    elev <- tryCatch(
+      load_elevation_covariate(training_extent, projection_extent, covariate_cache_dir,
+        elevation_demtype, opentopo_api_key, allow_download, log_fun),
+      error = function(e) { log_message(log_fun, "Failed to load elevation: ", conditionMessage(e)); NULL }
     )
     if (!is.null(elev)) {
       sources$elevation <- elev
@@ -72,7 +73,10 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_soil)) {
-    soil <- load_soil_covariate(soil_path = NULL, selected_soil_vars, selected_soil_depths, covariate_cache_dir, allow_download, log_fun)
+    soil <- tryCatch(
+      load_soil_covariate(soil_path = NULL, selected_soil_vars, selected_soil_depths, covariate_cache_dir, allow_download, log_fun),
+      error = function(e) { log_message(log_fun, "Failed to load soil: ", conditionMessage(e)); NULL }
+    )
     if (!is.null(soil)) {
       sources$soil <- soil
       metadata$soil <- list(source = soil$source, variables = soil$variables)
@@ -81,7 +85,10 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_uv)) {
-    uv <- load_uv_covariate(selected_uv_vars, selected_uv_months, covariate_cache_dir, allow_download, log_fun)
+    uv <- tryCatch(
+      load_uv_covariate(selected_uv_vars, selected_uv_months, covariate_cache_dir, allow_download, log_fun),
+      error = function(e) { log_message(log_fun, "Failed to load UV: ", conditionMessage(e)); NULL }
+    )
     if (!is.null(uv)) {
       sources$uv <- uv
       metadata$uv <- list(source = uv$source, variables = uv$variables)
@@ -90,14 +97,11 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_vegetation)) {
-    ndvi <- load_vegetation_covariate(
-      veg_year = veg_year,
-      selected_products = veg_products,
-      extent_vec = training_extent,
-      aggregate_factor = 18L,
-      covariate_cache_dir = covariate_cache_dir,
-      allow_download = allow_download,
-      log_fun = log_fun
+    ndvi <- tryCatch(
+      load_vegetation_covariate(veg_year = veg_year, selected_products = veg_products,
+        extent_vec = training_extent, aggregate_factor = 18L,
+        covariate_cache_dir = covariate_cache_dir, allow_download = allow_download, log_fun = log_fun),
+      error = function(e) { log_message(log_fun, "Failed to load vegetation: ", conditionMessage(e)); NULL }
     )
     if (!is.null(ndvi)) {
       sources$vegetation <- ndvi
@@ -107,10 +111,11 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_lulc)) {
-    lulc <- load_lulc_covariate(
-      lulc_year = lulc_year, extent_vec = training_extent,
-      aggregate_factor = 18L, covariate_cache_dir = covariate_cache_dir,
-      allow_download = allow_download, log_fun = log_fun
+    lulc <- tryCatch(
+      load_lulc_covariate(lulc_year = lulc_year, extent_vec = training_extent,
+        aggregate_factor = 18L, covariate_cache_dir = covariate_cache_dir,
+        allow_download = allow_download, log_fun = log_fun),
+      error = function(e) { log_message(log_fun, "Failed to load LULC: ", conditionMessage(e)); NULL }
     )
     if (!is.null(lulc)) {
       sources$lulc <- lulc
@@ -120,10 +125,11 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_hfp)) {
-    hfp <- load_human_footprint_covariate(
-      hfp_year = hfp_year, extent_vec = training_extent,
-      aggregate_factor = 18L, covariate_cache_dir = covariate_cache_dir,
-      allow_download = allow_download, log_fun = log_fun
+    hfp <- tryCatch(
+      load_human_footprint_covariate(hfp_year = hfp_year, extent_vec = training_extent,
+        aggregate_factor = 18L, covariate_cache_dir = covariate_cache_dir,
+        allow_download = allow_download, log_fun = log_fun),
+      error = function(e) { log_message(log_fun, "Failed to load human footprint: ", conditionMessage(e)); NULL }
     )
     if (!is.null(hfp)) {
       sources$hfp <- hfp
@@ -133,10 +139,10 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_bioclim_season)) {
-    bioclim <- load_bioclim_seasonality(
-      extent_vec = training_extent,
-      covariate_cache_dir = covariate_cache_dir,
-      allow_download = allow_download, log_fun = log_fun
+    bioclim <- tryCatch(
+      load_bioclim_seasonality(extent_vec = training_extent,
+        covariate_cache_dir = covariate_cache_dir, allow_download = allow_download, log_fun = log_fun),
+      error = function(e) { log_message(log_fun, "Failed to load bioclim seasonality: ", conditionMessage(e)); NULL }
     )
     if (!is.null(bioclim)) {
       sources$bioclim_season <- bioclim
@@ -146,11 +152,11 @@ load_extra_covariates <- function(template_train, template_project, training_ext
   }
 
   if (isTRUE(use_drought)) {
-    drought <- load_drought_covariate(
-      selected_periods = selected_drought_periods,
-      extent_vec = training_extent,
-      aggregate_factor = 3L, covariate_cache_dir = covariate_cache_dir,
-      allow_download = allow_download, log_fun = log_fun
+    drought <- tryCatch(
+      load_drought_covariate(selected_periods = selected_drought_periods,
+        extent_vec = training_extent, aggregate_factor = 3L,
+        covariate_cache_dir = covariate_cache_dir, allow_download = allow_download, log_fun = log_fun),
+      error = function(e) { log_message(log_fun, "Failed to load drought: ", conditionMessage(e)); NULL }
     )
     if (!is.null(drought)) {
       sources$drought <- drought
