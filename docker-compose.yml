@@ -83,8 +83,9 @@ services:
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
+    stop_grace_period: 60s
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -147,6 +148,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 30s
     networks:
       - sdm-network
 
