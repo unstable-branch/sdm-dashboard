@@ -1,10 +1,27 @@
 import { createMiddleware } from "hono/factory";
+import { createHash, timingSafeEqual } from "crypto";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 function getKnownOrigins(): string[] {
   const raw = process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:3000";
   return raw.split(",").map(s => s.trim()).filter(Boolean);
+}
+
+function getCsrfSecret(): string {
+  return process.env.JWT_SECRET || process.env.CSRF_SECRET || "csrf-secret-change-me";
+}
+
+function validateToken(token: string): boolean {
+  const parts = token.split(".");
+  if (parts.length !== 2) return false;
+  const payload = parts[0];
+  const expectedSig = createHash("sha256").update(payload + getCsrfSecret()).digest("hex");
+  try {
+    return timingSafeEqual(Buffer.from(parts[1]), Buffer.from(expectedSig));
+  } catch {
+    return false;
+  }
 }
 
 export const csrfMiddleware = createMiddleware(async (c, next) => {
@@ -60,9 +77,10 @@ export const csrfMiddleware = createMiddleware(async (c, next) => {
     }
   }
 
+  // Validate X-CSRF-Token when present (defense-in-depth)
   const token = c.req.header("X-CSRF-Token");
-  if (!token) {
-    return c.json({ error: "CSRF validation failed: missing token" }, 403);
+  if (token && !validateToken(token)) {
+    return c.json({ error: "CSRF validation failed: invalid token" }, 403);
   }
 
   await next();

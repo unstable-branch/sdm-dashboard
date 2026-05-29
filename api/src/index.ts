@@ -112,6 +112,15 @@ app.route("/api/v1/ecology", ecologyRoutes);
 app.route("/api/v1/diagnostics", diagnosticsRoutes);
 app.route("/api/v1/jobs", jobsRoutes);
 
+app.onError((err, c) => {
+  console.error("[API] Unhandled error:", err);
+  return c.json({ error: "Internal server error" }, 500);
+});
+
+app.notFound((c) => {
+  return c.json({ error: "Not found" }, 404);
+});
+
 const port = parseInt(process.env.PORT || "4000", 10);
 
 // Initialize Garage S3 buckets (non-blocking, errors are logged)
@@ -180,7 +189,7 @@ process.on("SIGINT", shutdown);
 
 // Set up HTTP server with WebSocket support
 const server = serve(
-  { fetch: app.fetch, port, hostname: process.env.HOST || "127.0.0.1" },
+  { fetch: app.fetch, port, hostname: process.env.HOST || "0.0.0.0" },
   (info) => {
     console.log(`SDM API server running on http://${info.address}:${info.port}`);
     console.log(`HTTP server listening on port ${info.port}`);
@@ -203,5 +212,6 @@ process.on("unhandledRejection", (reason) => {
   ) {
     return;
   }
-  console.error("[API] Unhandled rejection:", reason);
+  console.error("[API] Unhandled rejection, shutting down:", reason);
+  shutdown();
 });
