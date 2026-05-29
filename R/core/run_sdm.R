@@ -212,8 +212,9 @@ run_fast_sdm <- function(...) {
         if (length(keep_vars) >= 2) {
           env$env_train_scaled <- env$env_train_scaled[[keep_vars]]
           env$env_project_scaled <- env$env_project_scaled[[keep_vars]]
-          env$means <- env$means[keep_vars]
-          env$sds <- env$sds[keep_vars]
+          safe_keep <- intersect(keep_vars, names(env$means))
+          env$means <- env$means[safe_keep]
+          env$sds <- env$sds[safe_keep]
           log_message(log_fun, "VIF reduction applied: ", terra::nlyr(env$env_train_scaled), " covariates remaining")
         } else {
           dropped_vars <- character(0)
@@ -391,6 +392,25 @@ run_fast_sdm <- function(...) {
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
+
+  # Pre-flight memory check: reject if prediction likely exceeds 60% of available RAM
+  tryCatch({
+    mem_info <- terra::mem_info()
+    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+      n_cells <- terra::ncell(env$env_project_scaled)
+      n_layers <- terra::nlyr(env$env_project_scaled)
+      est_gb <- n_cells * n_layers * 8 / (1024^3) * 3.0
+      if (is.finite(est_gb) && est_gb > mem_info$memavail * 0.6) {
+        stop(sprintf(
+          "Estimated prediction memory (%.1f GB) exceeds 60%% of available RAM (%.1f GB). ",
+          est_gb, mem_info$memavail
+        ), call. = FALSE)
+      }
+    }
+  }, error = function(e) {
+    if (grepl("^Estimated prediction memory", conditionMessage(e))) stop(e)
+  })
+
   response_curves <- compute_response_curves(
     fit = fit,
     model_data = fit$model_data,
@@ -439,12 +459,15 @@ run_fast_sdm <- function(...) {
 
   # PA replication: average predictions across replicates
   if (pa_replicates > 1 && !is.null(fit$pa_replicates)) {
+    pa_temp_files <- character(0)
+    on.exit(unlink(pa_temp_files), add = TRUE)
     suit_sum <- suit
     valid_reps <- 1L
     for (rep_i in seq_len(pa_replicates)[-1]) {
       rep_fit <- replicate_fits[[rep_i]]
       if (is.null(rep_fit)) next
       rep_tif <- tempfile(pattern = paste0("pa_rep", rep_i, "_"), fileext = ".tif")
+      pa_temp_files <- c(pa_temp_files, rep_tif)
       rep_suit <- tryCatch(
         predict_sdm_model(rep_fit, env$env_project_scaled, rep_tif, n_cores, log_fun),
         error = function(e) {

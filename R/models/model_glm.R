@@ -92,8 +92,13 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
       )
     }
     probs <- weights[valid_w]
-    probs <- probs / sum(probs)
-    sel <- sample.int(length(valid_w), size = n, replace = TRUE, prob = probs)
+    total_weight <- sum(probs)
+    if (!is.finite(total_weight) || total_weight <= 0) {
+      sel <- sample.int(length(valid_w), size = n, replace = TRUE)
+    } else {
+      probs <- probs / total_weight
+      sel <- sample.int(length(valid_w), size = n, replace = TRUE, prob = probs)
+    }
     xy <- terra::xyFromCell(template_rast, all_cell_idx[valid_w[sel]])
     return(data.frame(x = xy[, 1], y = xy[, 2], check.names = FALSE))
   }
@@ -149,11 +154,23 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
     n <- length(y)
     w <- if (n1 == 0 || n0 == 0) rep(1, n) else ifelse(y == 1, n / (2 * n1), n / (2 * n0))
     train_model$case_weight_sdm <- w
-    fit <- suppressWarnings(stats::glm(formula,
-      data = train_model, family = stats::binomial(),
-      weights = case_weight_sdm, control = stats::glm.control(maxit = 60)
-    ))
-    pred <- stats::predict(fit, newdata = test_model, type = "response")
+    fit <- tryCatch(
+      suppressWarnings(stats::glm(formula,
+        data = train_model, family = stats::binomial(),
+        weights = case_weight_sdm, control = stats::glm.control(maxit = 60)
+      )),
+      error = function(e) NULL
+    )
+    if (is.null(fit)) {
+      return(metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold), fold = i))
+    }
+    pred <- tryCatch(
+      stats::predict(fit, newdata = test_model, type = "response"),
+      error = function(e) rep(NA_real_, nrow(test_model))
+    )
+    if (all(is.na(pred))) {
+      return(metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold), fold = i))
+    }
     metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
   }
 

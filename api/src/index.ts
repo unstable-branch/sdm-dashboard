@@ -35,7 +35,7 @@ process.on("uncaughtException", (err) => {
   ) {
     return;
   }
-  throw err;
+  console.error("[FATAL] Uncaught exception (keeping process alive):", err);
 });
 
 const app = new Hono();
