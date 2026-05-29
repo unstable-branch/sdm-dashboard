@@ -269,8 +269,7 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
       n_absent_excluded = result$n_absent_excluded,
       source_counts = as.list(source_counts),
       cc_flagged = if ("cc_flag" %in% names(occ)) sum(occ$cc_flag, na.rm = TRUE) else 0L,
-      training_extent = make_training_extent(occ, buffer = 2),
-      cleaned_records = lapply(seq_len(nrow(occ)), function(i) as.list(occ[i, ]))
+      training_extent = make_training_extent(occ, buffer = 2)
     )
   }, error = function(e) {
     sdm_error(req, 400, conditionMessage(e))
