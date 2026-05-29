@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { MODEL_TIERS, TIER_ORDER } from "@sdm/shared";
-import { Search, ChevronDown, ChevronRight } from "lucide-react";
+import { Star, Search, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSettingsStore } from "@/stores/settings-store";
 
 interface ModelInfo {
   id: string;
@@ -21,12 +22,28 @@ interface ModelSelectorProps {
   onSelect: (id: string) => void;
 }
 
+const maturityColors: Record<string, string> = {
+  stable: "bg-sdm-success/15 text-sdm-success border-sdm-success/30",
+  experimental: "bg-sdm-warning/15 text-sdm-warning border-sdm-warning/30",
+  deprecated: "bg-sdm-danger/15 text-sdm-danger border-sdm-danger/30",
+};
+
 export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps) {
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  const pinned = settings?.pinnedModelIds ?? [];
   const [search, setSearch] = useState("");
+
+  const togglePin = (id: string) => {
+    const next = pinned.includes(id)
+      ? pinned.filter((p) => p !== id)
+      : [...pinned, id];
+    updateSettings({ pinnedModelIds: next });
+  };
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const grouped = useMemo(() => {
-    const pinnedSet = new Set<string>();
+    const pinnedSet = new Set(pinned);
     const pinnedModels: ModelInfo[] = [];
     const tiered: Record<string, ModelInfo[]> = {};
     const unavailable: ModelInfo[] = [];
@@ -54,10 +71,7 @@ export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps
 
     const shownTiers = TIER_ORDER.filter((t) => (tiered[t]?.length ?? 0) > 0);
     for (const t of shownTiers) {
-      const items = tiered[t].filter((m) => m.available !== false);
-      const notAvail = tiered[t].filter((m) => m.available === false);
-      if (items.length > 0) sections.push({ title: t, items });
-      if (notAvail.length > 0) sections.push({ title: `${t} (not installed)`, items: notAvail });
+      sections.push({ title: t, items: tiered[t] });
     }
 
     if (unavailable.length > 0) {
@@ -78,7 +92,7 @@ export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps
         ),
       }))
       .filter((s) => s.items.length > 0);
-  }, [models, search]);
+  }, [models, pinned, search]);
 
   if (models.length === 0) { return null; }
 
@@ -117,6 +131,8 @@ export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps
                 <div className="space-y-1">
                   {section.items.map((m) => {
                     const itemSelected = selected === m.id;
+                    const isPinned = pinned.includes(m.id);
+                    const isInstalled = m.available !== false;
                     return (
                       <button
                         key={m.id}
@@ -129,7 +145,51 @@ export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps
                             : "border-sdm-border/50 bg-sdm-surface-soft/50 hover:border-sdm-border hover:bg-sdm-surface-soft"
                         )}
                       >
-                        <span className="text-sm font-medium text-sdm-text truncate">{m.label}</span>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-sm font-medium text-sdm-text truncate">{m.label}</span>
+                            <span
+                              className={cn(
+                                "shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none",
+                                maturityColors[m.maturity] ?? "bg-sdm-surface-soft text-sdm-muted border-sdm-border"
+                              )}
+                            >
+                              {`${m.maturity}`}
+                            </span>
+                            {!isInstalled && (
+                              <span className="shrink-0 rounded border border-sdm-border/30 bg-sdm-surface-soft px-1.5 py-0.5 text-[10px] leading-none text-sdm-muted">
+                                Not installed
+                              </span>
+                            )}
+                          </div>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => { e.stopPropagation(); togglePin(m.id); }}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); togglePin(m.id); } }}
+                            className={cn(
+                              "shrink-0 p-0.5 transition-colors cursor-pointer",
+                              isPinned ? "text-sdm-warning" : "text-sdm-muted/40 hover:text-sdm-warning/60"
+                            )}
+                            title={isPinned ? "Unpin" : "Pin to top"}
+                          >
+                            <Star className={cn("h-3.5 w-3.5", isPinned ? "fill-sdm-warning" : "")} />
+                          </span>
+                        </div>
+
+                        {(itemSelected || isPinned || search) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-sdm-muted">
+                            {m.min_records != null && (
+                              <span>{`≥ ${m.min_records} records`}</span>
+                            )}
+                            {isInstalled && Array.isArray(m.packages) && m.packages.length > 0 && (
+                              <span>{`Packages: ${m.packages.join(", ")}`}</span>
+                            )}
+                            {!isInstalled && m.notes && (
+                              <span className="text-sdm-muted">{m.notes}</span>
+                            )}
+                          </div>
+                        )}
                       </button>
                     );
                   })}
