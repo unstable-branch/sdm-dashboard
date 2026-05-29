@@ -137,6 +137,7 @@ run_fast_sdm <- function(...) {
   if (!is.null(dwca_doi) && !is.na(dwca_doi) && nzchar(dwca_doi)) {
     log_message(log_fun, "DwC-A GBIF dataset DOI: ", dwca_doi)
   }
+  cleaned$raw <- NULL
   if (is.null(training_extent)) training_extent <- make_training_extent(occ, buffer = 2)
   log_message(log_fun, "Training extent: ", paste(training_extent, collapse = ", "))
   log_message(log_fun, "Projection extent: ", paste(projection_extent, collapse = ", "))
