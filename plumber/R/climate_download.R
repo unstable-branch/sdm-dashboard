@@ -35,10 +35,10 @@ progress_fun <- function(pct, msg) {
   if (job_id %||% "" != "") {
     entry <- list(timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"), percent = pct, detail = msg, stage = "download")
     entry_json <- jsonlite::toJSON(entry, auto_unbox = TRUE)
-    if (exists("sdm_redis_progress_set", inherits = FALSE)) {
+    if (exists("sdm_redis_progress_set", inherits = TRUE)) {
       tryCatch(sdm_redis_progress_set(job_id, entry_json), error = function(e) NULL)
     }
-    if (exists("sdm_redis_cancel_check", inherits = FALSE)) {
+    if (exists("sdm_redis_cancel_check", inherits = TRUE)) {
       if (sdm_redis_cancel_check(job_id)) {
         stop("CANCELLED")
       }
@@ -88,6 +88,9 @@ tryCatch({
   source(file.path(app_dir, "R", "core", "bootstrap.R"))
   sdm_set_project_root(app_dir)
   source(file.path(app_dir, "R", "engine_load.R"))
+  # Source Redis helpers for background progress reporting
+  redis_r <- file.path(app_dir, "plumber", "R", "redis.R")
+  if (file.exists(redis_r)) source(redis_r, local = TRUE)
 
   if (download_type %in% c("cmip6", "cmip6_average")) {
     gcm <- config$gcm %||% "UKESM1-0-LL"
