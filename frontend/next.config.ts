@@ -4,7 +4,7 @@ const API_URL = process.env.API_URL || "http://localhost:4000";
 
 const nextConfig: NextConfig = {
   experimental: {
-    middlewareClientMaxBodySize: "50mb",
+    proxyClientMaxBodySize: "50mb",
   },
   async rewrites() {
     return [
