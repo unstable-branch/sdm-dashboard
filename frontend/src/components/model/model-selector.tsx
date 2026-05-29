@@ -28,7 +28,7 @@ const maturityColors: Record<string, string> = {
   deprecated: "bg-sdm-danger/15 text-sdm-danger border-sdm-danger/30",
 };
 
-export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps) {
+export default function ModelSelector({ models, selected, onSelect }: ModelSelectorProps) {
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
   const pinned = settings?.pinnedModelIds ?? [];
