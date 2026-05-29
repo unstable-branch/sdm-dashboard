@@ -786,14 +786,19 @@ build_stage_extra_args <- function(cfg, model_id) {
 
 sdm_stage_clean <- function(cfg, log_fun = NULL) {
   log_message(log_fun, "Stage 1: Cleaning occurrence data")
-  cleaned <- clean_occurrences(
-    cfg$occurrence_file,
-    min_source_records = cfg$min_source_records,
-    merge_small_sources = cfg$merge_small_sources,
-    use_cc = cfg$use_cc,
-    cc_tests = cfg$cc_tests,
-    log_fun = log_fun,
-    max_coordinate_uncertainty = cfg$max_coordinate_uncertainty
+  cleaned <- tryCatch(
+    clean_occurrences(
+      cfg$occurrence_file,
+      min_source_records = cfg$min_source_records,
+      merge_small_sources = cfg$merge_small_sources,
+      use_cc = cfg$use_cc,
+      cc_tests = cfg$cc_tests,
+      log_fun = log_fun,
+      max_coordinate_uncertainty = cfg$max_coordinate_uncertainty
+    ),
+    error = function(e) {
+      stop("Stage 1 (clean) failed: ", conditionMessage(e), call. = FALSE)
+    }
   )
   list(cleaned = cleaned, occ = cleaned$occ)
 }
@@ -801,7 +806,7 @@ sdm_stage_clean <- function(cfg, log_fun = NULL) {
 #' Run SDM pipeline: Stage 2 — Load and scale environmental covariates
 sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
   log_message(log_fun, "Stage 2: Loading covariates")
-  load_environment(
+  tryCatch(load_environment(
     worldclim_dir = cfg$worldclim_dir,
     selected_biovars = cfg$selected_biovars,
     training_extent = cfg$training_extent,
@@ -833,7 +838,9 @@ sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
     covariate_cache_dir = cfg$covariate_cache_dir %||% NULL,
     source = cfg$source,
     selected_chelsa_extras = cfg$selected_chelsa_extras
-  )
+  ), error = function(e) {
+    stop("Stage 2 (covariates) failed: ", conditionMessage(e), call. = FALSE)
+  })
 }
 
 #' Run SDM pipeline: Stage 3 — Fit model
@@ -841,22 +848,32 @@ sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL, progress_fun = NULL) {
   log_message(log_fun, "Stage 3: Fitting model")
   model_id <- cfg$model_id %||% "glm"
   extra_args <- build_stage_extra_args(cfg, model_id)
-  fit <- do.call(fit_sdm_model, c(list(
-    model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
-    background_n = cfg$background_n, include_quadratic = cfg$include_quadratic,
-    cv_folds = cfg$cv_folds, seed = cfg$seed, n_cores = cfg$n_cores, log_fun = log_fun,
-    progress_fun = progress_fun,
-    cv_strategy = cfg$cv_strategy, cv_block_size_km = cfg$cv_block_size_km,
-    bias_method = cfg$bias_method, target_group_occ = cfg$target_group_occ,
-    thickening_distance_km = cfg$thickening_distance_km
-  ), extra_args))
+  fit <- tryCatch(
+    do.call(fit_sdm_model, c(list(
+      model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
+      background_n = cfg$background_n, include_quadratic = cfg$include_quadratic,
+      cv_folds = cfg$cv_folds, seed = cfg$seed, n_cores = cfg$n_cores, log_fun = log_fun,
+      progress_fun = progress_fun,
+      cv_strategy = cfg$cv_strategy, cv_block_size_km = cfg$cv_block_size_km,
+      bias_method = cfg$bias_method, target_group_occ = cfg$target_group_occ,
+      thickening_distance_km = cfg$thickening_distance_km
+    ), extra_args)),
+    error = function(e) {
+      stop("Stage 3 (fit) failed: ", conditionMessage(e), call. = FALSE)
+    }
+  )
   list(fit = fit)
 }
 
 #' Run SDM pipeline: Stage 4 — Predict suitability
 sdm_stage_predict <- function(cfg, fit, env, output_tif, log_fun = NULL) {
   log_message(log_fun, "Stage 4: Predicting suitability")
-  suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, cfg$n_cores, log_fun)
+  suit <- tryCatch(
+    predict_sdm_model(fit, env$env_project_scaled, output_tif, cfg$n_cores, log_fun),
+    error = function(e) {
+      stop("Stage 4 (predict) failed: ", conditionMessage(e), call. = FALSE)
+    }
+  )
   list(suit = suit, output_tif = output_tif)
 }
 
@@ -866,7 +883,7 @@ sdm_stage_future <- function(cfg, fit, suit, env, output_dir, base_name, log_fun
     return(list(future = NULL))
   }
   log_message(log_fun, "Stage 4b: Projecting future climate scenario")
-  future <- project_future_suitability(
+  future <- tryCatch(project_future_suitability(
     fit = fit, current_suitability = suit, env = env,
     future_worldclim_dir = cfg$future_worldclim_dir,
     selected_biovars = cfg$selected_biovars,
@@ -877,14 +894,16 @@ sdm_stage_future <- function(cfg, fit, suit, env, output_dir, base_name, log_fun
     n_cores = cfg$n_cores %||% 1, log_fun = log_fun,
     mask_extrapolation = isTRUE(cfg$extrapolation_mask %||% TRUE),
     mess_threshold = cfg$mess_threshold %||% 0
-  )
+  ), error = function(e) {
+    stop("Stage 4b (future) failed: ", conditionMessage(e), call. = FALSE)
+  })
   list(future = future)
 }
 
 #' Run SDM pipeline: Stage 5 — Post-processing (climate match, EOO/AOO, AOA, XAI)
 sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   log_message(log_fun, "Stage 5: Post-processing")
-  result <- list()
+  result <- tryCatch({
 
   # EOO/AOO
   if (!is.null(fit$occurrence_used)) {
@@ -937,4 +956,7 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   }
 
   result
+  }, error = function(e) {
+    stop("Stage 5 (postprocess) failed: ", conditionMessage(e), call. = FALSE)
+  })
 }
