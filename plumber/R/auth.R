@@ -42,9 +42,11 @@ validate_api_key <- function(api_key, app_dir = NULL) {
 
   # Connect and query
   tryCatch({
+    parts <- parse_db_url(db_url)
     con <- DBI::dbConnect(
       RPostgres::Postgres(),
-      url = db_url
+      dbname = parts$dbname, host = parts$host,
+      port = parts$port, user = parts$user, password = parts$password
     )
     on.exit(DBI::dbDisconnect(con), add = TRUE)
 

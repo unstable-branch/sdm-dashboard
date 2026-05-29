@@ -79,6 +79,39 @@ sdm_safe_job_dir <- function(run_id) {
   NULL
 }
 
+# Database connection helper (reuses DATABASE_URL from auth.R)
+db_connect <- function() {
+  db_url <- Sys.getenv("DATABASE_URL", "")
+  if (!nzchar(db_url)) return(NULL)
+  tryCatch({
+    parts <- parse_db_url(db_url)
+    DBI::dbConnect(RPostgres::Postgres(),
+      dbname = parts$dbname, host = parts$host,
+      port = parts$port, user = parts$user, password = parts$password)
+  }, error = function(e) {
+    message("db_connect failed: ", conditionMessage(e))
+    NULL
+  })
+}
+
+parse_db_url <- function(url) {
+  m <- regexec("postgresql://([^:]+):([^@]+)@([^:]+):([0-9]+)/(.+)", url)
+  parts <- regmatches(url, m)[[1]]
+  if (length(parts) < 6) stop("Cannot parse DATABASE_URL")
+  list(user = parts[2], password = parts[3], host = parts[4], port = as.integer(parts[5]), dbname = parts[6])
+}
+
+db_insert_upload <- function(con, user_id, file_path, filename, file_size, format, n_rows, species, columns) {
+  if (is.null(con)) return(invisible(NULL))
+  tryCatch({
+    DBI::dbExecute(con,
+      "INSERT INTO uploads (user_id, file_path, filename, file_size, format, n_rows, species, columns_detected)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      params = list(user_id, file_path, filename, file_size, format, n_rows, species, columns)
+    )
+  }, error = function(e) message("Failed to record upload: ", conditionMessage(e)))
+}
+
 # --- Data endpoints ---
 
 #* Upload occurrence file (CSV/TSV/ZIP)
@@ -149,19 +182,26 @@ function(req) {
     }
 
     max_size <- 100 * 1024 * 1024
-    if (file.info(file_path)$size > max_size) {
+    file_size <- file.info(file_path)$size
+    if (file_size > max_size) {
       return(sdm_error(req, 413, paste("File too large. Maximum", max_size / 1e6, "MB.")))
     }
 
-    ext <- tolower(tools::file_ext(uploaded$filename %||% ""))
+    orig_name <- uploaded$filename[[1]] %||% uploaded$name[[1]] %||% "upload"
+    ext <- tolower(tools::file_ext(orig_name))
     is_dwca <- ext == "zip"
 
     upload_dir <- file.path(app_dir, "data", "uploads")
     dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
-    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", uploaded$filename %||% "upload")
+    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", orig_name)
     dest_path <- file.path(upload_dir, paste0(format(Sys.time(), "%Y%m%d_%H%M%S_"), safe_name))
     file.copy(file_path, dest_path, overwrite = TRUE)
     rel_path <- file.path("data", "uploads", basename(dest_path))
+
+    con <- db_connect()
+    on.exit(if (!is.null(con)) DBI::dbDisconnect(con), add = TRUE)
+
+    upload_result <- NULL
 
     if (is_dwca) {
       result <- read_dwca(file_path, log_fun = message)
@@ -179,10 +219,10 @@ function(req) {
       preview <- head(occ, 5)
       preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
 
-      list(
+      upload_result <- list(
         file_id = dest_path,
         file_path = rel_path,
-        filename = uploaded$filename %||% uploaded$name,
+        filename = uploaded$filename[[1]] %||% uploaded$name[[1]] %||% basename(dest_path),
         format = "dwca",
         n_rows = n_rows,
         n_returned = result$n_returned,
@@ -208,10 +248,10 @@ function(req) {
       preview <- head(occ, 5)
       preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
 
-      list(
+      upload_result <- list(
         file_id = dest_path,
         file_path = rel_path,
-        filename = uploaded$filename %||% uploaded$name,
+        filename = uploaded$filename[[1]] %||% uploaded$name[[1]] %||% basename(dest_path),
         format = if (ext %in% c("tsv", "txt")) "tsv" else "csv",
         n_rows = n_rows,
         species_detected = species_detected,
@@ -219,9 +259,39 @@ function(req) {
         preview = preview
       )
     }
+
+    db_insert_upload(
+      con, req$user_id %||% "unknown",
+      dest_path, upload_result$filename %||% basename(dest_path), file_size,
+      upload_result$format %||% "csv", upload_result$n_rows %||% 0L,
+      if (is.character(upload_result$species_detected)) upload_result$species_detected else NULL,
+      if (is.list(upload_result$columns_detected)) jsonlite::toJSON(upload_result$columns_detected, auto_unbox = TRUE) else NULL
+    )
+
+    upload_result
   }, error = function(e) {
     sdm_error(req, 400, conditionMessage(e))
   })
+}
+
+#* List uploaded files (persisted across sessions)
+#* @get /api/v1/occurrences/uploads
+function(req, limit = 50) {
+  limit <- suppressWarnings(as.integer(limit))
+  if (!is.finite(limit) || limit < 1) limit <- 50L
+  con <- db_connect()
+  if (is.null(con)) return(list(uploads = list()))
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  tryCatch({
+    user_filter <- req$user_id %||% "unknown"
+    rows <- DBI::dbGetQuery(con,
+      "SELECT id, filename, file_path, file_size, format, n_rows, species, columns_detected, created_at
+       FROM uploads WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
+      params = list(user_filter, limit)
+    )
+    if (nrow(rows) == 0) return(list(uploads = list()))
+    list(uploads = lapply(seq_len(nrow(rows)), function(i) as.list(rows[i, ])))
+  }, error = function(e) list(uploads = list(), error = conditionMessage(e)))
 }
 
 #* Clean occurrence data with configurable options

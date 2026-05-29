@@ -48,6 +48,8 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 
+ENV NODE_OPTIONS="--max-old-space-size=2048"
+
 USER node
 
 EXPOSE 3000
