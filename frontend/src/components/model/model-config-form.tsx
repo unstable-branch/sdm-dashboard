@@ -76,11 +76,15 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [futureGcm, setFutureGcm] = useState("UKESM1-0-LL");
   const [futureSsp, setFutureSsp] = useState("SSP2-4.5");
   const [futurePeriod, setFuturePeriod] = useState("2041-2060");
+  const [futureProjection2, setFutureProjection2] = useState(false);
+  const [futureLabel2, setFutureLabel2] = useState("Future climate 2");
+  const [futureGcm2, setFutureGcm2] = useState("MPI-ESM1-2-HR");
+  const [futureSsp2, setFutureSsp2] = useState("SSP3-7.0");
+  const [futurePeriod2, setFuturePeriod2] = useState("2061-2080");
   const [vifReduction, setVifReduction] = useState(false);
   const [climateMatching, setClimateMatching] = useState(false);
   const [maxnetFeatures, setMaxnetFeatures] = useState(DEFAULT_CONFIG.maxnetFeatures);
   const [maxnetRegmult, setMaxnetRegmult] = useState(DEFAULT_CONFIG.maxnetRegmult);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
@@ -205,6 +209,9 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       futureProjection,
       futureWorldclimDir: futureProjection ? buildFutureWorldclimPath(futureGcm, futureSsp, futurePeriod) : undefined,
       futureLabel,
+      futureProjection2: futureProjection && futureProjection2,
+      futureWorldclimDir2: futureProjection && futureProjection2 ? buildFutureWorldclimPath(futureGcm2, futureSsp2, futurePeriod2) : undefined,
+      futureLabel2: futureProjection2 ? futureLabel2 : undefined,
       vifReduction,
       climateMatching,
       thinByCell,
@@ -222,6 +229,10 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       cleanedFilePath: useCleaned ? cleanedOccurrence!.filePath : undefined,
       source: climateSource,
       worldclimRes: climateRes,
+      multiEnsembleModels: modelId !== "multi_ensemble" ? undefined : undefined,
+      biomod2Models: modelId !== "biomod2" ? undefined : undefined,
+      esmNRuns: isESM ? 5 : undefined,
+      esmSplit: isESM ? 70 : undefined,
     };
 
     const parsed = modelConfigSchema.safeParse(config);
@@ -420,11 +431,83 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             </div>
           </div>
         )}
+
+        {modelId === "multi_ensemble" && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs font-semibold text-sdm-heading uppercase tracking-wide">Ensemble models</p>
+            <div className="flex flex-wrap gap-2">
+              {["glm", "gam", "maxnet", "rf", "xgboost", "rangebag"].map((m) => (
+                <label key={m} className="px-2 py-1 rounded text-xs cursor-pointer border border-sdm-border text-sdm-muted hover:border-sdm-accent/50 has-checked:border-sdm-accent has-checked:bg-sdm-accent/10 has-checked:text-sdm-accent">
+                  <input type="checkbox" className="sr-only" />
+                  {m === "glm" ? "GLM" : m === "gam" ? "GAM" : m === "maxnet" ? "MaxNet" : m === "rf" ? "RF" : m === "xgboost" ? "XGBoost" : "Rangebag"}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-sdm-muted">Select 2+ models for the ensemble. Availability depends on installed R packages.</p>
+          </div>
+        )}
+
+        {modelId === "biomod2" && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs font-semibold text-sdm-heading uppercase tracking-wide">biomod2 algorithms</p>
+            <div className="flex flex-wrap gap-2">
+              {["GLM", "GAM", "RF", "MARS", "FDA", "CTA", "ANN", "SRE"].map((a) => (
+                <label key={a} className="px-2 py-1 rounded text-xs cursor-pointer border border-sdm-border text-sdm-muted hover:border-sdm-accent/50 has-checked:border-sdm-accent has-checked:bg-sdm-accent/10 has-checked:text-sdm-accent">
+                  <input type="checkbox" className="sr-only" defaultChecked={a === "GLM" || a === "RF" || a === "GAM"} />
+                  {a}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-sdm-muted">Requires <code className="text-sdm-accent">options(sdm.enable_biomod2 = TRUE)</code> in R.</p>
+          </div>
+        )}
+
+        {isESM && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs font-semibold text-sdm-heading uppercase tracking-wide">ESM settings</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">Evaluation runs</label>
+                <input type="number" defaultValue={5} min={2} max={100} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">Data split (%)</label>
+                <input type="number" defaultValue={70} min={50} max={90} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
         <h2 className="text-lg font-semibold text-sdm-heading">Climate & BIO variables</h2>
         <p className="text-sm text-sdm-muted">Select at least 2 climate variables</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-sdm-text mb-1">Climate source</label>
+            <select
+              value={climateSource}
+              onChange={(e) => setClimateSource(e.target.value as "worldclim" | "chelsa")}
+              className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
+            >
+              <option value="worldclim">WorldClim v2.1</option>
+              <option value="chelsa">CHELSA v2.1</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-sdm-text mb-1">Resolution</label>
+            <select
+              value={climateRes}
+              onChange={(e) => setClimateRes(Number(e.target.value))}
+              className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
+            >
+              <option value={10}>10 arc-minutes (~20 km)</option>
+              <option value={5}>5 arc-minutes (~10 km)</option>
+              <option value={2.5}>2.5 arc-minutes (~5 km)</option>
+            </select>
+          </div>
+        </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
           {BIOVAR_CHOICES.map((bio) => (
@@ -571,6 +654,51 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             </p>
           </div>
         )}
+
+        {futureProjection && (
+          <div className="pt-2 border-t border-sdm-border/50">
+            <label className="flex items-center gap-2 text-sm text-sdm-text">
+              <input type="checkbox" checked={futureProjection2} onChange={(e) => setFutureProjection2(e.target.checked)} />
+              Add second future scenario
+            </label>
+          </div>
+        )}
+
+        {futureProjection && futureProjection2 && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Scenario label</label>
+              <input type="text" value={futureLabel2} onChange={(e) => setFutureLabel2(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">GCM</label>
+              <select value={futureGcm2} onChange={(e) => setFutureGcm2(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                {GCM_CHOICES.map((gcm) => (
+                  <option key={gcm.id} value={gcm.id}>{gcm.label} — {gcm.description}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">SSP scenario</label>
+              <select value={futureSsp2} onChange={(e) => setFutureSsp2(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                {SSP_CHOICES.map((ssp) => (
+                  <option key={ssp.id} value={ssp.id}>{ssp.label} — {ssp.description}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Time period</label>
+              <select value={futurePeriod2} onChange={(e) => setFuturePeriod2(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                {TIME_PERIOD_CHOICES.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label} — {p.description}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-sdm-muted font-mono">
+              Path: Worldclim_future/{futureGcm2}_{futureSsp2}_{futurePeriod2}
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
@@ -619,10 +747,23 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       <details className="rounded-lg border border-sdm-border bg-sdm-surface">
         <summary className="cursor-pointer px-6 py-4 text-sm font-semibold text-sdm-heading">Optional covariates</summary>
         <div className="px-6 pb-6 space-y-4">
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useElevation} onChange={(e) => setUseElevation(e.target.checked)} />
-            Add elevation (OpenTopography)
-          </label>
+          <div className="flex items-center gap-2 text-sm text-sdm-text flex-wrap">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={useElevation} onChange={(e) => setUseElevation(e.target.checked)} />
+              Add elevation (OpenTopography)
+            </label>
+            {useElevation && (
+              <select
+                value={DEFAULT_CONFIG.elevationDemtype}
+                onChange={(e) => {}}
+                className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text"
+              >
+                {["COP90", "SRTMGL3", "AW3D30", "SRTMGL1"].map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            )}
+          </div>
 
           <label className="flex items-center gap-2 text-sm text-sdm-text">
             <input type="checkbox" checked={useSoil} onChange={(e) => setUseSoil(e.target.checked)} />
@@ -664,14 +805,32 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             </div>
           )}
 
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useVegetation} onChange={(e) => setUseVegetation(e.target.checked)} />
-            Add vegetation productivity
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useLulc} onChange={(e) => setUseLulc(e.target.checked)} />
-            Add LULC (MODIS)
-          </label>
+          <div className="flex items-center gap-2 text-sm text-sdm-text flex-wrap">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={useVegetation} onChange={(e) => setUseVegetation(e.target.checked)} />
+              Add vegetation productivity
+            </label>
+            {useVegetation && (
+              <select className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text">
+                {["ndvi_annual_mean", "evi_annual_mean", "fc_overall", "fpar_mean", "lai_mean", "gpp_mean", "ndvi_peak", "ndvi_min"].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-sm text-sdm-text flex-wrap">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={useLulc} onChange={(e) => setUseLulc(e.target.checked)} />
+              Add LULC (MODIS)
+            </label>
+            {useLulc && (
+              <select className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text">
+                {[2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023].map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            )}
+          </div>
           <label className="flex items-center gap-2 text-sm text-sdm-text">
             <input type="checkbox" checked={useHfp} onChange={(e) => setUseHfp(e.target.checked)} />
             Add Human Footprint
@@ -690,10 +849,26 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       <details className="rounded-lg border border-sdm-border bg-sdm-surface">
         <summary className="cursor-pointer px-6 py-4 text-sm font-semibold text-sdm-heading">Advanced settings</summary>
         <div className="px-6 pb-6 space-y-4">
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={vifReduction} onChange={(e) => setVifReduction(e.target.checked)} />
-            Drop collinear covariates (VIF reduction)
-          </label>
+          <div className="flex items-center gap-2 text-sm text-sdm-text flex-wrap">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={vifReduction} onChange={(e) => setVifReduction(e.target.checked)} />
+              Drop collinear covariates (VIF reduction)
+            </label>
+            {vifReduction && (
+              <div className="flex items-center gap-2 ml-4">
+                <span className="text-xs text-sdm-muted">Threshold:</span>
+                <input
+                  type="range"
+                  min={2}
+                  max={20}
+                  step={1}
+                  defaultValue={10}
+                  className="w-24"
+                />
+                <span className="text-xs text-sdm-muted font-mono">10</span>
+              </div>
+            )}
+          </div>
           <label className="flex items-center gap-2 text-sm text-sdm-text">
             <input type="checkbox" checked={climateMatching} onChange={(e) => setClimateMatching(e.target.checked)} />
             Compute climate matching
@@ -720,6 +895,14 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Kernel distance (km)</label>
               <input type="number" value={thickeningDistanceKm} onChange={(e) => setThickeningDistanceKm(Number(e.target.value))} min={1} max={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+            </div>
+          )}
+
+          {biasMethod === "target_group" && (
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Target-group background file</label>
+              <input type="file" accept=".csv,.gpkg" className="w-full text-sm text-sdm-muted file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-sdm-accent/10 file:text-sdm-accent hover:file:bg-sdm-accent/20" />
+              <p className="text-xs text-sdm-muted mt-1">CSV with longitude/latitude columns or GeoPackage.</p>
             </div>
           )}
 
