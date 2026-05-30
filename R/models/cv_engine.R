@@ -81,6 +81,24 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
 
   run_single_core_cv <- function() run_folds()
 
+  run_folds <- function() {
+    results <- lapply(seq_len(k), fit_one_fold)
+    if (collect_predictions) {
+      metrics_list <- lapply(results, function(r) if (is.list(r) && !is.data.frame(r) && !is.null(r$metrics)) r$metrics else r)
+      pred_list <- lapply(seq_along(results), function(i) {
+        r <- results[[i]]
+        if (is.list(r) && !is.data.frame(r) && !is.null(r$predictions)) {
+          r$predictions$fold <- i
+          r$predictions
+        } else NULL
+      })
+      preds <- do.call(rbind, pred_list[!vapply(pred_list, is.null, logical(1))])
+      list(metrics = do.call(rbind, metrics_list), predictions = preds)
+    } else {
+      list(metrics = do.call(rbind, results))
+    }
+  }
+
   fold_results <- if (n_cores > 1 && k > 1) {
     cl <- parallel::makeCluster(n_cores)
     on.exit(parallel::stopCluster(cl), add = TRUE)
