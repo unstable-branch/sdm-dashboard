@@ -65,7 +65,7 @@ export const modelConfigSchema = z.object({
   chelsaExtras: z.array(z.string()).default([]),
   cleanedFilePath: z.string().min(1).optional(),
   multiEnsembleModels: z.array(z.string()).optional(),
-  multiEnsembleWeighting: z.enum(["auc", "tss", "mean", "median", "committee"]).default("auc").optional(),
+  multiEnsembleWeighting: z.enum(["equal", "auc", "tss"]).default("auc").optional(),
   multiEnsemblePower: z.number().min(0.5).max(10).default(2).optional(),
   multiEnsembleMinAuc: z.number().min(0.5).max(1).default(0.7).optional(),
   multiEnsembleMinTss: z.number().min(0).max(1).default(0.5).optional(),
