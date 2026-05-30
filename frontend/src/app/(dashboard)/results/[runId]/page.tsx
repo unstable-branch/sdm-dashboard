@@ -30,6 +30,20 @@ function extentToCoordinates(extent?: [number, number, number, number]): [[numbe
   return [[xmin, ymax], [xmax, ymax], [xmax, ymin], [xmin, ymin]];
 }
 
+async function downloadFile(filePath: string) {
+  try {
+    const res = await fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(filePath)}`);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filePath.split("/").pop() || "download";
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch { /* ignore */ }
+}
+
 async function fetchGeoJSON(url: string): Promise<FeatureCollection | null> {
   try {
     const res = await fetchWithAuth(url);
@@ -136,6 +150,8 @@ export default function ResultsPage() {
     );
   }
 
+  const outputFiles = run?.output_files ?? null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -216,29 +232,29 @@ export default function ResultsPage() {
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-sdm-heading">Run report</h3>
                   <div className="flex gap-3">
-                    {run.output_files?.odmap_report_csv && (
-                      <a
-                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.odmap_report_csv)}`}
-                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                    {outputFiles?.odmap_report_csv && (
+                      <button
+                        onClick={() => downloadFile(outputFiles!.odmap_report_csv)}
+                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP CSV
-                      </a>
+                      </button>
                     )}
-                    {run.output_files?.odmap_report_md && (
-                      <a
-                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.odmap_report_md)}`}
-                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                    {outputFiles?.odmap_report_md && (
+                      <button
+                        onClick={() => downloadFile(outputFiles!.odmap_report_md)}
+                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP Markdown
-                      </a>
+                      </button>
                     )}
-                    {run.output_files?.report && (
-                      <a
-                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.report)}`}
-                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                    {outputFiles?.report && (
+                      <button
+                        onClick={() => downloadFile(outputFiles!.report)}
+                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> Download report
-                      </a>
+                      </button>
                     )}
                     <a
                       href={`/api/v1/results/${run.id}/script`}
