@@ -754,6 +754,8 @@ run_fast_sdm <- function(...) {
     presence_records = nrow(fit$occurrence_used), background_points = nrow(fit$background_xy),
     auc_mean = fit$cv$auc_mean, auc_sd = fit$cv$auc_sd, cv_folds = fit$cv$k,
     n_cores = n_cores, elapsed_seconds = elapsed,
+    cbi = fit$metrics$cbi %||% NA_real_,
+    cv_cbi = fit$metrics$cv_cbi %||% NA_real_,
     projection = projection_metrics
   )
 
