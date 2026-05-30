@@ -56,32 +56,18 @@ const DARK_STYLE = {
   ],
 };
 
-const DEFAULT_VIEW: Partial<ViewState> = {
-  longitude: 133,
-  latitude: -27,
-  zoom: 4,
-};
-
-const DEFAULT_COORDS: [[number, number], [number, number], [number, number], [number, number]] = [
-  [112, -10],
-  [154, -10],
-  [154, -44],
-  [112, -44],
-];
-
 interface MaplibreMapProps {
   pngUrl: string;
   theme: string | undefined;
   initialViewState?: Partial<ViewState>;
-  coordinates?: [[number, number], [number, number], [number, number], [number, number]];
+  coordinates: [[number, number], [number, number], [number, number], [number, number]];
   eooGeoJSON?: FeatureCollection | null;
   aooGeoJSON?: FeatureCollection | null;
 }
 
 export default function MaplibreMap({ pngUrl, theme, initialViewState, coordinates, eooGeoJSON, aooGeoJSON }: MaplibreMapProps) {
   const mapStyle = theme === "dark" ? DARK_STYLE : LIGHT_STYLE;
-  const viewState = initialViewState ?? DEFAULT_VIEW;
-  const coords = coordinates ?? DEFAULT_COORDS;
+  const coords = coordinates;
 
   const densifiedEoo = useMemo(() => {
     if (!eooGeoJSON) return null;
@@ -101,7 +87,7 @@ export default function MaplibreMap({ pngUrl, theme, initialViewState, coordinat
   return (
     <Map
       key={coords[0][0].toFixed(1) + coords[0][1].toFixed(1)}
-      initialViewState={viewState}
+      initialViewState={initialViewState}
       style={{ width: "100%", height: "100%" }}
       mapStyle={mapStyle}
       maxZoom={18}
@@ -132,6 +118,35 @@ export default function MaplibreMap({ pngUrl, theme, initialViewState, coordinat
           />
         </Source>
       )}
+
+      <Source
+        id="extent-boundary"
+        type="geojson"
+        data={{
+          type: "FeatureCollection",
+          features: [{
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "Polygon",
+              coordinates: [[
+                coords[0], coords[1], coords[2], coords[3], coords[0],
+              ]],
+            },
+          }],
+        }}
+      >
+        <Layer
+          id="extent-boundary-outline"
+          type="line"
+          paint={{
+            "line-color": theme === "dark" ? "#60a5fa" : "#2563eb",
+            "line-width": 1.5,
+            "line-opacity": 0.5,
+            "line-dasharray": [6, 3],
+          }}
+        />
+      </Source>
 
       {densifiedEoo && (
         <Source id="eoo-polygon" type="geojson" data={{

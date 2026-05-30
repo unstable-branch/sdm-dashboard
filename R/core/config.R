@@ -251,7 +251,7 @@ sdm_auto_extent <- function(occ_df, buffer_deg = 2) {
   ymax <- min(90, max(lat, na.rm = TRUE) + buffer_deg)
   extent <- c(xmin, xmax, ymin, ymax)
   if (exists("validate_extent", mode = "function")) {
-    tryCatch(validate_extent(extent, "auto_extent"), error = function(e) NULL)
+    validate_extent(extent, "auto_extent")
   }
   extent
 }

@@ -99,6 +99,7 @@ services:
     ports:
       - "4000:4000"
     environment:
+      - SDM_PROJECT_ROOT=/app
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET:-1cfe8b19ba5bc7a3c78186acda6c7df23f7a14ac8c251b6ecdca2159b1561bb9}
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:-sdm_password}@postgres:5432/sdm_platform

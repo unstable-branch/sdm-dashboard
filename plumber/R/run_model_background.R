@@ -58,8 +58,14 @@ config <- meta$config %||% list()
 # Parse biovars and projection_extent from config (stored as strings by the handler)
 biovars <- as.integer(unlist(strsplit(as.character(config$biovars %||% "1,4,6,12,15,18"), ",")))
 projection_extent <- as.numeric(unlist(strsplit(as.character(config$projection_extent %||% "112,154,-44,-10"), ",")))
-if (length(projection_extent) != 4L) {
-  stop("projection_extent must have 4 values: xmin, xmax, ymin, ymax")
+if (length(projection_extent) != 4L || any(!is.finite(projection_extent))) {
+  stop("projection_extent must have 4 numeric values: xmin, xmax, ymin, ymax")
+}
+if (projection_extent[1] >= projection_extent[2] || projection_extent[3] >= projection_extent[4]) {
+  stop("projection_extent has invalid ordering: xmin must be < xmax, ymin must be < ymax")
+}
+if (projection_extent[1] < -180 || projection_extent[2] > 180 || projection_extent[3] < -90 || projection_extent[4] > 90) {
+  stop("projection_extent is outside valid coordinate bounds (±180, ±90)")
 }
 
 tryCatch({

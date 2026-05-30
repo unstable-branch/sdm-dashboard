@@ -134,7 +134,9 @@ compute_extent_from_file <- function(file_path) {
     {
       sf_obj <- sf::st_read(file_path, quiet = TRUE, geometry_column = sf::st_geometry_column_names(file_path)[1])
       bb <- sf::st_bbox(sf_obj)
-      c(as.numeric(bb["xmin"]), as.numeric(bb["xmax"]), as.numeric(bb["ymin"]), as.numeric(bb["ymax"]))
+      ext <- c(as.numeric(bb["xmin"]), as.numeric(bb["xmax"]), as.numeric(bb["ymin"]), as.numeric(bb["ymax"]))
+      if (!validate_boundary_extent(ext)) return(NULL)
+      ext
     },
     error = function(e) NULL
   )
