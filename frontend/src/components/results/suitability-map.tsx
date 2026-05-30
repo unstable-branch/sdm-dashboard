@@ -4,11 +4,14 @@ import dynamic from "next/dynamic";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import type { ViewState } from "react-map-gl/maplibre";
+import type { FeatureCollection } from "geojson";
 
 interface SuitabilityMapProps {
   outputFiles: Record<string, string> | null;
   initialViewState?: Partial<ViewState>;
   coordinates?: [[number, number], [number, number], [number, number], [number, number]];
+  eooGeoJSON?: FeatureCollection | null;
+  aooGeoJSON?: FeatureCollection | null;
 }
 
 function MapPlaceholder() {
@@ -24,7 +27,7 @@ const DynamicMap = dynamic(() => import("./maplibre-map"), {
   loading: () => <MapPlaceholder />,
 });
 
-export function SuitabilityMap({ outputFiles, initialViewState, coordinates }: SuitabilityMapProps) {
+export function SuitabilityMap({ outputFiles, initialViewState, coordinates, eooGeoJSON, aooGeoJSON }: SuitabilityMapProps) {
   const { theme } = useTheme();
   const [pngUrl, setPngUrl] = useState<string | null>(null);
 
@@ -45,7 +48,7 @@ export function SuitabilityMap({ outputFiles, initialViewState, coordinates }: S
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
       <div className="relative h-[60vh]">
-        <DynamicMap pngUrl={pngUrl} theme={theme} initialViewState={initialViewState} coordinates={coordinates} />
+        <DynamicMap pngUrl={pngUrl} theme={theme} initialViewState={initialViewState} coordinates={coordinates} eooGeoJSON={eooGeoJSON} aooGeoJSON={aooGeoJSON} />
       </div>
       <div className="px-4 py-2 border-t border-sdm-border flex items-center justify-between text-xs text-sdm-muted">
         <span>Suitability raster</span>

@@ -12,6 +12,7 @@ import { ArrowLeft, Loader2, Download } from "lucide-react";
 import { apiGet, fetchWithAuth } from "@/services/api";
 import type { RunDetail } from "@/services/types";
 import type { ViewState } from "react-map-gl/maplibre";
+import type { FeatureCollection } from "geojson";
 
 function extentToViewState(extent?: [number, number, number, number]): Partial<ViewState> | undefined {
   if (!extent || extent.length < 4) return undefined;
@@ -29,6 +30,16 @@ function extentToCoordinates(extent?: [number, number, number, number]): [[numbe
   return [[xmin, ymax], [xmax, ymax], [xmax, ymin], [xmin, ymin]];
 }
 
+async function fetchGeoJSON(url: string): Promise<FeatureCollection | null> {
+  try {
+    const res = await fetchWithAuth(url);
+    if (!res.ok) return null;
+    return await res.json() as FeatureCollection;
+  } catch {
+    return null;
+  }
+}
+
 export default function ResultsPage() {
   const params = useParams();
   const router = useRouter();
@@ -40,6 +51,8 @@ export default function ResultsPage() {
   const [reportText, setReportText] = useState<string | null>(null);
   const [odmapMd, setOdmapMd] = useState<string | null>(null);
   const [odmapCsv, setOdmapCsv] = useState<string | null>(null);
+  const [eooGeoJSON, setEooGeoJSON] = useState<FeatureCollection | null>(null);
+  const [aooGeoJSON, setAooGeoJSON] = useState<FeatureCollection | null>(null);
 
   useEffect(() => {
     if (!runId) return;
@@ -71,6 +84,16 @@ export default function ResultsPage() {
                 .then((res) => res.ok ? res.text() : null)
                 .then((text) => { if (!cancelled) setOdmapCsv(text); })
                 .catch(() => {});
+            }
+            const eooPath = data.output_files?.eoo_polygon;
+            const aooPath = data.output_files?.aoo_grid;
+            if (eooPath) {
+              fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(eooPath)}`)
+                .then((geo) => { if (!cancelled) setEooGeoJSON(geo); });
+            }
+            if (aooPath) {
+              fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(aooPath)}`)
+                .then((geo) => { if (!cancelled) setAooGeoJSON(geo); });
             }
           }
           if (data.status === "running") {
@@ -175,6 +198,8 @@ export default function ResultsPage() {
                 outputFiles={run.output_files}
                 initialViewState={extentToViewState((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
                 coordinates={extentToCoordinates((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
+                eooGeoJSON={eooGeoJSON}
+                aooGeoJSON={aooGeoJSON}
               />
             </TabsContent>
 
