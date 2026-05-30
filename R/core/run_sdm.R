@@ -77,6 +77,7 @@ run_fast_sdm <- function(...) {
   multi_ensemble_min_auc <- cfg$multi_ensemble_min_auc
   multi_ensemble_min_tss <- cfg$multi_ensemble_min_tss
   multi_ensemble_export <- cfg$multi_ensemble_export
+  multi_ensemble_uncertainty <- cfg$multi_ensemble_uncertainty
   biomod2_models <- cfg$biomod2_models
   esm_n_runs <- cfg$esm_n_runs
   esm_split <- cfg$esm_split
@@ -492,7 +493,7 @@ run_fast_sdm <- function(...) {
     if (identical(model_id, "multi_ensemble")) {
       predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
         export_components = isTRUE(multi_ensemble_export),
-        include_uncertainty = isTRUE(multi_ensemble_export),
+        include_uncertainty = isTRUE(multi_ensemble_uncertainty),
         ensemble_weighting = multi_ensemble_weighting,
         ensemble_power = multi_ensemble_power,
         user_threshold = threshold
@@ -632,9 +633,13 @@ run_fast_sdm <- function(...) {
       disagreement_tif = ensemble_component_path(output_tif, "disagreement")
     )
   } else if (identical(model_id, "multi_ensemble")) {
-    comp_paths <- fit$model$components
-    for (m in names(comp_paths)) {
-      extra_paths[[paste0("multi_ens_comp_", m)]] <- multi_ensemble_component_path(output_tif, m)
+    if (isTRUE(multi_ensemble_export)) {
+      comp_paths <- attr(suit, "component_paths")
+      if (!is.null(comp_paths)) {
+        for (m in names(comp_paths)) {
+          extra_paths[[paste0("multi_ens_comp_", m)]] <- comp_paths[[m]]
+        }
+      }
     }
     extra_paths$multi_ens_mean_tif <- attr(suit, "ensemble_mean_tif")
     extra_paths$multi_ens_median_tif <- attr(suit, "ensemble_median_tif")
