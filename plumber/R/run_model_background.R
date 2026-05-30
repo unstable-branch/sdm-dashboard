@@ -161,7 +161,8 @@ tryCatch({
     future_label2 = config$future_label2 %||% "Future climate 2",
     use_cc = isTRUE(config$use_cc),
     cc_tests = config$cc_tests %||% "all",
-    analysis_crs = config$analysis_crs %||% sdm_default_analysis_crs
+    analysis_crs = config$analysis_crs %||% sdm_default_analysis_crs,
+    generate_tiles = isTRUE(config$generate_tiles %||% TRUE)
   )
 
   result <- run_fast_sdm(cfg)

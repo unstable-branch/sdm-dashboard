@@ -18,7 +18,7 @@ interface FetchOptions extends RequestInit {
   timeout?: number;
 }
 
-function getToken(): string | null {
+export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   const localToken = localStorage.getItem("sdm_token");
   if (localToken) {

@@ -51,4 +51,18 @@ describe("MetricCards", () => {
     render(<MetricCards metrics={{ auc_mean: null, tss_mean: null }} />);
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
   });
+
+  it("handles string metric values from API", () => {
+    render(<MetricCards metrics={{
+      auc_mean: "0.946",
+      auc_sd: "0.003",
+      tss_mean: "0.850",
+      tss_sd: "0.012",
+      presence_records: "2853",
+      elapsed_seconds: "19",
+    }} />);
+    expect(screen.getByText("0.946")).toBeInTheDocument();
+    expect(screen.getByText("0.003")).toBeInTheDocument();
+    expect(screen.getByText("19s")).toBeInTheDocument();
+  });
 });

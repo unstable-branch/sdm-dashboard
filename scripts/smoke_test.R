@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # Lightweight source/API smoke test with tagged filtering.
-# Usage: Rscript scripts/smoke_test.R [--tags=fast,heavy,ensemble,esm,batch,ecology,covariates,reporting,ml,all]
+# Usage: Rscript scripts/smoke_test.R [--tags=fast,heavy,ensemble,esm,batch,ecology,covariates,reporting,ml,maps,core,all]
 
 cmd_args <- commandArgs(FALSE)
 file_arg <- grep("^--file=", cmd_args, value = TRUE)
@@ -1790,6 +1790,49 @@ test_future_projection_helpers_smoke <- function() {
 }
 
 # ============================================================================
+# XYZ TILE GENERATION TESTS
+# ============================================================================
+
+test_xyz_tiles_smoke <- function() {
+  cat("[xyz_tiles smoke] starting...\n")
+  skip_if_not_installed("terra")
+
+  r <- terra::rast(ncols = 40, nrows = 40,
+    xmin = 140, xmax = 142, ymin = -24, ymax = -22, crs = "EPSG:4326")
+  terra::values(r) <- runif(terra::ncell(r), 0, 1)
+  tmp <- tempfile()
+
+  result <- generate_xyz_tiles(r, tmp,
+    palette = c("#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
+                "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"),
+    value_range = c(0, 1), band_names = "suitability",
+    verbose = TRUE)
+
+  assert_that(result$bands[["suitability"]]$tile_count > 0,
+    "Expected at least one tile")
+  assert_that(dir.exists(file.path(tmp, "suitability")),
+    "Expected suitability tile directory")
+
+  tile_files <- list.files(file.path(tmp, "suitability"),
+    recursive = TRUE, pattern = "\\.png$")
+  assert_that(length(tile_files) > 0,
+    "Expected tile PNG files")
+
+  first_tile <- file.path(tmp, "suitability", tile_files[1])
+  header <- readBin(first_tile, "raw", n = 8)
+  assert_that(
+    identical(header[1:4], as.raw(c(0x89, 0x50, 0x4E, 0x47))),
+    "First tile must be a valid PNG")
+
+  cat("[xyz_tiles smoke] ", result$bands[["suitability"]]$tile_count,
+    " tiles (zoom ", result$bands[["suitability"]]$zoom_min, "-",
+    result$bands[["suitability"]]$zoom_max, ") generated in ",
+    round(result$generation_time, 2), "s\n", sep = "")
+
+  unlink(tmp, recursive = TRUE)
+}
+
+# ============================================================================
 # CORE UTILITY TESTS (pure functions, no I/O, no network)
 # ============================================================================
 
@@ -2108,6 +2151,9 @@ if (has_tag("reporting")) {
   test_compute_mess_smoke()
   test_compute_mod_smoke()
   test_future_projection_helpers_smoke()
+}
+if (has_tag("maps")) {
+  test_xyz_tiles_smoke()
 }
 if (has_tag("core")) {
   test_cv_folds_smoke()

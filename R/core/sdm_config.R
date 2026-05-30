@@ -86,7 +86,8 @@ sdm_config <- function(...) {
     validation_occurrences = sdm_default_validation_occurrences,
     pa_replicates = 1,
     climate_matching = FALSE,
-    climate_matching_method = "mahalanobis"
+    climate_matching_method = "mahalanobis",
+    generate_tiles = sdm_default_generate_tiles
   )
 
   for (nm in names(defaults)) {

@@ -6,6 +6,7 @@ import type { ViewState } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { densifyGeoJSONFeature } from "@/lib/geodesic";
 import type { FeatureCollection } from "geojson";
+import { getToken } from "@/services/api";
 
 const CARTO_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
@@ -57,15 +58,17 @@ const DARK_STYLE = {
 };
 
 interface MaplibreMapProps {
-  pngUrl: string;
+  runId: string;
   theme: string | undefined;
   initialViewState?: Partial<ViewState>;
-  coordinates: [[number, number], [number, number], [number, number], [number, number]];
+  coordinates?: [[number, number], [number, number], [number, number], [number, number]];
+  tileZoomMin?: number;
+  tileZoomMax?: number;
   eooGeoJSON?: FeatureCollection | null;
   aooGeoJSON?: FeatureCollection | null;
 }
 
-export default function MaplibreMap({ pngUrl, theme, initialViewState, coordinates, eooGeoJSON, aooGeoJSON }: MaplibreMapProps) {
+export default function MaplibreMap({ runId, theme, initialViewState, coordinates, tileZoomMin, tileZoomMax, eooGeoJSON, aooGeoJSON }: MaplibreMapProps) {
   const mapStyle = theme === "dark" ? DARK_STYLE : LIGHT_STYLE;
   const coords = coordinates;
 
@@ -86,17 +89,26 @@ export default function MaplibreMap({ pngUrl, theme, initialViewState, coordinat
 
   return (
     <Map
-      key={coords[0][0].toFixed(1) + coords[0][1].toFixed(1)}
+      key={coords ? coords[0][0].toFixed(1) + coords[0][1].toFixed(1) : runId}
       initialViewState={initialViewState}
       style={{ width: "100%", height: "100%" }}
       mapStyle={mapStyle}
       maxZoom={18}
+      transformRequest={(url: string, resourceType?: string) => {
+        if (resourceType === "Tile" && url.includes("/api/v1/results/tiles/")) {
+          const token = typeof window !== "undefined" ? getToken() : null;
+          return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+        }
+        return { url };
+      }}
     >
       <Source
         id="suitability"
-        type="image"
-        url={pngUrl}
-        coordinates={coords}
+        type="raster"
+        tiles={[`/api/v1/results/tiles/${runId}/{z}/{x}/{y}`]}
+        tileSize={256}
+        minzoom={tileZoomMin ?? 4}
+        maxzoom={tileZoomMax ?? 8}
       >
         <Layer
           id="suitability-overlay"
@@ -119,34 +131,36 @@ export default function MaplibreMap({ pngUrl, theme, initialViewState, coordinat
         </Source>
       )}
 
-      <Source
-        id="extent-boundary"
-        type="geojson"
-        data={{
-          type: "FeatureCollection",
-          features: [{
-            type: "Feature",
-            properties: {},
-            geometry: {
-              type: "Polygon",
-              coordinates: [[
-                coords[0], coords[1], coords[2], coords[3], coords[0],
-              ]],
-            },
-          }],
-        }}
-      >
-        <Layer
-          id="extent-boundary-outline"
-          type="line"
-          paint={{
-            "line-color": theme === "dark" ? "#60a5fa" : "#2563eb",
-            "line-width": 1.5,
-            "line-opacity": 0.5,
-            "line-dasharray": [6, 3],
+      {coords && (
+        <Source
+          id="extent-boundary"
+          type="geojson"
+          data={{
+            type: "FeatureCollection",
+            features: [{
+              type: "Feature",
+              properties: {},
+              geometry: {
+                type: "Polygon",
+                coordinates: [[
+                  coords[0], coords[1], coords[2], coords[3], coords[0],
+                ]],
+              },
+            }],
           }}
-        />
-      </Source>
+        >
+          <Layer
+            id="extent-boundary-outline"
+            type="line"
+            paint={{
+              "line-color": theme === "dark" ? "#60a5fa" : "#2563eb",
+              "line-width": 1.5,
+              "line-opacity": 0.5,
+              "line-dasharray": [6, 3],
+            }}
+          />
+        </Source>
+      )}
 
       {densifiedEoo && (
         <Source id="eoo-polygon" type="geojson" data={{
