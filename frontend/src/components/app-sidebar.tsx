@@ -23,12 +23,17 @@ import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { pipelineItems, systemItems, adminItems } from "@/components/dashboard-nav";
 import { useAuthStore } from "@/stores/auth-store";
+import { useJobSSE } from "@/hooks/use-job-sse";
 
 export function AppSidebar() {
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
   const { user } = useAuthStore();
   const isAdmin = user?.role === "admin";
+  const { jobs } = useJobSSE(true);
+  const hasActiveJobs = Array.from(jobs.values()).some(
+    (j) => j.state === "active" || j.state === "waiting"
+  );
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -54,6 +59,9 @@ export function AppSidebar() {
                     <Link href={item.href}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
+                      {item.href === "/model" && hasActiveJobs && (
+                        <span className="ml-auto h-2 w-2 rounded-full bg-green-500 animate-pulse" title="Job active" />
+                      )}
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
