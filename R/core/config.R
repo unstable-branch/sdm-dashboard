@@ -85,6 +85,7 @@ sdm_esm_max_vars_warn <- 10L
 
 sdm_default_validation_occurrences <- NULL
 sdm_default_pa_replicates <- 1L
+sdm_default_generate_tiles <- TRUE
 
 config$biomod2_default <- c("GLM", "RF", "GBM", "MAXNET")
 config$biomod2_all <- c(

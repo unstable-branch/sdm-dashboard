@@ -518,6 +518,7 @@ run_fast_sdm <- function(...) {
       terra::ext(projection_extent[1], projection_extent[2], projection_extent[3], projection_extent[4]),
       filename = tmp_cropped, overwrite = TRUE)
     file.rename(tmp_cropped, output_tif)
+    suit <- terra::rast(output_tif)
     log_message(log_fun, "  Clipped suitability raster to projection extent")
   }
 
@@ -558,6 +559,35 @@ run_fast_sdm <- function(...) {
     }
   }
   progress_step(progress_fun, 0.90, "Writing output raster")
+
+  # --- XYZ tile generation (optional, non-fatal) ---
+  if (isTRUE(cfg$generate_tiles %||% TRUE)) {
+    output_tiles_dir <- file.path(output_dir, "map_tiles")
+    tile_result <- tryCatch({
+      tr <- generate_xyz_tiles(
+        input       = suit,
+        output_dir  = output_tiles_dir,
+        palette     = c("#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
+                        "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"),
+        value_range = c(0, 1),
+        band_names  = "suitability",
+        verbose     = FALSE,
+        log         = function(msg) log_message(log_fun, "  ", msg)
+      )
+      log_message(log_fun, "  XYZ tiles: ", tr$bands[["suitability"]]$tile_count,
+                  " tiles (zoom ", tr$bands[["suitability"]]$zoom_min, "-",
+                  tr$bands[["suitability"]]$zoom_max, ") in ",
+                  round(tr$generation_time, 1), "s")
+      extra_paths[["tiles_dir"]] <- output_tiles_dir
+      extra_paths[["tile_zoom_min"]] <- as.character(tr$bands[["suitability"]]$zoom_min)
+      extra_paths[["tile_zoom_max"]] <- as.character(tr$bands[["suitability"]]$zoom_max)
+      tr
+    }, error = function(e) {
+      log_message(log_fun, "  Tile generation skipped: ", conditionMessage(e))
+      NULL
+    })
+  }
+
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
