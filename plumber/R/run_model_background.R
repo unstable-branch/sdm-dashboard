@@ -150,13 +150,24 @@ tryCatch({
     esm_weighting_metric = config$esm_weighting_metric %||% "AUC",
     esm_power = as.numeric(config$esm_power %||% sdm_esm_default_power),
     esm_biovars = config$esm_biovars,
+    selected_chelsa_extras = config$chelsa_extras %||% NULL,
     future_worldclim_dir2 = config$future_worldclim_dir2,
     future_label2 = config$future_label2 %||% "Future climate 2",
     use_cc = isTRUE(config$use_cc),
-    cc_tests = config$cc_tests %||% "all"
+    cc_tests = config$cc_tests %||% "all",
+    analysis_crs = config$analysis_crs %||% sdm_default_analysis_crs
   )
 
   result <- run_fast_sdm(cfg)
+
+  # Save full result object for diagnostic/ecology API endpoints
+  result_rds_path <- file.path(job_dir, "result.rds")
+  tryCatch({
+    saveRDS(result, result_rds_path)
+    log_fun("Saved result RDS to: ", result_rds_path)
+  }, error = function(e) {
+    log_fun("Failed to save result RDS: ", conditionMessage(e))
+  })
 
   # Generate diagnostic PNG plots
   diag_files <- list()
@@ -190,12 +201,38 @@ tryCatch({
       auc_sd = result$cv$auc_sd,
       tss_mean = result$cv$tss_mean,
       tss_sd = result$cv$tss_sd,
+      sensitivity_mean = result$cv$sensitivity_mean,
+      specificity_mean = result$cv$specificity_mean,
+      cbi = result$metrics$cbi,
+      threshold = result$config$threshold %||% sdm_default_threshold,
       presence_records = result$metrics$presence_records,
       background_points = result$metrics$background_points,
       elapsed_seconds = result$metrics$elapsed_seconds,
       high_suitability_area_km2 = result$summary$high_risk_area_km2
     )
-    meta$output_files <- c(result$paths, diag_files)
+    meta$output_files <- c(result$paths, diag_files, list(result_rds = result_rds_path %||% NA_character_))
+
+    # Write EOO/AOO JSON for the ecology API
+    if (!is.null(result$eoo_aoo)) {
+      eoo_aoo_path <- file.path(job_dir, "eoo_aoo.json")
+      tryCatch({
+        eoo_list <- list(
+          eoo_km2 = result$eoo_aoo$eoo_km2 %||% NA_real_,
+          aoo_km2 = result$eoo_aoo$aoo_km2 %||% NA_real_,
+          aoo_cells = result$eoo_aoo$aoo_cells %||% NA_integer_,
+          aoo_cell_size_km = result$eoo_aoo$aoo_cell_size_km %||% 2,
+          iucn_category = result$eoo_aoo$iucn_category %||% "Not evaluated",
+          n_unique_points = result$eoo_aoo$n_unique_points %||% 0L
+        )
+        writeLines(
+          jsonlite::toJSON(eoo_list, null = "null", auto_unbox = TRUE, pretty = TRUE),
+          eoo_aoo_path
+        )
+        log_fun("Wrote EOO/AOO JSON: ", eoo_aoo_path)
+      }, error = function(e) {
+        log_fun("Failed to write EOO/AOO JSON: ", conditionMessage(e))
+      })
+    }
   }
   write_meta(meta)
   gc(verbose = FALSE)

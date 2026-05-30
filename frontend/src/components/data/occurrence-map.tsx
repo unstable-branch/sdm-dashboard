@@ -6,6 +6,7 @@ import { Map, Source, Layer, Popup } from "react-map-gl/maplibre";
 import type { MapRef } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { FeatureCollection, Feature, Point } from "geojson";
+import { geodesicBounds } from "@/lib/geodesic";
 
 interface OccurrencePoint {
   longitude: number;
@@ -121,16 +122,7 @@ export const OccurrenceMap = React.memo(function OccurrenceMap({
     if (!mapRef.current || points.length === 0) return;
     const map = mapRef.current;
     const coords = points.map((p) => [p.longitude, p.latitude] as [number, number]);
-    const bounds = coords.reduce<[[number, number], [number, number]]>(
-      (acc, coord) => [
-        [Math.min(acc[0][0], coord[0]), Math.min(acc[0][1], coord[1])],
-        [Math.max(acc[1][0], coord[0]), Math.max(acc[1][1], coord[1])],
-      ],
-      [
-        [Infinity, Infinity],
-        [-Infinity, -Infinity],
-      ]
-    );
+    const bounds = geodesicBounds(coords, 5);
     map.fitBounds(bounds, { padding: 30, maxZoom: 12 });
   }, [points]);
 

@@ -120,10 +120,18 @@ cmip6_load_future_covariates <- function(cmip6_dir, selected_biovars, training_e
 
   log_message(log_fun, "Loading ", length(files), " CMIP6 future climate layers from ", cmip6_dir)
 
+  # Determine CRS from first layer (future CMIP6 data should be WGS84)
+  first_file <- files[!is.na(files) & file.exists(files)]
+  target_crs <- if (length(first_file) > 0) terra::crs(terra::rast(first_file[1])) else "EPSG:4326"
+
   layers <- list()
   for (bio_var in names(files)) {
     if (!is.na(files[bio_var]) && file.exists(files[bio_var])) {
       r <- terra::rast(files[bio_var])
+      if (!terra::same.crs(r, target_crs)) {
+        log_message(log_fun, "  Reprojected ", bio_var, " to match first layer CRS")
+        r <- terra::project(r, target_crs)
+      }
       r <- terra::crop(r, projection_extent)
       if (aggregation_factor > 1) {
         r <- terra::aggregate(r, fact = aggregation_factor)

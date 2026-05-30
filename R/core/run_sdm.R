@@ -65,6 +65,7 @@ run_fast_sdm <- function(...) {
   cleaned_occurrence <- cfg$cleaned_occurrence
   output_dir <- cfg$output_dir
   seed <- cfg$seed
+  analysis_crs <- cfg$analysis_crs %||% sdm_default_analysis_crs
   occurrence_source <- cfg$occurrence_source
   gbif_doi <- cfg$gbif_doi
   log_fun <- cfg$log_fun
@@ -155,6 +156,11 @@ run_fast_sdm <- function(...) {
   gc(verbose = FALSE)
   if (is.null(training_extent)) training_extent <- make_training_extent(occ, buffer = 2)
   log_message(log_fun, "Training extent: ", paste(training_extent, collapse = ", "))
+  if (is.null(projection_extent)) {
+    auto <- sdm_auto_extent(occ, buffer_deg = 2)
+    projection_extent <- auto
+    log_message(log_fun, "  Auto-detected projection extent from occurrence data: ", paste(projection_extent, collapse = ", "))
+  }
   log_message(log_fun, "Projection extent: ", paste(projection_extent, collapse = ", "))
 
   progress_step(progress_fun, 0.20, "Loading and scaling environmental covariates")
@@ -407,6 +413,21 @@ run_fast_sdm <- function(...) {
     )
   }
 
+  # MESS (Multivariate Environmental Similarity Surface) for current predictions
+  mess_result <- NULL
+  if (!is.null(env$env_train) && !is.null(env$env_project)) {
+    mess_result <- tryCatch(
+      compute_mess(env$env_train, env$env_project),
+      error = function(e) {
+        log_message(log_fun, "MESS computation failed: ", conditionMessage(e))
+        NULL
+      }
+    )
+  }
+  if (!is.null(mess_result)) {
+    log_message(log_fun, "  MESS: ", sprintf("%.1f%%", mess_result$pct_extrapolation * 100), " of projection area outside training range")
+  }
+
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
@@ -489,6 +510,16 @@ run_fast_sdm <- function(...) {
     log_message(log_fun, "Traceback: ", paste(utils::tail(traceback(), 5), collapse = " <- "))
     stop("Prediction failed: ", conditionMessage(e), call. = FALSE)
   })
+
+  # Ensure suitability raster is clipped to projection extent
+  if (!is.null(projection_extent) && inherits(suit, "SpatRaster")) {
+    tmp_cropped <- tempfile(fileext = ".tif")
+    suit <- terra::crop(suit,
+      terra::ext(projection_extent[1], projection_extent[2], projection_extent[3], projection_extent[4]),
+      filename = tmp_cropped, overwrite = TRUE)
+    file.rename(tmp_cropped, output_tif)
+    log_message(log_fun, "  Clipped suitability raster to projection extent")
+  }
 
   # Ensemble variable importance (multi-model) — must come after suit is assigned
   if (identical(model_id, "multi_ensemble") && !is.null(attr(suit, "ensemble_importance"))) {
@@ -658,12 +689,27 @@ run_fast_sdm <- function(...) {
   eoo_aoo_result <- NULL
   if (!is.null(fit$occurrence_used)) {
     eoo_aoo_result <- tryCatch(
-      compute_eoo_aoo(fit$occurrence_used, aoo_cell_size_km = 2, log_fun = log_fun),
+      compute_eoo_aoo(fit$occurrence_used, aoo_cell_size_km = 2, analysis_crs = analysis_crs, output_dir = output_dir, log_fun = log_fun),
       error = function(e) {
         log_message(log_fun, "EOO/AOO calculation failed: ", conditionMessage(e))
         NULL
       }
     )
+  }
+  if (!is.null(eoo_aoo_result)) {
+    if (!is.null(eoo_aoo_result$eoo_polygon_geojson)) extra_paths$eoo_polygon <- eoo_aoo_result$eoo_polygon_geojson
+    if (!is.null(eoo_aoo_result$aoo_grid_geojson)) extra_paths$aoo_grid <- eoo_aoo_result$aoo_grid_geojson
+  }
+
+  # Save MESS raster for current predictions
+  if (!is.null(mess_result)) {
+    mess_tif <- file.path(output_dir, paste0(base_name, "_mess.tif"))
+    tryCatch({
+      terra::writeRaster(mess_result$mess, mess_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      extra_paths[["mess_tif"]] <- mess_tif
+    }, error = function(e) {
+      log_message(log_fun, "  Failed to write MESS raster: ", conditionMessage(e))
+    })
   }
 
   projection_metrics <- NULL
@@ -694,6 +740,7 @@ run_fast_sdm <- function(...) {
         threshold = threshold,
         n_bg_samples = 1000L,
         validation_occ = validation_occ_df,
+        seed = seed,
         log_fun = log_fun
       )
     }
@@ -750,10 +797,12 @@ run_fast_sdm <- function(...) {
       diagnostics = model_spec$diagnostics
     ),
     model = fit$model, formula = fit$formula, coefficients = fit$coefficients, cv = fit$cv,
+    presence_suit = fit$presence_suit, background_suit = fit$background_suit,
     variable_importance = importance_result,
     response_curves = response_curves,
     suitability = suit, future = future, future2 = future2, climate_match = climate_match_result,
     eoo_aoo = eoo_aoo_result,
+    mess = mess_result,
     aoa = aoa_result,
     summary = suitability_summary, metrics = metrics,
     paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)
@@ -853,7 +902,7 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   # EOO/AOO
   if (!is.null(fit$occurrence_used)) {
     result$eoo_aoo <- tryCatch(
-      compute_eoo_aoo(fit$occurrence_used, aoo_cell_size_km = 2, log_fun = log_fun),
+      compute_eoo_aoo(fit$occurrence_used, aoo_cell_size_km = 2, analysis_crs = cfg$analysis_crs %||% sdm_default_analysis_crs, output_dir = cfg$output_dir %||% NULL, log_fun = log_fun),
       error = function(e) {
         log_message(log_fun, "  EOO/AOO computation failed: ", conditionMessage(e))
         NULL
