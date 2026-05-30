@@ -313,22 +313,23 @@ mod_get_data_server <- function(id, rv, input) {
     observeEvent(input$gd_download_worldclim, {
       source <- input$gd_climate_source %||% "worldclim"
       res <- as.numeric(input$gd_worldclim_res %||% 10)
-      gd_start_download(
-        label = "WorldClim",
-        download_fun = function() {
-          source(sdm_resolve_module("covariates_climate.R"))
-          load_climate_covariates(
-            worldclim_dir = sdm_default_worldclim_dir, selected_biovars = 1:19,
-            training_extent = NULL, projection_extent = NULL, aggregation_factor = 1,
-            allow_download = TRUE, worldclim_res = res, source = source,
-            selected_chelsa_extras = NULL, log_fun = function(...) cat(paste(...), "\n")
-          )
-          cat("WorldClim download complete.\n")
-        },
-        verify_fun = function() verify_worldclim_cache(sdm_default_worldclim_dir, source = source),
-        timeout_sec = 300, estimated_sec = 120,
-        notification_msg = paste0("WorldClim downloaded to ", file.path(sdm_project_root(), sdm_default_worldclim_dir))
-      )
+        gd_start_download(
+          label = "WorldClim",
+          download_fun = function() {
+            source(sdm_resolve_module("covariates_climate.R"))
+            load_climate_covariates(
+              worldclim_dir = sdm_default_worldclim_dir, selected_biovars = 1:19,
+              training_extent = NULL, projection_extent = NULL, aggregation_factor = 1,
+              allow_download = TRUE, worldclim_res = res, source = source,
+              selected_chelsa_extras = NULL, log_fun = function(...) cat(paste(...), "\n")
+            )
+            cat("WorldClim download complete.\n")
+          },
+          verify_fun = function() verify_worldclim_cache(sdm_default_worldclim_dir, source = source),
+          timeout_sec = if (res <= 2.5) 1800 else if (res <= 5) 900 else 300,
+          estimated_sec = if (res <= 2.5) 600 else if (res <= 5) 300 else 120,
+          notification_msg = paste0("WorldClim downloaded to ", file.path(sdm_project_root(), sdm_default_worldclim_dir))
+        )
     })
 
     observeEvent(input$gd_download_chelsa, {
