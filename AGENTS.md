@@ -98,7 +98,7 @@ If local R is unavailable, rely on GitHub Actions and say that local R was unava
 ### Modern Stack (Next.js + Hono + Plumber)
 
 ```
-Browser (Next.js 15)
+Browser (Next.js 16)
   ↓ HTTPS
 API Gateway (Hono BFF, port 4000)
   ├── JWT / API Key auth middleware
@@ -120,7 +120,7 @@ API Gateway (Hono BFF, port 4000)
 
 The `app.R` file in the project root is a **Shiny-based SDM workbench**. It is maintained for local/desktop use but is **not the primary deployed architecture**. The Shiny stack runs with:
 
-- `app.R` → `R/core/bootstrap.R` → `R/core/optimized_sdm.R` → `R/load.R` (91 modules)
+- `app.R` → `R/core/bootstrap.R` → `R/core/optimized_sdm.R` → `R/load.R` (80 modules)
 - Port 3838 in production
 - No built-in auth or API
 
@@ -140,7 +140,7 @@ Services start in dependency order:
 3. **garage** — S3-compatible storage, port 3900
 4. **plumber** — R/Plumber API, port 8000 (requires `PLUMBER_INTERNAL_KEY`)
 5. **api** — Hono BFF, port 4000 (proxies to plumber, manages auth)
-6. **frontend** — Next.js 15, port 3000
+6. **frontend** — Next.js 16, port 3000
 
 ### API-only (local development)
 
@@ -208,6 +208,7 @@ Push a semver tag (`git tag v1.2.3 && git push --tags`) to trigger:
 - **`nzchar(NULL)` returns `logical(0)`** — use `nzchar(x %||% "")` or check `is.null(x)` first.
 - **`callr::r_bg` runs in separate process** — `<<-` on Shiny reactives has no effect. Background downloads must source `bootstrap.R` before `optimized_sdm.R` in the child.
 - **`rv$cleaned_occurrence` is a list** — `{df, source_counts, n_absent_excluded, original_rows}`. NOT a dataframe.
+- **`rv$undo_stack` is a list** — capped at 10 states, used by Observation Records tab.
 - **Numeric inputs can receive `Inf`/`NA`** — use `safe_numeric()` in `R/ui/ui_sidebar_controls.R`.
 - **`sdm_default_cv_block_size_km` is `NA_real_`** — UI defaults to 50 when NA.
 
@@ -356,8 +357,7 @@ The `PLUMBER_INTERNAL_KEY` must match between Hono's `PLUMBER_INTERNAL_KEY` env 
 
 ### Node.js packages
 
-- Frontend uses `pnpm` (see `pnpm-workspace.yaml`).
-- API uses `npm` (see `api/package.json`).
+All TypeScript packages use `pnpm` (workspaces defined in `pnpm-workspace.yaml`). Use `pnpm install --frozen-lockfile` in CI.
 
 ---
 
@@ -373,20 +373,6 @@ The `PLUMBER_INTERNAL_KEY` must match between Hono's `PLUMBER_INTERNAL_KEY` env 
 
 ---
 
-## R/Shiny gotchas (legacy — for `app.R` maintenance only)
-
-- **`observe()` does NOT accept `ignoreInit`** — only `observeEvent()` does.
-- **`bslib::modal()` does not exist** — use `modalDialog()`.
-- **`passwordInput()` does not accept `autocomplete`** — wrap with `tagAppendAttributes(..., autocomplete = "new-password")`.
-- **`nzchar(NULL)` returns `logical(0)`** — use `nzchar(x %||% "")` or check `is.null(x)` first.
-- **`callr::r_bg` runs in separate process** — `<<-` on Shiny reactives has no effect. Background downloads must source `bootstrap.R` before `optimized_sdm.R` in the child.
-- **`rv$cleaned_occurrence` is a list** — `{df, source_counts, n_absent_excluded, original_rows}`. NOT a dataframe.
-- **`rv$undo_stack` is a list** — capped at 10 states, used by Observation Records tab.
-- **Numeric inputs can receive `Inf`/`NA`** — use `safe_numeric()` in `R/ui/ui_sidebar_controls.R`.
-- **`sdm_default_cv_block_size_km` is `NA_real_`** — UI defaults to 50 when NA.
-
----
-
 ## Important file locations
 
 ### Modern stack
@@ -394,14 +380,14 @@ The `PLUMBER_INTERNAL_KEY` must match between Hono's `PLUMBER_INTERNAL_KEY` env 
 | Path | Purpose |
 |------|---------|
 | `api/src/index.ts` | Hono server entry point (port 4000) |
-| `api/src/routes/*.ts` | API route handlers (sdm, data, climate, ecology, auth, projects, diagnostics, jobs, results) |
+| `api/src/routes/*.ts` | API route handlers (auth, admin, sdm, climate, ecology, occurrences, projects, results, settings, diagnostics, jobs) |
 | `api/src/services/plumber.ts` | Plumber proxy client (forwards `X-Hono-Internal`, `X-Forwarded-User`) |
 | `api/src/services/queue.ts` | BullMQ job queue worker |
 | `api/src/services/websocket.ts` | WebSocket server (real-time job progress) |
 | `api/src/services/job-events.ts` | Job event bus (broadcasts SSE events to WebSocket) |
 | `api/src/middleware/auth.ts` | JWT + API key auth middleware |
 | `api/src/db/schema.ts` | Drizzle ORM schema (users, projects, api_keys, species, runs, occurrences) |
-| `frontend/src/app/` | Next.js 15 app router pages |
+| `frontend/src/app/` | Next.js 16 app router pages |
 | `frontend/src/components/` | React components by domain |
 | `frontend/src/services/api.ts` | Centralized fetch client (`apiGet`, `apiPost`, `apiDelete`, `apiPut`) |
 | `frontend/src/services/types.ts` | Shared API type definitions |
@@ -410,13 +396,16 @@ The `PLUMBER_INTERNAL_KEY` must match between Hono's `PLUMBER_INTERNAL_KEY` env 
 | `plumber/R/plumber.R` | Plumber R API endpoints |
 | `plumber/R/auth.R` | Plumber API key validation |
 | `plumber/R/run_server.R` | Plumber server entry point with auth filter |
+| `plumber/R/run_model_background.R` | Background model run script (spawned by callr) |
+| `plumber/R/climate_download.R` | Background climate download script |
+| `plumber/R/middleware.R` | Plumber middleware helpers |
 
 ### Legacy R/Shiny
 
 | Path | Purpose |
 |------|---------|
 | `app.R` | Shiny UI entry point |
-| `R/load.R` | Module loader (91 modules) |
+| `R/load.R` | Module loader (80 modules) |
 | `R/core/bootstrap.R` | Project root detection |
 | `R/core/config.R` | All `sdm_default_*` constants |
 | `R/core/run_sdm.R` | `run_fast_sdm()` orchestration |
