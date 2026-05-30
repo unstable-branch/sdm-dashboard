@@ -91,6 +91,19 @@ fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   }, error = function(e) {
     stop("GAM fitting failed: ", conditionMessage(e), call. = FALSE)
   })
+
+  # Check smooth basis dimension (k-index warning)
+  tryCatch({
+    k_check <- mgcv::k.check(model)
+    low_k <- rownames(k_check)[k_check[, "k-index"] < 1 & k_check[, "p-value"] < 0.05]
+    if (length(low_k) > 0) {
+      log_message(log_fun, "  GAM warning: basis dimension may be too low for: ", paste(low_k, collapse = ", "),
+        " (k-index < 1, try increasing max_k)")
+    }
+  }, error = function(e) {
+    log_message(log_fun, "  GAM k-check skipped: ", conditionMessage(e))
+  })
+
   cv <- cross_validate_gam(model_data, formula, k = cv_folds, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km)
   if (is.finite(cv$auc_mean)) {

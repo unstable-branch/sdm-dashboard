@@ -35,7 +35,8 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
         verbose = FALSE
       )
       test_sub <- test[, covariates, drop = FALSE]
-      pred <- predict(rf_model, data = test_sub)$predictions
+      raw_pred <- predict(rf_model, data = test_sub)$predictions
+      pred <- pmax(0, pmin(1, raw_pred))
       metrics_list_to_row(compute_binary_metrics(test$presence, pred, threshold = threshold), fold = i)
     }
 
@@ -108,7 +109,7 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
     })
 
     # Training metrics
-    train_pred <- model$predictions
+    train_pred <- pmax(0, pmin(1, model$predictions))
     train_metrics <- compute_binary_metrics(rf_data$presence, train_pred, threshold = threshold)
 
     # Cross-validation

@@ -44,7 +44,6 @@ prepare_sdm_data <- function(occ, env_train_scaled, background_n,
       data.frame(presence = 0L, bg_vals, check.names = FALSE)
     )
   }
-  names(model_data) <- make.names(names(model_data))
 
   list(
     pres_vals = pres_vals,
@@ -95,4 +94,27 @@ store_past_run <- function(rv, result) {
   )
   rv$past_runs <- c(rv$past_runs, list(run_summary))
   if (length(rv$past_runs) > 10) rv$past_runs <- tail(rv$past_runs, 10)
+}
+
+# Global threshold optimization — Youden's J (max TSS)
+# Returns the threshold that maximises TSS = sensitivity + specificity - 1
+find_optimal_threshold <- function(obs, pred) {
+  obs <- as.integer(obs)
+  pred <- as.numeric(pred)
+  ok <- is.finite(obs) & is.finite(pred)
+  obs <- obs[ok]
+  pred <- pred[ok]
+  if (length(pred) < 3 || sum(obs == 1) < 1 || sum(obs == 0) < 1) return(sdm_default_threshold)
+  candidates <- sort(unique(pred))
+  best <- sdm_default_threshold
+  best_tss <- -Inf
+  n_p <- sum(obs == 1)
+  n_a <- sum(obs == 0)
+  for (t in candidates) {
+    sens <- sum(obs == 1 & pred >= t, na.rm = TRUE) / n_p
+    spec <- sum(obs == 0 & pred < t, na.rm = TRUE) / n_a
+    tss <- sens + spec - 1
+    if (is.finite(tss) && tss > best_tss) { best_tss <- tss; best <- t }
+  }
+  best
 }
