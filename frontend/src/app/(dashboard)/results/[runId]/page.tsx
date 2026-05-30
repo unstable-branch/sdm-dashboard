@@ -72,6 +72,7 @@ export default function ResultsPage() {
     if (!runId) return;
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const abort = new AbortController();
 
     const fetchStatus = () => {
       if (cancelled) return;
@@ -81,20 +82,20 @@ export default function ResultsPage() {
           setRun(data);
           setLoading(false);
           if (data.status === "completed") {
-            fetchWithAuth(`/api/v1/results/${runId}/report.txt`)
+            fetchWithAuth(`/api/v1/results/${runId}/report.txt`, { signal: abort.signal })
               .then((res) => res.ok ? res.text() : null)
               .then((text) => { if (!cancelled) setReportText(text); })
               .catch(() => {});
             const odmapMdPath = data.output_files?.odmap_report_md;
             const odmapCsvPath = data.output_files?.odmap_report_csv;
             if (odmapMdPath) {
-              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`)
+              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`, { signal: abort.signal })
                 .then((res) => res.ok ? res.text() : null)
                 .then((text) => { if (!cancelled) setOdmapMd(text); })
                 .catch(() => {});
             }
             if (odmapCsvPath) {
-              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`)
+              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`, { signal: abort.signal })
                 .then((res) => res.ok ? res.text() : null)
                 .then((text) => { if (!cancelled) setOdmapCsv(text); })
                 .catch(() => {});
@@ -103,11 +104,13 @@ export default function ResultsPage() {
             const aooPath = data.output_files?.aoo_grid;
             if (eooPath) {
               fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(eooPath)}`)
-                .then((geo) => { if (!cancelled) setEooGeoJSON(geo); });
+                .then((geo) => { if (!cancelled) setEooGeoJSON(geo); })
+                .catch(() => {});
             }
             if (aooPath) {
               fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(aooPath)}`)
-                .then((geo) => { if (!cancelled) setAooGeoJSON(geo); });
+                .then((geo) => { if (!cancelled) setAooGeoJSON(geo); })
+                .catch(() => {});
             }
           }
           if (data.status === "running") {
@@ -124,6 +127,7 @@ export default function ResultsPage() {
     fetchStatus();
     return () => {
       cancelled = true;
+      abort.abort();
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [runId]);
