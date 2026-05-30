@@ -673,8 +673,12 @@ run_fast_sdm <- function(...) {
       validation_occ_df <- NULL
       if (!is.null(validation_occurrences)) {
         if (is.character(validation_occurrences) && length(validation_occurrences) == 1 && file.exists(validation_occurrences)) {
-          validation_occ_df <- tryCatch(
-            read.csv(validation_occurrences, stringsAsFactors = FALSE, check.names = FALSE),
+          validation_occ_df <- tryCatch({
+            tmp_val <- tempfile()
+            on.exit(unlink(tmp_val), add = TRUE)
+            decrypt_file(validation_occurrences, tmp_val)
+            read.csv(tmp_val, stringsAsFactors = FALSE, check.names = FALSE)
+          },
             error = function(e) {
               log_message(log_fun, "  Validation occurrence file read failed: ", conditionMessage(e))
               NULL

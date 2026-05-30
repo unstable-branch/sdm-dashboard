@@ -26,7 +26,6 @@ export function OdmapViewer({ odmapMd, odmapCsv, loading }: OdmapViewerProps) {
         <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-sdm-heading">ODMAP Report</h3>
-            <span className="text-xs text-sdm-muted font-mono">section</span>
           </div>
           <pre className="text-xs text-sdm-muted font-mono whitespace-pre-wrap max-h-[70vh] overflow-y-auto bg-sdm-surface-soft p-4 rounded-lg">
             {odmapMd}

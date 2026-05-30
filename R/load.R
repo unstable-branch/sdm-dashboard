@@ -29,6 +29,7 @@ modules <- c(
   "config.R",
   "packages.R",
   "logging.R",
+  "crypto.R",
   "validation.R",
   "app_helpers.R",
   "optimized_sdm.R",

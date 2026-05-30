@@ -159,4 +159,12 @@ tryCatch({
   }
 }, error = function(e) cat("WARNING: Could not check available RAM:", conditionMessage(e), "\n"))
 
+# Warn if encryption key is not set (dev mode with unencrypted files)
+enc_key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+if (is.na(enc_key) || !nzchar(enc_key)) {
+  cat("NOTE: SDM_ENCRYPTION_KEY not set — occurrence files stored unencrypted.\n",
+      "  Set SDM_ENCRYPTION_KEY to a 32+ character secret to enable AES-256-GCM encryption.\n",
+      sep = "")
+}
+
 plumber::pr_run(pr, host = "0.0.0.0", port = 8000)

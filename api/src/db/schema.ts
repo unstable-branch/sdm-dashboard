@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, doublePrecision, jsonb, boolean, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 const statusEnum = pgEnum("run_status", ["queued", "running", "completed", "failed", "cancelled"]);
@@ -13,6 +13,8 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   bio: text("bio"),
   organization: text("organization"),
+  storageQuotaBytes: bigint("storage_quota_bytes", { mode: "number" }).default(1073741824),
+  storageUsedBytes: bigint("storage_used_bytes", { mode: "number" }).default(0),
   lastLoginAt: timestamp("last_login_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -78,6 +80,7 @@ export const runs = pgTable("runs", {
   resultPath: text("result_path"),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
+  lastStage: text("last_stage"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_runs_project").on(t.projectId),
@@ -162,6 +165,10 @@ export const uploads = pgTable("uploads", {
   nRows: integer("n_rows"),
   species: varchar("species", { length: 255 }),
   columnsDetected: jsonb("columns_detected"),
+  isCleaned: boolean("is_cleaned").default(false),
+  cleanedFilePath: text("cleaned_file_path"),
+  cleanedValidRecords: integer("cleaned_valid_records"),
+  cleanedOriginalRows: integer("cleaned_original_rows"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_uploads_user_id").on(t.userId),

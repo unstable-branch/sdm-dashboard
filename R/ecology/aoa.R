@@ -128,7 +128,7 @@ compute_aoa_weighted <- function(model_data, env_proj, covariates, variable_impo
     dist
   }
 
-  dist_rast <- terra::app(env_subset, compute_aoa_block, nodes = TRUE)
+  dist_rast <- terra::app(env_subset, compute_aoa_block, nodes = 1)
   names(dist_rast) <- "aoa_distance"
 
   # AOA mask: 1 = applicable, 0 = outside
