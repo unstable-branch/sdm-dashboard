@@ -50,7 +50,9 @@ export function useJobProgress(jobId: string | null) {
     if (!jobId || typeof window === "undefined") return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+    const wsHost = apiUrl ? apiUrl.replace(/^http/, "ws") : `${protocol}//${window.location.host}`;
+    const wsUrl = `${wsHost}/ws`;
 
     let ws: WebSocket;
     try {
