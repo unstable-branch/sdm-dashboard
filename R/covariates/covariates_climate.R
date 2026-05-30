@@ -1,11 +1,16 @@
 # WorldClim discovery, download, cropping, and scaling helpers.
 
-find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("worldclim", "chelsa")) {
+find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("worldclim", "chelsa"), res = NULL) {
   source <- match.arg(source)
   if (is.null(worldclim_dir) || length(worldclim_dir) == 0 || !nzchar(worldclim_dir)) {
     return(setNames(rep(NA_character_, length(as.integer(selected_biovars))), as.character(as.integer(selected_biovars))))
   }
-  files <- if (dir.exists(worldclim_dir)) list.files(worldclim_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE) else character()
+  pattern <- if (source == "worldclim" && !is.null(res)) {
+    sprintf("wc2\\.1_%sm.*\\.tif$", res)
+  } else {
+    "\\.tif$"
+  }
+  files <- if (dir.exists(worldclim_dir)) list.files(worldclim_dir, pattern = pattern, full.names = TRUE, recursive = TRUE) else character()
   selected_biovars <- as.integer(selected_biovars)
   if (length(files) == 0 || length(selected_biovars) == 0) {
     return(setNames(rep(NA_character_, length(selected_biovars)), as.character(selected_biovars)))
@@ -323,31 +328,19 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
     log_message(log_fun, "  NOTE: ", res, " arc-min WorldClim is approximately 80 MB compressed.")
   }
 
+  timeout_sec <- if (res <= 2.5) 1800 else if (res <= 5) 1200 else 600
   old_timeout <- getOption("timeout")
-  options(timeout = 600)
+  options(timeout = timeout_sec)
   on.exit(options(timeout = old_timeout), add = TRUE)
+  log_message(log_fun, sprintf("  Download timeout set to %d seconds (resolution: %d arc-min)", timeout_sec, res))
 
   log_message(log_fun, "  Downloading WorldClim (this may take a while)...")
   wc <- geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir)
-  log_message(log_fun, "  WorldClim download complete. Extracting layers...")
+  log_message(log_fun, "  WorldClim download complete.")
   failed <- character()
-  for (bv in as.integer(selected_biovars)) {
-    idx <- grep(sprintf("bio_?%d$", bv), names(wc), ignore.case = TRUE)
-    if (length(idx) == 0) idx <- grep(sprintf("bio%02d$", bv), names(wc), ignore.case = TRUE)
-    if (length(idx) == 0 && bv <= terra::nlyr(wc)) idx <- bv
-    if (length(idx) > 0) {
-      out <- file.path(worldclim_dir, sprintf("wc2.1_%sm_bio_%d.tif", res, bv))
-      if (!file.exists(out)) {
-        wr <- try(terra::writeRaster(wc[[idx[1]]], out, overwrite = TRUE), silent = TRUE)
-        if (inherits(wr, "try-error")) {
-          log_message(log_fun, "Warning: failed to write ", basename(out), ": ", attr(wr, "condition")$message)
-          failed <- c(failed, bv)
-        }
-      }
-    } else {
-      failed <- c(failed, bv)
-    }
-  }
+
+  # geodata writes files to worldclim_dir/climate/wc2.1_{res}m/ — use them directly
+  # No need to write duplicate top-level copies (H3 fix)
   list(
     files = find_worldclim_files(worldclim_dir, selected_biovars),
     failed = failed
