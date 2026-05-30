@@ -316,8 +316,20 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
     log_message(log_fun, "Using GDAL cache URL: ", cache_url)
   }
 
-  log_message(log_fun, "Downloading WorldClim BIO layers to ", worldclim_dir, " (resolution ", res, " arc-min)")
+  if (res <= 2.5) {
+    log_message(log_fun, "  NOTE: ", res, " arc-min WorldClim is approximately 320 MB compressed.")
+    log_message(log_fun, "  Estimated download time: 3-15 minutes depending on connection speed.")
+  } else if (res <= 5) {
+    log_message(log_fun, "  NOTE: ", res, " arc-min WorldClim is approximately 80 MB compressed.")
+  }
+
+  old_timeout <- getOption("timeout")
+  options(timeout = 600)
+  on.exit(options(timeout = old_timeout), add = TRUE)
+
+  log_message(log_fun, "  Downloading WorldClim (this may take a while)...")
   wc <- geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir)
+  log_message(log_fun, "  WorldClim download complete. Extracting layers...")
   failed <- character()
   for (bv in as.integer(selected_biovars)) {
     idx <- grep(sprintf("bio_?%d$", bv), names(wc), ignore.case = TRUE)
