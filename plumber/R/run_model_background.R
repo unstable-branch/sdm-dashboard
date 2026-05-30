@@ -149,6 +149,7 @@ tryCatch({
     multi_ensemble_min_auc = as.numeric(config$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc),
     multi_ensemble_min_tss = as.numeric(config$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss),
     multi_ensemble_export = isTRUE(config$multi_ensemble_export %||% TRUE),
+    multi_ensemble_uncertainty = isTRUE(config$multi_ensemble_uncertainty %||% TRUE),
     biomod2_models = config$biomod2_models,
     esm_n_runs = as.integer(config$esm_n_runs %||% sdm_esm_default_n_runs),
     esm_split = config$esm_split %||% sdm_esm_default_split,
