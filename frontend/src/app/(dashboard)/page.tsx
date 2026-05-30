@@ -169,7 +169,7 @@ export default function DashboardPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           {latestRun ? (
-            <SuitabilityMap outputFiles={latestRun.output_files ?? null} />
+            <SuitabilityMap outputFiles={latestRun.output_files ?? null} runId={latestRun.id} />
           ) : (
             <EmptyWorkbenchPanel />
           )}

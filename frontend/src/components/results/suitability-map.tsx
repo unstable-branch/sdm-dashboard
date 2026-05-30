@@ -2,13 +2,13 @@
 
 import dynamic from "next/dynamic";
 import { useTheme } from "next-themes";
-import { useEffect, useState, useRef } from "react";
 import type { ViewState } from "react-map-gl/maplibre";
 import type { FeatureCollection } from "geojson";
 import { fetchWithAuth } from "@/services/api";
 
 interface SuitabilityMapProps {
   outputFiles: Record<string, string> | null;
+  runId?: string;
   initialViewState?: Partial<ViewState>;
   coordinates?: [[number, number], [number, number], [number, number], [number, number]];
   eooGeoJSON?: FeatureCollection | null;
@@ -28,94 +28,28 @@ const DynamicMap = dynamic(() => import("./maplibre-map"), {
   loading: () => <MapPlaceholder />,
 });
 
-export function SuitabilityMap({ outputFiles, initialViewState, coordinates, eooGeoJSON, aooGeoJSON }: SuitabilityMapProps) {
+export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinates, eooGeoJSON, aooGeoJSON }: SuitabilityMapProps) {
   const { theme } = useTheme();
-  const [pngUrl, setPngUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const blobUrlRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (!outputFiles?.png) {
-      setPngUrl(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    let cancelled = false;
-    const path = `/api/v1/results/file/${encodeURIComponent(outputFiles.png)}`;
-    fetchWithAuth(path)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        return res.blob();
-      })
-      .then((blob) => {
-        if (!cancelled) {
-          if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
-          const url = URL.createObjectURL(blob);
-          blobUrlRef.current = url;
-          setPngUrl(url);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        console.error("[SuitabilityMap] Failed to load PNG:", err);
-        if (!cancelled) { setPngUrl(null); setLoading(false); }
-      });
-    return () => {
-      cancelled = true;
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = null;
-      }
-    };
-  }, [outputFiles]);
-
-  if (loading) {
-    return (
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
-        <MapPlaceholder label="Loading suitability raster..." />
-      </div>
-    );
-  }
-
-  if (!pngUrl) {
+  if (!runId) {
     return (
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
-        Suitability map image not available.
-        {outputFiles?.png && (
-          <div className="mt-2 text-xs">
-            <img
-              src={`/api/v1/results/file/${encodeURIComponent(outputFiles.png)}`}
-              alt=""
-              className="max-w-full h-auto border border-sdm-border rounded"
-              onError={(e) => {
-                const err = (e.target as HTMLImageElement).src
-                  ? `Failed to load: ${(e.target as HTMLImageElement).src.slice(0, 80)}...`
-                  : "Failed to load image";
-                (e.target as HTMLImageElement).style.display = "none";
-                const next = (e.target as HTMLImageElement).nextElementSibling;
-                if (next) next.textContent = err;
-              }}
-            />
-            <noscript>Enable JavaScript for authenticated image loading.</noscript>
-          </div>
-        )}
+        Suitability map not available.
       </div>
     );
   }
 
-  if (!coordinates) {
-    return (
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
-        Map extent not available.
-      </div>
-    );
-  }
+  const rawZoomMin = outputFiles?.tile_zoom_min;
+  const rawZoomMax = outputFiles?.tile_zoom_max;
+  const tileZoomMin = rawZoomMin ? parseInt(rawZoomMin, 10) : 4;
+  const tileZoomMax = rawZoomMax ? parseInt(rawZoomMax, 10) : 8;
+  const safeTileZoomMin = !isNaN(tileZoomMin) ? tileZoomMin : 4;
+  const safeTileZoomMax = !isNaN(tileZoomMax) ? tileZoomMax : 8;
 
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
       <div className="relative h-[60vh]">
-        <DynamicMap pngUrl={pngUrl} theme={theme} initialViewState={initialViewState} coordinates={coordinates} eooGeoJSON={eooGeoJSON} aooGeoJSON={aooGeoJSON} />
+        <DynamicMap runId={runId} theme={theme} initialViewState={initialViewState} coordinates={coordinates} tileZoomMin={safeTileZoomMin} tileZoomMax={safeTileZoomMax} eooGeoJSON={eooGeoJSON} aooGeoJSON={aooGeoJSON} />
       </div>
       <div className="px-4 py-2 border-t border-sdm-border flex items-center justify-between text-xs text-sdm-muted">
         <span>Suitability raster</span>

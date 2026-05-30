@@ -1,17 +1,43 @@
+function toNum(v: unknown): number | null {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return isNaN(n) ? null : n;
+}
+
+function fmtFixed(v: unknown, d: number): string {
+  const n = toNum(v);
+  return n !== null ? n.toFixed(d) : "—";
+}
+
+function fmtLocale(v: unknown): string {
+  const n = toNum(v);
+  return n !== null ? n.toLocaleString() : "—";
+}
+
+function fmtArea(v: unknown): string {
+  const n = toNum(v);
+  return n !== null ? `${n.toLocaleString()} km²` : "—";
+}
+
+function fmtElapsed(v: unknown): string {
+  const n = toNum(v);
+  return n !== null ? `${Math.round(n)}s` : "—";
+}
+
 interface MetricCardsProps {
   metrics: Record<string, unknown>;
 }
 
 export function MetricCards({ metrics }: MetricCardsProps) {
   const cards = [
-    { label: "AUC (mean)", value: (metrics.auc_mean as number)?.toFixed(3) ?? "—", accent: "text-sdm-accent" },
-    { label: "AUC (SD)", value: (metrics.auc_sd as number)?.toFixed(3) ?? "—", accent: "text-sdm-muted" },
-    { label: "TSS (mean)", value: (metrics.tss_mean as number)?.toFixed(3) ?? "—", accent: "text-sdm-accent" },
-    { label: "TSS (SD)", value: (metrics.tss_sd as number)?.toFixed(3) ?? "—", accent: "text-sdm-muted" },
-    { label: "Presence records", value: (metrics.presence_records as number)?.toLocaleString() ?? "—", accent: "text-sdm-heading" },
-    { label: "Background points", value: (metrics.background_points as number)?.toLocaleString() ?? "—", accent: "text-sdm-heading" },
-    { label: "High-suitability area", value: (metrics.high_suitability_area_km2 as number) ? `${(metrics.high_suitability_area_km2 as number).toLocaleString()} km²` : "—", accent: "text-sdm-heading" },
-    { label: "Elapsed time", value: (metrics.elapsed_seconds as number) ? `${Math.round(metrics.elapsed_seconds as number)}s` : "—", accent: "text-sdm-heading" },
+    { label: "AUC (mean)", value: fmtFixed(metrics.auc_mean, 3), accent: "text-sdm-accent" },
+    { label: "AUC (SD)", value: fmtFixed(metrics.auc_sd, 3), accent: "text-sdm-muted" },
+    { label: "TSS (mean)", value: fmtFixed(metrics.tss_mean, 3), accent: "text-sdm-accent" },
+    { label: "TSS (SD)", value: fmtFixed(metrics.tss_sd, 3), accent: "text-sdm-muted" },
+    { label: "Presence records", value: fmtLocale(metrics.presence_records), accent: "text-sdm-heading" },
+    { label: "Background points", value: fmtLocale(metrics.background_points), accent: "text-sdm-heading" },
+    { label: "High-suitability area", value: fmtArea(metrics.high_suitability_area_km2), accent: "text-sdm-heading" },
+    { label: "Elapsed time", value: fmtElapsed(metrics.elapsed_seconds), accent: "text-sdm-heading" },
   ];
 
   return (
