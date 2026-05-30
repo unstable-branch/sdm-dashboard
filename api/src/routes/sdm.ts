@@ -52,8 +52,8 @@ sdmRoutes.post("/run", async (c) => {
             .returning();
         }
         speciesId = sp.id;
-      } catch {
-        // Species tracking is best-effort; continue without it
+      } catch (err) {
+        console.warn("[sdm] Species insert failed (best-effort):", err instanceof Error ? err.message : err);
       }
 
       const [run] = await db
@@ -229,7 +229,8 @@ sdmRoutes.post("/run", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Model run failed";
     console.error(`[sdm] Model run failed: ${message}`);
-    return c.json({ error: message }, 502);
+    const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
+    return c.json({ error: message }, isBusy ? 429 : 502);
   }
 });
 
