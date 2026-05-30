@@ -13,6 +13,7 @@ interface JobProgressProps {
   onDismiss?: () => void;
   onCancel?: () => void;
   startTime?: string;
+  completedActions?: React.ReactNode;
 }
 
 const stateIcons = {
@@ -35,7 +36,7 @@ function formatElapsed(ms: number): string {
   return `${s}s`;
 }
 
-export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime }: JobProgressProps) {
+export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime, completedActions }: JobProgressProps) {
   const { getJob, connected } = useJobSSE(!!jobId);
   const [dismissed, setDismissed] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
@@ -197,8 +198,11 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
       )}
 
       {job.state === "completed" && (
-        <div className="text-sm text-green-500">
-          Job completed in {formatElapsed(elapsed)}.
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-green-500">
+            Job completed in {formatElapsed(elapsed)}.
+          </span>
+          {completedActions}
         </div>
       )}
 

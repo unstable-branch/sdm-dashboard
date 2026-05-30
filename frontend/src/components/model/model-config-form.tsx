@@ -87,6 +87,11 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [maxnetRegmult, setMaxnetRegmult] = useState(DEFAULT_CONFIG.maxnetRegmult);
   const [error, setError] = useState<string | null>(null);
 
+  const [multiEnsembleModels, setMultiEnsembleModels] = useState<string[]>(["glm", "gam", "maxnet", "rf"]);
+  const [biomod2Models, setBiomod2Models] = useState<string[]>(["GLM", "GAM", "RF"]);
+  const [esmNRuns, setEsmNRuns] = useState(5);
+  const [esmSplit, setEsmSplit] = useState(70);
+
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
   const [missingBiovars, setMissingBiovars] = useState<number[]>([]);
@@ -173,6 +178,14 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
     setUvVars((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]);
   };
 
+  const toggleEnsembleModel = (m: string) => {
+    setMultiEnsembleModels((prev) => prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]);
+  };
+
+  const toggleBiomod2Model = (a: string) => {
+    setBiomod2Models((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a]);
+  };
+
   const handleSubmit = () => {
     setError(null);
 
@@ -229,10 +242,10 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       cleanedFilePath: useCleaned ? cleanedOccurrence!.filePath : undefined,
       source: climateSource,
       worldclimRes: climateRes,
-      multiEnsembleModels: modelId !== "multi_ensemble" ? undefined : undefined,
-      biomod2Models: modelId !== "biomod2" ? undefined : undefined,
-      esmNRuns: isESM ? 5 : undefined,
-      esmSplit: isESM ? 70 : undefined,
+      multiEnsembleModels: modelId === "multi_ensemble" ? multiEnsembleModels : undefined,
+      biomod2Models: modelId === "biomod2" ? biomod2Models : undefined,
+      esmNRuns: isESM ? esmNRuns : undefined,
+      esmSplit: isESM ? esmSplit : undefined,
     };
 
     const parsed = modelConfigSchema.safeParse(config);
@@ -438,7 +451,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <div className="flex flex-wrap gap-2">
               {["glm", "gam", "maxnet", "rf", "xgboost", "rangebag"].map((m) => (
                 <label key={m} className="px-2 py-1 rounded text-xs cursor-pointer border border-sdm-border text-sdm-muted hover:border-sdm-accent/50 has-checked:border-sdm-accent has-checked:bg-sdm-accent/10 has-checked:text-sdm-accent">
-                  <input type="checkbox" className="sr-only" />
+                  <input type="checkbox" className="sr-only" checked={multiEnsembleModels.includes(m)} onChange={() => toggleEnsembleModel(m)} />
                   {m === "glm" ? "GLM" : m === "gam" ? "GAM" : m === "maxnet" ? "MaxNet" : m === "rf" ? "RF" : m === "xgboost" ? "XGBoost" : "Rangebag"}
                 </label>
               ))}
@@ -453,7 +466,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <div className="flex flex-wrap gap-2">
               {["GLM", "GAM", "RF", "MARS", "FDA", "CTA", "ANN", "SRE"].map((a) => (
                 <label key={a} className="px-2 py-1 rounded text-xs cursor-pointer border border-sdm-border text-sdm-muted hover:border-sdm-accent/50 has-checked:border-sdm-accent has-checked:bg-sdm-accent/10 has-checked:text-sdm-accent">
-                  <input type="checkbox" className="sr-only" defaultChecked={a === "GLM" || a === "RF" || a === "GAM"} />
+                  <input type="checkbox" className="sr-only" checked={biomod2Models.includes(a)} onChange={() => toggleBiomod2Model(a)} />
                   {a}
                 </label>
               ))}
@@ -468,11 +481,11 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-sdm-muted mb-1">Evaluation runs</label>
-                <input type="number" defaultValue={5} min={2} max={100} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
+                <input type="number" value={esmNRuns} onChange={(e) => setEsmNRuns(Number(e.target.value))} min={2} max={100} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-sdm-muted mb-1">Data split (%)</label>
-                <input type="number" defaultValue={70} min={50} max={90} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
+                <input type="number" value={esmSplit} onChange={(e) => setEsmSplit(Number(e.target.value))} min={50} max={90} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
               </div>
             </div>
           </div>
