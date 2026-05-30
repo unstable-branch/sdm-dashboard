@@ -694,22 +694,16 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
   occurrence_used <- occ[complete.cases(pres_vals), , drop = FALSE]
 
-  # Sample background points the same way prepare_dnn_data does (seed = 42L)
-  set.seed(42L)
-  bg_mask <- env_train_scaled[[1]]
-  bg_mask[!is.na(bg_mask)] <- 1
-  bg_points <- tryCatch(terra::spatSample(bg_mask, size = background_n * 2, method = "random", na.rm = TRUE, as.points = TRUE), error = function(e) NULL)
-  if (is.null(bg_points) || terra::nrow(bg_points) == 0) stop("No background points could be sampled.", call. = FALSE)
-  if (terra::nrow(bg_points) > background_n) bg_points <- bg_points[sample(terra::nrow(bg_points), background_n), ]
-  bg_vals <- terra::extract(env_train_scaled, bg_points)
-  bg_vals <- bg_vals[complete.cases(bg_vals), , drop = FALSE]
-  bg_xy <- tryCatch({
-    bg_geom <- terra::geom(bg_points)
-    data.frame(x = bg_geom[, 1], y = bg_geom[, 2], check.names = FALSE)
-  }, error = function(e) NULL)
-  if (is.null(bg_xy)) stop("Failed to extract background coordinates.", call. = FALSE)
-  bg_xy <- bg_xy[complete.cases(bg_vals), , drop = FALSE]
-  bg_vals <- bg_vals[complete.cases(bg_vals), , drop = FALSE]
+  # Sample background points using shared function (supports bias methods)
+  bg_xy <- sample_background_points(env_train_scaled, background_n,
+    seed = seed, bias_method = bias_method,
+    target_group_occ = target_group_occ,
+    thickening_distance_km = thickening_distance_km,
+    pres_xy = occurrence_used[, c("longitude", "latitude"), drop = FALSE])
+  bg_vals <- extract_covariates(env_train_scaled, bg_xy)
+  bg_keep <- stats::complete.cases(bg_vals)
+  bg_vals <- bg_vals[bg_keep, , drop = FALSE]
+  bg_xy <- bg_xy[bg_keep, , drop = FALSE]
   if (nrow(bg_vals) < 100) stop("Too few background points could be sampled.", call. = FALSE)
 
   covariates <- make.names(names(env_train_scaled))

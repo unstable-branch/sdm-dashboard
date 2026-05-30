@@ -220,7 +220,9 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
     }
   }
 
-  threshold_area <- "NA"
+  threshold_area <- if (!is.null(result$summary$high_risk_area_km2) && is.finite(result$summary$high_risk_area_km2)) {
+    sprintf("%.0f", result$summary$high_risk_area_km2)
+  } else "NA"
   future_projection <- .get_config("future_projection", FALSE)
   if (isTRUE(future_projection)) {
     future_label <- .get_config("future_label", "Future climate")

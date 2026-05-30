@@ -80,7 +80,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
     })
 
     model_for_auc <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
-    train_pred <- as.numeric(maxnet::predict.maxnet(model, model_for_auc[, covariates, drop = FALSE], clamp = TRUE, type = "link"))
+    train_pred <- as.numeric(maxnet::predict.maxnet(model, model_for_auc[, covariates, drop = FALSE], clamp = TRUE, type = "cloglog"))
     train_metrics <- compute_binary_metrics(model_for_auc$presence, train_pred, threshold = threshold)
 
     cv <- cross_validate_maxnet(model_data, covariates, maxnet_features, maxnet_regmult,
@@ -162,7 +162,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
       }
       df <- as.data.frame(vals, stringsAsFactors = FALSE)
       names(df) <- fit$covariates
-      as.numeric(maxnet::predict.maxnet(fit$model, df, clamp = TRUE, type = "link"))
+      as.numeric(maxnet::predict.maxnet(fit$model, df, clamp = TRUE, type = "cloglog"))
     }, cores = n_cores)
 
     names(suit) <- "suitability"

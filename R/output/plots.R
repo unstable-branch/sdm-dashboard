@@ -126,6 +126,9 @@ plot_occurrence_map <- function(occ, species = "Species") {
 }
 
 save_suitability_png <- function(suitability, occ, projection_extent, species, threshold, output_png) {
+  if (!is.null(projection_extent) && inherits(suitability, "SpatRaster")) {
+    suitability <- terra::crop(suitability, terra::ext(projection_extent[1], projection_extent[2], projection_extent[3], projection_extent[4]))
+  }
   dir.create(dirname(output_png), recursive = TRUE, showWarnings = FALSE)
   grDevices::png(output_png, width = 1600, height = 950, res = 160)
   on.exit(grDevices::dev.off(), add = TRUE)
@@ -140,8 +143,12 @@ save_future_pngs <- function(future, occ, projection_extent, species, threshold,
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   future_png <- file.path(output_dir, paste0(base_name, "_future", suffix, "_suitability.png"))
   delta_png <- file.path(output_dir, paste0(base_name, "_future", suffix, "_delta.png"))
+  suit_cropped <- future$suitability
+  if (!is.null(projection_extent) && inherits(suit_cropped, "SpatRaster")) {
+    suit_cropped <- terra::crop(suit_cropped, terra::ext(projection_extent[1], projection_extent[2], projection_extent[3], projection_extent[4]))
+  }
   grDevices::png(future_png, width = 1600, height = 950, res = 160)
-  plot_suitability_map(future$suitability, occ = occ, projection_extent = projection_extent, species = paste0(species, " (", scenario_label, ")"), threshold = threshold, add_points = FALSE)
+  plot_suitability_map(suit_cropped, occ = occ, projection_extent = projection_extent, species = paste0(species, " (", scenario_label, ")"), threshold = threshold, add_points = FALSE)
   grDevices::dev.off()
   grDevices::png(delta_png, width = 1600, height = 950, res = 160)
   plot_delta_map(future$delta, scenario_label = scenario_label)
