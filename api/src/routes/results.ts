@@ -1,8 +1,7 @@
 import { Hono } from "hono";
-import { existsSync, createReadStream, readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { isAbsolute, join, relative, resolve } from "path";
-import { Readable } from "stream";
-import { stat } from "fs/promises";
+import { stat, readFile } from "fs/promises";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
@@ -81,8 +80,6 @@ resultsRoutes.get("/file/:filePath", async (c) => {
   const fileStats = await stat(fullPath);
   const etag = `W/"${fileStats.size}-${fileStats.mtimeMs}"`;
 
-  c.header("Content-Type", contentType);
-  c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
   c.header("ETag", etag);
   c.header("Cache-Control", "public, max-age=3600");
 
@@ -90,11 +87,11 @@ resultsRoutes.get("/file/:filePath", async (c) => {
     return c.body(null, 304);
   }
 
-  const stream = createReadStream(fullPath);
-  stream.on("error", (err) => {
-    console.error("[results] File stream error:", err);
-  });
-  return c.body(Readable.toWeb(stream) as ReadableStream);
+  c.header("Content-Type", contentType);
+  c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
+
+  const buffer = await readFile(fullPath);
+  return c.body(buffer);
 });
 
 resultsRoutes.get("/:id", async (c) => {
