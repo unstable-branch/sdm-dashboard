@@ -68,6 +68,7 @@ sdm_default_ensemble_weighting <- "auc"
 sdm_default_multi_ensemble_models <- c("glm", "rangebag")
 sdm_default_multi_ensemble_weighting <- "auc"
 sdm_default_multi_ensemble_export_components <- TRUE
+sdm_default_multi_ensemble_uncertainty <- TRUE
 sdm_default_ensemble_power <- 2
 sdm_default_ensemble_min_auc <- 0.7
 sdm_default_ensemble_min_tss <- 0.5

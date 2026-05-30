@@ -128,6 +128,13 @@ sdmRoutes.post("/run", async (c) => {
           future_worldclim_dir2: config.futureWorldclimDir2,
           future_label2: config.futureLabel2,
           chelsa_extras: config.chelsaExtras,
+          multi_ensemble_models: config.multiEnsembleModels?.join(","),
+          multi_ensemble_weighting: config.multiEnsembleWeighting,
+          multi_ensemble_power: config.multiEnsemblePower,
+          multi_ensemble_min_auc: config.multiEnsembleMinAuc,
+          multi_ensemble_min_tss: config.multiEnsembleMinTss,
+          multi_ensemble_export: config.multiEnsembleExport,
+          biomod2_models: config.biomod2Models,
         },
       }, user.id);
 
@@ -208,6 +215,13 @@ sdmRoutes.post("/run", async (c) => {
       future_worldclim_dir2: config.futureWorldclimDir2,
       future_label2: config.futureLabel2,
       chelsa_extras: config.chelsaExtras,
+      multi_ensemble_models: config.multiEnsembleModels?.join(","),
+      multi_ensemble_weighting: config.multiEnsembleWeighting,
+      multi_ensemble_power: config.multiEnsemblePower,
+      multi_ensemble_min_auc: config.multiEnsembleMinAuc,
+      multi_ensemble_min_tss: config.multiEnsembleMinTss,
+      multi_ensemble_export: config.multiEnsembleExport,
+      biomod2_models: config.biomod2Models,
     });
 
     const plumberJobId = (result as any).job_id;
