@@ -454,6 +454,7 @@ function DataPageContent() {
                       <th className="text-right py-2 px-3 font-medium text-sdm-muted">Size</th>
                       <th className="text-left py-2 pl-3 font-medium text-sdm-muted">Species</th>
                       <th className="text-left py-2 pl-3 font-medium text-sdm-muted">Uploaded</th>
+                      <th className="text-right py-2 pl-3 font-medium text-sdm-muted">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -464,6 +465,28 @@ function DataPageContent() {
                         <td className="py-2 px-3 text-right">{Number(u.file_size || 0) > 1024 * 1024 ? `${(Number(u.file_size) / 1024 / 1024).toFixed(1)} MB` : `${(Number(u.file_size) / 1024).toFixed(0)} KB`}</td>
                         <td className="py-2 pl-3 max-w-[120px] truncate" title={String(u.species || "")}>{String(u.species || "—")}</td>
                         <td className="py-2 pl-3 whitespace-nowrap">{String(u.created_at || "").slice(0, 19).replace("T", " ")}</td>
+                        <td className="py-2 pl-3 text-right">
+                          <button
+                            onClick={() => {
+                              const fp = u.file_path as string;
+                              if (fp) {
+                                setOccurrenceFilePath(fp);
+                                setUploadResult({ ...(u as Record<string, unknown>), file_id: fp });
+                                setCleanResult(null);
+                                setCleanedOccurrence(null);
+                                setRecordCount(Number(u.n_rows || 0));
+                                const sp = u.species as string;
+                                if (sp && sp !== "—") {
+                                  useSDMStore.getState().setSpecies(sp);
+                                }
+                              }
+                            }}
+                            className="text-xs font-medium text-sdm-accent hover:underline disabled:opacity-30 disabled:cursor-not-allowed"
+                            disabled={!u.file_path}
+                          >
+                            Use
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
