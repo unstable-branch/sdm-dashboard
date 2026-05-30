@@ -540,8 +540,14 @@ function(req) {
 
   biovars <- as.integer(unlist(strsplit(as.character(body$biovars %||% "1,4,6,12,15,18"), ",")))
   projection_extent <- as.numeric(unlist(strsplit(as.character(body$projection_extent %||% "112,154,-44,-10"), ",")))
-  if (length(projection_extent) != 4) {
-    return(sdm_error(req, 400, "projection_extent must have 4 values: xmin,xmax,ymin,ymax"))
+  if (length(projection_extent) != 4 || any(!is.finite(projection_extent))) {
+    return(sdm_error(req, 400, "projection_extent must have 4 numeric values: xmin,xmax,ymin,ymax"))
+  }
+  if (projection_extent[1] >= projection_extent[2] || projection_extent[3] >= projection_extent[4]) {
+    return(sdm_error(req, 400, "projection_extent has invalid ordering: xmin must be < xmax, ymin must be < ymax"))
+  }
+  if (projection_extent[1] < -180 || projection_extent[2] > 180 || projection_extent[3] < -90 || projection_extent[4] > 90) {
+    return(sdm_error(req, 400, "projection_extent is outside valid coordinate bounds (±180, ±90)"))
   }
 
   # Concurrency limit: reject if too many runs in-flight to prevent OOM
