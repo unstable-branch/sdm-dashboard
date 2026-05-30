@@ -20,7 +20,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
       y_train <- as.integer(train_model$presence)
       train_pa <- cbind(data.frame(presence = y_train), train_model[, covariates, drop = FALSE])
       names(train_pa) <- c("presence", covariates)
-      maxnet_data <- maxnet::maxnet.formula(presence ~ ., data = train_pa, maxnet.formula.arguments(maxnet_features, maxnet_regmult))
+      maxnet_data <- maxnet::maxnet.formula(presence ~ ., data = train_pa, maxnet:::maxnet.formula.arguments(maxnet_features, maxnet_regmult))
       maxnet_model <- maxnet::maxnet(maxnet_data, data = train_pa)
       pred <- as.numeric(maxnet::predict.maxnet(maxnet_model, test_model[, covariates, drop = FALSE], clamp = TRUE, type = "link"))
       metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
@@ -71,7 +71,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
 
     maxnet_pa <- cbind(data.frame(presence = model_data$presence), model_data[, covariates, drop = FALSE])
     names(maxnet_pa)[-1] <- covariates
-    maxnet_formula_args <- maxnet::maxnet.formula.arguments(maxnet_features, maxnet_regmult)
+    maxnet_formula_args <- maxnet:::maxnet.formula.arguments(maxnet_features, maxnet_regmult)
     maxnet_data <- maxnet::maxnet.formula(presence ~ ., data = maxnet_pa, maxnet_formula_args)
     model <- tryCatch({
       maxnet::maxnet(maxnet_data, data = maxnet_pa)
