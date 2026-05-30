@@ -43,7 +43,12 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, log_fun = NULL) {
       # Project to equal-area for area calculation
       # Use appropriate UTM zone based on centroid
       centroid <- sf::st_coordinates(sf::st_centroid(hull))
-      utm_zone <- floor((centroid[1] + 180) / 6) + 1
+      if (!is.finite(centroid[1])) {
+        log_message(log_fun, "  Invalid centroid longitude; using default UTM zone 30")
+        utm_zone <- 30
+      } else {
+        utm_zone <- floor((centroid[1] + 180) / 6) + 1
+      }
       utm_crs <- sf::st_crs(paste0("+proj=utm +zone=", utm_zone, " +datum=WGS84 +units=km"))
 
       hull_proj <- sf::st_transform(hull, utm_crs)
@@ -67,7 +72,12 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, log_fun = NULL) {
 
     # Project to equal-area for grid
     centroid <- sf::st_coordinates(sf::st_centroid(sf::st_union(pts_sf)))
-    utm_zone <- floor((centroid[1] + 180) / 6) + 1
+    if (!is.finite(centroid[1])) {
+      log_message(log_fun, "  Invalid centroid longitude for AOO; using default UTM zone 30")
+      utm_zone <- 30
+    } else {
+      utm_zone <- floor((centroid[1] + 180) / 6) + 1
+    }
     utm_crs <- sf::st_crs(paste0("+proj=utm +zone=", utm_zone, " +datum=WGS84 +units=m"))
     pts_proj <- sf::st_transform(pts_sf, utm_crs)
 

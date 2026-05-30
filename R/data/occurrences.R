@@ -15,6 +15,19 @@ read_occurrence_file <- function(path, log_fun = NULL) {
   if (is.null(path) || !file.exists(path)) {
     stop("Occurrence file not found. Upload a CSV or restore presence_data.csv.", call. = FALSE)
   }
+  # Decrypt if encryption is enabled
+  key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+  if (!is.na(key) && nzchar(key)) {
+    if (!requireNamespace("openssl", quietly = TRUE)) {
+      stop("openssl package required to read encrypted files. Install with install.packages('openssl')")
+    }
+    tmp <- tempfile(fileext = paste0(".", tolower(tools::file_ext(path))))
+    on.exit(unlink(tmp), add = TRUE)
+    encrypted <- readBin(path, "raw", file.info(path)$size)
+    data <- openssl::decrypt(encrypted, key = charToRaw(key))
+    writeBin(data, tmp)
+    path <- tmp
+  }
   ext <- tolower(tools::file_ext(path))
   if (ext == "zip") {
     result <- read_dwca(path, log_fun = log_fun)

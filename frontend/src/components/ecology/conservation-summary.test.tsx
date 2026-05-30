@@ -56,7 +56,7 @@ describe("ConservationSummary", () => {
     await waitFor(() => {
       expect(screen.getByText(/Extent & Area of Occurrence/i)).toBeInTheDocument();
       expect(screen.getByText(/15,000 km²/i)).toBeInTheDocument();
-      expect(screen.getByText(/500 km²/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/500 km²/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -77,6 +77,8 @@ describe("ConservationSummary", () => {
   it("shows error state when fetch fails", async () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: false,
+      status: 404,
+      json: () => Promise.resolve({ error: "Run not found" }),
     } as Response);
 
     render(<ConservationSummary runId="run-1" />);

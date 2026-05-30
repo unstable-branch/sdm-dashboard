@@ -196,6 +196,7 @@ function(req) {
     safe_name <- gsub("[^a-zA-Z0-9._-]", "_", orig_name)
     dest_path <- file.path(upload_dir, paste0(format(Sys.time(), "%Y%m%d_%H%M%S_"), safe_name))
     file.copy(file_path, dest_path, overwrite = TRUE)
+    encrypt_file(dest_path, dest_path)
     rel_path <- file.path("data", "uploads", basename(dest_path))
 
     con <- db_connect()
@@ -285,7 +286,8 @@ function(req, limit = 50) {
   tryCatch({
     user_filter <- req$user_id %||% "unknown"
     rows <- DBI::dbGetQuery(con,
-      "SELECT id, filename, file_path, file_size, format, n_rows, species, columns_detected, created_at
+      "SELECT id, filename, file_path, file_size, format, n_rows, species, columns_detected, created_at,
+              is_cleaned, cleaned_file_path, cleaned_valid_records, cleaned_original_rows
        FROM uploads WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
       params = list(user_filter, limit)
     )
@@ -328,6 +330,34 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
       paste0("cleaned_", format(Sys.time(), "%Y%m%d_%H%M%S_"), basename(file_id))
     )
     utils::write.csv(occ, cleaned_path, row.names = FALSE)
+    encrypt_file(cleaned_path, cleaned_path)
+
+    # Persist cleaned state to uploads table
+    con <- db_connect()
+    if (!is.null(con)) {
+      on.exit(DBI::dbDisconnect(con), add = TRUE)
+      tryCatch(
+        DBI::dbExecute(con,
+          "UPDATE uploads SET is_cleaned = TRUE, cleaned_file_path = $1,
+           cleaned_valid_records = $2, cleaned_original_rows = $3
+           WHERE file_path = $4",
+          params = list(cleaned_path, nrow(occ), result$original_rows, file_id)
+        ),
+        error = function(e) NULL
+      )
+      # Track cleaned file size toward user's storage quota
+      cleaned_size <- file.info(cleaned_path)$size
+      tryCatch(
+        DBI::dbExecute(con,
+          "UPDATE users SET storage_used_bytes = COALESCE(storage_used_bytes, 0) + $1 WHERE id = $2",
+          params = list(cleaned_size, req$user_id %||% "unknown")
+        ),
+        error = function(e) NULL
+      )
+    }
+
+    preview <- head(occ, 5)
+    preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
 
     list(
       cleaned_id = file_id,
@@ -338,6 +368,7 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
       removed_duplicates = result$removed_duplicates,
       n_absent_excluded = result$n_absent_excluded,
       source_counts = as.list(source_counts),
+      occurrence_preview = preview,
       cc_flagged = if ("cc_flag" %in% names(occ)) sum(occ$cc_flag, na.rm = TRUE) else 0L,
       training_extent = make_training_extent(occ, buffer = 2)
     )
@@ -373,6 +404,21 @@ function(req, taxon, country = NULL, max_records = 100) {
     ts <- format(Sys.time(), "%Y%m%d_%H%M%S")
     csv_path <- file.path(upload_dir, paste0(ts, "_gbif_", safe_name, ".csv"))
     utils::write.csv(occ, csv_path, row.names = FALSE)
+    encrypt_file(csv_path, csv_path)
+
+    # Track GBIF file size toward user's storage quota
+    gbif_con <- db_connect()
+    if (!is.null(gbif_con)) {
+      on.exit(DBI::dbDisconnect(gbif_con), add = TRUE)
+      gbif_size <- file.info(csv_path)$size
+      tryCatch(
+        DBI::dbExecute(gbif_con,
+          "UPDATE users SET storage_used_bytes = COALESCE(storage_used_bytes, 0) + $1 WHERE id = $2",
+          params = list(gbif_size, req$user_id %||% "unknown")
+        ),
+        error = function(e) NULL
+      )
+    }
 
     list(
       taxon = taxon,
@@ -597,8 +643,17 @@ function(res, job_id) {
   }
 
   progress_lines <- character(0)
+  last_stage <- NULL
   if (file.exists(progress_file)) {
     progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
+    for (line in rev(progress_lines)) {
+      stage <- gsub("^\\d{2}:\\d{2}:\\d{2}\\s*(\\[\\d+%\\]\\s*)?", "", line)
+      stage <- trimws(stage)
+      if (nchar(stage) >= 3) {
+        last_stage <- stage
+        break
+      }
+    }
   }
 
   list(
@@ -610,7 +665,8 @@ function(res, job_id) {
     error_traceback = meta$error_traceback %||% NULL,
     metrics = meta$metrics %||% NULL,
     output_files = meta$output_files %||% NULL,
-    progress_log = progress_lines
+    progress_log = progress_lines,
+    last_stage = last_stage
   )
 }
 

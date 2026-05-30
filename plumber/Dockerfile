@@ -21,7 +21,7 @@ RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages
     'future', 'future.apply', \
     'testthat', \
     'DBI', 'RPostgres', 'digest', \
-    'Rook' \
+    'Rook', 'openssl' \
   ), Ncpus=4)"
 
 WORKDIR /app

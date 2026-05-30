@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import React from "react";
 import { apiGet, apiPost } from "@/services/api";
 import { Loader2, AlertCircle, CheckCircle2, Clock, XCircle, Play, RefreshCw } from "lucide-react";
 
@@ -123,8 +124,8 @@ export default function AdminDiagnosticsPage() {
           </thead>
           <tbody>
             {runs.map((r) => (
-              <>
-                <tr key={r.id} onClick={() => expandRun(r.id)}
+              <React.Fragment key={r.id}>
+                <tr onClick={() => expandRun(r.id)}
                   className="border-b border-sdm-border hover:bg-sdm-surface-soft cursor-pointer">
                   <td className="px-4 py-2"><div className="flex items-center gap-1">{statusIcon(r.status)}<span className="text-xs capitalize">{r.status}</span></div></td>
                   <td className="px-4 py-2 text-xs text-sdm-text">{r.speciesName || "-"}</td>
@@ -133,7 +134,7 @@ export default function AdminDiagnosticsPage() {
                   <td className="px-4 py-2 text-xs text-sdm-muted">{new Date(r.createdAt).toLocaleString()}</td>
                 </tr>
                 {expandedRun === r.id && (
-                  <tr key={`${r.id}-detail`} className="border-b border-sdm-border bg-sdm-surface-soft">
+                  <tr className="border-b border-sdm-border bg-sdm-surface-soft">
                     <td colSpan={5} className="px-4 py-3">
                       {detailLoading ? <Loader2 className="h-4 w-4 animate-spin text-sdm-accent" /> : runDetail ? (
                         <div className="space-y-2">
@@ -164,7 +165,7 @@ export default function AdminDiagnosticsPage() {
                     </td>
                   </tr>
                 )}
-              </>
+              </React.Fragment>
             ))}
           </tbody>
         </table>
