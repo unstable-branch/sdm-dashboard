@@ -61,6 +61,7 @@ export const modelConfigSchema = z.object({
   worldclimDir: z.string().default("Worldclim"),
   worldclimRes: z.number().default(10),
   source: z.enum(["worldclim", "chelsa"]).default("worldclim"),
+  analysisCrs: z.string().default("auto"),
   chelsaExtras: z.array(z.string()).default([]),
   cleanedFilePath: z.string().min(1).optional(),
   multiEnsembleModels: z.array(z.string()).optional(),

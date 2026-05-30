@@ -11,7 +11,7 @@ export const resultsRoutes = new Hono<AppEnv>();
 
 resultsRoutes.use("*", authMiddleware);
 
-const appDir = process.cwd();
+const appDir = process.env.SDM_PROJECT_ROOT || resolve(process.cwd(), "..");
 const resultRoot = resolve(appDir, "outputs", "jobs");
 
 function resolveResultFilePath(filePath: string): { fullPath: string; runId: string } | null {

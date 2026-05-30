@@ -154,7 +154,13 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
 
   ok <- complete_ok & finite_ok & bounds_ok & status_ok & uncertainty_ok
   removed_bad <- sum(!ok)
+  n_na <- sum(!complete_ok)
+  n_nonfinite <- sum(complete_ok & !finite_ok)
+  n_out_of_bounds <- sum(complete_ok & finite_ok & !bounds_ok)
   occ <- occ[ok, , drop = FALSE]
+  if (n_na > 0) log_message(log_fun, "  Removed ", n_na, " records with NA coordinates")
+  if (n_nonfinite > 0) log_message(log_fun, "  Removed ", n_nonfinite, " records with non-finite coordinates")
+  if (n_out_of_bounds > 0) log_message(log_fun, "  Removed ", n_out_of_bounds, " records outside [-180,180] / [-90,90]")
 
   duplicated_rows <- duplicated(occ[, c("longitude", "latitude", "source")])
   removed_dupes <- sum(duplicated_rows)
@@ -268,6 +274,7 @@ make_training_extent <- function(occ, buffer = 2) {
     ymin <- max(-90, ymin - 0.5)
     ymax <- min(90, ymax + 0.5)
   }
+  validate_extent(c(xmin, xmax, ymin, ymax), "training_extent")
   c(xmin, xmax, ymin, ymax)
 }
 

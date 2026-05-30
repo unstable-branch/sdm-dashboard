@@ -89,7 +89,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
 
     # Export necessary functions to workers
     parallel::clusterExport(cl, c("predict_single_component", "multi_ensemble_component_path",
-      "log_message", "normalize_core_count"), envir = environment())
+      "log_message", "normalize_core_count", "get_sdm_model", "predict_sdm_model"), envir = environment())
     parallel::clusterEvalQ(cl, library(terra))
 
     standalone_results <- parallel::parLapply(cl, standalone_names, function(m) {
@@ -185,7 +185,10 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   rm(ensemble_median)
   gc(verbose = FALSE)
 
-  weighted_layers <- mapply(function(pred, wi) pred * wi, preds, weights[names(preds)], SIMPLIFY = FALSE)
+  active_weights <- weights[names(preds)]
+  active_weights <- active_weights / sum(active_weights, na.rm = TRUE)
+  active_weights[!is.finite(active_weights)] <- 0
+  weighted_layers <- mapply(function(pred, wi) pred * wi, preds, active_weights, SIMPLIFY = FALSE)
   ensemble_weighted <- Reduce("+", weighted_layers)
   names(ensemble_weighted) <- "suitability"
   terra::writeRaster(ensemble_weighted, output_tif,
@@ -198,7 +201,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
 
   binary_preds <- lapply(seq_along(preds), function(i) {
     mid <- names(preds)[i]
-    comp_thresh <- if (!is.null(cv_list[[i]]) && !is.null(cv_list[[i]]$threshold)) cv_list[[i]]$threshold else 0.5
+    comp_thresh <- if (!is.null(cv_list[[i]]) && !is.null(cv_list[[i]]$threshold)) cv_list[[i]]$threshold else sdm_default_threshold
     thresh <- user_threshold %||% comp_thresh
     preds[[mid]] >= thresh
   })

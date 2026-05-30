@@ -24,6 +24,11 @@ fit_esm <- function(occ,
       "Install with: install.packages('biomod2')"
     )
   }
+  if (!biomod2_is_supported()) {
+    msg <- "biomod2 version not supported by this project. Tested range: 4.2-5 to 4.2-99"
+    warning(msg)
+    log_message(log_fun, msg)
+  }
 
   set.seed(seed)
 
@@ -224,6 +229,9 @@ predict_esm_suitability <- function(fit, env_project_scaled,
                                     log_fun = NULL) {
   log_message(log_fun, "ESM: projecting suitability...")
 
+  # Note: ecospat's ESM functions require a data.frame, not a SpatRaster.
+  # This loads all raster values into memory — for large extents this may OOM.
+  # terra::predict (chunked) cannot be used here due to ecospat's API design.
   env_df <- as.data.frame(terra::values(env_project_scaled))
   env_df <- env_df[, fit$covariates, drop = FALSE]
 
@@ -244,7 +252,8 @@ predict_esm_suitability <- function(fit, env_project_scaled,
   tryCatch({
     pair_preds <- proj_out$proj[fit$model$esm_ensemble$models.kept, , drop = FALSE]
     if (!is.null(pair_preds) && nrow(pair_preds) > 1) {
-      pair_sd_values <- matrixStats::colSds(as.matrix(pair_preds), na.rm = TRUE) / 1000
+      pair_sd_values <- matrixStats::colSds(as.matrix(pair_preds), na.rm = TRUE)
+      if (max(pair_sd_values, na.rm = TRUE) > 1) pair_sd_values <- pair_sd_values / 1000
       pair_sd <- terra::setValues(template, pmin(1, pmax(0, pair_sd_values)))
       names(pair_sd) <- "esm_pair_sd"
     }
@@ -263,13 +272,10 @@ predict_esm_suitability <- function(fit, env_project_scaled,
     log_message(log_fun, "ESM between-pair uncertainty written to: ", pair_sd_tif)
   }
 
-  # ecospat outputs suitability values in 0-1000 range; convert to 0-1
-  # If ecospat changes this in a future version, the clamp below catches it
-  suit_values <- unname(ens_proj) / 1000
-  # Safety: detect if values are already 0-1 (future ecospat version)
-  if (max(suit_values, na.rm = TRUE) <= 1.01 && min(suit_values, na.rm = TRUE) >= -0.01) {
-    # Already 0-1 range, skip division
-    suit_values <- unname(ens_proj)
+  # ecospat outputs suitability values in 0-1000 range (v3) or 0-1 range (v4)
+  suit_values <- unname(ens_proj)
+  if (max(suit_values, na.rm = TRUE) > 1) {
+    suit_values <- suit_values / 1000
   }
   suit_values <- pmin(1, pmax(0, suit_values))
   suit_raster <- terra::setValues(template, suit_values)

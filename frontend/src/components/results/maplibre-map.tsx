@@ -1,8 +1,11 @@
 "use client";
 
+import { useMemo } from "react";
 import { Map, Source, Layer } from "react-map-gl/maplibre";
 import type { ViewState } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { densifyGeoJSONFeature } from "@/lib/geodesic";
+import type { FeatureCollection } from "geojson";
 
 const CARTO_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
@@ -71,12 +74,29 @@ interface MaplibreMapProps {
   theme: string | undefined;
   initialViewState?: Partial<ViewState>;
   coordinates?: [[number, number], [number, number], [number, number], [number, number]];
+  eooGeoJSON?: FeatureCollection | null;
+  aooGeoJSON?: FeatureCollection | null;
 }
 
-export default function MaplibreMap({ pngUrl, theme, initialViewState, coordinates }: MaplibreMapProps) {
+export default function MaplibreMap({ pngUrl, theme, initialViewState, coordinates, eooGeoJSON, aooGeoJSON }: MaplibreMapProps) {
   const mapStyle = theme === "dark" ? DARK_STYLE : LIGHT_STYLE;
   const viewState = initialViewState ?? DEFAULT_VIEW;
   const coords = coordinates ?? DEFAULT_COORDS;
+
+  const densifiedEoo = useMemo(() => {
+    if (!eooGeoJSON) return null;
+    const feat = eooGeoJSON.features[0];
+    if (!feat) return null;
+    return densifyGeoJSONFeature(feat, 20);
+  }, [eooGeoJSON]);
+
+  const densifiedAoo = useMemo(() => {
+    if (!aooGeoJSON) return null;
+    return {
+      ...aooGeoJSON,
+      features: aooGeoJSON.features.map((f) => densifyGeoJSONFeature(f, 5)),
+    } as FeatureCollection;
+  }, [aooGeoJSON]);
 
   return (
     <Map
@@ -98,6 +118,46 @@ export default function MaplibreMap({ pngUrl, theme, initialViewState, coordinat
           paint={{ "raster-opacity": 0.7 }}
         />
       </Source>
+
+      {densifiedAoo && (
+        <Source id="aoo-grid" type="geojson" data={densifiedAoo}>
+          <Layer
+            id="aoo-grid-fill"
+            type="fill"
+            paint={{
+              "fill-color": theme === "dark" ? "#fbbf24" : "#f59e0b",
+              "fill-opacity": 0.25,
+              "fill-outline-color": theme === "dark" ? "#fbbf24" : "#d97706",
+            }}
+          />
+        </Source>
+      )}
+
+      {densifiedEoo && (
+        <Source id="eoo-polygon" type="geojson" data={{
+          type: "FeatureCollection",
+          features: [densifiedEoo as GeoJSON.Feature],
+        }}>
+          <Layer
+            id="eoo-polygon-fill"
+            type="fill"
+            paint={{
+              "fill-color": theme === "dark" ? "#ef4444" : "#dc2626",
+              "fill-opacity": 0.08,
+            }}
+          />
+          <Layer
+            id="eoo-polygon-outline"
+            type="line"
+            paint={{
+              "line-color": theme === "dark" ? "#ef4444" : "#dc2626",
+              "line-width": 2,
+              "line-opacity": 0.8,
+              "line-dasharray": [4, 3],
+            }}
+          />
+        </Source>
+      )}
     </Map>
   );
 }

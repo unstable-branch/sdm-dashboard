@@ -50,7 +50,7 @@ opentopo_api_key <- function(api_key = NULL) {
 
 opentopo_globaldem_url <- function(extent_vec, demtype = sdm_default_elevation_demtype, api_key = NULL) {
   key <- opentopo_api_key(api_key)
-  if (!nzchar(key)) stop("Missing OpenTopography API key.", call. = FALSE)
+  if (!nzchar(key)) return(NA_character_)
   params <- list(
     demtype = demtype,
     south = extent_vec[3],
@@ -93,6 +93,7 @@ opentopo_tile_extents <- function(extent_vec, demtype = sdm_default_elevation_de
 
 download_opentopo_tile <- function(tile_extent, demtype, api_key, destfile, max_retries = 3) {
   url <- opentopo_globaldem_url(tile_extent, demtype = demtype, api_key = api_key)
+  if (is.na(url)) stop("OpenTopography API key is required to download DEM data.", call. = FALSE)
   last_error <- NULL
   for (attempt in seq_len(max_retries)) {
     result <- suppressWarnings(try(utils::download.file(url, destfile, mode = "wb", quiet = TRUE), silent = TRUE))

@@ -64,6 +64,7 @@ sdm_config <- function(...) {
     cleaned_occurrence = NULL,
     output_dir = sdm_default_output_dir,
     seed = sdm_default_seed,
+    analysis_crs = sdm_default_analysis_crs,
     occurrence_source = NULL,
     gbif_doi = NULL,
     log_fun = NULL,

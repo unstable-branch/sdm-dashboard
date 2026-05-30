@@ -521,6 +521,7 @@ function(req, file_id, species_filter = NULL, max_coord_uncertainty_m = NULL, ba
 #* @param pa_replicates
 #* @param thickening_distance_km
 #* @param output_dir
+#* @param analysis_crs
 function(req) {
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody),
@@ -1274,7 +1275,11 @@ function() {
     cv_folds = sdm_default_cv_folds,
     cv_strategy = sdm_default_cv_strategy,
     threshold = sdm_default_threshold,
-    extent_presets = sdm_extent_choices
+    extent_presets = sdm_extent_choices,
+    analysis_crs = sdm_default_analysis_crs,
+    analysis_crs_choices = lapply(seq_along(sdm_analysis_crs_choices), function(i) {
+      list(value = unname(sdm_analysis_crs_choices[i]), label = names(sdm_analysis_crs_choices)[i])
+    })
   )
 }
 

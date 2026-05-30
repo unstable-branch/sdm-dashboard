@@ -124,6 +124,10 @@ sdmRoutes.post("/run", async (c) => {
           worldclim_dir: config.worldclimDir,
           worldclim_res: config.worldclimRes,
           source: config.source,
+          analysis_crs: config.analysisCrs,
+          future_worldclim_dir2: config.futureWorldclimDir2,
+          future_label2: config.futureLabel2,
+          chelsa_extras: config.chelsaExtras,
         },
       }, user.id);
 
@@ -200,6 +204,10 @@ sdmRoutes.post("/run", async (c) => {
       worldclim_dir: config.worldclimDir,
       worldclim_res: config.worldclimRes,
       source: config.source,
+      analysis_crs: config.analysisCrs,
+      future_worldclim_dir2: config.futureWorldclimDir2,
+      future_label2: config.futureLabel2,
+      chelsa_extras: config.chelsaExtras,
     });
 
     const plumberJobId = (result as any).job_id;

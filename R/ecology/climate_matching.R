@@ -33,7 +33,7 @@ compute_climate_match <- function(env_train, env_proj,
       n_cells <- terra::ncell(env_train)
       sample_size <- min(5000, max(1000, ceiling(n_cells * 0.01)))
       if (n_cells > sample_size) {
-        set.seed(42)
+        set.seed(sdm_default_seed)
         sample_cells <- sample(n_cells, size = sample_size)
         sample_xy <- terra::xyFromCell(env_train[[1]], sample_cells)
         train_vals <- as.data.frame(terra::extract(env_train, sample_xy))

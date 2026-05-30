@@ -162,9 +162,10 @@ continuous_boyce_index <- function(pres_suit, bg_suit, n_bins = 101, win = 0.1) 
 compute_projection_metrics <- function(suit_raster, train_presence_suit,
                                        threshold, n_bg_samples = 1000L,
                                        validation_occ = NULL,
+                                       seed = 42,
                                        log_fun = NULL) {
   bb <- terra::ext(suit_raster)
-  set.seed(42)
+  set.seed(seed)
   bg_xy <- data.frame(
     x = runif(n_bg_samples, bb$xmin, bb$xmax),
     y = runif(n_bg_samples, bb$ymin, bb$ymax)

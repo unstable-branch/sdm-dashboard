@@ -15,7 +15,6 @@ find_optimal_threshold <- function(obs, pred) {
     return(0.5)
   }
   candidates <- sort(unique(pred))
-  if (length(candidates) > 2) candidates <- candidates[2:(length(candidates) - 1)]
   best_threshold <- 0.5
   best_tss <- -Inf
   n_presence <- sum(obs == 1)
