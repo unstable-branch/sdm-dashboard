@@ -646,6 +646,10 @@ run_fast_sdm <- function(...) {
     extra_paths$multi_ens_committee_tif <- attr(suit, "ensemble_committee_tif")
     sd_tif <- attr(suit, "ensemble_sd_tif")
     if (!is.null(sd_tif)) extra_paths$multi_ens_sd_tif <- sd_tif
+    cpaths <- attr(suit, "component_paths")
+    if (!is.null(cpaths) && !is.null(cpaths[["disagreement"]])) {
+      extra_paths$multi_ens_disagreement_tif <- cpaths[["disagreement"]]
+    }
   }
 
   if (isTRUE(future_projection)) {
