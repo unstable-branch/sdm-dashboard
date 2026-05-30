@@ -3,9 +3,12 @@
 import dynamic from "next/dynamic";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import type { ViewState } from "react-map-gl/maplibre";
 
 interface SuitabilityMapProps {
   outputFiles: Record<string, string> | null;
+  initialViewState?: Partial<ViewState>;
+  coordinates?: [[number, number], [number, number], [number, number], [number, number]];
 }
 
 function MapPlaceholder() {
@@ -21,7 +24,7 @@ const DynamicMap = dynamic(() => import("./maplibre-map"), {
   loading: () => <MapPlaceholder />,
 });
 
-export function SuitabilityMap({ outputFiles }: SuitabilityMapProps) {
+export function SuitabilityMap({ outputFiles, initialViewState, coordinates }: SuitabilityMapProps) {
   const { theme } = useTheme();
   const [pngUrl, setPngUrl] = useState<string | null>(null);
 
@@ -42,7 +45,7 @@ export function SuitabilityMap({ outputFiles }: SuitabilityMapProps) {
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
       <div className="relative h-[60vh]">
-        <DynamicMap pngUrl={pngUrl} theme={theme} />
+        <DynamicMap pngUrl={pngUrl} theme={theme} initialViewState={initialViewState} coordinates={coordinates} />
       </div>
       <div className="px-4 py-2 border-t border-sdm-border flex items-center justify-between text-xs text-sdm-muted">
         <span>Suitability raster</span>
