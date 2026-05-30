@@ -652,7 +652,7 @@ function(res, job_id) {
   progress_lines <- character(0)
   last_stage <- NULL
   if (file.exists(progress_file)) {
-    progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
+    progress_lines <- tail(readLines(progress_file, warn = FALSE), 200)
     for (line in rev(progress_lines)) {
       stage <- gsub("^\\d{2}:\\d{2}:\\d{2}\\s*(\\[\\d+%\\]\\s*)?", "", line)
       stage <- trimws(stage)
