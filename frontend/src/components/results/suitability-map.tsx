@@ -61,7 +61,13 @@ export function SuitabilityMap({ outputFiles, initialViewState, coordinates, eoo
         console.error("[SuitabilityMap] Failed to load PNG:", err);
         if (!cancelled) { setPngUrl(null); setLoading(false); }
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
   }, [outputFiles]);
 
   if (loading) {
@@ -117,7 +123,10 @@ export function SuitabilityMap({ outputFiles, initialViewState, coordinates, eoo
           <button
             onClick={() => {
               fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(outputFiles.tif)}`)
-                .then((res) => res.blob())
+                .then((res) => {
+                  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+                  return res.blob();
+                })
                 .then((blob) => {
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
@@ -125,6 +134,9 @@ export function SuitabilityMap({ outputFiles, initialViewState, coordinates, eoo
                   a.download = outputFiles.tif.split("/").pop() || "suitability.tif";
                   a.click();
                   URL.revokeObjectURL(url);
+                })
+                .catch((err) => {
+                  console.error("[SuitabilityMap] Download TIFF failed:", err);
                 });
             }}
             className="text-sdm-accent hover:underline cursor-pointer bg-transparent border-none text-xs"

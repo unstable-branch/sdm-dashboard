@@ -1,6 +1,8 @@
 import { Hono } from "hono";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, createReadStream, readFileSync } from "fs";
 import { isAbsolute, join, relative, resolve } from "path";
+import { Readable } from "stream";
+import { stat } from "fs/promises";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
@@ -76,11 +78,23 @@ resultsRoutes.get("/file/:filePath", async (c) => {
                       ext === "csv" ? "text/csv" :
                       "application/octet-stream";
 
+  const fileStats = await stat(fullPath);
+  const etag = `W/"${fileStats.size}-${fileStats.mtimeMs}"`;
+
   c.header("Content-Type", contentType);
   c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
+  c.header("ETag", etag);
+  c.header("Cache-Control", "public, max-age=3600");
 
-  const buffer = readFileSync(fullPath);
-  return c.body(buffer);
+  if (c.req.header("If-None-Match") === etag) {
+    return c.body(null, 304);
+  }
+
+  const stream = createReadStream(fullPath);
+  stream.on("error", (err) => {
+    console.error("[results] File stream error:", err);
+  });
+  return c.body(Readable.toWeb(stream) as ReadableStream);
 });
 
 resultsRoutes.get("/:id", async (c) => {
