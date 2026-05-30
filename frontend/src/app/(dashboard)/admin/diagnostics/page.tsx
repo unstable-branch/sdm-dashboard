@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import React from "react";
 import { apiGet, apiPost } from "@/services/api";
-import { Loader2, AlertCircle, CheckCircle2, Clock, XCircle, Play, RefreshCw } from "lucide-react";
+import { Loader2, AlertCircle, CheckCircle2, Clock, XCircle, Play, RefreshCw, Ellipsis } from "lucide-react";
 
 interface RunRecord {
   id: string;
@@ -11,6 +11,7 @@ interface RunRecord {
   modelId: string | null;
   status: string;
   jobId: string | null;
+  lastStage: string | null;
   error: string | null;
   startedAt: string | null;
   completedAt: string | null;
@@ -119,6 +120,7 @@ export default function AdminDiagnosticsPage() {
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Species</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Model</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Job ID</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Progress</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Created</th>
             </tr>
           </thead>
@@ -131,11 +133,23 @@ export default function AdminDiagnosticsPage() {
                   <td className="px-4 py-2 text-xs text-sdm-text">{r.speciesName || "-"}</td>
                   <td className="px-4 py-2 text-xs text-sdm-muted font-mono">{r.modelId || "-"}</td>
                   <td className="px-4 py-2 text-xs text-sdm-muted font-mono">{r.jobId || "-"}</td>
+                  <td className="px-4 py-2 text-xs">
+                    {r.status === "running" ? (
+                      <span className="flex items-center gap-1.5 text-sdm-accent">
+                        <Ellipsis className="h-3.5 w-3.5 animate-pulse" />
+                        <span className="truncate max-w-[200px]">{r.lastStage || "Running..."}</span>
+                      </span>
+                    ) : r.lastStage ? (
+                      <span className="text-sdm-text">{r.lastStage}</span>
+                    ) : (
+                      <span className="text-sdm-muted">-</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-xs text-sdm-muted">{new Date(r.createdAt).toLocaleString()}</td>
                 </tr>
                 {expandedRun === r.id && (
                   <tr className="border-b border-sdm-border bg-sdm-surface-soft">
-                    <td colSpan={5} className="px-4 py-3">
+                    <td colSpan={6} className="px-4 py-3">
                       {detailLoading ? <Loader2 className="h-4 w-4 animate-spin text-sdm-accent" /> : runDetail ? (
                         <div className="space-y-2">
                           <div className="grid grid-cols-2 gap-4">
