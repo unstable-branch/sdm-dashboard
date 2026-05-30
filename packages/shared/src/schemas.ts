@@ -70,6 +70,7 @@ export const modelConfigSchema = z.object({
   multiEnsembleMinAuc: z.number().min(0.5).max(1).default(0.7).optional(),
   multiEnsembleMinTss: z.number().min(0).max(1).default(0.5).optional(),
   multiEnsembleExport: z.boolean().default(true).optional(),
+  multiEnsembleUncertainty: z.boolean().default(true).optional(),
   biomod2Models: z.array(z.string()).optional(),
   esmNRuns: z.number().int().min(2).max(100).default(5).optional(),
   esmSplit: z.number().int().min(50).max(90).default(70).optional(),

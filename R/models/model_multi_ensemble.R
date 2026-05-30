@@ -106,7 +106,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     for (m in standalone_names) {
       if (!is.null(standalone_results[[m]])) {
         preds[[m]] <- standalone_results[[m]]
-        if (export_components) component_paths[[paste0("multi_ens_comp_", m)]] <- multi_ensemble_component_path(output_tif, m)
+        if (export_components) component_paths[[m]] <- multi_ensemble_component_path(output_tif, m)
       } else {
         failed_components <- c(failed_components, m)
       }
@@ -129,7 +129,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
         next
       }
       preds[[m]] <- pred_result
-      if (export_components) component_paths[[paste0("multi_ens_comp_", m)]] <- comp_tif
+      if (export_components) component_paths[[m]] <- comp_tif
     }
   }
 
@@ -150,7 +150,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
       next
     }
     preds[[m]] <- pred_result
-    if (export_components) component_paths[[paste0("multi_ens_comp_", m)]] <- comp_tif
+    if (export_components) component_paths[[m]] <- comp_tif
   }
 
   if (length(failed_components) > 0) {
@@ -239,7 +239,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     overwrite = TRUE,
     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
   )
-  component_paths$multi_ens_disagreement_tif <- disagreement_tif
+  component_paths$disagreement <- disagreement_tif
   rm(disagreement)
   gc(verbose = FALSE)
 
@@ -517,9 +517,13 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     cv = list(
       k = if (length(component_k) > 0) max(component_k, na.rm = TRUE) else NA_integer_,
       auc_mean = auc_weighted,
-      auc_sd = NA_real_,
+      auc_sd = if (!is.null(component_metrics_df) && nrow(component_metrics_df) > 1 && "auc" %in% names(component_metrics_df)) {
+        sd(component_metrics_df$auc, na.rm = TRUE)
+      } else NA_real_,
       tss_mean = tss_weighted,
-      tss_sd = NA_real_,
+      tss_sd = if (!is.null(component_metrics_df) && nrow(component_metrics_df) > 1 && "tss" %in% names(component_metrics_df)) {
+        sd(component_metrics_df$tss, na.rm = TRUE)
+      } else NA_real_,
       component_metrics = component_metrics_df,
       component_cv = cv_list,
       component_k = component_k
