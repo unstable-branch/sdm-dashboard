@@ -80,6 +80,7 @@ export default function MaplibreMap({ pngUrl, theme, initialViewState, coordinat
 
   return (
     <Map
+      key={coords[0][0].toFixed(1) + coords[0][1].toFixed(1)}
       initialViewState={viewState}
       style={{ width: "100%", height: "100%" }}
       mapStyle={mapStyle}

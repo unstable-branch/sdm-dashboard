@@ -9,7 +9,7 @@ import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
 import { OdmapViewer } from "@/components/results/odmap-viewer";
 import { ArrowLeft, Loader2, Download } from "lucide-react";
-import { apiGet } from "@/services/api";
+import { apiGet, fetchWithAuth } from "@/services/api";
 import type { RunDetail } from "@/services/types";
 import type { ViewState } from "react-map-gl/maplibre";
 
@@ -54,20 +54,20 @@ export default function ResultsPage() {
           setRun(data);
           setLoading(false);
           if (data.status === "completed") {
-            fetch(`/api/v1/results/${runId}/report.txt`)
+            fetchWithAuth(`/api/v1/results/${runId}/report.txt`)
               .then((res) => res.ok ? res.text() : null)
               .then((text) => { if (!cancelled) setReportText(text); })
               .catch(() => {});
             const odmapMdPath = data.output_files?.odmap_report_md;
             const odmapCsvPath = data.output_files?.odmap_report_csv;
             if (odmapMdPath) {
-              fetch(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`)
+              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`)
                 .then((res) => res.ok ? res.text() : null)
                 .then((text) => { if (!cancelled) setOdmapMd(text); })
                 .catch(() => {});
             }
             if (odmapCsvPath) {
-              fetch(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`)
+              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`)
                 .then((res) => res.ok ? res.text() : null)
                 .then((text) => { if (!cancelled) setOdmapCsv(text); })
                 .catch(() => {});

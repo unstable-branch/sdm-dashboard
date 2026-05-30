@@ -116,7 +116,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="cv" className="space-y-4">
-        <TabsList className="grid grid-cols-9 w-full max-w-4xl">
+        <TabsList className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 w-full max-w-4xl">
           <TabsTrigger value="cv" className="text-xs">CV Folds</TabsTrigger>
           <TabsTrigger value="importance" className="text-xs">Importance</TabsTrigger>
           <TabsTrigger value="curves" className="text-xs">Response Curves</TabsTrigger>
