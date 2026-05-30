@@ -32,13 +32,15 @@ export default function ModelPage() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStartTime, setJobStartTime] = useState<string | null>(null);
   const [activeRuns, setActiveRuns] = useState<ActiveRun[]>([]);
+  const [autoRedirect, setAutoRedirect] = useState(false);
+  const [redirectCountdown, setRedirectCountdown] = useState(8);
   const [checkingRuns, setCheckingRuns] = useState(true);
   const [runRefreshKey, setRunRefreshKey] = useState(0);
   const activeRunsRef = useRef(activeRuns.length);
   activeRunsRef.current = activeRuns.length;
 
   // SSE-driven active run tracking — no polling needed
-  const { getJob } = useJobSSE(true);
+  useJobSSE(true);
 
   const fetchActiveRuns = useCallback(async () => {
     try {
@@ -93,13 +95,30 @@ export default function ModelPage() {
     }
   };
 
-  const handleJobComplete = () => {
+  const handleJobComplete = (_result: Record<string, unknown>) => {
     fetchActiveRuns();
+    setAutoRedirect(true);
+    setRedirectCountdown(8);
+  };
+
+  useEffect(() => {
+    if (!autoRedirect || !jobId) return;
+    if (redirectCountdown <= 0) {
+      router.push(`/results/${jobId}`);
+      return;
+    }
+    const timer = setTimeout(() => setRedirectCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [autoRedirect, redirectCountdown, jobId, router]);
+
+  const handleCancelRedirect = () => {
+    setAutoRedirect(false);
   };
 
   const handleDismissJob = () => {
     setJobId(null);
     setJobStartTime(null);
+    setAutoRedirect(false);
     fetchActiveRuns();
   };
 
@@ -190,7 +209,28 @@ export default function ModelPage() {
 
           {jobId && (
             <div className="mt-4">
-              <JobProgress jobId={jobId} startTime={jobStartTime ?? undefined} onComplete={handleJobComplete} onDismiss={handleDismissJob} />
+              <JobProgress
+                jobId={jobId}
+                startTime={jobStartTime ?? undefined}
+                onComplete={handleJobComplete}
+                onDismiss={handleDismissJob}
+                completedActions={
+                  autoRedirect && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-sdm-muted">
+                        Auto-navigating to results in {redirectCountdown}s
+                        <button onClick={handleCancelRedirect} className="ml-2 underline hover:text-sdm-text">Cancel</button>
+                      </span>
+                      <Link
+                        href={`/results/${jobId}`}
+                        className="inline-flex items-center gap-1 rounded bg-sdm-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-sdm-accent/90"
+                      >
+                        View Results →
+                      </Link>
+                    </div>
+                  )
+                }
+              />
             </div>
           )}
         </div>
