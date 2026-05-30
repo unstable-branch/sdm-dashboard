@@ -3,6 +3,17 @@ import { plumberClient } from "../services/plumber.js";
 
 export const ecologyRoutes = new Hono();
 
+ecologyRoutes.post("/niche-overlap", async (c) => {
+  try {
+    const body = await c.req.json();
+    const data = await plumberClient.postNicheOverlap(body);
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Niche overlap computation failed";
+    return c.json({ error: message }, 502);
+  }
+});
+
 ecologyRoutes.get("/:runId", async (c) => {
   try {
     const runId = c.req.param("runId");

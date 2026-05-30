@@ -258,6 +258,19 @@ export class PlumberClient {
     return res.json();
   }
 
+  async postNicheOverlap(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/ecology/niche-overlap`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as Record<string, unknown>).error as string || `Niche overlap failed: ${res.status}`);
+    }
+    return res.json();
+  }
+
   async getEcologyReport(runId: string): Promise<string> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/ecology/${runId}/report`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get ecology report: ${res.status}`);

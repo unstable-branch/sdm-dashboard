@@ -1,6 +1,7 @@
 "use client";
 
 import { Map, Source, Layer } from "react-map-gl/maplibre";
+import type { ViewState } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const CARTO_ATTRIBUTION =
@@ -52,13 +53,13 @@ const DARK_STYLE = {
   ],
 };
 
-const AUSTRALIA_BOUNDS = {
+const DEFAULT_VIEW: Partial<ViewState> = {
   longitude: 133,
   latitude: -27,
   zoom: 4,
 };
 
-const SUITABILITY_COORDS: [[number, number], [number, number], [number, number], [number, number]] = [
+const DEFAULT_COORDS: [[number, number], [number, number], [number, number], [number, number]] = [
   [112, -10],
   [154, -10],
   [154, -44],
@@ -68,14 +69,18 @@ const SUITABILITY_COORDS: [[number, number], [number, number], [number, number],
 interface MaplibreMapProps {
   pngUrl: string;
   theme: string | undefined;
+  initialViewState?: Partial<ViewState>;
+  coordinates?: [[number, number], [number, number], [number, number], [number, number]];
 }
 
-export default function MaplibreMap({ pngUrl, theme }: MaplibreMapProps) {
+export default function MaplibreMap({ pngUrl, theme, initialViewState, coordinates }: MaplibreMapProps) {
   const mapStyle = theme === "dark" ? DARK_STYLE : LIGHT_STYLE;
+  const viewState = initialViewState ?? DEFAULT_VIEW;
+  const coords = coordinates ?? DEFAULT_COORDS;
 
   return (
     <Map
-      initialViewState={AUSTRALIA_BOUNDS}
+      initialViewState={viewState}
       style={{ width: "100%", height: "100%" }}
       mapStyle={mapStyle}
       maxZoom={18}
@@ -84,7 +89,7 @@ export default function MaplibreMap({ pngUrl, theme }: MaplibreMapProps) {
         id="suitability"
         type="image"
         url={pngUrl}
-        coordinates={SUITABILITY_COORDS}
+        coordinates={coords}
       >
         <Layer
           id="suitability-overlay"
