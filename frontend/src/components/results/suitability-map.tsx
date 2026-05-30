@@ -73,9 +73,23 @@ export function SuitabilityMap({ outputFiles, initialViewState, coordinates, eoo
       <div className="px-4 py-2 border-t border-sdm-border flex items-center justify-between text-xs text-sdm-muted">
         <span>Suitability raster</span>
         {outputFiles?.tif && (
-          <a href={`/api/v1/results/file/${encodeURIComponent(outputFiles.tif)}`} className="text-sdm-accent hover:underline">
+          <button
+            onClick={() => {
+              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(outputFiles.tif)}`)
+                .then((res) => res.blob())
+                .then((blob) => {
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = outputFiles.tif.split("/").pop() || "suitability.tif";
+                  a.click();
+                  URL.revokeObjectURL(url);
+                });
+            }}
+            className="text-sdm-accent hover:underline cursor-pointer bg-transparent border-none text-xs"
+          >
             Download GeoTIFF
-          </a>
+          </button>
         )}
       </div>
     </div>
