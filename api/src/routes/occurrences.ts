@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { writeFileSync, mkdirSync, existsSync, accessSync, constants } from "fs";
+import { mkdirSync, existsSync, accessSync, constants, promises as fs } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { plumberClient } from "../services/plumber.js";
@@ -17,7 +17,7 @@ const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, "../../..");
 const UPLOAD_DIR = join(PROJECT_ROOT, "data", "uploads");
 
-function saveUpload(buffer: Buffer, originalName: string): string {
+async function saveUpload(buffer: Buffer, originalName: string): Promise<string> {
   if (!existsSync(UPLOAD_DIR)) {
     mkdirSync(UPLOAD_DIR, { recursive: true });
   }
@@ -32,7 +32,7 @@ function saveUpload(buffer: Buffer, originalName: string): string {
   const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
   const ts = new Date().toISOString().replace(/[:.]/g, "").replace("T", "_").slice(0, 15);
   const destPath = join(UPLOAD_DIR, `${ts}_${safeName}`);
-  writeFileSync(destPath, buffer);
+  await fs.writeFile(destPath, buffer);
   return destPath;
 }
 
@@ -72,8 +72,13 @@ dataRoutes.post("/occurrences/upload", async (c) => {
       }, 413);
     }
 
+    const allowedTypes = ["text/csv", "text/tab-separated-values", "application/zip", "text/plain", "application/json"];
+    if (!allowedTypes.includes(file.type) && !file.name.endsWith(".csv") && !file.name.endsWith(".tsv") && !file.name.endsWith(".txt") && !file.name.endsWith(".zip") && !file.name.endsWith(".geojson")) {
+      return c.json({ error: `Unsupported file type: ${file.type}. Accepted: CSV, TSV, TXT, ZIP, GeoJSON.` }, 400);
+    }
+
     const buffer = Buffer.from(await file.arrayBuffer());
-    const destPath = saveUpload(buffer, file.name);
+    const destPath = await saveUpload(buffer, file.name);
 
     const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
 
