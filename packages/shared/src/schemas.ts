@@ -38,6 +38,9 @@ export const modelConfigSchema = z.object({
   futureProjection: z.boolean().default(false),
   futureWorldclimDir: z.string().optional(),
   futureLabel: z.string().default("Future climate"),
+  futureProjection2: z.boolean().default(false).optional(),
+  futureWorldclimDir2: z.string().optional(),
+  futureLabel2: z.string().default("Future climate 2").optional(),
   vifReduction: z.boolean().default(false),
   vifThreshold: z.number().min(1).max(20).default(10),
   climateMatching: z.boolean().default(false),
@@ -47,6 +50,7 @@ export const modelConfigSchema = z.object({
   minSourceRecords: z.number().int().min(1).max(100).default(15),
   biasMethod: z.enum(["uniform", "target_group", "thickened"]).default("uniform"),
   thickeningDistanceKm: z.number().min(1).max(100).default(10),
+  targetGroupFile: z.string().optional(),
   paReplicates: z.number().int().min(1).max(10).default(1),
   maxnetFeatures: z.enum(["l", "lq", "lqp", "lqh", "lqpht"]).default("lqp"),
   maxnetRegmult: z.number().min(0.1).max(10).default(1.0),
@@ -59,6 +63,15 @@ export const modelConfigSchema = z.object({
   source: z.enum(["worldclim", "chelsa"]).default("worldclim"),
   chelsaExtras: z.array(z.string()).default([]),
   cleanedFilePath: z.string().min(1).optional(),
+  multiEnsembleModels: z.array(z.string()).optional(),
+  multiEnsembleWeighting: z.enum(["auc", "tss", "mean", "median", "committee"]).default("auc").optional(),
+  multiEnsemblePower: z.number().min(0.5).max(10).default(2).optional(),
+  multiEnsembleMinAuc: z.number().min(0.5).max(1).default(0.7).optional(),
+  multiEnsembleMinTss: z.number().min(0).max(1).default(0.5).optional(),
+  multiEnsembleExport: z.boolean().default(true).optional(),
+  biomod2Models: z.array(z.string()).optional(),
+  esmNRuns: z.number().int().min(2).max(100).default(5).optional(),
+  esmSplit: z.number().int().min(50).max(90).default(70).optional(),
 });
 
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
