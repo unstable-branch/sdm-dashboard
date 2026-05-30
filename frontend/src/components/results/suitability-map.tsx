@@ -2,9 +2,10 @@
 
 import dynamic from "next/dynamic";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import type { ViewState } from "react-map-gl/maplibre";
 import type { FeatureCollection } from "geojson";
+import { fetchWithAuth } from "@/services/api";
 
 interface SuitabilityMapProps {
   outputFiles: Record<string, string> | null;
@@ -30,11 +31,30 @@ const DynamicMap = dynamic(() => import("./maplibre-map"), {
 export function SuitabilityMap({ outputFiles, initialViewState, coordinates, eooGeoJSON, aooGeoJSON }: SuitabilityMapProps) {
   const { theme } = useTheme();
   const [pngUrl, setPngUrl] = useState<string | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (outputFiles?.png) {
-      setPngUrl(`/api/v1/results/file/${encodeURIComponent(outputFiles.png)}`);
+    if (!outputFiles?.png) {
+      setPngUrl(null);
+      return;
     }
+    let cancelled = false;
+    const path = `/api/v1/results/file/${encodeURIComponent(outputFiles.png)}`;
+    fetchWithAuth(path)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      })
+      .then((blob) => {
+        if (!cancelled) {
+          if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+          const url = URL.createObjectURL(blob);
+          blobUrlRef.current = url;
+          setPngUrl(url);
+        }
+      })
+      .catch(() => { if (!cancelled) setPngUrl(null); });
+    return () => { cancelled = true; };
   }, [outputFiles]);
 
   if (!pngUrl) {
