@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/services/api";
 import { Loader2, Search, Plus, Trash2, Edit3, Key, X } from "lucide-react";
 
@@ -18,6 +18,8 @@ export default function AdminUsersPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<{ type: "create" | "edit" | "reset"; user?: UserRecord } | null>(null);
@@ -65,7 +67,14 @@ export default function AdminUsersPage() {
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-sdm-muted" />
-          <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          <input type="text" value={searchInput} onChange={(e) => {
+            setSearchInput(e.target.value);
+            if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+            searchTimerRef.current = setTimeout(() => {
+              setSearch(e.target.value);
+              setPage(1);
+            }, 300);
+          }}
             placeholder="Search by email..." className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft pl-9 pr-3 py-2 text-sm text-sdm-text focus:outline-none focus:ring-1 focus:ring-sdm-accent/50" />
         </div>
       </div>

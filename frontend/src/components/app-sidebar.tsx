@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { pipelineItems, systemItems, adminItems } from "@/components/dashboard-nav";
@@ -31,8 +32,11 @@ export function AppSidebar() {
   const { user } = useAuthStore();
   const isAdmin = user?.role === "admin";
   const { jobs } = useJobSSE(true);
-  const hasActiveJobs = Array.from(jobs.values()).some(
-    (j) => j.state === "active" || j.state === "waiting"
+  const hasActiveJobs = useMemo(
+    () => Array.from(jobs.values()).some(
+      (j) => j.state === "active" || j.state === "waiting"
+    ),
+    [jobs]
   );
 
   const isActive = (href: string) => {

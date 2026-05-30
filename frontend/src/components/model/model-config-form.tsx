@@ -92,6 +92,13 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [esmNRuns, setEsmNRuns] = useState(5);
   const [esmSplit, setEsmSplit] = useState(70);
 
+  const [elevationDemtype, setElevationDemtype] = useState(DEFAULT_CONFIG.elevationDemtype);
+  const [vegProducts, setVegProducts] = useState(DEFAULT_CONFIG.vegProducts);
+  const [vegProduct, setVegProduct] = useState(DEFAULT_CONFIG.vegProducts[0]);
+  const [lulcYear, setLulcYear] = useState(DEFAULT_CONFIG.lulcYear);
+  const [vifThreshold, setVifThreshold] = useState(DEFAULT_CONFIG.vifThreshold);
+  const [targetGroupFile, setTargetGroupFile] = useState<File | null>(null);
+
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
   const [missingBiovars, setMissingBiovars] = useState<number[]>([]);
@@ -226,11 +233,15 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       futureWorldclimDir2: futureProjection && futureProjection2 ? buildFutureWorldclimPath(futureGcm2, futureSsp2, futurePeriod2) : undefined,
       futureLabel2: futureProjection2 ? futureLabel2 : undefined,
       vifReduction,
+      vifThreshold: vifReduction ? vifThreshold : undefined,
+      elevationDemtype: useElevation ? elevationDemtype : undefined,
+      vegProducts: useVegetation ? [vegProduct] : undefined,
+      lulcYear: useLulc ? lulcYear : undefined,
+      biasMethod: biasMethod === "target_group" ? "uniform" : biasMethod,
       climateMatching,
       thinByCell,
       mergeSmallSources,
       minSourceRecords,
-      biasMethod,
       thickeningDistanceKm,
       paReplicates,
       maxnetFeatures,
@@ -501,7 +512,11 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <label className="block text-sm font-medium text-sdm-text mb-1">Climate source</label>
             <select
               value={climateSource}
-              onChange={(e) => setClimateSource(e.target.value as "worldclim" | "chelsa")}
+              onChange={(e) => {
+                const src = e.target.value as "worldclim" | "chelsa";
+                setClimateSource(src);
+                if (src === "chelsa") setClimateRes(0.5);
+              }}
               className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
             >
               <option value="worldclim">WorldClim v2.1</option>
@@ -515,9 +530,15 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
               onChange={(e) => setClimateRes(Number(e.target.value))}
               className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
             >
-              <option value={10}>10 arc-minutes (~20 km)</option>
-              <option value={5}>5 arc-minutes (~10 km)</option>
-              <option value={2.5}>2.5 arc-minutes (~5 km)</option>
+              {climateSource === "worldclim" ? (
+                <>
+                  <option value={10}>10 arc-minutes (~20 km)</option>
+                  <option value={5}>5 arc-minutes (~10 km)</option>
+                  <option value={2.5}>2.5 arc-minutes (~5 km)</option>
+                </>
+              ) : (
+                <option value={0.5}>30 arc-seconds (~1 km)</option>
+              )}
             </select>
           </div>
         </div>
@@ -767,8 +788,8 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             </label>
             {useElevation && (
               <select
-                value={DEFAULT_CONFIG.elevationDemtype}
-                onChange={(e) => {}}
+                value={elevationDemtype}
+                onChange={(e) => setElevationDemtype(e.target.value)}
                 className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text"
               >
                 {["COP90", "SRTMGL3", "AW3D30", "SRTMGL1"].map((d) => (
@@ -824,7 +845,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
               Add vegetation productivity
             </label>
             {useVegetation && (
-              <select className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text">
+              <select value={vegProduct} onChange={(e) => setVegProduct(e.target.value)} className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text">
                 {["ndvi_annual_mean", "evi_annual_mean", "fc_overall", "fpar_mean", "lai_mean", "gpp_mean", "ndvi_peak", "ndvi_min"].map((v) => (
                   <option key={v} value={v}>{v}</option>
                 ))}
@@ -837,7 +858,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
               Add LULC (MODIS)
             </label>
             {useLulc && (
-              <select className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text">
+              <select value={lulcYear} onChange={(e) => setLulcYear(Number(e.target.value))} className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text">
                 {[2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023].map((y) => (
                   <option key={y} value={y}>{y}</option>
                 ))}
@@ -875,10 +896,11 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
                   min={2}
                   max={20}
                   step={1}
-                  defaultValue={10}
+                  value={vifThreshold}
+                  onChange={(e) => setVifThreshold(Number(e.target.value))}
                   className="w-24"
                 />
-                <span className="text-xs text-sdm-muted font-mono">10</span>
+                <span className="text-xs text-sdm-muted font-mono">{vifThreshold}</span>
               </div>
             )}
           </div>
@@ -899,23 +921,18 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <label className="block text-sm font-medium text-sdm-text mb-1">Background sampling bias correction</label>
             <select value={biasMethod} onChange={(e) => setBiasMethod(e.target.value as typeof biasMethod)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
               <option value="uniform">Uniform random</option>
-              <option value="target_group">Target-group</option>
+              <option value="target_group" disabled>Target-group (requires file upload)</option>
               <option value="thickened">Thickened</option>
             </select>
+            {biasMethod === "target_group" && (
+              <p className="mt-1 text-xs text-amber-500">Target-group bias requires uploading a background occurrence file. Not yet available — falling back to uniform.</p>
+            )}
           </div>
 
           {biasMethod === "thickened" && (
             <div>
               <label className="block text-sm font-medium text-sdm-text mb-1">Kernel distance (km)</label>
               <input type="number" value={thickeningDistanceKm} onChange={(e) => setThickeningDistanceKm(Number(e.target.value))} min={1} max={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-            </div>
-          )}
-
-          {biasMethod === "target_group" && (
-            <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Target-group background file</label>
-              <input type="file" accept=".csv,.gpkg" className="w-full text-sm text-sdm-muted file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-sdm-accent/10 file:text-sdm-accent hover:file:bg-sdm-accent/20" />
-              <p className="text-xs text-sdm-muted mt-1">CSV with longitude/latitude columns or GeoPackage.</p>
             </div>
           )}
 

@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { species, occurrences } from "../db/schema.js";
+import { species, occurrences, users } from "../db/schema.js";
 import { and, count, eq, inArray } from "drizzle-orm";
 import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware } from "../middleware/auth.js";
@@ -54,11 +54,35 @@ dataRoutes.post("/occurrences/upload", async (c) => {
       return c.json({ error: `File too large. Maximum ${MAX_UPLOAD_BYTES / 1024 / 1024}MB.` }, 413);
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const destPath = saveUpload(buffer, file.name);
     const user = c.get("user");
 
+    // Check storage quota before accepting the file
+    const [quota] = await db
+      .select({ used: users.storageUsedBytes, quota: users.storageQuotaBytes })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+
+    if (quota && quota.used !== null && quota.quota !== null && quota.used + file.size > quota.quota) {
+      return c.json({
+        error: "Storage quota exceeded",
+        used: quota.used,
+        quota: quota.quota,
+        fileSize: file.size,
+      }, 413);
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const destPath = saveUpload(buffer, file.name);
+
     const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
+
+    // Track storage usage on success
+    await db
+      .update(users)
+      .set({ storageUsedBytes: (quota?.used ?? 0) + buffer.length })
+      .where(eq(users.id, user.id));
+
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
