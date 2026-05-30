@@ -106,6 +106,7 @@ modules <- c(
   "diagnostics_plots.R",
   "batch_runner.R",
   "script_export.R",
+  "tile_generator.R",
 
   # --- ui / modules ---
   "ui_header.R",

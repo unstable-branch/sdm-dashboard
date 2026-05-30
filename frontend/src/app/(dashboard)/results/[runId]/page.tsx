@@ -30,6 +30,8 @@ function extentToCoordinates(extent?: [number, number, number, number]): [[numbe
   return [[xmin, ymax], [xmax, ymax], [xmax, ymin], [xmin, ymin]];
 }
 
+
+
 async function downloadFile(filePath: string) {
   try {
     const res = await fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(filePath)}`);
@@ -216,6 +218,7 @@ export default function ResultsPage() {
             <TabsContent value="map">
               <SuitabilityMap
                 outputFiles={run.output_files}
+                runId={runId}
                 initialViewState={extentToViewState((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
                 coordinates={extentToCoordinates((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
                 eooGeoJSON={eooGeoJSON}
