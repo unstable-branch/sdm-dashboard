@@ -102,6 +102,48 @@ resultsRoutes.get("/file/:filePath", async (c) => {
   return c.body(buffer);
 });
 
+resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
+  const { runId, z, x, y } = c.req.param();
+
+  if (!/^\d+$/.test(z) || !/^\d+$/.test(x) || !/^\d+$/.test(y)) {
+    return c.json({ error: "Invalid tile coordinates" }, 400);
+  }
+
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Tile not found" }, 404);
+  }
+
+  const [run] = await db
+    .select({ jobId: runs.jobId, resultPath: runs.resultPath })
+    .from(runs)
+    .where(eq(runs.id, runId))
+    .limit(1);
+
+  if (!run) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+
+  const jobDir = run.resultPath
+    ? resolve(appDir, run.resultPath)
+    : resolve(resultRoot, run.jobId || runId);
+
+  const tilePath = resolve(jobDir, "map_tiles", "suitability", z, x, `${y}.png`);
+  const rel = relative(resultRoot, tilePath);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
+    return c.json({ error: "Invalid tile path" }, 400);
+  }
+
+  if (!existsSync(tilePath)) {
+    return c.body(null, 204);
+  }
+
+  const buffer = await readFile(tilePath);
+  c.header("Content-Type", "image/png");
+  c.header("Cache-Control", "public, max-age=86400");
+  return c.body(buffer);
+});
+
 resultsRoutes.get("/:id", async (c) => {
   const id = c.req.param("id");
   const user = c.get("user");
