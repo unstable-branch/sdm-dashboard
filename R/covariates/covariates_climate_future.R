@@ -1,6 +1,10 @@
 # CMIP6 Climate Data Automation.
 # Structured picker and fetcher for future climate projections.
 
+res_label <- function(res) {
+  if (res == 0.5) "30s" else paste0(res, "m")
+}
+
 fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period = "2061-2080",
                                   var = "bioc", res = 10, out_dir = "Worldclim_future",
                                   quiet = FALSE, log_fun = NULL, ...) {
@@ -50,7 +54,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
         path = out_dir
       )
 
-      actual_path <- attr(out, "path") %||% file.path(out_dir, "climate", "wc2.1_10m")
+      actual_path <- attr(out, "path") %||% file.path(out_dir, "climate", sprintf("wc2.1_%s", res_label(res)))
 
       if (!dir.exists(actual_path)) {
         if (!dir.exists(cache_subdir)) dir.create(cache_subdir, recursive = TRUE)
@@ -63,7 +67,12 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
         tifs <- list.files(actual_path, pattern = "\\.tif$", full.names = TRUE, recursive = FALSE)
         for (tf in tifs) {
           bn <- basename(tf)
-          new_bn <- gsub("^wc2[.]1_10m_bioc_", "", bn, fixed = FALSE)
+          new_bn <- gsub(sprintf("^wc2[.]1_%sm_bioc_", res), "", bn)
+          if (new_bn == bn) {
+            # Fallback for geodata naming like wc2.1_30s_bioc_1.tif
+            res_geodata <- if (res == 0.5) "30s" else paste0(res, "m")
+            new_bn <- gsub(sprintf("^wc2[.]1_%s_bioc_", res_geodata), "", bn)
+          }
           new_bn <- gsub("_ssp", "_SSP", new_bn)
           new_path <- file.path(cache_subdir, new_bn)
           if (file.exists(new_path)) file.remove(new_path)
@@ -156,23 +165,23 @@ find_cmip6_files <- function(cmip6_dir, selected_biovars) {
     bio_name_2digit <- if (bio < 10) paste0("bio0", bio) else paste0("bio", bio)
     bio_underscore <- paste0("bio_", bio)
     bio_underscore_2digit <- if (bio < 10) paste0("bio_0", bio) else paste0("bio_", bio)
+    bioc_name <- paste0("bioc", bio)
+    bioc_name_2digit <- if (bio < 10) paste0("bioc0", bio) else paste0("bioc", bio)
 
-    pattern1 <- paste0("[/_]", bio_name, "[^0-9]")
-    pattern2 <- paste0("[/_]", bio_name_2digit, "[^0-9]")
-    pattern3 <- paste0("[/_]", bio_underscore, "[^0-9]")
-    pattern4 <- paste0("[/_]", bio_underscore_2digit, "[^0-9]")
-    pattern5 <- paste0("[/_]", bio_name, "\\.tif$")
-    pattern6 <- paste0("[/_]", bio_name_2digit, "\\.tif$")
-
-    matched <- c(
-      all_files[grepl(pattern1, all_files, ignore.case = TRUE)],
-      all_files[grepl(pattern2, all_files, ignore.case = TRUE)],
-      all_files[grepl(pattern3, all_files, ignore.case = TRUE)],
-      all_files[grepl(pattern4, all_files, ignore.case = TRUE)],
-      all_files[grepl(pattern5, all_files, ignore.case = TRUE)],
-      all_files[grepl(pattern6, all_files, ignore.case = TRUE)]
+    patterns <- c(
+      paste0("[/_]", bioc_name, "[^0-9]"),
+      paste0("[/_]", bioc_name_2digit, "[^0-9]"),
+      paste0("[/_]", bio_name, "[^0-9]"),
+      paste0("[/_]", bio_name_2digit, "[^0-9]"),
+      paste0("[/_]", bio_underscore, "[^0-9]"),
+      paste0("[/_]", bio_underscore_2digit, "[^0-9]"),
+      paste0("[/_]", bioc_name, "\\.tif$"),
+      paste0("[/_]", bioc_name_2digit, "\\.tif$"),
+      paste0("[/_]", bio_name, "\\.tif$"),
+      paste0("[/_]", bio_name_2digit, "\\.tif$")
     )
-    matched <- unique(matched)
+
+    matched <- unique(unlist(lapply(patterns, function(p) all_files[grepl(p, all_files, perl = TRUE)])))
 
     if (length(matched) == 0) {
       files[as.character(bio)] <- NA_character_
@@ -263,12 +272,14 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
 
   baseline_dir <- sdm_default_worldclim_dir
   if (dir.exists(baseline_dir)) {
+    baseline_files <- find_worldclim_files(baseline_dir, 1:19, source = "worldclim")
+    names(baseline_files) <- paste0("bio", 1:19)
     for (bio in all_bio_vars) {
       mean_file <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, ".tif"))
       if (!file.exists(mean_file)) next
 
-      baseline_file <- file.path(baseline_dir, paste0(bio, ".tif"))
-      if (!file.exists(baseline_file)) next
+      baseline_file <- baseline_files[bio]
+      if (is.na(baseline_file) || !file.exists(baseline_file)) next
 
       future_layer <- terra::rast(mean_file)
       baseline_layer <- terra::rast(baseline_file)
