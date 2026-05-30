@@ -11,6 +11,23 @@ import { OdmapViewer } from "@/components/results/odmap-viewer";
 import { ArrowLeft, Loader2, Download } from "lucide-react";
 import { apiGet } from "@/services/api";
 import type { RunDetail } from "@/services/types";
+import type { ViewState } from "react-map-gl/maplibre";
+
+function extentToViewState(extent?: [number, number, number, number]): Partial<ViewState> | undefined {
+  if (!extent || extent.length < 4) return undefined;
+  const [xmin, xmax, ymin, ymax] = extent;
+  const lngSpan = xmax - xmin;
+  const latSpan = ymax - ymin;
+  const maxSpan = Math.max(lngSpan, latSpan);
+  const zoom = maxSpan > 50 ? 4 : maxSpan > 20 ? 5 : maxSpan > 10 ? 6 : maxSpan > 5 ? 7 : 8;
+  return { longitude: (xmin + xmax) / 2, latitude: (ymin + ymax) / 2, zoom };
+}
+
+function extentToCoordinates(extent?: [number, number, number, number]): [[number, number], [number, number], [number, number], [number, number]] | undefined {
+  if (!extent || extent.length < 4) return undefined;
+  const [xmin, xmax, ymin, ymax] = extent;
+  return [[xmin, ymax], [xmax, ymax], [xmax, ymin], [xmin, ymin]];
+}
 
 export default function ResultsPage() {
   const params = useParams();
@@ -154,7 +171,11 @@ export default function ResultsPage() {
             </TabsList>
 
             <TabsContent value="map">
-              <SuitabilityMap outputFiles={run.output_files} />
+              <SuitabilityMap
+                outputFiles={run.output_files}
+                initialViewState={extentToViewState((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
+                coordinates={extentToCoordinates((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
+              />
             </TabsContent>
 
             <TabsContent value="diagnostics">
