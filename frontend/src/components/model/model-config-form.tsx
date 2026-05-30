@@ -614,19 +614,19 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-sdm-muted mb-1">xmin</label>
-              <input type="number" value={customExtent[0]} onChange={(e) => setCustomExtent([Number(e.target.value), customExtent[1], customExtent[2], customExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+              <input type="number" min={-180} max={180} step={0.1} value={customExtent[0]} onChange={(e) => setCustomExtent([Number(e.target.value), customExtent[1], customExtent[2], customExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
             </div>
             <div>
               <label className="block text-xs font-medium text-sdm-muted mb-1">xmax</label>
-              <input type="number" value={customExtent[1]} onChange={(e) => setCustomExtent([customExtent[0], Number(e.target.value), customExtent[2], customExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+              <input type="number" min={-180} max={180} step={0.1} value={customExtent[1]} onChange={(e) => setCustomExtent([customExtent[0], Number(e.target.value), customExtent[2], customExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
             </div>
             <div>
               <label className="block text-xs font-medium text-sdm-muted mb-1">ymin</label>
-              <input type="number" value={customExtent[2]} onChange={(e) => setCustomExtent([customExtent[0], customExtent[1], Number(e.target.value), customExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+              <input type="number" min={-90} max={90} step={0.1} value={customExtent[2]} onChange={(e) => setCustomExtent([customExtent[0], customExtent[1], Number(e.target.value), customExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
             </div>
             <div>
               <label className="block text-xs font-medium text-sdm-muted mb-1">ymax</label>
-              <input type="number" value={customExtent[3]} onChange={(e) => setCustomExtent([customExtent[0], customExtent[1], customExtent[2], Number(e.target.value)])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+              <input type="number" min={-90} max={90} step={0.1} value={customExtent[3]} onChange={(e) => setCustomExtent([customExtent[0], customExtent[1], customExtent[2], Number(e.target.value)])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
             </div>
           </div>
         )}

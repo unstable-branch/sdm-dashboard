@@ -98,6 +98,14 @@ export function SuitabilityMap({ outputFiles, initialViewState, coordinates, eoo
     );
   }
 
+  if (!coordinates) {
+    return (
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
+        Map extent not available.
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
       <div className="relative h-[60vh]">

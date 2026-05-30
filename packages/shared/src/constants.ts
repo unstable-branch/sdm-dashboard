@@ -121,6 +121,7 @@ export const DEFAULT_CONFIG = {
   lulcYear: 2020,
   hfpYear: 2020,
   vifThreshold: 10,
+  projectionExtent: [112, 154, -44, -10] as [number, number, number, number],
   climateMatchingMethod: "mahalanobis" as const,
 };
 
