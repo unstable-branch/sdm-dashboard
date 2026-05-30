@@ -48,6 +48,11 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
 
   useEffect(() => {
     if (!startTime && !job) return;
+    if (job && (job.state === "completed" || job.state === "failed" || job.state === "cancelled")) {
+      const startMs = startTime ? new Date(startTime).getTime() : Date.now();
+      setElapsed(Date.now() - startMs);
+      return;
+    }
     const startMs = startTime ? new Date(startTime).getTime() : Date.now();
     const tick = () => setElapsed(Date.now() - startMs);
     tick();

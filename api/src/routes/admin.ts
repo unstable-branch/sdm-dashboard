@@ -520,6 +520,7 @@ adminRoutes.get("/diagnostics/runs", async (c) => {
         status: runs.status,
         jobId: runs.jobId,
         error: runs.error,
+        lastStage: runs.lastStage,
         startedAt: runs.startedAt,
         completedAt: runs.completedAt,
         createdAt: runs.createdAt,

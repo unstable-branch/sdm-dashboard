@@ -192,8 +192,12 @@ function DataPageContent() {
       .catch(() => setAvailableBiovars(new Set()));
   }, [climateSource, climateRes]);
 
-  const handleDeleteScenario = (id: string) => {
-    setScenarios((prev) => prev.filter((s) => s.id !== id));
+  const handleDeleteScenario = async (id: string) => {
+    try {
+      await apiPost(`/api/v1/climate/delete/${id}`);
+      setScenarios((prev) => prev.filter((s) => s.id !== id));
+    } catch {
+    }
   };
 
   const fetchUploads = useCallback(async () => {
@@ -223,13 +227,13 @@ function DataPageContent() {
       const result = await apiUpload<Record<string, unknown>>(
         "/api/v1/data/occurrences/upload", file, undefined, 600000
       );
-      const filePath = (result.file_path as string) || null;
+      const fileId = (result.file_id as string) || null;
       const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
       const detectedSpecies = (result.species_detected as string) || null;
 
       setUploadResult(result);
-      if (filePath) {
-        setOccurrenceFilePath(filePath);
+      if (fileId) {
+        setOccurrenceFilePath(fileId);
         setRecordCount(nRows);
         if (detectedSpecies) {
           useSDMStore.getState().setSpecies(detectedSpecies);
@@ -396,7 +400,7 @@ function DataPageContent() {
       </div>
 
       <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
-        <TabsList className="grid w-full max-w-2xl grid-cols-6">
+        <TabsList className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 w-full max-w-2xl">
           <TabsTrigger value="upload" className="flex items-center gap-1.5">
             <Upload className="h-3.5 w-3.5" />
             Upload
@@ -460,7 +464,15 @@ function DataPageContent() {
                   <tbody>
                     {uploadHistory.slice(0, 10).map((u) => (
                       <tr key={String(u.id)} className="border-b border-sdm-border/50 hover:bg-sdm-surface-soft/50">
-                        <td className="py-2 pr-3 font-mono max-w-[200px] truncate" title={String(u.filename || "")}>{String(u.filename || "—")}</td>
+                        <td className="py-2 pr-3 font-mono max-w-[200px] truncate" title={String(u.filename || "")}>
+                          {String(u.filename || "—")}
+                          {Boolean(u.is_cleaned) && (
+                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-500">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Cleaned
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2 px-3 text-right">{Number(u.n_rows || 0).toLocaleString()}</td>
                         <td className="py-2 px-3 text-right">{Number(u.file_size || 0) > 1024 * 1024 ? `${(Number(u.file_size) / 1024 / 1024).toFixed(1)} MB` : `${(Number(u.file_size) / 1024).toFixed(0)} KB`}</td>
                         <td className="py-2 pl-3 max-w-[120px] truncate" title={String(u.species || "")}>{String(u.species || "—")}</td>
@@ -471,13 +483,25 @@ function DataPageContent() {
                               const fp = u.file_path as string;
                               if (fp) {
                                 setOccurrenceFilePath(fp);
-                                setUploadResult({ ...(u as Record<string, unknown>), file_id: fp });
-                                setCleanResult(null);
-                                setCleanedOccurrence(null);
+                                setUploadResult({ ...(u as Record<string, unknown>), file_id: fp, file_path: fp });
                                 setRecordCount(Number(u.n_rows || 0));
                                 const sp = u.species as string;
                                 if (sp && sp !== "—") {
                                   useSDMStore.getState().setSpecies(sp);
+                                }
+                                if (Boolean(u.is_cleaned) && u.cleaned_file_path) {
+                                  setCleanedOccurrence({
+                                    filePath: u.cleaned_file_path as string,
+                                    df: [],
+                                    sourceCounts: {},
+                                    nAbsentExcluded: 0,
+                                    originalRows: Number(u.cleaned_original_rows || u.n_rows || 0),
+                                    validRecords: Number(u.cleaned_valid_records || 0),
+                                  });
+                                  setCleanResult(u as Record<string, unknown>);
+                                } else {
+                                  setCleanResult(null);
+                                  setCleanedOccurrence(null);
                                 }
                               }
                             }}
@@ -499,7 +523,17 @@ function DataPageContent() {
             <PreviewTable data={uploadPreview} title="Preview (first 5 records)" />
           )}
 
-          {typeof uploadResult?.file_path === "string" && (
+          {typeof uploadResult?.file_path === "string" && uploadResult?.is_cleaned ? (
+            <div className="mt-3 flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-green-500">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Previously cleaned — {Number(uploadResult.cleaned_valid_records ?? 0).toLocaleString()} valid records ready.</span>
+              </div>
+              <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
+                Run SDM →
+              </Link>
+            </div>
+          ) : typeof uploadResult?.file_path === "string" && (
             <div className="mt-3 flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
               <div className="flex items-center gap-2 text-sm text-amber-500">
                 <AlertTriangle className="h-4 w-4" />

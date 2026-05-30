@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { BatchUpload } from "@/components/batch/batch-upload";
 import { BatchProgress } from "@/components/batch/batch-progress";
 import { ArrowLeft, Play, Loader2 } from "lucide-react";
+import { apiPost } from "@/services/api";
 
 export default function BatchPage() {
   const router = useRouter();
@@ -26,17 +27,7 @@ export default function BatchPage() {
     setError(null);
 
     try {
-      const res = await fetch("/api/v1/sdm/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ configs }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Batch run failed");
-      }
-
+      const data = await apiPost<{ job_ids: string[] }>("/api/v1/sdm/batch", { configs });
       setJobIds(data.job_ids);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Batch run failed");

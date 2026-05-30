@@ -65,11 +65,17 @@ if (length(projection_extent) != 4L) {
 tryCatch({
   cleaned_occurrence <- NULL
   if (!is.null(config$cleaned_file_id) && nzchar(config$cleaned_file_id) && file.exists(config$cleaned_file_id)) {
-    cleaned_df <- utils::read.csv(config$cleaned_file_id, stringsAsFactors = FALSE)
+    tmp_clean <- tempfile()
+    on.exit(unlink(tmp_clean), add = TRUE)
+    decrypt_file(config$cleaned_file_id, tmp_clean)
+    cleaned_df <- utils::read.csv(tmp_clean, stringsAsFactors = FALSE)
+    src_col <- if ("source" %in% names(cleaned_df)) cleaned_df$source else rep("Unknown", nrow(cleaned_df))
+    src_counts <- sort(table(src_col), decreasing = TRUE)
+    n_absent <- if ("occurrenceStatus" %in% names(cleaned_df)) sum(tolower(cleaned_df$occurrenceStatus) == "absent", na.rm = TRUE) else 0L
     cleaned_occurrence <- list(
       df = cleaned_df,
-      source_counts = list(),
-      n_absent_excluded = 0L,
+      source_counts = as.list(src_counts),
+      n_absent_excluded = n_absent,
       original_rows = nrow(cleaned_df)
     )
   }
@@ -92,7 +98,7 @@ tryCatch({
     cv_folds = as.integer(config$cv_folds %||% sdm_default_cv_folds),
     n_cores = as.integer(config$n_cores %||% 1L),
     allow_download = TRUE,
-    worldclim_res = as.integer(config$worldclim_res %||% sdm_default_worldclim_res),
+    worldclim_res = as.numeric(config$worldclim_res %||% sdm_default_worldclim_res),
     cv_strategy = config$cv_strategy %||% sdm_default_cv_strategy,
     cv_block_size_km = if (!is.null(config$cv_block_size_km)) as.numeric(config$cv_block_size_km) else sdm_default_cv_block_size_km,
     use_elevation = isTRUE(config$use_elevation),

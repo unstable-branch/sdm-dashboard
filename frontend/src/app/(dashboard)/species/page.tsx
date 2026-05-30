@@ -72,7 +72,7 @@ export default function SpeciesPage() {
           {filtered.map((s) => (
             <Link
               key={s.id}
-              href={`/results?species=${encodeURIComponent(s.name)}`}
+              href={`/model`}
               className="rounded-lg border border-sdm-border bg-sdm-surface p-4 hover:border-sdm-accent/50 transition-colors"
             >
               <h3 className="text-sm font-semibold text-sdm-heading">{s.name}</h3>
