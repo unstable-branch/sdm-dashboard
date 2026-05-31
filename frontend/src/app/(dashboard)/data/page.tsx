@@ -172,7 +172,18 @@ function DataPageContent() {
     setHistoryLoading(true);
     try {
       const data = await apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/occurrences/uploads");
-      setUploadHistory(data.uploads || []);
+      const mapped = (data.uploads || []).map((u) => ({
+        file_id: u.file_path,
+        file_name: u.filename,
+        file_size: u.file_size,
+        n_rows: u.n_rows,
+        species: u.species,
+        modified_at: u.created_at,
+        cleaned: u.is_cleaned,
+        cleaned_file_id: u.cleaned_file_path,
+        cleaned_valid_records: u.cleaned_valid_records,
+      }));
+      setUploadHistory(mapped);
     } catch {
       setUploadHistory([]);
     } finally {
