@@ -142,6 +142,24 @@ export const UV_VARS = [
 
 export const DEM_CHOICES = ["COP90", "SRTMGL3", "AW3D30", "SRTMGL1"];
 
+export const CHELSA_EXTRA_CHOICES = [
+  { id: "gdd5", label: "GDD5", description: "Growing degree days (5°C base)" },
+  { id: "gdd10", label: "GDD10", description: "Growing degree days (10°C base)" },
+  { id: "gsl", label: "GSL", description: "Growing season length" },
+  { id: "fcf", label: "FCF", description: "Frost change frequency" },
+  { id: "npp", label: "NPP", description: "Net primary productivity" },
+  { id: "scd", label: "SCD", description: "Snow cover duration" },
+];
+
+export const ANALYSIS_CRS_CHOICES = [
+  { id: "auto", label: "Auto-detect (UTM zone)", description: "Best for local-scale analyses" },
+  { id: "eqearth", label: "Equal Earth", description: "Global equal-area projection" },
+  { id: "laea", label: "Lambert Azimuthal Equal-Area", description: "Good for mid-latitude regions" },
+  { id: "aeqd", label: "Azimuthal Equidistant", description: "Accurate distances from center point" },
+  { id: "moll", label: "Mollweide", description: "Global equal-area, good for climate data" },
+  { id: "eqc", label: "Equidistant Cylindrical", description: "Simple global projection" },
+];
+
 export const GCM_CHOICES = [
   { id: "UKESM1-0-LL", label: "UKESM1-0-LL", description: "UK Earth System Model" },
   { id: "MPI-ESM1-2-HR", label: "MPI-ESM1-2-HR", description: "Max Planck Institute" },
@@ -188,6 +206,8 @@ export const DEFAULT_CONFIG = {
   maxnetRegmult: 1.0,
   dnnArchitecture: "DNN_Medium" as const,
   dnnNSeeds: 5,
+  dnnDropout: 0.3,
+  dnnL2Lambda: 0.001,
   dnnDevice: "auto" as const,
   brtNTrees: 2000,
   brtInteractionDepth: 3,
@@ -211,6 +231,8 @@ export const DEFAULT_CONFIG = {
   xgbMaxDepth: 6,
   xgbEta: 0.3,
   xgbNrounds: 100,
+  maxnetAutoTune: false,
+  gamK: 5,
   bartNtree: 200,
   bartNdpost: 1000,
   bartNskip: 500,
@@ -238,9 +260,19 @@ export const DEFAULT_CONFIG = {
   lulcYear: 2020,
   hfpYear: 2020,
   vifThreshold: 10,
+  projectionExtent: [112, 154, -44, -10] as [number, number, number, number],
   climateMatchingMethod: "mahalanobis" as const,
-  extrapolationMask: true,
-  messThreshold: 0,
+  maxnetAutoTune: false,
+  rfNumTrees: 500,
+  rfMtry: undefined,
+  rfMinNodeSize: 10,
+  gamK: 5,
+  xgbMaxDepth: 6,
+  xgbEta: 0.3,
+  xgbNRounds: 100,
+  dnnArchitecture: "DNN_Medium" as const,
+  dnnDropout: 0.3,
+  dnnL2Lambda: 0.001,
 };
 
 /**

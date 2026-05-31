@@ -29,6 +29,7 @@ modules <- c(
   "config.R",
   "packages.R",
   "logging.R",
+  "crypto.R",
   "validation.R",
   "app_helpers.R",
   "optimized_sdm.R",
@@ -131,6 +132,7 @@ modules <- c(
   "batch_runner.R",
   "python_setup.R",
   "script_export.R",
+  "tile_generator.R",
 
   # --- ui / modules ---
   "ui_header.R",

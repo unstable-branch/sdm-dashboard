@@ -33,13 +33,9 @@ fit_ensemble_glm_rangebag_sdm <- function(occ, env_train_scaled, background_n = 
                                           include_quadratic = TRUE, cv_folds = sdm_default_cv_folds,
                                           seed = sdm_default_seed, n_cores = 1, log_fun = NULL, progress_fun = NULL,
                                           ensemble_weighting = sdm_default_ensemble_weighting,
-                                          cv_strategy = sdm_default_cv_strategy,
-                                          cv_block_size_km = sdm_default_cv_block_size_km,
-                                          bias_method = "uniform",
-                                          target_group_occ = NULL,
-                                          thickening_distance_km = NULL,
-                                          maxnet_features = NULL,
-                                          maxnet_regmult = NULL,
+                                          n_bags = sdm_default_rangebag_n_bags,
+                                          bag_fraction = sdm_default_rangebag_fraction,
+                                          vars_per_bag = sdm_default_rangebag_vars_per_bag,
                                           ...) {
   # Shared PA data: prepare once, use for both component models
   shared_data <- prepare_sdm_data(occ, env_train_scaled, background_n,
@@ -63,10 +59,7 @@ fit_ensemble_glm_rangebag_sdm <- function(occ, env_train_scaled, background_n = 
     occ, env_train_scaled,
     background_n = background_n, include_quadratic = include_quadratic,
     cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun,
-    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    bias_method = bias_method, target_group_occ = target_group_occ,
-    thickening_distance_km = thickening_distance_km,
-    model_data = shared_data
+    n_bags = n_bags, bag_fraction = bag_fraction, vars_per_bag = vars_per_bag
   )
   rangebag_fit$model_id <- "rangebag"
   rangebag_fit$model_label <- "Rangebagging"

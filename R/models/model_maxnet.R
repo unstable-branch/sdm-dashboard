@@ -20,9 +20,9 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
       y_train <- as.integer(train_model$presence)
       train_pa <- cbind(data.frame(presence = y_train), train_model[, covariates, drop = FALSE])
       names(train_pa) <- c("presence", covariates)
-      maxnet_data <- maxnet::maxnet.formula(presence ~ ., data = train_pa, maxnet.formula.arguments(maxnet_features, maxnet_regmult))
-      maxnet_model <- maxnet::maxnet(maxnet_data, data = train_pa)
-      pred <- as.numeric(maxnet::predict.maxnet(maxnet_model, test_model[, covariates, drop = FALSE], clamp = TRUE, type = "link"))
+      maxnet_model <- maxnet::maxnet(p = train_pa$presence, data = train_pa[, covariates, drop = FALSE],
+        maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
+      pred <- as.numeric(predict(maxnet_model, test_model[, covariates, drop = FALSE], clamp = TRUE, type = "link"))
       metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
     }
 
@@ -71,16 +71,15 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
 
     maxnet_pa <- cbind(data.frame(presence = model_data$presence), model_data[, covariates, drop = FALSE])
     names(maxnet_pa)[-1] <- covariates
-    maxnet_formula_args <- maxnet::maxnet.formula.arguments(maxnet_features, maxnet_regmult)
-    maxnet_data <- maxnet::maxnet.formula(presence ~ ., data = maxnet_pa, maxnet_formula_args)
     model <- tryCatch({
-      maxnet::maxnet(maxnet_data, data = maxnet_pa)
+      maxnet::maxnet(p = maxnet_pa$presence, data = maxnet_pa[, covariates, drop = FALSE],
+        maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
     }, error = function(e) {
       stop("MaxEnt fitting failed: ", conditionMessage(e), call. = FALSE)
     })
 
     model_for_auc <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
-    train_pred <- as.numeric(maxnet::predict.maxnet(model, model_for_auc[, covariates, drop = FALSE], clamp = TRUE, type = "link"))
+    train_pred <- as.numeric(predict(model, model_for_auc[, covariates, drop = FALSE], clamp = TRUE, type = "cloglog"))
     train_metrics <- compute_binary_metrics(model_for_auc$presence, train_pred, threshold = threshold)
 
     cv <- cross_validate_maxnet(model_data, covariates, maxnet_features, maxnet_regmult,
@@ -96,8 +95,8 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
     }
 
     coefficients <- data.frame(
-      term = rownames(maxnet::coef.maxnet(model)),
-      estimate = as.numeric(maxnet::coef.maxnet(model)),
+      term = names(model$betas),
+      estimate = as.numeric(model$betas),
       row.names = NULL,
       stringsAsFactors = FALSE
     )
@@ -114,7 +113,8 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
       background_xy = bg_xy,
       cv = cv,
       covariates = covariates,
-      variable_importance = perm_importance
+      variable_importance = perm_importance,
+      metrics = list(training_auc = train_metrics$auc, training_tss = train_metrics$tss)
     )
   }
 
@@ -126,7 +126,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
         mod_shuffled <- model_data
         perm_col <- sample(model_data[[var]])
         mod_shuffled[[var]] <- perm_col
-        pred_shuffled <- as.numeric(maxnet::predict.maxnet(model, mod_shuffled[, covariates, drop = FALSE], clamp = TRUE, type = "link"))
+        pred_shuffled <- as.numeric(predict(model, mod_shuffled[, covariates, drop = FALSE], clamp = TRUE, type = "link"))
         perm_auc <- compute_binary_metrics(model_data$presence, pred_shuffled, threshold = threshold)$auc
         perm_scores[p] <- baseline_auc - perm_auc
       }
@@ -162,7 +162,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
       }
       df <- as.data.frame(vals, stringsAsFactors = FALSE)
       names(df) <- fit$covariates
-      as.numeric(maxnet::predict.maxnet(fit$model, df, clamp = TRUE, type = "link"))
+      as.numeric(predict(fit$model, df, clamp = TRUE, type = "cloglog"))
     }, cores = n_cores)
 
     names(suit) <- "suitability"
