@@ -15,7 +15,6 @@ find_optimal_threshold <- function(obs, pred) {
     return(0.5)
   }
   candidates <- sort(unique(pred))
-  if (length(candidates) > 2) candidates <- candidates[2:(length(candidates) - 1)]
   best_threshold <- 0.5
   best_tss <- -Inf
   n_presence <- sum(obs == 1)
@@ -199,20 +198,25 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
     threshold = cv$threshold
   )
 
+  model_data_all <- rbind(
+    data.frame(presence = 1L, pres_vals, check.names = FALSE),
+    data.frame(presence = 0L, bg_vals, check.names = FALSE)
+  )
+  train_pred <- predict_rangebag_values(model, model_data_all[, covariates, drop = FALSE])
+  train_metrics <- compute_binary_metrics(model_data_all$presence, train_pred, threshold = threshold)
+
   list(
     model = model,
     formula = NULL,
     coefficients = data.frame(Message = "Rangebagging does not produce GLM-style coefficients."),
-    model_data = rbind(
-      data.frame(presence = 1L, pres_vals, check.names = FALSE),
-      data.frame(presence = 0L, bg_vals, check.names = FALSE)
-    ),
+    model_data = model_data_all,
     occurrence_used = occ_used,
     background_xy = bg_xy,
     cv = cv,
     covariates = covariates,
     variable_importance = NULL,
-    threshold = cv$threshold
+    threshold = cv$threshold,
+    metrics = list(training_auc = train_metrics$auc, training_tss = train_metrics$tss)
   )
 }
 

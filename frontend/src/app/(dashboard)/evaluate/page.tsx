@@ -184,12 +184,12 @@ export default function EvaluatePage() {
         </TabsContent>
 
         <TabsContent value="threshold">
-          {latestRun ? (
+          {(selectedRun ?? latestRun) ? (
             <ThresholdExplorer
-              aucMean={latestRun.metrics?.auc_mean}
-              tssMean={latestRun.metrics?.tss_mean}
-              sensitivity={latestRun.metrics?.sensitivity_mean}
-              specificity={latestRun.metrics?.specificity_mean}
+              aucMean={(selectedRun ?? latestRun)?.metrics?.auc_mean as number | null | undefined}
+              tssMean={(selectedRun ?? latestRun)?.metrics?.tss_mean as number | null | undefined}
+              sensitivity={(selectedRun ?? latestRun)?.metrics?.sensitivity_mean as number | null | undefined}
+              specificity={(selectedRun ?? latestRun)?.metrics?.specificity_mean as number | null | undefined}
             />
           ) : (
             <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
