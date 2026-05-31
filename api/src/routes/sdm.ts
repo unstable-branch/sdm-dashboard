@@ -152,6 +152,14 @@ const CAMEL_TO_SNAKE: Record<string, string> = {
   esmWeightingMetric: "esm_weighting_metric",
   esmPower: "esm_power",
   esmBiovars: "esm_biovars",
+  maxnetAutoTune: "maxnet_auto_tune",
+  gamK: "gam_k",
+  dnnDropout: "dnn_dropout",
+  dnnL2Lambda: "dnn_l2_lambda",
+  multiEnsembleExport: "multi_ensemble_export",
+  multiEnsembleUncertainty: "multi_ensemble_uncertainty",
+  chelsaExtras: "chelsa_extras",
+  analysisCrs: "analysis_crs",
 };
 
 function buildModelPayload(config: ModelConfigRecord, runId: string): Record<string, unknown> {
