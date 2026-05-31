@@ -39,4 +39,9 @@ Suggests:
     mockery,
     rgbif,
     rgee,
-    testthat
+    testthat,
+    targets,
+    tarchetypes,
+    geotargets,
+    crew,
+    crew.cluster

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, MapPin, Calendar, FileText, ArrowLeft } from "lucide-react";
+import { Loader2, ArrowLeft } from "lucide-react";
 import { SearchInput } from "@/components/ui/search-input";
 
 interface OccurrenceRecord {

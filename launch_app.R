@@ -8,7 +8,7 @@ source(file.path(dirname(launcher_path), "R", "core", "bootstrap.R"))
 sdm_set_project_root(dirname(launcher_path))
 
 if (!file.exists("app.R")) {
-  stop("app.R was not found. Run this launcher from the extracted SDM project folder.")
+  stop("app.R was not found. Run this launcher from the extracted SDM project folder.", call. = FALSE)
 }
 
 source("app.R")

@@ -18,11 +18,19 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
 
     model <- tryCatch({
       weights <- class_balance_weights(y_train)
-      xgboost::xgboost(
-        data = x_train, label = y_train, weight = weights,
-        objective = "binary:logistic", eval_metric = "auc",
-        max_depth = max_depth, eta = eta, nrounds = nrounds,
-        verbose = 0, nthread = 1L
+      dtrain <- xgboost::xgb.DMatrix(data = x_train, label = y_train, weight = weights)
+      xgboost::xgb.train(
+        params = list(
+          objective = "reg:logistic",
+          eval_metric = "auc",
+          max_depth = max_depth,
+          learning_rate = eta,
+          nthread = 1L,
+          seed = seed
+        ),
+        data = dtrain,
+        nrounds = nrounds,
+        verbose = 0
       )
     }, error = function(e) {
       log_message(log_fun, "  XGBoost CV fold ", i, " failed: ", conditionMessage(e))
@@ -87,11 +95,19 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   log_message(log_fun, "  max_depth=", max_depth, " eta=", eta, " nrounds=", nrounds)
 
   model <- tryCatch({
-    xgboost::xgboost(
-      data = x_train, label = y_train, weight = weights,
-      objective = "binary:logistic", eval_metric = "auc",
-      max_depth = max_depth, eta = eta, nrounds = nrounds,
-      verbose = 0, nthread = max(1L, as.integer(n_cores))
+    dtrain <- xgboost::xgb.DMatrix(data = x_train, label = y_train, weight = weights)
+    xgboost::xgb.train(
+      params = list(
+        objective = "reg:logistic",
+        eval_metric = "auc",
+        max_depth = max_depth,
+        learning_rate = eta,
+        nthread = 1L,
+        seed = seed
+      ),
+      data = dtrain,
+      nrounds = nrounds,
+      verbose = 0
     )
   }, error = function(e) {
     stop("XGBoost fitting failed: ", conditionMessage(e), call. = FALSE)
@@ -114,9 +130,6 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
       stringsAsFactors = FALSE
     )
   }, error = function(e) NULL)
-
-  # Clean up model for storage
-  model$call <- base::call("xgboost", max_depth = max_depth, eta = eta, nrounds = nrounds)
 
   list(
     model = model,
@@ -156,8 +169,9 @@ predict_xgboost_suitability <- function(fit, env_project_scaled, output_tif, n_c
     pred
   }
 
-  suit <- terra::app(env_subset, predict_one_block, nodes = TRUE, names = "suitability")
-  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  suit <- terra::app(env_subset, predict_one_block, cores = normalize_core_count(n_cores))
+  names(suit) <- "suitability"
+  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
   log_message(log_fun, "XGBoost suitability saved: ", output_tif)
   suit
 }
