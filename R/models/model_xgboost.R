@@ -131,9 +131,6 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
     )
   }, error = function(e) NULL)
 
-  # Clean up model for storage
-  model$call <- base::call("xgboost", max_depth = max_depth, eta = eta, nrounds = nrounds)
-
   list(
     model = model,
     formula = NULL,
