@@ -131,6 +131,10 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [rangebagVarsPerBag, setRangebagVarsPerBag] = useState(1);
   const [detectionFormula, setDetectionFormula] = useState("~1");
   const [detectionModelType, setDetectionModelType] = useState<"occu" | "occuRN">("occu");
+  const [maxnetAutoTune, setMaxnetAutoTune] = useState(false);
+  const [gamK, setGamK] = useState(DEFAULT_CONFIG.gamK ?? 5);
+  const [dnnDropout, setDnnDropout] = useState(DEFAULT_CONFIG.dnnDropout ?? 0.3);
+  const [dnnL2Lambda, setDnnL2Lambda] = useState(DEFAULT_CONFIG.dnnL2Lambda ?? 0.001);
 
   const [error, setError] = useState<string | null>(null);
   const [climateSource, _setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
@@ -210,6 +214,10 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     rangebagVarsPerBag: (v) => setRangebagVarsPerBag(v as number),
     detectionFormula: (v) => setDetectionFormula(v as string),
     detectionModelType: (v) => setDetectionModelType(v),
+    maxnetAutoTune: (v) => setMaxnetAutoTune(v as boolean),
+    gamK: (v) => setGamK(v as number),
+    dnnDropout: (v) => setDnnDropout(v as number),
+    dnnL2Lambda: (v) => setDnnL2Lambda(v as number),
     dnnMultispeciesArchitecture: (v) => setDnnMultispeciesArchitecture(v),
 
     multiEnsembleWeighting: (v) => setMultiEnsembleWeighting(v),
@@ -317,7 +325,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           {selectedModel?.packages && (() => { const pkgs = Array.isArray(selectedModel.packages) ? selectedModel.packages : [selectedModel.packages]; return pkgs.length > 0 ? (<p className="mt-1 text-xs text-sdm-muted">Requires: <code className="text-sdm-text">{pkgs.join(", ")}</code></p>) : null; })()}
         </div>
 
-        <ModelParamPanel modelId={modelId} maxnetFeatures={maxnetFeatures} maxnetRegmult={maxnetRegmult} dnnArchitecture={dnnArchitecture} dnnNSeeds={dnnNSeeds} dnnDevice={dnnDevice} brtNTrees={brtNTrees} brtInteractionDepth={brtInteractionDepth} brtShrinkage={brtShrinkage} brtBagFraction={brtBagFraction} ctaCp={ctaCp} ctaMaxdepth={ctaMaxdepth} ctaMinsplit={ctaMinsplit} annSize={annSize} annDecay={annDecay} annMaxit={annMaxit} annRang={annRang} marsDegree={marsDegree} marsPenalty={marsPenalty} marsNk={marsNk} fdaDegree={fdaDegree} fdaNprune={fdaNprune} rfNumTrees={rfNumTrees} rfMtry={rfMtry} rfMinNodeSize={rfMinNodeSize} xgbMaxDepth={xgbMaxDepth} xgbEta={xgbEta} xgbNrounds={xgbNrounds} bartNtree={bartNtree} bartNdpost={bartNdpost} bartNskip={bartNskip} brmsChains={brmsChains} brmsIter={brmsIter} brmsWarmup={brmsWarmup} inlaMeshMaxEdge={inlaMeshMaxEdge} inlaMeshCutoff={inlaMeshCutoff} rangebagNBags={rangebagNBags} rangebagBagFraction={rangebagBagFraction} rangebagVarsPerBag={rangebagVarsPerBag} detectionFormula={detectionFormula} detectionModelType={detectionModelType} dnnMultispeciesArchitecture={dnnMultispeciesArchitecture} dnnMultispeciesNSeeds={dnnMultispeciesNSeeds} biomod2Models={biomod2Models} multiEnsembleModels={multiEnsembleModels} multiEnsembleBiomod2={multiEnsembleBiomod2} multiEnsembleWeighting={multiEnsembleWeighting} multiEnsemblePower={multiEnsemblePower} multiEnsembleMinAuc={multiEnsembleMinAuc} multiEnsembleMinTss={multiEnsembleMinTss} onSet={(k, v) => paramSetters[k]?.(v)} />
+        <ModelParamPanel modelId={modelId} maxnetFeatures={maxnetFeatures} maxnetRegmult={maxnetRegmult} maxnetAutoTune={maxnetAutoTune} dnnArchitecture={dnnArchitecture} dnnNSeeds={dnnNSeeds} dnnDevice={dnnDevice} dnnDropout={dnnDropout} dnnL2Lambda={dnnL2Lambda} gamK={gamK} brtNTrees={brtNTrees} brtInteractionDepth={brtInteractionDepth} brtShrinkage={brtShrinkage} brtBagFraction={brtBagFraction} ctaCp={ctaCp} ctaMaxdepth={ctaMaxdepth} ctaMinsplit={ctaMinsplit} annSize={annSize} annDecay={annDecay} annMaxit={annMaxit} annRang={annRang} marsDegree={marsDegree} marsPenalty={marsPenalty} marsNk={marsNk} fdaDegree={fdaDegree} fdaNprune={fdaNprune} rfNumTrees={rfNumTrees} rfMtry={rfMtry} rfMinNodeSize={rfMinNodeSize} xgbMaxDepth={xgbMaxDepth} xgbEta={xgbEta} xgbNrounds={xgbNrounds} bartNtree={bartNtree} bartNdpost={bartNdpost} bartNskip={bartNskip} brmsChains={brmsChains} brmsIter={brmsIter} brmsWarmup={brmsWarmup} inlaMeshMaxEdge={inlaMeshMaxEdge} inlaMeshCutoff={inlaMeshCutoff} rangebagNBags={rangebagNBags} rangebagBagFraction={rangebagBagFraction} rangebagVarsPerBag={rangebagVarsPerBag} detectionFormula={detectionFormula} detectionModelType={detectionModelType} dnnMultispeciesArchitecture={dnnMultispeciesArchitecture} dnnMultispeciesNSeeds={dnnMultispeciesNSeeds} biomod2Models={biomod2Models} multiEnsembleModels={multiEnsembleModels} multiEnsembleBiomod2={multiEnsembleBiomod2} multiEnsembleWeighting={multiEnsembleWeighting} multiEnsemblePower={multiEnsemblePower} multiEnsembleMinAuc={multiEnsembleMinAuc} multiEnsembleMinTss={multiEnsembleMinTss} onSet={(k, v) => paramSetters[k]?.(v)} />
       </div>
 
       <ClimatePanel biovars={biovars} climateCheckLoading={climateCheckLoading} missingBiovars={missingBiovars} onToggleBiovar={toggleBiovar} />

@@ -6,9 +6,13 @@ interface ModelParamPanelProps {
   modelId: string;
   maxnetFeatures: string;
   maxnetRegmult: number;
+  maxnetAutoTune: boolean;
   dnnArchitecture: string;
   dnnNSeeds: number;
   dnnDevice: string;
+  dnnDropout: number;
+  dnnL2Lambda: number;
+  gamK: number;
   brtNTrees: number;
   brtInteractionDepth: number;
   brtShrinkage: number;
@@ -92,6 +96,10 @@ export function ModelParamPanel({ modelId, ...p }: ModelParamPanelProps) {
         <SelectField label="MaxEnt features" value={p.maxnetFeatures} onChange={s("maxnetFeatures")}
           options={[{ value: "l", label: "Linear" }, { value: "lq", label: "Linear + Quadratic" }, { value: "lqp", label: "Linear + Quadratic + Product" }, { value: "lqh", label: "Linear + Quadratic + Hinge" }, { value: "lqpht", label: "All" }]} />
         <SliderField label="Regularization multiplier" value={p.maxnetRegmult} onChange={s("maxnetRegmult")} min={0.1} max={10} step={0.1} />
+        <label className="flex items-center gap-2 text-sm text-sdm-text">
+          <input type="checkbox" checked={p.maxnetAutoTune} onChange={() => s("maxnetAutoTune")(!p.maxnetAutoTune)} />
+          Auto-tune regmult + features
+        </label>
       </div>
     );
   }
@@ -104,7 +112,18 @@ export function ModelParamPanel({ modelId, ...p }: ModelParamPanelProps) {
         <SliderField label="Ensemble seeds (uncertainty)" value={p.dnnNSeeds} onChange={s("dnnNSeeds")} min={1} max={20} step={1} />
         <SelectField label="Device" value={p.dnnDevice} onChange={s("dnnDevice")}
           options={[{ value: "auto", label: "Auto-detect" }, { value: "cpu", label: "CPU only" }, { value: "gpu", label: "GPU if available" }]} />
+        <SliderField label="Dropout" value={p.dnnDropout} onChange={s("dnnDropout")} min={0} max={0.5} step={0.05} />
+        <SliderField label="L2 lambda" value={p.dnnL2Lambda} onChange={s("dnnL2Lambda")} min={0.0001} max={0.1} step={0.0001} />
         <p className="-mt-2 text-xs text-sdm-muted">Multiple seeds with different initialisations; prediction SD measures uncertainty</p>
+      </div>
+    );
+  }
+
+  if (modelId === "gam") {
+    return (
+      <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+        <SliderField label="Basis dimension (k)" value={p.gamK} onChange={s("gamK")} min={3} max={15} step={1} />
+        <p className="-mt-2 text-xs text-sdm-muted">Higher k = more flexible = more overfitting risk. Start at 5.</p>
       </div>
     );
   }

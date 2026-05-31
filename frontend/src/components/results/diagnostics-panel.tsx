@@ -14,6 +14,7 @@ import { ThresholdChart } from "@/components/diagnostics/threshold-chart";
 import { DensityChart } from "@/components/diagnostics/density-chart";
 import { AleChart } from "@/components/diagnostics/ale-chart";
 import { ClimateDriverChart } from "@/components/diagnostics/climate-driver-chart";
+import { OverfittingPanel } from "@/components/results/overfitting-panel";
 import { apiGet } from "@/services/api";
 import { Download } from "lucide-react";
 import type {
@@ -113,6 +114,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
           <TabsTrigger value="mess" className="text-xs">MESS</TabsTrigger>
           <TabsTrigger value="ale" className="text-xs">ALE</TabsTrigger>
           <TabsTrigger value="climate-drivers" className="text-xs">Climate</TabsTrigger>
+          <TabsTrigger value="overfitting" className="text-xs">Overfitting</TabsTrigger>
           <TabsTrigger value="shap" className="text-xs">SHAP</TabsTrigger>
           <TabsTrigger value="log" className="text-xs">Log</TabsTrigger>
         </TabsList>
@@ -163,6 +165,10 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
 
         <TabsContent value="climate-drivers">
           <ClimateDriverChart data={climateDriverData} loading={loadingDiagnostics} />
+        </TabsContent>
+
+        <TabsContent value="overfitting">
+          <OverfittingPanel run={run} />
         </TabsContent>
 
         <TabsContent value="shap">

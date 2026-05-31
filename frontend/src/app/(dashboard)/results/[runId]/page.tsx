@@ -207,7 +207,7 @@ export default function ResultsPage() {
 
       {run.status === "completed" && (
         <>
-          {run.metrics && <MetricCards metrics={run.metrics} />}
+          {run.metrics && <MetricCards metrics={run.metrics} modelId={run.model_id} />}
 
           {benchmark && (
             <div className={`rounded-lg border p-4 flex items-center gap-3 ${
