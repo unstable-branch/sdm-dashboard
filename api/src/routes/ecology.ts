@@ -3,6 +3,7 @@ import { plumberClient } from "../services/plumber.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { authMiddleware, type AppEnv } from "../middleware/auth.js";
 
 export const ecologyRoutes = new Hono<AppEnv>();
 

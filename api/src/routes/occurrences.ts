@@ -1,13 +1,13 @@
 import { Hono } from "hono";
-import { mkdirSync, existsSync, accessSync, constants, promises as fs } from "fs";
-import { join, resolve, dirname } from "path";
+import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, accessSync, constants, promises as fs } from "fs";
+import { join, resolve, dirname, extname } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { species, occurrences, users } from "../db/schema.js";
-import { and, count, eq, inArray } from "drizzle-orm";
+import { species, occurrences, users, uploadedFiles } from "../db/schema.js";
+import { and, count, eq, inArray, desc, sql } from "drizzle-orm";
 import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
@@ -25,10 +25,17 @@ async function saveUpload(buffer: Buffer, originalName: string): Promise<string>
   if (!existsSync(UPLOAD_DIR)) {
     mkdirSync(UPLOAD_DIR, { recursive: true });
   }
+  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const ts = new Date().toISOString().replace(/[:.]/g, "").replace("T", "_").slice(0, 15);
+  const destPath = join(UPLOAD_DIR, `${ts}_${safeName}`);
+  await fs.writeFile(destPath, buffer);
+  return destPath;
 }
 
 function saveUploadEncrypted(buffer: Buffer, originalName: string): { encPath: string; pipelineRunId: string } {
-  ensureDir(UPLOAD_DIR);
+  if (!existsSync(UPLOAD_DIR)) {
+    mkdirSync(UPLOAD_DIR, { recursive: true });
+  }
   const pipelineRunId = randomUUID();
   const uuid = randomUUID();
   const ext = extname(originalName) || ".csv";
@@ -57,11 +64,35 @@ function decryptToUploads(encPath: string): string | null {
     console.error(`[encrypt] Failed to decrypt ${encPath}:`, err instanceof Error ? err.message : String(err));
     return null;
   }
-  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const ts = new Date().toISOString().replace(/[:.]/g, "").replace("T", "_").slice(0, 15);
-  const destPath = join(UPLOAD_DIR, `${ts}_${safeName}`);
-  await fs.writeFile(destPath, buffer);
-  return destPath;
+}
+
+function resolveFilePath(fileId: string): { path: string } {
+  const encPath = join(UPLOAD_DIR, fileId);
+  if (encPath.endsWith(".enc")) {
+    const decrypted = decryptToUploads(encPath);
+    return { path: decrypted ?? encPath };
+  }
+  return { path: encPath };
+}
+
+async function pollPlumberJob(jobId: string, timeout?: number): Promise<Record<string, unknown>> {
+  const deadline = timeout ? Date.now() + timeout : Infinity;
+  let lastError: Error | undefined;
+  while (Date.now() < deadline) {
+    try {
+      const status = await plumberClient.getJobStatus(jobId);
+      if (status?.status === "completed" || status?.status === "success") {
+        return status as Record<string, unknown>;
+      }
+      if (status?.status === "failed" || status?.status === "error") {
+        return { error: status.error || "Job failed" };
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  throw lastError || new Error("Polling timed out");
 }
 
 export const dataRoutes = new Hono<AppEnv>();
