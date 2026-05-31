@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ConservationSummary } from "@/components/ecology/conservation-summary";
 import { ExportPanel } from "@/components/ecology/export-panel";
 import { useCompletedRuns } from "@/hooks/use-runs";
@@ -8,9 +8,13 @@ import { Leaf, Loader2 } from "lucide-react";
 
 export default function EcologyPage() {
   const { data: runs, isLoading } = useCompletedRuns();
-  const [selectedRun, setSelectedRun] = useState<string | null>(
-    runs.length > 0 ? runs[0].id : null
-  );
+  const [selectedRun, setSelectedRun] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (runs.length > 0 && !selectedRun) {
+      setSelectedRun(runs[0].id);
+    }
+  }, [runs, selectedRun]);
 
   if (isLoading) {
     return (
