@@ -16,4 +16,6 @@ export {
   buildFutureWorldclimPath,
   extractProgressPercent,
   extractStage,
+  CHELSA_EXTRA_CHOICES,
+  ANALYSIS_CRS_CHOICES,
 } from "./constants.js";

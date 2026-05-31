@@ -33,6 +33,9 @@ fit_ensemble_glm_rangebag_sdm <- function(occ, env_train_scaled, background_n = 
                                           include_quadratic = TRUE, cv_folds = sdm_default_cv_folds,
                                           seed = sdm_default_seed, n_cores = 1, log_fun = NULL, progress_fun = NULL,
                                           ensemble_weighting = sdm_default_ensemble_weighting,
+                                          n_bags = sdm_default_rangebag_n_bags,
+                                          bag_fraction = sdm_default_rangebag_fraction,
+                                          vars_per_bag = sdm_default_rangebag_vars_per_bag,
                                           ...) {
   log_message(log_fun, "Fitting ensemble component: GLM")
   glm_fit <- fit_fast_sdm(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun)
@@ -43,7 +46,8 @@ fit_ensemble_glm_rangebag_sdm <- function(occ, env_train_scaled, background_n = 
   rangebag_fit <- fit_rangebag_sdm(
     occ, env_train_scaled,
     background_n = background_n, include_quadratic = include_quadratic,
-    cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun
+    cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun,
+    n_bags = n_bags, bag_fraction = bag_fraction, vars_per_bag = vars_per_bag
   )
   rangebag_fit$model_id <- "rangebag"
   rangebag_fit$model_label <- "Rangebagging"

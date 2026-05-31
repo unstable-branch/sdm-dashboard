@@ -113,7 +113,8 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
       background_xy = bg_xy,
       cv = cv,
       covariates = covariates,
-      variable_importance = perm_importance
+      variable_importance = perm_importance,
+      metrics = list(training_auc = train_metrics$auc, training_tss = train_metrics$tss)
     )
   }
 

@@ -85,6 +85,20 @@ run_fast_sdm <- function(...) {
   esm_weighting_metric <- cfg$esm_weighting_metric %||% "AUC"
   esm_power <- cfg$esm_power
   esm_biovars <- cfg$esm_biovars
+  rangebag_n_bags <- cfg$rangebag_n_bags
+  rangebag_bag_fraction <- cfg$rangebag_bag_fraction
+  rangebag_vars_per_bag <- cfg$rangebag_vars_per_bag
+  maxnet_auto_tune <- isTRUE(cfg$maxnet_auto_tune)
+  rf_num_trees <- cfg$rf_num_trees %||% 500L
+  rf_mtry <- cfg$rf_mtry %||% NA_integer_
+  rf_min_node_size <- cfg$rf_min_node_size %||% 10L
+  gam_k <- cfg$gam_k %||% 5L
+  xgb_max_depth <- cfg$xgb_max_depth %||% 6L
+  xgb_eta <- cfg$xgb_eta %||% 0.3
+  xgb_nrounds <- cfg$xgb_nrounds %||% 100L
+  dnn_model_type <- cfg$dnn_model_type %||% "DNN_Medium"
+  dnn_dropout <- cfg$dnn_dropout %||% 0.3
+  dnn_lambda <- cfg$dnn_lambda %||% 0.001
   overlap_warn <- cfg$overlap_warn
   validation_occurrences <- cfg$validation_occurrences
   ensure_sdm_packages("terra", n_cores = n_cores)
@@ -268,9 +282,62 @@ run_fast_sdm <- function(...) {
       biovars = esm_biovars, min_auc = esm_min_auc, weighting_metric = esm_weighting_metric, power = esm_power,
       n_runs_eval = esm_n_runs, data_split = esm_split
     )
+  } else if (identical(model_id, "rangebag") || identical(model_id, "ensemble_glm_rangebag")) {
+    list(
+      n_bags = rangebag_n_bags, bag_fraction = rangebag_bag_fraction,
+      vars_per_bag = rangebag_vars_per_bag
+    )
+  } else if (identical(model_id, "rf")) {
+    list(
+      num_trees = rf_num_trees, mtry = if (is.na(rf_mtry)) NULL else rf_mtry,
+      min_node_size = rf_min_node_size
+    )
+  } else if (identical(model_id, "gam")) {
+    list(max_k = gam_k)
+  } else if (identical(model_id, "xgboost")) {
+    list(
+      max_depth = xgb_max_depth, eta = xgb_eta, nrounds = xgb_nrounds
+    )
+  } else if (identical(model_id, "dnn")) {
+    list(
+      dnn_model_type = dnn_model_type, dropout = dnn_dropout, lambda = dnn_lambda
+    )
   } else {
     character(0)
   }
+
+  # MaxNet auto-tune: override features/regmult with grid search results
+  if (identical(model_id, "maxnet") && isTRUE(maxnet_auto_tune)) {
+    log_message(log_fun, "Auto-tuning MaxNet hyperparameters via grid search")
+    if (!requireNamespace("maxnet", quietly = TRUE)) {
+      log_message(log_fun, "  maxnet package not available — using manual settings")
+    } else {
+      model_data <- occ_data$model_data
+      covariates <- occ_data$covariates
+      if (!is.null(model_data) && length(covariates) > 0) {
+        tune_result <- tryCatch(
+          tune_maxnet(model_data, covariates,
+            regmult_grid = c(0.5, 1.0, 1.5, 2.0, 3.0),
+            feature_sets = c("lqph", "lqp", "lp", "l"),
+            k = max(cv_folds, 3L), seed = seed, n_cores = n_cores, log_fun = log_fun
+          ),
+          error = function(e) {
+            log_message(log_fun, "  Auto-tune failed: ", conditionMessage(e))
+            NULL
+          }
+        )
+        if (!is.null(tune_result)) {
+          best <- attr(tune_result, "best")
+          if (!is.null(best)) {
+            maxnet_features <- best$features
+            maxnet_regmult <- best$regmult
+            log_message(log_fun, "  Best: features=", maxnet_features, " regmult=", sprintf("%.1f", maxnet_regmult))
+          }
+        }
+      }
+    }
+  }
+
   bias_method <- match.arg(bias_method, c("uniform", "target_group", "thickened"))
   pa_replicates <- cfg$pa_replicates %||% 1L
   if (is.null(pa_replicates) || !is.finite(pa_replicates) || pa_replicates < 1) pa_replicates <- 1L
@@ -806,13 +873,41 @@ run_fast_sdm <- function(...) {
 
   elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
   log_message(log_fun, "Completed in ", sprintf("%.1f", elapsed), " seconds")
+
+  # Overfitting detection: compare training (in-sample) vs cross-validated performance
+  train_auc <- fit$metrics$training_auc %||% fit$metrics$auc %||% NA_real_
+  cv_auc <- fit$cv$auc_mean %||% NA_real_
+  auc_diff <- if (is.finite(train_auc) && is.finite(cv_auc)) train_auc - cv_auc else NA_real_
+  overfitting_level <- if (is.na(auc_diff)) {
+    NA_character_
+  } else if (auc_diff > 0.15) {
+    "high"
+  } else if (auc_diff > 0.07) {
+    "medium"
+  } else if (auc_diff > 0.03) {
+    "low"
+  } else {
+    "none"
+  }
+  train_cbi <- fit$metrics$cbi %||% NA_real_
+  cv_cbi_val <- fit$metrics$cv_cbi %||% NA_real_
+  cbi_diff <- if (is.finite(train_cbi) && is.finite(cv_cbi_val)) train_cbi - cv_cbi_val else NA_real_
+  if (!is.na(overfitting_level) && overfitting_level != "none") {
+    log_message(log_fun, "Overfitting warning (", overfitting_level, "): training AUC (", sprintf("%.3f", train_auc),
+      ") exceeds CV AUC (", sprintf("%.3f", cv_auc), ") by ", sprintf("%.3f", auc_diff))
+  }
+
   metrics <- list(
     presence_records = nrow(fit$occurrence_used), background_points = nrow(fit$background_xy),
     auc_mean = fit$cv$auc_mean, auc_sd = fit$cv$auc_sd, cv_folds = fit$cv$k,
     n_cores = n_cores, elapsed_seconds = elapsed,
     cbi = fit$metrics$cbi %||% NA_real_,
     cv_cbi = fit$metrics$cv_cbi %||% NA_real_,
-    projection = projection_metrics
+    projection = projection_metrics,
+    training_auc = train_auc,
+    auc_diff = auc_diff,
+    overfitting_level = overfitting_level,
+    cbi_diff = cbi_diff
   )
 
   result <- list(

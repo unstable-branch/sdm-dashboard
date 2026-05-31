@@ -132,6 +132,10 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
     stop("XGBoost final fit failed: ", conditionMessage(e), call. = FALSE)
   })
 
+  # Training metrics
+  x_pred <- predict(model, xgboost::xgb.DMatrix(rbind(x_train, x_val)))
+  train_metrics <- compute_binary_metrics(c(y_train, y_val), x_pred, threshold = threshold)
+
   cv <- cross_validate_xgboost(model_data, covariates, max_depth, eta, nrounds,
     k = cv_folds, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km)
@@ -163,7 +167,8 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
     cv = cv,
     covariates = covariates,
     variable_importance = importance,
-    xgb_params = list(max_depth = max_depth, eta = eta, nrounds = nrounds)
+    xgb_params = list(max_depth = max_depth, eta = eta, nrounds = nrounds),
+    metrics = list(training_auc = train_metrics$auc, training_tss = train_metrics$tss)
   )
 }
 
