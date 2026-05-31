@@ -424,28 +424,6 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       )}
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
-        <h2 className="text-lg font-semibold text-sdm-heading">Data processing</h2>
-        <p className="text-sm text-sdm-muted">Controls for occurrence data filtering and source management.</p>
-        <label className="flex items-center gap-2 text-sm text-sdm-text">
-          <input type="checkbox" checked={thinByCell} onChange={(e) => setThinByCell(e.target.checked)} />
-          Thin duplicate records in same climate cell
-          <TooltipInfo content="Keeps 1 occurrence per raster cell, reducing spatial autocorrelation that inflates CV AUC." />
-        </label>
-        <label className="flex items-center gap-2 text-sm text-sdm-text">
-          <input type="checkbox" checked={mergeSmallSources} onChange={(e) => setMergeSmallSources(e.target.checked)} />
-          Merge small occurrence sources
-          <TooltipInfo content="Pools small occurrence sources into 'Other', preventing noisy sources from splitting ensemble weight." />
-        </label>
-        <div>
-          <label className="block text-sm font-medium text-sdm-text mb-1">
-            Minimum records per source
-            <TooltipInfo content="Sources below this count are merged (when merging is enabled)." />
-          </label>
-          <input type="number" value={minSourceRecords} onChange={(e) => setMinSourceRecords(Number(e.target.value))} min={1} max={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
         <h2 className="text-lg font-semibold text-sdm-heading">Species & Model</h2>
 
         <SpeciesInput
@@ -803,7 +781,31 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
       </div>
 
-      <div className="space-y-4">
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
+        <h2 className="text-lg font-semibold text-sdm-heading">Data processing</h2>
+        <p className="text-sm text-sdm-muted">Controls for occurrence data filtering and source management.</p>
+        <label className="flex items-center gap-2 text-sm text-sdm-text">
+          <input type="checkbox" checked={thinByCell} onChange={(e) => setThinByCell(e.target.checked)} />
+          Thin duplicate records in same climate cell
+          <TooltipInfo content="Keeps 1 occurrence per raster cell, reducing spatial autocorrelation that inflates CV AUC." />
+        </label>
+        <label className="flex items-center gap-2 text-sm text-sdm-text">
+          <input type="checkbox" checked={mergeSmallSources} onChange={(e) => setMergeSmallSources(e.target.checked)} />
+          Merge small occurrence sources
+          <TooltipInfo content="Pools small occurrence sources into 'Other', preventing noisy sources from splitting ensemble weight." />
+        </label>
+        <div>
+          <label className="block text-sm font-medium text-sdm-text mb-1">
+            Minimum records per source
+            <TooltipInfo content="Sources below this count are merged (when merging is enabled)." />
+          </label>
+          <input type="number" value={minSourceRecords} onChange={(e) => setMinSourceRecords(Number(e.target.value))} min={1} max={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
+        <h2 className="text-lg font-semibold text-sdm-heading">Climate & BIO variables</h2>
+        <p className="text-sm text-sdm-muted">Select at least 2 climate variables.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-sdm-text mb-1">Climate source</label>
