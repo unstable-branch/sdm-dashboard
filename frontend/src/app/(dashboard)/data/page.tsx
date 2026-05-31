@@ -345,7 +345,7 @@ function DataPageContent() {
         </TabsList>
 
         {activeTab === "upload" && (
-          <UploadTab key={String(uploadResult?.file_id ?? "new")} uploadResult={uploadResult} uploadLoading={uploadLoading} uploadError={uploadError}
+          <UploadTab uploadResult={uploadResult} uploadLoading={uploadLoading} uploadError={uploadError}
             onUpload={handleUpload} onSelectUpload={handleSelectUpload} onTabChange={onTabChange}
             previousUploads={previousUploads} previousUploadsLoading={previousUploadsLoading} />
         )}
