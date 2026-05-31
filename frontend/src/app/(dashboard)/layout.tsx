@@ -1,27 +1,9 @@
-"use client";
-
-import { AuthGuard } from "@/components/auth/auth-guard";
-import { AppSidebar } from "@/components/app-sidebar";
-import { AppShellHeader } from "@/components/app-shell-header";
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { DashboardClientWrapper } from "@/components/layout/dashboard-client-wrapper";
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <SidebarProvider>
-      <AuthGuard>
-        <ErrorBoundary>
-          <AppSidebar />
-          <SidebarInset>
-            <AppShellHeader />
-            <main className="flex-1 p-4 sm:p-6">{children}</main>
-          </SidebarInset>
-        </ErrorBoundary>
-      </AuthGuard>
-    </SidebarProvider>
-  );
+  return <DashboardClientWrapper>{children}</DashboardClientWrapper>;
 }

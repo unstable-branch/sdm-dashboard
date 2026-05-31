@@ -18,7 +18,7 @@ make_cv_folds_random <- function(y, k = sdm_default_cv_folds, seed = sdm_default
 lonlat_to_km <- function(x, y) {
   lat_rad <- y * pi / 180
   data.frame(
-    x_km = x * 111.320 * cos(lat_rad),
+    x_km = x * 111.320 * max(abs(cos(lat_rad)), 0.01) * sign(cos(lat_rad)),
     y_km = y * 110.574,
     stringsAsFactors = FALSE
   )

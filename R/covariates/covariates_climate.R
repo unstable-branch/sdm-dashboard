@@ -276,7 +276,7 @@ download_chelsa_file <- function(url, dest, log_fun = NULL) {
 download_chelsa_extras <- function(chelsa_dir, selected_extras = names(chelsa_extra_vars),
                                    log_fun = NULL, n_cores = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')")
+    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')", call. = FALSE)
   }
   ensure_sdm_packages(c("terra", "geodata"), n_cores = n_cores)
   dir.create(chelsa_dir, recursive = TRUE, showWarnings = FALSE)
@@ -317,7 +317,14 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
   }
 
   log_message(log_fun, "Downloading WorldClim BIO layers to ", worldclim_dir, " (resolution ", res, " arc-min)")
-  wc <- geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir)
+  wc <- tryCatch(
+    geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir),
+    error = function(e) {
+      stop("WorldClim download failed: ", conditionMessage(e),
+        ". Check internet connectivity or place BIO layers manually in ", worldclim_dir,
+        call. = FALSE)
+    }
+  )
   failed <- character()
   for (bv in as.integer(selected_biovars)) {
     idx <- grep(sprintf("bio_?%d$", bv), names(wc), ignore.case = TRUE)
@@ -344,7 +351,7 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
 
 download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_cores = NULL, period = "1981-2010") {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')")
+    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')", call. = FALSE)
   }
   ensure_sdm_packages("terra", n_cores = n_cores)
   dir.create(chelsa_dir, recursive = TRUE, showWarnings = FALSE)
@@ -437,13 +444,20 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
     missing <- selected_biovars[is.na(files)]
     stop("Missing WorldClim layer(s): ", paste(paste0("BIO", missing), collapse = ", "),
       ". Restore the Worldclim folder or enable Download missing WorldClim layers.",
-      call. = FALSE
-    )
+      call. = FALSE)
   }
 
   log_message(log_fun, "Loading ", length(files), " ", source, " layer(s) from ", climate_dir)
   terra::terraOptions(memfrac = 0.75, progress = 0)
-  env_global <- terra::rast(unname(files))
+  env_global <- tryCatch(terra::rast(unname(files)), error = function(e) {
+    existing <- files[file.exists(files)]
+    if (length(existing) > 0) {
+      log_message(log_fun, "Partial read failure: ", conditionMessage(e), "; trying with ", length(existing), " available files")
+      terra::rast(unname(existing))
+    } else {
+      stop("Failed to load any climate raster files: ", conditionMessage(e), call. = FALSE)
+    }
+  })
   names(env_global) <- paste0("bio", selected_biovars)
 
   extra_files <- character(0)

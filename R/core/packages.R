@@ -42,8 +42,15 @@ sdm_optional_packages <- list(
   biomod2 = c("biomod2", "PresenceAbsence", "pROC"),
   leaflet = c("leaflet", "mapview", "sf"),
   rgee = c("rgee", "reticulate"),
+  inla = c("INLA", "inlabru"),
+  bart = c("dbarts"),
+  unmarked = c("unmarked"),
+  brms = c("brms", "cmdstanr"),
+  python = c("arrow", "reticulate"),
+  xai = c("fastshap", "iml"),
   dwca = c("finch"),
-  esm = c("ecospat", "biomod2")
+  esm = c("ecospat", "biomod2"),
+  targets = c("targets", "tarchetypes", "geotargets")
 )
 
 detect_available_cores <- function(logical = TRUE) {

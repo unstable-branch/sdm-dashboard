@@ -8,7 +8,7 @@ project_root <- dirname(dirname(setup_path))
 source(file.path(project_root, "R", "core", "bootstrap.R"))
 sdm_set_project_root(project_root)
 
-source(file.path("R", "optimized_sdm.R"))
+source(file.path(project_root, "R", "core", "optimized_sdm.R"))
 
 n_cores <- normalize_core_count(NULL, reserve_one = TRUE)
 cat("Preparing SDM app with ", n_cores, " worker(s).\n", sep = "")

@@ -5,7 +5,7 @@
 # OpenTopography elevation covariate support.
 
 compute_terrain_metrics <- function(dem, neighbors = 8) {
-  tri <- terra::terrain(dem, v = "TRI", unit = "degrees", neighbors = neighbors)
+  tri <- terra::terrain(dem, v = "TRI", neighbors = neighbors)
   names(tri) <- "terrain_ruggedness"
   slope <- terra::terrain(dem, v = "slope", unit = "degrees", neighbors = neighbors)
   names(slope) <- "terrain_slope"
@@ -15,8 +15,7 @@ compute_terrain_metrics <- function(dem, neighbors = 8) {
   aspect_cos <- cos(pi * aspect / 180)
   names(aspect_sin) <- "terrain_aspect_sin"
   names(aspect_cos) <- "terrain_aspect_cos"
-  k <- matrix(c(0, 1, 0, 1, -4, 1, 0, 1, 0), nrow = 3)
-  curv <- terra::focal(dem, w = k, na_only = FALSE)
+  curv <- terra::terrain(dem, v = "curvature", neighbors = neighbors)
   names(curv) <- "terrain_curvature"
   c(tri, slope, aspect, aspect_sin, aspect_cos, curv)
 }
@@ -130,7 +129,7 @@ download_opentopo_dem <- function(extent_vec, demtype, cache_file, api_key = NUL
   dem <- if (length(rasters) == 1L) rasters[[1L]] else do.call(terra::merge, rasters)
   dem <- terra::crop(dem, terra::ext(extent_vec[1], extent_vec[2], extent_vec[3], extent_vec[4]), snap = "out")
   names(dem) <- "elevation_m"
-  terra::writeRaster(dem, cache_file, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+  terra::writeRaster(dem, cache_file, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES")))
   cache_file
 }
 

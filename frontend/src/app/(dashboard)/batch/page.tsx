@@ -5,38 +5,76 @@ import { useRouter } from "next/navigation";
 import { BatchUpload } from "@/components/batch/batch-upload";
 import { BatchProgress } from "@/components/batch/batch-progress";
 import { ArrowLeft, Play, Loader2 } from "lucide-react";
+import { apiPost } from "@/services/api";
+
+// Map snake_case CSV column names to camelCase API field names
+const SNAKE_TO_CAMEL: Record<string, string> = {
+  occurrences_csv: "occurrenceFile",
+  model_id: "modelId",
+  background_n: "backgroundN",
+  cv_folds: "cvFolds",
+  cv_strategy: "cvStrategy",
+  cv_block_size_km: "cvBlockSizeKm",
+  include_quadratic: "includeQuadratic",
+  use_elevation: "useElevation",
+  use_soil: "useSoil",
+  use_uv: "useUv",
+  use_vegetation: "useVegetation",
+  use_lulc: "useLulc",
+  use_hfp: "useHfp",
+  vif_reduction: "vifReduction",
+  future_projection: "futureProjection",
+  aggregation_factor: "aggregationFactor",
+  n_cores: "nCores",
+  worldclim_res: "worldclimRes",
+  soil_vars: "soilVars",
+  soil_depths: "soilDepths",
+  uv_vars: "uvVars",
+  maxnet_regmult: "maxnetRegmult",
+  maxnet_features: "maxnetFeatures",
+  thickening_distance_km: "thickeningDistanceKm",
+  min_source_records: "minSourceRecords",
+  pa_replicates: "paReplicates",
+  projection_extent: "projectionExtent",
+};
+
+function snakeToCamelKeys(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(row)) {
+    result[SNAKE_TO_CAMEL[key] || key] = val;
+  }
+  return result;
+}
 
 export default function BatchPage() {
   const router = useRouter();
   const [configs, setConfigs] = useState<Array<Record<string, unknown>> | null>(null);
+  const [batchId, setBatchId] = useState<string | null>(null);
   const [jobIds, setJobIds] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [_summaryUrl, setSummaryUrl] = useState<string | null>(null);
 
   const handleConfigsParsed = (parsedConfigs: Array<Record<string, unknown>>) => {
     setConfigs(parsedConfigs);
     setJobIds(null);
+    setBatchId(null);
     setError(null);
+    setSummaryUrl(null);
   };
 
   const handleRunBatch = async () => {
     if (!configs || configs.length === 0) return;
-
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch("/api/v1/sdm/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ configs }),
+      const mappedConfigs = configs.map(snakeToCamelKeys);
+      const data = await apiPost<any>("/api/v1/sdm/batch", {
+        configs: mappedConfigs,
+        name: `Batch ${new Date().toLocaleDateString()} (${configs.length} species)`,
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Batch run failed");
-      }
-
+      setBatchId(data.batch_id);
       setJobIds(data.job_ids);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Batch run failed");
@@ -45,14 +83,32 @@ export default function BatchPage() {
     }
   };
 
-  const handleBatchComplete = () => {
-    router.refresh();
+  const handleRetryFailed = async () => {
+    if (!batchId) return;
+    try {
+      const data = await apiPost<any>(`/api/v1/sdm/batch/${batchId}/retry`, {});
+      if (data.retried > 0) {
+        setError(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Retry failed");
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!batchId) return;
+    try {
+      await apiPost<any>(`/api/v1/sdm/batch/${batchId}/cancel`, {});
+      if (jobIds) setJobIds([...jobIds]); // force re-render of BatchProgress
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed");
+    }
   };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <button onClick={() => router.back()} className="text-sdm-muted hover:text-sdm-text">
+        <button onClick={() => router.back()} className="text-sdm-muted hover:text-sdm-text" aria-label="Go back">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div>
@@ -97,7 +153,6 @@ export default function BatchPage() {
                   )}
                 </button>
               </div>
-
               <div className="rounded bg-sdm-surface-soft p-3 font-mono text-xs text-sdm-muted max-h-48 overflow-y-auto">
                 <table className="w-full">
                   <thead>
@@ -124,7 +179,14 @@ export default function BatchPage() {
           )}
         </div>
       ) : (
-        <BatchProgress jobIds={jobIds} onComplete={handleBatchComplete} />
+        <div className="space-y-4">
+          <BatchProgress
+            jobIds={jobIds}
+            batchId={batchId ?? undefined}
+            onRetryFailed={handleRetryFailed}
+            onCancel={handleCancel}
+          />
+        </div>
       )}
     </div>
   );

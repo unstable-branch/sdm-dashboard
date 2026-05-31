@@ -45,71 +45,81 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
       })
     })
 
-    # Single polling observer — created once, reacts to bg_state$active
-    observeEvent(bg_state$active, {
-      if (!bg_state$active || is.null(bg_state$process)) return()
-      poll_timer <- reactiveTimer(500, session)
-      observe({
-        poll_timer()
+    # Single polling observer — created once, uses invalidateLater for polling
+    observe({
+      req(bg_state$active, bg_state$process)
+      invalidateLater(500, session)
 
-        # Timeout watchdog: kill process if running too long
-        if (!is.null(bg_state$start_time)) {
-          elapsed <- as.numeric(difftime(Sys.time(), bg_state$start_time, units = "secs"))
-          if (elapsed > 7200) {
-            bg_state$process$kill()
-            rv$error <- "Model run timed out after 2 hours."
-            append_log(rv$error)
-            rv$running <- FALSE
-            bg_state$active <- FALSE
-            if (!is.null(bg_state$progress)) bg_state$progress$close()
-            unlink(c(bg_state$result_file, bg_state$log_file))
-            return()
-          }
-        }
-
-        if (!bg_state$process$is_alive()) {
+      # Timeout watchdog: kill process if running too long
+      if (!is.null(bg_state$start_time)) {
+        elapsed <- as.numeric(difftime(Sys.time(), bg_state$start_time, units = "secs"))
+        if (elapsed > 7200) {
+          bg_state$process$kill()
+          rv$error <- "Model run timed out after 2 hours."
+          append_log(rv$error)
+          rv$running <- FALSE
+          bg_state$active <- FALSE
           if (!is.null(bg_state$progress)) bg_state$progress$close()
-          exit_status <- bg_state$process$get_exit_status()
-          if (file.exists(bg_state$log_file)) {
-            log_lines <- tryCatch(readLines(bg_state$log_file, warn = FALSE), error = function(e) character(0))
-            if (length(log_lines) > bg_state$last_log_lines) {
-              append_log(paste(log_lines[(bg_state$last_log_lines + 1):length(log_lines)], collapse = "\n"))
-            }
-          }
-          if (exit_status == 0 && file.exists(bg_state$result_file)) {
-            result <- tryCatch(readRDS(bg_state$result_file), error = function(e) {
-              rv$error <- paste("Failed to read model result:", conditionMessage(e))
-              NULL
-            })
-            if (!is.null(result)) {
-              rv$result <- result
-              store_past_run(rv, result)
-            }
-            append_log("Model run completed.")
-          } else {
-            stderr_text <- tryCatch(bg_state$process$read_error(), error = function(e) "")
-            rv$error <- paste0("Model run failed (exit ", exit_status, "): ", stderr_text)
-            append_log(rv$error)
-          }
+          unlink(c(bg_state$result_file, bg_state$log_file))
+          return()
+        }
+      }
+
+      if (!bg_state$process$is_alive()) {
+        if (!is.null(bg_state$progress)) bg_state$progress$close()
+
+        # Cancel check: user already cancelled — don't overwrite with "failed"
+        if (isTRUE(getOption("sdm_cancelled", FALSE))) {
           rv$running <- FALSE
           bg_state$active <- FALSE
           unlink(c(bg_state$result_file, bg_state$log_file))
-          message("SDM: Model run finished")
-        } else {
-          if (file.exists(bg_state$log_file)) {
-            log_lines <- tryCatch(readLines(bg_state$log_file, warn = FALSE), error = function(e) character(0))
-            if (length(log_lines) > bg_state$last_log_lines) {
-              new_lines <- log_lines[(bg_state$last_log_lines + 1):length(log_lines)]
-              append_log(paste(new_lines, collapse = "\n"))
-              bg_state$last_log_lines <- length(log_lines)
-            }
-          }
-          if (!is.null(bg_state$progress)) {
-            bg_state$progress$inc(0.02)
+          return()
+        }
+
+        exit_status <- bg_state$process$get_exit_status()
+        if (file.exists(bg_state$log_file)) {
+          log_lines <- tryCatch(readLines(bg_state$log_file, warn = FALSE), error = function(e) character(0))
+          if (length(log_lines) > bg_state$last_log_lines) {
+            append_log(paste(log_lines[(bg_state$last_log_lines + 1):length(log_lines)], collapse = "\n"))
           }
         }
-      }, label = "sdm_bg_poll")
-    })
+        if (isTRUE(exit_status == 0) && file.exists(bg_state$result_file)) {
+          result <- tryCatch(readRDS(bg_state$result_file), error = function(e) {
+            rv$error <- paste("Failed to read model result:", conditionMessage(e))
+            NULL
+          })
+          if (!is.null(result)) {
+            rv$result <- result
+            store_past_run(rv, result)
+          }
+          append_log("Model run completed.")
+        } else {
+          stderr_text <- tryCatch(bg_state$process$read_error(), error = function(e) "")
+          if (is.na(exit_status)) {
+            rv$error <- "Model run killed by OOM, segfault, or external signal (exit status unavailable)"
+          } else {
+            rv$error <- paste0("Model run failed (exit ", exit_status, "): ", stderr_text)
+          }
+          append_log(rv$error)
+        }
+        rv$running <- FALSE
+        bg_state$active <- FALSE
+        unlink(c(bg_state$result_file, bg_state$log_file))
+        message("SDM: Model run finished")
+      } else {
+        if (file.exists(bg_state$log_file)) {
+          log_lines <- tryCatch(readLines(bg_state$log_file, warn = FALSE), error = function(e) character(0))
+          if (length(log_lines) > bg_state$last_log_lines) {
+            new_lines <- log_lines[(bg_state$last_log_lines + 1):length(log_lines)]
+            append_log(paste(new_lines, collapse = "\n"))
+            bg_state$last_log_lines <- length(log_lines)
+          }
+        }
+        if (!is.null(bg_state$progress)) {
+          bg_state$progress$inc(0.02)
+        }
+      }
+    }, label = "sdm_bg_poll")
 
     observeEvent(input$run_model, {
       message("SDM: Run SDM button clicked")
@@ -193,15 +203,15 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           worldclim_dir = input$worldclim_dir,
           selected_biovars = as.integer(input$biovars),
           projection_extent = projection_extent,
-          background_n = input$background_n,
+          background_n = { v <- suppressWarnings(as.numeric(input$background_n)); if (is.finite(v) && v > 0) as.integer(v) else sdm_default_background_n },
           pa_replicates = as.integer(input$pa_replicates %||% 1),
           min_source_records = input$min_source_records,
           merge_small_sources = isTRUE(input$merge_small_sources) %||% TRUE,
           thin_by_cell = isTRUE(input$thin_by_cell),
           model_id = input$model_id,
           include_quadratic = isTRUE(input$quadratic),
-          threshold = input$threshold,
-          aggregation_factor = input$aggregation_factor,
+          threshold = { v <- suppressWarnings(as.numeric(input$threshold)); if (is.finite(v) && v >= 0 && v <= 1) v else sdm_default_threshold },
+          aggregation_factor = { v <- suppressWarnings(as.integer(input$aggregation_factor)); if (is.finite(v) && v >= 1) v else sdm_default_aggregation_factor },
           cv_folds = as.integer(input$cv_folds),
           cv_strategy = input$cv_strategy %||% sdm_default_cv_strategy,
           cv_block_size_km = if (identical(input$cv_strategy, "spatial_blocks")) input$cv_block_size_km else NA_real_,
@@ -237,6 +247,22 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           future_label2 = input$future_label2 %||% "Future climate 2",
           maxnet_features = input$maxnet_features %||% sdm_default_maxnet_features,
           maxnet_regmult = input$maxnet_regmult %||% sdm_default_maxnet_regmult,
+          brt_n_trees = input$brt_n_trees %||% 2000L,
+          brt_interaction_depth = input$brt_interaction_depth %||% 3L,
+          brt_shrinkage = input$brt_shrinkage %||% 0.01,
+          brt_bag_fraction = input$brt_bag_fraction %||% 0.75,
+          cta_cp = input$cta_cp %||% 0.01,
+          cta_maxdepth = input$cta_maxdepth %||% 10L,
+          cta_minsplit = input$cta_minsplit %||% 20L,
+          mars_degree = input$mars_degree %||% 2L,
+          mars_penalty = input$mars_penalty %||% 3.0,
+          fda_degree = input$fda_degree %||% 2L,
+          ann_size = input$ann_size %||% 5L,
+          ann_decay = input$ann_decay %||% 0.01,
+          ann_maxit = input$ann_maxit %||% 200L,
+          dnn_n_seeds = input$dnn_n_seeds %||% 5L,
+          dnn_model_type = input$dnn_model_type %||% "DNN_Medium",
+          dnn_device = input$dnn_device %||% "auto",
           bias_method = input$bias_method %||% "uniform",
           target_group_occ = if (isTRUE(input$bias_method == "target_group") && !is.null(input$target_group_file)) {
             tryCatch(read.csv(input$target_group_file$datapath, header = TRUE), error = function(e) NULL)
@@ -261,7 +287,9 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           multi_ensemble_power = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_power %||% sdm_default_ensemble_power else sdm_default_ensemble_power,
           multi_ensemble_min_auc = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc else sdm_default_ensemble_min_auc,
           multi_ensemble_min_tss = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss else sdm_default_ensemble_min_tss,
-          multi_ensemble_export = isTRUE(input$multi_ensemble_export),
+          export_ensemble_components = isTRUE(input$multi_ensemble_export),
+          export_ensemble_stats = isTRUE(input$multi_ensemble_export),
+          include_uncertainty = isTRUE(input$multi_ensemble_export),
           biomod2_models = if (identical(input$model_id, "multi_ensemble")) input$multi_ensemble_biomod2 %||% NULL else NULL,
           esm_n_runs = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_n_runs %||% sdm_esm_default_n_runs else sdm_esm_default_n_runs,
           esm_split = if (identical(input$model_id, "esm_glm") || identical(input$model_id, "esm_maxnet")) input$esm_split %||% sdm_esm_default_split else sdm_esm_default_split,

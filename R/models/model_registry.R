@@ -7,7 +7,9 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
                                supports_importance = FALSE, supports_uncertainty = FALSE,
                                supports_future = TRUE, diagnostics = list(), notes = character(),
                                predict_component_fun = NULL, fit_component_fun = NULL,
-                               min_records = NULL) {
+                               min_records = NULL,
+                               importance_fun = NULL, pdp_fun = NULL,
+                               ale_fun = NULL, shap_fun = NULL) {
   id <- as.character(id)[1]
   if (is.na(id) || !nzchar(id)) stop("Model id must be a non-empty string.", call. = FALSE)
   if (!is.function(fit_fun)) stop("fit_fun must be a function for model id: ", id, call. = FALSE)
@@ -28,7 +30,11 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
     notes = as.character(notes),
     predict_component_fun = if (!is.null(predict_component_fun)) predict_component_fun else predict_fun,
     fit_component_fun = fit_component_fun,
-    min_records = as.integer(min_records)[1] %||% NA_integer_
+    min_records = as.integer(min_records)[1] %||% NA_integer_,
+    importance_fun = if (is.function(importance_fun)) importance_fun else NULL,
+    pdp_fun = if (is.function(pdp_fun)) pdp_fun else NULL,
+    ale_fun = if (is.function(ale_fun)) ale_fun else NULL,
+    shap_fun = if (is.function(shap_fun)) shap_fun else NULL
   )
   assign(id, spec, envir = sdm_model_registry)
   invisible(spec)
@@ -79,6 +85,320 @@ predict_sdm_model <- function(fit, env_project_scaled, output_tif, n_cores = 1, 
   model_id <- if (!is.null(fit$model_id)) fit$model_id else sdm_default_model_id
   spec <- get_sdm_model(model_id)
   spec$predict_fun(fit, env_project_scaled, output_tif, n_cores = n_cores, log_fun = log_fun)
+}
+
+# BIOCLIM / Mahalanobis envelope — always available (terra is a hard dependency)
+register_sdm_model(
+  id = "bioclim",
+  label = "BIOCLIM / Mahalanobis envelope",
+  method = "Presence-only environmental envelope via terra::bioclim()",
+  packages = "terra",
+  maturity = "experimental",
+  fit_fun = function(...) fit_bioclim_sdm(...),
+  predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+    predict_bioclim_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+  },
+  supports_importance = FALSE,
+  supports_uncertainty = FALSE,
+  supports_future = TRUE,
+  diagnostics = list(cv_auc = TRUE, cv_tss = TRUE),
+  notes = "Simple environmental envelope model. Presence-only — does not use background points. No permutation importance.",
+  min_records = 5L
+)
+
+# INLA Bayesian spatial — conditional on INLA package (special repo, not CRAN)
+if (requireNamespace("INLA", quietly = TRUE)) {
+  register_sdm_model(
+    id = "inla_spde",
+    label = "INLA / Bayesian spatial (SPDE)",
+    method = "Bayesian spatial SDM via INLA with SPDE Matern covariance",
+    packages = "INLA",
+    maturity = "experimental",
+    fit_fun = function(...) fit_inla_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_inla_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    diagnostics = list(waic = TRUE, dic = TRUE, fixed_effects = TRUE),
+    notes = "Bayesian spatial model with Matern covariance via INLA-SPDE. Models spatial autocorrelation natively. CV not yet implemented — uses WAIC/DIC for model comparison. Requires INLA package from https://inla.r-inla-download.org/R/stable/",
+    min_records = 20L
+  )
+}
+
+# BART (Bayesian Additive Regression Trees) — conditional on dbarts
+# Occupancy (unmarked) — conditional on unmarked package
+# brms (general Bayesian) — conditional on brms package
+# Python executor bridge — conditional on reticulate + arrow
+if (requireNamespace("arrow", quietly = TRUE)) {
+  python_manifests <- tryCatch(discover_python_models(), error = function(e) character(0))
+  for (manifest_path in python_manifests) {
+    m <- tryCatch(read_python_model_manifest(manifest_path), error = function(e) NULL)
+    if (is.null(m) || is.null(m$id)) next
+
+    register_sdm_model(
+      id = paste0("python_", m$id),
+      label = m$label,
+      method = m$method,
+      packages = c("arrow", "reticulate"),
+      maturity = "experimental",
+      fit_fun = function(..., python_model_id = m$id) fit_python_sdm(..., python_model_id = python_model_id),
+      predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+        predict_python_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+      },
+      supports_importance = isTRUE(m$supports_importance),
+      supports_uncertainty = isTRUE(m$supports_uncertainty),
+      supports_future = TRUE,
+      diagnostics = list(cv_auc = TRUE),
+      notes = paste("Python model via", m$id, "bridge. Requires Python + required pip packages."),
+      min_records = m$min_records %||% 10L
+    )
+  }
+}
+
+if (requireNamespace("brms", quietly = TRUE)) {
+  register_sdm_model(
+    id = "brms",
+    label = "brms / General Bayesian (Stan)",
+    method = "Full Bayesian inference via brms with cmdstanr backend",
+    packages = c("brms", "cmdstanr"),
+    maturity = "experimental",
+    fit_fun = function(...) fit_brms_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_brms_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    diagnostics = list(waic = TRUE, looic = TRUE, coefficients = TRUE, rhat = TRUE),
+    notes = "Full Bayesian SDM via brms (Stan backend). First fit compiles Stan code (5-15 min). Subsequent fits use cached model. Provides posterior uncertainty maps.",
+    min_records = 30L
+  )
+}
+
+if (requireNamespace("unmarked", quietly = TRUE)) {
+  register_sdm_model(
+    id = "occupancy",
+    label = "Occupancy (unmarked)",
+    method = "Single-season occupancy model accounting for imperfect detection via unmarked",
+    packages = "unmarked",
+    maturity = "experimental",
+    fit_fun = function(...) fit_occupancy_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_occupancy_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    diagnostics = list(state_coefficients = TRUE, detection_coefficients = TRUE),
+    notes = "Requires detection-history data (repeated surveys), not presence/background. Use read_detection_history() to load data. Detection probability is modeled explicitly.",
+    min_records = 10L
+  )
+}
+
+if (requireNamespace("dbarts", quietly = TRUE)) {
+  register_sdm_model(
+    id = "bart",
+    label = "BART / Bayesian Additive Regression Trees",
+    method = "Bayesian sum-of-trees model with uncertainty quantification via dbarts",
+    packages = "dbarts",
+    maturity = "experimental",
+    fit_fun = function(...) fit_bart_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_bart_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = TRUE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, variable_importance = TRUE),
+    notes = "Bayesian Additive Regression Trees. Provides native posterior uncertainty (95% CI). Tune ntree/ndpost/nskip.",
+    predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+      log_message(log_fun, "  Predicting BART component")
+      predict_bart_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+      fit_bart_sdm(
+        occ = occ, env_train_scaled = env_train_scaled,
+        background_n = background_n,
+        cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+        log_fun = log_fun, bias_method = bias_method,
+        target_group_occ = target_group_occ,
+        thickening_distance_km = thickening_distance_km,
+        cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+      )
+    }
+  )
+}
+
+if (requireNamespace("gbm", quietly = TRUE)) {
+  register_sdm_model(
+    id = "brt",
+    label = "BRT / Boosted Regression Trees (gbm)",
+    method = "Boosted Regression Trees via the gbm package",
+    packages = "gbm",
+    maturity = "experimental",
+    fit_fun = function(...) fit_brt_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_brt_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = TRUE,
+    supports_uncertainty = FALSE,
+    supports_future = TRUE,
+    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, feature_importance = TRUE),
+    notes = "BRT via gbm. Handles interactions and nonlinearity. Tune n_trees, interaction_depth, shrinkage.",
+    predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+      log_message(log_fun, "  Predicting BRT component")
+      predict_brt_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+      fit_brt_sdm(
+        occ = occ, env_train_scaled = env_train_scaled,
+        background_n = background_n,
+        cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+        log_fun = log_fun, bias_method = bias_method,
+        target_group_occ = target_group_occ,
+        thickening_distance_km = thickening_distance_km,
+        cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+      )
+    }
+  )
+}
+
+if (requireNamespace("rpart", quietly = TRUE)) {
+  register_sdm_model(
+    id = "cta",
+    label = "CTA / Classification Tree Analysis (rpart)",
+    method = "Classification tree via the rpart package",
+    packages = "rpart",
+    maturity = "experimental",
+    fit_fun = function(...) fit_cta_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_cta_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = TRUE,
+    supports_uncertainty = FALSE,
+    supports_future = TRUE,
+    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, variable_importance = TRUE),
+    notes = "Simple interpretable classification tree. Good baseline model.",
+    predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+      log_message(log_fun, "  Predicting CTA component")
+      predict_cta_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+      fit_cta_sdm(
+        occ = occ, env_train_scaled = env_train_scaled,
+        background_n = background_n,
+        cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+        log_fun = log_fun, bias_method = bias_method,
+        target_group_occ = target_group_occ,
+        thickening_distance_km = thickening_distance_km,
+        cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+      )
+    }
+  )
+}
+
+if (requireNamespace("earth", quietly = TRUE)) {
+  register_sdm_model(
+    id = "mars",
+    label = "MARS / Multivariate Adaptive Regression Splines (earth)",
+    method = "MARS via the earth package with binomial GLM",
+    packages = "earth",
+    maturity = "experimental",
+    fit_fun = function(...) fit_mars_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_mars_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = TRUE,
+    supports_uncertainty = FALSE,
+    supports_future = TRUE,
+    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, variable_importance = TRUE),
+    notes = "MARS handles nonlinearity and interactions via hinge functions. Use degree to control interaction order.",
+    predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+      log_message(log_fun, "  Predicting MARS component")
+      predict_mars_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+      fit_mars_sdm(
+        occ = occ, env_train_scaled = env_train_scaled,
+        background_n = background_n,
+        cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+        log_fun = log_fun, bias_method = bias_method,
+        target_group_occ = target_group_occ,
+        thickening_distance_km = thickening_distance_km,
+        cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+      )
+    }
+  )
+}
+
+if (requireNamespace("mda", quietly = TRUE)) {
+  register_sdm_model(
+    id = "fda",
+    label = "FDA / Flexible Discriminant Analysis (mda)",
+    method = "Flexible Discriminant Analysis with MARS regression via the mda package",
+    packages = c("mda", "earth"),
+    maturity = "experimental",
+    fit_fun = function(...) fit_fda_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_fda_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = FALSE,
+    supports_future = TRUE,
+    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE),
+    notes = "FDA extends linear discriminant analysis using MARS. Supports nonlinear class boundaries. Variable importance via permutation.",
+    predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+      log_message(log_fun, "  Predicting FDA component")
+      predict_fda_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+      fit_fda_sdm(
+        occ = occ, env_train_scaled = env_train_scaled,
+        background_n = background_n,
+        cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+        log_fun = log_fun, bias_method = bias_method,
+        target_group_occ = target_group_occ,
+        thickening_distance_km = thickening_distance_km,
+        cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+      )
+    }
+  )
+}
+
+if (requireNamespace("nnet", quietly = TRUE)) {
+  register_sdm_model(
+    id = "ann",
+    label = "ANN / Artificial Neural Network (nnet)",
+    method = "Single-hidden-layer neural network via the nnet package",
+    packages = "nnet",
+    maturity = "experimental",
+    fit_fun = function(...) fit_ann_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_ann_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = FALSE,
+    supports_future = TRUE,
+    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE),
+    notes = "Simple single-hidden-layer ANN. Lighter than cito/torch DNN. Variable importance via permutation.",
+    predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
+      log_message(log_fun, "  Predicting ANN component")
+      predict_ann_suitability(comp_fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    fit_component_fun = function(occ, env_train_scaled, background_n, include_quadratic, cv_folds, seed, n_cores, log_fun, bias_method, target_group_occ, thickening_distance_km, cv_strategy, cv_block_size_km, maxnet_features, maxnet_regmult, ...) {
+      fit_ann_sdm(
+        occ = occ, env_train_scaled = env_train_scaled,
+        background_n = background_n,
+        cv_folds = cv_folds, seed = seed, n_cores = n_cores,
+        log_fun = log_fun, bias_method = bias_method,
+        target_group_occ = target_group_occ,
+        thickening_distance_km = thickening_distance_km,
+        cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km
+      )
+    }
+  )
 }
 
 register_sdm_model(
@@ -286,8 +606,8 @@ if (requireNamespace("ecospat", quietly = TRUE) &&
       maturity = "experimental",
       fit_fun = function(...) fit_esm(..., algorithm = "MAXNET"),
       predict_fun = predict_esm_suitability,
-      supports_importance = TRUE,
-      supports_uncertainty = FALSE,
+    supports_importance = TRUE,
+    supports_uncertainty = TRUE,
       supports_future = TRUE,
       diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, esm_pairs = TRUE, esm_importance = TRUE),
       notes = "ESM with MaxEnt base algorithm. Better for non-linear responses.",
@@ -366,6 +686,27 @@ if (requireNamespace("xgboost", quietly = TRUE)) {
   )
 }
 
+# Multi-species DNN (cito/torch) — conditional
+if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietly = TRUE)) {
+  register_sdm_model(
+    id = "dnn_multispecies",
+    label = "Multi-species DNN (cito)",
+    method = "Multi-species deep neural network with shared environmental response structure via cito",
+    packages = c("cito", "torch"),
+    maturity = "experimental",
+    fit_fun = function(...) fit_dnn_multispecies_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_dnn_multispecies_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    diagnostics = list(n_species = TRUE, species_presence = TRUE),
+    notes = "Multi-species DNN with shared covariates. Predicts all species simultaneously using a multi-output network. Requires cito and torch.",
+    min_records = 5L
+  )
+}
+
 # DNN (cito/torch) — conditional registration (depends on cito+torch, NOT ranger)
 if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietly = TRUE)) {
   register_sdm_model(
@@ -378,10 +719,13 @@ if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietl
     predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
       predict_dnn_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
     },
-    supports_importance = FALSE,
+    supports_importance = TRUE,
     supports_uncertainty = FALSE,
     supports_future = TRUE,
-    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE),
-    notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration if CUDA available. Best with >100 records."
+    diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, shap = TRUE, pdp = TRUE),
+    importance_fun = function(fit, ...) fit$cito_importance,
+    pdp_fun = function(fit, ...) fit$cito_pdp,
+    shap_fun = function(fit, ...) fit$shap,
+    notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration if CUDA available. cito::explain() provides SHAP-like feature attribution."
   )
 }

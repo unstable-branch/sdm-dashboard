@@ -171,7 +171,7 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
 
   # DNN-104: Check raster stack has valid layers
   if (is.null(pred_stack) || terra::nlyr(pred_stack) < 1) {
-    stop("DNN-104: Raster stack is empty or has no layers. Ensure covariates are properly loaded.")
+    stop("DNN-104: Raster stack is empty or has no layers. Ensure covariates are properly loaded.", call. = FALSE)
   }
 
   # DNN-101: Extract presence points
@@ -181,13 +181,13 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
       terra::extract(pred_stack, coords)
     },
     error = function(e) {
-      stop(paste("DNN-101: Failed to extract presence points from raster:", conditionMessage(e)))
+      stop(paste("DNN-101: Failed to extract presence points from raster:", conditionMessage(e)), call. = FALSE)
     }
   )
   pres_vals <- pres_vals[complete.cases(pres_vals), , drop = FALSE]
 
   if (nrow(pres_vals) == 0) {
-    stop("DNN-101: No valid presence points found after raster extraction. Check that occurrence coordinates overlap with covariate raster extent.")
+    stop("DNN-101: No valid presence points found after raster extraction. Check that occurrence coordinates overlap with covariate raster extent.", call. = FALSE)
   }
 
   # DNN-102: Sample background points
@@ -198,12 +198,12 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
       terra::spatSample(bg_mask, size = background_n * 2, method = "random", na.rm = TRUE, as.points = TRUE)
     },
     error = function(e) {
-      stop(paste("DNN-102: Failed to sample background points:", conditionMessage(e)))
+      stop(paste("DNN-102: Failed to sample background points:", conditionMessage(e)), call. = FALSE)
     }
   )
 
   if (terra::nrow(bg_points) == 0) {
-    stop("DNN-102: No background points could be sampled. Ensure the raster extent contains valid data.")
+    stop("DNN-102: No background points could be sampled. Ensure the raster extent contains valid data.", call. = FALSE)
   }
 
   if (terra::nrow(bg_points) > background_n) {
@@ -215,13 +215,13 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
       terra::extract(pred_stack, bg_points)
     },
     error = function(e) {
-      stop(paste("DNN-102: Failed to extract background values from raster:", conditionMessage(e)))
+      stop(paste("DNN-102: Failed to extract background values from raster:", conditionMessage(e)), call. = FALSE)
     }
   )
   bg_vals <- bg_vals[complete.cases(bg_vals), , drop = FALSE]
 
   if (nrow(bg_vals) == 0) {
-    stop("DNN-102: No valid background points found after raster extraction.")
+    stop("DNN-102: No valid background points found after raster extraction.", call. = FALSE)
   }
 
   # Combine and create labels
@@ -234,7 +234,7 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
   # DNN-103: Train/test split (80/20)
   n_total <- length(labels)
   if (n_total < 10) {
-    stop(paste("DNN-103: Insufficient total data points (", n_total, "). Minimum 10 points required for train/test split."))
+    stop(paste("DNN-103: Insufficient total data points (", n_total, "). Minimum 10 points required for train/test split."), call. = FALSE)
   }
 
   test_indices <- sample(n_total, size = floor(0.2 * n_total))
@@ -280,12 +280,12 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
 train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu", log_fun = NULL) {
   # DNN-201: Check cito package is installed
   if (!requireNamespace("cito", quietly = TRUE)) {
-    stop("DNN-201: cito package not installed. Install with: install.packages('cito')")
+    stop("DNN-201: cito package not installed. Install with: install.packages('cito')", call. = FALSE)
   }
 
   # DNN-201b: Verify torch is installed and working
   if (!requireNamespace("torch", quietly = TRUE)) {
-    stop("DNN-201b: torch package missing. Install with: install.packages('torch')")
+    stop("DNN-201b: torch package missing. Install with: install.packages('torch')", call. = FALSE)
   }
 
   if (!torch::torch_is_installed()) {
@@ -293,19 +293,19 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
       "DNN-201b: LibTorch not installed.",
       "\n  Fix: Run in R: library(torch); torch::install_torch()",
       "\n  For GPU: Ensure CUDA Toolkit 12.8 + cuDNN installed, then: torch::install_torch(reinstall = TRUE)"
-    ))
+    ), call. = FALSE)
   }
 
   # DNN-202: Validate architecture
   arch <- config$dnn_arch[[model_type]]
   if (is.null(arch)) {
-    stop(paste("DNN-202: Unknown DNN architecture:", model_type, ". Valid options: DNN_Small, DNN_Medium, DNN_Large"))
+    stop(paste("DNN-202: Unknown DNN architecture:", model_type, ". Valid options: DNN_Small, DNN_Medium, DNN_Large"), call. = FALSE)
   }
 
   # DNN-203: Check training data size
   n_train <- length(train_data$train_y)
   if (n_train < 20) {
-    stop(paste("DNN-203: Training data too small (", n_train, "samples). Minimum 20 samples required for DNN training."))
+    stop(paste("DNN-203: Training data too small (", n_train, "samples). Minimum 20 samples required for DNN training."), call. = FALSE)
   }
 
   if (!is.null(log_fun)) {
@@ -365,7 +365,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
           "\n  1. Verify CUDA Toolkit 12.8 is installed: nvidia-smi",
           "\n  2. Reinstall torch with GPU: torch::install_torch(reinstall = TRUE)",
           "\n  3. Try CPU device instead: device = 'cpu'"
-        ))
+        ), call. = FALSE)
       } else if (grepl("memory|Memory", err_msg, ignore.case = TRUE)) {
         stop(paste(
           "DNN-204: Out of memory error:", err_msg,
@@ -373,7 +373,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
           "\n  1. Reduce model size (use DNN_Small instead of DNN_Large)",
           "\n  2. Reduce batch size or epochs in config$dnn_arch",
           "\n  3. Use CPU with more available RAM"
-        ))
+        ), call. = FALSE)
       } else {
         stop(paste(
           "DNN-204: Training failed:", err_msg,
@@ -381,7 +381,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
           "\n  1. Check data: ensure covariate values are not all NA/NaN",
           "\n  2. Try CPU device: device = 'cpu'",
           "\n  3. Try simpler architecture: DNN_Small"
-        ))
+        ), call. = FALSE)
       }
     }
   )
@@ -401,7 +401,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
 predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_size = 1000) {
   # DNN-301: Validate model object
   if (is.null(model)) {
-    stop("DNN-301: Model object is NULL or invalid. Ensure training completed successfully.")
+    stop("DNN-301: Model object is NULL or invalid. Ensure training completed successfully.", call. = FALSE)
   }
 
   # DNN-302: Check raster has valid cells
@@ -409,7 +409,7 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
   valid_cells <- which(!is.na(terra::values(pred_stack[[1]])))
 
   if (length(valid_cells) == 0) {
-    stop("DNN-302: Raster stack has no valid cells to predict. Check that the projection extent overlaps with covariate rasters.")
+    stop("DNN-302: Raster stack has no valid cells to predict. Check that the projection extent overlaps with covariate rasters.", call. = FALSE)
   }
 
   # Process in batches with error handling
@@ -423,7 +423,7 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
         terra::extract(pred_stack, batch_xy)
       },
       error = function(e) {
-        stop(paste("DNN-303: Failed to extract raster values for prediction:", conditionMessage(e)))
+        stop(paste("DNN-303: Failed to extract raster values for prediction:", conditionMessage(e)), call. = FALSE)
       }
     )
 
@@ -444,7 +444,7 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
           if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
         },
         error = function(e) {
-          stop(paste("DNN-303: Prediction failed for batch:", conditionMessage(e)))
+          stop(paste("DNN-303: Prediction failed for batch:", conditionMessage(e)), call. = FALSE)
         }
       )
 
@@ -468,11 +468,11 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
 get_dnn_metrics <- function(model, test_data) {
   # DNN-401: Check test data is not empty
   if (is.null(test_data) || is.null(test_data$test_x) || is.null(test_data$test_y)) {
-    stop("DNN-401: Test data is NULL or missing. Ensure prepare_dnn_data completed successfully.")
+    stop("DNN-401: Test data is NULL or missing. Ensure prepare_dnn_data completed successfully.", call. = FALSE)
   }
 
   if (length(test_data$test_y) == 0) {
-    stop("DNN-401: Test data is empty. Cannot calculate metrics.")
+    stop("DNN-401: Test data is empty. Cannot calculate metrics.", call. = FALSE)
   }
 
   # DNN-402: Get predictions with error handling
@@ -482,7 +482,7 @@ get_dnn_metrics <- function(model, test_data) {
       if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
     },
     error = function(e) {
-      stop(paste("DNN-402: Failed to get predictions on test data:", conditionMessage(e)))
+      stop(paste("DNN-402: Failed to get predictions on test data:", conditionMessage(e)), call. = FALSE)
     }
   )
 
@@ -556,7 +556,7 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
       "but minimum", config$dnn_hard_block, "required."
     )
     if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
-    stop(err_msg)
+    stop(err_msg, call. = FALSE)
   }
 
   # Determine device
@@ -583,7 +583,7 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
     error = function(e) {
       err_msg <- paste("DNN-502: Data preparation failed:", conditionMessage(e))
       if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
-      stop(err_msg)
+      stop(err_msg, call. = FALSE)
     }
   )
 
@@ -614,7 +614,7 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
       error = function(e) {
         err_msg <- paste("DNN-503: Model training failed for", model_type, ":", conditionMessage(e))
         if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
-        stop(err_msg)
+        stop(err_msg, call. = FALSE)
       }
     )
 
@@ -642,7 +642,7 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
       error = function(e) {
         err_msg <- paste("DNN-504: Prediction failed for", model_type, ":", conditionMessage(e))
         if (!is.null(log_fun)) log_fun(paste("ERROR:", err_msg))
-        stop(err_msg)
+        stop(err_msg, call. = FALSE)
       }
     )
 
@@ -671,97 +671,141 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
 
 #' Fit DNN SDM (registry pattern)
 fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
-                        include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
-                        seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
-                        cv_strategy = sdm_default_cv_strategy,
-                        cv_block_size_km = sdm_default_cv_block_size_km,
-                        threshold = sdm_default_threshold,
-                        bias_method = "uniform",
-                        target_group_occ = NULL,
-                        thickening_distance_km = NULL,
-                        dnn_model_type = "DNN_Medium",
-                        dnn_device = "auto",
-                        ...) {
+                         include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
+                         seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
+                         cv_strategy = sdm_default_cv_strategy,
+                         cv_block_size_km = sdm_default_cv_block_size_km,
+                         threshold = sdm_default_threshold,
+                         bias_method = "uniform",
+                         target_group_occ = NULL,
+                         thickening_distance_km = NULL,
+                         dnn_model_type = "DNN_Medium",
+                         dnn_device = "auto",
+                         n_seeds = 5L,
+                         ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
   }
 
-  # Extract presence values and filter for complete cases (consistent with prepare_dnn_data)
-  coords <- occ[, c("longitude", "latitude"), drop = FALSE]
-  pres_vals <- tryCatch(terra::extract(env_train_scaled, coords), error = function(e) NULL)
-  if (is.null(pres_vals) || nrow(pres_vals) == 0) stop("No valid presence points found after raster extraction.", call. = FALSE)
-  pres_vals <- pres_vals[complete.cases(pres_vals), , drop = FALSE]
-  if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
-  occurrence_used <- occ[complete.cases(pres_vals), , drop = FALSE]
-
-  # Sample background points the same way prepare_dnn_data does (seed = 42L)
-  set.seed(42L)
-  bg_mask <- env_train_scaled[[1]]
-  bg_mask[!is.na(bg_mask)] <- 1
-  bg_points <- tryCatch(terra::spatSample(bg_mask, size = background_n * 2, method = "random", na.rm = TRUE, as.points = TRUE), error = function(e) NULL)
-  if (is.null(bg_points) || terra::nrow(bg_points) == 0) stop("No background points could be sampled.", call. = FALSE)
-  if (terra::nrow(bg_points) > background_n) bg_points <- bg_points[sample(terra::nrow(bg_points), background_n), ]
-  bg_vals <- terra::extract(env_train_scaled, bg_points)
-  bg_vals <- bg_vals[complete.cases(bg_vals), , drop = FALSE]
-  bg_xy <- tryCatch({
-    bg_geom <- terra::geom(bg_points)
-    data.frame(x = bg_geom[, 1], y = bg_geom[, 2], check.names = FALSE)
-  }, error = function(e) NULL)
-  if (is.null(bg_xy)) stop("Failed to extract background coordinates.", call. = FALSE)
-  bg_xy <- bg_xy[complete.cases(bg_vals), , drop = FALSE]
-  bg_vals <- bg_vals[complete.cases(bg_vals), , drop = FALSE]
-  if (nrow(bg_vals) < 100) stop("Too few background points could be sampled.", call. = FALSE)
-
-  covariates <- make.names(names(env_train_scaled))
-  names(pres_vals) <- covariates
-  names(bg_vals) <- covariates
-
-  model_data <- rbind(
-    data.frame(presence = 1L, pres_vals, check.names = FALSE),
-    data.frame(presence = 0L, bg_vals, check.names = FALSE)
+  d <- prepare_sdm_data(occ, env_train_scaled, background_n,
+    seed = seed, log_fun = log_fun,
+    bias_method = bias_method %||% "uniform",
+    target_group_occ = target_group_occ %||% NULL,
+    thickening_distance_km = thickening_distance_km %||% NULL
   )
-  names(model_data) <- make.names(names(model_data))
+  occ_used <- d$occ_used
+  bg_xy <- d$bg_xy
+  model_data <- d$model_data
+  covariates <- d$covariates
 
-  log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", sum(model_data$presence == 1), " presences")
-
-  # Run DNN
-  dnn_result <- run_dnn(
-    occ_df = occ,
-    pred_stack = env_train_scaled,
-    selected_dnn_models = dnn_model_type,
-    background_n = background_n,
-    device = dnn_device,
-    log_fun = log_fun
+  x_train <- as.matrix(model_data[, covariates, drop = FALSE])
+  scaler <- list(
+    mean = colMeans(x_train, na.rm = TRUE),
+    sd = apply(x_train, 2, stats::sd, na.rm = TRUE)
   )
+  scaler$sd[scaler$sd == 0 | !is.finite(scaler$sd)] <- 1
+  x_train_scaled <- sweep(x_train, 2, scaler$mean, "-")
+  x_train_scaled <- sweep(x_train_scaled, 2, scaler$sd, "/")
 
-  if (is.null(dnn_result) || length(dnn_result$results) == 0) {
-    stop("DNN training failed", call. = FALSE)
+  n_seeds <- as.integer(n_seeds)[1]
+  if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
+
+  log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", n_seeds, " seeds, ",
+    sum(model_data$presence == 1), " presences")
+
+  # Train multiple seeds
+  seed_models <- vector("list", n_seeds)
+  seed_metrics <- vector("list", n_seeds)
+  train_df <- as.data.frame(x_train_scaled)
+  names(train_df) <- covariates
+
+  for (s in seq_len(n_seeds)) {
+    log_message(log_fun, "  Training seed ", s, "/", n_seeds)
+    dnn_data <- list(
+      train_x = x_train_scaled,
+      train_y = model_data$presence,
+      test_x = x_train_scaled,
+      test_y = model_data$presence,
+      feature_names = covariates
+    )
+
+    model <- tryCatch(
+      train_dnn_model(dnn_data, model_type = dnn_model_type, device = dnn_device, log_fun = log_fun),
+      error = function(e) {
+        log_message(log_fun, "    Seed ", s, " failed: ", conditionMessage(e))
+        NULL
+      }
+    )
+    if (is.null(model)) next
+
+    seed_models[[s]] <- model
   }
 
-  best_result <- dnn_result$results[[1]]
-  metrics <- best_result$metrics
+  seed_models <- Filter(Negate(is.null), seed_models)
+  if (length(seed_models) == 0) stop("All DNN seeds failed to train.", call. = FALSE)
 
-  # Create CV-like result from DNN metrics
+  n_success <- length(seed_models)
+  log_message(log_fun, "  ", n_success, "/", n_seeds, " seeds trained successfully")
+
+  # Ensemble: average predictions across seeds
+  best_model <- seed_models[[1]]
+  ensemble_models <- seed_models
+
+  # Compute mean AUC across seeds
+  auc_vals <- vapply(seed_models, function(m) {
+    tryCatch({
+      pred <- predict(m, newdata = as.data.frame(dnn_data$train_x), type = "response")
+      if (is.matrix(pred)) pred <- pred[, 1]
+      auc_rank(dnn_data$train_y, as.numeric(pred))
+    }, error = function(e) NA_real_)
+  }, numeric(1))
+  auc_mean <- mean(auc_vals, na.rm = TRUE)
+  auc_sd <- stats::sd(auc_vals, na.rm = TRUE)
+
   cv <- list(
-    k = 0L,
-    strategy = "dnn_holdout",
-    auc_mean = if (is.finite(metrics$AUC)) metrics$AUC else NA_real_,
-    auc_sd = NA_real_,
-    tss_mean = if (is.finite(metrics$TSS)) metrics$TSS else NA_real_,
+    k = n_success,
+    strategy = "dnn_multi_seed",
+    auc_mean = if (is.finite(auc_mean)) auc_mean else NA_real_,
+    auc_sd = if (is.finite(auc_sd)) auc_sd else NA_real_,
+    tss_mean = NA_real_,
     tss_sd = NA_real_,
-    sensitivity_mean = metrics$sensitivity,
-    specificity_mean = metrics$specificity,
-    fold_auc = numeric(),
-    fold_metrics = data.frame(),
-    fold_sizes = data.frame()
+    fold_auc = auc_vals,
+    n_seeds = n_success
   )
 
   if (is.finite(cv$auc_mean)) {
-    log_message(log_fun, "DNN holdout AUC: ", sprintf("%.3f", cv$auc_mean))
+    log_message(log_fun, "DNN multi-seed AUC: ", sprintf("%.3f", cv$auc_mean),
+      if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
   }
 
+  # Compute SHAP and native importance/PDP on the first model
+  shap_values <- tryCatch({
+    cito::explain(best_model, data = train_df)
+  }, error = function(e) {
+    log_message(log_fun, "cito::explain() failed: ", conditionMessage(e))
+    NULL
+  })
+  if (!is.null(shap_values)) {
+    log_message(log_fun, "SHAP feature attribution computed (", length(shap_values), " variables)")
+  }
+
+  cito_importance <- tryCatch({
+    cito::variable_importance(best_model, data = train_df)
+  }, error = function(e) {
+    log_message(log_fun, "cito::variable_importance() failed: ", conditionMessage(e))
+    NULL
+  })
+
+  cito_pdp <- tryCatch({
+    cito::PDP(best_model, data = train_df, variable = covariates)
+  }, error = function(e) {
+    log_message(log_fun, "cito::PDP() failed: ", conditionMessage(e))
+    NULL
+  })
+
   list(
-    model = best_result$model,
+    model = best_model,
+    ensemble_models = ensemble_models,
     formula = NULL,
     coefficients = NULL,
     model_data = model_data,
@@ -769,21 +813,53 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     background_xy = bg_xy,
     cv = cv,
     covariates = covariates,
-    variable_importance = NULL,
-    scaler = best_result$scaler,
-    dnn_device = dnn_result$device,
+    variable_importance = cito_importance,
+    shap = shap_values,
+    cito_importance = cito_importance,
+    cito_pdp = cito_pdp,
+    scaler = scaler,
+    n_seeds = n_success,
+    dnn_device = dnn_device,
     dnn_model_type = dnn_model_type
   )
 }
 
 #' Predict DNN suitability (registry pattern)
 predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
-  log_message(log_fun, "Predicting suitability raster with DNN (", fit$dnn_model_type, ")")
+  n_seeds <- length(fit$ensemble_models %||% list())
+  if (n_seeds > 1) {
+    log_message(log_fun, "Predicting suitability raster with DNN ensemble (", n_seeds, " seeds, ", fit$dnn_model_type, ")")
 
-  pred <- predict_dnn_raster(fit$model, env_project_scaled, fit$scaler, device = fit$dnn_device)
+    seed_preds <- vector("list", n_seeds)
+    for (s in seq_len(n_seeds)) {
+      seed_preds[[s]] <- predict_dnn_raster(fit$ensemble_models[[s]], env_project_scaled,
+        fit$scaler, device = fit$dnn_device)
+    }
 
-  dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
-  log_message(log_fun, "DNN suitability saved: ", output_tif)
-  pred
+    pred_stack <- terra::rast(seed_preds)
+    mean_pred <- mean(pred_stack, na.rm = TRUE)
+    sd_pred <- terra::stdev(pred_stack, na.rm = TRUE)
+
+    terra::values(mean_pred)[is.nan(terra::values(mean_pred))] <- NA
+    terra::values(sd_pred)[is.nan(terra::values(sd_pred))] <- NA
+    names(mean_pred) <- "suitability"
+
+    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+    terra::writeRaster(mean_pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    log_message(log_fun, "DNN ensemble suitability saved: ", output_tif)
+
+    uncertainty_tif <- sub("\\.tif$", "_uncertainty.tif", output_tif)
+    terra::writeRaster(sd_pred, uncertainty_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    log_message(log_fun, "DNN ensemble uncertainty (SD) saved: ", uncertainty_tif, " +/- ", sprintf("%.3f", mean(terra::values(sd_pred), na.rm = TRUE)))
+
+    attr(mean_pred, "uncertainty_tif") <- uncertainty_tif
+    mean_pred
+  } else {
+    log_message(log_fun, "Predicting suitability raster with DNN (", fit$dnn_model_type, ")")
+    pred <- predict_dnn_raster(fit$model, env_project_scaled, fit$scaler, device = fit$dnn_device)
+    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+    terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    log_message(log_fun, "DNN suitability saved: ", output_tif)
+    pred
+  }
 }

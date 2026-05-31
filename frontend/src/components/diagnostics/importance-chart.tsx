@@ -32,7 +32,7 @@ export function ImportanceChart({ data, loading }: ImportanceChartProps) {
 
   const chartData = items.map((item) => ({
     name: item.variable,
-    importance: Math.max(0, item.importance),
+    importance: Number.isFinite(item.importance) ? Math.max(0, item.importance) : 0,
     sd: item.sd,
   }));
 
@@ -63,7 +63,7 @@ export function ImportanceChart({ data, loading }: ImportanceChartProps) {
               borderRadius: "6px",
               fontSize: "12px",
             }}
-            formatter={(value: number, name: string) => [value.toFixed(4), name === "importance" ? "Importance" : "SD"]}
+            formatter={(value: number, name: string) => [Number.isFinite(value) ? value.toFixed(4) : "—", name === "importance" ? "Importance" : "SD"]}
           />
           <Bar dataKey="importance" fill="#2C7FB8" radius={[0, 4, 4, 0]}>
             <ErrorBar dataKey="sd" stroke="#F6B26B" strokeWidth={1.5} width={6} />
@@ -73,3 +73,4 @@ export function ImportanceChart({ data, loading }: ImportanceChartProps) {
     </div>
   );
 }
+export { ImportanceChart as default }

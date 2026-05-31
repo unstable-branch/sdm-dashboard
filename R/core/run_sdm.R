@@ -75,7 +75,8 @@ run_fast_sdm <- function(...) {
   multi_ensemble_power <- cfg$multi_ensemble_power
   multi_ensemble_min_auc <- cfg$multi_ensemble_min_auc
   multi_ensemble_min_tss <- cfg$multi_ensemble_min_tss
-  multi_ensemble_export <- cfg$multi_ensemble_export
+  export_ensemble_components <- cfg$export_ensemble_components
+  export_ensemble_stats <- cfg$export_ensemble_stats
   biomod2_models <- cfg$biomod2_models
   esm_n_runs <- cfg$esm_n_runs
   esm_split <- cfg$esm_split
@@ -131,7 +132,7 @@ run_fast_sdm <- function(...) {
     stop(sprintf(
       "Model '%s' requires at least %d presence records. Got %d.",
       model_id, min_rec_req, n_pres
-    ))
+    ), call. = FALSE)
   }
   dwca_doi <- attr(cleaned$raw, "gbif_doi")
   if (!is.null(dwca_doi) && !is.na(dwca_doi) && nzchar(dwca_doi)) {
@@ -199,6 +200,7 @@ run_fast_sdm <- function(...) {
       sample_size <- 20000
       log_message(log_fun, "VIF sample size adapted to ", sample_size, " for large raster (1% of ", n_cells, " cells)")
     }
+    sample_size <- min(sample_size, n_cells)
     sample_cells <- sample(n_cells, size = sample_size)
     sample_xy <- terra::xyFromCell(env$env_train_scaled[[1]], sample_cells)
     covar_samples <- terra::extract(env$env_train_scaled, sample_xy)
@@ -231,22 +233,7 @@ run_fast_sdm <- function(...) {
   }
   progress_step(progress_fun, 0.60, "Fitting model")
   log_message(log_fun, "Model backend: ", model_spec$label)
-  extra_args <- if (identical(model_id, "maxnet")) {
-    list(maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
-  } else if (identical(model_id, "multi_ensemble")) {
-    list(
-      selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,
-      ensemble_power = multi_ensemble_power, min_auc = multi_ensemble_min_auc,
-      min_tss = multi_ensemble_min_tss, biomod2_models = biomod2_models
-    )
-  } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
-    list(
-      biovars = esm_biovars, min_auc = esm_min_auc, weighting_metric = esm_weighting_metric, power = esm_power,
-      n_runs_eval = esm_n_runs, data_split = esm_split
-    )
-  } else {
-    character(0)
-  }
+  extra_args <- build_stage_extra_args(cfg, model_id)
   bias_method <- match.arg(bias_method, c("uniform", "target_group", "thickened"))
   pa_replicates <- cfg$pa_replicates %||% 1L
   if (is.null(pa_replicates) || !is.finite(pa_replicates) || pa_replicates < 1) pa_replicates <- 1L
@@ -254,10 +241,15 @@ run_fast_sdm <- function(...) {
 
   if (pa_replicates > 1) {
     log_message(log_fun, "Running ", pa_replicates, " PA replicates with different background samples")
-    if (model_id %in% c("multi_ensemble", "esm_glm", "esm_maxnet", "ensemble_glm_rangebag")) {
+    if (model_id %in% c("multi_ensemble", "esm_glm", "esm_maxnet", "ensemble_glm_rangebag", "bioclim")) {
       log_message(log_fun, "Note: PA replication applies to single-model backends only; ensemble/ESM models use one PA set.")
       pa_replicates <- 1L
     }
+  }
+
+  cv_threshold <- if (is.na(threshold)) 0.5 else threshold
+  if (is.na(threshold)) {
+    log_message(log_fun, "Using 0.5 for initial CV; will select optimal threshold post-fit")
   }
 
   # PA replication: fit model N times with different background seeds
@@ -268,7 +260,7 @@ run_fast_sdm <- function(...) {
       model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
       background_n = background_n, include_quadratic = include_quadratic,
       cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun,
-      progress_fun = progress_fun,
+      progress_fun = progress_fun, threshold = cv_threshold,
       cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
       bias_method = bias_method, target_group_occ = target_group_occ,
       thickening_distance_km = thickening_distance_km
@@ -290,7 +282,7 @@ run_fast_sdm <- function(...) {
           model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
           background_n = background_n, include_quadratic = include_quadratic,
           cv_folds = cv_folds, seed = rep_seed, n_cores = n_cores, log_fun = log_fun,
-          progress_fun = progress_fun,
+          progress_fun = progress_fun, threshold = cv_threshold,
           cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
           bias_method = bias_method, target_group_occ = target_group_occ,
           thickening_distance_km = thickening_distance_km
@@ -328,52 +320,34 @@ run_fast_sdm <- function(...) {
     log_message(log_fun, "PA replication: ", successful, "/", pa_replicates, " successful")
   }
 
+  threshold_source <- if (identical(cfg$threshold, "max_tss")) "auto (max-TSS)" else "user-specified"
+  if (is.na(threshold) && !is.null(fit$presence_suit) && !is.null(fit$background_suit)) {
+    tss_result <- select_threshold(fit$presence_suit, fit$background_suit)
+    threshold <- tss_result$threshold
+    log_message(log_fun, "Threshold selected via max-TSS: ", sprintf("%.2f", threshold),
+      " (max TSS = ", sprintf("%.3f", tss_result$max_tss), ")")
+  } else if (is.na(threshold)) {
+    threshold <- 0.5
+    log_message(log_fun, "Could not compute max-TSS threshold; falling back to 0.5")
+  }
+
   importance_result <- NULL
   if (isTRUE(model_spec$supports_importance) && !is.null(fit$cv) && is.finite(fit$cv$auc_mean)) {
-    pred_fun <- switch(model_id,
-      glm = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        stats::predict.glm(mod$model, newdata = df, type = "response")
-      },
-      gam = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        predict(mod$model, newdata = df, type = "response")
-      },
-      rangebag = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        predict_rangebag_values(mod$model, df)
-      },
-      maxnet = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        as.numeric(maxnet::predict.maxnet(mod$model, df, clamp = TRUE, type = "link"))
-      },
-      function(mod, newdata) stop("No importance prediction defined for model: ", model_id)
+    importance_result <- tryCatch(
+      xai_importance(fit, method = "auto", seed = seed, n_cores = n_cores),
+      error = function(e) {
+        log_message(log_fun, "Importance computation failed: ", conditionMessage(e))
+        NULL
+      }
     )
-    importance_result <- permutation_importance(
-      fit = fit,
-      model_data = fit$model_data,
-      predict_fun = pred_fun,
-      metric_fun = auc_rank,
-      n_perm = getOption("sdm.n_perm", sdm_default_n_perm),
-      seed = seed,
-      n_cores = n_cores
-    )
-    log_message(log_fun, "Permutation importance computed for ", nrow(importance_result), " variables")
+    if (is.data.frame(importance_result) && nrow(importance_result) > 0) {
+      log_message(log_fun, "Importance computed for ", nrow(importance_result), " variables")
+    }
   } else if (!is.null(fit$variable_importance) && is.data.frame(fit$variable_importance)) {
     importance_result <- fit$variable_importance
   }
+
+  extra_paths <- list()
 
   # Area of Applicability (AOA)
   aoa_result <- NULL
@@ -388,31 +362,66 @@ run_fast_sdm <- function(...) {
     )
   }
 
+  # MESS extrapolation detection (uses raw unscaled values)
+  mess_result <- NULL
+  if (!is.null(env$env_train) && !is.null(env$env_project)) {
+    mess_result <- tryCatch(
+      compute_mess(env$env_train, env$env_project),
+      error = function(e) {
+        log_message(log_fun, "MESS computation failed: ", conditionMessage(e))
+        NULL
+      }
+    )
+    if (!is.null(mess_result)) {
+      mess_tag <- format(Sys.time(), "%Y%m%d_%H%M%S")
+      output_mess_tif <- file.path(output_dir, paste0("mess_", mess_tag, ".tif"))
+      terra::writeRaster(mess_result$mess, output_mess_tif,
+        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+      extra_paths[["mess_tif"]] <- output_mess_tif
+      log_message(log_fun, "MESS surface: ", sprintf("%.1f%%", mess_result$pct_extrapolation * 100), " of projection area is extrapolation")
+    }
+  }
+
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
-  response_curves <- compute_response_curves(
-    fit = fit,
-    model_data = fit$model_data,
-    env_train = env$env_train,
-    n_points = 50
+  response_curves <- tryCatch(
+    compute_response_curves(fit = fit, model_data = fit$model_data, n_points = 50),
+    error = function(e) {
+      log_message(log_fun, "Response curves failed: ", conditionMessage(e))
+      NULL
+    }
   )
 
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
 
+  # Pre-flight memory check: warn if raster prediction may exceed available RAM
+  tryCatch({
+    if (requireNamespace("terra", quietly = TRUE)) {
+      mem_avail <- terra::mem_info()$memavail
+      n_cells <- terra::ncell(env$env_project_scaled)
+      est_gb <- n_cells * length(names(env$env_project_scaled)) * 8 / (1024^3) * 2.5
+      if (is.finite(est_gb) && is.finite(mem_avail) && est_gb > mem_avail * 0.8) {
+        log_message(log_fun, "WARNING: Estimated prediction memory (", sprintf("%.1f GB", est_gb),
+          ") exceeds 80% of available RAM (", sprintf("%.1f GB", mem_avail),
+          "). Prediction may fail with OOM.")
+      }
+    }
+  }, error = function(e) NULL)
+
   progress_step(progress_fun, 0.80, "Predicting projection raster")
   base_name <- paste0(safe_slug(species), "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
   output_tif <- file.path(output_dir, paste0(base_name, "_suitability.tif"))
   output_png <- file.path(output_dir, paste0(base_name, "_suitability.png"))
   output_report <- file.path(output_dir, paste0(base_name, "_report.txt"))
-  extra_paths <- list()
   suit <- tryCatch({
     if (identical(model_id, "multi_ensemble")) {
       predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
-        export_components = isTRUE(multi_ensemble_export),
-        include_uncertainty = isTRUE(multi_ensemble_export),
+        export_components = isTRUE(export_ensemble_components),
+        include_uncertainty = isTRUE(cfg$include_uncertainty),
+        export_stats = isTRUE(export_ensemble_stats),
         ensemble_weighting = multi_ensemble_weighting,
         ensemble_power = multi_ensemble_power,
         user_threshold = threshold
@@ -439,12 +448,15 @@ run_fast_sdm <- function(...) {
 
   # PA replication: average predictions across replicates
   if (pa_replicates > 1 && !is.null(fit$pa_replicates)) {
+    pa_temp_files <- character(0)
+    on.exit(unlink(pa_temp_files), add = TRUE)
     suit_sum <- suit
     valid_reps <- 1L
     for (rep_i in seq_len(pa_replicates)[-1]) {
       rep_fit <- replicate_fits[[rep_i]]
       if (is.null(rep_fit)) next
       rep_tif <- tempfile(pattern = paste0("pa_rep", rep_i, "_"), fileext = ".tif")
+      pa_temp_files <- c(pa_temp_files, rep_tif)
       rep_suit <- tryCatch(
         predict_sdm_model(rep_fit, env$env_project_scaled, rep_tif, n_cores, log_fun),
         error = function(e) {
@@ -460,7 +472,7 @@ run_fast_sdm <- function(...) {
     }
     if (valid_reps > 1) {
       suit <- suit_sum / valid_reps
-      terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
       log_message(log_fun, "PA-averaged suitability from ", valid_reps, " replicates written to ", output_tif)
     }
   }
@@ -496,7 +508,7 @@ run_fast_sdm <- function(...) {
     if (!is.null(climate_match_result)) {
       cm_tif <- file.path(output_dir, paste0(base_name, "_climatch.tif"))
       terra::writeRaster(climate_match_result$similarity, cm_tif,
-        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
       extra_paths[["climate_matching_tif"]] <- cm_tif
     }
   }
@@ -521,21 +533,34 @@ run_fast_sdm <- function(...) {
   }
 
   if (isTRUE(future_projection)) {
+    if (identical(cfg$source %||% "worldclim", "chelsa")) {
+      log_message(log_fun, "Note: Future projection uses WorldClim CMIP6 data regardless of current climate source. CHELSA v2.1 future data is not supported. Future layers will be loaded from: ", future_worldclim_dir)
+    }
     progress_step(progress_fun, 0.95, "Projecting future climate scenario")
-    future <- project_future_suitability(
-      fit = fit,
-      current_suitability = suit,
-      env = env,
-      future_worldclim_dir = future_worldclim_dir,
-      selected_biovars = selected_biovars,
-      projection_extent = projection_extent,
-      aggregation_factor = aggregation_factor,
-      output_future_tif = file.path(output_dir, paste0(base_name, "_future_suitability.tif")),
-      output_delta_tif = file.path(output_dir, paste0(base_name, "_future_delta.tif")),
-      n_cores = n_cores,
-      log_fun = log_fun
+    mask_extrapolation <- isTRUE(cfg$extrapolation_mask %||% TRUE)
+    mess_threshold <- cfg$mess_threshold %||% 0
+    future <- tryCatch(
+      project_future_suitability(
+        fit = fit,
+        current_suitability = suit,
+        env = env,
+        future_worldclim_dir = future_worldclim_dir,
+        selected_biovars = selected_biovars,
+        projection_extent = projection_extent,
+        aggregation_factor = aggregation_factor,
+        output_future_tif = file.path(output_dir, paste0(base_name, "_future_suitability.tif")),
+        output_delta_tif = file.path(output_dir, paste0(base_name, "_future_delta.tif")),
+        n_cores = n_cores,
+        log_fun = log_fun,
+        mask_extrapolation = mask_extrapolation,
+        mess_threshold = mess_threshold
+      ),
+      error = function(e) {
+        log_message(log_fun, "Future projection failed: ", conditionMessage(e))
+        NULL
+      }
     )
-    extra_paths <- c(extra_paths, future$paths)
+    if (!is.null(future)) extra_paths <- c(extra_paths, future$paths)
   }
 
   # Second future scenario (multi-SSP comparison)
@@ -687,14 +712,17 @@ run_fast_sdm <- function(...) {
     variable_importance = importance_result,
     response_curves = response_curves,
     suitability = suit, future = future, future2 = future2, climate_match = climate_match_result,
+    mess = mess_result,
     eoo_aoo = eoo_aoo_result,
     aoa = aoa_result,
     summary = suitability_summary, metrics = metrics,
     paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)
   )
   result$report_text <- output_report
-  write_manifest(result, output_dir, base_name)
-  write_summary_report(result, result$report_text)
+  tryCatch(write_manifest(result, output_dir, base_name, cpu_ms = metrics$elapsed_seconds * 1000),
+    error = function(e) log_message(log_fun, "Manifest write failed: ", conditionMessage(e)))
+  tryCatch(write_summary_report(result, result$report_text),
+    error = function(e) log_message(log_fun, "Summary report write failed: ", conditionMessage(e)))
   result
 }
 
@@ -703,16 +731,75 @@ run_fast_sdm <- function(...) {
 # Each stage function takes a partial result and returns an updated one.
 
 #' Run SDM pipeline: Stage 1 — Clean occurrence data
+# Build model-specific extra_args from cfg (shared between run_fast_sdm and sdm_stage_fit)
+build_stage_extra_args <- function(cfg, model_id) {
+  if (identical(model_id, "maxnet")) {
+    list(maxnet_features = cfg$maxnet_features, maxnet_regmult = cfg$maxnet_regmult)
+  } else if (identical(model_id, "brt")) {
+    list(n_trees = cfg$brt_n_trees %||% 2000L, interaction_depth = cfg$brt_interaction_depth %||% 3L,
+      shrinkage = cfg$brt_shrinkage %||% 0.01, bag_fraction = cfg$brt_bag_fraction %||% 0.75)
+  } else if (identical(model_id, "cta")) {
+    list(cp = cfg$cta_cp %||% 0.01, maxdepth = cfg$cta_maxdepth %||% 10L, minsplit = cfg$cta_minsplit %||% 20L)
+  } else if (identical(model_id, "mars")) {
+    list(degree = cfg$mars_degree %||% 2L, penalty = cfg$mars_penalty %||% 3.0)
+  } else if (identical(model_id, "fda")) {
+    list(degree = cfg$fda_degree %||% 2L)
+  } else if (identical(model_id, "ann")) {
+    list(size = cfg$ann_size %||% 5L, decay = cfg$ann_decay %||% 0.01, maxit = cfg$ann_maxit %||% 200L)
+  } else if (identical(model_id, "dnn")) {
+    list(n_seeds = cfg$dnn_n_seeds %||% 5L, dnn_model_type = cfg$dnn_model_type %||% "DNN_Medium", dnn_device = cfg$dnn_device %||% "auto")
+  } else if (identical(model_id, "rf")) {
+    list(num_trees = cfg$rf_num_trees %||% 500L, mtry = cfg$rf_mtry %||% NULL, min_node_size = cfg$rf_min_node_size %||% 10L)
+  } else if (identical(model_id, "xgboost")) {
+    list(max_depth = cfg$xgb_max_depth %||% 6L, eta = cfg$xgb_eta %||% 0.3, nrounds = cfg$xgb_nrounds %||% 100L)
+  } else if (identical(model_id, "bart")) {
+    list(ntree = cfg$bart_ntree %||% 200L, ndpost = cfg$bart_ndpost %||% 1000L, nskip = cfg$bart_nskip %||% 500L)
+  } else if (identical(model_id, "brms")) {
+    list(chains = cfg$brms_chains %||% 4L, iter = cfg$brms_iter %||% 2000L, warmup = cfg$brms_warmup %||% 1000L)
+  } else if (identical(model_id, "inla_spde")) {
+    list(mesh_max_edge = cfg$inla_mesh_max_edge %||% NULL, mesh_cutoff = cfg$inla_mesh_cutoff %||% NULL,
+      prior_range = cfg$inla_prior_range %||% NULL, prior_sigma = cfg$inla_prior_sigma %||% NULL)
+  } else if (identical(model_id, "rangebag")) {
+    list(n_bags = cfg$n_bags %||% sdm_default_rangebag_n_bags, bag_fraction = cfg$bag_fraction %||% sdm_default_rangebag_fraction,
+      vars_per_bag = cfg$vars_per_bag %||% sdm_default_rangebag_vars_per_bag)
+  } else if (identical(model_id, "occupancy")) {
+    list(detection_formula = cfg$detection_formula %||% "~1", model_type = cfg$occupancy_model_type %||% "occu")
+  } else if (identical(model_id, "dnn_multispecies")) {
+    list(dnn_model_type = cfg$dnn_architecture %||% "DNN_Medium", n_seeds = cfg$dnn_multispecies_n_seeds %||% 3L,
+      dnn_device = cfg$dnn_device %||% "auto")
+  } else if (identical(model_id, "biomod2")) {
+    list(models = cfg$biomod2_models %||% config$biomod2_default %||% c("GLM", "MAXNET", "RF"))
+  } else if (identical(model_id, "multi_ensemble")) {
+    list(
+      selected_models = cfg$multi_ensemble_models, ensemble_weighting = cfg$multi_ensemble_weighting,
+      ensemble_power = cfg$multi_ensemble_power, min_auc = cfg$multi_ensemble_min_auc,
+      min_tss = cfg$multi_ensemble_min_tss, biomod2_models = cfg$biomod2_models
+    )
+  } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
+    list(
+      biovars = cfg$esm_biovars, min_auc = cfg$esm_min_auc, weighting_metric = cfg$esm_weighting_metric,
+      power = cfg$esm_power, n_runs_eval = cfg$esm_n_runs, data_split = cfg$esm_split
+    )
+  } else {
+    character(0)
+  }
+}
+
 sdm_stage_clean <- function(cfg, log_fun = NULL) {
   log_message(log_fun, "Stage 1: Cleaning occurrence data")
-  cleaned <- clean_occurrences(
-    cfg$occurrence_file,
-    min_source_records = cfg$min_source_records,
-    merge_small_sources = cfg$merge_small_sources,
-    use_cc = cfg$use_cc,
-    cc_tests = cfg$cc_tests,
-    log_fun = log_fun,
-    max_coordinate_uncertainty = cfg$max_coordinate_uncertainty
+  cleaned <- tryCatch(
+    clean_occurrences(
+      cfg$occurrence_file,
+      min_source_records = cfg$min_source_records,
+      merge_small_sources = cfg$merge_small_sources,
+      use_cc = cfg$use_cc,
+      cc_tests = cfg$cc_tests,
+      log_fun = log_fun,
+      max_coordinate_uncertainty = cfg$max_coordinate_uncertainty
+    ),
+    error = function(e) {
+      stop("Stage 1 (clean) failed: ", conditionMessage(e), call. = FALSE)
+    }
   )
   list(cleaned = cleaned, occ = cleaned$occ)
 }
@@ -720,7 +807,7 @@ sdm_stage_clean <- function(cfg, log_fun = NULL) {
 #' Run SDM pipeline: Stage 2 — Load and scale environmental covariates
 sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
   log_message(log_fun, "Stage 2: Loading covariates")
-  load_environment(
+  tryCatch(load_environment(
     worldclim_dir = cfg$worldclim_dir,
     selected_biovars = cfg$selected_biovars,
     training_extent = cfg$training_extent,
@@ -752,37 +839,72 @@ sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
     covariate_cache_dir = cfg$covariate_cache_dir %||% NULL,
     source = cfg$source,
     selected_chelsa_extras = cfg$selected_chelsa_extras
-  )
+  ), error = function(e) {
+    stop("Stage 2 (covariates) failed: ", conditionMessage(e), call. = FALSE)
+  })
 }
 
 #' Run SDM pipeline: Stage 3 — Fit model
 sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL, progress_fun = NULL) {
   log_message(log_fun, "Stage 3: Fitting model")
-  extra_args <- list()
-  # Build extra_args from cfg as in run_fast_sdm...
-  fit <- do.call(fit_sdm_model, c(list(
-    model_id = cfg$model_id, occ = occ, env_train_scaled = env$env_train_scaled,
-    background_n = cfg$background_n, include_quadratic = cfg$include_quadratic,
-    cv_folds = cfg$cv_folds, seed = cfg$seed, n_cores = cfg$n_cores, log_fun = log_fun,
-    progress_fun = progress_fun,
-    cv_strategy = cfg$cv_strategy, cv_block_size_km = cfg$cv_block_size_km,
-    bias_method = cfg$bias_method, target_group_occ = cfg$target_group_occ,
-    thickening_distance_km = cfg$thickening_distance_km
-  ), extra_args))
+  model_id <- cfg$model_id %||% "glm"
+  extra_args <- build_stage_extra_args(cfg, model_id)
+  fit <- tryCatch(
+    do.call(fit_sdm_model, c(list(
+      model_id = model_id, occ = occ, env_train_scaled = env$env_train_scaled,
+      background_n = cfg$background_n, include_quadratic = cfg$include_quadratic,
+      cv_folds = cfg$cv_folds, seed = cfg$seed, n_cores = cfg$n_cores, log_fun = log_fun,
+      progress_fun = progress_fun,
+      cv_strategy = cfg$cv_strategy, cv_block_size_km = cfg$cv_block_size_km,
+      bias_method = cfg$bias_method, target_group_occ = cfg$target_group_occ,
+      thickening_distance_km = cfg$thickening_distance_km
+    ), extra_args)),
+    error = function(e) {
+      stop("Stage 3 (fit) failed: ", conditionMessage(e), call. = FALSE)
+    }
+  )
   list(fit = fit)
 }
 
 #' Run SDM pipeline: Stage 4 — Predict suitability
 sdm_stage_predict <- function(cfg, fit, env, output_tif, log_fun = NULL) {
   log_message(log_fun, "Stage 4: Predicting suitability")
-  suit <- predict_sdm_model(fit, env$env_project_scaled, output_tif, cfg$n_cores, log_fun)
+  suit <- tryCatch(
+    predict_sdm_model(fit, env$env_project_scaled, output_tif, cfg$n_cores, log_fun),
+    error = function(e) {
+      stop("Stage 4 (predict) failed: ", conditionMessage(e), call. = FALSE)
+    }
+  )
   list(suit = suit, output_tif = output_tif)
 }
 
-#' Run SDM pipeline: Stage 5 — Post-processing (climate match, EOO/AOO, AOA)
+#' Run SDM pipeline: Stage 4b — Future climate projection
+sdm_stage_future <- function(cfg, fit, suit, env, output_dir, base_name, log_fun = NULL) {
+  if (!isTRUE(cfg$future_projection) || is.null(cfg$future_worldclim_dir)) {
+    return(list(future = NULL))
+  }
+  log_message(log_fun, "Stage 4b: Projecting future climate scenario")
+  future <- tryCatch(project_future_suitability(
+    fit = fit, current_suitability = suit, env = env,
+    future_worldclim_dir = cfg$future_worldclim_dir,
+    selected_biovars = cfg$selected_biovars,
+    projection_extent = cfg$projection_extent,
+    aggregation_factor = cfg$aggregation_factor %||% 1,
+    output_future_tif = file.path(output_dir, paste0(base_name, "_future_suitability.tif")),
+    output_delta_tif = file.path(output_dir, paste0(base_name, "_future_delta.tif")),
+    n_cores = cfg$n_cores %||% 1, log_fun = log_fun,
+    mask_extrapolation = isTRUE(cfg$extrapolation_mask %||% TRUE),
+    mess_threshold = cfg$mess_threshold %||% 0
+  ), error = function(e) {
+    stop("Stage 4b (future) failed: ", conditionMessage(e), call. = FALSE)
+  })
+  list(future = future)
+}
+
+#' Run SDM pipeline: Stage 5 — Post-processing (climate match, EOO/AOO, AOA, XAI)
 sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   log_message(log_fun, "Stage 5: Post-processing")
-  result <- list()
+  result <- tryCatch({
 
   # EOO/AOO
   if (!is.null(fit$occurrence_used)) {
@@ -807,6 +929,21 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
     )
   }
 
+  # Variable importance
+  model_spec <- tryCatch(get_sdm_model(cfg$model_id %||% "glm"), error = function(e) NULL)
+  if (!is.null(model_spec) && isTRUE(model_spec$supports_importance) && !is.null(fit$model_data)) {
+    result$importance <- tryCatch(
+      xai_importance(fit, seed = cfg$seed %||% 42, n_cores = cfg$n_cores %||% 1),
+      error = function(e) { log_message(log_fun, "  Importance skipped: ", conditionMessage(e)); NULL }
+    )
+  }
+  if (!is.null(fit$model_data)) {
+    result$response_curves <- tryCatch(
+      compute_response_curves(fit, fit$model_data, n_points = 50),
+      error = function(e) { log_message(log_fun, "  Response curves skipped: ", conditionMessage(e)); NULL }
+    )
+  }
+
   # Climate matching
   if (isTRUE(cfg$climate_matching)) {
     result$climate_match <- tryCatch(
@@ -820,4 +957,7 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   }
 
   result
+  }, error = function(e) {
+    stop("Stage 5 (postprocess) failed: ", conditionMessage(e), call. = FALSE)
+  })
 }
