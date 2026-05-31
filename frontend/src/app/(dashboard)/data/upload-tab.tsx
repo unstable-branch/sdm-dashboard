@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
 import { PreviewTable } from "@/components/data/preview-table";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 interface UploadTabProps {
   uploadResult: Record<string, unknown> | null;
@@ -59,6 +59,7 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
       {hasResult && uploadResult?.cleaned ? (
         <div className="flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
           <div className="flex items-center gap-2 text-sm text-green-500">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
             <span>Previously cleaned — {Number(uploadResult.cleaned_valid_records ?? uploadResult.n_rows ?? 0).toLocaleString()} valid records ready.</span>
           </div>
           <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
@@ -97,7 +98,7 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-sdm-text truncate">
                       {f.file_name as string}
-                      {(f as any).cleaned && <span className="ml-1.5 inline-flex items-center rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success">Cleaned</span>}
+                      {(f as any).cleaned && <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success"><CheckCircle2 className="h-3 w-3" /> Cleaned</span>}
                     </p>
                     <p className="text-xs text-sdm-muted">
                       {sizeStr}{(f.n_rows as number) > 0 && ` · ${(f.n_rows as number).toLocaleString()} rows`}
