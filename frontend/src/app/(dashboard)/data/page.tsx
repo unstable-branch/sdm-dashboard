@@ -291,9 +291,9 @@ function DataPageContent() {
     setRecordCount(Number(file.n_rows || 0));
     setPipelineRunId(null);
     setCleanResult(null);
-    if (Boolean(file.cleaned) && file.cleaned_file_path) {
+    if (Boolean(file.cleaned) && file.cleaned_file_id) {
       setCleanedOccurrence({
-        filePath: file.cleaned_file_path as string,
+        filePath: file.cleaned_file_id as string,
         df: [],
         sourceCounts: {},
         nAbsentExcluded: 0,
