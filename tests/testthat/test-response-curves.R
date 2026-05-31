@@ -146,7 +146,7 @@ test_that("MaxNet response curves use type='response' via explicit predict.maxne
     rep(0.5, nrow(newdata))
   }
 
-  mockery::stub("compute_response_curves", "maxnet::predict.maxnet", mock_predict_maxnet)
+  mockery::stub("compute_response_curves", "predict", mock_predict_maxnet)
 
   fit_mock <- list(
     model = structure(list(), class = "maxnet"),

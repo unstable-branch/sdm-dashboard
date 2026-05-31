@@ -133,6 +133,16 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     }
   }
 
+  # Validate standalone predictions — exclude all-NA rasters
+  for (m in names(preds)) {
+    mm <- tryCatch(terra::minmax(preds[[m]]), error = function(e) NULL)
+    if (!is.null(mm) && all(!is.finite(mm))) {
+      failed_components <- c(failed_components, m)
+      preds[[m]] <- NULL
+      log_message(log_fun, "Component '", m, "' produced all-NA prediction; excluding from ensemble")
+    }
+  }
+
   # Predict biomod2 components (always sequential — Java backend)
   for (m in biomod2_names) {
     comp_fit <- components[[m]]
@@ -151,6 +161,16 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     }
     preds[[m]] <- pred_result
     if (export_components) component_paths[[m]] <- comp_tif
+  }
+
+  # Validate biomod2 predictions — exclude all-NA rasters
+  for (m in names(preds)) {
+    mm <- tryCatch(terra::minmax(preds[[m]]), error = function(e) NULL)
+    if (!is.null(mm) && all(!is.finite(mm))) {
+      failed_components <- c(failed_components, m)
+      preds[[m]] <- NULL
+      log_message(log_fun, "Component '", m, "' produced all-NA prediction; excluding from ensemble")
+    }
   }
 
   if (length(failed_components) > 0) {
@@ -189,19 +209,19 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   active_weights <- active_weights / sum(active_weights, na.rm = TRUE)
   active_weights[!is.finite(active_weights)] <- 0
   weighted_layers <- mapply(function(pred, wi) pred * wi, preds, active_weights, SIMPLIFY = FALSE)
-  ensemble_weighted <- Reduce("+", weighted_layers)
+  weighted_stack <- terra::rast(weighted_layers)
+  ensemble_weighted <- terra::app(weighted_stack, sum, na.rm = TRUE)
   names(ensemble_weighted) <- "suitability"
   terra::writeRaster(ensemble_weighted, output_tif,
     overwrite = TRUE,
     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
   )
   log_message(log_fun, "Ensemble raster written to: ", output_tif)
-  rm(weighted_layers)
+  rm(weighted_layers, weighted_stack)
   gc(verbose = FALSE)
 
-  binary_preds <- lapply(seq_along(preds), function(i) {
-    mid <- names(preds)[i]
-    comp_thresh <- if (!is.null(cv_list[[i]]) && !is.null(cv_list[[i]]$threshold)) cv_list[[i]]$threshold else sdm_default_threshold
+  binary_preds <- lapply(names(preds), function(mid) {
+    comp_thresh <- if (!is.null(cv_list[[mid]]) && !is.null(cv_list[[mid]]$threshold)) cv_list[[mid]]$threshold else sdm_default_threshold
     thresh <- user_threshold %||% comp_thresh
     preds[[mid]] >= thresh
   })
