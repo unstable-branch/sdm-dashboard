@@ -115,6 +115,7 @@ tryCatch({
     selected_soil_depths = config$soil_depths %||% sdm_default_soil_depths,
     use_uv = isTRUE(config$use_uv),
     selected_uv_vars = config$uv_vars %||% sdm_default_uv_vars,
+    selected_uv_months = config$uv_months,
     use_vegetation = isTRUE(config$use_vegetation),
     veg_year = as.integer(config$veg_year %||% sdm_default_veg_year),
     veg_products = config$veg_products %||% sdm_default_veg_products,
@@ -124,6 +125,7 @@ tryCatch({
     hfp_year = as.integer(config$hfp_year %||% sdm_default_hfp_year),
     use_bioclim_season = isTRUE(config$use_bioclim_season),
     use_drought = isTRUE(config$use_drought),
+    selected_drought_periods = config$drought_periods %||% "annual_mean",
     covariate_cache_dir = "covariates",
     vif_reduction = isTRUE(config$vif_reduction),
     vif_threshold = as.numeric(config$vif_threshold %||% 10),
@@ -166,7 +168,21 @@ tryCatch({
     generate_tiles = isTRUE(config$generate_tiles %||% TRUE),
     mask_type = config$mask_type %||% sdm_default_mask_type,
     mask_file = config$mask_file %||% sdm_default_mask_file,
-    mask_buffer_deg = as.numeric(config$mask_buffer_deg %||% sdm_default_mask_buffer_deg)
+    mask_buffer_deg = as.numeric(config$mask_buffer_deg %||% sdm_default_mask_buffer_deg),
+    rangebag_n_bags = as.integer(config$rangebag_n_bags %||% sdm_default_rangebag_n_bags),
+    rangebag_bag_fraction = as.numeric(config$rangebag_bag_fraction %||% sdm_default_rangebag_fraction),
+    rangebag_vars_per_bag = as.integer(config$rangebag_vars_per_bag %||% sdm_default_rangebag_vars_per_bag),
+    maxnet_auto_tune = isTRUE(config$maxnet_auto_tune %||% FALSE),
+    rf_num_trees = as.integer(config$rf_num_trees %||% 500L),
+    rf_mtry = as.integer(config$rf_mtry %||% NA_integer_),
+    rf_min_node_size = as.integer(config$rf_min_node_size %||% 10L),
+    gam_k = as.integer(config$gam_k %||% 5L),
+    xgb_max_depth = as.integer(config$xgb_max_depth %||% 6L),
+    xgb_eta = as.numeric(config$xgb_eta %||% 0.3),
+    xgb_nrounds = as.integer(config$xgb_nrounds %||% 100L),
+    dnn_model_type = config$dnn_model_type %||% "DNN_Medium",
+    dnn_dropout = as.numeric(config$dnn_dropout %||% 0.3),
+    dnn_lambda = as.numeric(config$dnn_lambda %||% 0.001)
   )
 
   result <- run_fast_sdm(cfg)
@@ -215,11 +231,16 @@ tryCatch({
       sensitivity_mean = result$cv$sensitivity_mean,
       specificity_mean = result$cv$specificity_mean,
       cbi = result$metrics$cbi,
+      cv_cbi = result$metrics$cv_cbi,
       threshold = result$config$threshold %||% sdm_default_threshold,
       presence_records = result$metrics$presence_records,
       background_points = result$metrics$background_points,
       elapsed_seconds = result$metrics$elapsed_seconds,
-      high_suitability_area_km2 = result$summary$high_risk_area_km2
+      high_suitability_area_km2 = result$summary$high_risk_area_km2,
+      training_auc = result$metrics$training_auc,
+      auc_diff = result$metrics$auc_diff,
+      overfitting_level = result$metrics$overfitting_level,
+      cbi_diff = result$metrics$cbi_diff
     )
     meta$output_files <- c(result$paths, diag_files, list(result_rds = result_rds_path %||% NA_character_))
 

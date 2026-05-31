@@ -155,7 +155,8 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
       covariates = covariates,
       variable_importance = importance_df,
       threshold = cv$threshold %||% threshold,
-      oob_auc = oob_auc
+      oob_auc = oob_auc,
+      metrics = list(training_auc = train_metrics$auc, training_tss = train_metrics$tss)
     )
   }
 

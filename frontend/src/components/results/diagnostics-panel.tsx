@@ -8,6 +8,7 @@ import { ImportanceChart } from "@/components/diagnostics/importance-chart";
 import { ResponseCurvesChart } from "@/components/diagnostics/response-curves-chart";
 import { CbiChart } from "@/components/diagnostics/cbi-chart";
 import { MessSummary } from "@/components/diagnostics/mess-summary";
+import { OverfittingPanel } from "@/components/results/overfitting-panel";
 import { apiGet } from "@/services/api";
 import type { VifData, ImportanceData, ResponseCurvesData, CbiData, MessData, RunDetail } from "@/services/types";
 
@@ -125,6 +126,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
           <TabsTrigger value="calibration" className="text-xs">Calibration</TabsTrigger>
           <TabsTrigger value="vif" className="text-xs">VIF</TabsTrigger>
           <TabsTrigger value="mess" className="text-xs">MESS</TabsTrigger>
+          <TabsTrigger value="overfitting" className="text-xs text-amber-500">Overfitting</TabsTrigger>
           <TabsTrigger value="log" className="text-xs">Log</TabsTrigger>
         </TabsList>
 
@@ -209,6 +211,10 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
             data={messData}
             loading={loadingDiagnostics}
           />
+        </TabsContent>
+
+        <TabsContent value="overfitting">
+          <OverfittingPanel run={run} />
         </TabsContent>
 
         <TabsContent value="log">
