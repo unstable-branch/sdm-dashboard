@@ -7,13 +7,6 @@ import { ImportanceChart } from "@/components/diagnostics/importance-chart";
 import { ResponseCurvesChart } from "@/components/diagnostics/response-curves-chart";
 import { CbiChart } from "@/components/diagnostics/cbi-chart";
 import { MessSummary } from "@/components/diagnostics/mess-summary";
-import { RocChart } from "@/components/diagnostics/roc-chart";
-import { CalibrationChart } from "@/components/diagnostics/calibration-chart";
-import { CvFoldsChart } from "@/components/diagnostics/cv-folds-chart";
-import { ThresholdChart } from "@/components/diagnostics/threshold-chart";
-import { DensityChart } from "@/components/diagnostics/density-chart";
-import { AleChart } from "@/components/diagnostics/ale-chart";
-import { ClimateDriverChart } from "@/components/diagnostics/climate-driver-chart";
 import { OverfittingPanel } from "@/components/results/overfitting-panel";
 import { apiGet } from "@/services/api";
 import { Download } from "lucide-react";
@@ -101,7 +94,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
       )}
 
       <Tabs defaultValue="cv" className="space-y-4">
-        <TabsList className="flex flex-wrap w-full max-w-4xl">
+        <TabsList className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 w-full max-w-4xl">
           <TabsTrigger value="cv" className="text-xs">CV Folds</TabsTrigger>
           <TabsTrigger value="importance" className="text-xs">Importance</TabsTrigger>
           <TabsTrigger value="curves" className="text-xs">Response Curves</TabsTrigger>
@@ -112,10 +105,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
           <TabsTrigger value="density" className="text-xs">Density</TabsTrigger>
           <TabsTrigger value="vif" className="text-xs">VIF</TabsTrigger>
           <TabsTrigger value="mess" className="text-xs">MESS</TabsTrigger>
-          <TabsTrigger value="ale" className="text-xs">ALE</TabsTrigger>
-          <TabsTrigger value="climate-drivers" className="text-xs">Climate</TabsTrigger>
-          <TabsTrigger value="overfitting" className="text-xs">Overfitting</TabsTrigger>
-          <TabsTrigger value="shap" className="text-xs">SHAP</TabsTrigger>
+          <TabsTrigger value="overfitting" className="text-xs text-amber-500">Overfitting</TabsTrigger>
           <TabsTrigger value="log" className="text-xs">Log</TabsTrigger>
         </TabsList>
 
@@ -181,6 +171,10 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
               showing which environmental variables drive suitability at each location.
             </p>
           </div>
+        </TabsContent>
+
+        <TabsContent value="overfitting">
+          <OverfittingPanel run={run} />
         </TabsContent>
 
         <TabsContent value="log">

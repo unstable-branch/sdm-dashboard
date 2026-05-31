@@ -1,8 +1,7 @@
 import { Hono } from "hono";
-import { readFile, stat, open } from "fs/promises";
-import { existsSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, isAbsolute, join, relative, resolve } from "path";
+import { existsSync, readFileSync } from "fs";
+import { isAbsolute, join, relative, resolve } from "path";
+import { stat, readFile } from "fs/promises";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
@@ -15,11 +14,8 @@ export const resultsRoutes = new Hono<AppEnv>();
 
 resultsRoutes.use("*", authMiddleware);
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-// api/src/routes/results.ts -> project root
-const PROJECT_ROOT = resolve(__dirname, "../../..");
-const resultRoot = resolve(PROJECT_ROOT, "outputs", "jobs");
+const appDir = process.env.SDM_PROJECT_ROOT || resolve(process.cwd(), "..");
+const resultRoot = resolve(appDir, "outputs", "jobs");
 
 /**
  * Map a stored file path (possibly a container-absolute path like
@@ -27,16 +23,9 @@ const resultRoot = resolve(PROJECT_ROOT, "outputs", "jobs");
  * within the allowed resultRoot directory.
  */
 function resolveResultFilePath(filePath: string): { fullPath: string; runId: string } | null {
-  // Map container-internal paths (/app/outputs/jobs/run-id/file.ext) and
-  // relative paths to the host filesystem under PROJECT_ROOT.
-  let mappedPath = filePath;
-  if (filePath.startsWith("/app/")) {
-    mappedPath = join(PROJECT_ROOT, filePath.slice(5));
-  } else if (!isAbsolute(filePath)) {
-    mappedPath = join(PROJECT_ROOT, filePath);
-  }
-
-  const fullPath = resolve(mappedPath);
+  const hostPath = filePath.startsWith("/app/") ? join(appDir, filePath.slice(5)) : filePath;
+  const requested = isAbsolute(hostPath) ? hostPath : join(appDir, hostPath);
+  const fullPath = resolve(requested);
   const rel = relative(resultRoot, fullPath);
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
     return null;
@@ -50,38 +39,30 @@ function resolveResultFilePath(filePath: string): { fullPath: string; runId: str
   return { fullPath, runId };
 }
 
-/**
- * Parse an HTTP Range header value for a single range.
- * Returns { start, end } or null if invalid / multi-range.
- */
-function parseRangeHeader(
-  rangeHeader: string,
-  fileSize: number,
-): { start: number; end: number } | null {
-  const match = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
-  if (!match) return null;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  let start: number;
-  let end: number;
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value);
+}
 
-  if (match[1] === "" && match[2] !== "") {
-    // suffix-range: bytes=-500  →  last 500 bytes
-    const suffixLength = parseInt(match[2], 10);
-    start = Math.max(0, fileSize - suffixLength);
-    end = fileSize - 1;
-  } else if (match[1] !== "" && match[2] === "") {
-    // open-ended: bytes=1024-  →  from pos 1024 to end
-    start = parseInt(match[1], 10);
-    end = fileSize - 1;
-  } else {
-    start = parseInt(match[1], 10);
-    end = parseInt(match[2], 10);
+async function canAccessRun(userId: string, role: string, runId: string): Promise<boolean> {
+  const idMatch = isUuid(runId) ? eq(runs.id, runId) : eq(runs.jobId, runId);
+
+  if (role === "admin") {
+    const [run] = await db.select({ id: runs.id }).from(runs).where(idMatch).limit(1);
+    return Boolean(run);
   }
 
   if (start >= fileSize || start > end) return null;
   end = Math.min(end, fileSize - 1);
 
-  return { start, end };
+  const [run] = await db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(and(idMatch, inArray(runs.projectId, projectIds)))
+    .limit(1);
+
+  return Boolean(run);
 }
 
 /**
@@ -130,33 +111,62 @@ async function serveFile(c: any, filePath: string) {
                       ext === "csv" ? "text/csv" :
                       "application/octet-stream";
 
-  const rangeHeader = c.req.header("range");
-  if (rangeHeader) {
-    const range = parseRangeHeader(rangeHeader, stats.size);
-    if (range) {
-      const { start, end } = range;
-      const length = end - start + 1;
-      const fd = await open(fullPath, "r");
-      const buffer = Buffer.alloc(length);
-      await fd.read(buffer, 0, length, start);
-      await fd.close();
+  const fileStats = await stat(fullPath);
+  const etag = `W/"${fileStats.size}-${fileStats.mtimeMs}"`;
 
-      c.status(206);
-      c.header("Content-Range", `bytes ${start}-${end}/${stats.size}`);
-      c.header("Content-Length", String(length));
-      c.header("Content-Type", contentType);
-      c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
-      return c.body(buffer);
-    }
-    c.status(416);
-    c.header("Content-Range", `bytes */${stats.size}`);
-    return c.body("Range Not Satisfiable");
+  c.header("ETag", etag);
+  c.header("Cache-Control", "public, max-age=3600");
+
+  if (c.req.header("If-None-Match") === etag) {
+    return c.body(null, 304);
   }
 
   c.header("Content-Type", contentType);
   c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
 
   const buffer = await readFile(fullPath);
+  return c.body(buffer);
+});
+
+resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
+  const { runId, z, x, y } = c.req.param();
+
+  if (!/^\d+$/.test(z) || !/^\d+$/.test(x) || !/^\d+$/.test(y)) {
+    return c.json({ error: "Invalid tile coordinates" }, 400);
+  }
+
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Tile not found" }, 404);
+  }
+
+  const [run] = await db
+    .select({ jobId: runs.jobId, resultPath: runs.resultPath })
+    .from(runs)
+    .where(eq(runs.id, runId))
+    .limit(1);
+
+  if (!run) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+
+  const jobDir = run.resultPath
+    ? resolve(appDir, run.resultPath)
+    : resolve(resultRoot, run.jobId || runId);
+
+  const tilePath = resolve(jobDir, "map_tiles", "suitability", z, x, `${y}.png`);
+  const rel = relative(resultRoot, tilePath);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
+    return c.json({ error: "Invalid tile path" }, 400);
+  }
+
+  if (!existsSync(tilePath)) {
+    return c.body(null, 204);
+  }
+
+  const buffer = await readFile(tilePath);
+  c.header("Content-Type", "image/png");
+  c.header("Cache-Control", "public, max-age=86400");
   return c.body(buffer);
 }
 

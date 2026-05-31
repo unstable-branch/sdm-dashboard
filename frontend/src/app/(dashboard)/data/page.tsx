@@ -54,8 +54,8 @@ function DataPageContent() {
 
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [previousUploads, setPreviousUploads] = useState<Array<Record<string, unknown>>>([]);
-  const [previousUploadsLoading, setPreviousUploadsLoading] = useState(false);
+  const [uploadHistory, setUploadHistory] = useState<Array<Record<string, unknown>>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const [cleanLoading, setCleanLoading] = useState(false);
   const [cleanError, setCleanError] = useState<string | null>(null);
@@ -159,19 +159,37 @@ function DataPageContent() {
       .then(data => setAvailableBiovars(new Set(data.available || []))).catch(() => setAvailableBiovars(new Set()));
   }, [climateSource, climateRes]);
 
-  useEffect(() => {
-    setPreviousUploadsLoading(true);
-    apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/uploads")
-      .then((data) => setPreviousUploads(data.uploads || [])).catch(() => console.warn("[data] Failed to fetch previous uploads")).finally(() => setPreviousUploadsLoading(false));
+  const handleDeleteScenario = async (id: string) => {
+    try {
+      await apiPost(`/api/v1/climate/delete/${id}`);
+      setScenarios((prev) => prev.filter((s) => s.id !== id));
+    } catch {
+    }
+  };
+
+  const fetchUploads = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const data = await apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/occurrences/uploads");
+      setUploadHistory(data.uploads || []);
+    } catch {
+      setUploadHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
   }, []);
 
-  const handleDeleteScenario = (id: string) => setScenarios((prev) => prev.filter((s) => s.id !== id));
+  useEffect(() => {
+    fetchUploads();
+  }, [fetchUploads]);
 
   const handleUpload = async (file: File) => {
     setUploadLoading(true); setUploadError(null); setUploadResult(null); setCleanResult(null); setCleanedOccurrence(null);
     try {
-      const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/upload", file, undefined, 600000);
-      const filePath = (result.file_path as string) || null;
+      const result = await apiUpload<Record<string, unknown>>(
+        "/api/v1/data/occurrences/upload", file, undefined, 600000
+      );
+      const fileId = (result.file_id as string) || null;
       const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
       const detectedSpecies = (result.species_detected as string) || null;
       const pipelineRunId = (result.pipelineRunId as string) || null;
@@ -181,12 +199,25 @@ function DataPageContent() {
     finally { setUploadLoading(false); }
   };
 
-  const handleSelectUpload = (file: Record<string, unknown>) => {
-    const filePath = file.file_id as string; const fileName = file.file_name as string; const nRows = (file.n_rows as number) || 0;
-    setUploadResult({ file_id: filePath, file_path: filePath, file_name: fileName, n_rows: nRows }); setPipelineRunId(null); setCleanResult(null);
-    if (file.cleaned && file.cleaned_file_id) setCleanedOccurrence({ filePath: file.cleaned_file_id as string, df: [], sourceCounts: {}, nAbsentExcluded: 0, originalRows: nRows, validRecords: nRows });
-    else setCleanedOccurrence(null);
-    if (filePath) { setOccurrenceFilePath(filePath); setRecordCount(nRows); const e = extractSpeciesFromFilename(fileName); if (e) useSDMStore.getState().setSpecies(e); }
+      setUploadResult(result);
+      if (fileId) {
+        setOccurrenceFilePath(fileId);
+        setRecordCount(nRows);
+        if (detectedSpecies) {
+          useSDMStore.getState().setSpecies(detectedSpecies);
+        } else {
+          const extracted = extractSpeciesFromFilename(file.name);
+          if (extracted) {
+            useSDMStore.getState().setSpecies(extracted);
+          }
+        }
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploadLoading(false);
+      fetchUploads();
+    }
   };
 
   const handleFlagToggle = useCallback((idx: number, flagged: boolean) => {
@@ -265,13 +296,31 @@ function DataPageContent() {
       </div>
 
       <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
-        <TabsList className="grid w-full max-w-2xl grid-cols-6">
-          <TabsTrigger value="upload" className="flex items-center gap-1.5"><Upload className="h-3.5 w-3.5" /> Upload</TabsTrigger>
-          <TabsTrigger value="gbif" className="flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" /> GBIF</TabsTrigger>
-          <TabsTrigger value="dwca" className="flex items-center gap-1.5"><FileArchive className="h-3.5 w-3.5" /> DwC-A</TabsTrigger>
-          <TabsTrigger value="clean" className="flex items-center gap-1.5"><Wand2 className="h-3.5 w-3.5" /> Clean</TabsTrigger>
-          <TabsTrigger value="map" className="flex items-center gap-1.5"><Map className="h-3.5 w-3.5" /> Map</TabsTrigger>
-          <TabsTrigger value="climate" className="flex items-center gap-1.5"><Cloud className="h-3.5 w-3.5" /> Climate</TabsTrigger>
+        <TabsList className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 w-full max-w-2xl">
+          <TabsTrigger value="upload" className="flex items-center gap-1.5">
+            <Upload className="h-3.5 w-3.5" />
+            Upload
+          </TabsTrigger>
+          <TabsTrigger value="gbif" className="flex items-center gap-1.5">
+            <Globe className="h-3.5 w-3.5" />
+            GBIF
+          </TabsTrigger>
+          <TabsTrigger value="dwca" className="flex items-center gap-1.5">
+            <FileArchive className="h-3.5 w-3.5" />
+            DwC-A
+          </TabsTrigger>
+          <TabsTrigger value="clean" className="flex items-center gap-1.5">
+            <Wand2 className="h-3.5 w-3.5" />
+            Clean
+          </TabsTrigger>
+          <TabsTrigger value="map" className="flex items-center gap-1.5">
+            <Map className="h-3.5 w-3.5" />
+            Map
+          </TabsTrigger>
+          <TabsTrigger value="climate" className="flex items-center gap-1.5">
+            <Cloud className="h-3.5 w-3.5" />
+            Climate
+          </TabsTrigger>
         </TabsList>
 
         {activeTab === "upload" && (
@@ -280,12 +329,107 @@ function DataPageContent() {
             previousUploads={previousUploads} previousUploadsLoading={previousUploadsLoading} />
         )}
 
-        {activeTab === "gbif" && (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
-              <h2 className="text-lg font-semibold text-sdm-heading mb-4">Fetch from GBIF</h2>
-              <p className="text-sm text-sdm-muted mb-4">Search the Global Biodiversity Information Facility for occurrence records.</p>
-              <GbifSearch onSearch={handleGbifSearch} loading={gbifLoading} error={gbifError} result={gbifResult} />
+          {uploadHistory.length > 0 && !uploadLoading && (
+            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-sdm-heading">Previous uploads</h3>
+                <button onClick={fetchUploads} disabled={historyLoading} className="text-xs text-sdm-accent hover:underline disabled:opacity-50">
+                  {historyLoading ? "Refreshing..." : "Refresh"}
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-sdm-text">
+                  <thead>
+                    <tr className="border-b border-sdm-border">
+                      <th className="text-left py-2 pr-3 font-medium text-sdm-muted">Filename</th>
+                      <th className="text-right py-2 px-3 font-medium text-sdm-muted">Records</th>
+                      <th className="text-right py-2 px-3 font-medium text-sdm-muted">Size</th>
+                      <th className="text-left py-2 pl-3 font-medium text-sdm-muted">Species</th>
+                      <th className="text-left py-2 pl-3 font-medium text-sdm-muted">Uploaded</th>
+                      <th className="text-right py-2 pl-3 font-medium text-sdm-muted">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uploadHistory.slice(0, 10).map((u) => (
+                      <tr key={String(u.id)} className="border-b border-sdm-border/50 hover:bg-sdm-surface-soft/50">
+                        <td className="py-2 pr-3 font-mono max-w-[200px] truncate" title={String(u.filename || "")}>
+                          {String(u.filename || "—")}
+                          {Boolean(u.is_cleaned) && (
+                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-500">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Cleaned
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-right">{Number(u.n_rows || 0).toLocaleString()}</td>
+                        <td className="py-2 px-3 text-right">{Number(u.file_size || 0) > 1024 * 1024 ? `${(Number(u.file_size) / 1024 / 1024).toFixed(1)} MB` : `${(Number(u.file_size) / 1024).toFixed(0)} KB`}</td>
+                        <td className="py-2 pl-3 max-w-[120px] truncate" title={String(u.species || "")}>{String(u.species || "—")}</td>
+                        <td className="py-2 pl-3 whitespace-nowrap">{String(u.created_at || "").slice(0, 19).replace("T", " ")}</td>
+                        <td className="py-2 pl-3 text-right">
+                          <button
+                            onClick={() => {
+                              const fp = u.file_path as string;
+                              if (fp) {
+                                setOccurrenceFilePath(fp);
+                                setUploadResult({ ...(u as Record<string, unknown>), file_id: fp, file_path: fp });
+                                setRecordCount(Number(u.n_rows || 0));
+                                const sp = u.species as string;
+                                if (sp && sp !== "—") {
+                                  useSDMStore.getState().setSpecies(sp);
+                                }
+                                if (Boolean(u.is_cleaned) && u.cleaned_file_path) {
+                                  setCleanedOccurrence({
+                                    filePath: u.cleaned_file_path as string,
+                                    df: [],
+                                    sourceCounts: {},
+                                    nAbsentExcluded: 0,
+                                    originalRows: Number(u.cleaned_original_rows || u.n_rows || 0),
+                                    validRecords: Number(u.cleaned_valid_records || 0),
+                                  });
+                                  setCleanResult(u as Record<string, unknown>);
+                                } else {
+                                  setCleanResult(null);
+                                  setCleanedOccurrence(null);
+                                }
+                              }
+                            }}
+                            className="text-xs font-medium text-sdm-accent hover:underline disabled:opacity-30 disabled:cursor-not-allowed"
+                            disabled={!u.file_path}
+                          >
+                            Use
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {uploadPreview && uploadPreview.length > 0 && (
+            <PreviewTable data={uploadPreview} title="Preview (first 5 records)" />
+          )}
+
+          {typeof uploadResult?.file_path === "string" && uploadResult?.is_cleaned ? (
+            <div className="mt-3 flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-green-500">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Previously cleaned — {Number(uploadResult.cleaned_valid_records ?? 0).toLocaleString()} valid records ready.</span>
+              </div>
+              <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
+                Run SDM →
+              </Link>
+            </div>
+          ) : typeof uploadResult?.file_path === "string" && (
+            <div className="mt-3 flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-amber-500">
+                <AlertTriangle className="h-4 w-4" />
+                <span>Upload complete — {Number(uploadResult.n_rows ?? 0).toLocaleString()} records. Clean before modeling.</span>
+              </div>
+              <Link href="/data?tab=clean" className="text-sm font-medium text-sdm-accent hover:underline">
+                Clean data →
+              </Link>
             </div>
             {gbifPreview && gbifPreview.length > 0 && <PreviewTable data={gbifPreview} title="GBIF Preview (first 5 records)" />}
             {gbifResult && typeof gbifResult.n_records === "number" && gbifResult.n_records > 0 && (
