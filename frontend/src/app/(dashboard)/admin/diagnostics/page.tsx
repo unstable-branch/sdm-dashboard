@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, Fragment } from "react";
+import { useState, useEffect, useCallback } from "react";
+import React from "react";
 import { apiGet, apiPost } from "@/services/api";
-import { Loader2, AlertCircle, CheckCircle2, Clock, XCircle, Play, RefreshCw, Upload, HardDrive, Search } from "lucide-react";
-import { CopyButton } from "@/components/ui/copy-button";
+import { Loader2, AlertCircle, CheckCircle2, Clock, XCircle, Play, RefreshCw, Ellipsis } from "lucide-react";
 
 interface RunRecord {
   id: string;
@@ -11,9 +11,7 @@ interface RunRecord {
   modelId: string | null;
   status: string;
   jobId: string | null;
-  bullmqId: string | null;
-  runNumber: number | null;
-  progressLog: any;
+  lastStage: string | null;
   error: string | null;
   startedAt: string | null;
   completedAt: string | null;
@@ -175,13 +173,13 @@ function RunsTab() {
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Model</th>
               <th className="text-center px-2 py-3 text-xs font-medium text-sdm-muted">#</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Job ID</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">BullMQ</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Progress</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-sdm-muted">Created</th>
             </tr>
           </thead>
           <tbody>
             {runs.map((r) => (
-              <Fragment key={r.id}>
+              <React.Fragment key={r.id}>
                 <tr onClick={() => expandRun(r.id)}
                   className="border-b border-sdm-border hover:bg-sdm-surface-soft cursor-pointer">
                   <td className="px-4 py-2"><div className="flex items-center gap-1"><StatusIcon status={r.status} /><span className="text-xs capitalize">{r.status}</span></div></td>
@@ -189,12 +187,23 @@ function RunsTab() {
                   <td className="px-4 py-2 text-xs text-sdm-muted font-mono">{r.modelId || "-"}</td>
                   <td className="px-2 py-2 text-xs text-center text-sdm-muted font-mono">{r.runNumber != null ? `#${r.runNumber}` : "-"}</td>
                   <td className="px-4 py-2 text-xs text-sdm-muted font-mono">{r.jobId || "-"}</td>
-                  <td className="px-4 py-2 text-xs text-sdm-muted font-mono">{r.bullmqId || "-"}</td>
+                  <td className="px-4 py-2 text-xs">
+                    {r.status === "running" ? (
+                      <span className="flex items-center gap-1.5 text-sdm-accent">
+                        <Ellipsis className="h-3.5 w-3.5 animate-pulse" />
+                        <span className="truncate max-w-[200px]">{r.lastStage || "Running..."}</span>
+                      </span>
+                    ) : r.lastStage ? (
+                      <span className="text-sdm-text">{r.lastStage}</span>
+                    ) : (
+                      <span className="text-sdm-muted">-</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-xs text-sdm-muted">{new Date(r.createdAt).toLocaleString()}</td>
                 </tr>
                 {expandedRun === r.id && (
-                  <tr key={`${r.id}-detail`} className="border-b border-sdm-border bg-sdm-surface-soft">
-                    <td colSpan={7} className="px-4 py-3">
+                  <tr className="border-b border-sdm-border bg-sdm-surface-soft">
+                    <td colSpan={6} className="px-4 py-3">
                       {detailLoading ? <Loader2 className="h-4 w-4 animate-spin text-sdm-accent" /> : runDetail ? (
                         <div className="space-y-2">
                           {r.progressLog && Array.isArray(r.progressLog) && r.progressLog.length > 0 && (
@@ -257,7 +266,7 @@ function RunsTab() {
                     </td>
                   </tr>
                 )}
-              </Fragment>
+              </React.Fragment>
             ))}
           </tbody>
         </table>

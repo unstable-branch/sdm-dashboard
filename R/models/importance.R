@@ -1,6 +1,6 @@
 permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NULL,
-                                   n_perm = 5, seed = 42, n_cores = 1,
-                                   use_held_out = FALSE) {
+                                   n_perm = 50, seed = 42, n_cores = 1,
+                                   use_held_out = TRUE) {
   if (is.null(metric_fun)) metric_fun <- auc_rank
   if (!is.function(predict_fun)) stop("predict_fun must be a function", call. = FALSE)
   if (!is.function(metric_fun)) stop("metric_fun must be a function", call. = FALSE)

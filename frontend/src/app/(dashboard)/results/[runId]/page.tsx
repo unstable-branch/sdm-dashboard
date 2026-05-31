@@ -7,20 +7,54 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import dynamic from "next/dynamic";
 import { MetricCards } from "@/components/results/metric-cards";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
-import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers, TrendingUp, TrendingDown } from "lucide-react";
-import { apiGet, apiPost } from "@/services/api";
-import { useJobSSE } from "@/hooks/use-job-sse";
-import { useRunDetail } from "@/hooks/use-queries";
+import { OdmapViewer } from "@/components/results/odmap-viewer";
+import { ArrowLeft, Loader2, Download } from "lucide-react";
+import { apiGet, fetchWithAuth } from "@/services/api";
+import type { RunDetail } from "@/services/types";
+import type { ViewState } from "react-map-gl/maplibre";
+import type { FeatureCollection } from "geojson";
 
-const SuitabilityMap = dynamic(
-  () => import("@/components/results/suitability-map"),
-  { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
-);
+function extentToViewState(extent?: [number, number, number, number]): Partial<ViewState> | undefined {
+  if (!extent || extent.length < 4) return undefined;
+  const [xmin, xmax, ymin, ymax] = extent;
+  const lngSpan = xmax - xmin;
+  const latSpan = ymax - ymin;
+  const maxSpan = Math.max(lngSpan, latSpan);
+  const zoom = maxSpan > 50 ? 4 : maxSpan > 20 ? 5 : maxSpan > 10 ? 6 : maxSpan > 5 ? 7 : 8;
+  return { longitude: (xmin + xmax) / 2, latitude: (ymin + ymax) / 2, zoom };
+}
 
-const DiagnosticsPanel = dynamic(
-  () => import("@/components/results/diagnostics-panel"),
-  { ssr: false, loading: () => <div className="h-64 rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading diagnostics...</div> }
-);
+function extentToCoordinates(extent?: [number, number, number, number]): [[number, number], [number, number], [number, number], [number, number]] | undefined {
+  if (!extent || extent.length < 4) return undefined;
+  const [xmin, xmax, ymin, ymax] = extent;
+  return [[xmin, ymax], [xmax, ymax], [xmax, ymin], [xmin, ymin]];
+}
+
+
+
+async function downloadFile(filePath: string) {
+  try {
+    const res = await fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(filePath)}`);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filePath.split("/").pop() || "download";
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch { /* ignore */ }
+}
+
+async function fetchGeoJSON(url: string): Promise<FeatureCollection | null> {
+  try {
+    const res = await fetchWithAuth(url);
+    if (!res.ok) return null;
+    return await res.json() as FeatureCollection;
+  } catch {
+    return null;
+  }
+}
 
 export default function ResultsPage() {
   const params = useParams();
@@ -34,9 +68,10 @@ export default function ResultsPage() {
   } | null>(null);
   const [_benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [reportText, setReportText] = useState<string | null>(null);
-  const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
-  const [ensembleGenerating, setEnsembleGenerating] = useState(false);
-  const [ensembleGenerated, setEnsembleGenerated] = useState(false);
+  const [odmapMd, setOdmapMd] = useState<string | null>(null);
+  const [odmapCsv, setOdmapCsv] = useState<string | null>(null);
+  const [eooGeoJSON, setEooGeoJSON] = useState<FeatureCollection | null>(null);
+  const [aooGeoJSON, setAooGeoJSON] = useState<FeatureCollection | null>(null);
 
   const { data: run, isLoading: loading, error: fetchError, refetch } = useRunDetail(runId);
   const error = fetchError ? (fetchError as Error).message : null;
@@ -107,13 +142,67 @@ export default function ResultsPage() {
   // SSE update: when a job event arrives for this runId, refresh
   useEffect(() => {
     if (!runId) return;
-    const job = getJob(runId);
-    if (!job) return;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const abort = new AbortController();
 
-    if (job.state === "completed" || job.state === "failed" || job.state === "cancelled") {
-      refetch();
-    }
-  }, [runId, getJob, refetch]);
+    const fetchStatus = () => {
+      if (cancelled) return;
+      apiGet<RunDetail>(`/api/v1/sdm/status/${runId}`)
+        .then((data) => {
+          if (cancelled) return;
+          setRun(data);
+          setLoading(false);
+          if (data.status === "completed") {
+            fetchWithAuth(`/api/v1/results/${runId}/report.txt`, { signal: abort.signal })
+              .then((res) => res.ok ? res.text() : null)
+              .then((text) => { if (!cancelled) setReportText(text); })
+              .catch(() => {});
+            const odmapMdPath = data.output_files?.odmap_report_md;
+            const odmapCsvPath = data.output_files?.odmap_report_csv;
+            if (odmapMdPath) {
+              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`, { signal: abort.signal })
+                .then((res) => res.ok ? res.text() : null)
+                .then((text) => { if (!cancelled) setOdmapMd(text); })
+                .catch(() => {});
+            }
+            if (odmapCsvPath) {
+              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`, { signal: abort.signal })
+                .then((res) => res.ok ? res.text() : null)
+                .then((text) => { if (!cancelled) setOdmapCsv(text); })
+                .catch(() => {});
+            }
+            const eooPath = data.output_files?.eoo_polygon;
+            const aooPath = data.output_files?.aoo_grid;
+            if (eooPath) {
+              fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(eooPath)}`)
+                .then((geo) => { if (!cancelled) setEooGeoJSON(geo); })
+                .catch(() => {});
+            }
+            if (aooPath) {
+              fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(aooPath)}`)
+                .then((geo) => { if (!cancelled) setAooGeoJSON(geo); })
+                .catch(() => {});
+            }
+          }
+          if (data.status === "running") {
+            timeoutId = setTimeout(fetchStatus, 3000);
+          }
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setError(err.message);
+          setLoading(false);
+        });
+    };
+
+    fetchStatus();
+    return () => {
+      cancelled = true;
+      abort.abort();
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [runId]);
 
   if (loading) {
     return (
@@ -136,6 +225,8 @@ export default function ResultsPage() {
       </div>
     );
   }
+
+  const outputFiles = run?.output_files ?? null;
 
   return (
     <div className="space-y-6">
@@ -207,31 +298,7 @@ export default function ResultsPage() {
 
       {run.status === "completed" && (
         <>
-          {run.metrics && <MetricCards metrics={run.metrics} />}
-
-          {benchmark && (
-            <div className={`rounded-lg border p-4 flex items-center gap-3 ${
-              benchmark.improving
-                ? "border-green-500/30 bg-green-500/5"
-                : "border-amber-500/30 bg-amber-500/5"
-            }`}>
-              {benchmark.improving
-                ? <TrendingUp className="h-5 w-5 text-green-500 shrink-0" />
-                : <TrendingDown className="h-5 w-5 text-amber-500 shrink-0" />
-              }
-              <div className="text-sm">
-                <span className="text-sdm-text font-medium">
-                  {benchmark.improving ? "Improving" : "Below best"}
-                </span>
-                <span className="text-sdm-muted ml-1">
-                  vs previous best ({benchmark.bestRun.model_id}, AUC {benchmark.bestRun.auc?.toFixed(3)}):
-                  {' '}<strong className={benchmark.improving ? 'text-green-500' : 'text-amber-500'}>
-                    {benchmark.improving ? '+' : ''}{benchmark.diff.toFixed(3)}
-                  </strong>
-                </span>
-              </div>
-            </div>
-          )}
+          {run.metrics && <MetricCards metrics={run.metrics} modelId={run.model_id} />}
 
           <Tabs defaultValue="map" className="space-y-4">
             <TabsList className="grid w-full max-w-lg grid-cols-5">
@@ -243,7 +310,14 @@ export default function ResultsPage() {
             </TabsList>
 
             <TabsContent value="map">
-              <SuitabilityMap outputFiles={run.output_files} projectionExtent={((run.config?.projectionExtent as number[]) ?? (run.config?.projection_extent as string)?.split(",").map(Number) ?? null) as number[] | null} runId={runId} />
+              <SuitabilityMap
+                outputFiles={run.output_files}
+                runId={runId}
+                initialViewState={extentToViewState((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
+                coordinates={extentToCoordinates((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
+                eooGeoJSON={eooGeoJSON}
+                aooGeoJSON={aooGeoJSON}
+              />
             </TabsContent>
 
             <TabsContent value="diagnostics">
@@ -259,29 +333,29 @@ export default function ResultsPage() {
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-sdm-heading">Run report</h3>
                   <div className="flex gap-3">
-                    {run.output_files?.odmap_report_csv && (
-                      <a
-                        href={`/api/v1/results/file/download?path=${encodeURIComponent(run.output_files.odmap_report_csv)}`}
-                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                    {outputFiles?.odmap_report_csv && (
+                      <button
+                        onClick={() => downloadFile(outputFiles!.odmap_report_csv)}
+                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP CSV
-                      </a>
+                      </button>
                     )}
-                    {run.output_files?.odmap_report_md && (
-                      <a
-                        href={`/api/v1/results/file/download?path=${encodeURIComponent(run.output_files.odmap_report_md)}`}
-                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                    {outputFiles?.odmap_report_md && (
+                      <button
+                        onClick={() => downloadFile(outputFiles!.odmap_report_md)}
+                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP Markdown
-                      </a>
+                      </button>
                     )}
-                    {run.output_files?.report && (
-                      <a
-                        href={`/api/v1/results/file/download?path=${encodeURIComponent(run.output_files.report)}`}
-                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+                    {outputFiles?.report && (
+                      <button
+                        onClick={() => downloadFile(outputFiles!.report)}
+                        className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> Download report
-                      </a>
+                      </button>
                     )}
                     <a
                       href={`/api/v1/results/${run.id}/script`}
@@ -312,6 +386,9 @@ export default function ResultsPage() {
                   </div>
                 )}
               </div>
+              {(odmapMd || odmapCsv) && (
+                <OdmapViewer odmapMd={odmapMd} odmapCsv={odmapCsv} loading={false} />
+              )}
             </TabsContent>
 
             <TabsContent value="provenance">

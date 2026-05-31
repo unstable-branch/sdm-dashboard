@@ -3,42 +3,9 @@ import type { NextConfig } from "next";
 const API_URL = process.env.API_URL || "http://localhost:4000";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
-  reactStrictMode: true,
-  modularizeImports: {
-    "lucide-react": {
-      transform: "lucide-react/dist/esm/icons/{{kebabCase member}}",
-    },
-  },
+  allowedDevOrigins: ['100.84.70.113', '*.tailscale.com', '*.tailscale.net'],
   experimental: {
-    proxyClientMaxBodySize: "100mb",
-    optimizePackageImports: ["lucide-react", "@tanstack/react-table", "recharts"],
-  },
-  images: {
-    remotePatterns: [
-      {
-        protocol: "http",
-        hostname: "localhost",
-        port: "4000",
-        pathname: "/api/**",
-      },
-      {
-        protocol: "https",
-        hostname: "a.basemaps.cartocdn.com",
-      },
-      {
-        protocol: "https",
-        hostname: "b.basemaps.cartocdn.com",
-      },
-      {
-        protocol: "https",
-        hostname: "c.basemaps.cartocdn.com",
-      },
-      {
-        protocol: "https",
-        hostname: "d.basemaps.cartocdn.com",
-      },
-    ],
+    proxyClientMaxBodySize: "50mb",
   },
   async rewrites() {
     return [
