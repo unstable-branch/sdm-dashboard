@@ -101,7 +101,7 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
                       {(f as any).cleaned && <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success"><CheckCircle2 className="h-3 w-3" /> Cleaned</span>}
                     </p>
                     <p className="text-xs text-sdm-muted">
-                      {sizeStr}{(f.n_rows as number) > 0 && ` · ${(f.n_rows as number).toLocaleString()} rows`}
+                      {sizeStr}{(f.n_rows as number) > 0 && ` · ${(f.n_rows as number).toLocaleString()} rows`}{(f as any).modified_at && ` · ${new Date((f as any).modified_at as string).toLocaleDateString()}`}
                     </p>
                   </div>
                   {isSelected ? (
