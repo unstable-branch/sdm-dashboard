@@ -18,6 +18,10 @@ const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
 const PLUMBER_INTERNAL_KEY = process.env.PLUMBER_INTERNAL_KEY || "";
 const PLUMBER_MAX_CONCURRENT = parseInt(process.env.PLUMBER_MAX_CONCURRENT || "8", 10);
 const PLUMBER_DEFAULT_TIMEOUT_MS = parseInt(process.env.PLUMBER_TIMEOUT_MS || "30000", 10);
+const TIMEOUT_UPLOAD = parseInt(process.env.PLUMBER_UPLOAD_TIMEOUT_MS || "120000", 10);
+const TIMEOUT_MODEL_RUN = parseInt(process.env.PLUMBER_MODEL_RUN_TIMEOUT_MS || "300000", 10);
+const TIMEOUT_CLIMATE = parseInt(process.env.PLUMBER_CLIMATE_TIMEOUT_MS || "300000", 10);
+const TIMEOUT_NORMAL = PLUMBER_DEFAULT_TIMEOUT_MS;
 let plumberActiveRequests = 0;
 
 async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
@@ -87,8 +91,7 @@ export class PlumberClient {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ file_path: file, file_id: filename }),
-        timeout: TIMEOUT_UPLOAD,
-      });
+      }, TIMEOUT_UPLOAD);
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         throw new Error(body || `Failed to upload occurrence: ${res.status}`);
@@ -104,8 +107,7 @@ export class PlumberClient {
       method: "POST",
       body: formData,
       headers,
-      timeout: TIMEOUT_UPLOAD,
-    });
+    }, TIMEOUT_UPLOAD);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(body || `Failed to upload occurrence: ${res.status}`);
@@ -148,8 +150,7 @@ export class PlumberClient {
       method: "POST",
       headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(data),
-      timeout: TIMEOUT_MODEL_RUN,
-    });
+    }, TIMEOUT_MODEL_RUN);
     if (!res.ok) {
       let errorMsg = `Failed to run model: ${res.status}`;
       try {
@@ -168,30 +169,8 @@ export class PlumberClient {
       method: "POST",
       headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(data),
-      timeout: TIMEOUT_CLIMATE,
-    });
+    }, TIMEOUT_CLIMATE);
     if (!res.ok) throw new Error(`Failed to download climate: ${res.status}`);
-    return res.json();
-  }
-
-  async getClimateStatus(climateJobId: string): Promise<PlumberClimateStatus> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/status/${climateJobId}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Failed to get climate status: ${res.status}`);
-    return res.json();
-  }
-
-  async getClimateScenarios(): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/scenarios`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Failed to get climate scenarios: ${res.status}`);
-    return res.json();
-  }
-
-  async deleteClimateScenario(scenarioId: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/delete/${scenarioId}`, {
-      method: "POST",
-      headers: this.headers(),
-    });
-    if (!res.ok) throw new Error(`Failed to delete climate scenario: ${res.status}`);
     return res.json();
   }
 
@@ -262,8 +241,7 @@ export class PlumberClient {
     const res = await this._fetch(`${this.baseUrl}/api/v1/climate/delete/${scenarioId}`, {
       method: "POST",
       headers: this.headers(),
-      timeout: TIMEOUT_NORMAL,
-    });
+    }, TIMEOUT_NORMAL);
     if (!res.ok) throw new Error(`Failed to delete scenario: ${res.status}`);
     return res.json();
   }
@@ -384,6 +362,27 @@ export class PlumberClient {
     return res.json();
   }
 
+  async getDiagnosticsAle(runId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/ale/${runId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get ALE data: ${res.status}`);
+    return res.json();
+  }
+
+  async getDiagnosticsClimateDrivers(runId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/climate-drivers/${runId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get climate driver data: ${res.status}`);
+    return res.json();
+  }
+
+  async generateEnsembleRasters(runId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/ensemble-rasters/${runId}`, {
+      method: "POST",
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to generate ensemble rasters: ${res.status}`);
+    return res.json();
+  }
+
   async generatePlots(runId: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/plots/${runId}`, {
       method: "POST",
@@ -404,6 +403,12 @@ export class PlumberClient {
       body: JSON.stringify({ run_id: runId, longitude, latitude }),
     });
     if (!res.ok) throw new Error(`Failed to get SHAP cell explanation: ${res.status}`);
+    return res.json();
+  }
+
+  async getRunComparison(runId1: string, runId2: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/compare/${runId1}/${runId2}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to compare runs: ${res.status}`);
     return res.json();
   }
 }
