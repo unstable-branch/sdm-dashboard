@@ -75,13 +75,13 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
           <p className="text-sm text-sdm-muted">No previous uploads found.</p>
         ) : (
           <div className="space-y-2 max-h-80 overflow-y-auto">
-            {previousUploads.map((f) => {
+            {previousUploads.map((f, idx) => {
               const isSelected = uploadResult?.file_id === f.file_id;
               const sizeStr = (f.file_size as number) > 1024 * 1024
                 ? `${((f.file_size as number) / 1024 / 1024).toFixed(1)} MB`
                 : `${((f.file_size as number) / 1024).toFixed(0)} KB`;
               return (
-                <div key={f.file_id as string}
+                <div key={String(f.file_id ?? idx)}
                   className={`flex items-center justify-between rounded-md border px-4 py-2.5 text-sm transition-colors ${
                     isSelected ? "border-sdm-accent bg-sdm-accent/5" : "border-sdm-border bg-sdm-surface-soft hover:border-sdm-accent/50"}`}>
                   <div className="min-w-0 flex-1">
