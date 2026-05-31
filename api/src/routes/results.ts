@@ -7,7 +7,7 @@ import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { getErrorHttpStatus } from "@sdm/shared";
 import { authMiddleware, type AppEnv } from "../middleware/auth.js";
-import { getUserProjectIds, canAccessRun } from "../services/access.js";
+import { getUserProjectIds } from "../services/access.js";
 import { decrypt } from "../services/encryption.js";
 
 export const resultsRoutes = new Hono<AppEnv>();
@@ -45,6 +45,17 @@ function isUuid(value: string): boolean {
   return UUID_RE.test(value);
 }
 
+const PROJECT_ROOT = process.env.PROJECT_ROOT || process.cwd();
+
+function parseRangeHeader(rangeHeader: string, fileSize: number): { start: number; end: number } | null {
+  const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
+  if (!match) return null;
+  const start = match[1] ? parseInt(match[1], 10) : 0;
+  const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+  if (start >= fileSize || start > end) return null;
+  return { start, end: Math.min(end, fileSize - 1) };
+}
+
 async function canAccessRun(userId: string, role: string, runId: string): Promise<boolean> {
   const idMatch = isUuid(runId) ? eq(runs.id, runId) : eq(runs.jobId, runId);
 
@@ -53,15 +64,16 @@ async function canAccessRun(userId: string, role: string, runId: string): Promis
     return Boolean(run);
   }
 
-  if (start >= fileSize || start > end) return null;
-  end = Math.min(end, fileSize - 1);
+  const projectIds = await getUserProjectIds({ id: userId, email: "", role });
+  if (!projectIds || projectIds.length === 0) {
+    return false;
+  }
 
   const [run] = await db
     .select({ id: runs.id })
     .from(runs)
     .where(and(idMatch, inArray(runs.projectId, projectIds)))
     .limit(1);
-
   return Boolean(run);
 }
 
@@ -126,7 +138,7 @@ async function serveFile(c: any, filePath: string) {
 
   const buffer = await readFile(fullPath);
   return c.body(buffer);
-});
+}
 
 resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
   const { runId, z, x, y } = c.req.param();
@@ -141,7 +153,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
   }
 
   const [run] = await db
-    .select({ jobId: runs.jobId, resultPath: runs.resultPath })
+    .select({ jobId: runs.jobId })
     .from(runs)
     .where(eq(runs.id, runId))
     .limit(1);
@@ -150,8 +162,8 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
     return c.json({ error: "Run not found" }, 404);
   }
 
-  const jobDir = run.resultPath
-    ? resolve(appDir, run.resultPath)
+  const jobDir = run.jobId
+    ? resolve(appDir, run.jobId)
     : resolve(resultRoot, run.jobId || runId);
 
   const tilePath = resolve(jobDir, "map_tiles", "suitability", z, x, `${y}.png`);
@@ -168,7 +180,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
   c.header("Content-Type", "image/png");
   c.header("Cache-Control", "public, max-age=86400");
   return c.body(buffer);
-}
+});
 
 // Shared file serving logic used by both /file/* and /file/download routes
 async function serveFileFromPath(c: any, filePath: string) {
