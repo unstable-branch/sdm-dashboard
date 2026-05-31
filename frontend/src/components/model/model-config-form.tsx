@@ -920,7 +920,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
       <AdvancedSettings vifReduction={vifReduction} climateMatching={climateMatching} thinByCell={thinByCell} mergeSmallSources={mergeSmallSources} biasMethod={biasMethod} thickeningDistanceKm={thickeningDistanceKm} minSourceRecords={minSourceRecords} onSetVifReduction={setVifReduction} onSetClimateMatching={setClimateMatching} onSetThinByCell={setThinByCell} onSetMergeSmallSources={setMergeSmallSources} onSetBiasMethod={(v) => setBiasMethod(v as any)} onSetThickeningDistanceKm={setThickeningDistanceKm} onSetMinSourceRecords={setMinSourceRecords} />
 
-      <div className="space-y-4">
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
+        <h2 className="text-lg font-semibold text-sdm-heading">Projection &amp; Threshold</h2>
         {extentPreset === "custom" && (
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -974,8 +975,11 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           />
           <span className="text-sm text-sdm-muted">{threshold.toFixed(2)}</span>
         </div>
+      </div>
 
-        <div className="pt-2 border-t border-sdm-border">
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
+        <h2 className="text-lg font-semibold text-sdm-heading">Spatial filtering</h2>
+        <div className="pt-2">
           <h3 className="text-sm font-semibold text-sdm-heading mb-2">Boundary masking</h3>
           <div className="space-y-2">
             <div>
@@ -1039,7 +1043,10 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
             </div>
           )}
         </div>
+      </div>
 
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
+        <h2 className="text-lg font-semibold text-sdm-heading">Future projection</h2>
         <div>
           <label className="block text-sm font-medium text-sdm-text mb-1">Future climate projection</label>
           <label className="flex items-center gap-2 text-sm text-sdm-text">
