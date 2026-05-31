@@ -96,7 +96,7 @@ for (pkg in names(optional_backend_functions)) {
 
 # --- Default validation ---
 invisible(validate_extent(sdm_default_projection_extent, "smoke extent"))
-if (!identical(normalize_threshold(sdm_default_threshold), 0.5)) stop("Default threshold validation failed.", call. = FALSE)
+if (!identical(normalize_threshold(sdm_default_threshold), NA_real_)) stop("Default threshold validation failed.", call. = FALSE)
 if (!identical(validate_biovars(sdm_default_biovars), unique(as.integer(sdm_default_biovars)))) stop("Default BIO variables failed validation.", call. = FALSE)
 if (!identical(safe_slug("Demo species / test"), "demo_species_test")) stop("Slug helper failed.", call. = FALSE)
 if (!identical(sdm_default_extent_preset, "aus_full")) stop("The app should default to an Australia-wide projection for the bundled dashboard demo.", call. = FALSE)

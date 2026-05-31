@@ -26,6 +26,13 @@ build_community_matrix <- function(species_data, env_train_scaled, background_n 
 
   n_species <- length(species_list)
   if (n_species < 2) stop("Need at least 2 species for multi-species modeling", call. = FALSE)
+  complete_counts <- vapply(species_list, function(sp_data) {
+    if (!all(c("longitude", "latitude") %in% names(sp_data))) return(0L)
+    sum(stats::complete.cases(sp_data[, c("longitude", "latitude"), drop = FALSE]))
+  }, integer(1))
+  if (sum(complete_counts >= 2L) < 2L) {
+    stop("Need at least 2 species with at least 2 occurrence records for multi-species modeling", call. = FALSE)
+  }
 
   log_message(log_fun, "Building community matrix for ", n_species, " species")
 

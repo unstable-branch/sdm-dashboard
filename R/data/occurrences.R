@@ -128,11 +128,14 @@ read_occurrence_file <- function(path, log_fun = NULL) {
 }
 
 clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE,
-                              use_cc = FALSE, cc_tests = "all", log_fun = NULL, min_records = 20,
+                              use_cc = FALSE, cc_tests = "all", log_fun = NULL, min_records = 1,
                               max_coordinate_uncertainty = NULL) {
   raw <- read_occurrence_file(path, log_fun = log_fun)
   original_n <- nrow(raw)
   if (original_n == 0) stop("Occurrence file is empty.", call. = FALSE)
+
+  original_lon_col <- detect_column(names(raw), c("^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east"))
+  original_lat_col <- detect_column(names(raw), c("^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north"))
 
   raw <- normalize_coord_columns(raw)
 
@@ -263,12 +266,17 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   )
 
   list(
-    raw = raw, occ = occ, source_counts = source_counts,
+    raw = raw, occ = occ, df = occ, source_counts = source_counts,
     removed_bad_coordinates = removed_bad, removed_duplicates = removed_dupes,
     original_rows = original_n,
     n_absent_excluded = n_absent_excluded,
     has_occurrence_status = !is.na(status_col),
-    columns = list(longitude = lon_col, latitude = lat_col, source = src_col, country = country_col)
+    columns = list(
+      longitude = if (!is.na(original_lon_col)) original_lon_col else lon_col,
+      latitude = if (!is.na(original_lat_col)) original_lat_col else lat_col,
+      source = src_col,
+      country = country_col
+    )
   )
 }
 

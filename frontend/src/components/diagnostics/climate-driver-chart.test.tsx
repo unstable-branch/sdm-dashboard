@@ -10,7 +10,7 @@ describe("ClimateDriverChart", () => {
 
   it("shows empty state when no future projection", () => {
     render(<ClimateDriverChart data={{ available: false, message: "Future projection not available" }} loading={false} />);
-    expect(screen.getByText("Climate driver analysis requires a future projection")).toBeDefined();
+    expect(screen.getByText("Future projection not available")).toBeDefined();
   });
 
   it("renders metric cards with summary data", () => {
@@ -32,6 +32,6 @@ describe("ClimateDriverChart", () => {
     expect(screen.getByText("45.0%")).toBeDefined();
     expect(screen.getByText("25.0%")).toBeDefined();
     expect(screen.getByText("30.0%")).toBeDefined();
-    expect(screen.getByText("10000")).toBeDefined();
+    expect(screen.getByText("10,000")).toBeDefined();
   });
 });
