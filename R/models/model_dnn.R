@@ -277,7 +277,8 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
 #' @param log_fun Optional logging function
 #' @return Trained cito model object
 #' @export
-train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu", log_fun = NULL) {
+train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu", log_fun = NULL,
+                            dropout = NULL, lambda = NULL) {
   # DNN-201: Check cito package is installed
   if (!requireNamespace("cito", quietly = TRUE)) {
     stop("DNN-201: cito package not installed. Install with: install.packages('cito')", call. = FALSE)
@@ -344,8 +345,8 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
         lr = arch$lr,
         epochs = arch$epochs,
         batchsize = min(100L, max(32L, floor(n_train / 10))),
-        dropout = arch$dropout,
-        lambda = 0.001,
+        dropout = dropout %||% arch$dropout,
+        lambda = lambda %||% 0.001,
         alpha = 1.0,
         validation = 0.3,
         lr_scheduler = cito::config_lr_scheduler("reduce_on_plateau", patience = 7),
@@ -537,6 +538,7 @@ get_dnn_metrics <- function(model, test_data) {
 #' @export
 run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
                     background_n = 1000, device = "auto",
+                    dropout = NULL, lambda = NULL,
                     log_fun = NULL, progress_fun = NULL) {
   if (is.null(selected_dnn_models) || length(selected_dnn_models) == 0) {
     return(NULL)
@@ -609,7 +611,8 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
     # DNN-503: Train model with error handling
     model <- tryCatch(
       {
-        train_dnn_model(dnn_data, model_type = model_type, device = device, log_fun = log_fun)
+        train_dnn_model(dnn_data, model_type = model_type, device = device, log_fun = log_fun,
+                         dropout = dropout, lambda = lambda)
       },
       error = function(e) {
         err_msg <- paste("DNN-503: Model training failed for", model_type, ":", conditionMessage(e))
@@ -679,9 +682,11 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
                          bias_method = "uniform",
                          target_group_occ = NULL,
                          thickening_distance_km = NULL,
-                         dnn_model_type = "DNN_Medium",
-                         dnn_device = "auto",
-                         n_seeds = 5L,
+                          dnn_model_type = "DNN_Medium",
+                          dnn_device = "auto",
+                          n_seeds = 5L,
+                          dropout = NULL,
+                          lambda = NULL,
                          ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
@@ -730,7 +735,8 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     )
 
     model <- tryCatch(
-      train_dnn_model(dnn_data, model_type = dnn_model_type, device = dnn_device, log_fun = log_fun),
+      train_dnn_model(dnn_data, model_type = dnn_model_type, device = dnn_device, log_fun = log_fun,
+                       dropout = dropout, lambda = lambda),
       error = function(e) {
         log_message(log_fun, "    Seed ", s, " failed: ", conditionMessage(e))
         NULL
