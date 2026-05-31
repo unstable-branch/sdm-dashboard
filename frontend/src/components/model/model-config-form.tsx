@@ -13,12 +13,6 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { apiGet } from "@/services/api";
 import { ModelSelector } from "./model-selector";
 import { SpeciesInput } from "./species-input";
-import { ModelParamPanel } from "./model-param-panel";
-import { ClimatePanel } from "./climate-panel";
-import { ExtentPanel } from "./extent-panel";
-import { ModelSettings } from "./model-settings";
-import { CovariatePanel } from "./covariate-panel";
-import { AdvancedSettings } from "./advanced-settings";
 
 interface ModelInfo {
   id: string; label: string; maturity: string;
@@ -437,43 +431,19 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           onKeyNav={handleSpeciesKeyNav}
         />
 
-        <div>
-          <label className="block text-sm font-medium text-sdm-text mb-1">
-            Model backend
-            <TooltipInfo content="Select the SDM algorithm. GLM is fast and interpretable. RF and XGBoost handle nonlinearity natively. MaxNet is Maxent-compatible. DNN requires 50+ records." />
-          </label>
-          <select
-            value={modelId}
-            onChange={(e) => setModelId(e.target.value)}
-            className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
-          >
-            {availableModels.map((m) => (
-              <option key={m.id} value={m.id} disabled={m.available === false}>
-                {m.label} ({m.maturity}){m.available === false ? " — unavailable" : ""}
-              </option>
-            ))}
-          </select>
-          {selectedModel?.maturity === "experimental" && (
-            <p className="mt-1 text-xs text-sdm-warning">Experimental model — results may vary</p>
-          )}
-          {selectedModel?.available === false && selectedModel.notes && (
-            <p className="mt-1 text-xs text-sdm-muted">{selectedModel.notes}</p>
-          )}
-          {isESM && (
-            <div className="mt-2 rounded-md bg-sdm-accent-blue/10 border border-sdm-accent-blue/30 p-3 text-xs text-sdm-text">
-              <p className="font-medium flex items-center gap-1.5"><Info className="h-3.5 w-3.5" /> Ensembles of Small Models (ESM)</p>
-              <p className="mt-1 text-sdm-muted">Recommended for rare species with few occurrence records.</p>
-            </div>
-          )}
-          {lowRecordWarning && (
-            <div className="mt-2 rounded-md bg-sdm-danger/10 border border-sdm-danger/30 p-3 text-xs text-sdm-danger flex items-start gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>{selectedModel?.label} recommends ≥ {selectedModel.min_records} records. You have {effectiveRecordCount}. Results may be unreliable.</span>
-            </div>
-          )}
-          {selectedModel?.notes && <p className="mt-1 text-xs text-sdm-muted italic">{selectedModel.notes}</p>}
-          {selectedModel?.packages && (() => { const pkgs = Array.isArray(selectedModel.packages) ? selectedModel.packages : [selectedModel.packages]; return pkgs.length > 0 ? (<p className="mt-1 text-xs text-sdm-muted">Requires: <code className="text-sdm-text">{pkgs.join(", ")}</code></p>) : null; })()}
-        </div>
+        <ModelSelector models={availableModels} selected={modelId} onSelect={setModelId} />
+        {isESM && (
+          <div className="rounded-md bg-sdm-accent-blue/10 border border-sdm-accent-blue/30 p-3 text-xs text-sdm-text">
+            <p className="font-medium flex items-center gap-1.5"><Info className="h-3.5 w-3.5" /> Ensembles of Small Models (ESM)</p>
+            <p className="mt-1 text-sdm-muted">Recommended for rare species with few occurrence records.</p>
+          </div>
+        )}
+        {lowRecordWarning && (
+          <div className="rounded-md bg-sdm-danger/10 border border-sdm-danger/30 p-3 text-xs text-sdm-danger flex items-start gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>{selectedModel?.label} recommends ≥ {selectedModel.min_records} records. You have {effectiveRecordCount}. Results may be unreliable.</span>
+          </div>
+        )}
 
         {(modelId === "maxnet") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
@@ -915,10 +885,6 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           </div>
         )}
       </div>
-
-      <CovariatePanel useElevation={useElevation} useSoil={useSoil} soilVars={soilVars} soilDepths={soilDepths} useUv={useUv} uvVars={uvVars} useVegetation={useVegetation} useLulc={useLulc} useHfp={useHfp} useBioclimSeason={useBioclimSeason} useDrought={useDrought} onSetUseElevation={setUseElevation} onSetUseSoil={setUseSoil} onToggleSoilVar={toggleSoilVar} onToggleSoilDepth={toggleSoilDepth} onSetUseUv={setUseUv} onToggleUvVar={toggleUvVar} onSetUseVegetation={setUseVegetation} onSetUseLulc={setUseLulc} onSetUseHfp={setUseHfp} onSetUseBioclimSeason={setUseBioclimSeason} onSetUseDrought={setUseDrought} />
-
-      <AdvancedSettings vifReduction={vifReduction} climateMatching={climateMatching} thinByCell={thinByCell} mergeSmallSources={mergeSmallSources} biasMethod={biasMethod} thickeningDistanceKm={thickeningDistanceKm} minSourceRecords={minSourceRecords} onSetVifReduction={setVifReduction} onSetClimateMatching={setClimateMatching} onSetThinByCell={setThinByCell} onSetMergeSmallSources={setMergeSmallSources} onSetBiasMethod={(v) => setBiasMethod(v as any)} onSetThickeningDistanceKm={setThickeningDistanceKm} onSetMinSourceRecords={setMinSourceRecords} />
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
         <h2 className="text-lg font-semibold text-sdm-heading">Projection &amp; Threshold</h2>
