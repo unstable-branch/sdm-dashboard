@@ -177,18 +177,14 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
     env_subset <- env_project_scaled[[raster_names[cov_idx]]]
     log_message(log_fun, "Predicting RF suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
-    suit <- terra::app(env_subset, fun = function(vals) {
-      if (!all(is.finite(vals))) {
-        return(rep(NA_real_, nrow(vals)))
-      }
-      df <- as.data.frame(vals, stringsAsFactors = FALSE)
-      names(df) <- fit$covariates
-      predict(fit$model, data = df)$predictions
-    }, cores = normalize_core_count(n_cores))
+    pred_ranger <- function(model, newdata, ...) {
+      predict(model, data = newdata, ...)$predictions
+    }
+    suit <- terra::predict(env_subset, fit$model, fun = pred_ranger,
+      na.rm = TRUE, filename = output_tif, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
 
     names(suit) <- "suitability"
-    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
     log_message(log_fun, "Suitability raster written to: ", output_tif)
     suit
   }

@@ -155,3 +155,31 @@ validate_boundary_extent <- function(extent) {
   ymax <- extent[4]
   xmin < xmax && ymin < ymax && xmin >= -180 && xmax <= 180 && ymin >= -90 && ymax <= 90
 }
+
+apply_boundary_mask <- function(suit, mask_type = "none",
+                                mask_file = NULL, buffer_deg = NA,
+                                log_fun = NULL, output_tif = NULL) {
+  if (mask_type == "none" || is.null(mask_file) || !file.exists(mask_file))
+    return(suit)
+
+  poly <- terra::vect(mask_file)
+
+  if (!terra::same.crs(poly, suit))
+    poly <- terra::project(poly, suit)
+
+  if (is.na(buffer_deg))
+    buffer_deg <- max(terra::res(suit)) / 2
+
+  if (buffer_deg > 0)
+    poly <- terra::buffer(poly, width = buffer_deg)
+
+  poly <- terra::aggregate(poly, dissolve = TRUE)
+
+  log_message(log_fun, sprintf(
+    "  Masking suitability raster (%s mode, buffer=%.4f\u00b0)", mask_type, buffer_deg
+  ))
+
+  out_path <- output_tif %||% tempfile(fileext = ".tif")
+  terra::mask(suit, poly, inverse = (mask_type == "ocean"),
+              filename = out_path, overwrite = TRUE)
+}

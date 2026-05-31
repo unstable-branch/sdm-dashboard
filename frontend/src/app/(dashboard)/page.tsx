@@ -5,6 +5,7 @@ import { MetricCard } from "@/components/ecology/metric-card";
 import { WelcomePanel } from "@/components/ecology/welcome-panel";
 import dynamic from "next/dynamic";
 import { useCompletedRuns, useRuns } from "@/hooks/use-runs";
+import { toNum, fmtFixed, fmtLocale } from "@/lib/utils";
 import { Loader2, ArrowRight, Database, Brain, BarChart3, Map, Upload, CheckCircle2, Circle, Clock, CheckCircle, XCircle } from "lucide-react";
 
 const SuitabilityMap = dynamic(
@@ -92,7 +93,7 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Records"
-          value={latestRun ? (latestRun.metrics?.presence_records?.toLocaleString() ?? "—") : "—"}
+          value={latestRun ? fmtLocale(latestRun.metrics?.presence_records) : "—"}
           description={latestRun ? "Latest run" : "Load occurrence data"}
         />
         <MetricCard
@@ -102,12 +103,12 @@ export default function DashboardPage() {
         />
         <MetricCard
           title="AUC"
-          value={latestRun?.metrics?.auc_mean ? (latestRun.metrics.auc_mean as number).toFixed(3) : "—"}
-          description={latestRun ? `SD ±${(latestRun.metrics?.auc_sd ?? 0).toFixed(3)}` : "Run a model to see metrics"}
+          value={fmtFixed(latestRun?.metrics?.auc_mean, 3)}
+          description={latestRun ? `SD ±${fmtFixed(latestRun.metrics?.auc_sd, 3)}` : "Run a model to see metrics"}
         />
         <MetricCard
           title="High-suitability area"
-          value={latestRun?.metrics?.high_suitability_area_km2 ? `${Math.round(latestRun.metrics.high_suitability_area_km2 as number).toLocaleString()} km²` : "—"}
+          value={(() => { const n = toNum(latestRun?.metrics?.high_suitability_area_km2); return n !== null ? `${Math.round(n).toLocaleString()} km²` : "—"; })()}
           description="km² above threshold"
         />
       </div>

@@ -1,18 +1,4 @@
-function toNum(v: unknown): number | null {
-  if (v == null) return null;
-  const n = typeof v === "number" ? v : Number(v);
-  return isNaN(n) ? null : n;
-}
-
-function fmtFixed(v: unknown, d: number): string {
-  const n = toNum(v);
-  return n !== null ? n.toFixed(d) : "—";
-}
-
-function fmtLocale(v: unknown): string {
-  const n = toNum(v);
-  return n !== null ? n.toLocaleString() : "—";
-}
+import { toNum, fmtFixed, fmtLocale } from "@/lib/utils";
 
 function fmtArea(v: unknown): string {
   const n = toNum(v);

@@ -11,7 +11,7 @@ compute_calibration <- function(model_data, fit, n_bins = 10) {
   covariates <- fit$covariates
   pred <- tryCatch({
     if (inherits(fit$model, "maxnet")) {
-      as.numeric(maxnet::predict.maxnet(fit$model, model_data[, covariates, drop = FALSE], clamp = TRUE, type = "response"))
+      as.numeric(predict(fit$model, model_data[, covariates, drop = FALSE], clamp = TRUE, type = "response"))
     } else if (inherits(fit$model, "ranger")) {
       predict(fit$model, data = model_data[, covariates, drop = FALSE])$predictions
     } else {
