@@ -662,11 +662,41 @@ run_fast_sdm <- function(...) {
 
   elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
   log_message(log_fun, "Completed in ", sprintf("%.1f", elapsed), " seconds")
+
+  # Overfitting detection: compare training (in-sample) vs cross-validated performance
+  train_auc <- fit$metrics$training_auc %||% fit$metrics$auc %||% NA_real_
+  cv_auc <- fit$cv$auc_mean %||% NA_real_
+  auc_diff <- if (is.finite(train_auc) && is.finite(cv_auc)) train_auc - cv_auc else NA_real_
+  overfitting_level <- if (is.na(auc_diff)) {
+    NA_character_
+  } else if (auc_diff > 0.15) {
+    "high"
+  } else if (auc_diff > 0.07) {
+    "medium"
+  } else if (auc_diff > 0.03) {
+    "low"
+  } else {
+    "none"
+  }
+  train_cbi <- fit$metrics$cbi %||% NA_real_
+  cv_cbi_val <- fit$metrics$cv_cbi %||% NA_real_
+  cbi_diff <- if (is.finite(train_cbi) && is.finite(cv_cbi_val)) train_cbi - cv_cbi_val else NA_real_
+  if (!is.na(overfitting_level) && overfitting_level != "none") {
+    log_message(log_fun, "Overfitting warning (", overfitting_level, "): training AUC (", sprintf("%.3f", train_auc),
+      ") exceeds CV AUC (", sprintf("%.3f", cv_auc), ") by ", sprintf("%.3f", auc_diff))
+  }
+
   metrics <- list(
     presence_records = nrow(fit$occurrence_used), background_points = nrow(fit$background_xy),
     auc_mean = fit$cv$auc_mean, auc_sd = fit$cv$auc_sd, cv_folds = fit$cv$k,
     n_cores = n_cores, elapsed_seconds = elapsed,
-    projection = projection_metrics
+    cbi = fit$metrics$cbi %||% NA_real_,
+    cv_cbi = fit$metrics$cv_cbi %||% NA_real_,
+    projection = projection_metrics,
+    training_auc = train_auc,
+    auc_diff = auc_diff,
+    overfitting_level = overfitting_level,
+    cbi_diff = cbi_diff
   )
 
   result <- list(
@@ -747,7 +777,10 @@ build_stage_extra_args <- function(cfg, model_id) {
   } else if (identical(model_id, "ann")) {
     list(size = cfg$ann_size %||% 5L, decay = cfg$ann_decay %||% 0.01, maxit = cfg$ann_maxit %||% 200L)
   } else if (identical(model_id, "dnn")) {
-    list(n_seeds = cfg$dnn_n_seeds %||% 5L, dnn_model_type = cfg$dnn_model_type %||% "DNN_Medium", dnn_device = cfg$dnn_device %||% "auto")
+    list(n_seeds = cfg$dnn_n_seeds %||% 5L, dnn_model_type = cfg$dnn_model_type %||% "DNN_Medium", dnn_device = cfg$dnn_device %||% "auto",
+         dropout = cfg$dnn_dropout %||% 0.3, lambda = cfg$dnn_lambda %||% 0.001)
+  } else if (identical(model_id, "gam")) {
+    list(max_k = cfg$gam_k %||% 5L)
   } else if (identical(model_id, "rf")) {
     list(num_trees = cfg$rf_num_trees %||% 500L, mtry = cfg$rf_mtry %||% NULL, min_node_size = cfg$rf_min_node_size %||% 10L)
   } else if (identical(model_id, "xgboost")) {

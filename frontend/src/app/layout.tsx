@@ -5,6 +5,7 @@ import { QueryProvider } from "@/components/query-provider";
 import { WebVitals } from "@/components/web-vitals";
 import { UnhandledRejectionHandler } from "@/components/ui/unhandled-rejection-handler";
 import ErrorBoundary from "@/components/ui/error-boundary";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], display: "optional" });
@@ -31,7 +32,9 @@ export default function RootLayout({
             <QueryProvider>
               <WebVitals />
               <UnhandledRejectionHandler />
-              {children}
+              <TooltipProvider delayDuration={200}>
+                {children}
+              </TooltipProvider>
             </QueryProvider>
           </ErrorBoundary>
         </ThemeProvider>
