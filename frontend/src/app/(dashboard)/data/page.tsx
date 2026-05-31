@@ -194,12 +194,6 @@ function DataPageContent() {
       const detectedSpecies = (result.species_detected as string) || null;
       const pipelineRunId = (result.pipelineRunId as string) || null;
       setUploadResult(result); setPipelineRunId(pipelineRunId);
-      if (filePath) { setOccurrenceFilePath(filePath); setRecordCount(nRows); if (detectedSpecies) useSDMStore.getState().setSpecies(detectedSpecies); else { const e = extractSpeciesFromFilename(file.name); if (e) useSDMStore.getState().setSpecies(e); } }
-    } catch (err) { setUploadError(err instanceof Error ? err.message : "Upload failed"); }
-    finally { setUploadLoading(false); }
-  };
-
-      setUploadResult(result);
       if (fileId) {
         setOccurrenceFilePath(fileId);
         setRecordCount(nRows);
@@ -431,6 +425,8 @@ function DataPageContent() {
                 Clean data →
               </Link>
             </div>
+            )}
+
             {gbifPreview && gbifPreview.length > 0 && <PreviewTable data={gbifPreview} title="GBIF Preview (first 5 records)" />}
             {gbifResult && typeof gbifResult.n_records === "number" && gbifResult.n_records > 0 && (
               <div className="space-y-3">
@@ -447,8 +443,6 @@ function DataPageContent() {
                 )}
               </div>
             )}
-          </div>
-        )}
 
         {activeTab === "dwca" && (
           <div className="space-y-4">

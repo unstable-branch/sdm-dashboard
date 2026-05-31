@@ -315,7 +315,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
           occ[[cc_test_map[[col]]]] <- !cc_result[[col]]
         }
       }
-    )
+    }
     if (!is.null(cc_result)) {
       occ$cc_flag <- !cc_result$.summary
       cc_test_map <- c(
