@@ -10,6 +10,9 @@ validate_extent <- function(extent_vec, name = "extent") {
   if (extent_vec[1] < -180 || extent_vec[2] > 180 || extent_vec[3] < -90 || extent_vec[4] > 90) {
     stop(name, " is outside valid longitude/latitude bounds.", call. = FALSE)
   }
+  if (extent_vec[2] - extent_vec[1] < 1e-6 || extent_vec[4] - extent_vec[3] < 1e-6) {
+    stop(name, " extent too small (< 1e-6 degrees).", call. = FALSE)
+  }
   as.numeric(extent_vec)
 }
 

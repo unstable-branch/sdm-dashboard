@@ -16,37 +16,20 @@ import type {
 
 const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
 const PLUMBER_INTERNAL_KEY = process.env.PLUMBER_INTERNAL_KEY || "";
-import { Agent } from "node:http";
-import { Agent as HttpsAgent } from "node:https";
+const PLUMBER_MAX_CONCURRENT = parseInt(process.env.PLUMBER_MAX_CONCURRENT || "8", 10);
+const PLUMBER_DEFAULT_TIMEOUT_MS = parseInt(process.env.PLUMBER_TIMEOUT_MS || "30000", 10);
+let plumberActiveRequests = 0;
 
-const keepAliveAgent = new Agent({ keepAlive: true, keepAliveMsecs: 1000 });
-const keepAliveHttpsAgent = new HttpsAgent({ keepAlive: true, keepAliveMsecs: 1000 });
-
-const TIMEOUT_FAST = 10_000;
-const TIMEOUT_NORMAL = 30_000;
-const TIMEOUT_MODEL_RUN = 30 * 60 * 1000;
-const TIMEOUT_CLIMATE = 60 * 60 * 1000;
-const TIMEOUT_UPLOAD = 300_000;
-
-export interface CleanResponse {
-  job_id: string;
-  status: string;
-}
-
-export interface ModelRunResponse extends PlumberRunResponse, Record<string, unknown> {}
-export interface ModelStatusResponse extends PlumberStatusResponse, Record<string, unknown> {}
-export interface AsyncJobStatusResponse extends Record<string, unknown> {
-  available?: boolean;
-  status?: string;
-  error?: string;
-  result?: Record<string, unknown>;
-}
-export interface EcologyDataResponse {
-  run_id?: string;
-  species?: string;
-  model_id?: string;
-  eoo_aoo?: Record<string, unknown>;
-  error?: string;
+async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
+  while (plumberActiveRequests >= PLUMBER_MAX_CONCURRENT) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  plumberActiveRequests++;
+  try {
+    return await fn();
+  } finally {
+    plumberActiveRequests--;
+  }
 }
 
 export class PlumberClient {
@@ -70,32 +53,29 @@ export class PlumberClient {
     return h;
   }
 
-  private async _fetch(url: string, options: RequestInit & { timeout?: number } = {}): Promise<Response> {
-    const { timeout = TIMEOUT_NORMAL, ...fetchOpts } = options;
-    const agent = url.startsWith("https") ? keepAliveHttpsAgent : keepAliveAgent;
-    const res = await fetch(url, {
-      ...fetchOpts,
-      signal: AbortSignal.timeout(timeout),
-      // @ts-expect-error - Node.js fetch supports agent despite TS types
-      agent,
-    });
-    return res;
+  private async _fetch(url: string, options?: RequestInit, timeoutMs?: number): Promise<Response> {
+    const ms = timeoutMs ?? PLUMBER_DEFAULT_TIMEOUT_MS;
+    const opts = options ?? {};
+    if (!opts.signal) {
+      opts.signal = AbortSignal.timeout(ms);
+    }
+    return plumberSemaphore(() => fetch(url, opts));
   }
 
   async healthCheck(): Promise<{ status: string; r_version: string; timestamp: string }> {
-    const res = await this._fetch(`${this.baseUrl}/health`, { timeout: TIMEOUT_FAST });
+    const res = await this._fetch(`${this.baseUrl}/health`);
     if (!res.ok) throw new Error(`Plumber health check failed: ${res.status}`);
     return res.json();
   }
 
-  async getConfigDefaults(): Promise<PlumberConfigDefaults> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/config/defaults`, { timeout: TIMEOUT_FAST });
+  async getConfigDefaults(): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/config/defaults`);
     if (!res.ok) throw new Error(`Failed to get config defaults: ${res.status}`);
     return res.json();
   }
 
-  async getModels(): Promise<PlumberModelInfo[]> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models`, { timeout: TIMEOUT_FAST });
+  async getModels(): Promise<Array<{ id: string; label: string }>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models`);
     if (!res.ok) throw new Error(`Failed to get models: ${res.status}`);
     return res.json();
   }
@@ -133,7 +113,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async cleanOccurrences(data: Record<string, unknown>): Promise<CleanResponse> {
+  async cleanOccurrences(data: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/occurrences/clean`, {
       method: "POST",
       headers: { ...this.headers(), "Content-Type": "application/json" },
@@ -163,7 +143,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async runModel(data: Record<string, unknown>): Promise<ModelRunResponse> {
+  async runModel(data: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/run`, {
       method: "POST",
       headers: { ...this.headers(), "Content-Type": "application/json" },
@@ -183,7 +163,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async downloadClimate(data: Record<string, unknown>): Promise<{ job_id: string; status: string; message: string }> {
+  async downloadClimate(data: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/climate/download`, {
       method: "POST",
       headers: { ...this.headers(), "Content-Type": "application/json" },
@@ -216,21 +196,33 @@ export class PlumberClient {
   }
 
   async getJobStatus(jobId: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/status/${jobId}`, { headers: this.headers() });
+    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
     return res.json();
   }
 
   async cancelJob(jobId: string): Promise<{ ok: boolean }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/cancel/${jobId}`, {
-      method: "POST",
+    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`, {
+      method: "DELETE",
       headers: this.headers(),
     });
     if (!res.ok) throw new Error(`Failed to cancel job: ${res.status}`);
     return res.json();
   }
 
-  async cancelModelRun(jobId: string): Promise<Record<string, unknown>> {
+  async getModelStatus(jobId: string, timeoutMs: number = 10_000): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`, {
+      headers: this.headers(),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Failed to get model status: ${res.status} ${body}`);
+    }
+    return res.json();
+  }
+
+  async cancelModel(jobId: string): Promise<{ ok: boolean; message: string }> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/cancel/${jobId}`, {
       method: "POST",
       headers: this.headers(),
@@ -239,13 +231,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getModelStatus(jobId: string): Promise<ModelStatusResponse> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Failed to get model status: ${res.status}`);
-    return res.json();
-  }
-
-  async deleteModelOutputs(jobId: string): Promise<Record<string, unknown>> {
+  async deleteModelOutputs(jobId: string): Promise<{ ok: boolean; message: string; deleted: boolean }> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/delete/${jobId}`, {
       method: "POST",
       headers: this.headers(),
@@ -254,19 +240,44 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getFutureScenarios(): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`, { headers: this.headers() });
+  async getModelRuns(): Promise<Array<Record<string, unknown>>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/runs`);
+    if (!res.ok) throw new Error(`Failed to get model runs: ${res.status}`);
+    return res.json();
+  }
+
+  async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; base_directory: string; message?: string }> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`);
     if (!res.ok) throw new Error(`Failed to get future scenarios: ${res.status}`);
     return res.json();
   }
 
-  async generateEnsembleRasters(jobId: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/ensemble-rasters/${jobId}`, {
+  async getClimateScenarios(): Promise<{ scenarios: Array<Record<string, unknown>> }> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/scenarios`);
+    if (!res.ok) throw new Error(`Failed to get climate scenarios: ${res.status}`);
+    return res.json();
+  }
+
+  async deleteClimateScenario(scenarioId: string): Promise<{ ok: boolean; message: string }> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/delete/${scenarioId}`, {
       method: "POST",
       headers: this.headers(),
       timeout: TIMEOUT_NORMAL,
     });
-    if (!res.ok) throw new Error(`Failed to generate ensemble rasters: ${res.status}`);
+    if (!res.ok) throw new Error(`Failed to delete scenario: ${res.status}`);
+    return res.json();
+  }
+
+  async getUploads(limit?: number): Promise<{ uploads: Array<Record<string, unknown>> }> {
+    const params = limit ? `?limit=${limit}` : "";
+    const res = await this._fetch(`${this.baseUrl}/api/v1/occurrences/uploads${params}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to list uploads: ${res.status}`);
+    return res.json();
+  }
+
+  async getClimateStatus(jobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/status/${jobId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get climate status: ${res.status}`);
     return res.json();
   }
 
@@ -288,49 +299,38 @@ export class PlumberClient {
     return res.json();
   }
 
+  async postNicheOverlap(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/ecology/niche-overlap`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as Record<string, unknown>).error as string || `Niche overlap failed: ${res.status}`);
+    }
+    return res.json();
+  }
+
   async getEcologyReport(runId: string): Promise<string> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/ecology/${runId}/report`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get ecology report: ${res.status}`);
     return res.text();
   }
 
-  async getAsyncJobStatus(jobId: string): Promise<AsyncJobStatusResponse> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/status/${jobId}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
-    return res.json();
-  }
-
-  async getDiagnosticsVif(runId: string): Promise<PlumberDiagnosticsVif> {
+  async getDiagnosticsVif(runId: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/vif/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get VIF diagnostics: ${res.status}`);
     return res.json();
   }
 
-  async getDiagnosticsClimateDrivers(runId: string): Promise<PlumberDiagnosticsClimateDrivers> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/climate-drivers/${runId}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Failed to get climate driver data: ${res.status}`);
-    return res.json();
-  }
-
-  async getRunComparison(runId1: string, runId2: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/output/compare/${runId1}/${runId2}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Failed to get run comparison: ${res.status}`);
-    return res.json();
-  }
-
-  async getDiagnosticsAle(runId: string): Promise<PlumberDiagnosticsAle> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/ale/${runId}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Failed to get ALE data: ${res.status}`);
-    return res.json();
-  }
-
-  async getDiagnosticsResponseCurves(runId: string): Promise<PlumberDiagnosticsResponseCurves> {
+  async getDiagnosticsResponseCurves(runId: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/response-curves/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get response curves: ${res.status}`);
     return res.json();
   }
 
-  async getDiagnosticsImportance(runId: string): Promise<PlumberDiagnosticsImportance> {
+  async getDiagnosticsImportance(runId: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/importance/${runId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get variable importance: ${res.status}`);
     return res.json();

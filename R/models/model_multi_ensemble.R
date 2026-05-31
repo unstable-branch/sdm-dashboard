@@ -90,7 +90,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
 
     # Export necessary functions to workers
     parallel::clusterExport(cl, c("predict_single_component", "multi_ensemble_component_path",
-      "log_message", "normalize_core_count"), envir = environment())
+      "log_message", "normalize_core_count", "get_sdm_model", "predict_sdm_model"), envir = environment())
     parallel::clusterEvalQ(cl, library(terra))
 
     standalone_results <- parallel::parLapply(cl, standalone_names, function(m) {
@@ -107,7 +107,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     for (m in standalone_names) {
       if (!is.null(standalone_results[[m]])) {
         preds[[m]] <- standalone_results[[m]]
-        if (export_components) component_paths[[paste0("multi_ens_comp_", m)]] <- multi_ensemble_component_path(output_tif, m)
+        if (export_components) component_paths[[m]] <- multi_ensemble_component_path(output_tif, m)
       } else {
         failed_components <- c(failed_components, m)
       }
@@ -130,7 +130,17 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
         next
       }
       preds[[m]] <- pred_result
-      if (export_components) component_paths[[paste0("multi_ens_comp_", m)]] <- comp_tif
+      if (export_components) component_paths[[m]] <- comp_tif
+    }
+  }
+
+  # Validate standalone predictions — exclude all-NA rasters
+  for (m in names(preds)) {
+    mm <- tryCatch(terra::minmax(preds[[m]]), error = function(e) NULL)
+    if (!is.null(mm) && all(!is.finite(mm))) {
+      failed_components <- c(failed_components, m)
+      preds[[m]] <- NULL
+      log_message(log_fun, "Component '", m, "' produced all-NA prediction; excluding from ensemble")
     }
   }
 
@@ -151,7 +161,17 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
       next
     }
     preds[[m]] <- pred_result
-    if (export_components) component_paths[[paste0("multi_ens_comp_", m)]] <- comp_tif
+    if (export_components) component_paths[[m]] <- comp_tif
+  }
+
+  # Validate biomod2 predictions — exclude all-NA rasters
+  for (m in names(preds)) {
+    mm <- tryCatch(terra::minmax(preds[[m]]), error = function(e) NULL)
+    if (!is.null(mm) && all(!is.finite(mm))) {
+      failed_components <- c(failed_components, m)
+      preds[[m]] <- NULL
+      log_message(log_fun, "Component '", m, "' produced all-NA prediction; excluding from ensemble")
+    }
   }
 
   if (length(failed_components) > 0) {
@@ -164,80 +184,88 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
 
   pred_stack <- terra::rast(preds)
 
-  # Always compute and write the weighted ensemble (this IS the main output)
-  weighted_layers <- mapply(function(pred, wi) pred * wi, preds, weights[names(preds)], SIMPLIFY = FALSE)
-  ensemble_weighted <- Reduce("+", weighted_layers)
+  ensemble_mean <- terra::app(pred_stack, mean, na.rm = TRUE)
+  names(ensemble_mean) <- "ensemble_mean"
+  mean_tif <- sub(".tif$", "_ensemble_mean.tif", output_tif)
+  terra::writeRaster(ensemble_mean, mean_tif,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
+  log_message(log_fun, "Ensemble mean raster written to: ", mean_tif)
+  rm(ensemble_mean)
+  gc(verbose = FALSE)
+
+  ensemble_median <- terra::app(pred_stack, median, na.rm = TRUE)
+  names(ensemble_median) <- "ensemble_median"
+  median_tif <- sub(".tif$", "_ensemble_median.tif", output_tif)
+  terra::writeRaster(ensemble_median, median_tif,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
+  log_message(log_fun, "Ensemble median raster written to: ", median_tif)
+  rm(ensemble_median)
+  gc(verbose = FALSE)
+
+  active_weights <- weights[names(preds)]
+  active_weights <- active_weights / sum(active_weights, na.rm = TRUE)
+  active_weights[!is.finite(active_weights)] <- 0
+  weighted_layers <- mapply(function(pred, wi) pred * wi, preds, active_weights, SIMPLIFY = FALSE)
+  weighted_stack <- terra::rast(weighted_layers)
+  ensemble_weighted <- terra::app(weighted_stack, sum, na.rm = TRUE)
   names(ensemble_weighted) <- "suitability"
   terra::writeRaster(ensemble_weighted, output_tif,
     overwrite = TRUE,
     wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
   )
   log_message(log_fun, "Ensemble raster written to: ", output_tif)
+  rm(weighted_layers, weighted_stack)
+  gc(verbose = FALSE)
 
-  # Ensemble statistics — only written when export_stats = TRUE
-  if (export_stats) {
-    ensemble_mean <- terra::app(pred_stack, mean, na.rm = TRUE)
-    names(ensemble_mean) <- "ensemble_mean"
-    mean_tif <- sub(".tif$", "_ensemble_mean.tif", output_tif)
-    terra::writeRaster(ensemble_mean, mean_tif,
+  binary_preds <- lapply(names(preds), function(mid) {
+    comp_thresh <- if (!is.null(cv_list[[mid]]) && !is.null(cv_list[[mid]]$threshold)) cv_list[[mid]]$threshold else sdm_default_threshold
+    thresh <- user_threshold %||% comp_thresh
+    preds[[mid]] >= thresh
+  })
+  committee_stack <- do.call(c, binary_preds)
+  ensemble_committee <- terra::app(committee_stack, mean, na.rm = TRUE)
+  names(ensemble_committee) <- "ensemble_committee"
+  committee_tif <- sub(".tif$", "_ensemble_committee.tif", output_tif)
+  terra::writeRaster(ensemble_committee, committee_tif,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
+  log_message(log_fun, "Ensemble committee raster written to: ", committee_tif)
+  rm(committee_stack, binary_preds, ensemble_committee)
+  gc(verbose = FALSE)
+
+  if (include_uncertainty) {
+    ensemble_sd <- terra::app(pred_stack, sd, na.rm = TRUE)
+    names(ensemble_sd) <- "ensemble_sd"
+    sd_tif <- sub(".tif$", "_ensemble_sd.tif", output_tif)
+    terra::writeRaster(ensemble_sd, sd_tif,
       overwrite = TRUE,
       wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
     )
-    log_message(log_fun, "Ensemble mean raster written to: ", mean_tif)
-    attr(ensemble_weighted, "ensemble_mean_tif") <- mean_tif
-
-    ensemble_median <- terra::app(pred_stack, median, na.rm = TRUE)
-    names(ensemble_median) <- "ensemble_median"
-    median_tif <- sub(".tif$", "_ensemble_median.tif", output_tif)
-    terra::writeRaster(ensemble_median, median_tif,
-      overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
-    )
-    log_message(log_fun, "Ensemble median raster written to: ", median_tif)
-    attr(ensemble_weighted, "ensemble_median_tif") <- median_tif
-
-    binary_preds <- lapply(seq_along(preds), function(i) {
-      mid <- names(preds)[i]
-      comp_thresh <- if (!is.null(cv_list[[i]]) && !is.null(cv_list[[i]]$threshold)) cv_list[[i]]$threshold else 0.5
-      thresh <- user_threshold %||% comp_thresh
-      preds[[mid]] >= thresh
-    })
-    committee_stack <- do.call(c, binary_preds)
-    ensemble_committee <- terra::app(committee_stack, mean, na.rm = TRUE)
-    names(ensemble_committee) <- "ensemble_committee"
-    committee_tif <- sub(".tif$", "_ensemble_committee.tif", output_tif)
-    terra::writeRaster(ensemble_committee, committee_tif,
-      overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
-    )
-    log_message(log_fun, "Ensemble committee raster written to: ", committee_tif)
-    attr(ensemble_weighted, "ensemble_committee_tif") <- committee_tif
-
-    if (include_uncertainty) {
-      ensemble_sd <- terra::app(pred_stack, sd, na.rm = TRUE)
-      names(ensemble_sd) <- "ensemble_sd"
-      sd_tif <- sub(".tif$", "_ensemble_sd.tif", output_tif)
-      terra::writeRaster(ensemble_sd, sd_tif,
-        overwrite = TRUE,
-        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
-      )
-      log_message(log_fun, "Ensemble SD raster written to: ", sd_tif)
-      attr(ensemble_weighted, "ensemble_sd_tif") <- sd_tif
-    }
+    log_message(log_fun, "Ensemble SD raster written to: ", sd_tif)
+    rm(ensemble_sd)
+    gc(verbose = FALSE)
   }
 
-  if (export_components || export_stats) {
-    disagreement <- terra::app(pred_stack, function(x) {
-      if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
-    })
-    names(disagreement) <- "ensemble_disagreement"
-    disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
-    terra::writeRaster(disagreement, disagreement_tif,
-      overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
-    )
-    component_paths$multi_ens_disagreement_tif <- disagreement_tif
-  }
+  disagreement <- terra::app(pred_stack, function(x) {
+    if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
+  })
+  names(disagreement) <- "ensemble_disagreement"
+  disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
+  terra::writeRaster(disagreement, disagreement_tif,
+    overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+  )
+  component_paths$disagreement <- disagreement_tif
+  rm(disagreement)
+  gc(verbose = FALSE)
+
+  rm(pred_stack, preds)
+  gc(verbose = FALSE)
 
   attr(ensemble_weighted, "component_paths") <- component_paths
 
@@ -513,9 +541,13 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     cv = list(
       k = if (length(component_k) > 0) max(component_k, na.rm = TRUE) else NA_integer_,
       auc_mean = auc_weighted,
-      auc_sd = NA_real_,
+      auc_sd = if (!is.null(component_metrics_df) && nrow(component_metrics_df) > 1 && "auc" %in% names(component_metrics_df)) {
+        sd(component_metrics_df$auc, na.rm = TRUE)
+      } else NA_real_,
       tss_mean = tss_weighted,
-      tss_sd = NA_real_,
+      tss_sd = if (!is.null(component_metrics_df) && nrow(component_metrics_df) > 1 && "tss" %in% names(component_metrics_df)) {
+        sd(component_metrics_df$tss, na.rm = TRUE)
+      } else NA_real_,
       component_metrics = component_metrics_df,
       component_cv = cv_list,
       component_k = component_k

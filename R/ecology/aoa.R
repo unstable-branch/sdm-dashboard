@@ -103,42 +103,42 @@ compute_aoa_weighted <- function(model_data, env_proj, covariates, variable_impo
   weights <- pmax(weights, 0)  # ensure non-negative
   if (sum(weights) > 0) weights <- weights / sum(weights) else weights <- rep(1/length(weights), length(weights))
 
-  # Weighted covariance
-  weighted_cov <- stats::cov(train_vals) * (weights %*% t(weights))
+  # Training centroid
+  train_centre <- colMeans(train_vals, na.rm = TRUE)
 
-  # Regularise
-  diag_add <- 1e-6
+  # Weighted covariance: scale each variable by sqrt(importance) before computing covariance
+  centred <- scale(train_vals, center = train_centre, scale = FALSE)
+  weighted_centred <- sweep(centred, 2, sqrt(weights), FUN = `*`)
+  weighted_cov <- crossprod(weighted_centred) / (nrow(train_vals) - 1)
+
+  # Regularise diagonal for numerical stability
+  diag_add <- 1e-6 * mean(diag(weighted_cov), na.rm = TRUE)
   diag(weighted_cov) <- diag(weighted_cov) + diag_add
 
-  # Training centroid
-  train_centre <- colMeans(train_vals)
-
-  # Compute Mahalanobis distance for training points (to find threshold)
+  # Check invertibility; fall back to diagonal if singular
   tryCatch(
     solve(weighted_cov),
     error = function(e) {
       log_message(log_fun, "  Singular weighted covariance; using diagonal approximation")
-      weighted_cov <<- diag(diag(stats::cov(train_vals)) + diag_add)
+      weighted_cov <<- diag(diag(weighted_cov), nrow = ncol(weighted_cov))
     }
   )
 
   train_dist <- stats::mahalanobis(train_vals, train_centre, weighted_cov)
   threshold <- max(train_dist, na.rm = TRUE)
 
-  # Distance for projection cells
-  compute_aoa_block <- function(rast_block) {
-    df <- as.data.frame(rast_block)
-    names(df) <- covariates
-    complete <- stats::complete.cases(df)
-    dist <- rep(NA_real_, nrow(df))
+  # Distance for projection cells (vectorised via terra::app)
+  compute_aoa_block <- function(vals) {
+    complete <- stats::complete.cases(vals)
+    dist <- rep(NA_real_, nrow(vals))
     if (sum(complete) > 0) {
-      d <- stats::mahalanobis(df[complete, , drop = FALSE], train_centre, weighted_cov)
+      d <- stats::mahalanobis(vals[complete, , drop = FALSE], train_centre, weighted_cov)
       dist[complete] <- d
     }
     dist
   }
 
-  dist_rast <- terra::app(env_subset, compute_aoa_block, cores = 1)
+  dist_rast <- terra::app(env_subset, compute_aoa_block)
   names(dist_rast) <- "aoa_distance"
 
   # AOA mask: 1 = applicable, 0 = outside

@@ -102,6 +102,7 @@ async function syncRunningJobs() {
         const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log : [];
         const progressJson = (status as any).progress_json;
         const error = (status as any).error as string | undefined;
+        const plumberLastStage = (status as any).last_stage as string | undefined;
 
         consecutive404s.delete(run.id);
 
@@ -114,16 +115,12 @@ async function syncRunningJobs() {
             return undefined;
           })();
 
-          if (progressJson) {
+          if (plumberLastStage) {
             await db
               .update(runs)
-              .set({ progressLog: progressJson })
+              .set({ lastStage: plumberLastStage })
               .where(eq(runs.id, run.id));
           }
-
-          const currentStage = Array.isArray(progressJson)
-            ? progressJson[progressJson.length - 1]
-            : null;
 
           jobEventBus.emitJobStatus({
             jobId: run.id,
