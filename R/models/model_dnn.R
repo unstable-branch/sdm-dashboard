@@ -612,7 +612,7 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
     model <- tryCatch(
       {
         train_dnn_model(dnn_data, model_type = model_type, device = device, log_fun = log_fun,
-                         dropout = dropout, lambda = lambda)
+          dropout = dropout, lambda = lambda)
       },
       error = function(e) {
         err_msg <- paste("DNN-503: Model training failed for", model_type, ":", conditionMessage(e))
@@ -674,39 +674,68 @@ run_dnn <- function(occ_df, pred_stack, selected_dnn_models = NULL,
 
 #' Fit DNN SDM (registry pattern)
 fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
-                         include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
-                         seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
-                         cv_strategy = sdm_default_cv_strategy,
-                         cv_block_size_km = sdm_default_cv_block_size_km,
-                         threshold = sdm_default_threshold,
-                         bias_method = "uniform",
-                         target_group_occ = NULL,
-                         thickening_distance_km = NULL,
-                          dnn_model_type = "DNN_Medium",
-                          dnn_device = "auto",
-                          n_seeds = 5L,
-                          dropout = NULL,
-                          lambda = NULL,
-                         ...) {
+                        include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
+                        seed = sdm_default_seed, n_cores = 1, log_fun = NULL,
+                        cv_strategy = sdm_default_cv_strategy,
+                        cv_block_size_km = sdm_default_cv_block_size_km,
+                        threshold = sdm_default_threshold,
+                        bias_method = "uniform",
+                        target_group_occ = NULL,
+                        thickening_distance_km = NULL,
+                        dnn_model_type = "DNN_Medium",
+                        dnn_device = "auto",
+                        dropout = NULL,
+                        lambda = NULL,
+                        ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
   }
 
-  d <- prepare_sdm_data(occ, env_train_scaled, background_n,
-    seed = seed, log_fun = log_fun,
-    bias_method = bias_method %||% "uniform",
-    target_group_occ = target_group_occ %||% NULL,
-    thickening_distance_km = thickening_distance_km %||% NULL
+  # Extract presence values and filter for complete cases (consistent with prepare_dnn_data)
+  coords <- occ[, c("longitude", "latitude"), drop = FALSE]
+  pres_vals <- tryCatch(terra::extract(env_train_scaled, coords), error = function(e) NULL)
+  if (is.null(pres_vals) || nrow(pres_vals) == 0) stop("No valid presence points found after raster extraction.", call. = FALSE)
+  pres_vals <- pres_vals[complete.cases(pres_vals), , drop = FALSE]
+  if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
+  occurrence_used <- occ[complete.cases(pres_vals), , drop = FALSE]
+
+  # Sample background points using shared function (supports bias methods)
+  bg_xy <- sample_background_points(env_train_scaled, background_n,
+    seed = seed, bias_method = bias_method,
+    target_group_occ = target_group_occ,
+    thickening_distance_km = thickening_distance_km,
+    pres_xy = occurrence_used[, c("longitude", "latitude"), drop = FALSE])
+  bg_vals <- extract_covariates(env_train_scaled, bg_xy)
+  bg_keep <- stats::complete.cases(bg_vals)
+  bg_vals <- bg_vals[bg_keep, , drop = FALSE]
+  bg_xy <- bg_xy[bg_keep, , drop = FALSE]
+  if (nrow(bg_vals) < 100) stop("Too few background points could be sampled.", call. = FALSE)
+
+  covariates <- make.names(names(env_train_scaled))
+  names(pres_vals) <- covariates
+  names(bg_vals) <- covariates
+
+  model_data <- rbind(
+    data.frame(presence = 1L, pres_vals, check.names = FALSE),
+    data.frame(presence = 0L, bg_vals, check.names = FALSE)
   )
   occ_used <- d$occ_used
   bg_xy <- d$bg_xy
   model_data <- d$model_data
   covariates <- d$covariates
 
-  x_train <- as.matrix(model_data[, covariates, drop = FALSE])
-  scaler <- list(
-    mean = colMeans(x_train, na.rm = TRUE),
-    sd = apply(x_train, 2, stats::sd, na.rm = TRUE)
+  log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", sum(model_data$presence == 1), " presences")
+
+  # Run DNN
+  dnn_result <- run_dnn(
+    occ_df = occ,
+    pred_stack = env_train_scaled,
+    selected_dnn_models = dnn_model_type,
+    background_n = background_n,
+    device = dnn_device,
+    dropout = dropout,
+    lambda = lambda,
+    log_fun = log_fun
   )
   scaler$sd[scaler$sd == 0 | !is.finite(scaler$sd)] <- 1
   x_train_scaled <- sweep(x_train, 2, scaler$mean, "-")

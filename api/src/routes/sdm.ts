@@ -234,8 +234,8 @@ sdmRoutes.post("/run", async (c) => {
             .returning();
         }
         speciesId = sp.id;
-      } catch {
-        // Species tracking is best-effort; continue without it
+      } catch (err) {
+        console.warn("[sdm] Species insert failed (best-effort):", err instanceof Error ? err.message : err);
       }
 
       const [maxRun] = await db
@@ -258,12 +258,98 @@ sdmRoutes.post("/run", async (c) => {
         })
         .returning();
 
-      // Enqueue via BullMQ for async processing
-      const plumberPayload = buildModelPayload(config as unknown as ModelConfigRecord, run.id);
-      const bullmqId = await enqueueSdmJob(
-        { type: "model", payload: { ...plumberPayload, runId: run.id } },
-        user.id
-      );
+      const jobId = await enqueueSdmJob(
+        {
+          type: "model",
+          payload: {
+            runId: run.id,
+          species: config.species,
+          model_id: config.modelId,
+          occurrence_file: config.cleanedFilePath || config.occurrenceFile,
+          cleaned_file_id: config.cleanedFilePath || null,
+          biovars: config.biovars.join(","),
+          projection_extent: config.projectionExtent.join(","),
+          background_n: config.backgroundN,
+          cv_folds: config.cvFolds,
+          cv_strategy: config.cvStrategy,
+          cv_block_size_km: config.cvBlockSizeKm,
+          threshold: config.threshold,
+          include_quadratic: config.includeQuadratic,
+          use_elevation: config.useElevation,
+          elevation_demtype: config.elevationDemtype,
+          opentopo_api_key: config.opentopoApiKey,
+          use_soil: config.useSoil,
+          soil_vars: config.soilVars,
+          soil_depths: config.soilDepths,
+          use_uv: config.useUv,
+          uv_vars: config.uvVars,
+          use_vegetation: config.useVegetation,
+          veg_year: config.vegYear,
+          veg_products: config.vegProducts,
+          use_lulc: config.useLulc,
+          lulc_year: config.lulcYear,
+          use_hfp: config.useHfp,
+          hfp_year: config.hfpYear,
+          use_bioclim_season: config.useBioclimSeason,
+          use_drought: config.useDrought,
+          future_projection: config.futureProjection,
+          future_worldclim_dir: config.futureWorldclimDir,
+          future_label: config.futureLabel,
+          vif_reduction: config.vifReduction,
+          vif_threshold: config.vifThreshold,
+          climate_matching: config.climateMatching,
+          climate_matching_method: config.climateMatchingMethod,
+          thin_by_cell: config.thinByCell,
+          merge_small_sources: config.mergeSmallSources,
+          min_source_records: config.minSourceRecords,
+          bias_method: config.biasMethod,
+          thickening_distance_km: config.thickeningDistanceKm,
+          pa_replicates: config.paReplicates,
+          maxnet_features: config.maxnetFeatures,
+          maxnet_regmult: config.maxnetRegmult,
+          aggregation_factor: config.aggregationFactor,
+          n_cores: config.nCores,
+          seed: config.seed,
+          worldclim_dir: config.worldclimDir,
+          worldclim_res: config.worldclimRes,
+          source: config.source,
+          analysis_crs: config.analysisCrs,
+          mask_type: config.maskType ?? "none",
+          mask_file: config.maskFile ?? undefined,
+          mask_buffer_deg: config.maskBufferDeg ?? undefined,
+          future_worldclim_dir2: config.futureWorldclimDir2,
+          future_label2: config.futureLabel2,
+          chelsa_extras: config.chelsaExtras,
+          multi_ensemble_models: config.multiEnsembleModels,
+          multi_ensemble_weighting: config.multiEnsembleWeighting,
+          multi_ensemble_power: config.multiEnsemblePower,
+          multi_ensemble_min_auc: config.multiEnsembleMinAuc,
+          multi_ensemble_min_tss: config.multiEnsembleMinTss,
+          multi_ensemble_export: config.multiEnsembleExport,
+          multi_ensemble_uncertainty: config.multiEnsembleUncertainty,
+          biomod2_models: config.biomod2Models,
+          uv_months: config.uvMonths,
+          drought_periods: config.droughtPeriods,
+          esm_min_auc: config.esmMinAuc,
+          esm_power: config.esmPower,
+          esm_weighting_metric: config.esmWeightingMetric,
+          esm_biovars: config.esmBiovars,
+          rangebag_n_bags: config.rangebagNBags,
+          rangebag_bag_fraction: config.rangebagBagFraction,
+          rangebag_vars_per_bag: config.rangebagVarsPerBag,
+          maxnet_auto_tune: config.maxnetAutoTune,
+          rf_num_trees: config.rfNumTrees,
+          rf_mtry: config.rfMtry ?? null,
+          rf_min_node_size: config.rfMinNodeSize,
+          gam_k: config.gamK,
+          xgb_max_depth: config.xgbMaxDepth,
+          xgb_eta: config.xgbEta,
+          xgb_nrounds: config.xgbNRounds,
+          dnn_model_type: config.dnnArchitecture,
+          dnn_dropout: config.dnnDropout,
+          dnn_lambda: config.dnnL2Lambda,
+        },
+      }, user.id);
 
       await db
         .update(runs)
@@ -299,7 +385,92 @@ sdmRoutes.post("/run", async (c) => {
       })
       .returning();
 
-    const result = await plumberClient.runModel(buildModelPayload(config as unknown as ModelConfigRecord, run.id));
+    const result = await plumberClient.runModel({
+      species: config.species,
+      model_id: config.modelId,
+      occurrence_file: config.cleanedFilePath || config.occurrenceFile,
+      cleaned_file_id: config.cleanedFilePath || null,
+      biovars: config.biovars.join(","),
+      projection_extent: config.projectionExtent.join(","),
+      background_n: config.backgroundN,
+      cv_folds: config.cvFolds,
+      cv_strategy: config.cvStrategy,
+      cv_block_size_km: config.cvBlockSizeKm,
+      threshold: config.threshold,
+      include_quadratic: config.includeQuadratic,
+      use_elevation: config.useElevation,
+      elevation_demtype: config.elevationDemtype,
+      opentopo_api_key: config.opentopoApiKey,
+      use_soil: config.useSoil,
+      soil_vars: config.soilVars,
+      soil_depths: config.soilDepths,
+      use_uv: config.useUv,
+      uv_vars: config.uvVars,
+      use_vegetation: config.useVegetation,
+      veg_year: config.vegYear,
+      veg_products: config.vegProducts,
+      use_lulc: config.useLulc,
+      lulc_year: config.lulcYear,
+      use_hfp: config.useHfp,
+      hfp_year: config.hfpYear,
+      use_bioclim_season: config.useBioclimSeason,
+      use_drought: config.useDrought,
+      future_projection: config.futureProjection,
+      future_worldclim_dir: config.futureWorldclimDir,
+      future_label: config.futureLabel,
+      vif_reduction: config.vifReduction,
+      vif_threshold: config.vifThreshold,
+      climate_matching: config.climateMatching,
+      climate_matching_method: config.climateMatchingMethod,
+      thin_by_cell: config.thinByCell,
+      merge_small_sources: config.mergeSmallSources,
+      min_source_records: config.minSourceRecords,
+      bias_method: config.biasMethod,
+      thickening_distance_km: config.thickeningDistanceKm,
+      pa_replicates: config.paReplicates,
+      maxnet_features: config.maxnetFeatures,
+      maxnet_regmult: config.maxnetRegmult,
+      aggregation_factor: config.aggregationFactor,
+      n_cores: config.nCores,
+      seed: config.seed,
+      worldclim_dir: config.worldclimDir,
+      worldclim_res: config.worldclimRes,
+      source: config.source,
+      analysis_crs: config.analysisCrs,
+      mask_type: config.maskType ?? "none",
+      mask_file: config.maskFile ?? undefined,
+      mask_buffer_deg: config.maskBufferDeg ?? undefined,
+      future_worldclim_dir2: config.futureWorldclimDir2,
+      future_label2: config.futureLabel2,
+      chelsa_extras: config.chelsaExtras,
+      multi_ensemble_models: config.multiEnsembleModels?.join(","),
+      multi_ensemble_weighting: config.multiEnsembleWeighting,
+      multi_ensemble_power: config.multiEnsemblePower,
+      multi_ensemble_min_auc: config.multiEnsembleMinAuc,
+      multi_ensemble_min_tss: config.multiEnsembleMinTss,
+      multi_ensemble_export: config.multiEnsembleExport,
+      biomod2_models: config.biomod2Models,
+      uv_months: config.uvMonths,
+      drought_periods: config.droughtPeriods,
+      esm_min_auc: config.esmMinAuc,
+      esm_power: config.esmPower,
+      esm_weighting_metric: config.esmWeightingMetric,
+      esm_biovars: config.esmBiovars,
+      rangebag_n_bags: config.rangebagNBags,
+      rangebag_bag_fraction: config.rangebagBagFraction,
+      rangebag_vars_per_bag: config.rangebagVarsPerBag,
+      maxnet_auto_tune: config.maxnetAutoTune,
+      rf_num_trees: config.rfNumTrees,
+      rf_mtry: config.rfMtry ?? null,
+      rf_min_node_size: config.rfMinNodeSize,
+      gam_k: config.gamK,
+      xgb_max_depth: config.xgbMaxDepth,
+      xgb_eta: config.xgbEta,
+      xgb_nrounds: config.xgbNRounds,
+      dnn_model_type: config.dnnArchitecture,
+      dnn_dropout: config.dnnDropout,
+      dnn_lambda: config.dnnL2Lambda,
+    });
 
     const plumberJobId = (result as any).job_id;
 
@@ -320,7 +491,8 @@ sdmRoutes.post("/run", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Model run failed";
     console.error(`[sdm] Model run failed: ${message}`);
-    return c.json({ error: message }, 502);
+    const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
+    return c.json({ error: message }, isBusy ? 429 : 502);
   }
 });
 
@@ -437,7 +609,24 @@ sdmRoutes.get("/runs", async (c) => {
       conditions.push(eq(runs.status, statusFilter as "queued" | "running" | "completed" | "failed" | "cancelled"));
     }
 
-    const isSummary = fields === "summary";
+    const allRuns = await db
+      .select({
+        id: runs.id,
+        species: runs.speciesName,
+        model_id: runs.modelId,
+        status: runs.status,
+        started_at: runs.startedAt,
+        completed_at: runs.completedAt,
+        last_stage: runs.lastStage,
+        metrics: runs.metrics,
+        outputFiles: runs.outputFiles,
+        error: runs.error,
+      })
+      .from(runs)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(runs.createdAt))
+      .limit(limitVal)
+      .offset(offset);
 
     // Parallelize data + count queries (same WHERE clause)
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -472,10 +661,9 @@ sdmRoutes.get("/runs", async (c) => {
       status: r.status ?? "queued",
       started_at: r.started_at,
       completed_at: r.completed_at,
-      ...(!isSummary ? {
-        metrics: r.metrics ?? null,
-        output_files: r.outputFiles ?? null,
-      } : {}),
+      last_stage: r.last_stage ?? null,
+      metrics: r.metrics ?? null,
+      output_files: r.outputFiles ?? null,
       error: r.error ?? null,
     }));
 
@@ -571,8 +759,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
             started_at: run.startedAt?.toISOString() ?? null,
             completed_at: plumberStatus && (plumberStatus as any).completed_at,
             error: plumberError ?? null,
-            error_code: errCode ?? null,
-            error_hint: (plumberStatus as any).error_hint ?? null,
+            last_stage: run.lastStage ?? null,
             metrics: plumberMetrics ?? null,
             output_files: plumberOutputFiles ?? null,
             r_cpu_time_ms: (plumberStatus as any).r_cpu_time_ms ?? null,
@@ -590,6 +777,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
           started_at: run.startedAt?.toISOString() ?? null,
           completed_at: run.completedAt?.toISOString() ?? null,
           error: null,
+          last_stage: run.lastStage ?? null,
           metrics: null,
           output_files: null,
           progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
@@ -604,6 +792,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
           started_at: run.startedAt?.toISOString() ?? null,
           completed_at: run.completedAt?.toISOString() ?? null,
           error: null,
+          last_stage: run.lastStage ?? null,
           metrics: null,
           output_files: null,
           progress_log: [],
@@ -622,8 +811,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       started_at: run.startedAt?.toISOString() ?? null,
       completed_at: run.completedAt?.toISOString() ?? null,
       error: run.error ?? null,
-      error_code: errCode ?? null,
-      error_hint: errHint ?? null,
+      last_stage: run.lastStage ?? null,
       metrics: run.metrics ?? null,
       output_files: run.outputFiles ?? null,
       progress_log: [],
@@ -873,13 +1061,82 @@ sdmRoutes.post("/batch", async (c) => {
         })
         .returning();
 
-      const queuedJobId = await enqueueSdmJob(
-        {
-          type: "model",
-          payload: buildModelPayload(parsed.data as unknown as ModelConfigRecord, run.id),
-        },
-        user.id,
-      );
+      const data = parsed.data;
+      const plumberPayload = {
+        species: data.species,
+        model_id: data.modelId,
+        occurrence_file: data.cleanedFilePath || data.occurrenceFile,
+        cleaned_file_id: data.cleanedFilePath || null,
+        biovars: data.biovars.join(","),
+        projection_extent: data.projectionExtent.join(","),
+        background_n: data.backgroundN,
+        cv_folds: data.cvFolds,
+        cv_strategy: data.cvStrategy,
+        cv_block_size_km: data.cvBlockSizeKm,
+        threshold: data.threshold,
+        include_quadratic: data.includeQuadratic,
+        use_elevation: data.useElevation,
+        elevation_demtype: data.elevationDemtype,
+        opentopo_api_key: data.opentopoApiKey,
+        use_soil: data.useSoil,
+        soil_vars: data.soilVars,
+        soil_depths: data.soilDepths,
+        use_uv: data.useUv,
+        uv_vars: data.uvVars,
+        use_vegetation: data.useVegetation,
+        veg_year: data.vegYear,
+        veg_products: data.vegProducts,
+        use_lulc: data.useLulc,
+        lulc_year: data.lulcYear,
+        use_hfp: data.useHfp,
+        hfp_year: data.hfpYear,
+        use_bioclim_season: data.useBioclimSeason,
+        use_drought: data.useDrought,
+        future_projection: data.futureProjection,
+        future_worldclim_dir: data.futureWorldclimDir,
+        future_label: data.futureLabel,
+        vif_reduction: data.vifReduction,
+        vif_threshold: data.vifThreshold,
+        climate_matching: data.climateMatching,
+        climate_matching_method: data.climateMatchingMethod,
+        thin_by_cell: data.thinByCell,
+        merge_small_sources: data.mergeSmallSources,
+        min_source_records: data.minSourceRecords,
+        bias_method: data.biasMethod,
+        thickening_distance_km: data.thickeningDistanceKm,
+        pa_replicates: data.paReplicates,
+        maxnet_features: data.maxnetFeatures,
+        maxnet_regmult: data.maxnetRegmult,
+        aggregation_factor: data.aggregationFactor,
+        n_cores: data.nCores,
+        seed: data.seed,
+        worldclim_dir: data.worldclimDir,
+        worldclim_res: data.worldclimRes,
+        source: data.source,
+        analysis_crs: data.analysisCrs,
+        uv_months: data.uvMonths,
+        drought_periods: data.droughtPeriods,
+        chelsa_extras: data.chelsaExtras,
+        esm_min_auc: data.esmMinAuc,
+        esm_power: data.esmPower,
+        esm_weighting_metric: data.esmWeightingMetric,
+        esm_biovars: data.esmBiovars,
+        rangebag_n_bags: data.rangebagNBags,
+        rangebag_bag_fraction: data.rangebagBagFraction,
+        rangebag_vars_per_bag: data.rangebagVarsPerBag,
+        maxnet_auto_tune: data.maxnetAutoTune,
+        rf_num_trees: data.rfNumTrees,
+        rf_mtry: data.rfMtry ?? null,
+        rf_min_node_size: data.rfMinNodeSize,
+        gam_k: data.gamK,
+        xgb_max_depth: data.xgbMaxDepth,
+        xgb_eta: data.xgbEta,
+        xgb_nrounds: data.xgbNRounds,
+        dnn_model_type: data.dnnArchitecture,
+        dnn_dropout: data.dnnDropout,
+        dnn_lambda: data.dnnL2Lambda,
+        output_dir: join("outputs", "jobs", run.id),
+      };
 
       if (queuedJobId) {
         await db

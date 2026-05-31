@@ -485,6 +485,7 @@ adminRoutes.get("/diagnostics/runs", async (c) => {
         runNumber: runs.runNumber,
         progressLog: runs.progressLog,
         error: runs.error,
+        lastStage: runs.lastStage,
         startedAt: runs.startedAt,
         completedAt: runs.completedAt,
         createdAt: runs.createdAt,

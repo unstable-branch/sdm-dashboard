@@ -29,6 +29,7 @@ export interface Run {
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
   config: import("./schemas").ModelConfig;
   metrics: RunMetrics | null;
+  lastStage: string | null;
   startedAt: string | null;
   completedAt: string | null;
 }
@@ -54,6 +55,7 @@ export interface JobStatus {
   progress: number;
   progressLabel: string;
   logs: string[];
+  lastStage: string | null;
   startedAt: string;
   completedAt?: string;
   error?: string;

@@ -21,10 +21,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { pipelineItems, systemItems } from "@/components/dashboard-nav";
 import { useAuthStore } from "@/stores/auth-store";
+import { useJobSSE } from "@/hooks/use-job-sse";
 
 import { AdminSidebarGroup } from "@/components/layout/admin-sidebar-group";
 
@@ -33,6 +35,13 @@ export function AppSidebar() {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.role === "admin";
+  const { jobs } = useJobSSE(true);
+  const hasActiveJobs = useMemo(
+    () => Array.from(jobs.values()).some(
+      (j) => j.state === "active" || j.state === "waiting"
+    ),
+    [jobs]
+  );
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -90,7 +99,19 @@ export function AppSidebar() {
           <SidebarGroupLabel>Pipeline</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {pipelineLinks}
+              {pipelineItems.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
+                    <Link href={item.href}>
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                      {item.href === "/model" && hasActiveJobs && (
+                        <span className="ml-auto h-2 w-2 rounded-full bg-green-500 animate-pulse" title="Job active" />
+                      )}
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

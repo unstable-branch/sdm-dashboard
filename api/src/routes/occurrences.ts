@@ -1,14 +1,13 @@
 import { Hono } from "hono";
-import { mkdirSync, existsSync, accessSync, constants, readdirSync, statSync, readFileSync, writeFileSync, rmSync } from "fs";
-import { writeFile } from "fs/promises";
-import { join, resolve, dirname, extname, basename } from "path";
+import { mkdirSync, existsSync, accessSync, constants, promises as fs } from "fs";
+import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { species, occurrences, users, uploadedFiles } from "../db/schema.js";
-import { and, count, eq, inArray, sql, desc } from "drizzle-orm";
+import { species, occurrences, users } from "../db/schema.js";
+import { and, count, eq, inArray } from "drizzle-orm";
 import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
@@ -22,10 +21,9 @@ const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, "../../..");
 const UPLOAD_DIR = join(PROJECT_ROOT, "data", "uploads");
 
-function ensureDir(dir: string) {
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  try { accessSync(dir, constants.W_OK); } catch {
-    throw new Error(`Directory not writable: ${dir}`);
+async function saveUpload(buffer: Buffer, originalName: string): Promise<string> {
+  if (!existsSync(UPLOAD_DIR)) {
+    mkdirSync(UPLOAD_DIR, { recursive: true });
   }
 }
 
@@ -59,33 +57,11 @@ function decryptToUploads(encPath: string): string | null {
     console.error(`[encrypt] Failed to decrypt ${encPath}:`, err instanceof Error ? err.message : String(err));
     return null;
   }
-}
-
-function resolveFilePath(fileId: string): { path: string; cleanup: () => void } {
-  if (fileId.endsWith(".enc")) {
-    const decPath = decryptToUploads(fileId);
-    if (decPath) {
-      return {
-        path: decPath,
-        cleanup: () => { try { rmSync(decPath, { force: true }); } catch {} },
-      };
-    }
-    // Should never happen: the .enc file was just written by saveUploadEncrypted
-    console.error(`[encrypt] Failed to decrypt ${fileId} — DATA_ENCRYPTION_KEY may be missing or mismatched`);
-  }
-  return { path: fileId, cleanup: () => {} };
-}
-
-async function pollPlumberJob(jobId: string, timeoutMs = 240000): Promise<Record<string, unknown>> {
-  const maxPolls = Math.floor(timeoutMs / 2000);
-  for (let i = 0; i < maxPolls; i++) {
-    const status = await plumberClient.getJobStatus(jobId);
-    const s = status?.status as string;
-    if (s === "completed") return (status?.result as Record<string, unknown>) || status;
-    if (s === "failed") throw new Error((status?.error as string) || "Job failed");
-    await new Promise(r => setTimeout(r, 2000));
-  }
-  throw new Error("Job timed out");
+  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const ts = new Date().toISOString().replace(/[:.]/g, "").replace("T", "_").slice(0, 15);
+  const destPath = join(UPLOAD_DIR, `${ts}_${safeName}`);
+  await fs.writeFile(destPath, buffer);
+  return destPath;
 }
 
 export const dataRoutes = new Hono<AppEnv>();
@@ -106,96 +82,41 @@ dataRoutes.post("/occurrences/upload", async (c) => {
       return c.json({ error: `File too large. Maximum ${MAX_UPLOAD_BYTES / 1024 / 1024}MB.` }, 413);
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-
-    // Basic file type validation via magic bytes
-    const isZip = buffer.length > 4 && buffer[0] === 0x50 && buffer[1] === 0x4B && buffer[2] === 0x03 && buffer[3] === 0x04;
-    const isCsv = file.name.toLowerCase().endsWith(".csv") || file.name.toLowerCase().endsWith(".tsv") || file.name.toLowerCase().endsWith(".txt");
-    const isZipExt = file.name.toLowerCase().endsWith(".zip");
-    if (!isCsv && !isZipExt) {
-      return c.json({ error: "Unsupported file type. Accepted: .csv, .tsv, .txt, .zip (Darwin Core Archive)" }, 400);
-    }
-    if (isZipExt && !isZip) {
-      return c.json({ error: "File extension is .zip but file is not a valid ZIP archive" }, 400);
-    }
-    if (isCsv && isZip) {
-      return c.json({ error: "File appears to be a ZIP archive but extension is not .zip" }, 400);
-    }
-
     const user = c.get("user");
 
-    // Quota check for non-admin users
-    const adminRoles = ["admin", "superadmin"];
-    if (!adminRoles.includes(user.role)) {
-      const [quota] = await db
-        .select({ quota: users.storageQuotaBytes, used: users.storageUsedBytes })
-        .from(users)
-        .where(eq(users.id, user.id))
-        .limit(1);
-      if (quota && quota.quota != null && (Number(quota.used) + file.size) > Number(quota.quota)) {
-        return c.json({
-          error: `Upload would exceed storage quota (${(Number(quota.quota) / 1024 / 1024).toFixed(0)} MB). Used: ${(Number(quota.used) / 1024 / 1024).toFixed(1)} MB, File: ${(file.size / 1024 / 1024).toFixed(1)} MB. Delete old uploads or contact an admin.`,
-        }, 413);
-      }
+    // Check storage quota before accepting the file
+    const [quota] = await db
+      .select({ used: users.storageUsedBytes, quota: users.storageQuotaBytes })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+
+    if (quota && quota.used !== null && quota.quota !== null && quota.used + file.size > quota.quota) {
+      return c.json({
+        error: "Storage quota exceeded",
+        used: quota.used,
+        quota: quota.quota,
+        fileSize: file.size,
+      }, 413);
     }
 
-    // Save encrypted at rest
-    const { encPath, pipelineRunId } = saveUploadEncrypted(buffer, file.name);
-    const projectId = await ensureDefaultProject(user);
-
-    // Decrypt to temp path for Plumber processing
-    const resolved = resolveFilePath(encPath);
-    console.log(`[upload] resolved.path: ${resolved.path}, endsWith .enc: ${resolved.path.endsWith(".enc")}`);
-    let result: PlumberUploadResponse | null = null;
-    try {
-      result = await plumberClient.withUser(user.id).uploadOccurrence(resolved.path, file.name);
-      console.log(`[upload] Plumber response n_rows: ${result?.n_rows}`);
-    } catch (plumberErr) {
-      resolved.cleanup();
-      const pm = plumberErr instanceof Error ? plumberErr.message : "Unknown error";
-      if (pm.includes("fetch failed") || pm.includes("ECONNREFUSED") || pm.includes("connect") || pm.includes("timeout")) {
-        return c.json({
-          error: "Upload saved to disk but Plumber backend is not responding. The occurrence file will be processed when Plumber is available.",
-          filePath: encPath,
-          pipelineRunId,
-          plumberStatus: pm,
-        }, 202);
-      }
-      throw plumberErr;
-    }
-    resolved.cleanup();
-    const { ipAddress, userAgent } = extractClientInfo(c);
-    logAction({
-      userId: user.id,
-      action: "occurrence_upload",
-      entity: "occurrence",
-      entityId: pipelineRunId,
-      ipAddress,
-      userAgent,
-      details: { filename: file.name, fileSize: file.size, n_rows: result.n_rows, pipelineRunId },
-    });
-
-    // Record in uploaded_files table for per-user tracking
-    try {
-      await db.insert(uploadedFiles).values({
-        userId: user.id,
-        projectId,
-        filePath: encPath,
-        originalName: file.name,
-        fileSize: buffer.length,
-        nRows: (result.n_rows as number) ?? null,
-      });
-    } catch (e) { console.warn("[occurrences] Failed to record uploaded file metadata:", e); }
-
-    // Update storage usage
-    if (!adminRoles.includes(user.role)) {
-      await db
-        .update(users)
-        .set({ storageUsedBytes: sql`${users.storageUsedBytes} + ${buffer.length}` })
-        .where(eq(users.id, user.id));
+    const allowedTypes = ["text/csv", "text/tab-separated-values", "application/zip", "text/plain", "application/json"];
+    if (!allowedTypes.includes(file.type) && !file.name.endsWith(".csv") && !file.name.endsWith(".tsv") && !file.name.endsWith(".txt") && !file.name.endsWith(".zip") && !file.name.endsWith(".geojson")) {
+      return c.json({ error: `Unsupported file type: ${file.type}. Accepted: CSV, TSV, TXT, ZIP, GeoJSON.` }, 400);
     }
 
-    return c.json({ ...result, file_id: encPath, file_path: encPath, pipelineRunId });
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const destPath = await saveUpload(buffer, file.name);
+
+    const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
+
+    // Track storage usage on success
+    await db
+      .update(users)
+      .set({ storageUsedBytes: (quota?.used ?? 0) + buffer.length })
+      .where(eq(users.id, user.id));
+
+    return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
     const isPlumberDown = message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("connect");
@@ -204,6 +125,18 @@ dataRoutes.post("/occurrences/upload", async (c) => {
         ? "Upload failed: Plumber backend is not running. Start it with: docker compose -f docker-compose.dev.yml --profile computation up -d"
         : message,
     }, isPlumberDown ? 503 : 502);
+  }
+});
+
+dataRoutes.get("/occurrences/uploads", async (c) => {
+  try {
+    const limit = c.req.query("limit") || "50";
+    const user = c.get("user");
+    const result = await plumberClient.withUser(user.id).getUploads(parseInt(limit, 10));
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to list uploads";
+    return c.json({ error: message }, 502);
   }
 });
 

@@ -62,15 +62,14 @@ sdm_default_n_perm <- 5L
 sdm_default_model_id <- "glm"
 sdm_default_rangebag_n_bags <- 100L
 sdm_default_rangebag_fraction <- 0.5
-sdm_default_rangebag_vars_per_bag <- 1L
+sdm_default_rangebag_vars_per_bag <- 3L
 sdm_default_maxnet_features <- "lqp"
 sdm_default_maxnet_regmult <- 1.0
 sdm_default_ensemble_weighting <- "auc"
 sdm_default_multi_ensemble_models <- c("glm", "rangebag")
 sdm_default_multi_ensemble_weighting <- "auc"
-sdm_default_export_ensemble_components <- FALSE
-sdm_default_export_ensemble_stats <- FALSE
-sdm_default_include_uncertainty <- FALSE
+sdm_default_multi_ensemble_export_components <- TRUE
+sdm_default_multi_ensemble_uncertainty <- TRUE
 sdm_default_ensemble_power <- 2
 sdm_default_ensemble_min_auc <- 0.7
 sdm_default_ensemble_min_tss <- 0.5
@@ -97,6 +96,7 @@ sdm_default_bart_nskip <- 500L
 
 sdm_default_validation_occurrences <- NULL
 sdm_default_pa_replicates <- 1L
+sdm_default_generate_tiles <- TRUE
 
 config$biomod2_default <- c("GLM", "RF", "GBM", "MAXNET")
 config$biomod2_all <- c(
@@ -148,6 +148,10 @@ sdm_default_extent_preset <- "aus_full"
 sdm_default_projection_extent <- sdm_extent_presets[[sdm_default_extent_preset]]
 if (is.null(sdm_default_projection_extent)) sdm_default_projection_extent <- sdm_extent_presets$aus_full
 
+sdm_default_mask_type <- "none"
+sdm_default_mask_file <- "data/examples/geo/world_boundary.geojson"
+sdm_default_mask_buffer_deg <- NA_real_
+
 sdm_default_dirs <- c(
   sdm_default_output_dir,
   sdm_default_covariate_cache_dir,
@@ -186,3 +190,88 @@ sdm_extent_choices <- c(
   "Custom extent" = "custom",
   "Custom boundary file" = "boundary_file"
 )
+
+# --- Analysis CRS options ---
+sdm_analysis_crs_choices <- c(
+  "Auto-detect (UTM zone)" = "auto",
+  "Equal Earth (global equal-area)" = "eqearth",
+  "Lambert Azimuthal Equal-Area" = "laea",
+  "Azimuthal Equidistant" = "aeqd",
+  "Mollweide" = "moll",
+  "World Equidistant Cylindrical" = "eqc"
+)
+sdm_default_analysis_crs <- "auto"
+
+sdm_resolve_crs <- function(analysis_crs = "auto", lon = NULL, lat = NULL) {
+  if (!requireNamespace("sf", quietly = TRUE)) {
+    return(structure(list(input = "EPSG:4326", wkt = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]"), class = "crs"))
+  }
+  if (is.null(analysis_crs) || is.na(analysis_crs) || identical(analysis_crs, "EPSG:4326")) {
+    return(sf::st_crs(4326L))
+  }
+
+  # Handle dateline-straddling longitudes
+  centroid_lon <- if (!is.null(lon) && length(lon) > 0) {
+    lon_finite <- lon[is.finite(lon)]
+    if (length(lon_finite) > 0 && diff(range(lon_finite)) > 180) {
+      lon_finite[lon_finite < 0] <- lon_finite[lon_finite < 0] + 360
+      raw <- mean(lon_finite)
+      ((raw + 180) %% 360) - 180
+    } else {
+      mean(lon_finite)
+    }
+  } else 0
+  centroid_lat <- if (!is.null(lat) && length(lat) > 0) mean(lat[is.finite(lat)]) else 0
+
+  south_suffix <- if (centroid_lat < 0) " +south" else ""
+
+  utm_zone <- function(lon) min(60, max(1, floor((lon + 180) / 6) + 1))
+
+  proj_string <- switch(analysis_crs,
+    "auto" = {
+      zone <- utm_zone(centroid_lon)
+      paste0("+proj=utm +zone=", zone, south_suffix, " +datum=WGS84 +units=m")
+    },
+    "utm" = {
+      zone <- utm_zone(centroid_lon)
+      paste0("+proj=utm +zone=", zone, south_suffix, " +datum=WGS84 +units=m")
+    },
+    "eqearth" = "+proj=eqearth +datum=WGS84 +units=m",
+    "laea" = paste0("+proj=laea +lat_0=", centroid_lat, " +lon_0=", centroid_lon, " +datum=WGS84 +units=m"),
+    "aeqd" = paste0("+proj=aeqd +lat_0=", centroid_lat, " +lon_0=", centroid_lon, " +datum=WGS84 +units=m"),
+    "moll" = paste0("+proj=moll +lon_0=", centroid_lon, " +datum=WGS84 +units=m"),
+    "eqc" = paste0("+proj=eqc +lat_ts=", centroid_lat, " +lon_0=", centroid_lon, " +datum=WGS84 +units=m"),
+    {
+      tryCatch(sf::st_crs(analysis_crs), error = function(e) sf::st_crs(4326L))
+    }
+  )
+
+  if (!is.character(proj_string)) return(proj_string)
+
+  tryCatch(sf::st_crs(proj_string), error = function(e) sf::st_crs(4326L))
+}
+
+sdm_auto_extent <- function(occ_df, buffer_deg = 2) {
+  if (is.null(occ_df) || nrow(occ_df) == 0) {
+    return(sdm_extent_presets$aus_full)
+  }
+  if (!all(c("longitude", "latitude") %in% names(occ_df))) {
+    return(sdm_extent_presets$aus_full)
+  }
+  lon <- occ_df$longitude
+  lat <- occ_df$latitude
+  lon <- lon[is.finite(lon)]
+  lat <- lat[is.finite(lat)]
+  if (length(lon) < 2 || length(lat) < 2) {
+    return(sdm_extent_presets$aus_full)
+  }
+  xmin <- max(-180, min(lon, na.rm = TRUE) - buffer_deg)
+  xmax <- min(180, max(lon, na.rm = TRUE) + buffer_deg)
+  ymin <- max(-90, min(lat, na.rm = TRUE) - buffer_deg)
+  ymax <- min(90, max(lat, na.rm = TRUE) + buffer_deg)
+  extent <- c(xmin, xmax, ymin, ymax)
+  if (exists("validate_extent", mode = "function")) {
+    validate_extent(extent, "auto_extent")
+  }
+  extent
+}

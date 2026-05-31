@@ -60,7 +60,7 @@ compute_response_curves <- function(fit, model_data, env_train = NULL, n_points 
 
     preds <- tryCatch(
       if (inherits(model, "maxnet")) {
-        maxnet::predict.maxnet(model, newdata = pred_data, clamp = TRUE, type = "response")
+        predict(model, newdata = pred_data, clamp = TRUE, type = "response")
       } else {
         predict(model, newdata = pred_data, type = "response")
       },

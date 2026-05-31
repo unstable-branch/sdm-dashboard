@@ -16,7 +16,11 @@ extent_from_inputs <- function(input, occurrence = NULL) {
     return(sdm_default_projection_extent)
   }
   if (identical(preset, "custom")) {
-    return(sanitize_extent(c(input$xmin, input$xmax, input$ymin, input$ymax)))
+    ext <- sanitize_extent(c(input$xmin, input$xmax, input$ymin, input$ymax))
+    if (any(!is.finite(ext))) {
+      return(sdm_default_projection_extent)
+    }
+    return(ext)
   }
   if (identical(preset, "boundary_file")) {
     if (!is.null(input$boundary_shp) && !is.null(input$boundary_shp$datapath) && nzchar(input$boundary_shp$datapath)) {
