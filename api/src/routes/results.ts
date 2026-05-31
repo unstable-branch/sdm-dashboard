@@ -162,9 +162,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
     return c.json({ error: "Run not found" }, 404);
   }
 
-  const jobDir = run.jobId
-    ? resolve(appDir, run.jobId)
-    : resolve(resultRoot, run.jobId || runId);
+  const jobDir = resolve(resultRoot, runId);
 
   const tilePath = resolve(jobDir, "map_tiles", "suitability", z, x, `${y}.png`);
   const rel = relative(resultRoot, tilePath);
