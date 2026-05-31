@@ -1,76 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-
-vi.mock("../db", () => ({
-  db: {
-    insert: vi.fn(),
-  },
-}));
+import { describe, it, expect } from "vitest";
+import { extractClientInfo, logAction } from "../services/audit.js";
 
 describe("Audit Service", () => {
   describe("logAction", () => {
-    beforeEach(() => {
-      vi.clearAllMocks();
-      vi.resetModules();
-    });
-
-    it("inserts audit log entry with all fields", async () => {
-      vi.mock("../db", () => ({
-        db: {
-          insert: vi.fn(() => ({
-            values: vi.fn(() => Promise.resolve()),
-          })),
-        },
-      }));
-
-      const { logAction } = await import("../services/audit");
-      const { db } = await import("../db");
-
-      await logAction({
-        userId: "user-1",
-        action: "user_login",
-        entity: "users",
-        entityId: "user-1",
-        ipAddress: "[IP_ADDRESS]",
-        userAgent: "Chrome/120",
-        details: { browser: "Chrome" },
-      });
-
-      expect(db.insert).toHaveBeenCalled();
-      const insertCall = (db.insert as any).mock.calls[0][0];
-      expect(insertCall).toBeDefined();
-    });
-
-    it("handles missing optional fields", async () => {
-      vi.mock("../db", () => ({
-        db: {
-          insert: vi.fn(() => ({
-            values: vi.fn(() => Promise.resolve()),
-          })),
-        },
-      }));
-
-      const { logAction } = await import("../services/audit");
-      const { db } = await import("../db");
-
-      await logAction({
-        userId: null,
-        action: "system_event",
-      });
-
-      expect(db.insert).toHaveBeenCalled();
-    });
-
-    it("does not throw on DB error", async () => {
-      vi.mock("../db", () => ({
-        db: {
-          insert: vi.fn(() => {
-            throw new Error("DB connection lost");
-          }),
-        },
-      }));
-
-      const { logAction } = await import("../services/audit");
-
+    it("is a no-op after audit_logs table removal", async () => {
       await expect(logAction({
         userId: "user-1",
         action: "test",
@@ -79,13 +12,7 @@ describe("Audit Service", () => {
   });
 
   describe("extractClientInfo", () => {
-    it("extracts IP from x-forwarded-for", async () => {
-      vi.mock("../db", () => ({
-        db: { insert: vi.fn(() => ({ values: vi.fn(() => Promise.resolve()) })) },
-      }));
-
-      const { extractClientInfo } = await import("../services/audit");
-
+    it("extracts IP from x-forwarded-for", () => {
       const c = {
         env: {},
         req: {
@@ -100,13 +27,7 @@ describe("Audit Service", () => {
       expect(info.userAgent).toBe("TestAgent/1.0");
     });
 
-    it("truncates user-agent to 500 chars", async () => {
-      vi.mock("../db", () => ({
-        db: { insert: vi.fn(() => ({ values: vi.fn(() => Promise.resolve()) })) },
-      }));
-
-      const { extractClientInfo } = await import("../services/audit");
-
+    it("truncates user-agent to 500 chars", () => {
       const longUA = "A".repeat(600);
       const c = {
         env: {},
@@ -119,13 +40,7 @@ describe("Audit Service", () => {
       expect(info.userAgent!.length).toBe(500);
     });
 
-    it("returns null for missing headers", async () => {
-      vi.mock("../db", () => ({
-        db: { insert: vi.fn(() => ({ values: vi.fn(() => Promise.resolve()) })) },
-      }));
-
-      const { extractClientInfo } = await import("../services/audit");
-
+    it("returns null for missing headers", () => {
       const c = { env: {}, req: { header: () => undefined } };
       const info = extractClientInfo(c as any);
       expect(info.ipAddress).toBeNull();

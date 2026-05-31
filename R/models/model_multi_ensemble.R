@@ -224,7 +224,9 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
       log_message(log_fun, "Ensemble SD raster written to: ", sd_tif)
       attr(ensemble_weighted, "ensemble_sd_tif") <- sd_tif
     }
+  }
 
+  if (export_components || export_stats) {
     disagreement <- terra::app(pred_stack, function(x) {
       if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
     })

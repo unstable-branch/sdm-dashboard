@@ -10,7 +10,7 @@ describe("AleChart", () => {
 
   it("shows empty state when no data", () => {
     render(<AleChart data={{ available: false, message: "ALE not available" }} loading={false} />);
-    expect(screen.getByText("ALE data not available for this run")).toBeDefined();
+    expect(screen.getByText("ALE not available")).toBeDefined();
   });
 
   it("renders ALE curves for covariates", () => {

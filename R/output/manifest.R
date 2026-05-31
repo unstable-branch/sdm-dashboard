@@ -56,10 +56,15 @@ write_manifest <- function(result, output_dir, base_name, cpu_ms = NA_real_, pea
           vif_threshold = cfg$vif_threshold %||% NA_real_,
           file_hashes_sha256 = {
             cov_files <- result$environment$files %||% list()
-            hashes <- lapply(unlist(cov_files), function(f) {
+            flat_files <- unlist(cov_files, use.names = FALSE)
+            if (length(flat_files) == 0) {
+              list()
+            } else {
+            hashes <- lapply(flat_files, function(f) {
               if (file.exists(f)) tryCatch(digest::digest(f, algo = "sha256", file = TRUE), error = function(e) NA_character_) else NA_character_
             })
-            stats::setNames(hashes, basename(unlist(cov_files)))
+            stats::setNames(hashes, basename(flat_files))
+            }
           }
         ),
         validation = list(
@@ -102,6 +107,7 @@ write_manifest <- function(result, output_dir, base_name, cpu_ms = NA_real_, pea
           r_peak_memory_mb = as.numeric(peak_mb)
         ),
         output_files = result$paths %||% list(),
+        model_id = result$model_info$id %||% cfg$model_id %||% NA_character_,
         extent = if (!is.null(cfg$projection_extent)) list(
           xmin = cfg$projection_extent[1],
           xmax = cfg$projection_extent[2],
