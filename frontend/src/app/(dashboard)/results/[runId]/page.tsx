@@ -205,7 +205,7 @@ export default function ResultsPage() {
 
       {run.status === "completed" && (
         <>
-          {run.metrics && <MetricCards metrics={run.metrics} />}
+          {run.metrics && <MetricCards metrics={run.metrics} modelId={run.model_id} />}
 
           <Tabs defaultValue="map" className="space-y-4">
             <TabsList className="grid w-full max-w-md grid-cols-4">

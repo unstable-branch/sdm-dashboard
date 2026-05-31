@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
-import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath } from "@sdm/shared";
+import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath, CHELSA_EXTRA_CHOICES, ANALYSIS_CRS_CHOICES } from "@sdm/shared";
 import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, AlertTriangle, Info, CloudOff, Cloud } from "lucide-react";
+import { TooltipInfo } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 
@@ -85,11 +86,18 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [futurePeriod2, setFuturePeriod2] = useState("2061-2080");
   const [vifReduction, setVifReduction] = useState(false);
   const [climateMatching, setClimateMatching] = useState(false);
+  const [climateMatchingMethod, setClimateMatchingMethod] = useState<"mahalanobis" | "standardised" | "euclidean">("mahalanobis");
   const [maxnetFeatures, setMaxnetFeatures] = useState(DEFAULT_CONFIG.maxnetFeatures);
   const [maxnetRegmult, setMaxnetRegmult] = useState(DEFAULT_CONFIG.maxnetRegmult);
   const [error, setError] = useState<string | null>(null);
 
   const [multiEnsembleModels, setMultiEnsembleModels] = useState<string[]>(["glm", "gam", "maxnet", "rf"]);
+  const [multiEnsembleWeighting, setMultiEnsembleWeighting] = useState<"auc" | "equal" | "tss">("auc");
+  const [multiEnsemblePower, setMultiEnsemblePower] = useState(2);
+  const [multiEnsembleMinAuc, setMultiEnsembleMinAuc] = useState(0.7);
+  const [multiEnsembleMinTss, setMultiEnsembleMinTss] = useState(0.5);
+  const [multiEnsembleExport, setMultiEnsembleExport] = useState(true);
+  const [multiEnsembleUncertainty, setMultiEnsembleUncertainty] = useState(true);
   const [biomod2Models, setBiomod2Models] = useState<string[]>(["GLM", "GAM", "RF"]);
   const [esmNRuns, setEsmNRuns] = useState(5);
   const [esmSplit, setEsmSplit] = useState(70);
@@ -100,6 +108,32 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [lulcYear, setLulcYear] = useState(DEFAULT_CONFIG.lulcYear);
   const [vifThreshold, setVifThreshold] = useState(DEFAULT_CONFIG.vifThreshold);
   const [targetGroupFile, setTargetGroupFile] = useState<File | null>(null);
+  const [chelsaExtras, setChelsaExtras] = useState<string[]>([]);
+  const [hfpYear, setHfpYear] = useState(DEFAULT_CONFIG.hfpYear);
+  const [vegYear, setVegYear] = useState<number | undefined>(undefined);
+  const [opentopoApiKey, setOpentopoApiKey] = useState("");
+  const [analysisCrs, setAnalysisCrs] = useState("auto");
+  const [esmMinAuc, setEsmMinAuc] = useState(0.7);
+  const [esmPower, setEsmPower] = useState(1);
+  const [esmWeightingMetric, setEsmWeightingMetric] = useState<"AUC" | "TSS">("AUC");
+  const [esmBiovars, setEsmBiovars] = useState<number[] | undefined>(undefined);
+  const [droughtPeriods, setDroughtPeriods] = useState<string[]>(["annual_mean"]);
+  const [uvMonths, setUvMonths] = useState<string[]>([]);
+  const [rangebagNBags, setRangebagNBags] = useState(100);
+  const [rangebagBagFraction, setRangebagBagFraction] = useState(0.5);
+  const [rangebagVarsPerBag, setRangebagVarsPerBag] = useState(3);
+
+  const [maxnetAutoTune, setMaxnetAutoTune] = useState(false);
+  const [rfNumTrees, setRfNumTrees] = useState(500);
+  const [rfMtry, setRfMtry] = useState<number | undefined>(undefined);
+  const [rfMinNodeSize, setRfMinNodeSize] = useState(10);
+  const [gamK, setGamK] = useState(5);
+  const [xgbMaxDepth, setXgbMaxDepth] = useState(6);
+  const [xgbEta, setXgbEta] = useState(0.3);
+  const [xgbNRounds, setXgbNRounds] = useState(100);
+  const [dnnArchitecture, setDnnArchitecture] = useState<"DNN_Small" | "DNN_Medium" | "DNN_Large">("DNN_Medium");
+  const [dnnDropout, setDnnDropout] = useState(0.3);
+  const [dnnL2Lambda, setDnnL2Lambda] = useState(0.001);
 
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
@@ -225,11 +259,15 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       soilDepths,
       useUv,
       uvVars,
+      uvMonths: useUv ? uvMonths : undefined,
       useVegetation,
+      vegYear: useVegetation ? vegYear : undefined,
       useLulc,
       useHfp,
+      hfpYear: useHfp ? hfpYear : undefined,
       useBioclimSeason,
       useDrought,
+      droughtPeriods: useDrought ? droughtPeriods : undefined,
       futureProjection,
       futureWorldclimDir: futureProjection ? buildFutureWorldclimPath(futureGcm, futureSsp, futurePeriod) : undefined,
       futureLabel,
@@ -243,6 +281,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       lulcYear: useLulc ? lulcYear : undefined,
       biasMethod: biasMethod === "target_group" ? "uniform" : biasMethod,
       climateMatching,
+      climateMatchingMethod: climateMatching ? climateMatchingMethod : undefined,
       thinByCell,
       mergeSmallSources,
       minSourceRecords,
@@ -258,9 +297,36 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       source: climateSource,
       worldclimRes: climateRes,
       multiEnsembleModels: modelId === "multi_ensemble" ? multiEnsembleModels : undefined,
+      multiEnsembleWeighting: modelId === "multi_ensemble" ? multiEnsembleWeighting : undefined,
+      multiEnsemblePower: modelId === "multi_ensemble" ? multiEnsemblePower : undefined,
+      multiEnsembleMinAuc: modelId === "multi_ensemble" ? multiEnsembleMinAuc : undefined,
+      multiEnsembleMinTss: modelId === "multi_ensemble" ? multiEnsembleMinTss : undefined,
+      multiEnsembleExport: modelId === "multi_ensemble" ? multiEnsembleExport : undefined,
+      multiEnsembleUncertainty: modelId === "multi_ensemble" ? multiEnsembleUncertainty : undefined,
       biomod2Models: modelId === "biomod2" ? biomod2Models : undefined,
       esmNRuns: isESM ? esmNRuns : undefined,
       esmSplit: isESM ? esmSplit : undefined,
+      esmMinAuc: isESM ? esmMinAuc : undefined,
+      esmPower: isESM ? esmPower : undefined,
+      esmWeightingMetric: isESM ? esmWeightingMetric : undefined,
+      esmBiovars: isESM ? esmBiovars : undefined,
+      rangebagNBags: isRangebag ? rangebagNBags : undefined,
+      rangebagBagFraction: isRangebag ? rangebagBagFraction : undefined,
+      rangebagVarsPerBag: isRangebag ? rangebagVarsPerBag : undefined,
+      analysisCrs,
+      chelsaExtras: climateSource === "chelsa" ? chelsaExtras : undefined,
+      opentopoApiKey: useElevation ? opentopoApiKey : undefined,
+      maxnetAutoTune: modelId === "maxnet" ? maxnetAutoTune : undefined,
+      rfNumTrees: modelId === "rf" ? rfNumTrees : undefined,
+      rfMtry: modelId === "rf" ? rfMtry : undefined,
+      rfMinNodeSize: modelId === "rf" ? rfMinNodeSize : undefined,
+      gamK: modelId === "gam" ? gamK : undefined,
+      xgbMaxDepth: modelId === "xgboost" ? xgbMaxDepth : undefined,
+      xgbEta: modelId === "xgboost" ? xgbEta : undefined,
+      xgbNRounds: modelId === "xgboost" ? xgbNRounds : undefined,
+      dnnArchitecture: modelId === "dnn" ? dnnArchitecture : undefined,
+      dnnDropout: modelId === "dnn" ? dnnDropout : undefined,
+      dnnL2Lambda: modelId === "dnn" ? dnnL2Lambda : undefined,
     };
 
     const parsed = modelConfigSchema.safeParse(config);
@@ -274,6 +340,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
   const selectedModel = availableModels.find((m) => m.id === modelId);
   const isESM = modelId.startsWith("esm_");
+  const isRangebag = modelId === "rangebag" || modelId === "ensemble_glm_rangebag";
   const effectiveRecordCount = cleanedOccurrence
     ? cleanedOccurrence.validRecords
     : recordCount;
@@ -323,6 +390,28 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
           </div>
         </div>
       )}
+
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
+        <h2 className="text-lg font-semibold text-sdm-heading">Data processing</h2>
+        <p className="text-sm text-sdm-muted">Controls for occurrence data filtering and source management.</p>
+        <label className="flex items-center gap-2 text-sm text-sdm-text">
+          <input type="checkbox" checked={thinByCell} onChange={(e) => setThinByCell(e.target.checked)} />
+          Thin duplicate records in same climate cell
+          <TooltipInfo content="Keeps 1 occurrence per raster cell, reducing spatial autocorrelation that inflates CV AUC." />
+        </label>
+        <label className="flex items-center gap-2 text-sm text-sdm-text">
+          <input type="checkbox" checked={mergeSmallSources} onChange={(e) => setMergeSmallSources(e.target.checked)} />
+          Merge small occurrence sources
+          <TooltipInfo content="Pools small occurrence sources into 'Other', preventing noisy sources from splitting ensemble weight." />
+        </label>
+        <div>
+          <label className="block text-sm font-medium text-sdm-text mb-1">
+            Minimum records per source
+            <TooltipInfo content="Sources below this count are merged (when merging is enabled)." />
+          </label>
+          <input type="number" value={minSourceRecords} onChange={(e) => setMinSourceRecords(Number(e.target.value))} min={1} max={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+        </div>
+      </div>
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
         <h2 className="text-lg font-semibold text-sdm-heading">Species & Model</h2>
@@ -386,7 +475,10 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-sdm-text mb-1">Model backend</label>
+          <label className="block text-sm font-medium text-sdm-text mb-1">
+            Model backend
+            <TooltipInfo content="Select the SDM algorithm. GLM is fast and interpretable. RF and XGBoost handle nonlinearity natively. MaxNet is Maxent-compatible. DNN requires 50+ records." />
+          </label>
           <select
             value={modelId}
             onChange={(e) => setModelId(e.target.value)}
@@ -432,7 +524,10 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
         {(modelId === "maxnet") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
             <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">MaxEnt features</label>
+              <label className="block text-sm font-medium text-sdm-text mb-1">
+                MaxEnt features
+                <TooltipInfo content="Feature class complexity. l (linear) = least flexible; lqpht (all) = most. Simpler = less overfitting." />
+              </label>
               <select
                 value={maxnetFeatures}
                 onChange={(e) => setMaxnetFeatures(e.target.value as typeof maxnetFeatures)}
@@ -446,7 +541,10 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Regularization multiplier</label>
+              <label className="block text-sm font-medium text-sdm-text mb-1">
+                Regularization multiplier
+                <TooltipInfo content="Higher values = stronger regularization = simpler models. Increase (1–5) when AUC is suspiciously high or transferability is poor (range 0.1–10)." />
+              </label>
               <input
                 type="number"
                 value={maxnetRegmult}
@@ -457,10 +555,16 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
                 className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text"
               />
             </div>
+            <label className="flex items-center gap-2 text-sm text-sdm-text">
+              <input type="checkbox" checked={maxnetAutoTune} onChange={(e) => setMaxnetAutoTune(e.target.checked)} />
+              Auto-tune regmult + features
+              <TooltipInfo content="Grid search over regmult (0.5, 1, 1.5, 2, 3) x feature sets (lqph, lqp, lp, l), selecting best by CV AUC. Overrides manual settings." />
+            </label>
           </div>
         )}
 
         {modelId === "multi_ensemble" && (
+          <>
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
             <p className="text-xs font-semibold text-sdm-heading uppercase tracking-wide">Ensemble models</p>
             <div className="flex flex-wrap gap-2">
@@ -471,8 +575,54 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
                 </label>
               ))}
             </div>
-            <p className="text-xs text-sdm-muted">Select 2+ models for the ensemble. Availability depends on installed R packages.</p>
+            <p className="text-xs text-sdm-muted">Select 2+ models for the ensemble.</p>
           </div>
+
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs font-semibold text-sdm-heading uppercase tracking-wide">Ensemble weighting</p>
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">Weighting method</label>
+              <select value={multiEnsembleWeighting} onChange={(e) => setMultiEnsembleWeighting(e.target.value as typeof multiEnsembleWeighting)} className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text">
+                <option value="auc">AUC-weighted (default)</option>
+                <option value="tss">TSS-weighted</option>
+                <option value="equal">Equal (unweighted average)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">Weighting power ({multiEnsemblePower})</label>
+              <input type="range" min={0.5} max={5} step={0.5} value={multiEnsemblePower} onChange={(e) => setMultiEnsemblePower(Number(e.target.value))} className="w-full" />
+              <TooltipInfo content="Higher values exaggerate weight differences between models." />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Min AUC filter
+                  <TooltipInfo content="Component models with CV AUC below this are excluded. Higher = fewer but stronger models." />
+                </label>
+                <input type="range" min={0.5} max={1} step={0.05} value={multiEnsembleMinAuc} onChange={(e) => setMultiEnsembleMinAuc(Number(e.target.value))} className="w-full" />
+                <span className="text-xs text-sdm-muted">{multiEnsembleMinAuc.toFixed(2)}</span>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Min TSS filter
+                  <TooltipInfo content="Component models with CV TSS below this are excluded. Complements the AUC filter." />
+                </label>
+                <input type="range" min={0} max={1} step={0.05} value={multiEnsembleMinTss} onChange={(e) => setMultiEnsembleMinTss(Number(e.target.value))} className="w-full" />
+                <span className="text-xs text-sdm-muted">{multiEnsembleMinTss.toFixed(2)}</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 text-sm text-sdm-text">
+                <input type="checkbox" checked={multiEnsembleExport} onChange={(e) => setMultiEnsembleExport(e.target.checked)} />
+                Export individual model rasters
+              </label>
+              <label className="flex items-center gap-2 text-sm text-sdm-text">
+                <input type="checkbox" checked={multiEnsembleUncertainty} onChange={(e) => setMultiEnsembleUncertainty(e.target.checked)} />
+                Compute uncertainty (SD) raster
+              </label>
+            </div>
+          </div>
+          </>
         )}
 
         {modelId === "biomod2" && (
@@ -502,9 +652,179 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
                 <label className="block text-xs font-medium text-sdm-muted mb-1">Data split (%)</label>
                 <input type="number" value={esmSplit} onChange={(e) => setEsmSplit(Number(e.target.value))} min={50} max={90} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
               </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Weighting metric
+                </label>
+                <select value={esmWeightingMetric} onChange={(e) => setEsmWeightingMetric(e.target.value as typeof esmWeightingMetric)} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
+                  <option value="AUC">AUC</option>
+                  <option value="TSS">TSS</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Weighting power ({esmPower})
+                  <TooltipInfo content="Weight power. Higher values exaggerate weight differences between top and weak bivariate models." />
+                </label>
+                <input type="range" min={0.5} max={5} step={0.5} value={esmPower} onChange={(e) => setEsmPower(Number(e.target.value))} className="w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Min AUC filter
+                  <TooltipInfo content="Bivariate models below this AUC are dropped. Higher = more conservative ensemble." />
+                </label>
+                <input type="range" min={0.5} max={1} step={0.05} value={esmMinAuc} onChange={(e) => setEsmMinAuc(Number(e.target.value))} className="w-full" />
+                <span className="text-xs text-sdm-muted">{esmMinAuc.toFixed(2)}</span>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  BIO variable subset
+                  <TooltipInfo content="Subset of BIO variables for ESM bivariate models. Default = same as main model." />
+                </label>
+                <select value={esmBiovars ? "custom" : "all"} onChange={(e) => setEsmBiovars(e.target.value === "all" ? undefined : biovars)} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
+                  <option value="all">Same as main model</option>
+                  <option value="custom">Use main biovars</option>
+                </select>
+              </div>
             </div>
           </div>
         )}
+
+        {(modelId === "rangebag" || modelId === "ensemble_glm_rangebag") && (
+          <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <p className="text-xs font-semibold text-sdm-heading uppercase tracking-wide">Rangebag settings</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Bags ({rangebagNBags})
+                  <TooltipInfo content="Number of bootstrap bags. More = more stable but slower. Default 100." />
+                </label>
+                <input type="range" min={10} max={500} step={10} value={rangebagNBags} onChange={(e) => setRangebagNBags(Number(e.target.value))} className="w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Bag fraction ({rangebagBagFraction.toFixed(2)})
+                  <TooltipInfo content="Fraction of presence records per bag. Lower = more diversity, less overfitting." />
+                </label>
+                <input type="range" min={0.1} max={1} step={0.05} value={rangebagBagFraction} onChange={(e) => setRangebagBagFraction(Number(e.target.value))} className="w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Vars per bag ({rangebagVarsPerBag})
+                  <TooltipInfo content="Random covariates per bag. Fewer = more regularization, less overfitting." />
+                </label>
+                <input type="range" min={1} max={20} step={1} value={rangebagVarsPerBag} onChange={(e) => setRangebagVarsPerBag(Number(e.target.value))} className="w-full" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {modelId === "rf" && (
+          <details className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-sdm-heading uppercase tracking-wide">RF tuning</summary>
+            <div className="px-3 pb-3 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Trees ({rfNumTrees})
+                  <TooltipInfo content="Number of trees. More = more stable predictions. 500 is standard; 1000+ for production." />
+                </label>
+                <input type="range" min={100} max={2000} step={100} value={rfNumTrees} onChange={(e) => setRfNumTrees(Number(e.target.value))} className="w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Mtry (blank = auto)
+                  <TooltipInfo content="Covariates sampled per split. Lower = more regularization. Auto (sqrt) is usually optimal." />
+                </label>
+                <input type="number" value={rfMtry ?? ""} onChange={(e) => setRfMtry(e.target.value ? Number(e.target.value) : undefined)} min={1} max={50} placeholder="auto" className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Min node size ({rfMinNodeSize})
+                  <TooltipInfo content="Minimum data points per leaf node. Larger = simpler trees, less overfitting. Default 10." />
+                </label>
+                <input type="range" min={1} max={100} step={5} value={rfMinNodeSize} onChange={(e) => setRfMinNodeSize(Number(e.target.value))} className="w-full" />
+              </div>
+            </div>
+          </details>
+        )}
+
+        {modelId === "gam" && (
+          <details className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-sdm-heading uppercase tracking-wide">GAM tuning</summary>
+            <div className="px-3 pb-3">
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Basis dimension k ({gamK})
+                  <TooltipInfo content="Smooth basis dimension. Higher k = more flexible = more overfitting risk. Start at 5." />
+                </label>
+                <input type="range" min={3} max={15} step={1} value={gamK} onChange={(e) => setGamK(Number(e.target.value))} className="w-full" />
+              </div>
+            </div>
+          </details>
+        )}
+
+        {modelId === "xgboost" && (
+          <details className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-sdm-heading uppercase tracking-wide">XGBoost tuning</summary>
+            <div className="px-3 pb-3 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Max depth ({xgbMaxDepth})
+                  <TooltipInfo content="Maximum tree depth. Deeper = more complex = more overfitting. Start at 6." />
+                </label>
+                <input type="range" min={3} max={12} step={1} value={xgbMaxDepth} onChange={(e) => setXgbMaxDepth(Number(e.target.value))} className="w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Learning rate ({xgbEta})
+                  <TooltipInfo content="Learning rate. Lower = more robust but needs more rounds. 0.3 is standard; reduce to 0.1-0.01 with more rounds." />
+                </label>
+                <input type="number" min={0.01} max={0.5} step={0.01} value={xgbEta} onChange={(e) => setXgbEta(Number(e.target.value))} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Boosting rounds ({xgbNRounds})
+                  <TooltipInfo content="Boosting rounds. More = better fit but risk of overfitting. Pair with early stopping." />
+                </label>
+                <input type="range" min={50} max={500} step={50} value={xgbNRounds} onChange={(e) => setXgbNRounds(Number(e.target.value))} className="w-full" />
+              </div>
+            </div>
+          </details>
+        )}
+
+        {modelId === "dnn" && (
+          <details className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-sdm-heading uppercase tracking-wide">DNN tuning</summary>
+            <div className="px-3 pb-3 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Architecture
+                  <TooltipInfo content="Hidden layer config. Small (64) for under 250 records, Medium (100-100) for most cases, Large (100-100-100) for over 1000 records." />
+                </label>
+                <select value={dnnArchitecture} onChange={(e) => setDnnArchitecture(e.target.value as typeof dnnArchitecture)} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
+                  <option value="DNN_Small">DNN Small (64 units, 1 layer)</option>
+                  <option value="DNN_Medium">DNN Medium (100-100, 2 layers)</option>
+                  <option value="DNN_Large">DNN Large (100-100-100, 3 layers)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Dropout ({dnnDropout.toFixed(2)})
+                  <TooltipInfo content="Fraction of neurons dropped per layer. Higher = more regularization. 0.3 is standard." />
+                </label>
+                <input type="range" min={0} max={0.5} step={0.05} value={dnnDropout} onChange={(e) => setDnnDropout(Number(e.target.value))} className="w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  L2 lambda
+                  <TooltipInfo content="L2 weight decay penalty. Higher = stronger regularization. 0.001 is standard." />
+                </label>
+                <input type="number" min={0.0001} max={0.1} step={0.0001} value={dnnL2Lambda} onChange={(e) => setDnnL2Lambda(Number(e.target.value))} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
+              </div>
+            </div>
+          </details>
+        )}
+
       </div>
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
@@ -564,7 +884,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
                 onChange={() => toggleBiovar(bio.id)}
                 className="sr-only"
               />
-              <span className="font-medium">{bio.label}</span>
+              <span className="font-medium" title={bio.description}>{bio.label}</span>
             </label>
           ))}
         </div>
@@ -595,6 +915,30 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <span>All selected BIO variables available locally</span>
           </div>
         ) : null}
+
+        {climateSource === "chelsa" && (
+          <div className="border-t border-sdm-border pt-4 mt-2">
+            <h3 className="text-sm font-semibold text-sdm-heading mb-2">CHELSA extra variables</h3>
+            <p className="text-xs text-sdm-muted mb-2">Additional bioclimatic variables available with CHELSA v2.1.</p>
+            <div className="flex flex-wrap gap-2">
+              {CHELSA_EXTRA_CHOICES.map((v: { id: string; label: string; description: string }) => (
+                <label
+                  key={v.id}
+                  title={v.description}
+                  className={cn(
+                    "px-2 py-1 rounded text-xs cursor-pointer border",
+                    chelsaExtras.includes(v.id)
+                      ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
+                      : "border-sdm-border text-sdm-muted"
+                  )}
+                >
+                  <input type="checkbox" className="sr-only" checked={chelsaExtras.includes(v.id)} onChange={() => setChelsaExtras((prev) => prev.includes(v.id) ? prev.filter((x) => x !== v.id) : [...prev, v.id])} />
+                  {v.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
@@ -636,7 +980,26 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
         )}
 
         <div>
-          <label className="block text-sm font-medium text-sdm-text mb-1">High-suitability threshold</label>
+          <label className="block text-sm font-medium text-sdm-text mb-1">
+            Analysis CRS
+            <TooltipInfo content="Projection for area calculations (EOO/AOO) and distance metrics. Auto-detect UTM is usually best." />
+          </label>
+          <select
+            value={analysisCrs}
+            onChange={(e) => setAnalysisCrs(e.target.value)}
+            className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
+          >
+            {ANALYSIS_CRS_CHOICES.map((crs: { id: string; label: string; description: string }) => (
+              <option key={crs.id} value={crs.id} title={crs.description}>{crs.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-sdm-text mb-1">
+            High-suitability threshold
+            <TooltipInfo content="Suitability threshold for presence/absence. Lower = higher sensitivity but may overpredict. TSS finds the optimal tradeoff." />
+          </label>
           <input
             type="range"
             min={0.05}
@@ -653,7 +1016,10 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
           <h3 className="text-sm font-semibold text-sdm-heading mb-2">Boundary masking</h3>
           <div className="space-y-2">
             <div>
-              <label className="block text-xs font-medium text-sdm-muted mb-1">Mask type</label>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">
+                Mask type
+                <TooltipInfo content="Clips suitability to landmass or ocean boundary. Uses Natural Earth 1:110m Admin 0 countries." />
+              </label>
               <select
                 value={maskType}
                 onChange={(e) => setMaskType(e.target.value as "none" | "landmass" | "ocean")}
@@ -679,12 +1045,36 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
                   onChange={(e) => setMaskBufferDeg(e.target.value ? Number(e.target.value) : undefined)}
                   className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
                 />
-                <p className="text-xs text-sdm-muted mt-1">
-                  Uses Natural Earth 1:110m Admin 0 countries as the base boundary.
-                </p>
+                <TooltipInfo content="Clips suitability to landmass or ocean boundary. Uses Natural Earth 1:110m Admin 0 countries." />
               </div>
             )}
           </div>
+        </div>
+
+        <div className="border-t border-sdm-border pt-4">
+          <h3 className="text-sm font-semibold text-sdm-heading mb-3">Climate matching</h3>
+          <p className="text-xs text-sdm-muted mb-3">
+            Computes environmental similarity (MESS) between training and projection areas. Helps detect
+            extrapolation beyond the climate range used for model training.
+          </p>
+          <label className="flex items-center gap-2 text-sm text-sdm-text mb-2">
+            <input type="checkbox" checked={climateMatching} onChange={(e) => setClimateMatching(e.target.checked)} />
+            Compute climate matching
+          </label>
+          {climateMatching && (
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">Distance method</label>
+              <select
+                value={climateMatchingMethod}
+                onChange={(e) => setClimateMatchingMethod(e.target.value as typeof climateMatchingMethod)}
+                className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
+              >
+                <option value="mahalanobis">Mahalanobis (multivariate, recommended)</option>
+                <option value="standardised">Standardised Euclidean</option>
+                <option value="euclidean">Raw Euclidean</option>
+              </select>
+            </div>
+          )}
         </div>
 
         <div>
@@ -778,11 +1168,14 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       </div>
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
-        <h2 className="text-lg font-semibold text-sdm-heading">Model settings</h2>
+        <h2 className="text-lg font-semibold text-sdm-heading">Computation &amp; Validation</h2>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">Background points</label>
+            <label className="block text-sm font-medium text-sdm-text mb-1">
+              Background points
+              <TooltipInfo content="Number of pseudo-absence / background points. More points = more stable but slower. 10,000 is standard." />
+            </label>
             <input type="number" value={backgroundN} onChange={(e) => setBackgroundN(Number(e.target.value))} min={500} max={100000} step={500} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
           </div>
           <div>
@@ -790,7 +1183,10 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <input type="number" value={nCores} onChange={(e) => setNCores(Number(e.target.value))} min={1} max={64} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">Cross-validation folds</label>
+            <label className="block text-sm font-medium text-sdm-text mb-1">
+              Cross-validation folds
+              <TooltipInfo content="More folds = more robust evaluation. 5 is standard; 3 for small data. 0 disables CV entirely." />
+            </label>
             <select value={cvFolds} onChange={(e) => setCvFolds(Number(e.target.value))} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
               <option value={0}>Off</option>
               <option value={3}>3-fold</option>
@@ -798,18 +1194,36 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">CV strategy</label>
+            <label className="block text-sm font-medium text-sdm-text mb-1">
+              CV strategy
+              <TooltipInfo content="Spatial-block CV tests on spatially separated folds, preventing AUC overestimation from clustered records. Random is faster." />
+            </label>
             <select value={cvStrategy} onChange={(e) => setCvStrategy(e.target.value as typeof cvStrategy)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
               <option value="random">Random</option>
               <option value="spatial_blocks">Spatial blocks</option>
             </select>
+            {cvStrategy === "spatial_blocks" && (
+              <div className="mt-2">
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Block size (km)
+                  <TooltipInfo content="Spatial block side length in km. Smaller = more folds. Auto-estimated from spatial autocorrelation." />
+                </label>
+                <input type="number" value={cvBlockSizeKm} onChange={(e) => setCvBlockSizeKm(Number(e.target.value))} min={1} max={500} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+              </div>
+            )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">PA replicates</label>
+            <label className="block text-sm font-medium text-sdm-text mb-1">
+              PA replicates
+              <TooltipInfo content="Each replicate draws different pseudo-absence points. Results are averaged. More = more stable but slower." />
+            </label>
             <input type="number" value={paReplicates} onChange={(e) => setPaReplicates(Number(e.target.value))} min={1} max={10} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">Raster aggregation</label>
+            <label className="block text-sm font-medium text-sdm-text mb-1">
+              Raster aggregation
+              <TooltipInfo content="Coarsens raster resolution. 2 = half resolution. Reduces memory and computation at the cost of detail." />
+            </label>
             <input type="number" value={aggregationFactor} onChange={(e) => setAggregationFactor(Number(e.target.value))} min={1} max={8} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
           </div>
         </div>
@@ -817,6 +1231,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
         <label className="flex items-center gap-2 text-sm text-sdm-text">
           <input type="checkbox" checked={includeQuadratic} onChange={(e) => setIncludeQuadratic(e.target.checked)} />
           Include quadratic climate responses
+          <TooltipInfo content="Quadratic terms (I(x²)) capture non-linear responses. Disable to reduce complexity with small datasets." />
         </label>
       </div>
 
@@ -838,6 +1253,12 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
                   <option key={d} value={d}>{d}</option>
                 ))}
               </select>
+            )}
+            {useElevation && (
+              <div className="ml-6 mt-2">
+                <label className="block text-xs font-medium text-sdm-muted mb-1">OpenTopography API key</label>
+                <input type="password" value={opentopoApiKey} onChange={(e) => setOpentopoApiKey(e.target.value)} placeholder="Optional — required for SRTMGL1 & AW3D30" className="w-full max-w-xs rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1.5 text-xs text-sdm-text" />
+              </div>
             )}
           </div>
 
@@ -869,6 +1290,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
           <label className="flex items-center gap-2 text-sm text-sdm-text">
             <input type="checkbox" checked={useUv} onChange={(e) => setUseUv(e.target.checked)} />
             Add UV-B covariates (glUV)
+            <TooltipInfo content="Select months for UV variables. Leave empty to load all months." />
           </label>
           {useUv && (
             <div className="flex flex-wrap gap-2 ml-6">
@@ -878,6 +1300,14 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
                   {v.label}
                 </label>
               ))}
+              <div className="flex flex-wrap gap-2 mt-2">
+                {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((month) => (
+                  <label key={month} className={cn("px-2 py-1 rounded text-xs cursor-pointer border", uvMonths.includes(month) ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent" : "border-sdm-border text-sdm-muted")}>
+                    <input type="checkbox" className="sr-only" checked={uvMonths.includes(month)} onChange={() => setUvMonths((prev) => prev.includes(month) ? prev.filter((x) => x !== month) : [...prev, month])} />
+                    {month.slice(0, 3)}
+                  </label>
+                ))}
+              </div>
             </div>
           )}
 
@@ -887,11 +1317,14 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
               Add vegetation productivity
             </label>
             {useVegetation && (
-              <select value={vegProduct} onChange={(e) => setVegProduct(e.target.value)} className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text">
-                {["ndvi_annual_mean", "evi_annual_mean", "fc_overall", "fpar_mean", "lai_mean", "gpp_mean", "ndvi_peak", "ndvi_min"].map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
+              <div className="flex items-center gap-2 ml-2">
+                <select value={vegProduct} onChange={(e) => setVegProduct(e.target.value)} className="rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text">
+                  {["ndvi_annual_mean", "evi_annual_mean", "fc_overall", "fpar_mean", "lai_mean", "gpp_mean", "ndvi_peak", "ndvi_min"].map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+                <input type="number" value={vegYear ?? ""} onChange={(e) => setVegYear(e.target.value ? Number(e.target.value) : undefined)} placeholder="Year" min={2000} max={2025} className="w-20 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text" />
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2 text-sm text-sdm-text flex-wrap">
@@ -911,6 +1344,16 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <input type="checkbox" checked={useHfp} onChange={(e) => setUseHfp(e.target.checked)} />
             Add Human Footprint
           </label>
+          {useHfp && (
+            <div className="ml-6">
+              <label className="block text-xs font-medium text-sdm-muted mb-1">Year</label>
+              <select value={hfpYear} onChange={(e) => setHfpYear(Number(e.target.value))} className="rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text">
+                {[2000, 2005, 2010, 2015, 2020].map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <label className="flex items-center gap-2 text-sm text-sdm-text">
             <input type="checkbox" checked={useBioclimSeason} onChange={(e) => setUseBioclimSeason(e.target.checked)} />
             Add bioclimatic seasonality
@@ -918,7 +1361,24 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
           <label className="flex items-center gap-2 text-sm text-sdm-text">
             <input type="checkbox" checked={useDrought} onChange={(e) => setUseDrought(e.target.checked)} />
             Add drought index (scPDSI)
+            <TooltipInfo content="Select annual, wet, or dry season periods. Empty = all periods loaded." />
           </label>
+          {useDrought && (
+            <div className="ml-6">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: "annual_mean", label: "Annual mean" },
+                  { id: "wet_season", label: "Wet season" },
+                  { id: "dry_season", label: "Dry season" },
+                ].map((p) => (
+                  <label key={p.id} className={cn("px-2 py-1 rounded text-xs cursor-pointer border", droughtPeriods.includes(p.id) ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent" : "border-sdm-border text-sdm-muted")}>
+                    <input type="checkbox" className="sr-only" checked={droughtPeriods.includes(p.id)} onChange={() => setDroughtPeriods((prev) => prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id])} />
+                    {p.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </details>
 
@@ -929,6 +1389,7 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={vifReduction} onChange={(e) => setVifReduction(e.target.checked)} />
               Drop collinear covariates (VIF reduction)
+              <TooltipInfo content="VIF removes collinear predictors until remaining VIF ≤ threshold. Lower = more aggressive. 10 is standard; 5 is conservative." />
             </label>
             {vifReduction && (
               <div className="flex items-center gap-2 ml-4">
@@ -946,21 +1407,11 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
               </div>
             )}
           </div>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={climateMatching} onChange={(e) => setClimateMatching(e.target.checked)} />
-            Compute climate matching
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={thinByCell} onChange={(e) => setThinByCell(e.target.checked)} />
-            Thin duplicate records in same climate cell
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={mergeSmallSources} onChange={(e) => setMergeSmallSources(e.target.checked)} />
-            Merge small occurrence sources
-          </label>
-
           <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">Background sampling bias correction</label>
+            <label className="block text-sm font-medium text-sdm-text mb-1">
+              Background sampling bias correction
+              <TooltipInfo content="Target-group or thickened bias corrects uneven sampling effort. Without it, models overfit to spatially clustered records." />
+            </label>
             <select value={biasMethod} onChange={(e) => setBiasMethod(e.target.value as typeof biasMethod)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
               <option value="uniform">Uniform random</option>
               <option value="target_group" disabled>Target-group (requires file upload)</option>
@@ -973,15 +1424,13 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
 
           {biasMethod === "thickened" && (
             <div>
-              <label className="block text-sm font-medium text-sdm-text mb-1">Kernel distance (km)</label>
+              <label className="block text-sm font-medium text-sdm-text mb-1">
+                Kernel distance (km)
+                <TooltipInfo content="Kernel bandwidth (km) for thickened background. Wider = broader bias correction." />
+              </label>
               <input type="number" value={thickeningDistanceKm} onChange={(e) => setThickeningDistanceKm(Number(e.target.value))} min={1} max={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
             </div>
           )}
-
-          <div>
-            <label className="block text-sm font-medium text-sdm-text mb-1">Merge sources with fewer than</label>
-            <input type="number" value={minSourceRecords} onChange={(e) => setMinSourceRecords(Number(e.target.value))} min={1} max={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
-          </div>
         </div>
       </details>
 
