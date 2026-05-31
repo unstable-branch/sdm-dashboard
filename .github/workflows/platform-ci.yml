@@ -204,6 +204,19 @@ jobs:
     name: Docker build + integration
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      DATABASE_URL: postgresql://sdm:dummy@postgres:5432/sdm_platform
+      JWT_SECRET: dummy-jwt-secret-at-least-32-characters
+      PLUMBER_INTERNAL_KEY: dummy-plumber-internal-key
+      POSTGRES_PASSWORD: dummy
+      GARAGE_ACCESS_KEY: dummy
+      GARAGE_SECRET_KEY: dummy
+      GARAGE_BUCKET: sdm-artifacts
+      GARAGE_BUCKET_RASTERS: sdm-rasters
+      GARAGE_BUCKET_EXPORTS: sdm-exports
+      GARAGE_RPC_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      GARAGE_ADMIN_TOKEN: dummy-garage-admin-token
+      GRAFANA_PASSWORD: dummy
 
     steps:
       - uses: actions/checkout@v4
@@ -215,17 +228,6 @@ jobs:
         run: |
           docker compose -f docker-compose.yml config
           docker compose -f docker-compose.dev.yml config
-          export DATABASE_URL=postgresql://sdm:dummy@postgres:5432/sdm_platform
-          export JWT_SECRET=dummy-jwt-secret-at-least-32-characters
-          export PLUMBER_INTERNAL_KEY=dummy-plumber-internal-key
-          export POSTGRES_PASSWORD=dummy
-          export GARAGE_ACCESS_KEY=dummy
-          export GARAGE_SECRET_KEY=dummy
-          export GARAGE_BUCKET_RASTERS=sdm-rasters
-          export GARAGE_BUCKET_EXPORTS=sdm-exports
-          export GARAGE_RPC_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-          export GARAGE_ADMIN_TOKEN=dummy-garage-admin-token
-          export GRAFANA_PASSWORD=dummy
           docker compose -f docker-compose.prod.yml config
 
       - name: Build Plumber image

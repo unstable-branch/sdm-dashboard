@@ -75,17 +75,37 @@ build_run_args <- function(row) {
 
   # Pass through all snake_case params that match sdm_config parameter names
   row_names <- names(row)
+  list_param_map <- c(
+    biovars = "selected_biovars",
+    soil_vars = "selected_soil_vars",
+    soil_depths = "selected_soil_depths",
+    uv_vars = "selected_uv_vars",
+    drought_periods = "selected_drought_periods",
+    multi_ensemble_models = "multi_ensemble_models",
+    biomod2_models = "biomod2_models",
+    veg_products = "veg_products"
+  )
+  integer_params <- c("background_n", "cv_folds", "aggregation_factor", "seed",
+    "worldclim_res", "veg_year", "lulc_year", "hfp_year")
+  scalar_param_map <- c(
+    occurrences_csv = "occurrence_file"
+  )
 
   for (p in row_names) {
     val <- row[[p]]
     if (is.null(val) || length(val) == 0 || (!is.character(val) && !is.numeric(val))) next
     if (is.character(val) && !nzchar(val)) next
 
+    if (p %in% names(scalar_param_map)) {
+      args[[scalar_param_map[[p]]]] <- val
+      next
+    }
+
     # Special handling for known comma-separated list columns
-    if (p %in% c("biovars", "soil_vars", "soil_depths", "uv_vars", "veg_products",
-                  "drought_periods", "multi_ensemble_models", "biomod2_models")) {
-      args[[p]] <- parse_comma_strings(val)
-      if (p == "biovars") args[[p]] <- parse_comma_ints(val)
+    if (p %in% names(list_param_map)) {
+      arg_name <- list_param_map[[p]]
+      args[[arg_name]] <- parse_comma_strings(val)
+      if (p == "biovars") args[[arg_name]] <- parse_comma_ints(val)
       next
     }
 
@@ -101,6 +121,11 @@ build_run_args <- function(row) {
                   "use_drought", "vif_reduction", "future_projection",
                   "merge_small_sources", "thin_by_cell", "extrapolation_mask")) {
       args[[p]] <- parse_logical(as.character(val))
+      next
+    }
+
+    if (p %in% integer_params) {
+      args[[p]] <- as.integer(val)
       next
     }
 
