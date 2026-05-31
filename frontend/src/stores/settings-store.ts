@@ -1,10 +1,11 @@
 import { create } from "zustand";
-import { apiGet, apiPut, apiDelete } from "../services/api.js";
+import { apiGet, apiPut, apiDelete } from "../services/api";
 
 export interface UserSettings {
   id: string;
   userId: string;
   defaultModelId: string;
+  pinnedModelIds: string[];
   defaultBiovars: string;
   defaultClimateSource: string;
   defaultClimateRes: number;

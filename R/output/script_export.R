@@ -1,7 +1,14 @@
 # Reproducible R Script Export.
 # Generates a standalone R script that reproduces a run end-to-end.
 
-export_run_script <- function(result, path = NULL, include_comments = TRUE) {
+export_run_script <- function(result, path = NULL, include_comments = TRUE,
+                               format = c("r", "targets")) {
+  format <- match.arg(format)
+
+  if (identical(format, "targets")) {
+    return(export_run_script_targets(result, path))
+  }
+
   if (is.null(path)) {
     path <- paste0(safe_slug(result$config$species), "_reproducible_run.R")
   }
@@ -57,7 +64,12 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
 
   lines <- c(lines, "# Run parameters")
   lines <- c(lines, paste0("species_name <- '", config$species, "'"))
-  lines <- c(lines, paste0("model_id <- '", result$model_id, "'"))
+  if (!is.null(result$model_id)) {
+    lines <- c(lines, paste0("model_id <- '", result$model_id, "'"))
+  }
+  if (!is.null(result$manifest$data$occurrence_hash_sha256)) {
+    lines <- c(lines, paste0("expected_occurrence_hash <- '", result$manifest$data$occurrence_hash_sha256, "'"))
+  }
 
   if (!is.null(config$extent)) {
     lines <- c(lines, paste0("projection_extent <- c(", paste(config$extent, collapse = ", "), ")"))
@@ -140,6 +152,16 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
   lines <- c(lines, "# LOAD OCCURRENCE DATA")
   lines <- c(lines, "# ------------------------------------------------------------------------------")
   lines <- c(lines, "")
+  if (!is.null(result$manifest$data$occurrence_hash_sha256)) {
+    lines <- c(lines, paste0("# Expected occurrence file SHA256: ", result$manifest$data$occurrence_hash_sha256))
+    lines <- c(lines, "# To verify your input file matches:")
+    lines <- c(lines, "# if (requireNamespace('digest', quietly = TRUE)) {")
+    lines <- c(lines, "#   actual_hash <- digest::digest(occ_file, algo = 'sha256', file = TRUE)")
+    lines <- c(lines, "#   if (actual_hash != expected_occurrence_hash) {")
+    lines <- c(lines, "#     warning('Occurrence file hash mismatch. Results may differ from the original run.')")
+    lines <- c(lines, "#   }")
+    lines <- c(lines, "# }")
+  }
   lines <- c(lines, "# If you have a cleaned occurrence file from the previous run:")
   lines <- c(lines, "# occ_file <- 'cleaned_occurrences.csv'  # Update path as needed")
   lines <- c(lines, "# occ <- read.csv(occ_file)")
@@ -199,4 +221,90 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE) {
 
   writeLines(lines, con = path)
   invisible(path)
+}
+
+#' Export a reproducible targets pipeline instead of a flat R script.
+#' Writes a directory containing config.csv + _targets.R.
+#' @inheritParams export_run_script
+#' @param path Directory path for the exported pipeline. Default: {species}_targets/
+#' @return Invisible path to the exported directory.
+export_run_script_targets <- function(result, path = NULL) {
+  config <- result$config %||% list()
+  species_slug <- safe_slug(config$species %||% "species")
+
+  if (is.null(path)) {
+    path <- paste0(species_slug, "_targets")
+  }
+  dir.create(path, recursive = TRUE, showWarnings = FALSE)
+
+  # Write config CSV (single row — this run's parameters)
+  csv_path <- file.path(path, "config.csv")
+  row <- data.frame(
+    species = config$species %||% "Unknown",
+    occurrences_csv = config$occurrence_file %||% "",
+    model_id = result$model_id %||% "glm",
+    biovars = paste(config$selected_biovars %||% c(1,4,6,12,15,18), collapse = ","),
+    projection_extent = paste(config$projection_extent %||% c(112,154,-44,-10), collapse = ","),
+    threshold = config$threshold %||% "max_tss",
+    cv_folds = config$cv_folds %||% 5,
+    cv_strategy = config$cv_strategy %||% "random",
+    seed = config$seed %||% 42,
+    stringsAsFactors = FALSE
+  )
+  write.csv(row, csv_path, row.names = FALSE)
+
+  # Write _targets.R
+  targets_lines <- c(
+    "# Auto-generated reproducible targets pipeline",
+    paste0("# Original run: ", config$species, " / ", result$model_id),
+    paste0("# Generated: ", Sys.time()),
+    "",
+    "library(targets)",
+    "library(tarchetypes)",
+    "library(geotargets)",
+    "",
+    "tar_option_set(",
+    '  store = "outputs/_targets",',
+    '  packages = c("terra", "sf")',
+    ")",
+    "",
+    "# Point this to your sdm-dashboard source directory",
+    'source("R/core/bootstrap.R")',
+    'sdm_set_project_root(getwd())',
+    'source("R/engine_load.R")',
+    "",
+    "list(",
+    '  tar_target(config_path, "config.csv", format = "file"),',
+    "  tar_target(config_rows, {",
+    "    df <- read.csv(config_path, stringsAsFactors = FALSE, check.names = FALSE)",
+    "    split(df, seq_len(nrow(df)))",
+    "  }),",
+    "  tar_target(cfg, build_config_from_row(config_rows),",
+    "    pattern = map(config_rows)),",
+    "  tar_target(occ_clean, sdm_stage_clean(cfg), pattern = map(cfg)),",
+    "  tar_target(env, sdm_stage_covariates(cfg, occ_clean$occ),",
+    "    pattern = map(cfg)),",
+    "  tar_target(fit, sdm_stage_fit(cfg, occ_clean$occ, env),",
+    "    pattern = map(cfg)),",
+    "  tar_target(suit_tif, {",
+    '    tif <- file.path("outputs", paste0(cfg$species, "_suit.tif"))',
+    "    dir.create(dirname(tif), recursive = TRUE, showWarnings = FALSE)",
+    "    sdm_stage_predict(cfg, fit$fit, env, tif)",
+    "    tif",
+    "  }, pattern = map(fit), format = \"file\"),",
+    "  tar_target(post, sdm_stage_postprocess(",
+    "    cfg, fit$fit, terra::rast(suit_tif), env),",
+    "    pattern = map(suit_tif))",
+    ")",
+    "",
+    "# Run: tar_make()",
+    "# Inspect: tar_visnetwork()"
+  )
+  writeLines(targets_lines, file.path(path, "_targets.R"))
+
+  message("[export] targets pipeline written to: ", normalizePath(path))
+  message("[export]   tar_make()  — run the pipeline")
+  message("[export]   tar_visnetwork() — view dependency graph")
+
+  invisible(normalizePath(path))
 }

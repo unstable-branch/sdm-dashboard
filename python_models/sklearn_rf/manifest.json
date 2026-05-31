@@ -1,0 +1,15 @@
+{
+  "id": "sklearn_rf",
+  "label": "sklearn Random Forest (Python)",
+  "method": "Random Forest classifier via Python scikit-learn",
+  "min_records": 15,
+  "supports_importance": true,
+  "supports_uncertainty": false,
+  "params": {
+    "n_estimators": {"type": "integer", "default": 500, "description": "Number of trees"},
+    "max_depth": {"type": "integer", "default": null, "description": "Max depth (null = auto)"}
+  },
+  "requirements": ["scikit-learn>=1.2"],
+  "fit_script": "fit.py",
+  "predict_script": "predict.py"
+}

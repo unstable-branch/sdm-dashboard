@@ -4,6 +4,31 @@ import { Redis } from "ioredis";
 let redis: Redis | null = null;
 let redisAvailable = false;
 
+// In-memory fallback rate limiter for when Redis is unavailable
+const memoryStore = new Map<string, { timestamps: number[] }>();
+const MEMORY_CLEANUP_INTERVAL = 60_000;
+let lastMemoryCleanup = Date.now();
+
+function checkMemoryRateLimit(key: string, windowMs: number, max: number): boolean {
+  const now = Date.now();
+  if (now - lastMemoryCleanup > MEMORY_CLEANUP_INTERVAL) {
+    for (const [k, v] of memoryStore) {
+      v.timestamps = v.timestamps.filter(t => now - t < windowMs);
+      if (v.timestamps.length === 0) memoryStore.delete(k);
+    }
+    lastMemoryCleanup = now;
+  }
+  let entry = memoryStore.get(key);
+  if (!entry) {
+    entry = { timestamps: [] };
+    memoryStore.set(key, entry);
+  }
+  entry.timestamps = entry.timestamps.filter(t => now - t < windowMs);
+  if (entry.timestamps.length >= max) return false;
+  entry.timestamps.push(now);
+  return true;
+}
+
 function getRedis(): Redis | null {
   if (redis === null) {
     redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
@@ -51,19 +76,23 @@ export interface RateLimitOptions {
 export function rateLimit(options: RateLimitOptions) {
   return createMiddleware(async (c, next) => {
     const key = `${options.keyPrefix || "rl"}:${c.req.url}`;
-    const now = Date.now();
-    const windowStart = now - options.windowMs;
+    const r = getRedis();
 
-    await redisZremrangebyscore(key, 0, windowStart);
-
-    const count = await redisZcard(key);
-
-    if (count >= options.max) {
-      return c.json({ error: "Rate limit exceeded" }, 429);
+    if (r) {
+      const now = Date.now();
+      const windowStart = now - options.windowMs;
+      await redisZremrangebyscore(key, 0, windowStart);
+      const count = await redisZcard(key);
+      if (count >= options.max) {
+        return c.json({ error: "Rate limit exceeded" }, 429);
+      }
+      await redisZadd(key, now, `${now}-${Math.random()}`);
+      await redisExpire(key, Math.ceil(options.windowMs / 1000));
+    } else {
+      if (!checkMemoryRateLimit(key, options.windowMs, options.max)) {
+        return c.json({ error: "Rate limit exceeded" }, 429);
+      }
     }
-
-    await redisZadd(key, now, `${now}-${Math.random()}`);
-    await redisExpire(key, Math.ceil(options.windowMs / 1000));
 
     await next();
   });
@@ -81,7 +110,7 @@ export const authRateLimit = rateLimit({ windowMs: 60_000, max: 20, keyPrefix: "
  */
 export async function checkRateLimit(key: string, windowMs: number, max: number): Promise<boolean> {
   const r = getRedis();
-  if (!r) return true; // Allow if Redis unavailable (fail-open)
+  if (!r) return checkMemoryRateLimit(key, windowMs, max);
 
   const now = Date.now();
   const windowStart = now - windowMs;
@@ -94,7 +123,7 @@ export async function checkRateLimit(key: string, windowMs: number, max: number)
     await r.expire(key, Math.ceil(windowMs / 1000));
     return true;
   } catch {
-    return true; // Fail-open on Redis errors
+    return checkMemoryRateLimit(key, windowMs, max);
   }
 }
 

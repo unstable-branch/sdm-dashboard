@@ -5,7 +5,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
                                   var = "bioc", res = 10, out_dir = "Worldclim_future",
                                   quiet = FALSE, log_fun = NULL, ...) {
   if (!requireNamespace("geodata", quietly = TRUE)) {
-    stop("geodata package required for CMIP6 download. Install with: install.packages('geodata')")
+    stop("geodata package required for CMIP6 download. Install with: install.packages('geodata')", call. = FALSE)
   }
 
   # Configurable geodata cache URL (Fix 11)
@@ -88,7 +88,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
       }
       if (length(missing_critical) > 0) {
         stop("CMIP6 download incomplete — missing critical layer(s): ", paste(missing_critical, collapse = ", "),
-             ". GCM: ", gcm, " SSP: ", ssp, " Period: ", period)
+             ". GCM: ", gcm, " SSP: ", ssp, " Period: ", period, call. = FALSE)
       }
 
       list(dir = cache_subdir, cached = FALSE, raster = out)
@@ -100,7 +100,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
       }
       message("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
       message("Troubleshooting: Check internet connection, try a different GCM/SSP/period")
-      stop("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
+      stop("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e), call. = FALSE)
     }
   )
 }
@@ -115,7 +115,7 @@ cmip6_load_future_covariates <- function(cmip6_dir, selected_biovars, training_e
     stop(
       "Missing CMIP6 layers for BIO", paste(missing, collapse = ", "),
       ". Ensure all selected variables are available in ", cmip6_dir
-    )
+    , call. = FALSE)
   }
 
   log_message(log_fun, "Loading ", length(files), " CMIP6 future climate layers from ", cmip6_dir)
@@ -123,7 +123,11 @@ cmip6_load_future_covariates <- function(cmip6_dir, selected_biovars, training_e
   layers <- list()
   for (bio_var in names(files)) {
     if (!is.na(files[bio_var]) && file.exists(files[bio_var])) {
-      r <- terra::rast(files[bio_var])
+      r <- tryCatch(terra::rast(files[bio_var]), error = function(e) {
+        log_message(log_fun, "Failed to load future layer ", bio_var, ": ", conditionMessage(e))
+        NULL
+      })
+      if (is.null(r)) next
       r <- terra::crop(r, projection_extent)
       if (aggregation_factor > 1) {
         r <- terra::aggregate(r, fact = aggregation_factor)
@@ -132,6 +136,9 @@ cmip6_load_future_covariates <- function(cmip6_dir, selected_biovars, training_e
     }
   }
 
+  if (length(layers) == 0) {
+    stop("No future climate layers could be loaded from ", cmip6_dir, call. = FALSE)
+  }
   env_future <- terra::rast(layers)
   names(env_future) <- names(layers)
 
@@ -201,7 +208,7 @@ cmip6_period_choices <- c(
 average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
                                out_dir = "Worldclim_future", quiet = FALSE, ...) {
   if (length(gcm_list) < 2) {
-    stop("average_cmip6_gcms requires at least 2 GCMs")
+    stop("average_cmip6_gcms requires at least 2 GCMs", call. = FALSE)
   }
 
   ssp_map <- c("SSP1-2.6" = "126", "SSP2-4.5" = "245", "SSP3-7.0" = "370", "SSP5-8.5" = "585")
@@ -224,33 +231,37 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
   first_dir <- cached_dirs[[1]]
 
   for (bio in all_bio_vars) {
-    bio_pattern <- paste0("_(", bio, ")[^0-9]|[_]", bio, "\\.tif$")
-    bio_files <- character()
+    tryCatch({
+      bio_pattern <- paste0("_(", bio, ")[^0-9]|[_]", bio, "\\.tif$")
+      bio_files <- character()
 
-    for (gcm in gcm_list) {
-      gcm_dir <- cached_dirs[[gcm]]
-      gcm_files <- list.files(gcm_dir, pattern = "\\.tif$", full.names = TRUE)
-      matched <- gcm_files[grepl(bio_pattern, gcm_files, ignore.case = TRUE)]
-      if (length(matched) > 0) bio_files <- c(bio_files, matched[1])
-    }
+      for (gcm in gcm_list) {
+        gcm_dir <- cached_dirs[[gcm]]
+        gcm_files <- list.files(gcm_dir, pattern = "\\.tif$", full.names = TRUE)
+        matched <- gcm_files[grepl(bio_pattern, gcm_files, ignore.case = TRUE)]
+        if (length(matched) > 0) bio_files <- c(bio_files, matched[1])
+      }
 
-    if (length(bio_files) == length(gcm_list)) {
-      stacked <- terra::rast(bio_files)
+      if (length(bio_files) == length(gcm_list)) {
+        stacked <- terra::rast(bio_files)
 
-      avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
-      out_mean <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, ".tif"))
-      terra::writeRaster(avg, out_mean,
-        overwrite = TRUE,
-        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
-      )
+        avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
+        out_mean <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, ".tif"))
+        terra::writeRaster(avg, out_mean,
+          overwrite = TRUE,
+          wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
+        )
 
-      sd_layer <- terra::app(stacked, fun = "sd", na.rm = TRUE)
-      out_sd <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, "_sd.tif"))
-      terra::writeRaster(sd_layer, out_sd,
-        overwrite = TRUE,
-        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
-      )
-    }
+        sd_layer <- terra::app(stacked, fun = "sd", na.rm = TRUE)
+        out_sd <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, "_sd.tif"))
+        terra::writeRaster(sd_layer, out_sd,
+          overwrite = TRUE,
+          wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
+        )
+      }
+    }, error = function(e) {
+      log_message(log_fun, "Failed to process bio", bio, " for GCM averaging: ", conditionMessage(e))
+    })
   }
 
   baseline_dir <- sdm_default_worldclim_dir
@@ -273,7 +284,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
       out_delta <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, "_delta.tif"))
       terra::writeRaster(delta, out_delta,
         overwrite = TRUE,
-        wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
       )
     }
   }
@@ -390,7 +401,7 @@ average_gcm_layers <- function(gcm_names, future_worldclim_dir, bio_variables,
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     terra::writeRaster(averaged_stack, out_tif,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
     )
     log_message(log_fun, "Averaged raster written to: ", out_tif)
   }

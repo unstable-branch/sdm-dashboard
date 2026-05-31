@@ -1,3 +1,50 @@
+// ── Frontend Type Definitions ─────────────────────────────────────────────
+// SOURCE OF TRUTH: @sdm/shared (camelCase types in packages/shared/src/types.ts)
+//
+// Re-exports from @sdm/shared for types without naming conflicts.
+// Frontend retains snake_case versions matching Plumber API responses.
+
+import type {
+  CurvePoint,
+  CurveData,
+  CbiBin,
+  CvFoldEntry,
+} from "@sdm/shared";
+
+export type {
+  ThresholdData,
+  DensityData,
+  PlumberStatusResponse,
+  PlumberRunResponse,
+  PlumberUploadResponse,
+  PlumberCleanResponse,
+  PlumberModelInfo,
+  PlumberConfigDefaults,
+  PlumberClimateScenario,
+  PlumberManifestResponse,
+  PlumberErrorResponse,
+  PlumberHealthResponse,
+  PlumberDiagnosticsVif,
+  PlumberDiagnosticsImportance,
+  PlumberDiagnosticsResponseCurves,
+  PlumberDiagnosticsAle,
+  PlumberDiagnosticsShapCell,
+  PlumberDiagnosticsClimateDrivers,
+  BiovarChoice,
+  ModelBackend,
+  Species,
+  RunMetrics,
+  JobStatus,
+  OccurrenceRecord,
+  PaginationInfo,
+  ClimateScenario,
+  Project,
+  User,
+  ApiKey,
+} from "@sdm/shared";
+
+// ── API response types — snake_case to match Plumber API ──────────────────
+
 export interface RunSummary {
   id: string;
   species: string;
@@ -12,31 +59,16 @@ export interface RunSummary {
 export interface RunDetail extends RunSummary {
   progress_log: string[];
   error: string | null;
+  error_code?: string | null;
+  error_hint?: string | null;
   config?: Record<string, unknown>;
+  provenance?: Record<string, unknown> | null;
 }
 
-export interface SpeciesSummary {
-  id: string;
-  name: string;
-  occurrence_count: number | null;
-  created_at: string;
-}
+// Types with matching field names — direct re-exports from @sdm/shared
+export type { CurvePoint, CurveData, CvFoldEntry };
 
-export interface OccurrenceRecord {
-  id: string;
-  longitude: number;
-  latitude: number;
-  source?: string;
-  date?: string;
-  [key: string]: unknown;
-}
-
-export interface PaginationInfo {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-}
+// ── Diagnostics types — snake_case from Plumber ───────────────────────────
 
 export interface VifData {
   available: boolean;
@@ -66,29 +98,7 @@ export interface ImportanceData {
   error?: string;
 }
 
-export interface CurvePoint {
-  value: number;
-  suitability: number;
-}
-
-export interface CurveData {
-  covariate: string;
-  points: CurvePoint[];
-}
-
-export interface ResponseCurvesData {
-  available: boolean;
-  message?: string;
-  n_curves?: number;
-  curves?: CurveData[];
-  error?: string;
-}
-
-export interface BinEntry {
-  bin_mid: number;
-  ratio: number;
-  smoothed: number;
-}
+export type BinEntry = CbiBin;
 
 export interface CbiData {
   available: boolean;
@@ -148,38 +158,69 @@ export interface NicheOverlapResult {
   n_introduced: number;
 }
 
-export interface ClimateScenario {
-  id: string;
-  type: string;
-  gcm?: string;
-  ssp?: string;
-  period?: string;
-  source?: string;
-  path?: string;
-  file_count: number;
-  size_bytes: number;
-  is_averaged?: boolean;
+export interface ResponseCurvesData {
+  available: boolean;
+  message?: string;
+  n_curves?: number;
+  curves?: CurveData[];
+  error?: string;
 }
 
-export interface Project {
+export interface RocData {
+  available: boolean;
+  message?: string;
+  auc?: number;
+  auc_sd?: number;
+  fpr?: number[];
+  tpr?: number[];
+  error?: string;
+}
+
+export interface CalibrationBin {
+  bin_mid: number;
+  observed_freq: number;
+  count: number;
+}
+
+export interface CalibrationData {
+  available: boolean;
+  message?: string;
+  bins?: CalibrationBin[];
+  error?: string;
+}
+
+export interface CvFoldsData {
+  available: boolean;
+  message?: string;
+  auc_mean?: number;
+  auc_sd?: number;
+  tss_mean?: number;
+  tss_sd?: number;
+  folds?: CvFoldEntry[];
+  error?: string;
+}
+
+export interface EooAooData {
+  eoo_km2: number | null;
+  aoo_cells: number | null;
+  aoo_km2: number | null;
+  eoo_method: string | null;
+  iucn_eoo_status: string | null;
+}
+
+export interface SpeciesSummary {
   id: string;
   name: string;
-  description: string | null;
-  role: string;
-  createdAt: string;
+  occurrence_count: number | null;
+  created_at: string;
 }
 
-export interface User {
-  id: string;
-  email: string;
-  name: string | null;
-  role: string;
-}
+// ── Frontend-only types (not from Plumber API) ────────────────────────────
 
-export interface ApiKey {
+export interface BatchJob {
   id: string;
-  name: string;
-  createdAt: string;
-  lastUsedAt: string | null;
-  expiresAt: string | null;
+  species: string;
+  model_id: string;
+  status: string;
+  metrics?: Record<string, unknown> | null;
 }

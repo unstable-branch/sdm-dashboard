@@ -77,6 +77,8 @@ describe("ConservationSummary", () => {
   it("shows error state when fetch fails", async () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: false,
+      status: 404,
+      json: () => Promise.resolve({ error: "Run not found" }),
     } as Response);
 
     render(<ConservationSummary runId="run-1" />);

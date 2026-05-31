@@ -15,14 +15,6 @@ interface PreviewTableProps {
 
 const CORE_KEYS = new Set(["longitude", "latitude", "source"]);
 
-const STICKY_LEFT: Record<string, number> = { longitude: 0, latitude: 110 };
-
-function cellStyle(colId: string): React.CSSProperties {
-  const left = STICKY_LEFT[colId];
-  if (left === undefined) return {};
-  return { position: "sticky", left, zIndex: 5 };
-}
-
 function formatNum(v: unknown) {
   const n = Number(v);
   return isNaN(n) ? null : n.toFixed(4);
@@ -142,7 +134,7 @@ export function PreviewTable({ data, title }: PreviewTableProps) {
                   <th
                     key={header.id}
                     className="px-3 py-2 text-left font-semibold text-sdm-muted whitespace-nowrap text-xs uppercase tracking-wider bg-sdm-surface-soft border-b border-sdm-border"
-                    style={{ width: header.getSize(), ...cellStyle(header.id) }}
+                    style={{ width: header.getSize() }}
                   >
                     {flexRender(header.column.columnDef.header, header.getContext())}
                   </th>
@@ -157,7 +149,7 @@ export function PreviewTable({ data, title }: PreviewTableProps) {
                   <td
                     key={cell.id}
                     className="px-3 py-2 text-sdm-text border-b border-sdm-border/50 bg-sdm-surface"
-                    style={{ width: cell.column.getSize(), ...cellStyle(cell.column.id) }}
+                    style={{ width: cell.column.getSize() }}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>

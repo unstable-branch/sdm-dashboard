@@ -2,7 +2,7 @@ FROM node:22-alpine AS builder
 
 RUN apk add --no-cache dumb-init curl bash
 
-RUN npm install -g pnpm
+RUN npm install -g pnpm@10.30.3
 
 WORKDIR /app
 
@@ -24,13 +24,14 @@ COPY packages/shared/package.json packages/shared/
 COPY api/package.json api/
 COPY frontend/package.json frontend/
 
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 
 COPY packages/shared/ packages/shared/
 COPY api/ api/
 COPY frontend/ frontend/
 
-RUN pnpm --filter @sdm/shared build
+# If pre-built shared dist exists (from CI artifact), skip rebuild
+RUN if [ ! -f packages/shared/dist/index.js ]; then pnpm --filter @sdm/shared build; fi
 RUN pnpm --filter @sdm/api build
 
 FROM node:22-alpine AS runner

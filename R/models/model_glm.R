@@ -172,14 +172,19 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
                          threshold = sdm_default_threshold,
                          bias_method = c("uniform", "target_group", "thickened"),
                          target_group_occ = NULL,
-                         thickening_distance_km = NULL) {
+                         thickening_distance_km = NULL,
+                         model_data = NULL) {
   bias_method <- match.arg(bias_method)
-  d <- prepare_sdm_data(occ, env_train_scaled, background_n,
-    seed = seed, log_fun = log_fun,
-    bias_method = bias_method,
-    target_group_occ = target_group_occ,
-    thickening_distance_km = thickening_distance_km
-  )
+  if (is.null(model_data)) {
+    d <- prepare_sdm_data(occ, env_train_scaled, background_n,
+      seed = seed, log_fun = log_fun,
+      bias_method = bias_method,
+      target_group_occ = target_group_occ,
+      thickening_distance_km = thickening_distance_km
+    )
+  } else {
+    d <- model_data
+  }
   pres_vals <- d$pres_vals
   pres_xy_used <- d$pres_xy_used
   occ_used <- d$occ_used
@@ -250,6 +255,7 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
     cbi_detail = cbi_result, covariates = covariates,
     bias_method = bias_method,
     thickening_distance_km = if (identical(bias_method, "thickened")) thickening_distance_km else NULL,
-    presence_suit = train_pred[model_fit_data$presence == 1]
+    presence_suit = train_pred[model_fit_data$presence == 1],
+    background_suit = train_pred[model_fit_data$presence == 0]
   )
 }

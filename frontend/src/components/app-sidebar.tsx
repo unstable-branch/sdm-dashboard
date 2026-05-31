@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+import { cn } from "@/lib/utils";
 import {
   Sidebar,
   SidebarContent,
@@ -21,25 +23,65 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
-import { pipelineItems, systemItems, adminItems } from "@/components/dashboard-nav";
+import { pipelineItems, systemItems } from "@/components/dashboard-nav";
 import { useAuthStore } from "@/stores/auth-store";
+
+import { AdminSidebarGroup } from "@/components/layout/admin-sidebar-group";
 
 export function AppSidebar() {
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
-  const { user } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
   const isAdmin = user?.role === "admin";
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
-    return pathname.startsWith(href);
+    return pathname === href || pathname.startsWith(href + "/");
   };
+
+  const navLinkClass = "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-sdm-text hover:bg-sdm-surface-soft hover:text-sdm-accent transition-colors";
+
+  const pipelineLinks = useMemo(
+    () =>
+      pipelineItems.map((item) => {
+        const active = isActive(item.href);
+        return (
+          <SidebarMenuItem key={item.href}>
+            <SidebarMenuButton asChild className={active ? "bg-sdm-accent/10" : ""}>
+              <Link href={item.href} className={cn(navLinkClass, active && "text-sdm-accent")} aria-current={active ? "page" : undefined}>
+                <item.icon className="h-4 w-4 shrink-0" />
+                <span>{item.title}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      }),
+    [pathname]
+  );
+
+  const systemLinks = useMemo(
+    () =>
+      systemItems.map((item) => {
+        const active = isActive(item.href);
+        return (
+          <SidebarMenuItem key={item.href}>
+            <SidebarMenuButton asChild className={active ? "bg-sdm-accent/10" : ""}>
+              <Link href={item.href} className={cn(navLinkClass, active && "text-sdm-accent")} aria-current={active ? "page" : undefined}>
+                <item.icon className="h-4 w-4 shrink-0" />
+                <span>{item.title}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      }),
+    [pathname]
+  );
 
   return (
     <Sidebar>
       <SidebarHeader>
         <div className="flex items-center gap-2 px-4 py-3">
-          <Leaf className="h-6 w-6 text-sdm-accent" />
+          <Leaf className="h-6 w-6 text-sdm-accent" aria-hidden="true" />
           <span className="text-lg font-bold text-sdm-heading">SDM Platform</span>
         </div>
       </SidebarHeader>
@@ -48,16 +90,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Pipeline</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {pipelineItems.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
-                    <Link href={item.href}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {pipelineLinks}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -65,38 +98,11 @@ export function AppSidebar() {
           <SidebarGroupLabel>System</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {systemItems.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
-                    <Link href={item.href}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {systemLinks}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        {isAdmin && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Admin</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {adminItems.map((item) => (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
-                      <Link href={item.href}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+        {isAdmin && <AdminSidebarGroup />}
       </SidebarContent>
       <SidebarFooter>
         <Button

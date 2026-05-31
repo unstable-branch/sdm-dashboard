@@ -1,6 +1,11 @@
-# Area of Applicability (AOA) via CAST package.
+# Area of Applicability (AOA) via weighted dissimilarity.
 # Model-weighted extrapolation detection that accounts for variable importance.
 # Reference: Meyer & Pebesma 2022, Methods in Ecology and Evolution 13:793-803
+# Note: When CAST/caret are unavailable, falls back to a centroid-based weighted
+# Mahalanobis dissimilarity. This approximates the DI approach from Meyer & Pebesma
+# 2022 but uses a different distance metric (centroid Mahalanobis vs. nearest-neighbour
+# DI) and threshold (max training distance vs. CV-derived). Results should be comparable
+# but are not identical to CAST::aoa().
 
 #' Compute Area of Applicability (AOA) for an SDM model.
 #'
@@ -47,9 +52,14 @@ compute_aoa_cast <- function(model_data, env_proj, covariates, variable_importan
 
 #' Weighted dissimilarity AOA — works with any SDM backend.
 #'
-#' Computes Mahalanobis-type distance to the training data centroid,
+#' Computes Mahalanobis distance to the training data centroid,
 #' weighted by variable importance. Cells with distance above the
 #' maximum training distance are flagged as outside the AOA.
+#'
+#' Note: This differs from CAST::aoa (Meyer & Pebesma 2022) in two ways:
+#' 1) Uses centroid Mahalanobis distance rather than nearest-neighbour DI
+#' 2) Threshold is max training distance (not CV-derived)
+#' For Meyer & Pebesma-compliant AOA, install the CAST and caret packages.
 compute_aoa_weighted <- function(model_data, env_proj, covariates, variable_importance, log_fun) {
   log_message(log_fun, "Computing AOA (weighted dissimilarity method)")
 
@@ -128,7 +138,7 @@ compute_aoa_weighted <- function(model_data, env_proj, covariates, variable_impo
     dist
   }
 
-  dist_rast <- terra::app(env_subset, compute_aoa_block, nodes = TRUE)
+  dist_rast <- terra::app(env_subset, compute_aoa_block, cores = 1)
   names(dist_rast) <- "aoa_distance"
 
   # AOA mask: 1 = applicable, 0 = outside

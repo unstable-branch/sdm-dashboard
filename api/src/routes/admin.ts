@@ -1,12 +1,20 @@
 import { Hono } from "hono";
+import { readdirSync, statSync } from "fs";
+import { join, resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 import { db } from "../db/index.js";
-import { users, runs, auditLogs, systemSettings, maintenanceLog, occurrences, species, projects } from "../db/schema.js";
-import { eq, desc, sql, and, gte, lte, like, inArray, count } from "drizzle-orm";
+import { users, runs, systemSettings, occurrences, species, projects } from "../db/schema.js";
+import { eq, desc, sql, and, like, inArray, count } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { hash } from "bcrypt";
 import type { AppEnv } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const PROJECT_ROOT = resolve(__dirname, "../../..");
+const UPLOAD_DIR = join(PROJECT_ROOT, "data", "uploads");
 
 export const adminRoutes = new Hono<AppEnv>();
 
@@ -28,11 +36,23 @@ adminRoutes.get("/overview", async (c) => {
       inArray(runs.status, ["queued", "running"])
     );
 
-    const recentActivity = await db
-      .select()
-      .from(auditLogs)
-      .orderBy(desc(auditLogs.createdAt))
-      .limit(20);
+    // Recent runs for run activity view
+    const recentRuns = await db
+      .select({
+        id: runs.id,
+        speciesName: runs.speciesName,
+        modelId: runs.modelId,
+        status: runs.status,
+        startedAt: runs.startedAt,
+        completedAt: runs.completedAt,
+        error: runs.error,
+        peakMemoryMb: runs.peakMemoryMb,
+        rCpuTimeMs: runs.rCpuTimeMs,
+        rPeakMemoryMb: runs.rPeakMemoryMb,
+      })
+      .from(runs)
+      .orderBy(desc(runs.createdAt))
+      .limit(15);
 
     return c.json({
       counts: {
@@ -43,7 +63,7 @@ adminRoutes.get("/overview", async (c) => {
         projects: projectCount?.count || 0,
         activeRuns: activeRuns?.count || 0,
       },
-      recentActivity,
+      recentRuns,
     });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to load overview" }, 500);
@@ -55,7 +75,7 @@ adminRoutes.get("/users", async (c) => {
     const page = parseInt(c.req.query("page") || "1");
     const limit = Math.min(parseInt(c.req.query("limit") || "25"), 100);
     const search = c.req.query("search") || "";
-const offset = (page - 1) * limit;
+    const offset = (page - 1) * limit;
 
     const [total] = await db.select({ count: count() }).from(users);
 
@@ -237,71 +257,7 @@ adminRoutes.post("/users/:id/reset-password", async (c) => {
   }
 });
 
-adminRoutes.get("/logs", async (c) => {
-  try {
-    const page = parseInt(c.req.query("page") || "1");
-    const limit = Math.min(parseInt(c.req.query("limit") || "50"), 200);
-    const offset = (page - 1) * limit;
-    const action = c.req.query("action") || undefined;
-    const userId = c.req.query("userId") || undefined;
-    const since = c.req.query("since") || undefined;
-    const before = c.req.query("before") || undefined;
-
-    const conditions = [];
-    if (action) conditions.push(eq(auditLogs.action, action));
-    if (userId) conditions.push(eq(auditLogs.userId, userId));
-    if (since) conditions.push(gte(auditLogs.createdAt, new Date(since)));
-    if (before) conditions.push(lte(auditLogs.createdAt, new Date(before)));
-
-    const logs = await db
-      .select()
-      .from(auditLogs)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(auditLogs.createdAt))
-      .offset(offset)
-      .limit(limit);
-
-    const [total] = await db.select({ count: count() }).from(auditLogs)
-      .where(conditions.length > 0 ? and(...conditions) : undefined);
-
-    return c.json({ logs, total: total?.count || 0, page, limit });
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : "Failed to query logs" }, 500);
-  }
-});
-
-adminRoutes.get("/logs/actions", async (c) => {
-  try {
-    const actions = await db
-      .select({ action: auditLogs.action, count: count() })
-      .from(auditLogs)
-      .groupBy(auditLogs.action)
-      .orderBy(desc(count()));
-
-    return c.json(actions);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : "Failed to get action stats" }, 500);
-  }
-});
-
-adminRoutes.get("/logs/timeline", async (c) => {
-  try {
-    const results = await db.execute(sql`
-      SELECT
-        DATE(created_at) as date,
-        action,
-        COUNT(*) as count
-      FROM audit_logs
-      WHERE created_at >= NOW() - INTERVAL '30 days'
-      GROUP BY DATE(created_at), action
-      ORDER BY DATE(created_at) DESC, action
-    `);
-
-    return c.json(results.rows);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : "Failed to get timeline" }, 500);
-  }
-});
+// Logs endpoints removed (audit_logs table dropped)
 
 adminRoutes.get("/database/tables", async (c) => {
   try {
@@ -328,7 +284,7 @@ adminRoutes.get("/database/:table", async (c) => {
     const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") || "50") || 50), 200);
     const offset = (page - 1) * limit;
 
-    const ALLOWED_TABLES = ["users", "projects", "project_members", "species", "runs", "occurrences", "api_keys", "user_settings", "audit_logs", "system_settings", "maintenance_log"];
+    const ALLOWED_TABLES = ["users", "projects", "project_members", "species", "runs", "occurrences", "api_keys", "user_settings", "system_settings"];
     if (!ALLOWED_TABLES.includes(tableName)) {
       return c.json({ error: "Table not allowed" }, 403);
     }
@@ -340,9 +296,15 @@ adminRoutes.get("/database/:table", async (c) => {
       ORDER BY ordinal_position
     `);
 
-    const data = await db.execute(sql.raw(`SELECT * FROM "${tableName}" ORDER BY created_at DESC NULLS LAST LIMIT ${limit} OFFSET ${offset}`));
+    const data = await db.execute(sql`
+      SELECT * FROM ${sql.identifier(tableName)}
+      ORDER BY created_at DESC NULLS LAST
+      LIMIT ${limit} OFFSET ${offset}
+    `);
 
-    const countResult = await db.execute(sql.raw(`SELECT COUNT(*) as total FROM "${tableName}"`));
+    const countResult = await db.execute(sql`
+      SELECT COUNT(*) as total FROM ${sql.identifier(tableName)}
+    `);
     const total = Number((countResult as any).rows?.[0]?.total || 0);
 
     return c.json({
@@ -361,7 +323,7 @@ adminRoutes.get("/database/:table", async (c) => {
 adminRoutes.get("/database/:table/stats", async (c) => {
   try {
     const tableName = c.req.param("table");
-    const ALLOWED_TABLES = ["users", "projects", "project_members", "species", "runs", "occurrences", "api_keys", "user_settings", "audit_logs", "system_settings", "maintenance_log"];
+    const ALLOWED_TABLES = ["users", "projects", "project_members", "species", "runs", "occurrences", "api_keys", "user_settings", "system_settings"];
     if (!ALLOWED_TABLES.includes(tableName)) {
       return c.json({ error: "Table not allowed" }, 403);
     }
@@ -379,9 +341,9 @@ adminRoutes.get("/database/:table/stats", async (c) => {
       WHERE relname = ${tableName}
     `);
 
-    const size = await db.execute(sql.raw(`
-      SELECT pg_size_pretty(pg_total_relation_size('${tableName}')) as total_size
-    `));
+    const size = await db.execute(sql`
+      SELECT pg_size_pretty(pg_total_relation_size(${sql.identifier(tableName)})) as total_size
+    `);
 
     return c.json({
       table: tableName,
@@ -423,16 +385,6 @@ adminRoutes.put("/system/settings", async (c) => {
       .where(eq(systemSettings.key, body.key))
       .returning();
 
-    const client = extractClientInfo(c as any);
-    await logAction({
-      userId: adminUser.id,
-      action: "system_settings_update",
-      entity: "system_settings",
-      entityId: updated.id,
-      ...client,
-      details: { key: body.key, value: body.value },
-    });
-
     return c.json(updated);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to update setting" }, 500);
@@ -452,19 +404,6 @@ adminRoutes.post("/system/cache/clear", async (c) => {
       // Cache clear is best-effort
     }
 
-    await db.insert(maintenanceLog).values({
-      type: "cache_clear",
-      status: "completed",
-      details: { triggeredBy: adminUser.id },
-    });
-
-    await logAction({
-      userId: adminUser.id,
-      action: "system_cache_clear",
-      entity: "maintenance",
-      ...client,
-    });
-
     return c.json({ ok: true, message: "Cache cleared" });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to clear cache" }, 500);
@@ -473,32 +412,55 @@ adminRoutes.post("/system/cache/clear", async (c) => {
 
 adminRoutes.post("/system/jobs/cleanup", async (c) => {
   try {
-    const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
-
     const staleRuns = await db
       .select({ id: runs.id })
       .from(runs)
       .where(inArray(runs.status, ["queued", "running"]))
       .limit(0);
 
-    await db.insert(maintenanceLog).values({
-      type: "job_cleanup",
-      status: "completed",
-      details: { staleJobsFound: staleRuns.length, triggeredBy: adminUser.id },
-    });
-
-    await logAction({
-      userId: adminUser.id,
-      action: "system_job_cleanup",
-      entity: "maintenance",
-      ...client,
-      details: { staleJobsFound: staleRuns.length },
-    });
-
     return c.json({ ok: true, message: `Found ${staleRuns.length} stale jobs`, staleJobs: staleRuns.length });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to clean up jobs" }, 500);
+  }
+});
+
+adminRoutes.get("/diagnostics/filesystem", async (c) => {
+  try {
+    let files: { name: string; size: number; lastModified: string; isCleaned: boolean }[] = [];
+    let totalSize = 0;
+    let rawCount = 0;
+    let cleanedCount = 0;
+
+    try {
+      const entries = readdirSync(UPLOAD_DIR);
+      for (const name of entries) {
+        const fullPath = join(UPLOAD_DIR, name);
+        try {
+          const stat = statSync(fullPath);
+          if (stat.isFile()) {
+            const isCleaned = name.startsWith("cleaned_");
+            files.push({ name, size: stat.size, lastModified: stat.mtime.toISOString(), isCleaned });
+            totalSize += stat.size;
+            if (isCleaned) cleanedCount++; else rawCount++;
+          }
+        } catch { /* skip unreadable */ }
+      }
+    } catch {
+      return c.json({ error: "Uploads directory not accessible" }, 500);
+    }
+
+    // Sort by lastModified descending
+    files.sort((a, b) => b.lastModified.localeCompare(a.lastModified));
+
+    return c.json({
+      files: files.slice(0, 100),
+      totalFiles: rawCount + cleanedCount,
+      totalSize,
+      rawCount,
+      cleanedCount,
+    });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to list filesystem" }, 500);
   }
 });
 
@@ -519,6 +481,9 @@ adminRoutes.get("/diagnostics/runs", async (c) => {
         modelId: runs.modelId,
         status: runs.status,
         jobId: runs.jobId,
+        bullmqId: runs.bullmqId,
+        runNumber: runs.runNumber,
+        progressLog: runs.progressLog,
         error: runs.error,
         startedAt: runs.startedAt,
         completedAt: runs.completedAt,
@@ -552,23 +517,4 @@ adminRoutes.get("/diagnostics/runs/:id", async (c) => {
   }
 });
 
-adminRoutes.get("/maintenance/logs", async (c) => {
-  try {
-    const page = parseInt(c.req.query("page") || "1");
-    const limit = Math.min(parseInt(c.req.query("limit") || "25"), 100);
-    const offset = (page - 1) * limit;
-
-    const entries = await db
-      .select()
-      .from(maintenanceLog)
-      .orderBy(desc(maintenanceLog.createdAt))
-      .offset(offset)
-      .limit(limit);
-
-    const [total] = await db.select({ count: count() }).from(maintenanceLog);
-
-    return c.json({ entries, total: total?.count || 0, page, limit });
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : "Failed to get maintenance logs" }, 500);
-  }
-});
+// Maintenance logs endpoint removed (maintenance_log table dropped)
