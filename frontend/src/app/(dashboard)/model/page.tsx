@@ -137,25 +137,6 @@ export default function ModelPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          {cleanedOccurrence && cleanedOccurrence.validRecords === 0 && (
-            <div className="mb-4 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 px-4 py-3 flex items-start gap-3">
-              <AlertTriangle className="h-4 w-4 text-sdm-danger shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-sdm-danger">Cleaning produced 0 valid records</p>
-                <p className="text-xs text-sdm-danger">The occurrence data has no valid records after cleaning. Go back to the Data page and check your data before running a model.</p>
-              </div>
-            </div>
-          )}
-          {!cleanedOccurrence && occurrenceFile && (
-            <div className="mb-4 rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 flex items-start gap-3">
-              <AlertTriangle className="h-4 w-4 text-sdm-warning shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-sdm-warning">Cleaning recommended</p>
-                <p className="text-xs text-sdm-warning">Clean your data first on the <Link href="/data?tab=clean" className="underline">Data page</Link>. Without previewing, the model will clean automatically but you won't see the results.</p>
-              </div>
-            </div>
-          )}
-
           {activeRuns.length > 0 && !jobId && (
             <div className="mb-4 rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 space-y-2">
               <p className="text-sm text-sdm-warning">

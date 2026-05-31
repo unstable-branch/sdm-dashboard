@@ -97,8 +97,8 @@ export default function ResultsIndexPage() {
             </div>
             {run.metrics && (
               <div className="mt-2 flex gap-4 text-xs text-sdm-muted">
-                {run.metrics.auc_mean != null && <span>AUC: {(run.metrics.auc_mean as number).toFixed(3)}</span>}
-                {run.metrics.tss_mean != null && <span>TSS: {(run.metrics.tss_mean as number).toFixed(3)}</span>}
+                {run.metrics.auc_mean != null && <span>AUC: {Number(run.metrics.auc_mean).toFixed(3)}</span>}
+                {run.metrics.tss_mean != null && <span>TSS: {Number(run.metrics.tss_mean).toFixed(3)}</span>}
                 {run.metrics.presence_records != null && <span>Records: {run.metrics.presence_records}</span>}
               </div>
             )}
