@@ -115,3 +115,4 @@ export function GbifSearch({ onSearch, loading, error, result }: GbifSearchProps
     </div>
   );
 }
+export { GbifSearch as default }

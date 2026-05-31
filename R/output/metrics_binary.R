@@ -15,6 +15,9 @@ auc_rank <- function(obs, score) {
 
 compute_binary_metrics <- function(obs, score, threshold = sdm_default_threshold) {
   threshold <- normalize_threshold(threshold)
+  if (!is.finite(threshold)) {
+    threshold <- 0.5
+  }
   ok <- is.finite(obs) & is.finite(score)
   obs <- as.integer(obs[ok])
   score <- as.numeric(score[ok])
@@ -41,6 +44,31 @@ compute_binary_metrics <- function(obs, score, threshold = sdm_default_threshold
     tp = as.integer(tp), fp = as.integer(fp), tn = as.integer(tn), fn = as.integer(fn),
     n = as.integer(length(obs))
   )
+}
+
+select_threshold <- function(presence_suit, background_suit,
+                              thresholds = seq(0.01, 0.99, by = 0.01)) {
+  presence_suit <- as.numeric(presence_suit)[is.finite(as.numeric(presence_suit))]
+  background_suit <- as.numeric(background_suit)[is.finite(as.numeric(background_suit))]
+  if (length(presence_suit) < 3 || length(background_suit) < 3) {
+    return(list(threshold = 0.5, max_tss = NA_real_, method = "fallback"))
+  }
+  best_tss <- -Inf
+  best_threshold <- 0.5
+  for (t in thresholds) {
+    tp <- sum(presence_suit >= t, na.rm = TRUE)
+    fn <- sum(presence_suit < t, na.rm = TRUE)
+    tn <- sum(background_suit < t, na.rm = TRUE)
+    fp <- sum(background_suit >= t, na.rm = TRUE)
+    sens <- if ((tp + fn) > 0) tp / (tp + fn) else 0
+    spec <- if ((tn + fp) > 0) tn / (tn + fp) else 0
+    tss_val <- sens + spec - 1
+    if (is.finite(tss_val) && tss_val > best_tss) {
+      best_tss <- tss_val
+      best_threshold <- t
+    }
+  }
+  list(threshold = best_threshold, max_tss = best_tss, method = "max_tss")
 }
 
 metrics_list_to_row <- function(metrics, fold = NA_integer_) {

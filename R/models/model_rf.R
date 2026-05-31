@@ -100,7 +100,7 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
         classification = FALSE,
         importance = "permutation",
         seed = seed,
-        num.threads = normalize_core_count(n_cores),
+        num.threads = 1,
         verbose = FALSE
       )
     }, error = function(e) {
@@ -187,7 +187,7 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
 
     names(suit) <- "suitability"
     dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
     log_message(log_fun, "Suitability raster written to: ", output_tif)
     suit
   }

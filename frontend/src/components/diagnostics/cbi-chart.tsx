@@ -30,18 +30,23 @@ export function CbiChart({ data, loading }: CbiChartProps) {
     return <div className="text-sm text-sdm-muted italic">No bin data to display</div>;
   }
 
-  const cbiValue = data.cbi;
-  const cbiColor = cbiValue != null
-    ? cbiValue >= 0.7 ? "text-green-400"
-    : cbiValue >= 0.4 ? "text-yellow-400"
+  const cbiValue: number | undefined = data.cbi;
+  const cbiFinite = cbiValue != null && Number.isFinite(cbiValue);
+  const cbiVal = cbiFinite ? cbiValue! : 0;
+  const cbiColor = cbiFinite
+    ? cbiVal >= 0.7 ? "text-green-400"
+    : cbiVal >= 0.4 ? "text-yellow-400"
     : "text-red-400"
     : "text-sdm-muted";
 
-  const cbiLabel = cbiValue != null
-    ? cbiValue >= 0.7 ? "Good fit"
-    : cbiValue >= 0.4 ? "Moderate fit"
+  const cbiLabel = cbiFinite
+    ? cbiVal >= 0.7 ? "Good fit"
+    : cbiVal >= 0.4 ? "Moderate fit"
     : "Poor fit"
     : "—";
+
+  const peValue: number | undefined = data.pe_ratio;
+  const peFinite = peValue != null && Number.isFinite(peValue);
 
   return (
     <div className="space-y-3">
@@ -49,14 +54,14 @@ export function CbiChart({ data, loading }: CbiChartProps) {
         <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
           <div className="text-xs text-sdm-muted mb-1">CBI (Spearman ρ)</div>
           <div className={`text-lg font-semibold ${cbiColor}`}>
-            {cbiValue != null ? cbiValue.toFixed(3) : "—"}
+            {cbiFinite ? cbiValue!.toFixed(3) : "—"}
           </div>
           <div className="text-xs text-sdm-muted">{cbiLabel}</div>
         </div>
         <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
           <div className="text-xs text-sdm-muted mb-1">P/E Ratio (mean)</div>
           <div className="text-lg font-semibold text-sdm-text">
-            {data.pe_ratio != null ? data.pe_ratio.toFixed(3) : "—"}
+            {peFinite ? peValue!.toFixed(3) : "—"}
           </div>
           <div className="text-xs text-sdm-muted">&gt;1 = model better than random</div>
         </div>
@@ -97,7 +102,7 @@ export function CbiChart({ data, loading }: CbiChartProps) {
               borderRadius: "6px",
               fontSize: "12px",
             }}
-            formatter={(value: number, name: string) => [value.toFixed(3), name === "smoothed" ? "Smoothed P/E" : "Raw P/E"]}
+            formatter={(value: number, name: string) => [Number.isFinite(value) ? value.toFixed(3) : "—", name === "smoothed" ? "Smoothed P/E" : "Raw P/E"]}
           />
           <ReferenceLine y={1} stroke="#6b7280" strokeDasharray="4 4" />
           <Line
@@ -122,3 +127,4 @@ export function CbiChart({ data, loading }: CbiChartProps) {
     </div>
   );
 }
+export { CbiChart as default }

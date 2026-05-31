@@ -1,61 +1,119 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SuitabilityMap } from "@/components/results/suitability-map";
+import dynamic from "next/dynamic";
 import { MetricCards } from "@/components/results/metric-cards";
-import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
-import { ArrowLeft, Loader2, Download } from "lucide-react";
-import { apiGet } from "@/services/api";
-import type { RunDetail } from "@/services/types";
+import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers, TrendingUp, TrendingDown } from "lucide-react";
+import { apiGet, apiPost } from "@/services/api";
+import { useJobSSE } from "@/hooks/use-job-sse";
+import { useRunDetail } from "@/hooks/use-queries";
+
+const SuitabilityMap = dynamic(
+  () => import("@/components/results/suitability-map"),
+  { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
+);
+
+const DiagnosticsPanel = dynamic(
+  () => import("@/components/results/diagnostics-panel"),
+  { ssr: false, loading: () => <div className="h-64 rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading diagnostics...</div> }
+);
 
 export default function ResultsPage() {
   const params = useParams();
   const router = useRouter();
   const runId = params.runId as string;
 
-  const [run, setRun] = useState<RunDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [benchmark, setBenchmark] = useState<{
+    bestRun: { species: string; model_id: string; auc: number | null };
+    diff: number;
+    improving: boolean;
+  } | null>(null);
+  const [_benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [reportText, setReportText] = useState<string | null>(null);
+  const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
+  const [ensembleGenerating, setEnsembleGenerating] = useState(false);
+  const [ensembleGenerated, setEnsembleGenerated] = useState(false);
 
+  const { data: run, isLoading: loading, error: fetchError, refetch } = useRunDetail(runId);
+  const error = fetchError ? (fetchError as Error).message : null;
+
+  // SSE-driven job updates (only connect when initial status is running)
+  const { getJob, connected } = useJobSSE(true);
+
+  const isMultiEnsemble = run?.model_id === "multi_ensemble";
+
+  const handleGenerateEnsemble = useCallback(async () => {
+    setEnsembleGenerating(true);
+    try {
+      await apiPost(`/api/v1/diagnostics/ensemble-rasters/${runId}`);
+      setEnsembleGenerated(true);
+    } catch {
+    } finally {
+      setEnsembleGenerating(false);
+    }
+  }, [runId]);
+
+  // Fetch report + manifest after run loads
+  useEffect(() => {
+    if (!run || run.status !== "completed") return;
+    apiGet<string>(`/api/v1/results/${runId}/report.txt`).catch(() => null).then((text) => setReportText(text));
+    if (run.provenance) {
+      setManifest(run.provenance as Record<string, unknown>);
+    } else {
+      apiGet<{ manifest: Record<string, unknown> }>(`/api/v1/results/${runId}/manifest`)
+        .then((m) => setManifest(m?.manifest || null))
+        .catch(() => console.warn("[results] Failed to fetch manifest for run", runId));
+    }
+  }, [run?.id, run?.status, runId]);
+
+  // Auto-benchmark: compare against best previous run for same species
+  useEffect(() => {
+    if (run?.status !== "completed" || run.metrics?.auc_mean == null || typeof run.metrics.auc_mean !== "number") return;
+    const currentAuc = run.metrics.auc_mean as number;
+    setBenchmarkLoading(true);
+    apiGet<{ runs: Array<{ id: string; species: string; model_id: string; metrics: { auc_mean?: number } | null }> }>(
+      `/api/v1/sdm/runs?limit=50&species=${encodeURIComponent(run.species)}`
+    )
+      .then((data) => {
+        const past = (data.runs || []).filter(
+          (r) => r.id !== run.id && r.metrics?.auc_mean && typeof r.metrics.auc_mean === "number"
+        );
+        if (past.length === 0) { setBenchmarkLoading(false); return; }
+        const best = past.reduce((a, b) => ((a.metrics?.auc_mean as number ?? 0) > (b.metrics?.auc_mean as number ?? 0) ? a : b));
+        const bestAuc = best.metrics?.auc_mean as number;
+        setBenchmark({
+          bestRun: { species: best.species, model_id: best.model_id, auc: bestAuc },
+          diff: currentAuc - bestAuc,
+          improving: currentAuc > bestAuc,
+        });
+        setBenchmarkLoading(false);
+      })
+      .catch(() => setBenchmarkLoading(false));
+  }, [run?.id, run?.status, run?.metrics?.auc_mean, run?.species]);
+
+  // SSE fallback: poll only if SSE is disconnected and run is still running
+  useEffect(() => {
+    if (!run || run.status !== "running") return;
+    if (connected) return;
+
+    const interval = setInterval(() => { if (!document.hidden) refetch(); }, 5000);
+    return () => clearInterval(interval);
+  }, [run?.id, run?.status, connected, refetch]);
+
+  // SSE update: when a job event arrives for this runId, refresh
   useEffect(() => {
     if (!runId) return;
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const job = getJob(runId);
+    if (!job) return;
 
-    const fetchStatus = () => {
-      if (cancelled) return;
-      apiGet<RunDetail>(`/api/v1/sdm/status/${runId}`)
-        .then((data) => {
-          if (cancelled) return;
-          setRun(data);
-          setLoading(false);
-          if (data.status === "completed") {
-            fetch(`/api/v1/results/${runId}/report.txt`)
-              .then((res) => res.ok ? res.text() : null)
-              .then((text) => { if (!cancelled) setReportText(text); })
-              .catch(() => {});
-          }
-          if (data.status === "running") {
-            timeoutId = setTimeout(fetchStatus, 3000);
-          }
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          setError(err.message);
-          setLoading(false);
-        });
-    };
-
-    fetchStatus();
-    return () => {
-      cancelled = true;
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [runId]);
+    if (job.state === "completed" || job.state === "failed" || job.state === "cancelled") {
+      refetch();
+    }
+  }, [runId, getJob, refetch]);
 
   if (loading) {
     return (
@@ -83,7 +141,7 @@ export default function ResultsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={() => router.back()} className="text-sdm-muted hover:text-sdm-text">
+          <button onClick={() => router.back()} className="text-sdm-muted hover:text-sdm-text" aria-label="Go back">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
@@ -100,13 +158,36 @@ export default function ResultsPage() {
         }>
           {run.status}
         </span>
+        <Link
+          href={`/model?fork=${run.id}`}
+          className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface-soft"
+        >
+          <GitBranch className="h-3.5 w-3.5" />
+          Fork this run
+        </Link>
+        {isMultiEnsemble && (
+          <button
+            onClick={handleGenerateEnsemble}
+            disabled={ensembleGenerating || ensembleGenerated}
+            className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface-soft disabled:opacity-50"
+          >
+            {ensembleGenerating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : ensembleGenerated ? (
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            ) : (
+              <Layers className="h-3.5 w-3.5" />
+            )}
+            {ensembleGenerating ? "Generating..." : ensembleGenerated ? "Ensemble stats generated" : "Generate ensemble rasters"}
+          </button>
+        )}
       </div>
 
       {run.status === "running" && (
         <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
           <div className="flex items-center gap-2 text-sm text-sdm-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Model is still running...
+            Model is still running{!connected && " (polling)"}...
           </div>
           {run.progress_log.length > 0 && (
             <div className="mt-2 rounded bg-sdm-surface-soft p-2 font-mono text-xs text-sdm-muted max-h-32 overflow-y-auto">
@@ -128,16 +209,41 @@ export default function ResultsPage() {
         <>
           {run.metrics && <MetricCards metrics={run.metrics} />}
 
+          {benchmark && (
+            <div className={`rounded-lg border p-4 flex items-center gap-3 ${
+              benchmark.improving
+                ? "border-green-500/30 bg-green-500/5"
+                : "border-amber-500/30 bg-amber-500/5"
+            }`}>
+              {benchmark.improving
+                ? <TrendingUp className="h-5 w-5 text-green-500 shrink-0" />
+                : <TrendingDown className="h-5 w-5 text-amber-500 shrink-0" />
+              }
+              <div className="text-sm">
+                <span className="text-sdm-text font-medium">
+                  {benchmark.improving ? "Improving" : "Below best"}
+                </span>
+                <span className="text-sdm-muted ml-1">
+                  vs previous best ({benchmark.bestRun.model_id}, AUC {benchmark.bestRun.auc?.toFixed(3)}):
+                  {' '}<strong className={benchmark.improving ? 'text-green-500' : 'text-amber-500'}>
+                    {benchmark.improving ? '+' : ''}{benchmark.diff.toFixed(3)}
+                  </strong>
+                </span>
+              </div>
+            </div>
+          )}
+
           <Tabs defaultValue="map" className="space-y-4">
-            <TabsList className="grid w-full max-w-md grid-cols-4">
+            <TabsList className="grid w-full max-w-lg grid-cols-5">
               <TabsTrigger value="map">Map</TabsTrigger>
               <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
               <TabsTrigger value="future">Future</TabsTrigger>
               <TabsTrigger value="report">Report</TabsTrigger>
+              <TabsTrigger value="provenance">Provenance</TabsTrigger>
             </TabsList>
 
             <TabsContent value="map">
-              <SuitabilityMap outputFiles={run.output_files} />
+              <SuitabilityMap outputFiles={run.output_files} projectionExtent={((run.config?.projectionExtent as number[]) ?? (run.config?.projection_extent as string)?.split(",").map(Number) ?? null) as number[] | null} runId={runId} />
             </TabsContent>
 
             <TabsContent value="diagnostics">
@@ -155,7 +261,7 @@ export default function ResultsPage() {
                   <div className="flex gap-3">
                     {run.output_files?.odmap_report_csv && (
                       <a
-                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.odmap_report_csv)}`}
+                        href={`/api/v1/results/file/download?path=${encodeURIComponent(run.output_files.odmap_report_csv)}`}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP CSV
@@ -163,7 +269,7 @@ export default function ResultsPage() {
                     )}
                     {run.output_files?.odmap_report_md && (
                       <a
-                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.odmap_report_md)}`}
+                        href={`/api/v1/results/file/download?path=${encodeURIComponent(run.output_files.odmap_report_md)}`}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP Markdown
@@ -171,7 +277,7 @@ export default function ResultsPage() {
                     )}
                     {run.output_files?.report && (
                       <a
-                        href={`/api/v1/results/file/${encodeURIComponent(run.output_files.report)}`}
+                        href={`/api/v1/results/file/download?path=${encodeURIComponent(run.output_files.report)}`}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
                       >
                         <Download className="h-3.5 w-3.5" /> Download report
@@ -204,6 +310,83 @@ export default function ResultsPage() {
                       {run.progress_log.join("\n")}
                     </pre>
                   </div>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="provenance">
+              <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
+                <h3 className="text-sm font-semibold text-sdm-heading">Run Provenance</h3>
+                {manifest ? (
+                  <div className="space-y-4">
+                    {(manifest as any).app_version && (
+                      <div>
+                        <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Environment</h4>
+                        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                          <span className="text-sdm-muted">R:</span><span className="text-sdm-text">{(manifest as any).app_version.r_version}</span>
+                          <span className="text-sdm-muted">Platform:</span><span className="text-sdm-text">{(manifest as any).app_version.platform}</span>
+                          {(manifest as any).app_version.git_sha && (<>
+                            <span className="text-sdm-muted">Git SHA:</span><span className="text-sdm-text">{(manifest as any).app_version.git_sha.slice(0, 7)}</span>
+                          </>)}
+                        </div>
+                      </div>
+                    )}
+                    {(manifest as any).data && (
+                      <div>
+                        <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Input Data</h4>
+                        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                          <span className="text-sdm-muted">Records:</span><span className="text-sdm-text">{(manifest as any).data.occurrence_rows ?? "-"}</span>
+                          <span className="text-sdm-muted">SHA-256:</span><span className="text-sdm-text truncate">{(manifest as any).data.occurrence_hash_sha256?.slice(0, 16) ?? "-"}</span>
+                        </div>
+                      </div>
+                    )}
+                    {(manifest as any).covariates && (
+                      <div>
+                        <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Covariates</h4>
+                        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                          <span className="text-sdm-muted">Source:</span><span className="text-sdm-text">{(manifest as any).covariates.source}</span>
+                          <span className="text-sdm-muted">Resolution:</span><span className="text-sdm-text">{(manifest as any).covariates.resolution}m</span>
+                          <span className="text-sdm-muted">BIO vars:</span><span className="text-sdm-text">{(manifest as any).covariates.biovars?.join(", ")}</span>
+                          <span className="text-sdm-muted">Files:</span><span className="text-sdm-text">{(manifest as any).covariates.file_count}</span>
+                        </div>
+                      </div>
+                    )}
+                    {(manifest as any).extent && (
+                      <div>
+                        <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Extent</h4>
+                        <div className="grid grid-cols-4 gap-2 text-xs font-mono">
+                          <span className="text-sdm-muted">xmin:</span><span className="text-sdm-text">{(manifest as any).extent.xmin}</span>
+                          <span className="text-sdm-muted">xmax:</span><span className="text-sdm-text">{(manifest as any).extent.xmax}</span>
+                          <span className="text-sdm-muted">ymin:</span><span className="text-sdm-text">{(manifest as any).extent.ymin}</span>
+                          <span className="text-sdm-muted">ymax:</span><span className="text-sdm-text">{(manifest as any).extent.ymax}</span>
+                        </div>
+                      </div>
+                    )}
+                    {(manifest as any).validation && (
+                      <div>
+                        <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Cross-Validation</h4>
+                        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                          <span className="text-sdm-muted">Strategy:</span><span className="text-sdm-text">{(manifest as any).validation.cv_strategy}</span>
+                          <span className="text-sdm-muted">Folds:</span><span className="text-sdm-text">{(manifest as any).validation.cv_folds}</span>
+                          {(manifest as any).validation.cv_block_size_km && (<>
+                            <span className="text-sdm-muted">Block size:</span><span className="text-sdm-text">{(manifest as any).validation.cv_block_size_km} km</span>
+                          </>)}
+                          <span className="text-sdm-muted">Seed:</span><span className="text-sdm-text">{(manifest as any).validation.seed}</span>
+                        </div>
+                      </div>
+                    )}
+                    {(manifest as any).resources && (
+                      <div>
+                        <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Resources (R)</h4>
+                        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                          <span className="text-sdm-muted">CPU time:</span><span className="text-sdm-text">{(manifest as any).resources.r_cpu_time_ms != null ? `${((manifest as any).resources.r_cpu_time_ms / 1000).toFixed(1)}s` : "-"}</span>
+                          <span className="text-sdm-muted">Peak memory:</span><span className="text-sdm-text">{(manifest as any).resources.r_peak_memory_mb != null ? `${(manifest as any).resources.r_peak_memory_mb} MB` : "-"}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-sdm-muted">Manifest not available.</p>
                 )}
               </div>
             </TabsContent>

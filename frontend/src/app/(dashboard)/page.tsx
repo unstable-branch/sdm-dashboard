@@ -5,10 +5,10 @@ import { MetricCard } from "@/components/ecology/metric-card";
 import { WelcomePanel } from "@/components/ecology/welcome-panel";
 import dynamic from "next/dynamic";
 import { useCompletedRuns } from "@/hooks/use-runs";
-import { Loader2, ArrowRight, Database, Brain, BarChart3, Map, Upload, CheckCircle2, Circle } from "lucide-react";
+import { ArrowRight, Database, Brain, BarChart3, Map, Upload, CheckCircle2, Circle, Loader2 } from "lucide-react";
 
 const SuitabilityMap = dynamic(
-  () => import("@/components/results/suitability-map").then((mod) => ({ default: mod.SuitabilityMap })),
+  () => import("@/components/results/suitability-map"),
   { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
 );
 
@@ -61,15 +61,7 @@ function EmptyWorkbenchPanel() {
 
 export default function DashboardPage() {
   const { data: completedRuns, isLoading } = useCompletedRuns();
-  const latestRun = completedRuns.length > 0 ? completedRuns[0] : null;
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />
-      </div>
-    );
-  }
+  const latestRun = !isLoading && completedRuns.length > 0 ? completedRuns[0] : null;
 
   return (
     <div className="space-y-6">
@@ -132,6 +124,10 @@ export default function DashboardPage() {
               </Link>
               <Link href="/evaluate" className="flex items-center justify-between rounded-md bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text hover:bg-sdm-surface transition-colors group">
                 <span className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-sdm-accent" /> Evaluate results</span>
+                <ArrowRight className="h-3.5 w-3.5 text-sdm-muted group-hover:text-sdm-text transition-colors" />
+              </Link>
+              <Link href="/batch" className="flex items-center justify-between rounded-md bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text hover:bg-sdm-surface transition-colors group">
+                <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 text-sdm-accent" /> Batch processing</span>
                 <ArrowRight className="h-3.5 w-3.5 text-sdm-muted group-hover:text-sdm-text transition-colors" />
               </Link>
             </div>

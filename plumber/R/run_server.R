@@ -16,6 +16,44 @@ app_dir <- if (dir.exists("/app/R")) {
 # Source auth helpers (must be in global env before sourcing plumber.R)
 source(file.path(app_dir, "plumber", "R", "auth.R"), local = FALSE)
 
+# Source Redis helper
+source(file.path(app_dir, "plumber", "R", "redis.R"), local = FALSE)
+
+# Set up DB connection pool for auth and other DB queries
+library(pool)
+db_pool <- tryCatch({
+  db_url <- Sys.getenv("DATABASE_URL", "")
+  if (nzchar(db_url)) {
+    clean_url <- sub("^postgresql://", "postgres://", db_url)
+    parts <- regmatches(clean_url, regexec("postgres://([^:]+):([^@]+)@([^:]+):([^/]+)/(.+)", clean_url))[[1]]
+    if (length(parts) == 6) {
+      dbPool(
+        RPostgres::Postgres(),
+        host = parts[4],
+        port = as.integer(parts[5]),
+        dbname = parts[6],
+        user = parts[2],
+        password = parts[3],
+        minSize = 1,
+        maxSize = 5,
+        idleTimeout = 60000
+      )
+    } else {
+      masked <- sub("://[^:]+:[^@]+@", "://USER:PASSWORD@", db_url)
+      cat("WARNING: Could not parse DATABASE_URL:", masked, "\n")
+      NULL
+    }
+  } else {
+    NULL
+  }
+}, error = function(e) {
+  cat("WARNING: Failed to create DB connection pool:", conditionMessage(e), "\n")
+  NULL
+})
+if (!is.null(db_pool)) {
+  cat("DB connection pool created (min=1, max=5)\n")
+}
+
 # Load .env file for env vars (PLUMBER_INTERNAL_KEY, DATABASE_URL, etc.)
 env_file <- file.path(app_dir, ".env")
 if (file.exists(env_file)) {
@@ -35,7 +73,16 @@ pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 
 # Unbox single-element vectors so JSON primitives are returned instead of arrays
 # e.g. "file_path" remains string, "n_rows" remains number, not [value]
-pr$setSerializer(plumber::serializer_json(auto_unbox = TRUE))
+# na="null" preserves NA values as JSON null instead of omitting them
+pr$setSerializer(plumber::serializer_json(auto_unbox = TRUE, na = "null"))
+
+# Disable OpenAPI docs in production (they reveal the API surface)
+# Re-enable with PLUMBER_DOCS_ENABLED=true for development
+if (identical(Sys.getenv("PLUMBER_DOCS_ENABLED"), "true")) {
+  cat("OpenAPI docs enabled at /__docs__/\n")
+} else {
+  tryCatch(pr$setDocs(FALSE), error = function(e) NULL)
+}
 
 # Internal auth key set by Hono when proxying authenticated requests
 internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
@@ -45,7 +92,7 @@ auth_fail <- function(res, status, msg) {
   tryCatch(res$status <- status, error = function(e) NULL)
   res$body <- msg
   # Signal an error to stop Plumber from calling the handler
-  stop(msg)
+  stop(msg, call. = FALSE)
 }
 
 # Helper to safely read headers
@@ -91,7 +138,7 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}')
   }
 
-  user_info <- validate_api_key(api_key, app_dir)
+  user_info <- validate_api_key(api_key, pool = db_pool, app_dir = app_dir)
   if (is.null(user_info)) {
     auth_fail(res, 401L, '{"error":"Invalid or expired API key."}')
   }
@@ -99,6 +146,14 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   req$user_id <- user_info$user_id
   req$user_email <- user_info$email
   req$user_role <- user_info$role
+
+  # Rate limit: use hashed API key or user ID as bucket key
+  rate_key <- api_key %||% user_info$user_id %||% fwd_user
+  if (!is.null(rate_key) && nzchar(rate_key)) {
+    if (!sdm_check_rate_limit(rate_key, max_requests = 120, window_seconds = 60)) {
+      auth_fail(res, 429L, '{"error":"Rate limit exceeded. Try again in 60 seconds."}')
+    }
+  }
 
   NULL
 })
@@ -122,12 +177,59 @@ orphan_cleanup <- function() {
       if (file.exists(meta_file)) {
         meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
         if (identical(meta$status, "running")) {
+          # Kill the process if PID is known, then remove directory
+          if (!is.null(meta$process_pid)) {
+            tryCatch(tools::pskill(meta$process_pid, signal = 9), error = function(e) NULL)
+          }
           unlink(jd, recursive = TRUE, force = TRUE)
         }
       }
     }
   }
 }
-tryCatch(orphan_cleanup(), error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
+tryCatch({
+  cat("Running orphan cleanup (stale jobs >24h)...\n")
+  orphan_cleanup()
+}, error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
+
+# Exit handler: kill all background processes on shutdown to prevent orphans
+plumber::pr_hook(pr, "exit", function() {
+  # Close DB connection pool
+  if (!is.null(db_pool)) {
+    tryCatch(pool::poolClose(db_pool), error = function(e) NULL)
+    cat("DB connection pool closed.\n")
+  }
+  cat("Plumber shutting down — killing background processes...\n")
+  # sdm_process_registry is created in global env by plumber.R
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.null(reg) && is.environment(reg)) {
+    for (job_id in ls(reg)) {
+      proc <- reg[[job_id]]
+      if (inherits(proc, "process") && proc$is_alive()) {
+        cat("Killing background job:", job_id, "\n")
+        tryCatch(proc$kill(), error = function(e) NULL)
+      }
+    }
+  }
+  # Close Redis connection
+  sdm_redis_close()
+
+  # Also kill any leftover processes from meta.json files
+  jobs_base <- file.path(app_dir, "outputs", "jobs")
+  if (dir.exists(jobs_base)) {
+    for (jd in list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)) {
+      meta_file <- file.path(jd, "meta.json")
+      if (file.exists(meta_file)) {
+        meta <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
+        if (!is.null(meta) && identical(meta$status, "running") && !is.null(meta$process_pid)) {
+          tryCatch(tools::pskill(meta$process_pid, signal = 9), error = function(e) NULL)
+        }
+      }
+    }
+  }
+  cat("Background process cleanup complete.\n")
+})
+
+cat("Starting Plumber on port 8000\n")
 
 plumber::pr_run(pr, host = "0.0.0.0", port = 8000)

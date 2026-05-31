@@ -35,8 +35,7 @@ plot_suitability_map <- function(suitability, occ = NULL, projection_extent = NU
     col = cols, range = c(0, 1), main = "", axes = TRUE,
     colNA = "#07111D", xlab = "Longitude", ylab = "Latitude",
     plg = list(
-      title = "Suitability", title.cex = 0.88, cex = 0.78,
-      shrink = 0.82, mar = 3.4
+      title = "Suitability", title.cex = 0.88, cex = 0.78
     ), box = FALSE
   )
   australia_boundary <- load_australia_boundary()

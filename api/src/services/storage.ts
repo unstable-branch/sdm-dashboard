@@ -4,7 +4,16 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
+import { stat, readFile } from "fs/promises";
+import { join, isAbsolute, normalize, dirname, resolve } from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+export const PROJECT_ROOT = resolve(__dirname, "../..");
 
 function envOrDevDefault(name: string, devDefault: string): string {
   const value = process.env[name];
@@ -18,8 +27,8 @@ function envOrDevDefault(name: string, devDefault: string): string {
 const GARAGE_ENDPOINT = envOrDevDefault("GARAGE_ENDPOINT", "localhost:3900").replace(/^https?:\/\//, "");
 const GARAGE_ACCESS_KEY = process.env.GARAGE_ACCESS_KEY || envOrDevDefault("GARAGE_ACCESS_KEY_ID", "sdm");
 const GARAGE_SECRET_KEY = envOrDevDefault("GARAGE_SECRET_KEY", "sdm_garage_secret");
-const GARAGE_BUCKET_RASTERS = envOrDevDefault("GARAGE_BUCKET_RASTERS", "sdm-rasters");
-const GARAGE_BUCKET_EXPORTS = envOrDevDefault("GARAGE_BUCKET_EXPORTS", "sdm-exports");
+const GARAGE_BUCKET_RASTERS = envOrDevDefault("GARAGE_BUCKET_RASTERS", "sdm-artifacts");
+const GARAGE_BUCKET_EXPORTS = envOrDevDefault("GARAGE_BUCKET_EXPORTS", "sdm-artifacts");
 const USE_SSL = process.env.GARAGE_USE_SSL === "true";
 
 export interface GarageConfig {
@@ -121,6 +130,81 @@ export async function downloadFile(
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
+}
+
+export async function deleteFile(
+  bucket: string,
+  objectName: string
+): Promise<void> {
+  const s3 = createS3Client();
+  await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectName }));
+}
+
+export async function listFiles(
+  bucket: string,
+  prefix?: string
+): Promise<string[]> {
+  const s3 = createS3Client();
+  const response = await s3.send(
+    new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix })
+  );
+  return (response.Contents ?? []).map((obj) => obj.Key ?? "").filter(Boolean);
+}
+
+export async function syncOutputsToS3(
+  jobDir: string,
+  runId: string,
+  outputFiles: Record<string, string> | null
+): Promise<Record<string, string>> {
+  const bucket = GARAGE_BUCKET_RASTERS;
+  const s3Urls: Record<string, string> = {};
+
+  if (!outputFiles) return s3Urls;
+
+  const fileExtensionContentType: Record<string, string> = {
+    ".tif": "image/tiff",
+    ".csv": "text/csv",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".json": "application/json",
+    ".zip": "application/zip",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".pdf": "application/pdf",
+    ".html": "text/html",
+    ".rds": "application/octet-stream",
+  };
+
+  for (const [key, containerPath] of Object.entries(outputFiles)) {
+    if (!containerPath || typeof containerPath !== "string") continue;
+
+    const localPath = containerPath.startsWith("/app/")
+      ? join(PROJECT_ROOT, containerPath.slice(5))
+      : containerPath.startsWith("/")
+      ? containerPath
+      : join(jobDir, containerPath);
+
+    let resolvedPath: string;
+    try {
+      resolvedPath = isAbsolute(localPath) ? localPath : normalize(localPath);
+      await stat(resolvedPath);
+    } catch {
+      continue;
+    }
+
+    const objectName = `runs/${runId}/${key}`;
+    const ext = fileExtensionContentType[Object.keys(fileExtensionContentType).find((e) => resolvedPath.endsWith(e)) ?? ""] ?? "application/octet-stream";
+
+    try {
+      const data = await readFile(resolvedPath);
+      await uploadFile(bucket, objectName, data, ext);
+      s3Urls[key] = objectName;
+    } catch (err) {
+      console.warn(`[S3] Failed to upload ${key} for run ${runId}:`, err instanceof Error ? err.message : err);
+    }
+  }
+
+  return s3Urls;
 }
 
 export async function getFileUrl(

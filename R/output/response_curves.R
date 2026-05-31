@@ -73,7 +73,7 @@ compute_response_curves <- function(fit, model_data, env_train = NULL, n_points 
       return(NULL)
     }
 
-    data.frame(
+    df <- data.frame(
       covariate = var,
       value = seq_val,
       suitability = as.numeric(preds),
@@ -82,6 +82,7 @@ compute_response_curves <- function(fit, model_data, env_train = NULL, n_points 
       stringsAsFactors = FALSE,
       row.names = NULL
     )
+    df[is.finite(df$suitability), , drop = FALSE]
   })
 
   names(curve_results) <- cov_cols

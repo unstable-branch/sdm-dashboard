@@ -166,7 +166,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
     }, cores = n_cores)
 
     names(suit) <- "suitability"
-    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
     log_message(log_fun, "Suitability raster written to: ", output_tif)
     suit
   }
