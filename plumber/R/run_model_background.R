@@ -163,7 +163,10 @@ tryCatch({
     use_cc = isTRUE(config$use_cc),
     cc_tests = config$cc_tests %||% "all",
     analysis_crs = config$analysis_crs %||% sdm_default_analysis_crs,
-    generate_tiles = isTRUE(config$generate_tiles %||% TRUE)
+    generate_tiles = isTRUE(config$generate_tiles %||% TRUE),
+    mask_type = config$mask_type %||% sdm_default_mask_type,
+    mask_file = config$mask_file %||% sdm_default_mask_file,
+    mask_buffer_deg = as.numeric(config$mask_buffer_deg %||% sdm_default_mask_buffer_deg)
   )
 
   result <- run_fast_sdm(cfg)
