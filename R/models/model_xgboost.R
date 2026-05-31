@@ -20,7 +20,7 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
       weights <- class_balance_weights(y_train)
       xgboost::xgboost(
         data = x_train, label = y_train, weight = weights,
-        objective = "binary:logistic", eval_metric = "auc",
+        objective = "reg:logistic", eval_metric = "auc",
         max_depth = max_depth, eta = eta, nrounds = nrounds,
         verbose = 0, nthread = 1L, seed = seed
       )
@@ -89,7 +89,7 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   model <- tryCatch({
     xgboost::xgboost(
       data = x_train, label = y_train, weight = weights,
-      objective = "binary:logistic", eval_metric = "auc",
+      objective = "reg:logistic", eval_metric = "auc",
       max_depth = max_depth, eta = eta, nrounds = nrounds,
       verbose = 0, nthread = 1L, seed = seed
     )
