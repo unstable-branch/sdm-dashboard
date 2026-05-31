@@ -16,8 +16,8 @@ export const users = pgTable("users", {
   storageQuotaBytes: bigint("storage_quota_bytes", { mode: "number" }).default(1073741824),
   storageUsedBytes: bigint("storage_used_bytes", { mode: "number" }).default(0),
   lastLoginAt: timestamp("last_login_at"),
-  storageQuotaBytes: bigint("storage_quota_bytes", { mode: "number" }),
-  storageUsedBytes: bigint("storage_used_bytes", { mode: "number" }).notNull().default(0),
+  resetToken: text("reset_token"),
+  resetTokenExpiry: timestamp("reset_token_expiry"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

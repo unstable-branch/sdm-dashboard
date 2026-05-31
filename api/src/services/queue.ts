@@ -263,7 +263,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                 cleanAttempts++;
 
                 try {
-                  cleanStatus = await client.getAsyncJobStatus(cleanJobId);
+                  cleanStatus = await client.getJobStatus(cleanJobId);
                   const runStatus = (cleanStatus as any).status as string;
 
                   if (runStatus === "running") {

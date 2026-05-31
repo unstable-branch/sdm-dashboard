@@ -127,7 +127,7 @@ async function syncRunningJobs() {
             state: "active",
             progress: pct ?? 50,
             logs,
-            currentStage: currentStage?.stage ?? null,
+            currentStage: plumberLastStage ?? null,
             progressJson,
           });
         } else if (plumberStatus === "completed") {

@@ -353,7 +353,7 @@ sdmRoutes.post("/run", async (c) => {
 
       await db
         .update(runs)
-        .set({ jobId: bullmqId, status: "queued" })
+        .set({ jobId, status: "queued" })
         .where(eq(runs.id, run.id));
 
       jobEventBus.emitJobStatus({
@@ -609,25 +609,6 @@ sdmRoutes.get("/runs", async (c) => {
       conditions.push(eq(runs.status, statusFilter as "queued" | "running" | "completed" | "failed" | "cancelled"));
     }
 
-    const allRuns = await db
-      .select({
-        id: runs.id,
-        species: runs.speciesName,
-        model_id: runs.modelId,
-        status: runs.status,
-        started_at: runs.startedAt,
-        completed_at: runs.completedAt,
-        last_stage: runs.lastStage,
-        metrics: runs.metrics,
-        outputFiles: runs.outputFiles,
-        error: runs.error,
-      })
-      .from(runs)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(runs.createdAt))
-      .limit(limitVal)
-      .offset(offset);
-
     // Parallelize data + count queries (same WHERE clause)
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
     const [allRuns, [{ total }]] = await Promise.all([
@@ -639,6 +620,7 @@ sdmRoutes.get("/runs", async (c) => {
           status: runs.status,
           started_at: runs.startedAt,
           completed_at: runs.completedAt,
+          last_stage: runs.lastStage,
           metrics: runs.metrics,
           outputFiles: runs.outputFiles,
           error: runs.error,
@@ -704,6 +686,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
         modelId: runs.modelId,
         startedAt: runs.startedAt,
         completedAt: runs.completedAt,
+        lastStage: runs.lastStage,
         config: runs.config,
         error: runs.error,
         metrics: runs.metrics,
@@ -857,7 +840,7 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
     }
 
     if (run.jobId) {
-      const result = await plumberClient.cancelModelRun(run.jobId);
+      const result = await plumberClient.cancelModel(run.jobId);
       await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, jobId));
       return c.json(result);
     }
@@ -912,7 +895,7 @@ sdmRoutes.post("/cancel-all", async (c) => {
         }
 
         if (run.jobId) {
-          await plumberClient.cancelModelRun(run.jobId).catch(() => console.warn("[sdm] Failed to cancel Plumber run", run.jobId));
+          await plumberClient.cancelModel(run.jobId).catch(() => console.warn("[sdm] Failed to cancel Plumber run", run.jobId));
         }
 
         await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, run.id));
@@ -1138,6 +1121,10 @@ sdmRoutes.post("/batch", async (c) => {
         output_dir: join("outputs", "jobs", run.id),
       };
 
+      const queuedJobId = await enqueueSdmJob(
+        { type: "model", payload: plumberPayload },
+        user.id,
+      );
       if (queuedJobId) {
         await db
           .update(runs)
