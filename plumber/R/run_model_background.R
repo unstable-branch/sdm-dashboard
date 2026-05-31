@@ -276,11 +276,13 @@ tryCatch({
   gc(verbose = FALSE)
 }, error = function(e) {
   meta$status <- "failed"
-  meta$error <- conditionMessage(e)
+  err_msg <- conditionMessage(e)
+  err_code <- tryCatch(sdm_classify_error(err_msg), error = function(ee) "INTERNAL_ERROR")
+  meta$error <- err_msg
+  meta$error_code <- err_code
+  meta$error_hint <- tryCatch(SDM_ERR_CODES[[err_code]]$hint, error = function(ee) NA_character_)
   meta$error_traceback <- paste(utils::tail(traceback(), 10), collapse = "\n")
   meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
   write_meta(meta)
-  cat("Run failed:", conditionMessage(e), "\n")
-  cat("Traceback:\n")
-  print(utils::tail(traceback(), 10))
+  cat("Run failed [", err_code, "]:", err_msg, "\n")
 })

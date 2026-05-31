@@ -92,6 +92,11 @@ export default function ResultsIndexPage() {
                 }`}>
                   {run.status}
                 </span>
+                {run.error_code && (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-sdm-danger/10 text-sdm-danger border border-sdm-danger/30" title={run.error_hint ?? ""}>
+                    {run.error_code}
+                  </span>
+                )}
                 <ArrowRight className="h-4 w-4 text-sdm-muted" />
               </div>
             </div>
@@ -100,6 +105,12 @@ export default function ResultsIndexPage() {
                 {run.metrics.auc_mean != null && <span>AUC: {Number(run.metrics.auc_mean).toFixed(3)}</span>}
                 {run.metrics.tss_mean != null && <span>TSS: {Number(run.metrics.tss_mean).toFixed(3)}</span>}
                 {run.metrics.presence_records != null && <span>Records: {run.metrics.presence_records}</span>}
+              </div>
+            )}
+            {run.error && (
+              <div className="mt-2 text-xs text-sdm-muted">
+                <span className="text-sdm-danger">{run.error}</span>
+                {run.error_hint && <span className="ml-2 text-sdm-muted italic">— {run.error_hint}</span>}
               </div>
             )}
           </Link>

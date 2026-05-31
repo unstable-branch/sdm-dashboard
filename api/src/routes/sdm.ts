@@ -291,6 +291,8 @@ sdmRoutes.get("/runs", async (c) => {
           metrics: runs.metrics,
           outputFiles: runs.outputFiles,
           error: runs.error,
+          error_code: runs.errorCode,
+          error_hint: runs.errorHint,
         })
         .from(runs)
         .where(whereClause)
@@ -314,6 +316,8 @@ sdmRoutes.get("/runs", async (c) => {
       metrics: r.metrics ?? null,
       output_files: r.outputFiles ?? null,
       error: r.error ?? null,
+      error_code: r.error_code ?? null,
+      error_hint: r.error_hint ?? null,
     }));
 
     return c.json({
@@ -356,6 +360,8 @@ sdmRoutes.get("/status/:jobId", async (c) => {
         lastStage: runs.lastStage,
         config: runs.config,
         error: runs.error,
+        errorCode: runs.errorCode,
+        errorHint: runs.errorHint,
         metrics: runs.metrics,
         outputFiles: runs.outputFiles,
         provenance: runs.provenance,
@@ -392,6 +398,8 @@ sdmRoutes.get("/status/:jobId", async (c) => {
               metrics: plumberRunStatus === "completed" ? plumberMetrics ?? null : null,
               outputFiles: plumberRunStatus === "completed" ? plumberOutputFiles ?? null : null,
               error: plumberError ?? null,
+              errorCode: (plumberStatus as any).error_code ?? null,
+              errorHint: (plumberStatus as any).error_hint ?? null,
               completedAt: plumberRunStatus !== "running" ? new Date() : null,
               rCpuTimeMs: (plumberStatus as any).r_cpu_time_ms ?? null,
               rPeakMemoryMb: (plumberStatus as any).r_peak_memory_mb ?? null,
@@ -427,6 +435,8 @@ sdmRoutes.get("/status/:jobId", async (c) => {
           started_at: run.startedAt?.toISOString() ?? null,
           completed_at: run.completedAt?.toISOString() ?? null,
           error: null,
+          error_code: null,
+          error_hint: null,
           last_stage: run.lastStage ?? null,
           metrics: null,
           output_files: null,
@@ -442,6 +452,8 @@ sdmRoutes.get("/status/:jobId", async (c) => {
           started_at: run.startedAt?.toISOString() ?? null,
           completed_at: run.completedAt?.toISOString() ?? null,
           error: null,
+          error_code: null,
+          error_hint: null,
           last_stage: run.lastStage ?? null,
           metrics: null,
           output_files: null,
@@ -461,6 +473,8 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       started_at: run.startedAt?.toISOString() ?? null,
       completed_at: run.completedAt?.toISOString() ?? null,
       error: run.error ?? null,
+      error_code: run.errorCode ?? null,
+      error_hint: run.errorHint ?? null,
       last_stage: run.lastStage ?? null,
       metrics: run.metrics ?? null,
       output_files: run.outputFiles ?? null,

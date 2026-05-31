@@ -10,6 +10,9 @@ export interface RunSummary {
   completed_at: string | null;
   metrics: Record<string, number | null> | null;
   output_files: Record<string, string> | null;
+  error: string | null;
+  error_code: string | null;
+  error_hint: string | null;
 }
 
 interface RunsResponse {

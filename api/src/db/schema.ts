@@ -107,6 +107,8 @@ export const runs = pgTable("runs", {
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
   lastStage: text("last_stage"),
+  errorCode: text("error_code"),
+  errorHint: text("error_hint"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_runs_project").on(t.projectId),

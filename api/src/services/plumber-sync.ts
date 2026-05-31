@@ -81,6 +81,8 @@ async function syncRunningJobs() {
             .set({
               status: "failed",
               error: `Run timed out after ${Math.round(ageMs / 3600000)} hours with no completion`,
+              errorCode: "PLUMBER_TIMEOUT",
+              errorHint: "The R computation exceeded the timeout. Simplify the model or increase the timeout limit.",
               completedAt: new Date(),
             })
             .where(eq(runs.id, run.id));
@@ -200,6 +202,8 @@ async function syncRunningJobs() {
             .set({
               status: "failed",
               error: error ?? "Model run failed",
+              errorCode: errorCode ?? null,
+              errorHint: errorHint ?? null,
               completedAt: new Date(),
               progressLog: progressJson ?? undefined,
               provenance: errorCode ? { error_code: errorCode, error_hint: errorHint } : undefined,
@@ -283,6 +287,8 @@ async function syncRunningJobs() {
             .set({
               status: "failed",
               error: "Process crashed or was killed before status could be recorded",
+              errorCode: "PROCESS_CRASH",
+              errorHint: "The R computation process was killed (OOM, segfault, or signal). Check memory, reduce resolution, or use fewer covariates.",
               completedAt: new Date(),
             })
             .where(eq(runs.id, run.id));
