@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import React from "react";
+import React, { useState, useEffect, useCallback, Fragment } from "react";
 import { apiGet, apiPost } from "@/services/api";
-import { Loader2, AlertCircle, CheckCircle2, Clock, XCircle, Play, RefreshCw, Ellipsis } from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
+import { Loader2, AlertCircle, CheckCircle2, Clock, XCircle, Play, RefreshCw, Ellipsis, Search, HardDrive, Upload } from "lucide-react";
 
 interface RunRecord {
   id: string;
@@ -16,6 +16,8 @@ interface RunRecord {
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
+  runNumber?: number;
+  progressLog?: string[];
 }
 
 interface RunDetail {
@@ -213,11 +215,11 @@ function RunsTab() {
                                 <CopyButton value={r.progressLog} label="Copy progress" />
                               </div>
                               <div className="flex flex-wrap gap-1.5">
-                                {r.progressLog.map((entry: any, i: number) => (
+                                {(r.progressLog ?? []).map((entry: any, i: number) => (
                                   <span key={i}
                                     className={`text-xs rounded px-1.5 py-0.5 ${
                                       entry.stage === "unknown" ? "bg-sdm-surface text-sdm-muted" :
-                                      i === r.progressLog.length - 1 && r.status === "running"
+                                      i === (r.progressLog?.length ?? 0) - 1 && r.status === "running"
                                         ? "bg-sdm-accent/15 text-sdm-accent animate-pulse"
                                         : "bg-sdm-accent/10 text-sdm-accent"
                                     }`}>

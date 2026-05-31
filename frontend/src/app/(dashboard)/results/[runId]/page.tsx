@@ -8,8 +8,12 @@ import dynamic from "next/dynamic";
 import { MetricCards } from "@/components/results/metric-cards";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
 import { OdmapViewer } from "@/components/results/odmap-viewer";
-import { ArrowLeft, Loader2, Download } from "lucide-react";
-import { apiGet, fetchWithAuth } from "@/services/api";
+import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers } from "lucide-react";
+import { apiGet, apiPost, fetchWithAuth } from "@/services/api";
+import { useRunDetail } from "@/hooks/use-queries";
+import { useJobSSE } from "@/hooks/use-job-sse";
+import { SuitabilityMap } from "@/components/results/suitability-map";
+import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
 import type { RunDetail } from "@/services/types";
 import type { ViewState } from "react-map-gl/maplibre";
 import type { FeatureCollection } from "geojson";
@@ -72,9 +76,19 @@ export default function ResultsPage() {
   const [odmapCsv, setOdmapCsv] = useState<string | null>(null);
   const [eooGeoJSON, setEooGeoJSON] = useState<FeatureCollection | null>(null);
   const [aooGeoJSON, setAooGeoJSON] = useState<FeatureCollection | null>(null);
+  const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
+  const [ensembleGenerating, setEnsembleGenerating] = useState(false);
+  const [ensembleGenerated, setEnsembleGenerated] = useState(false);
+  const [run, setRun] = useState<RunDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const { data: run, isLoading: loading, error: fetchError, refetch } = useRunDetail(runId);
-  const error = fetchError ? (fetchError as Error).message : null;
+  const { data: runData, isLoading: runLoading, error: runError, refetch } = useRunDetail(runId);
+  useEffect(() => {
+    if (runData) setRun(runData as any);
+    if (!runLoading) setLoading(false);
+    if (runError) setError((runError as Error).message);
+  }, [runData, runLoading, runError]);
 
   // SSE-driven job updates (only connect when initial status is running)
   const { getJob, connected } = useJobSSE(true);
