@@ -134,6 +134,9 @@ importers:
       geographiclib:
         specifier: ^1.52.2
         version: 1.52.2
+      geotiff:
+        specifier: ^3.0.5
+        version: 3.0.5
       lucide-react:
         specifier: ^0.460.0
         version: 0.460.0(react@19.2.6)
@@ -1453,6 +1456,9 @@ packages:
 
   '@oxc-project/types@0.130.0':
     resolution: {integrity: sha512-ibD2usx9JRu7f5pu2tMKMI4cpA4NgXJQoYRP4pQ7Pxmn1l6k/53qWtQWZayhYy3X4QZkt90Ot+mJEaeXouio6Q==}
+
+  '@petamoriken/float16@3.9.3':
+    resolution: {integrity: sha512-8awtpHXCx/bNpFt4mt2xdkgtgVvKqty8VbjHI/WWWQuEw+KLzFot3f4+LkQY9YmOtq7A5GdOnqoIC8Pdygjk2g==}
 
   '@playwright/test@1.60.0':
     resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
@@ -3451,6 +3457,10 @@ packages:
     resolution: {integrity: sha512-c550+nvtkNj2wYubkDTvyujiLLYyW64paku7k3xesbtgH+Rzb5rrs/FaCrzHCjwer1EA59ENldS/IFGa3nMoOg==}
     deprecated: 'This package has been split into geographic-geodesic + geographiclib-dms; use one or both of these instead of geographiclib.  WARNING: there''s a potential buffer overrun on this package.  SWITCH TO THE NEW PACKAGES NOW.'
 
+  geotiff@3.0.5:
+    resolution: {integrity: sha512-OWcL9S9+yDZ6iAlXMt32T1iwUApJM8UiD47xbm6ZP1h33d10fqkPs14EG/ttT5EnefpZSx3G15iDFC5FxUNUwA==}
+    engines: {node: '>=10.19'}
+
   get-caller-file@2.0.5:
     resolution: {integrity: sha512-DyFP3BM/3YHTQOCUL/w0OZHR0lpKeGrxotcHWcqNEdnltqFwXVfhEBQ94eIo34AfQpo0rGki4cyIiftY06h2Fg==}
     engines: {node: 6.* || 8.* || >= 10.*}
@@ -3931,6 +3941,9 @@ packages:
     resolution: {integrity: sha512-Be1YRHWWlZaSsrz2U+VInk+tO0EwLIyV+23RhWLINJYwg/UIikxjlj3MhH37/6/EDCAusjajvMkMMUXRaMWl/w==}
     engines: {node: '>=4'}
 
+  lerc@3.0.0:
+    resolution: {integrity: sha512-Rm4J/WaHhRa93nCN2mwWDZFoRVF18G1f47C+kvQWyHGEZxFpTUi73p7lMVSAndyxGt6lJ2/CFbOcf9ra5p8aww==}
+
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
@@ -4313,9 +4326,15 @@ packages:
     resolution: {integrity: sha512-q/R5GrMek0vzgoomq6rm9OX+3PQve8sLwTirmK30YB3Cu0Bbt9OX9M/SIUnroN5BGJkzwGsFwDaRGD9EwBOlCA==}
     engines: {node: '>=4'}
 
+  pako@2.1.0:
+    resolution: {integrity: sha512-w+eufiZ1WuJYgPXbV/PO3NCMEc3xqylkKHzp8bxp1uW4qaSNQUkwmLLEc3kKsfz8lpV1F8Ht3U1Cm+9Srog2ug==}
+
   parent-module@1.0.1:
     resolution: {integrity: sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==}
     engines: {node: '>=6'}
+
+  parse-headers@2.0.6:
+    resolution: {integrity: sha512-Tz11t3uKztEW5FEVZnj1ox8GKblWn+PvHY9TmJV5Mll2uHEwRdR/5Li1OlXoECjLYkApdhWy44ocONwXLiKO5A==}
 
   parse5@8.0.1:
     resolution: {integrity: sha512-z1e/HMG90obSGeidlli3hj7cbocou0/wa5HacvI3ASx34PecNjNQeaHNo5WIZpWofN9kgkqV1q5YvXe3F0FoPw==}
@@ -4487,6 +4506,10 @@ packages:
   quick-lru@5.1.1:
     resolution: {integrity: sha512-WuyALRjWPDGtt/wzJiadO5AXY+8hZ80hVpe6MyivgraREW751X3SbhRvG3eLKOYN+8VEvqLcf3wdnt44Z4S4SA==}
     engines: {node: '>=10'}
+
+  quick-lru@6.1.2:
+    resolution: {integrity: sha512-AAFUA5O1d83pIHEhJwWCq/RQcRukCkn/NSm2QsTEMle5f2hP0ChI2+3Xb051PZCkLryI/Ir1MVKviT2FIloaTQ==}
+    engines: {node: '>=12'}
 
   quickselect@3.0.0:
     resolution: {integrity: sha512-XdjUArbK4Bm5fLLvlm5KpTFOiOThgfWWI4axAZDWg4E/0mKdZyI9tNEfds27qCi1ze/vwTR16kvmmGhRra3c2g==}
@@ -5235,6 +5258,9 @@ packages:
     resolution: {integrity: sha512-o8qghlI8NZHU1lLPrpi2+Uq7abh4GGPpYANlalzWxyWteJOCsr/P+oPBA49TOLu5FTZO4d3F9MnWJfiMo4BkmA==}
     engines: {node: '>=18'}
 
+  web-worker@1.5.0:
+    resolution: {integrity: sha512-RiMReJrTAiA+mBjGONMnjVDP2u3p9R1vkcGz6gDIrOMT3oGuYwX2WRMYI9ipkphSuE5XKEhydbhNEJh4NY9mlw==}
+
   webidl-conversions@8.0.1:
     resolution: {integrity: sha512-BMhLD/Sw+GbJC21C/UgyaZX41nPt8bUTg+jWyDeg7e7YN4xOM05YPSIXceACnXVtqyEw/LMClUQMtMZ+PGGpqQ==}
     engines: {node: '>=20'}
@@ -5335,6 +5361,9 @@ packages:
     resolution: {integrity: sha512-k8KO9hrMyNk6tUWqUfkTEZbezRRpONVOzUTnc97VnCvyj6Tf9lyUR9EDAIeiVLv56jsMcoXEwjW8Kv5yPY52lw==}
     engines: {node: '>=16.0.0'}
 
+  xml-utils@1.10.2:
+    resolution: {integrity: sha512-RqM+2o1RYs6T8+3DzDSoTRAUfrvaejbVHcp3+thnAtDKo8LskR+HomLajEy5UjTz24rpka7AxVBRR3g2wTUkJA==}
+
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
 
@@ -5375,6 +5404,9 @@ packages:
 
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
+  zstddec@0.2.0:
+    resolution: {integrity: sha512-oyPnDa1X5c13+Y7mA/FDMNJrn4S8UNBe0KCqtDmor40Re7ALrPN6npFwyYVRRh+PqozZQdeg23QtbcamZnG5rA==}
 
   zustand@5.0.13:
     resolution: {integrity: sha512-efI2tVaVQPqtOh114loML/Z80Y4NP3yc+Ff0fYiZJPauNeWZeIp/bRFD7I9bfmCOYBh/PHxlglQ9+wvlwnPikQ==}
@@ -6466,6 +6498,8 @@ snapshots:
 
   '@oxc-project/types@0.130.0': {}
 
+  '@petamoriken/float16@3.9.3': {}
+
   '@playwright/test@1.60.0':
     dependencies:
       playwright: 1.60.0
@@ -7446,7 +7480,7 @@ snapshots:
       obug: 2.1.1
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.7(@types/node@22.19.19)(@vitest/coverage-v8@4.1.7)(happy-dom@20.9.0)(jsdom@29.1.1)(msw@2.14.6(@types/node@22.19.19)(typescript@5.9.3))(vite@8.0.13(@types/node@22.19.19)(esbuild@0.19.12)(jiti@2.7.0)(tsx@4.22.3))
+      vitest: 4.1.7(@types/node@22.19.19)(@vitest/coverage-v8@4.1.7)(happy-dom@20.9.0)(jsdom@29.1.1)(msw@2.14.6(@types/node@22.19.19)(typescript@5.9.3))(vite@8.0.13(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.3))
 
   '@vitest/expect@4.1.7':
     dependencies:
@@ -8593,6 +8627,17 @@ snapshots:
 
   geographiclib@1.52.2: {}
 
+  geotiff@3.0.5:
+    dependencies:
+      '@petamoriken/float16': 3.9.3
+      lerc: 3.0.0
+      pako: 2.1.0
+      parse-headers: 2.0.6
+      quick-lru: 6.1.2
+      web-worker: 1.5.0
+      xml-utils: 1.10.2
+      zstddec: 0.2.0
+
   get-caller-file@2.0.5: {}
 
   get-intrinsic@1.3.0:
@@ -9091,6 +9136,8 @@ snapshots:
     dependencies:
       package-json: 4.0.1
 
+  lerc@3.0.0: {}
+
   levn@0.4.1:
     dependencies:
       prelude-ls: 1.2.1
@@ -9471,9 +9518,13 @@ snapshots:
       registry-url: 3.1.0
       semver: 5.7.2
 
+  pako@2.1.0: {}
+
   parent-module@1.0.1:
     dependencies:
       callsites: 3.1.0
+
+  parse-headers@2.0.6: {}
 
   parse5@8.0.1:
     dependencies:
@@ -9612,6 +9663,8 @@ snapshots:
   queue-microtask@1.2.3: {}
 
   quick-lru@5.1.1: {}
+
+  quick-lru@6.1.2: {}
 
   quickselect@3.0.0: {}
 
@@ -10498,6 +10551,8 @@ snapshots:
     dependencies:
       xml-name-validator: 5.0.0
 
+  web-worker@1.5.0: {}
+
   webidl-conversions@8.0.1: {}
 
   whatwg-mimetype@3.0.0: {}
@@ -10596,6 +10651,8 @@ snapshots:
 
   xml-naming@0.1.0: {}
 
+  xml-utils@1.10.2: {}
+
   xmlchars@2.2.0: {}
 
   xtend@4.0.2: {}
@@ -10630,6 +10687,8 @@ snapshots:
       zod: 3.25.76
 
   zod@3.25.76: {}
+
+  zstddec@0.2.0: {}
 
   zustand@5.0.13(@types/react@19.2.15)(react@19.2.6):
     optionalDependencies:

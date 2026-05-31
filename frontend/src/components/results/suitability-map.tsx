@@ -4,15 +4,17 @@ import { useState, useCallback } from "react";
 import { useTheme } from "next-themes";
 import type { ViewState } from "react-map-gl/maplibre";
 import type { FeatureCollection } from "geojson";
+import dynamic from "next/dynamic";
 import { fetchWithAuth } from "@/services/api";
 
 interface SuitabilityMapProps {
   outputFiles: Record<string, string> | null;
-  runId?: string;
+  runId: string;
   initialViewState?: Partial<ViewState>;
   coordinates?: [[number, number], [number, number], [number, number], [number, number]];
   eooGeoJSON?: FeatureCollection | null;
   aooGeoJSON?: FeatureCollection | null;
+  projectionExtent?: number[] | null;
 }
 
 function MapPlaceholder({ label }: { label?: string }) {

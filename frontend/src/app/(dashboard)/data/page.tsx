@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, FileArchive, Wand2, Map, Cloud } from "lucide-react";
+import { Upload, Globe, FileArchive, Wand2, Map, Cloud, CheckCircle2, AlertTriangle } from "lucide-react";
+import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { apiUpload, apiPost, apiGet, apiPatch } from "@/services/api";
 import { FileUpload } from "@/components/data/file-upload";
@@ -281,6 +282,19 @@ function DataPageContent() {
 
   const cleanPreview = cleanResult?.cleaned_records as OccurrencePoint[] | undefined;
   const gbifPreview = gbifResult?.preview as Record<string, unknown>[] | undefined;
+  const uploadPreview = uploadResult?.preview as Record<string, unknown>[] | undefined;
+  const handleSelectUpload = (file: Record<string, unknown>) => {
+    const fp = file.file_id as string;
+    if (fp) {
+      setOccurrenceFilePath(fp);
+      setUploadResult({ ...file, file_id: fp, file_path: fp });
+      setRecordCount(Number(file.n_rows || 0));
+      const species = file.species as string;
+      if (species && species !== "—") useSDMStore.getState().setSpecies(species);
+    }
+  };
+  const previousUploads = uploadHistory;
+  const previousUploadsLoading = historyLoading;
 
   return (
     <div className="space-y-6">

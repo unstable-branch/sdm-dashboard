@@ -21,7 +21,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo } from "react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { pipelineItems, systemItems } from "@/components/dashboard-nav";
