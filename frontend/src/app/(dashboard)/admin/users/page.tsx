@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/services/api";
 import { Loader2, Search, Plus, Trash2, Edit3, Key, X } from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface UserRecord {
   id: string;
@@ -21,6 +23,7 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<{ type: "create" | "edit" | "reset"; user?: UserRecord } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const limit = 25;
 
@@ -43,12 +46,18 @@ export default function AdminUsersPage() {
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this user?")) return;
+    setDeleteTarget(id);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
     try {
-      await apiDelete(`/api/v1/admin/users/${id}`);
+      await apiDelete(`/api/v1/admin/users/${deleteTarget}`);
       fetchUsers();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed");
+      setError(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleteTarget(null);
     }
   }
 
@@ -91,19 +100,29 @@ export default function AdminUsersPage() {
                 {users.map((u) => (
                   <tr key={u.id} className="border-b border-sdm-border hover:bg-sdm-surface-soft">
                     <td className="px-4 py-2 text-sdm-text">{u.name || "-"}</td>
-                    <td className="px-4 py-2 text-sdm-text">{u.email}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-1">
+                        <span className="text-sdm-text">{u.email}</span>
+                        <CopyButton value={u.email} />
+                      </div>
+                    </td>
                     <td className="px-4 py-2">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded ${u.role === "admin" ? "bg-sdm-accent/20 text-sdm-accent" : u.role === "editor" ? "bg-sdm-accent-blue/20 text-sdm-accent-blue" : "bg-sdm-surface-soft text-sdm-muted"}`}>{u.role}</span>
                     </td>
-                    <td className="px-4 py-2 text-xs text-sdm-muted">{new Date(u.createdAt).toLocaleDateString()}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-sdm-muted">{new Date(u.createdAt).toLocaleDateString()}</span>
+                        <CopyButton value={u.id} />
+                      </div>
+                    </td>
                     <td className="px-4 py-2 text-right">
                       <div className="flex justify-end gap-1">
                         <button onClick={() => setModal({ type: "edit", user: u })}
-                          className="rounded p-1 text-sdm-muted hover:text-sdm-text hover:bg-sdm-surface-soft"><Edit3 className="h-3.5 w-3.5" /></button>
+                          className="rounded p-1 text-sdm-muted hover:text-sdm-text hover:bg-sdm-surface-soft" aria-label="Edit user"><Edit3 className="h-3.5 w-3.5" /></button>
                         <button onClick={() => setModal({ type: "reset", user: u })}
-                          className="rounded p-1 text-sdm-muted hover:text-sdm-accent hover:bg-sdm-surface-soft"><Key className="h-3.5 w-3.5" /></button>
+                          className="rounded p-1 text-sdm-muted hover:text-sdm-accent hover:bg-sdm-surface-soft" aria-label="Reset password"><Key className="h-3.5 w-3.5" /></button>
                         <button onClick={() => handleDelete(u.id)}
-                          className="rounded p-1 text-sdm-muted hover:text-red-400 hover:bg-red-500/10"><Trash2 className="h-3.5 w-3.5" /></button>
+                          className="rounded p-1 text-sdm-muted hover:text-red-400 hover:bg-red-500/10" aria-label="Delete user"><Trash2 className="h-3.5 w-3.5" /></button>
                       </div>
                     </td>
                   </tr>
@@ -124,6 +143,15 @@ export default function AdminUsersPage() {
         </>
       )}
 
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete user"
+        message="Delete this user? This cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
       {modal && <UserModal modal={modal} onClose={() => setModal(null)} onSaved={fetchUsers} />}
     </div>
   );

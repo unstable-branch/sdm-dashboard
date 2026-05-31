@@ -45,15 +45,16 @@ sdm_world_boundary_path <- config$sdm_world_boundary_path
 
 sdm_default_biovars <- c(1, 4, 6, 12, 15, 18)
 
-sdm_default_background_n <- 10000L
+sdm_default_background_n <- 3000L
 sdm_default_min_source_records <- 15L
-sdm_default_threshold <- 0.5
+sdm_default_threshold <- "max_tss"
 sdm_default_aggregation_factor <- 1L
-sdm_default_cv_folds <- 3L
-sdm_default_cv_strategy <- "random"
+sdm_default_cv_folds <- 5L
+sdm_default_cv_strategy <- "spatial_blocks"
 sdm_default_cv_block_size_km <- NA_real_
 sdm_default_thinning_mode <- "auto"
 sdm_default_thinning_distance_km <- 10
+sdm_default_thickening_distance_km <- 10
 sdm_default_worldclim_res <- 10
 sdm_default_climate_source <- "worldclim"
 sdm_default_seed <- 42L
@@ -67,7 +68,9 @@ sdm_default_maxnet_regmult <- 1.0
 sdm_default_ensemble_weighting <- "auc"
 sdm_default_multi_ensemble_models <- c("glm", "rangebag")
 sdm_default_multi_ensemble_weighting <- "auc"
-sdm_default_multi_ensemble_export_components <- TRUE
+sdm_default_export_ensemble_components <- FALSE
+sdm_default_export_ensemble_stats <- FALSE
+sdm_default_include_uncertainty <- FALSE
 sdm_default_ensemble_power <- 2
 sdm_default_ensemble_min_auc <- 0.7
 sdm_default_ensemble_min_tss <- 0.5
@@ -82,6 +85,15 @@ sdm_esm_default_power <- 1
 sdm_esm_default_n_runs <- 5L
 sdm_esm_default_split <- 70
 sdm_esm_max_vars_warn <- 10L
+
+sdm_default_inla_mesh_max_edge <- NULL
+sdm_default_inla_mesh_cutoff <- NULL
+sdm_default_inla_prior_range <- NULL
+sdm_default_inla_prior_sigma <- NULL
+sdm_default_inla_n_samples <- 100L
+sdm_default_bart_ntree <- 200L
+sdm_default_bart_ndpost <- 1000L
+sdm_default_bart_nskip <- 500L
 
 sdm_default_validation_occurrences <- NULL
 sdm_default_pa_replicates <- 1L
@@ -119,6 +131,10 @@ dnn_device_choices <- c(
   "GPU if available (faster)" = "gpu"
 )
 config$dnn_weight_default <- 0.3
+config$dnn_multispecies_default <- "DNN_Medium"
+config$dnn_multispecies_n_seeds <- 3L
+config$sdm_default_extrapolation_mask <- TRUE
+config$sdm_default_mess_threshold <- 0
 config$ensemble_method_default <- "weighted_average"
 config$use_rangebag <- FALSE
 

@@ -12,7 +12,8 @@ future_projection_ready <- function(future_worldclim_dir, selected_biovars) {
 project_future_suitability <- function(fit, current_suitability, env, future_worldclim_dir,
                                        selected_biovars, projection_extent, aggregation_factor = 1,
                                        output_future_tif, output_delta_tif, n_cores = 1,
-                                       log_fun = NULL) {
+                                       log_fun = NULL, mask_extrapolation = TRUE,
+                                       mess_threshold = 0) {
   if (!dir.exists(future_worldclim_dir)) {
     stop("Future WorldClim/CMIP6 folder does not exist: ", future_worldclim_dir, call. = FALSE)
   }
@@ -61,7 +62,7 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   names(delta) <- "suitability_delta"
   terra::writeRaster(delta, output_delta_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
   )
 
   log_message(log_fun, "Computing MESS extrapolation surface")
@@ -72,16 +73,27 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
 
   terra::writeRaster(mess_result$mess, output_mess_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
   )
 
   mod_raster <- compute_mod(mess_result$per_variable)
   terra::writeRaster(mod_raster, output_mod_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"), datatype = "INT1U")
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"), datatype = "INT1U")
   )
 
   log_message(log_fun, sprintf("MESS: %.1f%% of cells extrapolate beyond training envelope", mess_result$pct_extrapolation * 100))
+
+  if (isTRUE(mask_extrapolation)) {
+    mess_vals <- terra::values(mess_result$mess)
+    mask_cells <- is.finite(mess_vals) & mess_vals < mess_threshold
+    n_masked <- sum(mask_cells, na.rm = TRUE)
+    if (n_masked > 0) {
+      future_suitability[mask_cells] <- NA
+      delta[mask_cells] <- NA
+      log_message(log_fun, "Masked ", n_masked, " cells (", sprintf("%.1f%%", n_masked / length(mess_vals) * 100), ") where MESS < ", mess_threshold, " — predictions may be unreliable in extrapolation zones")
+    }
+  }
 
   list(
     suitability = future_suitability,
@@ -125,7 +137,7 @@ average_gcm_suitability <- function(gcm_suitability_paths, output_dir, base_name
   avg_path <- file.path(output_dir, paste0(base_name, "_gcm_avg_suitability.tif"))
   terra::writeRaster(avg_suit, avg_path,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
   )
 
   result <- list(
@@ -141,7 +153,7 @@ average_gcm_suitability <- function(gcm_suitability_paths, output_dir, base_name
     sd_path <- file.path(output_dir, paste0(base_name, "_gcm_sd_suitability.tif"))
     terra::writeRaster(sd_suit, sd_path,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
     )
     result$sd_suitability <- sd_suit
   }

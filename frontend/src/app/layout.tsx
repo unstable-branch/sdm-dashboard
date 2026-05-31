@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/components/query-provider";
+import { WebVitals } from "@/components/web-vitals";
+import { UnhandledRejectionHandler } from "@/components/ui/unhandled-rejection-handler";
+import ErrorBoundary from "@/components/ui/error-boundary";
 import "./globals.css";
-import "maplibre-gl/dist/maplibre-gl.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ["latin"], display: "optional" });
 
 export const metadata: Metadata = {
   title: "SDM Platform",
@@ -25,9 +27,13 @@ export default function RootLayout({
           defaultTheme="dark"
           enableSystem={false}
         >
-          <QueryProvider>
-            {children}
-          </QueryProvider>
+          <ErrorBoundary>
+            <QueryProvider>
+              <WebVitals />
+              <UnhandledRejectionHandler />
+              {children}
+            </QueryProvider>
+          </ErrorBoundary>
         </ThemeProvider>
       </body>
     </html>

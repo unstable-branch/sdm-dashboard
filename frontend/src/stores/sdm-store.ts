@@ -10,6 +10,9 @@ interface SDMState {
   recordCount: number;
   setRecordCount: (count: number) => void;
 
+  pipelineRunId: string | null;
+  setPipelineRunId: (id: string | null) => void;
+
   cleanedOccurrence: {
     filePath: string;
     df: Record<string, unknown>[];
@@ -32,6 +35,9 @@ interface SDMState {
   flaggedIndices: number[];
   setFlaggedIndices: (indices: number[]) => void;
 
+  error: string | null;
+  setError: (error: string | null) => void;
+
   reset: () => void;
 }
 
@@ -44,6 +50,9 @@ export const useSDMStore = create<SDMState>()((set) => ({
 
   recordCount: 0,
   setRecordCount: (count) => set({ recordCount: count }),
+
+  pipelineRunId: null,
+  setPipelineRunId: (id) => set({ pipelineRunId: id }),
 
   cleanedOccurrence: null,
   setCleanedOccurrence: (data) => set({ cleanedOccurrence: data }),
@@ -60,15 +69,20 @@ export const useSDMStore = create<SDMState>()((set) => ({
   flaggedIndices: [],
   setFlaggedIndices: (indices) => set({ flaggedIndices: indices }),
 
+  error: null,
+  setError: (error) => set({ error }),
+
   reset: () =>
     set({
       species: "Untitled species",
       occurrenceFilePath: null,
       recordCount: 0,
+      pipelineRunId: null,
       cleanedOccurrence: null,
       occurrenceData: null,
       uploadResult: null,
       cleanResult: null,
       flaggedIndices: [],
+      error: null,
     }),
 }));

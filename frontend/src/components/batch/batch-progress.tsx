@@ -1,24 +1,30 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Loader2, CheckCircle2, XCircle, Clock, RotateCcw, X } from "lucide-react";
+import { apiGet } from "@/services/api";
+import type { RunSummary } from "@/services/types";
 
 interface BatchJob {
   id: string;
   species: string;
   model_id: string;
   status: string;
-  metrics?: Record<string, unknown>;
+  metrics?: Record<string, unknown> | null;
 }
 
 interface BatchProgressProps {
   jobIds: string[];
+  batchId?: string;
   onComplete?: () => void;
+  onRetryFailed?: () => void;
+  onCancel?: () => void;
 }
 
-export function BatchProgress({ jobIds, onComplete }: BatchProgressProps) {
+export function BatchProgress({ jobIds, batchId, onComplete, onRetryFailed, onCancel }: BatchProgressProps) {
   const [jobs, setJobs] = useState<BatchJob[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [_loading, _setLoading] = useState(true);
+  const [batchInfo, setBatchInfo] = useState<any>(null);
   const cancelledRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -29,9 +35,7 @@ export function BatchProgress({ jobIds, onComplete }: BatchProgressProps) {
       const results = await Promise.all(
         jobIds.map(async (id) => {
           try {
-            const res = await fetch(`/api/v1/sdm/status/${id}`);
-            if (!res.ok) return { id, species: "Unknown", model_id: "", status: "error" };
-            const data = await res.json();
+            const data = await apiGet<RunSummary>(`/api/v1/sdm/status/${id}`);
             return {
               id: data.id,
               species: data.species,
@@ -46,12 +50,21 @@ export function BatchProgress({ jobIds, onComplete }: BatchProgressProps) {
       );
       if (cancelledRef.current) return;
       setJobs(results);
-      setLoading(false);
+      _setLoading(false);
 
-      const allDone = results.every((j) => j.status === "completed" || j.status === "failed");
+      if (batchId) {
+        try {
+          const batchData = await apiGet<any>(`/api/v1/sdm/batch/${batchId}`);
+          setBatchInfo(batchData.batch);
+        } catch { /* ignore */ }
+      }
+
+      const allDone = results.every((j) =>
+        j.status === "completed" || j.status === "failed" || j.status === "cancelled"
+      );
       if (allDone) {
         onComplete?.();
-      } else {
+      } else if (!document.hidden) {
         timeoutRef.current = setTimeout(fetchStatus, 5000);
       }
     };
@@ -61,15 +74,40 @@ export function BatchProgress({ jobIds, onComplete }: BatchProgressProps) {
       cancelledRef.current = true;
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [jobIds, onComplete]);
+  }, [jobIds, batchId, onComplete]);
 
-  const completed = jobs.filter((j) => j.status === "completed").length;
-  const failed = jobs.filter((j) => j.status === "failed").length;
-  const running = jobs.filter((j) => j.status === "running").length;
+  const completed = useMemo(() => jobs.filter((j) => j.status === "completed").length, [jobs]);
+  const failed = useMemo(() => jobs.filter((j) => j.status === "failed").length, [jobs]);
+  const running = useMemo(() => jobs.filter((j) => j.status === "running" || j.status === "queued").length, [jobs]);
+  const cancelled = useMemo(() => jobs.filter((j) => j.status === "cancelled").length, [jobs]);
   const progress = jobs.length > 0 ? (completed / jobs.length) * 100 : 0;
+
+  const hasFailed = failed > 0;
+  const hasRunning = running > 0;
 
   return (
     <div className="space-y-4">
+      {batchInfo && (
+        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4 grid grid-cols-4 gap-4 text-center">
+          <div>
+            <div className="text-lg font-bold text-sdm-text">{batchInfo.total_jobs}</div>
+            <div className="text-xs text-sdm-muted">Total jobs</div>
+          </div>
+          <div>
+            <div className="text-lg font-bold text-green-500">{batchInfo.completed_jobs}</div>
+            <div className="text-xs text-sdm-muted">Completed</div>
+          </div>
+          <div>
+            <div className="text-lg font-bold text-red-500">{batchInfo.failed_jobs}</div>
+            <div className="text-xs text-sdm-muted">Failed</div>
+          </div>
+          <div>
+            <div className="text-lg font-bold text-sdm-text">{batchInfo.status}</div>
+            <div className="text-xs text-sdm-muted">Status</div>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-semibold text-sdm-heading">Batch Progress</h3>
@@ -85,16 +123,42 @@ export function BatchProgress({ jobIds, onComplete }: BatchProgressProps) {
           />
         </div>
 
-        <div className="flex gap-4 mt-3 text-xs">
-          <span className="flex items-center gap-1 text-green-400">
-            <CheckCircle2 className="h-3 w-3" /> {completed} completed
-          </span>
-          <span className="flex items-center gap-1 text-sdm-accent">
-            <Loader2 className="h-3 w-3 animate-spin" /> {running} running
-          </span>
-          <span className="flex items-center gap-1 text-red-400">
-            <XCircle className="h-3 w-3" /> {failed} failed
-          </span>
+        <div className="flex items-center justify-between mt-3">
+          <div className="flex gap-4 text-xs">
+            <span className="flex items-center gap-1 text-green-400">
+              <CheckCircle2 className="h-3 w-3" /> {completed} completed
+            </span>
+            <span className="flex items-center gap-1 text-sdm-accent">
+              <Loader2 className="h-3 w-3 animate-spin" /> {running} running
+            </span>
+            <span className="flex items-center gap-1 text-red-400">
+              <XCircle className="h-3 w-3" /> {failed} failed
+            </span>
+            {cancelled > 0 && (
+              <span className="flex items-center gap-1 text-sdm-muted">
+                <X className="h-3 w-3" /> {cancelled} cancelled
+              </span>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            {hasFailed && !hasRunning && onRetryFailed && (
+              <button
+                onClick={onRetryFailed}
+                className="inline-flex items-center gap-1 rounded-md border border-sdm-border bg-sdm-surface-soft px-2.5 py-1 text-xs text-sdm-text hover:bg-sdm-surface transition-colors"
+              >
+                <RotateCcw className="h-3 w-3" /> Retry failed
+              </button>
+            )}
+            {hasRunning && onCancel && (
+              <button
+                onClick={onCancel}
+                className="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/5 px-2.5 py-1 text-xs text-red-500 hover:bg-red-500/10 transition-colors"
+              >
+                <X className="h-3 w-3" /> Cancel
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -127,6 +191,11 @@ export function BatchProgress({ jobIds, onComplete }: BatchProgressProps) {
                   {job.status === "failed" && (
                     <span className="flex items-center gap-1 text-red-400">
                       <XCircle className="h-3 w-3" /> Failed
+                    </span>
+                  )}
+                  {job.status === "cancelled" && (
+                    <span className="flex items-center gap-1 text-sdm-muted">
+                      <X className="h-3 w-3" /> Cancelled
                     </span>
                   )}
                   {(job.status === "queued" || job.status === "pending") && (

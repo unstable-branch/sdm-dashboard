@@ -44,7 +44,8 @@ climateRoutes.get("/check", async (c) => {
 
 climateRoutes.post("/download", async (c) => {
   try {
-    const body = await c.req.json();
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: "Invalid JSON body" }, 400);
     const type = (body.type as string) || "cmip6";
     const user = c.get("user");
 

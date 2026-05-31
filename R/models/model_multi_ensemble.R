@@ -56,8 +56,9 @@ extract_biomod2_algorithm_files <- function(modeling_id, proj_name, algo_names) 
 
 predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
                                          n_cores = 1, log_fun = NULL,
-                                         export_components = TRUE,
-                                         include_uncertainty = TRUE,
+                                         export_components = FALSE,
+                                         include_uncertainty = FALSE,
+                                         export_stats = FALSE,
                                          ensemble_weighting = "auc",
                                          ensemble_power = 2,
                                          user_threshold = NULL) {
@@ -163,78 +164,82 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
 
   pred_stack <- terra::rast(preds)
 
-  ensemble_mean <- terra::app(pred_stack, mean, na.rm = TRUE)
-  names(ensemble_mean) <- "ensemble_mean"
-  mean_tif <- sub(".tif$", "_ensemble_mean.tif", output_tif)
-  terra::writeRaster(ensemble_mean, mean_tif,
-    overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
-  )
-  log_message(log_fun, "Ensemble mean raster written to: ", mean_tif)
-
-  ensemble_median <- terra::app(pred_stack, median, na.rm = TRUE)
-  names(ensemble_median) <- "ensemble_median"
-  median_tif <- sub(".tif$", "_ensemble_median.tif", output_tif)
-  terra::writeRaster(ensemble_median, median_tif,
-    overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
-  )
-  log_message(log_fun, "Ensemble median raster written to: ", median_tif)
-
+  # Always compute and write the weighted ensemble (this IS the main output)
   weighted_layers <- mapply(function(pred, wi) pred * wi, preds, weights[names(preds)], SIMPLIFY = FALSE)
   ensemble_weighted <- Reduce("+", weighted_layers)
   names(ensemble_weighted) <- "suitability"
   terra::writeRaster(ensemble_weighted, output_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
   )
   log_message(log_fun, "Ensemble raster written to: ", output_tif)
 
-  binary_preds <- lapply(seq_along(preds), function(i) {
-    mid <- names(preds)[i]
-    comp_thresh <- if (!is.null(cv_list[[i]]) && !is.null(cv_list[[i]]$threshold)) cv_list[[i]]$threshold else 0.5
-    thresh <- user_threshold %||% comp_thresh
-    preds[[mid]] >= thresh
-  })
-  committee_stack <- do.call(c, binary_preds)
-  ensemble_committee <- terra::app(committee_stack, mean, na.rm = TRUE)
-  names(ensemble_committee) <- "ensemble_committee"
-  committee_tif <- sub(".tif$", "_ensemble_committee.tif", output_tif)
-  terra::writeRaster(ensemble_committee, committee_tif,
-    overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
-  )
-  log_message(log_fun, "Ensemble committee raster written to: ", committee_tif)
-
-  if (include_uncertainty) {
-    ensemble_sd <- terra::app(pred_stack, sd, na.rm = TRUE)
-    names(ensemble_sd) <- "ensemble_sd"
-    sd_tif <- sub(".tif$", "_ensemble_sd.tif", output_tif)
-    terra::writeRaster(ensemble_sd, sd_tif,
+  # Ensemble statistics — only written when export_stats = TRUE
+  if (export_stats) {
+    ensemble_mean <- terra::app(pred_stack, mean, na.rm = TRUE)
+    names(ensemble_mean) <- "ensemble_mean"
+    mean_tif <- sub(".tif$", "_ensemble_mean.tif", output_tif)
+    terra::writeRaster(ensemble_mean, mean_tif,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
     )
-    log_message(log_fun, "Ensemble SD raster written to: ", sd_tif)
+    log_message(log_fun, "Ensemble mean raster written to: ", mean_tif)
+    attr(ensemble_weighted, "ensemble_mean_tif") <- mean_tif
+
+    ensemble_median <- terra::app(pred_stack, median, na.rm = TRUE)
+    names(ensemble_median) <- "ensemble_median"
+    median_tif <- sub(".tif$", "_ensemble_median.tif", output_tif)
+    terra::writeRaster(ensemble_median, median_tif,
+      overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
+    )
+    log_message(log_fun, "Ensemble median raster written to: ", median_tif)
+    attr(ensemble_weighted, "ensemble_median_tif") <- median_tif
+
+    binary_preds <- lapply(seq_along(preds), function(i) {
+      mid <- names(preds)[i]
+      comp_thresh <- if (!is.null(cv_list[[i]]) && !is.null(cv_list[[i]]$threshold)) cv_list[[i]]$threshold else 0.5
+      thresh <- user_threshold %||% comp_thresh
+      preds[[mid]] >= thresh
+    })
+    committee_stack <- do.call(c, binary_preds)
+    ensemble_committee <- terra::app(committee_stack, mean, na.rm = TRUE)
+    names(ensemble_committee) <- "ensemble_committee"
+    committee_tif <- sub(".tif$", "_ensemble_committee.tif", output_tif)
+    terra::writeRaster(ensemble_committee, committee_tif,
+      overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
+    )
+    log_message(log_fun, "Ensemble committee raster written to: ", committee_tif)
+    attr(ensemble_weighted, "ensemble_committee_tif") <- committee_tif
+
+    if (include_uncertainty) {
+      ensemble_sd <- terra::app(pred_stack, sd, na.rm = TRUE)
+      names(ensemble_sd) <- "ensemble_sd"
+      sd_tif <- sub(".tif$", "_ensemble_sd.tif", output_tif)
+      terra::writeRaster(ensemble_sd, sd_tif,
+        overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
+      )
+      log_message(log_fun, "Ensemble SD raster written to: ", sd_tif)
+      attr(ensemble_weighted, "ensemble_sd_tif") <- sd_tif
+    }
   }
 
-  disagreement <- terra::app(pred_stack, function(x) {
-    if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
-  })
-  names(disagreement) <- "ensemble_disagreement"
-  disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
-  terra::writeRaster(disagreement, disagreement_tif,
-    overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
-  )
-  component_paths$multi_ens_disagreement_tif <- disagreement_tif
+  if (export_components || export_stats) {
+    disagreement <- terra::app(pred_stack, function(x) {
+      if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
+    })
+    names(disagreement) <- "ensemble_disagreement"
+    disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
+    terra::writeRaster(disagreement, disagreement_tif,
+      overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
+    )
+    component_paths$multi_ens_disagreement_tif <- disagreement_tif
+  }
 
   attr(ensemble_weighted, "component_paths") <- component_paths
-  attr(ensemble_weighted, "ensemble_mean_tif") <- mean_tif
-  attr(ensemble_weighted, "ensemble_median_tif") <- median_tif
-  attr(ensemble_weighted, "ensemble_committee_tif") <- committee_tif
-  if (include_uncertainty) {
-    attr(ensemble_weighted, "ensemble_sd_tif") <- sd_tif
-  }
 
   # Ensemble variable importance
   ens_imp <- tryCatch(
@@ -280,7 +285,7 @@ pred_biomod2_component <- function(comp_fit, env_project_scaled, output_tif, n_c
   if (!is.null(output_tif)) {
     terra::writeRaster(r, output_tif,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
     )
   }
   r
@@ -320,10 +325,19 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     biomod2_models <- config$biomod2_default
   }
   has_biomod2 <- requireNamespace("biomod2", quietly = TRUE) && isTRUE(getOption("sdm.enable_biomod2", FALSE))
+  has_ecospat <- requireNamespace("ecospat", quietly = TRUE)
 
   if (!has_biomod2 && any(grepl("biomod2", selected_models, ignore.case = TRUE))) {
     selected_models <- setdiff(selected_models, "biomod2")
     log_message(log_fun, "biomod2 not available; removed from ensemble selection.")
+  }
+
+  if (!has_ecospat) {
+    esm_models <- intersect(selected_models, c("esm_glm", "esm_maxnet"))
+    if (length(esm_models) > 0) {
+      selected_models <- setdiff(selected_models, esm_models)
+      log_message(log_fun, "ecospat/biomod2 not available; removed ESM models from ensemble selection.")
+    }
   }
 
   standalone_ids <- c("glm", "gam", "maxnet", "rf", "xgboost", "rangebag", "esm_glm", "esm_maxnet")

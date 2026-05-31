@@ -5,48 +5,47 @@ library(httr)
 
 #' Validate an API key against the database
 #' @param api_key The raw API key from X-API-Key header
+#' @param pool Optional dbPool connection pool
 #' @param app_dir Application directory for DB config
 #' @return List with user_id if valid, NULL otherwise
-validate_api_key <- function(api_key, app_dir = NULL) {
+validate_api_key <- function(api_key, pool = NULL, app_dir = NULL) {
   if (is.null(api_key) || !nzchar(api_key)) {
-    return(NULL)
-  }
-
-  # Resolve app_dir
-  if (is.null(app_dir)) {
-    app_dir <- if (dir.exists("/app/R")) "/app" else normalizePath(file.path(getwd(), ".."), winslash = "/")
-  }
-
-  # Get DB config from environment or .env
-  db_url <- Sys.getenv("DATABASE_URL", "")
-  if (!nzchar(db_url)) {
-    env_file <- file.path(app_dir, ".env")
-    if (file.exists(env_file)) {
-      lines <- readLines(env_file, warn = FALSE)
-      for (line in lines) {
-        if (grepl("^DATABASE_URL=", line)) {
-          db_url <- sub("^DATABASE_URL=", "", line)
-          break
-        }
-      }
-    }
-  }
-
-  if (!nzchar(db_url)) {
-    warning("DATABASE_URL not set, cannot validate API key")
     return(NULL)
   }
 
   # Hash the incoming API key (same as Hono's auth middleware)
   key_hash <- digest::digest(api_key, algo = "sha256", serialize = FALSE)
 
-  # Connect and query
+  # Use connection pool if available, otherwise create single connection
   tryCatch({
-    con <- DBI::dbConnect(
-      RPostgres::Postgres(),
-      url = db_url
-    )
-    on.exit(DBI::dbDisconnect(con), add = TRUE)
+    if (!is.null(pool)) {
+      con <- pool::poolCheckout(pool)
+      on.exit(pool::poolReturn(con), add = TRUE)
+    } else {
+      # Resolve app_dir for env file fallback
+      if (is.null(app_dir)) {
+        app_dir <- if (dir.exists("/app/R")) "/app" else normalizePath(file.path(getwd(), ".."), winslash = "/")
+      }
+      db_url <- Sys.getenv("DATABASE_URL", "")
+      if (!nzchar(db_url)) {
+        env_file <- file.path(app_dir, ".env")
+        if (file.exists(env_file)) {
+          lines <- readLines(env_file, warn = FALSE)
+          for (line in lines) {
+            if (grepl("^DATABASE_URL=", line)) {
+              db_url <- sub("^DATABASE_URL=", "", line)
+              break
+            }
+          }
+        }
+      }
+      if (!nzchar(db_url)) {
+        warning("DATABASE_URL not set, cannot validate API key")
+        return(NULL)
+      }
+      con <- DBI::dbConnect(RPostgres::Postgres(), url = db_url)
+      on.exit(DBI::dbDisconnect(con), add = TRUE)
+    }
 
     query <- "SELECT u.id, u.email, u.name, u.role, ak.created_at as key_created
               FROM api_keys ak
@@ -91,12 +90,7 @@ requires_auth <- function(path) {
     "^/api/v1/climate/check$",
     "^/api/v1/config/defaults$",
     "^/api/v1/models$",
-    "^/api/v1/future/scenarios$",
-    "^/api/v1/ecology/[^/]+$",
-    "^/api/v1/ecology/[^/]+/eoo-aoo$",
-    "^/api/v1/ecology/[^/]+/aoa$",
-    "^/api/v1/ecology/[^/]+/report$",
-    "^/api/v1/diagnostics/"
+    "^/api/v1/future/scenarios$"
   )
 
   for (pattern in open_patterns) {
@@ -108,57 +102,25 @@ requires_auth <- function(path) {
   TRUE
 }
 
-#' Plumber request filter to enforce API key auth on computation endpoints
-#' @param req Plumber request object
-#' @param res Plumber response object
-plumber_auth_filter <- function(req, res) {
-  path <- req$PATH_INFO %||% req$PATH
+# Simple in-memory rate limiter for Plumber auth filter
+# Tracks request counts per unique key (API key hash or user ID)
+rate_limit_buckets <- new.env(parent = emptyenv())
 
-  # Skip auth for open endpoints
-  if (!requires_auth(path)) {
-    return(NULL)
-  }
-
-  # Get API key from header
-  api_key <- req$HEADERS[["x-api-key"]]
-
-  # Also accept X-Hono-Internal for requests proxied from Hono with valid JWT
-  hono_internal <- req$HEADERS[["x-hono-internal"]]
-
-  if (!is.null(hono_internal) && nzchar(hono_internal)) {
-    # Hono has already authenticated this request (JWT path)
-    # Verify the internal token matches our configured internal key
-    internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
-    if (nzchar(internal_key) && identical(hono_internal, internal_key)) {
-      # Extract user_id from X-Forwarded-User if present
-      forwarded_user <- req$HEADERS[["x-forwarded-user"]]
-      if (!is.null(forwarded_user) && nzchar(forwarded_user)) {
-        req$user_id <- forwarded_user
-      }
-      return(NULL)  # Allow through
+sdm_check_rate_limit <- function(key, max_requests = 60, window_seconds = 60) {
+  current <- as.numeric(Sys.time())
+  window_start <- current - window_seconds
+  if (exists(key, envir = rate_limit_buckets)) {
+    timestamps <- rate_limit_buckets[[key]]
+    timestamps <- timestamps[timestamps > window_start]
+    if (length(timestamps) >= max_requests) {
+      return(FALSE)
     }
-    # Fall through to API key check if internal key doesn't match
+    rate_limit_buckets[[key]] <- c(timestamps, current)
+  } else {
+    rate_limit_buckets[[key]] <- current
   }
-
-  if (is.null(api_key) || !nzchar(api_key)) {
-    res$status <- 401L
-    res$body <- '{"error":"API key required. Provide X-API-Key header."}'
-    return(res)
-  }
-
-  # Validate API key
-  user_info <- validate_api_key(api_key)
-
-  if (is.null(user_info)) {
-    res$status <- 401L
-    res$body <- '{"error":"Invalid or expired API key."}'
-    return(res)
-  }
-
-  # Attach user info to request for downstream handlers
-  req$user_id <- user_info$user_id
-  req$user_email <- user_info$email
-  req$user_role <- user_info$role
-
-  NULL  # Continue to handler
+  TRUE
 }
+
+# validate_api_key now accepts an optional pool argument for connection pooling
+# (pool is set up in run_server.R and passed as an option)

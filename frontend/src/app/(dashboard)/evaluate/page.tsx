@@ -2,17 +2,23 @@
 
 import { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import dynamic from "next/dynamic";
 import { RunComparison } from "@/components/evaluate/run-comparison";
 import { ThresholdExplorer } from "@/components/evaluate/threshold-explorer";
-import { NicheOverlap } from "@/components/evaluate/niche-overlap";
-import { ImportanceChart } from "@/components/diagnostics/importance-chart";
-import { ResponseCurvesChart } from "@/components/diagnostics/response-curves-chart";
-import { CbiChart } from "@/components/diagnostics/cbi-chart";
 import { VifTable } from "@/components/diagnostics/vif-table";
 import { useRuns } from "@/hooks/use-runs";
 import { apiGet } from "@/services/api";
-import { BarChart3, Loader2, Image } from "lucide-react";
+import { BarChart3, Loader2, Image, Map as MapIcon } from "lucide-react";
 import type { ImportanceData, ResponseCurvesData, CbiData, VifData, RunDetail as ApiRunDetail } from "@/services/types";
+
+const NicheOverlap = dynamic(() => import("@/components/evaluate/niche-overlap"), { ssr: false });
+const ImportanceChart = dynamic(() => import("@/components/diagnostics/importance-chart"), { ssr: false });
+const ResponseCurvesChart = dynamic(() => import("@/components/diagnostics/response-curves-chart"), { ssr: false });
+const CbiChart = dynamic(() => import("@/components/diagnostics/cbi-chart"), { ssr: false });
+const SuitabilityMap = dynamic(
+  () => import("@/components/results/suitability-map"),
+  { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
+);
 
 export default function EvaluatePage() {
   const { data: runs, isLoading, error, refetch } = useRuns();
@@ -34,7 +40,7 @@ export default function EvaluatePage() {
       setSelectedId(first.id);
       apiGet<ApiRunDetail>(`/api/v1/sdm/status/${first.id}`)
         .then((detail) => setSelectedRun(detail))
-        .catch(() => {});
+        .catch(() => console.warn("[evaluate] Failed to fetch initial run details"));
     }
   }, [runs]);
 
@@ -124,8 +130,12 @@ export default function EvaluatePage() {
         </p>
       </div>
 
-      <Tabs defaultValue="comparison" className="space-y-4">
-        <TabsList className="grid w-full max-w-lg grid-cols-5">
+      <Tabs defaultValue="map" className="space-y-4">
+        <TabsList className="grid w-full max-w-2xl grid-cols-6">
+          <TabsTrigger value="map" className="flex items-center gap-1.5">
+            <MapIcon className="h-3.5 w-3.5" />
+            Map
+          </TabsTrigger>
           <TabsTrigger value="comparison" className="flex items-center gap-1.5">
             <BarChart3 className="h-3.5 w-3.5" />
             Compare
@@ -135,6 +145,39 @@ export default function EvaluatePage() {
           <TabsTrigger value="niche">Niche</TabsTrigger>
           <TabsTrigger value="vif">VIF</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="map">
+          {completedRuns.length > 0 ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {completedRuns.map((run) => (
+                  <button
+                    key={run.id}
+                    onClick={() => selectRun(run.id)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
+                      selectedId === run.id
+                        ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
+                        : "border-sdm-border bg-sdm-surface-soft text-sdm-muted hover:text-sdm-text"
+                    }`}
+                  >
+                    {run.species} ({run.model_id})
+                  </button>
+                ))}
+              </div>
+              {selectedRun ? (
+                <SuitabilityMap outputFiles={selectedRun.output_files} projectionExtent={(selectedRun.config?.projectionExtent as number[]) ?? null} runId={selectedRun.id} />
+              ) : (
+                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
+                  Select a run to view its suitability map.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
+              No completed runs available. Run a model first to view suitability maps.
+            </div>
+          )}
+        </TabsContent>
 
         <TabsContent value="comparison">
           <RunComparison runs={allRuns} />
@@ -180,23 +223,29 @@ export default function EvaluatePage() {
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Variable Importance</h4>
                       <ImportanceChart data={importanceData} loading={loadingDiagnostics} />
-                      {outputFiles.variable_importance_png && (
-                        <img
-                          src={`/api/v1/results/file/${encodeURIComponent(outputFiles.variable_importance_png)}`}
-                          alt="Variable importance PNG"
-                          className="w-full mt-3 rounded border border-sdm-border/50"
-                        />
+                      {!importanceData && outputFiles.variable_importance_png && (
+                        <div className="mt-3 aspect-video relative">
+                          <img
+                            src={`/api/v1/results/file/${encodeURIComponent(outputFiles.variable_importance_png)}`}
+                            alt="Variable importance PNG"
+                            loading="lazy"
+                            className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain"
+                          />
+                        </div>
                       )}
                     </div>
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Response Curves</h4>
                       <ResponseCurvesChart data={responseCurvesData} loading={loadingDiagnostics} />
-                      {outputFiles.response_curves_png && (
-                        <img
-                          src={`/api/v1/results/file/${encodeURIComponent(outputFiles.response_curves_png)}`}
-                          alt="Response curves PNG"
-                          className="w-full mt-3 rounded border border-sdm-border/50"
-                        />
+                      {!responseCurvesData && outputFiles.response_curves_png && (
+                        <div className="mt-3 aspect-video relative">
+                          <img
+                            src={`/api/v1/results/file/${encodeURIComponent(outputFiles.response_curves_png)}`}
+                            alt="Response curves PNG"
+                            loading="lazy"
+                            className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain"
+                          />
+                        </div>
                       )}
                     </div>
                   </div>
@@ -205,18 +254,23 @@ export default function EvaluatePage() {
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">CBI</h4>
                       <CbiChart data={cbiData} loading={loadingDiagnostics} />
-                      {outputFiles.cbi_png && (
-                        <img
-                          src={`/api/v1/results/file/${encodeURIComponent(outputFiles.cbi_png)}`}
-                          alt="CBI PNG"
-                          className="w-full mt-3 rounded border border-sdm-border/50"
-                        />
+                      {!cbiData && outputFiles.cbi_png && (
+                        <div className="mt-3 aspect-video relative">
+                          <img
+                            src={`/api/v1/results/file/${encodeURIComponent(outputFiles.cbi_png)}`}
+                            alt="CBI PNG"
+                            loading="lazy"
+                            className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain"
+                          />
+                        </div>
                       )}
                     </div>
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">ROC Curve</h4>
                       {rocCurvePng ? (
-                        <img src={rocCurvePng} alt="ROC curve" className="w-full rounded border border-sdm-border/50" />
+                        <div className="aspect-video relative">
+                          <img src={rocCurvePng} alt="ROC curve" className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain" loading="lazy" />
+                        </div>
                       ) : (
                         <div className="flex items-center justify-center h-48 text-sm text-sdm-muted italic">
                           <Image className="h-4 w-4 mr-1" /> Not available
@@ -229,7 +283,9 @@ export default function EvaluatePage() {
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Calibration</h4>
                       {calibrationPng ? (
-                        <img src={calibrationPng} alt="Calibration curve" className="w-full rounded border border-sdm-border/50" />
+                        <div className="aspect-video relative">
+                          <img src={calibrationPng} alt="Calibration curve" className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain" loading="lazy" />
+                        </div>
                       ) : (
                         <div className="flex items-center justify-center h-48 text-sm text-sdm-muted italic">
                           <Image className="h-4 w-4 mr-1" /> Not available
@@ -239,7 +295,9 @@ export default function EvaluatePage() {
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">CV Folds</h4>
                       {cvFoldsPng ? (
-                        <img src={cvFoldsPng} alt="CV folds" className="w-full rounded border border-sdm-border/50" />
+                        <div className="aspect-video relative">
+                          <img src={cvFoldsPng} alt="CV folds" className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain" loading="lazy" />
+                        </div>
                       ) : (
                         <div className="flex items-center justify-center h-48 text-sm text-sdm-muted italic">
                           <Image className="h-4 w-4 mr-1" /> Not available

@@ -16,13 +16,13 @@ fit_esm <- function(occ,
     stop(
       "Package 'ecospat' is required for ESM. ",
       "Install with: install.packages('ecospat')"
-    )
+    , call. = FALSE)
   }
   if (!requireNamespace("biomod2", quietly = TRUE)) {
     stop(
       "Package 'biomod2' is required by ecospat for ESM. ",
       "Install with: install.packages('biomod2')"
-    )
+    , call. = FALSE)
   }
 
   set.seed(seed)
@@ -72,10 +72,10 @@ fit_esm <- function(occ,
   )
 
   if (n_pres < 5) {
-    stop("ESM requires at least 5 presence records. Got: ", n_pres)
+    stop("ESM requires at least 5 presence records. Got: ", n_pres, call. = FALSE)
   }
   if (n_vars < 2) {
-    stop("ESM requires at least 2 predictor variables. Got: ", n_vars)
+    stop("ESM requires at least 2 predictor variables. Got: ", n_vars, call. = FALSE)
   }
   if (n_pairs > 100) {
     warning(
@@ -114,8 +114,8 @@ fit_esm <- function(occ,
   log_message(log_fun, "ESM: calibrating ", n_pairs, " bivariate models...")
   progress_step(progress_fun, 0.65, sprintf("ESM: calibrating %d bivariate models", n_pairs))
 
-  if (isTRUE(getOption("sdm.cancelled"))) {
-    stop("ESM modelling cancelled by user.")
+  if (isTRUE(getOption("sdm_cancelled")) || isTRUE(getOption("sdm.cancelled"))) {
+    stop("ESM modelling cancelled by user.", call. = FALSE)
   }
 
   esm_models <- tryCatch(
@@ -131,12 +131,12 @@ fit_esm <- function(occ,
       cleanup          = TRUE
     ),
     error = function(e) {
-      stop("ESM calibration failed: ", conditionMessage(e))
+      stop("ESM calibration failed: ", conditionMessage(e), call. = FALSE)
     }
   )
 
-  if (isTRUE(getOption("sdm.cancelled"))) {
-    stop("ESM modelling cancelled by user.")
+  if (isTRUE(getOption("sdm_cancelled")) || isTRUE(getOption("sdm.cancelled"))) {
+    stop("ESM modelling cancelled by user.", call. = FALSE)
   }
 
   log_message(log_fun, "ESM: building weighted ensemble (min_auc = ", min_auc, ")...")
@@ -258,7 +258,7 @@ predict_esm_suitability <- function(fit, env_project_scaled,
     pair_sd_tif <- sub("\\.tif$", "_pair_sd.tif", output_tif)
     terra::writeRaster(pair_sd, pair_sd_tif,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
     )
     log_message(log_fun, "ESM between-pair uncertainty written to: ", pair_sd_tif)
   }
@@ -278,7 +278,7 @@ predict_esm_suitability <- function(fit, env_project_scaled,
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
   terra::writeRaster(suit_raster, output_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
   )
   log_message(log_fun, "ESM suitability written to: ", output_tif)
 

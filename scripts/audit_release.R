@@ -78,7 +78,7 @@ audit_zip <- function(zip_path) {
   }
 }
 
-zip_paths <- list.files(dirname(sdm_project_root()), pattern = "^sdm-dashboard-v.+-(source|windows-ready)[.]zip$", full.names = TRUE)
+zip_paths <- list.files(sdm_project_root(), pattern = "^sdm-dashboard-v.+-(source|windows-ready)[.]zip$", full.names = TRUE)
 for (zip_path in zip_paths) audit_zip(zip_path)
 
 cat("Release audit passed. Source and Windows-ready selections are clean.\n")
