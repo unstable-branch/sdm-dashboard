@@ -87,6 +87,19 @@ read_occurrence_file <- function(path, log_fun = NULL) {
   if (is.null(path) || !file.exists(path)) {
     stop("Occurrence file not found. Upload a CSV or restore presence_data.csv.", call. = FALSE)
   }
+  # Decrypt if encryption is enabled
+  key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+  if (!is.na(key) && nzchar(key)) {
+    if (!requireNamespace("openssl", quietly = TRUE)) {
+      stop("openssl package required to read encrypted files. Install with install.packages('openssl')")
+    }
+    tmp <- tempfile(fileext = paste0(".", tolower(tools::file_ext(path))))
+    on.exit(unlink(tmp), add = TRUE)
+    encrypted <- readBin(path, "raw", file.info(path)$size)
+    data <- openssl::decrypt(encrypted, key = charToRaw(key))
+    writeBin(data, tmp)
+    path <- tmp
+  }
   ext <- tolower(tools::file_ext(path))
   if (ext == "zip") {
     result <- read_dwca(path, log_fun = log_fun)
@@ -127,12 +140,41 @@ read_occurrence_file <- function(path, log_fun = NULL) {
   })
 }
 
+pre_check_memory <- function(path, log_fun = NULL) {
+  if (!requireNamespace("terra", quietly = TRUE)) return(invisible(NULL))
+  file_size <- file.info(path)$size
+  if (is.na(file_size) || file_size <= 0) return(invisible(NULL))
+  est_in_mem_gb <- file_size * 3 / (1024^3)
+  tryCatch({
+    mem_info <- terra::mem_info()
+    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+      avail_gb <- mem_info$memavail
+      if (est_in_mem_gb > avail_gb * 0.6) {
+        stop(sprintf(
+          "Estimated memory for cleaning (%.1f GB) exceeds 60%% of available RAM (%.1f GB). ",
+          est_in_mem_gb, avail_gb
+        ), call. = FALSE)
+      }
+      if (est_in_mem_gb > avail_gb * 0.3) {
+        log_message(log_fun, sprintf("Large file: estimated memory %.1f GB of %.1f GB available", est_in_mem_gb, avail_gb))
+      }
+    }
+  }, error = function(e) {
+    if (grepl("^Estimated memory for cleaning", conditionMessage(e))) stop(e)
+  })
+}
+
 clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE,
-                              use_cc = FALSE, cc_tests = "all", log_fun = NULL, min_records = 1,
-                              max_coordinate_uncertainty = NULL) {
+                              use_cc = FALSE, cc_tests = "all", log_fun = NULL, min_records = 20,
+                              max_coordinate_uncertainty = NULL, max_records = 200000L) {
+  pre_check_memory(path, log_fun = log_fun)
   raw <- read_occurrence_file(path, log_fun = log_fun)
   original_n <- nrow(raw)
   if (original_n == 0) stop("Occurrence file is empty.", call. = FALSE)
+  if (original_n > max_records) {
+    stop(sprintf("Input contains %d records (max: %d). Large datasets should be thinned or filtered before upload.",
+      original_n, max_records), call. = FALSE)
+  }
 
   original_lon_col <- detect_column(names(raw), c("^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east"))
   original_lat_col <- detect_column(names(raw), c("^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north"))
@@ -195,7 +237,13 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
 
   ok <- complete_ok & finite_ok & bounds_ok & status_ok & uncertainty_ok
   removed_bad <- sum(!ok)
+  n_na <- sum(!complete_ok)
+  n_nonfinite <- sum(complete_ok & !finite_ok)
+  n_out_of_bounds <- sum(complete_ok & finite_ok & !bounds_ok)
   occ <- occ[ok, , drop = FALSE]
+  if (n_na > 0) log_message(log_fun, "  Removed ", n_na, " records with NA coordinates")
+  if (n_nonfinite > 0) log_message(log_fun, "  Removed ", n_nonfinite, " records with non-finite coordinates")
+  if (n_out_of_bounds > 0) log_message(log_fun, "  Removed ", n_out_of_bounds, " records outside [-180,180] / [-90,90]")
 
   duplicated_rows <- duplicated(occ[, c("longitude", "latitude", "source")])
   removed_dupes <- sum(duplicated_rows)
@@ -224,18 +272,48 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     } else {
       cc_tests
     }
-    cc_result <- tryCatch(
-      CoordinateCleaner::clean_coordinates(
-        occ,
-        lon = "longitude",
-        lat = "latitude",
-        species = NULL,
-        tests = cc_tests_active,
-        value = "spatialvalid"
-      ),
-      error = function(e) {
-        log_message(log_fun, "CoordinateCleaner failed: ", conditionMessage(e), "; skipping CC tests")
-        NULL
+    cc_tests_filtered <- cc_tests_active
+    if (!"species" %in% names(occ)) {
+      cc_tests_filtered <- setdiff(cc_tests_filtered, c("capitals", "centroids"))
+    }
+    cc_species <- if ("species" %in% names(occ)) "species" else NULL
+    cc_max_for_full <- 50000L
+    cc_run_on_sample <- nrow(occ) > cc_max_for_full
+    cc_input <- if (cc_run_on_sample) {
+      set.seed(sdm_default_seed)
+      occ[sample(nrow(occ), cc_max_for_full), , drop = FALSE]
+    } else {
+      occ
+    }
+    cc_result <- CoordinateCleaner::clean_coordinates(
+      cc_input,
+      lon = "longitude",
+      lat = "latitude",
+      species = cc_species,
+      tests = cc_tests_filtered,
+      value = "spatialvalid"
+    )
+    occ$cc_flag <- FALSE
+    if (cc_run_on_sample) {
+      sampled_idx <- as.integer(rownames(cc_input))
+      occ$cc_flag[sampled_idx] <- !cc_result$.summary
+    } else {
+      occ$cc_flag <- !cc_result$.summary
+    }
+    cc_test_map <- c(
+      .sea = "cc_test_sea", .cap = "cc_test_capitals",
+      .inst = "cc_test_institutions", .cen = "cc_test_centroids",
+      .otl = "cc_test_urban", .zer = "cc_test_zero",
+      .equ = "cc_test_equal", .gbf = "cc_test_gbif"
+    )
+    for (col in names(cc_result)) {
+      if (col %in% names(cc_test_map)) {
+        if (cc_run_on_sample) {
+          occ[[cc_test_map[[col]]]] <- FALSE
+          occ[[cc_test_map[[col]]]][sampled_idx] <- !cc_result[[col]]
+        } else {
+          occ[[cc_test_map[[col]]]] <- !cc_result[[col]]
+        }
       }
     )
     if (!is.null(cc_result)) {
@@ -254,6 +332,10 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
       n_flagged <- sum(!cc_result$.summary, na.rm = TRUE)
       log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", nrow(occ), " records")
     }
+    n_flagged <- sum(occ$cc_flag, na.rm = TRUE)
+    n_total <- if (cc_run_on_sample) cc_max_for_full else nrow(occ)
+    log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", n_total, " records",
+      if (cc_run_on_sample) paste0(" (sampled from ", nrow(occ), ")"))
   } else if (use_cc && !requireNamespace("CoordinateCleaner", quietly = TRUE)) {
     warning("CoordinateCleaner not installed. Install with: install.packages('CoordinateCleaner')")
   }
@@ -296,6 +378,7 @@ make_training_extent <- function(occ, buffer = 2) {
     ymin <- max(-90, ymin - 0.5)
     ymax <- min(90, ymax + 0.5)
   }
+  validate_extent(c(xmin, xmax, ymin, ymax), "training_extent")
   c(xmin, xmax, ymin, ymax)
 }
 

@@ -18,34 +18,13 @@ validate_api_key <- function(api_key, pool = NULL, app_dir = NULL) {
 
   # Use connection pool if available, otherwise create single connection
   tryCatch({
-    if (!is.null(pool)) {
-      con <- pool::poolCheckout(pool)
-      on.exit(pool::poolReturn(con), add = TRUE)
-    } else {
-      # Resolve app_dir for env file fallback
-      if (is.null(app_dir)) {
-        app_dir <- if (dir.exists("/app/R")) "/app" else normalizePath(file.path(getwd(), ".."), winslash = "/")
-      }
-      db_url <- Sys.getenv("DATABASE_URL", "")
-      if (!nzchar(db_url)) {
-        env_file <- file.path(app_dir, ".env")
-        if (file.exists(env_file)) {
-          lines <- readLines(env_file, warn = FALSE)
-          for (line in lines) {
-            if (grepl("^DATABASE_URL=", line)) {
-              db_url <- sub("^DATABASE_URL=", "", line)
-              break
-            }
-          }
-        }
-      }
-      if (!nzchar(db_url)) {
-        warning("DATABASE_URL not set, cannot validate API key")
-        return(NULL)
-      }
-      con <- DBI::dbConnect(RPostgres::Postgres(), url = db_url)
-      on.exit(DBI::dbDisconnect(con), add = TRUE)
-    }
+    parts <- parse_db_url(db_url)
+    con <- DBI::dbConnect(
+      RPostgres::Postgres(),
+      dbname = parts$dbname, host = parts$host,
+      port = parts$port, user = parts$user, password = parts$password
+    )
+    on.exit(DBI::dbDisconnect(con), add = TRUE)
 
     query <- "SELECT u.id, u.email, u.name, u.role, ak.created_at as key_created
               FROM api_keys ak

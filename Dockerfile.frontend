@@ -51,6 +51,8 @@ COPY --from=builder /app/frontend/.next/standalone ./
 COPY --from=builder /app/frontend/.next/static ./frontend/.next/static
 COPY --from=builder /app/frontend/public ./frontend/public
 
+ENV NODE_OPTIONS="--max-old-space-size=2048"
+
 USER node
 
 EXPOSE 3000

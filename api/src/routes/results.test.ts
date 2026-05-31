@@ -32,8 +32,8 @@ vi.mock("fs", () => ({
 }));
 
 vi.mock("fs/promises", () => ({
-  stat: vi.fn().mockResolvedValue(undefined),
-  readFile: vi.fn().mockResolvedValue(Buffer.from("test content")),
+  stat: vi.fn(() => Promise.resolve({ size: 1024, mtimeMs: 123456789 })),
+  readFile: vi.fn(() => Promise.resolve(Buffer.from("test content"))),
 }));
 
 vi.mock("../middleware/auth", () => ({
