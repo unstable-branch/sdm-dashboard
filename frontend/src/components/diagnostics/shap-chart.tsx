@@ -20,6 +20,17 @@ interface ShapChartProps {
   loading: boolean;
 }
 
+export function formatShapChartData(shap: ShapEntry[]) {
+  return [...shap]
+    .sort((a, b) => Math.abs(b.shap_value) - Math.abs(a.shap_value))
+    .slice(0, 15)
+    .map((d) => ({
+      variable: d.variable,
+      shap: d.shap_value,
+      absShap: Math.abs(d.shap_value),
+    }));
+}
+
 export function ShapChart({ data, loading }: ShapChartProps) {
   if (loading) {
     return <div className="flex items-center justify-center h-48 text-sdm-muted">Loading SHAP values...</div>;
@@ -33,14 +44,7 @@ export function ShapChart({ data, loading }: ShapChartProps) {
     );
   }
 
-  const chartData = [...data.shap]
-    .sort((a, b) => Math.abs(b.shap_value) - Math.abs(a.shap_value))
-    .slice(0, 15)
-    .map((d) => ({
-      variable: d.variable,
-      shap: d.shap_value,
-      absShap: Math.abs(d.shap_value),
-    }));
+  const chartData = formatShapChartData(data.shap);
 
   return (
     <div className="space-y-3">

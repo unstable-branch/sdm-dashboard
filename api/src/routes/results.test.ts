@@ -27,7 +27,7 @@ vi.mock("../db", () => ({
 }));
 
 vi.mock("fs", () => ({
-  existsSync: vi.fn((path: string) => !path.includes("..")),
+  existsSync: vi.fn((path: string) => !path.includes("..") && !path.endsWith(".enc")),
   readFileSync: vi.fn(() => "test content"),
 }));
 

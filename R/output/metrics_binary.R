@@ -15,6 +15,9 @@ auc_rank <- function(obs, score) {
 
 compute_binary_metrics <- function(obs, score, threshold = sdm_default_threshold) {
   threshold <- normalize_threshold(threshold)
+  if (!is.finite(threshold)) {
+    threshold <- 0.5
+  }
   ok <- is.finite(obs) & is.finite(score)
   obs <- as.integer(obs[ok])
   score <- as.numeric(score[ok])
