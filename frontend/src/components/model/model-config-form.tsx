@@ -885,6 +885,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
       <AdvancedSettings vifReduction={vifReduction} climateMatching={climateMatching} thinByCell={thinByCell} mergeSmallSources={mergeSmallSources} biasMethod={biasMethod} thickeningDistanceKm={thickeningDistanceKm} minSourceRecords={minSourceRecords} onSetVifReduction={setVifReduction} onSetClimateMatching={setClimateMatching} onSetThinByCell={setThinByCell} onSetMergeSmallSources={setMergeSmallSources} onSetBiasMethod={(v) => setBiasMethod(v as any)} onSetThickeningDistanceKm={setThickeningDistanceKm} onSetMinSourceRecords={setMinSourceRecords} />
 
+      <div className="space-y-4">
         {extentPreset === "custom" && (
           <div className="grid grid-cols-2 gap-3">
             <div>
