@@ -260,7 +260,7 @@ jobs:
         run: |
           dump_logs() {
             docker compose -f docker-compose.yml ps
-            docker compose -f docker-compose.yml logs --no-color --tail=200 plumber api frontend
+            docker compose -f docker-compose.yml logs --no-color --tail=200 garage plumber api frontend
           }
 
           wait_for() {
