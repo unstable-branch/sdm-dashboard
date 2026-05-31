@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: npm install -g pnpm
+      - run: npm install -g pnpm@10.30.3
 
       - uses: actions/setup-node@v4
         with:
@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: npm install -g pnpm
+      - run: npm install -g pnpm@10.30.3
 
       - uses: actions/setup-node@v4
         with:
@@ -104,7 +104,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: npm install -g pnpm
+      - run: npm install -g pnpm@10.30.3
 
       - uses: actions/setup-node@v4
         with:
@@ -221,6 +221,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - run: npm install -g pnpm@10.30.3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -300,7 +302,7 @@ jobs:
 
       - name: Type contract check (Plumber OpenAPI → TS types)
         run: |
-          npm install -g pnpm
+          npm install -g pnpm@10.30.3
           pnpm install --frozen-lockfile
           cd api && pnpm run generate:types --url=http://localhost:8000
           echo "Verifying generated types compile..."
@@ -308,7 +310,7 @@ jobs:
         continue-on-error: true
 
       - name: Scan images for vulnerabilities
-        uses: aquasecurity/trivy-action@v0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: sdm-plumber:test
           format: sarif
