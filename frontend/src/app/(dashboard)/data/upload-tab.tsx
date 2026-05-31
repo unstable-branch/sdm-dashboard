@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
 import { PreviewTable } from "@/components/data/preview-table";
@@ -55,7 +56,16 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
         </div>
       )}
       {uploadPreview && uploadPreview.length > 0 && <PreviewTable data={uploadPreview} title="Preview (first 5 records)" />}
-      {hasResult && (
+      {hasResult && uploadResult?.cleaned ? (
+        <div className="flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-green-500">
+            <span>Previously cleaned — {Number(uploadResult.cleaned_valid_records ?? uploadResult.n_rows ?? 0).toLocaleString()} valid records ready.</span>
+          </div>
+          <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
+            Run SDM →
+          </Link>
+        </div>
+      ) : hasResult && (
         <div className="flex items-center justify-between rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3">
           <div className="flex items-center gap-2 text-sm text-sdm-warning">
             <AlertTriangle className="h-4 w-4" />

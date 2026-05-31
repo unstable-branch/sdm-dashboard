@@ -285,13 +285,26 @@ function DataPageContent() {
   const uploadPreview = uploadResult?.preview as Record<string, unknown>[] | undefined;
   const handleSelectUpload = (file: Record<string, unknown>) => {
     const fp = file.file_id as string;
-    if (fp) {
-      setOccurrenceFilePath(fp);
-      setUploadResult({ ...file, file_id: fp, file_path: fp });
-      setRecordCount(Number(file.n_rows || 0));
-      const species = file.species as string;
-      if (species && species !== "—") useSDMStore.getState().setSpecies(species);
+    if (!fp) return;
+    setUploadResult({ ...file, file_id: fp, file_path: fp });
+    setOccurrenceFilePath(fp);
+    setRecordCount(Number(file.n_rows || 0));
+    setPipelineRunId(null);
+    setCleanResult(null);
+    if (Boolean(file.cleaned) && file.cleaned_file_path) {
+      setCleanedOccurrence({
+        filePath: file.cleaned_file_path as string,
+        df: [],
+        sourceCounts: {},
+        nAbsentExcluded: 0,
+        originalRows: Number(file.n_rows || 0),
+        validRecords: Number(file.cleaned_valid_records || file.n_rows || 0),
+      });
+    } else {
+      setCleanedOccurrence(null);
     }
+    const species = file.species as string;
+    if (species && species !== "—") useSDMStore.getState().setSpecies(species);
   };
   const previousUploads = uploadHistory;
   const previousUploadsLoading = historyLoading;
