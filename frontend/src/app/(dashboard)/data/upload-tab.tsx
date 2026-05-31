@@ -45,7 +45,7 @@ site_A,140.0,-23.0,1,0,1,200
 site_B,141.5,-24.0,0,1,0,450`}</pre>
           </div>
         </details>
-        <FileUpload onUpload={onUpload} loading={uploadLoading} error={uploadError} />
+        <FileUpload key={String(uploadResult?.file_id ?? "new")} onUpload={onUpload} loading={uploadLoading} error={uploadError} />
       </div>
 
       {cols && Object.keys(cols).length > 0 && <DetectedColumns columns={cols} />}
@@ -87,7 +87,7 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
         ) : (
           <div className="space-y-2 max-h-80 overflow-y-auto">
             {previousUploads.map((f, idx) => {
-              const isSelected = uploadResult?.file_id === f.file_id;
+              const isSelected = !!uploadResult?.file_id && uploadResult.file_id === f.file_id;
               const sizeStr = (f.file_size as number) > 1024 * 1024
                 ? `${((f.file_size as number) / 1024 / 1024).toFixed(1)} MB`
                 : `${((f.file_size as number) / 1024).toFixed(0)} KB`;
