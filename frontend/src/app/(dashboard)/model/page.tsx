@@ -6,6 +6,7 @@ import Link from "next/link";
 import ModelConfigForm from "@/components/model/model-config-form";
 import { RunHistory } from "@/components/model/run-history";
 import { JobProgress } from "@/components/jobs/job-progress";
+import { useJobSSE } from "@/hooks/use-job-sse";
 import { useSDMStore } from "@/stores/sdm-store";
 import { apiPost, apiGet } from "@/services/api";
 import { Ban, AlertTriangle, Loader2 } from "lucide-react";
