@@ -88,6 +88,7 @@ sdmRoutes.post("/run", async (c) => {
           speciesName: speciesName ?? null,
           modelId: config.modelId,
           status: "queued",
+          startedAt: new Date(),
           config: config as any,
           jobId: null,
           pipelineRunId: (config as any).pipelineRunId || null,

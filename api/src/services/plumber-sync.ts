@@ -131,6 +131,14 @@ async function syncRunningJobs() {
             progressJson,
           });
         } else if (plumberStatus === "completed") {
+          // Guard: skip if queue worker already completed this run
+          const [currentRun] = await db
+            .select({ status: runs.status })
+            .from(runs)
+            .where(eq(runs.id, run.id))
+            .limit(1);
+          if (currentRun && currentRun.status !== "running") continue;
+
           // Fetch provenance manifest from Plumber
           let provenance = null;
           try {
@@ -172,7 +180,7 @@ async function syncRunningJobs() {
 
           // Encrypt output files at rest
           if (run.jobId) {
-            const jobDir = join(PROJECT_ROOT, "outputs", "jobs", run.jobId);
+            const jobDir = join(PROJECT_ROOT, "outputs", "jobs", run.id);
             encryptOutputs(jobDir);
           }
 
