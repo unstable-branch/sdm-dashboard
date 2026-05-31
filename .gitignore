@@ -34,7 +34,7 @@ api/tmp/
 # R data directories
 data/uploads/
 outputs/
-covariates/
+/covariates/
 Worldclim/
 Worldclim_future/
 renv/
