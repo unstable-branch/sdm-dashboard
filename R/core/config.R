@@ -134,6 +134,10 @@ sdm_default_extent_preset <- "aus_full"
 sdm_default_projection_extent <- sdm_extent_presets[[sdm_default_extent_preset]]
 if (is.null(sdm_default_projection_extent)) sdm_default_projection_extent <- sdm_extent_presets$aus_full
 
+sdm_default_mask_type <- "none"
+sdm_default_mask_file <- "data/examples/geo/world_boundary.geojson"
+sdm_default_mask_buffer_deg <- NA_real_
+
 sdm_default_dirs <- c(
   sdm_default_output_dir,
   sdm_default_covariate_cache_dir,

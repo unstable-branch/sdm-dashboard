@@ -383,7 +383,7 @@ run_fast_sdm <- function(...) {
         if (nrow(df) == 0) {
           return(numeric(0))
         }
-        as.numeric(maxnet::predict.maxnet(mod$model, df, clamp = TRUE, type = "link"))
+        as.numeric(predict(mod$model, df, clamp = TRUE, type = "link"))
       },
       function(mod, newdata) stop("No importance prediction defined for model: ", model_id)
     )
@@ -520,7 +520,24 @@ run_fast_sdm <- function(...) {
       filename = tmp_cropped, overwrite = TRUE)
     file.rename(tmp_cropped, output_tif)
     suit <- terra::rast(output_tif)
+    mm <- tryCatch(terra::minmax(suit), error = function(e) NULL)
+    if (!is.null(mm) && all(!is.finite(mm))) {
+      stop("No valid cells in suitability raster — all predictions were NA", call. = FALSE)
+    }
     log_message(log_fun, "  Clipped suitability raster to projection extent")
+  }
+
+  # Apply boundary mask if configured
+  mask_type <- cfg$mask_type %||% sdm_default_mask_type
+  if (mask_type != "none") {
+    mask_file <- cfg$mask_file %||% sdm_default_mask_file
+    buffer_deg <- cfg$mask_buffer_deg %||% sdm_default_mask_buffer_deg
+    suit <- apply_boundary_mask(suit, mask_type, mask_file, buffer_deg, log_fun,
+                                output_tif = output_tif)
+    mm <- tryCatch(terra::minmax(suit), error = function(e) NULL)
+    if (!is.null(mm) && all(!is.finite(mm))) {
+      stop("Boundary mask produced all-NA raster — mask does not overlap projection extent", call. = FALSE)
+    }
   }
 
   # Ensemble variable importance (multi-model) — must come after suit is assigned

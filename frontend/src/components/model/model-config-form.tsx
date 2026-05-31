@@ -45,6 +45,8 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
   const [biovars, setBiovars] = useState<number[]>(DEFAULT_CONFIG.biovars);
   const [extentPreset, setExtentPreset] = useState("aus_full");
   const [customExtent, setCustomExtent] = useState<[number, number, number, number]>([112, 154, -44, -10]);
+  const [maskType, setMaskType] = useState<"none" | "landmass" | "ocean">("none");
+  const [maskBufferDeg, setMaskBufferDeg] = useState<number | undefined>(undefined);
   const [backgroundN, setBackgroundN] = useState(DEFAULT_CONFIG.backgroundN);
   const [cvFolds, setCvFolds] = useState(DEFAULT_CONFIG.cvFolds);
   const [cvStrategy, setCvStrategy] = useState<"random" | "spatial_blocks">(DEFAULT_CONFIG.cvStrategy);
@@ -209,6 +211,8 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
       modelId,
       biovars,
       projectionExtent: extent,
+      maskType,
+      maskBufferDeg,
       backgroundN,
       cvFolds,
       cvStrategy,
@@ -643,6 +647,44 @@ export function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence
             className="w-full"
           />
           <span className="text-sm text-sdm-muted">{threshold.toFixed(2)}</span>
+        </div>
+
+        <div className="pt-2 border-t border-sdm-border">
+          <h3 className="text-sm font-semibold text-sdm-heading mb-2">Boundary masking</h3>
+          <div className="space-y-2">
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">Mask type</label>
+              <select
+                value={maskType}
+                onChange={(e) => setMaskType(e.target.value as "none" | "landmass" | "ocean")}
+                className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
+              >
+                <option value="none">None</option>
+                <option value="landmass">Landmass (remove ocean)</option>
+                <option value="ocean">Ocean (remove land)</option>
+              </select>
+            </div>
+            {maskType !== "none" && (
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Buffer (decimal degrees, optional — auto = half cell)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={10}
+                  step={0.01}
+                  placeholder="Auto"
+                  value={maskBufferDeg ?? ""}
+                  onChange={(e) => setMaskBufferDeg(e.target.value ? Number(e.target.value) : undefined)}
+                  className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
+                />
+                <p className="text-xs text-sdm-muted mt-1">
+                  Uses Natural Earth 1:110m Admin 0 countries as the base boundary.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         <div>
