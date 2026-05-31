@@ -289,7 +289,7 @@ jobs:
           docker compose -f docker-compose.yml up -d --no-build frontend
 
           : "Health checks"
-          wait_for Plumber http://localhost:8000/health 72 5
+          wait_for Plumber http://localhost:8000/health 120 5
           wait_for API http://localhost:4000/health
           wait_for Frontend http://localhost:3000/
 
