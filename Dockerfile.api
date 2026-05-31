@@ -57,6 +57,8 @@ RUN addgroup -g 2000 uploadgroup && \
     chown root:uploadgroup /app/data/uploads && \
     chmod 775 /app/data/uploads
 
+ENV NODE_OPTIONS="--max-old-space-size=2048"
+
 USER node
 
 EXPOSE 4000

@@ -1,14 +1,14 @@
 import { AlertTriangle, Info } from "lucide-react";
+import { toNum, fmtFixed, fmtLocale } from "@/lib/utils";
 
-function num(v: unknown): number | null {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+function fmtArea(v: unknown): string {
+  const n = toNum(v);
+  return n !== null ? `${n.toLocaleString()} km²` : "—";
 }
 
-function formatArea(v: number): string {
-  if (v >= 1000) return `${Math.round(v).toLocaleString()} km²`;
-  if (v >= 1) return `${v.toFixed(1)} km²`;
-  return `${(v * 100).toFixed(1)} ha`;
+function fmtElapsed(v: unknown): string {
+  const n = toNum(v);
+  return n !== null ? `${Math.round(n)}s` : "—";
 }
 
 const OVERFITTING_SUGGESTIONS: Record<string, string> = {
@@ -38,44 +38,34 @@ interface MetricCardsProps {
 
 export function MetricCards({ metrics, modelId }: MetricCardsProps) {
   const overfittingLevel = metrics.overfitting_level as string | null;
-  const aucDiff = num(metrics.auc_diff);
+  const aucDiff = toNum(metrics.auc_diff);
+  const trainingAuc = toNum(metrics.training_auc);
+  const cvAuc = toNum(metrics.auc_mean);
+  const cvCbi = toNum(metrics.cv_cbi);
 
   const showOverfitting = overfittingLevel && overfittingLevel !== "none" && overfittingLevel !== null;
 
-  const area = num(metrics.high_suitability_area_km2);
-  const areaUncertainty = num(metrics.high_suitability_area_uncertainty_km2);
-  const areaCi95Lower = num(metrics.high_suitability_area_ci95_lower);
-  const areaCi95Upper = num(metrics.high_suitability_area_ci95_upper);
-
-  const areaValue = area ? formatArea(area) : "—";
-  const areaDetail = area && areaUncertainty
-    ? `±${formatArea(areaUncertainty)}`
-    : area && areaCi95Lower != null && areaCi95Upper != null
-    ? `95% CI: ${formatArea(areaCi95Lower)} – ${formatArea(areaCi95Upper)}`
-    : null;
-
-  const cards: { label: string; value: string; accent: string }[] = [
-    { label: "AUC (mean)", value: num(metrics.auc_mean)?.toFixed(3) ?? "—", accent: "text-sdm-accent" },
-    { label: "AUC (SD)", value: num(metrics.auc_sd)?.toFixed(3) ?? "—", accent: "text-sdm-muted" },
-    { label: "TSS (mean)", value: num(metrics.tss_mean)?.toFixed(3) ?? "—", accent: "text-sdm-accent" },
-    { label: "TSS (SD)", value: num(metrics.tss_sd)?.toFixed(3) ?? "—", accent: "text-sdm-muted" },
-    { label: "Presence records", value: num(metrics.presence_records)?.toLocaleString() ?? "—", accent: "text-sdm-heading" },
-    { label: "Background points", value: num(metrics.background_points)?.toLocaleString() ?? "—", accent: "text-sdm-heading" },
-    { label: "Elapsed time", value: num(metrics.elapsed_seconds) ? `${Math.round(num(metrics.elapsed_seconds)!)}s` : "—", accent: "text-sdm-heading" },
+  const cards = [
+    { label: "AUC (mean)", value: fmtFixed(metrics.auc_mean, 3), accent: "text-sdm-accent" },
+    { label: "AUC (SD)", value: fmtFixed(metrics.auc_sd, 3), accent: "text-sdm-muted" },
+    { label: "TSS (mean)", value: fmtFixed(metrics.tss_mean, 3), accent: "text-sdm-accent" },
+    { label: "TSS (SD)", value: fmtFixed(metrics.tss_sd, 3), accent: "text-sdm-muted" },
+    { label: "Presence records", value: fmtLocale(metrics.presence_records), accent: "text-sdm-heading" },
+    { label: "Background points", value: fmtLocale(metrics.background_points), accent: "text-sdm-heading" },
+    { label: "High-suitability area", value: fmtArea(metrics.high_suitability_area_km2), accent: "text-sdm-heading" },
+    { label: "Elapsed time", value: fmtElapsed(metrics.elapsed_seconds), accent: "text-sdm-heading" },
   ];
 
   if (showOverfitting && aucDiff !== null) {
-    cards.push({ label: "AUC gap (train - CV)", value: `+${aucDiff.toFixed(3)}`, accent: "text-amber-500" });
+    cards.push({ label: "AUC gap (train - CV)", value: `+${fmtFixed(aucDiff, 3)}`, accent: "text-amber-500" });
   }
 
-  const trainingAuc = num(metrics.training_auc);
-  if (trainingAuc !== null) {
-    cards.push({ label: "Training AUC", value: trainingAuc.toFixed(3), accent: "text-sdm-accent" });
+  if (trainingAuc !== null && trainingAuc !== undefined) {
+    cards.push({ label: "Training AUC", value: fmtFixed(trainingAuc, 3), accent: "text-sdm-accent" });
   }
 
-  const cvCbi = num(metrics.cv_cbi);
-  if (cvCbi !== null) {
-    cards.push({ label: "CV CBI", value: cvCbi.toFixed(3), accent: "text-sdm-muted" });
+  if (cvCbi !== null && cvCbi !== undefined) {
+    cards.push({ label: "CV CBI", value: fmtFixed(cvCbi, 3), accent: "text-sdm-muted" });
   }
 
   return (
@@ -96,16 +86,14 @@ export function MetricCards({ metrics, modelId }: MetricCardsProps) {
             <Info className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
           )}
           <div>
-            <p className={`text-sm font-medium ${
-              overfittingLevel === "high" ? "text-red-500" : "text-amber-500"
-            }`}>
-              {overfittingLevel === "high" ? "High overfitting detected" :
-               overfittingLevel === "medium" ? "Moderate overfitting detected" :
-               "Slight overfitting detected"}
+            <p className={`text-sm font-medium ${overfittingLevel === "high" ? "text-red-500" : "text-amber-500"}`}>
+              {overfittingLevel === "high" ? "Overfitting detected" : "Mild overfitting"}
             </p>
             <p className="text-xs text-sdm-muted mt-0.5">
-              Training AUC ({trainingAuc?.toFixed(3) ?? "?"}) exceeds CV AUC ({num(metrics.auc_mean)?.toFixed(3) ?? "?"})
-              by {aucDiff?.toFixed(3) ?? "?"}. {overfittingSuggestion(modelId ?? (metrics.model_id as string))}
+              Training AUC ({fmtFixed(trainingAuc, 3)}) exceeds CV AUC ({fmtFixed(cvAuc, 3)}) by {fmtFixed(aucDiff, 3)}.
+            </p>
+            <p className="text-xs text-sdm-muted mt-0.5">
+              Suggestion: {overfittingSuggestion(modelId ?? null)}
             </p>
           </div>
         </div>
@@ -119,15 +107,6 @@ export function MetricCards({ metrics, modelId }: MetricCardsProps) {
           </div>
         ))}
       </div>
-      {area != null && (
-        <div className="rounded-lg border border-sdm-accent/30 bg-sdm-accent/5 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">High-suitability area</p>
-          <p className="mt-1 text-2xl font-bold text-sdm-accent">{areaValue}</p>
-          {areaDetail && (
-            <p className="mt-0.5 text-xs text-sdm-muted">{areaDetail}</p>
-          )}
-        </div>
-      )}
     </div>
   );
 }

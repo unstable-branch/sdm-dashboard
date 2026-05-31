@@ -39,17 +39,31 @@ run_biomod2 <- function(occ_df, pred_stack, models = NULL,
   all_xy <- rbind(pres_xy, pa_xy)
   all_response <- c(rep(1, nrow(occ_df)), rep(0, nrow(pa_xy)))
 
-  biomod_data <- biomod2::BIOMOD_FormatingData(
-    resp.var = all_response,
-    expl.var = pred_stack,
-    resp.name = sp_name,
-    resp.xy = all_xy,
-    na.rm = TRUE
-  )
+  biomod_data <- tryCatch({
+    biomod2::BIOMOD_FormatingData(
+      resp.var = all_response,
+      expl.var = pred_stack,
+      resp.name = sp_name,
+      resp.xy = all_xy,
+      na.rm = TRUE
+    )
+  }, error = function(e) {
+    stop("biomod2 data formatting failed: ", conditionMessage(e), call. = FALSE)
+  })
 
   modeling_id <- paste0("sdm_", safe_slug(sp_name), "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
 
-  bm_opts <- biomod2::bm_ModelingOptions(bm.format = biomod_data, strategy = "default")
+  bm_opts <- tryCatch({
+    if (exists("bm_ModelingOptions", envir = asNamespace("biomod2"), inherits = FALSE)) {
+      biomod2::bm_ModelingOptions(bm.format = biomod_data, strategy = "default")
+    } else {
+      log_message(log_fun, "biomod2 bm_ModelingOptions not available in this version; using default options")
+      NULL
+    }
+  }, error = function(e) {
+    log_message(log_fun, "biomod2 bm_ModelingOptions failed: ", conditionMessage(e), "; using default options")
+    NULL
+  })
 
   # Use compat layer to validate/filter arguments against installed biomod2 signature
   user_args <- list(
@@ -66,10 +80,24 @@ run_biomod2 <- function(occ_df, pred_stack, models = NULL,
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
-  biomod_mod <- do.call(biomod2::BIOMOD_Modeling, user_args)
+  biomod_mod <- tryCatch({
+    do.call(biomod2::BIOMOD_Modeling, user_args)
+  }, error = function(e) {
+    stop("biomod2 modeling failed: ", conditionMessage(e), call. = FALSE)
+  })
 
-  evaluations <- biomod2::get_evaluations(biomod_mod)
-  var_importance <- biomod2::get_variables_importance(biomod_mod)
+  evaluations <- tryCatch({
+    biomod2::get_evaluations(biomod_mod)
+  }, error = function(e) {
+    log_message(log_fun, "biomod2 get_evaluations failed: ", conditionMessage(e))
+    NULL
+  })
+  var_importance <- tryCatch({
+    biomod2::get_variables_importance(biomod_mod)
+  }, error = function(e) {
+    log_message(log_fun, "biomod2 get_variables_importance failed: ", conditionMessage(e))
+    NULL
+  })
 
   eval_df <- data.frame(
     algorithm = rownames(evaluations),

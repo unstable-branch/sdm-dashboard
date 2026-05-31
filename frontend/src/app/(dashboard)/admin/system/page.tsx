@@ -49,10 +49,9 @@ export default function AdminSystemPage() {
       await apiPut("/api/v1/admin/system/settings", { key, value: parsed });
       setSuccess(`Saved ${key}`);
       setTimeout(() => setSuccess(null), 3000);
-      // Refresh
       const s = await apiGet<SystemSetting[]>("/api/v1/admin/system/settings");
       setSettings(s);
-      setEdits({});
+      setEdits((prev) => { const next = { ...prev }; delete next[key]; return next; });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {

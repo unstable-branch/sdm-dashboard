@@ -260,9 +260,19 @@ export const DEFAULT_CONFIG = {
   lulcYear: 2020,
   hfpYear: 2020,
   vifThreshold: 10,
+  projectionExtent: [112, 154, -44, -10] as [number, number, number, number],
   climateMatchingMethod: "mahalanobis" as const,
-  extrapolationMask: true,
-  messThreshold: 0,
+  maxnetAutoTune: false,
+  rfNumTrees: 500,
+  rfMtry: undefined,
+  rfMinNodeSize: 10,
+  gamK: 5,
+  xgbMaxDepth: 6,
+  xgbEta: 0.3,
+  xgbNRounds: 100,
+  dnnArchitecture: "DNN_Medium" as const,
+  dnnDropout: 0.3,
+  dnnL2Lambda: 0.001,
 };
 
 /**
