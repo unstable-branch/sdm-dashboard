@@ -30,7 +30,17 @@ compute_climate_match <- function(env_train, env_proj,
     if (!is.null(presence_points) && all(c("x", "y") %in% names(presence_points))) {
       train_vals <- terra::extract(env_train, presence_points[, c("x", "y")], ID = FALSE)
     } else {
-      train_vals <- as.data.frame(env_train, na.rm = FALSE, xy = FALSE)
+      n_cells <- terra::ncell(env_train)
+      sample_size <- min(5000, max(1000, ceiling(n_cells * 0.01)))
+      if (n_cells > sample_size) {
+        set.seed(sdm_default_seed)
+        sample_cells <- sample(n_cells, size = sample_size)
+        sample_xy <- terra::xyFromCell(env_train[[1]], sample_cells)
+        train_vals <- as.data.frame(terra::extract(env_train, sample_xy))
+        train_vals <- train_vals[complete.cases(train_vals), ]
+      } else {
+        train_vals <- as.data.frame(env_train, na.rm = FALSE, xy = FALSE)
+      }
     }
   } else {
     train_vals <- as.data.frame(env_train)
@@ -155,6 +165,9 @@ compute_climate_match <- function(env_train, env_proj,
 
   log_message(log_fun, "  Climate match: ", sprintf("%.1f%% similar (>0.5), ", summary$pct_similar),
     sprintf("%.1f%% dissimilar (<0.2)", summary$pct_dissimilar))
+
+  rm(sim_vals)
+  gc(verbose = FALSE)
 
   list(
     distance = dist_rast,

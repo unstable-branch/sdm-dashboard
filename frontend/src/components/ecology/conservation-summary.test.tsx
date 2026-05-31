@@ -56,7 +56,7 @@ describe("ConservationSummary", () => {
     await waitFor(() => {
       expect(screen.getByText(/Extent & Area of Occurrence/i)).toBeInTheDocument();
       expect(screen.getByText(/15,000 km²/i)).toBeInTheDocument();
-      expect(screen.getByText(/500 km²/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/500 km²/i).length).toBeGreaterThan(0);
     });
   });
 

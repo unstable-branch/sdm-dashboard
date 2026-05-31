@@ -87,6 +87,7 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   occ_used <- d$occ_used
   bg_xy <- d$bg_xy
 
+  set.seed(seed)
   x_train <- as.matrix(model_data[, covariates, drop = FALSE])
   y_train <- model_data$presence
   weights <- class_balance_weights(y_train)
@@ -94,24 +95,54 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   log_message(log_fun, "Fitting XGBoost SDM with ", sum(y_train == 1), " presences and ", sum(y_train == 0), " background points")
   log_message(log_fun, "  max_depth=", max_depth, " eta=", eta, " nrounds=", nrounds)
 
+  set.seed(seed + 1L)
+  val_idx <- sample(nrow(model_data), size = max(20L, floor(nrow(model_data) * 0.2)))
+  x_val <- x_train[val_idx, , drop = FALSE]
+  y_val <- y_train[val_idx]
+  x_train <- x_train[-val_idx, , drop = FALSE]
+  y_train <- y_train[-val_idx]
+  train_weights <- class_balance_weights(y_train)
+
+  dtrain <- xgboost::xgb.DMatrix(x_train, label = y_train, weight = train_weights)
+  dval <- xgboost::xgb.DMatrix(x_val, label = y_val)
+
   model <- tryCatch({
-    dtrain <- xgboost::xgb.DMatrix(data = x_train, label = y_train, weight = weights)
     xgboost::xgb.train(
-      params = list(
-        objective = "reg:logistic",
-        eval_metric = "auc",
-        max_depth = max_depth,
-        learning_rate = eta,
-        nthread = 1L,
-        seed = seed
-      ),
+      params = list(objective = "binary:logistic", eval_metric = "auc",
+                    max_depth = max_depth, eta = eta),
       data = dtrain,
       nrounds = nrounds,
-      verbose = 0
+      watchlist = list(train = dtrain, val = dval),
+      early_stopping_rounds = 10,
+      verbose = 0,
+      nthread = max(1L, as.integer(n_cores))
     )
   }, error = function(e) {
     stop("XGBoost fitting failed: ", conditionMessage(e), call. = FALSE)
   })
+
+  # Re-fit on full data without early stopping for the final model
+  dtrain_full <- xgboost::xgb.DMatrix(
+    rbind(x_train, x_val),
+    label = c(y_train, y_val),
+    weight = class_balance_weights(c(y_train, y_val))
+  )
+  model <- tryCatch({
+    xgboost::xgb.train(
+      params = list(objective = "binary:logistic", eval_metric = "auc",
+                    max_depth = max_depth, eta = eta),
+      data = dtrain_full,
+      nrounds = model$best_iteration %||% nrounds,
+      verbose = 0,
+      nthread = max(1L, as.integer(n_cores))
+    )
+  }, error = function(e) {
+    stop("XGBoost final fit failed: ", conditionMessage(e), call. = FALSE)
+  })
+
+  # Training metrics
+  x_pred <- predict(model, xgboost::xgb.DMatrix(rbind(x_train, x_val)))
+  train_metrics <- compute_binary_metrics(c(y_train, y_val), x_pred, threshold = threshold)
 
   cv <- cross_validate_xgboost(model_data, covariates, max_depth, eta, nrounds,
     k = cv_folds, seed = seed, n_cores = n_cores,
@@ -141,7 +172,8 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
     cv = cv,
     covariates = covariates,
     variable_importance = importance,
-    xgb_params = list(max_depth = max_depth, eta = eta, nrounds = nrounds)
+    xgb_params = list(max_depth = max_depth, eta = eta, nrounds = nrounds),
+    metrics = list(training_auc = train_metrics$auc, training_tss = train_metrics$tss)
   )
 }
 

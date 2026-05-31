@@ -26,95 +26,40 @@ write_manifest <- function(result, output_dir, base_name, cpu_ms = NA_real_, pea
         )
       }
 
-      manifest <- list(
-        run_timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-        app_version = list(
-          git_sha = git_sha,
-          r_version = R.version.string,
-          platform = R.version$platform,
-          package_versions = pkg_versions
-        ),
-        species = cfg$species %||% NA_character_,
-        model = list(
-          id = result$model_info$id %||% cfg$model_id %||% NA_character_,
-          label = result$model_info$label %||% cfg$model_label %||% NA_character_,
-          seed = as.integer(cfg$seed %||% sdm_default_seed),
-          parameters = as.list(cfg)
-        ),
-        data = list(
-          occurrence_file = occ_file,
-          occurrence_hash_sha256 = occurrence_hash,
-          cleaned_file = cfg$cleaned_file_id %||% NA_character_,
-          cleaning_summary = result$cleaning %||% list()
-        ),
-        covariates = list(
-          source = cfg$source %||% "worldclim",
-          worldclim_dir = cfg$worldclim_dir %||% sdm_default_worldclim_dir,
-          biovars = cfg$selected_biovars %||% list(),
-          resolution = as.integer(cfg$worldclim_res %||% sdm_default_worldclim_res),
-          vif_reduction = isTRUE(cfg$vif_reduction),
-          vif_threshold = cfg$vif_threshold %||% NA_real_,
-          file_hashes_sha256 = {
-            cov_files <- result$environment$files %||% list()
-            flat_files <- unlist(cov_files, use.names = FALSE)
-            if (length(flat_files) == 0) {
-              list()
-            } else {
-            hashes <- lapply(flat_files, function(f) {
-              if (file.exists(f)) tryCatch(digest::digest(f, algo = "sha256", file = TRUE), error = function(e) NA_character_) else NA_character_
-            })
-            stats::setNames(hashes, basename(flat_files))
-            }
-          }
-        ),
-        validation = list(
-          cv_folds = as.integer(cfg$cv_folds %||% sdm_default_cv_folds),
-          cv_strategy = cfg$cv_strategy %||% sdm_default_cv_strategy,
-          cv_block_size_km = if (!is.null(cfg$cv_block_size_km) && is.finite(cfg$cv_block_size_km)) as.numeric(cfg$cv_block_size_km) else sdm_default_cv_block_size_km,
-          seed = as.integer(cfg$seed %||% sdm_default_seed)
-        ),
-        metrics = if (!is.null(result$cv)) list(
-          auc_mean = result$cv$auc_mean %||% NA_real_,
-          auc_sd = result$cv$auc_sd %||% NA_real_,
-          tss_mean = result$cv$tss_mean %||% NA_real_,
-          tss_sd = result$cv$tss_sd %||% NA_real_,
-          presence_records = result$metrics$presence_records %||% NA_integer_,
-          background_points = result$metrics$background_points %||% NA_integer_,
-          elapsed_seconds = result$metrics$elapsed_seconds %||% NA_real_,
-          high_suitability_area_km2 = result$summary$high_risk_area_km2 %||% NA_real_
-        ) else NULL,
-        xai = if (!is.null(result$variable_importance) && is.data.frame(result$variable_importance) && nrow(result$variable_importance) > 0) {
-          imp <- result$variable_importance
-          list(
-            available = TRUE,
-            n_variables = nrow(imp),
-            top_variable = imp$variable[1],
-            top_importance = imp$importance[1],
-            baseline_auc = imp$baseline[1],
-            importance = lapply(seq_len(nrow(imp)), function(i) list(
-              variable = imp$variable[i],
-              importance = imp$importance[i],
-              sd = imp$sd[i]
-            )),
-            response_curves_available = !is.null(result$response_curves) && length(result$response_curves) > 0,
-            n_response_curves = length(result$response_curves %||% list())
-          )
-        } else {
-          list(available = FALSE)
-        },
-        resources = list(
-          r_cpu_time_ms = as.numeric(cpu_ms),
-          r_peak_memory_mb = as.numeric(peak_mb)
-        ),
-        output_files = result$paths %||% list(),
-        model_id = result$model_info$id %||% cfg$model_id %||% NA_character_,
-        extent = if (!is.null(cfg$projection_extent)) list(
-          xmin = cfg$projection_extent[1],
-          xmax = cfg$projection_extent[2],
-          ymin = cfg$projection_extent[3],
-          ymax = cfg$projection_extent[4]
-        ) else NULL
+      manifest$cleaning_summary <- result$cleaning %||% list()
+      manifest$covariate_source <- result$environment %||% list()
+      manifest$model_id <- result$model_info$id %||% NA_character_
+      manifest$model_label <- result$model_info$label %||% NA_character_
+      manifest$cv_strategy <- result$config$cv_strategy %||% NA_character_
+      manifest$cv_folds <- result$cv$k %||% NA_integer_
+      manifest$output_paths <- result$paths %||% list()
+
+      manifest$spatial <- list(
+        analysis_crs = result$config$analysis_crs %||% sdm_default_analysis_crs %||% "auto",
+        aoo_crs = result$eoo_aoo$aoo_crs %||% NA_character_,
+        projection_extent = result$config$projection_extent %||% list(NA_real_, NA_real_, NA_real_, NA_real_),
+        occurrence_bounds = if (!is.null(result$eoo_aoo) && !is.null(result$occ)) {
+          occ <- result$occ
+          if (is.data.frame(occ) && nrow(occ) > 0 && all(c("longitude", "latitude") %in% names(occ))) {
+            list(
+              lon_min = min(occ$longitude, na.rm = TRUE),
+              lon_max = max(occ$longitude, na.rm = TRUE),
+              lat_min = min(occ$latitude, na.rm = TRUE),
+              lat_max = max(occ$latitude, na.rm = TRUE)
+            )
+          } else NULL
+        } else NULL,
+        eoo_km2 = result$eoo_aoo$eoo_km2 %||% NA_real_,
+        aoo_km2 = result$eoo_aoo$aoo_km2 %||% NA_real_,
+        aoo_cell_size_km = result$eoo_aoo$aoo_cell_size_km %||% 2,
+        iucn_category = result$eoo_aoo$iucn_category %||% "Not evaluated"
       )
+
+      if (!is.null(result$mess)) {
+        manifest$mess_path <- result$mess$mess_tif %||% result$mess$paths$mess_tif %||% NA_character_
+      } else {
+        manifest$mess_path <- NA_character_
+      }
 
       json_path <- file.path(output_dir, paste0(base_name, "_manifest.json"))
       jsonlite::write_json(manifest, json_path, auto_unbox = TRUE, pretty = TRUE)

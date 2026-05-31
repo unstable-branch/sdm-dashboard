@@ -7,45 +7,6 @@ import { BatchProgress } from "@/components/batch/batch-progress";
 import { ArrowLeft, Play, Loader2 } from "lucide-react";
 import { apiPost } from "@/services/api";
 
-// Map snake_case CSV column names to camelCase API field names
-const SNAKE_TO_CAMEL: Record<string, string> = {
-  occurrences_csv: "occurrenceFile",
-  model_id: "modelId",
-  background_n: "backgroundN",
-  cv_folds: "cvFolds",
-  cv_strategy: "cvStrategy",
-  cv_block_size_km: "cvBlockSizeKm",
-  include_quadratic: "includeQuadratic",
-  use_elevation: "useElevation",
-  use_soil: "useSoil",
-  use_uv: "useUv",
-  use_vegetation: "useVegetation",
-  use_lulc: "useLulc",
-  use_hfp: "useHfp",
-  vif_reduction: "vifReduction",
-  future_projection: "futureProjection",
-  aggregation_factor: "aggregationFactor",
-  n_cores: "nCores",
-  worldclim_res: "worldclimRes",
-  soil_vars: "soilVars",
-  soil_depths: "soilDepths",
-  uv_vars: "uvVars",
-  maxnet_regmult: "maxnetRegmult",
-  maxnet_features: "maxnetFeatures",
-  thickening_distance_km: "thickeningDistanceKm",
-  min_source_records: "minSourceRecords",
-  pa_replicates: "paReplicates",
-  projection_extent: "projectionExtent",
-};
-
-function snakeToCamelKeys(row: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(row)) {
-    result[SNAKE_TO_CAMEL[key] || key] = val;
-  }
-  return result;
-}
-
 export default function BatchPage() {
   const router = useRouter();
   const [configs, setConfigs] = useState<Array<Record<string, unknown>> | null>(null);
@@ -69,12 +30,7 @@ export default function BatchPage() {
     setError(null);
 
     try {
-      const mappedConfigs = configs.map(snakeToCamelKeys);
-      const data = await apiPost<any>("/api/v1/sdm/batch", {
-        configs: mappedConfigs,
-        name: `Batch ${new Date().toLocaleDateString()} (${configs.length} species)`,
-      });
-      setBatchId(data.batch_id);
+      const data = await apiPost<{ job_ids: string[] }>("/api/v1/sdm/batch", { configs });
       setJobIds(data.job_ids);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Batch run failed");

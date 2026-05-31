@@ -22,56 +22,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc \
     && rm -rf /var/lib/apt/lists/*
 
-# Stage 1: Spatial packages (hard deps — must be installed before model backends)
-RUN R --no-save --no-restore <<'EOF'
-options(repos = c(CRAN = Sys.getenv("R_CRAN_REPO")))
-for (pkg in c("terra", "sf")) {
-  message("Installing: ", pkg)
-  install.packages(pkg, Ncpus=1, INSTALL_opts = c("--no-test-load"))
-}
-unlink("/tmp/downloaded_packages", recursive = TRUE)
-unlink(list.files("/tmp", pattern = "^Rtmp", full.names = TRUE), recursive = TRUE)
-EOF
-
-# Stage 2: All packages needed for model backends (must succeed).
-# pkgType="both" uses pre-compiled binaries from Posit PGM when available,
-# falling back to source compilation. Ncpus=1 avoids OOM on the few packages
-# that need source compilation. --no-test-load prevents crash-on-load.
-RUN R --no-save --no-restore <<'EOF'
-options(repos = c(CRAN = Sys.getenv("R_CRAN_REPO")))
-pkgs <- c(
-  "jsonlite", "sodium", "plumber", "httr", "callr",
-  "randomForest", "gbm", "maxnet", "nnet",
-  "mgcv", "earth", "rpart", "mda", "gam",
-  "xgboost", "ranger", "CAST", "blockCV",
-  "PresenceAbsence", "pROC", "ecospat", "plotrix",
-  "ggplot2",   "DBI", "RPostgres", "pool", "digest", "Rook",
-  "CoordinateCleaner", "rgbif", "finch",
-  "future", "future.apply", "marginaleffects",
-  "fastshap", "iml", "redux"
-)
-for (pkg in pkgs) {
-  message("Installing: ", pkg)
-  install.packages(pkg, Ncpus=1, INSTALL_opts = c("--no-test-load"))
-}
-unlink("/tmp/downloaded_packages", recursive = TRUE)
-unlink(list.files("/tmp", pattern = "^Rtmp", full.names = TRUE), recursive = TRUE)
-EOF
-
-# Stage 3: dev-only packages (fail gracefully)
-RUN R --no-save --no-restore <<'EOF'
-options(repos = c(CRAN = Sys.getenv("R_CRAN_REPO")))
-for (pkg in c("testthat")) {
-  tryCatch({
-    message("Installing: ", pkg)
-    install.packages(pkg, Ncpus=1, INSTALL_opts = c("--no-test-load"))
-  }, error = function(e) {
-    message("SKIP: ", pkg, " - ", conditionMessage(e))
-  })
-}
-unlink("/tmp/downloaded_packages", recursive = TRUE)
-unlink(list.files("/tmp", pattern = "^Rtmp", full.names = TRUE), recursive = TRUE)
-EOF
+RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages(c( \
+    'jsonlite', 'plumber', 'httr', 'callr', \
+    'randomForest', 'gbm', 'maxnet', 'nnet', \
+    'mgcv', 'earth', 'rpart', 'mda', 'gam', 'xgboost', 'ranger', \
+    'PresenceAbsence', 'pROC', 'ecospat', \
+    'marginaleffects', 'plotrix', 'ggplot2', \
+    'CAST', 'blockCV', \
+    'CoordinateCleaner', 'rgbif', 'finch', \
+    'future', 'future.apply', \
+    'testthat', \
+    'DBI', 'RPostgres', 'digest', \
+    'Rook', 'openssl' \
+  ), Ncpus=4)"
 
 WORKDIR /app
 

@@ -33,18 +33,22 @@ load_path <- file.path(app_dir, "R", "engine_load.R")
 }
 source(load_path)
 
-# Load structured error code taxonomy
-error_codes_path <- file.path(app_dir, "plumber", "R", "error_codes.R")
-if (file.exists(error_codes_path)) {
-  source(error_codes_path)
-}
+# Maximum concurrent model runs to prevent OOM
+SDM_MAX_CONCURRENT_RUNS <- as.integer(Sys.getenv("SDM_MAX_CONCURRENT_RUNS", "2"))
 
-# Atomically write JSON to a file (tempfile + rename to avoid partial reads)
-sdm_write_json <- function(obj, path, ...) {
-  tmp_path <- tempfile(pattern = basename(path), tmpdir = dirname(path))
-  on.exit(unlink(tmp_path))
-  writeLines(jsonlite::toJSON(obj, auto_unbox = TRUE, pretty = TRUE, ...), tmp_path)
-  file.rename(tmp_path, path)
+# Count currently running model processes
+sdm_count_active_runs <- function() {
+  if (!exists("sdm_process_registry", envir = .GlobalEnv, inherits = FALSE)) return(0L)
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(0L)
+  count <- 0L
+  for (key in ls(reg)) {
+    proc <- reg[[key]]
+    if (inherits(proc, "process") && tryCatch(proc$is_alive(), error = function(e) FALSE)) {
+      count <- count + 1L
+    }
+  }
+  count
 }
 
 # Helper for error responses
@@ -77,6 +81,39 @@ sdm_safe_job_dir <- function(run_id) {
     return(resolved)
   }
   NULL
+}
+
+# Database connection helper (reuses DATABASE_URL from auth.R)
+db_connect <- function() {
+  db_url <- Sys.getenv("DATABASE_URL", "")
+  if (!nzchar(db_url)) return(NULL)
+  tryCatch({
+    parts <- parse_db_url(db_url)
+    DBI::dbConnect(RPostgres::Postgres(),
+      dbname = parts$dbname, host = parts$host,
+      port = parts$port, user = parts$user, password = parts$password)
+  }, error = function(e) {
+    message("db_connect failed: ", conditionMessage(e))
+    NULL
+  })
+}
+
+parse_db_url <- function(url) {
+  m <- regexec("postgresql://([^:]+):([^@]+)@([^:]+):([0-9]+)/(.+)", url)
+  parts <- regmatches(url, m)[[1]]
+  if (length(parts) < 6) stop("Cannot parse DATABASE_URL")
+  list(user = parts[2], password = parts[3], host = parts[4], port = as.integer(parts[5]), dbname = parts[6])
+}
+
+db_insert_upload <- function(con, user_id, file_path, filename, file_size, format, n_rows, species, columns) {
+  if (is.null(con)) return(invisible(NULL))
+  tryCatch({
+    DBI::dbExecute(con,
+      "INSERT INTO uploads (user_id, file_path, filename, file_size, format, n_rows, species, columns_detected)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      params = list(user_id, file_path, filename, file_size, format, n_rows, species, columns)
+    )
+  }, error = function(e) message("Failed to record upload: ", conditionMessage(e)))
 }
 
 # --- Data endpoints ---
@@ -149,21 +186,27 @@ function(req) {
     }
 
     max_size <- 100 * 1024 * 1024
-    if (file.info(file_path)$size > max_size) {
+    file_size <- file.info(file_path)$size
+    if (file_size > max_size) {
       return(sdm_error(req, 413, paste("File too large. Maximum", max_size / 1e6, "MB.")))
     }
 
-    ext <- tolower(tools::file_ext(uploaded$filename %||% ""))
+    orig_name <- uploaded$filename[[1]] %||% uploaded$name[[1]] %||% "upload"
+    ext <- tolower(tools::file_ext(orig_name))
     is_dwca <- ext == "zip"
 
     upload_dir <- file.path(app_dir, "data", "uploads")
     dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
-    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", uploaded$filename %||% "upload")
+    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", orig_name)
     dest_path <- file.path(upload_dir, paste0(format(Sys.time(), "%Y%m%d_%H%M%S_"), safe_name))
-    if (!file.copy(file_path, dest_path, overwrite = TRUE)) {
-      stop(paste("Failed to save uploaded file to:", dest_path), call. = FALSE)
-    }
+    file.copy(file_path, dest_path, overwrite = TRUE)
+    encrypt_file(dest_path, dest_path)
     rel_path <- file.path("data", "uploads", basename(dest_path))
+
+    con <- db_connect()
+    on.exit(if (!is.null(con)) DBI::dbDisconnect(con), add = TRUE)
+
+    upload_result <- NULL
 
     if (is_dwca) {
       result <- read_dwca(file_path, log_fun = message)
@@ -181,10 +224,10 @@ function(req) {
       preview <- head(occ, 5)
       preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
 
-      list(
+      upload_result <- list(
         file_id = dest_path,
         file_path = rel_path,
-        filename = uploaded$filename %||% uploaded$name,
+        filename = uploaded$filename[[1]] %||% uploaded$name[[1]] %||% basename(dest_path),
         format = "dwca",
         n_rows = n_rows,
         n_returned = result$n_returned,
@@ -257,10 +300,10 @@ function(req) {
       preview <- head(occ, 5)
       preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
 
-      list(
+      upload_result <- list(
         file_id = dest_path,
         file_path = rel_path,
-        filename = uploaded$filename %||% uploaded$name,
+        filename = uploaded$filename[[1]] %||% uploaded$name[[1]] %||% basename(dest_path),
         format = if (ext %in% c("tsv", "txt")) "tsv" else "csv",
         n_rows = n_rows,
         species_detected = species_detected,
@@ -269,12 +312,43 @@ function(req) {
         preview = preview
       )
     }
+
+    db_insert_upload(
+      con, req$user_id %||% "unknown",
+      dest_path, upload_result$filename %||% basename(dest_path), file_size,
+      upload_result$format %||% "csv", upload_result$n_rows %||% 0L,
+      if (is.character(upload_result$species_detected)) upload_result$species_detected else NULL,
+      if (is.list(upload_result$columns_detected)) jsonlite::toJSON(upload_result$columns_detected, auto_unbox = TRUE) else NULL
+    )
+
+    upload_result
   }, error = function(e) {
     sdm_error(req, 400, conditionMessage(e))
   })
 }
 
-#* Clean occurrence data with configurable options (async)
+#* List uploaded files (persisted across sessions)
+#* @get /api/v1/occurrences/uploads
+function(req, limit = 50) {
+  limit <- suppressWarnings(as.integer(limit))
+  if (!is.finite(limit) || limit < 1) limit <- 50L
+  con <- db_connect()
+  if (is.null(con)) return(list(uploads = list()))
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  tryCatch({
+    user_filter <- req$user_id %||% "unknown"
+    rows <- DBI::dbGetQuery(con,
+      "SELECT id, filename, file_path, file_size, format, n_rows, species, columns_detected, created_at,
+              is_cleaned, cleaned_file_path, cleaned_valid_records, cleaned_original_rows
+       FROM uploads WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
+      params = list(user_filter, limit)
+    )
+    if (nrow(rows) == 0) return(list(uploads = list()))
+    list(uploads = lapply(seq_len(nrow(rows)), function(i) as.list(rows[i, ])))
+  }, error = function(e) list(uploads = list(), error = conditionMessage(e)))
+}
+
+#* Clean occurrence data with configurable options
 #* @param file_id The uploaded file path or ID
 #* @param min_source_records Minimum records per source to keep (default: 15)
 #* @param merge_small_sources Merge small sources (default: true)
@@ -300,11 +374,56 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
     cc_tests = cc_tests
   ), app_dir, user_id)
 
-  list(
-    job_id = job_id,
-    status = "running",
-    message = "Occurrence cleaning started in background"
-  )
+    cleaned_path <- file.path(
+      app_dir, "data", "uploads",
+      paste0("cleaned_", format(Sys.time(), "%Y%m%d_%H%M%S_"), basename(file_id))
+    )
+    utils::write.csv(occ, cleaned_path, row.names = FALSE)
+    encrypt_file(cleaned_path, cleaned_path)
+
+    # Persist cleaned state to uploads table
+    con <- db_connect()
+    if (!is.null(con)) {
+      on.exit(DBI::dbDisconnect(con), add = TRUE)
+      tryCatch(
+        DBI::dbExecute(con,
+          "UPDATE uploads SET is_cleaned = TRUE, cleaned_file_path = $1,
+           cleaned_valid_records = $2, cleaned_original_rows = $3
+           WHERE file_path = $4",
+          params = list(cleaned_path, nrow(occ), result$original_rows, file_id)
+        ),
+        error = function(e) NULL
+      )
+      # Track cleaned file size toward user's storage quota
+      cleaned_size <- file.info(cleaned_path)$size
+      tryCatch(
+        DBI::dbExecute(con,
+          "UPDATE users SET storage_used_bytes = COALESCE(storage_used_bytes, 0) + $1 WHERE id = $2",
+          params = list(cleaned_size, req$user_id %||% "unknown")
+        ),
+        error = function(e) NULL
+      )
+    }
+
+    preview <- head(occ, 5)
+    preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
+
+    list(
+      cleaned_id = file_id,
+      cleaned_file_id = cleaned_path,
+      valid_records = nrow(occ),
+      original_rows = result$original_rows,
+      removed_bad_coordinates = result$removed_bad_coordinates,
+      removed_duplicates = result$removed_duplicates,
+      n_absent_excluded = result$n_absent_excluded,
+      source_counts = as.list(source_counts),
+      occurrence_preview = preview,
+      cc_flagged = if ("cc_flag" %in% names(occ)) sum(occ$cc_flag, na.rm = TRUE) else 0L,
+      training_extent = make_training_extent(occ, buffer = 2)
+    )
+  }, error = function(e) {
+    sdm_error(req, 400, conditionMessage(e))
+  })
 }
 
 #* Search GBIF for occurrence records (async)
@@ -322,11 +441,27 @@ function(req, taxon, country = NULL, max_records = 100) {
 
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 
-  job_id <- sdm_async_submit("gbif", list(
-    taxon = taxon,
-    country = country,
-    max_records = max_records
-  ), app_dir, user_id)
+    upload_dir <- file.path(app_dir, "data", "uploads")
+    dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
+    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", taxon)
+    ts <- format(Sys.time(), "%Y%m%d_%H%M%S")
+    csv_path <- file.path(upload_dir, paste0(ts, "_gbif_", safe_name, ".csv"))
+    utils::write.csv(occ, csv_path, row.names = FALSE)
+    encrypt_file(csv_path, csv_path)
+
+    # Track GBIF file size toward user's storage quota
+    gbif_con <- db_connect()
+    if (!is.null(gbif_con)) {
+      on.exit(DBI::dbDisconnect(gbif_con), add = TRUE)
+      gbif_size <- file.info(csv_path)$size
+      tryCatch(
+        DBI::dbExecute(gbif_con,
+          "UPDATE users SET storage_used_bytes = COALESCE(storage_used_bytes, 0) + $1 WHERE id = $2",
+          params = list(gbif_size, req$user_id %||% "unknown")
+        ),
+        error = function(e) NULL
+      )
+    }
 
   list(
     job_id = job_id,
@@ -783,6 +918,7 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
 #* @param pa_replicates
 #* @param thickening_distance_km
 #* @param output_dir
+#* @param analysis_crs
 function(req) {
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody),
@@ -801,8 +937,23 @@ function(req) {
 
   biovars <- as.integer(unlist(strsplit(as.character(body$biovars %||% "1,4,6,12,15,18"), ",")))
   projection_extent <- as.numeric(unlist(strsplit(as.character(body$projection_extent %||% "112,154,-44,-10"), ",")))
-  if (length(projection_extent) != 4) {
-    return(sdm_error_code(req, "INVALID_INPUT", "projection_extent must have 4 values: xmin,xmax,ymin,ymax"))
+  if (length(projection_extent) != 4 || any(!is.finite(projection_extent))) {
+    return(sdm_error(req, 400, "projection_extent must have 4 numeric values: xmin,xmax,ymin,ymax"))
+  }
+  if (projection_extent[1] >= projection_extent[2] || projection_extent[3] >= projection_extent[4]) {
+    return(sdm_error(req, 400, "projection_extent has invalid ordering: xmin must be < xmax, ymin must be < ymax"))
+  }
+  if (projection_extent[1] < -180 || projection_extent[2] > 180 || projection_extent[3] < -90 || projection_extent[4] > 90) {
+    return(sdm_error(req, 400, "projection_extent is outside valid coordinate bounds (±180, ±90)"))
+  }
+
+  # Concurrency limit: reject if too many runs in-flight to prevent OOM
+  active <- sdm_count_active_runs()
+  if (active >= SDM_MAX_CONCURRENT_RUNS) {
+    return(sdm_error(req, 429, paste0(
+      "Server busy: ", active, " model run(s) in progress (max ", SDM_MAX_CONCURRENT_RUNS,
+      "). Please wait and retry."
+    )))
   }
 
   job_id <- paste0("run-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
@@ -822,8 +973,20 @@ function(req) {
   job_meta_file <- file.path(job_dir, "meta.json")
   sdm_write_json(job_meta, job_meta_file)
 
-  proc <- callr::r_bg(run_model_background, args = list(body, biovars, projection_extent, job_dir, app_dir, job_id),
-    stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"))
+  progress_log <- file.path(job_dir, "progress.log")
+
+  # Spawn model run in background via standalone script
+  # (avoids closure serialization issues with callr::r_bg)
+  script_path <- file.path(app_dir, "plumber", "R", "run_model_background.R")
+  if (!file.exists(script_path)) {
+    return(sdm_error(req, 500, paste("Model run script not found at:", script_path)))
+  }
+
+  proc <- callr::r_bg(function(script, job_dir, app_dir) {
+    source(script, local = TRUE)
+  }, args = list(script_path, job_dir, app_dir),
+  stdout = file.path(job_dir, "stdout.log"),
+  stderr = file.path(job_dir, "stderr.log"))
   sdm_process_registry[[job_id]] <- proc
 
   job_meta$process_pid <- proc$get_pid()
@@ -864,13 +1027,12 @@ function(res, job_id) {
         process_alive <<- FALSE
       })
     }
-    # Also check PID directly if stored
+    # Also check PID directly if stored (uses signal 0 which tests existence without sending signal)
     if (!process_alive && !is.null(meta$process_pid)) {
       pid <- as.integer(meta$process_pid)
       if (is.finite(pid)) {
         tryCatch({
-          ps_info <- tools::ps()
-          process_alive <- pid %in% ps_info$PID
+          process_alive <- tools::pskill(pid, signal = 0)
         }, error = function(e) {
           process_alive <<- FALSE
         })
@@ -905,20 +1067,18 @@ function(res, job_id) {
     sdm_redis_cancel_clear(job_id)
   }
 
-  # Try Redis progress first, fall back to file progress
-  redis_progress <- sdm_redis_progress_get(job_id, 20)
-  if (!is.null(redis_progress) && length(redis_progress) > 0) {
-    progress_lines <- redis_progress
-  } else {
-    progress_lines <- character(0)
-    if (file.exists(progress_file)) {
-      progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
+  progress_lines <- character(0)
+  last_stage <- NULL
+  if (file.exists(progress_file)) {
+    progress_lines <- tail(readLines(progress_file, warn = FALSE), 200)
+    for (line in rev(progress_lines)) {
+      stage <- gsub("^\\d{2}:\\d{2}:\\d{2}\\s*(\\[\\d+%\\]\\s*)?", "", line)
+      stage <- trimws(stage)
+      if (nchar(stage) >= 3) {
+        last_stage <- stage
+        break
+      }
     }
-  }
-
-  progress_json <- NULL
-  if (file.exists(progress_json_file)) {
-    progress_json <- jsonlite::fromJSON(progress_json_file, simplifyVector = FALSE)
   }
 
   list(
@@ -930,12 +1090,8 @@ function(res, job_id) {
     error_traceback = meta$error_traceback %||% NULL,
     metrics = meta$metrics %||% NULL,
     output_files = meta$output_files %||% NULL,
-    error_code = meta$error_code %||% NULL,
-    error_hint = meta$error_hint %||% NULL,
-    r_cpu_time_ms = meta$r_cpu_time_ms %||% NULL,
-    r_peak_memory_mb = meta$r_peak_memory_mb %||% NULL,
     progress_log = progress_lines,
-    progress_json = progress_json
+    last_stage = last_stage
   )
 }
 
@@ -1275,10 +1431,14 @@ function(req, job_id) {
 #* Health check
 #* @get /health
 function() {
+  mem_avail <- tryCatch(terra::mem_info()$memavail, error = function(e) NULL)
   list(
     status = "ok",
     r_version = R.version.string,
-    timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+    active_runs = sdm_count_active_runs(),
+    max_concurrent_runs = SDM_MAX_CONCURRENT_RUNS,
+    memory_gb = if (is.numeric(mem_avail)) mem_avail else NULL
   )
 }
 
@@ -1829,7 +1989,11 @@ function() {
     cv_folds = sdm_default_cv_folds,
     cv_strategy = sdm_default_cv_strategy,
     threshold = sdm_default_threshold,
-    extent_presets = sdm_extent_choices
+    extent_presets = sdm_extent_choices,
+    analysis_crs = sdm_default_analysis_crs,
+    analysis_crs_choices = lapply(seq_along(sdm_analysis_crs_choices), function(i) {
+      list(value = unname(sdm_analysis_crs_choices[i]), label = names(sdm_analysis_crs_choices)[i])
+    })
   )
 }
 
