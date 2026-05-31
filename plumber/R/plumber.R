@@ -374,6 +374,7 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
     cc_tests = cc_tests
   ), app_dir, user_id)
 
+  tryCatch({
     cleaned_path <- file.path(
       app_dir, "data", "uploads",
       paste0("cleaned_", format(Sys.time(), "%Y%m%d_%H%M%S_"), basename(file_id))
