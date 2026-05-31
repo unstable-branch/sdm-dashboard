@@ -771,6 +771,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
       <ClimatePanel biovars={biovars} climateCheckLoading={climateCheckLoading} missingBiovars={missingBiovars} onToggleBiovar={toggleBiovar} />
 
+      <div className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-sdm-text mb-1">Climate source</label>
