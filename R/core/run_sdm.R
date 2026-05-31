@@ -347,6 +347,8 @@ run_fast_sdm <- function(...) {
     importance_result <- fit$variable_importance
   }
 
+  extra_paths <- list()
+
   # Area of Applicability (AOA)
   aoa_result <- NULL
   if (!is.null(fit$model_data) && !is.null(fit$covariates)) {
@@ -414,7 +416,6 @@ run_fast_sdm <- function(...) {
   output_tif <- file.path(output_dir, paste0(base_name, "_suitability.tif"))
   output_png <- file.path(output_dir, paste0(base_name, "_suitability.png"))
   output_report <- file.path(output_dir, paste0(base_name, "_report.txt"))
-  extra_paths <- list()
   suit <- tryCatch({
     if (identical(model_id, "multi_ensemble")) {
       predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,

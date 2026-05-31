@@ -42,6 +42,8 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2,
     eoo_polygon <- NULL
   } else {
     pts <- sf::st_as_sf(xy_unique, coords = c("longitude", "latitude"), crs = 4326)
+    eoo_polygon <- NULL
+    eoo_poly_out <- NULL
 
     if (identical(eoo_method, "alpha_hull") && n_unique >= 4) {
       eoo_polygon <- tryCatch({
