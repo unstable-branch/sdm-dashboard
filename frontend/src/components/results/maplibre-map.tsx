@@ -6,58 +6,10 @@ import type { ViewState, MapRef } from "react-map-gl/maplibre";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { densifyGeoJSONFeature } from "@/lib/geodesic";
+import { LIGHT_STYLE, DARK_STYLE } from "@/lib/map-styles";
 import type { FeatureCollection } from "geojson";
 import { getToken } from "@/services/api";
 import { MapToolbar } from "./map-toolbar";
-
-const CARTO_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
-
-const LIGHT_STYLE = {
-  version: 8 as const,
-  sources: {
-    carto: {
-      type: "raster" as const,
-      tiles: [
-        "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-        "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-        "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-      ],
-      tileSize: 256,
-      attribution: CARTO_ATTRIBUTION,
-    },
-  },
-  layers: [
-    {
-      id: "carto-tiles",
-      type: "raster" as const,
-      source: "carto",
-    },
-  ],
-};
-
-const DARK_STYLE = {
-  version: 8 as const,
-  sources: {
-    carto: {
-      type: "raster" as const,
-      tiles: [
-        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      ],
-      tileSize: 256,
-      attribution: CARTO_ATTRIBUTION,
-    },
-  },
-  layers: [
-    {
-      id: "carto-tiles",
-      type: "raster" as const,
-      source: "carto",
-    },
-  ],
-};
 
 function extentBounds(
   coords: [[number, number], [number, number], [number, number], [number, number]]
