@@ -66,6 +66,7 @@ function DataPageContent() {
   const [cleanJobId, setCleanJobId] = useState<string | null>(null);
   const [useAsync, setUseAsync] = useState(false);
   const [useCc, setUseCc] = useState(true);
+  const [maxCoordUncertainty, setMaxCoordUncertainty] = useState<string>("");
 
   useEffect(() => {
     if (!cleanJobId) return;
@@ -240,7 +241,8 @@ function DataPageContent() {
     const effectiveAsync = useAsync || useCc;
     const pipelineRunId = useSDMStore.getState().pipelineRunId;
     try {
-      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", { file_id: uploadResult.file_id, species: useSDMStore.getState().species, min_source_records: 15, merge_small_sources: true, use_cc: useCc, cc_tests: "all", async: effectiveAsync, pipelineRunId }, { timeout: 600000 });
+      const uncert = maxCoordUncertainty ? Math.max(0, Number(maxCoordUncertainty)) || undefined : undefined;
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", { file_id: uploadResult.file_id, species: useSDMStore.getState().species, min_source_records: 15, merge_small_sources: true, use_cc: useCc, cc_tests: "all", max_coordinate_uncertainty: uncert, async: effectiveAsync, pipelineRunId }, { timeout: 600000 });
       if (effectiveAsync && (result.job_id || result.jobId)) {
         const jid = (result.job_id || result.jobId) as string; setCleanJobId(jid);
         const poll = async () => {
@@ -428,7 +430,8 @@ function DataPageContent() {
         {activeTab === "clean" && (
           <CleanTab uploadResult={uploadResult} cleanResult={cleanResult} cleanLoading={cleanLoading}
             cleanError={cleanError} cleanJobId={cleanJobId} useAsync={useAsync} useCc={useCc}
-             onSetUseAsync={setUseAsync} onSetUseCc={setUseCc}
+            maxCoordUncertainty={maxCoordUncertainty}
+            onSetUseAsync={setUseAsync} onSetUseCc={setUseCc} onSetMaxCoordUncertainty={setMaxCoordUncertainty}
             onClean={handleClean} onCleanComplete={handleCleanComplete} onFlagToggle={handleFlagToggle}
             onRunModel={() => router.push("/model")} />
         )}

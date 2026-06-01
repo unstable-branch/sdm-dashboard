@@ -70,6 +70,7 @@ result <- tryCatch({
           merge_small_sources = input$merge_small_sources %||% TRUE,
           use_cc = input$use_cc %||% FALSE,
           cc_tests = input$cc_tests %||% "all",
+          max_coordinate_uncertainty = input$max_coordinate_uncertainty %||% NULL,
           log_fun = log_msg
         )
 
