@@ -148,6 +148,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   chelsaExtras: "chelsa_extras",
   analysisCrs: "analysis_crs",
   generateTiles: "generate_tiles",
+  speciesFilter: "species_filter",
 };
 
 export function buildModelPayload(config: ModelConfigRecord, runId: string): Record<string, unknown> {

@@ -882,6 +882,238 @@ function(req) {
   )
 }
 
+# --- Targets pipeline endpoints ---
+
+#* Submit a multi-species batch via targets pipeline
+#* @post /api/v1/models/targets-run
+function(req) {
+  body <- tryCatch(
+    jsonlite::fromJSON(req$postBody),
+    error = function(e) NULL
+  )
+  if (is.null(body) || is.null(body$configs) || length(body$configs) == 0) {
+    return(sdm_error_code(req, "INVALID_INPUT", "Request body must contain a non-empty 'configs' array"))
+  }
+
+  job_id <- paste0("targets-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
+  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
+  dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+
+  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
+
+  # Write config CSV for _targets.R
+  configs <- body$configs
+  csv_rows <- lapply(seq_along(configs), function(i) {
+    c <- configs[[i]]
+    data.frame(
+      species = c$species %||% "",
+      species_filter = c$species_filter %||% c$species %||% "",
+      occurrences_csv = c$cleaned_file_id %||% c$occurrence_file %||% "",
+      model_id = c$model_id %||% "glm",
+      biovars = paste(c$biovars %||% "1,4,6,12,15,18", collapse = ","),
+      projection_extent = paste(c$projection_extent %||% "112,154,-44,-10", collapse = ","),
+      background_n = as.character(c$background_n %||% 10000),
+      cv_folds = as.character(c$cv_folds %||% 5),
+      threshold = as.character(c$threshold %||% 0.5),
+      stringsAsFactors = FALSE
+    )
+  })
+  config_df <- do.call(rbind, csv_rows)
+  config_csv <- file.path(job_dir, "config.csv")
+  write.csv(config_df, config_csv, row.names = FALSE)
+
+  job_meta <- list(
+    id = job_id,
+    user_id = user_id,
+    status = "queued",
+    type = "targets",
+    n_species = length(configs),
+    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+    config_csv = config_csv
+  )
+  sdm_write_json(job_meta, file.path(job_dir, "meta.json"))
+
+  # Spawn targets pipeline
+  script_path <- file.path(app_dir, "plumber", "R", "targets_dispatcher.R")
+  if (!file.exists(script_path)) {
+    return(sdm_error(req, 500, paste("Targets dispatcher not found at:", script_path)))
+  }
+
+  proc <- callr::r_bg(function(script, job_dir, app_dir) {
+    source(script, local = TRUE)
+  }, args = list(script_path, job_dir, app_dir),
+  stdout = file.path(job_dir, "stdout.log"),
+  stderr = file.path(job_dir, "stderr.log"))
+  sdm_process_registry[[job_id]] <- proc
+
+  job_meta$process_pid <- proc$get_pid()
+  job_meta$status <- "running"
+  sdm_write_json(job_meta, file.path(job_dir, "meta.json"))
+
+  list(
+    job_id = job_id,
+    status = "running",
+    n_species = length(configs),
+    message = paste0("Targets pipeline started with ", length(configs), " species")
+  )
+}
+
+#* Get targets pipeline status
+#* @get /api/v1/models/targets-status/<job_id>
+function(res, job_id) {
+  job_dir <- sdm_safe_job_dir(job_id)
+  if (is.null(job_dir)) {
+    res$status <- 404L; return(list(error = "Invalid job ID"))
+  }
+  meta_file <- file.path(job_dir, "meta.json")
+  if (!file.exists(meta_file)) {
+    res$status <- 404L; return(list(error = "Run not found"))
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+
+  # Process crash detection
+  if (identical(meta$status, "running")) {
+    proc <- sdm_process_registry[[job_id]]
+    process_alive <- FALSE
+    if (!is.null(proc)) {
+      tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
+    }
+    if (!process_alive && !is.null(meta$process_pid)) {
+      pid <- as.integer(meta$process_pid)
+      if (is.finite(pid)) {
+        tryCatch({ process_alive <- tools::pskill(pid, signal = 0) }, error = function(e) NULL)
+      }
+    }
+    if (!process_alive) {
+      meta$status <- "failed"
+      meta$error <- "Process crashed or was killed"
+      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      sdm_write_json(meta, meta_file)
+      sdm_process_registry[[job_id]] <- NULL
+    }
+  }
+
+  # Read targets metadata for progress
+  store_path <- file.path(job_dir, "_targets")
+  targets_progress <- NULL
+  if (dir.exists(store_path)) {
+    tryCatch({
+      tm <- targets::tar_meta(store = store_path)
+      if (is.data.frame(tm) && nrow(tm) > 0) {
+        targets_progress <- list(
+          total_targets = nrow(tm),
+          completed = sum(tm$status == "completed", na.rm = TRUE),
+          errored = sum(tm$status == "errored", na.rm = TRUE),
+          running = sum(tm$status == "running", na.rm = TRUE)
+        )
+        # Extract per-target status
+        targets_progress$targets <- lapply(seq_len(nrow(tm)), function(i) {
+          list(
+            name = tm$name[i],
+            type = tm$type[i] %||% "stem",
+            status = tm$status[i] %||% "unknown",
+            seconds = if (!is.null(tm$seconds[i]) && is.finite(tm$seconds[i])) tm$seconds[i] else NULL,
+            error = if (!is.null(tm$error[i]) && nzchar(tm$error[i] %||% "")) tm$error[i] else NULL
+          )
+        })
+      }
+    }, error = function(e) NULL)
+  }
+
+  # Read progress log
+  progress_log <- character(0)
+  progress_file <- file.path(job_dir, "progress.log")
+  if (file.exists(progress_file)) {
+    progress_log <- readLines(progress_file, warn = FALSE)
+  }
+
+  list(
+    id = meta$id,
+    status = meta$status,
+    n_species = meta$n_species %||% 0,
+    started_at = meta$started_at,
+    completed_at = meta$completed_at %||% NULL,
+    error = meta$error %||% NULL,
+    error_code = meta$error_code %||% NULL,
+    error_hint = meta$error_hint %||% NULL,
+    targets_progress = targets_progress,
+    progress_log = progress_log
+  )
+}
+
+#* Get targets pipeline results
+#* @get /api/v1/models/targets-results/<job_id>
+function(res, job_id) {
+  job_dir <- sdm_safe_job_dir(job_id)
+  if (is.null(job_dir)) {
+    res$status <- 404L; return(list(error = "Invalid job ID"))
+  }
+  meta_file <- file.path(job_dir, "meta.json")
+  if (!file.exists(meta_file)) {
+    res$status <- 404L; return(list(error = "Run not found"))
+  }
+
+  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  store_path <- file.path(job_dir, "_targets")
+
+  results <- list()
+  if (dir.exists(store_path)) {
+    tryCatch({
+      tm <- targets::tar_meta(store = store_path)
+      if (is.data.frame(tm) && nrow(tm) > 0) {
+        # Group by species by examining the post targets (which contain final results)
+        post_rows <- tm[tm$name %in% grep("^post_", tm$name, value = TRUE), , drop = FALSE]
+        for (i in seq_len(nrow(post_rows))) {
+          pr <- post_rows[i, , drop = FALSE]
+          species_name <- gsub("^post_", "", pr$name)
+          result_path <- file.path(job_dir, pr$data[[1]]$path %||% "")
+          species_result <- NULL
+          if (file.exists(result_path) && grepl("\\.rds$", result_path)) {
+            species_result <- tryCatch(readRDS(result_path), error = function(e) NULL)
+          }
+          row <- list(
+            name = species_name,
+            status = pr$status %||% "unknown",
+            error = if (!is.null(pr$error) && nzchar(pr$error[1] %||% "")) pr$error[1] else NULL,
+            metrics = tryCatch({
+              if (!is.null(species_result)) {
+                list(
+                  auc_mean = species_result$cv$auc_mean %||% NA_real_,
+                  auc_sd = species_result$cv$auc_sd %||% NA_real_,
+                  tss_mean = species_result$cv$tss_mean %||% NA_real_,
+                  tss_sd = species_result$cv$tss_sd %||% NA_real_,
+                  cbi = species_result$metrics$cbi %||% NA_real_,
+                  presence_records = species_result$metrics$presence_records %||% NA_integer_,
+                  elapsed_seconds = species_result$metrics$elapsed_seconds %||% NA_real_
+                )
+              } else NULL
+            }, error = function(e) NULL)
+          )
+          results[[species_name]] <- row
+        }
+      }
+    }, error = function(e) NULL)
+  }
+
+  config_csv <- file.path(job_dir, "config.csv")
+  species_list <- character(0)
+  if (file.exists(config_csv)) {
+    tryCatch({
+      df <- read.csv(config_csv, stringsAsFactors = FALSE)
+      species_list <- df$species
+    }, error = function(e) NULL)
+  }
+
+  list(
+    id = meta$id,
+    status = meta$status,
+    n_species = meta$n_species %||% length(species_list),
+    species = species_list,
+    results = results
+  )
+}
+
 #* Get model run status
 #* @get /api/v1/models/status/<job_id>
 function(res, job_id) {
@@ -1886,13 +2118,16 @@ function() {
   ids <- sdm_model_ids()
   lapply(ids, function(id) {
     spec <- get_sdm_model(id)
+    tier <- COMPLEXITY_MODEL_TIERS[id]
+    if (is.na(tier)) tier <- "moderate"
     list(
       id = id,
       label = spec$label,
       maturity = spec$maturity,
       min_records = if (!is.na(spec$min_records)) spec$min_records else NULL,
       packages = spec$packages,
-      notes = if (length(spec$notes) > 0) paste(spec$notes, collapse = " ") else ""
+      notes = if (length(spec$notes) > 0) paste(spec$notes, collapse = " ") else "",
+      complexity_tier = tier
     )
   })
 }

@@ -80,6 +80,10 @@ result <- tryCatch({
         )
         utils::write.csv(occ$occ, cleaned_path, row.names = FALSE)
 
+        species_counts <- if ("species" %in% names(occ$occ)) {
+          as.list(sort(table(occ$occ$species), decreasing = TRUE))
+        } else list()
+
         list(
           status = "completed",
           result = list(
@@ -91,6 +95,7 @@ result <- tryCatch({
             removed_duplicates = occ$removed_duplicates,
             n_absent_excluded = occ$n_absent_excluded,
             source_counts = as.list(occ$source_counts),
+            species_counts = species_counts,
             cc_flagged = if ("cc_flag" %in% names(occ$occ)) sum(occ$occ$cc_flag, na.rm = TRUE) else 0L,
             cleaned_records = head(lapply(seq_len(nrow(occ$occ)), function(i) as.list(occ$occ[i, ])), 100)
           )

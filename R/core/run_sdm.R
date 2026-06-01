@@ -122,6 +122,8 @@ run_fast_sdm <- function(...) {
   dnn_lambda <- cfg$dnn_lambda %||% 0.001
   overlap_warn <- cfg$overlap_warn
   validation_occurrences <- cfg$validation_occurrences
+  niche_breadth <- cfg$niche_breadth %||% sdm_default_niche_breadth
+  species_filter <- cfg$species_filter %||% ""
   ensure_sdm_packages("terra", n_cores = n_cores)
   n_cores <- configure_parallel(n_cores, log_fun = log_fun)
   projection_extent <- validate_extent(as.numeric(projection_extent), "projection_extent")
@@ -174,6 +176,11 @@ run_fast_sdm <- function(...) {
     cleaned <- clean_occurrences(occurrence_file, min_source_records = min_source_records, merge_small_sources = merge_small_sources, use_cc = use_cc, cc_tests = cc_tests, log_fun = log_fun, max_coordinate_uncertainty = max_coordinate_uncertainty)
     occ <- cleaned$occ
   }
+  if (nzchar(species_filter) && "species" %in% names(occ)) {
+    occ <- occ[occ$species == species_filter, , drop = FALSE]
+    if (nrow(occ) == 0) stop("No records remain after filtering for species '", species_filter, "'", call. = FALSE)
+    log_message(log_fun, "Filtered to species '", species_filter, "': ", nrow(occ), " records remaining")
+  }
   model_meta <- get_sdm_model(model_id)
   min_rec_req <- model_meta$min_records %||% sdm_default_min_source_records
   has_presence_col <- "presence" %in% names(occ) && any(occ$presence == 1, na.rm = TRUE)
@@ -183,6 +190,13 @@ run_fast_sdm <- function(...) {
       "Model '%s' requires at least %d presence records. Got %d.",
       model_id, min_rec_req, n_pres
     ), call. = FALSE)
+  }
+  tier_check <- check_complexity_tier(model_id, n_pres, niche_breadth)
+  if (tier_check$status == "blocked") {
+    stop(tier_check$message, call. = FALSE)
+  }
+  if (tier_check$status == "warn" && !is.null(tier_check$warning)) {
+    log_message(log_fun, tier_check$warning)
   }
   dwca_doi <- attr(cleaned$raw, "gbif_doi")
   if (!is.null(dwca_doi) && !is.na(dwca_doi) && nzchar(dwca_doi)) {
@@ -1148,11 +1162,18 @@ sdm_stage_clean <- function(cfg, log_fun = NULL) {
       stop("Stage 1 (clean) failed: ", conditionMessage(e), call. = FALSE)
     }
   )
-  list(cleaned = cleaned, occ = cleaned$occ)
+  occ <- cleaned$occ
+  species_filter <- cfg$species_filter %||% ""
+  if (nzchar(species_filter) && "species" %in% names(occ)) {
+    occ <- occ[occ$species == species_filter, , drop = FALSE]
+    if (nrow(occ) == 0) stop("No records remain after filtering for species '", species_filter, "'")
+    log_message(log_fun, "Filtered to species '", species_filter, "': ", nrow(occ), " records remaining")
+  }
+  list(cleaned = cleaned, occ = occ)
 }
 
 #' Run SDM pipeline: Stage 2 — Load and scale environmental covariates
-sdm_stage_covariates <- function(cfg, occ, log_fun = NULL) {
+sdm_stage_covariates <- function(cfg, occ = NULL, log_fun = NULL) {
   log_message(log_fun, "Stage 2: Loading covariates")
   tryCatch(load_environment(
     worldclim_dir = cfg$worldclim_dir,
@@ -1307,4 +1328,78 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   }, error = function(e) {
     stop("Stage 5 (postprocess) failed: ", conditionMessage(e), call. = FALSE)
   })
+}
+
+check_complexity_tier <- function(model_id, n_pres, niche_breadth = "average",
+                                   tier_threshold_1 = COMPLEXITY_TIER_SIMPLE,
+                                   tier_threshold_2 = COMPLEXITY_TIER_MODERATE,
+                                   log_fun = NULL) {
+  model_id <- as.character(model_id)[1]
+  tier <- COMPLEXITY_MODEL_TIERS[model_id]
+  if (is.na(tier)) tier <- "moderate"
+
+  multiplier <- COMPLEXITY_NICHE_MULTIPLIERS[niche_breadth]
+  if (is.na(multiplier)) multiplier <- 1.0
+
+  thresh_1 <- as.integer(tier_threshold_1 * multiplier)
+  thresh_2 <- as.integer(tier_threshold_2 * multiplier)
+
+  if (tier == "very_complex") {
+    if (n_pres < thresh_1) {
+      return(list(
+        status = "blocked",
+        message = sprintf(
+          "Model '%s' (very complex, requires >= %d presence records) cannot be used with only %d records. Choose a simpler model (GLM, MaxNet, BIOCLIM).",
+          model_id, thresh_1, n_pres
+        ),
+        warning = NULL
+      ))
+    }
+    if (n_pres < thresh_2) {
+      return(list(
+        status = "warn",
+        message = NULL,
+        warning = sprintf(
+          "Model '%s' (very complex) may overfit with %d presence records. %d+ recommended. Consider GLM or MaxNet.",
+          model_id, n_pres, thresh_2
+        )
+      ))
+    }
+  }
+
+  if (tier == "complex") {
+    if (n_pres < thresh_1) {
+      return(list(
+        status = "blocked",
+        message = sprintf(
+          "Model '%s' (complex) requires >= %d presence records. Got %d. Choose GLM or MaxNet instead.",
+          model_id, thresh_1, n_pres
+        ),
+        warning = NULL
+      ))
+    }
+    if (n_pres < thresh_2) {
+      return(list(
+        status = "warn",
+        message = NULL,
+        warning = sprintf(
+          "Model '%s' (complex) may overfit with %d presence records. %d+ recommended for stable results.",
+          model_id, n_pres, thresh_2
+        )
+      ))
+    }
+  }
+
+  if (tier == "moderate" && n_pres < thresh_1) {
+    return(list(
+      status = "warn",
+      message = NULL,
+      warning = sprintf(
+        "Model '%s' (moderate complexity) with only %d presence records. Consider BIOCLIM or ESM for rare species.",
+        model_id, n_pres
+      )
+    ))
+  }
+
+  list(status = "ok", message = NULL, warning = NULL)
 }

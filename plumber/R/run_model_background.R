@@ -89,6 +89,7 @@ tryCatch({
 
   cfg <- sdm_config(
     species = config$species,
+    species_filter = config$species_filter %||% NULL,
     occurrence_file = config$occurrence_file,
     cleaned_occurrence = cleaned_occurrence,
     worldclim_dir = config$worldclim_dir %||% sdm_default_worldclim_dir,

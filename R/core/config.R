@@ -98,6 +98,50 @@ sdm_default_validation_occurrences <- NULL
 sdm_default_pa_replicates <- 1L
 sdm_default_generate_tiles <- TRUE
 
+# Complexity tier thresholds for sample-size-based model selection
+# Based on Moudrý et al. (2024) Ecography recommendations:
+#   simple  (n < 50):  BIOCLIM, ESM (bivariate) only
+#   moderate (50-150): GLM, MaxNet, GAM (k <= 5), CTA, Rangebag
+#   complex  (n >= 150): RF, BRT, MARS, ANN, FDA, biomod2
+#   very_complex (n >= 150): XGBoost, DNN, BART, brms, INLA
+# Niche-breadth multiplier adjusts thresholds (wide x2, narrow x0.7)
+COMPLEXITY_TIER_SIMPLE <- 50L
+COMPLEXITY_TIER_MODERATE <- 150L
+
+COMPLEXITY_NICHE_MULTIPLIERS <- c(
+  "wide" = 2.0,
+  "average" = 1.0,
+  "narrow" = 0.7
+)
+
+COMPLEXITY_MODEL_TIERS <- c(
+  "bioclim" = "simple",
+  "esm_glm" = "simple",
+  "esm_maxnet" = "simple",
+  "glm" = "moderate",
+  "maxnet" = "moderate",
+  "gam" = "moderate",
+  "cta" = "moderate",
+  "rangebag" = "moderate",
+  "ensemble_glm_rangebag" = "moderate",
+  "multi_ensemble" = "moderate",
+  "brt" = "complex",
+  "rf" = "complex",
+  "mars" = "complex",
+  "ann" = "complex",
+  "fda" = "complex",
+  "biomod2" = "complex",
+  "xgboost" = "very_complex",
+  "dnn" = "very_complex",
+  "dnn_multispecies" = "very_complex",
+  "bart" = "very_complex",
+  "brms" = "very_complex",
+  "inla_spde" = "very_complex",
+  "occupancy" = "very_complex"
+)
+
+sdm_default_niche_breadth <- "average"
+
 config$biomod2_default <- c("GLM", "RF", "GBM", "MAXNET")
 config$biomod2_all <- c(
   "GLM", "GAM", "FDA", "MARS",

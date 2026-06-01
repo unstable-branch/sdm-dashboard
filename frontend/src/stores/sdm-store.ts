@@ -35,6 +35,20 @@ interface SDMState {
   flaggedIndices: number[];
   setFlaggedIndices: (indices: number[]) => void;
 
+  detectedSpecies: string[];
+  setDetectedSpecies: (species: string[]) => void;
+
+  targetsRunId: string | null;
+  setTargetsRunId: (id: string | null) => void;
+
+  targetsProgress: {
+    completed: number;
+    errored: number;
+    running: number;
+    total: number;
+  } | null;
+  setTargetsProgress: (progress: SDMState["targetsProgress"]) => void;
+
   error: string | null;
   setError: (error: string | null) => void;
 
@@ -69,6 +83,15 @@ export const useSDMStore = create<SDMState>()((set) => ({
   flaggedIndices: [],
   setFlaggedIndices: (indices) => set({ flaggedIndices: indices }),
 
+  detectedSpecies: [],
+  setDetectedSpecies: (species) => set({ detectedSpecies: species }),
+
+  targetsRunId: null,
+  setTargetsRunId: (id) => set({ targetsRunId: id }),
+
+  targetsProgress: null,
+  setTargetsProgress: (progress) => set({ targetsProgress: progress }),
+
   error: null,
   setError: (error) => set({ error }),
 
@@ -83,6 +106,9 @@ export const useSDMStore = create<SDMState>()((set) => ({
       uploadResult: null,
       cleanResult: null,
       flaggedIndices: [],
+      detectedSpecies: [],
+      targetsRunId: null,
+      targetsProgress: null,
       error: null,
     }),
 }));
