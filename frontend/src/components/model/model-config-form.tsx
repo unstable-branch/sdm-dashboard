@@ -166,6 +166,23 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const deferredSpecies = useDeferredValue(species);
   const speciesFiltered = useMemo(() => speciesSuggestions.filter((s) => s.toLowerCase().includes(deferredSpecies.toLowerCase()) && s !== deferredSpecies).slice(0, 10), [deferredSpecies, speciesSuggestions]);
 
+  const currentExtent: [number, number, number, number] = extentPreset === "custom" ? customExtent : EXTENT_PRESETS[extentPreset]?.extent ?? [112, 154, -44, -10];
+  const extentWidthDeg = currentExtent[1] - currentExtent[0];
+  const extentHeightDeg = currentExtent[3] - currentExtent[2];
+  const fineDems = ["COP30", "NASADEM", "SRTMGL1", "AW3D30"];
+  const coarseDems = ["COP90", "SRTMGL3"];
+  const demWarning = useMemo<string | null>(() => {
+    if (!useElevation) return null;
+    const maxDim = Math.max(extentWidthDeg, extentHeightDeg);
+    if (fineDems.includes(elevationDemtype) && maxDim > 5) {
+      return "Large extent with 30m DEM — may download >1 GB. Consider COP90 or SRTMGL3.";
+    }
+    if (coarseDems.includes(elevationDemtype) && maxDim < 1) {
+      return "Small extent with coarse DEM — consider a finer option (SRTMGL1, AW3D30, or COP30).";
+    }
+    return null;
+  }, [useElevation, elevationDemtype, extentWidthDeg, extentHeightDeg]);
+
   useEffect(() => {
     apiGet<Record<string, unknown>[]>("/api/v1/sdm/models").then((models) => {
       if (!models || !Array.isArray(models)) return;
@@ -1181,20 +1198,27 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
               Add elevation (OpenTopography)
             </label>
             {useElevation && (
-              <select
-                value={elevationDemtype}
-                onChange={(e) => setElevationDemtype(e.target.value)}
-                className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text"
-              >
-                {["COP90", "COP30", "SRTMGL3", "SRTMGL1", "NASADEM", "AW3D30"].map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
+              <>
+                <select
+                  value={elevationDemtype}
+                  onChange={(e) => setElevationDemtype(e.target.value)}
+                  className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text"
+                >
+                  {["COP90", "COP30", "SRTMGL3", "SRTMGL1", "NASADEM", "AW3D30"].map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+                {demWarning && (
+                  <span className="ml-2 inline-flex items-center gap-1 text-xs text-amber-500">
+                    <AlertTriangle className="h-3 w-3" /> {demWarning}
+                  </span>
+                )}
+              </>
             )}
             {useElevation && (
               <div className="ml-6 mt-2">
                 <label className="block text-xs font-medium text-sdm-muted mb-1">OpenTopography API key</label>
-                <input type="password" value={opentopoApiKey} onChange={(e) => setOpentopoApiKey(e.target.value)} placeholder="Optional — required for SRTMGL1 & AW3D30" className="w-full max-w-xs rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1.5 text-xs text-sdm-text" />
+                <input type="password" value={opentopoApiKey} onChange={(e) => setOpentopoApiKey(e.target.value)} placeholder="Optional but strongly recommended — all DEM types require API key" className="w-full max-w-xs rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1.5 text-xs text-sdm-text" />
               </div>
             )}
           </div>
