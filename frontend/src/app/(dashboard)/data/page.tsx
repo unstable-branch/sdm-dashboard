@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, FileArchive, Wand2, Flag, Map, Cloud, Layers, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Upload, Globe, FileArchive, Wand2, Flag, Cloud, Layers } from "lucide-react";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { apiUpload, apiPost, apiGet, apiPatch } from "@/services/api";
@@ -15,14 +15,11 @@ import { CleanTab } from "./clean-tab";
 import { ClimateTab } from "./climate-tab";
 import { CovariateTab } from "./covariate-tab";
 import { ObservationRecordsTab } from "./observation-records-tab";
+import { BatchTab } from "./batch-tab";
 import type { OccurrencePoint } from "./types";
 import type { UploadFile, CleanResult, DwcaResult, ClimateScenarioResponse } from "@/services/types";
 
 const GbifSearch = dynamic(() => import("@/components/data/gbif-search"), { ssr: false });
-const OccurrenceMap = dynamic(() => import("@/components/data/occurrence-map"), {
-  ssr: false,
-  loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div>,
-});
 
 export default function DataPage() {
   return (
@@ -269,6 +266,10 @@ function DataPageContent() {
     setCleanedOccurrence({ filePath: cleanData.cleaned_file_id || "", df: cleanData.cleaned_records || [], sourceCounts: cleanData.source_counts || {}, nAbsentExcluded: cleanData.n_absent_excluded || 0, originalRows: cleanData.original_rows || 0, validRecords: cleanedRowCount });
     setRecordCount(cleanedRowCount);
     const pipelineRunId = useSDMStore.getState().pipelineRunId; if (cleanData.pipelineRunId) setPipelineRunId(cleanData.pipelineRunId); else if (pipelineRunId) setPipelineRunId(pipelineRunId);
+    if (cleanData.species_counts) {
+      const counts = cleanData.species_counts as Record<string, number>;
+      useSDMStore.getState().setDetectedSpecies(Object.keys(counts));
+    }
     setCleanJobId(null); setCleanLoading(false);
     const currentFileId = (useSDMStore.getState().uploadResult?.file_id ?? "") as string; if (currentFileId && cleanData.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId)}`, { cleaned: true, cleaned_file_path: cleanData.cleaned_file_id }).catch(() => console.warn("[data] Failed to update upload cleaned status"));
   };
@@ -358,9 +359,9 @@ function DataPageContent() {
             <Flag className="h-3.5 w-3.5" />
             Records
           </TabsTrigger>
-          <TabsTrigger value="map" className="flex items-center gap-1.5">
-            <Map className="h-3.5 w-3.5" />
-            Map
+          <TabsTrigger value="batch" className="flex items-center gap-1.5">
+            <Layers className="h-3.5 w-3.5" />
+            Batch
           </TabsTrigger>
           <TabsTrigger value="climate" className="flex items-center gap-1.5">
             <Cloud className="h-3.5 w-3.5" />
@@ -446,20 +447,8 @@ function DataPageContent() {
           />
         )}
 
-        {activeTab === "map" && (
-          <div className="space-y-4">
-            {cleanPreview && cleanPreview.length > 0 ? (
-              <>
-                <OccurrenceMap points={cleanPreview} flaggedIndices={undefined} />
-                <div className="flex items-center gap-4 text-sm text-sdm-muted">
-                  <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-sdm-accent-blue" /> Clean</span>
-                  <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-sdm-danger" /> Flagged</span>
-                </div>
-              </>
-            ) : (
-              <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">Clean occurrence data first to see the map.</div>
-            )}
-          </div>
+        {activeTab === "batch" && (
+          <BatchTab />
         )}
 
         {activeTab === "climate" && (

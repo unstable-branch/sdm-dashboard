@@ -14,6 +14,7 @@ interface ModelInfo {
   packages?: string[];
   notes?: string;
   available?: boolean;
+  complexity_tier?: string;
 }
 
 interface ModelSelectorProps {
@@ -157,6 +158,11 @@ export function ModelSelector({ models, selected, onSelect }: ModelSelectorProps
                             >
                               {`${m.maturity}`}
                             </span>
+                            {m.complexity_tier && (
+                              <span className="shrink-0 rounded border border-sdm-accent/20 bg-sdm-accent/5 px-1.5 py-0.5 text-[10px] font-medium leading-none text-sdm-accent">
+                                {m.complexity_tier}
+                              </span>
+                            )}
                             {!isInstalled && (
                               <span className="shrink-0 rounded border border-sdm-border/30 bg-sdm-surface-soft px-1.5 py-0.5 text-[10px] leading-none text-sdm-muted">
                                 Not installed

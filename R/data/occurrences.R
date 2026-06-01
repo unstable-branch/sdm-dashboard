@@ -349,8 +349,15 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     format(removed_dupes, big.mark = ","), " duplicates"
   )
 
+  species_counts <- if ("species" %in% names(occ)) {
+    sort(table(occ$species), decreasing = TRUE)
+  } else {
+    setNames(integer(0), character(0))
+  }
+
   list(
     raw = raw, occ = occ, df = occ, source_counts = source_counts,
+    species_counts = species_counts,
     removed_bad_coordinates = removed_bad, removed_duplicates = removed_dupes,
     original_rows = original_n,
     n_absent_excluded = n_absent_excluded,

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const modelConfigSchema = z.object({
   species: z.string().min(1),
+  speciesFilter: z.string().optional(),
   modelId: z.string().min(1),
   biovars: z.array(z.number().int().min(1).max(19)).min(2),
   projectionExtent: z.tuple([
@@ -173,3 +174,49 @@ export const occurrenceUploadSchema = z.object({
   speciesFilter: z.string().optional(),
   maxCoordinateUncertainty: z.number().optional(),
 });
+
+export const targetsConfigSchema = z.object({
+  species: z.string().min(1),
+  speciesFilter: z.string().optional(),
+  modelId: z.string().min(1),
+  occurrenceFile: z.string().optional(),
+  cleanedFilePath: z.string().optional(),
+  biovars: z.array(z.number().int().min(1).max(19)).optional(),
+  projectionExtent: z.array(z.number()).optional(),
+  backgroundN: z.number().int().optional(),
+  cvFolds: z.number().int().optional(),
+  threshold: z.number().optional(),
+});
+
+export const targetsRunRequestSchema = z.object({
+  configs: z.array(targetsConfigSchema).min(1).max(50),
+});
+
+export const targetsStatusResponseSchema = z.object({
+  id: z.string(),
+  status: z.string(),
+  n_species: z.number(),
+  started_at: z.string(),
+  completed_at: z.string().nullable(),
+  error: z.string().nullable(),
+  error_code: z.string().optional(),
+  error_hint: z.string().optional(),
+  targets_progress: z.object({
+    total_targets: z.number(),
+    completed: z.number(),
+    errored: z.number(),
+    running: z.number(),
+    targets: z.array(z.object({
+      name: z.string(),
+      type: z.string(),
+      status: z.string(),
+      seconds: z.number().nullable(),
+      error: z.string().nullable(),
+    })),
+  }).nullable(),
+  progress_log: z.array(z.string()),
+});
+
+export type TargetsConfig = z.infer<typeof targetsConfigSchema>;
+export type TargetsRunRequestSchema = z.infer<typeof targetsRunRequestSchema>;
+export type TargetsStatusResponseSchema = z.infer<typeof targetsStatusResponseSchema>;

@@ -21,6 +21,7 @@ async function plumberJobId(runId: string): Promise<string> {
   return pid;
 }
 
+
 function normalizeConfig(config: unknown): Record<string, unknown> | null {
   if (!config || typeof config !== "object") return null;
   const normalized = { ...(config as Record<string, unknown>) };
@@ -889,5 +890,41 @@ sdmRoutes.get("/future/scenarios", async (c) => {
       period_choices: TIME_PERIOD_CHOICES,
       message: "Plumber unavailable; returning static constants",
     });
+  }
+});
+
+// ── Targets pipeline proxy routes ───────────────────────────────────────────
+
+sdmRoutes.post("/targets/run", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: "Invalid JSON body" }, 400);
+    const result = await plumberClient.targetsRun(body);
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Targets run failed";
+    return c.json({ error: message }, 502);
+  }
+});
+
+sdmRoutes.get("/targets/status/:jobId", async (c) => {
+  try {
+    const jobId = c.req.param("jobId");
+    const result = await plumberClient.targetsStatus(jobId);
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Targets status failed";
+    return c.json({ error: message }, 502);
+  }
+});
+
+sdmRoutes.get("/targets/results/:jobId", async (c) => {
+  try {
+    const jobId = c.req.param("jobId");
+    const result = await plumberClient.targetsResults(jobId);
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Targets results failed";
+    return c.json({ error: message }, 502);
   }
 });

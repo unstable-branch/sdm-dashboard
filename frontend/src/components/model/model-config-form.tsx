@@ -17,6 +17,7 @@ import { SpeciesInput } from "./species-input";
 interface ModelInfo {
   id: string; label: string; maturity: string;
   min_records?: number | null; packages?: string[]; notes?: string; available?: boolean;
+  complexity_tier?: string;
 }
 
 interface ModelConfigFormProps {
@@ -482,6 +483,36 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
             <span>Larger datasets improve model stability. ≥ {(selectedModel.min_records ?? 15) * 3} records recommended for reliable response curves with {selectedModel.label}.</span>
           </div>
         )}
+
+        {(() => {
+          const ct = selectedModel?.complexity_tier;
+          if (!ct || effectiveRecordCount === null) return null;
+          if (ct === "very_complex" && effectiveRecordCount < 150) {
+            return (
+              <div className="rounded-md bg-sdm-danger/10 border border-sdm-danger/30 p-3 text-xs text-sdm-danger flex items-start gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{selectedModel.label} (very complex) needs ≥ 150 records. With {effectiveRecordCount}, overfitting is likely. Choose a simpler model.</span>
+              </div>
+            );
+          }
+          if (ct === "complex" && effectiveRecordCount < 150) {
+            return (
+              <div className="rounded-md bg-sdm-warning/10 border border-sdm-warning/30 p-3 text-xs text-sdm-warning flex items-start gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{selectedModel.label} (complex) performs best with ≥ 150 records. With {effectiveRecordCount}, consider GLM or MaxNet.</span>
+              </div>
+            );
+          }
+          if (ct === "moderate" && effectiveRecordCount < 50) {
+            return (
+              <div className="rounded-md bg-sdm-warning/10 border border-sdm-warning/30 p-3 text-xs text-sdm-warning flex items-start gap-1.5">
+                <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{selectedModel.label} (moderate) with only {effectiveRecordCount} records. Consider BIOCLIM or ESM for small datasets.</span>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         {(modelId === "maxnet") && (
           <div className="space-y-3 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">

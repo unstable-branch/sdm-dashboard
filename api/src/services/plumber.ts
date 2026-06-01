@@ -421,6 +421,34 @@ export class PlumberClient {
     if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
     return res.json();
   }
+
+  // ── Targets pipeline ───────────────────────────────────────────────────
+
+  async targetsRun(data: { configs: Record<string, unknown>[] }): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/targets-run`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }, TIMEOUT_MODEL_RUN);
+    if (!res.ok) throw new Error(`Failed to start targets run: ${res.status}`);
+    return res.json();
+  }
+
+  async targetsStatus(jobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/targets-status/${jobId}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get targets status: ${res.status}`);
+    return res.json();
+  }
+
+  async targetsResults(jobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/targets-results/${jobId}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get targets results: ${res.status}`);
+    return res.json();
+  }
 }
 
 export const plumberClient = new PlumberClient();
