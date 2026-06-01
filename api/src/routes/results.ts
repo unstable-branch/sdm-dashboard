@@ -170,14 +170,35 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
     return c.json({ error: "Invalid tile path" }, 400);
   }
 
-  if (!existsSync(tilePath)) {
-    return c.body(null, 204);
+  if (existsSync(tilePath)) {
+    const buffer = await readFile(tilePath);
+    c.header("Content-Type", "image/png");
+    c.header("Cache-Control", "public, max-age=86400");
+    return c.body(buffer);
   }
 
-  const buffer = await readFile(tilePath);
-  c.header("Content-Type", "image/png");
-  c.header("Cache-Control", "public, max-age=86400");
-  return c.body(buffer);
+  // Fallback: generate tile from COG on-the-fly via Plumber
+  if (run.jobId) {
+    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
+    const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
+    const headers: Record<string, string> = { "X-Forwarded-User": user.id };
+    if (internalKey) headers["X-Hono-Internal"] = internalKey;
+
+    try {
+      const plumberRes = await fetch(
+        `${plumberUrl}/api/v1/results/tiles/cog/${run.jobId}/${z}/${x}/${y}`,
+        { headers, signal: AbortSignal.timeout(15000) }
+      );
+      if (plumberRes.ok) {
+        const pngBuf = Buffer.from(await plumberRes.arrayBuffer());
+        c.header("Content-Type", "image/png");
+        c.header("Cache-Control", "public, max-age=3600");
+        return c.body(pngBuf);
+      }
+    } catch { /* Plumber unavailable — return 204 */ }
+  }
+
+  return c.body(null, 204);
 });
 
 // Shared file serving logic used by both /file/* and /file/download routes
