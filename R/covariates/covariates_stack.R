@@ -96,12 +96,68 @@ load_extra_covariates <- function(template_train, template_project, training_ext
     }
   }
 
+  # Adaptive aggregate_factor: compute from template resolution vs. native covariate resolution
+  # to prevent memory blowup while preserving detail.
+  template_res_deg <- max(terra::res(template_train))
+  deg_to_m_equator <- 111320
+  log_message(log_fun, sprintf("  Template resolution: %.4f deg — computing adaptive aggregate_factors", template_res_deg))
+
   if (isTRUE(use_vegetation)) {
+    # Finest veg data (GEE LAI/GPP) at ~500m; GIMMS NDVI handled internally at ~8km
+    veg_agg_factor <- max(1L, round(template_res_deg / (500 / deg_to_m_equator)))
     ndvi <- tryCatch(
       load_vegetation_covariate(veg_year = veg_year, selected_products = veg_products,
-        extent_vec = training_extent, aggregate_factor = 18L,
+        extent_vec = training_extent, aggregate_factor = veg_agg_factor,
         covariate_cache_dir = covariate_cache_dir, allow_download = allow_download, log_fun = log_fun),
       error = function(e) { log_message(log_fun, "Failed to load vegetation: ", conditionMessage(e)); NULL }
+    )
+    if (!is.null(ndvi)) {
+      sources$vegetation <- ndvi
+      metadata$vegetation <- list(source = ndvi$source, products = ndvi$variables$products)
+      files$vegetation <- ndvi$files
+    }
+  }
+
+  if (isTRUE(use_lulc)) {
+    # Dynamic World at ~10m
+    lulc_agg_factor <- max(1L, round(template_res_deg / (10 / deg_to_m_equator)))
+    lulc <- tryCatch(
+      load_lulc_covariate(lulc_year = lulc_year, extent_vec = training_extent,
+        aggregate_factor = lulc_agg_factor, covariate_cache_dir = covariate_cache_dir,
+        allow_download = allow_download, log_fun = log_fun),
+      error = function(e) { log_message(log_fun, "Failed to load LULC: ", conditionMessage(e)); NULL }
+    )
+    if (!is.null(lulc)) {
+      sources$lulc <- lulc
+      metadata$lulc <- list(source = lulc$source, variables = lulc$variables)
+      files$lulc <- lulc$files
+    }
+  }
+
+  if (isTRUE(use_hfp)) {
+    # Human Footprint at ~1km
+    hfp_agg_factor <- max(1L, round(template_res_deg / (1000 / deg_to_m_equator)))
+    hfp <- tryCatch(
+      load_human_footprint_covariate(hfp_year = hfp_year, extent_vec = training_extent,
+        aggregate_factor = hfp_agg_factor, covariate_cache_dir = covariate_cache_dir,
+        allow_download = allow_download, log_fun = log_fun),
+      error = function(e) { log_message(log_fun, "Failed to load human footprint: ", conditionMessage(e)); NULL }
+    )
+    if (!is.null(hfp)) {
+      sources$hfp <- hfp
+      metadata$hfp <- list(source = hfp$source, variables = hfp$variables)
+      files$hfp <- hfp$files
+    }
+  }
+
+  if (isTRUE(use_drought)) {
+    # CRU scPDSI at ~0.5° native — aggregate_factor reverses (coarsen template to match CRU)
+    drought_agg_factor <- max(1L, round(template_res_deg / 0.5))
+    drought <- tryCatch(
+      load_drought_covariate(selected_periods = selected_drought_periods,
+        extent_vec = training_extent, aggregate_factor = drought_agg_factor,
+        covariate_cache_dir = covariate_cache_dir, allow_download = allow_download, log_fun = log_fun),
+      error = function(e) { log_message(log_fun, "Failed to load drought: ", conditionMessage(e)); NULL }
     )
     if (!is.null(ndvi)) {
       sources$vegetation <- ndvi
