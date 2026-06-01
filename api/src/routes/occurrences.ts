@@ -580,3 +580,15 @@ dataRoutes.get("/jobs/:jobId", async (c) => {
     return c.json({ error: message }, 502);
   }
 });
+
+// Proxy boundary GeoJSON from Plumber
+dataRoutes.get("/boundary/default", async (c) => {
+  try {
+    const user = c.get("user");
+    const res = await plumberClient.withUser(user.id).post("/api/v1/data/boundary/default", {});
+    return c.json(res);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to fetch boundary";
+    return c.json({ error: message }, 502);
+  }
+});

@@ -14,7 +14,7 @@ import { useRunDetail } from "@/hooks/use-queries";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import { SuitabilityMap } from "@/components/results/suitability-map";
 import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
-import type { RunDetail } from "@/services/types";
+import type { RunDetail, ManifestData } from "@/services/types";
 import type { ViewState } from "react-map-gl/maplibre";
 import type { FeatureCollection } from "geojson";
 
@@ -76,7 +76,8 @@ export default function ResultsPage() {
   const [odmapCsv, setOdmapCsv] = useState<string | null>(null);
   const [eooGeoJSON, setEooGeoJSON] = useState<FeatureCollection | null>(null);
   const [aooGeoJSON, setAooGeoJSON] = useState<FeatureCollection | null>(null);
-  const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
+  const [boundaryGeoJSON, setBoundaryGeoJSON] = useState<FeatureCollection | null>(null);
+  const [manifest, setManifest] = useState<ManifestData | null>(null);
   const [ensembleGenerating, setEnsembleGenerating] = useState(false);
   const [ensembleGenerated, setEnsembleGenerated] = useState(false);
   const [run, setRun] = useState<RunDetail | null>(null);
@@ -85,7 +86,7 @@ export default function ResultsPage() {
 
   const { data: runData, isLoading: runLoading, error: runError, refetch } = useRunDetail(runId);
   useEffect(() => {
-    if (runData) setRun(runData as any);
+    if (runData) setRun(runData);
     if (!runLoading) setLoading(false);
     if (runError) setError((runError as Error).message);
   }, [runData, runLoading, runError]);
@@ -111,9 +112,9 @@ export default function ResultsPage() {
     if (!run || run.status !== "completed") return;
     apiGet<string>(`/api/v1/results/${runId}/report.txt`).catch(() => null).then((text) => setReportText(text));
     if (run.provenance) {
-      setManifest(run.provenance as Record<string, unknown>);
+      setManifest(run.provenance as ManifestData);
     } else {
-      apiGet<{ manifest: Record<string, unknown> }>(`/api/v1/results/${runId}/manifest`)
+      apiGet<{ manifest: ManifestData }>(`/api/v1/results/${runId}/manifest`)
         .then((m) => setManifest(m?.manifest || null))
         .catch(() => console.warn("[results] Failed to fetch manifest for run", runId));
     }
@@ -122,7 +123,7 @@ export default function ResultsPage() {
   // Auto-benchmark: compare against best previous run for same species
   useEffect(() => {
     if (run?.status !== "completed" || run.metrics?.auc_mean == null || typeof run.metrics.auc_mean !== "number") return;
-    const currentAuc = run.metrics.auc_mean as number;
+    const currentAuc = run.metrics.auc_mean;
     setBenchmarkLoading(true);
     apiGet<{ runs: Array<{ id: string; species: string; model_id: string; metrics: { auc_mean?: number } | null }> }>(
       `/api/v1/sdm/runs?limit=50&species=${encodeURIComponent(run.species)}`
@@ -198,6 +199,9 @@ export default function ResultsPage() {
                 .then((geo) => { if (!cancelled) setAooGeoJSON(geo); })
                 .catch(() => {});
             }
+            fetchGeoJSON("/api/v1/data/boundary/default")
+              .then((geo) => { if (!cancelled) setBoundaryGeoJSON(geo); })
+              .catch(() => {});
           }
           if (data.status === "running") {
             timeoutId = setTimeout(fetchStatus, 3000);
@@ -327,10 +331,11 @@ export default function ResultsPage() {
               <SuitabilityMap
                 outputFiles={run.output_files}
                 runId={runId}
-                initialViewState={extentToViewState((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
-                coordinates={extentToCoordinates((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
+                initialViewState={extentToViewState((run.config?.projection_extent ?? undefined) as [number, number, number, number] | undefined)}
+                coordinates={extentToCoordinates((run.config?.projection_extent ?? undefined) as [number, number, number, number] | undefined)}
                 eooGeoJSON={eooGeoJSON}
                 aooGeoJSON={aooGeoJSON}
+                boundaryGeoJSON={boundaryGeoJSON}
               />
             </TabsContent>
 
@@ -410,68 +415,68 @@ export default function ResultsPage() {
                 <h3 className="text-sm font-semibold text-sdm-heading">Run Provenance</h3>
                 {manifest ? (
                   <div className="space-y-4">
-                    {(manifest as any).app_version && (
+                    {manifest.app_version && (
                       <div>
                         <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Environment</h4>
                         <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                          <span className="text-sdm-muted">R:</span><span className="text-sdm-text">{(manifest as any).app_version.r_version}</span>
-                          <span className="text-sdm-muted">Platform:</span><span className="text-sdm-text">{(manifest as any).app_version.platform}</span>
-                          {(manifest as any).app_version.git_sha && (<>
-                            <span className="text-sdm-muted">Git SHA:</span><span className="text-sdm-text">{(manifest as any).app_version.git_sha.slice(0, 7)}</span>
+                          <span className="text-sdm-muted">R:</span><span className="text-sdm-text">{manifest.app_version.r_version}</span>
+                          <span className="text-sdm-muted">Platform:</span><span className="text-sdm-text">{manifest.app_version.platform}</span>
+                          {manifest.app_version.git_sha && (<>
+                            <span className="text-sdm-muted">Git SHA:</span><span className="text-sdm-text">{manifest.app_version.git_sha.slice(0, 7)}</span>
                           </>)}
                         </div>
                       </div>
                     )}
-                    {(manifest as any).data && (
+                    {manifest.data && (
                       <div>
                         <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Input Data</h4>
                         <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                          <span className="text-sdm-muted">Records:</span><span className="text-sdm-text">{(manifest as any).data.occurrence_rows ?? "-"}</span>
-                          <span className="text-sdm-muted">SHA-256:</span><span className="text-sdm-text truncate">{(manifest as any).data.occurrence_hash_sha256?.slice(0, 16) ?? "-"}</span>
+                          <span className="text-sdm-muted">Records:</span><span className="text-sdm-text">{manifest.data.occurrence_rows ?? "-"}</span>
+                          <span className="text-sdm-muted">SHA-256:</span><span className="text-sdm-text truncate">{manifest.data.occurrence_hash_sha256?.slice(0, 16) ?? "-"}</span>
                         </div>
                       </div>
                     )}
-                    {(manifest as any).covariates && (
+                    {manifest.covariates && (
                       <div>
                         <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Covariates</h4>
                         <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                          <span className="text-sdm-muted">Source:</span><span className="text-sdm-text">{(manifest as any).covariates.source}</span>
-                          <span className="text-sdm-muted">Resolution:</span><span className="text-sdm-text">{(manifest as any).covariates.resolution}m</span>
-                          <span className="text-sdm-muted">BIO vars:</span><span className="text-sdm-text">{(manifest as any).covariates.biovars?.join(", ")}</span>
-                          <span className="text-sdm-muted">Files:</span><span className="text-sdm-text">{(manifest as any).covariates.file_count}</span>
+                          <span className="text-sdm-muted">Source:</span><span className="text-sdm-text">{manifest.covariates.source}</span>
+                          <span className="text-sdm-muted">Resolution:</span><span className="text-sdm-text">{manifest.covariates.resolution}m</span>
+                          <span className="text-sdm-muted">BIO vars:</span><span className="text-sdm-text">{manifest.covariates.biovars?.join(", ")}</span>
+                          <span className="text-sdm-muted">Files:</span><span className="text-sdm-text">{manifest.covariates.file_count}</span>
                         </div>
                       </div>
                     )}
-                    {(manifest as any).extent && (
+                    {manifest.extent && (
                       <div>
                         <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Extent</h4>
                         <div className="grid grid-cols-4 gap-2 text-xs font-mono">
-                          <span className="text-sdm-muted">xmin:</span><span className="text-sdm-text">{(manifest as any).extent.xmin}</span>
-                          <span className="text-sdm-muted">xmax:</span><span className="text-sdm-text">{(manifest as any).extent.xmax}</span>
-                          <span className="text-sdm-muted">ymin:</span><span className="text-sdm-text">{(manifest as any).extent.ymin}</span>
-                          <span className="text-sdm-muted">ymax:</span><span className="text-sdm-text">{(manifest as any).extent.ymax}</span>
+                          <span className="text-sdm-muted">xmin:</span><span className="text-sdm-text">{manifest.extent.xmin}</span>
+                          <span className="text-sdm-muted">xmax:</span><span className="text-sdm-text">{manifest.extent.xmax}</span>
+                          <span className="text-sdm-muted">ymin:</span><span className="text-sdm-text">{manifest.extent.ymin}</span>
+                          <span className="text-sdm-muted">ymax:</span><span className="text-sdm-text">{manifest.extent.ymax}</span>
                         </div>
                       </div>
                     )}
-                    {(manifest as any).validation && (
+                    {manifest.validation && (
                       <div>
                         <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Cross-Validation</h4>
                         <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                          <span className="text-sdm-muted">Strategy:</span><span className="text-sdm-text">{(manifest as any).validation.cv_strategy}</span>
-                          <span className="text-sdm-muted">Folds:</span><span className="text-sdm-text">{(manifest as any).validation.cv_folds}</span>
-                          {(manifest as any).validation.cv_block_size_km && (<>
-                            <span className="text-sdm-muted">Block size:</span><span className="text-sdm-text">{(manifest as any).validation.cv_block_size_km} km</span>
+                          <span className="text-sdm-muted">Strategy:</span><span className="text-sdm-text">{manifest.validation.cv_strategy}</span>
+                          <span className="text-sdm-muted">Folds:</span><span className="text-sdm-text">{manifest.validation.cv_folds}</span>
+                          {manifest.validation.cv_block_size_km && (<>
+                            <span className="text-sdm-muted">Block size:</span><span className="text-sdm-text">{manifest.validation.cv_block_size_km} km</span>
                           </>)}
-                          <span className="text-sdm-muted">Seed:</span><span className="text-sdm-text">{(manifest as any).validation.seed}</span>
+                          <span className="text-sdm-muted">Seed:</span><span className="text-sdm-text">{manifest.validation.seed}</span>
                         </div>
                       </div>
                     )}
-                    {(manifest as any).resources && (
+                    {manifest.resources && (
                       <div>
                         <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Resources (R)</h4>
                         <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                          <span className="text-sdm-muted">CPU time:</span><span className="text-sdm-text">{(manifest as any).resources.r_cpu_time_ms != null ? `${((manifest as any).resources.r_cpu_time_ms / 1000).toFixed(1)}s` : "-"}</span>
-                          <span className="text-sdm-muted">Peak memory:</span><span className="text-sdm-text">{(manifest as any).resources.r_peak_memory_mb != null ? `${(manifest as any).resources.r_peak_memory_mb} MB` : "-"}</span>
+                          <span className="text-sdm-muted">CPU time:</span><span className="text-sdm-text">{manifest.resources.r_cpu_time_ms != null ? `${(manifest.resources.r_cpu_time_ms / 1000).toFixed(1)}s` : "-"}</span>
+                          <span className="text-sdm-muted">Peak memory:</span><span className="text-sdm-text">{manifest.resources.r_peak_memory_mb != null ? `${manifest.resources.r_peak_memory_mb} MB` : "-"}</span>
                         </div>
                       </div>
                     )}

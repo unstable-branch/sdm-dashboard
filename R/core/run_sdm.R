@@ -631,10 +631,10 @@ run_fast_sdm <- function(...) {
 
   # Apply boundary mask if configured
   mask_type <- cfg$mask_type %||% sdm_default_mask_type
+  mask_file <- cfg$mask_file %||% sdm_default_mask_file
+  mask_buffer_deg <- cfg$mask_buffer_deg %||% sdm_default_mask_buffer_deg
   if (mask_type != "none") {
-    mask_file <- cfg$mask_file %||% sdm_default_mask_file
-    buffer_deg <- cfg$mask_buffer_deg %||% sdm_default_mask_buffer_deg
-    suit <- apply_boundary_mask(suit, mask_type, mask_file, buffer_deg, log_fun,
+    suit <- apply_boundary_mask(suit, mask_type, mask_file, mask_buffer_deg, log_fun,
                                 output_tif = output_tif)
     mm <- tryCatch(terra::minmax(suit), error = function(e) NULL)
     if (!is.null(mm) && all(!is.finite(mm))) {
@@ -801,7 +801,16 @@ run_fast_sdm <- function(...) {
         NULL
       }
     )
-    if (!is.null(future)) extra_paths <- c(extra_paths, future$paths)
+    if (!is.null(future)) {
+      extra_paths <- c(extra_paths, future$paths)
+      if (mask_type != "none") {
+        future$suitability <- apply_boundary_mask(future$suitability, mask_type, mask_file, buffer_deg, log_fun)
+        if (!is.null(future$paths$future_tif)) {
+          terra::writeRaster(future$suitability, future$paths$future_tif, overwrite = TRUE,
+            wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+        }
+      }
+    }
   }
 
   # Second future scenario (multi-SSP comparison)
@@ -832,6 +841,13 @@ run_fast_sdm <- function(...) {
     if (!is.null(future2)) {
       future2$summary <- summarise_suitability(future2$suitability, threshold)
       extra_paths <- c(extra_paths, future2$paths)
+      if (mask_type != "none") {
+        future2$suitability <- apply_boundary_mask(future2$suitability, mask_type, mask_file, buffer_deg, log_fun)
+        if (!is.null(future2$paths$future_tif)) {
+          terra::writeRaster(future2$suitability, future2$paths$future_tif, overwrite = TRUE,
+            wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+        }
+      }
 
       # Comparison summary
       area1 <- future$summary$high_risk_area_km2 %||% NA_real_
@@ -983,7 +999,9 @@ run_fast_sdm <- function(...) {
       future_label = future_label,
       bias_method = bias_method, thickening_distance_km = thickening_distance_km,
       gbif_doi = dwca_doi %||% gbif_doi, climate_source = source,
-      overlap_warn = isTRUE(overlap_warn)
+      overlap_warn = isTRUE(overlap_warn),
+      mask_type = mask_type, mask_file = mask_file,
+      mask_buffer_deg = if (is.na(mask_buffer_deg)) NA_real_ else mask_buffer_deg
     ),
     occurrence = occ, occurrence_used = fit$occurrence_used, source_counts = sort(table(occ$source), decreasing = TRUE),
     cleaning = cleaned[c("removed_bad_coordinates", "removed_duplicates", "original_rows", "columns")],
@@ -1006,7 +1024,6 @@ run_fast_sdm <- function(...) {
     suitability = suit, future = future, future2 = future2, climate_match = climate_match_result,
     mess = mess_result,
     eoo_aoo = eoo_aoo_result,
-    mess = mess_result,
     aoa = aoa_result,
     summary = suitability_summary, metrics = metrics,
     paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)

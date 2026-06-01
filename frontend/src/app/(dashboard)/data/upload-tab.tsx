@@ -5,15 +5,16 @@ import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
 import { PreviewTable } from "@/components/data/preview-table";
 import { Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import type { UploadFile } from "@/services/types";
 
 interface UploadTabProps {
   uploadResult: Record<string, unknown> | null;
   uploadLoading: boolean;
   uploadError: string | null;
   onUpload: (file: File) => void;
-  onSelectUpload: (file: Record<string, unknown>) => void;
+  onSelectUpload: (file: UploadFile) => void;
   onTabChange: (tab: string) => void;
-  previousUploads: Array<Record<string, unknown>>;
+  previousUploads: UploadFile[];
   previousUploadsLoading: boolean;
 }
 
@@ -97,11 +98,11 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
                     isSelected ? "border-sdm-accent bg-sdm-accent/5" : "border-sdm-border bg-sdm-surface-soft hover:border-sdm-accent/50"}`}>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-sdm-text truncate">
-                      {f.file_name as string}
-                      {(f as any).cleaned && <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success"><CheckCircle2 className="h-3 w-3" /> Cleaned</span>}
+                      {f.file_name}
+                      {f.cleaned && <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success"><CheckCircle2 className="h-3 w-3" /> Cleaned</span>}
                     </p>
                     <p className="text-xs text-sdm-muted">
-                      {sizeStr}{(f.n_rows as number) > 0 && ` · ${(f.n_rows as number).toLocaleString()} rows`}{(f as any).modified_at && ` · ${new Date((f as any).modified_at as string).toLocaleDateString()}`}
+                      {sizeStr}{f.n_rows > 0 && ` · ${f.n_rows.toLocaleString()} rows`}{f.modified_at && ` · ${new Date(f.modified_at).toLocaleDateString()}`}
                     </p>
                   </div>
                   {isSelected ? (

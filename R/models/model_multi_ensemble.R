@@ -377,6 +377,22 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
 
   standalone_ids <- c("glm", "gam", "maxnet", "rf", "xgboost", "rangebag", "esm_glm", "esm_maxnet")
   standalone_selected <- intersect(selected_models, standalone_ids)
+
+  switch_known <- c("glm", "gam", "maxnet", "rangebag")
+  resolvable <- vapply(standalone_selected, function(m) {
+    if (m %in% switch_known) return(TRUE)
+    spec <- tryCatch(get_sdm_model(m), error = function(e) NULL)
+    is.function(spec$fit_component_fun %||% NULL)
+  }, logical(1))
+
+  skipped <- standalone_selected[!resolvable]
+  if (length(skipped) > 0) {
+    msg <- sprintf("Ensemble: skipping %d component(s) with no fit handler: %s",
+      length(skipped), paste(skipped, collapse = ", "))
+    log_message(log_fun, msg)
+  }
+  standalone_selected <- standalone_selected[resolvable]
+
   biomod2_selected <- if ("biomod2" %in% selected_models && has_biomod2) biomod2_models else character()
 
   components <- list()
@@ -443,6 +459,11 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     component_k <- c(component_k, comp_fit$cv$k %||% NA_integer_)
     component_auc <- c(component_auc, comp_fit$cv$auc_mean %||% NA_real_)
     component_tss <- c(component_tss, comp_fit$cv$tss_mean %||% NA_real_)
+  }
+
+  if (length(components) == 0) {
+    log_message(log_fun, "No valid ensemble components — returning NULL")
+    return(NULL)
   }
 
   biomod2_fit <- NULL

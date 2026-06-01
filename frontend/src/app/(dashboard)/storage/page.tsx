@@ -42,7 +42,7 @@ export default function StoragePage() {
     try {
       const [storage, uploadsRes, runsRes] = await Promise.all([
         apiGet<typeof storageInfo>("/api/v1/data/storage"),
-        apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/uploads"),
+        apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/occurrences/uploads"),
         apiGet<RunRecord[]>("/api/v1/sdm/runs"),
       ]);
       setStorageInfo(storage);
