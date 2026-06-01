@@ -77,6 +77,7 @@ interface MaplibreMapProps {
   coordinates?: [[number, number], [number, number], [number, number], [number, number]];
   tileZoomMin?: number;
   tileZoomMax?: number;
+  tileBounds?: [number, number, number, number];
   eooGeoJSON?: FeatureCollection | null;
   aooGeoJSON?: FeatureCollection | null;
   boundaryGeoJSON?: FeatureCollection | null;
@@ -87,7 +88,7 @@ interface MaplibreMapProps {
 }
 
 export default function MaplibreMap({
-  runId, theme, initialViewState, coordinates, tileZoomMin, tileZoomMax,
+  runId, theme, initialViewState, coordinates, tileZoomMin, tileZoomMax, tileBounds,
   eooGeoJSON, aooGeoJSON, boundaryGeoJSON,
   layerVisibility, onToggleLayer, basemap, onToggleBasemap,
 }: MaplibreMapProps) {
@@ -187,12 +188,13 @@ export default function MaplibreMap({
           tileSize={256}
           minzoom={tileZoomMin ?? 4}
           maxzoom={tileZoomMax ?? 8}
+          bounds={tileBounds}
         >
           <Layer
             id="suitability-overlay"
             type="raster"
             layout={{ visibility: visibility("suitability") }}
-            paint={{ "raster-opacity": 0.7 }}
+            paint={{ "raster-opacity": 0.7, "raster-fade-duration": 0 }}
           />
         </Source>
 

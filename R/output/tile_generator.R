@@ -99,6 +99,8 @@ expand_tile_range <- function(x0, x1, y0, y1) {
 #' @param resampling  Resampling method for terra::resample (default: "bilinear").
 #' @param gdal_opts   GDAL PNG creation options (default: "ZLEVEL=6").
 #' @param n_cores     Number of parallel workers (default: 1). Uses mclapply on Unix.
+#' @param cog_path    Optional file path to write a Cloud-Optimized GeoTIFF (COG) in target_crs
+#'                    alongside tiles. Skips writing if NULL (default).
 #' @param verbose     Print progress messages (default: TRUE).
 #' @param log         Callback function(msg) for logging. Default: message().
 #' @param cancel      Callback function() returning TRUE to abort. Default: NULL.
@@ -127,6 +129,7 @@ generate_xyz_tiles <- function(
   resampling     = "bilinear",
   gdal_opts      = c("ZLEVEL=6"),
   n_cores        = 1L,
+  cog_path       = NULL,
   verbose        = TRUE,
   log            = NULL,
   cancel         = NULL,
@@ -169,10 +172,15 @@ generate_xyz_tiles <- function(
     crs_in <- terra::crs(src_band, proj = TRUE)
     log_msg("  Input CRS: ", crs_in)
 
-    # Auto value range
+    # Auto value range (sampled — avoids reading all cells)
     vr <- value_range
     if (is.null(vr)) {
-      v <- terra::values(src_band)
+      n_cells <- terra::ncell(src_band)
+      if (n_cells > 100000) {
+        v <- terra::spatSample(src_band, size = min(100000, n_cells), as.raster = FALSE, na.rm = TRUE)[[1]]
+      } else {
+        v <- terra::values(src_band)
+      }
       v <- v[is.finite(v)]
       if (length(v) > 0) {
         vr <- quantile(v, probs = c(0.02, 0.98), na.rm = TRUE)
@@ -192,6 +200,23 @@ generate_xyz_tiles <- function(
       r_proj <- src_band
     } else {
       r_proj <- terra::project(src_band, target_crs, method = resampling)
+    }
+
+    # Write COG from reprojected raster if requested
+    if (!is.null(cog_path)) {
+      log_msg("  Writing COG: ", cog_path)
+      tryCatch({
+        terra::writeRaster(r_proj, cog_path,
+          filetype = "COG",
+          gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
+                   "OVERVIEWS=AUTO", "OVERVIEW_RESAMPLING=BILINEAR"),
+          NAflag = -9999,
+          datatype = "FLT4S",
+          overwrite = TRUE
+        )
+      }, error = function(e) {
+        add_warning(paste("COG write failed:", conditionMessage(e)))
+      })
     }
 
     # Auto zoom range
