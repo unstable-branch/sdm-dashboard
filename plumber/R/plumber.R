@@ -3004,6 +3004,68 @@ function(req) {
   })
 }
 
+#* On-the-fly XYZ tile from COG (fallback when pre-generated tiles missing)
+#* Computes tile bounding box in EPSG:3857, crops COG, applies palette, returns PNG
+#* @get /api/v1/results/tiles/cog/<run_id>/<z>/<x>/<y>
+#* @serializer contentType list(type="image/png")
+function(res, run_id, z, x, y) {
+  z <- as.integer(z); x <- as.integer(x); y <- as.integer(y)
+  if (is.na(z) || is.na(x) || is.na(y) || z < 0L || z > 20L) {
+    res$status <- 400L; stop("Invalid tile coordinates")
+  }
+
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) { res$status <- 404L; stop("Run not found") }
+
+  # Find COG in job directory (filename varies; search by suffix)
+  cog_files <- list.files(job_dir, pattern = "_3857\\.tif$", full.names = TRUE)
+  if (length(cog_files) == 0L) { res$status <- 404L; stop("COG not found") }
+  cog_path <- cog_files[1L]
+
+  n <- 2^z
+  tile_res <- 40075016.686 / n
+  half_world <- 20037508.343
+  xmin <- x * tile_res - half_world
+  xmax <- (x + 1L) * tile_res - half_world
+  ymin <- half_world - (y + 1L) * tile_res
+  ymax <- half_world - y * tile_res
+
+  tile_crop <- terra::crop(terra::rast(cog_path), terra::ext(xmin, xmax, ymin, ymax))
+  if (terra::ncell(tile_crop) == 0L) { res$status <- 204L; return(NULL) }
+
+  template <- terra::rast(ncols = 256L, nrows = 256L, xmin = xmin, xmax = xmax,
+    ymin = ymin, ymax = ymax, crs = "EPSG:3857")
+  tile_256 <- terra::resample(tile_crop, template, method = "bilinear")
+  vals <- terra::values(tile_256)
+
+  is_na <- is.na(vals) | !is.finite(vals)
+  if (all(is_na)) { res$status <- 204L; return(NULL) }
+
+  # Apply palette (same ramp as tile_generator.R)
+  palette <- c("#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
+    "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B")
+  pal_rgb <- grDevices::col2rgb(palette, alpha = TRUE)
+  n_col <- length(palette)
+  idx <- round((vals - 0) / (1 - 0) * (n_col - 1L)) + 1L
+  idx <- pmax(1L, pmin(n_col, idx))
+
+  rgba <- matrix(0L, nrow = 65536L, ncol = 4L)
+  rgba[!is_na, 1L] <- pal_rgb[1, idx[!is_na]]
+  rgba[!is_na, 2L] <- pal_rgb[2, idx[!is_na]]
+  rgba[!is_na, 3L] <- pal_rgb[3, idx[!is_na]]
+  rgba[!is_na, 4L] <- 255L
+
+  tmp_png <- tempfile(fileext = ".png")
+  tile_out <- terra::rast(ncols = 256L, nrows = 256L, xmin = xmin, xmax = xmax,
+    ymin = ymin, ymax = ymax, crs = "EPSG:3857", nlyrs = 4L)
+  terra::values(tile_out) <- rgba
+  terra::writeRaster(tile_out, tmp_png, datatype = "INT1U", gdal = "ZLEVEL=6", overwrite = TRUE)
+
+  raw_bytes <- readBin(tmp_png, "raw", n = file.info(tmp_png)$size)
+  unlink(tmp_png)
+  raw_bytes
+}
+
 #* Serve the default world boundary GeoJSON
 #* @post /api/v1/data/boundary/default
 function(res) {
