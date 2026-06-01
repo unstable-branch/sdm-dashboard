@@ -10,7 +10,11 @@ auc_rank <- function(obs, score) {
     return(NA_real_)
   }
   r <- rank(score, ties.method = "average")
-  as.numeric((sum(r[obs == 1]) - n1 * (n1 + 1) / 2) / (n1 * n0))
+  result <- as.numeric((sum(r[obs == 1]) - n1 * (n1 + 1) / 2) / (n1 * n0))
+  if (n1 < 25 || n0 < 25) {
+    attr(result, "unreliable") <- TRUE
+  }
+  result
 }
 
 compute_binary_metrics <- function(obs, score, threshold = sdm_default_threshold) {
@@ -35,14 +39,19 @@ compute_binary_metrics <- function(obs, score, threshold = sdm_default_threshold
   sensitivity <- if ((tp + fn) > 0) tp / (tp + fn) else NA_real_
   specificity <- if ((tn + fp) > 0) tn / (tn + fp) else NA_real_
   tss <- if (is.finite(sensitivity) && is.finite(specificity)) sensitivity + specificity - 1 else NA_real_
+  auc_val <- auc_rank(obs, score)
+  auc_unreliable <- isTRUE(attr(auc_val, "unreliable"))
+  tss_unreliable <- length(obs) > 0 && sum(obs == 1) < 25 || sum(obs == 0) < 25
   list(
-    auc = auc_rank(obs, score),
+    auc = auc_val,
     tss = as.numeric(tss),
     sensitivity = as.numeric(sensitivity),
     specificity = as.numeric(specificity),
     threshold = threshold,
     tp = as.integer(tp), fp = as.integer(fp), tn = as.integer(tn), fn = as.integer(fn),
-    n = as.integer(length(obs))
+    n = as.integer(length(obs)),
+    auc_unreliable = auc_unreliable,
+    tss_unreliable = tss_unreliable
   )
 }
 

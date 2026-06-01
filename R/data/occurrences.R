@@ -203,6 +203,10 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   }
   n_absent_excluded <- sum(tolower(raw_status) == "absent", na.rm = TRUE)
 
+  # Detect coordinate uncertainty column early so it is available for the output
+  unc_col <- detect_column(names(raw), c("coordinateuncertaintyinmeters", "coordinate_uncertainty", "uncertainty"))
+  unc_values <- if (!is.na(unc_col)) suppressWarnings(as.numeric(raw[[unc_col]])) else rep(NA_real_, nrow(raw))
+
   occ <- data.frame(
     longitude = vapply(raw[[lon_col]], dms_to_decimal, numeric(1)),
     latitude = vapply(raw[[lat_col]], dms_to_decimal, numeric(1)),
@@ -211,6 +215,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   )
   if (!is.na(country_col)) occ$countryCode <- as.character(raw[[country_col]])
   if (!is.na(species_col)) occ$species <- as.character(raw[[species_col]])
+  occ$coord_uncertainty_m <- unc_values
 
   complete_ok <- stats::complete.cases(occ[, c("longitude", "latitude", "source")])
   finite_ok <- is.finite(occ$longitude) & is.finite(occ$latitude)
@@ -221,10 +226,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   uncertainty_ok <- rep(TRUE, nrow(raw))
   n_uncertainty_filtered <- 0L
   if (!is.null(max_coordinate_uncertainty) && is.finite(max_coordinate_uncertainty) && max_coordinate_uncertainty < .Machine$double.xmax) {
-    unc_col <- detect_column(names(raw), c("coordinateuncertaintyinmeters", "coordinate_uncertainty", "uncertainty"))
     if (!is.na(unc_col)) {
-      unc_values <- suppressWarnings(as.numeric(raw[[unc_col]]))
-      # Keep records with no uncertainty info OR uncertainty within threshold
       uncertainty_ok <- is.na(unc_values) | unc_values <= max_coordinate_uncertainty
       n_uncertainty_filtered <- sum(!uncertainty_ok & !is.na(unc_values))
       if (n_uncertainty_filtered > 0) {
@@ -515,6 +517,10 @@ read_gbif_records <- function(taxon, country = NULL, max_records = 100,
   doi <- result$meta$doi
   if (is.null(doi)) doi <- NA_character_
 
+  # Extract coordinate uncertainty if available
+  uncert <- result$data$coordinateUncertaintyInMeters
+  if (is.null(uncert)) uncert <- rep(NA_real_, nrow(result$data))
+
   data.frame(
     longitude = result$data$decimalLongitude,
     latitude = result$data$decimalLatitude,
@@ -522,6 +528,7 @@ read_gbif_records <- function(taxon, country = NULL, max_records = 100,
     source = "GBIF",
     gbif_key = as.character(result$data$key),
     gbif_doi = doi,
+    coord_uncertainty_m = as.numeric(uncert),
     stringsAsFactors = FALSE
   )
 }

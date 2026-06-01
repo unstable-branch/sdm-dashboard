@@ -387,6 +387,12 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     ? cleanedOccurrence.validRecords
     : recordCount;
   const lowRecordWarning = selectedModel?.min_records && effectiveRecordCount !== null && effectiveRecordCount < selectedModel.min_records;
+  const recordTier = selectedModel?.min_records && effectiveRecordCount !== null
+    ? effectiveRecordCount < selectedModel.min_records ? "danger"
+      : effectiveRecordCount < selectedModel.min_records * 2 ? "warning"
+      : effectiveRecordCount < selectedModel.min_records * 3 ? "info"
+      : "ok"
+    : null;
 
   const handleSpeciesKeyNav = (dir: "up" | "down" | "enter" | "escape") => {
     if (dir === "down") setSpeciesSelectedIndex((prev) => (prev + 1) % Math.max(speciesFiltered.length, 1));
@@ -458,10 +464,22 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
             <p className="mt-1 text-sdm-muted">Recommended for rare species with few occurrence records.</p>
           </div>
         )}
-        {lowRecordWarning && (
+        {recordTier === "danger" && selectedModel && (
           <div className="rounded-md bg-sdm-danger/10 border border-sdm-danger/30 p-3 text-xs text-sdm-danger flex items-start gap-1.5">
             <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-            <span>{selectedModel?.label} recommends ≥ {selectedModel.min_records} records. You have {effectiveRecordCount}. Results may be unreliable.</span>
+            <span>{selectedModel.label} requires ≥ {selectedModel.min_records} records. You have {effectiveRecordCount}. Consider ESM or simpler models.</span>
+          </div>
+        )}
+        {recordTier === "warning" && selectedModel && (
+          <div className="rounded-md bg-sdm-warning/10 border border-sdm-warning/30 p-3 text-xs text-sdm-warning flex items-start gap-1.5">
+            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>Sample size ({effectiveRecordCount}) is close to minimum for {selectedModel.label} ({selectedModel.min_records}). Consider ESM or reducing model complexity.</span>
+          </div>
+        )}
+        {recordTier === "info" && selectedModel && (
+          <div className="rounded-md bg-sdm-accent-blue/10 border border-sdm-accent-blue/30 p-3 text-xs text-sdm-accent-blue flex items-start gap-1.5">
+            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>Larger datasets improve model stability. ≥ {(selectedModel.min_records ?? 15) * 3} records recommended for reliable response curves with {selectedModel.label}.</span>
           </div>
         )}
 

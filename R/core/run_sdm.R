@@ -243,6 +243,17 @@ run_fast_sdm <- function(...) {
     occ <- thin_occurrences_by_cell(occ, env$env_train_scaled[[1]], by_source = FALSE, log_fun = log_fun)
   }
 
+  # Compare coordinate uncertainty to cell size
+  if ("coord_uncertainty_m" %in% names(occ) && any(is.finite(occ$coord_uncertainty_m))) {
+    cell_size_m <- terra::res(env$env_train_scaled[[1]])[1] * 111320 * cos(mean(occ$latitude, na.rm = TRUE) * pi / 180)
+    median_uncert <- median(occ$coord_uncertainty_m, na.rm = TRUE)
+    n_exceed <- sum(occ$coord_uncertainty_m > cell_size_m, na.rm = TRUE)
+    if (is.finite(median_uncert) && is.finite(cell_size_m)) {
+      log_message(log_fun, sprintf("Coordinate uncertainty: median %.0f m vs cell width %.0f m (%d records exceed cell size)", median_uncert, cell_size_m, n_exceed))
+      occ$uncertainty_exceeds_cell <- occ$coord_uncertainty_m > cell_size_m
+    }
+  }
+
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
@@ -976,8 +987,16 @@ run_fast_sdm <- function(...) {
       ") exceeds CV AUC (", sprintf("%.3f", cv_auc), ") by ", sprintf("%.3f", auc_diff))
   }
 
+  n_pres <- nrow(fit$occurrence_used)
+  n_bg <- nrow(fit$background_xy)
+  auc_unreliable <- isTRUE(n_pres < 25 || n_bg < 25)
+  tss_unreliable <- auc_unreliable
+  if (auc_unreliable) {
+    log_message(log_fun, "Warning: AUC/TSS may be unreliable — fewer than 25 presence or background observations (n_pres=", n_pres, ", n_bg=", n_bg, ")")
+  }
+
   metrics <- list(
-    presence_records = nrow(fit$occurrence_used), background_points = nrow(fit$background_xy),
+    presence_records = n_pres, background_points = n_bg,
     auc_mean = fit$cv$auc_mean, auc_sd = fit$cv$auc_sd, cv_folds = fit$cv$k,
     n_cores = n_cores, elapsed_seconds = elapsed,
     cbi = fit$metrics$cbi %||% NA_real_,
@@ -986,7 +1005,9 @@ run_fast_sdm <- function(...) {
     training_auc = train_auc,
     auc_diff = auc_diff,
     overfitting_level = overfitting_level,
-    cbi_diff = cbi_diff
+    cbi_diff = cbi_diff,
+    auc_unreliable = auc_unreliable,
+    tss_unreliable = tss_unreliable
   )
 
   result <- list(

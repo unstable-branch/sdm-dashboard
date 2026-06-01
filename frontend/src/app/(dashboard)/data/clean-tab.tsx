@@ -14,9 +14,11 @@ interface CleanTabProps {
   cleanJobId: string | null;
   useAsync: boolean;
   useCc: boolean;
+  maxCoordUncertainty: string;
   
   onSetUseAsync: (v: boolean) => void;
   onSetUseCc: (v: boolean) => void;
+  onSetMaxCoordUncertainty: (v: string) => void;
   onClean: () => void;
   onCleanComplete: (result: Record<string, unknown>) => void;
   onFlagToggle: (idx: number, flagged: boolean) => void;
@@ -25,8 +27,8 @@ interface CleanTabProps {
 
 export function CleanTab({
   uploadResult, cleanResult, cleanLoading, cleanError, cleanJobId,
-  useAsync, useCc,
-  onSetUseAsync, onSetUseCc, onClean, onCleanComplete, onFlagToggle, onRunModel,
+  useAsync, useCc, maxCoordUncertainty,
+  onSetUseAsync, onSetUseCc, onSetMaxCoordUncertainty, onClean, onCleanComplete, onFlagToggle, onRunModel,
 }: CleanTabProps) {
   const cleanPreview = cleanResult?.cleaned_records as OccurrencePoint[] | undefined;
   const sourceCounts = cleanResult?.source_counts as Record<string, number> | undefined;
@@ -49,6 +51,12 @@ export function CleanTab({
             <input type="checkbox" checked={useCc} onChange={(e) => onSetUseCc(e.target.checked)}
               className="rounded border-sdm-border bg-sdm-surface-soft" />
             CoordinateCleaner
+          </label>
+          <label className="flex items-center gap-2 text-sm text-sdm-text">
+            <span>Max coord uncertainty (m):</span>
+            <input type="number" min={0} step={100} placeholder="No filter" value={maxCoordUncertainty}
+              onChange={(e) => onSetMaxCoordUncertainty(e.target.value)}
+              className="w-28 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text" />
           </label>
         </div>
 

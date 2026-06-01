@@ -115,6 +115,7 @@ write_summary_report <- function(result, path) {
     paste0("- Requested background points: ", fmt_num(result$config$background_n)),
     paste0("- CPU cores requested/used: ", fmt_num(result$metrics$n_cores)),
     paste0("- Cross-validation AUC: ", auc_text),
+    if (isTRUE(result$metrics$auc_unreliable)) "  * WARNING: AUC/TSS may be unreliable (< 25 presence or background observations)" else character(),
     if (!is.null(result$esm_config)) {
       esm <- result$esm_config
       c(
