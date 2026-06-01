@@ -208,6 +208,7 @@ export const DEFAULT_CONFIG = {
   dnnNSeeds: 5,
   dnnDropout: 0.3,
   dnnL2Lambda: 0.001,
+  generateTiles: true,
   dnnDevice: "auto" as const,
   brtNTrees: 2000,
   brtInteractionDepth: 3,
