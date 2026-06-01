@@ -67,6 +67,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [useHfp, setUseHfp] = useState(false);
   const [useBioclimSeason, setUseBioclimSeason] = useState(false);
   const [useDrought, setUseDrought] = useState(false);
+  const [generateTiles, setGenerateTiles] = useState(true);
   const [futureProjection, setFutureProjection] = useState(false);
   const [futureLabel, setFutureLabel] = useState("Future climate");
   const [futureGcm, setFutureGcm] = useState("UKESM1-0-LL");
@@ -371,6 +372,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       dnnDropout: modelId === "dnn" ? dnnDropout : undefined,
       dnnL2Lambda: modelId === "dnn" ? dnnL2Lambda : undefined,
       dnnMultispeciesNSeeds: modelId === "dnn_multispecies" ? dnnMultispeciesNSeeds : undefined,
+      generateTiles,
     };
 
     const parsed = modelConfigSchema.safeParse(config);
@@ -1392,6 +1394,14 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
               <input type="number" value={thickeningDistanceKm} onChange={(e) => setThickeningDistanceKm(Number(e.target.value))} min={1} max={100} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
             </div>
           )}
+
+          <div className="pt-2 border-t border-sdm-border/50">
+            <label className="flex items-center gap-2 text-sm text-sdm-text">
+              <input type="checkbox" checked={generateTiles} onChange={(e) => setGenerateTiles(e.target.checked)} />
+              Pre-generate map tiles
+              <TooltipInfo content="Generates tile PNGs eagerly for fastest map load. Uncheck to skip tile generation — tiles are served on-the-fly from COG but first load may be slower." />
+            </label>
+          </div>
         </div>
       </details>
 
