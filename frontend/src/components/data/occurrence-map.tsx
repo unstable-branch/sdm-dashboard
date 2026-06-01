@@ -19,6 +19,7 @@ interface OccurrencePoint {
 interface OccurrenceMapProps {
   points: OccurrencePoint[];
   flaggedIndices?: Set<number>;
+  onPointClick?: (index: number) => void;
 }
 
 const CARTO_ATTRIBUTION =
@@ -89,10 +90,10 @@ function buildGeoJSON(
         coordinates: [p.longitude, p.latitude],
       },
       properties: {
+        ...p,
         index: i,
         source: p.source,
         flagged: flaggedIndices ? flaggedIndices.has(i) : false,
-        ...p,
       },
     })),
   };
@@ -101,6 +102,7 @@ function buildGeoJSON(
 export const OccurrenceMap = React.memo(function OccurrenceMap({
   points,
   flaggedIndices,
+  onPointClick,
 }: OccurrenceMapProps) {
   const { resolvedTheme } = useTheme();
   const mapRef = useRef<MapRef | null>(null);
@@ -137,12 +139,17 @@ export const OccurrenceMap = React.memo(function OccurrenceMap({
           if (e.features && e.features.length > 0) {
             const feat = e.features[0];
             const props = feat.properties as Record<string, unknown>;
-            setPopupInfo({
-              longitude: (feat.geometry as Point).coordinates[0],
-              latitude: (feat.geometry as Point).coordinates[1],
-              properties: props,
-              index: props.index as number,
-            });
+            const idx = props.index as number;
+            if (onPointClick) {
+              onPointClick(idx);
+            } else {
+              setPopupInfo({
+                longitude: (feat.geometry as Point).coordinates[0],
+                latitude: (feat.geometry as Point).coordinates[1],
+                properties: props,
+                index: idx,
+              });
+            }
           }
         }}
         interactiveLayerIds={["occurrences-circles"]}

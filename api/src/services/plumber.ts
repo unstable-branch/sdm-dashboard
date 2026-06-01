@@ -411,6 +411,16 @@ export class PlumberClient {
     if (!res.ok) throw new Error(`Failed to compare runs: ${res.status}`);
     return res.json();
   }
+
+  async post(path: string, body: unknown): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+    return res.json();
+  }
 }
 
 export const plumberClient = new PlumberClient();

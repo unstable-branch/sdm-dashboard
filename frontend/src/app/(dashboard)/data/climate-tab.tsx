@@ -4,6 +4,7 @@ import { DownloadProgress } from "@/components/climate/download-progress";
 import { ScenarioList } from "@/components/climate/scenario-list";
 import { Loader2, Download } from "lucide-react";
 import { BIOVAR_CHOICES, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
+import type { ClimateScenarioResponse } from "@/services/types";
 
 interface ClimateTabProps {
   climateSource: string;
@@ -18,7 +19,7 @@ interface ClimateTabProps {
   avgGcms: string[];
   avgDownloadJob: string | null;
   climateError: string | null;
-  scenarios: Array<Record<string, unknown>>;
+  scenarios: ClimateScenarioResponse[];
   scenariosLoading: boolean;
   onSetClimateSource: (v: "worldclim" | "chelsa") => void;
   onSetClimateRes: (v: number) => void;
@@ -164,7 +165,7 @@ export function ClimateTab({
       {activeJob && (
         <DownloadProgress jobId={activeJob} onComplete={() => onDownloadComplete(activeJob)} onFailed={() => onDownloadFailed(activeJob)} onCancel={onCancelDownload} />
       )}
-      <ScenarioList scenarios={scenarios as any} onRefresh={onFetchScenarios} onDelete={onDeleteScenario} loading={scenariosLoading} />
+      <ScenarioList scenarios={scenarios} onRefresh={onFetchScenarios} onDelete={onDeleteScenario} loading={scenariosLoading} />
     </div>
   );
 }

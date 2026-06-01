@@ -159,8 +159,13 @@ validate_boundary_extent <- function(extent) {
 apply_boundary_mask <- function(suit, mask_type = "none",
                                 mask_file = NULL, buffer_deg = NA,
                                 log_fun = NULL, output_tif = NULL) {
-  if (mask_type == "none" || is.null(mask_file) || !file.exists(mask_file))
+  if (mask_type == "none" || is.null(mask_file))
     return(suit)
+
+  if (!file.exists(mask_file)) {
+    warning("Boundary mask file not found: ", mask_file, " — returning unmasked raster", call. = FALSE)
+    return(suit)
+  }
 
   poly <- terra::vect(mask_file)
 

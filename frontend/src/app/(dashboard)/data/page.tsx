@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, FileArchive, Wand2, Map, Cloud, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Upload, Globe, FileArchive, Wand2, Flag, Map, Cloud, Layers, CheckCircle2, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { apiUpload, apiPost, apiGet, apiPatch } from "@/services/api";
@@ -13,7 +13,10 @@ import { PreviewTable } from "@/components/data/preview-table";
 import { UploadTab } from "./upload-tab";
 import { CleanTab } from "./clean-tab";
 import { ClimateTab } from "./climate-tab";
+import { CovariateTab } from "./covariate-tab";
+import { ObservationRecordsTab } from "./observation-records-tab";
 import type { OccurrencePoint } from "./types";
+import type { UploadFile, CleanResult, DwcaResult, ClimateScenarioResponse } from "@/services/types";
 
 const GbifSearch = dynamic(() => import("@/components/data/gbif-search"), { ssr: false });
 const OccurrenceMap = dynamic(() => import("@/components/data/occurrence-map"), {
@@ -55,7 +58,7 @@ function DataPageContent() {
 
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadHistory, setUploadHistory] = useState<Array<Record<string, unknown>>>([]);
+  const [uploadHistory, setUploadHistory] = useState<UploadFile[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   const [cleanLoading, setCleanLoading] = useState(false);
@@ -76,7 +79,7 @@ function DataPageContent() {
 
   const [dwcaLoading, setDwcaLoading] = useState(false);
   const [dwcaError, setDwcaError] = useState<string | null>(null);
-  const [dwcaResult, setDwcaResult] = useState<Record<string, unknown> | null>(null);
+  const [dwcaResult, setDwcaResult] = useState<DwcaResult | null>(null);
 
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
@@ -92,7 +95,7 @@ function DataPageContent() {
   const [avgGcms, setAvgGcms] = useState<string[]>([]);
   const [avgDownloadJob, setAvgDownloadJob] = useState<string | null>(null);
   const [climateError, setClimateError] = useState<string | null>(null);
-  const [scenarios, setScenarios] = useState<Array<Record<string, unknown>>>([]);
+  const [scenarios, setScenarios] = useState<ClimateScenarioResponse[]>([]);
   const [scenariosLoading, setScenariosLoading] = useState(false);
   const [gbifSaving, setGbifSaving] = useState(false);
   const [gbifSaved, setGbifSaved] = useState(false);
@@ -148,7 +151,7 @@ function DataPageContent() {
 
   const fetchScenarios = useCallback(async () => {
     setScenariosLoading(true);
-    try { const data = await apiGet<{ scenarios: Array<Record<string, unknown>> }>("/api/v1/climate/scenarios"); setScenarios(data.scenarios || []); }
+    try { const data = await apiGet<{ scenarios: ClimateScenarioResponse[] }>("/api/v1/climate/scenarios"); setScenarios(data.scenarios || []); }
     catch { } finally { setScenariosLoading(false); }
   }, []);
 
@@ -183,7 +186,7 @@ function DataPageContent() {
         cleaned_file_id: u.cleaned_file_path,
         cleaned_valid_records: u.cleaned_valid_records,
       }));
-      setUploadHistory(mapped);
+      setUploadHistory(mapped as UploadFile[]);
     } catch {
       setUploadHistory([]);
     } finally {
@@ -257,15 +260,15 @@ function DataPageContent() {
     } catch (err) { setCleanError(err instanceof Error ? err.message : "Clean failed"); } finally { if (!effectiveAsync) setCleanLoading(false); }
   };
 
-  const handleCleanComplete = (result: Record<string, unknown>) => {
-    if ((result as any)?.status === "error") { setCleanError((result as any)?.error || "Clean job failed"); setCleanJobId(null); setCleanLoading(false); return; }
-    const cleanData = (result as any)?.data ?? result; const finalData = "cleaned_file_id" in cleanData ? cleanData : (cleanData as any)?.data ?? cleanData;
-    setCleanResult(finalData); const cleanedRowCount = (finalData.valid_records as number) || 0;
-    setCleanedOccurrence({ filePath: (finalData.cleaned_file_id as string) || "", df: (finalData.cleaned_records as Record<string, unknown>[]) || [], sourceCounts: (finalData.source_counts as Record<string, number>) || {}, nAbsentExcluded: (finalData.n_absent_excluded as number) || 0, originalRows: (finalData.original_rows as number) || 0, validRecords: cleanedRowCount });
+  const handleCleanComplete = (result: CleanResult) => {
+    if (result.status === "error") { setCleanError(result.error || "Clean job failed"); setCleanJobId(null); setCleanLoading(false); return; }
+    const cleanData = result.data ?? result;
+    setCleanResult(cleanData as unknown as Record<string, unknown>); const cleanedRowCount = cleanData.valid_records || 0;
+    setCleanedOccurrence({ filePath: cleanData.cleaned_file_id || "", df: cleanData.cleaned_records || [], sourceCounts: cleanData.source_counts || {}, nAbsentExcluded: cleanData.n_absent_excluded || 0, originalRows: cleanData.original_rows || 0, validRecords: cleanedRowCount });
     setRecordCount(cleanedRowCount);
-    const pipelineRunId = useSDMStore.getState().pipelineRunId; if (finalData.pipelineRunId) setPipelineRunId(finalData.pipelineRunId as string); else if (pipelineRunId) setPipelineRunId(pipelineRunId);
+    const pipelineRunId = useSDMStore.getState().pipelineRunId; if (cleanData.pipelineRunId) setPipelineRunId(cleanData.pipelineRunId); else if (pipelineRunId) setPipelineRunId(pipelineRunId);
     setCleanJobId(null); setCleanLoading(false);
-    const currentFileId = useSDMStore.getState().uploadResult?.file_id; if (currentFileId && finalData.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId as string)}`, { cleaned: true, cleaned_file_path: finalData.cleaned_file_id }).catch(() => console.warn("[data] Failed to update upload cleaned status"));
+    const currentFileId = (useSDMStore.getState().uploadResult?.file_id ?? "") as string; if (currentFileId && cleanData.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId)}`, { cleaned: true, cleaned_file_path: cleanData.cleaned_file_id }).catch(() => console.warn("[data] Failed to update upload cleaned status"));
   };
 
   const handleGbifSearch = async (taxon: string, country: string, maxRecords: number) => {
@@ -292,19 +295,23 @@ function DataPageContent() {
   };
 
   const cleanPreview = cleanResult?.cleaned_records as OccurrencePoint[] | undefined;
+  const cleanSourceCounts = cleanResult?.source_counts as Record<string, number> | undefined;
+  const cleanCcLog = (cleanResult?.cc_log as string[]) || [];
+  const cleanValidRecords = Number(cleanResult?.valid_records || 0);
+  const cleanOriginalRows = Number(cleanResult?.original_rows || 0);
   const gbifPreview = gbifResult?.preview as Record<string, unknown>[] | undefined;
   const uploadPreview = uploadResult?.preview as Record<string, unknown>[] | undefined;
-  const handleSelectUpload = (file: Record<string, unknown>) => {
-    const fp = file.file_id as string;
+  const handleSelectUpload = (file: UploadFile) => {
+    const fp = file.file_id;
     if (!fp) return;
-    setUploadResult({ ...file, file_id: fp, file_path: fp });
+    setUploadResult({ ...file, file_id: fp, file_path: fp } as Record<string, unknown>);
     setOccurrenceFilePath(fp);
-    setRecordCount(Number(file.n_rows || 0));
+    setRecordCount(file.n_rows || 0);
     setPipelineRunId(null);
     setCleanResult(null);
-    if (Boolean(file.cleaned) && file.cleaned_file_id) {
+    if (file.cleaned && file.cleaned_file_id) {
       setCleanedOccurrence({
-        filePath: file.cleaned_file_id as string,
+        filePath: file.cleaned_file_id,
         df: [],
         sourceCounts: {},
         nAbsentExcluded: 0,
@@ -345,6 +352,10 @@ function DataPageContent() {
             <Wand2 className="h-3.5 w-3.5" />
             Clean
           </TabsTrigger>
+          <TabsTrigger value="obs" className="flex items-center gap-1.5">
+            <Flag className="h-3.5 w-3.5" />
+            Records
+          </TabsTrigger>
           <TabsTrigger value="map" className="flex items-center gap-1.5">
             <Map className="h-3.5 w-3.5" />
             Map
@@ -352,6 +363,10 @@ function DataPageContent() {
           <TabsTrigger value="climate" className="flex items-center gap-1.5">
             <Cloud className="h-3.5 w-3.5" />
             Climate
+          </TabsTrigger>
+          <TabsTrigger value="covariates" className="flex items-center gap-1.5">
+            <Layers className="h-3.5 w-3.5" />
+            Covariates
           </TabsTrigger>
         </TabsList>
 
@@ -361,6 +376,8 @@ function DataPageContent() {
             previousUploads={previousUploads} previousUploadsLoading={previousUploadsLoading} />
         )}
 
+        {activeTab === "gbif" && (
+          <>
           {gbifPreview && gbifPreview.length > 0 && <PreviewTable data={gbifPreview} title="GBIF Preview (first 5 records)" />}
             {gbifResult && typeof gbifResult.n_records === "number" && gbifResult.n_records > 0 && (
               <div className="space-y-3">
@@ -377,6 +394,8 @@ function DataPageContent() {
                 )}
               </div>
             )}
+          </>
+        )}
 
         {activeTab === "dwca" && (
           <div className="space-y-4">
@@ -389,15 +408,15 @@ function DataPageContent() {
             {dwcaResult && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Datasets</p><p className="mt-1 text-xl font-bold text-sdm-heading">{String(((dwcaResult as any).datasets as Array<unknown>)?.length ?? 0)}</p></div>
-                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Returned</p><p className="mt-1 text-xl font-bold text-sdm-accent">{Number((dwcaResult as any).n_returned ?? 0).toLocaleString()}</p></div>
-                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Raw</p><p className="mt-1 text-xl font-bold text-sdm-heading">{Number((dwcaResult as any).n_raw ?? 0).toLocaleString()}</p></div>
-                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">DOI</p><p className="mt-1 text-xs font-mono text-sdm-text truncate">{((dwcaResult as any).doi as string) || "—"}</p></div>
+                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Datasets</p><p className="mt-1 text-xl font-bold text-sdm-heading">{dwcaResult.datasets?.length ?? 0}</p></div>
+                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Returned</p><p className="mt-1 text-xl font-bold text-sdm-accent">{(dwcaResult.n_returned ?? 0).toLocaleString()}</p></div>
+                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Raw</p><p className="mt-1 text-xl font-bold text-sdm-heading">{(dwcaResult.n_raw ?? 0).toLocaleString()}</p></div>
+                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">DOI</p><p className="mt-1 text-xs font-mono text-sdm-text truncate">{dwcaResult.doi || "—"}</p></div>
                 </div>
-                {(dwcaResult as any).preview?.length > 0 && <PreviewTable data={(dwcaResult as any).preview} title="DwC-A Preview (first 5 records)" />}
-                {(dwcaResult as any).file_path && (
+                {dwcaResult.preview && dwcaResult.preview.length > 0 && <PreviewTable data={dwcaResult.preview} title="DwC-A Preview (first 5 records)" />}
+                {dwcaResult.file_path && (
                   <div className="flex items-center justify-between rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3">
-                    <div className="flex items-center gap-2 text-sm text-sdm-warning"><span>DwC-A parsed — {Number((dwcaResult as any).n_returned ?? 0).toLocaleString()} records. Clean before modeling.</span></div>
+                    <div className="flex items-center gap-2 text-sm text-sdm-warning"><span>DwC-A parsed — {(dwcaResult.n_returned ?? 0).toLocaleString()} records. Clean before modeling.</span></div>
                     <button onClick={() => onTabChange("clean")} className="text-sm font-medium text-sdm-accent hover:underline">Clean data →</button>
                   </div>
                 )}
@@ -414,11 +433,21 @@ function DataPageContent() {
             onRunModel={() => router.push("/model")} />
         )}
 
+        {activeTab === "obs" && cleanPreview && (
+          <ObservationRecordsTab
+            records={cleanPreview}
+            sourceCounts={cleanSourceCounts || {}}
+            ccLog={cleanCcLog}
+            validRecords={cleanValidRecords}
+            originalRows={cleanOriginalRows}
+          />
+        )}
+
         {activeTab === "map" && (
           <div className="space-y-4">
             {cleanPreview && cleanPreview.length > 0 ? (
               <>
-                <OccurrenceMap points={cleanPreview}  />
+                <OccurrenceMap points={cleanPreview} flaggedIndices={undefined} />
                 <div className="flex items-center gap-4 text-sm text-sdm-muted">
                   <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-sdm-accent-blue" /> Clean</span>
                   <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-sdm-danger" /> Flagged</span>
@@ -442,6 +471,10 @@ function DataPageContent() {
             onCmip6Download={handleCmip6Download} onToggleAvgGcm={toggleAvgGcm} onAvgDownload={handleAvgDownload}
             onDownloadComplete={handleDownloadComplete} onDownloadFailed={handleDownloadFailed} onCancelDownload={handleCancelDownload}
             onFetchScenarios={fetchScenarios} onDeleteScenario={handleDeleteScenario} />
+        )}
+
+        {activeTab === "covariates" && (
+          <CovariateTab />
         )}
       </Tabs>
     </div>

@@ -167,7 +167,6 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto", ou
 
   list(
     eoo_km2 = eoo_km2,
-    eoo_method = eoo_method_used,
     aoo_cells = aoo_result$n_cells,
     aoo_km2 = aoo_result$area_km2,
     aoo_cell_size_km = aoo_result$cell_size_km,

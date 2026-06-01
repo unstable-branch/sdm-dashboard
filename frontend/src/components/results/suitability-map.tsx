@@ -12,9 +12,23 @@ interface SuitabilityMapProps {
   runId: string;
   initialViewState?: Partial<ViewState>;
   coordinates?: [[number, number], [number, number], [number, number], [number, number]];
+  projectionExtent?: number[] | null;
   eooGeoJSON?: FeatureCollection | null;
   aooGeoJSON?: FeatureCollection | null;
-  projectionExtent?: number[] | null;
+  boundaryGeoJSON?: FeatureCollection | null;
+}
+
+function extentToCoordinates(e?: number[] | null): [[number, number], [number, number], [number, number], [number, number]] | undefined {
+  if (!e || e.length < 4) return undefined;
+  return [[e[0], e[3]], [e[1], e[3]], [e[1], e[2]], [e[0], e[2]]];
+}
+
+function extentToViewState(e?: number[] | null): Partial<ViewState> | undefined {
+  if (!e || e.length < 4) return undefined;
+  const [xmin, xmax, ymin, ymax] = e;
+  const maxSpan = Math.max(xmax - xmin, ymax - ymin);
+  const zoom = maxSpan > 50 ? 4 : maxSpan > 20 ? 5 : maxSpan > 10 ? 6 : maxSpan > 5 ? 7 : 8;
+  return { longitude: (xmin + xmax) / 2, latitude: (ymin + ymax) / 2, zoom };
 }
 
 function MapPlaceholder({ label }: { label?: string }) {
@@ -30,8 +44,26 @@ const DynamicMap = dynamic(() => import("./maplibre-map"), {
   loading: () => <MapPlaceholder />,
 });
 
-export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinates, eooGeoJSON, aooGeoJSON }: SuitabilityMapProps) {
-  const { theme } = useTheme();
+export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinates, projectionExtent, eooGeoJSON, aooGeoJSON, boundaryGeoJSON }: SuitabilityMapProps) {
+  const finalCoordinates = coordinates || extentToCoordinates(projectionExtent);
+  const finalViewState = initialViewState || extentToViewState(projectionExtent);
+  const { resolvedTheme } = useTheme();
+  const [layerVisibility, setLayerVisibility] = useState<Record<string, boolean>>({
+    suitability: true,
+    eoo: true,
+    aoo: true,
+    boundary: false,
+    extent: true,
+  });
+  const [basemap, setBasemap] = useState<"light" | "dark">("light");
+
+  const onToggleLayer = useCallback((layer: string) => {
+    setLayerVisibility((prev) => ({ ...prev, [layer]: !prev[layer] }));
+  }, []);
+
+  const onToggleBasemap = useCallback(() => {
+    setBasemap((prev) => (prev === "light" ? "dark" : "light"));
+  }, []);
 
   if (!runId) {
     return (
@@ -51,7 +83,21 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
       <div className="relative h-[60vh]">
-        <DynamicMap runId={runId} theme={theme} initialViewState={initialViewState} coordinates={coordinates} tileZoomMin={safeTileZoomMin} tileZoomMax={safeTileZoomMax} eooGeoJSON={eooGeoJSON} aooGeoJSON={aooGeoJSON} />
+        <DynamicMap
+          runId={runId}
+          theme={resolvedTheme}
+          initialViewState={finalViewState}
+          coordinates={finalCoordinates}
+          tileZoomMin={safeTileZoomMin}
+          tileZoomMax={safeTileZoomMax}
+          eooGeoJSON={eooGeoJSON}
+          aooGeoJSON={aooGeoJSON}
+          boundaryGeoJSON={boundaryGeoJSON}
+          layerVisibility={layerVisibility}
+          onToggleLayer={onToggleLayer}
+          basemap={basemap}
+          onToggleBasemap={onToggleBasemap}
+        />
       </div>
       <div className="px-4 py-2 border-t border-sdm-border flex items-center justify-between text-xs text-sdm-muted">
         <span>Suitability raster</span>

@@ -695,10 +695,10 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
         tif_3857_path <- sub("_suitability\\.tif$", "_3857.tif", result$paths$tif)
         tryCatch({
           src_crs <- terra::crs(result$suitability)
-          if (!grepl("EPSG:4326", src_crs)) {
+          if (!terra::same.crs(src_crs, "EPSG:4326")) {
             cat("WARNING: Suitability raster CRS is", src_crs, "expected EPSG:4326\n")
           }
-          r_3857 <- terra::project(result$suitability, "EPSG:3857", method = "near")
+          r_3857 <- terra::project(result$suitability, "EPSG:3857", method = "bilinear")
           terra::writeRaster(r_3857, tif_3857_path,
             filetype = "COG",
             gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
@@ -2902,4 +2902,121 @@ function(source = "worldclim", resolution = "10", biovars = "", gcm = "", ssp = 
       missing = as.list(requested_safe)
     )
   })
+}
+
+#* Download non-climate covariates (elevation, soil, UV, vegetation, LULC, HFP, drought, bioclim seasonality)
+#* @post /api/v1/covariates/download
+#* @parser json
+function(req) {
+  body <- tryCatch(
+    jsonlite::fromJSON(req$postBody, simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(body)) {
+    return(sdm_error(req, 400, "Request body is empty or not valid JSON"))
+  }
+
+  type <- body$type
+  valid_types <- c("elevation", "soil", "uv", "vegetation", "lulc", "hfp", "drought", "bioclim_seasonality")
+  if (is.null(type) || !nzchar(type) || !type %in% valid_types) {
+    return(sdm_error(req, 400, paste0("Invalid or missing 'type'. Must be one of: ", paste(valid_types, collapse = ", "))))
+  }
+
+  tryCatch({
+    # Resolve extent: body, then extent file, then default
+    extent <- body$extent %||% sdm_default_projection_extent
+    extent <- as.numeric(unlist(extent))
+    if (length(extent) != 4 || any(!is.finite(extent))) {
+      extent <- sdm_extent_presets$aus_full
+    }
+
+    cache_base <- file.path(app_dir, sdm_default_covariate_cache_dir)
+
+    if (type == "elevation") {
+      source(file.path(app_dir, "R", "covariates", "covariates_elevation.R"))
+      result <- load_elevation_covariate(
+        training_extent = extent,
+        projection_extent = extent,
+        demtype = body$dem_type %||% sdm_default_elevation_demtype,
+        api_key = body$apikey
+      )
+      cache_dir <- file.path(cache_base, "opentopo")
+    } else if (type == "soil") {
+      source(file.path(app_dir, "R", "covariates", "covariates_soil.R"))
+      result <- load_soil_covariate(
+        soil_path = NULL,
+        selected_soil_vars = body$soil_vars %||% sdm_default_soil_vars,
+        selected_soil_depths = body$soil_depths %||% sdm_default_soil_depths
+      )
+      cache_dir <- file.path(cache_base, "soilgrids")
+    } else if (type == "uv") {
+      source(file.path(app_dir, "R", "covariates", "covariates_uv.R"))
+      result <- load_uv_covariate()
+      cache_dir <- file.path(cache_base, "gluv")
+    } else if (type == "vegetation") {
+      source(file.path(app_dir, "R", "covariates", "covariates_vegetation.R"))
+      result <- load_vegetation_covariate(
+        veg_year = body$veg_year %||% NULL,
+        extent_vec = extent
+      )
+      cache_dir <- file.path(cache_base, "gimms")
+    } else if (type == "lulc") {
+      source(file.path(app_dir, "R", "covariates", "covariates_lulc.R"))
+      result <- load_lulc_covariate(
+        lulc_year = body$lulc_year %||% 2020,
+        extent_vec = extent
+      )
+      cache_dir <- file.path(cache_base, "lulc")
+    } else if (type == "hfp") {
+      source(file.path(app_dir, "R", "covariates", "covariates_human_footprint.R"))
+      result <- load_human_footprint_covariate(
+        hfp_year = body$hfp_year %||% 2020,
+        extent_vec = extent
+      )
+      cache_dir <- file.path(cache_base, "human_footprint")
+    } else if (type == "drought") {
+      source(file.path(app_dir, "R", "covariates", "covariates_drought.R"))
+      result <- load_drought_covariate(
+        selected_periods = body$drought_periods %||% "annual_mean",
+        extent_vec = extent
+      )
+      cache_dir <- file.path(cache_base, "drought")
+    } else if (type == "bioclim_seasonality") {
+      source(file.path(app_dir, "R", "covariates", "covariates_bioclim_seasonality.R"))
+      result <- load_bioclim_seasonality(
+        extent_vec = extent
+      )
+      cache_dir <- file.path(cache_base, "bioclim_season")
+    }
+
+    if (is.null(result)) {
+      return(list(status = "error", message = paste("Failed to download", type, "- check logs for details"), files = list()))
+    }
+
+    downloaded_files <- if (dir.exists(cache_dir)) {
+      list.files(cache_dir, recursive = TRUE)
+    } else {
+      character(0)
+    }
+
+    list(
+      status = "success",
+      message = paste("Downloaded", type, "successfully"),
+      files = downloaded_files
+    )
+  }, error = function(e) {
+    list(status = "error", message = conditionMessage(e))
+  })
+}
+
+#* Serve the default world boundary GeoJSON
+#* @post /api/v1/data/boundary/default
+function(res) {
+  boundary_path <- sdm_default_mask_file
+  if (!file.exists(boundary_path)) {
+    res$status <- 404L
+    return(list(error = "Default boundary file not found"))
+  }
+  geojson <- jsonlite::fromJSON(boundary_path, simplifyVector = FALSE)
+  geojson
 }
