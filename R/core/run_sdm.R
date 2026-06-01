@@ -614,32 +614,29 @@ run_fast_sdm <- function(...) {
     stop("Prediction failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  # Ensure suitability raster is clipped to projection extent
+  # Crop to projection extent and apply boundary mask
   if (!is.null(projection_extent) && inherits(suit, "SpatRaster")) {
-    tmp_cropped <- tempfile(fileext = ".tif")
     suit <- terra::crop(suit,
-      terra::ext(projection_extent[1], projection_extent[2], projection_extent[3], projection_extent[4]),
-      filename = tmp_cropped, overwrite = TRUE)
-    file.rename(tmp_cropped, output_tif)
-    suit <- terra::rast(output_tif)
-    mm <- tryCatch(terra::minmax(suit), error = function(e) NULL)
-    if (!is.null(mm) && all(!is.finite(mm))) {
-      stop("No valid cells in suitability raster — all predictions were NA", call. = FALSE)
-    }
+      terra::ext(projection_extent[1], projection_extent[2], projection_extent[3], projection_extent[4]))
     log_message(log_fun, "  Clipped suitability raster to projection extent")
   }
 
-  # Apply boundary mask if configured
   mask_type <- cfg$mask_type %||% sdm_default_mask_type
   mask_file <- cfg$mask_file %||% sdm_default_mask_file
   mask_buffer_deg <- cfg$mask_buffer_deg %||% sdm_default_mask_buffer_deg
   if (mask_type != "none") {
-    suit <- apply_boundary_mask(suit, mask_type, mask_file, mask_buffer_deg, log_fun,
-                                output_tif = output_tif)
-    mm <- tryCatch(terra::minmax(suit), error = function(e) NULL)
-    if (!is.null(mm) && all(!is.finite(mm))) {
-      stop("Boundary mask produced all-NA raster — mask does not overlap projection extent", call. = FALSE)
-    }
+    suit <- apply_boundary_mask(suit, mask_type, mask_file, mask_buffer_deg, log_fun)
+  }
+
+  # Write final suitability raster (temp file to avoid source=target conflict)
+  tmp_out <- tempfile(fileext = ".tif")
+  terra::writeRaster(suit, tmp_out, overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+  file.rename(tmp_out, output_tif)
+  suit <- terra::rast(output_tif)
+  mm <- tryCatch(terra::minmax(suit), error = function(e) NULL)
+  if (!is.null(mm) && all(!is.finite(mm))) {
+    stop("Boundary mask produced all-NA raster — mask does not overlap projection extent", call. = FALSE)
   }
 
   # Ensemble variable importance (multi-model) — must come after suit is assigned
@@ -909,19 +906,33 @@ run_fast_sdm <- function(...) {
 
   save_suitability_png(suit, occ, projection_extent, species, threshold, output_png)
 
-  # --- XYZ tile generation (optional, non-fatal) — after summary & PNG ---
+  # --- EPSG:3857 COG generation (for tile gen + web map) ---
   output_tiles_dir <- file.path(output_dir, "map_tiles")
   tif_3857_path <- file.path(output_dir, paste0(base_name, "_3857.tif"))
-  if (isTRUE(cfg$generate_tiles %||% TRUE)) {
+  tryCatch({
+    r_3857 <- terra::project(suit, "EPSG:3857", method = "bilinear")
+    terra::writeRaster(r_3857, tif_3857_path,
+      filetype = "COG",
+      gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
+               "OVERVIEWS=AUTO", "OVERVIEW_RESAMPLING=BILINEAR"),
+      NAflag = -9999, datatype = "FLT4S", overwrite = TRUE
+    )
+    extra_paths[["tif_3857"]] <- tif_3857_path
+    log_message(log_fun, "  Written EPSG:3857 COG: ", tif_3857_path)
+  }, error = function(e) {
+    log_message(log_fun, "  COG generation failed: ", conditionMessage(e))
+  })
+
+  # --- XYZ tile generation from COG (already in EPSG:3857, has overviews) ---
+  if (isTRUE(cfg$generate_tiles %||% TRUE) && file.exists(tif_3857_path)) {
     tile_result <- tryCatch({
       tr <- generate_xyz_tiles(
-        input       = suit,
+        input       = tif_3857_path,
         output_dir  = output_tiles_dir,
         palette     = c("#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
                         "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"),
         value_range = c(0, 1),
         band_names  = "suitability",
-        cog_path    = tif_3857_path,
         verbose     = FALSE,
         log         = function(msg) log_message(log_fun, "  ", msg)
       )
@@ -932,7 +943,6 @@ run_fast_sdm <- function(...) {
       extra_paths[["tiles_dir"]] <- output_tiles_dir
       extra_paths[["tile_zoom_min"]] <- as.character(tr$bands[["suitability"]]$zoom_min)
       extra_paths[["tile_zoom_max"]] <- as.character(tr$bands[["suitability"]]$zoom_max)
-      extra_paths[["tif_3857"]] <- tif_3857_path
       tr
     }, error = function(e) {
       log_message(log_fun, "  Tile generation skipped: ", conditionMessage(e))
