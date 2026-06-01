@@ -34,8 +34,10 @@ if (cluster_backend != "local" && requireNamespace("crew", quietly = TRUE)) {
   }
 }
 
+store_path <- Sys.getenv("SDM_TARGETS_STORE", file.path("outputs", "_targets"))
+
 tar_option_set(
-  store = file.path("outputs", "_targets"),
+  store = store_path,
   memory = if (cache_mode == "minimal") "transient" else "persistent",
   garbage_collection = cache_mode != "persistent",
   storage = if (cache_mode == "minimal") "worker" else "main",
@@ -62,6 +64,7 @@ fallback_biovars <- c(1, 4, 6, 12, 15, 18)
 fallback_extent <- c(112, 154, -44, -10)
 fallback_cv_folds <- 5L
 fallback_background_n <- 500L
+fallback_species_filter <- Sys.getenv("SDM_SPECIES_FILTER", "")
 
 # ── Pipeline ───────────────────────────────────────────────────────────────
 
@@ -82,6 +85,7 @@ list(
     } else {
       list(list(
         species = fallback_species,
+        species_filter = fallback_species_filter,
         occurrences_csv = fallback_csv,
         model_id = "glm",
         biovars = paste(fallback_biovars, collapse = ","),
@@ -97,7 +101,11 @@ list(
     pattern = map(config_rows)),
 
   tar_target(occ_clean, sdm_stage_clean(cfg), pattern = map(cfg)),
-  tar_target(env, sdm_stage_covariates(cfg, occ_clean$occ), pattern = map(cfg)),
+
+  # Non-branching: shared environment (first row config is representative)
+  tar_target(shared_cfg, build_config_from_row(config_rows[[1]], seed = batch_seed)),
+  tar_target(env, sdm_stage_covariates(shared_cfg, NULL)),
+
   tar_target(fit, sdm_stage_fit(cfg, occ_clean$occ, env), pattern = map(cfg)),
 
   tar_target(suit_tif, {

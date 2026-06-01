@@ -280,6 +280,7 @@ export interface CleanResult {
   valid_records?: number;
   cleaned_records?: Array<Record<string, unknown>>;
   source_counts?: Record<string, number>;
+  species_counts?: Record<string, number>;
   n_absent_excluded?: number;
   original_rows?: number;
   pipelineRunId?: string;

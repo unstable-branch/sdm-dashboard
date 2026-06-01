@@ -7,6 +7,7 @@ sdm_config <- function(...) {
 
   defaults <- list(
     species = sdm_default_species,
+    species_filter = NULL,
     occurrence_file = sdm_default_occurrence_file,
     worldclim_dir = sdm_default_worldclim_dir,
     selected_biovars = sdm_default_biovars,

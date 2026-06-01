@@ -101,6 +101,11 @@ build_run_args <- function(row) {
       next
     }
 
+    if (p == "species_filter") {
+      args$species_filter <- val
+      next
+    }
+
     # Special handling for known comma-separated list columns
     if (p %in% names(list_param_map)) {
       arg_name <- list_param_map[[p]]

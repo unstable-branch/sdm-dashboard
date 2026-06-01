@@ -26,7 +26,7 @@ export const pipelineItems: DashboardNavItem[] = [
   { title: "Data", href: "/data", icon: Database },
   { title: "Model", href: "/model", icon: Brain },
   { title: "Results", href: "/results", icon: ScrollText },
-  { title: "Batch", href: "/batch", icon: Layers },
+  { title: "Batch", href: "/data?tab=batch", icon: Layers },
   { title: "Evaluate", href: "/evaluate", icon: BarChart3 },
   { title: "Future Projection", href: "/project", icon: Cloud },
   { title: "Ecology", href: "/ecology", icon: Leaf },
