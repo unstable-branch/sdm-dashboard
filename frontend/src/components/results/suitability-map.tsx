@@ -47,6 +47,11 @@ const DynamicMap = dynamic(() => import("./maplibre-map"), {
 export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinates, projectionExtent, eooGeoJSON, aooGeoJSON, boundaryGeoJSON }: SuitabilityMapProps) {
   const finalCoordinates = coordinates || extentToCoordinates(projectionExtent);
   const finalViewState = initialViewState || extentToViewState(projectionExtent);
+  const tileBounds: [number, number, number, number] | undefined = projectionExtent
+    ? [projectionExtent[0], projectionExtent[2], projectionExtent[1], projectionExtent[3]]
+    : finalCoordinates
+    ? [finalCoordinates[0][0], finalCoordinates[2][1], finalCoordinates[1][0], finalCoordinates[0][1]]
+    : undefined;
   const { resolvedTheme } = useTheme();
   const [layerVisibility, setLayerVisibility] = useState<Record<string, boolean>>({
     suitability: true,
@@ -90,6 +95,7 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
           coordinates={finalCoordinates}
           tileZoomMin={safeTileZoomMin}
           tileZoomMax={safeTileZoomMax}
+          tileBounds={tileBounds}
           eooGeoJSON={eooGeoJSON}
           aooGeoJSON={aooGeoJSON}
           boundaryGeoJSON={boundaryGeoJSON}

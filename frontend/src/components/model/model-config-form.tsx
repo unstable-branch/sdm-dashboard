@@ -1186,7 +1186,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
                 onChange={(e) => setElevationDemtype(e.target.value)}
                 className="ml-2 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text"
               >
-                {["COP90", "SRTMGL3", "AW3D30", "SRTMGL1"].map((d) => (
+                {["COP90", "COP30", "SRTMGL3", "SRTMGL1", "NASADEM", "AW3D30"].map((d) => (
                   <option key={d} value={d}>{d}</option>
                 ))}
               </select>
