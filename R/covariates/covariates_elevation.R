@@ -136,10 +136,20 @@ download_opentopo_dem <- function(extent_vec, demtype, cache_file, api_key = NUL
   on.exit(unlink(tile_dir, recursive = TRUE, force = TRUE), add = TRUE)
 
   log_message(log_fun, "Downloading elevation from OpenTopography as ", n_tiles, " tile(s); DEM = ", demtype)
-  tile_files <- character(length(tiles))
-  for (i in seq_along(tiles)) {
-    tile_files[i] <- file.path(tile_dir, paste0("tile_", i, ".tif"))
-    download_opentopo_tile(tiles[[i]], demtype, key, tile_files[i])
+  tile_files <- vapply(seq_along(tiles), function(i) file.path(tile_dir, paste0("tile_", i, ".tif")), character(1))
+
+  n_dl_cores <- min(n_tiles, max(1L, parallel::detectCores() - 1L))
+  if (.Platform$OS.type == "unix" && n_tiles > 1L) {
+    dl_results <- parallel::mclapply(seq_along(tiles), function(i) {
+      download_opentopo_tile(tiles[[i]], demtype, key, tile_files[i])
+    }, mc.cores = n_dl_cores, mc.preschedule = FALSE)
+    errs <- vapply(dl_results, function(r) inherits(r, "try-error"), logical(1))
+    if (any(errs)) {
+      log_message(log_fun, "  Parallel: ", sum(errs), "/", n_tiles, " tiles failed — retrying failed tiles sequentially")
+      for (i in which(errs)) download_opentopo_tile(tiles[[i]], demtype, key, tile_files[i])
+    }
+  } else {
+    for (i in seq_along(tiles)) download_opentopo_tile(tiles[[i]], demtype, key, tile_files[i])
   }
 
   rasters <- lapply(tile_files, terra::rast)
