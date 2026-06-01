@@ -212,10 +212,21 @@ generate_xyz_tiles <- function(
       if (is.null(z_min)) z_min <- max(z_limit_min, target_z - 2L)
       if (is.null(z_max)) z_max <- min(z_limit_max, target_z + 2L)
     }
-    log_msg("  Zoom range: ", z_min, " - ", z_max)
 
     # Compute tile grid bounds in target CRS
     ext_proj <- terra::ext(r_proj)
+
+    # Adjust max zoom for high-latitude extents (Mercator compression)
+    # At high latitudes the same geographic extent covers fewer projected meters,
+    # so high zoom levels produce minimal tile counts but add overhead.
+    if (is.null(zoom_max)) {
+      extent_width <- ext_proj[2] - ext_proj[1]
+      if (extent_width > 0) {
+        extent_z <- round(log2(world_size / (tile_size * extent_width)))
+        z_max <- min(z_max, extent_z + 3L)
+      }
+    }
+    log_msg("  Zoom range: ", z_min, " - ", z_max)
 
     total_tiles <- 0L
     band_dir <- file.path(output_dir, b_name)
