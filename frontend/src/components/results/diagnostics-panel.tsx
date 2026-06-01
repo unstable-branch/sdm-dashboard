@@ -112,6 +112,8 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
           <TabsTrigger value="density" className="text-xs">Density</TabsTrigger>
           <TabsTrigger value="vif" className="text-xs">VIF</TabsTrigger>
           <TabsTrigger value="mess" className="text-xs">MESS</TabsTrigger>
+          <TabsTrigger value="ale" className="text-xs">ALE</TabsTrigger>
+          <TabsTrigger value="climate-drivers" className="text-xs">Climate</TabsTrigger>
           <TabsTrigger value="overfitting" className="text-xs text-amber-500">Overfitting</TabsTrigger>
           <TabsTrigger value="log" className="text-xs">Log</TabsTrigger>
         </TabsList>
@@ -162,22 +164,6 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
 
         <TabsContent value="climate-drivers">
           <ClimateDriverChart data={climateDriverData} loading={loadingDiagnostics} />
-        </TabsContent>
-
-        <TabsContent value="overfitting">
-          <OverfittingPanel run={run} />
-        </TabsContent>
-
-        <TabsContent value="shap">
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface-soft p-6 text-center">
-            <p className="text-sm text-sdm-muted">
-              Click a cell on the <strong>suitability map</strong> (Results → Map tab) to get a per-pixel SHAP explanation.
-            </p>
-            <p className="text-xs text-sdm-muted mt-2">
-              SHAP values decompose the model prediction into per-covariate contributions,
-              showing which environmental variables drive suitability at each location.
-            </p>
-          </div>
         </TabsContent>
 
         <TabsContent value="overfitting">
