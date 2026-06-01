@@ -184,6 +184,12 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       body.file_id = resolved.path;
     }
 
+    // Forward max coordinate uncertainty if provided
+    const maxCoordinateUncertainty = (body.max_coordinate_uncertainty ?? body.maxCoordinateUncertainty) as number | undefined;
+    if (maxCoordinateUncertainty !== undefined) {
+      body.max_coordinate_uncertainty = maxCoordinateUncertainty;
+    }
+
     const initial = await plumberClient.withUser(user.id).cleanOccurrences(body);
 
     if (initial && typeof initial === "object" && "error" in initial) {

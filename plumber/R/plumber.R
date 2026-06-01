@@ -278,10 +278,13 @@ function(req, limit = 50) {
 #* @param merge_small_sources Merge small sources (default: true)
 #* @param use_cc Run CoordinateCleaner (default: false)
 #* @param cc_tests CC tests to run: all, sea, capitals, centroids, institutions, urban, zero (default: all)
+#* @param max_coordinate_uncertainty Max coordinate uncertainty in meters (default: no filter)
 #* @post /api/v1/occurrences/clean
-function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_cc = FALSE, cc_tests = "all") {
+function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_cc = FALSE, cc_tests = "all", max_coordinate_uncertainty = NULL) {
   min_source_records <- suppressWarnings(as.integer(min_source_records))
   if (!is.finite(min_source_records)) min_source_records <- 15L
+
+  max_coordinate_uncertainty <- if (is.null(max_coordinate_uncertainty) || !nzchar(max_coordinate_uncertainty)) NULL else suppressWarnings(as.numeric(max_coordinate_uncertainty))
 
   safe_path <- sdm_safe_path(file_id, file.path(app_dir, "data", "uploads"))
   if (is.null(safe_path)) {
@@ -295,7 +298,8 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
     min_source_records = min_source_records,
     merge_small_sources = merge_small_sources,
     use_cc = use_cc,
-    cc_tests = cc_tests
+    cc_tests = cc_tests,
+    max_coordinate_uncertainty = max_coordinate_uncertainty
   ), app_dir, user_id)
 
   if (is.null(job_id)) {
