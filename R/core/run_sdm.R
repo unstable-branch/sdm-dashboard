@@ -680,34 +680,6 @@ run_fast_sdm <- function(...) {
   }
   progress_step(progress_fun, 0.90, "Writing output raster")
 
-  # --- XYZ tile generation (optional, non-fatal) ---
-  if (isTRUE(cfg$generate_tiles %||% TRUE)) {
-    output_tiles_dir <- file.path(output_dir, "map_tiles")
-    tile_result <- tryCatch({
-      tr <- generate_xyz_tiles(
-        input       = suit,
-        output_dir  = output_tiles_dir,
-        palette     = c("#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
-                        "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"),
-        value_range = c(0, 1),
-        band_names  = "suitability",
-        verbose     = FALSE,
-        log         = function(msg) log_message(log_fun, "  ", msg)
-      )
-      log_message(log_fun, "  XYZ tiles: ", tr$bands[["suitability"]]$tile_count,
-                  " tiles (zoom ", tr$bands[["suitability"]]$zoom_min, "-",
-                  tr$bands[["suitability"]]$zoom_max, ") in ",
-                  round(tr$generation_time, 1), "s")
-      extra_paths[["tiles_dir"]] <- output_tiles_dir
-      extra_paths[["tile_zoom_min"]] <- as.character(tr$bands[["suitability"]]$zoom_min)
-      extra_paths[["tile_zoom_max"]] <- as.character(tr$bands[["suitability"]]$zoom_max)
-      tr
-    }, error = function(e) {
-      log_message(log_fun, "  Tile generation skipped: ", conditionMessage(e))
-      NULL
-    })
-  }
-
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
@@ -936,6 +908,37 @@ run_fast_sdm <- function(...) {
   }
 
   save_suitability_png(suit, occ, projection_extent, species, threshold, output_png)
+
+  # --- XYZ tile generation (optional, non-fatal) — after summary & PNG ---
+  output_tiles_dir <- file.path(output_dir, "map_tiles")
+  tif_3857_path <- file.path(output_dir, paste0(base_name, "_3857.tif"))
+  if (isTRUE(cfg$generate_tiles %||% TRUE)) {
+    tile_result <- tryCatch({
+      tr <- generate_xyz_tiles(
+        input       = suit,
+        output_dir  = output_tiles_dir,
+        palette     = c("#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
+                        "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"),
+        value_range = c(0, 1),
+        band_names  = "suitability",
+        cog_path    = tif_3857_path,
+        verbose     = FALSE,
+        log         = function(msg) log_message(log_fun, "  ", msg)
+      )
+      log_message(log_fun, "  XYZ tiles: ", tr$bands[["suitability"]]$tile_count,
+                  " tiles (zoom ", tr$bands[["suitability"]]$zoom_min, "-",
+                  tr$bands[["suitability"]]$zoom_max, ") in ",
+                  round(tr$generation_time, 1), "s")
+      extra_paths[["tiles_dir"]] <- output_tiles_dir
+      extra_paths[["tile_zoom_min"]] <- as.character(tr$bands[["suitability"]]$zoom_min)
+      extra_paths[["tile_zoom_max"]] <- as.character(tr$bands[["suitability"]]$zoom_max)
+      extra_paths[["tif_3857"]] <- tif_3857_path
+      tr
+    }, error = function(e) {
+      log_message(log_fun, "  Tile generation skipped: ", conditionMessage(e))
+      NULL
+    })
+  }
 
   elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
   log_message(log_fun, "Completed in ", sprintf("%.1f", elapsed), " seconds")

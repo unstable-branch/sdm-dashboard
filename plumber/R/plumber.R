@@ -691,29 +691,34 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
         high_suitability_area_ci95_upper = result$summary$high_risk_area_ci95_upper %||% NULL
       )
       # Write EPSG:3857 COG for web map display
+      # If tiles were generated, the COG already exists (written by tile_generator.R)
       if (!is.null(result$paths$tif) && !is.null(result$suitability)) {
         tif_3857_path <- sub("_suitability\\.tif$", "_3857.tif", result$paths$tif)
-        tryCatch({
-          src_crs <- terra::crs(result$suitability)
-          if (!terra::same.crs(src_crs, "EPSG:4326")) {
-            cat("WARNING: Suitability raster CRS is", src_crs, "expected EPSG:4326\n")
-          }
-          r_3857 <- terra::project(result$suitability, "EPSG:3857", method = "bilinear")
-          terra::writeRaster(r_3857, tif_3857_path,
-            filetype = "COG",
-            gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
-                     "OVERVIEWS=AUTO", "OVERVIEW_RESAMPLING=BILINEAR",
-                     "NODATA=-9999"),
-            NAflag = -9999,
-            datatype = "FLT4S",
-            overwrite = TRUE
-          )
-          result$paths$tif_3857 <- tif_3857_path
-          log_fun("Written EPSG:3857 COG: ", tif_3857_path)
-        }, error = function(e) {
-          cat("EPSG:3857 COG failed:", conditionMessage(e), "\n")
-          cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-        })
+        if (!file.exists(tif_3857_path)) {
+          tryCatch({
+            src_crs <- terra::crs(result$suitability)
+            if (!terra::same.crs(src_crs, "EPSG:4326")) {
+              cat("WARNING: Suitability raster CRS is", src_crs, "expected EPSG:4326\n")
+            }
+            r_3857 <- terra::project(result$suitability, "EPSG:3857", method = "bilinear")
+            terra::writeRaster(r_3857, tif_3857_path,
+              filetype = "COG",
+              gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
+                       "OVERVIEWS=AUTO", "OVERVIEW_RESAMPLING=BILINEAR",
+                       "NODATA=-9999"),
+              NAflag = -9999,
+              datatype = "FLT4S",
+              overwrite = TRUE
+            )
+            log_fun("Written EPSG:3857 COG: ", tif_3857_path)
+          }, error = function(e) {
+            cat("EPSG:3857 COG failed:", conditionMessage(e), "\n")
+            cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
+          })
+        } else {
+          log_fun("COG already exists (from tile generation): ", tif_3857_path)
+        }
+        result$paths$tif_3857 <- tif_3857_path
       }
       # Save full result object for diagnostics endpoints
       result_rds_path <- file.path(job_dir, "result.rds")
