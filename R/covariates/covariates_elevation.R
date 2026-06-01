@@ -114,12 +114,28 @@ download_opentopo_dem <- function(extent_vec, demtype, cache_file, api_key = NUL
   key <- opentopo_api_key(api_key)
   if (!nzchar(key)) stop("Elevation selected but no OpenTopography API key was provided.", call. = FALSE)
   dir.create(dirname(cache_file), recursive = TRUE, showWarnings = FALSE)
+
+  # Validate extent size before attempting download
+  ext_w <- extent_vec[2] - extent_vec[1]
+  ext_h <- extent_vec[4] - extent_vec[3]
+  max_safe_deg <- 50
+  if (ext_w > max_safe_deg || ext_h > max_safe_deg) {
+    log_message(log_fun, sprintf("  WARNING: Large extent (%.1f x %.1f deg) — ", ext_w, ext_h),
+      "DEM download may hit API limits or take very long. Consider a smaller extent or coarser DEM.")
+  }
+
   tiles <- opentopo_tile_extents(extent_vec, demtype)
+  n_tiles <- length(tiles)
+  if (n_tiles > 50) {
+    log_message(log_fun, sprintf("  WARNING: %d DEM tiles required — ", n_tiles),
+      "consider using a coarser DEM type (COP90 or SRTMGL3) for large extents.")
+  }
+
   tile_dir <- tempfile("opentopo_tiles_")
   dir.create(tile_dir, recursive = TRUE, showWarnings = FALSE)
   on.exit(unlink(tile_dir, recursive = TRUE, force = TRUE), add = TRUE)
 
-  log_message(log_fun, "Downloading elevation from OpenTopography as ", length(tiles), " tile(s); DEM = ", demtype)
+  log_message(log_fun, "Downloading elevation from OpenTopography as ", n_tiles, " tile(s); DEM = ", demtype)
   tile_files <- character(length(tiles))
   for (i in seq_along(tiles)) {
     tile_files[i] <- file.path(tile_dir, paste0("tile_", i, ".tif"))
