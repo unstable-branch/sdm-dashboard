@@ -38,6 +38,7 @@ outputs/
 Worldclim/
 Worldclim_future/
 renv/
+renv.lock
 species/
 TestSpp/
 
