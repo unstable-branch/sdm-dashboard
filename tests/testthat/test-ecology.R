@@ -15,6 +15,7 @@ test_that("compute_eoo_aoo returns valid EOO and AOO for known points", {
   expect_true(result$aoo_cells > 0)
   expect_true(is.finite(result$aoo_km2))
   expect_true(!is.null(result$eoo_polygon))
+  expect_equal(result$eoo_method, "mcp")
   expect_true(result$n_unique_points >= 3)
 })
 
