@@ -28,6 +28,7 @@ modules <- c(
   "bootstrap.R",
   "config.R",
   "packages.R",
+  "model_payload_normalizer.R",
   "logging.R",
   "crypto.R",
   "validation.R",
