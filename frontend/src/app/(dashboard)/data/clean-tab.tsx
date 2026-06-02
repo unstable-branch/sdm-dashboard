@@ -14,7 +14,7 @@ interface CleanTabProps {
   cleanJobId: string | null;
   useAsync: boolean;
   useCc: boolean;
-  
+
   onSetUseAsync: (v: boolean) => void;
   onSetUseCc: (v: boolean) => void;
   onClean: () => void;
