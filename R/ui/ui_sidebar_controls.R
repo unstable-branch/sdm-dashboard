@@ -260,6 +260,51 @@ ui_sidebar_controls <- function() {
           ),
           actionButton("tune_maxnet", "Tune MaxNet", class = "btn-outline-secondary btn-sm", width = "100%")
         ),
+        conditionalPanel(
+          "input.model_id == 'brt'",
+          numericInput("brt_n_trees", "Number of trees", value = 2000, min = 100, max = 10000, step = 100),
+          numericInput("brt_interaction_depth", "Interaction depth", value = 3, min = 1, max = 10, step = 1),
+          numericInput("brt_shrinkage", "Learning rate (shrinkage)", value = 0.01, min = 0.001, max = 0.5, step = 0.001),
+          numericInput("brt_bag_fraction", "Bag fraction", value = 0.75, min = 0.1, max = 1.0, step = 0.05)
+        ),
+        conditionalPanel(
+          "input.model_id == 'cta'",
+          numericInput("cta_cp", "Complexity parameter (cp)", value = 0.01, min = 0.001, max = 0.5, step = 0.001),
+          numericInput("cta_maxdepth", "Max tree depth", value = 10, min = 3, max = 30, step = 1),
+          numericInput("cta_minsplit", "Min split size", value = 20, min = 2, max = 100, step = 1)
+        ),
+        conditionalPanel(
+          "input.model_id == 'mars'",
+          numericInput("mars_degree", "Max interaction degree", value = 2, min = 1, max = 5, step = 1),
+          numericInput("mars_penalty", "Penalty per knot", value = 3.0, min = 0, max = 10, step = 0.5)
+        ),
+        conditionalPanel(
+          "input.model_id == 'fda'",
+          numericInput("fda_degree", "MARS degree", value = 2, min = 1, max = 5, step = 1)
+        ),
+        conditionalPanel(
+          "input.model_id == 'ann'",
+          numericInput("ann_size", "Hidden layer size", value = 5, min = 2, max = 50, step = 1),
+          numericInput("ann_decay", "Weight decay", value = 0.01, min = 0.0001, max = 1, step = 0.001),
+          numericInput("ann_maxit", "Max iterations", value = 200, min = 50, max = 1000, step = 50)
+        ),
+        conditionalPanel(
+          "input.model_id == 'dnn'",
+          selectInput("dnn_model_type", "DNN architecture",
+            choices = c("Small (1×64)" = "DNN_Small", "Medium (2×100)" = "DNN_Medium", "Large (3×100)" = "DNN_Large"),
+            selected = "DNN_Medium"
+          ),
+          numericInput("dnn_n_seeds", "Ensemble seeds (for uncertainty)", value = 5, min = 1, max = 20, step = 1),
+          selectInput("dnn_device", "Device",
+            choices = c("Auto" = "auto", "CPU" = "cpu", "GPU" = "gpu"),
+            selected = "auto"
+          ),
+          div(class = "small-muted", "Multiple seeds train independent networks with different random initialisations. Prediction SD across seeds measures epistemic uncertainty.")
+        ),
+        conditionalPanel(
+          "input.model_id == 'bioclim'",
+          div(class = "small-muted", "BIOCLIM is a presence-only environmental envelope model. It does not produce variable importance scores — there is no mechanism for per-variable permutation. The model computes suitability as the percentile of environmental distance to training presences.")
+        ),
         div(class = "small-muted", "Rangebagging is experimental; GLM remains the stable default."),
         conditionalPanel(
           "input.model_id == 'biomod2'",
@@ -302,7 +347,7 @@ ui_sidebar_controls <- function() {
           numericInput("multi_ensemble_min_tss", "Minimum TSS to include:",
             value = sdm_default_ensemble_min_tss, min = 0.0, max = 1.0, step = 0.05
           ),
-          checkboxInput("multi_ensemble_export", "Export individual model rasters", value = TRUE),
+          checkboxInput("multi_ensemble_export", "Export individual model rasters", value = FALSE),
           uiOutput("multi_ensemble_validation"),
           div(class = "small-muted", "Select at least 2 models. biomod2 requires options(sdm.enable_biomod2 = TRUE).")
         ),

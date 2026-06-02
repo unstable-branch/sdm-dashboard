@@ -1,35 +1,25 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
-import Link from "next/link";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FileUpload } from "@/components/data/file-upload";
-import { GbifSearch } from "@/components/data/gbif-search";
-import { PreviewTable } from "@/components/data/preview-table";
-import { CleaningTable } from "@/components/data/cleaning-table";
-import { SourceCounts } from "@/components/data/source-counts";
-import { JobProgress } from "@/components/jobs/job-progress";
-import { DownloadProgress } from "@/components/climate/download-progress";
-import { ScenarioList } from "@/components/climate/scenario-list";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, FileArchive, Wand2, Map, Cloud, Loader2, CheckCircle2, Download } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Upload, Globe, FileArchive, Wand2, Map, Cloud, CheckCircle2, AlertTriangle } from "lucide-react";
+import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
-import { apiUpload, apiPost, apiGet } from "@/services/api";
-import { BIOVAR_CHOICES, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
+import { apiUpload, apiPost, apiGet, apiPatch } from "@/services/api";
+import { FileUpload } from "@/components/data/file-upload";
+import { PreviewTable } from "@/components/data/preview-table";
+import { UploadTab } from "./upload-tab";
+import { CleanTab } from "./clean-tab";
+import { ClimateTab } from "./climate-tab";
+import type { OccurrencePoint } from "./types";
 
-const OccurrenceMap = dynamic(() => import("@/components/data/occurrence-map").then(m => m.OccurrenceMap), {
+const GbifSearch = dynamic(() => import("@/components/data/gbif-search"), { ssr: false });
+const OccurrenceMap = dynamic(() => import("@/components/data/occurrence-map"), {
   ssr: false,
   loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div>,
 });
-
-interface OccurrencePoint {
-  longitude: number;
-  latitude: number;
-  source?: string;
-  flagged?: boolean;
-  [key: string]: unknown;
-}
 
 export default function DataPage() {
   return (
@@ -42,11 +32,7 @@ export default function DataPage() {
 function extractSpeciesFromFilename(filename: string): string | null {
   const base = filename.replace(/\.(csv|tsv|txt|zip)$/i, "");
   const cleaned = base.replace(/[_-]/g, " ").trim();
-  const titleCase = cleaned
-    .split(" ")
-    .filter((w) => w.length > 0)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
+  const titleCase = cleaned.split(" ").filter((w) => w.length > 0).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   if (titleCase.length < 3 || titleCase === cleaned.toUpperCase()) return null;
   return titleCase;
 }
@@ -63,17 +49,26 @@ function DataPageContent() {
   const cleanResult = useSDMStore((s) => s.cleanResult);
   const setCleanResult = useSDMStore((s) => s.setCleanResult);
   const setCleanedOccurrence = useSDMStore((s) => s.setCleanedOccurrence);
-  const flaggedIndicesArray = useSDMStore((s) => s.flaggedIndices);
+  const setPipelineRunId = useSDMStore((s) => s.setPipelineRunId);
+  const _flaggedIndicesArray = useSDMStore((s) => s.flaggedIndices);
   const setFlaggedIndicesArray = useSDMStore((s) => s.setFlaggedIndices);
-  const flaggedIndices = useMemo(() => new Set(flaggedIndicesArray), [flaggedIndicesArray]);
 
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadHistory, setUploadHistory] = useState<Array<Record<string, unknown>>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const [cleanLoading, setCleanLoading] = useState(false);
   const [cleanError, setCleanError] = useState<string | null>(null);
   const [cleanJobId, setCleanJobId] = useState<string | null>(null);
   const [useAsync, setUseAsync] = useState(false);
+  const [useCc, setUseCc] = useState(true);
+
+  useEffect(() => {
+    if (!cleanJobId) return;
+    const timeout = setTimeout(() => { setCleanError("Clean job timed out — check the admin diagnostics panel"); setCleanJobId(null); setCleanLoading(false); }, 600_000);
+    return () => clearTimeout(timeout);
+  }, [cleanJobId]);
 
   const [gbifLoading, setGbifLoading] = useState(false);
   const [gbifError, setGbifError] = useState<string | null>(null);
@@ -96,120 +91,112 @@ function DataPageContent() {
 
   const [avgGcms, setAvgGcms] = useState<string[]>([]);
   const [avgDownloadJob, setAvgDownloadJob] = useState<string | null>(null);
-
   const [climateError, setClimateError] = useState<string | null>(null);
-
   const [scenarios, setScenarios] = useState<Array<Record<string, unknown>>>([]);
   const [scenariosLoading, setScenariosLoading] = useState(false);
+  const [gbifSaving, setGbifSaving] = useState(false);
+  const [gbifSaved, setGbifSaved] = useState(false);
 
-  const onTabChange = useCallback((value: string) => {
-    router.replace(`/data?tab=${value}`, { scroll: false });
-  }, [router]);
+  const handleCancelDownload = useCallback(async () => {
+    const active = climateDownloadJob || cmip6DownloadJob || avgDownloadJob;
+    if (active) {
+      try { await apiPost(`/api/v1/climate/cancel/${active}`); } catch { /* best-effort */ }
+    }
+    setClimateDownloadJob(null);
+    setCmip6DownloadJob(null);
+    setAvgDownloadJob(null);
+  }, [climateDownloadJob, cmip6DownloadJob, avgDownloadJob]);
 
-  const toggleClimateBiovar = (id: number) => {
-    setClimateBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
-  };
-
-  const toggleAvgGcm = (id: string) => {
-    setAvgGcms((prev) => prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]);
-  };
+  const onTabChange = useCallback((value: string) => { router.replace(`/data?tab=${value}`, { scroll: false }); }, [router]);
+  const toggleClimateBiovar = (id: number) => setClimateBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
+  const toggleAvgGcm = (id: string) => setAvgGcms((prev) => prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]);
 
   const handleClimateDownload = async () => {
     setClimateError(null);
-    try {
-      const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", {
-        type: climateSource,
-        res: climateRes,
-        biovars: climateBiovars.join(","),
-      });
-      setClimateDownloadJob(data.jobId as string);
-    } catch (err) {
-      setClimateError(err instanceof Error ? err.message : "Download failed");
-    }
+    try { const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", { type: climateSource, res: climateRes, biovars: climateBiovars.join(",") }); setClimateDownloadJob(data.jobId as string); }
+    catch (err) { setClimateError(err instanceof Error ? err.message : "Download failed"); }
   };
 
   const handleCmip6Download = async () => {
     setClimateError(null);
-    try {
-      const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", {
-        type: "cmip6",
-        gcm: cmip6Gcm,
-        ssp: cmip6Ssp,
-        period: cmip6Period,
-      });
-      setCmip6DownloadJob(data.jobId as string);
-    } catch (err) {
-      setClimateError(err instanceof Error ? err.message : "Download failed");
-    }
+    try { const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", { type: "cmip6", gcm: cmip6Gcm, ssp: cmip6Ssp, period: cmip6Period }); setCmip6DownloadJob(data.jobId as string); }
+    catch (err) { setClimateError(err instanceof Error ? err.message : "Download failed"); }
   };
 
   const handleAvgDownload = async () => {
     if (avgGcms.length < 2) return;
     setClimateError(null);
-    try {
-      const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", {
-        type: "cmip6_average",
-        gcm_list: avgGcms,
-        ssp: cmip6Ssp,
-        period: cmip6Period,
-        res: 10,
-      });
-      setAvgDownloadJob(data.jobId as string);
-    } catch (err) {
-      setClimateError(err instanceof Error ? err.message : "Download failed");
-    }
+    try { const data = await apiPost<Record<string, unknown>>("/api/v1/climate/download", { type: "cmip6_average", gcm_list: avgGcms, ssp: cmip6Ssp, period: cmip6Period, res: 10 }); setAvgDownloadJob(data.jobId as string); }
+    catch (err) { setClimateError(err instanceof Error ? err.message : "Download failed"); }
   };
 
-  const handleDownloadComplete = useCallback((completedJobId: string) => {
-    setClimateDownloadJob(prev => prev === completedJobId ? null : prev);
-    setCmip6DownloadJob(prev => prev === completedJobId ? null : prev);
-    setAvgDownloadJob(prev => prev === completedJobId ? null : prev);
-    fetchScenarios();
+  const clearDownloadJob = useCallback((jobId: string) => {
+    setClimateDownloadJob(prev => prev === jobId ? null : prev);
+    setCmip6DownloadJob(prev => prev === jobId ? null : prev);
+    setAvgDownloadJob(prev => prev === jobId ? null : prev);
   }, []);
+
+  const handleDownloadComplete = useCallback((completedJobId: string) => {
+    clearDownloadJob(completedJobId);
+    fetchScenarios();
+  }, [clearDownloadJob]);
+
+  const handleDownloadFailed = useCallback((failedJobId: string) => {
+    clearDownloadJob(failedJobId);
+    fetchScenarios();
+  }, [clearDownloadJob]);
 
   const fetchScenarios = useCallback(async () => {
     setScenariosLoading(true);
+    try { const data = await apiGet<{ scenarios: Array<Record<string, unknown>> }>("/api/v1/climate/scenarios"); setScenarios(data.scenarios || []); }
+    catch { } finally { setScenariosLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchScenarios(); }, [fetchScenarios]);
+
+  useEffect(() => {
+    const allBiovars = "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19";
+    apiGet<{ available: number[] }>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${encodeURIComponent(allBiovars)}`)
+      .then(data => setAvailableBiovars(new Set(data.available || []))).catch(() => setAvailableBiovars(new Set()));
+  }, [climateSource, climateRes]);
+
+  const handleDeleteScenario = async (id: string) => {
     try {
-      const data = await apiGet<{ scenarios: Array<Record<string, unknown>> }>("/api/v1/climate/scenarios");
-      setScenarios(data.scenarios || []);
+      await apiPost(`/api/v1/climate/delete/${id}`);
+      setScenarios((prev) => prev.filter((s) => s.id !== id));
     } catch {
+    }
+  };
+
+  const fetchUploads = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const data = await apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/occurrences/uploads");
+      setUploadHistory(data.uploads || []);
+    } catch {
+      setUploadHistory([]);
     } finally {
-      setScenariosLoading(false);
+      setHistoryLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchScenarios();
-  }, [fetchScenarios]);
-
-  useEffect(() => {
-    const allBiovars = BIOVAR_CHOICES.map(b => b.id).join(",");
-    apiGet<{ available: number[] }>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${encodeURIComponent(allBiovars)}`)
-      .then(data => setAvailableBiovars(new Set(data.available || [])))
-      .catch(() => setAvailableBiovars(new Set()));
-  }, [climateSource, climateRes]);
-
-  const handleDeleteScenario = (id: string) => {
-    setScenarios((prev) => prev.filter((s) => s.id !== id));
-  };
+    fetchUploads();
+  }, [fetchUploads]);
 
   const handleUpload = async (file: File) => {
-    setUploadLoading(true);
-    setUploadError(null);
-    setUploadResult(null);
-    setCleanResult(null);
-
+    setUploadLoading(true); setUploadError(null); setUploadResult(null); setCleanResult(null); setCleanedOccurrence(null);
     try {
       const result = await apiUpload<Record<string, unknown>>(
         "/api/v1/data/occurrences/upload", file, undefined, 600000
       );
-      const filePath = (result.file_path as string) || null;
+      const fileId = (result.file_id as string) || null;
       const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
       const detectedSpecies = (result.species_detected as string) || null;
-
-      setUploadResult(result);
-      if (filePath) {
-        setOccurrenceFilePath(filePath);
+      const pipelineRunId = (result.pipelineRunId as string) || null;
+      setUploadResult(result); setPipelineRunId(pipelineRunId);
+      if (fileId) {
+        setOccurrenceFilePath(fileId);
         setRecordCount(nRows);
         if (detectedSpecies) {
           useSDMStore.getState().setSpecies(detectedSpecies);
@@ -224,156 +211,100 @@ function DataPageContent() {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploadLoading(false);
+      fetchUploads();
     }
   };
 
   const handleFlagToggle = useCallback((idx: number, flagged: boolean) => {
     const current = useSDMStore.getState().flaggedIndices;
-    setFlaggedIndicesArray(
-      flagged
-        ? [...current, idx]
-        : current.filter(i => i !== idx)
-    );
+    setFlaggedIndicesArray(flagged ? [...current, idx] : current.filter(i => i !== idx));
   }, [setFlaggedIndicesArray]);
 
   const handleClean = async () => {
     if (!uploadResult?.file_id) return;
-
-    setCleanLoading(true);
-    setCleanError(null);
-    setFlaggedIndicesArray([]);
-
+    setCleanLoading(true); setCleanError(null); setFlaggedIndicesArray([]);
+    const effectiveAsync = useAsync || useCc;
+    const pipelineRunId = useSDMStore.getState().pipelineRunId;
     try {
-      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", {
-        file_id: uploadResult.file_id,
-        min_source_records: 15,
-        merge_small_sources: true,
-        use_cc: false,
-        cc_tests: "all",
-        async: useAsync,
-      });
-
-      if (useAsync && result.jobId) {
-        setCleanJobId(result.jobId as string);
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", { file_id: uploadResult.file_id, species: useSDMStore.getState().species, min_source_records: 15, merge_small_sources: true, use_cc: useCc, cc_tests: "all", async: effectiveAsync, pipelineRunId }, { timeout: 600000 });
+      if (effectiveAsync && (result.job_id || result.jobId)) {
+        const jid = (result.job_id || result.jobId) as string; setCleanJobId(jid);
+        const poll = async () => {
+          for (let i = 0; i < 150; i++) {
+            try { const status = await apiGet<Record<string, unknown>>(`/api/v1/data/jobs/${jid}`); const s = status?.status as string; if (s === "completed") { handleCleanComplete(status?.result as Record<string, unknown> || status); return; } if (s === "failed") { setCleanError((status?.error as string) || "Clean job failed"); setCleanJobId(null); setCleanLoading(false); return; } }
+            catch { } await new Promise(r => setTimeout(r, 2000));
+          }
+          setCleanError("Clean job timed out after 5 minutes"); setCleanJobId(null); setCleanLoading(false);
+        };
+        poll();
       } else {
         setCleanResult(result);
-        const cleanedRowCount = (result.valid_records as number) || 0;
-        setCleanedOccurrence({
-          filePath: (result.cleaned_file_id as string) || "",
-          df: (result.occurrence_preview as Record<string, unknown>[]) || [],
-          sourceCounts: (result.source_counts as Record<string, number>) || {},
-          nAbsentExcluded: (result.n_absent_excluded as number) || 0,
-          originalRows: (result.original_rows as number) || 0,
-          validRecords: cleanedRowCount,
-        });
-        setRecordCount(cleanedRowCount);
+        setCleanedOccurrence({ filePath: (result.cleaned_file_id as string) || "", df: (result.cleaned_records as Record<string, unknown>[]) || [], sourceCounts: (result.source_counts as Record<string, number>) || {}, nAbsentExcluded: (result.n_absent_excluded as number) || 0, originalRows: (result.original_rows as number) || 0, validRecords: (result.valid_records as number) || 0 });
+        setRecordCount((result.valid_records as number) || 0);
+        const rp = (result.pipelineRunId as string) || pipelineRunId; if (rp) setPipelineRunId(rp);
       }
-    } catch (err) {
-      setCleanError(err instanceof Error ? err.message : "Clean failed");
-    } finally {
-      if (!useAsync) {
-        setCleanLoading(false);
-      }
-    }
+    } catch (err) { setCleanError(err instanceof Error ? err.message : "Clean failed"); } finally { if (!effectiveAsync) setCleanLoading(false); }
   };
 
   const handleCleanComplete = (result: Record<string, unknown>) => {
-    const cleanData = (result as any)?.data ?? result;
-    const hasCleanFields = "cleaned_file_id" in cleanData;
-    const finalData = hasCleanFields ? cleanData : (cleanData as any)?.data ?? cleanData;
-
-    setCleanResult(finalData);
-    const cleanedRowCount = (finalData.valid_records as number) || 0;
-    setCleanedOccurrence({
-      filePath: (finalData.cleaned_file_id as string) || "",
-      df: (finalData.occurrence_preview as Record<string, unknown>[]) || [],
-      sourceCounts: (finalData.source_counts as Record<string, number>) || {},
-      nAbsentExcluded: (finalData.n_absent_excluded as number) || 0,
-      originalRows: (finalData.original_rows as number) || 0,
-      validRecords: cleanedRowCount,
-    });
+    if ((result as any)?.status === "error") { setCleanError((result as any)?.error || "Clean job failed"); setCleanJobId(null); setCleanLoading(false); return; }
+    const cleanData = (result as any)?.data ?? result; const finalData = "cleaned_file_id" in cleanData ? cleanData : (cleanData as any)?.data ?? cleanData;
+    setCleanResult(finalData); const cleanedRowCount = (finalData.valid_records as number) || 0;
+    setCleanedOccurrence({ filePath: (finalData.cleaned_file_id as string) || "", df: (finalData.cleaned_records as Record<string, unknown>[]) || [], sourceCounts: (finalData.source_counts as Record<string, number>) || {}, nAbsentExcluded: (finalData.n_absent_excluded as number) || 0, originalRows: (finalData.original_rows as number) || 0, validRecords: cleanedRowCount });
     setRecordCount(cleanedRowCount);
-    setCleanJobId(null);
-    setCleanLoading(false);
+    const pipelineRunId = useSDMStore.getState().pipelineRunId; if (finalData.pipelineRunId) setPipelineRunId(finalData.pipelineRunId as string); else if (pipelineRunId) setPipelineRunId(pipelineRunId);
+    setCleanJobId(null); setCleanLoading(false);
+    const currentFileId = useSDMStore.getState().uploadResult?.file_id; if (currentFileId && finalData.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId as string)}`, { cleaned: true, cleaned_file_path: finalData.cleaned_file_id }).catch(() => console.warn("[data] Failed to update upload cleaned status"));
   };
 
   const handleGbifSearch = async (taxon: string, country: string, maxRecords: number) => {
-    setGbifLoading(true);
-    setGbifError(null);
-    setGbifResult(null);
-
-    try {
-      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/search", {
-        taxon, country, max_records: maxRecords,
-      });
-      setGbifResult(result);
-    } catch (err) {
-      setGbifError(err instanceof Error ? err.message : "GBIF search failed");
-    } finally {
-      setGbifLoading(false);
-    }
+    setGbifLoading(true); setGbifError(null); setGbifResult(null);
+    try { const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/search", { taxon, country, max_records: maxRecords }); setGbifResult(result); }
+    catch (err) { setGbifError(err instanceof Error ? err.message : "GBIF search failed"); } finally { setGbifLoading(false); }
   };
 
-  const [gbifSaving, setGbifSaving] = useState(false);
-  const [gbifSaved, setGbifSaved] = useState(false);
-
   const handleGbifSave = async () => {
-    if (!gbifResult) return;
-    setGbifSaving(true);
+    if (!gbifResult) return; setGbifSaving(true);
     try {
-      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", {
-        taxon: gbifResult.taxon,
-        country: gbifResult.country,
-        max_records: gbifResult.max_records,
-      });
-      if (typeof result.file_path === "string") {
-        setOccurrenceFilePath(result.file_path);
-        setRecordCount(Number(result.n_rows || 0));
-        useSDMStore.getState().setSpecies(String(gbifResult.taxon || "Untitled species"));
-        setGbifSaved(true);
-      }
-    } catch (err) {
-      setGbifError(err instanceof Error ? err.message : "Failed to save GBIF records");
-    } finally {
-      setGbifSaving(false);
-    }
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", { taxon: gbifResult.taxon, country: gbifResult.country, max_records: gbifResult.max_records });
+      if (typeof result.file_path === "string") { setOccurrenceFilePath(result.file_path); setRecordCount(Number(result.n_rows || 0)); useSDMStore.getState().setSpecies(String(gbifResult.taxon || "Untitled species")); setUploadResult(result); setPipelineRunId((result.pipelineRunId as string) || null); setGbifSaved(true); }
+    } catch (err) { setGbifError(err instanceof Error ? err.message : "Failed to save GBIF records"); } finally { setGbifSaving(false); }
   };
 
   const handleDwcaUpload = async (file: File) => {
-    setDwcaLoading(true);
-    setDwcaError(null);
-    setDwcaResult(null);
-
+    setDwcaLoading(true); setDwcaError(null); setDwcaResult(null);
     try {
-      const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/dwca", file);
-      setDwcaResult(result);
-      if (typeof result.file_path === "string") {
-        setOccurrenceFilePath(result.file_path);
-        setRecordCount(Number(result.n_occurrences || result.n_returned || result.n_rows || 0));
-      }
-    } catch (err) {
-      setDwcaError(err instanceof Error ? err.message : "DwCA parsing failed");
-    } finally {
-      setDwcaLoading(false);
-    }
+      const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/dwca", file, undefined, 600000);
+      setDwcaResult(result); setUploadResult(result); setPipelineRunId((result.pipelineRunId as string) || null);
+      if (typeof result.file_path === "string") { setOccurrenceFilePath(result.file_path); setRecordCount(Number(result.n_returned || result.n_rows || result.n_records || 0)); }
+    } catch (err) { setDwcaError(err instanceof Error ? err.message : "DwCA parsing failed"); } finally { setDwcaLoading(false); }
   };
 
-  const uploadPreview = uploadResult?.preview as Array<Record<string, unknown>> | undefined;
-  const gbifPreview = gbifResult?.preview as Array<Record<string, unknown>> | undefined;
-  const cleanPreview = cleanResult?.occurrence_preview as OccurrencePoint[] | undefined;
-  const sourceCounts = cleanResult?.source_counts as Record<string, number> | undefined;
+  const cleanPreview = cleanResult?.cleaned_records as OccurrencePoint[] | undefined;
+  const gbifPreview = gbifResult?.preview as Record<string, unknown>[] | undefined;
+  const uploadPreview = uploadResult?.preview as Record<string, unknown>[] | undefined;
+  const handleSelectUpload = (file: Record<string, unknown>) => {
+    const fp = file.file_id as string;
+    if (fp) {
+      setOccurrenceFilePath(fp);
+      setUploadResult({ ...file, file_id: fp, file_path: fp });
+      setRecordCount(Number(file.n_rows || 0));
+      const species = file.species as string;
+      if (species && species !== "—") useSDMStore.getState().setSpecies(species);
+    }
+  };
+  const previousUploads = uploadHistory;
+  const previousUploadsLoading = historyLoading;
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-sdm-heading">Occurrence Data</h1>
-        <p className="text-sdm-muted mt-1">
-          Upload occurrence records, fetch from GBIF, or parse a Darwin Core Archive.
-        </p>
+        <p className="text-sdm-muted mt-1">Upload occurrence records, fetch from GBIF, or parse a Darwin Core Archive.</p>
       </div>
 
       <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
-        <TabsList className="grid w-full max-w-2xl grid-cols-6">
+        <TabsList className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 w-full max-w-2xl">
           <TabsTrigger value="upload" className="flex items-center gap-1.5">
             <Upload className="h-3.5 w-3.5" />
             Upload
@@ -400,427 +331,198 @@ function DataPageContent() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="upload" className="space-y-4">
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
-            <h2 className="text-lg font-semibold text-sdm-heading mb-4">Upload occurrence file</h2>
-            <p className="text-sm text-sdm-muted mb-4">
-              Upload a CSV, TSV, or ZIP file containing occurrence records.
-              The file must have longitude and latitude columns (aliases like lon/lat/x/y are detected automatically).
-            </p>
-            <FileUpload
-              onUpload={handleUpload}
-              loading={uploadLoading}
-              error={uploadError}
-            />
-          </div>
+        {activeTab === "upload" && (
+          <UploadTab uploadResult={uploadResult} uploadLoading={uploadLoading} uploadError={uploadError}
+            onUpload={handleUpload} onSelectUpload={handleSelectUpload} onTabChange={onTabChange}
+            previousUploads={previousUploads} previousUploadsLoading={previousUploadsLoading} />
+        )}
+
+          {uploadHistory.length > 0 && !uploadLoading && (
+            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-sdm-heading">Previous uploads</h3>
+                <button onClick={fetchUploads} disabled={historyLoading} className="text-xs text-sdm-accent hover:underline disabled:opacity-50">
+                  {historyLoading ? "Refreshing..." : "Refresh"}
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-sdm-text">
+                  <thead>
+                    <tr className="border-b border-sdm-border">
+                      <th className="text-left py-2 pr-3 font-medium text-sdm-muted">Filename</th>
+                      <th className="text-right py-2 px-3 font-medium text-sdm-muted">Records</th>
+                      <th className="text-right py-2 px-3 font-medium text-sdm-muted">Size</th>
+                      <th className="text-left py-2 pl-3 font-medium text-sdm-muted">Species</th>
+                      <th className="text-left py-2 pl-3 font-medium text-sdm-muted">Uploaded</th>
+                      <th className="text-right py-2 pl-3 font-medium text-sdm-muted">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uploadHistory.slice(0, 10).map((u) => (
+                      <tr key={String(u.id)} className="border-b border-sdm-border/50 hover:bg-sdm-surface-soft/50">
+                        <td className="py-2 pr-3 font-mono max-w-[200px] truncate" title={String(u.filename || "")}>
+                          {String(u.filename || "—")}
+                          {Boolean(u.is_cleaned) && (
+                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-500">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Cleaned
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-right">{Number(u.n_rows || 0).toLocaleString()}</td>
+                        <td className="py-2 px-3 text-right">{Number(u.file_size || 0) > 1024 * 1024 ? `${(Number(u.file_size) / 1024 / 1024).toFixed(1)} MB` : `${(Number(u.file_size) / 1024).toFixed(0)} KB`}</td>
+                        <td className="py-2 pl-3 max-w-[120px] truncate" title={String(u.species || "")}>{String(u.species || "—")}</td>
+                        <td className="py-2 pl-3 whitespace-nowrap">{String(u.created_at || "").slice(0, 19).replace("T", " ")}</td>
+                        <td className="py-2 pl-3 text-right">
+                          <button
+                            onClick={() => {
+                              const fp = u.file_path as string;
+                              if (fp) {
+                                setOccurrenceFilePath(fp);
+                                setUploadResult({ ...(u as Record<string, unknown>), file_id: fp, file_path: fp });
+                                setRecordCount(Number(u.n_rows || 0));
+                                const sp = u.species as string;
+                                if (sp && sp !== "—") {
+                                  useSDMStore.getState().setSpecies(sp);
+                                }
+                                if (Boolean(u.is_cleaned) && u.cleaned_file_path) {
+                                  setCleanedOccurrence({
+                                    filePath: u.cleaned_file_path as string,
+                                    df: [],
+                                    sourceCounts: {},
+                                    nAbsentExcluded: 0,
+                                    originalRows: Number(u.cleaned_original_rows || u.n_rows || 0),
+                                    validRecords: Number(u.cleaned_valid_records || 0),
+                                  });
+                                  setCleanResult(u as Record<string, unknown>);
+                                } else {
+                                  setCleanResult(null);
+                                  setCleanedOccurrence(null);
+                                }
+                              }
+                            }}
+                            className="text-xs font-medium text-sdm-accent hover:underline disabled:opacity-30 disabled:cursor-not-allowed"
+                            disabled={!u.file_path}
+                          >
+                            Use
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {uploadPreview && uploadPreview.length > 0 && (
             <PreviewTable data={uploadPreview} title="Preview (first 5 records)" />
           )}
 
-          {typeof uploadResult?.file_path === "string" && (
+          {typeof uploadResult?.file_path === "string" && uploadResult?.is_cleaned ? (
             <div className="mt-3 flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
               <div className="flex items-center gap-2 text-sm text-green-500">
                 <CheckCircle2 className="h-4 w-4" />
-                <span>Ready for modeling — {Number(uploadResult.n_rows ?? 0).toLocaleString()} records loaded</span>
+                <span>Previously cleaned — {Number(uploadResult.cleaned_valid_records ?? 0).toLocaleString()} valid records ready.</span>
               </div>
               <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
-                Go to Model tab →
+                Run SDM →
               </Link>
             </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="gbif" className="space-y-4">
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
-            <h2 className="text-lg font-semibold text-sdm-heading mb-4">Fetch from GBIF</h2>
-            <p className="text-sm text-sdm-muted mb-4">
-              Search the Global Biodiversity Information Facility for occurrence records.
-            </p>
-            <GbifSearch
-              onSearch={handleGbifSearch}
-              loading={gbifLoading}
-              error={gbifError}
-              result={gbifResult}
-            />
-          </div>
-
-          {gbifPreview && gbifPreview.length > 0 && (
-            <PreviewTable data={gbifPreview} title="GBIF Preview (first 5 records)" />
-          )}
-
-          {gbifResult && typeof gbifResult.n_records === "number" && gbifResult.n_records > 0 && (
-            <div className="space-y-3">
-              {gbifSaved ? (
-                <div className="flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
-                  <div className="flex items-center gap-2 text-sm text-green-500">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>{Number(gbifResult.n_records).toLocaleString()} GBIF records saved — ready for modeling</span>
-                  </div>
-                  <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
-                    Go to Model tab →
-                  </Link>
-                </div>
-              ) : (
-                <button
-                  onClick={handleGbifSave}
-                  disabled={gbifSaving}
-                  className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {gbifSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  {gbifSaving ? "Saving..." : `Save ${Number(gbifResult.n_records).toLocaleString()} records for modeling`}
-                </button>
-              )}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="dwca" className="space-y-4">
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
-            <h2 className="text-lg font-semibold text-sdm-heading mb-4">Parse Darwin Core Archive</h2>
-            <p className="text-sm text-sdm-muted mb-4">
-              Upload a GBIF bulk download ZIP file. The archive is parsed automatically,
-              extracting occurrence data and dataset DOI for provenance.
-            </p>
-            <FileUpload
-              onUpload={handleDwcaUpload}
-              loading={dwcaLoading}
-              error={dwcaError}
-            />
-          </div>
-
-          {dwcaError && (
-            <div className="rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
-              {dwcaError}
-            </div>
-          )}
-
-          {dwcaResult && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Datasets</p>
-                  <p className="mt-1 text-xl font-bold text-sdm-heading">{String(dwcaResult.n_datasets || 0)}</p>
-                </div>
-                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Records</p>
-                  <p className="mt-1 text-xl font-bold text-sdm-accent">{Number(dwcaResult.n_occurrences || 0).toLocaleString()}</p>
-                </div>
-                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">With coords</p>
-                  <p className="mt-1 text-xl font-bold text-sdm-heading">{Number(dwcaResult.n_with_coords || 0).toLocaleString()}</p>
-                </div>
-                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">DOI</p>
-                  <p className="mt-1 text-xs font-mono text-sdm-text truncate">{(dwcaResult.doi as string) || "—"}</p>
-                </div>
+          ) : typeof uploadResult?.file_path === "string" && (
+            <div className="mt-3 flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-amber-500">
+                <AlertTriangle className="h-4 w-4" />
+                <span>Upload complete — {Number(uploadResult.n_rows ?? 0).toLocaleString()} records. Clean before modeling.</span>
               </div>
-
-              {(dwcaResult.preview as Array<Record<string, unknown>> | undefined) && (dwcaResult.preview as Array<Record<string, unknown>>).length > 0 && (
-                <PreviewTable data={dwcaResult.preview as Array<Record<string, unknown>>} title="DwC-A Preview (first 5 records)" />
-              )}
-
-              {typeof dwcaResult.file_path === "string" && (
-                <div className="mt-3 flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
-                  <div className="flex items-center gap-2 text-sm text-green-500">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>DwC-A parsed — {Number(dwcaResult.n_occurrences ?? 0).toLocaleString()} records extracted</span>
-                  </div>
-                  <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
-                    Go to Model tab →
-                  </Link>
-                </div>
-              )}
+              <Link href="/data?tab=clean" className="text-sm font-medium text-sdm-accent hover:underline">
+                Clean data →
+              </Link>
             </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="clean" className="space-y-4">
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
-            <h2 className="text-lg font-semibold text-sdm-heading mb-4">Clean occurrence data</h2>
-            <p className="text-sm text-sdm-muted mb-4">
-              Remove duplicates, filter invalid coordinates, and optionally run CoordinateCleaner tests.
-            </p>
-
-            <div className="flex items-center gap-4 mb-4">
-              <label className="flex items-center gap-2 text-sm text-sdm-text">
-                <input
-                  type="checkbox"
-                  checked={useAsync}
-                  onChange={(e) => setUseAsync(e.target.checked)}
-                  className="rounded border-sdm-border bg-sdm-surface-soft"
-                />
-                Run in background (for large datasets)
-              </label>
-            </div>
-
-            <button
-              onClick={handleClean}
-              disabled={cleanLoading || !uploadResult?.file_id || !!cleanJobId}
-              className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {cleanLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-              {cleanLoading ? "Cleaning..." : cleanJobId ? "Running..." : "Run cleaning"}
-            </button>
-
-            {cleanError && (
-              <div className="mt-4 flex items-center gap-2 rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
-                <span>{cleanError}</span>
-              </div>
             )}
 
-            {cleanJobId && (
-              <div className="mt-4">
-                <JobProgress jobId={cleanJobId} onComplete={handleCleanComplete} />
-              </div>
-            )}
-          </div>
-
-          {cleanResult && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Original</p>
-                  <p className="mt-1 text-xl font-bold text-sdm-heading">{String(cleanResult.original_rows)}</p>
-                </div>
-                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Valid</p>
-                  <p className="mt-1 text-xl font-bold text-sdm-accent">{String(cleanResult.valid_records)}</p>
-                </div>
-                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Bad coords</p>
-                  <p className="mt-1 text-xl font-bold text-sdm-danger">{String(cleanResult.removed_bad_coordinates)}</p>
-                </div>
-                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Duplicates</p>
-                  <p className="mt-1 text-xl font-bold text-sdm-warning">{String(cleanResult.removed_duplicates)}</p>
-                </div>
-              </div>
-
-              {sourceCounts && <SourceCounts counts={sourceCounts} total={Number(cleanResult.valid_records)} />}
-
-              {cleanPreview && cleanPreview.length > 0 && (
-                <CleaningTable
-                  data={cleanPreview}
-                  title="Cleaned records"
-                  onFlagToggle={handleFlagToggle}
-                />
-              )}
-
-              <div className="flex items-center justify-between rounded-md border border-indigo-500/30 bg-indigo-500/5 px-4 py-3">
-                <div className="flex items-center gap-2 text-sm text-indigo-500">
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>Cleaned: {Number(cleanResult.valid_records).toLocaleString()} valid records ready</span>
-                </div>
-                <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
-                  Run SDM with cleaned data →
-                </Link>
-              </div>
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="map" className="space-y-4">
-          {cleanPreview && cleanPreview.length > 0 ? (
-            <>
-              <OccurrenceMap points={cleanPreview} flaggedIndices={flaggedIndices} />
-              <div className="flex items-center gap-4 text-sm text-sdm-muted">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-3 w-3 rounded-full bg-blue-500" />
-                  Clean
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="h-3 w-3 rounded-full bg-red-500" />
-                  Flagged
-                </span>
-              </div>
-            </>
-          ) : (
-            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
-              Clean occurrence data first to see the map.
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="climate" className="space-y-4">
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-6">
-            <div>
-              <h2 className="text-lg font-semibold text-sdm-heading mb-1">Current climate</h2>
-              <p className="text-sm text-sdm-muted mb-4">Download WorldClim v2.1 or CHELSA v2.1 BIO layers.</p>
-
+            {gbifPreview && gbifPreview.length > 0 && <PreviewTable data={gbifPreview} title="GBIF Preview (first 5 records)" />}
+            {gbifResult && typeof gbifResult.n_records === "number" && gbifResult.n_records > 0 && (
               <div className="space-y-3">
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 text-sm text-sdm-text">
-                    <input type="radio" checked={climateSource === "worldclim"} onChange={() => { setClimateSource("worldclim"); setClimateRes(10); }} />
-                    WorldClim v2.1
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-sdm-text">
-                    <input type="radio" checked={climateSource === "chelsa"} onChange={() => { setClimateSource("chelsa"); setClimateRes(0.5); }} />
-                    CHELSA v2.1
-                  </label>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-sdm-text mb-1">Resolution</label>
-                  <select value={climateRes} onChange={(e) => setClimateRes(Number(e.target.value))} className="rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
-                    {climateSource === "worldclim" ? (
-                      <>
-                        <option value={2.5}>2.5 arc-min (~5 km)</option>
-                        <option value={5}>5 arc-min (~10 km)</option>
-                        <option value={10}>10 arc-min (~20 km)</option>
-                      </>
-                    ) : (
-                      <option value={0.5}>30 arc-seconds (~1 km)</option>
-                    )}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-sdm-text mb-1">BIO variables</label>
-                  <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-10 gap-1.5">
-                    {BIOVAR_CHOICES.map((bio) => {
-                      const isAvailable = availableBiovars.has(bio.id);
-                      return (
-                        <label
-                          key={bio.id}
-                          className={`flex items-center justify-center rounded border px-2 py-1.5 text-xs cursor-pointer transition-colors relative ${
-                            climateBiovars.includes(bio.id)
-                              ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
-                              : "border-sdm-border bg-sdm-surface-soft text-sdm-muted hover:border-sdm-accent/50"
-                          }`}
-                        >
-                          {isAvailable && (
-                            <span className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-green-500 translate-x-1/3 -translate-y-1/3" />
-                          )}
-                          <input type="checkbox" checked={climateBiovars.includes(bio.id)} onChange={() => toggleClimateBiovar(bio.id)} className="sr-only" />
-                          {bio.label}
-                        </label>
-                      );
-                    })}
+                {gbifSaved ? (
+                  <div className="flex items-center justify-between rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3">
+                    <div className="flex items-center gap-2 text-sm text-sdm-warning"><span>{Number(gbifResult.n_records).toLocaleString()} GBIF records saved — clean before modeling</span></div>
+                    <button onClick={() => onTabChange("clean")} className="text-sm font-medium text-sdm-accent hover:underline">Clean data →</button>
                   </div>
-                  {climateBiovars.length < 2 && (
-                    <p className="text-xs text-sdm-danger mt-1">Select at least 2 BIO variables</p>
-                  )}
-                </div>
-
-                {(() => {
-                  const missingCount = climateBiovars.filter(b => !availableBiovars.has(b)).length;
-                  const allPresent = missingCount === 0 && climateBiovars.length > 0;
-                  return (
-                    <button
-                      onClick={handleClimateDownload}
-                      disabled={climateDownloadJob !== null || climateBiovars.length < 2 || allPresent}
-                      className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {climateDownloadJob ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                      {climateDownloadJob ? "Downloading..." : allPresent ? "All layers present" : `Download ${missingCount} missing`}
-                    </button>
-                  );
-                })()}
-              </div>
-            </div>
-
-            <div className="border-t border-sdm-border pt-6">
-              <h2 className="text-lg font-semibold text-sdm-heading mb-1">Future climate (CMIP6)</h2>
-              <p className="text-sm text-sdm-muted mb-4">Download CMIP6 climate projections for future scenario analysis.</p>
-
-              <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-sdm-text mb-1">GCM</label>
-                    <select value={cmip6Gcm} onChange={(e) => setCmip6Gcm(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
-                      {GCM_CHOICES.map((gcm) => (
-                        <option key={gcm.id} value={gcm.id}>{gcm.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-sdm-text mb-1">SSP</label>
-                    <select value={cmip6Ssp} onChange={(e) => setCmip6Ssp(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
-                      {SSP_CHOICES.map((ssp) => (
-                        <option key={ssp.id} value={ssp.id}>{ssp.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-sdm-text mb-1">Period</label>
-                    <select value={cmip6Period} onChange={(e) => setCmip6Period(e.target.value)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
-                      {TIME_PERIOD_CHOICES.map((p) => (
-                        <option key={p.id} value={p.id}>{p.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleCmip6Download}
-                  disabled={cmip6DownloadJob !== null}
-                  className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {cmip6DownloadJob ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  {cmip6DownloadJob ? "Downloading..." : "Download scenario"}
-                </button>
-
-                <div className="border-t border-sdm-border pt-4 mt-4">
-                  <h3 className="text-sm font-medium text-sdm-heading mb-2">Multi-GCM averaging</h3>
-                  <p className="text-xs text-sdm-muted mb-2">Select at least 2 GCMs to compute ensemble mean.</p>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {GCM_CHOICES.map((gcm) => (
-                      <label
-                        key={gcm.id}
-                        className={`px-2 py-1 rounded text-xs cursor-pointer border ${
-                          avgGcms.includes(gcm.id)
-                            ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
-                            : "border-sdm-border text-sdm-muted"
-                        }`}
-                      >
-                        <input type="checkbox" checked={avgGcms.includes(gcm.id)} onChange={() => toggleAvgGcm(gcm.id)} className="sr-only" />
-                        {gcm.label}
-                      </label>
-                    ))}
-                  </div>
-                  <button
-                    onClick={handleAvgDownload}
-                    disabled={avgDownloadJob !== null || avgGcms.length < 2}
-                    className="inline-flex items-center gap-2 rounded-md bg-sdm-surface-soft border border-sdm-border px-4 py-2 text-sm font-medium text-sdm-text transition-colors hover:bg-sdm-surface disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {avgDownloadJob ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                    {avgDownloadJob ? "Averaging..." : "Average GCMs"}
+                ) : (
+                  <button onClick={handleGbifSave} disabled={gbifSaving}
+                    className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50">
+                    Save {Number(gbifResult.n_records).toLocaleString()} records for modeling
                   </button>
-                </div>
+                )}
               </div>
+            )}
+
+        {activeTab === "dwca" && (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
+              <h2 className="text-lg font-semibold text-sdm-heading mb-4">Parse Darwin Core Archive</h2>
+              <p className="text-sm text-sdm-muted mb-4">Upload a GBIF bulk download ZIP file. The archive is parsed automatically, extracting occurrence data and dataset DOI for provenance.</p>
+              <FileUpload onUpload={handleDwcaUpload} loading={dwcaLoading} error={dwcaError} />
             </div>
+            {dwcaError && <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">{dwcaError}</div>}
+            {dwcaResult && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Datasets</p><p className="mt-1 text-xl font-bold text-sdm-heading">{String(((dwcaResult as any).datasets as Array<unknown>)?.length ?? 0)}</p></div>
+                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Returned</p><p className="mt-1 text-xl font-bold text-sdm-accent">{Number((dwcaResult as any).n_returned ?? 0).toLocaleString()}</p></div>
+                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Raw</p><p className="mt-1 text-xl font-bold text-sdm-heading">{Number((dwcaResult as any).n_raw ?? 0).toLocaleString()}</p></div>
+                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">DOI</p><p className="mt-1 text-xs font-mono text-sdm-text truncate">{((dwcaResult as any).doi as string) || "—"}</p></div>
+                </div>
+                {(dwcaResult as any).preview?.length > 0 && <PreviewTable data={(dwcaResult as any).preview} title="DwC-A Preview (first 5 records)" />}
+                {(dwcaResult as any).file_path && (
+                  <div className="flex items-center justify-between rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3">
+                    <div className="flex items-center gap-2 text-sm text-sdm-warning"><span>DwC-A parsed — {Number((dwcaResult as any).n_returned ?? 0).toLocaleString()} records. Clean before modeling.</span></div>
+                    <button onClick={() => onTabChange("clean")} className="text-sm font-medium text-sdm-accent hover:underline">Clean data →</button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+        )}
 
-          {climateError && (
-            <div className="rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
-              {climateError}
-            </div>
-          )}
+        {activeTab === "clean" && (
+          <CleanTab uploadResult={uploadResult} cleanResult={cleanResult} cleanLoading={cleanLoading}
+            cleanError={cleanError} cleanJobId={cleanJobId} useAsync={useAsync} useCc={useCc}
+             onSetUseAsync={setUseAsync} onSetUseCc={setUseCc}
+            onClean={handleClean} onCleanComplete={handleCleanComplete} onFlagToggle={handleFlagToggle}
+            onRunModel={() => router.push("/model")} />
+        )}
 
-          {(() => {
-            const activeJob = climateDownloadJob || cmip6DownloadJob || avgDownloadJob;
-            if (!activeJob) return null;
-            return (
-              <DownloadProgress
-                jobId={activeJob}
-                onComplete={() => handleDownloadComplete(activeJob)}
-                onCancel={() => {
-                  setClimateDownloadJob(null);
-                  setCmip6DownloadJob(null);
-                  setAvgDownloadJob(null);
-                }}
-              />
-            );
-          })()}
+        {activeTab === "map" && (
+          <div className="space-y-4">
+            {cleanPreview && cleanPreview.length > 0 ? (
+              <>
+                <OccurrenceMap points={cleanPreview}  />
+                <div className="flex items-center gap-4 text-sm text-sdm-muted">
+                  <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-sdm-accent-blue" /> Clean</span>
+                  <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-sdm-danger" /> Flagged</span>
+                </div>
+              </>
+            ) : (
+              <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">Clean occurrence data first to see the map.</div>
+            )}
+          </div>
+        )}
 
-          <ScenarioList
-            scenarios={scenarios as any}
-            onRefresh={fetchScenarios}
-            onDelete={handleDeleteScenario}
-            loading={scenariosLoading}
-          />
-        </TabsContent>
+        {activeTab === "climate" && (
+          <ClimateTab climateSource={climateSource} climateRes={climateRes} climateBiovars={climateBiovars}
+            availableBiovars={availableBiovars} climateDownloadJob={climateDownloadJob}
+            cmip6Gcm={cmip6Gcm} cmip6Ssp={cmip6Ssp} cmip6Period={cmip6Period} cmip6DownloadJob={cmip6DownloadJob}
+            avgGcms={avgGcms} avgDownloadJob={avgDownloadJob} climateError={climateError}
+            scenarios={scenarios} scenariosLoading={scenariosLoading}
+            onSetClimateSource={setClimateSource} onSetClimateRes={setClimateRes}
+            onToggleClimateBiovar={toggleClimateBiovar} onClimateDownload={handleClimateDownload}
+            onSetCmip6Gcm={setCmip6Gcm} onSetCmip6Ssp={setCmip6Ssp} onSetCmip6Period={setCmip6Period}
+            onCmip6Download={handleCmip6Download} onToggleAvgGcm={toggleAvgGcm} onAvgDownload={handleAvgDownload}
+            onDownloadComplete={handleDownloadComplete} onDownloadFailed={handleDownloadFailed} onCancelDownload={handleCancelDownload}
+            onFetchScenarios={fetchScenarios} onDeleteScenario={handleDeleteScenario} />
+        )}
       </Tabs>
     </div>
   );

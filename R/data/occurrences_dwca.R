@@ -41,12 +41,12 @@ read_dwca <- function(dwca_path,
       "Library paths: ", paste(.libPaths(), collapse = " | "), "\n",
       "finch installed at: ", find.package("finch", quiet = TRUE, verbose = FALSE)[1]
     )
-    stop(msg, "\nInstall with: install.packages('finch')")
+    stop(msg, "\nInstall with: install.packages('finch')", call. = FALSE)
   }
 
-  if (!file.exists(dwca_path)) stop("DwC-A file not found: ", dwca_path)
+  if (!file.exists(dwca_path)) stop("DwC-A file not found: ", dwca_path, call. = FALSE)
   if (!grepl("\\.zip$", dwca_path, ignore.case = TRUE)) {
-    stop("Expected a .zip file. Got: ", basename(dwca_path))
+    stop("Expected a .zip file. Got: ", basename(dwca_path), call. = FALSE)
   }
 
   log_msg_dwca(log_fun, "Reading Darwin Core Archive: ", basename(dwca_path))
@@ -77,7 +77,7 @@ read_dwca <- function(dwca_path,
     stop(
       "No occurrence core found in DwC-A. ",
       "Files found: ", paste(names(archive$data), collapse = ", ")
-    )
+    , call. = FALSE)
   }
 
   occ_raw <- archive$data[[occ_key]]

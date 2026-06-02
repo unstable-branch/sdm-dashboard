@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Download, FileText, Copy, Check } from "lucide-react";
+import { fetchWithAuth } from "@/services/api";
 
 interface ExportPanelProps {
   runId: string;
@@ -12,15 +13,17 @@ export function ExportPanel({ runId }: ExportPanelProps) {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   const fetchReport = async () => {
     setLoading(true);
+    setFetchError(null);
     try {
-      const res = await fetch(`/api/v1/ecology/${runId}/report`);
-      if (res.ok) {
-        const text = await res.text();
-        setReport(text);
-      }
+      const res = await fetchWithAuth(`/api/v1/ecology/${runId}/report`);
+      const text = await res.text();
+      setReport(text);
     } catch {
+      setFetchError("Failed to generate report");
     } finally {
       setLoading(false);
     }
@@ -28,9 +31,12 @@ export function ExportPanel({ runId }: ExportPanelProps) {
 
   const copyReport = () => {
     if (report) {
-      navigator.clipboard.writeText(report);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        navigator.clipboard.writeText(report);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+      }
     }
   };
 
@@ -46,6 +52,12 @@ export function ExportPanel({ runId }: ExportPanelProps) {
           {loading ? "Generating..." : <><FileText className="h-3.5 w-3.5" /> Generate report</>}
         </button>
       </div>
+
+      {fetchError && (
+        <div className="rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
+          {fetchError}
+        </div>
+      )}
 
       {report && (
         <div className="rounded-lg border border-sdm-border bg-sdm-surface">
@@ -67,10 +79,10 @@ export function ExportPanel({ runId }: ExportPanelProps) {
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
         <h4 className="text-xs font-semibold text-sdm-heading mb-2 uppercase tracking-wide">Download outputs</h4>
         <div className="space-y-2 text-sm">
-          <a href={`/api/v1/ecology/${runId}/eoo-aoo`} className="flex items-center gap-2 text-sdm-accent hover:underline">
+          <a href={`/api/v1/ecology/${runId}/eoo-aoo`} download className="flex items-center gap-2 text-sdm-accent hover:underline">
             <Download className="h-3.5 w-3.5" /> EOO/AOO data (JSON)
           </a>
-          <a href={`/api/v1/ecology/${runId}/aoa`} className="flex items-center gap-2 text-sdm-accent hover:underline">
+          <a href={`/api/v1/ecology/${runId}/aoa`} download className="flex items-center gap-2 text-sdm-accent hover:underline">
             <Download className="h-3.5 w-3.5" /> AOA summary (JSON)
           </a>
         </div>

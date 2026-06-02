@@ -6,6 +6,20 @@
 #   detail     - human-readable summary string
 #   size_mb    - total size of cached files in MB (NA if not computed)
 
+# Lightweight GeoTIFF validity check: reads first 4 bytes for TIFF magic header
+is_valid_geotiff <- function(file_path) {
+  if (!file.exists(file_path)) return(FALSE)
+  if (file.info(file_path)$size < 1) return(FALSE)
+  tryCatch({
+    conn <- file(file_path, "rb")
+    on.exit(close(conn))
+    header <- readBin(conn, "raw", n = 4)
+    # Little-endian TIFF: II*\x00, Big-endian TIFF: MM\x00*
+    (identical(header[1:2], as.raw(c(0x49, 0x49))) && identical(header[3:4], as.raw(c(0x2a, 0x00)))) ||
+    (identical(header[1:2], as.raw(c(0x4d, 0x4d))) && identical(header[3:4], as.raw(c(0x00, 0x2a))))
+  }, error = function(e) FALSE)
+}
+
 # ---------------------------------------------------------------------------
 # Climate: WorldClim / CHELSA
 # ---------------------------------------------------------------------------
@@ -34,15 +48,16 @@ verify_worldclim_cache <- function(worldclim_dir = sdm_default_worldclim_dir, so
   for (bio in selected_biovars) {
     nm1 <- paste0("bio", bio)
     nm2 <- if (bio < 10) paste0("bio0", bio) else paste0("bio", bio)
-    pat1 <- paste0("_(", nm1, ")[^0-9]")
-    pat2 <- paste0("_(", nm2, ")[^0-9]")
+    pat1 <- paste0("_(", nm1, ")($|[^0-9])")
+    pat2 <- paste0("_(", nm2, ")($|[^0-9])")
     pat3 <- paste0("bio_", bio, "($|[^0-9])")
     matched <- c(
       all_files[grepl(pat1, basename(all_files), ignore.case = TRUE)],
       all_files[grepl(pat2, basename(all_files), ignore.case = TRUE)],
       all_files[grepl(pat3, basename(all_files), ignore.case = TRUE)]
     )
-    if (length(matched) > 0) present <- c(present, paste0("bio", bio))
+    valid <- matched[vapply(matched, is_valid_geotiff, logical(1), USE.NAMES = FALSE)]
+    if (length(valid) > 0) present <- c(present, paste0("bio", bio))
   }
 
   present <- unique(present)
@@ -88,7 +103,9 @@ verify_chelsa_extras_cache <- function(chelsa_dir = sdm_default_chelsa_extras_di
   present <- character()
   for (ex in selected_extras) {
     pat <- paste0("CHELSA_", ex, "_")
-    if (any(grepl(pat, all_files, ignore.case = TRUE))) present <- c(present, ex)
+    matched <- all_files[grepl(pat, all_files, ignore.case = TRUE)]
+    valid <- matched[vapply(matched, is_valid_geotiff, logical(1), USE.NAMES = FALSE)]
+    if (length(valid) > 0) present <- c(present, ex)
   }
   missing <- setdiff(selected_extras, present)
   all_extras <- c(all_files[grepl("CHELSA_(gdd5|gdd10|gsl|fcf|npp|scd)_", all_files, ignore.case = TRUE)], character())

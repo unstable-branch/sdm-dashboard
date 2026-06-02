@@ -1,5 +1,21 @@
 # SDM Dashboard Changelog
 
+## v2.0.0-beta.3
+
+### Modern Platform Rebaseline
+- Reframed the project around the modern self-hostable platform: Next.js 16 frontend, Hono API, Plumber R engine, PostgreSQL/PostGIS, Redis/BullMQ, Garage-compatible storage, and Docker Compose.
+- Updated README, deployment guidance, release policy, and QA checklist so first-run setup and beta limitations match the current project state.
+- Kept the legacy R/Shiny desktop workflow available while making clear that Shiny is no longer the primary release architecture.
+
+### Runtime And Release Gates
+- Added a Plumber OpenAPI contract smoke gate for the Docker-backed platform CI path.
+- Hardened OpenAPI type generation against Plumber endpoint differences and ensured docs routes are available only when explicitly enabled for CI/development.
+- Fixed Playwright configuration so Docker integration can reuse the already-running composed frontend instead of trying to start a second server on port 3000.
+
+### Repository Hygiene
+- Removed the stray frontend npm lockfile; pnpm is canonical for the workspace.
+- Tightened the release checklist around docs, generated artifacts, package-manager residue, screenshots, and real-stack QA.
+
 ## v2.0.0-beta.1
 
 ### Modern Platform

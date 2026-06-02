@@ -1,8 +1,13 @@
-# Development compose — mounts local code, no image builds
-# Usage: docker compose -f docker-compose.dev.yml up
+# Development compose — mounts local code, runs with profiles.
+# Usage:
+#   docker compose -f docker-compose.dev.yml --profile core up -d    # postgres + redis only
+#   docker compose -f docker-compose.dev.yml --profile email up -d   # + mailpit
+#   docker compose -f docker-compose.dev.yml --profile storage up -d # + garage
+#   docker compose -f docker-compose.dev.yml --profile all up -d     # everything
 
 services:
   postgres:
+    profiles: ["core", "all"]
     image: postgis/postgis:16-3.4
     environment:
       POSTGRES_USER: sdm
@@ -21,6 +26,7 @@ services:
       - sdm-network
 
   redis:
+    profiles: ["core", "all"]
     image: redis:7-alpine
     ports:
       - "6379:6379"
@@ -34,7 +40,17 @@ services:
     networks:
       - sdm-network
 
+  mailpit:
+    profiles: ["email", "all"]
+    image: axllent/mailpit:latest
+    ports:
+      - "5000:8025"
+      - "2525:1025"
+    networks:
+      - sdm-network
+
   garage:
+    profiles: ["storage", "all"]
     image: dxflrs/garage:v2.3.0
     command: ["/garage", "server", "--single-node", "--default-bucket"]
     ports:
@@ -61,6 +77,7 @@ services:
       - sdm-network
 
   plumber:
+    profiles: ["computation", "all"]
     build:
       context: .
       dockerfile: plumber/Dockerfile
@@ -75,14 +92,40 @@ services:
       - ./Worldclim:/app/Worldclim
     environment:
       - SDM_PROJECT_ROOT=/app
+      - DATABASE_URL=postgresql://sdm:sdm_password@postgres:5432/sdm_platform
+      - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-6e94feb6699652f8529ed79ee7863a4daab79279286e84f0c4026fe2fb29884e}
+      - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
+    init: true
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8G
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 120s
     networks:
       - sdm-network
+
+  titiler:
+    profiles: ["computation", "all"]
+    image: ghcr.io/developmentseed/titiler:latest
+    ports:
+      - "9000:8000"
+    volumes:
+      - ./outputs:/data/outputs:ro
+    command: >
+      uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 2
+    environment:
+      - HOST=0.0.0.0
+      - TITILER_API_PORT=8000
+      # S3 credentials for future Garage integration (requires boto3 in TiTiler image)
+    networks:
+      - sdm-network
+    restart: unless-stopped
 
 volumes:
   postgres-data:

@@ -1,0 +1,88 @@
+# Shared helpers for Plumber route handlers. Keep route annotations in plumber.R.
+
+# Count currently running model processes
+sdm_count_active_runs <- function() {
+  if (!exists("sdm_process_registry", envir = .GlobalEnv, inherits = FALSE)) return(0L)
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(0L)
+  count <- 0L
+  for (key in ls(reg)) {
+    proc <- reg[[key]]
+    if (inherits(proc, "process") && tryCatch(proc$is_alive(), error = function(e) FALSE)) {
+      count <- count + 1L
+    }
+  }
+  count
+}
+
+# Helper for error responses
+sdm_error <- function(req, status, message) {
+  res <- tryCatch(req$res, error = function(e) NULL)
+  if (!is.null(res)) {
+    tryCatch(res$status <- status, error = function(e) NULL)
+  }
+  list(error = message)
+}
+
+sdm_write_json <- function(value, path, ...) {
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  writeLines(jsonlite::toJSON(value, auto_unbox = TRUE, pretty = TRUE, ...), path)
+  invisible(path)
+}
+
+# Safe path resolution - restricts access to a base directory
+sdm_safe_path <- function(input_path, base_dir) {
+  base_dir <- normalizePath(base_dir, winslash = "/", mustWork = FALSE)
+  resolved <- normalizePath(file.path(base_dir, basename(input_path)), winslash = "/", mustWork = FALSE)
+  base_norm <- normalizePath(base_dir, winslash = "/", mustWork = TRUE)
+  if (startsWith(resolved, paste0(base_norm, "/")) || identical(resolved, base_norm)) {
+    return(resolved)
+  }
+  NULL
+}
+
+# Safe job directory - ensures run_id stays within outputs/jobs
+sdm_safe_job_dir <- function(run_id) {
+  jobs_base <- file.path(app_dir, "outputs", "jobs")
+  dir.create(jobs_base, recursive = TRUE, showWarnings = FALSE)
+  jobs_base <- normalizePath(jobs_base, winslash = "/", mustWork = TRUE)
+  resolved <- normalizePath(file.path(jobs_base, basename(run_id)), winslash = "/", mustWork = FALSE)
+  if (startsWith(resolved, paste0(jobs_base, "/")) || identical(resolved, jobs_base)) {
+    return(resolved)
+  }
+  NULL
+}
+
+# Database connection helper (reuses DATABASE_URL from auth.R)
+db_connect <- function() {
+  db_url <- Sys.getenv("DATABASE_URL", "")
+  if (!nzchar(db_url)) return(NULL)
+  tryCatch({
+    parts <- parse_db_url(db_url)
+    DBI::dbConnect(RPostgres::Postgres(),
+      dbname = parts$dbname, host = parts$host,
+      port = parts$port, user = parts$user, password = parts$password
+    )
+  }, error = function(e) {
+    message("db_connect failed: ", conditionMessage(e))
+    NULL
+  })
+}
+
+parse_db_url <- function(url) {
+  m <- regexec("postgresql://([^:]+):([^@]+)@([^:]+):([0-9]+)/(.+)", url)
+  parts <- regmatches(url, m)[[1]]
+  if (length(parts) < 6) stop("Cannot parse DATABASE_URL")
+  list(user = parts[2], password = parts[3], host = parts[4], port = as.integer(parts[5]), dbname = parts[6])
+}
+
+db_insert_upload <- function(con, user_id, file_path, filename, file_size, format, n_rows, species, columns) {
+  if (is.null(con)) return(invisible(NULL))
+  tryCatch({
+    DBI::dbExecute(con,
+      "INSERT INTO uploads (user_id, file_path, filename, file_size, format, n_rows, species, columns_detected)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      params = list(user_id, file_path, filename, file_size, format, n_rows, species, columns)
+    )
+  }, error = function(e) message("Failed to record upload: ", conditionMessage(e)))
+}
