@@ -32,6 +32,7 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto", ou
   eoo_km2 <- NA_real_
   eoo_polygon <- NULL
   eoo_polygon_geojson <- NULL
+  eoo_method_used <- NULL
 
   if (n_unique >= 3) {
     pts <- sf::st_as_sf(xy_unique, coords = c("longitude", "latitude"), crs = 4326)
@@ -54,6 +55,7 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto", ou
     if (!is.null(eoo_result)) {
       eoo_km2 <- eoo_result$area
       eoo_polygon <- eoo_result$polygon
+      eoo_method_used <- "mcp"
 
       if (!is.null(output_dir)) {
         eoo_polygon_geojson <- file.path(output_dir, "eoo_polygon.geojson")
@@ -84,9 +86,6 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto", ou
     y0 <- floor(bbox["ymin"] / cell_size) * cell_size
     nx <- ceiling((bbox["xmax"] - x0) / cell_size)
     ny <- ceiling((bbox["ymax"] - y0) / cell_size)
-
-    nx <- ceiling((x1 - x0) / cell_size)
-    ny <- ceiling((y1 - y0) / cell_size)
 
     n_cells_total <- nx * ny
     if (n_cells_total > 1e6) {
