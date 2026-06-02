@@ -32,3 +32,38 @@ test_that("build_community_matrix works with single CSV containing species colum
   expect_equal(cm$n_species, 2)
   expect_true(is.matrix(cm$community_mat))
 })
+
+test_that("dnn multispecies and multi-ensemble snake_case config fields are retained", {
+  model_id <- if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietly = TRUE)) {
+    "dnn_multispecies"
+  } else {
+    "bioclim"
+  }
+  cfg <- sdm_config(
+    species = "multi_test",
+    occurrence_file = tempfile(fileext = ".csv"),
+    projection_extent = c(112, 154, -44, -10),
+    model_id = model_id,
+    dnn_multispecies_architecture = "DNN_Small",
+    dnn_multispecies_n_seeds = 5L,
+    multi_ensemble_models = c("rf", "maxnet"),
+    multi_ensemble_weighting = "equal",
+    multi_ensemble_power = 2L,
+    multi_ensemble_min_auc = 0.75,
+    multi_ensemble_min_tss = 0.35,
+    multi_ensemble_export = TRUE,
+    multi_ensemble_uncertainty = FALSE,
+    biomod2_models = c("brt", "cta")
+  )
+
+  expect_equal(cfg$dnn_multispecies_architecture, "DNN_Small")
+  expect_equal(cfg$dnn_multispecies_n_seeds, 5L)
+  expect_identical(cfg$multi_ensemble_models, c("rf", "maxnet"))
+  expect_equal(cfg$multi_ensemble_weighting, "equal")
+  expect_equal(cfg$multi_ensemble_power, 2L)
+  expect_equal(cfg$multi_ensemble_min_auc, 0.75)
+  expect_equal(cfg$multi_ensemble_min_tss, 0.35)
+  expect_true(isTRUE(cfg$multi_ensemble_export))
+  expect_true(!isTRUE(cfg$multi_ensemble_uncertainty))
+  expect_identical(cfg$biomod2_models, c("brt", "cta"))
+})

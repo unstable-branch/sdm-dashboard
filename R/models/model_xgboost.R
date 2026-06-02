@@ -109,13 +109,13 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   model <- tryCatch({
     xgboost::xgb.train(
       params = list(objective = "binary:logistic", eval_metric = "auc",
-                    max_depth = max_depth, eta = eta),
+                    max_depth = max_depth, eta = eta,
+                    nthread = max(1L, as.integer(n_cores))),
       data = dtrain,
       nrounds = nrounds,
-      watchlist = list(train = dtrain, val = dval),
+      evals = list(train = dtrain, val = dval),
       early_stopping_rounds = 10,
-      verbose = 0,
-      nthread = max(1L, as.integer(n_cores))
+      verbose = 0
     )
   }, error = function(e) {
     stop("XGBoost fitting failed: ", conditionMessage(e), call. = FALSE)
@@ -130,11 +130,11 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   model <- tryCatch({
     xgboost::xgb.train(
       params = list(objective = "binary:logistic", eval_metric = "auc",
-                    max_depth = max_depth, eta = eta),
+                    max_depth = max_depth, eta = eta,
+                    nthread = max(1L, as.integer(n_cores))),
       data = dtrain_full,
       nrounds = model$best_iteration %||% nrounds,
-      verbose = 0,
-      nthread = max(1L, as.integer(n_cores))
+      verbose = 0
     )
   }, error = function(e) {
     stop("XGBoost final fit failed: ", conditionMessage(e), call. = FALSE)
@@ -163,7 +163,7 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   }, error = function(e) NULL)
 
   list(
-    model = model,
+    model = list(xgb_fit = model, covariates = covariates, params = list(max_depth = max_depth, eta = eta, nrounds = nrounds)),
     formula = NULL,
     coefficients = NULL,
     model_data = model_data,
@@ -180,6 +180,7 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
 predict_xgboost_suitability <- function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
   log_message(log_fun, "Predicting suitability raster with XGBoost")
   covariates <- fit$covariates
+  xgb_fit <- fit$model$xgb_fit %||% fit$model
 
   # Match covariate names (make.names-ified in fit) to raster layer names
   raster_names <- names(env_project_scaled)
@@ -195,7 +196,7 @@ predict_xgboost_suitability <- function(fit, env_project_scaled, output_tif, n_c
     df <- as.data.frame(rast_block)
     names(df) <- covariates  # match make.names-ified covariate names
     x <- as.matrix(df[, covariates, drop = FALSE])
-    pred <- predict(fit$model, x)
+    pred <- predict(xgb_fit, x)
     pred[!is.finite(pred)] <- 0
     pred <- pmin(pmax(pred, 0), 1)
     pred

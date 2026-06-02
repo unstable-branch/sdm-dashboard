@@ -33,11 +33,11 @@ test_that("clean_occurrences with cc_tests enables sea check", {
   utils::write.csv(occ, tmp_csv, row.names = FALSE)
 
   if (requireNamespace("CoordinateCleaner", quietly = TRUE)) {
-    cleaned <- clean_occurrences(tmp_csv, use_cc = TRUE, cc_tests = "sea")
+    cleaned <- clean_occurrences(tmp_csv, use_cc = TRUE, cc_tests = "sea", min_records = 1)
     expect_true(is.list(cleaned))
     expect_true(nrow(cleaned$df) >= 1)
   } else {
-    cleaned <- clean_occurrences(tmp_csv, use_cc = FALSE)
+    cleaned <- clean_occurrences(tmp_csv, use_cc = FALSE, min_records = 1)
     expect_true(is.list(cleaned))
     expect_true(nrow(cleaned$df) >= 1)
   }

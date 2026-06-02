@@ -33,89 +33,13 @@ load_path <- file.path(app_dir, "R", "engine_load.R")
 }
 source(load_path)
 
+# Source shared Plumber helpers used by route handlers. run_server.R also
+# sources this file before router setup, but plumber.R must be self-contained
+# for direct Plumber parsing and helper-level tests.
+source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"))
+
 # Maximum concurrent model runs to prevent OOM
 SDM_MAX_CONCURRENT_RUNS <- as.integer(Sys.getenv("SDM_MAX_CONCURRENT_RUNS", "2"))
-
-# Count currently running model processes
-sdm_count_active_runs <- function() {
-  if (!exists("sdm_process_registry", envir = .GlobalEnv, inherits = FALSE)) return(0L)
-  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
-  if (!is.environment(reg)) return(0L)
-  count <- 0L
-  for (key in ls(reg)) {
-    proc <- reg[[key]]
-    if (inherits(proc, "process") && tryCatch(proc$is_alive(), error = function(e) FALSE)) {
-      count <- count + 1L
-    }
-  }
-  count
-}
-
-# Helper for error responses
-sdm_error <- function(req, status, message) {
-  res <- tryCatch(req$res, error = function(e) NULL)
-  if (!is.null(res)) {
-    tryCatch(res$status <- status, error = function(e) NULL)
-  }
-  list(error = message)
-}
-
-# Safe path resolution — restricts access to a base directory
-sdm_safe_path <- function(input_path, base_dir) {
-  base_dir <- normalizePath(base_dir, winslash = "/", mustWork = FALSE)
-  resolved <- normalizePath(file.path(base_dir, basename(input_path)), winslash = "/", mustWork = FALSE)
-  base_norm <- normalizePath(base_dir, winslash = "/", mustWork = TRUE)
-  if (startsWith(resolved, paste0(base_norm, "/")) || identical(resolved, base_norm)) {
-    return(resolved)
-  }
-  NULL
-}
-
-# Safe job directory — ensures run_id stays within outputs/jobs
-sdm_safe_job_dir <- function(run_id) {
-  jobs_base <- file.path(app_dir, "outputs", "jobs")
-  dir.create(jobs_base, recursive = TRUE, showWarnings = FALSE)
-  jobs_base <- normalizePath(jobs_base, winslash = "/", mustWork = TRUE)
-  resolved <- normalizePath(file.path(jobs_base, basename(run_id)), winslash = "/", mustWork = FALSE)
-  if (startsWith(resolved, paste0(jobs_base, "/")) || identical(resolved, jobs_base)) {
-    return(resolved)
-  }
-  NULL
-}
-
-# Database connection helper (reuses DATABASE_URL from auth.R)
-db_connect <- function() {
-  db_url <- Sys.getenv("DATABASE_URL", "")
-  if (!nzchar(db_url)) return(NULL)
-  tryCatch({
-    parts <- parse_db_url(db_url)
-    DBI::dbConnect(RPostgres::Postgres(),
-      dbname = parts$dbname, host = parts$host,
-      port = parts$port, user = parts$user, password = parts$password)
-  }, error = function(e) {
-    message("db_connect failed: ", conditionMessage(e))
-    NULL
-  })
-}
-
-parse_db_url <- function(url) {
-  m <- regexec("postgresql://([^:]+):([^@]+)@([^:]+):([0-9]+)/(.+)", url)
-  parts <- regmatches(url, m)[[1]]
-  if (length(parts) < 6) stop("Cannot parse DATABASE_URL")
-  list(user = parts[2], password = parts[3], host = parts[4], port = as.integer(parts[5]), dbname = parts[6])
-}
-
-db_insert_upload <- function(con, user_id, file_path, filename, file_size, format, n_rows, species, columns) {
-  if (is.null(con)) return(invisible(NULL))
-  tryCatch({
-    DBI::dbExecute(con,
-      "INSERT INTO uploads (user_id, file_path, filename, file_size, format, n_rows, species, columns_detected)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-      params = list(user_id, file_path, filename, file_size, format, n_rows, species, columns)
-    )
-  }, error = function(e) message("Failed to record upload: ", conditionMessage(e)))
-}
-
 # --- Data endpoints ---
 
 #* Upload occurrence file (CSV/TSV/ZIP)
@@ -431,8 +355,9 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
 #* @param taxon Species name (e.g., "Acacia mearnsii")
 #* @param country Country code filter (e.g., "AU")
 #* @param max_records Maximum records to fetch (default: 100)
-#* @post /api/v1/occurrences/gbif/search
-function(req, taxon, country = NULL, max_records = 100) {
+sdm_submit_gbif_search <- function(req, taxon, country = NULL, max_records = 100,
+                                   app_dir_override = app_dir,
+                                   submit_fun = sdm_async_submit) {
   if (is.null(taxon) || !nzchar(taxon)) {
     return(sdm_error(req, 400, "taxon is required"))
   }
@@ -442,33 +367,22 @@ function(req, taxon, country = NULL, max_records = 100) {
 
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 
-    upload_dir <- file.path(app_dir, "data", "uploads")
-    dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
-    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", taxon)
-    ts <- format(Sys.time(), "%Y%m%d_%H%M%S")
-    csv_path <- file.path(upload_dir, paste0(ts, "_gbif_", safe_name, ".csv"))
-    utils::write.csv(occ, csv_path, row.names = FALSE)
-    encrypt_file(csv_path, csv_path)
-
-    # Track GBIF file size toward user's storage quota
-    gbif_con <- db_connect()
-    if (!is.null(gbif_con)) {
-      on.exit(DBI::dbDisconnect(gbif_con), add = TRUE)
-      gbif_size <- file.info(csv_path)$size
-      tryCatch(
-        DBI::dbExecute(gbif_con,
-          "UPDATE users SET storage_used_bytes = COALESCE(storage_used_bytes, 0) + $1 WHERE id = $2",
-          params = list(gbif_size, req$user_id %||% "unknown")
-        ),
-        error = function(e) NULL
-      )
-    }
+  job_id <- submit_fun("gbif", list(
+    taxon = taxon,
+    country = if (!is.null(country) && nzchar(country)) country else NULL,
+    max_records = max_records
+  ), app_dir_override, user_id)
 
   list(
     job_id = job_id,
     status = "running",
     message = "GBIF search started in background"
   )
+}
+
+#* @post /api/v1/occurrences/gbif/search
+function(req, taxon, country = NULL, max_records = 100) {
+  sdm_submit_gbif_search(req, taxon, country, max_records)
 }
 
 #* Parse a Darwin Core Archive (.zip file) (async)
@@ -642,6 +556,8 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
       )
     }
 
+    normalized_body <- sdm_normalize_model_payload(body)
+
     cfg <- sdm_config(
       species = body$species,
       occurrence_file = body$occurrence_file,
@@ -701,17 +617,19 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
       ann_size = as.integer(body$annSize %||% 5L),
       ann_decay = as.numeric(body$annDecay %||% 0.01),
       ann_maxit = as.integer(body$annMaxit %||% 200L),
-      dnn_model_type = body$dnnArchitecture %||% "DNN_Medium",
-      dnn_n_seeds = as.integer(body$dnnNSeeds %||% 5L),
-      dnn_device = body$dnnDevice %||% "auto",
+      dnn_model_type = normalized_body$dnn_model_type %||% "DNN_Medium",
+      dnn_n_seeds = as.integer(normalized_body$dnn_n_seeds %||% 5L),
+      dnn_device = normalized_body$dnn_device %||% "auto",
+      dnn_dropout = as.numeric(normalized_body$dnn_dropout %||% 0.3),
+      dnn_lambda = as.numeric(normalized_body$dnn_lambda %||% 0.001),
       extrapolation_mask = isTRUE(body$extrapolationMask %||% TRUE),
       mess_threshold = as.numeric(body$messThreshold %||% 0),
       rf_num_trees = as.integer(body$rfNumTrees %||% 500L),
       rf_mtry = if (!is.null(body$rfMtry)) as.integer(body$rfMtry) else NULL,
       rf_min_node_size = as.integer(body$rfMinNodeSize %||% 10L),
-      xgb_max_depth = as.integer(body$xgbMaxDepth %||% 6L),
-      xgb_eta = as.numeric(body$xgbEta %||% 0.3),
-      xgb_nrounds = as.integer(body$xgbNrounds %||% 100L),
+      xgb_max_depth = as.integer(normalized_body$xgb_max_depth %||% 6L),
+      xgb_eta = as.numeric(normalized_body$xgb_eta %||% 0.3),
+      xgb_nrounds = as.integer(normalized_body$xgb_nrounds %||% 100L),
       mars_nk = if (!is.null(body$marsNk)) as.integer(body$marsNk) else NULL,
       fda_nprune = if (!is.null(body$fdaNprune)) as.integer(body$fdaNprune) else NULL,
       ann_rang = as.numeric(body$annRang %||% 0.5),
@@ -730,8 +648,9 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
       vars_per_bag = as.integer(body$rangebagVarsPerBag %||% sdm_default_rangebag_vars_per_bag),
       detection_formula = body$detectionFormula %||% "~1",
       occupancy_model_type = body$detectionModelType %||% "occu",
-      dnn_architecture = body$dnnMultispeciesArchitecture %||% "DNN_Medium",
-      dnn_multispecies_n_seeds = as.integer(body$dnnMultispeciesNSeeds %||% 3L),
+      dnn_architecture = normalized_body$dnn_architecture %||% normalized_body$dnn_model_type %||% "DNN_Medium",
+      dnn_multispecies_architecture = normalized_body$dnn_multispecies_architecture %||% normalized_body$dnn_model_type %||% "DNN_Medium",
+      dnn_multispecies_n_seeds = as.integer(normalized_body$dnn_multispecies_n_seeds %||% 3L),
       bias_method = body$bias_method %||% "uniform",
       thickening_distance_km = as.numeric(body$thickening_distance_km %||% sdm_default_thickening_distance_km),
       pa_replicates = as.integer(body$pa_replicates %||% sdm_default_pa_replicates),
@@ -743,12 +662,22 @@ run_model_background <- function(body, biovars, projection_extent, job_dir, app_
       climate_matching = isTRUE(body$climate_matching),
       climate_matching_method = body$climate_matching_method %||% "mahalanobis",
       max_coordinate_uncertainty = if (!is.null(body$max_coordinate_uncertainty)) as.numeric(body$max_coordinate_uncertainty) else NULL,
-      multi_ensemble_models = body$multiEnsembleModels %||% body$multi_ensemble_models,
-      multi_ensemble_weighting = body$multiEnsembleWeighting %||% body$multi_ensemble_weighting %||% "auc",
-      multi_ensemble_power = as.numeric(body$multiEnsemblePower %||% body$multi_ensemble_power %||% sdm_default_ensemble_power),
-      multi_ensemble_min_auc = as.numeric(body$multiEnsembleMinAuc %||% body$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc),
-      multi_ensemble_min_tss = as.numeric(body$multiEnsembleMinTss %||% body$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss),
-      biomod2_models = body$biomod2Models %||% body$biomod2_models,
+      multi_ensemble_models = normalized_body$multi_ensemble_models,
+      multi_ensemble_weighting = normalized_body$multi_ensemble_weighting %||% "auc",
+      multi_ensemble_power = as.numeric(normalized_body$multi_ensemble_power %||% sdm_default_ensemble_power),
+      multi_ensemble_min_auc = as.numeric(normalized_body$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc),
+      multi_ensemble_min_tss = as.numeric(normalized_body$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss),
+      multi_ensemble_export = isTRUE(normalized_body$multi_ensemble_export %||% TRUE),
+      multi_ensemble_uncertainty = isTRUE(normalized_body$multi_ensemble_uncertainty %||% TRUE),
+      biomod2_models = normalized_body$biomod2_models,
+      selected_uv_months = normalized_body$selected_uv_months,
+      selected_drought_periods = normalized_body$selected_drought_periods %||% "annual_mean",
+      selected_chelsa_extras = normalized_body$selected_chelsa_extras,
+      analysis_crs = normalized_body$analysis_crs %||% sdm_default_analysis_crs,
+      generate_tiles = isTRUE(normalized_body$generate_tiles %||% TRUE),
+      mask_type = normalized_body$mask_type %||% sdm_default_mask_type,
+      mask_file = normalized_body$mask_file %||% sdm_default_mask_file,
+      mask_buffer_deg = as.numeric(normalized_body$mask_buffer_deg %||% sdm_default_mask_buffer_deg),
       esm_n_runs = as.integer(body$esm_n_runs %||% sdm_esm_default_n_runs),
       esm_split = body$esm_split %||% sdm_esm_default_split,
       esm_min_auc = as.numeric(body$esm_min_auc %||% sdm_esm_default_min_auc),
