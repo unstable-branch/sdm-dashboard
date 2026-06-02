@@ -72,7 +72,7 @@ requires_auth <- function(path) {
     "^/api/v1/future/scenarios$"
   )
 
-  if (identical(Sys.getenv("PLUMBER_DOCS_ENABLED"), "true")) {
+  if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {
     open_patterns <- c(
       open_patterns,
       "^/__openapi__/?$",
