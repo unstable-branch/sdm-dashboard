@@ -222,6 +222,8 @@ sdmRoutes.get("/config/defaults", async (c) => {
       dnnArchitecture: "DNN_Medium",
       dnnNSeeds: 5,
       dnnDevice: "auto",
+      dnnMultispeciesArchitecture: "DNN_Medium",
+      dnnMultispeciesNSeeds: 3,
       brtNTrees: 2000,
       brtInteractionDepth: 3,
       brtShrinkage: 0.01,
