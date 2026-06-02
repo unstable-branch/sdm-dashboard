@@ -24,6 +24,12 @@ sdm_error <- function(req, status, message) {
   list(error = message)
 }
 
+sdm_write_json <- function(value, path, ...) {
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  writeLines(jsonlite::toJSON(value, auto_unbox = TRUE, pretty = TRUE, ...), path)
+  invisible(path)
+}
+
 # Safe path resolution - restricts access to a base directory
 sdm_safe_path <- function(input_path, base_dir) {
   base_dir <- normalizePath(base_dir, winslash = "/", mustWork = FALSE)
