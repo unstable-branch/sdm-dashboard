@@ -22,11 +22,13 @@ async function plumberJobId(runId: string): Promise<string> {
 }
 
 
+
 function normalizeConfig(config: unknown): Record<string, unknown> | null {
   if (!config || typeof config !== "object") return null;
   const normalized = { ...(config as Record<string, unknown>) };
-  if (typeof normalized.projection_extent === "string") {
-    normalized.projectionExtent = normalized.projection_extent.split(",").map(Number);
+  const rawExtent = normalized.projectionExtent ?? normalized.projection_extent;
+  if (typeof rawExtent === "string") {
+    normalized.projectionExtent = rawExtent.split(",").map(Number);
   }
   return normalized;
 }
@@ -109,9 +111,9 @@ sdmRoutes.post("/run", async (c) => {
 
       jobEventBus.emitJobStatus({
         jobId: run.id,
-        state: "active",
-        progress: 5,
-        logs: ["Model run queued for async processing."],
+        state: "queued",
+        progress: 0,
+        logs: ["Model run queued..."],
       });
 
       return c.json({ jobId: run.id, queuedAt: new Date().toISOString() });
@@ -366,6 +368,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
         metrics: runs.metrics,
         outputFiles: runs.outputFiles,
         provenance: runs.provenance,
+        progressLog: runs.progressLog,
       })
       .from(runs)
       .where(projectIds ? and(eq(runs.id, jobId), inArray(runs.projectId, projectIds)) : eq(runs.id, jobId))
@@ -382,89 +385,45 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       ? (run.provenance as Record<string, unknown>).error_hint as string
       : undefined;
 
+    // Proactive Plumber check for running runs — fetches live progress_log and progress_json
+    let plumberProgressJson: unknown = null;
+    let plumberProgressLog: string[] = [];
     if (run.status === "running" && run.jobId) {
       try {
-        const plumberStatus = await plumberClient.getModelStatus(run.jobId);
+        const plumberStatus = await plumberClient.getModelStatus(run.jobId, 3000);
+        const ps = plumberStatus as any;
+        plumberProgressJson = ps.progress_json ?? null;
+        plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log as string[] : [];
 
-        const plumberRunStatus = (plumberStatus as any).status;
-        const plumberMetrics = (plumberStatus as any).metrics;
-        const plumberOutputFiles = (plumberStatus as any).output_files;
-        const plumberError = (plumberStatus as any).error;
-
-        if (plumberRunStatus === "completed" || plumberRunStatus === "failed" || plumberRunStatus === "cancelled") {
-          await db
-            .update(runs)
-            .set({
-              status: plumberRunStatus as any,
-              metrics: plumberRunStatus === "completed" ? plumberMetrics ?? null : null,
-              outputFiles: plumberRunStatus === "completed" ? plumberOutputFiles ?? null : null,
-              error: plumberError ?? null,
-              errorCode: (plumberStatus as any).error_code ?? null,
-              errorHint: (plumberStatus as any).error_hint ?? null,
-              completedAt: plumberRunStatus !== "running" ? new Date() : null,
-              rCpuTimeMs: (plumberStatus as any).r_cpu_time_ms ?? null,
-              rPeakMemoryMb: (plumberStatus as any).r_peak_memory_mb ?? null,
-            })
-            .where(eq(runs.id, jobId));
-
-          const errCode = (plumberStatus as any).error_code as string | undefined;
-          const httpStatus = plumberRunStatus === "failed" ? getErrorHttpStatus(errCode) : 200;
-
-          return c.json({
-            id: run.id,
-            status: plumberRunStatus,
-            species: run.speciesName,
-            model_id: run.modelId,
-            started_at: run.startedAt?.toISOString() ?? null,
-            completed_at: plumberStatus && (plumberStatus as any).completed_at,
-            error: plumberError ?? null,
-            last_stage: run.lastStage ?? null,
-            metrics: plumberMetrics ?? null,
-            output_files: plumberOutputFiles ?? null,
-            r_cpu_time_ms: (plumberStatus as any).r_cpu_time_ms ?? null,
-            r_peak_memory_mb: (plumberStatus as any).r_peak_memory_mb ?? null,
-            progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
-            config: normalizeConfig(run.config),
-          }, httpStatus as any);
+        // Fire-and-forget: if Plumber reports terminal state, update DB in background
+        if (ps.status === "completed" || ps.status === "failed" || ps.status === "cancelled") {
+          db.update(runs).set({
+            status: ps.status,
+            metrics: ps.status === "completed" ? ps.metrics ?? null : null,
+            outputFiles: ps.status === "completed" ? ps.output_files ?? null : null,
+            error: ps.error ?? null,
+            errorCode: ps.error_code ?? null,
+            errorHint: ps.error_hint ?? null,
+            completedAt: new Date(),
+          }).where(eq(runs.id, jobId)).then(() => {
+            jobEventBus.emitJobStatus({
+              jobId: run.id,
+              state: ps.status,
+              progress: ps.status === "completed" ? 100 : 0,
+              logs: Array.isArray(ps.progress_log) ? ps.progress_log as string[] : [],
+              result: ps.status === "completed" ? ps : undefined,
+              failedReason: ps.error ?? undefined,
+            });
+          }).catch(() => {});
         }
-
-        return c.json({
-          id: run.id,
-          status: run.status,
-          species: run.speciesName,
-          model_id: run.modelId,
-          started_at: run.startedAt?.toISOString() ?? null,
-          completed_at: run.completedAt?.toISOString() ?? null,
-          error: null,
-          error_code: null,
-          error_hint: null,
-          last_stage: run.lastStage ?? null,
-          metrics: null,
-          output_files: null,
-          progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
-          config: normalizeConfig(run.config),
-        });
       } catch {
-        return c.json({
-          id: run.id,
-          status: run.status,
-          species: run.speciesName,
-          model_id: run.modelId,
-          started_at: run.startedAt?.toISOString() ?? null,
-          completed_at: run.completedAt?.toISOString() ?? null,
-          error: null,
-          error_code: null,
-          error_hint: null,
-          last_stage: run.lastStage ?? null,
-          metrics: null,
-          output_files: null,
-          progress_log: [],
-          config: normalizeConfig(run.config),
-        });
+        // Plumber unreachable — fall through to DB response
       }
     }
 
     const httpStatus = run.status === "failed" ? getErrorHttpStatus(errCode) : 200;
+
+    const dbProgressLog: string[] = Array.isArray(run.progressLog) ? run.progressLog as string[] : [];
 
     return c.json({
       id: run.id,
@@ -479,7 +438,8 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       last_stage: run.lastStage ?? null,
       metrics: run.metrics ?? null,
       output_files: run.outputFiles ?? null,
-      progress_log: [],
+      progress_log: plumberProgressLog.length > 0 ? plumberProgressLog : dbProgressLog,
+      progress_json: plumberProgressJson ?? null,
       config: normalizeConfig(run.config),
     }, httpStatus as any);
   } catch (err) {
@@ -523,11 +483,23 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
 
     if (run.jobId) {
       const result = await plumberClient.cancelModel(run.jobId);
-      await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, jobId));
+      await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(eq(runs.id, jobId));
+      jobEventBus.emitJobStatus({
+        jobId: run.id,
+        state: "cancelled",
+        progress: 0,
+        logs: ["Model run cancelled by user."],
+      });
       return c.json(result);
     }
 
-    await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, jobId));
+    await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(eq(runs.id, jobId));
+    jobEventBus.emitJobStatus({
+      jobId: run.id,
+      state: "cancelled",
+      progress: 0,
+      logs: ["Model run cancelled by user."],
+    });
     return c.json({ ok: true, message: "Run cancelled" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to cancel";
@@ -812,6 +784,7 @@ sdmRoutes.post("/batch/:batchId/cancel", async (c) => {
 
     for (const r of cancellable) {
       if (r.bullmqId && queue) await queue.remove(r.bullmqId);
+      if (r.jobId) await plumberClient.cancelModel(r.jobId).catch(() => {});
       await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, r.id));
     }
 
@@ -925,6 +898,32 @@ sdmRoutes.get("/targets/results/:jobId", async (c) => {
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Targets results failed";
+    return c.json({ error: message }, 502);
+  }
+});
+
+sdmRoutes.get("/logs/:jobId", async (c) => {
+  try {
+    const runId = c.req.param("jobId");
+    const user = c.get("user");
+    const projectIds = user ? await getUserProjectIds(user) : null;
+    if (projectIds && projectIds.length === 0) {
+      return c.json({ error: "Run not found" }, 404);
+    }
+
+    const [run] = await db
+      .select({ id: runs.id, jobId: runs.jobId, status: runs.status })
+      .from(runs)
+      .where(projectIds ? and(eq(runs.id, runId), inArray(runs.projectId, projectIds)) : eq(runs.id, runId))
+      .limit(1);
+
+    if (!run) return c.json({ error: "Run not found" }, 404);
+    if (!run.jobId) return c.json({ id: runId, stderr: "", stdout: "", progress_log: "" });
+
+    const result = await plumberClient.getModelLogs(run.jobId);
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to get logs";
     return c.json({ error: message }, 502);
   }
 });

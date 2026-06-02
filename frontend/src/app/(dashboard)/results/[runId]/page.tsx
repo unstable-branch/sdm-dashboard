@@ -8,13 +8,15 @@ import dynamic from "next/dynamic";
 import { MetricCards } from "@/components/results/metric-cards";
 import { FutureProjectionPanel } from "@/components/results/future-projection-panel";
 import { OdmapViewer } from "@/components/results/odmap-viewer";
-import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers } from "lucide-react";
+import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { apiGet, apiPost, fetchWithAuth } from "@/services/api";
 import { useRunDetail } from "@/hooks/use-queries";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import { SuitabilityMap } from "@/components/results/suitability-map";
 import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
-import type { RunDetail, ManifestData } from "@/services/types";
+import type { RunDetail, ManifestData, ProgressStage } from "@/services/types";
+import type { PlumberJobLogs } from "@sdm/shared";
 import type { ViewState } from "react-map-gl/maplibre";
 import type { FeatureCollection } from "geojson";
 
@@ -70,7 +72,7 @@ export default function ResultsPage() {
     diff: number;
     improving: boolean;
   } | null>(null);
-  const [_benchmarkLoading, setBenchmarkLoading] = useState(false);
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [reportText, setReportText] = useState<string | null>(null);
   const [odmapMd, setOdmapMd] = useState<string | null>(null);
   const [odmapCsv, setOdmapCsv] = useState<string | null>(null);
@@ -80,28 +82,93 @@ export default function ResultsPage() {
   const [manifest, setManifest] = useState<ManifestData | null>(null);
   const [ensembleGenerating, setEnsembleGenerating] = useState(false);
   const [ensembleGenerated, setEnsembleGenerated] = useState(false);
+  const [ensembleError, setEnsembleError] = useState<string | null>(null);
   const [run, setRun] = useState<RunDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadTimeout, setLoadTimeout] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showErrorLogs, setShowErrorLogs] = useState(false);
+  const [errorLogData, setErrorLogData] = useState<string | null>(null);
+  const [errorLogLoading, setErrorLogLoading] = useState(false);
+
+  // Show diagnostic message after 20s of loading instead of indefinite spinner
+  useEffect(() => {
+    const t = setTimeout(() => setLoadTimeout(true), 20000);
+    return () => clearTimeout(t);
+  }, [loading]);
 
   const { data: runData, isLoading: runLoading, error: runError, refetch } = useRunDetail(runId);
   useEffect(() => {
-    if (runData) setRun(runData);
+    if (runData) {
+      setRun(prev => {
+        // Preserve existing progress_log/last_stage if new data has none (avoid overwriting with stale)
+        if (prev && prev.status === "running" && runData.status === "running" &&
+            runData.progress_log?.length === 0 && prev.progress_log.length > 0) {
+          return { ...runData, progress_log: prev.progress_log, last_stage: prev.last_stage ?? runData.last_stage };
+        }
+        return runData;
+      });
+    }
     if (!runLoading) setLoading(false);
     if (runError) setError((runError as Error).message);
   }, [runData, runLoading, runError]);
 
-  // SSE-driven job updates (only connect when initial status is running)
-  const { getJob, connected } = useJobSSE(true);
+  // SSE-driven job updates (always connect when we have a runId)
+  const { getJob, connected } = useJobSSE(!!runId);
+
+  // Merge SSE job updates (logs + currentStage) into run state for live display
+  const sseJob = connected ? getJob(runId) : undefined;
+  useEffect(() => {
+    if (!sseJob || !run || run.status !== "running") return;
+    const logs = sseJob.logs;
+    const stage = sseJob.currentStage;
+    const sseProgressJson = sseJob.progressJson;
+    let changed = false;
+    const next = { ...run };
+    // Only merge SSE logs if they contain real data (not the synthetic bootstrap placeholder)
+    if (logs && logs.length > 0 && logs[0] !== "Model run in progress..." &&
+        JSON.stringify(logs) !== JSON.stringify(run.progress_log)) {
+      next.progress_log = logs;
+      changed = true;
+    }
+    if (stage && stage !== run.last_stage) {
+      next.last_stage = stage;
+      changed = true;
+    }
+    // Persist progressJson from SSE so stage chips render even when polling overwrites run
+    if (sseProgressJson && Array.isArray(sseProgressJson) && sseProgressJson.length > 0) {
+      (next as any).progress_json = sseProgressJson;
+      changed = true;
+    }
+    if (changed) setRun(next);
+  }, [sseJob?.logs, sseJob?._receivedAt, sseJob?.currentStage, sseJob?.progressJson, run?.status]);
+
+  const toggleErrorLogs = useCallback(async () => {
+    if (showErrorLogs) { setShowErrorLogs(false); return; }
+    setShowErrorLogs(true);
+    if (errorLogData) return;
+    setErrorLogLoading(true);
+    try {
+      const data = await apiGet<PlumberJobLogs>(`/api/v1/sdm/logs/${runId}`);
+      setErrorLogData(data.stderr || data.progress_log || "No log content available");
+    } catch {
+      setErrorLogData("Failed to load logs");
+    } finally {
+      setErrorLogLoading(false);
+    }
+  }, [runId, showErrorLogs, errorLogData]);
 
   const isMultiEnsemble = run?.model_id === "multi_ensemble";
 
   const handleGenerateEnsemble = useCallback(async () => {
     setEnsembleGenerating(true);
+    setEnsembleError(null);
     try {
       await apiPost(`/api/v1/diagnostics/ensemble-rasters/${runId}`);
       setEnsembleGenerated(true);
-    } catch {
+    } catch (err) {
+      setEnsembleGenerated(false);
+      setEnsembleError(err instanceof Error ? err.message : "Ensemble generation failed");
     } finally {
       setEnsembleGenerating(false);
     }
@@ -145,88 +212,122 @@ export default function ResultsPage() {
       .catch(() => setBenchmarkLoading(false));
   }, [run?.id, run?.status, run?.metrics?.auc_mean, run?.species]);
 
-  // SSE fallback: poll only if SSE is disconnected and run is still running
+  // Polling fallback: always poll for active runs (SSE events are supplementary)
   useEffect(() => {
-    if (!run || run.status !== "running") return;
-    if (connected) return;
+    if (!run || !["running", "loading", "pending"].includes(run.status)) return;
 
-    const interval = setInterval(() => { if (!document.hidden) refetch(); }, 5000);
-    return () => clearInterval(interval);
-  }, [run?.id, run?.status, connected, refetch]);
-
-  // SSE update: when a job event arrives for this runId, refresh
-  useEffect(() => {
-    if (!runId) return;
     let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const abort = new AbortController();
-
-    const fetchStatus = () => {
-      if (cancelled) return;
-      apiGet<RunDetail>(`/api/v1/sdm/status/${runId}`)
-        .then((data) => {
-          if (cancelled) return;
-          setRun(data);
-          setLoading(false);
-          if (data.status === "completed") {
-            fetchWithAuth(`/api/v1/results/${runId}/report.txt`, { signal: abort.signal })
-              .then((res) => res.ok ? res.text() : null)
-              .then((text) => { if (!cancelled) setReportText(text); })
-              .catch(() => {});
-            const odmapMdPath = data.output_files?.odmap_report_md;
-            const odmapCsvPath = data.output_files?.odmap_report_csv;
-            if (odmapMdPath) {
-              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`, { signal: abort.signal })
-                .then((res) => res.ok ? res.text() : null)
-                .then((text) => { if (!cancelled) setOdmapMd(text); })
-                .catch(() => {});
-            }
-            if (odmapCsvPath) {
-              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`, { signal: abort.signal })
-                .then((res) => res.ok ? res.text() : null)
-                .then((text) => { if (!cancelled) setOdmapCsv(text); })
-                .catch(() => {});
-            }
-            const eooPath = data.output_files?.eoo_polygon;
-            const aooPath = data.output_files?.aoo_grid;
-            if (eooPath) {
-              fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(eooPath)}`)
-                .then((geo) => { if (!cancelled) setEooGeoJSON(geo); })
-                .catch(() => {});
-            }
-            if (aooPath) {
-              fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(aooPath)}`)
-                .then((geo) => { if (!cancelled) setAooGeoJSON(geo); })
-                .catch(() => {});
-            }
-            fetchGeoJSON("/api/v1/data/boundary/default")
-              .then((geo) => { if (!cancelled) setBoundaryGeoJSON(geo); })
-              .catch(() => {});
+    let consecutiveErrors = 0;
+    const poll = async () => {
+      try {
+        const res = await apiGet<RunDetail>(`/api/v1/sdm/status/${runId}`);
+        if (cancelled || !res) return;
+        consecutiveErrors = 0;
+        setRun(prev => {
+          if (!prev || !["running", "loading", "pending"].includes(prev.status)) return prev;
+          const next = { ...prev };
+          let changed = false;
+          if (res.progress_log?.length > 0 &&
+              JSON.stringify(res.progress_log) !== JSON.stringify(prev.progress_log)) {
+            next.progress_log = res.progress_log;
+            changed = true;
           }
-          if (data.status === "running") {
-            timeoutId = setTimeout(fetchStatus, 3000);
+          if (res.last_stage && res.last_stage !== prev.last_stage) {
+            next.last_stage = res.last_stage;
+            changed = true;
           }
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          setError(err.message);
-          setLoading(false);
+          if (res.status && res.status !== prev.status && ["running", "loading", "pending"].includes(res.status)) {
+            next.status = res.status as "running" | "loading" | "pending";
+            changed = true;
+          }
+          // Extract progress_json from polling response for stage chips when SSE is unavailable
+          const pollProgressJson = res.progress_json;
+          if (Array.isArray(pollProgressJson) && pollProgressJson.length > 0) {
+            (next as RunDetail).progress_json = pollProgressJson;
+            changed = true;
+          }
+          return changed ? next : prev;
         });
+        // If API reports terminal state, refresh via React Query to get full data
+        if (res.status === "completed" || res.status === "failed" || res.status === "cancelled") {
+          refetch();
+        }
+      } catch {
+        consecutiveErrors++;
+        if (consecutiveErrors > 12) {
+          console.warn("[results] Polling failed 12 consecutive times for run", runId);
+        }
+      }
     };
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [run?.id, run?.status, runId, refetch]);
 
-    fetchStatus();
-    return () => {
-      cancelled = true;
-      abort.abort();
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [runId]);
+  // Manual data fetching for report, boundaries after completion
+  useEffect(() => {
+    if (!runId || !run || run.status !== "completed") return;
+    const abort = new AbortController();
+    fetchWithAuth(`/api/v1/results/${runId}/report.txt`, { signal: abort.signal })
+      .then((res) => res.ok ? res.text() : null)
+      .then((text) => setReportText(text))
+      .catch(() => {});
+    const odmapMdPath = run.output_files?.odmap_report_md;
+    const odmapCsvPath = run.output_files?.odmap_report_csv;
+    if (odmapMdPath) {
+      fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`, { signal: abort.signal })
+        .then((res) => res.ok ? res.text() : null)
+        .then((text) => setOdmapMd(text))
+        .catch(() => {});
+    }
+    if (odmapCsvPath) {
+      fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`, { signal: abort.signal })
+        .then((res) => res.ok ? res.text() : null)
+        .then((text) => setOdmapCsv(text))
+        .catch(() => {});
+    }
+    const eooPath = run.output_files?.eoo_polygon;
+    const aooPath = run.output_files?.aoo_grid;
+    if (eooPath) {
+      fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(eooPath)}`)
+        .then((geo) => setEooGeoJSON(geo))
+        .catch(() => {});
+    }
+    if (aooPath) {
+      fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(aooPath)}`)
+        .then((geo) => setAooGeoJSON(geo))
+        .catch(() => {});
+    }
+    fetchGeoJSON("/api/v1/data/boundary/default")
+      .then((geo) => setBoundaryGeoJSON(geo))
+      .catch(() => {});
+    return () => abort.abort();
+  }, [runId, run?.id, run?.status, run?.output_files]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
         <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />
-        <span className="ml-2 text-sdm-muted">Loading results...</span>
+        <span className="text-sdm-muted">Loading results...</span>
+        {loadTimeout && (
+          <div className="text-center space-y-2">
+            <p className="text-sm text-sdm-warning">This is taking longer than expected.</p>
+            <div className="flex items-center justify-center gap-2">
+              <button
+                onClick={() => router.refresh()}
+                className="rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface"
+              >
+                Refresh page
+              </button>
+              <button
+                onClick={() => router.push("/results")}
+                className="rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface"
+              >
+                Back to results
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -256,7 +357,7 @@ export default function ResultsPage() {
           <div>
             <h1 className="text-2xl font-bold text-sdm-heading">{run.species || "Results"}</h1>
             <p className="text-sm text-sdm-muted">
-              {run.model_id} · Started {new Date(run.started_at).toLocaleString()}
+              {run.model_id} · Started {run.started_at ? new Date(run.started_at).toLocaleString() : "—"}
             </p>
           </div>
         </div>
@@ -267,13 +368,13 @@ export default function ResultsPage() {
         }>
           {run.status}
         </span>
-        <Link
-          href={`/model?fork=${run.id}`}
+        <button
+          onClick={() => router.push(`/model?fork=${run.id}`)}
           className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface-soft"
         >
           <GitBranch className="h-3.5 w-3.5" />
           Fork this run
-        </Link>
+        </button>
         {isMultiEnsemble && (
           <button
             onClick={handleGenerateEnsemble}
@@ -290,33 +391,118 @@ export default function ResultsPage() {
             {ensembleGenerating ? "Generating..." : ensembleGenerated ? "Ensemble stats generated" : "Generate ensemble rasters"}
           </button>
         )}
+        {ensembleError && (
+          <p className="text-xs text-sdm-danger ml-1">{ensembleError}</p>
+        )}
       </div>
 
-      {run.status === "running" && (
+      {(run.status === "running" || run.status === "loading" || run.status === "pending") && (
         <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
           <div className="flex items-center gap-2 text-sm text-sdm-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Model is still running{!connected && " (polling)"}...
+            <span>
+              {run.status === "loading" ? "Initializing model..." :
+               run.status === "pending" ? "Queued..." :
+               `Model is still running${!connected ? " (polling)" : ""}...`}
+            </span>
+            {run.last_stage && (
+              <span className="ml-auto rounded bg-sdm-accent/10 px-2 py-0.5 text-xs text-sdm-accent">
+                {run.last_stage}
+              </span>
+            )}
           </div>
-          {run.progress_log.length > 0 && (
+          {(() => {
+            const stageData: ProgressStage[] | null = sseJob?.progressJson ?? run.progress_json ?? null;
+            return stageData && stageData.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {stageData.map((entry, i) => (
+                  <span key={i} className={`text-xs rounded px-1.5 py-0.5 ${
+                    entry.stage === "unknown" ? "bg-sdm-surface text-sdm-muted" :
+                    i === stageData.length - 1
+                      ? "bg-sdm-accent/15 text-sdm-accent animate-pulse"
+                      : "bg-sdm-accent/10 text-sdm-accent"
+                  }`}>
+                    {entry.stage}: {Math.round((entry.percent || 0) * 100)}%
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
+          {run.progress_log.length > 0 ? (
             <div className="mt-2 rounded bg-sdm-surface-soft p-2 font-mono text-xs text-sdm-muted max-h-32 overflow-y-auto">
               {run.progress_log.map((line, i) => (
-                <div key={i} className="truncate">{line}</div>
+                <div key={i} className="break-words whitespace-pre-wrap">{line}</div>
               ))}
+            </div>
+          ) : (
+            <div className="mt-2 text-xs text-sdm-muted italic">No log output yet</div>
+          )}
+        </div>
+      )}
+
+      {run.status === "failed" && (
+        <div className="space-y-2">
+          {run.error && (
+            <div className="rounded-md border border-red-300/30 bg-red-500/5 p-4 text-sm text-red-500">
+              {run.error}
+            </div>
+          )}
+          {run.error_code && (
+            <div className="text-xs font-mono text-sdm-muted ml-1">Code: {run.error_code}</div>
+          )}
+          {run.error_hint && (
+            <div className="text-xs text-sdm-warning ml-1">Hint: {run.error_hint}</div>
+          )}
+          <button
+            onClick={toggleErrorLogs}
+            className="inline-flex items-center gap-1 text-xs text-sdm-muted hover:text-sdm-accent ml-1"
+          >
+            {showErrorLogs ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            {showErrorLogs ? "Hide" : "Show"} error logs
+          </button>
+          {showErrorLogs && (
+            <div className="rounded-md border border-sdm-danger/20 bg-sdm-danger/[0.03] p-3">
+              {errorLogLoading ? (
+                <div className="flex items-center gap-2 text-xs text-sdm-muted">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Loading logs...
+                </div>
+              ) : (
+                <pre className="text-xs text-sdm-text leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">
+                  {errorLogData || "No log content available"}
+                </pre>
+              )}
             </div>
           )}
         </div>
       )}
 
-      {run.status === "failed" && run.error && (
-        <div className="rounded-md border border-red-300/30 bg-red-500/5 p-4 text-sm text-red-500">
-          {run.error}
-        </div>
-      )}
-
       {run.status === "completed" && (
         <>
-          {run.metrics && <MetricCards metrics={run.metrics} modelId={run.model_id} />}
+          {run.metrics && (
+            <div className="space-y-3">
+              <MetricCards metrics={run.metrics} modelId={run.model_id} />
+              {benchmark && (
+                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3 text-xs">
+                  <span className="text-sdm-muted">vs. best previous run: </span>
+                  <span className={cn(
+                    "font-medium",
+                    benchmark.improving ? "text-sdm-success" : "text-sdm-warning"
+                  )}>
+                    {benchmark.improving ? "+" : ""}{benchmark.diff.toFixed(3)} AUC
+                  </span>
+                  <span className="text-sdm-muted ml-1">
+                    ({benchmark.bestRun.model_id} — {benchmark.bestRun.species})
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+          {benchmarkLoading && (
+            <div className="flex items-center gap-2 text-xs text-sdm-muted">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Comparing with past runs...
+            </div>
+          )}
 
           <Tabs defaultValue="map" className="space-y-4">
             <TabsList className="grid w-full max-w-lg grid-cols-5">
@@ -328,9 +514,10 @@ export default function ResultsPage() {
             </TabsList>
 
             <TabsContent value="map">
-              <SuitabilityMap
+              <SuitabilityMap key={runId}
                 outputFiles={run.output_files}
                 runId={runId}
+                projectionExtent={(run.config?.projection_extent as [number, number, number, number] | undefined) ?? null}
                 initialViewState={extentToViewState((run.config?.projection_extent ?? undefined) as [number, number, number, number] | undefined)}
                 coordinates={extentToCoordinates((run.config?.projection_extent ?? undefined) as [number, number, number, number] | undefined)}
                 eooGeoJSON={eooGeoJSON}

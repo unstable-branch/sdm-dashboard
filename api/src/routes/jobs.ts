@@ -35,30 +35,39 @@ app.get("/sse", (c) => {
           .where(and(eq(runs.id, runId), inArray(runs.projectId, myProjectIds)))
           .limit(1);
         return Boolean(run);
-      } catch {
+      } catch (e) {
+        console.warn("[jobs]", e instanceof Error ? e.message : String(e));
         return false;
       }
     };
 
     // Listen to real-time events from plumber-sync and queue worker
-    const handler = async (event: { jobId: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string; error_code?: string | null; error_hint?: string | null }) => {
-      // Check if this event's jobId maps to a run the user can access
-      if (!(await isMyRun(event.jobId))) return;
-
-      stream.writeSSE({
-        event: "job-update",
-        data: JSON.stringify({
-          id: event.jobId,
-          type: "sdm_model",
-          state: event.state,
-          progress: event.progress,
-          logs: event.logs,
-          result: event.result,
-          failedReason: event.failedReason,
-          error_code: event.error_code ?? null,
-          error_hint: event.error_hint ?? null,
-        }),
-      }).catch(() => console.warn("[jobs] SSE write failed for job status event"));
+    // Use a promise chain to process events sequentially (avoids pile-up from async handlers)
+    let eventQueue = Promise.resolve();
+    const handler = (event: { jobId: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string; error_code?: string | null; error_hint?: string | null; currentStage?: string | null; progressJson?: unknown }) => {
+      eventQueue = eventQueue.then(async () => {
+        try {
+          if (!(await isMyRun(event.jobId))) return;
+          await stream.writeSSE({
+            event: "job-update",
+            data: JSON.stringify({
+              id: event.jobId,
+              type: "sdm_model",
+              state: event.state,
+              progress: event.progress,
+              logs: event.logs,
+              result: event.result,
+              failedReason: event.failedReason,
+              error_code: event.error_code ?? null,
+              error_hint: event.error_hint ?? null,
+              currentStage: event.currentStage ?? null,
+              progressJson: event.progressJson ?? null,
+            }),
+          });
+        } catch {
+          console.warn("[jobs] SSE write or auth check failed");
+        }
+      });
     };
     jobEventBus.on("jobStatus", handler);
 

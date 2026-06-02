@@ -13,6 +13,7 @@ import { closeRateLimitRedis } from "./middleware/rate-limit.js";
 import { csrfMiddleware } from "./middleware/csrf.js";
 import { startMemoryMonitor, stopMemoryMonitor, memoryMonitorMiddleware } from "./middleware/memory-monitor.js";
 import { db } from "./db/index.js";
+import { sql } from "drizzle-orm";
 import { sdmRoutes } from "./routes/sdm.js";
 import { dataRoutes } from "./routes/occurrences.js";
 import { resultsRoutes } from "./routes/results.js";
@@ -48,7 +49,9 @@ app.use("*", cors({
   origin: corsOrigins.length > 0 ? corsOrigins : ["http://localhost:3000"],
   credentials: true,
 }));
-app.use("*", compress());
+app.use("*", compress({
+  threshold: 1024,
+}));
 app.use("*", logger());
 app.use("*", memoryMonitorMiddleware);
 app.use("/api/v1/sdm/*", csrfMiddleware);
@@ -71,14 +74,23 @@ app.get("/health", async (c) => {
   if (rs.available) redisStatus = "connected";
   else if (rs.disabled) redisStatus = "disabled";
 
+  let databaseOk = false;
+  try {
+    await db.execute(sql`SELECT 1`);
+    databaseOk = true;
+  } catch { /* best-effort */ }
+
+  const allHealthy = plumberStatus !== "unreachable" && databaseOk && redisStatus === "connected";
+
   return c.json({
-    status: "ok",
+    status: allHealthy ? "healthy" : "degraded",
     timestamp: new Date().toISOString(),
     services: {
       plumber: plumberStatus,
       redis: redisStatus,
+      database: databaseOk ? "connected" : "unreachable",
     },
-  });
+  }, allHealthy ? 200 : 503);
 });
 
 app.get("/ready", async (c) => {
@@ -93,6 +105,34 @@ app.get("/ready", async (c) => {
     checks.plumber = true;
   } catch {
     // Plumber is optional for readiness
+  }
+
+  try {
+    await db.execute(sql`SELECT 1`);
+    checks.database = true;
+  } catch {
+    // Database check is best-effort
+  }
+
+  // Check Garage S3 storage accessibility
+  try {
+    const { getGarageConfig } = await import("./services/storage.js");
+    const { S3Client, ListBucketsCommand } = await import("@aws-sdk/client-s3");
+    const cfg = getGarageConfig();
+    const endpoint = `${cfg.useSSL ? "https" : "http"}://${cfg.endPoint}:${cfg.port}`;
+    const client = new S3Client({
+      endpoint,
+      region: "garage",
+      credentials: { accessKeyId: cfg.accessKey, secretAccessKey: cfg.secretKey },
+      forcePathStyle: true,
+    });
+    await Promise.race([
+      client.send(new ListBucketsCommand({})),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
+    ]);
+    checks.storage = true;
+  } catch {
+    // Storage is optional for readiness
   }
 
   const allOk = Object.values(checks).every(Boolean);
@@ -134,16 +174,18 @@ const port = parseInt(process.env.PORT || "4000", 10);
   }
 })();
 
-// Attempt to start background job worker (will no-op if Redis unavailable)
-setTimeout(() => {
+// Attempt to start background job worker with retry (will retry until Redis is available)
+async function startWorkerWithRetry(attempt = 0) {
   const w = ensureWorker();
-  if (!w) {
-    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-    console.log(`[Worker] Redis unavailable at ${redisUrl}; job worker deferred. Climate downloads will return 503.`);
-  } else {
+  if (w) {
     console.log("[Worker] BullMQ worker started");
+    return;
   }
-}, 1000);
+  const delay = Math.min(5000 * Math.pow(1.5, attempt), 120000);
+  console.log(`[Worker] Redis unavailable; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1}).`);
+  setTimeout(() => startWorkerWithRetry(attempt + 1), delay);
+}
+setTimeout(() => startWorkerWithRetry(), 1000);
 
 // Start Plumber status sync — polls Plumber for running jobs and updates DB + SSE
 setTimeout(() => {
@@ -203,17 +245,9 @@ const server = serve(
 setupWebSocket(server);
 
 process.on("unhandledRejection", (reason) => {
-  const msg = reason instanceof Error ? reason.message : String(reason ?? "");
-  if (
-    msg.includes("ioredis") ||
-    msg.includes("ECONNREFUSED") ||
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("ECONNRESET") ||
-    msg.includes("ENOTFOUND") ||
-    msg.includes("Connection is closed")
-  ) {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  if (msg.includes("ioredis") || msg.includes("ECONNREFUSED") || msg.includes("ETIMEDOUT") || msg.includes("ECONNRESET") || msg.includes("ENOTFOUND")) {
     return;
   }
-  console.error("[API] Unhandled rejection, shutting down:", reason);
-  shutdown();
+  console.error("[API] Unhandled rejection:", reason);
 });

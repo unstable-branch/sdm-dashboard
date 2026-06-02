@@ -78,7 +78,7 @@ export function BatchProgress({ jobIds, batchId, onComplete, onRetryFailed, onCa
 
   const completed = useMemo(() => jobs.filter((j) => j.status === "completed").length, [jobs]);
   const failed = useMemo(() => jobs.filter((j) => j.status === "failed").length, [jobs]);
-  const running = useMemo(() => jobs.filter((j) => j.status === "running" || j.status === "queued").length, [jobs]);
+  const running = useMemo(() => jobs.filter((j) => ["running", "queued", "loading", "pending"].includes(j.status)).length, [jobs]);
   const cancelled = useMemo(() => jobs.filter((j) => j.status === "cancelled").length, [jobs]);
   const progress = jobs.length > 0 ? (completed / jobs.length) * 100 : 0;
 
@@ -186,6 +186,11 @@ export function BatchProgress({ jobIds, batchId, onComplete, onRetryFailed, onCa
                   {job.status === "running" && (
                     <span className="flex items-center gap-1 text-sdm-accent">
                       <Loader2 className="h-3 w-3 animate-spin" /> Running
+                    </span>
+                  )}
+                  {job.status === "loading" && (
+                    <span className="flex items-center gap-1 text-sdm-accent">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Loading
                     </span>
                   )}
                   {job.status === "failed" && (
