@@ -69,6 +69,7 @@ function DataPageContent() {
     if (!cleanJobId) return;
     const timeout = setTimeout(() => { setCleanError("Clean job timed out after 5 minutes"); setCleanJobId(null); setCleanLoading(false); }, 300_000);
     return () => clearTimeout(timeout);
+  }, [cleanJobId]);
 
   // Clear large occurrence data from global store when leaving data page
   useEffect(() => {
@@ -79,7 +80,6 @@ function DataPageContent() {
       useSDMStore.getState().setCleanResult(null);
     };
   }, []);
-  }, [cleanJobId]);
 
   const [gbifLoading, setGbifLoading] = useState(false);
   const [gbifError, setGbifError] = useState<string | null>(null);

@@ -5,7 +5,8 @@ import {
   getCoreRowModel,
   flexRender,
 } from "@tanstack/react-table";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 
 interface CleaningTableProps {
@@ -203,6 +204,21 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
     getCoreRowModel: getCoreRowModel(),
   });
 
+  const rows = table.getRowModel().rows;
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => 36,
+    overscan: 10,
+  });
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const paddingBottom = virtualRows.length > 0 ? totalSize - virtualRows[virtualRows.length - 1].end : 0;
+
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
       {title && (
@@ -215,7 +231,7 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
           )}
         </div>
       )}
-      <div className="overflow-x-auto max-h-[40vh] overflow-y-auto">
+      <div ref={tableContainerRef} className="overflow-x-auto max-h-[40vh] overflow-y-auto">
         <table className="w-full text-sm border-separate border-spacing-0" style={{ minWidth: 600 }}>
           <thead className="sticky top-0 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -233,20 +249,27 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => {
-              const rowIsFlagged = flaggedRows.has(row.index);
+            {paddingTop > 0 && (
+              <tr>
+                <td style={{ height: paddingTop }} />
+              </tr>
+            )}
+            {virtualRows.map((virtualRow) => {
+              const row = rows[virtualRow.index];
+              const rowIsFlagged = flaggedRows.has(virtualRow.index);
               return (
                   <tr
                     key={row.id}
-                    onClick={() => toggleFlag(row.index)}
-                    onMouseEnter={() => setHoveredRow(row.index)}
+                    onClick={() => toggleFlag(virtualRow.index)}
+                    onMouseEnter={() => setHoveredRow(virtualRow.index)}
                     onMouseLeave={() => setHoveredRow(null)}
                     className="cursor-pointer"
+                    style={{ height: virtualRow.size }}
                   >
                     {row.getVisibleCells().map((cell) => {
                       const cellVal = cell.getValue();
                       const isFlaggedVal = cell.column.id === "flagged" && (cellVal === true || cellVal === "TRUE" || cellVal === "true");
-                      const isHovered = hoveredRow === row.index && !rowIsFlagged;
+                      const isHovered = hoveredRow === virtualRow.index && !rowIsFlagged;
                       const bgClass = rowIsFlagged ? "bg-sdm-danger/5" : (isHovered ? "bg-sdm-surface-soft/50" : "bg-sdm-surface");
                       return (
                         <td
@@ -265,6 +288,11 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
                   </tr>
               );
             })}
+            {paddingBottom > 0 && (
+              <tr>
+                <td style={{ height: paddingBottom }} />
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

@@ -28,6 +28,7 @@
     "@sdm/shared": "file:../packages/shared",
     "@tanstack/react-query": "^5.60.0",
     "@tanstack/react-table": "^8.20.0",
+    "@tanstack/react-virtual": "^3.13.26",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "geographiclib": "^1.52.2",
