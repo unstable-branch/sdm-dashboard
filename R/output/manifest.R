@@ -26,6 +26,49 @@ write_manifest <- function(result, output_dir, base_name, cpu_ms = NA_real_, pea
         )
       }
 
+      record_count <- if (is.data.frame(result$occurrence_used)) {
+        nrow(result$occurrence_used)
+      } else if (is.data.frame(result$occurrence)) {
+        nrow(result$occurrence)
+      } else {
+        NA_integer_
+      }
+
+      manifest <- list(
+        run_timestamp = cfg$run_timestamp %||% format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+        generated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+        app_version = list(
+          git_sha = git_sha,
+          r_version = R.version.string,
+          platform = R.version$platform,
+          package_versions = pkg_versions
+        ),
+        species = cfg$species %||% NA_character_,
+        model = list(
+          id = result$model_info$id %||% cfg$model_id %||% NA_character_,
+          seed = cfg$seed %||% NA_integer_,
+          parameters = cfg
+        ),
+        data = list(
+          occurrence_file = occ_file,
+          occurrence_hash_sha256 = occurrence_hash,
+          record_count = record_count
+        ),
+        climate = list(
+          source = cfg$source %||% "worldclim",
+          worldclim_dir = cfg$worldclim_dir %||% NA_character_,
+          biovars = cfg$biovars %||% NA_character_,
+          resolution = cfg$worldclim_res %||% 10
+        ),
+        validation = list(
+          cv_folds = result$cv$k %||% cfg$cv_folds %||% NA_integer_,
+          cv_strategy = cfg$cv_strategy %||% result$cv$strategy %||% NA_character_,
+          seed = cfg$seed %||% NA_integer_
+        ),
+        metrics = result$metrics %||% list(),
+        performance = list(cpu_ms = cpu_ms, peak_mb = peak_mb)
+      )
+
       manifest$cleaning_summary <- result$cleaning %||% list()
       manifest$covariate_source <- result$environment %||% list()
       manifest$model_id <- result$model_info$id %||% NA_character_
