@@ -11,7 +11,7 @@ Remote and branch checks performed on 2026-06-02:
 - `git ls-remote origin refs/heads/dev` returned `9e38c958eacb7f046e30405fff5c693c82239318`.
 - GitHub branch API for `dev` returned the same head SHA.
 - GitHub events showed the latest `refs/heads/dev` push was by `mrcanofcatfood` at `2026-05-31T08:28:23Z`, with head `9e38c958eacb7f046e30405fff5c693c82239318`.
-- Local `/root/projects/sdm-dashboard-integration` is branch `dev`, tracking `origin/dev`, clean, and at the same commit.
+- The local integration worktree was on branch `dev`, tracking `origin/dev`, clean, and at the same commit.
 - Latest verified `origin/dev` commit:
   - `9e38c95 fix: resolve shared package duplicate properties`
   - Author/committer: `mrcanofcatfood <jfind44@protonmail.com>`
@@ -19,13 +19,7 @@ Remote and branch checks performed on 2026-06-02:
 - `origin/main` is `d0f48dca9f40c3379631edcf7db36fe857d7103e`.
 - Current `origin/main..origin/dev` delta is large: 384 files changed, about 48k insertions and 5.7k deletions.
 
-Local worktree layout:
-
-- `/root/projects/sdm-dashboard` is the primary checkout, currently on `api/agentic-contract-foundation`.
-- `/root/projects/sdm-dashboard-integration` is the linked worktree for `dev`.
-- `/root/projects/sdm-dashboard-pr8` is the linked worktree for `integration/pr8-overfitting`.
-
-The `sdm-dashboard-integration` name is a worktree artifact, not a separate project. Git worktrees do not allow the same branch to be checked out in two directories at once, so `dev` lives in a separate directory while `/root/projects/sdm-dashboard` is occupied by another branch.
+Local worktree details were redacted from this archived public note. The important release point was that `dev` lived in a linked integration worktree while other feature branches were checked out separately.
 
 ## Current Risk Assessment
 
@@ -75,10 +69,10 @@ git switch -c stabilize/dev-gates-20260602 origin/dev
 
 Recommended workspace cleanup after current work settles:
 
-- Keep `/root/projects/sdm-dashboard` as the human-facing canonical repo directory.
-- Put short-lived implementation branches under `/root/projects/sdm-dashboard-worktrees/<topic>`.
-- Either keep `/root/projects/sdm-dashboard-integration` as the long-lived `dev` integration worktree, or later rename/recreate it as `/root/projects/sdm-dashboard-worktrees/dev`.
-- Do not rename active worktrees while Jacob or Pacey has unpushed work in them.
+- Keep one human-facing canonical repo directory.
+- Put short-lived implementation branches under a predictable worktree directory.
+- Keep a long-lived `dev` integration worktree, or recreate one under the shared worktree directory.
+- Do not rename active worktrees while collaborators have unpushed work in them.
 
 Acceptance:
 
