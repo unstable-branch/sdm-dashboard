@@ -3,6 +3,8 @@
 # Key is read from the SDM_ENCRYPTION_KEY environment variable.
 # If the key is unset (local dev), files pass through unencrypted.
 
+SDM_ENCRYPTION_MAGIC <- charToRaw("SDMENC1\n")
+
 sdm_encryption_key_raw <- function(key) {
   if (grepl("^[0-9A-Fa-f]{64}$", key)) {
     key_bytes <- strtoi(substring(key, seq(1, 63, 2), seq(2, 64, 2)), base = 16)
@@ -27,7 +29,7 @@ encrypt_file <- function(input_path, output_path, key = NULL) {
   data <- readBin(input_path, "raw", file.info(input_path)$size)
   iv <- openssl::rand_bytes(12)
   encrypted <- openssl::aes_gcm_encrypt(data, key = sdm_encryption_key_raw(key), iv = iv)
-  writeBin(c(iv, encrypted), output_path)
+  writeBin(c(SDM_ENCRYPTION_MAGIC, iv, encrypted), output_path)
   invisible(TRUE)
 }
 
@@ -41,11 +43,14 @@ decrypt_file <- function(input_path, output_path, key = NULL) {
     stop("openssl package required for file encryption. Install with install.packages('openssl')")
   }
   encrypted <- readBin(input_path, "raw", file.info(input_path)$size)
-  if (length(encrypted) < 13L) {
-    stop("Encrypted file is too short or corrupt", call. = FALSE)
+  magic_len <- length(SDM_ENCRYPTION_MAGIC)
+  if (length(encrypted) < magic_len + 13L ||
+      !identical(encrypted[seq_len(magic_len)], SDM_ENCRYPTION_MAGIC)) {
+    stop("File is not an SDM encrypted file", call. = FALSE)
   }
-  iv <- encrypted[seq_len(12)]
-  data <- openssl::aes_gcm_decrypt(encrypted[-seq_len(12)], key = sdm_encryption_key_raw(key), iv = iv)
+  payload <- encrypted[-seq_len(magic_len)]
+  iv <- payload[seq_len(12)]
+  data <- openssl::aes_gcm_decrypt(payload[-seq_len(12)], key = sdm_encryption_key_raw(key), iv = iv)
   writeBin(data, output_path)
   invisible(TRUE)
 }
