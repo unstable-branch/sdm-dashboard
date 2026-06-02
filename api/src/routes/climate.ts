@@ -111,13 +111,5 @@ climateRoutes.post("/cancel/:jobId", async (c) => {
   }
 });
 
-climateRoutes.get("/status/:jobId", async (c) => {
-  try {
-    const jobId = c.req.param("jobId");
-    const status = await plumberClient.getClimateStatus(jobId);
-    return c.json(status);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Status check failed";
-    return c.json({ error: message }, 502);
-  }
-});
+// Climate progress is tracked via SSE (/api/v1/jobs/sse) and BullMQ job status
+// No separate HTTP endpoint needed

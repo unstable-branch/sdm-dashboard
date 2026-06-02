@@ -342,37 +342,6 @@ authRoutes.delete("/api-keys/:id", authMiddleware, async (c) => {
   return c.json({ ok: true });
 });
 
-authRoutes.post("/api-keys/:id/rotate", authMiddleware, rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "apikey-rotate" }), async (c) => {
-  const user = c.get("user");
-  const id = c.req.param("id");
-
-  const [key] = await db
-    .select()
-    .from(apiKeys)
-    .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, user.id)))
-    .limit(1);
-
-  if (!key) {
-    return c.json({ error: "API key not found" }, 404);
-  }
-
-  const rawKey = `sdm_${randomBytes(32).toString("hex")}`;
-  const keyHash = createHash("sha256").update(rawKey).digest("hex");
-
-  await db
-    .update(apiKeys)
-    .set({ keyHash, lastUsedAt: null })
-    .where(eq(apiKeys.id, id));
-
-  return c.json({
-    id: key.id,
-    name: key.name,
-    key: rawKey,
-    createdAt: key.createdAt,
-    expiresAt: key.expiresAt,
-  });
-});
-
 authRoutes.post("/forgot-password", async (c) => {
   const body = await c.req.json();
   const { email } = body;

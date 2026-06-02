@@ -455,46 +455,6 @@ dataRoutes.patch("/uploads/:fileId", async (c) => {
   }
 });
 
-dataRoutes.get("/uploads", async (c) => {
-  try {
-    const user = c.get("user");
-    const projectIds = await getUserProjectIds(user);
-    if (projectIds && projectIds.length === 0) {
-      return c.json({ uploads: [] });
-    }
-
-    const records = await db
-      .select({
-        filePath: uploadedFiles.filePath,
-        originalName: uploadedFiles.originalName,
-        fileSize: uploadedFiles.fileSize,
-        nRows: uploadedFiles.nRows,
-        createdAt: uploadedFiles.createdAt,
-        cleaned: uploadedFiles.cleaned,
-        cleanedFilePath: uploadedFiles.cleanedFilePath,
-      })
-      .from(uploadedFiles)
-      .where(projectIds ? inArray(uploadedFiles.projectId, projectIds) : undefined)
-      .orderBy(desc(uploadedFiles.createdAt))
-      .limit(100);
-
-    const uploads = records.map((f) => ({
-      file_id: f.filePath,
-      file_name: f.originalName,
-      file_size: f.fileSize,
-      n_rows: f.nRows ?? 0,
-      modified_at: f.createdAt.toISOString(),
-      cleaned: f.cleaned,
-      cleaned_file_id: f.cleanedFilePath,
-    }));
-
-    return c.json({ uploads });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to list uploads";
-    return c.json({ error: message }, 500);
-  }
-});
-
 // Delete an uploaded occurrence file and reclaim storage
 dataRoutes.delete("/uploads/:fileId", async (c) => {
   try {
