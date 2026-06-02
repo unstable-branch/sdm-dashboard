@@ -70,6 +70,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [useBioclimSeason, setUseBioclimSeason] = useState(false);
   const [useDrought, setUseDrought] = useState(false);
   const [generateTiles, setGenerateTiles] = useState(true);
+  const [generateCog, setGenerateCog] = useState(true);
   const [futureProjection, setFutureProjection] = useState(false);
   const [futureLabel, setFutureLabel] = useState("Future climate");
   const [futureGcm, setFutureGcm] = useState("UKESM1-0-LL");
@@ -325,6 +326,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       dnnL2Lambda: modelId === "dnn" ? dnnL2Lambda : undefined,
       dnnMultispeciesNSeeds: modelId === "dnn_multispecies" ? dnnMultispeciesNSeeds : undefined,
       generateTiles,
+      generateCog,
     };
 
     const parsed = modelConfigSchema.safeParse(config);
@@ -1380,11 +1382,16 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
             </div>
           )}
 
-          <div className="pt-2 border-t border-sdm-border/50">
+          <div className="pt-2 border-t border-sdm-border/50 space-y-2">
             <label className="flex items-center gap-2 text-sm text-sdm-text">
               <input type="checkbox" checked={generateTiles} onChange={(e) => setGenerateTiles(e.target.checked)} />
               Pre-generate map tiles
               <TooltipInfo content="Generates tile PNGs eagerly for fastest map load. Uncheck to skip tile generation — tiles are served on-the-fly from COG but first load may be slower." />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-sdm-text">
+              <input type="checkbox" checked={generateCog} onChange={(e) => setGenerateCog(e.target.checked)} />
+              Generate COG raster
+              <TooltipInfo content="Creates a Cloud-Optimized GeoTIFF in EPSG:3857 for fast tile serving. Disable to save disk space and build time — tiles are generated on-the-fly from the source GeoTIFF." />
             </label>
           </div>
         </div>

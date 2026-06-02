@@ -929,23 +929,29 @@ run_fast_sdm <- function(...) {
 
   # --- EPSG:3857 COG generation (for tile gen + web map) ---
   output_tiles_dir <- file.path(output_dir, "map_tiles")
-  tif_3857_path <- file.path(output_dir, paste0(base_name, "_3857.tif"))
-  tryCatch({
-    r_3857 <- terra::project(suit, "EPSG:3857", method = "bilinear")
-    terra::writeRaster(r_3857, tif_3857_path,
-      filetype = "COG",
-      gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
-               "OVERVIEWS=AUTO", "OVERVIEW_RESAMPLING=BILINEAR"),
-      NAflag = -9999, datatype = "FLT4S", overwrite = TRUE
-    )
-    extra_paths[["tif_3857"]] <- tif_3857_path
-    log_message(log_fun, "  Written EPSG:3857 COG: ", tif_3857_path)
-  }, error = function(e) {
-    log_message(log_fun, "  COG generation failed: ", conditionMessage(e))
-  })
+  tif_3857_path <- NULL
+  if (isTRUE(cfg$generate_cog %||% TRUE)) {
+    cog_path <- file.path(output_dir, paste0(base_name, "_3857.tif"))
+    tryCatch({
+      r_3857 <- terra::project(suit, "EPSG:3857", method = "bilinear")
+      terra::writeRaster(r_3857, cog_path,
+        filetype = "COG",
+        gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
+                 "OVERVIEWS=AUTO", "OVERVIEW_RESAMPLING=BILINEAR"),
+        NAflag = -9999, datatype = "FLT4S", overwrite = TRUE
+      )
+      extra_paths[["tif_3857"]] <- cog_path
+      tif_3857_path <- cog_path
+      log_message(log_fun, "  Written EPSG:3857 COG: ", cog_path)
+    }, error = function(e) {
+      log_message(log_fun, "  COG generation failed: ", conditionMessage(e))
+    })
+  } else {
+    log_message(log_fun, "  Skipping COG generation (disabled in config)")
+  }
 
   # --- XYZ tile generation from COG (already in EPSG:3857, has overviews) ---
-  if (isTRUE(cfg$generate_tiles %||% TRUE) && file.exists(tif_3857_path)) {
+  if (isTRUE(cfg$generate_tiles %||% TRUE) && !is.null(tif_3857_path) && file.exists(tif_3857_path)) {
     tile_result <- tryCatch({
       tr <- generate_xyz_tiles(
         input       = tif_3857_path,
