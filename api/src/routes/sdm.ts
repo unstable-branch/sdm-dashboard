@@ -102,7 +102,7 @@ sdmRoutes.post("/run", async (c) => {
 
       await db
         .update(runs)
-        .set({ jobId, status: "queued" })
+        .set({ bullmqId: jobId, status: "queued" })
         .where(eq(runs.id, run.id));
 
       jobEventBus.emitJobStatus({
@@ -484,6 +484,7 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
       .select({
         id: runs.id,
         jobId: runs.jobId,
+        bullmqId: runs.bullmqId,
         status: runs.status,
       })
       .from(runs)
@@ -495,8 +496,8 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
     }
 
     const queue = getJobQueue();
-    if (queue && run.jobId) {
-      const bullJob = await queue.getJob(run.jobId);
+    if (queue && run.bullmqId) {
+      const bullJob = await queue.getJob(run.bullmqId);
       if (bullJob) {
         const state = await bullJob.getState();
         if (state === "active" || state === "waiting" || state === "delayed") {
@@ -534,7 +535,7 @@ sdmRoutes.post("/cancel-all", async (c) => {
     }
 
     const allRuns = await db
-      .select({ id: runs.id, jobId: runs.jobId, status: runs.status })
+      .select({ id: runs.id, jobId: runs.jobId, bullmqId: runs.bullmqId, status: runs.status })
       .from(runs)
       .where(and(
         inArray(runs.status, statusValues as any),
@@ -550,8 +551,8 @@ sdmRoutes.post("/cancel-all", async (c) => {
 
     for (const run of allRuns) {
       try {
-        if (queue && run.jobId) {
-          const bullJob = await queue.getJob(run.jobId);
+        if (queue && run.bullmqId) {
+          const bullJob = await queue.getJob(run.bullmqId);
           if (bullJob) {
             const state = await bullJob.getState();
             if (state === "active" || state === "waiting" || state === "delayed") {
@@ -720,7 +721,7 @@ sdmRoutes.post("/batch", async (c) => {
       if (queuedJobId) {
         await db
           .update(runs)
-          .set({ jobId: queuedJobId })
+          .set({ bullmqId: queuedJobId })
           .where(eq(runs.id, run.id));
       }
 
@@ -826,13 +827,13 @@ sdmRoutes.post("/batch/:batchId/retry", async (c) => {
 
     const retriedIds: string[] = [];
     for (const r of failedRuns) {
-      const [updated] = await db.update(runs).set({ status: "queued", error: null, jobId: null }).where(eq(runs.id, r.id)).returning();
+      const [updated] = await db.update(runs).set({ status: "queued", error: null, jobId: null, bullmqId: null }).where(eq(runs.id, r.id)).returning();
       const queuedJobId = await enqueueSdmJob(
         { type: "model", payload: buildModelPayload((r.config as unknown as ModelConfigRecord), r.id) },
         user.id,
       );
       if (queuedJobId) {
-        await db.update(runs).set({ jobId: queuedJobId }).where(eq(runs.id, r.id));
+        await db.update(runs).set({ bullmqId: queuedJobId }).where(eq(runs.id, r.id));
       }
       retriedIds.push(r.id);
     }
