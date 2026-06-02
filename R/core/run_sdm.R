@@ -312,6 +312,22 @@ run_fast_sdm <- function(...) {
     }
   }
 
+  # MESS and free unscaled raster copies early — not needed for model fitting
+  if (!is.null(env$env_train) && !is.null(env$env_project)) {
+    mess_result <- tryCatch(
+      compute_mess(env$env_train, env$env_project),
+      error = function(e) {
+        log_message(log_fun, "MESS computation failed: ", conditionMessage(e))
+        NULL
+      }
+    )
+    if (!is.null(mess_result)) {
+      log_message(log_fun, "  MESS: ", sprintf("%.1f%%", mess_result$pct_extrapolation * 100), " of projection area outside training range")
+    }
+  }
+  env$env_train <- NULL
+  env$env_project <- NULL
+
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
@@ -517,30 +533,6 @@ run_fast_sdm <- function(...) {
     )
   }
 
-  # MESS (Multivariate Environmental Similarity Surface) for current predictions
-  mess_result <- NULL
-  if (!is.null(env$env_train) && !is.null(env$env_project)) {
-    mess_result <- tryCatch(
-      compute_mess(env$env_train, env$env_project),
-      error = function(e) {
-        log_message(log_fun, "MESS computation failed: ", conditionMessage(e))
-        NULL
-      }
-    )
-  }
-  if (!is.null(mess_result)) {
-    log_message(log_fun, "  MESS: ", sprintf("%.1f%%", mess_result$pct_extrapolation * 100), " of projection area outside training range")
-  }
-
-  # Free unscaled raster copies — no longer needed after MESS
-  env$env_train <- NULL
-  env$env_project <- NULL
-  gc(verbose = FALSE)
-
-  if (check_cancelled(log_fun)) {
-    return(invisible(NULL))
-  }
-
   # Pre-flight memory check: reject if total memory (existing scaled rasters + prediction) exceeds 60% of available RAM
   tryCatch({
     mem_info <- terra::mem_info()
@@ -588,7 +580,7 @@ run_fast_sdm <- function(...) {
   response_curves <- compute_response_curves(
     fit = fit,
     model_data = fit$model_data,
-    env_train = env$env_train,
+    env_train = NULL,
     n_points = 50
   )
 
