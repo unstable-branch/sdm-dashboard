@@ -120,7 +120,8 @@ Important variables:
 | `DATABASE_URL` | api, plumber | PostgreSQL connection string |
 | `JWT_SECRET` | api | JWT signing secret |
 | `PLUMBER_INTERNAL_KEY` | api, plumber | Internal Hono to Plumber auth secret |
-| `DATA_ENCRYPTION_KEY` | api | 64-character hex key for occurrence-file encryption |
+| `DATA_ENCRYPTION_KEY` | api | 64-character hex key for API-side occurrence-file encryption |
+| `SDM_ENCRYPTION_KEY` | plumber | R/Plumber occurrence-file encryption key; local beta setups may use the same generated value as `DATA_ENCRYPTION_KEY` |
 | `REDIS_URL` | api | Redis/BullMQ connection |
 | `GARAGE_ENDPOINT` | api | S3-compatible endpoint |
 | `GARAGE_ACCESS_KEY` | garage, api | S3 access key |
