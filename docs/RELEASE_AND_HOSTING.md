@@ -28,7 +28,8 @@ Use semver with prerelease tags until the modern platform is stable:
 - `v0.x` and `v1.0.0` are the historical Shiny-first release line.
 - `v1.0.0` is the final legacy Shiny release.
 - `v2.0.0-beta.1` is the first modern-platform beta release.
-- `v2.0.0-beta.2` and later beta tags are for fixes discovered during self-host testing.
+- `v2.0.0-beta.2` and later beta tags are for fixes and rebaselines discovered during self-host and release-candidate testing.
+- `v2.0.0-beta.3` is the planned modern-platform rebaseline beta after the 2026 platform reshaping work.
 - Reserve stable `v2.0.0` for a stable API/storage contract, migration policy, documented backups, and a tested self-host install path.
 
 Tag releases from `main` after `dev -> main` CI is green.
