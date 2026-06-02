@@ -342,6 +342,22 @@ batch_run_parallel <- function(species_configs,
     n_cores <- 1
   }
 
+  # Memory-aware worker cap: prevent OOM when many cores but limited RAM
+  if (requireNamespace("terra", quietly = TRUE)) {
+    tryCatch({
+      mem_info <- terra::mem_info()
+      if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+        per_worker_gb <- 2.0
+        max_by_mem <- max(1L, floor(mem_info$memavail / per_worker_gb))
+        if (n_cores > max_by_mem) {
+          message(sprintf("[batch] Memory-aware worker cap: reducing from %d to %d (%.1f GB available, ~%.1f GB per worker)",
+            n_cores, max_by_mem, mem_info$memavail, per_worker_gb))
+          n_cores <- max_by_mem
+        }
+      }
+    }, error = function(e) NULL)
+  }
+
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
   if (n_cores == 1) {
