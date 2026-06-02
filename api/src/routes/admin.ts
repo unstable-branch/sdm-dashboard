@@ -3,7 +3,7 @@ import { readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { db } from "../db/index.js";
-import { users, runs, systemSettings, occurrences, species, projects } from "../db/schema.js";
+import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles } from "../db/schema.js";
 import { eq, desc, sql, and, like, inArray, count } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
@@ -519,3 +519,44 @@ adminRoutes.get("/diagnostics/runs/:id", async (c) => {
 });
 
 // Maintenance logs endpoint removed (maintenance_log table dropped)
+
+adminRoutes.get("/diagnostics/uploads", async (c) => {
+  try {
+    const page = Math.max(1, parseInt(c.req.query("page") || "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") || "25", 10)));
+    const offset = (page - 1) * limit;
+
+    const records = await db
+      .select({
+        id: uploadedFiles.id,
+        userId: uploadedFiles.userId,
+        pipelineRunId: uploadedFiles.pipelineRunId,
+        createdAt: uploadedFiles.createdAt,
+        recordCount: uploadedFiles.nRows,
+      })
+      .from(uploadedFiles)
+      .orderBy(desc(uploadedFiles.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(uploadedFiles);
+
+    const uploads = records.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      userName: r.userId || "unknown",
+      pipelineRunId: r.pipelineRunId,
+      details: null,
+      createdAt: r.createdAt?.toISOString() ?? "",
+      recordCount: r.recordCount ?? 0,
+      flaggedCount: 0,
+      runCount: 0,
+    }));
+
+    return c.json({ uploads, total, page, limit });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to get uploads" }, 500);
+  }
+});

@@ -9,6 +9,7 @@ services:
   postgres:
     profiles: ["core", "all"]
     image: postgis/postgis:16-3.4
+    shm_size: 256m
     environment:
       POSTGRES_USER: sdm
       POSTGRES_PASSWORD: sdm_password
@@ -96,6 +97,7 @@ services:
       - DATABASE_URL=postgresql://sdm:sdm_password@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-6e94feb6699652f8529ed79ee7863a4daab79279286e84f0c4026fe2fb29884e}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
+      - GDAL_CACHEMAX=64
     init: true
     deploy:
       resources:
