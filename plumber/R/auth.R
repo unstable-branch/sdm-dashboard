@@ -75,6 +75,7 @@ requires_auth <- function(path) {
   if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {
     open_patterns <- c(
       open_patterns,
+      "^/openapi[.]json$",
       "^/__openapi__/?$",
       "^/__docs__(/.*)?$"
     )
