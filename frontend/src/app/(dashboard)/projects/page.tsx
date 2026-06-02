@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { apiGet, apiPost, apiDelete, apiPut } from "@/services/api";
 import type { Project } from "@/services/types";
 import { Loader2, Plus, Pencil, Trash2, Users } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { CardSkeleton } from "@/components/ui/skeleton";
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -14,6 +16,7 @@ export default function ProjectsPage() {
   const [description, setDescription] = useState("");
   const [formLoading, setFormLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
@@ -57,12 +60,18 @@ export default function ProjectsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this project? This cannot be undone.")) return;
+    setDeleteTarget(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await apiDelete(`/api/v1/projects/${id}`);
+      await apiDelete(`/api/v1/projects/${deleteTarget}`);
       fetchProjects();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete project");
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -77,8 +86,8 @@ export default function ProjectsPage() {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-sdm-heading">Projects</h1>
-        <div className="flex items-center justify-center h-32">
-          <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <CardSkeleton /><CardSkeleton /><CardSkeleton />
         </div>
       </div>
     );
@@ -181,7 +190,7 @@ export default function ProjectsPage() {
                   <button
                     onClick={() => startEdit(project)}
                     className="p-1 rounded hover:bg-sdm-surface-soft text-sdm-muted hover:text-sdm-text"
-                    title="Edit"
+                    aria-label="Edit project"
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
@@ -189,7 +198,7 @@ export default function ProjectsPage() {
                     <button
                       onClick={() => handleDelete(project.id)}
                       className="p-1 rounded hover:bg-red-500/10 text-sdm-muted hover:text-red-400"
-                      title="Delete"
+                      aria-label="Delete project"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -200,6 +209,16 @@ export default function ProjectsPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete project"
+        message="Delete this project? This cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

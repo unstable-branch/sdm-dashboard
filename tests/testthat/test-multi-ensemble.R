@@ -37,6 +37,9 @@ test_that("Multi-model ensemble fits with 2+ models and writes component rasters
   expect_true(all(fit$model$weights >= 0))
   expect_true(is.data.frame(fit$coefficients))
   expect_equal(nrow(fit$coefficients), length(fit$model$components))
+  expect_true(is.list(fit$model$components$rangebag))
+  expect_true(is.finite(fit$model$components$rangebag$threshold))
+  expect_true(is.finite(fit$model$components$rangebag$model$threshold))
 
   output_tif <- tempfile(fileext = ".tif")
   suit <- predict_multi_model_ensemble(fit, env, output_tif, n_cores = 1, export_components = TRUE)

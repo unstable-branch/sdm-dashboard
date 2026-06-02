@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { RefreshCw, Trash2, AlertTriangle } from "lucide-react";
+import { apiPost } from "@/services/api";
 
 interface ClimateScenario {
   id: string;
@@ -36,10 +37,8 @@ export function ScenarioList({ scenarios, onRefresh, onDelete, loading }: Scenar
   const handleDelete = async (id: string) => {
     setDeleting(id);
     try {
-      const res = await fetch(`/api/v1/climate/delete/${id}`, { method: "POST" });
-      if (res.ok) {
-        onDelete(id);
-      }
+      await apiPost<{ ok: boolean }>(`/api/v1/climate/delete/${id}`);
+      onDelete(id);
     } catch {
     } finally {
       setDeleting(null);

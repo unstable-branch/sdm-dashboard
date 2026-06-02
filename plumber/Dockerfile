@@ -1,12 +1,24 @@
-FROM rocker/geospatial:4.4.2
+# syntax=docker/dockerfile:1
+FROM rocker/r-ver:4.4.2
 
 ARG R_CRAN_REPO=https://packagemanager.posit.co/cran/__linux__/noble/latest
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV R_CRAN_REPO=${R_CRAN_REPO}
 
+# System deps: terra + sf need GDAL, GEOS, PROJ; httr/rgbif/finch need libcurl;
+# plumber 1.3.3 needs sodium which needs libsodium-dev
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgdal-dev \
+    libgeos-dev \
+    libproj-dev \
+    libsqlite3-dev \
+    libudunits2-dev \
     libjq-dev \
+    libcurl4-openssl-dev \
+    libsodium-dev \
+    libhiredis-dev \
+    curl \
     pandoc \
     && rm -rf /var/lib/apt/lists/*
 
@@ -21,7 +33,7 @@ RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages
     'future', 'future.apply', \
     'testthat', \
     'DBI', 'RPostgres', 'digest', \
-    'Rook' \
+    'Rook', 'openssl' \
   ), Ncpus=4)"
 
 WORKDIR /app
@@ -29,6 +41,7 @@ WORKDIR /app
 COPY R/ /app/R/
 COPY plumber/ /app/plumber/
 COPY data/ /app/data/
+COPY python_models/ /app/python_models/
 
 RUN groupadd -g 2000 uploadgroup && \
     useradd -m -s /bin/bash -G uploadgroup sdm && \

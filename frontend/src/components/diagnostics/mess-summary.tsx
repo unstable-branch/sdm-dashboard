@@ -34,16 +34,18 @@ export function MessSummary({ data, loading }: MessSummaryProps) {
     );
   }
 
-  const pct = data.pct_extrapolation;
-  const pctColor = pct != null
-    ? pct < 10 ? "text-green-400"
-    : pct < 30 ? "text-yellow-400"
+  const pct: number | undefined | null = data.pct_extrapolation;
+  const pctFinite = pct != null && Number.isFinite(pct);
+  const pctVal = pctFinite ? pct! : 0;
+  const pctColor = pctFinite
+    ? pctVal < 10 ? "text-green-400"
+    : pctVal < 30 ? "text-yellow-400"
     : "text-red-400"
     : "text-sdm-muted";
 
-  const pctLabel = pct != null
-    ? pct < 10 ? "Low extrapolation"
-    : pct < 30 ? "Moderate extrapolation"
+  const pctLabel = pctFinite
+    ? pctVal < 10 ? "Low extrapolation"
+    : pctVal < 30 ? "Moderate extrapolation"
     : "High extrapolation — interpret with caution"
     : "";
 
@@ -53,7 +55,7 @@ export function MessSummary({ data, loading }: MessSummaryProps) {
         <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
           <div className="text-xs text-sdm-muted mb-1">% Extrapolation area</div>
           <div className={`text-lg font-semibold ${pctColor}`}>
-            {pct != null ? `${pct.toFixed(1)}%` : "—"}
+            {pctFinite ? `${pctVal.toFixed(1)}%` : "—"}
           </div>
           {pctLabel && <div className="text-xs text-sdm-muted">{pctLabel}</div>}
         </div>

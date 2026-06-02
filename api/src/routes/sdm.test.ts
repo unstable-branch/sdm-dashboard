@@ -20,15 +20,109 @@ const mockCountChain = (count: number) => ({
   })),
 });
 
+const mockLimitChain = (result: unknown) => ({
+  from: vi.fn(() => ({
+    where: vi.fn(() => ({
+      limit: vi.fn(() => Promise.resolve(result)),
+    })),
+  })),
+});
+
+const buildRunPayloadConfig = {
+  species: "Test species",
+  modelId: "glm",
+  biovars: [1, 4, 6, 12],
+  projectionExtent: [-180, 180, -90, 90],
+  backgroundN: 10000,
+  cvFolds: 3,
+  cvStrategy: "random",
+  includeQuadratic: true,
+  useElevation: false,
+  elevationDemtype: "COP90",
+  useSoil: false,
+  soilVars: ["sand", "clay"],
+  soilDepths: ["0-5cm", "30-60cm"],
+  useUv: false,
+  uvVars: ["UVB1"],
+  useVegetation: false,
+  vegYear: 2020,
+  vegProducts: ["ndvi_annual_mean"],
+  useLulc: false,
+  lulcYear: 2020,
+  useHfp: false,
+  hfpYear: 2020,
+  useBioclimSeason: false,
+  useDrought: false,
+  futureProjection: false,
+  futureLabel: "Future climate",
+  vifReduction: false,
+  vifThreshold: 10,
+  climateMatching: false,
+  climateMatchingMethod: "mahalanobis",
+  thinByCell: true,
+  mergeSmallSources: true,
+  minSourceRecords: 15,
+  biasMethod: "uniform",
+  thickeningDistanceKm: 10,
+  paReplicates: 1,
+  maxnetFeatures: "lq",
+  maxnetRegmult: 1,
+  aggregationFactor: 1,
+  nCores: 1,
+  seed: 42,
+  worldclimDir: "Worldclim",
+  worldclimRes: 10,
+  source: "worldclim",
+  analysisCrs: "auto",
+  chelsaExtras: [],
+  threshold: 0.5,
+  maskType: "none",
+  multiEnsembleModels: ["rf", "maxnet"],
+  multiEnsembleWeighting: "equal",
+  multiEnsemblePower: 2,
+  multiEnsembleMinAuc: 0.7,
+  multiEnsembleMinTss: 0.5,
+  multiEnsembleExport: true,
+  multiEnsembleUncertainty: true,
+  biomod2Models: ["Biomod2"],
+  droughtPeriods: ["annual_mean"],
+  uvMonths: ["annual_mean"],
+  esmMinAuc: 0.7,
+  esmPower: 1,
+  esmWeightingMetric: "AUC",
+  esmBiovars: [1, 4],
+  rangebagNBags: 100,
+  rangebagBagFraction: 0.5,
+  rangebagVarsPerBag: 1,
+  maxnetAutoTune: false,
+  rfNumTrees: 500,
+  rfMinNodeSize: 10,
+  gamK: 5,
+  xgbMaxDepth: 6,
+  xgbEta: 0.3,
+  xgbNRounds: 100,
+  dnnArchitecture: "DNN_Medium",
+  dnnNSeeds: 5,
+  dnnDevice: "auto",
+  dnnDropout: 0.3,
+  dnnL2Lambda: 0.001,
+  dnnMultispeciesArchitecture: "DNN_Large",
+  dnnMultispeciesNSeeds: 4,
+  occurrenceFile: "/tmp/occurrences.csv",
+};
+
 vi.mock("../db", () => ({
   db: {
     select: vi.fn(),
+    insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn(async () => [{}]) })) })),
+    update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => [{}]) })) })),
   },
 }));
 
 vi.mock("../services/plumber", () => ({
   plumberClient: {
     getModelStatus: vi.fn(),
+    runModel: vi.fn(async () => ({ job_id: "plumber-job-1" })),
   },
 }));
 
@@ -59,6 +153,13 @@ vi.mock("../services/access", () => ({
   getUserProjectIds: vi.fn(async () => ["proj-1"]),
 }));
 
+vi.mock("../services/queue", () => ({
+  enqueueSdmJob: vi.fn(async () => "job-1"),
+  getJobQueue: vi.fn(() => ({
+    remove: vi.fn(async () => {}),
+  })),
+}));
+
 vi.mock("hono/jwt", () => ({
   verify: vi.fn(async () => ({ sub: "user-1", email: "test@example.com", role: "admin" })),
 }));
@@ -69,6 +170,16 @@ describe("SDM routes", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("GET /config/defaults", () => {
+    it("includes multispecies DNN fallback defaults", async () => {
+      const res = await app.request("/api/v1/sdm/config/defaults");
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.dnnMultispeciesArchitecture).toBe("DNN_Medium");
+      expect(data.dnnMultispeciesNSeeds).toBe(3);
+    });
   });
 
   describe("GET /runs", () => {
@@ -179,6 +290,170 @@ describe("SDM routes", () => {
       });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe("POST /run", () => {
+    it("uses buildModelPayload for async queue run payloads", async () => {
+      const { db } = await import("../db");
+      (db.select as any)
+        .mockReturnValueOnce(mockLimitChain([{ id: "species-1", projectId: "proj-1" }]))
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => Promise.resolve([{ maxNum: 7 }])),
+          })),
+        });
+
+      (db.insert as any).mockImplementation(() => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => [{ id: "run-1" }]),
+        })),
+      }));
+
+      const { enqueueSdmJob } = await import("../services/queue");
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.runModel as any).mockClear();
+
+      const res = await app.request("/api/v1/sdm/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...buildRunPayloadConfig, async: true }),
+      });
+
+      expect(res.status).toBe(200);
+      expect((enqueueSdmJob as any).mock.calls).toHaveLength(1);
+
+      const payload = (enqueueSdmJob as any).mock.calls[0][0].payload as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        runId: "run-1",
+        multi_ensemble_models: buildRunPayloadConfig.multiEnsembleModels,
+        biomod2_models: buildRunPayloadConfig.biomod2Models,
+        dnn_model_type: buildRunPayloadConfig.dnnArchitecture,
+        dnn_lambda: buildRunPayloadConfig.dnnL2Lambda,
+        dnn_multispecies_architecture: buildRunPayloadConfig.dnnMultispeciesArchitecture,
+        dnn_multispecies_n_seeds: buildRunPayloadConfig.dnnMultispeciesNSeeds,
+        xgb_nrounds: buildRunPayloadConfig.xgbNRounds,
+        projection_extent: "-180,180,-90,90",
+      });
+      expect(payload.biovars).toBe("1,4,6,12");
+      expect(payload.dnn_l2_lambda).toBeUndefined();
+      expect(plumberClient.runModel).not.toHaveBeenCalled();
+    });
+
+    it("uses buildModelPayload for sync run payloads", async () => {
+      const { db } = await import("../db");
+      (db.select as any)
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => Promise.resolve([{ maxNum: 7 }])),
+          })),
+        });
+
+      (db.insert as any).mockImplementation(() => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => [{ id: "run-2" }]),
+        })),
+      }));
+
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.runModel as any).mockClear();
+      (plumberClient.runModel as any).mockResolvedValue({ job_id: "plumber-job-1" });
+
+      const res = await app.request("/api/v1/sdm/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildRunPayloadConfig),
+      });
+
+      expect(res.status).toBe(200);
+      expect(plumberClient.runModel).toHaveBeenCalledTimes(1);
+
+      const payload = (plumberClient.runModel as any).mock.calls[0][0] as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        multi_ensemble_models: buildRunPayloadConfig.multiEnsembleModels,
+        biomod2_models: buildRunPayloadConfig.biomod2Models,
+        dnn_model_type: buildRunPayloadConfig.dnnArchitecture,
+        dnn_lambda: buildRunPayloadConfig.dnnL2Lambda,
+        dnn_multispecies_architecture: buildRunPayloadConfig.dnnMultispeciesArchitecture,
+        dnn_multispecies_n_seeds: buildRunPayloadConfig.dnnMultispeciesNSeeds,
+        xgb_nrounds: buildRunPayloadConfig.xgbNRounds,
+      });
+      expect(payload.biovars).toBe("1,4,6,12");
+      expect(payload.projection_extent).toBe("-180,180,-90,90");
+      expect(payload.dnn_l2_lambda).toBeUndefined();
+    });
+  });
+
+  describe("POST /batch run queue", () => {
+    it("uses buildModelPayload for batch queue payloads", async () => {
+      const { db } = await import("../db");
+      let insertCalls = 0;
+      (db.insert as any).mockImplementation(() => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => {
+            insertCalls += 1;
+            return [{ id: insertCalls === 1 ? "batch-1" : "run-1" }];
+          }),
+        })),
+      }));
+
+      const { enqueueSdmJob } = await import("../services/queue");
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Unit batch",
+          configs: [{ ...buildRunPayloadConfig, species: "Batch species" }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect((enqueueSdmJob as any).mock.calls).toHaveLength(1);
+
+      const payload = (enqueueSdmJob as any).mock.calls[0][0].payload as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        runId: "run-1",
+        multi_ensemble_models: buildRunPayloadConfig.multiEnsembleModels,
+        biomod2_models: buildRunPayloadConfig.biomod2Models,
+        dnn_model_type: buildRunPayloadConfig.dnnArchitecture,
+        dnn_lambda: buildRunPayloadConfig.dnnL2Lambda,
+        dnn_multispecies_architecture: buildRunPayloadConfig.dnnMultispeciesArchitecture,
+        dnn_multispecies_n_seeds: buildRunPayloadConfig.dnnMultispeciesNSeeds,
+        xgb_nrounds: buildRunPayloadConfig.xgbNRounds,
+      });
+      expect(payload.biovars).toBe("1,4,6,12");
+      expect(payload.projection_extent).toBe("-180,180,-90,90");
+      expect(payload.dnn_l2_lambda).toBeUndefined();
+    });
+  });
+
+  describe("POST /batch/cancel", () => {
+    it("returns 404 for nonexistent batch", async () => {
+      const { db } = await import("../db");
+      (db.select as any).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve([])),
+        })),
+      });
+      const res = await app.request("/api/v1/sdm/batch/nonexistent/cancel", {
+        method: "POST",
+      });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe("POST /batch/retry", () => {
+    it("returns 404 for nonexistent batch", async () => {
+      const { db } = await import("../db");
+      (db.select as any).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve([])),
+        })),
+      });
+      const res = await app.request("/api/v1/sdm/batch/nonexistent/retry", {
+        method: "POST",
+      });
+      expect(res.status).toBe(404);
     });
   });
 });

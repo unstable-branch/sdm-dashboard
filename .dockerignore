@@ -81,6 +81,5 @@ torch/
 libtorch/
 *.Rproj
 .vscode/
-AGENTS.md
 pr_body.md
 sdm-dashboard-jacob-roadmap.md

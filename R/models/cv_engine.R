@@ -7,7 +7,15 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
                                  fit_fun, cluster_setup_fn = NULL,
                                  cluster_exports = NULL,
                                  fold_id = NULL,
+                                 collect_predictions = FALSE,
                                  log_fun = NULL) {
+  if (is.null(model_data) || nrow(model_data) == 0) {
+    return(list(
+      k = 0, strategy = "none", auc_mean = NA_real_, auc_sd = NA_real_,
+      tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
+      fold_metrics = data.frame(), fold_sizes = data.frame()
+    ))
+  }
   k <- as.integer(k)
   cv_strategy <- normalize_cv_strategy(cv_strategy)
   threshold <- normalize_threshold(threshold)
@@ -15,7 +23,7 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
     return(list(
       k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_,
       tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
-      fold_metrics = data.frame(), fold_sizes = data.frame()
+      fold_metrics = data.frame(), fold_sizes = data.frame(), predictions = NULL
     ))
   }
 
@@ -26,12 +34,12 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
   if (!is.null(fold_id)) {
     k <- max(fold_id, na.rm = TRUE)
     if (k < 2) {
-      return(list(
-        k = 0, strategy = "custom", auc_mean = NA_real_, auc_sd = NA_real_,
-        tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
-        fold_metrics = data.frame(), fold_sizes = data.frame()
-      ))
-    }
+    return(list(
+      k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_,
+      tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
+      fold_metrics = data.frame(), fold_sizes = data.frame(), predictions = NULL
+    ))
+  }
   } else if (identical(cv_strategy, "spatial_blocks") && all(c(".x", ".y") %in% names(model_data))) {
     # Try blockCV first (variogram-based), fall back to custom
     folds <- tryCatch(
@@ -46,6 +54,7 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
     block_size_used <- folds$block_size_km
     k <- max(fold_id, na.rm = TRUE)
   } else if (identical(cv_strategy, "stratified_random")) {
+    set.seed(seed)
     pres_idx <- which(model_data$presence == 1)
     bg_idx <- which(model_data$presence == 0)
     fold_id <- integer(nrow(model_data))
@@ -68,7 +77,7 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
     return(list(
       k = 0, strategy = cv_strategy, auc_mean = NA_real_, auc_sd = NA_real_,
       tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(),
-      fold_metrics = data.frame(), fold_sizes = data.frame()
+      fold_metrics = data.frame(), fold_sizes = data.frame(), predictions = NULL
     ))
   }
 
@@ -77,23 +86,53 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
 
   fit_one_fold <- function(i) fit_fun(i, model_data, fold_id, threshold)
 
-  run_single_core_cv <- function() {
-    do.call(rbind, lapply(seq_len(k), fit_one_fold))
+  run_single_core_cv <- function() run_folds()
+
+  run_folds <- function() {
+    results <- lapply(seq_len(k), fit_one_fold)
+    if (collect_predictions) {
+      metrics_list <- lapply(results, function(r) if (is.list(r) && !is.data.frame(r) && !is.null(r$metrics)) r$metrics else r)
+      pred_list <- lapply(seq_along(results), function(i) {
+        r <- results[[i]]
+        if (is.list(r) && !is.data.frame(r) && !is.null(r$predictions)) {
+          r$predictions$fold <- i
+          r$predictions
+        } else NULL
+      })
+      preds <- do.call(rbind, pred_list[!vapply(pred_list, is.null, logical(1))])
+      list(metrics = do.call(rbind, metrics_list), predictions = preds)
+    } else {
+      list(metrics = do.call(rbind, results))
+    }
   }
 
-  fold_metrics <- if (n_cores > 1 && k > 1) {
+  fold_results <- if (n_cores > 1 && k > 1) {
     cl <- parallel::makeCluster(n_cores)
     on.exit(parallel::stopCluster(cl), add = TRUE)
     if (is.function(cluster_setup_fn)) {
       cluster_setup_fn(cl)
     }
-    if (!is.null(cluster_exports) && length(cluster_exports) > 0) {
-      parallel::clusterExport(cl, cluster_exports, envir = environment())
+    required_exports <- unique(c(cluster_exports, "model_data", "fold_id", "threshold", "fit_fun", "log_message"))
+    if (length(required_exports) > 0) {
+      parallel::clusterExport(cl, required_exports, envir = environment())
     }
     parallel_result <- tryCatch(
       {
         rows <- parallel::parLapply(cl, seq_len(k), fit_one_fold)
-        do.call(rbind, rows)
+        if (collect_predictions) {
+          metrics_list <- lapply(rows, function(r) if (is.list(r) && !is.data.frame(r) && !is.null(r$metrics)) r$metrics else r)
+          pred_list <- lapply(seq_along(rows), function(i) {
+            r <- rows[[i]]
+            if (is.list(r) && !is.data.frame(r) && !is.null(r$predictions)) {
+              r$predictions$fold <- i
+              r$predictions
+            } else NULL
+          })
+          preds <- do.call(rbind, pred_list[!vapply(pred_list, is.null, logical(1))])
+          list(metrics = do.call(rbind, metrics_list), predictions = preds)
+        } else {
+          list(metrics = do.call(rbind, rows))
+        }
       },
       error = function(e) e
     )
@@ -106,6 +145,9 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
   } else {
     run_single_core_cv()
   }
+
+  fold_metrics <- fold_results$metrics
+  fold_predictions <- fold_results$predictions %||% NULL
 
   list(
     k = k,
@@ -120,6 +162,7 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
     tss_sd = metric_sd(fold_metrics$tss),
     sensitivity_mean = metric_mean(fold_metrics$sensitivity),
     specificity_mean = metric_mean(fold_metrics$specificity),
-    fold_auc = fold_metrics$auc
+    fold_auc = fold_metrics$auc,
+    predictions = fold_predictions
   )
 }

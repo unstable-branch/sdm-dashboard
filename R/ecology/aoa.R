@@ -1,6 +1,11 @@
-# Area of Applicability (AOA) via CAST package.
+# Area of Applicability (AOA) via weighted dissimilarity.
 # Model-weighted extrapolation detection that accounts for variable importance.
 # Reference: Meyer & Pebesma 2022, Methods in Ecology and Evolution 13:793-803
+# Note: When CAST/caret are unavailable, falls back to a centroid-based weighted
+# Mahalanobis dissimilarity. This approximates the DI approach from Meyer & Pebesma
+# 2022 but uses a different distance metric (centroid Mahalanobis vs. nearest-neighbour
+# DI) and threshold (max training distance vs. CV-derived). Results should be comparable
+# but are not identical to CAST::aoa().
 
 #' Compute Area of Applicability (AOA) for an SDM model.
 #'
@@ -47,9 +52,14 @@ compute_aoa_cast <- function(model_data, env_proj, covariates, variable_importan
 
 #' Weighted dissimilarity AOA — works with any SDM backend.
 #'
-#' Computes Mahalanobis-type distance to the training data centroid,
+#' Computes Mahalanobis distance to the training data centroid,
 #' weighted by variable importance. Cells with distance above the
 #' maximum training distance are flagged as outside the AOA.
+#'
+#' Note: This differs from CAST::aoa (Meyer & Pebesma 2022) in two ways:
+#' 1) Uses centroid Mahalanobis distance rather than nearest-neighbour DI
+#' 2) Threshold is max training distance (not CV-derived)
+#' For Meyer & Pebesma-compliant AOA, install the CAST and caret packages.
 compute_aoa_weighted <- function(model_data, env_proj, covariates, variable_importance, log_fun) {
   log_message(log_fun, "Computing AOA (weighted dissimilarity method)")
 
@@ -93,42 +103,42 @@ compute_aoa_weighted <- function(model_data, env_proj, covariates, variable_impo
   weights <- pmax(weights, 0)  # ensure non-negative
   if (sum(weights) > 0) weights <- weights / sum(weights) else weights <- rep(1/length(weights), length(weights))
 
-  # Weighted covariance
-  weighted_cov <- stats::cov(train_vals) * (weights %*% t(weights))
+  # Training centroid
+  train_centre <- colMeans(train_vals, na.rm = TRUE)
 
-  # Regularise
-  diag_add <- 1e-6
+  # Weighted covariance: scale each variable by sqrt(importance) before computing covariance
+  centred <- scale(train_vals, center = train_centre, scale = FALSE)
+  weighted_centred <- sweep(centred, 2, sqrt(weights), FUN = `*`)
+  weighted_cov <- crossprod(weighted_centred) / (nrow(train_vals) - 1)
+
+  # Regularise diagonal for numerical stability
+  diag_add <- 1e-6 * mean(diag(weighted_cov), na.rm = TRUE)
   diag(weighted_cov) <- diag(weighted_cov) + diag_add
 
-  # Training centroid
-  train_centre <- colMeans(train_vals)
-
-  # Compute Mahalanobis distance for training points (to find threshold)
+  # Check invertibility; fall back to diagonal if singular
   tryCatch(
     solve(weighted_cov),
     error = function(e) {
       log_message(log_fun, "  Singular weighted covariance; using diagonal approximation")
-      weighted_cov <<- diag(diag(stats::cov(train_vals)) + diag_add)
+      weighted_cov <<- diag(diag(weighted_cov), nrow = ncol(weighted_cov))
     }
   )
 
   train_dist <- stats::mahalanobis(train_vals, train_centre, weighted_cov)
   threshold <- max(train_dist, na.rm = TRUE)
 
-  # Distance for projection cells
-  compute_aoa_block <- function(rast_block) {
-    df <- as.data.frame(rast_block)
-    names(df) <- covariates
-    complete <- stats::complete.cases(df)
-    dist <- rep(NA_real_, nrow(df))
+  # Distance for projection cells (vectorised via terra::app)
+  compute_aoa_block <- function(vals) {
+    complete <- stats::complete.cases(vals)
+    dist <- rep(NA_real_, nrow(vals))
     if (sum(complete) > 0) {
-      d <- stats::mahalanobis(df[complete, , drop = FALSE], train_centre, weighted_cov)
+      d <- stats::mahalanobis(vals[complete, , drop = FALSE], train_centre, weighted_cov)
       dist[complete] <- d
     }
     dist
   }
 
-  dist_rast <- terra::app(env_subset, compute_aoa_block, nodes = TRUE)
+  dist_rast <- terra::app(env_subset, compute_aoa_block)
   names(dist_rast) <- "aoa_distance"
 
   # AOA mask: 1 = applicable, 0 = outside

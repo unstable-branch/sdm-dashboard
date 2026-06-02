@@ -16,7 +16,11 @@ extent_from_inputs <- function(input, occurrence = NULL) {
     return(sdm_default_projection_extent)
   }
   if (identical(preset, "custom")) {
-    return(sanitize_extent(c(input$xmin, input$xmax, input$ymin, input$ymax)))
+    ext <- sanitize_extent(c(input$xmin, input$xmax, input$ymin, input$ymax))
+    if (any(!is.finite(ext))) {
+      return(sdm_default_projection_extent)
+    }
+    return(ext)
   }
   if (identical(preset, "boundary_file")) {
     if (!is.null(input$boundary_shp) && !is.null(input$boundary_shp$datapath) && nzchar(input$boundary_shp$datapath)) {
@@ -121,7 +125,7 @@ opentopo_key_is_configured <- function() {
 # Used by load.R and on-demand source() calls (e.g., mod_get_data.R).
 sdm_resolve_module <- function(m) {
   mod_dir <- file.path(sdm_project_root(), "R")
-  subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "output")
+  subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "xai", "output")
   for (sub in subdirs) {
     p <- file.path(mod_dir, sub, m)
     if (file.exists(p)) return(p)
