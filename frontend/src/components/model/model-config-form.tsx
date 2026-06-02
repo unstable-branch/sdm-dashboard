@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useDeferredValue, useMemo } from "react";
 import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
-import { BIOVAR_CHOICES, EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath, CHELSA_EXTRA_CHOICES, ANALYSIS_CRS_CHOICES } from "@sdm/shared";
+import { EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath, CHELSA_EXTRA_CHOICES, ANALYSIS_CRS_CHOICES } from "@sdm/shared";
 import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, AlertTriangle, Info, CloudOff, Cloud } from "lucide-react";
@@ -13,6 +13,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { apiGet } from "@/services/api";
 import { ModelSelector } from "./model-selector";
 import { SpeciesInput } from "./species-input";
+import { ClimateBiovarGrid } from "./climate-biovar-grid";
 
 interface ModelInfo {
   id: string; label: string; maturity: string;
@@ -201,14 +202,16 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   useEffect(() => { useSettingsStore.getState().fetchSettings(); }, []);
   useEffect(() => { apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100").then((data) => { if (data && Array.isArray(data.species)) setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string)); }).catch(() => console.warn("[model-config] Failed to fetch species suggestions")); }, []);
 
+  const biovarKey = useMemo(() => biovars.join(","), [biovars]);
+
   useEffect(() => {
     if (biovars.length < 2) return;
     const timer = setTimeout(() => {
       setClimateCheckLoading(true);
-      fetch(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovars.join(",")}`).then((res) => res.ok ? res.json() : null).then((data) => { if (data && Array.isArray(data.available)) setMissingBiovars(biovars.filter((b) => !(data.available as number[]).includes(b))); }).catch(() => setMissingBiovars(biovars)).finally(() => setClimateCheckLoading(false));
+      fetch(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovarKey}`).then((res) => res.ok ? res.json() : null).then((data) => { if (data && Array.isArray(data.available)) setMissingBiovars(biovars.filter((b) => !(data.available as number[]).includes(b))); }).catch(() => setMissingBiovars(biovars)).finally(() => setClimateCheckLoading(false));
     }, 300);
     return () => clearTimeout(timer);
-  }, [biovars.join(","), climateSource, climateRes]);
+  }, [biovarKey, climateSource, climateRes]);
 
   const toggleBiovar = (id: number) => setBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
   const toggleSoilVar = (id: string) => setSoilVars((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]);
@@ -881,26 +884,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-          {BIOVAR_CHOICES.map((bio) => (
-            <label
-              key={bio.id}
-              className={cn(
-                "flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors",
-                biovars.includes(bio.id)
-                  ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
-                  : "border-sdm-border bg-sdm-surface-soft text-sdm-text hover:border-sdm-accent/50"
-              )}
-            >
-              <input
-                type="checkbox"
-                checked={biovars.includes(bio.id)}
-                onChange={() => toggleBiovar(bio.id)}
-                className="sr-only"
-              />
-              <span className="font-medium" title={bio.description}>{bio.label}</span>
-            </label>
-          ))}
+        <div className="space-y-2">
+          <ClimateBiovarGrid selected={biovars} missing={missingBiovars} loading={climateCheckLoading} onToggle={toggleBiovar} />
         </div>
         {biovars.length < 2 && (
           <p className="text-xs text-sdm-danger">Select at least 2 BIO variables</p>
