@@ -82,7 +82,7 @@ function openSharedConnection(): void {
     try {
       const data = JSON.parse(event.data) as JobEvent;
       const now = Date.now();
-      sharedJobs.set(data.id, { ...data, _receivedAt: now });
+      sharedJobs.set(data.id, { ...data, logs: data.logs?.slice(-200) ?? [], _receivedAt: now });
 
       if (now - lastCleanup > CLEANUP_INTERVAL_MS) {
         const cleaned = cleanupJobs(sharedJobs, now);

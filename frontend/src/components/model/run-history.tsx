@@ -91,11 +91,8 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
   }, [fetchRuns]);
 
   useEffect(() => {
+    if (!runsRef.current.some((r) => r.status === "queued")) return;
     const interval = setInterval(() => {
-      if (!runsRef.current.some((r) => r.status === "queued")) {
-        clearInterval(interval);
-        return;
-      }
       setNow(Date.now());
     }, 1000);
     return () => clearInterval(interval);

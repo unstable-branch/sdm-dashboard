@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useDeferredValue, useMemo } from "react";
+import { useState, useEffect, useDeferredValue, useMemo, useCallback } from "react";
 import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
 import { EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath, CHELSA_EXTRA_CHOICES, ANALYSIS_CRS_CHOICES } from "@sdm/shared";
 import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
@@ -169,9 +169,11 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const deferredSpecies = useDeferredValue(species);
   const speciesFiltered = useMemo(() => speciesSuggestions.filter((s) => s.toLowerCase().includes(deferredSpecies.toLowerCase()) && s !== deferredSpecies).slice(0, 10), [deferredSpecies, speciesSuggestions]);
 
-  const currentExtent: [number, number, number, number] = extentPreset === "custom" ? customExtent : EXTENT_PRESETS[extentPreset]?.extent ?? [112, 154, -44, -10];
-  const extentWidthDeg = currentExtent[1] - currentExtent[0];
-  const extentHeightDeg = currentExtent[3] - currentExtent[2];
+  const currentExtent = useMemo<[number, number, number, number]>(() =>
+    extentPreset === "custom" ? customExtent : EXTENT_PRESETS[extentPreset]?.extent ?? [112, 154, -44, -10],
+  [extentPreset, customExtent]);
+  const extentWidthDeg = useMemo(() => currentExtent[1] - currentExtent[0], [currentExtent]);
+  const extentHeightDeg = useMemo(() => currentExtent[3] - currentExtent[2], [currentExtent]);
   const fineDems = ["COP30", "NASADEM", "SRTMGL1", "AW3D30"];
   const coarseDems = ["COP90", "SRTMGL3"];
   const demWarning = useMemo<string | null>(() => {
@@ -213,18 +215,18 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     return () => clearTimeout(timer);
   }, [biovarKey, climateSource, climateRes]);
 
-  const toggleBiovar = (id: number) => setBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
-  const toggleSoilVar = (id: string) => setSoilVars((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]);
-  const toggleSoilDepth = (depth: string) => setSoilDepths((prev) => prev.includes(depth) ? prev.filter((d) => d !== depth) : [...prev, depth]);
-  const toggleUvVar = (id: string) => setUvVars((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]);
+  const toggleBiovar = useCallback((id: number) => setBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]), []);
+  const toggleSoilVar = useCallback((id: string) => setSoilVars((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]), []);
+  const toggleSoilDepth = useCallback((depth: string) => setSoilDepths((prev) => prev.includes(depth) ? prev.filter((d) => d !== depth) : [...prev, depth]), []);
+  const toggleUvVar = useCallback((id: string) => setUvVars((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]), []);
 
-  const toggleEnsembleModel = (m: string) => {
+  const toggleEnsembleModel = useCallback((m: string) => {
     setMultiEnsembleModels((prev) => prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]);
-  };
+  }, []);
 
-  const toggleBiomod2Model = (a: string) => {
+  const toggleBiomod2Model = useCallback((a: string) => {
     setBiomod2Models((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a]);
-  };
+  }, []);
 
   const handleSubmit = () => {
     setError(null);
@@ -330,19 +332,22 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     onSubmit(config);
   };
 
-  const selectedModel = availableModels.find((m) => m.id === modelId);
-  const isESM = modelId.startsWith("esm_");
-  const isRangebag = modelId === "rangebag" || modelId === "ensemble_glm_rangebag";
-  const effectiveRecordCount = cleanedOccurrence
+  const selectedModel = useMemo(() => availableModels.find((m) => m.id === modelId), [availableModels, modelId]);
+  const isESM = useMemo(() => modelId.startsWith("esm_"), [modelId]);
+  const isRangebag = useMemo(() => modelId === "rangebag" || modelId === "ensemble_glm_rangebag", [modelId]);
+  const effectiveRecordCount = useMemo(() => cleanedOccurrence
     ? cleanedOccurrence.validRecords
-    : recordCount;
-  const lowRecordWarning = selectedModel?.min_records && effectiveRecordCount !== null && effectiveRecordCount < selectedModel.min_records;
-  const recordTier = selectedModel?.min_records && effectiveRecordCount !== null
+    : recordCount, [cleanedOccurrence, recordCount]);
+  const lowRecordWarning = useMemo(() =>
+    selectedModel?.min_records && effectiveRecordCount !== null && effectiveRecordCount < selectedModel.min_records,
+  [selectedModel?.min_records, effectiveRecordCount]);
+  const recordTier = useMemo(() => selectedModel?.min_records && effectiveRecordCount !== null
     ? effectiveRecordCount < selectedModel.min_records ? "danger"
       : effectiveRecordCount < selectedModel.min_records * 2 ? "warning"
       : effectiveRecordCount < selectedModel.min_records * 3 ? "info"
       : "ok"
-    : null;
+    : null,
+  [selectedModel?.min_records, effectiveRecordCount]);
 
   const handleSpeciesKeyNav = (dir: "up" | "down" | "enter" | "escape") => {
     if (dir === "down") setSpeciesSelectedIndex((prev) => (prev + 1) % Math.max(speciesFiltered.length, 1));
