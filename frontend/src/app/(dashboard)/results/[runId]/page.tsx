@@ -212,9 +212,14 @@ export default function ResultsPage() {
       .catch(() => setBenchmarkLoading(false));
   }, [run?.id, run?.status, run?.metrics?.auc_mean, run?.species]);
 
-  // Polling fallback: always poll for active runs (SSE events are supplementary)
+  // Polling fallback: only poll when SSE is unavailable or has only synthetic data
   useEffect(() => {
     if (!run || !["running", "loading", "pending"].includes(run.status)) return;
+
+    // Skip polling when SSE is connected and has real data
+    const sseJob = connected ? getJob(runId) : undefined;
+    const hasRealSse = sseJob != null && !(sseJob.logs?.length === 1 && sseJob.logs[0] === "Model run in progress...");
+    if (connected && hasRealSse) return;
 
     let cancelled = false;
     let consecutiveErrors = 0;
@@ -430,7 +435,7 @@ export default function ResultsPage() {
           })()}
           {run.progress_log.length > 0 ? (
             <div className="mt-2 rounded bg-sdm-surface-soft p-2 font-mono text-xs text-sdm-muted max-h-32 overflow-y-auto">
-              {run.progress_log.map((line, i) => (
+              {run.progress_log.slice(-200).map((line, i) => (
                 <div key={i} className="break-words whitespace-pre-wrap">{line}</div>
               ))}
             </div>

@@ -331,7 +331,13 @@ dataRoutes.get("/species", async (c) => {
       return c.json({ species: [], hasMore: false });
     }
 
-    const speciesQuery = db.select().from(species);
+    const speciesQuery = db.select({
+      id: species.id,
+      name: species.name,
+      occurrenceCount: species.occurrenceCount,
+      createdAt: species.createdAt,
+      updatedAt: species.updatedAt,
+    }).from(species);
     const allSpecies = await (projectIds
       ? speciesQuery.where(inArray(species.projectId, projectIds)).orderBy(species.createdAt).limit(limitVal)
       : speciesQuery.orderBy(species.createdAt).limit(limitVal));
@@ -385,7 +391,16 @@ dataRoutes.get("/species/:id/occurrences", async (c) => {
       : eq(occurrences.speciesId, id);
 
     const recs = await db
-      .select()
+      .select({
+        id: occurrences.id,
+        longitude: occurrences.longitude,
+        latitude: occurrences.latitude,
+        source: occurrences.source,
+        flagged: occurrences.flagged,
+        flagReason: occurrences.flagReason,
+        cleaned: occurrences.cleaned,
+        createdAt: occurrences.createdAt,
+      })
       .from(occurrences)
       .where(occConditions)
       .limit(limit)
@@ -449,7 +464,15 @@ dataRoutes.get("/uploads", async (c) => {
     }
 
     const records = await db
-      .select()
+      .select({
+        filePath: uploadedFiles.filePath,
+        originalName: uploadedFiles.originalName,
+        fileSize: uploadedFiles.fileSize,
+        nRows: uploadedFiles.nRows,
+        createdAt: uploadedFiles.createdAt,
+        cleaned: uploadedFiles.cleaned,
+        cleanedFilePath: uploadedFiles.cleanedFilePath,
+      })
       .from(uploadedFiles)
       .where(projectIds ? inArray(uploadedFiles.projectId, projectIds) : undefined)
       .orderBy(desc(uploadedFiles.createdAt))

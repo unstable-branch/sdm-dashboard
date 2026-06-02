@@ -727,7 +727,17 @@ sdmRoutes.get("/batch/:batchId", async (c) => {
     const user = c.get("user");
 
     const [batch] = await db
-      .select()
+      .select({
+        id: batches.id,
+        name: batches.name,
+        status: batches.status,
+        totalJobs: batches.totalJobs,
+        completedJobs: batches.completedJobs,
+        failedJobs: batches.failedJobs,
+        createdAt: batches.createdAt,
+        completedAt: batches.completedAt,
+        projectId: batches.projectId,
+      })
       .from(batches)
       .where(eq(batches.id, batchId));
     if (!batch) return c.json({ error: "Batch not found" }, 404);
