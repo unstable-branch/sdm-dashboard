@@ -143,3 +143,5 @@ app.get("/:jobId", async (c) => {
 
   return c.json(status);
 });
+
+export default app;
