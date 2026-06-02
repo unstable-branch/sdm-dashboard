@@ -100,6 +100,17 @@ climateRoutes.post("/delete/:scenarioId", async (c) => {
   }
 });
 
+climateRoutes.post("/cancel/:jobId", async (c) => {
+  try {
+    const jobId = c.req.param("jobId");
+    const result = await plumberClient.post(`/api/v1/climate/cancel/${jobId}`, {});
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Cancel failed";
+    return c.json({ error: message }, 502);
+  }
+});
+
 climateRoutes.get("/status/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");

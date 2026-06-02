@@ -4,6 +4,7 @@ services:
     profiles: ["core", "dev", "full"]
     restart: unless-stopped
     image: postgis/postgis:16-3.4
+    shm_size: 256m
     environment:
       POSTGRES_USER: sdm
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
@@ -86,6 +87,7 @@ services:
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
+      - GDAL_CACHEMAX=64
     init: true
     healthcheck:
       test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]
@@ -153,6 +155,10 @@ services:
       timeout: 3s
       retries: 5
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     networks:
       - sdm-network
 
@@ -179,6 +185,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     networks:
       - sdm-network
 
