@@ -14,12 +14,12 @@ import { UploadTab } from "./upload-tab";
 import { CleanTab } from "./clean-tab";
 import { ClimateTab } from "./climate-tab";
 import { CovariateTab } from "./covariate-tab";
-import { ObservationRecordsTab } from "./observation-records-tab";
 import { BatchTab } from "./batch-tab";
 import type { OccurrencePoint } from "./types";
 import type { UploadFile, CleanResult, DwcaResult, ClimateScenarioResponse } from "@/services/types";
 
 const GbifSearch = dynamic(() => import("@/components/data/gbif-search"), { ssr: false });
+const ObservationRecordsTab = dynamic(() => import("./observation-records-tab").then(m => ({ default: m.ObservationRecordsTab })), { ssr: false });
 
 export default function DataPage() {
   return (
