@@ -19,6 +19,10 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     networks:
       - sdm-network
 

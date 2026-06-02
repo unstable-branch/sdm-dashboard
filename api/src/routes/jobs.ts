@@ -10,16 +10,25 @@ import { eq, and, inArray, or } from "drizzle-orm";
 
 const app = new Hono<AppEnv>();
 
+const MAX_SSE_CLIENTS = 500;
+let activeSseClients = 0;
+
 app.use("/sse", authMiddleware);
 
 app.get("/sse", (c) => {
   const user = c.get("user");
 
+  if (activeSseClients >= MAX_SSE_CLIENTS) {
+    return c.json({ error: "Too many connections. Try again later." }, 503);
+  }
+  activeSseClients++;
+  const cleanup = () => { activeSseClients = Math.max(0, activeSseClients - 1); };
+
   return streamSSE(c, async (stream) => {
     let aborted = false;
     stream.onAbort(() => {
       aborted = true;
-    });
+      cleanup();
 
     // Get user's project IDs once (admin = null = all)
     const myProjectIds = await getUserProjectIds(user);

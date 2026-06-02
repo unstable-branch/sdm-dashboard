@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { compress } from "hono/compress";
+import { bodyLimit } from "hono/body-limit";
 import { plumberClient } from "./services/plumber.js";
 import { ensureBuckets } from "./services/storage.js";
 import { getRedisStatus, ensureWorker, getJobStatus, shutdownQueue } from "./services/queue.js";
@@ -51,6 +52,9 @@ app.use("*", cors({
 }));
 app.use("*", compress({
   threshold: 1024,
+}));
+app.use("*", bodyLimit({
+  maxSize: 100 * 1024 * 1024, // 100 MB
 }));
 app.use("*", logger());
 app.use("/api/v1/sdm/*", csrfMiddleware);
