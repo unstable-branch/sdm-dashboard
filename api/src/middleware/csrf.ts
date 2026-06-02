@@ -9,7 +9,11 @@ function getKnownOrigins(): string[] {
 }
 
 function getCsrfSecret(): string {
-  return process.env.JWT_SECRET || process.env.CSRF_SECRET || "csrf-secret-change-me";
+  const secret = process.env.JWT_SECRET || process.env.CSRF_SECRET;
+  if (!secret) {
+    throw new Error("CSRF secret not configured — set JWT_SECRET or CSRF_SECRET");
+  }
+  return secret;
 }
 
 function validateToken(token: string): boolean {

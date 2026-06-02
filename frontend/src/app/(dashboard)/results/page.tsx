@@ -79,8 +79,8 @@ export default function ResultsIndexPage() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-sdm-text truncate">{run.species || "Unnamed run"}</p>
                   <p className="text-xs text-sdm-muted">
-                    {run.model_id} &middot; {new Date(run.started_at).toLocaleString()}
-                    {run.completed_at && ` &middot; ${((new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()) / 1000).toFixed(0)}s`}
+                    {run.model_id} &middot; {run.started_at ? new Date(run.started_at).toLocaleString() : "—"}
+                    {run.completed_at && run.started_at && ` &middot; ${((new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()) / 1000).toFixed(0)}s`}
                   </p>
                 </div>
               </div>

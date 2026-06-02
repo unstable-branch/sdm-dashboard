@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import {
   GripVertical, Layers, MapPin, Grid3x3, Globe,
   Crop, Navigation, Maximize2, Sun, Moon,
@@ -47,7 +47,8 @@ function ToolButton({ icon: Icon, labelActive, labelInactive, active, onClick, d
           type="button"
           onClick={onClick}
           disabled={disabled}
-          title=""
+          aria-pressed={active}
+          aria-label={active ? labelActive : labelInactive}
           className={cn(
             "w-7 h-7 rounded-md flex items-center justify-center transition-colors shrink-0 relative",
             active
@@ -109,46 +110,80 @@ export function MapToolbar({
     const toolbar = toolbarRef.current;
     if (!toolbar) return;
     const tr = toolbar.getBoundingClientRect();
-    dragging.current = true;
-    dragStart.current = { x: e.clientX, y: e.clientY, posX: tr.left, posY: tr.top };
-  }, []);
+    const startX = e.clientX, startY = e.clientY;
+    const posX = tr.left, posY = tr.top;
 
-  useEffect(() => {
-    if (!dragging.current) return;
     const handleMouseMove = (e: MouseEvent) => {
-      if (!dragging.current) return;
-      const dx = e.clientX - dragStart.current.x;
-      const dy = e.clientY - dragStart.current.y;
       const next = clamp({
-        x: dragStart.current.posX + dx,
-        y: dragStart.current.posY + dy,
+        x: posX + e.clientX - startX,
+        y: posY + e.clientY - startY,
       });
       setPosition(next);
     };
     const handleMouseUp = () => {
-      if (!dragging.current) return;
-      dragging.current = false;
-      savePosition(position);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      setPosition((prev) => { savePosition(prev); return prev; });
     };
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+  }, [clamp]);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const toolbar = toolbarRef.current;
+    if (!toolbar || !e.touches[0]) return;
+    const tr = toolbar.getBoundingClientRect();
+    const t = e.touches[0];
+    const startX = t.clientX, startY = t.clientY;
+    const posX = tr.left, posY = tr.top;
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!e.touches[0]) return;
+      const next = clamp({
+        x: posX + e.touches[0].clientX - startX,
+        y: posY + e.touches[0].clientY - startY,
+      });
+      setPosition(next);
     };
-  }, [clamp, position]);
+    const handleTouchEnd = () => {
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+      setPosition((prev) => { savePosition(prev); return prev; });
+    };
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+    window.addEventListener("touchend", handleTouchEnd);
+  }, [clamp]);
 
   const disabledSet = new Set(disabledLayers ?? []);
 
   return (
     <div
       ref={toolbarRef}
+      role="toolbar"
+      aria-label="Map controls"
       className="absolute z-10 flex flex-col items-center gap-0.5 rounded-lg border border-sdm-border/50 bg-sdm-surface/90 backdrop-blur-sm shadow-lg px-1 py-1.5 select-none"
       style={{ top: position.y, left: position.x }}
     >
       {/* Drag handle */}
       <div
         onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        role="button"
+        tabIndex={0}
+        aria-label="Drag to reposition toolbar"
+        onKeyDown={(e) => {
+          const step = 10;
+          setPosition((prev) => {
+            const next = { x: prev.x, y: prev.y };
+            if (e.key === "ArrowLeft") next.x -= step;
+            if (e.key === "ArrowRight") next.x += step;
+            if (e.key === "ArrowUp") next.y -= step;
+            if (e.key === "ArrowDown") next.y += step;
+            const clamped = clamp(next);
+            savePosition(clamped);
+            return clamped;
+          });
+        }}
         className="w-7 h-5 rounded-md flex items-center justify-center cursor-grab active:cursor-grabbing text-sdm-muted hover:text-sdm-text transition-colors"
       >
         <GripVertical className="h-3.5 w-3.5" />

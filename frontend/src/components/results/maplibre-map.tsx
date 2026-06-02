@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useRef, useCallback, useState, useEffect } from "react";
-import { Map, Source, Layer } from "react-map-gl/maplibre";
-import type { ViewState, MapRef } from "react-map-gl/maplibre";
+import { Map, Source, Layer, useMap } from "react-map-gl/maplibre";
+import type { ViewState, MapRef, ErrorEvent } from "react-map-gl/maplibre";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { densifyGeoJSONFeature } from "@/lib/geodesic";
@@ -47,15 +48,17 @@ export default function MaplibreMap({
   const mapRef = useRef<MapRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsAdded = useRef(false);
-  const [resolvedBasemap, setResolvedBasemap] = useState<"light" | "dark">(basemap);
+  const [tileErrors, setTileErrors] = useState(0);
+  const [currentZoom, setCurrentZoom] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (basemap === "light" || basemap === "dark") {
-      setResolvedBasemap(basemap);
-    }
-  }, [basemap]);
+  const handleTileError = useCallback(() => {
+    setTileErrors(prev => Math.min(prev + 1, 99));
+  }, []);
 
-  const mapStyle = resolvedBasemap === "dark" ? DARK_STYLE : LIGHT_STYLE;
+  // Reset controls ref when component re-mounts (key prop change)
+  useEffect(() => { controlsAdded.current = false; }, []);
+
+  const mapStyle = basemap === "dark" ? DARK_STYLE : LIGHT_STYLE;
   const coords = coordinates;
 
   const densifiedEoo = useMemo(() => {
@@ -109,7 +112,25 @@ export default function MaplibreMap({
   }, [hasEoo, hasAoo, hasBoundary, hasExtent]);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full">
+    <div
+      ref={containerRef}
+      className="relative w-full h-full [&_.maplibregl-canvas]:image-rendering-pixelated"
+      role="application"
+      aria-label="Suitability map — use arrow keys to pan, +/- to zoom"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        const step = e.shiftKey ? 200 : 50;
+        const panBy = (x: number, y: number) => map.panBy([x, y], { duration: 100 });
+        if (e.key === "ArrowLeft") { panBy(-step, 0); e.preventDefault(); }
+        if (e.key === "ArrowRight") { panBy(step, 0); e.preventDefault(); }
+        if (e.key === "ArrowUp") { panBy(0, -step); e.preventDefault(); }
+        if (e.key === "ArrowDown") { panBy(0, step); e.preventDefault(); }
+        if (e.key === "+" || e.key === "=") { map.zoomIn({ duration: 200 }); e.preventDefault(); }
+        if (e.key === "-") { map.zoomOut({ duration: 200 }); e.preventDefault(); }
+      }}
+    >
       <Map
         ref={mapRef}
         key={coords ? coords[0][0].toFixed(1) + coords[0][1].toFixed(1) : runId}
@@ -117,11 +138,22 @@ export default function MaplibreMap({
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle}
         maxZoom={18}
+        pixelRatio={1}
+        onError={(e: ErrorEvent) => {
+          const status = (e.error as any)?.status;
+          if (status === 500 || status === 502 || status === 503 || status === 504) {
+            handleTileError();
+          }
+        }}
+        onZoomEnd={(e) => {
+          const zoom = (e.target as any)?.getZoom();
+          if (typeof zoom === "number") setCurrentZoom(zoom);
+        }}
         onLoad={() => {
-          if (controlsAdded.current) return;
-          controlsAdded.current = true;
           const map = mapRef.current?.getMap();
           if (!map) return;
+          if ((map as any)._sdmControlsAdded) return;
+          (map as any)._sdmControlsAdded = true;
           map.addControl(new maplibregl.NavigationControl(), "bottom-right");
           map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
         }}
@@ -133,20 +165,20 @@ export default function MaplibreMap({
           return { url };
         }}
       >
-        <Source
-          id="suitability"
-          type="raster"
-          tiles={[`/api/v1/results/tiles/${runId}/{z}/{x}/{y}`]}
-          tileSize={256}
-          minzoom={tileZoomMin ?? 4}
-          maxzoom={tileZoomMax ?? 8}
-          bounds={tileBounds}
-        >
+      <Source
+        id="suitability"
+        type="raster"
+        tiles={[`/api/v1/results/tiles/${runId}/{z}/{x}/{y}`]}
+        tileSize={256}
+        minzoom={0}
+        maxzoom={18}
+        bounds={tileBounds}
+      >
           <Layer
             id="suitability-overlay"
             type="raster"
             layout={{ visibility: visibility("suitability") }}
-            paint={{ "raster-opacity": 0.7, "raster-fade-duration": 0 }}
+            paint={{ "raster-opacity": 0.9999, "raster-fade-duration": 0 }}
           />
         </Source>
 
@@ -250,10 +282,26 @@ export default function MaplibreMap({
         )}
       </Map>
 
+      {currentZoom !== null && currentZoom > (tileZoomMax ?? 8) && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 rounded-md bg-sdm-surface/90 px-3 py-1.5 text-xs text-sdm-warning shadow-sm border border-sdm-warning/30 whitespace-nowrap">
+          Suitability overlay not available at zoom {Math.round(currentZoom)} — zoom out
+        </div>
+      )}
+
+      {tileErrors > 5 && (
+        <div className="absolute bottom-16 left-3 z-10 flex items-center gap-1.5 rounded-md bg-sdm-warning/10 px-2.5 py-1.5 text-[11px] text-sdm-warning border border-sdm-warning/30">
+          <AlertTriangle className="h-3 w-3" />
+          <span>{tileErrors} tile error{tileErrors !== 1 ? "s" : ""}</span>
+          <button onClick={() => setTileErrors(0)} className="ml-1 text-sdm-warning/70 hover:text-sdm-warning transition-colors" aria-label="Dismiss tile errors">
+            ×
+          </button>
+        </div>
+      )}
+
       <MapToolbar
         layers={layerVisibility}
         onToggleLayer={onToggleLayer}
-        basemap={resolvedBasemap}
+        basemap={basemap}
         onToggleBasemap={onToggleBasemap}
         onResetNorth={handleResetNorth}
         onFitExtent={handleFitExtent}

@@ -880,11 +880,11 @@ predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores
     names(mean_pred) <- "suitability"
 
     dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(mean_pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    terra::writeRaster(mean_pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     log_message(log_fun, "DNN ensemble suitability saved: ", output_tif)
 
     uncertainty_tif <- sub("\\.tif$", "_uncertainty.tif", output_tif)
-    terra::writeRaster(sd_pred, uncertainty_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    terra::writeRaster(sd_pred, uncertainty_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     log_message(log_fun, "DNN ensemble uncertainty (SD) saved: ", uncertainty_tif, " +/- ", sprintf("%.3f", mean(terra::values(sd_pred), na.rm = TRUE)))
 
     attr(mean_pred, "uncertainty_tif") <- uncertainty_tif
@@ -893,7 +893,7 @@ predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores
     log_message(log_fun, "Predicting suitability raster with DNN (", fit$dnn_model_type, ")")
     pred <- predict_dnn_raster(fit$model, env_project_scaled, fit$scaler, device = fit$dnn_device)
     dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     log_message(log_fun, "DNN suitability saved: ", output_tif)
     pred
   }

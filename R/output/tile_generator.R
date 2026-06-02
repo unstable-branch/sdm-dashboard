@@ -20,7 +20,7 @@ process_one_tile <- function(x, y, z, tile_res, half_world, r_proj, tile_size,
   ymin <- half_world - (y + 1L) * tile_res
 
   tile_ext <- terra::ext(xmin, xmax, ymin, ymax)
-  tile_crop <- tryCatch(terra::crop(r_proj, tile_ext), error = function(e) NULL)
+  tile_crop <- tryCatch(terra::crop(r_proj, tile_ext, snap = "out"), error = function(e) NULL)
   if (is.null(tile_crop) || terra::ncell(tile_crop) == 0L) return(NULL)
 
   v <- terra::values(tile_crop)
@@ -37,8 +37,12 @@ process_one_tile <- function(x, y, z, tile_res, half_world, r_proj, tile_size,
 
   vals <- terra::values(tile_256)
   n_col <- length(palette)
-  idx <- round((vals - vr[1]) / (vr[2] - vr[1]) * (n_col - 1L)) + 1L
-  idx <- pmax(1L, pmin(n_col, idx))
+  idx <- if (vr[2] == vr[1]) {
+    rep(ceiling(n_col / 2), length(vals))
+  } else {
+    idx <- round((vals - vr[1]) / (vr[2] - vr[1]) * (n_col - 1L)) + 1L
+    pmax(1L, pmin(n_col, idx))
+  }
 
   is_na <- is.na(vals) | !is.finite(vals)
   if (length(nv) > 0) {
@@ -209,8 +213,8 @@ generate_xyz_tiles <- function(
       z_limit_min <- max(0L, zoom_limit[1])
       z_limit_max <- min(20L, zoom_limit[2])
       target_z <- max(z_limit_min + 1L, min(z_limit_max - 1L, target_z))
-      if (is.null(z_min)) z_min <- max(z_limit_min, target_z - 2L)
-      if (is.null(z_max)) z_max <- min(z_limit_max, target_z + 2L)
+      if (is.null(z_min)) z_min <- max(z_limit_min, target_z - 3L)
+      if (is.null(z_max)) z_max <- min(z_limit_max, target_z + 3L)
     }
 
     # Compute tile grid bounds in target CRS
@@ -239,7 +243,7 @@ generate_xyz_tiles <- function(
       raw_x0 <- floor((ext_proj[1] + half_world) / tile_res)
       raw_x1 <- floor((ext_proj[2] + half_world) / tile_res)
       # Tile rows covering the extent (y=0 is top/north)
-      y0 <- max(0L, floor((half_world - ext_proj[4]) / tile_res))
+      y0 <- max(0L, min(n - 1L, floor((half_world - ext_proj[4]) / tile_res)))
       y1 <- min(n - 1L, floor((half_world - ext_proj[3]) / tile_res))
 
       # Detect dateline wrapping: when the reprojected extent in Web Mercator
@@ -277,6 +281,7 @@ generate_xyz_tiles <- function(
         tile_results <- if (n_cores > 1L && .Platform$OS.type == "unix" && n_tiles > 1L) {
           tryCatch({
             parallel::mclapply(seq_len(nrow(tiles)), function(i) {
+              if (is.function(cancel) && isTRUE(cancel())) return(list(cancelled = TRUE))
               process_one_tile(tiles$x[i], tiles$y[i], z, tile_res, half_world,
                 r_proj, tile_size, target_crs, palette, pal_rgb, vr, nv,
                 resampling, gdal_opts, band_dir)
