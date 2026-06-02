@@ -5,7 +5,7 @@
   "type": "module",
   "description": "SDM Dashboard — Next.js 16 frontend with React 19, MapLibre, and TanStack Query",
   "scripts": {
-    "dev": "next dev --port 3000",
+    "dev": "next dev --webpack --port 3000",
     "build": "next build",
     "start": "next start",
     "lint": "eslint src/",
