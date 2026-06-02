@@ -114,7 +114,10 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
   }, [jobId, job, isSyntheticPlaceholder]);
 
   // Use SSE job when it has real data, otherwise fall back to polling
-  const effectiveJob = (job && !isSyntheticPlaceholder) ? job : polledJob;
+  // Merge progressJson from polling when SSE lacks it (queue worker emits may not include it)
+  const effectiveJob = (job && !isSyntheticPlaceholder)
+    ? { ...job, progressJson: job.progressJson ?? (polledJob?.progressJson ?? undefined) }
+    : polledJob;
 
   useEffect(() => {
     if (!startTime && !effectiveJob) return;

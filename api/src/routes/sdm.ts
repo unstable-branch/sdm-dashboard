@@ -5,7 +5,7 @@ import { enqueueSdmJob, getJobQueue } from "../services/queue.js";
 import { db } from "../db/index.js";
 import { runs, species, batches } from "../db/schema.js";
 import { eq, desc, count, and, inArray, sql } from "drizzle-orm";
-import { getErrorHttpStatus, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
+import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
@@ -106,7 +106,7 @@ sdmRoutes.post("/run", async (c) => {
 
       await db
         .update(runs)
-        .set({ jobId, status: "queued" })
+        .set({ bullmqId: jobId, status: "queued" })
         .where(eq(runs.id, run.id));
 
       jobEventBus.emitJobStatus({
@@ -378,19 +378,12 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       return c.json({ error: "Run not found" }, 404);
     }
 
-    const errCode = run.provenance && typeof run.provenance === "object" && "error_code" in (run.provenance as object)
-      ? (run.provenance as Record<string, unknown>).error_code as string
-      : undefined;
-    const errHint = run.provenance && typeof run.provenance === "object" && "error_hint" in (run.provenance as object)
-      ? (run.provenance as Record<string, unknown>).error_hint as string
-      : undefined;
-
     // Proactive Plumber check for running runs — fetches live progress_log and progress_json
     let plumberProgressJson: unknown = null;
     let plumberProgressLog: string[] = [];
     if (run.status === "running" && run.jobId) {
       try {
-        const plumberStatus = await plumberClient.getModelStatus(run.jobId, 3000);
+        const plumberStatus = await plumberClient.getModelStatus(run.jobId, 8000);
         const ps = plumberStatus as any;
         plumberProgressJson = ps.progress_json ?? null;
         plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log as string[] : [];
@@ -421,8 +414,9 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       }
     }
 
-    const httpStatus = run.status === "failed" ? getErrorHttpStatus(errCode) : 200;
-
+    // Always return 200 when run data exists in DB — the response body fields (status, error_code, etc.)
+    // tell the frontend whether the run failed. Using HTTP 4xx/5xx causes the frontend's apiGet to throw
+    // and prevents the run state from being populated, blocking the failed run display UI.
     const dbProgressLog: string[] = Array.isArray(run.progressLog) ? run.progressLog as string[] : [];
 
     return c.json({
@@ -441,7 +435,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       progress_log: plumberProgressLog.length > 0 ? plumberProgressLog : dbProgressLog,
       progress_json: plumberProgressJson ?? null,
       config: normalizeConfig(run.config),
-    }, httpStatus as any);
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get status";
     return c.json({ error: message }, 502);
