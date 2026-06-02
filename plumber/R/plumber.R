@@ -431,8 +431,9 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
 #* @param taxon Species name (e.g., "Acacia mearnsii")
 #* @param country Country code filter (e.g., "AU")
 #* @param max_records Maximum records to fetch (default: 100)
-#* @post /api/v1/occurrences/gbif/search
-function(req, taxon, country = NULL, max_records = 100) {
+sdm_submit_gbif_search <- function(req, taxon, country = NULL, max_records = 100,
+                                   app_dir_override = app_dir,
+                                   submit_fun = sdm_async_submit) {
   if (is.null(taxon) || !nzchar(taxon)) {
     return(sdm_error(req, 400, "taxon is required"))
   }
@@ -442,33 +443,22 @@ function(req, taxon, country = NULL, max_records = 100) {
 
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 
-    upload_dir <- file.path(app_dir, "data", "uploads")
-    dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
-    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", taxon)
-    ts <- format(Sys.time(), "%Y%m%d_%H%M%S")
-    csv_path <- file.path(upload_dir, paste0(ts, "_gbif_", safe_name, ".csv"))
-    utils::write.csv(occ, csv_path, row.names = FALSE)
-    encrypt_file(csv_path, csv_path)
-
-    # Track GBIF file size toward user's storage quota
-    gbif_con <- db_connect()
-    if (!is.null(gbif_con)) {
-      on.exit(DBI::dbDisconnect(gbif_con), add = TRUE)
-      gbif_size <- file.info(csv_path)$size
-      tryCatch(
-        DBI::dbExecute(gbif_con,
-          "UPDATE users SET storage_used_bytes = COALESCE(storage_used_bytes, 0) + $1 WHERE id = $2",
-          params = list(gbif_size, req$user_id %||% "unknown")
-        ),
-        error = function(e) NULL
-      )
-    }
+  job_id <- submit_fun("gbif", list(
+    taxon = taxon,
+    country = if (!is.null(country) && nzchar(country)) country else NULL,
+    max_records = max_records
+  ), app_dir_override, user_id)
 
   list(
     job_id = job_id,
     status = "running",
     message = "GBIF search started in background"
   )
+}
+
+#* @post /api/v1/occurrences/gbif/search
+function(req, taxon, country = NULL, max_records = 100) {
+  sdm_submit_gbif_search(req, taxon, country, max_records)
 }
 
 #* Parse a Darwin Core Archive (.zip file) (async)

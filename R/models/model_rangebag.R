@@ -84,6 +84,7 @@ predict_rangebag_values <- function(model, data) {
 
 fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
                              include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
+                             threshold = sdm_default_threshold,
                              seed = sdm_default_seed, n_cores = 1, log_fun = NULL, progress_fun = NULL,
                              n_bags = sdm_default_rangebag_n_bags,
                              bag_fraction = sdm_default_rangebag_fraction,
@@ -96,6 +97,8 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
   if (!is.finite(n_bags) || n_bags < 10) n_bags <- sdm_default_rangebag_n_bags
   seed <- suppressWarnings(as.integer(seed[1]))
   if (!is.finite(seed) || seed < 1) seed <- sdm_default_seed
+  threshold <- normalize_threshold(threshold)
+  if (!is.finite(threshold)) threshold <- 0.5
 
   if (!is.null(model_data)) {
     d <- model_data
@@ -172,7 +175,7 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
       cv <- cross_validate_model(model_data_rb,
         k = k_rb, seed = seed, n_cores = normalize_core_count(n_cores),
         cv_strategy = "presence_only_stratified", cv_block_size_km = NA_real_,
-        threshold = sdm_default_threshold, fit_fun = fit_fun_rb,
+        threshold = threshold, fit_fun = fit_fun_rb,
         cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
         fold_id = fold_id,
         log_fun = log_fun
@@ -187,6 +190,7 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
   }
   final_bags <- Filter(Negate(is.null), final_bags)
   if (length(final_bags) < 1) stop("No Rangebagging bags could be fitted.", call. = FALSE)
+  final_threshold <- if (!is.null(cv$threshold) && is.finite(cv$threshold)) cv$threshold else threshold
 
   model <- list(
     bags = final_bags,
@@ -195,7 +199,7 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
     n_bags = length(final_bags),
     bag_fraction = bag_fraction,
     vars_per_bag = vars_per_bag,
-    threshold = cv$threshold
+    threshold = final_threshold
   )
 
   model_data_all <- rbind(
@@ -215,7 +219,7 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
     cv = cv,
     covariates = covariates,
     variable_importance = NULL,
-    threshold = cv$threshold,
+    threshold = final_threshold,
     metrics = list(training_auc = train_metrics$auc, training_tss = train_metrics$tss)
   )
 }
