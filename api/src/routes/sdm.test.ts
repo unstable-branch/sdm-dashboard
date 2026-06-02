@@ -172,6 +172,16 @@ describe("SDM routes", () => {
     vi.clearAllMocks();
   });
 
+  describe("GET /config/defaults", () => {
+    it("includes multispecies DNN fallback defaults", async () => {
+      const res = await app.request("/api/v1/sdm/config/defaults");
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.dnnMultispeciesArchitecture).toBe("DNN_Medium");
+      expect(data.dnnMultispeciesNSeeds).toBe(3);
+    });
+  });
+
   describe("GET /runs", () => {
     it("returns paginated runs", async () => {
       const { db } = await import("../db");
