@@ -33,6 +33,17 @@ Rscript scripts/smoke_test.R --tags=batch        # Batch runner only
 Rscript scripts/smoke_test.R --tags=all
 ```
 
+# Plumber OpenAPI baseline smoke (CI/contract checks)
+
+```bash
+cd api
+PLUMBER_OPENAPI_MIN_PATHS=40 \
+PLUMBER_OPENAPI_REQUIRED_PATHS="/health,/api/v1/models,/api/v1/models/run,/api/v1/models/runs,/api/v1/occurrences/upload,/api/v1/output/manifest/*,/api/v1/climate/check" \
+pnpm run generate:types --url=http://localhost:8000
+```
+
+The check fails if the discovered OpenAPI path count drops below the baseline or required key paths are missing.
+
 ## Tag Reference
 
 | Tag | Tests | Description | Dependencies | Time |
