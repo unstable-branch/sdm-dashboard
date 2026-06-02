@@ -115,7 +115,7 @@ fi
 # 5. Start Frontend locally in tmux
 echo -e "${YELLOW}[5/5]${NC} Starting Frontend (Next.js) on port 3000..."
 eval "$TMUX_CMD kill-session -t sdm-frontend" 2>/dev/null || true
-eval "$TMUX_CMD new-session -d -s sdm-frontend \"cd '${SCRIPT_DIR}/frontend' && NODE_OPTIONS='--max-old-space-size=4096' npx --yes next dev --port 3000 -H 127.0.0.1\"" 2>&1
+eval "$TMUX_CMD new-session -d -s sdm-frontend \"cd '${SCRIPT_DIR}/frontend' && NODE_OPTIONS='--max-old-space-size=4096' npx --yes next dev --turbo --port 3000 -H 127.0.0.1\"" 2>&1
 
 # Wait for frontend to start
 sleep 12
