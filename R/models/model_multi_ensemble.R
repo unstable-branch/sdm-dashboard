@@ -222,8 +222,15 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   gc(verbose = FALSE)
 
   binary_preds <- lapply(names(preds), function(mid) {
-    comp_thresh <- if (!is.null(cv_list[[mid]]) && !is.null(cv_list[[mid]]$threshold)) cv_list[[mid]]$threshold else sdm_default_threshold
-    thresh <- user_threshold %||% comp_thresh
+    comp_thresh <- if (!is.null(cv_list[[mid]]) && !is.null(cv_list[[mid]]$threshold)) {
+      cv_list[[mid]]$threshold
+    } else if (!is.null(components[[mid]]) && !is.null(components[[mid]]$threshold)) {
+      components[[mid]]$threshold
+    } else {
+      sdm_default_threshold
+    }
+    thresh <- normalize_threshold(user_threshold %||% comp_thresh)
+    if (!is.finite(thresh)) thresh <- 0.5
     preds[[mid]] >= thresh
   })
   committee_stack <- do.call(c, binary_preds)

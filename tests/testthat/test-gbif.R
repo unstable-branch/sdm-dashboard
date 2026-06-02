@@ -107,3 +107,40 @@ test_that("read_gbif_records stops when rgbif is not installed", {
   mockery::stub(read_gbif_records, "requireNamespace", FALSE)
   expect_error(read_gbif_records("Test species"), "rgbif package required")
 })
+
+test_that("sdm_submit_gbif_search submits an async GBIF job", {
+  source(file.path(project_root, "plumber", "R", "plumber.R"))
+
+  submitted <- NULL
+  fake_submit <- function(type, input, app_dir, user_id) {
+    submitted <<- list(type = type, input = input, app_dir = app_dir, user_id = user_id)
+    "data-test-job"
+  }
+
+  result <- sdm_submit_gbif_search(
+    req = list(user_id = "user-123"),
+    taxon = "Acacia mearnsii",
+    country = "AU",
+    max_records = 7L,
+    app_dir_override = "test-app",
+    submit_fun = fake_submit
+  )
+
+  expect_equal(result$status, "running")
+  expect_equal(result$message, "GBIF search started in background")
+  expect_equal(result$job_id, "data-test-job")
+  expect_equal(submitted$type, "gbif")
+  expect_equal(submitted$input$taxon, "Acacia mearnsii")
+  expect_equal(submitted$input$country, "AU")
+  expect_equal(submitted$input$max_records, 7L)
+  expect_equal(submitted$app_dir, "test-app")
+  expect_equal(submitted$user_id, "user-123")
+})
+
+test_that("sdm_submit_gbif_search returns validation error for missing taxon", {
+  source(file.path(project_root, "plumber", "R", "plumber.R"))
+
+  result <- sdm_submit_gbif_search(req = list(), taxon = NULL, app_dir_override = tempfile("sdm-gbif-search-empty-"))
+  expect_true(!is.null(result$error))
+  expect_equal(result$error, "taxon is required")
+})
