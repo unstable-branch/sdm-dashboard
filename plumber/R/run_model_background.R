@@ -63,10 +63,7 @@ progress_fun <- function(x) {
       else if (grepl("summaris", d)) "summarize" else "unknown"
     } else "unknown"
   )
-  existing <- tryCatch(jsonlite::fromJSON(progress_json_path, simplifyVector = FALSE), error = function(e) list())
-  if (!is.list(existing)) existing <- list()
-  existing[[length(existing) + 1L]] <- entry
-  writeLines(jsonlite::toJSON(existing, auto_unbox = TRUE, pretty = TRUE), progress_json_path)
+  cat(jsonlite::toJSON(entry, auto_unbox = TRUE), "\n", file = progress_json_path, append = TRUE)
 }
 
 read_meta <- function() {

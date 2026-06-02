@@ -951,10 +951,14 @@ function(res, job_id) {
     }
   }
 
-  # Read structured progress JSON (written by progress_fun in background process)
+  # Read structured progress JSON (written as JSON-lines by progress_fun in background process)
   progress_json <- NULL
   if (file.exists(progress_json_file)) {
-    progress_json <- tryCatch(jsonlite::fromJSON(progress_json_file, simplifyVector = FALSE), error = function(e) NULL)
+    progress_json <- tryCatch({
+      lines <- readLines(progress_json_file, warn = FALSE)
+      entries <- lapply(lines[nzchar(lines)], function(l) jsonlite::fromJSON(l, simplifyVector = FALSE))
+      if (length(entries) > 0) entries else NULL
+    }, error = function(e) NULL)
   }
 
   result <- list(
