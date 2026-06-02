@@ -19,6 +19,7 @@ export const modelConfigSchema = z.object({
   cvBlockSizeKm: z.number().min(1).max(500).optional(),
   threshold: z.number().min(0.05).max(0.95).default(0.5),
   generateTiles: z.boolean().default(true),
+  generateCog: z.boolean().default(true),
   maskType: z.enum(["none", "landmass", "ocean"]).optional().default("none"),
   maskFile: z.string().optional(),
   maskBufferDeg: z.number().positive().optional(),
