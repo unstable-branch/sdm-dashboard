@@ -69,18 +69,29 @@ function validateOpenAPIBaseline(spec: Record<string, unknown>): void {
 }
 
 async function fetchOpenAPISpec(): Promise<Record<string, unknown>> {
-  const url = `${PLUMBER_URL.replace(/\/+$/, "")}/__docs__/openapi.json`;
-  console.log(`[plumber-types] Fetching OpenAPI spec from ${url}`);
+  const baseUrl = PLUMBER_URL.replace(/\/+$/, "");
+  const endpoints = ["/__openapi__/", "/__docs__/openapi.json"];
+  const failures: string[] = [];
 
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(
-      `Failed to fetch OpenAPI spec: ${res.status} ${res.statusText}\n` +
-      `Is Plumber running at ${PLUMBER_URL} with OpenAPI docs enabled?`
-    );
+  for (const endpoint of endpoints) {
+    const url = `${baseUrl}${endpoint}`;
+    console.log(`[plumber-types] Fetching OpenAPI spec from ${url}`);
+
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        return res.json() as Promise<Record<string, unknown>>;
+      }
+      failures.push(`${endpoint}: ${res.status} ${res.statusText}`);
+    } catch (err) {
+      failures.push(`${endpoint}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
-  return res.json() as Promise<Record<string, unknown>>;
+  throw new Error(
+    `Failed to fetch OpenAPI spec from Plumber endpoints: ${failures.join("; ")}\n` +
+    `Is Plumber running at ${PLUMBER_URL} with OpenAPI docs enabled?`
+  );
 }
 
 function generateTypes(spec: Record<string, unknown>): string {
