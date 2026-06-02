@@ -148,6 +148,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   chelsaExtras: "chelsa_extras",
   analysisCrs: "analysis_crs",
   generateTiles: "generate_tiles",
+  generateCog: "generate_cog",
   speciesFilter: "species_filter",
 };
 
