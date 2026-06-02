@@ -76,8 +76,7 @@ requires_auth <- function(path) {
     open_patterns <- c(
       open_patterns,
       "^/openapi[.]json$",
-      "^/__openapi__/?$",
-      "^/__docs__(/.*)?$"
+      "^/__openapi__/?$"
     )
   }
 

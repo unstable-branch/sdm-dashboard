@@ -4,7 +4,7 @@
 
 SDM Dashboard Workbench is now a beta species distribution modelling platform with two supported surfaces:
 
-- **Modern platform:** Next.js frontend, Hono API, Plumber R computation service, PostgreSQL/PostGIS, Redis/BullMQ, Garage S3-compatible storage, and Docker Compose.
+- **Modern platform:** Next.js 16 frontend, Hono API, Plumber R computation service, PostgreSQL/PostGIS, Redis/BullMQ, Garage S3-compatible storage, and Docker Compose.
 - **Legacy desktop app:** root-level R/Shiny app for local single-user workflows.
 
 The modern platform is the primary direction for development and deployment. The Shiny app remains useful as a desktop fallback and as a source of mature modelling code, but it should not drive repo architecture decisions.
@@ -14,7 +14,7 @@ The Shiny-first history is preserved on the `legacy-shiny` branch. The current b
 ## Architecture
 
 ```text
-Browser (Next.js 15)
+Browser (Next.js 16)
   -> Hono API/BFF (auth, projects, queues, cache, storage)
      -> Plumber R API (SDM computation endpoints)
         -> R modules under R/
@@ -29,7 +29,7 @@ The Hono API authenticates users with JWTs or API keys. Requests from Hono to Pl
 
 | Path | Purpose |
 |------|---------|
-| `frontend/` | Next.js 15 application and dashboard UI |
+| `frontend/` | Next.js 16 application and dashboard UI |
 | `api/` | Hono API, auth middleware, Drizzle schema, queues, storage, Plumber proxy |
 | `packages/shared/` | Shared TypeScript schemas and constants |
 | `plumber/` | R/Plumber API wrapper around modelling modules |
@@ -74,7 +74,7 @@ git diff --check
 
 `dev` is the integration branch. `main` is stable and should move by PR from `dev` after CI passes. Stale feature branches that are already contained in `dev` should be closed rather than merged directly.
 
-Release candidates should be tagged from `main` using semver prerelease tags such as `v2.0.0-beta.1`. The historical `v0.x`/`v1.0.0` tags belong to the Shiny-first line. The release workflow creates draft GitHub Releases, source/Windows-ready zips, and GHCR container images for the modern platform services.
+Release candidates should be tagged from `main` using semver prerelease tags such as `v2.0.0-beta.3`. The historical `v0.x`/`v1.0.0` tags belong to the Shiny-first line. The release workflow creates draft GitHub Releases, source/Windows-ready zips, and GHCR container images for the modern platform services.
 
 See `docs/RELEASE_AND_HOSTING.md` for packaging, release, and self-hosting policy.
 
