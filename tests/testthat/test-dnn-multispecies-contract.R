@@ -67,3 +67,26 @@ test_that("dnn multispecies and multi-ensemble snake_case config fields are reta
   expect_true(!isTRUE(cfg$multi_ensemble_uncertainty))
   expect_identical(cfg$biomod2_models, c("brt", "cta"))
 })
+
+test_that("dnn multispecies output attrs become result path contract entries", {
+  suit <- list()
+  species_tifs <- c(
+    tempfile(pattern = "species-a-", fileext = ".tif"),
+    tempfile(pattern = "species-b-", fileext = ".tif")
+  )
+  richness_tif <- tempfile(pattern = "richness-", fileext = ".tif")
+  attr(suit, "species_tifs") <- species_tifs
+  attr(suit, "richness_tif") <- richness_tif
+
+  paths <- sdm_multispecies_output_paths(suit)
+
+  expect_equal(paths$multi_species_tif_count, "2")
+  expect_equal(paths$multi_species_tif_1, species_tifs[[1]])
+  expect_equal(paths$multi_species_tif_2, species_tifs[[2]])
+  expect_equal(paths$multi_species_richness_tif, richness_tif)
+})
+
+test_that("dnn multispecies output path collector handles absent attrs", {
+  paths <- sdm_multispecies_output_paths(list())
+  expect_equal(paths, list())
+})
