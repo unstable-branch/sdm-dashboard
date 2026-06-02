@@ -1,5 +1,26 @@
 # Public orchestration API for the SDM workflow.
 
+sdm_multispecies_output_paths <- function(suitability) {
+  species_tifs <- attr(suitability, "species_tifs", exact = TRUE)
+  richness_tif <- attr(suitability, "richness_tif", exact = TRUE)
+  paths <- list()
+
+  if (!is.null(species_tifs) && length(species_tifs) > 0) {
+    species_tifs <- as.character(species_tifs)
+    names(species_tifs) <- NULL
+    paths$multi_species_tif_count <- as.character(length(species_tifs))
+    for (i in seq_along(species_tifs)) {
+      paths[[paste0("multi_species_tif_", i)]] <- species_tifs[[i]]
+    }
+  }
+
+  if (!is.null(richness_tif) && length(richness_tif) > 0) {
+    paths$multi_species_richness_tif <- as.character(richness_tif)[[1]]
+  }
+
+  paths
+}
+
 run_fast_sdm <- function(...) {
   args <- list(...)
   if (length(args) == 1 && is.sdm_config(args[[1]])) {
@@ -748,6 +769,8 @@ run_fast_sdm <- function(...) {
     if (!is.null(cpaths) && !is.null(cpaths[["disagreement"]])) {
       extra_paths$multi_ens_disagreement_tif <- cpaths[["disagreement"]]
     }
+  } else if (identical(model_id, "dnn_multispecies")) {
+    extra_paths <- c(extra_paths, sdm_multispecies_output_paths(suit))
   }
 
   if (isTRUE(future_projection)) {
