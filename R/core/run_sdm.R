@@ -132,8 +132,9 @@ run_fast_sdm <- function(...) {
   model_id <- validate_sdm_model_id(model_id)
   model_spec <- get_sdm_model(model_id)
   threshold <- normalize_threshold(threshold)
+  aggregation_factor <- aggregation_factor %||% 1L
   aggregation_factor <- as.integer(aggregation_factor)
-  if (is.na(aggregation_factor) || aggregation_factor < 1) aggregation_factor <- 1
+  if (length(aggregation_factor) != 1 || is.na(aggregation_factor) || aggregation_factor < 1) aggregation_factor <- 1L
   selected_soil_vars <- unique(as.character(selected_soil_vars))
   selected_soil_vars <- selected_soil_vars[nzchar(selected_soil_vars)]
   check_cancelled <- function(log_fun = NULL) {
@@ -359,11 +360,21 @@ run_fast_sdm <- function(...) {
     if (!requireNamespace("maxnet", quietly = TRUE)) {
       log_message(log_fun, "  maxnet package not available — using manual settings")
     } else {
-      model_data <- occ_data$model_data
-      covariates <- occ_data$covariates
-      if (!is.null(model_data) && length(covariates) > 0) {
+      tune_data <- tryCatch(
+        prepare_sdm_data(occ, env$env_train_scaled, background_n,
+          seed = seed, log_fun = log_fun,
+          bias_method = bias_method %||% "uniform",
+          target_group_occ = target_group_occ,
+          thickening_distance_km = thickening_distance_km
+        ),
+        error = function(e) {
+          log_message(log_fun, "  Data preparation for auto-tune failed: ", conditionMessage(e))
+          NULL
+        }
+      )
+      if (!is.null(tune_data) && nrow(tune_data$model_data) > 0 && length(tune_data$covariates) > 0) {
         tune_result <- tryCatch(
-          tune_maxnet(model_data, covariates,
+          tune_maxnet(tune_data$model_data, tune_data$covariates,
             regmult_grid = c(0.5, 1.0, 1.5, 2.0, 3.0),
             feature_sets = c("lqph", "lqp", "lp", "l"),
             k = max(cv_folds, 3L), seed = seed, n_cores = n_cores, log_fun = log_fun
@@ -381,6 +392,8 @@ run_fast_sdm <- function(...) {
             log_message(log_fun, "  Best: features=", maxnet_features, " regmult=", sprintf("%.1f", maxnet_regmult))
           }
         }
+      } else {
+        log_message(log_fun, "  Auto-tune skipped: could not prepare model data")
       }
     }
   }
@@ -474,43 +487,19 @@ run_fast_sdm <- function(...) {
   gc(verbose = FALSE)
 
   importance_result <- NULL
-  if (isTRUE(model_spec$supports_importance) && !is.null(fit$cv) && is.finite(fit$cv$auc_mean)) {
-    pred_fun <- switch(model_id,
-      glm = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        stats::predict.glm(mod$model, newdata = df, type = "response")
-      },
-      gam = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        predict(mod$model, newdata = df, type = "response")
-      },
-      rangebag = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        predict_rangebag_values(mod$model, df)
-      },
-      maxnet = function(mod, newdata) {
-        df <- as.data.frame(newdata)
-        if (nrow(df) == 0) {
-          return(numeric(0))
-        }
-        as.numeric(predict(mod$model, df, clamp = TRUE, type = "link"))
-      },
-      function(mod, newdata) stop("No importance prediction defined for model: ", model_id)
+  if (isTRUE(model_spec$supports_importance) && !is.null(fit$model_data) && !is.null(fit$cv) && is.finite(fit$cv$auc_mean)) {
+    importance_result <- tryCatch(
+      xai_importance(fit, n_cores = n_cores, seed = seed, log_fun = log_fun),
+      error = function(e) {
+        log_message(log_fun, "Permutation importance failed: ", conditionMessage(e))
+        NULL
+      }
     )
-    if (is.data.frame(importance_result) && nrow(importance_result) > 0) {
-      log_message(log_fun, "Importance computed for ", nrow(importance_result), " variables")
-    }
   } else if (!is.null(fit$variable_importance) && is.data.frame(fit$variable_importance)) {
     importance_result <- fit$variable_importance
+  }
+  if (!is.null(importance_result) && is.data.frame(importance_result) && nrow(importance_result) > 0) {
+    log_message(log_fun, "Importance computed for ", nrow(importance_result), " variables")
   }
 
   extra_paths <- list()
@@ -543,26 +532,36 @@ run_fast_sdm <- function(...) {
     log_message(log_fun, "  MESS: ", sprintf("%.1f%%", mess_result$pct_extrapolation * 100), " of projection area outside training range")
   }
 
+  # Free unscaled raster copies — no longer needed after MESS
+  env$env_train <- NULL
+  env$env_project <- NULL
+  gc(verbose = FALSE)
+
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
 
-  # Pre-flight memory check: reject if prediction likely exceeds 60% of available RAM
+  # Pre-flight memory check: reject if total memory (existing scaled rasters + prediction) exceeds 60% of available RAM
   tryCatch({
     mem_info <- terra::mem_info()
     if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
-      n_cells <- terra::ncell(env$env_project_scaled)
+      n_cells_proj <- terra::ncell(env$env_project_scaled)
+      n_cells_train <- terra::ncell(env$env_train_scaled)
       n_layers <- terra::nlyr(env$env_project_scaled)
-      est_gb <- n_cells * n_layers * 8 / (1024^3) * 3.0
-      if (is.finite(est_gb) && est_gb > mem_info$memavail * 0.6) {
+      bytes_per_val <- 8
+      gb_per_cell_layer <- bytes_per_val / (1024^3)
+      existing_gb <- (n_cells_train + n_cells_proj) * n_layers * gb_per_cell_layer
+      pred_gb <- n_cells_proj * gb_per_cell_layer * 3.0
+      total_est_gb <- existing_gb + pred_gb
+      if (is.finite(total_est_gb) && total_est_gb > mem_info$memavail * 0.6) {
         stop(sprintf(
-          "Estimated prediction memory (%.1f GB) exceeds 60%% of available RAM (%.1f GB). ",
-          est_gb, mem_info$memavail
+          "Estimated total memory (%.1f GB = %.1f existing rasters + %.1f prediction) exceeds 60%% of available RAM (%.1f GB). ",
+          total_est_gb, existing_gb, pred_gb, mem_info$memavail
         ), call. = FALSE)
       }
     }
   }, error = function(e) {
-    if (grepl("^Estimated prediction memory", conditionMessage(e))) stop(e)
+    if (grepl("^Estimated total memory", conditionMessage(e))) stop(e)
   })
 
   # ESM-specific memory guard: ecospat loads entire raster into R memory,
@@ -596,6 +595,10 @@ run_fast_sdm <- function(...) {
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
+
+  # Limit terra memory usage and force GC to reduce OOM risk
+  tryCatch(terra::terraOptions(memfrac = 0.6), error = function(e) NULL)
+  gc(verbose = FALSE)
 
   # Pre-flight memory check: warn if raster prediction may exceed available RAM
   tryCatch({
@@ -656,7 +659,7 @@ run_fast_sdm <- function(...) {
   # Write final suitability raster (temp file to avoid source=target conflict)
   tmp_out <- tempfile(fileext = ".tif")
   terra::writeRaster(suit, tmp_out, overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
   file.rename(tmp_out, output_tif)
   suit <- terra::rast(output_tif)
   mm <- tryCatch(terra::minmax(suit), error = function(e) NULL)
@@ -696,7 +699,7 @@ run_fast_sdm <- function(...) {
     }
     if (valid_reps > 1) {
       suit <- suit_sum / valid_reps
-      terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+      terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
       log_message(log_fun, "PA-averaged suitability from ", valid_reps, " replicates written to ", output_tif)
     }
   }
@@ -733,7 +736,7 @@ run_fast_sdm <- function(...) {
     if (!is.null(climate_match_result)) {
       cm_tif <- file.path(output_dir, paste0(base_name, "_climatch.tif"))
       terra::writeRaster(climate_match_result$similarity, cm_tif,
-        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+        overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
       extra_paths[["climate_matching_tif"]] <- cm_tif
     }
   }
@@ -798,10 +801,10 @@ run_fast_sdm <- function(...) {
     if (!is.null(future)) {
       extra_paths <- c(extra_paths, future$paths)
       if (mask_type != "none") {
-        future$suitability <- apply_boundary_mask(future$suitability, mask_type, mask_file, buffer_deg, log_fun)
+        future$suitability <- apply_boundary_mask(future$suitability, mask_type, mask_file, mask_buffer_deg, log_fun)
         if (!is.null(future$paths$future_tif)) {
           terra::writeRaster(future$suitability, future$paths$future_tif, overwrite = TRUE,
-            wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+            wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
         }
       }
     }
@@ -825,7 +828,9 @@ run_fast_sdm <- function(...) {
         output_future_tif = file.path(output_dir, paste0(base_name, "_future2_suitability.tif")),
         output_delta_tif = file.path(output_dir, paste0(base_name, "_future2_delta.tif")),
         n_cores = n_cores,
-        log_fun = log_fun
+        log_fun = log_fun,
+        mask_extrapolation = isTRUE(cfg$extrapolation_mask %||% TRUE),
+        mess_threshold = cfg$mess_threshold %||% 0
       ),
       error = function(e) {
         log_message(log_fun, "2nd scenario failed: ", conditionMessage(e))
@@ -836,10 +841,10 @@ run_fast_sdm <- function(...) {
       future2$summary <- summarise_suitability(future2$suitability, threshold)
       extra_paths <- c(extra_paths, future2$paths)
       if (mask_type != "none") {
-        future2$suitability <- apply_boundary_mask(future2$suitability, mask_type, mask_file, buffer_deg, log_fun)
+        future2$suitability <- apply_boundary_mask(future2$suitability, mask_type, mask_file, mask_buffer_deg, log_fun)
         if (!is.null(future2$paths$future_tif)) {
           terra::writeRaster(future2$suitability, future2$paths$future_tif, overwrite = TRUE,
-            wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+            wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
         }
       }
 
@@ -1272,7 +1277,8 @@ sdm_stage_future <- function(cfg, fit, suit, env, output_dir, base_name, log_fun
 #' Run SDM pipeline: Stage 5 — Post-processing (climate match, EOO/AOO, AOA, XAI)
 sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   log_message(log_fun, "Stage 5: Post-processing")
-  result <- tryCatch({
+  result <- list()
+  tryCatch({
 
   # EOO/AOO
   if (!is.null(fit$occurrence_used)) {
@@ -1324,10 +1330,10 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
     )
   }
 
-  result
   }, error = function(e) {
     stop("Stage 5 (postprocess) failed: ", conditionMessage(e), call. = FALSE)
   })
+  result
 }
 
 check_complexity_tier <- function(model_id, n_pres, niche_breadth = "average",

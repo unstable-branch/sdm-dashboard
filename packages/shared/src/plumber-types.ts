@@ -169,6 +169,14 @@ export interface PlumberErrorResponse {
   error_hint?: string;
 }
 
+// ── Job logs ─────────────────────────────────────────────────────────────────
+export interface PlumberJobLogs {
+  id: string;
+  stderr: string;
+  stdout: string;
+  progress_log: string;
+}
+
 // ── Targets pipeline ────────────────────────────────────────────────────────
 export interface TargetsRunRequest {
   configs: Array<{

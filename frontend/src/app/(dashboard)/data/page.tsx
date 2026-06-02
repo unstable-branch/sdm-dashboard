@@ -67,7 +67,7 @@ function DataPageContent() {
 
   useEffect(() => {
     if (!cleanJobId) return;
-    const timeout = setTimeout(() => { setCleanError("Clean job timed out — check the admin diagnostics panel"); setCleanJobId(null); setCleanLoading(false); }, 600_000);
+    const timeout = setTimeout(() => { setCleanError("Clean job timed out after 5 minutes"); setCleanJobId(null); setCleanLoading(false); }, 300_000);
     return () => clearTimeout(timeout);
   }, [cleanJobId]);
 
@@ -338,37 +338,37 @@ function DataPageContent() {
       </div>
 
       <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
-        <TabsList className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 w-full max-w-2xl">
-          <TabsTrigger value="upload" className="flex items-center gap-1.5">
-            <Upload className="h-3.5 w-3.5" />
+        <TabsList className="flex w-full overflow-x-auto [&::-webkit-scrollbar]:hidden border-b border-sdm-border rounded-none bg-transparent p-0 gap-0">
+          <TabsTrigger value="upload" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <Upload className="h-3 w-3" />
             Upload
           </TabsTrigger>
-          <TabsTrigger value="gbif" className="flex items-center gap-1.5">
-            <Globe className="h-3.5 w-3.5" />
+          <TabsTrigger value="gbif" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <Globe className="h-3 w-3" />
             GBIF
           </TabsTrigger>
-          <TabsTrigger value="dwca" className="flex items-center gap-1.5">
-            <FileArchive className="h-3.5 w-3.5" />
+          <TabsTrigger value="dwca" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <FileArchive className="h-3 w-3" />
             DwC-A
           </TabsTrigger>
-          <TabsTrigger value="clean" className="flex items-center gap-1.5">
-            <Wand2 className="h-3.5 w-3.5" />
+          <TabsTrigger value="clean" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <Wand2 className="h-3 w-3" />
             Clean
           </TabsTrigger>
-          <TabsTrigger value="obs" className="flex items-center gap-1.5">
-            <Flag className="h-3.5 w-3.5" />
+          <TabsTrigger value="obs" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <Flag className="h-3 w-3" />
             Records
           </TabsTrigger>
-          <TabsTrigger value="batch" className="flex items-center gap-1.5">
-            <Layers className="h-3.5 w-3.5" />
+          <TabsTrigger value="batch" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <Layers className="h-3 w-3" />
             Batch
           </TabsTrigger>
-          <TabsTrigger value="climate" className="flex items-center gap-1.5">
-            <Cloud className="h-3.5 w-3.5" />
+          <TabsTrigger value="climate" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <Cloud className="h-3 w-3" />
             Climate
           </TabsTrigger>
-          <TabsTrigger value="covariates" className="flex items-center gap-1.5">
-            <Layers className="h-3.5 w-3.5" />
+          <TabsTrigger value="covariates" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <Layers className="h-3 w-3" />
             Covariates
           </TabsTrigger>
         </TabsList>
@@ -380,8 +380,9 @@ function DataPageContent() {
         )}
 
         {activeTab === "gbif" && (
-          <>
-          {gbifPreview && gbifPreview.length > 0 && <PreviewTable data={gbifPreview} title="GBIF Preview (first 5 records)" />}
+          <div className="space-y-4">
+            <GbifSearch onSearch={handleGbifSearch} loading={gbifLoading} error={gbifError} result={gbifResult} />
+            {gbifPreview && gbifPreview.length > 0 && <PreviewTable data={gbifPreview} title="GBIF Preview (first 5 records)" />}
             {gbifResult && typeof gbifResult.n_records === "number" && gbifResult.n_records > 0 && (
               <div className="space-y-3">
                 {gbifSaved ? (
@@ -397,7 +398,7 @@ function DataPageContent() {
                 )}
               </div>
             )}
-          </>
+          </div>
         )}
 
         {activeTab === "dwca" && (

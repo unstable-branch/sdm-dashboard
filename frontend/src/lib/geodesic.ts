@@ -85,6 +85,7 @@ export function densifyGeoJSONFeature(
   feature: GeoJSON.Feature,
   maxSegmentKm: number = 10
 ): GeoJSON.Feature {
+  if (!feature.geometry) return feature;
   if (feature.geometry.type === "Polygon") {
     const poly = feature.geometry as GeoJSON.Polygon;
     return {

@@ -117,7 +117,6 @@ modules <- c(
   "climex.R",
 
   # --- xai ---
-  "xai_methods.R",
   "ale.R",
   "shap.R",
   "climate_driver.R",
@@ -132,7 +131,8 @@ modules <- c(
   "manifest.R",
   "diagnostics_plots.R",
   "batch_runner.R",
-  "script_export.R"
+  "script_export.R",
+  "tile_generator.R"
 )
 
 for (m in modules) {

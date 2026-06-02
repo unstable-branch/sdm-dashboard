@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { existsSync, readFileSync } from "fs";
+import { existsSync } from "fs";
 import { isAbsolute, join, relative, resolve } from "path";
 import { stat, readFile } from "fs/promises";
 import { db } from "../db/index.js";
@@ -98,14 +98,13 @@ async function serveFile(c: any, filePath: string) {
   }
 
   const user = c.get("user");
-  if (resolved.runId.length === 36 && resolved.runId.includes("-")) {
-    try {
-      if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
-        return c.json({ error: "File not found" }, 404);
-      }
-    } catch {
+  try {
+    if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
       return c.json({ error: "File not found" }, 404);
     }
+  } catch (e) {
+    console.warn("[results] Access check failed for", resolved.runId, e instanceof Error ? e.message : String(e));
+    return c.json({ error: "File not found" }, 404);
   }
 
   const { fullPath } = resolved;
@@ -133,10 +132,15 @@ async function serveFile(c: any, filePath: string) {
     return c.body(null, 304);
   }
 
+  const encPath = fullPath + ".enc";
+  const isEncrypted = existsSync(encPath);
+  const servePath = isEncrypted ? encPath : fullPath;
+
   c.header("Content-Type", contentType);
   c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
 
-  const buffer = await readFile(fullPath);
+  const raw = await readFile(servePath);
+  const buffer = isEncrypted ? decrypt(raw) : raw;
   return c.body(buffer);
 }
 
@@ -145,6 +149,16 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
 
   if (!/^\d+$/.test(z) || !/^\d+$/.test(x) || !/^\d+$/.test(y)) {
     return c.json({ error: "Invalid tile coordinates" }, 400);
+  }
+
+  const zoom = parseInt(z, 10);
+  const tileX = parseInt(x, 10);
+  const tileY = parseInt(y, 10);
+  if (zoom > 20) {
+    return c.json({ error: "Zoom level too high" }, 400);
+  }
+  if (tileX < 0 || tileY < 0 || tileX >= 1 << zoom || tileY >= 1 << zoom) {
+    return c.json({ error: "Tile coordinates out of range" }, 400);
   }
 
   const user = c.get("user");
@@ -162,18 +176,24 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
     return c.json({ error: "Run not found" }, 404);
   }
 
-  const jobDir = resolve(resultRoot, runId);
+  const jobDir = resolve(resultRoot, run.jobId ?? runId);
 
-  const tilePath = resolve(jobDir, "map_tiles", "suitability", z, x, `${y}.png`);
+  const tilePath = resolve(jobDir, "map_tiles", "suitability", String(zoom), String(tileX), `${tileY}.png`);
   const rel = relative(resultRoot, tilePath);
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
     return c.json({ error: "Invalid tile path" }, 400);
   }
 
   if (existsSync(tilePath)) {
-    const buffer = await readFile(tilePath);
+    const stats = await stat(tilePath);
+    const etag = `W/"${stats.size}-${stats.mtimeMs}"`;
+    c.header("ETag", etag);
     c.header("Content-Type", "image/png");
     c.header("Cache-Control", "public, max-age=86400");
+    if (c.req.header("If-None-Match") === etag) {
+      return c.body(null, 304);
+    }
+    const buffer = await readFile(tilePath);
     return c.body(buffer);
   }
 
@@ -187,15 +207,21 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
     try {
       const plumberRes = await fetch(
         `${plumberUrl}/api/v1/results/tiles/cog/${run.jobId}/${z}/${x}/${y}`,
-        { headers, signal: AbortSignal.timeout(15000) }
+        { headers, signal: AbortSignal.timeout(45000) }
       );
+      if (plumberRes.status === 204) {
+        return c.body(null, 204);
+      }
       if (plumberRes.ok) {
         const pngBuf = Buffer.from(await plumberRes.arrayBuffer());
         c.header("Content-Type", "image/png");
-        c.header("Cache-Control", "public, max-age=3600");
+        c.header("Cache-Control", "public, max-age=86400");
         return c.body(pngBuf);
       }
-    } catch { /* Plumber unavailable — return 204 */ }
+      console.warn(`[tiles] Plumber tile error for ${runId}/${z}/${x}/${y}: ${plumberRes.status}`);
+    } catch (e) {
+      console.warn(`[tiles] Plumber tile proxy failed for ${runId}/${z}/${x}/${y}:`, e instanceof Error ? e.message : String(e));
+    }
   }
 
   return c.body(null, 204);
@@ -207,14 +233,12 @@ async function serveFileFromPath(c: any, filePath: string) {
   if (!resolved) return c.json({ error: "Invalid file path" }, 400);
 
   const user = c.get("user");
-  if (resolved.runId.length === 36 && resolved.runId.includes("-")) {
-    try {
-      if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
-        return c.json({ error: "File not found" }, 404);
-      }
-    } catch {
+  try {
+    if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
       return c.json({ error: "File not found" }, 404);
     }
+  } catch {
+    return c.json({ error: "File not found" }, 404);
   }
 
   const { fullPath } = resolved;
@@ -310,6 +334,7 @@ resultsRoutes.get("/:id", async (c) => {
       completedAt: runs.completedAt,
       error: runs.error,
       metrics: runs.metrics,
+      config: runs.config,
       outputFiles: runs.outputFiles,
       provenance: runs.provenance,
     })

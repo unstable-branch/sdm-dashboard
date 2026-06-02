@@ -24,7 +24,7 @@ cache_mode <- Sys.getenv("SDM_TARGETS_CACHE", "standard")
 # Set SDM_CLUSTER_BACKEND=slurm (or sge, pbs, aws) for distributed workers.
 cluster_backend <- Sys.getenv("SDM_CLUSTER_BACKEND", "local")
 cluster_workers <- as.integer(Sys.getenv("SDM_CLUSTER_WORKERS",
-  parallel::detectCores()))
+  max(1, parallel::detectCores() / 2)))
 
 if (cluster_backend != "local" && requireNamespace("crew", quietly = TRUE)) {
   controller <- build_crew_controller(cluster_backend, workers = cluster_workers)
@@ -42,7 +42,8 @@ tar_option_set(
   garbage_collection = cache_mode != "persistent",
   storage = if (cache_mode == "minimal") "worker" else "main",
   retrieval = if (cache_mode == "minimal") "worker" else "main",
-  packages = c("terra", "sf")
+  packages = c("terra", "sf"),
+  error = "continue"
 )
 
 # ── Load SDM engine ─────────────────────────────────────────────────────────
@@ -102,9 +103,8 @@ list(
 
   tar_target(occ_clean, sdm_stage_clean(cfg), pattern = map(cfg)),
 
-  # Non-branching: shared environment (first row config is representative)
-  tar_target(shared_cfg, build_config_from_row(config_rows[[1]], seed = batch_seed)),
-  tar_target(env, sdm_stage_covariates(shared_cfg, NULL)),
+  # Per-species environment loading (correct covariates for each species)
+  tar_target(env, sdm_stage_covariates(cfg, occ_clean$occ), pattern = map(cfg)),
 
   tar_target(fit, sdm_stage_fit(cfg, occ_clean$occ, env), pattern = map(cfg)),
 

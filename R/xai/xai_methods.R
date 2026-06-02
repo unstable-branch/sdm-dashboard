@@ -110,7 +110,7 @@ build_importance_predict_fun <- function(fit) {
     maxnet = function(mod, newdata) {
       df <- as.data.frame(newdata)
       if (nrow(df) == 0) return(numeric(0))
-      as.numeric(maxnet::predict.maxnet(mod$model, df, clamp = TRUE, type = "link"))
+      as.numeric(maxnet::predict.maxnet(mod$model, df, clamp = TRUE, type = "cloglog"))
     },
     # Default: generic predict()
     function(mod, newdata) {

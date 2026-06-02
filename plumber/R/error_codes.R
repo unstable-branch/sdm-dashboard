@@ -3,6 +3,12 @@
 # Used consistently across Plumber API, model backends, and frontend.
 
 SDM_ERR_CODES <- list(
+  RUNNER_LOAD_FAILED = list(
+    code = "RUNNER_LOAD_FAILED",
+    http_status = 500L,
+    message = "The R background process died while initialising SDM modules",
+    hint = "The process was killed by the OS, likely due to insufficient memory. Reduce covariates, use coarser resolution, or increase container memory. If this persists, check that all required R packages are installed."
+  ),
   PROCESS_CRASH = list(
     code = "PROCESS_CRASH",
     http_status = 500L,
@@ -92,6 +98,18 @@ SDM_ERR_CODES <- list(
     http_status = 400L,
     message = "Invalid input parameters",
     hint = "Check the request parameters against the API schema"
+  ),
+  ACCESS_DENIED = list(
+    code = "ACCESS_DENIED",
+    http_status = 403L,
+    message = "Access denied",
+    hint = "You do not have permission to perform this action"
+  ),
+  CANCELLED = list(
+    code = "CANCELLED",
+    http_status = 200L,
+    message = "Run cancelled by user",
+    hint = "The run was cancelled — no further action needed"
   ),
   INTERNAL_ERROR = list(
     code = "INTERNAL_ERROR",

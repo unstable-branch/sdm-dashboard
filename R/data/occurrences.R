@@ -318,22 +318,6 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
         }
       }
     }
-    if (!is.null(cc_result)) {
-      occ$cc_flag <- !cc_result$.summary
-      cc_test_map <- c(
-        .sea = "cc_test_sea", .cap = "cc_test_capitals",
-        .inst = "cc_test_institutions", .cen = "cc_test_centroids",
-        .urb = "cc_test_urban", .zer = "cc_test_zero",
-        .equ = "cc_test_equal", .gbf = "cc_test_gbif"
-      )
-      for (col in names(cc_result)) {
-        if (col %in% names(cc_test_map)) {
-          occ[[cc_test_map[[col]]]] <- !cc_result[[col]]
-        }
-      }
-      n_flagged <- sum(!cc_result$.summary, na.rm = TRUE)
-      log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", nrow(occ), " records")
-    }
     n_flagged <- sum(occ$cc_flag, na.rm = TRUE)
     n_total <- if (cc_run_on_sample) cc_max_for_full else nrow(occ)
     log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", n_total, " records",

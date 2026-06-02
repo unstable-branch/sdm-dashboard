@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useTheme } from "next-themes";
 import type { ViewState } from "react-map-gl/maplibre";
 import type { FeatureCollection } from "geojson";
@@ -45,14 +45,24 @@ const DynamicMap = dynamic(() => import("./maplibre-map"), {
 });
 
 export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinates, projectionExtent, eooGeoJSON, aooGeoJSON, boundaryGeoJSON }: SuitabilityMapProps) {
-  const finalCoordinates = coordinates || extentToCoordinates(projectionExtent);
-  const finalViewState = initialViewState || extentToViewState(projectionExtent);
-  const tileBounds: [number, number, number, number] | undefined = projectionExtent
-    ? [projectionExtent[0], projectionExtent[2], projectionExtent[1], projectionExtent[3]]
-    : finalCoordinates
-    ? [finalCoordinates[0][0], finalCoordinates[2][1], finalCoordinates[1][0], finalCoordinates[0][1]]
-    : undefined;
+  const finalCoordinates = useMemo(
+    () => coordinates || extentToCoordinates(projectionExtent),
+    [coordinates, projectionExtent]
+  );
+  const finalViewState = useMemo(
+    () => initialViewState || extentToViewState(projectionExtent),
+    [initialViewState, projectionExtent]
+  );
+  const tileBounds: [number, number, number, number] | undefined = useMemo(
+    () => projectionExtent
+      ? [projectionExtent[0], projectionExtent[2], projectionExtent[1], projectionExtent[3]]
+      : finalCoordinates
+      ? [finalCoordinates[0][0], finalCoordinates[2][1], finalCoordinates[1][0], finalCoordinates[0][1]]
+      : undefined,
+    [projectionExtent, finalCoordinates]
+  );
   const { resolvedTheme } = useTheme();
+  const safeTheme = resolvedTheme ?? "dark";
   const [layerVisibility, setLayerVisibility] = useState<Record<string, boolean>>({
     suitability: true,
     eoo: true,
@@ -60,7 +70,7 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
     boundary: false,
     extent: true,
   });
-  const [basemap, setBasemap] = useState<"light" | "dark">("light");
+  const [basemap, setBasemap] = useState<"light" | "dark">("dark");
 
   const onToggleLayer = useCallback((layer: string) => {
     setLayerVisibility((prev) => ({ ...prev, [layer]: !prev[layer] }));
@@ -90,7 +100,7 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
       <div className="relative h-[60vh]">
         <DynamicMap
           runId={runId}
-          theme={resolvedTheme}
+          theme={safeTheme}
           initialViewState={finalViewState}
           coordinates={finalCoordinates}
           tileZoomMin={safeTileZoomMin}

@@ -1,5 +1,24 @@
 # WorldClim discovery, download, cropping, and scaling helpers.
 
+# Simple file-based lock for concurrent download protection
+sdm_download_lock <- function(lock_path, timeout_sec = 300, poll_ms = 500) {
+  lock_dir <- paste0(lock_path, ".lock")
+  deadline <- Sys.time() + timeout_sec
+  while (Sys.time() < deadline) {
+    if (dir.create(lock_dir, showWarnings = FALSE)) {
+      return(lock_dir)
+    }
+    Sys.sleep(poll_ms / 1000)
+  }
+  stop("Download lock timeout after ", timeout_sec, "s for: ", lock_path, call. = FALSE)
+}
+
+sdm_download_unlock <- function(lock_dir) {
+  if (!is.null(lock_dir) && dir.exists(lock_dir)) {
+    unlink(lock_dir, recursive = TRUE)
+  }
+}
+
 find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("worldclim", "chelsa"), res = NULL) {
   source <- match.arg(source)
   if (is.null(worldclim_dir) || length(worldclim_dir) == 0 || !nzchar(worldclim_dir)) {
@@ -427,16 +446,26 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
 
   files <- find_worldclim_files(climate_dir, selected_biovars, source = source)
   if (any(is.na(files)) && allow_download) {
-    if (identical(source, "chelsa")) {
-      result <- download_chelsa_bio(chelsa_dir, selected_biovars, log_fun, n_cores)
-      files <- result$files
-      if (length(result$failed) > 0) {
-        log_message(log_fun, "Partial failure: ", length(result$failed), " CHELSA BIO layers failed to download")
+    lock_dir <- NULL
+    tryCatch({
+      lock_dir <- sdm_download_lock(climate_dir)
+      # Re-check after acquiring lock — another worker may have downloaded while we waited
+      files <- find_worldclim_files(climate_dir, selected_biovars, source = source)
+      if (any(is.na(files))) {
+        if (identical(source, "chelsa")) {
+          result <- download_chelsa_bio(chelsa_dir, selected_biovars, log_fun, n_cores)
+          files <- result$files
+          if (length(result$failed) > 0) {
+            log_message(log_fun, "Partial failure: ", length(result$failed), " CHELSA BIO layers failed to download")
+          }
+        } else {
+          result <- download_worldclim_bio(worldclim_dir, selected_biovars, worldclim_res, log_fun, n_cores)
+          files <- result$files
+        }
       }
-    } else {
-      result <- download_worldclim_bio(worldclim_dir, selected_biovars, worldclim_res, log_fun, n_cores)
-      files <- result$files
-    }
+    }, finally = {
+      sdm_download_unlock(lock_dir)
+    })
   }
   if (any(is.na(files))) {
     missing <- selected_biovars[is.na(files)]
@@ -454,8 +483,14 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
     chelsa_files <- find_chelsa_extra_files(chelsa_dir, selected_chelsa_extras)
     missing_extras <- names(chelsa_files)[is.na(chelsa_files)]
     if (length(missing_extras) > 0 && allow_download) {
-      downloaded <- download_chelsa_extras(chelsa_dir, missing_extras, log_fun, n_cores)
-      chelsa_files <- find_chelsa_extra_files(chelsa_dir, selected_chelsa_extras)
+      lock_dir <- NULL
+      tryCatch({
+        lock_dir <- sdm_download_lock(chelsa_dir)
+        downloaded <- download_chelsa_extras(chelsa_dir, missing_extras, log_fun, n_cores)
+        chelsa_files <- find_chelsa_extra_files(chelsa_dir, selected_chelsa_extras)
+      }, finally = {
+        sdm_download_unlock(lock_dir)
+      })
       if (length(downloaded$failed) > 0) {
         log_message(log_fun, "Partial failure: ", length(downloaded$failed), " CHELSA extra vars failed to download")
       }

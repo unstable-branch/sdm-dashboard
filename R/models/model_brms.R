@@ -132,7 +132,7 @@ predict_brms_suitability <- function(fit, env_project_scaled, output_tif, n_core
     suit <- terra::rast(env_subset[[1]])
     names(suit) <- "suitability"
     dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     return(suit)
   }
 
@@ -154,7 +154,7 @@ predict_brms_suitability <- function(fit, env_project_scaled, output_tif, n_core
   names(suit) <- "suitability"
 
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
   log_message(log_fun, "Suitability raster written to: ", output_tif)
 
   if (nrow(epred) >= 20) {
@@ -166,7 +166,7 @@ predict_brms_suitability <- function(fit, env_project_scaled, output_tif, n_core
     uncertainty_rast[complete_idx] <- sd_suit
     names(uncertainty_rast) <- "uncertainty_sd"
     terra::writeRaster(uncertainty_rast, uncertainty_tif, overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     log_message(log_fun, "Uncertainty raster written to: ", uncertainty_tif)
     attr(suit, "uncertainty_tif") <- uncertainty_tif
   }
