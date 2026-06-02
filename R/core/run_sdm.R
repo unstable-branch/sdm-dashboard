@@ -588,8 +588,7 @@ run_fast_sdm <- function(...) {
     return(invisible(NULL))
   }
 
-  # Limit terra memory usage and force GC to reduce OOM risk
-  tryCatch(terra::terraOptions(memfrac = 0.6), error = function(e) NULL)
+  # Force GC to reduce OOM risk before prediction
   gc(verbose = FALSE)
 
   # Pre-flight memory check: warn if raster prediction may exceed available RAM

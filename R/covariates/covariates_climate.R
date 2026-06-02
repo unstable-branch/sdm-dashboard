@@ -509,8 +509,6 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
   env_train <- if (!is.null(training_extent)) crop_and_optionally_aggregate(env_global, training_extent, aggregation_factor) else env_global
   env_project <- if (!is.null(projection_extent)) crop_and_optionally_aggregate(env_global, projection_extent, aggregation_factor) else env_global
 
-  terra::terraOptions(memfrac = 0.5, progress = 0)
-
   list(
     env_train = env_train,
     env_project = env_project,
