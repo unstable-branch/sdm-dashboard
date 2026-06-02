@@ -221,6 +221,11 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
       }
       if (plumberRes.ok) {
         const pngBuf = Buffer.from(await plumberRes.arrayBuffer());
+        const etag = `W/"${pngBuf.length}-${z}-${x}-${y}"`;
+        c.header("ETag", etag);
+        if (c.req.header("If-None-Match") === etag) {
+          return c.body(null, 304);
+        }
         c.header("Content-Type", "image/png");
         c.header("Cache-Control", "public, max-age=86400");
         return c.body(pngBuf);
