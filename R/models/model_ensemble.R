@@ -36,7 +36,14 @@ fit_ensemble_glm_rangebag_sdm <- function(occ, env_train_scaled, background_n = 
                                           n_bags = sdm_default_rangebag_n_bags,
                                           bag_fraction = sdm_default_rangebag_fraction,
                                           vars_per_bag = sdm_default_rangebag_vars_per_bag,
+                                          bias_method = c("uniform", "target_group", "thickened"),
+                                          target_group_occ = NULL,
+                                          thickening_distance_km = NULL,
+                                          cv_strategy = sdm_default_cv_strategy,
+                                          cv_block_size_km = sdm_default_cv_block_size_km,
                                           ...) {
+  bias_method <- match.arg(bias_method)
+
   # Shared PA data: prepare once, use for both component models
   shared_data <- prepare_sdm_data(occ, env_train_scaled, background_n,
     seed = seed, log_fun = log_fun,
@@ -59,7 +66,8 @@ fit_ensemble_glm_rangebag_sdm <- function(occ, env_train_scaled, background_n = 
     occ, env_train_scaled,
     background_n = background_n, include_quadratic = include_quadratic,
     cv_folds = cv_folds, seed = seed, n_cores = n_cores, log_fun = log_fun,
-    n_bags = n_bags, bag_fraction = bag_fraction, vars_per_bag = vars_per_bag
+    n_bags = n_bags, bag_fraction = bag_fraction, vars_per_bag = vars_per_bag,
+    model_data = shared_data
   )
   rangebag_fit$model_id <- "rangebag"
   rangebag_fit$model_label <- "Rangebagging"
