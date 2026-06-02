@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -127,7 +127,7 @@ export default function ResultsPage() {
     const next = { ...run };
     // Only merge SSE logs if they contain real data (not the synthetic bootstrap placeholder)
     if (logs && logs.length > 0 && logs[0] !== "Model run in progress..." &&
-        JSON.stringify(logs) !== JSON.stringify(run.progress_log)) {
+        (logs.length !== (run.progress_log?.length ?? 0) || logs[logs.length - 1] !== run.progress_log?.[run.progress_log.length - 1])) {
       next.progress_log = logs;
       changed = true;
     }
@@ -233,7 +233,7 @@ export default function ResultsPage() {
           const next = { ...prev };
           let changed = false;
           if (res.progress_log?.length > 0 &&
-              JSON.stringify(res.progress_log) !== JSON.stringify(prev.progress_log)) {
+              (res.progress_log.length !== (prev.progress_log?.length ?? 0) || res.progress_log[res.progress_log.length - 1] !== prev.progress_log?.[prev.progress_log.length - 1])) {
             next.progress_log = res.progress_log;
             changed = true;
           }
@@ -352,6 +352,23 @@ export default function ResultsPage() {
 
   const outputFiles = run?.output_files ?? null;
 
+  const stageData: ProgressStage[] | null = sseJob?.progressJson ?? run.progress_json ?? null;
+  const stageChips = useMemo(() => stageData && stageData.length > 0 ? (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {stageData.map((entry, i) => (
+        <span key={i} className={`text-xs rounded px-1.5 py-0.5 ${
+          entry.stage === "unknown" ? "bg-sdm-surface text-sdm-muted" :
+          i === stageData.length - 1
+            ? "bg-sdm-accent/15 text-sdm-accent animate-pulse"
+            : "bg-sdm-accent/10 text-sdm-accent"
+        }`}>
+          {entry.stage}: {Math.round((entry.percent || 0) * 100)}%
+        </span>
+      ))}
+    </div>
+  ) : null, [stageData]);
+  const logLines = useMemo(() => run.progress_log.slice(-200), [run.progress_log]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -416,26 +433,10 @@ export default function ResultsPage() {
               </span>
             )}
           </div>
-          {(() => {
-            const stageData: ProgressStage[] | null = sseJob?.progressJson ?? run.progress_json ?? null;
-            return stageData && stageData.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {stageData.map((entry, i) => (
-                  <span key={i} className={`text-xs rounded px-1.5 py-0.5 ${
-                    entry.stage === "unknown" ? "bg-sdm-surface text-sdm-muted" :
-                    i === stageData.length - 1
-                      ? "bg-sdm-accent/15 text-sdm-accent animate-pulse"
-                      : "bg-sdm-accent/10 text-sdm-accent"
-                  }`}>
-                    {entry.stage}: {Math.round((entry.percent || 0) * 100)}%
-                  </span>
-                ))}
-              </div>
-            );
-          })()}
+          {stageChips}
           {run.progress_log.length > 0 ? (
             <div className="mt-2 rounded bg-sdm-surface-soft p-2 font-mono text-xs text-sdm-muted max-h-32 overflow-y-auto">
-              {run.progress_log.slice(-200).map((line, i) => (
+              {logLines.map((line, i) => (
                 <div key={i} className="break-words whitespace-pre-wrap">{line}</div>
               ))}
             </div>

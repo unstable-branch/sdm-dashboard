@@ -194,7 +194,7 @@ export function ObservationRecordsTab({
           <OccurrenceMap
             points={filteredRecords}
             flaggedIndices={flaggedSet}
-            onPointClick={(idx) => toggleFlag(idx)}
+            onPointClick={toggleFlag}
           />
         </div>
         <div className="space-y-4">
