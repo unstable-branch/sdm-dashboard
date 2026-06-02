@@ -48,11 +48,10 @@ ensure_python_deps <- function(requirements, log_fun = NULL) {
 }
 
 check_python_module <- function(module_name) {
-  result <- system2(sdm_python_path(), c("-c", shprintf("import %s; print('ok')", module_name)),
+  stopifnot(is.character(module_name), length(module_name) == 1L)
+  safe_name <- gsub("[^a-zA-Z0-9._-]", "", module_name)
+  if (!nzchar(safe_name)) return(FALSE)
+  result <- system2(sdm_python_path(), c("-c", sprintf("import %s; print('ok')", safe_name)),
     stdout = TRUE, stderr = FALSE)
   identical(trimws(result[1]), "ok")
-}
-
-shprintf <- function(fmt, ...) {
-  sprintf(fmt, ...)
 }

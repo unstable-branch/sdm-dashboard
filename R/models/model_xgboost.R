@@ -204,7 +204,7 @@ predict_xgboost_suitability <- function(fit, env_project_scaled, output_tif, n_c
 
   suit <- terra::app(env_subset, predict_one_block, cores = normalize_core_count(n_cores))
   names(suit) <- "suitability"
-  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
   log_message(log_fun, "XGBoost suitability saved: ", output_tif)
   suit
 }

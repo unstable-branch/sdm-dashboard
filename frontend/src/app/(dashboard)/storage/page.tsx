@@ -43,7 +43,7 @@ export default function StoragePage() {
       const [storage, uploadsRes, runsRes] = await Promise.all([
         apiGet<typeof storageInfo>("/api/v1/data/storage"),
         apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/occurrences/uploads"),
-        apiGet<RunRecord[]>("/api/v1/sdm/runs"),
+        apiGet<{ runs: RunRecord[] }>("/api/v1/sdm/runs"),
       ]);
       setStorageInfo(storage);
       setUploadedFiles((uploadsRes.uploads || []).map((f) => ({
@@ -54,7 +54,7 @@ export default function StoragePage() {
         modified_at: f.modified_at as string,
         cleaned: f.cleaned as boolean,
       })));
-      setRuns(Array.isArray(runsRes) ? runsRes.filter((r) => r.status !== "running" && r.status !== "queued") : []);
+      setRuns(Array.isArray(runsRes.runs) ? runsRes.runs.filter((r) => r.status !== "running" && r.status !== "queued") : []);
     } catch {
       // silent
     }

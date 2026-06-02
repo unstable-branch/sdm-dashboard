@@ -193,7 +193,7 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
     sp_rast[complete_idx] <- pmax(0, pmin(1, pred[, i]))
     names(sp_rast) <- make.names(species_names[i])
     terra::writeRaster(sp_rast, sp_tif, overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     species_tifs[i] <- sp_tif
   }
 
@@ -206,7 +206,7 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
   names(richness) <- "richness"
   richness_tif <- sub("\\.tif$", "_richness.tif", output_tif)
   terra::writeRaster(richness, richness_tif, overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
 
   log_message(log_fun, "  Wrote ", n_species, " species rasters + richness to ", dirname(output_tif))
 

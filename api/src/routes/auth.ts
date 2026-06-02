@@ -90,7 +90,7 @@ authRoutes.post("/register", async (c) => {
     });
 
     const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, exp: Math.floor(Date.now() / 1000) + 86400 },
+      { sub: user.id, email: user.email, role: user.role, iss: "sdm-dashboard", exp: Math.floor(Date.now() / 1000) + 86400 },
       JWT_SECRET
     );
 
@@ -151,7 +151,7 @@ authRoutes.post("/login", async (c) => {
     });
 
     const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, exp: Math.floor(Date.now() / 1000) + 86400 },
+      { sub: user.id, email: user.email, role: user.role, iss: "sdm-dashboard", exp: Math.floor(Date.now() / 1000) + 86400 },
       JWT_SECRET
     );
 

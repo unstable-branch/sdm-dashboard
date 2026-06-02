@@ -5,7 +5,13 @@ const NONCE_LENGTH = 12;
 const TAG_LENGTH = 16;
 
 function getKey(): Buffer {
-  const hex = process.env.DATA_ENCRYPTION_KEY;
+  let hex = process.env.DATA_ENCRYPTION_KEY;
+  if (!hex) {
+    hex = process.env.SDM_ENCRYPTION_KEY;
+    if (hex) {
+      console.warn("[encrypt] SDM_ENCRYPTION_KEY is deprecated — use DATA_ENCRYPTION_KEY instead");
+    }
+  }
   if (!hex) {
     throw new Error("DATA_ENCRYPTION_KEY is not set");
   }
@@ -21,8 +27,9 @@ try {
   getKey();
   console.log("[encrypt] DATA_ENCRYPTION_KEY is set and valid");
 } catch (e) {
-  console.error("[encrypt] FATAL:", (e as Error).message);
-  console.error("[encrypt] Set DATA_ENCRYPTION_KEY in .env (64 hex chars = 32 bytes). Generate with: openssl rand -hex 32");
+  console.warn("[encrypt] Encryption key not configured — files will be stored unencrypted");
+  console.warn("[encrypt] Set DATA_ENCRYPTION_KEY in .env (64 hex chars = 32 bytes)");
+  console.warn("[encrypt] Generate with: openssl rand -hex 32");
 }
 
 export function encrypt(plaintext: Buffer): Buffer {
@@ -48,10 +55,10 @@ export function isEncrypted(buffer: Buffer): boolean {
   return buffer.length >= NONCE_LENGTH + TAG_LENGTH + 1;
 }
 
-export function encryptedPath(filePath: string): string {
+function encryptedPath(filePath: string): string {
   return filePath + ".enc";
 }
 
-export function decryptedPath(filePath: string): string {
+function decryptedPath(filePath: string): string {
   return filePath.replace(/\.enc$/, "");
 }

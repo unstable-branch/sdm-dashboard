@@ -17,7 +17,8 @@ climateRoutes.get("/scenarios", longCache, async (c) => {
   try {
     const scenarios = await plumberClient.getClimateScenarios();
     return c.json(scenarios);
-  } catch {
+  } catch (e) {
+    console.warn("[climate]", e instanceof Error ? e.message : String(e));
     return c.json({ scenarios: [], message: "Plumber unavailable" });
   }
 });
@@ -37,7 +38,8 @@ climateRoutes.get("/check", async (c) => {
       return c.json({ available: [], missing: [] });
     }
     return c.json(await result.json());
-  } catch {
+  } catch (e) {
+    console.warn("[climate]", e instanceof Error ? e.message : String(e));
     return c.json({ available: [], missing: [] });
   }
 });
