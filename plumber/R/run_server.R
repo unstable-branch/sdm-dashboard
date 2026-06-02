@@ -97,7 +97,7 @@ pr$setSerializer(plumber::serializer_json(auto_unbox = TRUE, na = "null"))
 # Disable OpenAPI docs in production (they reveal the API surface)
 # Re-enable with PLUMBER_DOCS_ENABLED=true for development
 if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {
-  cat("OpenAPI docs enabled at /__docs__/\n")
+  cat("OpenAPI docs enabled at /openapi.json\n")
 } else {
   tryCatch(pr$setDocs(FALSE), error = function(e) NULL)
 }
