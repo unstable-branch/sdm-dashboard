@@ -72,6 +72,14 @@ requires_auth <- function(path) {
     "^/api/v1/future/scenarios$"
   )
 
+  if (identical(Sys.getenv("PLUMBER_DOCS_ENABLED"), "true")) {
+    open_patterns <- c(
+      open_patterns,
+      "^/__openapi__/?$",
+      "^/__docs__(/.*)?$"
+    )
+  }
+
   for (pattern in open_patterns) {
     result <- grepl(pattern, path)
     if (length(result) > 0 && isTRUE(result)) {
