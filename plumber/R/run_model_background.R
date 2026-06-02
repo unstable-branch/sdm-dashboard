@@ -239,9 +239,30 @@ tryCatch({
   result <- run_fast_sdm(cfg)
 
   # Save full result object for diagnostic/ecology API endpoints
+  # Wrap SpatRasters before serialization to avoid loading full raster data into memory
   result_rds_path <- file.path(job_dir, "result.rds")
   tryCatch({
-    saveRDS(result, result_rds_path)
+    rds_result <- result
+    if (inherits(rds_result$suitability, "SpatRaster")) {
+      rds_result$suitability <- terra::wrap(rds_result$suitability)
+    }
+    if (!is.null(rds_result$future) && inherits(rds_result$future$suitability, "SpatRaster")) {
+      rds_result$future$suitability <- terra::wrap(rds_result$future$suitability)
+    }
+    if (!is.null(rds_result$future2) && inherits(rds_result$future2$suitability, "SpatRaster")) {
+      rds_result$future2$suitability <- terra::wrap(rds_result$future2$suitability)
+    }
+    if (!is.null(rds_result$climate_match) && inherits(rds_result$climate_match$similarity, "SpatRaster")) {
+      rds_result$climate_match$similarity <- terra::wrap(rds_result$climate_match$similarity)
+    }
+    if (!is.null(rds_result$mess) && inherits(rds_result$mess$mess, "SpatRaster")) {
+      rds_result$mess$mess <- terra::wrap(rds_result$mess$mess)
+    }
+    if (!is.null(rds_result$aoa) && inherits(rds_result$aoa, "SpatRaster")) {
+      rds_result$aoa <- terra::wrap(rds_result$aoa)
+    }
+    saveRDS(rds_result, result_rds_path)
+    rm(rds_result)
     log_fun("Saved result RDS to: ", result_rds_path)
   }, error = function(e) {
     log_fun("Failed to save result RDS: ", conditionMessage(e))

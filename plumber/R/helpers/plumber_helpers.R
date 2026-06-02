@@ -80,3 +80,30 @@ db_insert_upload <- function(con, user_id, file_path, filename, file_size, forma
     )
   }, error = function(e) message("Failed to record upload: ", conditionMessage(e)))
 }
+
+# Read saved result RDS and unwrap SpatRasters
+sdm_read_result <- function(path) {
+  if (is.null(path) || !file.exists(path)) return(NULL)
+  tryCatch({
+    res <- readRDS(path)
+    if (inherits(res$suitability, "PackedSpatRaster")) {
+      res$suitability <- terra::unwrap(res$suitability)
+    }
+    if (!is.null(res$future) && inherits(res$future$suitability, "PackedSpatRaster")) {
+      res$future$suitability <- terra::unwrap(res$future$suitability)
+    }
+    if (!is.null(res$future2) && inherits(res$future2$suitability, "PackedSpatRaster")) {
+      res$future2$suitability <- terra::unwrap(res$future2$suitability)
+    }
+    if (!is.null(res$climate_match) && inherits(res$climate_match$similarity, "PackedSpatRaster")) {
+      res$climate_match$similarity <- terra::unwrap(res$climate_match$similarity)
+    }
+    if (!is.null(res$mess) && inherits(res$mess$mess, "PackedSpatRaster")) {
+      res$mess$mess <- terra::unwrap(res$mess$mess)
+    }
+    if (!is.null(res$aoa) && inherits(res$aoa, "PackedSpatRaster")) {
+      res$aoa <- terra::unwrap(res$aoa)
+    }
+    res
+  }, error = function(e) NULL)
+}

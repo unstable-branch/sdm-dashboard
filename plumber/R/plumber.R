@@ -1952,7 +1952,7 @@ function(res, run_id1, run_id2) {
     if (meta$status != "completed") return(NULL)
     result_rds <- meta$output_files$result_rds
     if (is.null(result_rds) || !file.exists(result_rds)) return(NULL)
-    tryCatch(readRDS(result_rds), error = function(e) NULL)
+    tryCatch(sdm_read_result(result_rds), error = function(e) NULL)
   }
 
   r1 <- load_result(run_id1)
@@ -1996,7 +1996,7 @@ function(res, run_id, output_dir = NULL) {
   }
 
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     script_path <- file.path(job_dir, "reproducible_run.R")
     source(sdm_resolve_module("script_export.R"), local = TRUE)
     export_run_script(result, script_path)
@@ -2114,7 +2114,7 @@ function(res, run_id) {
   }
 
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     env_info <- result$environment
     vif_result <- env_info$vif_result
 
@@ -2171,7 +2171,7 @@ function(res, run_id) {
   }
 
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     rc <- result$response_curves
 
     if (is.null(rc) || length(rc) == 0) {
@@ -2225,7 +2225,7 @@ function(res, run_id) {
   }
 
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     fit_obj <- result$fit
     if (is.null(fit_obj) || is.null(fit_obj$model_data)) {
       return(list(available = FALSE, message = "Model data not available for ALE"))
@@ -2284,7 +2284,7 @@ function(res, run_id) {
   }
 
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     imp <- result$variable_importance
 
     if (is.null(imp) || !is.data.frame(imp) || nrow(imp) == 0) {
@@ -2336,7 +2336,7 @@ function(res, run_id = "", longitude = NULL, latitude = NULL) {
   }
 
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     if (is.null(result$fit) || is.null(result$fit$model_data)) {
       return(list(available = FALSE, message = "Model data not available for SHAP"))
     }
@@ -2413,7 +2413,7 @@ function(res, run_id) {
   }
 
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     paths <- result$paths %||% list()
     delta_tif <- paths$delta_tif
 
@@ -2479,7 +2479,7 @@ function(res, run_id) {
   }
 
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     pres_suit <- result$fit$presence_suit
     bg_suit <- result$fit$background_suit
 
@@ -2583,7 +2583,7 @@ function(res, run_id) {
 
   if (has_result_rds) {
     tryCatch({
-      result <- readRDS(result_rds)
+      result <- sdm_read_result(result_rds)
       vif_available <- !is.null(result$environment$vif_result)
       response_curves_available <- !is.null(result$response_curves) && length(result$response_curves) > 0
       importance_available <- !is.null(result$variable_importance) && is.data.frame(result$variable_importance) && nrow(result$variable_importance) > 0
@@ -2636,7 +2636,7 @@ function(res, run_id) {
   result_rds <- output_files$result_rds
   if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     cv <- result$cv
     if (is.null(cv) || !is.data.frame(cv$fold_metrics) || nrow(cv$fold_metrics) == 0) {
       return(list(available = FALSE, message = "CV fold metrics not available"))
@@ -2681,7 +2681,7 @@ function(res, run_id) {
   result_rds <- output_files$result_rds
   if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     cv <- result$cv
     if (is.null(cv) || !is.data.frame(cv$predictions) || length(cv$predictions$predicted) == 0) {
       return(list(available = FALSE, message = "CV predictions not available"))
@@ -2714,7 +2714,7 @@ function(res, run_id) {
   result_rds <- output_files$result_rds
   if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     cv <- result$cv
     if (is.null(cv) || !is.data.frame(cv$fold_metrics) || nrow(cv$fold_metrics) == 0) {
       return(list(available = FALSE, message = "CV fold metrics not available"))
@@ -2751,7 +2751,7 @@ function(res, run_id) {
   result_rds <- output_files$result_rds
   if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     pres <- result$fit$presence_suit
     bg <- result$fit$background_suit
     if (is.null(pres) || is.null(bg)) {
@@ -2787,7 +2787,7 @@ function(res, run_id) {
   result_rds <- output_files$result_rds
   if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
   tryCatch({
-    result <- readRDS(result_rds)
+    result <- sdm_read_result(result_rds)
     pres <- result$fit$presence_suit
     bg <- result$fit$background_suit
     if (is.null(pres) || is.null(bg)) {
@@ -2817,7 +2817,7 @@ function(res, run_id) {
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
   if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
-  result <- tryCatch(readRDS(result_rds), error = function(e) NULL)
+  result <- tryCatch(sdm_read_result(result_rds), error = function(e) NULL)
   if (is.null(result)) {
     res$status <- 500L; return(list(error = "Failed to load result file"))
   }
@@ -2842,7 +2842,7 @@ function(res, run_id, type) {
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
   if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
-  result <- tryCatch(readRDS(result_rds), error = function(e) NULL)
+  result <- tryCatch(sdm_read_result(result_rds), error = function(e) NULL)
   if (is.null(result)) { res$status <- 500L; return(list(error = "Failed to load result file")) }
   csv_data <- switch(type,
     importance = {
