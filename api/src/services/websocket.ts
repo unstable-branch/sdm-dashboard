@@ -109,6 +109,11 @@ export function setupWebSocket(server: ServerType) {
       if (_lastSent && _lastSent.state === event.state && _lastSent.progress === event.progress && _lastSent._receivedAt === event._receivedAt) return;
       _lastSentEvent.set(event.jobId, { state: event.state, progress: event.progress, _receivedAt: event._receivedAt ?? 0 });
 
+      // Evict from dedup map once job reaches terminal state
+      if (event.state === "completed" || event.state === "failed" || event.state === "cancelled") {
+        _lastSentEvent.delete(event.jobId);
+      }
+
       const payload = JSON.stringify({
         type: "status",
         jobId: event.jobId,

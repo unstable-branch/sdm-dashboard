@@ -1,8 +1,6 @@
 # Plumber API Key Authentication Middleware
 # Validates X-API-Key header against PostgreSQL api_keys table
 
-library(httr)
-
 #' Validate an API key against the database
 #' @param api_key The raw API key from X-API-Key header
 #' @param pool Optional dbPool connection pool
@@ -18,13 +16,20 @@ validate_api_key <- function(api_key, pool = NULL, app_dir = NULL) {
 
   # Use connection pool if available, otherwise create single connection
   tryCatch({
-    parts <- parse_db_url(db_url)
-    con <- DBI::dbConnect(
-      RPostgres::Postgres(),
-      dbname = parts$dbname, host = parts$host,
-      port = parts$port, user = parts$user, password = parts$password
-    )
-    on.exit(DBI::dbDisconnect(con), add = TRUE)
+    if (!is.null(pool) && inherits(pool, "Pool")) {
+      con <- pool::poolCheckout(pool)
+      on.exit(pool::poolReturn(con), add = TRUE)
+    } else {
+      db_url <- Sys.getenv("DATABASE_URL", "")
+      if (!nzchar(db_url)) return(NULL)
+      parts <- parse_db_url(db_url)
+      con <- DBI::dbConnect(
+        RPostgres::Postgres(),
+        dbname = parts$dbname, host = parts$host,
+        port = parts$port, user = parts$user, password = parts$password
+      )
+      on.exit(DBI::dbDisconnect(con), add = TRUE)
+    }
 
     query <- "SELECT u.id, u.email, u.name, u.role, ak.created_at as key_created
               FROM api_keys ak

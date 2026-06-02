@@ -19,9 +19,6 @@ importers:
       '@sdm/shared':
         specifier: file:../packages/shared
         version: link:../packages/shared
-      '@types/pg':
-        specifier: ^8.20.0
-        version: 8.20.0
       bcrypt:
         specifier: ^6.0.0
         version: 6.0.0
@@ -30,7 +27,7 @@ importers:
         version: 5.76.10
       drizzle-orm:
         specifier: ^0.36.0
-        version: 0.36.4(@types/pg@8.20.0)(@types/react@19.2.15)(pg@8.21.0)(postgres@3.4.9)(react@19.2.6)
+        version: 0.36.4(@types/pg@8.20.0)(@types/react@19.2.15)(pg@8.21.0)(react@19.2.6)
       hono:
         specifier: ^4.6.0
         version: 4.12.21
@@ -43,9 +40,6 @@ importers:
       pg:
         specifier: ^8.21.0
         version: 8.21.0
-      postgres:
-        specifier: ^3.4.0
-        version: 3.4.9
       ws:
         specifier: ^8.20.1
         version: 8.20.1
@@ -65,6 +59,9 @@ importers:
       '@types/nodemailer':
         specifier: ^7.0.11
         version: 7.0.11
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
@@ -4461,10 +4458,6 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  postgres@3.4.9:
-    resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
-    engines: {node: '>=12'}
-
   potpack@2.1.0:
     resolution: {integrity: sha512-pcaShQc1Shq0y+E7GqJqvZj8DTthWV1KeHGdi0Z6IAin2Oi3JnLCOfwnCo84qc+HAp52wT9nK9H7FAJp5a44GQ==}
 
@@ -7480,7 +7473,7 @@ snapshots:
       obug: 2.1.1
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.7(@types/node@22.19.19)(@vitest/coverage-v8@4.1.7)(happy-dom@20.9.0)(jsdom@29.1.1)(msw@2.14.6(@types/node@22.19.19)(typescript@5.9.3))(vite@8.0.13(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.3))
+      vitest: 4.1.7(@types/node@22.19.19)(@vitest/coverage-v8@4.1.7)(happy-dom@20.9.0)(jsdom@29.1.1)(msw@2.14.6(@types/node@22.19.19)(typescript@5.9.3))(vite@8.0.13(@types/node@22.19.19)(esbuild@0.19.12)(jiti@2.7.0)(tsx@4.22.3))
 
   '@vitest/expect@4.1.7':
     dependencies:
@@ -8018,12 +8011,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.36.4(@types/pg@8.20.0)(@types/react@19.2.15)(pg@8.21.0)(postgres@3.4.9)(react@19.2.6):
+  drizzle-orm@0.36.4(@types/pg@8.20.0)(@types/react@19.2.15)(pg@8.21.0)(react@19.2.6):
     optionalDependencies:
       '@types/pg': 8.20.0
       '@types/react': 19.2.15
       pg: 8.21.0
-      postgres: 3.4.9
       react: 19.2.6
 
   dunder-proto@1.0.1:
@@ -9626,8 +9618,6 @@ snapshots:
   postgres-interval@1.2.0:
     dependencies:
       xtend: 4.0.2
-
-  postgres@3.4.9: {}
 
   potpack@2.1.0: {}
 

@@ -7,6 +7,7 @@ let redisAvailable = false;
 // In-memory fallback rate limiter for when Redis is unavailable
 const memoryStore = new Map<string, { timestamps: number[] }>();
 const MEMORY_CLEANUP_INTERVAL = 60_000;
+const MAX_MEMORY_KEYS = 10_000;
 let lastMemoryCleanup = Date.now();
 
 function checkMemoryRateLimit(key: string, windowMs: number, max: number): boolean {
@@ -18,6 +19,13 @@ function checkMemoryRateLimit(key: string, windowMs: number, max: number): boole
     }
     lastMemoryCleanup = now;
   }
+
+  // Evict oldest entry if store exceeds capacity
+  if (memoryStore.size >= MAX_MEMORY_KEYS && !memoryStore.has(key)) {
+    const oldestKey = memoryStore.keys().next().value;
+    if (oldestKey !== undefined) memoryStore.delete(oldestKey);
+  }
+
   let entry = memoryStore.get(key);
   if (!entry) {
     entry = { timestamps: [] };

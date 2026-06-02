@@ -72,6 +72,13 @@ function getCookieToken(cookieHeader: string | undefined): string | null {
 }
 
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
+  // If optionalAuth already verified identity, skip re-verification
+  const existingUser = c.get("user");
+  if (existingUser?.id) {
+    await next();
+    return;
+  }
+
   const authHeader = c.req.header("Authorization");
   const apiKeyHeader = c.req.header("X-API-Key");
 

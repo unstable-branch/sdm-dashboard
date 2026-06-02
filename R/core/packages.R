@@ -27,15 +27,13 @@ check_sdm_versions <- function() {
 sdm_required_packages <- c("terra")
 sdm_app_packages <- c(
   "shiny", "bslib", "terra",
-  "biomod2", "randomForest", "gbm", "maxnet", "nnet",
-  "mgcv", "earth", "rpart", "mda", "gam", "xgboost", "ranger",
-  "httr", "jsonlite",
-  "cito",
-  "torch",
+  "gbm", "maxnet", "nnet",
+  "mgcv", "earth", "rpart", "mda", "xgboost", "ranger",
+  "jsonlite",
   "future", "future.apply",
   "ggplot2", "CAST", "blockCV"
 )
-sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf", "DT", "marginaleffects", "shinyjs", "future", "future.apply", "ggplot2", "devtools")
+sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf", "DT", "marginaleffects", "shinyjs", "future", "future.apply", "ggplot2")
 
 sdm_optional_packages <- list(
   maxnet = c("maxnet", "glmnet"),
@@ -50,7 +48,9 @@ sdm_optional_packages <- list(
   xai = c("fastshap", "iml"),
   dwca = c("finch"),
   esm = c("ecospat", "biomod2"),
-  targets = c("targets", "tarchetypes", "geotargets")
+  targets = c("targets", "tarchetypes", "geotargets"),
+  dnn = c("cito", "torch"),
+  devtools = c("devtools")
 )
 
 detect_available_cores <- function(logical = TRUE) {

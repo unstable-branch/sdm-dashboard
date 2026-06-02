@@ -1,7 +1,8 @@
 import { Hono } from "hono";
-import { existsSync } from "fs";
+import { existsSync, createReadStream } from "fs";
 import { isAbsolute, join, relative, resolve } from "path";
 import { stat, readFile } from "fs/promises";
+import { Readable } from "stream";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
@@ -139,9 +140,15 @@ async function serveFile(c: any, filePath: string) {
   c.header("Content-Type", contentType);
   c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
 
-  const raw = await readFile(servePath);
-  const buffer = isEncrypted ? decrypt(raw) : raw;
-  return c.body(buffer);
+  if (isEncrypted) {
+    const raw = await readFile(servePath);
+    const buffer = decrypt(raw);
+    return c.body(buffer);
+  }
+
+  const stream = createReadStream(servePath);
+  const webStream = Readable.toWeb(stream) as ReadableStream;
+  return c.body(webStream);
 }
 
 resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
@@ -262,33 +269,68 @@ async function serveFileFromPath(c: any, filePath: string) {
                       ext === "csv" ? "text/csv" :
                       "application/octet-stream";
 
-  // Read and optionally decrypt
-  const raw = await readFile(servePath);
-  const buffer = isEncrypted ? decrypt(raw) : raw;
+  const etag = `W/"${stats.size}-${stats.mtimeMs}"`;
+  c.header("ETag", etag);
+  c.header("Cache-Control", "public, max-age=3600");
+
+  if (c.req.header("If-None-Match") === etag) {
+    return c.body(null, 304);
+  }
 
   const rangeHeader = c.req.header("range");
+
+  // Encrypted files must be fully read and decrypted in memory
+  if (isEncrypted) {
+    const raw = await readFile(servePath);
+    const buffer = decrypt(raw);
+    if (rangeHeader) {
+      const range = parseRangeHeader(rangeHeader, buffer.length);
+      if (range) {
+        const { start, end } = range;
+        c.status(206);
+        c.header("Content-Range", `bytes ${start}-${end}/${buffer.length}`);
+        c.header("Content-Length", String(end - start + 1));
+        c.header("Content-Type", contentType);
+        c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
+        return c.body(buffer.subarray(start, end + 1));
+      }
+      c.status(416);
+      c.header("Content-Range", `bytes */${buffer.length}`);
+      return c.body("Range Not Satisfiable");
+    }
+    c.header("Content-Type", contentType);
+    c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
+    return c.body(buffer);
+  }
+
+  // Non-encrypted: stream directly from disk
+  const fileSize = stats.size;
+
   if (rangeHeader) {
-    const range = parseRangeHeader(rangeHeader, buffer.length);
+    const range = parseRangeHeader(rangeHeader, fileSize);
     if (range) {
       const { start, end } = range;
       const length = end - start + 1;
-
       c.status(206);
-      c.header("Content-Range", `bytes ${start}-${end}/${buffer.length}`);
+      c.header("Content-Range", `bytes ${start}-${end}/${fileSize}`);
       c.header("Content-Length", String(length));
       c.header("Content-Type", contentType);
       c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
-      return c.body(buffer.subarray(start, end + 1));
+      const stream = createReadStream(servePath, { start, end });
+      const webStream = Readable.toWeb(stream) as ReadableStream;
+      return c.body(webStream);
     }
     c.status(416);
-    c.header("Content-Range", `bytes */${buffer.length}`);
+    c.header("Content-Range", `bytes */${fileSize}`);
     return c.body("Range Not Satisfiable");
   }
 
   c.header("Content-Type", contentType);
   c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
-
-  return c.body(buffer);
+  c.header("Content-Length", String(fileSize));
+  const stream = createReadStream(servePath);
+  const webStream = Readable.toWeb(stream) as ReadableStream;
+  return c.body(webStream);
 }
 
 // Query-parameter based file serving — avoids Next.js %2F redirect issue
