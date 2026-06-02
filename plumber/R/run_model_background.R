@@ -54,6 +54,7 @@ source(file.path(app_dir, "R", "load.R"))
 
 meta <- read_meta()
 config <- meta$config %||% list()
+config <- sdm_normalize_model_payload(config)
 
 # Parse biovars and projection_extent from config (stored as strings by the handler)
 biovars <- as.integer(unlist(strsplit(as.character(config$biovars %||% "1,4,6,12,15,18"), ",")))
@@ -115,7 +116,7 @@ tryCatch({
     selected_soil_depths = config$soil_depths %||% sdm_default_soil_depths,
     use_uv = isTRUE(config$use_uv),
     selected_uv_vars = config$uv_vars %||% sdm_default_uv_vars,
-    selected_uv_months = config$uv_months,
+    selected_uv_months = config$selected_uv_months,
     use_vegetation = isTRUE(config$use_vegetation),
     veg_year = as.integer(config$veg_year %||% sdm_default_veg_year),
     veg_products = config$veg_products %||% sdm_default_veg_products,
@@ -125,7 +126,7 @@ tryCatch({
     hfp_year = as.integer(config$hfp_year %||% sdm_default_hfp_year),
     use_bioclim_season = isTRUE(config$use_bioclim_season),
     use_drought = isTRUE(config$use_drought),
-    selected_drought_periods = config$drought_periods %||% "annual_mean",
+    selected_drought_periods = config$selected_drought_periods %||% "annual_mean",
     covariate_cache_dir = "covariates",
     vif_reduction = isTRUE(config$vif_reduction),
     vif_threshold = as.numeric(config$vif_threshold %||% 10),
@@ -145,21 +146,21 @@ tryCatch({
     climate_matching = isTRUE(config$climate_matching),
     climate_matching_method = config$climate_matching_method %||% "mahalanobis",
     max_coordinate_uncertainty = if (!is.null(config$max_coordinate_uncertainty)) as.numeric(config$max_coordinate_uncertainty) else NULL,
-    multi_ensemble_models = config$multi_ensemble_models %||% config$multiEnsembleModels,
-    multi_ensemble_weighting = config$multi_ensemble_weighting %||% config$multiEnsembleWeighting %||% "auc",
-    multi_ensemble_power = as.numeric(config$multi_ensemble_power %||% config$multiEnsemblePower %||% sdm_default_ensemble_power),
-    multi_ensemble_min_auc = as.numeric(config$multi_ensemble_min_auc %||% config$multiEnsembleMinAuc %||% sdm_default_ensemble_min_auc),
-    multi_ensemble_min_tss = as.numeric(config$multi_ensemble_min_tss %||% config$multiEnsembleMinTss %||% sdm_default_ensemble_min_tss),
-    multi_ensemble_export = isTRUE(config$multi_ensemble_export %||% config$multiEnsembleExport %||% TRUE),
-    multi_ensemble_uncertainty = isTRUE(config$multi_ensemble_uncertainty %||% config$multiEnsembleUncertainty %||% TRUE),
-    biomod2_models = config$biomod2_models %||% config$biomod2Models,
+    multi_ensemble_models = config$multi_ensemble_models,
+    multi_ensemble_weighting = config$multi_ensemble_weighting %||% "auc",
+    multi_ensemble_power = as.numeric(config$multi_ensemble_power %||% sdm_default_ensemble_power),
+    multi_ensemble_min_auc = as.numeric(config$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc),
+    multi_ensemble_min_tss = as.numeric(config$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss),
+    multi_ensemble_export = isTRUE(config$multi_ensemble_export %||% TRUE),
+    multi_ensemble_uncertainty = isTRUE(config$multi_ensemble_uncertainty %||% TRUE),
+    biomod2_models = config$biomod2_models,
     esm_n_runs = as.integer(config$esm_n_runs %||% sdm_esm_default_n_runs),
     esm_split = config$esm_split %||% sdm_esm_default_split,
     esm_min_auc = as.numeric(config$esm_min_auc %||% sdm_esm_default_min_auc),
     esm_weighting_metric = config$esm_weighting_metric %||% "AUC",
     esm_power = as.numeric(config$esm_power %||% sdm_esm_default_power),
     esm_biovars = config$esm_biovars,
-    selected_chelsa_extras = config$chelsa_extras %||% NULL,
+    selected_chelsa_extras = config$selected_chelsa_extras,
     future_worldclim_dir2 = config$future_worldclim_dir2,
     future_label2 = config$future_label2 %||% "Future climate 2",
     use_cc = isTRUE(config$use_cc),
@@ -181,11 +182,13 @@ tryCatch({
     xgb_eta = as.numeric(config$xgb_eta %||% 0.3),
     xgb_nrounds = as.integer(config$xgb_nrounds %||% 100L),
     dnn_model_type = config$dnn_model_type %||% "DNN_Medium",
+    dnn_n_seeds = as.integer(config$dnn_n_seeds %||% 5L),
+    dnn_device = config$dnn_device %||% "auto",
     dnn_dropout = as.numeric(config$dnn_dropout %||% 0.3),
     dnn_lambda = as.numeric(config$dnn_lambda %||% 0.001),
-    dnn_architecture = config$dnn_multispecies_architecture %||% config$dnnMultispeciesArchitecture %||% config$dnn_model_type %||% "DNN_Medium",
-    dnn_multispecies_architecture = config$dnn_multispecies_architecture %||% config$dnnMultispeciesArchitecture %||% config$dnn_model_type %||% "DNN_Medium",
-    dnn_multispecies_n_seeds = as.integer(config$dnn_multispecies_n_seeds %||% config$dnnMultispeciesNSeeds %||% 3L)
+    dnn_architecture = config$dnn_architecture %||% config$dnn_model_type %||% "DNN_Medium",
+    dnn_multispecies_architecture = config$dnn_multispecies_architecture %||% config$dnn_model_type %||% "DNN_Medium",
+    dnn_multispecies_n_seeds = as.integer(config$dnn_multispecies_n_seeds %||% 3L)
   )
 
   result <- run_fast_sdm(cfg)
