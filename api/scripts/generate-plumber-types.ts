@@ -70,7 +70,7 @@ function validateOpenAPIBaseline(spec: Record<string, unknown>): void {
 
 async function fetchOpenAPISpec(): Promise<Record<string, unknown>> {
   const baseUrl = PLUMBER_URL.replace(/\/+$/, "");
-  const endpoints = ["/openapi.json", "/__openapi__/", "/__docs__/openapi.json"];
+  const endpoints = ["/openapi.json", "/__openapi__/"];
   const failures: string[] = [];
 
   for (const endpoint of endpoints) {
