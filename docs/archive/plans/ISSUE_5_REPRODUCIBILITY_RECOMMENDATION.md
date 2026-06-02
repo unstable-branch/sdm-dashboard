@@ -1,7 +1,7 @@
 # Issue #5 Recommendation: Reproducibility Strategy for SDM Runtime
 
-Pacey's request is to evaluate Issue #5 after PR #10 (dev), not implement it.
-This document reviews the current Hono/API + BullMQ + Plumber runtime against
+This archived note evaluated Issue #5 after PR #10 on `dev`; it did not implement the issue.
+It reviews the current Hono/API + BullMQ + Plumber runtime against
 Nextflow and Snakemake for reproducible SDM pipeline operation and recommends
 next steps.
 
