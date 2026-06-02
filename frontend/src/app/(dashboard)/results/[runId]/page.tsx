@@ -141,7 +141,7 @@ export default function ResultsPage() {
       changed = true;
     }
     if (changed) setRun(next);
-  }, [sseJob?.logs, sseJob?._receivedAt, sseJob?.currentStage, sseJob?.progressJson, run?.status]);
+  }, [sseJob?.logs, sseJob?._receivedAt, sseJob?.currentStage, run?.status]);
 
   const toggleErrorLogs = useCallback(async () => {
     if (showErrorLogs) { setShowErrorLogs(false); return; }

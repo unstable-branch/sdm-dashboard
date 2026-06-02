@@ -33,7 +33,7 @@ async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
     // Wait for a slot with a 30s timeout to prevent cascading delays
     const slotPromise = new Promise<void>(resolve => { plumberQueue.push(resolve); });
     const timeoutPromise = new Promise<void>((_, reject) =>
-      setTimeout(() => reject(new Error("Plumber semaphore timeout: all connections busy")), 30000)
+      setTimeout(() => reject(new Error("Plumber semaphore timeout: all connections busy")), 5000)
     );
     await Promise.race([slotPromise, timeoutPromise]);
   }

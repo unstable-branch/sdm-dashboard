@@ -428,6 +428,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                     ? (modelStatus as any).progress_log as string[]
                     : [];
                   const pollProgress = (modelStatus as any).progress as number | undefined;
+                  const pollProgressJson = (modelStatus as any).progress_json as unknown;
 
                   if (pollState === "running") {
                     const pct = Math.min(90, 35 + Math.round(modelAttempts * 0.5));
@@ -437,6 +438,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       state: "active",
                       progress: pollProgress ?? pct,
                       logs,
+                      progressJson: pollProgressJson ?? null,
                     });
                   }
 
@@ -482,6 +484,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       result: modelStatus as Record<string, unknown>,
                       error_code: (modelStatus as any).error_code ?? null,
                       error_hint: (modelStatus as any).error_hint ?? null,
+                      progressJson: pollProgressJson ?? null,
                     });
                     result = { status: "success", data: modelStatus };
                   } else if (pollState === "cancelled") {
@@ -495,11 +498,12 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                     await job.updateProgress(100);
                     jobEventBus.emitJobStatus({
                       jobId: runId ?? job.id!,
-                      state: "failed",
+                      state: "cancelled",
                       progress: 100,
                       failedReason: "Model run cancelled by user",
                       error_code: "CANCELLED",
                       error_hint: null,
+                      progressJson: pollProgressJson ?? null,
                     });
                     result = { status: "error", error: "Cancelled", error_code: "CANCELLED" };
                   } else if (pollState === "failed" || pollState === "error") {
@@ -526,6 +530,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       failedReason: errMsg,
                       error_code: errCode ?? null,
                       error_hint: errHint ?? null,
+                      progressJson: pollProgressJson ?? null,
                     });
                     result = { status: "error", error: errMsg, error_code: errCode ?? null, error_hint: errHint ?? null };
                   }
