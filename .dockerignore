@@ -83,3 +83,14 @@ libtorch/
 .vscode/
 pr_body.md
 sdm-dashboard-jacob-roadmap.md
+api/
+frontend/
+plumber/
+tests/
+docs/
+tools/
+docker-compose*.yml
+nginx.conf
+prometheus.yml
+garage.toml
+*.md
