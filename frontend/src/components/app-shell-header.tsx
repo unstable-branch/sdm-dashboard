@@ -1,30 +1,72 @@
 "use client";
 
+import { useState, useEffect, useRef, useContext } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Leaf, Moon, Sun } from "lucide-react";
+import { Leaf, Moon, Sun, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { UserMenu } from "@/components/layout/user-menu";
 import { dashboardNavItems } from "@/components/dashboard-nav";
+import { SidebarContext } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
+import { UserMenu } from "@/components/layout/user-menu";
 
 export function AppShellHeader() {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
+  const { open: sidebarOpen, setOpen: setSidebarOpen } = useContext(SidebarContext);
+  const [visible, setVisible] = useState(true);
+  const lastScrollY = useRef(0);
+
+  useEffect(() => {
+    let ticking = false;
+    const onScroll = () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY;
+          if (currentScrollY < 10) {
+            setVisible(true);
+          } else if (currentScrollY > lastScrollY.current + 5) {
+            setVisible(false);
+          } else if (currentScrollY < lastScrollY.current - 5) {
+            setVisible(true);
+          }
+          lastScrollY.current = currentScrollY;
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
-    return pathname.startsWith(href);
+    return pathname === href || pathname.startsWith(href + "/");
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b border-sdm-border bg-sdm-bg/95 backdrop-blur">
+    <header
+      className={cn(
+        "sticky top-0 z-40 border-b border-sdm-border bg-sdm-bg/95 backdrop-blur transition-transform duration-300",
+        visible ? "translate-y-0" : "-translate-y-full"
+      )}
+    >
       <div className="flex min-h-16 items-center justify-between gap-3 px-4 sm:px-6">
-        <Link href="/" className="flex min-w-0 items-center gap-2 md:hidden">
-          <Leaf className="h-5 w-5 shrink-0 text-sdm-accent" />
-          <span className="truncate text-sm font-semibold text-sdm-heading">SDM Platform</span>
-        </Link>
+        <div className="flex items-center gap-2 md:hidden">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-1.5 rounded-md text-sdm-muted hover:text-sdm-text hover:bg-sdm-surface-soft"
+            aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"}
+          >
+            {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+          <Link href="/" className="flex min-w-0 items-center gap-2">
+            <Leaf className="h-5 w-5 shrink-0 text-sdm-accent" />
+            <span className="truncate text-sm font-semibold text-sdm-heading">SDM Platform</span>
+          </Link>
+        </div>
 
         <div className="hidden min-w-0 md:block">
           <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">SDM Dashboard Workbench</p>
@@ -55,6 +97,7 @@ export function AppShellHeader() {
               "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-transparent px-3 py-1.5 text-xs font-medium text-sdm-muted",
               isActive(item.href) && "border-sdm-accent/30 bg-sdm-accent/10 text-sdm-accent"
             )}
+            aria-current={isActive(item.href) ? "page" : undefined}
           >
             <item.icon className="h-3.5 w-3.5" />
             {item.title}

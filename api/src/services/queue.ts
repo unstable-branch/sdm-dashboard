@@ -2,10 +2,12 @@ import { Queue, Worker, Job } from "bullmq";
 import IORedis from "ioredis";
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
-import { runs } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { runs, species, occurrences, projectMembers } from "../db/schema.js";
+import { eq, and } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { extractProgressPercent } from "@sdm/shared";
+import { syncOutputsToS3 } from "./storage.js";
+import { join } from "path";
 
 let _connection: IORedis | null = null;
 let _bullmqConnection: IORedis | null = null;
@@ -32,6 +34,10 @@ function logPermanentOffline() {
 const CLIMATE_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.CLIMATE_DOWNLOAD_TIMEOUT_MS || "1800000", 10);
 const CLIMATE_DOWNLOAD_POLL_INTERVAL_MS = parseInt(process.env.CLIMATE_DOWNLOAD_POLL_INTERVAL_MS || "3000", 10);
 const CLIMATE_DOWNLOAD_MAX_ATTEMPTS = Math.floor(CLIMATE_DOWNLOAD_TIMEOUT_MS / CLIMATE_DOWNLOAD_POLL_INTERVAL_MS);
+
+const MODEL_RUN_TIMEOUT_MS = parseInt(process.env.MODEL_RUN_TIMEOUT_MS || "7200000", 10);
+const MODEL_RUN_POLL_INTERVAL_MS = parseInt(process.env.MODEL_RUN_POLL_INTERVAL_MS || "5000", 10);
+const MODEL_RUN_MAX_ATTEMPTS = Math.floor(MODEL_RUN_TIMEOUT_MS / MODEL_RUN_POLL_INTERVAL_MS);
 
 const REDIS_UNAVAILABLE_CODES = new Set([
   "ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET",
@@ -219,6 +225,14 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
 
       let result: SdmJobResult = { status: "error", error: "Job processing failed" };
 
+      // Track resource usage for model runs
+      let cpuStart: NodeJS.CpuUsage | undefined;
+      let wallStart: number | undefined;
+      if (type === "model") {
+        cpuStart = process.cpuUsage();
+        wallStart = Date.now();
+      }
+
       try {
         switch (type) {
           case "clean": {
@@ -234,15 +248,142 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
               merge_small_sources: payload.merge_small_sources !== false,
               use_cc: Boolean(payload.use_cc),
               cc_tests: (payload.cc_tests as string) || "all",
+              pipelineRunId: (payload.pipelineRunId as string) || null,
             });
-            await job.updateProgress(100);
-            jobEventBus.emitJobStatus({
-              jobId: job.id!,
-              state: "completed",
-              progress: 100,
-              result: cleanRes as Record<string, unknown>,
-            });
-            result = { status: "success", data: cleanRes };
+
+            const cleanJobId = (cleanRes as any).job_id as string | undefined;
+
+            if (cleanJobId) {
+              let cleanStatus: Record<string, unknown> = {};
+              let cleanCompleted = false;
+              let cleanAttempts = 0;
+
+              while (!cleanCompleted && cleanAttempts < CLIMATE_DOWNLOAD_MAX_ATTEMPTS) {
+                await new Promise((resolve) => setTimeout(resolve, CLIMATE_DOWNLOAD_POLL_INTERVAL_MS));
+                cleanAttempts++;
+
+                try {
+                  cleanStatus = await client.getJobStatus(cleanJobId);
+                  const runStatus = (cleanStatus as any).status as string;
+
+                  if (runStatus === "running") {
+                    const pct = Math.min(90, 20 + Math.round(cleanAttempts * 2));
+                    await job.updateProgress(pct);
+                    jobEventBus.emitJobStatus({ jobId: job.id!, state: "active", progress: pct });
+                  }
+
+                  if (runStatus === "completed") {
+                    cleanCompleted = true;
+                    const cleanResult = (cleanStatus as any).result as Record<string, unknown> | undefined;
+
+                    if (cleanResult) {
+                      const speciesName = (payload.species as string) || "Untitled species";
+                      const pipelineRunId = (payload.pipelineRunId as string) || null;
+
+                      if (userId) {
+                        const [membership] = await db
+                          .select({ projectId: projectMembers.projectId })
+                          .from(projectMembers)
+                          .where(eq(projectMembers.userId, userId))
+                          .limit(1);
+
+                        const projectId = membership?.projectId;
+
+                        if (projectId) {
+                          let [sp] = await db
+                            .select()
+                            .from(species)
+                            .where(and(eq(species.name, speciesName), eq(species.projectId, projectId)))
+                            .limit(1);
+
+                          if (!sp) {
+                            [sp] = await db
+                              .insert(species)
+                              .values({ name: speciesName, projectId, occurrenceCount: 0, userId })
+                              .returning();
+                          }
+
+                          const cleanedRecords = cleanResult.cleaned_records as Array<Record<string, unknown>> | undefined;
+                          const validRecords = (cleanedRecords || []).filter(
+                            (r) => typeof r.longitude === "number" && typeof r.latitude === "number" && isFinite(r.longitude) && isFinite(r.latitude)
+                          );
+
+                          if (validRecords.length > 0) {
+                            const recordsToInsert = validRecords.map((row) => ({
+                              speciesId: sp.id,
+                              projectId,
+                              userId,
+                              filePath: cleanResult.cleaned_file_id as string || null,
+                              pipelineRunId,
+                              longitude: Number(row.longitude),
+                              latitude: Number(row.latitude),
+                              source: (row.source as string) || null,
+                              flagged: Boolean((row as any).flagged || (row as any).cc_flag),
+                              cleaned: true,
+                              raw: row,
+                            }));
+
+                            const BATCH_SIZE = 500;
+                            for (let i = 0; i < recordsToInsert.length; i += BATCH_SIZE) {
+                              const batch = recordsToInsert.slice(i, i + BATCH_SIZE);
+                              await db.insert(occurrences).values(batch);
+                            }
+
+                            await db
+                              .update(species)
+                              .set({ occurrenceCount: (sp.occurrenceCount || 0) + recordsToInsert.length })
+                              .where(eq(species.id, sp.id));
+                          }
+                        }
+                      }
+                    }
+
+                    await job.updateProgress(100);
+                    jobEventBus.emitJobStatus({
+                      jobId: job.id!,
+                      state: "completed",
+                      progress: 100,
+                      result: cleanResult || cleanStatus,
+                    });
+                    result = { status: "success", data: cleanResult || cleanStatus };
+                  } else if (runStatus === "failed") {
+                    cleanCompleted = true;
+                    const cleanError = (cleanStatus as any).error as string || "Clean job failed";
+                    result = { status: "error", error: cleanError };
+                    await job.updateProgress(100);
+                    jobEventBus.emitJobStatus({
+                      jobId: job.id!,
+                      state: "failed",
+                      progress: 100,
+                      failedReason: cleanError,
+                    });
+                  }
+                } catch (pollErr) {
+                  const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr);
+                  console.warn(`[queue] Polling error for clean job ${job.id}: ${pollMsg}`);
+                }
+              }
+
+              if (!cleanCompleted) {
+                result = { status: "error", error: "Polling timeout: clean job did not complete in time" };
+                jobEventBus.emitJobStatus({
+                  jobId: job.id!,
+                  state: "failed",
+                  progress: 0,
+                  failedReason: "Polling timeout: clean job did not complete in time",
+                });
+              }
+            } else {
+              result = { status: "error", error: "Clean job submission returned no job_id" };
+              await job.updateProgress(100);
+              jobEventBus.emitJobStatus({
+                jobId: job.id!,
+                state: "failed",
+                progress: 100,
+                failedReason: "Clean job submission returned no job_id",
+              });
+            }
+
             break;
           }
           case "model": {
@@ -252,7 +393,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
             if (runId) {
               await db
                 .update(runs)
-                .set({ status: "running", startedAt: new Date() })
+                .set({ status: "running", startedAt: new Date(), bullmqId: job.id! })
                 .where(eq(runs.id, runId));
             }
 
@@ -260,25 +401,159 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
             const plumberJobId = (modelRes as any).job_id as string | undefined;
 
             if (runId) {
+              const cpuDelta = cpuStart ? process.cpuUsage(cpuStart) : undefined;
               await db
                 .update(runs)
-                .set({ jobId: plumberJobId ?? null })
+                .set({
+                  jobId: plumberJobId ?? null,
+                  bullmqId: job.id!,
+                  rCpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
+                  peakMemoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+                })
                 .where(eq(runs.id, runId));
             }
 
             await job.updateProgress(30);
 
             if (plumberJobId) {
-              // Fire-and-forget: Plumber runs in background, plumber-sync polls for status
+              await job.updateProgress(35);
               jobEventBus.emitJobStatus({
                 jobId: runId ?? job.id!,
                 state: "active",
-                progress: 30,
-                logs: ["Model run submitted to Plumber, awaiting results..."],
+                progress: 35,
+                logs: ["Model run submitted to Plumber, waiting for completion..."],
               });
 
-              result = { status: "success", data: { job_id: plumberJobId, status: "running" } };
-              await job.updateProgress(30);
+              let modelStatus: Record<string, unknown> = {};
+              let modelCompleted = false;
+              let modelAttempts = 0;
+
+              while (!modelCompleted && modelAttempts < MODEL_RUN_MAX_ATTEMPTS) {
+                await new Promise((resolve) => setTimeout(resolve, MODEL_RUN_POLL_INTERVAL_MS));
+                modelAttempts++;
+
+                try {
+                  modelStatus = await client.getModelStatus(plumberJobId);
+                  const pollState = (modelStatus as any).status as string;
+                  const logs = Array.isArray((modelStatus as any).progress_log)
+                    ? (modelStatus as any).progress_log as string[]
+                    : [];
+                  const pollProgress = (modelStatus as any).progress as number | undefined;
+
+                  if (pollState === "running") {
+                    const pct = Math.min(90, 35 + Math.round(modelAttempts * 0.5));
+                    await job.updateProgress(pollProgress ?? pct);
+                    jobEventBus.emitJobStatus({
+                      jobId: runId ?? job.id!,
+                      state: "active",
+                      progress: pollProgress ?? pct,
+                      logs,
+                    });
+                  }
+
+                  if (pollState === "completed") {
+                    modelCompleted = true;
+                    const metrics = (modelStatus as any).metrics as Record<string, unknown> | undefined;
+
+                    if (runId) {
+                      await db
+                        .update(runs)
+                        .set({
+                          status: "completed",
+                          completedAt: new Date(),
+                          error: null,
+                          metrics: metrics as any,
+                        })
+                        .where(eq(runs.id, runId));
+                    }
+
+                    // Upload output files to S3 in background
+                    const outputFiles = (modelStatus as any).output_files as Record<string, string> | undefined;
+                    if (outputFiles && runId) {
+                      const jobDir = join("outputs", "jobs", runId);
+                      syncOutputsToS3(jobDir, runId, outputFiles).catch((err) => {
+                        console.warn(`[S3] Background sync failed for run ${runId}:`, err);
+                      });
+                    }
+
+                    await job.updateProgress(100);
+                    jobEventBus.emitJobStatus({
+                      jobId: runId ?? job.id!,
+                      state: "completed",
+                      progress: 100,
+                      logs: logs.concat(["Model run completed."]),
+                      result: modelStatus as Record<string, unknown>,
+                      error_code: (modelStatus as any).error_code ?? null,
+                      error_hint: (modelStatus as any).error_hint ?? null,
+                    });
+                    result = { status: "success", data: modelStatus };
+                  } else if (pollState === "cancelled") {
+                    modelCompleted = true;
+                    if (runId) {
+                      await db
+                        .update(runs)
+                        .set({ status: "cancelled", completedAt: new Date() })
+                        .where(eq(runs.id, runId));
+                    }
+                    await job.updateProgress(100);
+                    jobEventBus.emitJobStatus({
+                      jobId: runId ?? job.id!,
+                      state: "failed",
+                      progress: 100,
+                      failedReason: "Model run cancelled by user",
+                      error_code: "CANCELLED",
+                      error_hint: null,
+                    });
+                    result = { status: "error", error: "Cancelled" };
+                  } else if (pollState === "failed" || pollState === "error") {
+                    modelCompleted = true;
+                    const errMsg = (modelStatus as any).error as string || "Model run failed";
+                    const errCode = (modelStatus as any).error_code as string | undefined;
+                    const errHint = (modelStatus as any).error_hint as string | undefined;
+                    if (runId) {
+                      await db
+                        .update(runs)
+                        .set({
+                          status: "failed",
+                          completedAt: new Date(),
+                          error: errMsg,
+                          provenance: errCode ? { error_code: errCode, error_hint: errHint ?? null } : undefined,
+                        })
+                        .where(eq(runs.id, runId));
+                    }
+                    await job.updateProgress(100);
+                    jobEventBus.emitJobStatus({
+                      jobId: runId ?? job.id!,
+                      state: "failed",
+                      progress: 100,
+                      failedReason: errMsg,
+                      error_code: errCode ?? null,
+                      error_hint: errHint ?? null,
+                    });
+                    result = { status: "error", error: errMsg };
+                  }
+                } catch (pollErr) {
+                  const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr);
+                  console.warn(`[queue] Polling error for model job ${job.id}: ${pollMsg}`);
+                }
+              }
+
+              if (!modelCompleted) {
+                const timeoutMsg = "Model run polling timeout — Plumber did not complete in time";
+                if (runId) {
+                  await db
+                    .update(runs)
+                    .set({ status: "failed", completedAt: new Date(), error: timeoutMsg })
+                    .where(eq(runs.id, runId));
+                }
+                result = { status: "error", error: timeoutMsg };
+                jobEventBus.emitJobStatus({
+                  jobId: runId ?? job.id!,
+                  state: "failed",
+                  progress: 0,
+                  failedReason: timeoutMsg,
+                });
+              }
             } else {
               result = { status: "success", data: modelRes };
               await job.updateProgress(100);
@@ -307,7 +582,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                 attempts++;
 
                 try {
-                  status = await client.getClimateStatus(climateJobId);
+                  status = await client.getClimateStatus(climateJobId) as unknown as Record<string, unknown>;
                   const runStatus = (status as any).status as string;
                   const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log as string[] : [];
 
@@ -410,12 +685,15 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
         if (type === "model") {
           const runId = payload.runId as string;
           if (runId) {
+            const cpuDelta = cpuStart ? process.cpuUsage(cpuStart) : undefined;
             await db
               .update(runs)
               .set({
                 status: "failed",
                 error: finalError,
                 completedAt: new Date(),
+                rCpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
+                peakMemoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
               })
               .where(eq(runs.id, runId));
           }
@@ -434,7 +712,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
         };
       }
     },
-    { connection: conn }
+    { connection: conn, concurrency: 3 }
   );
   return _worker;
 }

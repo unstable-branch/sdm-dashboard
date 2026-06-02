@@ -1,6 +1,6 @@
 "use client";
 
-import { SearchInput } from "@/components/ui/search-input";
+
 
 interface SpeciesSummary {
   id: string;

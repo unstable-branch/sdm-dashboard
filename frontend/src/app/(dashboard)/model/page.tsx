@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { ModelConfigForm } from "@/components/model/model-config-form";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import ModelConfigForm from "@/components/model/model-config-form";
 import { RunHistory } from "@/components/model/run-history";
 import { JobProgress } from "@/components/jobs/job-progress";
-import { useSDMStore } from "@/stores/sdm-store";
 import { useJobSSE } from "@/hooks/use-job-sse";
+import { useSDMStore } from "@/stores/sdm-store";
 import { apiPost, apiGet } from "@/services/api";
-import { Ban } from "lucide-react";
+import { Ban, AlertTriangle, Loader2 } from "lucide-react";
 import type { ModelConfig } from "@sdm/shared";
 
 interface ActiveRun {
@@ -24,30 +25,21 @@ export default function ModelPage() {
   const recordCount = useSDMStore((s) => s.recordCount);
   const species = useSDMStore((s) => s.species);
   const cleanedOccurrence = useSDMStore((s) => s.cleanedOccurrence);
-  const [hasHydrated, setHasHydrated] = useState(false);
-
-  useEffect(() => {
-    // Properly track hydration state to avoid flash of "Loading..."
-    const hydrated = useSDMStore.persist.hasHydrated();
-    if (hydrated) {
-      setHasHydrated(true);
-    } else {
-      useSDMStore.persist.onHydrate(() => setHasHydrated(true));
-    }
-  }, []);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStartTime, setJobStartTime] = useState<string | null>(null);
   const [activeRuns, setActiveRuns] = useState<ActiveRun[]>([]);
+  const [autoRedirect, setAutoRedirect] = useState(false);
+  const [redirectCountdown, setRedirectCountdown] = useState(8);
   const [checkingRuns, setCheckingRuns] = useState(true);
   const [runRefreshKey, setRunRefreshKey] = useState(0);
   const activeRunsRef = useRef(activeRuns.length);
   activeRunsRef.current = activeRuns.length;
 
   // SSE-driven active run tracking — no polling needed
-  const { getJob } = useJobSSE(true);
+  useJobSSE(true);
 
   const fetchActiveRuns = useCallback(async () => {
     try {
@@ -65,13 +57,14 @@ export default function ModelPage() {
     fetchActiveRuns();
   }, [fetchActiveRuns]);
 
-  // Lightweight poll fallback — only when active runs exist
+  // Lightweight poll fallback — only when active runs exist (30s interval, SSE is primary)
   useEffect(() => {
     const interval = setInterval(() => {
+      if (document.hidden) return;
       if (activeRunsRef.current > 0) {
         fetchActiveRuns();
       }
-    }, 10000);
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchActiveRuns]);
 
@@ -102,27 +95,36 @@ export default function ModelPage() {
     }
   };
 
-  const handleJobComplete = () => {
+  const handleJobComplete = (_result: Record<string, unknown>) => {
     fetchActiveRuns();
+    setAutoRedirect(true);
+    setRedirectCountdown(8);
+  };
+
+  useEffect(() => {
+    if (!autoRedirect || !jobId) return;
+    if (redirectCountdown <= 0) {
+      router.push(`/results/${jobId}`);
+      return;
+    }
+    const timer = setTimeout(() => setRedirectCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [autoRedirect, redirectCountdown, jobId, router]);
+
+  const handleCancelRedirect = () => {
+    setAutoRedirect(false);
   };
 
   const handleDismissJob = () => {
     setJobId(null);
     setJobStartTime(null);
+    setAutoRedirect(false);
     fetchActiveRuns();
   };
 
   const handleRunSelect = (runId: string) => {
     router.push(`/results/${runId}`);
   };
-
-  if (!hasHydrated) {
-    return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <p className="text-sdm-muted">Loading...</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -135,8 +137,27 @@ export default function ModelPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
+          {cleanedOccurrence && cleanedOccurrence.validRecords === 0 && (
+            <div className="mb-4 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 px-4 py-3 flex items-start gap-3">
+              <AlertTriangle className="h-4 w-4 text-sdm-danger shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-sdm-danger">Cleaning produced 0 valid records</p>
+                <p className="text-xs text-sdm-danger">The occurrence data has no valid records after cleaning. Go back to the Data page and check your data before running a model.</p>
+              </div>
+            </div>
+          )}
+          {!cleanedOccurrence && occurrenceFile && (
+            <div className="mb-4 rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 flex items-start gap-3">
+              <AlertTriangle className="h-4 w-4 text-sdm-warning shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-sdm-warning">Cleaning recommended</p>
+                <p className="text-xs text-sdm-warning">Clean your data first on the <Link href="/data?tab=clean" className="underline">Data page</Link>. Without previewing, the model will clean automatically but you won't see the results.</p>
+              </div>
+            </div>
+          )}
+
           {activeRuns.length > 0 && !jobId && (
-            <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 space-y-2">
+            <div className="mb-4 rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 space-y-2">
               <p className="text-sm text-sdm-warning">
                 {activeRuns.length === 1
                   ? `A model run is already in progress: ${activeRuns[0].species} (${activeRuns[0].model_id})`
@@ -155,7 +176,7 @@ export default function ModelPage() {
                       setError("Failed to cancel run(s)");
                     }
                   }}
-                  className="ml-auto inline-flex items-center gap-1 rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-400 hover:bg-red-500/20"
+                  className="ml-auto inline-flex items-center gap-1 rounded border border-sdm-danger/30 bg-sdm-danger/10 px-2 py-1 text-xs text-sdm-danger hover:bg-sdm-danger/20"
                 >
                   <Ban className="h-3 w-3" />
                   Cancel {activeRuns.length === 1 ? "run" : "all"}
@@ -173,14 +194,35 @@ export default function ModelPage() {
           />
 
           {error && (
-            <div className="mt-4 rounded-md border border-red-300/30 bg-red-500/5 p-3 text-sm text-red-500">
+            <div className="mt-4 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
               {error}
             </div>
           )}
 
           {jobId && (
             <div className="mt-4">
-              <JobProgress jobId={jobId} startTime={jobStartTime ?? undefined} onComplete={handleJobComplete} onDismiss={handleDismissJob} />
+              <JobProgress
+                jobId={jobId}
+                startTime={jobStartTime ?? undefined}
+                onComplete={handleJobComplete}
+                onDismiss={handleDismissJob}
+                completedActions={
+                  autoRedirect && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-sdm-muted">
+                        Auto-navigating to results in {redirectCountdown}s
+                        <button onClick={handleCancelRedirect} className="ml-2 underline hover:text-sdm-text">Cancel</button>
+                      </span>
+                      <Link
+                        href={`/results/${jobId}`}
+                        className="inline-flex items-center gap-1 rounded bg-sdm-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-sdm-accent/90"
+                      >
+                        View Results →
+                      </Link>
+                    </div>
+                  )
+                }
+              />
             </div>
           )}
         </div>
@@ -192,14 +234,19 @@ export default function ModelPage() {
               <div>
                 <p className="text-sm text-sdm-text font-medium">Cleaned occurrence data</p>
                 <p className="text-xs text-sdm-muted mt-1">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords.toLocaleString()} cleaned records</p>
+                <p className="text-xs text-sdm-accent mt-1"><Link href="/data?tab=clean" className="underline">Review on Data page</Link></p>
                 {species && species !== "Untitled species" && (
                   <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>
                 )}
               </div>
             ) : occurrenceFile ? (
               <div>
-                <p className="text-sm text-sdm-text font-mono truncate">{typeof occurrenceFile === "string" ? occurrenceFile.split("/").pop() : String(occurrenceFile)}</p>
+                <div className="flex items-center gap-2 text-sm text-sdm-warning">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <p className="text-sm text-sdm-text font-mono truncate">{typeof occurrenceFile === "string" ? occurrenceFile.split("/").pop() : String(occurrenceFile)}</p>
+                </div>
                 <p className="text-xs text-sdm-muted mt-1">{recordCount.toLocaleString()} records loaded</p>
+                <p className="text-xs text-sdm-warning mt-1">Not cleaned. <Link href="/data?tab=clean" className="underline">Clean on Data page</Link> first.</p>
                 {species && species !== "Untitled species" && (
                   <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>
                 )}

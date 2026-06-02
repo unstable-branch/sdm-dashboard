@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Cloud, ArrowRight, Loader2 } from "lucide-react";
+import { apiGet } from "@/services/api";
 
 interface FutureScenario {
   id: string;
@@ -21,8 +22,7 @@ export default function ProjectPage() {
   const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/v1/sdm/future/scenarios", { signal: AbortSignal.timeout(15000) })
-      .then((res) => res.json())
+    apiGet<{ available_scenarios: FutureScenario[] }>("/api/v1/sdm/future/scenarios")
       .then((data) => {
         setScenarios(data.available_scenarios || []);
         setLoading(false);
@@ -89,9 +89,11 @@ export default function ProjectPage() {
         ))}
       </div>
 
-      {selected && (
+      {selected && (() => {
+        const sel = scenarios.find((s) => s.id === selected);
+        return (
         <div className="rounded-lg border border-sdm-accent/50 bg-sdm-accent/5 p-4">
-          <p className="text-sm text-sdm-heading font-medium">Selected: {scenarios.find((s) => s.id === selected)?.gcm} / {scenarios.find((s) => s.id === selected)?.ssp} / {scenarios.find((s) => s.id === selected)?.period}</p>
+          <p className="text-sm text-sdm-heading font-medium">Selected: {sel?.gcm} / {sel?.ssp} / {sel?.period}</p>
           <p className="text-xs text-sdm-muted mt-1">
             Run a model with future projection enabled in the Model tab to use this scenario.
           </p>
@@ -99,7 +101,8 @@ export default function ProjectPage() {
             Go to Model tab <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

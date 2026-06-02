@@ -10,6 +10,9 @@ validate_extent <- function(extent_vec, name = "extent") {
   if (extent_vec[1] < -180 || extent_vec[2] > 180 || extent_vec[3] < -90 || extent_vec[4] > 90) {
     stop(name, " is outside valid longitude/latitude bounds.", call. = FALSE)
   }
+  if (extent_vec[2] - extent_vec[1] < 1e-6 || extent_vec[4] - extent_vec[3] < 1e-6) {
+    stop(name, " extent too small (< 1e-6 degrees).", call. = FALSE)
+  }
   as.numeric(extent_vec)
 }
 
@@ -25,9 +28,18 @@ validate_biovars <- function(selected_biovars) {
 }
 
 normalize_threshold <- function(threshold = sdm_default_threshold) {
+  if (is.null(threshold) || length(threshold) == 0) {
+    return(sdm_default_threshold)
+  }
+  if (is.character(threshold) && identical(tolower(threshold[1]), "max_tss")) {
+    return(NA_real_)
+  }
+  if (!is.character(threshold) && is.na(threshold[1])) {
+    return(NA_real_)
+  }
   threshold <- suppressWarnings(as.numeric(threshold[1]))
   if (is.na(threshold) || threshold < 0 || threshold > 1) {
-    stop("threshold must be between 0 and 1.", call. = FALSE)
+    stop("threshold must be between 0 and 1, or 'max_tss' for automatic selection.", call. = FALSE)
   }
   threshold
 }

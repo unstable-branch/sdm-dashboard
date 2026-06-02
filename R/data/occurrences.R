@@ -11,9 +11,96 @@ detect_column <- function(names_vec, patterns) {
   NA_character_
 }
 
+# Convert DMS (Degrees Minutes Seconds) to decimal degrees
+# Handles formats: "DD°MM'SS\"", "DD MM SS", "DD°MM.MMM'", etc.
+dms_to_decimal <- function(x) {
+  x <- trimws(as.character(x))
+  if (length(x) == 0 || is.na(x) || x == "") return(NA_real_)
+  if (suppressWarnings(!is.na(as.numeric(x)))) return(as.numeric(x))
+
+  sign <- 1
+  hemi_map <- list(N = 1, S = -1, E = 1, W = -1)
+  last_char <- substr(x, nchar(x), nchar(x))
+  first_char <- substr(x, 1, 1)
+  if (last_char %in% names(hemi_map)) {
+    sign <- hemi_map[[last_char]]
+    x <- substr(x, 1, nchar(x) - 1)
+  } else if (first_char %in% c("S", "W")) {
+    sign <- -1
+    x <- substr(x, 2, nchar(x))
+  }
+
+  x <- gsub("[°º]", " ", x)
+  x <- gsub("['′]", " ", x)
+  x <- gsub('["″]', " ", x)
+  x <- gsub(",", ".", x)
+  parts <- trimws(strsplit(x, "[[:space:]]+")[[1]])
+  parts <- parts[parts != ""]
+
+  if (length(parts) == 0) return(NA_real_)
+  dd <- tryCatch(as.numeric(parts[1]), warning = function(e) NA_real_)
+  if (is.na(dd)) return(NA_real_)
+  if (length(parts) >= 2) {
+    mm <- tryCatch(as.numeric(parts[2]), warning = function(e) NA_real_)
+    if (!is.na(mm)) dd <- dd + mm / 60
+  }
+  if (length(parts) >= 3) {
+    ss <- tryCatch(as.numeric(parts[3]), warning = function(e) NA_real_)
+    if (!is.na(ss)) dd <- dd + ss / 3600
+  }
+  dd * sign
+}
+
+normalize_coord_columns <- function(df) {
+  lon_patterns <- c("^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east")
+  lat_patterns <- c("^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north")
+  lon_col <- detect_column(names(df), lon_patterns)
+  lat_col <- detect_column(names(df), lat_patterns)
+  if (!is.na(lon_col) && lon_col != "longitude") {
+    names(df)[names(df) == lon_col] <- "longitude"
+  }
+  if (!is.na(lat_col) && lat_col != "latitude") {
+    names(df)[names(df) == lat_col] <- "latitude"
+  }
+  df
+}
+
+parse_coordinates <- function(df) {
+  if (!"longitude" %in% names(df) || !"latitude" %in% names(df)) return(df)
+  df$longitude <- vapply(df$longitude, dms_to_decimal, numeric(1))
+  df$latitude <- vapply(df$latitude, dms_to_decimal, numeric(1))
+  df
+}
+
+validate_coords <- function(lon, lat) {
+  invalid <- !is.finite(lon) | !is.finite(lat) |
+    lon < -180 | lon > 180 | lat < -90 | lat > 90
+  n_invalid <- sum(invalid, na.rm = TRUE)
+  n_na <- sum(is.na(lon) | is.na(lat))
+  errors <- character(0)
+  if (n_na > 0) errors <- c(errors, paste(n_na, "non-numeric coordinate(s)"))
+  if (n_invalid > 0) errors <- c(errors, paste(n_invalid, "coordinate(s) outside valid bounds (lon: -180/180, lat: -90/90)"))
+  paste(errors, collapse = "; ")
+}
+
 read_occurrence_file <- function(path, log_fun = NULL) {
   if (is.null(path) || !file.exists(path)) {
     stop("Occurrence file not found. Upload a CSV or restore presence_data.csv.", call. = FALSE)
+  }
+  # Decrypt if encryption is enabled
+  key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+  if (!is.na(key) && nzchar(key)) {
+    tmp <- tempfile(fileext = paste0(".", tolower(tools::file_ext(path))))
+    decrypted <- tryCatch({
+      decrypt_file(path, tmp, key = key)
+      TRUE
+    }, error = function(e) FALSE)
+    if (decrypted) {
+      on.exit(unlink(tmp), add = TRUE)
+      path <- tmp
+    } else {
+      unlink(tmp)
+    }
   }
   ext <- tolower(tools::file_ext(path))
   if (ext == "zip") {
@@ -40,27 +127,66 @@ read_occurrence_file <- function(path, log_fun = NULL) {
   }
   is_tab <- grepl("\\.(tsv|txt)$", path, ignore.case = TRUE)
   log_message(log_fun, "Reading occurrences from ", normalizePath(path, winslash = "/", mustWork = FALSE))
-  if (is_tab) {
-    utils::read.delim(path, quote = "", stringsAsFactors = FALSE, check.names = FALSE)
-  } else {
-    if (requireNamespace("data.table", quietly = TRUE)) {
-      data.table::fread(path, stringsAsFactors = FALSE, check.names = FALSE)
+  tryCatch({
+    if (is_tab) {
+      utils::read.delim(path, quote = "", stringsAsFactors = FALSE, check.names = FALSE)
     } else {
-      utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+      if (requireNamespace("data.table", quietly = TRUE)) {
+        data.table::fread(path, stringsAsFactors = FALSE, check.names = FALSE)
+      } else {
+        utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+      }
     }
-  }
+  }, error = function(e) {
+    stop("Failed to read occurrence file: ", conditionMessage(e), call. = FALSE)
+  })
+}
+
+pre_check_memory <- function(path, log_fun = NULL) {
+  if (!requireNamespace("terra", quietly = TRUE)) return(invisible(NULL))
+  file_size <- file.info(path)$size
+  if (is.na(file_size) || file_size <= 0) return(invisible(NULL))
+  est_in_mem_gb <- file_size * 3 / (1024^3)
+  tryCatch({
+    mem_info <- terra::mem_info()
+    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+      avail_gb <- mem_info$memavail
+      if (est_in_mem_gb > avail_gb * 0.6) {
+        stop(sprintf(
+          "Estimated memory for cleaning (%.1f GB) exceeds 60%% of available RAM (%.1f GB). ",
+          est_in_mem_gb, avail_gb
+        ), call. = FALSE)
+      }
+      if (est_in_mem_gb > avail_gb * 0.3) {
+        log_message(log_fun, sprintf("Large file: estimated memory %.1f GB of %.1f GB available", est_in_mem_gb, avail_gb))
+      }
+    }
+  }, error = function(e) {
+    if (grepl("^Estimated memory for cleaning", conditionMessage(e))) stop(e)
+  })
 }
 
 clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE,
                               use_cc = FALSE, cc_tests = "all", log_fun = NULL, min_records = 20,
-                              max_coordinate_uncertainty = NULL) {
+                              max_coordinate_uncertainty = NULL, max_records = 200000L) {
+  pre_check_memory(path, log_fun = log_fun)
   raw <- read_occurrence_file(path, log_fun = log_fun)
   original_n <- nrow(raw)
   if (original_n == 0) stop("Occurrence file is empty.", call. = FALSE)
+  if (original_n > max_records) {
+    stop(sprintf("Input contains %d records (max: %d). Large datasets should be thinned or filtered before upload.",
+      original_n, max_records), call. = FALSE)
+  }
 
-  lon_col <- detect_column(names(raw), c("^(lon|longitude|x)$", "decimal.*lon", "decimallongitude", "^long"))
-  lat_col <- detect_column(names(raw), c("^(lat|latitude|y)$", "decimal.*lat", "decimallatitude"))
+  original_lon_col <- detect_column(names(raw), c("^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east"))
+  original_lat_col <- detect_column(names(raw), c("^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north"))
+
+  raw <- normalize_coord_columns(raw)
+
+  lon_col <- detect_column(names(raw), c("^(lon|longitude|x)$", "^decimal.*lon", "^decimallongitude", "^long", "easting$", "^east"))
+  lat_col <- detect_column(names(raw), c("^(lat|latitude|y)$", "^decimal.*lat", "^decimallatitude", "northing$", "^north"))
   src_col <- detect_column(names(raw), c("^(source|datasource|data_source|institution|institutioncode|herbarium|provider)$", "basisofrecord", "dataset"))
+  species_col <- detect_column(names(raw), c("^(species|scientificname|scientific_name|taxon)$"))
   country_col <- detect_column(names(raw), c("^(countrycode|country|iso2)$"))
   status_col <- detect_column(names(raw), c("occurrenceStatus"))
 
@@ -80,12 +206,13 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   n_absent_excluded <- sum(tolower(raw_status) == "absent", na.rm = TRUE)
 
   occ <- data.frame(
-    longitude = suppressWarnings(as.numeric(raw[[lon_col]])),
-    latitude = suppressWarnings(as.numeric(raw[[lat_col]])),
+    longitude = vapply(raw[[lon_col]], dms_to_decimal, numeric(1)),
+    latitude = vapply(raw[[lat_col]], dms_to_decimal, numeric(1)),
     source = source,
     stringsAsFactors = FALSE
   )
   if (!is.na(country_col)) occ$countryCode <- as.character(raw[[country_col]])
+  if (!is.na(species_col)) occ$species <- as.character(raw[[species_col]])
 
   complete_ok <- stats::complete.cases(occ[, c("longitude", "latitude", "source")])
   finite_ok <- is.finite(occ$longitude) & is.finite(occ$latitude)
@@ -112,7 +239,13 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
 
   ok <- complete_ok & finite_ok & bounds_ok & status_ok & uncertainty_ok
   removed_bad <- sum(!ok)
+  n_na <- sum(!complete_ok)
+  n_nonfinite <- sum(complete_ok & !finite_ok)
+  n_out_of_bounds <- sum(complete_ok & finite_ok & !bounds_ok)
   occ <- occ[ok, , drop = FALSE]
+  if (n_na > 0) log_message(log_fun, "  Removed ", n_na, " records with NA coordinates")
+  if (n_nonfinite > 0) log_message(log_fun, "  Removed ", n_nonfinite, " records with non-finite coordinates")
+  if (n_out_of_bounds > 0) log_message(log_fun, "  Removed ", n_out_of_bounds, " records outside [-180,180] / [-90,90]")
 
   duplicated_rows <- duplicated(occ[, c("longitude", "latitude", "source")])
   removed_dupes <- sum(duplicated_rows)
@@ -141,15 +274,34 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     } else {
       cc_tests
     }
+    cc_tests_filtered <- cc_tests_active
+    if (!"species" %in% names(occ)) {
+      cc_tests_filtered <- setdiff(cc_tests_filtered, c("capitals", "centroids"))
+    }
+    cc_species <- if ("species" %in% names(occ)) "species" else NULL
+    cc_max_for_full <- 50000L
+    cc_run_on_sample <- nrow(occ) > cc_max_for_full
+    cc_input <- if (cc_run_on_sample) {
+      set.seed(sdm_default_seed)
+      occ[sample(nrow(occ), cc_max_for_full), , drop = FALSE]
+    } else {
+      occ
+    }
     cc_result <- CoordinateCleaner::clean_coordinates(
-      occ,
+      cc_input,
       lon = "longitude",
       lat = "latitude",
-      species = NULL,
-      tests = cc_tests_active,
+      species = cc_species,
+      tests = cc_tests_filtered,
       value = "spatialvalid"
     )
-    occ$cc_flag <- !cc_result$.summary
+    occ$cc_flag <- FALSE
+    if (cc_run_on_sample) {
+      sampled_idx <- as.integer(rownames(cc_input))
+      occ$cc_flag[sampled_idx] <- !cc_result$.summary
+    } else {
+      occ$cc_flag <- !cc_result$.summary
+    }
     cc_test_map <- c(
       .sea = "cc_test_sea", .cap = "cc_test_capitals",
       .inst = "cc_test_institutions", .cen = "cc_test_centroids",
@@ -158,11 +310,34 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     )
     for (col in names(cc_result)) {
       if (col %in% names(cc_test_map)) {
-        occ[[cc_test_map[[col]]]] <- !cc_result[[col]]
+        if (cc_run_on_sample) {
+          occ[[cc_test_map[[col]]]] <- FALSE
+          occ[[cc_test_map[[col]]]][sampled_idx] <- !cc_result[[col]]
+        } else {
+          occ[[cc_test_map[[col]]]] <- !cc_result[[col]]
+        }
       }
     }
-    n_flagged <- sum(!cc_result$.summary, na.rm = TRUE)
-    log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", nrow(occ), " records")
+    if (!is.null(cc_result)) {
+      occ$cc_flag <- !cc_result$.summary
+      cc_test_map <- c(
+        .sea = "cc_test_sea", .cap = "cc_test_capitals",
+        .inst = "cc_test_institutions", .cen = "cc_test_centroids",
+        .urb = "cc_test_urban", .zer = "cc_test_zero",
+        .equ = "cc_test_equal", .gbf = "cc_test_gbif"
+      )
+      for (col in names(cc_result)) {
+        if (col %in% names(cc_test_map)) {
+          occ[[cc_test_map[[col]]]] <- !cc_result[[col]]
+        }
+      }
+      n_flagged <- sum(!cc_result$.summary, na.rm = TRUE)
+      log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", nrow(occ), " records")
+    }
+    n_flagged <- sum(occ$cc_flag, na.rm = TRUE)
+    n_total <- if (cc_run_on_sample) cc_max_for_full else nrow(occ)
+    log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", n_total, " records",
+      if (cc_run_on_sample) paste0(" (sampled from ", nrow(occ), ")"))
   } else if (use_cc && !requireNamespace("CoordinateCleaner", quietly = TRUE)) {
     warning("CoordinateCleaner not installed. Install with: install.packages('CoordinateCleaner')")
   }
@@ -175,12 +350,17 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   )
 
   list(
-    raw = raw, occ = occ, source_counts = source_counts,
+    raw = raw, occ = occ, df = occ, source_counts = source_counts,
     removed_bad_coordinates = removed_bad, removed_duplicates = removed_dupes,
     original_rows = original_n,
     n_absent_excluded = n_absent_excluded,
     has_occurrence_status = !is.na(status_col),
-    columns = list(longitude = lon_col, latitude = lat_col, source = src_col, country = country_col)
+    columns = list(
+      longitude = if (!is.na(original_lon_col)) original_lon_col else lon_col,
+      latitude = if (!is.na(original_lat_col)) original_lat_col else lat_col,
+      source = src_col,
+      country = country_col
+    )
   )
 }
 
@@ -200,6 +380,7 @@ make_training_extent <- function(occ, buffer = 2) {
     ymin <- max(-90, ymin - 0.5)
     ymax <- min(90, ymax + 0.5)
   }
+  validate_extent(c(xmin, xmax, ymin, ymax), "training_extent")
   c(xmin, xmax, ymin, ymax)
 }
 
@@ -297,19 +478,29 @@ thin_occurrences_by_distance <- function(occ, min_distance_km = sdm_default_thin
 read_gbif_records <- function(taxon, country = NULL, max_records = 100,
                               token = NULL, log_fun = NULL) {
   if (!requireNamespace("rgbif", quietly = TRUE)) {
-    stop("rgbif package required for GBIF fetching. Install with: install.packages('rgbif')")
+    stop("rgbif package required for GBIF fetching. Install with: install.packages('rgbif')", call. = FALSE)
   }
 
   log_message(log_fun, "Fetching GBIF records for: ", taxon)
 
-  taxon_key <- rgbif::name_backbone(taxon)$speciesKey
+  taxon_key <- tryCatch(rgbif::name_backbone(taxon)$speciesKey,
+    error = function(e) {
+      stop("GBIF name lookup failed for '", taxon, "': ", conditionMessage(e),
+        ". Check internet connectivity or GBIF API availability.", call. = FALSE)
+    })
 
-  result <- rgbif::occ_search(
+  if (max_records > 10000) {
+    log_message(log_fun, sprintf("GBIF API limit is 10,000 records per search (requested %d); capping at 10,000", max_records))
+  }
+  result <- tryCatch(rgbif::occ_search(
     taxonKey = taxon_key,
     country = country,
     limit = min(max_records, 10000),
     hasCoordinate = TRUE
-  )
+  ), error = function(e) {
+    stop("GBIF occurrence search failed for '", taxon, "': ", conditionMessage(e),
+      ". Check internet connectivity or GBIF API availability.", call. = FALSE)
+  })
 
   if (is.null(result$data) || nrow(result$data) == 0) {
     log_message(log_fun, "No GBIF records found for: ", taxon)
@@ -361,22 +552,26 @@ read_gbif_download <- function(taxon, country = NULL, gbif_user = NULL, gbif_pwd
     gbif_pwd <- token
   }
   if (is.null(gbif_user) || !nzchar(trimws(gbif_user))) {
-    stop("GBIF download requires 'gbif_user' (your GBIF username).")
+    stop("GBIF download requires 'gbif_user' (your GBIF username).", call. = FALSE)
   }
   if (is.null(gbif_pwd) || !nzchar(trimws(gbif_pwd))) {
-    stop("GBIF download requires 'gbif_pwd' (your GBIF password or API key).")
+    stop("GBIF download requires 'gbif_pwd' (your GBIF password or API key).", call. = FALSE)
   }
   if (!requireNamespace("rgbif", quietly = TRUE)) {
-    stop("rgbif package required for GBIF downloading. Install with: install.packages('rgbif')")
+    stop("rgbif package required for GBIF downloading. Install with: install.packages('rgbif')", call. = FALSE)
   }
   if (is.null(email) || !nzchar(trimws(email))) {
     email <- Sys.getenv("SDM_GBIF_EMAIL", unset = "")
   }
   if (!nzchar(trimws(email))) {
-    stop("GBIF download requires a valid email. Provide via 'email' parameter or set SDM_GBIF_EMAIL.")
+    stop("GBIF download requires a valid email. Provide via 'email' parameter or set SDM_GBIF_EMAIL.", call. = FALSE)
   }
 
-  taxon_key <- rgbif::name_backbone(taxon)$speciesKey
+  taxon_key <- tryCatch(rgbif::name_backbone(taxon)$speciesKey,
+    error = function(e) {
+      stop("GBIF name lookup failed for '", taxon, "': ", conditionMessage(e),
+        ". Check internet connectivity or GBIF API availability.", call. = FALSE)
+    })
 
   pred_list <- list(
     rgbif::pred("taxonKey", taxon_key),
@@ -386,30 +581,42 @@ read_gbif_download <- function(taxon, country = NULL, gbif_user = NULL, gbif_pwd
     pred_list <- c(pred_list, rgbif::pred("country", country))
   }
 
-  download_key <- rgbif::occ_download(
+  download_key <- tryCatch(rgbif::occ_download(
     !!!pred_list,
     user = trimws(gbif_user),
     pwd = trimws(gbif_pwd),
     email = trimws(email)
-  )
+  ), error = function(e) {
+    stop("GBIF download failed for '", taxon, "': ", conditionMessage(e),
+      ". Check credentials and internet connectivity.", call. = FALSE)
+  })
 
+  log_message(NULL, "Starting GBIF download (blocking — up to ~5 minutes). Consider using the async endpoint for non-interactive contexts.")
   status <- "running"
   attempts <- 0
   while (status == "running" && attempts < max_attempts) {
     Sys.sleep(poll_interval)
-    status_info <- rgbif::occ_download_meta(download_key)
+    status_info <- tryCatch(rgbif::occ_download_meta(download_key),
+      error = function(e) {
+        log_message(NULL, "GBIF status check failed (attempt ", attempts + 1, "): ", conditionMessage(e))
+        list(status = "running")
+      })
     status <- status_info$status
     attempts <- attempts + 1
     log_message(NULL, "GBIF download status: ", status, " (attempt ", attempts, "/", max_attempts, ")")
   }
 
   if (status != "succeeded") {
-    stop("GBIF download failed or timed out after ", max_attempts, " attempts")
+    stop("GBIF download failed or timed out after ", max_attempts, " attempts (final status: ", status, ")", call. = FALSE)
   }
 
-  doi <- rgbif::occ_download_meta(download_key)$doi
+  doi <- tryCatch(rgbif::occ_download_meta(download_key)$doi,
+    error = function(e) NA_character_)
 
-  occ_data <- rgbif::occ_download_get(download_key, path = tempdir())
+  occ_data <- tryCatch(rgbif::occ_download_get(download_key, path = tempdir()),
+    error = function(e) {
+      stop("GBIF download retrieval failed: ", conditionMessage(e), call. = FALSE)
+    })
 
   list(
     occurrences = occ_data,

@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { compress } from "hono/compress";
 import { plumberClient } from "./services/plumber.js";
 import { ensureBuckets } from "./services/storage.js";
 import { getRedisStatus, ensureWorker, getJobStatus, shutdownQueue } from "./services/queue.js";
@@ -19,6 +20,8 @@ import { climateRoutes } from "./routes/climate.js";
 import { ecologyRoutes } from "./routes/ecology.js";
 import { authRoutes } from "./routes/auth.js";
 import { projectRoutes } from "./routes/projects.js";
+import { settingsRoutes } from "./routes/settings.js";
+import { adminRoutes } from "./routes/admin.js";
 import { diagnosticsRoutes } from "./routes/diagnostics.js";
 import jobsRoutes from "./routes/jobs.js";
 
@@ -33,12 +36,18 @@ process.on("uncaughtException", (err) => {
   ) {
     return;
   }
-  throw err;
+  console.error("[FATAL] Uncaught exception (keeping process alive):", err);
 });
 
 const app = new Hono();
 
-app.use("*", cors());
+const frontendOrigin = process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:3000";
+const corsOrigins = frontendOrigin.split(",").map(s => s.trim()).filter(Boolean);
+app.use("*", cors({
+  origin: corsOrigins.length > 0 ? corsOrigins : ["http://localhost:3000"],
+  credentials: true,
+}));
+app.use("*", compress());
 app.use("*", logger());
 app.use("*", memoryMonitorMiddleware);
 app.use("/api/v1/sdm/*", csrfMiddleware);
@@ -93,6 +102,8 @@ app.get("/ready", async (c) => {
 
 app.route("/api/v1/auth", authRoutes);
 app.route("/api/v1/projects", projectRoutes);
+app.route("/api/v1/settings", settingsRoutes);
+app.route("/api/v1/admin", adminRoutes);
 app.route("/api/v1/sdm", sdmRoutes);
 app.route("/api/v1/data", dataRoutes);
 app.route("/api/v1/results", resultsRoutes);
@@ -100,6 +111,15 @@ app.route("/api/v1/climate", climateRoutes);
 app.route("/api/v1/ecology", ecologyRoutes);
 app.route("/api/v1/diagnostics", diagnosticsRoutes);
 app.route("/api/v1/jobs", jobsRoutes);
+
+app.onError((err, c) => {
+  console.error("[API] Unhandled error:", err);
+  return c.json({ error: "Internal server error" }, 500);
+});
+
+app.notFound((c) => {
+  return c.json({ error: "Not found" }, 404);
+});
 
 const port = parseInt(process.env.PORT || "4000", 10);
 
@@ -169,11 +189,12 @@ process.on("SIGINT", shutdown);
 
 // Set up HTTP server with WebSocket support
 const server = serve(
-  { fetch: app.fetch, port, hostname: "0.0.0.0" },
+  { fetch: app.fetch, port, hostname: process.env.HOST || "0.0.0.0" },
   (info) => {
     console.log(`SDM API server running on http://${info.address}:${info.port}`);
     console.log(`HTTP server listening on port ${info.port}`);
-    console.log(`WebSocket available at ws://${info.address}:${info.port}/ws`);
+    const wsProto = process.env.NODE_ENV === "production" ? "wss" : "ws";
+    console.log(`WebSocket available at ${wsProto}://${info.address}:${info.port}/ws`);
   }
 );
 
@@ -191,5 +212,6 @@ process.on("unhandledRejection", (reason) => {
   ) {
     return;
   }
-  console.error("[API] Unhandled rejection:", reason);
+  console.error("[API] Unhandled rejection, shutting down:", reason);
+  shutdown();
 });

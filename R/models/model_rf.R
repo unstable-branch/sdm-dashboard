@@ -35,7 +35,8 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
         verbose = FALSE
       )
       test_sub <- test[, covariates, drop = FALSE]
-      pred <- predict(rf_model, data = test_sub)$predictions
+      raw_pred <- predict(rf_model, data = test_sub)$predictions
+      pred <- pmax(0, pmin(1, raw_pred))
       metrics_list_to_row(compute_binary_metrics(test$presence, pred, threshold = threshold), fold = i)
     }
 
@@ -100,7 +101,7 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
         classification = FALSE,
         importance = "permutation",
         seed = seed,
-        num.threads = normalize_core_count(n_cores),
+        num.threads = 1,
         verbose = FALSE
       )
     }, error = function(e) {
@@ -108,7 +109,7 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
     })
 
     # Training metrics
-    train_pred <- model$predictions
+    train_pred <- pmax(0, pmin(1, model$predictions))
     train_metrics <- compute_binary_metrics(rf_data$presence, train_pred, threshold = threshold)
 
     # Cross-validation
@@ -154,7 +155,8 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
       covariates = covariates,
       variable_importance = importance_df,
       threshold = cv$threshold %||% threshold,
-      oob_auc = oob_auc
+      oob_auc = oob_auc,
+      metrics = list(training_auc = train_metrics$auc, training_tss = train_metrics$tss)
     )
   }
 
@@ -176,18 +178,14 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
     env_subset <- env_project_scaled[[raster_names[cov_idx]]]
     log_message(log_fun, "Predicting RF suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
-    suit <- terra::app(env_subset, fun = function(vals) {
-      if (!all(is.finite(vals))) {
-        return(rep(NA_real_, nrow(vals)))
-      }
-      df <- as.data.frame(vals, stringsAsFactors = FALSE)
-      names(df) <- fit$covariates
-      predict(fit$model, data = df)$predictions
-    }, cores = normalize_core_count(n_cores))
+    pred_ranger <- function(model, newdata, ...) {
+      predict(model, data = newdata, ...)$predictions
+    }
+    suit <- terra::predict(env_subset, fit$model, fun = pred_ranger,
+      na.rm = TRUE, filename = output_tif, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
 
     names(suit) <- "suitability"
-    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
     log_message(log_fun, "Suitability raster written to: ", output_tif)
     suit
   }

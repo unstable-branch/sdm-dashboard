@@ -16,8 +16,8 @@ if (!exists("app_dir", inherits = FALSE) || is.null(app_dir) || length(app_dir) 
     is.na(app_dir) || !nzchar(app_dir)) {
   app_dir <- commandArgs(trailingOnly = TRUE)[2]
 }
-if (is.na(job_dir) || !nzchar(job_dir)) stop("job_dir is required")
-if (is.na(app_dir) || !nzchar(app_dir)) stop("app_dir is required")
+if (is.na(job_dir) || !nzchar(job_dir)) stop("job_dir is required", call. = FALSE)
+if (is.na(app_dir) || !nzchar(app_dir)) stop("app_dir is required", call. = FALSE)
 
 meta_file <- file.path(job_dir, "meta.json")
 progress_file <- file.path(job_dir, "progress.log")
@@ -32,6 +32,18 @@ progress_fun <- function(pct, msg) {
   line <- sprintf("[%d%%] %s", as.integer(pct), msg)
   cat(line, "\n")
   cat(line, "\n", file = progress_file, append = TRUE)
+  if (job_id %||% "" != "") {
+    entry <- list(timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"), percent = pct, detail = msg, stage = "download")
+    entry_json <- jsonlite::toJSON(entry, auto_unbox = TRUE)
+    if (exists("sdm_redis_progress_set", inherits = TRUE)) {
+      tryCatch(sdm_redis_progress_set(job_id, entry_json), error = function(e) NULL)
+    }
+    if (exists("sdm_redis_cancel_check", inherits = TRUE)) {
+      if (sdm_redis_cancel_check(job_id)) {
+        stop("CANCELLED", call. = FALSE)
+      }
+    }
+  }
 }
 
 read_meta <- function() {
@@ -39,19 +51,46 @@ read_meta <- function() {
 }
 
 write_meta <- function(meta) {
-  writeLines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE), meta_file)
+  tmp_path <- tempfile(pattern = "meta", tmpdir = dirname(meta_file))
+  on.exit(unlink(tmp_path))
+  writeLines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE), tmp_path)
+  file.rename(tmp_path, meta_file)
 }
 
 meta <- read_meta()
 config <- meta$config %||% list()
 download_type <- config$type %||% "cmip6"
+job_id <- meta$id %||% basename(job_dir)
+created_files <- character()
+
+cleanup_on_failure <- function() {
+  if (length(created_files) > 0) {
+    log_fun("Cleaning up ", length(created_files), " partially downloaded files...")
+    unlink(created_files)
+  }
+  if (download_type %in% c("cmip6", "cmip6_average")) {
+    out_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
+    if (download_type == "cmip6_average") {
+      scenario_dir <- file.path(out_dir, paste0("averaged_", config$gcm_list %||% "unknown", "_", config$ssp %||% "SSP", "_", config$period %||% "period"))
+    } else {
+      scenario_dir <- file.path(out_dir, paste0(config$gcm %||% "GCM", "_", config$ssp %||% "SSP", "_", config$period %||% "period"))
+    }
+    if (dir.exists(scenario_dir)) {
+      unlink(scenario_dir, recursive = TRUE)
+      log_fun("Removed incomplete scenario directory: ", scenario_dir)
+    }
+  }
+}
 
 tryCatch({
   progress_fun(5, "Initializing download")
 
   source(file.path(app_dir, "R", "core", "bootstrap.R"))
   sdm_set_project_root(app_dir)
-  source(file.path(app_dir, "R", "load.R"))
+  source(file.path(app_dir, "R", "engine_load.R"))
+  # Source Redis helpers for background progress reporting
+  redis_r <- file.path(app_dir, "plumber", "R", "redis.R")
+  if (file.exists(redis_r)) source(redis_r, local = TRUE)
 
   if (download_type %in% c("cmip6", "cmip6_average")) {
     gcm <- config$gcm %||% "UKESM1-0-LL"
@@ -78,20 +117,22 @@ tryCatch({
       progress_fun(90, "GCM averaging complete")
     }
   } else if (download_type == "worldclim") {
-    res <- as.integer(config$res %||% 10)
+    climate_res <- as.integer(config$res %||% 10)
     biovars <- config$biovars
     if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
     worldclim_dir <- file.path(app_dir, sdm_default_worldclim_dir)
-    progress_fun(10, paste0("Downloading WorldClim v2.1 BIO layers (", res, "m)"))
+    progress_fun(10, paste0("Downloading WorldClim v2.1 BIO layers (", climate_res, "m)"))
     log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
     source(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
     result <- download_worldclim_bio(worldclim_dir = worldclim_dir, selected_biovars = biovars,
-                                     res = res, log_fun = log_fun)
+      res = climate_res, log_fun = log_fun)
+    created_files <- result$files %||% character()
     if (length(result$failed) > 0) {
       meta$failed_vars <- result$failed
       meta$status <- "partial"
       meta$error <- paste("Failed to download WorldClim BIO:", paste(result$failed, collapse = ", "))
       log_fun("Partial failure: ", length(result$failed), " layers failed")
+      cleanup_on_failure()
     } else {
       progress_fun(90, "WorldClim download complete")
     }
@@ -103,16 +144,18 @@ tryCatch({
     log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
     source(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
     result <- download_chelsa_bio(chelsa_dir = chelsa_dir, selected_biovars = biovars, log_fun = log_fun)
+    created_files <- result$files %||% character()
     if (length(result$failed) > 0) {
       meta$failed_vars <- result$failed
       meta$status <- "partial"
       meta$error <- paste("Failed to download CHELSA BIO:", paste(result$failed, collapse = ", "))
       log_fun("Partial failure: ", length(result$failed), " layers failed")
+      cleanup_on_failure()
     } else {
       progress_fun(90, "CHELSA download complete")
     }
   } else {
-    stop("Unknown download type: ", download_type)
+    stop("Unknown download type: ", download_type, call. = FALSE)
   }
 
   progress_fun(95, "Finalizing")
@@ -124,6 +167,15 @@ tryCatch({
   write_meta(meta)
 }, error = function(e) {
   msg <- conditionMessage(e)
+  if (identical(msg, "CANCELLED")) {
+    meta$status <- "cancelled"
+    meta$error <- "Cancelled by user"
+    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    write_meta(meta)
+    log_fun("Download cancelled by user")
+    quit(save = "no", status = 0)
+  }
+  cleanup_on_failure()
   network_patterns <- c("ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "ENETUNREACH", "EHOSTUNREACH", "EPIPE")
   http_4xx_pattern <- "HTTP/[45][0-9][0-9]|curl.*error|connection.*fail|timeout"
   http_5xx_pattern <- "HTTP 5[0-9][0-9]|Service Unavailable|Gateway Timeout"

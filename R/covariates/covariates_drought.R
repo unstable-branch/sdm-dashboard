@@ -19,7 +19,7 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
                                    allow_download = TRUE,
                                    log_fun = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for drought downloads. Install with: install.packages('curl')")
+    stop("curl package required for drought downloads. Install with: install.packages('curl')", call. = FALSE)
   }
 
   # CRU scPDSI file — direct URL
@@ -164,7 +164,7 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
 
   if ("annual_mean" %in% periods && !file.exists(cached_annual)) {
     names(r_annual) <- "scpdsi_annual"
-    terra::writeRaster(r_annual, cached_annual, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    terra::writeRaster(r_annual, cached_annual, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES")))
     layers[["scpdsi_annual"]] <- r_annual
     layer_files <- c(layer_files, cached_annual)
     loaded_vars <- c(loaded_vars, "annual")
@@ -172,7 +172,7 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
 
   if ("wet_season" %in% periods && !file.exists(cached_wet)) {
     names(r_wet) <- "scpdsi_wet"
-    terra::writeRaster(r_wet, cached_wet, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    terra::writeRaster(r_wet, cached_wet, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES")))
     layers[["scpdsi_wet"]] <- r_wet
     layer_files <- c(layer_files, cached_wet)
     loaded_vars <- c(loaded_vars, "wet_season")
@@ -180,7 +180,7 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
 
   if ("dry_season" %in% periods && !file.exists(cached_dry)) {
     names(r_dry) <- "scpdsi_dry"
-    terra::writeRaster(r_dry, cached_dry, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+    terra::writeRaster(r_dry, cached_dry, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES")))
     layers[["scpdsi_dry"]] <- r_dry
     layer_files <- c(layer_files, cached_dry)
     loaded_vars <- c(loaded_vars, "dry_season")

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Loader2, AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { apiGet } from "@/services/api";
 
 interface EcologyData {
   run_id: string;
@@ -66,17 +67,13 @@ export function ConservationSummary({ runId }: ConservationSummaryProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/v1/ecology/${runId}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Run not found");
-        return res.json();
-      })
-      .then((d: EcologyData) => {
+    apiGet<EcologyData>(`/api/v1/ecology/${runId}`)
+      .then((d) => {
         setData(d);
         setLoading(false);
       })
       .catch((err) => {
-        setError(err.message);
+        setError(err instanceof Error ? err.message : "Failed to load ecology data");
         setLoading(false);
       });
   }, [runId]);
@@ -155,14 +152,14 @@ export function ConservationSummary({ runId }: ConservationSummaryProps) {
             <div className="rounded-md bg-sdm-surface-soft p-3 text-xs text-sdm-muted">
               <p className="font-medium text-sdm-text mb-1">IUCN Red List thresholds (Criterion B):</p>
               <div className="grid grid-cols-4 gap-2">
-                <span className={eooAoo.eoo_km2 < IUCN_THRESHOLDS.CR.eoo ? "text-red-400 font-medium" : ""}>
-                  CR: EOO &lt; {IUCN_THRESHOLDS.CR.eoo.toLocaleString()} km²
+                <span className={eooAoo.eoo_km2 < IUCN_THRESHOLDS.CR.eoo || eooAoo.aoo_km2 < IUCN_THRESHOLDS.CR.aoo ? "text-red-400 font-medium" : ""}>
+                  CR: EOO &lt; {IUCN_THRESHOLDS.CR.eoo.toLocaleString()} km² or AOO &lt; {IUCN_THRESHOLDS.CR.aoo} km²
                 </span>
-                <span className={eooAoo.eoo_km2 < IUCN_THRESHOLDS.EN.eoo && eooAoo.eoo_km2 >= IUCN_THRESHOLDS.CR.eoo ? "text-orange-400 font-medium" : ""}>
-                  EN: EOO &lt; {IUCN_THRESHOLDS.EN.eoo.toLocaleString()} km²
+                <span className={(eooAoo.eoo_km2 < IUCN_THRESHOLDS.EN.eoo || eooAoo.aoo_km2 < IUCN_THRESHOLDS.EN.aoo) && eooAoo.eoo_km2 >= IUCN_THRESHOLDS.CR.eoo && eooAoo.aoo_km2 >= IUCN_THRESHOLDS.CR.aoo ? "text-orange-400 font-medium" : ""}>
+                  EN: EOO &lt; {IUCN_THRESHOLDS.EN.eoo.toLocaleString()} km² or AOO &lt; {IUCN_THRESHOLDS.EN.aoo} km²
                 </span>
-                <span className={eooAoo.eoo_km2 < IUCN_THRESHOLDS.VU.eoo && eooAoo.eoo_km2 >= IUCN_THRESHOLDS.EN.eoo ? "text-yellow-400 font-medium" : ""}>
-                  VU: EOO &lt; {IUCN_THRESHOLDS.VU.eoo.toLocaleString()} km²
+                <span className={(eooAoo.eoo_km2 < IUCN_THRESHOLDS.VU.eoo || eooAoo.aoo_km2 < IUCN_THRESHOLDS.VU.aoo) && eooAoo.eoo_km2 >= IUCN_THRESHOLDS.EN.eoo && eooAoo.aoo_km2 >= IUCN_THRESHOLDS.EN.aoo ? "text-yellow-400 font-medium" : ""}>
+                  VU: EOO &lt; {IUCN_THRESHOLDS.VU.eoo.toLocaleString()} km² or AOO &lt; {IUCN_THRESHOLDS.VU.aoo} km²
                 </span>
                 <span>LC: above thresholds</span>
               </div>

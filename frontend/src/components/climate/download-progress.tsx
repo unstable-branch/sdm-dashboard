@@ -7,14 +7,15 @@ import { useJobProgress } from "@/hooks/useJobProgress";
 interface DownloadProgressProps {
   jobId: string;
   onComplete: () => void;
+  onFailed?: () => void;
   onCancel: () => void;
 }
 
 const typeLabel = "climate download";
 
-export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgressProps) {
+export function DownloadProgress({ jobId, onComplete, onFailed, onCancel }: DownloadProgressProps) {
   const [progress, setProgress] = useState(10);
-  const { job: wsJob, connected } = useJobProgress(jobId);
+  const { job: wsJob } = useJobProgress(jobId);
 
   useEffect(() => {
     if (!wsJob) return;
@@ -24,8 +25,9 @@ export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgre
       onComplete();
     } else if (wsJob.state === "failed") {
       setProgress(0);
+      onFailed?.();
     }
-  }, [wsJob, onComplete]);
+  }, [wsJob, onComplete, onFailed]);
 
   if (!wsJob) {
     return (
@@ -63,6 +65,11 @@ export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgre
             <X className="h-3 w-3" /> Cancel
           </button>
         )}
+        {isFailed && onFailed && (
+          <button onClick={onFailed} className="text-xs text-sdm-muted hover:text-sdm-text flex items-center gap-1">
+            <X className="h-3 w-3" /> Dismiss
+          </button>
+        )}
       </div>
 
       {!isComplete && !isFailed && (
@@ -76,7 +83,7 @@ export function DownloadProgress({ jobId, onComplete, onCancel }: DownloadProgre
 
       {isFailed && wsJob.failedReason && (
         <div className="text-xs text-red-500 font-mono bg-red-500/5 rounded p-2">
-          {wsJob.failedReason}
+          {typeof wsJob.failedReason === "string" ? wsJob.failedReason : JSON.stringify(wsJob.failedReason)}
         </div>
       )}
 
