@@ -145,14 +145,14 @@ tryCatch({
     climate_matching = isTRUE(config$climate_matching),
     climate_matching_method = config$climate_matching_method %||% "mahalanobis",
     max_coordinate_uncertainty = if (!is.null(config$max_coordinate_uncertainty)) as.numeric(config$max_coordinate_uncertainty) else NULL,
-    multi_ensemble_models = config$multi_ensemble_models,
-    multi_ensemble_weighting = config$multi_ensemble_weighting,
-    multi_ensemble_power = as.numeric(config$multi_ensemble_power %||% sdm_default_ensemble_power),
-    multi_ensemble_min_auc = as.numeric(config$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc),
-    multi_ensemble_min_tss = as.numeric(config$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss),
-    multi_ensemble_export = isTRUE(config$multi_ensemble_export %||% TRUE),
-    multi_ensemble_uncertainty = isTRUE(config$multi_ensemble_uncertainty %||% TRUE),
-    biomod2_models = config$biomod2_models,
+    multi_ensemble_models = config$multi_ensemble_models %||% config$multiEnsembleModels,
+    multi_ensemble_weighting = config$multi_ensemble_weighting %||% config$multiEnsembleWeighting %||% "auc",
+    multi_ensemble_power = as.numeric(config$multi_ensemble_power %||% config$multiEnsemblePower %||% sdm_default_ensemble_power),
+    multi_ensemble_min_auc = as.numeric(config$multi_ensemble_min_auc %||% config$multiEnsembleMinAuc %||% sdm_default_ensemble_min_auc),
+    multi_ensemble_min_tss = as.numeric(config$multi_ensemble_min_tss %||% config$multiEnsembleMinTss %||% sdm_default_ensemble_min_tss),
+    multi_ensemble_export = isTRUE(config$multi_ensemble_export %||% config$multiEnsembleExport %||% TRUE),
+    multi_ensemble_uncertainty = isTRUE(config$multi_ensemble_uncertainty %||% config$multiEnsembleUncertainty %||% TRUE),
+    biomod2_models = config$biomod2_models %||% config$biomod2Models,
     esm_n_runs = as.integer(config$esm_n_runs %||% sdm_esm_default_n_runs),
     esm_split = config$esm_split %||% sdm_esm_default_split,
     esm_min_auc = as.numeric(config$esm_min_auc %||% sdm_esm_default_min_auc),
@@ -182,7 +182,10 @@ tryCatch({
     xgb_nrounds = as.integer(config$xgb_nrounds %||% 100L),
     dnn_model_type = config$dnn_model_type %||% "DNN_Medium",
     dnn_dropout = as.numeric(config$dnn_dropout %||% 0.3),
-    dnn_lambda = as.numeric(config$dnn_lambda %||% 0.001)
+    dnn_lambda = as.numeric(config$dnn_lambda %||% 0.001),
+    dnn_architecture = config$dnn_multispecies_architecture %||% config$dnnMultispeciesArchitecture %||% config$dnn_model_type %||% "DNN_Medium",
+    dnn_multispecies_architecture = config$dnn_multispecies_architecture %||% config$dnnMultispeciesArchitecture %||% config$dnn_model_type %||% "DNN_Medium",
+    dnn_multispecies_n_seeds = as.integer(config$dnn_multispecies_n_seeds %||% config$dnnMultispeciesNSeeds %||% 3L)
   )
 
   result <- run_fast_sdm(cfg)
