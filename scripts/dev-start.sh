@@ -99,6 +99,7 @@ cd "${SCRIPT_DIR}"
 
 # 4. Start API locally in tmux
 echo -e "${YELLOW}[4/5]${NC} Starting API (Hono) on port 4000..."
+fuser -k 4000/tcp 2>/dev/null; sleep 1
 eval "$TMUX_CMD kill-session -t sdm-api" 2>/dev/null || true
 eval "$TMUX_CMD new-session -d -s sdm-api \"cd '${SCRIPT_DIR}/api' && npx --yes tsx --env-file=../.env src/index.ts\"" 2>&1
 
