@@ -60,7 +60,7 @@ The Plumber image installs CRAN dependencies through `R_CRAN_REPO`, which defaul
 Run the modern stack from a clean-ish local state:
 
 ```bash
-docker compose -f docker-compose.yml up -d
+docker compose -f docker-compose.yml --profile full up -d
 ```
 
 Then verify:

@@ -79,16 +79,8 @@ if [ "$HTTP_CODE" = "200" ]; then
   exit 0
 fi
 
-# Fallback: try historical docs paths used by older smoke scripts
+# Fallback: try the alternate OpenAPI route exposed by older Plumber versions.
 HTTP_CODE=$(curl -s -o "$OUTPUT_FILE" -w "%{http_code}" "$PLUMBER_URL/__openapi__/" 2>/dev/null || echo "000")
-
-if [ "$HTTP_CODE" = "200" ]; then
-  echo "Success: OpenAPI spec saved to $OUTPUT_FILE ($HTTP_CODE)"
-  validate_openapi_baseline
-  exit 0
-fi
-
-HTTP_CODE=$(curl -s -o "$OUTPUT_FILE" -w "%{http_code}" "$PLUMBER_URL/__docs__/openapi.json" 2>/dev/null || echo "000")
 
 if [ "$HTTP_CODE" = "200" ]; then
   echo "Success: OpenAPI spec saved to $OUTPUT_FILE ($HTTP_CODE)"
