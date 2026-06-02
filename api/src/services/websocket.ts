@@ -15,9 +15,25 @@ const clients = new Map<string, Client>();
 const subscriptions = new Map<string, Set<string>>();
 let _jobStatusHandler: ((event: any) => void) | null = null;
 let _wss: WebSocketServer | null = null;
+let _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
+const HEARTBEAT_INTERVAL = 30_000;
+const MAX_CLIENTS = 1000;
 const JWT_SECRET = process.env.JWT_SECRET || "";
 const _lastSentEvent = new Map<string, { state: string; progress: number; _receivedAt: number }>();
+
+function heartbeat() {
+  for (const [id, client] of clients) {
+    if ((client.ws as any)._isAlive === false) {
+      console.warn("[ws] Terminating zombie connection:", id);
+      client.ws.terminate();
+      cleanupClient(id);
+      continue;
+    }
+    (client.ws as any)._isAlive = false;
+    client.ws.ping();
+  }
+}
 
 async function verifyWsToken(url: string): Promise<{ userId: string; role: string } | null> {
   try {
@@ -38,12 +54,24 @@ export function setupWebSocket(server: ServerType) {
 
   _wss = new WebSocketServer({ server: server as any, path: "/ws" });
 
+  // Heartbeat: ping all clients every 30s, terminate unresponsive ones
+  _heartbeatTimer = setInterval(heartbeat, HEARTBEAT_INTERVAL);
+  _heartbeatTimer.unref();
+
   _wss.on("connection", async (ws, req) => {
+    if (clients.size >= MAX_CLIENTS) {
+      ws.close(4003, "Too many connections");
+      return;
+    }
+
     const userInfo = await verifyWsToken(req.url || "");
     if (!userInfo) {
       ws.close(4001, "Unauthorized: invalid or missing token");
       return;
     }
+
+    (ws as any)._isAlive = true;
+    ws.on("pong", () => { (ws as any)._isAlive = true; });
 
     const clientId = crypto.randomUUID();
     clients.set(clientId, { ws, userId: userInfo.userId, userRole: userInfo.role, subscriptions: new Set() });
@@ -164,6 +192,10 @@ export function setupWebSocket(server: ServerType) {
 }
 
 export function cleanupWebSocket() {
+  if (_heartbeatTimer) {
+    clearInterval(_heartbeatTimer);
+    _heartbeatTimer = null;
+  }
   if (_jobStatusHandler) {
     jobEventBus.off("jobStatus", _jobStatusHandler);
     _jobStatusHandler = null;
@@ -177,4 +209,5 @@ export function cleanupWebSocket() {
   }
   clients.clear();
   subscriptions.clear();
+  _lastSentEvent.clear();
 }
