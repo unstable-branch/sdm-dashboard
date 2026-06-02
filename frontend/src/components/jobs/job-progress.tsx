@@ -70,8 +70,12 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
 
   useEffect(() => {
     if (!jobId) return;
-    if (job && !isSyntheticPlaceholder && (job.state === "completed" || job.state === "failed" || job.state === "cancelled")) {
-      setPolledJob(null); // SSE is authoritative for terminal states — clear polling
+    if (job && !isSyntheticPlaceholder) {
+      if (job.state === "completed" || job.state === "failed" || job.state === "cancelled") {
+        setPolledJob(null); // SSE is authoritative for terminal states — clear polling
+        return;
+      }
+      // SSE has real data for active job — skip polling
       return;
     }
 
