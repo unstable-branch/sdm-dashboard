@@ -1,151 +1,232 @@
-# SDM Dashboard — Deployment Guide
+# Deployment Guide
+
+This guide covers the modern SDM Dashboard Workbench platform. The legacy Shiny desktop app remains available through `app.R` and `README_WINDOWS.md`, but the modern Docker stack is the recommended beta deployment path.
 
 ## Prerequisites
 
-- **Node.js** 22+ and **pnpm** (`npm install -g pnpm`)
-- **Docker** + **Docker Compose** (for backing services)
-- **R** 4.3+ is only needed in the Plumber container — not on the host
+- Docker and Docker Compose
+- Node.js 22+ and pnpm for local development
+- R is required only for host-local R development; the normal modern stack runs R inside the Plumber container
 
-## Quick Start
+## Full Local Stack
+
+Use this path for first-run testing, release-candidate QA, and local self-hosting experiments.
 
 ```bash
-# Clone and enter
 git clone https://github.com/unstable-branch/sdm-dashboard.git
 cd sdm-dashboard
 
-# Copy environment configuration
-cp .env.example .env
-cp api/.env.example api/.env
+cp .env.example .env 2>/dev/null || true
+cp api/.env.example api/.env 2>/dev/null || true
 
-# Start PostgreSQL, Redis, and mailpit
-docker compose -f docker-compose.dev.yml --profile core --profile email up -d
-
-# Install dependencies
-pnpm install
-
-# Run database migrations
-cd api && npx tsx src/db/migrate.ts && cd ..
-
-# Start API (port 4000)
-cd api && npx tsx --env-file=.env src/index.ts &
-
-# Start frontend (port 3000)
-cd frontend && pnpm dev &
-
-# First-time: create an admin user
-curl -X POST http://localhost:4000/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@sdm.local","password":"Admin1234!","role":"admin"}'
+docker compose -f docker-compose.yml --profile full up
 ```
 
-## Docker Compose Profiles
+Open:
 
-Services are organized by profile to control resource usage:
+- Frontend: `http://localhost:3000`
+- API health: `http://localhost:4000/health`
+- Plumber health: `http://localhost:8000/health`
+- Garage S3 API: `http://localhost:3900`
 
-| Command | Services | Use case |
-|---------|----------|----------|
-| `--profile core up -d` | postgres, redis | Local API/frontend dev |
-| `--profile email up -d` | mailpit | Email inspection (port 5000) |
-| `--profile storage up -d` | garage | S3-compatible storage |
-| `--profile computation up -d` | plumber | R model backend |
-| `--profile proxy up -d` | api, frontend | Full web stack |
+The first boot may take several minutes while the Plumber image installs R geospatial dependencies. The API container applies Drizzle migrations before starting, so an empty local database volume should bootstrap automatically.
 
-Combine profiles: `--profile core --profile email up -d`
-
-## Environment Variables
-
-| Variable | Default | Required | Purpose |
-|----------|---------|----------|---------|
-| `POSTGRES_PASSWORD` | `sdm_password` | No | PostgreSQL password |
-| `JWT_SECRET` | auto-generated | Yes | JWT signing key (64-char hex) |
-| `PLUMBER_INTERNAL_KEY` | auto-generated | Yes | Shared secret between Hono and Plumber |
-| `SMTP_HOST` | — | Only for password reset | SMTP server hostname |
-| `SMTP_PORT` | `587` | No | SMTP port |
-| `SMTP_SECURE` | `true` | No | Use TLS for SMTP |
-| `SMTP_FROM` | `noreply@sdm-dashboard.local` | No | From address for emails |
-| `APP_URL` | — | Only for password reset | Public URL for email links |
-| `REDIS_URL` | `redis://localhost:6379` | No | Redis connection string |
-| `GARAGE_ACCESS_KEY` | `dev-access-key` | No | Garage S3 access key |
-| `GARAGE_SECRET_KEY` | auto-generated | No | Garage S3 secret key |
-
-## Production Deployment
-
-### Docker Compose (full stack)
+Stop the stack:
 
 ```bash
+docker compose -f docker-compose.yml --profile full down
+```
+
+Remove local volumes:
+
+```bash
+docker compose -f docker-compose.yml --profile full down -v
+```
+
+## Compose Profiles
+
+`docker-compose.yml` uses profiles. Running `docker compose -f docker-compose.yml up` with no profile does not start the full platform.
+
+| Profile | Services | Use |
+| ------- | -------- | --- |
+| `core` | postgres, redis | Database and queue only |
+| `storage` | garage | Object storage |
+| `computation` | plumber | R computation service |
+| `proxy` | api, frontend | Web/API layer |
+| `dev` | postgres, redis, garage, plumber, api, frontend | Local development stack |
+| `full` | postgres, redis, garage, plumber, api, frontend | Full local modern stack |
+
+Examples:
+
+```bash
+docker compose -f docker-compose.yml --profile core up -d
+docker compose -f docker-compose.yml --profile dev up -d
 docker compose -f docker-compose.yml --profile full up -d
 ```
 
-This starts all services: postgres, redis, garage, plumber, api, frontend.
-
-### Health checks
-
-- **API**: `http://localhost:4000/health` — returns Plumber + Redis status
-- **API ready**: `http://localhost:4000/ready` — component readiness probe
-- **Frontend**: `http://localhost:3000/` — SPA
-- **Plumber**: `http://localhost:8000/health` — R backend
-- **Mailpit**: `http://localhost:5000/` — email inspector UI
-
-### Backups
+You can also start named services directly:
 
 ```bash
-# Database
-docker compose exec postgres pg_dump -U sdm sdm_platform > backup.sql
-
-# Uploads
-tar czf uploads-backup.tar.gz data/uploads/
-
-# Outputs
-tar czf outputs-backup.tar.gz outputs/
+docker compose -f docker-compose.yml up -d postgres redis garage plumber
 ```
 
-## Image sizes
+## Host-Local Development
 
-| Image | Size | Notes |
-|-------|------|-------|
-| `sdm-dashboard-plumber` | ~1.5 GB | R + geospatial packages |
-| `sdm-dashboard-api` | ~350 MB | Node.js Hono server |
-| `sdm-dashboard-frontend` | ~200 MB | Next.js standalone |
-| `postgis/postgis:16-3.4` | ~850 MB | PostgreSQL + PostGIS |
-| `redis:7-alpine` | ~58 MB | Job queue |
-| `dxflrs/garage:v2.3.0` | ~100 MB | S3 storage |
-| `axllent/mailpit:latest` | ~130 MB | Email inspector |
+Run backing services in Docker:
 
-## Offline / air-gapped deployment
+```bash
+docker compose -f docker-compose.yml up -d postgres redis garage plumber
+```
 
-Climate data is cached locally and configurable via environment variables:
+Install dependencies:
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `SDM_WORLDCLIM_DIR` | `Worldclim` | Current WorldClim BIO layers |
-| `SDM_CHELSA_DIR` | `chelsa` | CHELSA v2.1 BIO layers |
-| `SDM_FUTURE_WORLDCLIM_DIR` | `Worldclim_future` | CMIP6 future projections |
-| `SDM_INTERNET_CHECK_ENABLED` | `true` | Set to `false` for offline |
+```bash
+pnpm install --frozen-lockfile
+```
 
-Place correctly-named `.tif` files in the directories above. In the Shiny UI, uncheck "Auto-download missing BIO layers".
+Run API:
+
+```bash
+cd api
+pnpm dev
+```
+
+Run frontend:
+
+```bash
+cd frontend
+pnpm dev
+```
+
+The frontend serves on `http://localhost:3000`; the API serves on `http://localhost:4000`.
+
+If you start PostgreSQL manually or change database state outside the API container, run migrations from `api/`:
+
+```bash
+pnpm db:migrate
+```
+
+## Environment
+
+For local development, use `.env` and `api/.env`. Do not commit either file.
+
+The checked-in example files use local-only development values so the documented Docker Compose path can boot after copying them. Replace those values before any public deployment.
+
+Important variables:
+
+| Variable | Services | Purpose |
+| -------- | -------- | ------- |
+| `POSTGRES_PASSWORD` | postgres, api, plumber | Database password |
+| `DATABASE_URL` | api, plumber | PostgreSQL connection string |
+| `JWT_SECRET` | api | JWT signing secret |
+| `PLUMBER_INTERNAL_KEY` | api, plumber | Internal Hono to Plumber auth secret |
+| `DATA_ENCRYPTION_KEY` | api | 64-character hex key for occurrence-file encryption |
+| `REDIS_URL` | api | Redis/BullMQ connection |
+| `GARAGE_ENDPOINT` | api | S3-compatible endpoint |
+| `GARAGE_ACCESS_KEY` | garage, api | S3 access key |
+| `GARAGE_SECRET_KEY` | garage, api | S3 secret key |
+| `GARAGE_RPC_SECRET` | garage | Garage cluster RPC secret |
+| `GARAGE_ADMIN_TOKEN` | garage | Garage admin token |
+| `GARAGE_BUCKET` | garage, api | Local default bucket for the single-node stack |
+| `GARAGE_BUCKET_RASTERS` | api | Raster bucket |
+| `GARAGE_BUCKET_EXPORTS` | api | Export bucket |
+| `FRONTEND_URL` | api | Browser-facing frontend URL |
+| `APP_URL` | api | Public app URL for emails/links |
+| `SMTP_*` | api | Optional password-reset email settings |
+
+`PLUMBER_DOCS_ENABLED=true` should be used only for development or CI contract extraction. Production should leave Plumber OpenAPI docs disabled.
+
+## Production Compose
+
+Use `docker-compose.prod.yml` for self-hosted production-style deployments.
+
+Production compose intentionally fails closed if required secrets are absent. Provide real values for:
+
+- `POSTGRES_PASSWORD`
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `PLUMBER_INTERNAL_KEY`
+- `GARAGE_ACCESS_KEY`
+- `GARAGE_SECRET_KEY`
+- `GARAGE_BUCKET_RASTERS`
+- `GARAGE_BUCKET_EXPORTS`
+- `GARAGE_RPC_SECRET`
+- `GARAGE_ADMIN_TOKEN`
+- `GRAFANA_PASSWORD`
+
+Operators are responsible for:
+
+- TLS termination
+- host firewalling
+- database and object-storage backups
+- retention policy for generated rasters/exports
+- user access review
+- upgrade and rollback procedure
+
+Do not expose Postgres, Redis, Garage admin, Prometheus, or Grafana publicly without access controls.
+
+## Backups
+
+Example database backup:
+
+```bash
+docker compose -f docker-compose.yml --profile full exec postgres \
+  pg_dump -U sdm sdm_platform > sdm-platform.sql
+```
+
+Back up object storage and generated outputs according to the storage backend used for the deployment. Local development volumes are not a substitute for a production backup plan.
+
+## Offline Data
+
+Climate and covariate data can be cached locally. Common directories:
+
+| Directory | Purpose |
+| --------- | ------- |
+| `Worldclim/` | Current WorldClim BIO layers |
+| `Worldclim_future/` | Future climate projections |
+| `chelsa/` | CHELSA layers |
+| `covariates/` | Local covariate files |
+
+These folders can be large and are git-ignored.
 
 ## Troubleshooting
 
-### Database migrations not applied
+### `docker compose up` starts nothing
+
+Use a profile:
 
 ```bash
-cd api && npx tsx src/db/migrate.ts
+docker compose -f docker-compose.yml --profile full up
 ```
 
-Drizzle only applies migrations listed in `meta/_journal.json`. Extra `.sql` files are silently ignored.
+### API health fails
 
-### Plumber container won't start
-
-Check R package installation logs. Build with verbose output:
+Check service logs:
 
 ```bash
-docker compose build --progress=plain plumber
+docker compose -f docker-compose.yml --profile full logs api postgres redis plumber garage
 ```
 
-### Permissions errors on uploads
+Confirm migrations ran before API startup and that `DATABASE_URL`, `JWT_SECRET`, and `PLUMBER_INTERNAL_KEY` are set.
 
-The container runs as UID 1000 (`sdm`). Bind-mounted directories need correct ownership:
+### Plumber health fails
+
+Check Plumber logs:
 
 ```bash
-chmod 777 data/uploads/ outputs/
+docker compose -f docker-compose.yml --profile full logs plumber
 ```
+
+The first build is large because R geospatial packages are installed in the image.
+
+### OpenAPI type generation fails
+
+OpenAPI docs are disabled unless `PLUMBER_DOCS_ENABLED=true` is present in the Plumber container environment. CI uses a compose override for this. The JSON spec is served at:
+
+```text
+http://localhost:8000/openapi.json
+```
+
+### Playwright says port 3000 is already used
+
+The Docker stack may already be serving the frontend. The test config is expected to reuse an existing server when one is present.
