@@ -44,7 +44,7 @@ def main():
     imp_max = importance.max()
     if imp_max > 0:
         importance = importance / imp_max
-    imp_df = [{"variable": name, "importance": float(imp)} 
+    imp_df = [{"variable": name, "importance": float(imp)}
               for name, imp in zip(X.columns.tolist(), importance)]
 
     write_results(
