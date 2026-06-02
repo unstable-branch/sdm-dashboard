@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { apiGet, apiPut } from "@/services/api";
 import { Loader2, Save } from "lucide-react";
 
@@ -77,6 +77,18 @@ export default function AdminSystemPage() {
     return typeof setting.value === "string" ? setting.value : JSON.stringify(setting.value, null, 2);
   };
 
+  const groupedSettings = useMemo(() => {
+    const allKeys = Object.values(groups).flat();
+    const grouped = Object.entries(groups).map(([group, keys]) => ({
+      group,
+      settings: settings.filter((s) => keys.includes(s.key)),
+    }));
+    const ungrouped = settings.filter((s) => !allKeys.includes(s.key));
+    return { grouped, ungrouped };
+  }, [groups, settings]);
+
+  const allKeys = Object.values(groups).flat();
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <h1 className="text-2xl font-semibold text-sdm-heading">System Settings</h1>
@@ -84,10 +96,10 @@ export default function AdminSystemPage() {
       {error && <div className="rounded-md bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-400">{error}</div>}
       {success && <div className="rounded-md bg-sdm-success/10 border border-sdm-success/30 p-3 text-sm text-sdm-success">{success}</div>}
 
-      {Object.entries(groups).map(([group, keys]) => (
+      {groupedSettings.grouped.map(({ group, settings: groupSettings }) => (
         <div key={group} className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
           <h2 className="text-lg font-medium text-sdm-heading">{group}</h2>
-          {settings.filter((s) => keys.includes(s.key)).map((setting) => (
+          {groupSettings.map((setting) => (
             <div key={setting.id} className="space-y-2">
               <div className="flex items-center justify-between">
                 <div>
@@ -110,36 +122,31 @@ export default function AdminSystemPage() {
       ))}
 
       {/* Fallback: show any settings not in a defined group */}
-      {(() => {
-        const allKeys = Object.values(groups).flat();
-        const ungrouped = settings.filter((s) => !allKeys.includes(s.key));
-        if (ungrouped.length === 0) return null;
-        return (
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
-            <h2 className="text-lg font-medium text-sdm-heading">Other Settings</h2>
-            <p className="text-xs text-sdm-muted">{ungrouped.length} setting{ungrouped.length !== 1 ? "s" : ""} not in any defined group</p>
-            {ungrouped.map((setting) => (
-              <div key={setting.id} className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-sm font-medium text-sdm-text font-mono">{setting.key}</span>
-                    {setting.description && <p className="text-xs text-sdm-muted mt-0.5">{setting.description}</p>}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <textarea value={getValue(setting)} onChange={(e) => setEdits({ ...edits, [setting.key]: e.target.value })}
-                    rows={String(getValue(setting)).includes("{") ? 3 : 1}
-                    className="flex-1 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm font-mono text-sdm-text focus:outline-none focus:ring-1 focus:ring-sdm-accent/50 resize-none" />
-                  <button onClick={() => saveSetting(setting.key)} disabled={saving === setting.key}
-                    className="rounded-md bg-sdm-accent px-3 py-2 text-xs font-medium text-white hover:bg-sdm-accent/90 disabled:opacity-50 shrink-0">
-                    {saving === setting.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                  </button>
+      {groupedSettings.ungrouped.length > 0 && (
+        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
+          <h2 className="text-lg font-medium text-sdm-heading">Other Settings</h2>
+          <p className="text-xs text-sdm-muted">{groupedSettings.ungrouped.length} setting{groupedSettings.ungrouped.length !== 1 ? "s" : ""} not in any defined group</p>
+          {groupedSettings.ungrouped.map((setting) => (
+            <div key={setting.id} className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-medium text-sdm-text font-mono">{setting.key}</span>
+                  {setting.description && <p className="text-xs text-sdm-muted mt-0.5">{setting.description}</p>}
                 </div>
               </div>
-            ))}
-          </div>
-        );
-      })()}
+              <div className="flex gap-2">
+                <textarea value={getValue(setting)} onChange={(e) => setEdits({ ...edits, [setting.key]: e.target.value })}
+                  rows={String(getValue(setting)).includes("{") ? 3 : 1}
+                  className="flex-1 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm font-mono text-sdm-text focus:outline-none focus:ring-1 focus:ring-sdm-accent/50 resize-none" />
+                <button onClick={() => saveSetting(setting.key)} disabled={saving === setting.key}
+                  className="rounded-md bg-sdm-accent px-3 py-2 text-xs font-medium text-white hover:bg-sdm-accent/90 disabled:opacity-50 shrink-0">
+                  {saving === setting.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
