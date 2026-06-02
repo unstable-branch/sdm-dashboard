@@ -14,6 +14,7 @@ import type { AppEnv } from "../middleware/auth.js";
 export const authRoutes = new Hono<AppEnv>();
 
 const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_ISSUER = process.env.JWT_ISSUER || "sdm-dashboard";
 const BCRYPT_ROUNDS = 12;
 
 function validatePassword(password: string): string | null {
@@ -90,7 +91,7 @@ authRoutes.post("/register", async (c) => {
     });
 
     const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, exp: Math.floor(Date.now() / 1000) + 86400 },
+      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + 86400 },
       JWT_SECRET
     );
 
@@ -151,7 +152,7 @@ authRoutes.post("/login", async (c) => {
     });
 
     const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, exp: Math.floor(Date.now() / 1000) + 86400 },
+      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + 86400 },
       JWT_SECRET
     );
 
