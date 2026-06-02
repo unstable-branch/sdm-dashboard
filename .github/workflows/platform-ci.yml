@@ -262,7 +262,7 @@ jobs:
           services:
             plumber:
               environment:
-                PLUMBER_DOCS_ENABLED: true
+                PLUMBER_DOCS_ENABLED: "true"
           YAML
 
           compose() {
