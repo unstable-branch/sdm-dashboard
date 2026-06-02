@@ -1,23 +1,9 @@
 import { createMiddleware } from "hono/factory";
 import { createHash } from "crypto";
-import Redis from "ioredis";
-
-let redis: import("ioredis").Redis | null = null;
+import { getSharedRedis } from "../services/queue.js";
 
 function getCacheRedis(): import("ioredis").Redis | null {
-  if (redis) return redis;
-  try {
-    const r = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
-      lazyConnect: true,
-      enableReadyCheck: false,
-      maxRetriesPerRequest: 1,
-    });
-    r.connect().catch(() => { redis = null; });
-    redis = r;
-    return redis;
-  } catch {
-    return null;
-  }
+  return getSharedRedis();
 }
 
 export interface CacheOptions {
@@ -65,15 +51,12 @@ export function cacheResponse(options: CacheOptions) {
   });
 }
 
-export const shortCache = cacheResponse({ ttl: 60, keyPrefix: "short" });
+const shortCache = cacheResponse({ ttl: 60, keyPrefix: "short" });
 export const mediumCache = cacheResponse({ ttl: 300, keyPrefix: "medium" });
 export const longCache = cacheResponse({ ttl: 3600, keyPrefix: "long" });
 
 export function closeCache() {
-  if (redis) {
-    redis.disconnect(false);
-    redis = null;
-  }
+  // Redis connection is shared via queue.ts — shutdownQueue handles closure
 }
 
 export async function invalidateCache(prefix: string) {

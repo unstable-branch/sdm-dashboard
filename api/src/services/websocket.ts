@@ -17,6 +17,7 @@ let _jobStatusHandler: ((event: any) => void) | null = null;
 let _wss: WebSocketServer | null = null;
 
 const JWT_SECRET = process.env.JWT_SECRET || "";
+const _lastSentEvent = new Map<string, { state: string; progress: number; _receivedAt: number }>();
 
 async function verifyWsToken(url: string): Promise<{ userId: string; role: string } | null> {
   try {
@@ -103,6 +104,11 @@ export function setupWebSocket(server: ServerType) {
   _jobStatusHandler = (event) => {
     const subscribers = subscriptions.get(event.jobId);
     if (subscribers) {
+      // Deduplicate: skip if the same event was already sent
+      const _lastSent = _lastSentEvent.get(event.jobId);
+      if (_lastSent && _lastSent.state === event.state && _lastSent.progress === event.progress && _lastSent._receivedAt === event._receivedAt) return;
+      _lastSentEvent.set(event.jobId, { state: event.state, progress: event.progress, _receivedAt: event._receivedAt ?? 0 });
+
       const payload = JSON.stringify({
         type: "status",
         jobId: event.jobId,
@@ -111,6 +117,8 @@ export function setupWebSocket(server: ServerType) {
         logs: event.logs,
         result: event.result,
         failedReason: event.failedReason,
+        currentStage: event.currentStage ?? null,
+        progressJson: event.progressJson ?? null,
       });
       for (const clientId of subscribers) {
         const client = clients.get(clientId);

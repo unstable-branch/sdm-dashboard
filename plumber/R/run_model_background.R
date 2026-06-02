@@ -5,6 +5,11 @@
 # Prevents closure serialization issues with callr by running as a
 # standalone script that sources all required SDM modules.
 
+# Set resource limits early — these must be set inside the child process
+# (callr's r_env option may not be reliably passed)
+Sys.setenv(OMP_THREAD_LIMIT = getOption("sdm.omp_thread_limit", "1"))
+Sys.setenv(R_MAX_VSIZE = Sys.getenv("SDM_CHILD_MAX_VSIZE", "6Gb"))
+
 # Support both: callr::r_bg with direct arguments (script, job_dir, app_dir)
 # and CLI invocation via Rscript (commandArgs trailingOnly)
 `%||%` <- function(a, b) if (!is.null(a)) a else b
@@ -22,6 +27,12 @@ if (is.na(app_dir) || !nzchar(app_dir)) stop("app_dir is required")
 
 meta_file <- file.path(job_dir, "meta.json")
 progress_file <- file.path(job_dir, "progress.log")
+heartbeat_file <- file.path(job_dir, "heartbeat.log")
+
+write_heartbeat <- function(stage) {
+  ts <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S")
+  cat(ts, "|", stage, "\n", sep = "", file = heartbeat_file, append = FALSE)
+}
 
 log_fun <- function(...) {
   msg <- paste0(format(Sys.time(), "%H:%M:%S"), " ", ...)
@@ -37,6 +48,25 @@ progress_fun <- function(x) {
   log_line <- paste0(format(Sys.time(), "%H:%M:%S"), " [", sprintf("%.0f", pct_num * 100), "%] ", detail %||% "")
   cat(log_line, "\n")
   cat(log_line, "\n", file = progress_file, append = TRUE)
+  # Write structured progress.json entry (consumed by Plumber status endpoint as progress_json)
+  progress_json_path <- file.path(job_dir, "progress.json")
+  entry <- list(
+    timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+    percent = pct_num,
+    detail = detail %||% "",
+    stage = if (!is.null(detail) && nchar(detail) > 0) {
+      d <- tolower(detail)
+      if (grepl("clean", d)) "clean" else if (grepl("load|scal|covariate", d)) "covariates"
+      else if (grepl("thin", d)) "thinning" else if (grepl("vif", d)) "vif"
+      else if (grepl("fit|model", d)) "fit" else if (grepl("predict|projection", d)) "predict"
+      else if (grepl("output", d)) "output" else if (grepl("future", d)) "future"
+      else if (grepl("summaris", d)) "summarize" else "unknown"
+    } else "unknown"
+  )
+  existing <- tryCatch(jsonlite::fromJSON(progress_json_path, simplifyVector = FALSE), error = function(e) list())
+  if (!is.list(existing)) existing <- list()
+  existing[[length(existing) + 1L]] <- entry
+  writeLines(jsonlite::toJSON(existing, auto_unbox = TRUE, pretty = TRUE), progress_json_path)
 }
 
 read_meta <- function() {
@@ -47,12 +77,26 @@ write_meta <- function(meta) {
   writeLines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE, pretty = TRUE), meta_file)
 }
 
-# Source all SDM modules in the child process
+# Write initial status before module loading (catches OOM during source)
+meta <- read_meta()
+meta$status <- "loading"
+write_meta(meta)
+write_heartbeat("loading_start")
+
+log_fun("Loading project initialization modules...")
 source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
-source(file.path(app_dir, "R", "load.R"))
+write_heartbeat("bootstrap_done")
+
+log_fun("Loading compute modules (~130 modules)...")
+Sys.setenv(SDM_HEARTBEAT_FILE = heartbeat_file)
+source(file.path(app_dir, "R", "load_compute.R"))
+write_heartbeat("compute_modules_done")
+log_fun("All modules loaded successfully")
 
 meta <- read_meta()
+meta$status <- "running"
+write_meta(meta)
 config <- meta$config %||% list()
 config <- sdm_normalize_model_payload(config)
 

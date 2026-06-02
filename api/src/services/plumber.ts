@@ -12,6 +12,7 @@ import type {
   PlumberDiagnosticsVif,
   PlumberDiagnosticsClimateDrivers,
   PlumberClimateStatus,
+  PlumberJobLogs,
 } from "@sdm/shared";
 
 const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
@@ -22,18 +23,51 @@ const TIMEOUT_UPLOAD = parseInt(process.env.PLUMBER_UPLOAD_TIMEOUT_MS || "120000
 const TIMEOUT_MODEL_RUN = parseInt(process.env.PLUMBER_MODEL_RUN_TIMEOUT_MS || "300000", 10);
 const TIMEOUT_CLIMATE = parseInt(process.env.PLUMBER_CLIMATE_TIMEOUT_MS || "300000", 10);
 const TIMEOUT_NORMAL = PLUMBER_DEFAULT_TIMEOUT_MS;
+
+// Promise-based semaphore: resolves when a slot is available
+let plumberQueue: Array<() => void> = [];
 let plumberActiveRequests = 0;
 
 async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
-  while (plumberActiveRequests >= PLUMBER_MAX_CONCURRENT) {
-    await new Promise(resolve => setTimeout(resolve, 100));
+  if (plumberActiveRequests >= PLUMBER_MAX_CONCURRENT) {
+    // Wait for a slot with a 30s timeout to prevent cascading delays
+    const slotPromise = new Promise<void>(resolve => { plumberQueue.push(resolve); });
+    const timeoutPromise = new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error("Plumber semaphore timeout: all connections busy")), 30000)
+    );
+    await Promise.race([slotPromise, timeoutPromise]);
   }
   plumberActiveRequests++;
   try {
     return await fn();
   } finally {
     plumberActiveRequests--;
+    if (plumberQueue.length > 0) {
+      const next = plumberQueue.shift()!;
+      next();
+    }
   }
+}
+
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 2): Promise<Response> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if (attempt < retries && RETRYABLE_STATUSES.has(res.status)) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (attempt >= retries) throw err;
+      const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error("Request failed after retries");
 }
 
 export class PlumberClient {
@@ -63,7 +97,7 @@ export class PlumberClient {
     if (!opts.signal) {
       opts.signal = AbortSignal.timeout(ms);
     }
-    return plumberSemaphore(() => fetch(url, opts));
+    return plumberSemaphore(() => fetchWithRetry(url, opts));
   }
 
   async healthCheck(): Promise<{ status: string; r_version: string; timestamp: string }> {
@@ -447,6 +481,14 @@ export class PlumberClient {
       headers: this.headers(),
     });
     if (!res.ok) throw new Error(`Failed to get targets results: ${res.status}`);
+    return res.json();
+  }
+
+  async getModelLogs(jobId: string): Promise<PlumberJobLogs> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/logs/${jobId}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get model logs: ${res.status}`);
     return res.json();
   }
 }

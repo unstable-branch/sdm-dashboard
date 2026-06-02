@@ -65,11 +65,16 @@ requires_auth <- function(path) {
     "^/health$",
     "^/ready$",
     "^/api/v1/models/runs$",
+    "^/api/v1/models/status/",
+    "^/api/v1/models/logs/",
+    "^/api/v1/ecology/",
+    "^/api/v1/diagnostics/",
     "^/api/v1/climate/scenarios$",
     "^/api/v1/climate/check$",
     "^/api/v1/config/defaults$",
     "^/api/v1/models$",
-    "^/api/v1/future/scenarios$"
+    "^/api/v1/future/scenarios$",
+    "^/api/v1/results/tiles/cog/"
   )
 
   for (pattern in open_patterns) {

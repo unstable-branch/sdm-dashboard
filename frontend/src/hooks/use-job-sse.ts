@@ -5,9 +5,16 @@ const TERMINAL_STATES: Set<JobEvent["state"]> = new Set(["completed", "failed", 
 const TERMINAL_CLEANUP_MS = 5 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 30_000;
 
+export interface ProgressStage {
+  timestamp: string;
+  percent: number;
+  detail: string;
+  stage: string;
+}
+
 export interface JobEvent {
   id: string;
-  state: "waiting" | "active" | "completed" | "failed" | "delayed" | "paused" | "cancelled";
+  state: "waiting" | "active" | "loading" | "pending" | "completed" | "failed" | "delayed" | "paused" | "cancelled";
   progress: number;
   type: string;
   logs: string[];
@@ -15,6 +22,8 @@ export interface JobEvent {
   failedReason?: string;
   error_code?: string | null;
   error_hint?: string | null;
+  currentStage?: string | null;
+  progressJson?: ProgressStage[];
   _receivedAt?: number;
 }
 
@@ -53,8 +62,10 @@ export function useJobSSE(enabled = true) {
   const [connected, setConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const lastCleanupRef = useRef<number>(0);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const connect = useCallback(() => {
+  const connect = useCallback((isReconnect = false) => {
     if (!enabled) return;
 
     const es = new EventSource("/api/v1/jobs/sse");
@@ -83,6 +94,8 @@ export function useJobSSE(enabled = true) {
 
     es.onopen = () => {
       setConnected(true);
+      reconnectAttemptsRef.current = 0;
+      if (isReconnect) { console.log("[use-job-sse] SSE reconnected"); }
       // Fetch active runs as initial state — catches jobs that emitted events before SSE connected
       fetch("/api/v1/sdm/runs?status=running&limit=10")
         .then((r) => r.ok ? r.json() : null)
@@ -108,15 +121,30 @@ export function useJobSSE(enabled = true) {
         })
         .catch(() => console.warn("[use-job-sse] Failed to process SSE data"));
     };
-    es.onerror = () => setConnected(false);
+    es.onerror = () => {
+      setConnected(false);
+      es.close();
+      eventSourceRef.current = null;
+      // Exponential backoff reconnection: 3s, 6s, 12s, 24s, max 60s
+      if (enabled) {
+        const delay = Math.min(3000 * Math.pow(2, reconnectAttemptsRef.current), 60000);
+        reconnectAttemptsRef.current++;
+        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null;
+          connect(true);
+        }, delay);
+      }
+    };
 
     return es;
   }, [enabled]);
 
   useEffect(() => {
-    const es = connect();
+    const es = connect(false);
 
     const onPageHide = () => {
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       es?.close();
       eventSourceRef.current = null;
     };
@@ -124,6 +152,7 @@ export function useJobSSE(enabled = true) {
 
     return () => {
       window.removeEventListener("pagehide", onPageHide);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       es?.close();
       eventSourceRef.current = null;
     };

@@ -54,15 +54,27 @@ export interface RunSummary {
   completed_at: string | null;
   metrics: Record<string, unknown> | null;
   output_files: Record<string, string> | null;
+  error?: string | null;
+  error_code?: string | null;
+  error_hint?: string | null;
+}
+
+export interface ProgressStage {
+  timestamp: string;
+  percent: number;
+  detail: string;
+  stage: string;
 }
 
 export interface RunDetail extends RunSummary {
   progress_log: string[];
+  last_stage?: string | null;
   error: string | null;
   error_code?: string | null;
   error_hint?: string | null;
   config?: Record<string, unknown>;
   provenance?: Record<string, unknown> | null;
+  progress_json?: ProgressStage[];
 }
 
 // Types with matching field names — direct re-exports from @sdm/shared
