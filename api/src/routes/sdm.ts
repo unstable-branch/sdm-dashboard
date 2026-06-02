@@ -3,14 +3,32 @@ import { modelConfigSchema } from "@sdm/shared";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob, getJobQueue } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { runs, species } from "../db/schema.js";
-import { eq, desc, count, and, inArray } from "drizzle-orm";
-import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
+import { runs, species, batches } from "../db/schema.js";
+import { eq, desc, count, and, inArray, sql } from "drizzle-orm";
+import { getErrorHttpStatus, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
-import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
-import { join } from "path";
 import type { AppEnv } from "../middleware/auth.js";
+import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
+import { jobEventBus } from "../services/job-events.js";
+import { buildModelPayload, type ModelConfigRecord } from "../services/model-payload.js";
+
+async function plumberJobId(runId: string): Promise<string> {
+  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+  if (!run) throw new Error("Run not found");
+  const pid = run.jobId;
+  if (!pid) throw new Error("Run has no Plumber job ID");
+  return pid;
+}
+
+function normalizeConfig(config: unknown): Record<string, unknown> | null {
+  if (!config || typeof config !== "object") return null;
+  const normalized = { ...(config as Record<string, unknown>) };
+  if (typeof normalized.projection_extent === "string") {
+    normalized.projectionExtent = normalized.projection_extent.split(",").map(Number);
+  }
+  return normalized;
+}
 
 export const sdmRoutes = new Hono<AppEnv>();
 
@@ -28,7 +46,8 @@ sdmRoutes.use("*", optionalAuth);
 
 sdmRoutes.post("/run", async (c) => {
   try {
-    const body = await c.req.json();
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: "Invalid JSON body" }, 400);
     const parsed = modelConfigSchema.safeParse(body);
     if (!parsed.success) {
       return c.json({ error: parsed.error.flatten() }, 400);
@@ -52,9 +71,14 @@ sdmRoutes.post("/run", async (c) => {
             .returning();
         }
         speciesId = sp.id;
-      } catch {
-        // Species tracking is best-effort; continue without it
+      } catch (err) {
+        console.warn("[sdm] Species insert failed (best-effort):", err instanceof Error ? err.message : err);
       }
+
+      const [maxRun] = await db
+        .select({ maxNum: sql<number>`COALESCE(MAX(run_number), 0)` })
+        .from(runs)
+        .where(eq(runs.projectId, projectId));
 
       const [run] = await db
         .insert(runs)
@@ -66,76 +90,35 @@ sdmRoutes.post("/run", async (c) => {
           status: "queued",
           config: config as any,
           jobId: null,
+          pipelineRunId: (config as any).pipelineRunId || null,
+          runNumber: maxRun.maxNum + 1,
         })
         .returning();
 
       const jobId = await enqueueSdmJob(
-        {
-          type: "model",
-          payload: {
-            runId: run.id,
-          species: config.species,
-          model_id: config.modelId,
-          occurrence_file: config.cleanedFilePath || config.occurrenceFile,
-          cleaned_file_id: config.cleanedFilePath || null,
-          biovars: config.biovars.join(","),
-          projection_extent: config.projectionExtent.join(","),
-          background_n: config.backgroundN,
-          cv_folds: config.cvFolds,
-          cv_strategy: config.cvStrategy,
-          cv_block_size_km: config.cvBlockSizeKm,
-          threshold: config.threshold,
-          include_quadratic: config.includeQuadratic,
-          use_elevation: config.useElevation,
-          elevation_demtype: config.elevationDemtype,
-          opentopo_api_key: config.opentopoApiKey,
-          use_soil: config.useSoil,
-          soil_vars: config.soilVars,
-          soil_depths: config.soilDepths,
-          use_uv: config.useUv,
-          uv_vars: config.uvVars,
-          use_vegetation: config.useVegetation,
-          veg_year: config.vegYear,
-          veg_products: config.vegProducts,
-          use_lulc: config.useLulc,
-          lulc_year: config.lulcYear,
-          use_hfp: config.useHfp,
-          hfp_year: config.hfpYear,
-          use_bioclim_season: config.useBioclimSeason,
-          use_drought: config.useDrought,
-          future_projection: config.futureProjection,
-          future_worldclim_dir: config.futureWorldclimDir,
-          future_label: config.futureLabel,
-          vif_reduction: config.vifReduction,
-          vif_threshold: config.vifThreshold,
-          climate_matching: config.climateMatching,
-          climate_matching_method: config.climateMatchingMethod,
-          thin_by_cell: config.thinByCell,
-          merge_small_sources: config.mergeSmallSources,
-          min_source_records: config.minSourceRecords,
-          bias_method: config.biasMethod,
-          thickening_distance_km: config.thickeningDistanceKm,
-          pa_replicates: config.paReplicates,
-          maxnet_features: config.maxnetFeatures,
-          maxnet_regmult: config.maxnetRegmult,
-          aggregation_factor: config.aggregationFactor,
-          n_cores: config.nCores,
-          seed: config.seed,
-          worldclim_dir: config.worldclimDir,
-          worldclim_res: config.worldclimRes,
-          source: config.source,
-        },
-      }, user.id);
+        { type: "model", payload: { ...buildModelPayload(config, run.id), runId: run.id } },
+        user.id,
+      );
 
-      if (jobId) {
-        await db
-          .update(runs)
-          .set({ jobId })
-          .where(eq(runs.id, run.id));
-      }
+      await db
+        .update(runs)
+        .set({ bullmqId: jobId, status: "queued" })
+        .where(eq(runs.id, run.id));
+
+      jobEventBus.emitJobStatus({
+        jobId: run.id,
+        state: "active",
+        progress: 5,
+        logs: ["Model run queued for async processing."],
+      });
 
       return c.json({ jobId: run.id, queuedAt: new Date().toISOString() });
     }
+
+    const [maxRun] = await db
+      .select({ maxNum: sql<number>`COALESCE(MAX(run_number), 0)` })
+      .from(runs)
+      .where(eq(runs.projectId, projectId));
 
     const [run] = await db
       .insert(runs)
@@ -146,61 +129,12 @@ sdmRoutes.post("/run", async (c) => {
         status: "running",
         startedAt: new Date(),
         config: config as any,
+        pipelineRunId: (config as any).pipelineRunId || null,
+        runNumber: maxRun.maxNum + 1,
       })
       .returning();
 
-    const result = await plumberClient.runModel({
-      species: config.species,
-      model_id: config.modelId,
-      occurrence_file: config.cleanedFilePath || config.occurrenceFile,
-      cleaned_file_id: config.cleanedFilePath || null,
-      biovars: config.biovars.join(","),
-      projection_extent: config.projectionExtent.join(","),
-      background_n: config.backgroundN,
-      cv_folds: config.cvFolds,
-      cv_strategy: config.cvStrategy,
-      cv_block_size_km: config.cvBlockSizeKm,
-      threshold: config.threshold,
-      include_quadratic: config.includeQuadratic,
-      use_elevation: config.useElevation,
-      elevation_demtype: config.elevationDemtype,
-      opentopo_api_key: config.opentopoApiKey,
-      use_soil: config.useSoil,
-      soil_vars: config.soilVars,
-      soil_depths: config.soilDepths,
-      use_uv: config.useUv,
-      uv_vars: config.uvVars,
-      use_vegetation: config.useVegetation,
-      veg_year: config.vegYear,
-      veg_products: config.vegProducts,
-      use_lulc: config.useLulc,
-      lulc_year: config.lulcYear,
-      use_hfp: config.useHfp,
-      hfp_year: config.hfpYear,
-      use_bioclim_season: config.useBioclimSeason,
-      use_drought: config.useDrought,
-      future_projection: config.futureProjection,
-      future_worldclim_dir: config.futureWorldclimDir,
-      future_label: config.futureLabel,
-      vif_reduction: config.vifReduction,
-      vif_threshold: config.vifThreshold,
-      climate_matching: config.climateMatching,
-      climate_matching_method: config.climateMatchingMethod,
-      thin_by_cell: config.thinByCell,
-      merge_small_sources: config.mergeSmallSources,
-      min_source_records: config.minSourceRecords,
-      bias_method: config.biasMethod,
-      thickening_distance_km: config.thickeningDistanceKm,
-      pa_replicates: config.paReplicates,
-      maxnet_features: config.maxnetFeatures,
-      maxnet_regmult: config.maxnetRegmult,
-      aggregation_factor: config.aggregationFactor,
-      n_cores: config.nCores,
-      seed: config.seed,
-      worldclim_dir: config.worldclimDir,
-      worldclim_res: config.worldclimRes,
-      source: config.source,
-    });
+    const result = await plumberClient.runModel(buildModelPayload(config, run.id));
 
     const plumberJobId = (result as any).job_id;
 
@@ -221,7 +155,8 @@ sdmRoutes.post("/run", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Model run failed";
     console.error(`[sdm] Model run failed: ${message}`);
-    return c.json({ error: message }, 502);
+    const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
+    return c.json({ error: message }, isBusy ? 429 : 502);
   }
 });
 
@@ -231,18 +166,42 @@ sdmRoutes.get("/models", async (c) => {
     return c.json(models);
   } catch {
     return c.json([
-      { id: "glm", label: "GLM / Logistic regression", maturity: "stable", available: true },
-      { id: "gam", label: "GAM / Smooth response curves", maturity: "stable", available: true },
-      { id: "rangebag", label: "Rangebagging", maturity: "experimental", available: true },
-      { id: "ensemble_glm_rangebag", label: "Ensemble (GLM + Rangebagging)", maturity: "experimental", available: true },
-      { id: "multi_ensemble", label: "Multi-Model Ensemble", maturity: "experimental", available: true },
+      // Tier 1 — Core Standards
+      { id: "glm", label: "GLM / Logistic Regression", maturity: "stable", available: true },
+      { id: "gam", label: "GAM / Smooth Response Curves", maturity: "stable", available: true },
       { id: "maxnet", label: "MaxEnt (maxnet)", maturity: "stable", available: false, notes: "Requires maxnet package" },
       { id: "rf", label: "Random Forest (ranger)", maturity: "experimental", available: false, notes: "Requires ranger package" },
-      { id: "xgboost", label: "BRT / XGBoost", maturity: "experimental", available: false, notes: "Requires xgboost package" },
-      { id: "esm_glm", label: "ESM — GLM (rare species)", maturity: "experimental", available: false, notes: "Requires ecospat + biomod2 packages" },
-      { id: "esm_maxnet", label: "ESM — MaxEnt (rare species)", maturity: "experimental", available: false, notes: "Requires ecospat + biomod2 + maxnet packages" },
-      { id: "biomod2", label: "biomod2 (multi-algorithm)", maturity: "experimental", available: false, notes: "Requires biomod2 package + sdm.enable_biomod2 option" },
-      { id: "dnn", label: "DNN (cito/torch)", maturity: "experimental", available: false, notes: "Requires cito + torch packages" },
+      { id: "brt", label: "BRT / Boosted Regression Trees (gbm)", maturity: "experimental", available: false, notes: "Requires gbm package" },
+      { id: "xgboost", label: "XGBoost / Gradient Boosting", maturity: "experimental", available: false, notes: "Requires xgboost package" },
+
+      // Tier 2 — Interpretable / Dependency-Free
+      { id: "rangebag", label: "Rangebagging", maturity: "experimental", available: true },
+      { id: "mars", label: "MARS / Multivariate Adaptive Regression Splines (earth)", maturity: "experimental", available: false, notes: "Requires earth package" },
+      { id: "ann", label: "ANN / Artificial Neural Network (nnet)", maturity: "experimental", available: false, notes: "Requires nnet package" },
+      { id: "cta", label: "CTA / Classification Tree Analysis (rpart)", maturity: "experimental", available: false, notes: "Requires rpart package" },
+      { id: "fda", label: "FDA / Flexible Discriminant Analysis (mda)", maturity: "experimental", available: false, notes: "Requires mda + earth packages" },
+
+      // Tier 3 — Ensembles
+      { id: "ensemble_glm_rangebag", label: "Ensemble (GLM + Rangebagging)", maturity: "experimental", available: true },
+      { id: "multi_ensemble", label: "Multi-Model Ensemble", maturity: "experimental", available: true },
+      { id: "dnn", label: "DNN / Deep Neural Network (cito/torch)", maturity: "experimental", available: false, notes: "Requires cito + torch packages" },
+      { id: "bioclim", label: "BIOCLIM / Mahalanobis Envelope", maturity: "experimental", available: true, notes: "Presence-only environmental envelope" },
+
+      // Tier 4 — Rare Species
+      { id: "esm_glm", label: "ESM — GLM (Rare Species)", maturity: "experimental", available: false, notes: "Requires ecospat + biomod2 packages" },
+      { id: "esm_maxnet", label: "ESM — MaxEnt (Rare Species)", maturity: "experimental", available: false, notes: "Requires ecospat + biomod2 + maxnet packages" },
+      { id: "biomod2", label: "biomod2 / Multi-Algorithm Ensemble", maturity: "experimental", available: false, notes: "Requires biomod2 package + sdm.enable_biomod2 option" },
+
+      // Tier 5 — Bayesian / Heavy
+      { id: "bart", label: "BART / Bayesian Additive Regression Trees (dbarts)", maturity: "experimental", available: false, notes: "Requires dbarts package" },
+      { id: "brms", label: "brms / General Bayesian Model (Stan)", maturity: "experimental", available: false, notes: "Requires brms + cmdstanr packages (compilation: 5-15 min)" },
+      { id: "inla_spde", label: "INLA / Bayesian Spatial Model (SPDE)", maturity: "experimental", available: false, notes: "Requires INLA package (install from r-inla-download.org)" },
+
+      // Tier 6 — Niche / Specialised
+      { id: "occupancy", label: "Occupancy Model (unmarked)", maturity: "experimental", available: false, notes: "Requires unmarked package + detection-history data" },
+      { id: "dnn_multispecies", label: "Multi-Species DNN (cito)", maturity: "experimental", available: false, notes: "Requires cito + torch packages" },
+      { id: "python_elapid", label: "Elapid — Python MaxEnt", maturity: "experimental", available: false, notes: "Requires Python + elapid package" },
+      { id: "python_sklearn_rf", label: "Scikit-Learn Random Forest (Python)", maturity: "experimental", available: false, notes: "Requires Python + scikit-learn package" },
     ]);
   }
 });
@@ -254,12 +213,30 @@ sdmRoutes.get("/config/defaults", async (c) => {
   } catch {
     return c.json({
       biovars: [1, 4, 6, 12, 15, 18],
-      backgroundN: 10000,
+      backgroundN: 3000,
       cvFolds: 3,
-      cvStrategy: "random",
+      cvStrategy: "spatial_blocks",
       threshold: 0.5,
       nCores: 1,
       seed: 42,
+      dnnArchitecture: "DNN_Medium",
+      dnnNSeeds: 5,
+      dnnDevice: "auto",
+      dnnMultispeciesArchitecture: "DNN_Medium",
+      dnnMultispeciesNSeeds: 3,
+      brtNTrees: 2000,
+      brtInteractionDepth: 3,
+      brtShrinkage: 0.01,
+      brtBagFraction: 0.75,
+      ctaCp: 0.01,
+      ctaMaxdepth: 10,
+      ctaMinsplit: 20,
+      marsDegree: 2,
+      marsPenalty: 3.0,
+      fdaDegree: 2,
+      annSize: 5,
+      annDecay: 0.01,
+      annMaxit: 200,
       extentPresets: {
         aus_full: [112, 154, -44, -10],
         aus_north: [112, 154, -26, -10],
@@ -275,6 +252,7 @@ sdmRoutes.get("/runs", async (c) => {
     const page = parseInt(c.req.query("page") || "1", 10);
     const limitVal = parseInt(c.req.query("limit") || "20", 10);
     const statusFilter = c.req.query("status");
+    const fields = c.req.query("fields");
     const offset = (page - 1) * limitVal;
     const user = c.get("user");
     const projectIds = await getUserProjectIds(user);
@@ -297,28 +275,32 @@ sdmRoutes.get("/runs", async (c) => {
       conditions.push(eq(runs.status, statusFilter as "queued" | "running" | "completed" | "failed" | "cancelled"));
     }
 
-    const allRuns = await db
-      .select({
-        id: runs.id,
-        species: runs.speciesName,
-        model_id: runs.modelId,
-        status: runs.status,
-        started_at: runs.startedAt,
-        completed_at: runs.completedAt,
-        metrics: runs.metrics,
-        outputFiles: runs.outputFiles,
-        error: runs.error,
-      })
-      .from(runs)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(runs.createdAt))
-      .limit(limitVal)
-      .offset(offset);
-
-    const [{ total }] = await db
-      .select({ total: count() })
-      .from(runs)
-      .where(conditions.length > 0 ? and(...conditions) : undefined);
+    // Parallelize data + count queries (same WHERE clause)
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const [allRuns, [{ total }]] = await Promise.all([
+      db
+        .select({
+          id: runs.id,
+          species: runs.speciesName,
+          model_id: runs.modelId,
+          status: runs.status,
+          started_at: runs.startedAt,
+          completed_at: runs.completedAt,
+          last_stage: runs.lastStage,
+          metrics: runs.metrics,
+          outputFiles: runs.outputFiles,
+          error: runs.error,
+        })
+        .from(runs)
+        .where(whereClause)
+        .orderBy(desc(runs.createdAt))
+        .limit(limitVal)
+        .offset(offset),
+      db
+        .select({ total: count() })
+        .from(runs)
+        .where(whereClause),
+    ]);
 
     const formatted = allRuns.map((r) => ({
       id: r.id,
@@ -327,6 +309,7 @@ sdmRoutes.get("/runs", async (c) => {
       status: r.status ?? "queued",
       started_at: r.started_at,
       completed_at: r.completed_at,
+      last_stage: r.last_stage ?? null,
       metrics: r.metrics ?? null,
       output_files: r.outputFiles ?? null,
       error: r.error ?? null,
@@ -347,7 +330,7 @@ sdmRoutes.get("/runs", async (c) => {
       runs: [],
       pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
       warning: "Database unavailable — run history is temporarily inaccessible",
-    }, 200);
+    }, 503);
   }
 });
 
@@ -361,7 +344,21 @@ sdmRoutes.get("/status/:jobId", async (c) => {
     }
 
     const [run] = await db
-      .select()
+      .select({
+        id: runs.id,
+        status: runs.status,
+        jobId: runs.jobId,
+        speciesName: runs.speciesName,
+        modelId: runs.modelId,
+        startedAt: runs.startedAt,
+        completedAt: runs.completedAt,
+        lastStage: runs.lastStage,
+        config: runs.config,
+        error: runs.error,
+        metrics: runs.metrics,
+        outputFiles: runs.outputFiles,
+        provenance: runs.provenance,
+      })
       .from(runs)
       .where(projectIds ? and(eq(runs.id, jobId), inArray(runs.projectId, projectIds)) : eq(runs.id, jobId))
       .limit(1);
@@ -369,6 +366,13 @@ sdmRoutes.get("/status/:jobId", async (c) => {
     if (!run) {
       return c.json({ error: "Run not found" }, 404);
     }
+
+    const errCode = run.provenance && typeof run.provenance === "object" && "error_code" in (run.provenance as object)
+      ? (run.provenance as Record<string, unknown>).error_code as string
+      : undefined;
+    const errHint = run.provenance && typeof run.provenance === "object" && "error_hint" in (run.provenance as object)
+      ? (run.provenance as Record<string, unknown>).error_hint as string
+      : undefined;
 
     if (run.status === "running" && run.jobId) {
       try {
@@ -388,8 +392,13 @@ sdmRoutes.get("/status/:jobId", async (c) => {
               outputFiles: plumberRunStatus === "completed" ? plumberOutputFiles ?? null : null,
               error: plumberError ?? null,
               completedAt: plumberRunStatus !== "running" ? new Date() : null,
+              rCpuTimeMs: (plumberStatus as any).r_cpu_time_ms ?? null,
+              rPeakMemoryMb: (plumberStatus as any).r_peak_memory_mb ?? null,
             })
             .where(eq(runs.id, jobId));
+
+          const errCode = (plumberStatus as any).error_code as string | undefined;
+          const httpStatus = plumberRunStatus === "failed" ? getErrorHttpStatus(errCode) : 200;
 
           return c.json({
             id: run.id,
@@ -399,11 +408,14 @@ sdmRoutes.get("/status/:jobId", async (c) => {
             started_at: run.startedAt?.toISOString() ?? null,
             completed_at: plumberStatus && (plumberStatus as any).completed_at,
             error: plumberError ?? null,
+            last_stage: run.lastStage ?? null,
             metrics: plumberMetrics ?? null,
             output_files: plumberOutputFiles ?? null,
+            r_cpu_time_ms: (plumberStatus as any).r_cpu_time_ms ?? null,
+            r_peak_memory_mb: (plumberStatus as any).r_peak_memory_mb ?? null,
             progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
-            config: run.config,
-          });
+            config: normalizeConfig(run.config),
+          }, httpStatus as any);
         }
 
         return c.json({
@@ -414,10 +426,11 @@ sdmRoutes.get("/status/:jobId", async (c) => {
           started_at: run.startedAt?.toISOString() ?? null,
           completed_at: run.completedAt?.toISOString() ?? null,
           error: null,
+          last_stage: run.lastStage ?? null,
           metrics: null,
           output_files: null,
           progress_log: Array.isArray((plumberStatus as any).progress_log) ? (plumberStatus as any).progress_log : [],
-          config: run.config,
+          config: normalizeConfig(run.config),
         });
       } catch {
         return c.json({
@@ -428,13 +441,16 @@ sdmRoutes.get("/status/:jobId", async (c) => {
           started_at: run.startedAt?.toISOString() ?? null,
           completed_at: run.completedAt?.toISOString() ?? null,
           error: null,
+          last_stage: run.lastStage ?? null,
           metrics: null,
           output_files: null,
           progress_log: [],
-          config: run.config,
+          config: normalizeConfig(run.config),
         });
       }
     }
+
+    const httpStatus = run.status === "failed" ? getErrorHttpStatus(errCode) : 200;
 
     return c.json({
       id: run.id,
@@ -444,11 +460,12 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       started_at: run.startedAt?.toISOString() ?? null,
       completed_at: run.completedAt?.toISOString() ?? null,
       error: run.error ?? null,
+      last_stage: run.lastStage ?? null,
       metrics: run.metrics ?? null,
       output_files: run.outputFiles ?? null,
       progress_log: [],
-      config: run.config,
-    });
+      config: normalizeConfig(run.config),
+    }, httpStatus as any);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get status";
     return c.json({ error: message }, 502);
@@ -464,7 +481,12 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
       return c.json({ error: "Run not found" }, 404);
     }
     const [run] = await db
-      .select()
+      .select({
+        id: runs.id,
+        jobId: runs.jobId,
+        bullmqId: runs.bullmqId,
+        status: runs.status,
+      })
       .from(runs)
       .where(projectIds ? and(eq(runs.id, jobId), inArray(runs.projectId, projectIds)) : eq(runs.id, jobId))
       .limit(1);
@@ -474,8 +496,8 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
     }
 
     const queue = getJobQueue();
-    if (queue && run.jobId) {
-      const bullJob = await queue.getJob(run.jobId);
+    if (queue && run.bullmqId) {
+      const bullJob = await queue.getJob(run.bullmqId);
       if (bullJob) {
         const state = await bullJob.getState();
         if (state === "active" || state === "waiting" || state === "delayed") {
@@ -513,23 +535,24 @@ sdmRoutes.post("/cancel-all", async (c) => {
     }
 
     const allRuns = await db
-      .select({ id: runs.id, jobId: runs.jobId, status: runs.status })
+      .select({ id: runs.id, jobId: runs.jobId, bullmqId: runs.bullmqId, status: runs.status })
       .from(runs)
-      .where(projectIds ? inArray(runs.projectId, projectIds) : undefined);
+      .where(and(
+        inArray(runs.status, statusValues as any),
+        projectIds ? inArray(runs.projectId, projectIds) : undefined,
+      ));
 
-    const toCancel = allRuns.filter(r => statusValues.includes(r.status));
-
-    if (toCancel.length === 0) {
+    if (allRuns.length === 0) {
       return c.json({ ok: true, message: "No runs to cancel", cancelled: 0 });
     }
 
     const queue = getJobQueue();
     let cancelled = 0;
 
-    for (const run of toCancel) {
+    for (const run of allRuns) {
       try {
-        if (queue && run.jobId) {
-          const bullJob = await queue.getJob(run.jobId);
+        if (queue && run.bullmqId) {
+          const bullJob = await queue.getJob(run.bullmqId);
           if (bullJob) {
             const state = await bullJob.getState();
             if (state === "active" || state === "waiting" || state === "delayed") {
@@ -539,7 +562,7 @@ sdmRoutes.post("/cancel-all", async (c) => {
         }
 
         if (run.jobId) {
-          await plumberClient.cancelModel(run.jobId).catch(() => {});
+          await plumberClient.cancelModel(run.jobId).catch(() => console.warn("[sdm] Failed to cancel Plumber run", run.jobId));
         }
 
         await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, run.id));
@@ -549,7 +572,7 @@ sdmRoutes.post("/cancel-all", async (c) => {
       }
     }
 
-    return c.json({ ok: true, message: `Cancelled ${cancelled}/${toCancel.length} runs`, cancelled, total: toCancel.length });
+    return c.json({ ok: true, message: `Cancelled ${cancelled}/${allRuns.length} runs`, cancelled, total: allRuns.length });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to cancel runs";
     return c.json({ error: message }, 502);
@@ -565,7 +588,11 @@ sdmRoutes.delete("/runs/delete/:runId", async (c) => {
       return c.json({ error: "Run not found" }, 404);
     }
     const [run] = await db
-      .select()
+      .select({
+        id: runs.id,
+        status: runs.status,
+        jobId: runs.jobId,
+      })
       .from(runs)
       .where(projectIds ? and(eq(runs.id, runId), inArray(runs.projectId, projectIds)) : eq(runs.id, runId))
       .limit(1);
@@ -580,7 +607,7 @@ sdmRoutes.delete("/runs/delete/:runId", async (c) => {
 
     // Delegate filesystem deletion to Plumber (owns the output directory)
     if (run.jobId) {
-      await plumberClient.deleteModelOutputs(run.jobId).catch(() => {});
+      await plumberClient.deleteModelOutputs(run.jobId).catch(() => console.warn("[sdm] Failed to delete Plumber outputs for run", run.jobId));
     }
 
     await db.delete(runs).where(eq(runs.id, runId));
@@ -615,7 +642,7 @@ sdmRoutes.post("/runs/clear-all", async (c) => {
     for (const run of runsToDelete) {
       // Delegate filesystem deletion to Plumber
       if (run.jobId) {
-        await plumberClient.deleteModelOutputs(run.jobId).catch(() => {});
+        await plumberClient.deleteModelOutputs(run.jobId).catch(() => console.warn("[sdm] Batch clear: failed to delete Plumber outputs for run", run.jobId));
       }
       deletedCount++;
     }
@@ -638,14 +665,30 @@ sdmRoutes.post("/runs/clear-all", async (c) => {
 
 sdmRoutes.post("/batch", async (c) => {
   try {
-    const body = await c.req.json();
-    const { configs, parallel } = body;
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: "Invalid JSON body" }, 400);
+    const { configs, name } = body;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
 
     if (!Array.isArray(configs) || configs.length === 0) {
       return c.json({ error: "configs must be a non-empty array" }, 400);
     }
+
+    if (configs.length > 50) {
+      return c.json({ error: "Batch limited to 50 configs per request" }, 400);
+    }
+
+    const [batch] = await db
+      .insert(batches)
+      .values({
+        projectId,
+        userId: user.id,
+        name: name || `Batch ${new Date().toLocaleDateString()}`,
+        totalJobs: configs.length,
+        status: "running",
+      })
+      .returning();
 
     const jobIds: string[] = [];
 
@@ -663,77 +706,30 @@ sdmRoutes.post("/batch", async (c) => {
           modelId: parsed.data.modelId,
           status: "queued",
           config: parsed.data as any,
+          parentRunId: batch.id,
+          pipelineRunId: (parsed.data as any).pipelineRunId || null,
         })
         .returning();
 
       const data = parsed.data;
-      const plumberPayload = {
-        species: data.species,
-        model_id: data.modelId,
-        occurrence_file: data.cleanedFilePath || data.occurrenceFile,
-        cleaned_file_id: data.cleanedFilePath || null,
-        biovars: data.biovars.join(","),
-        projection_extent: data.projectionExtent.join(","),
-        background_n: data.backgroundN,
-        cv_folds: data.cvFolds,
-        cv_strategy: data.cvStrategy,
-        cv_block_size_km: data.cvBlockSizeKm,
-        threshold: data.threshold,
-        include_quadratic: data.includeQuadratic,
-        use_elevation: data.useElevation,
-        elevation_demtype: data.elevationDemtype,
-        opentopo_api_key: data.opentopoApiKey,
-        use_soil: data.useSoil,
-        soil_vars: data.soilVars,
-        soil_depths: data.soilDepths,
-        use_uv: data.useUv,
-        uv_vars: data.uvVars,
-        use_vegetation: data.useVegetation,
-        veg_year: data.vegYear,
-        veg_products: data.vegProducts,
-        use_lulc: data.useLulc,
-        lulc_year: data.lulcYear,
-        use_hfp: data.useHfp,
-        hfp_year: data.hfpYear,
-        use_bioclim_season: data.useBioclimSeason,
-        use_drought: data.useDrought,
-        future_projection: data.futureProjection,
-        future_worldclim_dir: data.futureWorldclimDir,
-        future_label: data.futureLabel,
-        vif_reduction: data.vifReduction,
-        vif_threshold: data.vifThreshold,
-        climate_matching: data.climateMatching,
-        climate_matching_method: data.climateMatchingMethod,
-        thin_by_cell: data.thinByCell,
-        merge_small_sources: data.mergeSmallSources,
-        min_source_records: data.minSourceRecords,
-        bias_method: data.biasMethod,
-        thickening_distance_km: data.thickeningDistanceKm,
-        pa_replicates: data.paReplicates,
-        maxnet_features: data.maxnetFeatures,
-        maxnet_regmult: data.maxnetRegmult,
-        aggregation_factor: data.aggregationFactor,
-        n_cores: data.nCores,
-        seed: data.seed,
-        worldclim_dir: data.worldclimDir,
-        worldclim_res: data.worldclimRes,
-        source: data.source,
-        output_dir: join("outputs", "jobs", run.id),
-      };
+      const plumberPayload = { ...buildModelPayload(data, run.id), runId: run.id };
 
-      const plumberRes = await plumberClient.runModel(plumberPayload);
-      const plumberJobId = (plumberRes as any).job_id;
-
-      await db
-        .update(runs)
-        .set({ jobId: plumberJobId, status: "running", startedAt: new Date() })
-        .where(eq(runs.id, run.id));
+      const queuedJobId = await enqueueSdmJob(
+        { type: "model", payload: plumberPayload },
+        user.id,
+      );
+      if (queuedJobId) {
+        await db
+          .update(runs)
+          .set({ bullmqId: queuedJobId })
+          .where(eq(runs.id, run.id));
+      }
 
       jobIds.push(run.id);
     }
 
     return c.json({
-      batch_id: `batch-${Date.now()}`,
+      batch_id: batch.id,
       job_ids: jobIds,
       total: jobIds.length,
       message: `Batch of ${jobIds.length} runs started`,
@@ -741,6 +737,129 @@ sdmRoutes.post("/batch", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Batch run failed";
     return c.json({ error: message }, 500);
+  }
+});
+
+sdmRoutes.get("/batch/:batchId", async (c) => {
+  try {
+    const batchId = c.req.param("batchId");
+    const user = c.get("user");
+
+    const [batch] = await db
+      .select()
+      .from(batches)
+      .where(eq(batches.id, batchId));
+    if (!batch) return c.json({ error: "Batch not found" }, 404);
+
+    const projectIds = await getUserProjectIds(user);
+    if (!projectIds?.includes(batch.projectId)) {
+      return c.json({ error: "Batch not found" }, 404);
+    }
+
+    const runRows = await db
+      .select({ id: runs.id, speciesName: runs.speciesName, modelId: runs.modelId, status: runs.status, metrics: runs.metrics, error: runs.error })
+      .from(runs)
+      .where(eq(runs.parentRunId, batchId));
+
+    return c.json({
+      batch: {
+        id: batch.id,
+        name: batch.name,
+        status: batch.status,
+        total_jobs: batch.totalJobs,
+        completed_jobs: batch.completedJobs,
+        failed_jobs: batch.failedJobs,
+        created_at: batch.createdAt,
+        completed_at: batch.completedAt,
+      },
+      runs: runRows,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Batch status failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+sdmRoutes.post("/batch/:batchId/cancel", async (c) => {
+  try {
+    const batchId = c.req.param("batchId");
+    const user = c.get("user");
+
+    const [batch] = await db.select().from(batches).where(eq(batches.id, batchId));
+    if (!batch) return c.json({ error: "Batch not found" }, 404);
+
+    const projectIds = await getUserProjectIds(user);
+    if (!projectIds?.includes(batch.projectId)) return c.json({ error: "Batch not found" }, 404);
+
+    const runRows = await db.select().from(runs).where(eq(runs.parentRunId, batchId));
+    const cancellable = runRows.filter(r => r.status === "queued" || r.status === "running");
+    const queue = getJobQueue();
+
+    for (const r of cancellable) {
+      if (r.bullmqId && queue) await queue.remove(r.bullmqId);
+      await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, r.id));
+    }
+
+    await db.update(batches).set({ status: "cancelled", completedAt: new Date() }).where(eq(batches.id, batchId));
+
+    return c.json({ ok: true, cancelled: cancellable.length, total: runRows.length });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Batch cancel failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+sdmRoutes.post("/batch/:batchId/retry", async (c) => {
+  try {
+    const batchId = c.req.param("batchId");
+    const user = c.get("user");
+
+    const [batch] = await db.select().from(batches).where(eq(batches.id, batchId));
+    if (!batch) return c.json({ error: "Batch not found" }, 404);
+
+    const projectIds = await getUserProjectIds(user);
+    if (!projectIds?.includes(batch.projectId)) return c.json({ error: "Batch not found" }, 404);
+
+    const failedRuns = await db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.parentRunId, batchId), eq(runs.status, "failed")));
+
+    const retriedIds: string[] = [];
+    for (const r of failedRuns) {
+      const [updated] = await db.update(runs).set({ status: "queued", error: null, jobId: null, bullmqId: null }).where(eq(runs.id, r.id)).returning();
+      const queuedJobId = await enqueueSdmJob(
+        { type: "model", payload: buildModelPayload((r.config as unknown as ModelConfigRecord), r.id) },
+        user.id,
+      );
+      if (queuedJobId) {
+        await db.update(runs).set({ bullmqId: queuedJobId }).where(eq(runs.id, r.id));
+      }
+      retriedIds.push(r.id);
+    }
+
+    if (retriedIds.length > 0) {
+      await db.update(batches).set({ status: "running", failedJobs: 0 }).where(eq(batches.id, batchId));
+    }
+
+    return c.json({ ok: true, retried: retriedIds.length, job_ids: retriedIds });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Batch retry failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+sdmRoutes.get("/compare/:runId1/:runId2", async (c) => {
+  try {
+    const runId1 = c.req.param("runId1");
+    const runId2 = c.req.param("runId2");
+    const jobId1 = await plumberJobId(runId1);
+    const jobId2 = await plumberJobId(runId2);
+    const data = await plumberClient.getRunComparison(jobId1, jobId2);
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Comparison unavailable";
+    return c.json({ error: message }, 502);
   }
 });
 

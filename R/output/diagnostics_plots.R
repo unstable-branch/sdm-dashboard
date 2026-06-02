@@ -48,49 +48,21 @@ save_diagnostic_plots <- function(result, job_dir, log_fun = NULL) {
   })
   if (!is.null(rc_path)) diag_files$response_curves_png <- rc_path
 
-  # 3. ROC curve plot
+  # 3. ROC AUC annotation
   roc_path <- tryCatch({
     cv <- result$cv
-    if (!is.null(cv) && is.data.frame(cv$fold_metrics) && nrow(cv$fold_metrics) > 0) {
-      fm <- cv$fold_metrics
-      mean_fpr <- seq(0, 1, length.out = 100)
-      tpr_list <- apply(fm[, c("tp", "fp", "tn", "fn")], 1, function(row) {
-        tp <- row["tp"]; fp <- row["fp"]; tn <- row["tn"]; fn <- row["fn"]
-        n_pos <- tp + fn; n_neg <- fp + tn
-        if (n_pos < 2 || n_neg < 2) return(rep(NA_real_, 100))
-        fpr_val <- seq(0, 1, length.out = 100)
-        tpr_val <- sapply(fpr_val, function(f) {
-          threshold <- f * max(c(1, sqrt(n_pos * n_neg))) / sqrt(n_pos * n_neg) + 0.5
-          tp_at_fpr <- tp - f * n_pos
-          max(0, min(1, (tp_at_fpr + tn) / (n_pos + n_neg)))
-        })
-        tpr_val
-      })
-      if (is.matrix(tpr_list)) {
-        mean_tpr <- rowMeans(tpr_list, na.rm = TRUE)
-      } else {
-        mean_tpr <- rep(0.5, 100)
-      }
-      auc_val <- cv$auc_mean
-      auc_sd_val <- cv$auc_sd
-      df_roc <- data.frame(fpr = mean_fpr, tpr = pmax(0, pmin(1, mean_tpr)))
-      p_roc <- ggplot2::ggplot(df_roc, ggplot2::aes(x = .data$fpr, y = .data$tpr)) +
-        ggplot2::geom_line(colour = "#2C7FB8", linewidth = 1.2) +
-        ggplot2::geom_area(fill = "#2C7FB8", alpha = 0.15) +
-        ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey40") +
-        ggplot2::labs(
-          x = "False Positive Rate", y = "True Positive Rate",
-          title = paste0("ROC Curve (AUC = ", sprintf("%.3f", auc_val), " \u00b1 ", sprintf("%.3f", auc_sd_val), ")")
-        ) +
-        ggplot2::theme_minimal(base_size = 12) +
-        ggplot2::theme(
-          panel.grid.minor = ggplot2::element_blank(),
-          plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")
-        ) +
-        ggplot2::coord_equal()
+    if (!is.null(cv) && is.finite(cv$auc_mean)) {
+      auc_text <- paste0("Cross-validated AUC = ", sprintf("%.3f", cv$auc_mean),
+        if (is.finite(cv$auc_sd)) paste0(" \u00b1 ", sprintf("%.3f", cv$auc_sd)) else "")
+      df_roc <- data.frame(x = 0.5, y = 0.5, label = auc_text)
+      p_roc <- ggplot2::ggplot(df_roc, ggplot2::aes(x = .data$x, y = .data$y)) +
+        ggplot2::annotate("text", x = 0.5, y = 0.6, label = auc_text, size = 5, fontface = "bold") +
+        ggplot2::annotate("text", x = 0.5, y = 0.4, label = "ROC curve requires per-fold score distributions", size = 3.5, colour = "grey50") +
+        ggplot2::xlim(0, 1) + ggplot2::ylim(0, 1) +
+        ggplot2::theme_void()
       out <- file.path(job_dir, "roc_curve.png")
-      ggplot2::ggsave(out, p_roc, width = 6, height = 6, dpi = 150)
-      log_message(log_fun, "Saved ROC curve plot: ", out)
+      ggplot2::ggsave(out, p_roc, width = 6, height = 4, dpi = 150)
+      log_message(log_fun, "Saved AUC annotation: ", out)
       out
     } else NULL
   }, error = function(e) {
@@ -137,10 +109,10 @@ save_diagnostic_plots <- function(result, job_dir, log_fun = NULL) {
 
   # 5. CBI plot
   cbi_path <- tryCatch({
-    pres_suit <- result$fit$presence_suit
-    bg_suit <- result$fit$background_suit
+    pres_suit <- result$presence_suit %||% result$fit$presence_suit
+    bg_suit <- result$background_suit %||% result$fit$background_suit
     if (is.null(pres_suit) || is.null(bg_suit)) {
-      return(NULL)
+      NULL
     }
     cbi_result <- continuous_boyce_index(pres_suit, bg_suit, n_bins = 51, win = 0.1)
     if (!is.null(cbi_result) && is.data.frame(cbi_result$bins) && nrow(cbi_result$bins) > 0) {
@@ -173,38 +145,36 @@ save_diagnostic_plots <- function(result, job_dir, log_fun = NULL) {
   # 6. Calibration curve
   cal_path <- tryCatch({
     cv <- result$cv
-    if (!is.null(cv) && is.data.frame(cv$fold_metrics) && nrow(cv$fold_metrics) > 0 && "predictions" %in% names(cv)) {
+    if (!is.null(cv) && is.data.frame(cv$predictions) && nrow(cv$predictions) > 0) {
       preds <- cv$predictions
-      if (!is.null(preds) && is.data.frame(preds) && "observed" %in% names(preds) && "predicted" %in% names(preds)) {
-        n_bins <- 10
-        preds$bin <- cut(preds$predicted, breaks = seq(0, 1, length.out = n_bins + 1), include.lowest = TRUE)
-        cal_df <- aggregate(observed ~ bin, data = preds, FUN = function(x) c(mean = mean(x), count = length(x)))
-        cal_df <- do.call(data.frame, list(
-          bin_mid = sapply(cal_df$bin, function(b) mean(as.numeric(gsub("[\\[\\]()]", "", strsplit(as.character(b), ",")[[1]])))),
-          observed_freq = cal_df$observed[, "mean"],
-          count = as.integer(cal_df$observed[, "count"])
-        ))
-        cal_df <- cal_df[cal_df$count > 0, ]
-        if (nrow(cal_df) > 0) {
-          p_cal <- ggplot2::ggplot(cal_df, ggplot2::aes(x = .data$bin_mid, y = .data$observed_freq)) +
-            ggplot2::geom_line(colour = "#2C7FB8", linewidth = 1.2) +
-            ggplot2::geom_point(size = 2, colour = "#2C7FB8") +
-            ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey40") +
-            ggplot2::labs(
-              x = "Predicted Probability", y = "Observed Frequency",
-              title = "Calibration Curve"
-            ) +
-            ggplot2::theme_minimal(base_size = 12) +
-            ggplot2::theme(
-              panel.grid.minor = ggplot2::element_blank(),
-              plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")
-            ) +
-            ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
-          out <- file.path(job_dir, "calibration.png")
-          ggplot2::ggsave(out, p_cal, width = 6, height = 6, dpi = 150)
-          log_message(log_fun, "Saved calibration curve: ", out)
-          out
-        } else NULL
+      n_bins <- 10
+      preds$bin <- cut(preds$predicted, breaks = seq(0, 1, length.out = n_bins + 1), include.lowest = TRUE)
+      cal_df <- aggregate(observed ~ bin, data = preds, FUN = function(x) c(mean = mean(x), count = length(x)))
+      cal_df <- do.call(data.frame, list(
+        bin_mid = sapply(cal_df$bin, function(b) mean(as.numeric(gsub("[\\[\\]()]", "", strsplit(as.character(b), ",")[[1]])))),
+        observed_freq = cal_df$observed[, "mean"],
+        count = as.integer(cal_df$observed[, "count"])
+      ))
+      cal_df <- cal_df[cal_df$count > 0, ]
+      if (nrow(cal_df) > 0) {
+        p_cal <- ggplot2::ggplot(cal_df, ggplot2::aes(x = .data$bin_mid, y = .data$observed_freq)) +
+          ggplot2::geom_line(colour = "#2C7FB8", linewidth = 1.2) +
+          ggplot2::geom_point(size = 2, colour = "#2C7FB8") +
+          ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey40") +
+          ggplot2::labs(
+            x = "Predicted Probability", y = "Observed Frequency",
+            title = "Calibration Curve"
+          ) +
+          ggplot2::theme_minimal(base_size = 12) +
+          ggplot2::theme(
+            panel.grid.minor = ggplot2::element_blank(),
+            plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")
+          ) +
+          ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+        out <- file.path(job_dir, "calibration.png")
+        ggplot2::ggsave(out, p_cal, width = 6, height = 6, dpi = 150)
+        log_message(log_fun, "Saved calibration curve: ", out)
+        out
       } else NULL
     } else NULL
   }, error = function(e) {

@@ -65,7 +65,6 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
       stop("bias_method = 'thickened' requires at least 2 presence points.", call. = FALSE)
     }
     sigma_km <- if (is.numeric(thickening_distance_km) && thickening_distance_km > 0) thickening_distance_km else 10
-    sigma_deg <- sigma_km / 111.32
     all_cell_idx <- get_valid_cell_indices()
     if (length(all_cell_idx) < n) {
       stop("Not enough valid cells for thickened background sampling (",
@@ -73,12 +72,14 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
         call. = FALSE
       )
     }
+    # Convert to km for latitude-corrected distance computation
     cell_xy <- terra::xyFromCell(template_rast, all_cell_idx)
-    pres_df <- data.frame(x = presence_xy$x, y = presence_xy$y)
-    weights <- numeric(nrow(cell_xy))
-    for (j in seq_len(nrow(pres_df))) {
-      d2 <- (cell_xy[, "x"] - pres_df$x[j])^2 + (cell_xy[, "y"] - pres_df$y[j])^2
-      weights <- weights + exp(-d2 / (2 * sigma_deg^2))
+    cell_km <- lonlat_to_km(cell_xy[, "x"], cell_xy[, "y"])
+    pres_km <- lonlat_to_km(presence_xy$x, presence_xy$y)
+    weights <- numeric(nrow(cell_km))
+    for (j in seq_len(nrow(pres_km))) {
+      d2 <- (cell_km$x_km - pres_km$x_km[j])^2 + (cell_km$y_km - pres_km$y_km[j])^2
+      weights <- weights + exp(-d2 / (2 * sigma_km^2))
     }
     weights <- weights / max(weights, na.rm = TRUE)
     weights[is.na(weights)] <- 0
@@ -92,8 +93,13 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
       )
     }
     probs <- weights[valid_w]
-    probs <- probs / sum(probs)
-    sel <- sample.int(length(valid_w), size = n, replace = TRUE, prob = probs)
+    total_weight <- sum(probs)
+    if (!is.finite(total_weight) || total_weight <= 0) {
+      sel <- sample.int(length(valid_w), size = n, replace = TRUE)
+    } else {
+      probs <- probs / total_weight
+      sel <- sample.int(length(valid_w), size = n, replace = TRUE, prob = probs)
+    }
     xy <- terra::xyFromCell(template_rast, all_cell_idx[valid_w[sel]])
     return(data.frame(x = xy[, 1], y = xy[, 2], check.names = FALSE))
   }
@@ -137,31 +143,47 @@ make_sdm_formula <- function(covariates, include_quadratic = TRUE) {
 
 cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 1,
                                cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
-                               threshold = sdm_default_threshold, log_fun = NULL) {
+                               threshold = sdm_default_threshold, collect_predictions = FALSE,
+                               log_fun = NULL) {
   fit_fun <- function(i, model_data, fold_id, threshold) {
     train <- model_data[fold_id != i, , drop = FALSE]
     test <- model_data[fold_id == i, , drop = FALSE]
     train_model <- train[, !names(train) %in% c(".x", ".y"), drop = FALSE]
     test_model <- test[, !names(test) %in% c(".x", ".y"), drop = FALSE]
-    y <- as.integer(train_model$presence)
-    n1 <- sum(y == 1)
-    n0 <- sum(y == 0)
-    n <- length(y)
-    w <- if (n1 == 0 || n0 == 0) rep(1, n) else ifelse(y == 1, n / (2 * n1), n / (2 * n0))
-    train_model$case_weight_sdm <- w
-    fit <- suppressWarnings(stats::glm(formula,
-      data = train_model, family = stats::binomial(),
-      weights = case_weight_sdm, control = stats::glm.control(maxit = 60)
-    ))
-    pred <- stats::predict(fit, newdata = test_model, type = "response")
-    metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
+    train_model$case_weight_sdm <- class_balance_weights(train_model$presence)
+    fit <- tryCatch(
+      suppressWarnings(stats::glm(formula,
+        data = train_model, family = stats::binomial(),
+        weights = case_weight_sdm, control = stats::glm.control(maxit = 60)
+      )),
+      error = function(e) NULL
+    )
+    if (is.null(fit)) {
+      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold), fold = i)
+      if (collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
+    }
+    pred <- tryCatch(
+      stats::predict(fit, newdata = test_model, type = "response"),
+      error = function(e) rep(NA_real_, nrow(test_model))
+    )
+    if (all(is.na(pred))) {
+      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold), fold = i)
+      if (collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
+    }
+    row <- metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
+    if (collect_predictions) {
+      list(metrics = row, predictions = data.frame(observed = test_model$presence, predicted = pred))
+    } else {
+      row
+    }
   }
 
   cross_validate_model(model_data,
     k = k, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = threshold, fit_fun = fit_fun,
-    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "normalize_threshold"),
+    collect_predictions = collect_predictions,
+    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "normalize_threshold", "class_balance_weights"),
     log_fun = log_fun
   )
 }
@@ -172,14 +194,19 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
                          threshold = sdm_default_threshold,
                          bias_method = c("uniform", "target_group", "thickened"),
                          target_group_occ = NULL,
-                         thickening_distance_km = NULL) {
+                         thickening_distance_km = NULL,
+                         model_data = NULL) {
   bias_method <- match.arg(bias_method)
-  d <- prepare_sdm_data(occ, env_train_scaled, background_n,
-    seed = seed, log_fun = log_fun,
-    bias_method = bias_method,
-    target_group_occ = target_group_occ,
-    thickening_distance_km = thickening_distance_km
-  )
+  if (is.null(model_data)) {
+    d <- prepare_sdm_data(occ, env_train_scaled, background_n,
+      seed = seed, log_fun = log_fun,
+      bias_method = bias_method,
+      target_group_occ = target_group_occ,
+      thickening_distance_km = thickening_distance_km
+    )
+  } else {
+    d <- model_data
+  }
   pres_vals <- d$pres_vals
   pres_xy_used <- d$pres_xy_used
   occ_used <- d$occ_used
@@ -207,7 +234,8 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   cv <- cross_validate_glm(model_data, formula,
     k = cv_folds, seed = seed, n_cores = n_cores,
-    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km, threshold = threshold
+    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km, threshold = threshold,
+    collect_predictions = TRUE
   )
   if (is.finite(cv$auc_mean)) {
     log_message(
@@ -216,14 +244,26 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
     )
   }
 
-  pres_vals_for_cbi <- model_fit_data$presence
-  bg_vals_for_cbi <- train_pred[model_fit_data$presence == 0]
+  # In-sample CBI (optimistic)
   cbi_result <- continuous_boyce_index(
     pres_suit = train_pred[model_fit_data$presence == 1],
-    bg_suit = bg_vals_for_cbi
+    bg_suit = train_pred[model_fit_data$presence == 0]
   )
   if (is.finite(cbi_result$cbi)) {
-    log_message(log_fun, "Continuous Boyce Index (CBI): ", sprintf("%.3f", cbi_result$cbi))
+    log_message(log_fun, "In-sample CBI: ", sprintf("%.3f", cbi_result$cbi))
+  }
+
+  # Cross-validated CBI (from out-of-fold predictions)
+  cv_cbi <- NULL
+  if (!is.null(cv$predictions) && nrow(cv$predictions) > 0) {
+    preds <- cv$predictions
+    cv_cbi <- continuous_boyce_index(
+      pres_suit = preds$predicted[preds$observed == 1],
+      bg_suit = preds$predicted[preds$observed == 0]
+    )
+    if (!is.null(cv_cbi) && is.finite(cv_cbi$cbi)) {
+      log_message(log_fun, "Cross-validated CBI: ", sprintf("%.3f", cv_cbi$cbi))
+    }
   }
 
   coefficients <- as.data.frame(summary(model)$coefficients)
@@ -245,11 +285,13 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
     metrics = list(
       auc = train_metrics$auc, tss = train_metrics$tss,
       sensitivity = train_metrics$sensitivity, specificity = train_metrics$specificity,
-      cbi = cbi_result$cbi, cbi_pe_ratio = cbi_result$pe_ratio, cbi_note = cbi_result$note
+      cbi = cbi_result$cbi, cbi_pe_ratio = cbi_result$pe_ratio, cbi_note = cbi_result$note,
+      cv_cbi = if (!is.null(cv_cbi)) cv_cbi$cbi else NA_real_
     ),
     cbi_detail = cbi_result, covariates = covariates,
     bias_method = bias_method,
     thickening_distance_km = if (identical(bias_method, "thickened")) thickening_distance_km else NULL,
-    presence_suit = train_pred[model_fit_data$presence == 1]
+    presence_suit = train_pred[model_fit_data$presence == 1],
+    background_suit = train_pred[model_fit_data$presence == 0]
   )
 }

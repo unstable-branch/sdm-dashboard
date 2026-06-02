@@ -28,7 +28,9 @@ modules <- c(
   "bootstrap.R",
   "config.R",
   "packages.R",
+  "model_payload_normalizer.R",
   "logging.R",
+  "crypto.R",
   "validation.R",
   "app_helpers.R",
   "optimized_sdm.R",
@@ -38,6 +40,8 @@ modules <- c(
   # --- data ---
   "occurrences.R",
   "occurrences_dwca.R",
+  "occurrences_detection.R",
+  "community_matrix.R",
 
   # --- covariates ---
   "covariates_climate.R",
@@ -62,6 +66,18 @@ modules <- c(
 
   # --- models ---
   "model_helpers.R",
+  "inla_mesh.R",
+  "model_inla.R",
+  "model_bart.R",
+  "model_unmarked.R",
+  "model_brms.R",
+  "model_python.R",
+  "model_gbm.R",
+  "model_rpart.R",
+  "model_earth.R",
+  "model_mda.R",
+  "model_nnet.R",
+  "model_bioclim.R",
   "model_glm.R",
   "model_gam.R",
   "model_rangebag.R",
@@ -72,9 +88,11 @@ modules <- c(
   "model_multi_ensemble.R",
   "model_esm.R",
   "model_dnn.R",
+  "model_dnn_multispecies.R",
   "model_registry.R",
   "model_biomod2.R",
   "biomod2_compat.R",
+  # jsdm removed — dead code, replaced by brms + inla_spde
   "torch_setup.R",
   "cv_folds.R",
   "cv_engine.R",
@@ -84,6 +102,9 @@ modules <- c(
   "ensemble_importance.R",
   "hyperparameter_tuning.R",
   "prediction.R",
+
+  # --- output ---
+  "compare.R",
 
   # --- ecology ---
   "climate_matching.R",
@@ -98,13 +119,21 @@ modules <- c(
   "metrics_binary.R",
   "metrics_helper.R",
   "response_curves.R",
+
+  # --- xai ---
+  "xai_methods.R",
+  "ale.R",
+  "shap.R",
+  "climate_driver.R",
   "plots.R",
   "report.R",
   "report_odmap.R",
   "manifest.R",
   "diagnostics_plots.R",
   "batch_runner.R",
+  "python_setup.R",
   "script_export.R",
+  "tile_generator.R",
 
   # --- ui / modules ---
   "ui_header.R",

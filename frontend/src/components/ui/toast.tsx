@@ -49,10 +49,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 export function useToast() {
   const context = useContext(ToastContext);
   if (!context) {
-    throw new Error("useToast must be used within ToastProvider");
+    throw new Error("useToast must be used within a ToastProvider");
   }
   return context;
 }
+
+const iconMap: Record<ToastType, React.ReactNode> = {
+  success: <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />,
+  error: <XCircle className="h-5 w-5 text-red-500 shrink-0" />,
+  warning: <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />,
+  info: <Info className="h-5 w-5 text-blue-500 shrink-0" />,
+};
 
 function ToastContainer() {
   const { toasts, removeToast } = useContext(ToastContext)!;
@@ -60,43 +67,24 @@ function ToastContainer() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 space-y-2" role="status" aria-live="polite">
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
       {toasts.map((toast) => (
-        <ToastItem key={toast.id} toast={toast} onRemove={() => removeToast(toast.id)} />
+        <div
+          key={toast.id}
+          className={`flex items-start gap-3 rounded-lg border bg-sdm-surface p-4 shadow-lg animate-in slide-in-from-right ${
+            toast.type === "success" ? "border-green-500/30" :
+            toast.type === "error" ? "border-red-500/30" :
+            toast.type === "warning" ? "border-amber-500/30" :
+            "border-blue-500/30"
+          }`}
+        >
+          {iconMap[toast.type]}
+          <p className="text-sm text-sdm-text flex-1">{toast.message}</p>
+          <button onClick={() => removeToast(toast.id)} className="shrink-0 text-sdm-muted hover:text-sdm-text">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       ))}
-    </div>
-  );
-}
-
-function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: () => void }) {
-  const icons = {
-    success: <CheckCircle2 className="h-4 w-4 text-green-400" />,
-    error: <XCircle className="h-4 w-4 text-red-400" />,
-    warning: <AlertTriangle className="h-4 w-4 text-yellow-400" />,
-    info: <Info className="h-4 w-4 text-blue-400" />,
-  };
-
-  const borders = {
-    success: "border-green-500/30 bg-green-500/10",
-    error: "border-red-500/30 bg-red-500/10",
-    warning: "border-yellow-500/30 bg-yellow-500/10",
-    info: "border-blue-500/30 bg-blue-500/10",
-  };
-
-  return (
-    <div
-      className={`flex items-center gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg ${borders[toast.type]}`}
-      role="alert"
-    >
-      {icons[toast.type]}
-      <span className="flex-1 text-sdm-text">{toast.message}</span>
-      <button
-        onClick={onRemove}
-        className="text-sdm-muted hover:text-sdm-text transition-colors"
-        aria-label="Dismiss notification"
-      >
-        <X className="h-4 w-4" />
-      </button>
     </div>
   );
 }

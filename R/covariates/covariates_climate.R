@@ -1,11 +1,16 @@
 # WorldClim discovery, download, cropping, and scaling helpers.
 
-find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("worldclim", "chelsa")) {
+find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("worldclim", "chelsa"), res = NULL) {
   source <- match.arg(source)
   if (is.null(worldclim_dir) || length(worldclim_dir) == 0 || !nzchar(worldclim_dir)) {
     return(setNames(rep(NA_character_, length(as.integer(selected_biovars))), as.character(as.integer(selected_biovars))))
   }
-  files <- if (dir.exists(worldclim_dir)) list.files(worldclim_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE) else character()
+  pattern <- if (source == "worldclim" && !is.null(res)) {
+    sprintf("wc2\\.1_%sm.*\\.tif$", res)
+  } else {
+    "\\.tif$"
+  }
+  files <- if (dir.exists(worldclim_dir)) list.files(worldclim_dir, pattern = pattern, full.names = TRUE, recursive = TRUE) else character()
   selected_biovars <- as.integer(selected_biovars)
   if (length(files) == 0 || length(selected_biovars) == 0) {
     return(setNames(rep(NA_character_, length(selected_biovars)), as.character(selected_biovars)))
@@ -276,7 +281,7 @@ download_chelsa_file <- function(url, dest, log_fun = NULL) {
 download_chelsa_extras <- function(chelsa_dir, selected_extras = names(chelsa_extra_vars),
                                    log_fun = NULL, n_cores = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')")
+    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')", call. = FALSE)
   }
   ensure_sdm_packages(c("terra", "geodata"), n_cores = n_cores)
   dir.create(chelsa_dir, recursive = TRUE, showWarnings = FALSE)
@@ -316,26 +321,26 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
     log_message(log_fun, "Using GDAL cache URL: ", cache_url)
   }
 
-  log_message(log_fun, "Downloading WorldClim BIO layers to ", worldclim_dir, " (resolution ", res, " arc-min)")
-  wc <- geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir)
-  failed <- character()
-  for (bv in as.integer(selected_biovars)) {
-    idx <- grep(sprintf("bio_?%d$", bv), names(wc), ignore.case = TRUE)
-    if (length(idx) == 0) idx <- grep(sprintf("bio%02d$", bv), names(wc), ignore.case = TRUE)
-    if (length(idx) == 0 && bv <= terra::nlyr(wc)) idx <- bv
-    if (length(idx) > 0) {
-      out <- file.path(worldclim_dir, sprintf("wc2.1_%sm_bio_%d.tif", res, bv))
-      if (!file.exists(out)) {
-        wr <- try(terra::writeRaster(wc[[idx[1]]], out, overwrite = TRUE), silent = TRUE)
-        if (inherits(wr, "try-error")) {
-          log_message(log_fun, "Warning: failed to write ", basename(out), ": ", attr(wr, "condition")$message)
-          failed <- c(failed, bv)
-        }
-      }
-    } else {
-      failed <- c(failed, bv)
-    }
+  if (res <= 2.5) {
+    log_message(log_fun, "  NOTE: ", res, " arc-min WorldClim is approximately 320 MB compressed.")
+    log_message(log_fun, "  Estimated download time: 3-15 minutes depending on connection speed.")
+  } else if (res <= 5) {
+    log_message(log_fun, "  NOTE: ", res, " arc-min WorldClim is approximately 80 MB compressed.")
   }
+
+  timeout_sec <- if (res <= 2.5) 1800 else if (res <= 5) 1200 else 600
+  old_timeout <- getOption("timeout")
+  options(timeout = timeout_sec)
+  on.exit(options(timeout = old_timeout), add = TRUE)
+  log_message(log_fun, sprintf("  Download timeout set to %d seconds (resolution: %d arc-min)", timeout_sec, res))
+
+  log_message(log_fun, "  Downloading WorldClim (this may take a while)...")
+  wc <- geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir)
+  log_message(log_fun, "  WorldClim download complete.")
+  failed <- character()
+
+  # geodata writes files to worldclim_dir/climate/wc2.1_{res}m/ — use them directly
+  # No need to write duplicate top-level copies (H3 fix)
   list(
     files = find_worldclim_files(worldclim_dir, selected_biovars),
     failed = failed
@@ -344,7 +349,7 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
 
 download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_cores = NULL, period = "1981-2010") {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')")
+    stop("curl package required for CHELSA downloads. Install with: install.packages('curl')", call. = FALSE)
   }
   ensure_sdm_packages("terra", n_cores = n_cores)
   dir.create(chelsa_dir, recursive = TRUE, showWarnings = FALSE)
@@ -356,10 +361,10 @@ download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_
   # Determine parallel workers — use at most length(biovars) but cap at n_cores
   n_workers <- min(length(biovars), max(1L, n_cores %||% 2L))
 
-  log_message(log_fun, "Downloading ", length(biovars), " BIO layers using ", n_workers, " workers (period: ", period, ")")
+  log_message(log_fun, "Downloading ", length(biovars), " BIO layers using lapply (fork-safe serial; parallel disabled to avoid RPostgres fork deadlock) (period: ", period, ")")
 
-  # Parallel download using parallel::mclapply
-  results <- parallel::mclapply(biovars, function(bv) {
+  # Serial download using lapply — mclapply (fork) is unsafe inside Plumber (inherits DB pool, Redis connections)
+  results <- lapply(biovars, function(bv) {
     bio_padded <- if (bv < 10) sprintf("bio0%d", bv) else sprintf("bio%d", bv)
     fname <- sprintf("CHELSA_%s_%s_V.2.1.tif", bio_padded, period)
     dest <- file.path(chelsa_dir, fname)
@@ -373,12 +378,12 @@ download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_
     url <- get_chelsa_bio_url(bv, period)
     success <- download_chelsa_file(url, dest, log_fun)
     list(success = success, bio = bv, file = if (success) dest else NA_character_)
-  }, mc.cores = n_workers, mc.preschedule = FALSE)
+  })
 
   failed_biovars <- character()
   for (res_item in results) {
-    if (!res_item$success) {
-      failed_biovars <- c(failed_biovars, res_item$bio)
+    if (is.null(res_item$success) || !res_item$success) {
+      failed_biovars <- c(failed_biovars, res_item$bio %||% "unknown")
     }
   }
 
@@ -437,12 +442,10 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
     missing <- selected_biovars[is.na(files)]
     stop("Missing WorldClim layer(s): ", paste(paste0("BIO", missing), collapse = ", "),
       ". Restore the Worldclim folder or enable Download missing WorldClim layers.",
-      call. = FALSE
-    )
+      call. = FALSE)
   }
 
   log_message(log_fun, "Loading ", length(files), " ", source, " layer(s) from ", climate_dir)
-  terra::terraOptions(memfrac = 0.75, progress = 0)
   env_global <- terra::rast(unname(files))
   names(env_global) <- paste0("bio", selected_biovars)
 
@@ -470,6 +473,8 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
   # Allow NULL extents for download-only calls (Get Data tab)
   env_train <- if (!is.null(training_extent)) crop_and_optionally_aggregate(env_global, training_extent, aggregation_factor) else env_global
   env_project <- if (!is.null(projection_extent)) crop_and_optionally_aggregate(env_global, projection_extent, aggregation_factor) else env_global
+
+  terra::terraOptions(memfrac = 0.5, progress = 0)
 
   list(
     env_train = env_train,

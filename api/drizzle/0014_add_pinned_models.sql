@@ -1,0 +1,1 @@
+ALTER TABLE user_settings ADD COLUMN pinned_model_ids TEXT[] DEFAULT '{}';

@@ -1,5 +1,8 @@
 # Node
 node_modules/
+__pycache__/
+*.pyc
+python_models/
 .next/
 dist/
 .turbo/
@@ -31,7 +34,7 @@ api/tmp/
 # R data directories
 data/uploads/
 outputs/
-covariates/
+/covariates/
 Worldclim/
 Worldclim_future/
 renv/
@@ -48,6 +51,11 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Python
+__pycache__/
+*.pyc
+.python-version
 
 # Coverage
 api/coverage/

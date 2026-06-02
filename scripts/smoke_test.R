@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # Lightweight source/API smoke test with tagged filtering.
-# Usage: Rscript scripts/smoke_test.R [--tags=fast,heavy,ensemble,esm,batch,ecology,covariates,reporting,ml,all]
+# Usage: Rscript scripts/smoke_test.R [--tags=fast,heavy,ensemble,esm,batch,ecology,covariates,reporting,ml,maps,core,all]
 
 cmd_args <- commandArgs(FALSE)
 file_arg <- grep("^--file=", cmd_args, value = TRUE)
@@ -96,7 +96,7 @@ for (pkg in names(optional_backend_functions)) {
 
 # --- Default validation ---
 invisible(validate_extent(sdm_default_projection_extent, "smoke extent"))
-if (!identical(normalize_threshold(sdm_default_threshold), 0.5)) stop("Default threshold validation failed.", call. = FALSE)
+if (!identical(normalize_threshold(sdm_default_threshold), NA_real_)) stop("Default threshold validation failed.", call. = FALSE)
 if (!identical(validate_biovars(sdm_default_biovars), unique(as.integer(sdm_default_biovars)))) stop("Default BIO variables failed validation.", call. = FALSE)
 if (!identical(safe_slug("Demo species / test"), "demo_species_test")) stop("Slug helper failed.", call. = FALSE)
 if (!identical(sdm_default_extent_preset, "aus_full")) stop("The app should default to an Australia-wide projection for the bundled dashboard demo.", call. = FALSE)
@@ -174,7 +174,9 @@ for (m in expected_models) {
 }
 
 # --- Conditional model registry (logged, not failed) ---
-conditional_models <- c("maxnet", "rf", "xgboost", "dnn", "biomod2", "esm_glm", "esm_maxnet")
+conditional_models <- c("maxnet", "rf", "xgboost", "dnn", "biomod2", "esm_glm", "esm_maxnet",
+  "brt", "cta", "mars", "fda", "ann", "inla_spde", "bart", "occupancy", "brms",
+  "dnn_multispecies")
 for (m in conditional_models) {
   if (m %in% sdm_model_ids()) {
     cat("[fast] Model", m, "registered.\n")
@@ -1790,6 +1792,49 @@ test_future_projection_helpers_smoke <- function() {
 }
 
 # ============================================================================
+# XYZ TILE GENERATION TESTS
+# ============================================================================
+
+test_xyz_tiles_smoke <- function() {
+  cat("[xyz_tiles smoke] starting...\n")
+  skip_if_not_installed("terra")
+
+  r <- terra::rast(ncols = 40, nrows = 40,
+    xmin = 140, xmax = 142, ymin = -24, ymax = -22, crs = "EPSG:4326")
+  terra::values(r) <- runif(terra::ncell(r), 0, 1)
+  tmp <- tempfile()
+
+  result <- generate_xyz_tiles(r, tmp,
+    palette = c("#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
+                "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"),
+    value_range = c(0, 1), band_names = "suitability",
+    verbose = TRUE)
+
+  assert_that(result$bands[["suitability"]]$tile_count > 0,
+    "Expected at least one tile")
+  assert_that(dir.exists(file.path(tmp, "suitability")),
+    "Expected suitability tile directory")
+
+  tile_files <- list.files(file.path(tmp, "suitability"),
+    recursive = TRUE, pattern = "\\.png$")
+  assert_that(length(tile_files) > 0,
+    "Expected tile PNG files")
+
+  first_tile <- file.path(tmp, "suitability", tile_files[1])
+  header <- readBin(first_tile, "raw", n = 8)
+  assert_that(
+    identical(header[1:4], as.raw(c(0x89, 0x50, 0x4E, 0x47))),
+    "First tile must be a valid PNG")
+
+  cat("[xyz_tiles smoke] ", result$bands[["suitability"]]$tile_count,
+    " tiles (zoom ", result$bands[["suitability"]]$zoom_min, "-",
+    result$bands[["suitability"]]$zoom_max, ") generated in ",
+    round(result$generation_time, 2), "s\n", sep = "")
+
+  unlink(tmp, recursive = TRUE)
+}
+
+# ============================================================================
 # CORE UTILITY TESTS (pure functions, no I/O, no network)
 # ============================================================================
 
@@ -2063,6 +2108,92 @@ test_validation_helpers_smoke <- function() {
   cat("[validation_helpers smoke] passed\n")
 }
 
+# --- Smoke tests for new Phase 1-3 models ---
+
+test_brt_smoke <- function() {
+  if (!"brt" %in% sdm_model_ids()) { cat("[brt smoke] skipped: not in registry\n"); return() }
+  cat("[brt smoke] starting...\n")
+  set.seed(42); env <- make_test_raster(); occ <- make_synthetic_occurrence(n_pres = 30)
+  fit <- fit_sdm_model("brt", occ, env, background_n = 60, cv_folds = 2, seed = 99, n_cores = 1, n_trees = 50)
+  if (!is.finite(fit$cv$auc_mean)) stop("brt AUC not finite", call. = FALSE)
+  output_tif <- tempfile(fileext = ".tif")
+  predict_sdm_model(fit, env, output_tif, n_cores = 1)
+  cat("[brt smoke] passed\n")
+}
+
+test_cta_smoke <- function() {
+  if (!"cta" %in% sdm_model_ids()) { cat("[cta smoke] skipped: not in registry\n"); return() }
+  cat("[cta smoke] starting...\n")
+  set.seed(42); env <- make_test_raster(); occ <- make_synthetic_occurrence(n_pres = 30)
+  fit <- fit_sdm_model("cta", occ, env, background_n = 60, cv_folds = 2, seed = 99, n_cores = 1)
+  if (!is.finite(fit$cv$auc_mean)) stop("cta AUC not finite", call. = FALSE)
+  output_tif <- tempfile(fileext = ".tif")
+  predict_sdm_model(fit, env, output_tif, n_cores = 1)
+  cat("[cta smoke] passed\n")
+}
+
+test_mars_smoke <- function() {
+  if (!"mars" %in% sdm_model_ids()) { cat("[mars smoke] skipped: not in registry\n"); return() }
+  cat("[mars smoke] starting...\n")
+  set.seed(42); env <- make_test_raster(); occ <- make_synthetic_occurrence(n_pres = 30)
+  fit <- fit_sdm_model("mars", occ, env, background_n = 60, cv_folds = 2, seed = 99, n_cores = 1)
+  if (!is.finite(fit$cv$auc_mean)) stop("mars AUC not finite", call. = FALSE)
+  output_tif <- tempfile(fileext = ".tif")
+  predict_sdm_model(fit, env, output_tif, n_cores = 1)
+  cat("[mars smoke] passed\n")
+}
+
+test_fda_smoke <- function() {
+  if (!"fda" %in% sdm_model_ids()) { cat("[fda smoke] skipped: not in registry\n"); return() }
+  cat("[fda smoke] starting...\n")
+  set.seed(42); env <- make_test_raster(); occ <- make_synthetic_occurrence(n_pres = 30)
+  fit <- fit_sdm_model("fda", occ, env, background_n = 60, cv_folds = 2, seed = 99, n_cores = 1)
+  if (!is.finite(fit$cv$auc_mean)) stop("fda AUC not finite", call. = FALSE)
+  output_tif <- tempfile(fileext = ".tif")
+  predict_sdm_model(fit, env, output_tif, n_cores = 1)
+  cat("[fda smoke] passed\n")
+}
+
+test_ann_smoke <- function() {
+  if (!"ann" %in% sdm_model_ids()) { cat("[ann smoke] skipped: not in registry\n"); return() }
+  cat("[ann smoke] starting...\n")
+  set.seed(42); env <- make_test_raster(); occ <- make_synthetic_occurrence(n_pres = 30)
+  fit <- fit_sdm_model("ann", occ, env, background_n = 60, cv_folds = 2, seed = 99, n_cores = 1, size = 3)
+  if (!is.finite(fit$cv$auc_mean)) stop("ann AUC not finite", call. = FALSE)
+  output_tif <- tempfile(fileext = ".tif")
+  predict_sdm_model(fit, env, output_tif, n_cores = 1)
+  cat("[ann smoke] passed\n")
+}
+
+test_bioclim_smoke <- function() {
+  if (!"bioclim" %in% sdm_model_ids()) { cat("[bioclim smoke] skipped: not in registry\n"); return() }
+  cat("[bioclim smoke] starting...\n")
+  set.seed(42); env <- make_test_raster(); occ <- make_synthetic_occurrence(n_pres = 30)
+  fit <- fit_bioclim_sdm(occ, env, cv_folds = 2, seed = 99, n_cores = 1)
+  if (is.null(fit$model)) stop("bioclim fit returned NULL model", call. = FALSE)
+  output_tif <- tempfile(fileext = ".tif")
+  suit <- predict_bioclim_suitability(fit, env, output_tif, n_cores = 1)
+  if (!inherits(suit, "SpatRaster")) stop("bioclim prediction not a SpatRaster", call. = FALSE)
+  cat("[bioclim smoke] passed\n")
+}
+
+test_xai_smoke <- function() {
+  skip_if_no_packages <- function() {
+    if (!"glm" %in% sdm_model_ids()) return(TRUE)
+    FALSE
+  }
+  if (skip_if_no_packages()) { cat("[xai smoke] skipped: glm not in registry\n"); return() }
+  cat("[xai smoke] starting...\n")
+  set.seed(42); env <- make_test_raster(); occ <- make_synthetic_occurrence(n_pres = 24)
+  fit <- fit_sdm_model("glm", occ, env, background_n = 60, cv_folds = 2, seed = 99, n_cores = 1)
+  imp <- xai_importance(fit, seed = 99, n_cores = 1)
+  if (is.null(imp)) { cat("[xai smoke] importance returned NULL (no held-out data)\n") }
+  rc <- xai_pdp(fit)
+  if (length(rc) == 0) stop("xai_pdp returned empty list", call. = FALSE)
+  ale <- xai_ale(fit)
+  cat("[xai smoke] passed (importance=", if (is.data.frame(imp)) nrow(imp) else 0, "vars, pdp=", length(rc), "curves, ale=", length(ale), "curves)\n")
+}
+
 # ============================================================================
 # TAG DISPATCH
 # ============================================================================
@@ -2078,6 +2209,13 @@ if (has_tag("ml")) {
   test_xgboost_smoke()
   test_dnn_smoke()
   test_biomod2_smoke()
+  test_brt_smoke()
+  test_cta_smoke()
+  test_mars_smoke()
+  test_fda_smoke()
+  test_ann_smoke()
+  test_bioclim_smoke()
+  test_xai_smoke()
 }
 if (has_tag("ecology")) {
   test_dispersal_smoke()
@@ -2108,6 +2246,9 @@ if (has_tag("reporting")) {
   test_compute_mess_smoke()
   test_compute_mod_smoke()
   test_future_projection_helpers_smoke()
+}
+if (has_tag("maps")) {
+  test_xyz_tiles_smoke()
 }
 if (has_tag("core")) {
   test_cv_folds_smoke()

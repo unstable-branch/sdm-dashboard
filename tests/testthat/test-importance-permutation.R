@@ -89,7 +89,7 @@ test_that("noisy variable has importance close to zero", {
   )
 
   mock_pred <- function(mod, newdata) {
-    rnorm(nrow(newdata), mean = 0.5, sd = 0.1)
+    rep(0.5, nrow(newdata))
   }
 
   result <- permutation_importance(list(), model_data, predict_fun = mock_pred,

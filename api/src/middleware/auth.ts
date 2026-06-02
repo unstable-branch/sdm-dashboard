@@ -3,8 +3,40 @@ import { verify } from "hono/jwt";
 import { createHash } from "crypto";
 import { db } from "../db/index.js";
 import { users, apiKeys, projectMembers } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { checkRateLimit } from "./rate-limit.js";
+
+// Batch lastUsedAt updates — flush every 30s or after 100 queued writes
+const lastUsedBatch = new Map<string, number>();
+let batchTimer: ReturnType<typeof setTimeout> | null = null;
+const BATCH_INTERVAL = 30_000;
+const BATCH_MAX = 100;
+
+async function flushLastUsedBatch() {
+  if (lastUsedBatch.size === 0) return;
+  const keys = Array.from(lastUsedBatch.keys());
+  lastUsedBatch.clear();
+  try {
+    await db
+      .update(apiKeys)
+      .set({ lastUsedAt: new Date() })
+      .where(inArray(apiKeys.keyHash, keys));
+  } catch {
+    // Batch update is best-effort
+  }
+}
+
+function queueLastUsedUpdate(keyHash: string) {
+  lastUsedBatch.set(keyHash, Date.now());
+  if (lastUsedBatch.size >= BATCH_MAX) {
+    flushLastUsedBatch();
+  } else if (!batchTimer) {
+    batchTimer = setTimeout(() => {
+      batchTimer = null;
+      flushLastUsedBatch();
+    }, BATCH_INTERVAL);
+  }
+}
 
 export interface JwtPayload {
   sub: string;
@@ -12,6 +44,7 @@ export interface JwtPayload {
   role: string;
   iat: number;
   exp: number;
+  iss: string;
 }
 
 export type AppEnv = {
@@ -45,6 +78,12 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   if (apiKeyHeader) {
     try {
       const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown";
+
+      if (apiKeyHeader.length < 8) {
+        console.warn(`[auth] Rejected short API key (len=${apiKeyHeader.length}) from ${ip}`);
+        return c.json({ error: "Invalid API key format" }, 401);
+      }
+
       const allowed = await checkRateLimit(`auth:${ip}`, 60_000, 20);
       if (!allowed) {
         return c.json({ error: "Too many failed authentication attempts" }, 429);
@@ -58,6 +97,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
         .limit(1);
 
       if (!key || (key.expiresAt && key.expiresAt <= new Date())) {
+        console.warn(`[audit] API key auth FAILED (expired/missing) from ${ip}`);
         return c.json({ error: "Invalid API key" }, 401);
       }
 
@@ -68,13 +108,12 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
         .limit(1);
 
       if (!user) {
+        console.warn(`[audit] API key auth FAILED (orphaned key userId=${key.userId}) from ${ip}`);
         return c.json({ error: "User not found" }, 401);
       }
 
-      await db
-        .update(apiKeys)
-        .set({ lastUsedAt: new Date() })
-        .where(eq(apiKeys.keyHash, keyHash));
+      console.info(`[audit] API key auth OK: user=${user.id} role=${user.role} from ${ip}`);
+      queueLastUsedUpdate(keyHash);
 
       c.set("user", user);
       await next();
@@ -94,19 +133,28 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    console.warn("[auth] JWT_SECRET not configured");
+    console.warn("[audit] JWT_SECRET not configured");
     return c.json({ error: "Authentication unavailable (server not configured)" }, 401);
   }
 
   try {
     const payload = await verify(token, secret, "HS256");
+    const expectedIss = process.env.JWT_ISSUER || "sdm-dashboard";
+    if (payload.iss !== expectedIss) {
+      console.warn(`[audit] JWT issuer mismatch: expected ${expectedIss}, got ${payload.iss} for sub=${payload.sub}`);
+      return c.json({ error: "Invalid token issuer" }, 401);
+    }
+    const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown";
+    console.info(`[audit] JWT auth OK: user=${payload.sub} role=${payload.role} from ${ip}`);
     c.set("user", {
       id: payload.sub as string,
       email: payload.email as string,
       role: payload.role as string,
     });
     await next();
-  } catch {
+  } catch (err) {
+    const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown";
+    console.warn(`[audit] JWT auth FAILED from ${ip}: ${err instanceof Error ? err.message : "token verification error"}`);
     return c.json({ error: "Invalid token" }, 401);
   }
 });
@@ -150,11 +198,14 @@ export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
       const secret = process.env.JWT_SECRET;
       if (secret) {
         const payload = await verify(token, secret, "HS256");
-        c.set("user", {
-          id: payload.sub as string,
-          email: payload.email as string,
-          role: payload.role as string,
-        });
+        const expectedIss = process.env.JWT_ISSUER || "sdm-dashboard";
+        if (payload.iss === expectedIss) {
+          c.set("user", {
+            id: payload.sub as string,
+            email: payload.email as string,
+            role: payload.role as string,
+          });
+        }
       }
     } catch {
       // Silently fail for optional auth

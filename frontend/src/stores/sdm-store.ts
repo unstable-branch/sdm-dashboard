@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 
 interface SDMState {
   species: string;
@@ -11,6 +10,9 @@ interface SDMState {
   recordCount: number;
   setRecordCount: (count: number) => void;
 
+  pipelineRunId: string | null;
+  setPipelineRunId: (id: string | null) => void;
+
   cleanedOccurrence: {
     filePath: string;
     df: Record<string, unknown>[];
@@ -21,7 +23,6 @@ interface SDMState {
   } | null;
   setCleanedOccurrence: (data: SDMState["cleanedOccurrence"]) => void;
 
-  // Non-persisted: large dataframe fetched on-demand
   occurrenceData: Record<string, unknown>[] | null;
   setOccurrenceData: (data: Record<string, unknown>[] | null) => void;
 
@@ -33,68 +34,55 @@ interface SDMState {
 
   flaggedIndices: number[];
   setFlaggedIndices: (indices: number[]) => void;
+
+  error: string | null;
+  setError: (error: string | null) => void;
+
+  reset: () => void;
 }
 
-export const useSDMStore = create<SDMState>()(
-  persist(
-    (set) => ({
+export const useSDMStore = create<SDMState>()((set) => ({
+  species: "Untitled species",
+  setSpecies: (species) => set({ species }),
+
+  occurrenceFilePath: null,
+  setOccurrenceFilePath: (path) => set({ occurrenceFilePath: path }),
+
+  recordCount: 0,
+  setRecordCount: (count) => set({ recordCount: count }),
+
+  pipelineRunId: null,
+  setPipelineRunId: (id) => set({ pipelineRunId: id }),
+
+  cleanedOccurrence: null,
+  setCleanedOccurrence: (data) => set({ cleanedOccurrence: data }),
+
+  occurrenceData: null,
+  setOccurrenceData: (data) => set({ occurrenceData: data }),
+
+  uploadResult: null,
+  setUploadResult: (result) => set({ uploadResult: result }),
+
+  cleanResult: null,
+  setCleanResult: (result) => set({ cleanResult: result }),
+
+  flaggedIndices: [],
+  setFlaggedIndices: (indices) => set({ flaggedIndices: indices }),
+
+  error: null,
+  setError: (error) => set({ error }),
+
+  reset: () =>
+    set({
       species: "Untitled species",
-      setSpecies: (species) => set({ species }),
-
       occurrenceFilePath: null,
-      setOccurrenceFilePath: (path) => set({ occurrenceFilePath: path }),
-
       recordCount: 0,
-      setRecordCount: (count) => set({ recordCount: count }),
-
+      pipelineRunId: null,
       cleanedOccurrence: null,
-      setCleanedOccurrence: (data) => set({ cleanedOccurrence: data }),
-
       occurrenceData: null,
-      setOccurrenceData: (data) => set({ occurrenceData: data }),
-
       uploadResult: null,
-      setUploadResult: (result) => set({ uploadResult: result }),
-
       cleanResult: null,
-      setCleanResult: (result) => set({ cleanResult: result }),
-
       flaggedIndices: [],
-      setFlaggedIndices: (indices) => set({ flaggedIndices: indices }),
+      error: null,
     }),
-    {
-      name: "sdm-storage",
-      partialize: (state) => ({
-        species: state.species,
-        occurrenceFilePath: state.occurrenceFilePath,
-        recordCount: state.recordCount,
-        flaggedIndices: state.flaggedIndices,
-        // Exclude large objects from localStorage — store metadata only
-        cleanedOccurrence: state.cleanedOccurrence
-          ? { ...state.cleanedOccurrence, df: [] }
-          : null,
-      }),
-      onRehydrateStorage: () => (state) => {
-        if (state && typeof state.occurrenceFilePath !== "string" && state.occurrenceFilePath !== null) {
-          state.occurrenceFilePath = null;
-        }
-        if (state && typeof state.recordCount !== "number") {
-          state.recordCount = 0;
-        }
-        if (state && state.cleanedOccurrence) {
-          const co = state.cleanedOccurrence;
-          if (typeof co.filePath !== "string" || !co.filePath) {
-            state.cleanedOccurrence = null;
-          } else if (typeof co.validRecords !== "number") {
-            co.validRecords = 0;
-          }
-          // df was stripped on persist — restore as empty, will be fetched on-demand
-          co.df = [];
-        }
-        if (state && typeof state.species !== "string") {
-          state.species = "Untitled species";
-        }
-      },
-    }
-  )
-);
+}));

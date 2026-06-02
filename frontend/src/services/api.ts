@@ -18,7 +18,7 @@ interface FetchOptions extends RequestInit {
   timeout?: number;
 }
 
-function getToken(): string | null {
+export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   const localToken = localStorage.getItem("sdm_token");
   if (localToken) {
@@ -48,7 +48,7 @@ function writeTokenCookie(token: string, remember: boolean) {
   document.cookie = `sdm_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${maxAge}`;
 }
 
-async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<Response> {
+export async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<Response> {
   const { retry = 1, timeout = 15000, headers, ...rest } = options;
 
   const token = getToken();
@@ -172,4 +172,19 @@ export function clearAuthToken() {
 
 export function getAuthToken(): string | null {
   return getToken();
+}
+
+export async function apiDownload(url: string, filename?: string): Promise<void> {
+  const res = await fetchWithAuth(url, { method: "GET" });
+  const blob = await res.blob();
+  const disp = res.headers.get("Content-Disposition");
+  const name = filename || (disp ? disp.split("filename=")[1]?.replace(/"/g, "") : undefined) || url.split("/").pop() || "download";
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
 }

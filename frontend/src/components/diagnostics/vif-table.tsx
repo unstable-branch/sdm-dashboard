@@ -42,7 +42,7 @@ export function VifTable({ data, loading }: VifTableProps) {
         <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
           <div className="text-xs text-sdm-muted mb-1">Final max VIF</div>
           <div className="text-lg font-semibold text-sdm-text">
-            {data.vif_final != null ? data.vif_final.toFixed(2) : "—"}
+            {data.vif_final != null && Number.isFinite(data.vif_final) ? data.vif_final.toFixed(2) : "—"}
           </div>
         </div>
       </div>
@@ -66,7 +66,7 @@ export function VifTable({ data, loading }: VifTableProps) {
                     <tr key={v} className="border-b border-sdm-border/50 last:border-0">
                       <td className="px-3 py-2 text-sdm-text font-mono text-xs">{v}</td>
                       <td className="px-3 py-2 text-sdm-muted">{hist?.iteration ?? "—"}</td>
-                      <td className="px-3 py-2 text-red-400">{hist?.max_vif != null ? hist.max_vif.toFixed(2) : "—"}</td>
+                      <td className="px-3 py-2 text-red-400">{hist?.max_vif != null && Number.isFinite(hist.max_vif) ? hist.max_vif.toFixed(2) : "—"}</td>
                     </tr>
                   );
                 })}
@@ -92,10 +92,10 @@ export function VifTable({ data, loading }: VifTableProps) {
                 <tr key={v} className="border-b border-sdm-border/50 last:border-0">
                   <td className="px-3 py-2 text-sdm-text font-mono text-xs">{v}</td>
                   <td className="px-3 py-2 text-sdm-muted">
-                    {data.var_means?.[v] != null ? data.var_means[v].toFixed(3) : "—"}
+                    {Number.isFinite(data.var_means?.[v]) ? data.var_means![v].toFixed(3) : "—"}
                   </td>
                   <td className="px-3 py-2 text-sdm-muted">
-                    {data.var_sds?.[v] != null ? data.var_sds[v].toFixed(3) : "—"}
+                    {Number.isFinite(data.var_sds?.[v]) ? data.var_sds![v].toFixed(3) : "—"}
                   </td>
                 </tr>
               ))}
