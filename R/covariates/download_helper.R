@@ -13,8 +13,6 @@ start_download_bg <- function(download_fun, args = NULL, init_engine = TRUE) {
     }
     download_fun(...)
   }
-  # Ensure the callr subprocess starts in the project root
-  pkgload <- asNamespace("callr")
   r_bg_args <- list(
     func = wrapped_fun,
     args = as.list(args %||% list()),
@@ -66,7 +64,6 @@ start_model_bg <- function(cfg, result_file, log_file) {
     }
   }
 
-  pkgload <- asNamespace("callr")
   r_bg_args <- list(
     func = bg_fun,
     args = list(cfg = cfg, result_file = result_file, log_file = log_file),

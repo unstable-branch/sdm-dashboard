@@ -89,7 +89,7 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
                                 allow_download = TRUE,
                                 log_fun = NULL) {
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop("curl package required for NDVI downloads. Install with: install.packages('curl')")
+    stop("curl package required for NDVI downloads. Install with: install.packages('curl')", call. = FALSE)
   }
 
   selected_periods <- unique(as.character(selected_periods))
@@ -191,7 +191,7 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
         r <- terra::app(do.call(c, aggd), fun = "mean", na.rm = TRUE)
         terra::writeRaster(r, cached,
           overwrite = TRUE,
-          wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+          wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
         )
         ndvi_files <- c(ndvi_files, cached)
         log_message(log_fun, "GIMMS NDVI climatology cached (", length(aggd), " tiles).")
@@ -257,7 +257,7 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
         }
         terra::writeRaster(r, cached,
           overwrite = TRUE,
-          wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+          wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
         )
         ndvi_files <- c(ndvi_files, cached)
         log_message(log_fun, "GIMMS NDVI ", period, " for ", ndvi_year, " cached (", length(tiles), " tiles).")
@@ -315,7 +315,7 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
         if (!is.null(r) && inherits(r, "SpatRaster")) {
           terra::writeRaster(r, cached,
             overwrite = TRUE,
-            wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+            wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
           )
           ndvi_files <- c(ndvi_files, cached)
           log_message(log_fun, "GIMMS NDVI month ", period, " cached.")
@@ -371,7 +371,7 @@ load_ndvi_covariate <- function(ndvi_year = 2024,
         names(evi_nc) <- evi_layer_name
         terra::writeRaster(evi_nc, evi_cached,
           overwrite = TRUE,
-          wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+          wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
         )
         ndvi_files <- c(ndvi_files, evi_cached)
         log_message(log_fun, "GIMMS AVHRR EVI cached.")

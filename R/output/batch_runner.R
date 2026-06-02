@@ -73,67 +73,66 @@ parse_logical <- function(x) {
 build_run_args <- function(row) {
   args <- list()
 
-  if (nzchar(row$species %||% "")) args$species <- row$species
-  if (nzchar(row$occurrences_csv %||% "")) args$occurrence_file <- row$occurrences_csv
-  if (nzchar(row$worldclim_dir %||% "")) args$worldclim_dir <- row$worldclim_dir
-  if (nzchar(row$biovars %||% "")) args$selected_biovars <- parse_comma_ints(row$biovars)
-  if (nzchar(row$model_id %||% "")) args$model_id <- row$model_id
-  if (nzchar(row$projection_extent %||% "")) args$projection_extent <- parse_comma_doubles(row$projection_extent)
-  if (nzchar(row$training_extent %||% "")) args$training_extent <- parse_comma_doubles(row$training_extent)
+  # Pass through all snake_case params that match sdm_config parameter names
+  row_names <- names(row)
+  list_param_map <- c(
+    biovars = "selected_biovars",
+    soil_vars = "selected_soil_vars",
+    soil_depths = "selected_soil_depths",
+    uv_vars = "selected_uv_vars",
+    drought_periods = "selected_drought_periods",
+    multi_ensemble_models = "multi_ensemble_models",
+    biomod2_models = "biomod2_models",
+    veg_products = "veg_products"
+  )
+  integer_params <- c("background_n", "cv_folds", "aggregation_factor", "seed",
+    "worldclim_res", "veg_year", "lulc_year", "hfp_year")
+  scalar_param_map <- c(
+    occurrences_csv = "occurrence_file"
+  )
 
-  bg <- suppressWarnings(as.integer(row$background_n %||% NA_integer_))
-  if (!is.na(bg)) args$background_n <- bg
+  for (p in row_names) {
+    val <- row[[p]]
+    if (is.null(val) || length(val) == 0 || (!is.character(val) && !is.numeric(val))) next
+    if (is.character(val) && !nzchar(val)) next
 
-  mi <- suppressWarnings(as.integer(row$min_source_records %||% NA_integer_))
-  if (!is.na(mi)) args$min_source_records <- mi
+    if (p %in% names(scalar_param_map)) {
+      args[[scalar_param_map[[p]]]] <- val
+      next
+    }
 
-  args$include_quadratic <- parse_logical(row$include_quadratic %||% "TRUE")
+    # Special handling for known comma-separated list columns
+    if (p %in% names(list_param_map)) {
+      arg_name <- list_param_map[[p]]
+      args[[arg_name]] <- parse_comma_strings(val)
+      if (p == "biovars") args[[arg_name]] <- parse_comma_ints(val)
+      next
+    }
 
-  th <- suppressWarnings(as.numeric(row$threshold %||% NA_real_))
-  if (!is.na(th)) args$threshold <- th
+    # Special handling for comma-separated numeric lists
+    if (p %in% c("projection_extent", "training_extent")) {
+      args[[p]] <- parse_comma_doubles(val)
+      next
+    }
 
-  af <- suppressWarnings(as.integer(row$aggregation_factor %||% NA_integer_))
-  if (!is.na(af)) args$aggregation_factor <- af
+    # Special handling for logical columns
+    if (p %in% c("include_quadratic", "use_elevation", "use_soil", "use_uv",
+                  "use_vegetation", "use_lulc", "use_hfp", "use_bioclim_season",
+                  "use_drought", "vif_reduction", "future_projection",
+                  "merge_small_sources", "thin_by_cell", "extrapolation_mask")) {
+      args[[p]] <- parse_logical(as.character(val))
+      next
+    }
 
-  cv <- suppressWarnings(as.integer(row$cv_folds %||% NA_integer_))
-  if (!is.na(cv)) args$cv_folds <- cv
+    if (p %in% integer_params) {
+      args[[p]] <- as.integer(val)
+      next
+    }
 
-  if (nzchar(row$elevation_demtype %||% "")) args$elevation_demtype <- row$elevation_demtype
-
-  args$use_elevation <- parse_logical(row$use_elevation)
-  args$use_soil <- parse_logical(row$use_soil)
-  if (nzchar(row$soil_vars %||% "")) args$selected_soil_vars <- parse_comma_strings(row$soil_vars)
-  if (nzchar(row$soil_depths %||% "")) args$selected_soil_depths <- parse_comma_strings(row$soil_depths)
-
-  args$use_uv <- parse_logical(row$use_uv)
-  if (nzchar(row$uv_vars %||% "")) args$selected_uv_vars <- parse_comma_strings(row$uv_vars)
-
-  args$use_vegetation <- parse_logical(row$use_vegetation)
-  vy <- suppressWarnings(as.integer(row$veg_year %||% NA_integer_))
-  if (!is.na(vy)) args$veg_year <- vy
-  if (nzchar(row$veg_products %||% "")) args$veg_products <- parse_comma_strings(row$veg_products)
-
-  args$use_lulc <- parse_logical(row$use_lulc)
-  ly <- suppressWarnings(as.integer(row$lulc_year %||% NA_integer_))
-  if (!is.na(ly)) args$lulc_year <- ly
-
-  args$use_hfp <- parse_logical(row$use_hfp)
-  hy <- suppressWarnings(as.integer(row$hfp_year %||% NA_integer_))
-  if (!is.na(hy)) args$hfp_year <- hy
-
-  args$use_bioclim_season <- parse_logical(row$use_bioclim_season)
-  args$use_drought <- parse_logical(row$use_drought)
-  if (nzchar(row$drought_periods %||% "")) args$selected_drought_periods <- parse_comma_strings(row$drought_periods)
-
-  args$vif_reduction <- parse_logical(row$vif_reduction)
-
-  if (nzchar(row$bias_method %||% "")) args$bias_method <- row$bias_method
-
-  args$future_projection <- parse_logical(row$future_projection)
-  if (nzchar(row$future_worldclim_dir %||% "")) args$future_worldclim_dir <- row$future_worldclim_dir
-
-  sd <- suppressWarnings(as.integer(row$seed %||% NA_integer_))
-  if (!is.na(sd)) args$seed <- sd
+    # Default: pass value through as-is (sdm_config handles type coercion)
+    val_num <- suppressWarnings(as.numeric(val))
+    args[[p]] <- if (is.na(val_num)) val else val_num
+  }
 
   args$use_cc <- FALSE
   args$cleaned_occurrence <- NULL
@@ -141,6 +140,84 @@ build_run_args <- function(row) {
   args$progress_fun <- NULL
 
   args
+}
+
+#' Convert a CSV config row to an sdm_config object.
+#' Reuses parse_* helpers and the same column names as build_run_args().
+#' @param row named list with config fields (CSV column names as keys).
+#' @param seed integer random seed.
+#' @return sdm_config object.
+build_config_from_row <- function(row, seed = 42L) {
+  args <- build_run_args(row)
+  args$seed <- seed %||% 42L
+  do.call(sdm_config, args)
+}
+
+#' Run a multi-species batch using the targets pipeline.
+#' Reads the CSV, triggers _targets.R branching via env vars.
+#' @param config_csv path to batch config CSV.
+#' @param output_dir output directory.
+#' @param workers number of parallel workers (NULL = auto).
+#' @param seed random seed.
+batch_run_targets <- function(config_csv, output_dir = "batch_results/",
+                               workers = NULL, seed = 42L) {
+  if (!requireNamespace("targets", quietly = TRUE)) {
+    stop("targets package required. Install with: install.packages('targets')", call. = FALSE)
+  }
+
+  config_csv <- normalizePath(config_csv, mustWork = TRUE)
+  out_dir <- normalizePath(output_dir, mustWork = FALSE)
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  Sys.setenv(SDM_BATCH_CONFIG = config_csv)
+  Sys.setenv(SDM_BATCH_OUTPUT = out_dir)
+  if (!is.null(workers)) Sys.setenv(SDM_TARGETS_WORKERS = as.character(workers))
+  if (!is.na(seed)) Sys.setenv(SDM_BATCH_SEED = as.character(seed))
+
+  message("[targets] Running batch pipeline from: ", config_csv)
+  message("[targets] Output directory: ", out_dir)
+
+  targets::tar_make(
+    store = file.path(out_dir, "_targets")
+  )
+}
+
+#' Build a crew controller for distributed computing.
+#' @param backend character: "local", "slurm", "sge", "pbs", "aws".
+#' @param workers integer: number of workers.
+#' @param ... additional arguments passed to the crew controller constructor.
+#' @return a crew controller object, or NULL if crew is unavailable.
+build_crew_controller <- function(backend = "local", workers = NULL, ...) {
+  if (!requireNamespace("crew", quietly = TRUE)) {
+    return(NULL)
+  }
+  n <- workers %||% max(1, parallel::detectCores() - 1, na.rm = TRUE)
+  switch(backend,
+    local = crew::crew_controller_local(workers = n, ...),
+    slurm = {
+      if (!requireNamespace("crew.cluster", quietly = TRUE)) {
+        warning("crew.cluster not installed; falling back to local")
+        return(crew::crew_controller_local(workers = n, ...))
+      }
+      crew.cluster::crew_controller_slurm(workers = n, ...)
+    },
+    sge = {
+      if (!requireNamespace("crew.cluster", quietly = TRUE)) return(NULL)
+      crew.cluster::crew_controller_sge(workers = n, ...)
+    },
+    pbs = {
+      if (!requireNamespace("crew.cluster", quietly = TRUE)) return(NULL)
+      crew.cluster::crew_controller_pbs(workers = n, ...)
+    },
+    aws = {
+      if (!requireNamespace("crew.aws.batch", quietly = TRUE)) return(NULL)
+      crew.aws.batch::crew_controller_aws_batch(workers = n, ...)
+    },
+    {
+      warning("Unknown cluster backend: ", backend, "; using local")
+      crew::crew_controller_local(workers = n, ...)
+    }
+  )
 }
 
 if (!exists("normalize_core_count", envir = globalenv())) {
@@ -263,10 +340,10 @@ batch_run_parallel <- function(species_configs,
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
   if (n_cores == 1) {
-    future::plan(future::sequential, .skip = TRUE)
+    future::plan(future::sequential)
     message("[batch] Using sequential execution (n_cores = 1)")
   } else {
-    future::plan(future::multisession, workers = n_cores, .skip = TRUE)
+    future::plan(future::multisession, workers = n_cores)
     message("[batch] Using parallel execution with ", n_cores, " workers")
   }
 
@@ -348,10 +425,14 @@ parse_batch_config <- function(config_csv) {
   if (!file.exists(config_csv)) {
     stop("Batch config CSV not found: ", config_csv, call. = FALSE)
   }
-  df <- read.csv(config_csv,
-    stringsAsFactors = FALSE, header = TRUE,
-    check.names = FALSE
-  )
+  df <- tryCatch({
+    read.csv(config_csv,
+      stringsAsFactors = FALSE, header = TRUE,
+      check.names = FALSE
+    )
+  }, error = function(e) {
+    stop("Failed to read batch config CSV: ", conditionMessage(e), call. = FALSE)
+  })
   if (nrow(df) == 0) {
     stop("Batch config CSV is empty: ", config_csv, call. = FALSE)
   }

@@ -13,16 +13,17 @@ interface JobProgressProps {
   onDismiss?: () => void;
   onCancel?: () => void;
   startTime?: string;
+  completedActions?: React.ReactNode;
 }
 
 const stateIcons = {
   waiting: <Clock className="h-4 w-4 text-sdm-muted" />,
   active: <Loader2 className="h-4 w-4 text-sdm-accent animate-spin" />,
-  completed: <CheckCircle2 className="h-4 w-4 text-green-500" />,
-  failed: <XCircle className="h-4 w-4 text-red-500" />,
+  completed: <CheckCircle2 className="h-4 w-4 text-sdm-success" />,
+  failed: <XCircle className="h-4 w-4 text-sdm-danger" />,
   delayed: <Clock className="h-4 w-4 text-sdm-warning" />,
   paused: <Clock className="h-4 w-4 text-sdm-muted" />,
-  cancelled: <Ban className="h-4 w-4 text-amber-500" />,
+  cancelled: <Ban className="h-4 w-4 text-sdm-warning" />,
 };
 
 function formatElapsed(ms: number): string {
@@ -35,7 +36,7 @@ function formatElapsed(ms: number): string {
   return `${s}s`;
 }
 
-export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime }: JobProgressProps) {
+export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime, completedActions }: JobProgressProps) {
   const { getJob, connected } = useJobSSE(!!jobId);
   const [dismissed, setDismissed] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
@@ -47,6 +48,11 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
 
   useEffect(() => {
     if (!startTime && !job) return;
+    if (job && (job.state === "completed" || job.state === "failed" || job.state === "cancelled")) {
+      const startMs = startTime ? new Date(startTime).getTime() : Date.now();
+      setElapsed(Date.now() - startMs);
+      return;
+    }
     const startMs = startTime ? new Date(startTime).getTime() : Date.now();
     const tick = () => setElapsed(Date.now() - startMs);
     tick();
@@ -69,14 +75,32 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
       await apiPost(`/api/v1/sdm/cancel/${jobId}`);
       setShowCancelConfirm(false);
       onCancel?.();
-    } catch {
+    } catch (err) {
+      console.error("[cancel] Failed to cancel job:", err);
+      setShowCancelConfirm(false);
     } finally {
       setCancelling(false);
     }
   }, [jobId, onCancel]);
 
-  if (!jobId || !job || dismissed) {
+  if (!jobId || dismissed) {
     return null;
+  }
+
+  // Show connecting state while waiting for first SSE event
+  if (!job) {
+    return (
+      <div className={cn("rounded-lg border bg-sdm-surface p-4 space-y-3")}>
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 text-sdm-accent animate-spin" />
+          <span className="text-sm text-sdm-text">Model run submitted — waiting for progress...</span>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-sdm-muted">
+          <span>{formatElapsed(elapsed)}</span>
+          <span>{connected ? "Connected" : "Connecting..."}</span>
+        </div>
+      </div>
+    );
   }
 
   const isTerminal = job.state === "completed" || job.state === "failed" || job.state === "cancelled";
@@ -86,9 +110,9 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
   return (
     <div className={cn(
       "rounded-lg border bg-sdm-surface p-4 space-y-3",
-      job.state === "completed" && "border-green-500/30 bg-green-500/5",
-      job.state === "failed" && "border-red-500/30 bg-red-500/5",
-      job.state === "cancelled" && "border-amber-500/30 bg-amber-500/5",
+      job.state === "completed" && "border-sdm-success/30 bg-sdm-success/5",
+      job.state === "failed" && "border-sdm-danger/30 bg-sdm-danger/5",
+      job.state === "cancelled" && "border-sdm-warning/30 bg-sdm-warning/5",
     )}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -108,7 +132,7 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
             <button
               onClick={() => setShowCancelConfirm(true)}
               disabled={cancelling}
-              className="inline-flex items-center gap-1 rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-400 hover:bg-red-500/20 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded border border-sdm-danger/30 bg-sdm-danger/10 px-2 py-1 text-xs text-sdm-danger hover:bg-sdm-danger/20 disabled:opacity-50"
             >
               <Ban className="h-3 w-3" />
               Cancel
@@ -132,13 +156,13 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
       )}
 
       {showCancelConfirm && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex items-center justify-between">
+        <div className="rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-3 py-2 flex items-center justify-between">
           <p className="text-xs text-sdm-warning">Cancel this run? Partial results will be lost.</p>
           <div className="flex items-center gap-2 ml-3 shrink-0">
             <button
               onClick={handleCancel}
               disabled={cancelling}
-              className="rounded bg-red-500 px-2 py-1 text-xs text-white hover:bg-red-600 disabled:opacity-50"
+              className="rounded bg-sdm-danger px-2 py-1 text-xs text-white hover:bg-sdm-danger disabled:opacity-50"
             >
               {cancelling ? "Cancelling..." : "Yes, cancel"}
             </button>
@@ -162,11 +186,11 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
             className={cn(
               "h-full rounded-full transition-all",
               job.state === "failed"
-                ? "bg-red-500"
+                ? "bg-sdm-danger"
                 : job.state === "completed"
-                ? "bg-green-500"
+                ? "bg-sdm-success"
                 : job.state === "cancelled"
-                ? "bg-amber-500"
+                ? "bg-sdm-warning"
                 : "bg-sdm-accent"
             )}
             style={{ width: `${job.progress}%` }}
@@ -190,20 +214,37 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime 
         </div>
       )}
 
-      {job.state === "failed" && job.failedReason && (
-        <div className="text-sm text-red-500 break-words">
-          <span className="font-semibold">Error: </span>{job.failedReason}
+      {job.state === "failed" && (
+        <div className="space-y-1">
+          {job.failedReason && (
+            <div className="text-sm text-sdm-danger break-words">
+              <span className="font-semibold">Error: </span>{job.failedReason}
+            </div>
+          )}
+          {job.error_code && (
+            <div className="text-xs text-sdm-muted font-mono">
+              Code: {job.error_code}
+            </div>
+          )}
+          {job.error_hint && (
+            <div className="text-xs text-sdm-warning">
+              Hint: {job.error_hint}
+            </div>
+          )}
         </div>
       )}
 
       {job.state === "completed" && (
-        <div className="text-sm text-green-500">
-          Job completed in {formatElapsed(elapsed)}.
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-green-500">
+            Job completed in {formatElapsed(elapsed)}.
+          </span>
+          {completedActions}
         </div>
       )}
 
       {job.state === "cancelled" && (
-        <div className="text-sm text-amber-500">
+        <div className="text-sm text-sdm-warning">
           Run cancelled after {formatElapsed(elapsed)}.
         </div>
       )}

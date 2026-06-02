@@ -136,13 +136,43 @@ write_summary_report <- function(result, path) {
     } else {
       character()
     },
+    if (!is.null(result$variable_importance) && is.data.frame(result$variable_importance) && nrow(result$variable_importance) > 0) {
+      imp <- result$variable_importance
+      top5 <- head(imp, 5)
+      c(
+        "",
+        "Variable importance",
+        paste0("- Method: permutation (AUC drop, ", getOption("sdm.n_perm", sdm_default_n_perm), " permutations)"),
+        paste0("- Baseline AUC: ", sprintf("%.4f", imp$baseline[1])),
+        "",
+        "Top 5 variables:",
+        paste0("  ", seq_len(nrow(top5)), ". ", top5$variable, ": ", sprintf("%.3f", top5$importance), " (AUC drop)")
+      )
+    } else {
+      character()
+    },
+    if (!is.null(result$response_curves) && length(result$response_curves) > 0) {
+      c(
+        "",
+        paste0("Response curves: ", length(result$response_curves), " covariates analysed"),
+        paste0("File: response_curves_combined.png")
+      )
+    } else {
+      character()
+    },
     "", "Projection summary",
     paste0("- Valid projected cells: ", fmt_num(result$summary$cell_count)),
     paste0("- Mean suitability: ", fmt_num(result$summary$mean, 3)),
     paste0("- Median suitability: ", fmt_num(result$summary$median, 3)),
     paste0("- Maximum suitability: ", fmt_num(result$summary$max, 3)),
     paste0("- Cells above threshold ", fmt_num(result$summary$threshold, 2), ": ", fmt_num(result$summary$cells_above_threshold), " (", percent_text, ")"),
-    paste0("- Estimated high-suitability area (km2): ", fmt_num(result$summary$high_risk_area_km2)),
+    paste0("- Estimated high-suitability area (km2): ", fmt_num(result$summary$high_risk_area_km2),
+      if (finite_one(result$summary$high_risk_area_uncertainty_km2) && result$summary$high_risk_area_uncertainty_km2 > 0) {
+        paste0(" +/- ", fmt_num(result$summary$high_risk_area_uncertainty_km2, 0),
+          " (95% CI: ", fmt_num(result$summary$high_risk_area_ci95_lower, 0), " - ",
+          fmt_num(result$summary$high_risk_area_ci95_upper, 0), ")")
+      } else ""
+    ),
     if (!is.null(result$metrics$projection)) {
       pm <- result$metrics$projection
       proj_cbi_text <- if (finite_one(pm$projection_cbi)) sprintf("%.3f", pm$projection_cbi) else "not available"

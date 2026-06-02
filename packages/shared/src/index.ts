@@ -1,9 +1,15 @@
 export * from "./types.js";
 export * from "./schemas.js";
+export * from "./plumber-types.js";
+export * from "./data-sources.js";
+export * from "./error-codes.js";
 export {
   BIOVAR_CHOICES,
   EXTENT_PRESETS,
   MODEL_BACKENDS,
+  MODEL_TIERS,
+  TIER_ORDER,
+  tierSortKey,
   SOIL_VARS,
   SOIL_DEPTHS,
   UV_VARS,
@@ -16,4 +22,6 @@ export {
   buildFutureWorldclimPath,
   extractProgressPercent,
   extractStage,
+  CHELSA_EXTRA_CHOICES,
+  ANALYSIS_CRS_CHOICES,
 } from "./constants.js";

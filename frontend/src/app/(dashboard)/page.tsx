@@ -4,11 +4,12 @@ import Link from "next/link";
 import { MetricCard } from "@/components/ecology/metric-card";
 import { WelcomePanel } from "@/components/ecology/welcome-panel";
 import dynamic from "next/dynamic";
-import { useCompletedRuns } from "@/hooks/use-runs";
-import { Loader2, ArrowRight, Database, Brain, BarChart3, Map, Upload, CheckCircle2, Circle } from "lucide-react";
+import { useCompletedRuns, useRuns } from "@/hooks/use-runs";
+import { toNum, fmtFixed, fmtLocale } from "@/lib/utils";
+import { Loader2, ArrowRight, Database, Brain, BarChart3, Map, Upload, CheckCircle2, Circle, Clock, CheckCircle, XCircle } from "lucide-react";
 
 const SuitabilityMap = dynamic(
-  () => import("@/components/results/suitability-map").then((mod) => ({ default: mod.SuitabilityMap })),
+  () => import("@/components/results/suitability-map"),
   { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
 );
 
@@ -61,7 +62,11 @@ function EmptyWorkbenchPanel() {
 
 export default function DashboardPage() {
   const { data: completedRuns, isLoading } = useCompletedRuns();
+  const { data: runsData } = useRuns();
   const latestRun = completedRuns.length > 0 ? completedRuns[0] : null;
+  const recentRuns = (runsData?.runs ?? [])
+    .filter((r) => r.status !== "running")
+    .slice(0, 5);
 
   if (isLoading) {
     return (
@@ -88,7 +93,7 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Records"
-          value={latestRun ? (latestRun.metrics?.presence_records?.toLocaleString() ?? "—") : "—"}
+          value={latestRun ? fmtLocale(latestRun.metrics?.presence_records) : "—"}
           description={latestRun ? "Latest run" : "Load occurrence data"}
         />
         <MetricCard
@@ -98,20 +103,74 @@ export default function DashboardPage() {
         />
         <MetricCard
           title="AUC"
-          value={latestRun?.metrics?.auc_mean ? (latestRun.metrics.auc_mean as number).toFixed(3) : "—"}
-          description={latestRun ? `SD ±${(latestRun.metrics?.auc_sd ?? 0).toFixed(3)}` : "Run a model to see metrics"}
+          value={fmtFixed(latestRun?.metrics?.auc_mean, 3)}
+          description={latestRun ? `SD ±${fmtFixed(latestRun.metrics?.auc_sd, 3)}` : "Run a model to see metrics"}
         />
         <MetricCard
           title="High-suitability area"
-          value={latestRun?.metrics?.high_suitability_area_km2 ? `${Math.round(latestRun.metrics.high_suitability_area_km2 as number).toLocaleString()} km²` : "—"}
+          value={(() => { const n = toNum(latestRun?.metrics?.high_suitability_area_km2); return n !== null ? `${Math.round(n).toLocaleString()} km²` : "—"; })()}
           description="km² above threshold"
         />
       </div>
 
+      {recentRuns.length > 0 && (
+        <div className="rounded-lg border border-sdm-border bg-sdm-surface">
+          <div className="flex items-center justify-between border-b border-sdm-border px-4 py-3">
+            <h2 className="text-sm font-semibold text-sdm-heading">Recent Runs</h2>
+            <Link href="/model" className="text-xs font-medium text-sdm-accent hover:underline">View all</Link>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-sdm-border/50 text-xs text-sdm-muted">
+                  <th className="px-4 py-2 text-left font-medium">Species</th>
+                  <th className="px-4 py-2 text-left font-medium">Model</th>
+                  <th className="px-4 py-2 text-left font-medium">Status</th>
+                  <th className="px-4 py-2 text-left font-medium">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentRuns.map((run) => (
+                  <tr key={run.id} className="border-b border-sdm-border/30 last:border-0 hover:bg-sdm-surface-soft transition-colors">
+                    <td className="px-4 py-2">
+                      <Link href={`/results/${run.id}`} className="text-sdm-accent hover:underline">
+                        {run.species}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2 text-sdm-text">{run.model_id}</td>
+                    <td className="px-4 py-2">
+                      <span className={
+                        run.status === "completed" ? "text-green-500" :
+                        run.status === "failed" ? "text-red-500" :
+                        run.status === "cancelled" ? "text-amber-500" :
+                        "text-sdm-muted"
+                      }>
+                        {run.status === "completed" ? <CheckCircle className="h-3.5 w-3.5 inline mr-1" /> :
+                         run.status === "failed" ? <XCircle className="h-3.5 w-3.5 inline mr-1" /> :
+                         run.status === "cancelled" ? <XCircle className="h-3.5 w-3.5 inline mr-1" /> :
+                         <Clock className="h-3.5 w-3.5 inline mr-1" />}
+                        {run.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-sdm-muted">
+                      {run.completed_at
+                        ? new Date(run.completed_at).toLocaleDateString()
+                        : run.started_at
+                        ? new Date(run.started_at).toLocaleDateString()
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           {latestRun ? (
-            <SuitabilityMap outputFiles={latestRun.output_files ?? null} />
+            <SuitabilityMap outputFiles={latestRun.output_files ?? null} runId={latestRun.id} />
           ) : (
             <EmptyWorkbenchPanel />
           )}
@@ -132,6 +191,10 @@ export default function DashboardPage() {
               </Link>
               <Link href="/evaluate" className="flex items-center justify-between rounded-md bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text hover:bg-sdm-surface transition-colors group">
                 <span className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-sdm-accent" /> Evaluate results</span>
+                <ArrowRight className="h-3.5 w-3.5 text-sdm-muted group-hover:text-sdm-text transition-colors" />
+              </Link>
+              <Link href="/batch" className="flex items-center justify-between rounded-md bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text hover:bg-sdm-surface transition-colors group">
+                <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 text-sdm-accent" /> Batch processing</span>
                 <ArrowRight className="h-3.5 w-3.5 text-sdm-muted group-hover:text-sdm-text transition-colors" />
               </Link>
             </div>

@@ -42,8 +42,15 @@ sdm_optional_packages <- list(
   biomod2 = c("biomod2", "PresenceAbsence", "pROC"),
   leaflet = c("leaflet", "mapview", "sf"),
   rgee = c("rgee", "reticulate"),
+  inla = c("INLA", "inlabru"),
+  bart = c("dbarts"),
+  unmarked = c("unmarked"),
+  brms = c("brms", "cmdstanr"),
+  python = c("arrow", "reticulate"),
+  xai = c("fastshap", "iml"),
   dwca = c("finch"),
-  esm = c("ecospat", "biomod2")
+  esm = c("ecospat", "biomod2"),
+  targets = c("targets", "tarchetypes", "geotargets")
 )
 
 detect_available_cores <- function(logical = TRUE) {
@@ -123,7 +130,7 @@ configure_parallel <- function(n_cores = NULL, log_fun = NULL) {
   n_cores <- normalize_core_count(n_cores, reserve_one = is.null(n_cores))
   set_compile_threads(n_cores)
   if (requireNamespace("terra", quietly = TRUE)) {
-    try(terra::terraOptions(memfrac = 0.75, progress = 0), silent = TRUE)
+    try(terra::terraOptions(memfrac = 0.5, progress = 0), silent = TRUE)
   }
   log_message(log_fun, "Using ", n_cores, " CPU core(s) for package compilation, cross-validation, and raster prediction")
   n_cores

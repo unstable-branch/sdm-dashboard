@@ -33,7 +33,7 @@ function formatNum(v: unknown) {
   return isNaN(n) ? null : n.toFixed(4);
 }
 
-const STICKY_IDS = new Set(["flag", "longitude", "latitude"]);
+const _STICKY_IDS = new Set(["flag", "longitude", "latitude"]);
 const STICKY_LEFT: Record<string, number> = { flag: 0, longitude: 40, latitude: 150 };
 
 function cellStyle(colId: string): React.CSSProperties {

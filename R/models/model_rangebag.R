@@ -15,7 +15,6 @@ find_optimal_threshold <- function(obs, pred) {
     return(0.5)
   }
   candidates <- sort(unique(pred))
-  if (length(candidates) > 2) candidates <- candidates[2:(length(candidates) - 1)]
   best_threshold <- 0.5
   best_tss <- -Inf
   n_presence <- sum(obs == 1)
@@ -85,10 +84,12 @@ predict_rangebag_values <- function(model, data) {
 
 fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
                              include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
+                             threshold = sdm_default_threshold,
                              seed = sdm_default_seed, n_cores = 1, log_fun = NULL, progress_fun = NULL,
                              n_bags = sdm_default_rangebag_n_bags,
                              bag_fraction = sdm_default_rangebag_fraction,
                              vars_per_bag = sdm_default_rangebag_vars_per_bag,
+                             model_data = NULL,
                              ...) {
   covariates <- make.names(names(env_train_scaled))
   if (length(covariates) < 2) stop("At least two covariates are required for Rangebagging.", call. = FALSE)
@@ -96,18 +97,29 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
   if (!is.finite(n_bags) || n_bags < 10) n_bags <- sdm_default_rangebag_n_bags
   seed <- suppressWarnings(as.integer(seed[1]))
   if (!is.finite(seed) || seed < 1) seed <- sdm_default_seed
+  threshold <- normalize_threshold(threshold)
+  if (!is.finite(threshold)) threshold <- 0.5
 
-  pres_xy <- occ[, c("longitude", "latitude"), drop = FALSE]
-  names(pres_xy) <- c("x", "y")
-  pres_vals <- extract_covariates(env_train_scaled, pres_xy)
-  pres_keep <- stats::complete.cases(pres_vals)
-  if (sum(!pres_keep) > 0) log_message(log_fun, "Dropped ", sum(!pres_keep), " occurrence records with missing covariates")
-  pres_vals <- as.data.frame(pres_vals[pres_keep, , drop = FALSE], check.names = FALSE)
-  names(pres_vals) <- make.names(names(pres_vals))
-  occ_used <- occ[pres_keep, , drop = FALSE]
-  if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data for Rangebagging.", call. = FALSE)
+  if (!is.null(model_data)) {
+    d <- model_data
+    pres_vals <- d$pres_vals
+    bg_vals <- d$bg_vals
+    pres_xy <- d$pres_xy_used
+    bg_xy <- d$bg_xy
+    occ_used <- d$occ_used
+  } else {
+    pres_xy <- occ[, c("longitude", "latitude"), drop = FALSE]
+    names(pres_xy) <- c("x", "y")
+    pres_vals <- extract_covariates(env_train_scaled, pres_xy)
+    pres_keep <- stats::complete.cases(pres_vals)
+    if (sum(!pres_keep) > 0) log_message(log_fun, "Dropped ", sum(!pres_keep), " occurrence records with missing covariates")
+    pres_vals <- as.data.frame(pres_vals[pres_keep, , drop = FALSE], check.names = FALSE)
+    names(pres_vals) <- make.names(names(pres_vals))
+    occ_used <- occ[pres_keep, , drop = FALSE]
+    if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data for Rangebagging.", call. = FALSE)
 
-  bg_xy <- sample_background_points(env_train_scaled, background_n, seed = seed, presence_xy = pres_xy[pres_keep, , drop = FALSE])
+    bg_xy <- sample_background_points(env_train_scaled, background_n, seed = seed, presence_xy = pres_xy[pres_keep, , drop = FALSE])
+  }
   bg_vals <- extract_covariates(env_train_scaled, bg_xy)
   bg_keep <- stats::complete.cases(bg_vals)
   bg_vals <- as.data.frame(bg_vals[bg_keep, , drop = FALSE], check.names = FALSE)
@@ -161,9 +173,9 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
       }
 
       cv <- cross_validate_model(model_data_rb,
-        k = k_rb, seed = seed, n_cores = 1,
+        k = k_rb, seed = seed, n_cores = normalize_core_count(n_cores),
         cv_strategy = "presence_only_stratified", cv_block_size_km = NA_real_,
-        threshold = sdm_default_threshold, fit_fun = fit_fun_rb,
+        threshold = threshold, fit_fun = fit_fun_rb,
         cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
         fold_id = fold_id,
         log_fun = log_fun
@@ -178,6 +190,7 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
   }
   final_bags <- Filter(Negate(is.null), final_bags)
   if (length(final_bags) < 1) stop("No Rangebagging bags could be fitted.", call. = FALSE)
+  final_threshold <- if (!is.null(cv$threshold) && is.finite(cv$threshold)) cv$threshold else threshold
 
   model <- list(
     bags = final_bags,
@@ -186,23 +199,28 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
     n_bags = length(final_bags),
     bag_fraction = bag_fraction,
     vars_per_bag = vars_per_bag,
-    threshold = cv$threshold
+    threshold = final_threshold
   )
+
+  model_data_all <- rbind(
+    data.frame(presence = 1L, pres_vals, check.names = FALSE),
+    data.frame(presence = 0L, bg_vals, check.names = FALSE)
+  )
+  train_pred <- predict_rangebag_values(model, model_data_all[, covariates, drop = FALSE])
+  train_metrics <- compute_binary_metrics(model_data_all$presence, train_pred, threshold = threshold)
 
   list(
     model = model,
     formula = NULL,
     coefficients = data.frame(Message = "Rangebagging does not produce GLM-style coefficients."),
-    model_data = rbind(
-      data.frame(presence = 1L, pres_vals, check.names = FALSE),
-      data.frame(presence = 0L, bg_vals, check.names = FALSE)
-    ),
+    model_data = model_data_all,
     occurrence_used = occ_used,
     background_xy = bg_xy,
     cv = cv,
     covariates = covariates,
     variable_importance = NULL,
-    threshold = cv$threshold
+    threshold = final_threshold,
+    metrics = list(training_auc = train_metrics$auc, training_tss = train_metrics$tss)
   )
 }
 
@@ -219,7 +237,7 @@ predict_rangebag_suitability <- function(fit, env_project_scaled, output_tif, n_
     filename = output_tif,
     overwrite = TRUE,
     cores = normalize_core_count(n_cores),
-    wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
   )
   names(suit) <- "suitability"
   suit

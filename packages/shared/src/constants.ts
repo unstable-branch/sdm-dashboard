@@ -24,23 +24,98 @@ export const EXTENT_PRESETS: Record<string, { label: string; extent: [number, nu
   aus_full: { label: "Australia - full", extent: [112, 154, -44, -10] },
   aus_north: { label: "Northern Australia", extent: [112, 154, -26, -10] },
   aus_east: { label: "Eastern Australia", extent: [138, 154, -44, -10] },
+  australia_sw: { label: "SW Australia", extent: [113, 125, -35, -21] },
+  oceania: { label: "Oceania", extent: [100, 180, -48, -6] },
+  southeast_asia: { label: "Southeast Asia", extent: [92, 142, -12, 22] },
+  south_america: { label: "South America", extent: [-82, -34, -56, 13] },
+  africa: { label: "Africa", extent: [-18, 52, -35, 38] },
+  europe: { label: "Europe", extent: [-10, 40, 35, 60] },
+  north_america: { label: "North America", extent: [-130, -60, 20, 52] },
   world: { label: "Full world", extent: [-180, 180, -90, 90] },
 };
 
 export const MODEL_BACKENDS = [
-  { id: "glm", label: "GLM / Logistic regression", maturity: "stable" as const, min_records: 15, available: true },
-  { id: "gam", label: "GAM / Smooth response curves", maturity: "stable" as const, min_records: 20, available: true },
+  // Tier 1 — Core Standards (always available or very common)
+  { id: "glm", label: "GLM / Logistic Regression", maturity: "stable" as const, min_records: 15, available: true },
+  { id: "gam", label: "GAM / Smooth Response Curves", maturity: "stable" as const, min_records: 20, available: true },
   { id: "maxnet", label: "MaxEnt (maxnet)", maturity: "stable" as const, min_records: 10, available: false, notes: "Requires maxnet package" },
   { id: "rf", label: "Random Forest (ranger)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires ranger package" },
-  { id: "xgboost", label: "BRT / XGBoost", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires xgboost package" },
+  { id: "brt", label: "BRT / Boosted Regression Trees (gbm)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires gbm package" },
+  { id: "xgboost", label: "XGBoost / Gradient Boosting", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires xgboost package" },
+
+  // Tier 2 — Interpretable / Dependency-Free
   { id: "rangebag", label: "Rangebagging", maturity: "experimental" as const, min_records: 15, available: true },
+  { id: "mars", label: "MARS / Multivariate Adaptive Regression Splines (earth)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires earth package" },
+  { id: "ann", label: "ANN / Artificial Neural Network (nnet)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires nnet package" },
+  { id: "cta", label: "CTA / Classification Tree Analysis (rpart)", maturity: "experimental" as const, min_records: 15, available: false, notes: "Requires rpart package" },
+  { id: "fda", label: "FDA / Flexible Discriminant Analysis (mda)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires mda + earth packages" },
+
+  // Tier 3 — Ensembles
   { id: "ensemble_glm_rangebag", label: "Ensemble (GLM + Rangebagging)", maturity: "experimental" as const, min_records: 15, available: true },
-  { id: "esm_glm", label: "ESM — GLM (rare species)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires ecospat + biomod2 packages" },
-  { id: "esm_maxnet", label: "ESM — MaxEnt (rare species)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires ecospat + biomod2 + maxnet packages" },
   { id: "multi_ensemble", label: "Multi-Model Ensemble", maturity: "experimental" as const, min_records: 20, available: true, notes: "Select 2+ models from GLM, GAM, MaxNet, Rangebagging, and biomod2 algorithms. biomod2 requires options(sdm.enable_biomod2 = TRUE)." },
-  { id: "biomod2", label: "biomod2 (multi-algorithm)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires biomod2 package + sdm.enable_biomod2 option" },
-  { id: "dnn", label: "DNN (cito/torch)", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires cito + torch packages" },
+  { id: "dnn", label: "DNN / Deep Neural Network (cito/torch)", maturity: "experimental" as const, min_records: 50, available: false, notes: "Requires cito + torch packages (R-side hard block at 50 records)" },
+  { id: "bioclim", label: "BIOCLIM / Mahalanobis Envelope", maturity: "experimental" as const, min_records: 5, available: true, notes: "Presence-only environmental envelope" },
+
+  // Tier 4 — Rare Species
+  { id: "esm_glm", label: "ESM — GLM (Rare Species)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires ecospat + biomod2 packages" },
+  { id: "esm_maxnet", label: "ESM — MaxEnt (Rare Species)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires ecospat + biomod2 + maxnet packages" },
+  { id: "biomod2", label: "biomod2 / Multi-Algorithm Ensemble", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires biomod2 package + sdm.enable_biomod2 option" },
+
+  // Tier 5 — Bayesian / Heavy
+  { id: "bart", label: "BART / Bayesian Additive Regression Trees (dbarts)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires dbarts package" },
+  { id: "brms", label: "brms / General Bayesian Model (Stan)", maturity: "experimental" as const, min_records: 30, available: false, notes: "Requires brms + cmdstanr packages (compilation: 5-15 min)" },
+  { id: "inla_spde", label: "INLA / Bayesian Spatial Model (SPDE)", maturity: "experimental" as const, min_records: 20, available: false, notes: "Requires INLA package (install from r-inla-download.org)" },
+
+  // Tier 6 — Niche / Specialised
+  { id: "occupancy", label: "Occupancy Model (unmarked)", maturity: "experimental" as const, min_records: 10, available: false, notes: "Requires unmarked package + detection-history data" },
+  { id: "dnn_multispecies", label: "Multi-Species DNN (cito)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires cito + torch. Predicts 2+ species simultaneously with shared covariates." },
+  { id: "python_elapid", label: "Elapid — Python MaxEnt", maturity: "experimental" as const, min_records: 10, available: false, notes: "Requires Python + elapid package" },
+  { id: "python_sklearn_rf", label: "Scikit-Learn Random Forest (Python)", maturity: "experimental" as const, min_records: 15, available: false, notes: "Requires Python + scikit-learn package" },
 ];
+
+export const MODEL_TIERS: Record<string, string> = {
+  glm: "Core Standards",
+  gam: "Core Standards",
+  maxnet: "Core Standards",
+  rf: "Core Standards",
+  brt: "Core Standards",
+  xgboost: "Core Standards",
+  rangebag: "Dependency-Free",
+  mars: "Dependency-Free",
+  ann: "Dependency-Free",
+  cta: "Dependency-Free",
+  fda: "Dependency-Free",
+  ensemble_glm_rangebag: "Ensembles",
+  multi_ensemble: "Ensembles",
+  dnn: "Ensembles",
+  bioclim: "Ensembles",
+  esm_glm: "Rare Species",
+  esm_maxnet: "Rare Species",
+  biomod2: "Rare Species",
+  bart: "Bayesian / Heavy",
+  brms: "Bayesian / Heavy",
+  inla_spde: "Bayesian / Heavy",
+  occupancy: "Specialised",
+  dnn_multispecies: "Specialised",
+  python_elapid: "Specialised",
+  python_sklearn_rf: "Specialised",
+};
+
+export const TIER_ORDER = [
+  "Core Standards",
+  "Dependency-Free",
+  "Ensembles",
+  "Rare Species",
+  "Bayesian / Heavy",
+  "Specialised",
+];
+
+const TIER_SORT_ORDER: Record<string, number> = {};
+TIER_ORDER.forEach((t, i) => { TIER_SORT_ORDER[t] = i; });
+
+export function tierSortKey(tier: string | undefined): number {
+  return tier ? TIER_SORT_ORDER[tier] ?? 99 : 99;
+}
 
 export const SOIL_VARS = [
   { id: "bdod", label: "Bulk density" },
@@ -66,6 +141,24 @@ export const UV_VARS = [
 ];
 
 export const DEM_CHOICES = ["COP90", "SRTMGL3", "AW3D30", "SRTMGL1"];
+
+export const CHELSA_EXTRA_CHOICES = [
+  { id: "gdd5", label: "GDD5", description: "Growing degree days (5°C base)" },
+  { id: "gdd10", label: "GDD10", description: "Growing degree days (10°C base)" },
+  { id: "gsl", label: "GSL", description: "Growing season length" },
+  { id: "fcf", label: "FCF", description: "Frost change frequency" },
+  { id: "npp", label: "NPP", description: "Net primary productivity" },
+  { id: "scd", label: "SCD", description: "Snow cover duration" },
+];
+
+export const ANALYSIS_CRS_CHOICES = [
+  { id: "auto", label: "Auto-detect (UTM zone)", description: "Best for local-scale analyses" },
+  { id: "eqearth", label: "Equal Earth", description: "Global equal-area projection" },
+  { id: "laea", label: "Lambert Azimuthal Equal-Area", description: "Good for mid-latitude regions" },
+  { id: "aeqd", label: "Azimuthal Equidistant", description: "Accurate distances from center point" },
+  { id: "moll", label: "Mollweide", description: "Global equal-area, good for climate data" },
+  { id: "eqc", label: "Equidistant Cylindrical", description: "Simple global projection" },
+];
 
 export const GCM_CHOICES = [
   { id: "UKESM1-0-LL", label: "UKESM1-0-LL", description: "UK Earth System Model" },
@@ -98,9 +191,9 @@ export const SSP_CODE_MAP: Record<string, string> = {
 
 export const DEFAULT_CONFIG = {
   biovars: [1, 4, 6, 12, 15, 18],
-  backgroundN: 10000,
+  backgroundN: 3000,
   cvFolds: 3,
-  cvStrategy: "random" as const,
+  cvStrategy: "spatial_blocks" as const,
   threshold: 0.5,
   nCores: 1,
   seed: 42,
@@ -111,6 +204,52 @@ export const DEFAULT_CONFIG = {
   thickeningDistanceKm: 10,
   maxnetFeatures: "lqp" as const,
   maxnetRegmult: 1.0,
+  dnnArchitecture: "DNN_Medium" as const,
+  dnnNSeeds: 5,
+  dnnDropout: 0.3,
+  dnnL2Lambda: 0.001,
+  dnnDevice: "auto" as const,
+  brtNTrees: 2000,
+  brtInteractionDepth: 3,
+  brtShrinkage: 0.01,
+  brtBagFraction: 0.75,
+  ctaCp: 0.01,
+  ctaMaxdepth: 10,
+  ctaMinsplit: 20,
+  marsDegree: 2,
+  marsPenalty: 3.0,
+  fdaDegree: 2,
+  annSize: 5,
+  annDecay: 0.01,
+  annMaxit: 200,
+  annRang: 0.5,
+  marsNk: undefined,
+  fdaNprune: undefined,
+  rfNumTrees: 500,
+  rfMtry: undefined,
+  rfMinNodeSize: 10,
+  xgbMaxDepth: 6,
+  xgbEta: 0.3,
+  xgbNrounds: 100,
+  maxnetAutoTune: false,
+  gamK: 5,
+  bartNtree: 200,
+  bartNdpost: 1000,
+  bartNskip: 500,
+  brmsChains: 4,
+  brmsIter: 2000,
+  brmsWarmup: 1000,
+  inlaMeshMaxEdge: undefined,
+  inlaMeshCutoff: undefined,
+  inlaPriorRange: undefined,
+  inlaPriorSigma: undefined,
+  rangebagNBags: 100,
+  rangebagBagFraction: 0.5,
+  rangebagVarsPerBag: 1,
+  detectionFormula: "~1",
+  detectionModelType: "occu" as const,
+  dnnMultispeciesArchitecture: "DNN_Medium" as const,
+  dnnMultispeciesNSeeds: 3,
   worldclimRes: 10,
   source: "worldclim" as const,
   elevationDemtype: "COP90",
@@ -121,7 +260,9 @@ export const DEFAULT_CONFIG = {
   lulcYear: 2020,
   hfpYear: 2020,
   vifThreshold: 10,
+  projectionExtent: [112, 154, -44, -10] as [number, number, number, number],
   climateMatchingMethod: "mahalanobis" as const,
+  xgbNRounds: 100,
 };
 
 /**

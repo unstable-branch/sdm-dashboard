@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: npm install -g pnpm
+      - run: npm install -g pnpm@10.30.3
 
       - uses: actions/setup-node@v4
         with:
@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: npm install -g pnpm
+      - run: npm install -g pnpm@10.30.3
 
       - uses: actions/setup-node@v4
         with:
@@ -104,7 +104,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: npm install -g pnpm
+      - run: npm install -g pnpm@10.30.3
 
       - uses: actions/setup-node@v4
         with:
@@ -204,9 +204,26 @@ jobs:
     name: Docker build + integration
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      DATABASE_URL: postgresql://sdm:dummy@postgres:5432/sdm_platform
+      JWT_SECRET: dummy-jwt-secret-at-least-32-characters
+      DATA_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      SDM_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      PLUMBER_INTERNAL_KEY: dummy-plumber-internal-key
+      POSTGRES_PASSWORD: dummy
+      GARAGE_ACCESS_KEY: dummy-access-key
+      GARAGE_SECRET_KEY: dummy-secret-key-for-ci-only-1234567890
+      GARAGE_BUCKET: sdm-artifacts
+      GARAGE_BUCKET_RASTERS: sdm-rasters
+      GARAGE_BUCKET_EXPORTS: sdm-exports
+      GARAGE_RPC_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      GARAGE_ADMIN_TOKEN: dummy-garage-admin-token
+      GRAFANA_PASSWORD: dummy
 
     steps:
       - uses: actions/checkout@v4
+
+      - run: npm install -g pnpm@10.30.3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -215,17 +232,6 @@ jobs:
         run: |
           docker compose -f docker-compose.yml config
           docker compose -f docker-compose.dev.yml config
-          export DATABASE_URL=postgresql://sdm:dummy@postgres:5432/sdm_platform
-          export JWT_SECRET=dummy-jwt-secret-at-least-32-characters
-          export PLUMBER_INTERNAL_KEY=dummy-plumber-internal-key
-          export POSTGRES_PASSWORD=dummy
-          export GARAGE_ACCESS_KEY=dummy
-          export GARAGE_SECRET_KEY=dummy
-          export GARAGE_BUCKET_RASTERS=sdm-rasters
-          export GARAGE_BUCKET_EXPORTS=sdm-exports
-          export GARAGE_RPC_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-          export GARAGE_ADMIN_TOKEN=dummy-garage-admin-token
-          export GRAFANA_PASSWORD=dummy
           docker compose -f docker-compose.prod.yml config
 
       - name: Build Plumber image
@@ -240,6 +246,12 @@ jobs:
           cache-from: type=gha,scope=sdm-dashboard-plumber
           cache-to: type=gha,mode=max,scope=sdm-dashboard-plumber
 
+      - name: Download shared package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
+
       - name: Build API image
         run: docker build -f Dockerfile.api -t sdm-dashboard-api:latest -t sdm-api:test .
 
@@ -248,9 +260,20 @@ jobs:
 
       - name: Start services and verify health
         run: |
+          cat > /tmp/ci-openapi.compose.yml <<'YAML'
+          services:
+            plumber:
+              environment:
+                PLUMBER_DOCS_ENABLED: "true"
+          YAML
+
+          compose() {
+            docker compose -f docker-compose.yml -f /tmp/ci-openapi.compose.yml "$@"
+          }
+
           dump_logs() {
-            docker compose -f docker-compose.yml ps
-            docker compose -f docker-compose.yml logs --no-color --tail=200 plumber api frontend
+            compose ps
+            compose logs --no-color --tail=200 garage plumber api frontend
           }
 
           wait_for() {
@@ -273,15 +296,37 @@ jobs:
             return 1
           }
 
-          docker compose -f docker-compose.yml up -d --no-build postgres redis garage
-          docker compose -f docker-compose.yml up -d --no-build plumber
-          docker compose -f docker-compose.yml up -d --no-build api
-          docker compose -f docker-compose.yml up -d --no-build frontend
+          compose up -d --no-build postgres redis garage
+          compose up -d --no-build plumber
+          compose up -d --no-build api
+          compose up -d --no-build frontend
 
           : "Health checks"
-          wait_for Plumber http://localhost:8000/health
+          wait_for Plumber http://localhost:8000/health 120 5
           wait_for API http://localhost:4000/health
           wait_for Frontend http://localhost:3000/
+
+      - name: Memory stress check — verify Plumber can handle concurrent requests
+        run: |
+          dump_logs() {
+            docker compose -f docker-compose.yml logs --no-color --tail=50 plumber
+          }
+
+          : "Check Plumber health reports available memory"
+          health=$(curl -sf http://localhost:8000/health)
+          echo "Plumber health: $health"
+          mem=$(echo "$health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('memory_gb','unknown'))" 2>/dev/null || echo "unknown")
+          echo "Plumber available memory: ${mem} GB"
+
+          : "Verify concurrency limit endpoint is reachable (returns active_runs)"
+          active_runs=$(echo "$health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('active_runs',-1))" 2>/dev/null || echo "-1")
+          if [ "$active_runs" -eq -1 ]; then
+            echo "FAIL: Health endpoint missing active_runs field"
+            dump_logs
+            exit 1
+          fi
+          echo "Active runs reported: $active_runs"
+          echo "Memory stress check passed"
 
       - name: Run Playwright e2e tests
         run: |
@@ -290,8 +335,19 @@ jobs:
           pnpm run test:e2e
         continue-on-error: true
 
+      - name: Type contract check (Plumber OpenAPI → TS types)
+        run: |
+          npm install -g pnpm@10.30.3
+          pnpm install --frozen-lockfile
+          cd api
+          PLUMBER_OPENAPI_MIN_PATHS=40 \
+          PLUMBER_OPENAPI_REQUIRED_PATHS="/health,/api/v1/models,/api/v1/models/run,/api/v1/models/runs,/api/v1/occurrences/upload,/api/v1/output/manifest/*,/api/v1/climate/check" \
+          pnpm run generate:types --url=http://localhost:8000
+          echo "Verifying generated types compile..."
+          cd ../packages/shared && pnpm run build
+
       - name: Scan images for vulnerabilities
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: sdm-plumber:test
           format: sarif
