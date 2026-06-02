@@ -135,6 +135,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [dnnL2Lambda, setDnnL2Lambda] = useState(0.001);
   const [dnnNSeeds, setDnnNSeeds] = useState(3);
   const [dnnDevice, setDnnDevice] = useState("auto");
+  const [dnnMultispeciesNSeeds, setDnnMultispeciesNSeeds] = useState(3);
   const [brtNTrees, setBrtNTrees] = useState(500);
   const [brtInteractionDepth, setBrtInteractionDepth] = useState(3);
   const [brtShrinkage, setBrtShrinkage] = useState(0.01);
@@ -162,7 +163,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [inlaMeshCutoff, setInlaMeshCutoff] = useState<number | undefined>(undefined);
   const [detectionFormula, setDetectionFormula] = useState("");
   const [detectionModelType, setDetectionModelType] = useState("");
-  const [dnnMultispeciesArchitecture, setDnnMultispeciesArchitecture] = useState("DNN_Small");
+  const [dnnMultispeciesArchitecture, setDnnMultispeciesArchitecture] = useState<"DNN_Small" | "DNN_Medium" | "DNN_Large">("DNN_Small");
 
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
@@ -246,6 +247,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     dnnDropout: (v) => setDnnDropout(v as number),
     dnnL2Lambda: (v) => setDnnL2Lambda(v as number),
     dnnMultispeciesArchitecture: (v) => setDnnMultispeciesArchitecture(v),
+    dnnMultispeciesNSeeds: (v) => setDnnMultispeciesNSeeds(v as number),
 
     multiEnsembleWeighting: (v) => setMultiEnsembleWeighting(v),
     multiEnsemblePower: (v) => setMultiEnsemblePower(v as number),
@@ -353,8 +355,10 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       xgbEta: modelId === "xgboost" ? xgbEta : undefined,
       xgbNRounds: modelId === "xgboost" ? xgbNRounds : undefined,
       dnnArchitecture: modelId === "dnn" ? dnnArchitecture : undefined,
+      dnnMultispeciesArchitecture: modelId === "dnn_multispecies" ? dnnMultispeciesArchitecture : undefined,
       dnnDropout: modelId === "dnn" ? dnnDropout : undefined,
       dnnL2Lambda: modelId === "dnn" ? dnnL2Lambda : undefined,
+      dnnMultispeciesNSeeds: modelId === "dnn_multispecies" ? dnnMultispeciesNSeeds : undefined,
     };
 
     const parsed = modelConfigSchema.safeParse(config);
