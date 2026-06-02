@@ -258,9 +258,20 @@ jobs:
 
       - name: Start services and verify health
         run: |
+          cat > /tmp/ci-openapi.compose.yml <<'YAML'
+          services:
+            plumber:
+              environment:
+                PLUMBER_DOCS_ENABLED: true
+          YAML
+
+          compose() {
+            docker compose -f docker-compose.yml -f /tmp/ci-openapi.compose.yml "$@"
+          }
+
           dump_logs() {
-            docker compose -f docker-compose.yml ps
-            docker compose -f docker-compose.yml logs --no-color --tail=200 garage plumber api frontend
+            compose ps
+            compose logs --no-color --tail=200 garage plumber api frontend
           }
 
           wait_for() {
@@ -283,10 +294,10 @@ jobs:
             return 1
           }
 
-          docker compose -f docker-compose.yml up -d --no-build postgres redis garage
-          docker compose -f docker-compose.yml up -d --no-build plumber
-          docker compose -f docker-compose.yml up -d --no-build api
-          docker compose -f docker-compose.yml up -d --no-build frontend
+          compose up -d --no-build postgres redis garage
+          compose up -d --no-build plumber
+          compose up -d --no-build api
+          compose up -d --no-build frontend
 
           : "Health checks"
           wait_for Plumber http://localhost:8000/health 120 5
@@ -326,10 +337,12 @@ jobs:
         run: |
           npm install -g pnpm@10.30.3
           pnpm install --frozen-lockfile
-          cd api && pnpm run generate:types --url=http://localhost:8000
+          cd api
+          PLUMBER_OPENAPI_MIN_PATHS=40 \
+          PLUMBER_OPENAPI_REQUIRED_PATHS="/health,/api/v1/models,/api/v1/models/run,/api/v1/models/runs,/api/v1/occurrences/upload,/api/v1/output/manifest/*,/api/v1/climate/check" \
+          pnpm run generate:types --url=http://localhost:8000
           echo "Verifying generated types compile..."
           cd ../packages/shared && pnpm run build
-        continue-on-error: true
 
       - name: Scan images for vulnerabilities
         uses: aquasecurity/trivy-action@v0.36.0
