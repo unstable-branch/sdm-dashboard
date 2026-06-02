@@ -64,7 +64,7 @@ function(req) {
     }
 
     if (is.null(uploaded)) {
-      return(sdm_error(req, 400, "No file uploaded. Send multipart/form-data with field 'file' or JSON with 'file_path'."))
+      return(sdm_error_code(req, "INVALID_INPUT", "No file uploaded. Send multipart/form-data with field 'file' or JSON with 'file_path'."))
     }
 
     file_path <- if (is.list(uploaded)) {
@@ -106,7 +106,7 @@ function(req) {
     }
 
     if (is.null(file_path) || !file.exists(file_path)) {
-      return(sdm_error(req, 400, paste("Uploaded file not found:", file_path %||% "unknown")))
+      return(sdm_error_code(req, "INVALID_INPUT", paste("Uploaded file not found:", file_path %||% "unknown")))
     }
 
     max_size <- 100 * 1024 * 1024
@@ -393,381 +393,6 @@ function(req, file_id, species_filter = NULL, max_coord_uncertainty_m = NULL, ba
 #* Run SDM model
 # Standalone function for background model runs — callr::r_bg serializes this to a clean R process
 # All dependencies must be passed as explicit args or sourced internally
-run_model_background <- function(body, biovars, projection_extent, job_dir, app_dir, job_id) {
-  # Source required R files in the clean child process
-  source(file.path(app_dir, "R", "core", "bootstrap.R"))
-  sdm_set_project_root(app_dir)
-  source(file.path(app_dir, "R", "engine_load.R"))
-
-  # Load error code taxonomy (for error handler in run_sdm_async)
-  error_codes_path <- file.path(app_dir, "plumber", "R", "error_codes.R")
-  if (file.exists(error_codes_path)) source(error_codes_path)
-  # Load Redis helpers for background progress reporting
-  redis_r <- file.path(app_dir, "plumber", "R", "redis.R")
-  if (file.exists(redis_r)) source(redis_r, local = TRUE)
-
-  # Resolve occurrence_file path: accept both container paths (/app/data/uploads/...)
-  # and host paths (/home/jacob/.../data/uploads/...)
-  if (!is.null(body$occurrence_file) && nzchar(body$occurrence_file) && !file.exists(body$occurrence_file)) {
-    alt_path <- file.path(app_dir, "data", "uploads", basename(body$occurrence_file))
-    if (file.exists(alt_path)) body$occurrence_file <- alt_path
-  }
-
-  `%||%` <- function(a, b) if (is.null(a)) b else a
-
-  # Resource tracking helpers
-  r_get_peak_memory_mb <- function() {
-    if (file.exists("/proc/self/status")) {
-      lines <- readLines("/proc/self/status", warn = FALSE)
-      vmpeak <- grep("^VmPeak:", lines, value = TRUE)
-      if (length(vmpeak) > 0) {
-        kb <- as.numeric(gsub("[^0-9.]", "", vmpeak))
-        if (is.finite(kb)) return(round(kb / 1024, 1))
-      }
-    }
-    gc_info <- tryCatch(gc(verbose = FALSE, reset = FALSE), error = function(e) NULL)
-    if (!is.null(gc_info) && is.matrix(gc_info) && ncol(gc_info) >= 2) {
-      return(round(gc_info[2, 2] / 1024 / 1024, 1))
-    }
-    NA_real_
-  }
-
-  r_get_cpu_time_ms <- function(pt) {
-    round((pt["user.self"] + pt["sys.self"]) * 1000, 0)
-  }
-
-  cpu_start <- proc.time()
-  mem_start <- r_get_peak_memory_mb()
-
-  job_meta_file <- file.path(job_dir, "meta.json")
-  progress_log <- file.path(job_dir, "progress.log")
-  progress_json_path <- file.path(job_dir, "progress.json")
-  progress_json_list <- list()
-
-  detect_stage <- function(detail) {
-    if (is.null(detail)) return("unknown")
-    d <- tolower(detail)
-    if (grepl("clean", d)) return("clean")
-    if (grepl("load|scal|covariate", d)) return("covariates")
-    if (grepl("thin", d)) return("thinning")
-    if (grepl("vif", d)) return("vif")
-    if (grepl("fit|model", d)) return("fit")
-    if (grepl("pa replicate", d)) return("pa_replicates")
-    if (grepl("predict|projection", d)) return("predict")
-    if (grepl("output", d)) return("output")
-    if (grepl("future", d)) return("future")
-    if (grepl("summaris", d)) return("summarize")
-    if (grepl("esm", d)) return("esm")
-    "unknown"
-  }
-
-  log_fun <- function(...) {
-    msg <- paste0(format(Sys.time(), "%H:%M:%S"), " ", ...)
-    cat(msg, "\n")
-    cat(msg, "\n", file = progress_log, append = TRUE)
-  }
-
-  progress_fun <- function(x) {
-    pct <- if (is.list(x)) x$value else x
-    detail <- if (is.list(x)) x$detail else NULL
-    pct_num <- as.numeric(pct)
-    if (!is.finite(pct_num)) pct_num <- 0
-    log_line <- paste0(format(Sys.time(), "%H:%M:%S"), " [", sprintf("%.0f", pct_num * 100), "%] ", detail %||% "")
-    cat(log_line, "\n")
-    cat(log_line, "\n", file = progress_log, append = TRUE)
-    entry <- list(
-      timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-      percent = pct_num,
-      detail = detail %||% "",
-      stage = detect_stage(detail)
-    )
-    progress_json_list[[length(progress_json_list) + 1]] <<- entry
-    writeLines(jsonlite::toJSON(progress_json_list, auto_unbox = TRUE, pretty = TRUE), progress_json_path)
-    entry_json <- jsonlite::toJSON(entry, auto_unbox = TRUE)
-    if (exists("sdm_redis_progress_set", inherits = TRUE)) {
-      tryCatch(sdm_redis_progress_set(job_id, entry_json), error = function(e) NULL)
-    }
-    if (exists("sdm_redis_cancel_check", inherits = TRUE)) {
-      if (sdm_redis_cancel_check(job_id)) {
-        stop("CANCELLED", call. = FALSE)
-      }
-    }
-  }
-
-  job_meta <- list(
-    id = job_id,
-    status = "running",
-    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    config = as.list(body),
-    output_dir = job_dir
-  )
-
-  tryCatch({
-    cleaned_occurrence <- NULL
-    if (!is.null(body$cleaned_file_id) && nzchar(body$cleaned_file_id) && file.exists(body$cleaned_file_id)) {
-      cleaned_df <- utils::read.csv(body$cleaned_file_id, stringsAsFactors = FALSE)
-      cleaned_occurrence <- list(
-        df = cleaned_df,
-        source_counts = list(),
-        n_absent_excluded = 0,
-        original_rows = nrow(cleaned_df)
-      )
-    }
-
-    normalized_body <- sdm_normalize_model_payload(body)
-
-    cfg <- sdm_config(
-      species = body$species,
-      occurrence_file = body$occurrence_file,
-      cleaned_occurrence = cleaned_occurrence,
-      worldclim_dir = body$worldclim_dir %||% sdm_default_worldclim_dir,
-      selected_biovars = biovars,
-      projection_extent = projection_extent,
-      background_n = as.integer(body$background_n %||% sdm_default_background_n),
-      min_source_records = as.integer(body$min_source_records %||% sdm_default_min_source_records),
-      merge_small_sources = isTRUE(body$merge_small_sources %||% TRUE),
-      thin_by_cell = isTRUE(body$thin_by_cell %||% TRUE),
-      model_id = body$model_id,
-      include_quadratic = isTRUE(body$include_quadratic %||% TRUE),
-      threshold = as.numeric(body$threshold %||% sdm_default_threshold),
-      aggregation_factor = as.integer(body$aggregation_factor %||% 1L),
-      cv_folds = as.integer(body$cv_folds %||% sdm_default_cv_folds),
-      n_cores = as.integer(body$n_cores %||% 1L),
-      allow_download = TRUE,
-      worldclim_res = as.integer(body$worldclim_res %||% sdm_default_worldclim_res),
-      cv_strategy = body$cv_strategy %||% sdm_default_cv_strategy,
-      cv_block_size_km = if (!is.null(body$cv_block_size_km)) as.numeric(body$cv_block_size_km) else sdm_default_cv_block_size_km,
-      use_elevation = isTRUE(body$use_elevation),
-      elevation_demtype = body$elevation_demtype %||% sdm_default_elevation_demtype,
-      opentopo_api_key = body$opentopo_api_key,
-      use_soil = isTRUE(body$use_soil),
-      selected_soil_vars = body$soil_vars %||% sdm_default_soil_vars,
-      selected_soil_depths = body$soil_depths %||% sdm_default_soil_depths,
-      use_uv = isTRUE(body$use_uv),
-      selected_uv_vars = body$uv_vars %||% sdm_default_uv_vars,
-      use_vegetation = isTRUE(body$use_vegetation),
-      veg_year = as.integer(body$veg_year %||% sdm_default_veg_year),
-      veg_products = body$veg_products %||% sdm_default_veg_products,
-      use_lulc = isTRUE(body$use_lulc),
-      lulc_year = as.integer(body$lulc_year %||% sdm_default_lulc_year),
-      use_hfp = isTRUE(body$use_hfp),
-      hfp_year = as.integer(body$hfp_year %||% sdm_default_hfp_year),
-      use_bioclim_season = isTRUE(body$use_bioclim_season),
-      use_drought = isTRUE(body$use_drought),
-      covariate_cache_dir = "covariates",
-      vif_reduction = isTRUE(body$vif_reduction),
-      vif_threshold = as.numeric(body$vif_threshold %||% 10),
-      future_projection = isTRUE(body$future_projection),
-      future_worldclim_dir = body$future_worldclim_dir %||% sdm_default_future_worldclim_dir,
-      future_label = body$future_label %||% "Future climate",
-      maxnet_features = body$maxnet_features %||% sdm_default_maxnet_features,
-      maxnet_regmult = as.numeric(body$maxnet_regmult %||% sdm_default_maxnet_regmult),
-      brt_n_trees = as.integer(body$brtNTrees %||% 2000L),
-      brt_interaction_depth = as.integer(body$brtInteractionDepth %||% 3L),
-      brt_shrinkage = as.numeric(body$brtShrinkage %||% 0.01),
-      brt_bag_fraction = as.numeric(body$brtBagFraction %||% 0.75),
-      cta_cp = as.numeric(body$ctaCp %||% 0.01),
-      cta_maxdepth = as.integer(body$ctaMaxdepth %||% 10L),
-      cta_minsplit = as.integer(body$ctaMinsplit %||% 20L),
-      mars_degree = as.integer(body$marsDegree %||% 2L),
-      mars_penalty = as.numeric(body$marsPenalty %||% 3.0),
-      fda_degree = as.integer(body$fdaDegree %||% 2L),
-      ann_size = as.integer(body$annSize %||% 5L),
-      ann_decay = as.numeric(body$annDecay %||% 0.01),
-      ann_maxit = as.integer(body$annMaxit %||% 200L),
-      dnn_model_type = normalized_body$dnn_model_type %||% "DNN_Medium",
-      dnn_n_seeds = as.integer(normalized_body$dnn_n_seeds %||% 5L),
-      dnn_device = normalized_body$dnn_device %||% "auto",
-      dnn_dropout = as.numeric(normalized_body$dnn_dropout %||% 0.3),
-      dnn_lambda = as.numeric(normalized_body$dnn_lambda %||% 0.001),
-      extrapolation_mask = isTRUE(body$extrapolationMask %||% TRUE),
-      mess_threshold = as.numeric(body$messThreshold %||% 0),
-      rf_num_trees = as.integer(body$rfNumTrees %||% 500L),
-      rf_mtry = if (!is.null(body$rfMtry)) as.integer(body$rfMtry) else NULL,
-      rf_min_node_size = as.integer(body$rfMinNodeSize %||% 10L),
-      xgb_max_depth = as.integer(normalized_body$xgb_max_depth %||% 6L),
-      xgb_eta = as.numeric(normalized_body$xgb_eta %||% 0.3),
-      xgb_nrounds = as.integer(normalized_body$xgb_nrounds %||% 100L),
-      mars_nk = if (!is.null(body$marsNk)) as.integer(body$marsNk) else NULL,
-      fda_nprune = if (!is.null(body$fdaNprune)) as.integer(body$fdaNprune) else NULL,
-      ann_rang = as.numeric(body$annRang %||% 0.5),
-      bart_ntree = as.integer(body$bartNtree %||% 200L),
-      bart_ndpost = as.integer(body$bartNdpost %||% 1000L),
-      bart_nskip = as.integer(body$bartNskip %||% 500L),
-      brms_chains = as.integer(body$brmsChains %||% 4L),
-      brms_iter = as.integer(body$brmsIter %||% 2000L),
-      brms_warmup = as.integer(body$brmsWarmup %||% 1000L),
-      inla_mesh_max_edge = if (!is.null(body$inlaMeshMaxEdge)) as.numeric(body$inlaMeshMaxEdge) else NULL,
-      inla_mesh_cutoff = if (!is.null(body$inlaMeshCutoff)) as.numeric(body$inlaMeshCutoff) else NULL,
-      inla_prior_range = if (!is.null(body$inlaPriorRange)) as.numeric(body$inlaPriorRange) else NULL,
-      inla_prior_sigma = if (!is.null(body$inlaPriorSigma)) as.numeric(body$inlaPriorSigma) else NULL,
-      n_bags = as.integer(body$rangebagNBags %||% sdm_default_rangebag_n_bags),
-      bag_fraction = as.numeric(body$rangebagBagFraction %||% sdm_default_rangebag_fraction),
-      vars_per_bag = as.integer(body$rangebagVarsPerBag %||% sdm_default_rangebag_vars_per_bag),
-      detection_formula = body$detectionFormula %||% "~1",
-      occupancy_model_type = body$detectionModelType %||% "occu",
-      dnn_architecture = normalized_body$dnn_architecture %||% normalized_body$dnn_model_type %||% "DNN_Medium",
-      dnn_multispecies_architecture = normalized_body$dnn_multispecies_architecture %||% normalized_body$dnn_model_type %||% "DNN_Medium",
-      dnn_multispecies_n_seeds = as.integer(normalized_body$dnn_multispecies_n_seeds %||% 3L),
-      bias_method = body$bias_method %||% "uniform",
-      thickening_distance_km = as.numeric(body$thickening_distance_km %||% sdm_default_thickening_distance_km),
-      pa_replicates = as.integer(body$pa_replicates %||% sdm_default_pa_replicates),
-      output_dir = job_dir,
-      seed = as.integer(body$seed %||% sdm_default_seed),
-      source = body$source %||% sdm_default_climate_source,
-      log_fun = log_fun,
-      progress_fun = progress_fun,
-      climate_matching = isTRUE(body$climate_matching),
-      climate_matching_method = body$climate_matching_method %||% "mahalanobis",
-      max_coordinate_uncertainty = if (!is.null(body$max_coordinate_uncertainty)) as.numeric(body$max_coordinate_uncertainty) else NULL,
-      multi_ensemble_models = normalized_body$multi_ensemble_models,
-      multi_ensemble_weighting = normalized_body$multi_ensemble_weighting %||% "auc",
-      multi_ensemble_power = as.numeric(normalized_body$multi_ensemble_power %||% sdm_default_ensemble_power),
-      multi_ensemble_min_auc = as.numeric(normalized_body$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc),
-      multi_ensemble_min_tss = as.numeric(normalized_body$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss),
-      multi_ensemble_export = isTRUE(normalized_body$multi_ensemble_export %||% TRUE),
-      multi_ensemble_uncertainty = isTRUE(normalized_body$multi_ensemble_uncertainty %||% TRUE),
-      biomod2_models = normalized_body$biomod2_models,
-      selected_uv_months = normalized_body$selected_uv_months,
-      selected_drought_periods = normalized_body$selected_drought_periods %||% "annual_mean",
-      selected_chelsa_extras = normalized_body$selected_chelsa_extras,
-      analysis_crs = normalized_body$analysis_crs %||% sdm_default_analysis_crs,
-      generate_tiles = isTRUE(normalized_body$generate_tiles %||% TRUE),
-      mask_type = normalized_body$mask_type %||% sdm_default_mask_type,
-      mask_file = normalized_body$mask_file %||% sdm_default_mask_file,
-      mask_buffer_deg = as.numeric(normalized_body$mask_buffer_deg %||% sdm_default_mask_buffer_deg),
-      esm_n_runs = as.integer(body$esm_n_runs %||% sdm_esm_default_n_runs),
-      esm_split = body$esm_split %||% sdm_esm_default_split,
-      esm_min_auc = as.numeric(body$esm_min_auc %||% sdm_esm_default_min_auc),
-      esm_weighting_metric = body$esm_weighting_metric %||% "AUC",
-      esm_power = as.numeric(body$esm_power %||% sdm_esm_default_power),
-      esm_biovars = body$esm_biovars,
-      future_worldclim_dir2 = body$future_worldclim_dir2,
-      future_label2 = body$future_label2 %||% "Future climate 2",
-      use_cc = isTRUE(body$use_cc),
-      cc_tests = body$cc_tests %||% "all"
-    )
-
-    result <- run_fast_sdm(cfg)
-
-    diag_files <- list()
-    # Export diagnostic data as lightweight CSV ZIP (replaces old save_diagnostic_plots)
-    tryCatch({
-      source(file.path(app_dir, "R", "output", "export_diagnostics.R"), local = TRUE)
-      zip_path <- export_diagnostics_csv(result, job_dir, log_fun = log_fun)
-      if (!is.null(zip_path)) diag_files$diagnostics_zip <- zip_path
-    }, error = function(e) {
-      cat("Diagnostics CSV export failed:", conditionMessage(e), "\n")
-      cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-    })
-
-    tryCatch({
-      source(file.path(app_dir, "R", "output", "report_odmap.R"), local = TRUE)
-      odmap_csv <- file.path(job_dir, "odmap_report.csv")
-      odmap_md <- file.path(job_dir, "odmap_report.md")
-      write_odmap_report(result, odmap_csv, odmap_md)
-      log_fun("Saved ODMAP report: ", odmap_csv)
-      diag_files$odmap_report_csv <- odmap_csv
-      diag_files$odmap_report_md <- odmap_md
-    }, error = function(e) {
-      cat("ODMAP report failed:", conditionMessage(e), "\n")
-      cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-    })
-
-    job_meta$status <- "completed"
-    job_meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    cpu_ms <- r_get_cpu_time_ms(proc.time() - cpu_start)
-    peak_mb <- r_get_peak_memory_mb()
-    job_meta$r_cpu_time_ms <- cpu_ms
-    job_meta$r_peak_memory_mb <- peak_mb
-    if (!is.null(result)) {
-      job_meta$metrics <- list(
-        auc_mean = result$cv$auc_mean,
-        auc_sd = result$cv$auc_sd,
-        tss_mean = result$cv$tss_mean,
-        tss_sd = result$cv$tss_sd,
-        presence_records = result$metrics$presence_records,
-        background_points = result$metrics$background_points,
-        elapsed_seconds = result$metrics$elapsed_seconds,
-        high_suitability_area_km2 = result$summary$high_risk_area_km2,
-        high_suitability_area_uncertainty_km2 = result$summary$high_risk_area_uncertainty_km2 %||% NULL,
-        high_suitability_area_ci95_lower = result$summary$high_risk_area_ci95_lower %||% NULL,
-        high_suitability_area_ci95_upper = result$summary$high_risk_area_ci95_upper %||% NULL
-      )
-      # Write EPSG:3857 COG for web map display (fallback if not already written by run_sdm.R)
-      if (!is.null(result$paths$tif) && !is.null(result$suitability)) {
-        tif_3857_path <- sub("_suitability\\.tif$", "_3857.tif", result$paths$tif)
-        if (!file.exists(tif_3857_path)) {
-          tryCatch({
-            r_3857 <- terra::project(result$suitability, "EPSG:3857", method = "bilinear")
-            terra::writeRaster(r_3857, tif_3857_path,
-              filetype = "COG",
-              gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
-                       "OVERVIEWS=AUTO", "OVERVIEW_RESAMPLING=BILINEAR"),
-              NAflag = -9999, datatype = "FLT4S", overwrite = TRUE
-            )
-            log_fun("Written EPSG:3857 COG: ", tif_3857_path)
-          }, error = function(e) {
-            cat("EPSG:3857 COG failed:", conditionMessage(e), "\n")
-            cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-          })
-        }
-        result$paths$tif_3857 <- tif_3857_path
-      }
-      # Save full result object for diagnostics endpoints
-      result_rds_path <- file.path(job_dir, "result.rds")
-      tryCatch({
-        saveRDS(result, result_rds_path)
-        result$paths$result_rds <- result_rds_path
-      }, error = function(e) {
-        cat("Failed to save result.rds:", conditionMessage(e), "\n")
-        cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-      })
-      job_meta$output_files <- c(result$paths, diag_files)
-      base_name <- paste0(safe_slug(body$species %||% "species"), "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
-      manifest_path <- write_manifest(result, job_dir, base_name, cpu_ms = cpu_ms, peak_mb = peak_mb)
-      job_meta$manifest_path <- manifest_path
-    }
-    gc(verbose = FALSE)
-    sdm_write_json(job_meta, job_meta_file)
-  }, error = function(e) {
-    err_msg <- conditionMessage(e)
-    is_cancelled <- identical(err_msg, "CANCELLED") || sdm_redis_cancel_check(job_id)
-    err_code <- if (is_cancelled) "CANCELLED" else tryCatch(sdm_classify_error(err_msg), error = function(ee) "INTERNAL_ERROR")
-    error_hint <- tryCatch(
-      { h <- SDM_ERR_CODES[[err_code]]$hint; if (is.null(h)) NA_character_ else h },
-      error = function(ee) NA_character_
-    )
-    cpu_ms <- tryCatch(r_get_cpu_time_ms(proc.time() - cpu_start), error = function(ee) NA_real_)
-    peak_mb <- tryCatch(r_get_peak_memory_mb(), error = function(ee) NA_real_)
-    stderr_tail <- tryCatch({
-      stderr_path <- file.path(job_dir, "stderr.log")
-      if (file.exists(stderr_path)) {
-        paste(utils::tail(readLines(stderr_path, warn = FALSE), 20), collapse = "\n")
-      } else ""
-    }, error = function(ee) "")
-
-    err_meta <- list(
-      id = job_id,
-      status = if (is_cancelled) "cancelled" else "failed",
-      started_at = job_meta$started_at %||% format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-      config = as.list(body),
-      output_dir = job_dir,
-      error = if (is_cancelled) "Cancelled by user" else err_msg,
-      error_code = err_code,
-      error_hint = error_hint,
-      error_traceback = paste(utils::tail(traceback(), 10), collapse = "\n"),
-      error_stderr_tail = stderr_tail,
-      completed_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-      r_cpu_time_ms = cpu_ms,
-      r_peak_memory_mb = peak_mb
-    )
-    sdm_write_json(err_meta, job_meta_file)
-    cat("Run", if (is_cancelled) "cancelled" else "failed", "[", err_code, "]:", err_msg, "\n")
-  })
-
-  NULL
-}
 
 #* @post /api/v1/models/run
 #* @param species
@@ -821,19 +446,32 @@ function(req) {
   biovars <- as.integer(unlist(strsplit(as.character(body$biovars %||% "1,4,6,12,15,18"), ",")))
   projection_extent <- as.numeric(unlist(strsplit(as.character(body$projection_extent %||% "112,154,-44,-10"), ",")))
   if (length(projection_extent) != 4 || any(!is.finite(projection_extent))) {
-    return(sdm_error(req, 400, "projection_extent must have 4 numeric values: xmin,xmax,ymin,ymax"))
+    return(sdm_error_code(req, "INVALID_INPUT", "projection_extent must have 4 numeric values: xmin,xmax,ymin,ymax"))
   }
   if (projection_extent[1] >= projection_extent[2] || projection_extent[3] >= projection_extent[4]) {
-    return(sdm_error(req, 400, "projection_extent has invalid ordering: xmin must be < xmax, ymin must be < ymax"))
+    return(sdm_error_code(req, "INVALID_INPUT", "projection_extent has invalid ordering: xmin must be < xmax, ymin must be < ymax"))
   }
   if (projection_extent[1] < -180 || projection_extent[2] > 180 || projection_extent[3] < -90 || projection_extent[4] > 90) {
-    return(sdm_error(req, 400, "projection_extent is outside valid coordinate bounds (±180, ±90)"))
+    return(sdm_error_code(req, "INVALID_INPUT", "projection_extent is outside valid coordinate bounds (±180, ±90)"))
   }
+
+  # Memory guard: reject if available RAM is critically low
+  tryCatch({
+    mem_info <- terra::mem_info()
+    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+      if (mem_info$memavail < 1.0) {
+        return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
+          "Server memory critically low (", sprintf("%.1f", mem_info$memavail),
+          " GB available). Wait for other runs to complete or restart the container."
+        )))
+      }
+    }
+  }, error = function(e) NULL)
 
   # Concurrency limit: reject if too many runs in-flight to prevent OOM
   active <- sdm_count_active_runs()
   if (active >= SDM_MAX_CONCURRENT_RUNS) {
-    return(sdm_error(req, 429, paste0(
+    return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
       "Server busy: ", active, " model run(s) in progress (max ", SDM_MAX_CONCURRENT_RUNS,
       "). Please wait and retry."
     )))
@@ -845,35 +483,37 @@ function(req) {
 
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 
-  job_meta <- list(
-    id = job_id,
-    user_id = user_id,
-    status = "running",
-    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    config = as.list(body),
-    output_dir = job_dir
-  )
-  job_meta_file <- file.path(job_dir, "meta.json")
-  sdm_write_json(job_meta, job_meta_file)
-
-  progress_log <- file.path(job_dir, "progress.log")
-
   # Spawn model run in background via standalone script
   # (avoids closure serialization issues with callr::r_bg)
   script_path <- file.path(app_dir, "plumber", "R", "run_model_background.R")
   if (!file.exists(script_path)) {
-    return(sdm_error(req, 500, paste("Model run script not found at:", script_path)))
+    return(sdm_error_code(req, "INTERNAL_ERROR", paste("Model run script not found at:", script_path)))
   }
 
   proc <- callr::r_bg(function(script, job_dir, app_dir) {
     source(script, local = TRUE)
   }, args = list(script_path, job_dir, app_dir),
   stdout = file.path(job_dir, "stdout.log"),
-  stderr = file.path(job_dir, "stderr.log"))
+  stderr = file.path(job_dir, "stderr.log"),
+  env = c(
+    OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
+    R_MAX_VSIZE = Sys.getenv("SDM_CHILD_MAX_VSIZE", "6Gb")
+  ))
   sdm_process_registry[[job_id]] <- proc
 
-  job_meta$process_pid <- proc$get_pid()
+  job_meta <- list(
+    id = job_id,
+    user_id = user_id,
+    status = "pending",
+    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+    config = as.list(body),
+    output_dir = job_dir,
+    process_pid = proc$get_pid()
+  )
+  job_meta_file <- file.path(job_dir, "meta.json")
   sdm_write_json(job_meta, job_meta_file)
+
+  progress_log <- file.path(job_dir, "progress.log")
 
   list(
     job_id = job_id,
@@ -936,7 +576,7 @@ function(req) {
   # Spawn targets pipeline
   script_path <- file.path(app_dir, "plumber", "R", "targets_dispatcher.R")
   if (!file.exists(script_path)) {
-    return(sdm_error(req, 500, paste("Targets dispatcher not found at:", script_path)))
+    return(sdm_error_code(req, "INTERNAL_ERROR", paste("Targets dispatcher not found at:", script_path)))
   }
 
   proc <- callr::r_bg(function(script, job_dir, app_dir) {
@@ -970,7 +610,14 @@ function(res, job_id) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- tryCatch(
+    jsonlite::fromJSON(meta_file, simplifyVector = FALSE),
+    error = function(e) {
+      res$status <- 500L
+      return(list(error = paste0("Corrupted meta.json: ", conditionMessage(e))))
+    }
+  )
+  if (is.list(meta) && !is.null(meta$error)) return(meta)
 
   # Process crash detection
   if (identical(meta$status, "running")) {
@@ -1070,7 +717,11 @@ function(res, job_id) {
           result_path <- file.path(job_dir, pr$data[[1]]$path %||% "")
           species_result <- NULL
           if (file.exists(result_path) && grepl("\\.rds$", result_path)) {
-            species_result <- tryCatch(readRDS(result_path), error = function(e) NULL)
+            # Validate the RDS path stays within the job directory
+            safe_rds <- sdm_safe_path(result_path, job_dir)
+            if (!is.null(safe_rds)) {
+              species_result <- tryCatch(readRDS(safe_rds), error = function(e) NULL)
+            }
           }
           row <- list(
             name = species_name,
@@ -1114,10 +765,37 @@ function(res, job_id) {
   )
 }
 
+#* Get job logs (stderr, stdout, progress)
+#* @get /api/v1/models/logs/<job_id>
+function(res, job_id) {
+  job_dir <- sdm_safe_job_dir(job_id)
+  if (is.null(job_dir)) {
+    res$status <- 404L; return(list(error = "Invalid job ID"))
+  }
+
+  read_safe <- function(path, max_lines = 500) {
+    if (!file.exists(path)) return("")
+    tryCatch({
+      lines <- readLines(path, warn = FALSE)
+      if (length(lines) > max_lines) {
+        lines <- tail(lines, max_lines)
+      }
+      paste(lines, collapse = "\n")
+    }, error = function(e) "")
+  }
+
+  list(
+    id = job_id,
+    stderr = read_safe(file.path(job_dir, "stderr.log")),
+    stdout = read_safe(file.path(job_dir, "stdout.log")),
+    progress_log = read_safe(file.path(job_dir, "progress.log"))
+  )
+}
+
 #* Get model run status
 #* @get /api/v1/models/status/<job_id>
 function(res, job_id) {
-  job_dir <- sdm_safe_job_dir(job_id)
+  job_dir <- tryCatch(sdm_safe_job_dir(job_id), error = function(e) { NULL })
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Invalid job ID"))
   }
@@ -1129,7 +807,15 @@ function(res, job_id) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- tryCatch(
+    jsonlite::fromJSON(meta_file, simplifyVector = FALSE),
+    error = function(e) {
+      # meta.json may be corrupted if the background process was killed mid-write
+      res$status <- 500L
+      return(list(error = paste0("Corrupted meta.json: ", conditionMessage(e))))
+    }
+  )
+  if (is.list(meta) && !is.null(meta$error)) return(meta)
 
   # Detect process crash: if status is "running" but process is dead or missing
   if (identical(meta$status, "running")) {
@@ -1164,7 +850,76 @@ function(res, job_id) {
     }
   }
 
-  # Check Redis cancellation signal — catches cancel before background process reacts
+  # Crash detection for loading state — process died during module initialization
+  if (identical(meta$status, "loading")) {
+    proc <- sdm_process_registry[[job_id]]
+    process_alive <- FALSE
+    if (!is.null(proc)) {
+      tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
+    }
+    if (!process_alive && !is.null(meta$process_pid)) {
+      pid <- as.integer(meta$process_pid)
+      if (is.finite(pid)) {
+        tryCatch({
+          process_alive <- tools::pskill(pid, signal = 0)
+        }, error = function(e) NULL)
+      }
+    }
+    # Heartbeat staleness check — if heartbeat not updated in 90s, process is likely dead
+    if (is.null(proc) || !process_alive) {
+      heartbeat_file <- file.path(job_dir, "heartbeat.log")
+      if (file.exists(heartbeat_file)) {
+        last_line <- tryCatch(tail(readLines(heartbeat_file, warn = FALSE), 1), error = function(e) NULL)
+        if (!is.null(last_line) && length(last_line) > 0 && nchar(last_line) > 0) {
+          hb_ts <- tryCatch(as.POSIXct(sub("\\|.*", "", last_line), format = "%Y-%m-%dT%H:%M:%S"), error = function(e) NULL)
+          if (!is.null(hb_ts) && !is.na(hb_ts)) {
+            if (difftime(Sys.time(), hb_ts, units = "secs") > 90) {
+              process_alive <- FALSE
+            }
+          }
+        }
+      }
+    }
+    if (!process_alive) {
+      meta$status <- "failed"
+      meta$error <- "R process died while loading modules (possible OOM). Reduce covariates, use coarser resolution, or increase container memory."
+      meta$error_code <- "RUNNER_LOAD_FAILED"
+      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      sdm_write_json(meta, meta_file)
+      sdm_process_registry[[job_id]] <- NULL
+      sdm_redis_progress_clear(job_id)
+      sdm_redis_cancel_clear(job_id)
+    }
+  }
+
+  # Crash detection for pending state — process died before writing "loading"
+  if (identical(meta$status, "pending")) {
+    proc <- sdm_process_registry[[job_id]]
+    process_alive <- FALSE
+    if (!is.null(proc)) {
+      tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
+    }
+    if (!process_alive && !is.null(meta$process_pid)) {
+      pid <- as.integer(meta$process_pid)
+      if (is.finite(pid)) {
+        tryCatch({
+          process_alive <- tools::pskill(pid, signal = 0)
+        }, error = function(e) NULL)
+      }
+    }
+    if (!process_alive) {
+      meta$status <- "failed"
+      meta$error <- "R process died before loading modules (possible OOM or spawn failure). Check container memory and logs."
+      meta$error_code <- "RUNNER_START_FAILED"
+      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      sdm_write_json(meta, meta_file)
+      sdm_process_registry[[job_id]] <- NULL
+      sdm_redis_progress_clear(job_id)
+      sdm_redis_cancel_clear(job_id)
+    }
+  }
+
+  # Also check Redis cancellation signal — catches cancel before background process reacts
   if (identical(meta$status, "running") && sdm_redis_cancel_check(job_id)) {
     meta$status <- "cancelled"
     meta$error <- "Cancelled by user"
@@ -1196,18 +951,30 @@ function(res, job_id) {
     }
   }
 
-  list(
+  # Read structured progress JSON (written by progress_fun in background process)
+  progress_json <- NULL
+  if (file.exists(progress_json_file)) {
+    progress_json <- tryCatch(jsonlite::fromJSON(progress_json_file, simplifyVector = FALSE), error = function(e) NULL)
+  }
+
+  result <- list(
     id = meta$id,
     status = meta$status,
     started_at = meta$started_at,
     completed_at = meta$completed_at %||% NULL,
     error = meta$error %||% NULL,
-    error_traceback = meta$error_traceback %||% NULL,
+    error_code = meta$error_code %||% NULL,
+    error_hint = meta$error_hint %||% NULL,
     metrics = meta$metrics %||% NULL,
     output_files = meta$output_files %||% NULL,
     progress_log = progress_lines,
-    last_stage = last_stage
+    last_stage = last_stage,
+    progress_json = progress_json
   )
+  if (identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true") && !is.null(meta$error_traceback)) {
+    result$error_traceback <- meta$error_traceback
+  }
+  result
 }
 
 # Global process registry for background model runs
@@ -1386,7 +1153,13 @@ sdm_async_status <- function(job_id) {
     return(list(available = FALSE, error = "Job not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- tryCatch(
+    jsonlite::fromJSON(meta_file, simplifyVector = FALSE),
+    error = function(e) {
+      return(list(available = FALSE, error = paste0("Corrupted meta.json: ", conditionMessage(e))))
+    }
+  )
+  if (is.list(meta) && !is.null(meta$error)) return(meta)
   result <- NULL
   if (file.exists(result_file)) {
     result <- jsonlite::fromJSON(result_file, simplifyVector = FALSE)
@@ -1443,6 +1216,35 @@ sdm_async_status <- function(job_id) {
     }
   }
 
+  # Crash detection for loading state — process died during module init
+  if (identical(meta$status, "loading")) {
+    proc <- sdm_process_registry[[basename(job_id)]]
+    process_alive <- FALSE
+    if (!is.null(proc)) {
+      tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
+    }
+    if (!process_alive && !is.null(meta$process_pid)) {
+      pid <- as.integer(meta$process_pid)
+      if (is.finite(pid)) {
+        tryCatch({
+          ps_info <- tools::ps()
+          process_alive <- pid %in% ps_info$PID
+        }, error = function(e) NULL)
+      }
+    }
+    if (!process_alive) {
+      meta$status <- "failed"
+      meta$error <- "R process died while loading modules (possible OOM). Reduce covariates, use coarser resolution, or increase container memory."
+      meta$error_code <- "RUNNER_LOAD_FAILED"
+      sdm_write_json(meta, meta_file)
+      sdm_process_registry[[basename(job_id)]] <- NULL
+      sdm_redis_progress_clear(basename(job_id))
+      sdm_redis_cancel_clear(basename(job_id))
+      return(list(available = TRUE, status = "failed", error = meta$error,
+                  error_code = "RUNNER_LOAD_FAILED", error_hint = "The R process was killed while loading SDM modules. Check container memory limits, reduce covariates, or increase memory allocation."))
+    }
+  }
+
   # Check Redis cancellation signal for running jobs
   if (identical(meta$status, "running") && is.null(result) && sdm_redis_cancel_check(basename(job_id))) {
     meta$status <- "cancelled"
@@ -1479,6 +1281,12 @@ sdm_async_status <- function(job_id) {
       sdm_redis_cancel_clear(basename(job_id))
       return(list(available = TRUE, status = "failed", error = result$error, error_code = error_code, error_hint = error_hint))
     }
+  }
+
+  # Loading state (process still initializing modules)
+  if (identical(meta$status, "loading")) {
+    return(list(available = TRUE, status = "loading", progress_log = character(0),
+                error_code = NULL, error_hint = NULL))
   }
 
   # Try Redis progress first, fall back to file progress
@@ -3243,6 +3051,10 @@ function(req) {
   })
 }
 
+# COG cache keyed by file path + mtime (avoids repeated terra::rast() calls)
+tile_cog_cache <- new.env(parent = emptyenv())
+tile_cog_cache_max <- 20L
+
 #* On-the-fly XYZ tile from COG (fallback when pre-generated tiles missing)
 #* Computes tile bounding box in EPSG:3857, crops COG, applies palette, returns PNG
 #* @get /api/v1/results/tiles/cog/<run_id>/<z>/<x>/<y>
@@ -3252,41 +3064,109 @@ function(res, run_id, z, x, y) {
   if (is.na(z) || is.na(x) || is.na(y) || z < 0L || z > 20L) {
     res$status <- 400L; stop("Invalid tile coordinates")
   }
+  n <- 2^z
+  if (x < 0L || x >= n || y < 0L || y >= n) {
+    res$status <- 400L; stop("Tile coordinates out of range")
+  }
 
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; stop("Run not found") }
 
   # Find COG in job directory (filename varies; search by suffix)
+  cog_path <- NULL; need_reproject <- FALSE
   cog_files <- list.files(job_dir, pattern = "_3857\\.tif$", full.names = TRUE)
-  if (length(cog_files) == 0L) { res$status <- 404L; stop("COG not found") }
-  cog_path <- cog_files[1L]
+  if (length(cog_files) > 0L) {
+    cog_path <- cog_files[1L]
+  } else {
+    # Fallback: reproject suitability.tif (4326) to 3857 once, cache result as file
+    suit_files <- list.files(job_dir, pattern = "_suitability\\.tif$", full.names = TRUE)
+    if (length(suit_files) > 0L) {
+      fallback_path <- sub("_suitability\\.tif$", "_3857_fallback.tif", suit_files[1L])
+      if (!file.exists(fallback_path)) {
+        lock_path <- paste0(fallback_path, ".lock")
+        lock_acquired <- dir.create(lock_path, showWarnings = FALSE)
+        if (lock_acquired) {
+          on.exit(unlink(lock_path, recursive = TRUE), add = TRUE)
+          # Re-check after acquiring lock (another worker may have created it)
+          if (!file.exists(fallback_path)) {
+            r_4326 <- terra::rast(suit_files[1L])
+            r_3857 <- terra::project(r_4326, "EPSG:3857", method = "bilinear")
+            terra::writeRaster(r_3857, fallback_path, filetype = "COG",
+              gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512"),
+              NAflag = -9999, datatype = "FLT4S", overwrite = TRUE)
+          }
+        }
+      }
+      cog_path <- fallback_path
+    }
+  }
+  if (is.null(cog_path)) { res$status <- 404L; stop("No raster found for run") }
+
+  # Use cached COG raster if available and unchanged
+  cog_mtime <- file.info(cog_path)$mtime
+  cog_key <- paste0(cog_path, "_", as.numeric(cog_mtime))
+  r_cog <- tile_cog_cache[[cog_key]]
+  if (is.null(r_cog)) {
+    if (length(ls(tile_cog_cache)) >= tile_cog_cache_max) {
+      rm(list = ls(tile_cog_cache)[1], envir = tile_cog_cache)
+    }
+    r_cog <- terra::rast(cog_path)
+    tile_cog_cache[[cog_key]] <- r_cog
+  }
+  cog_range <- terra::minmax(r_cog)
+  vr_min <- max(0, cog_range[1, 1])
+  vr_max <- min(1, cog_range[2, 1])
+  if (!is.finite(vr_min) || !is.finite(vr_max) || vr_max <= vr_min) {
+    vr_min <- 0; vr_max <- 1
+  }
 
   n <- 2^z
-  tile_res <- 40075016.686 / n
-  half_world <- 20037508.343
+  tile_res <- 40075016.685578488 / n
+  half_world <- 20037508.342789244
   xmin <- x * tile_res - half_world
   xmax <- (x + 1L) * tile_res - half_world
   ymin <- half_world - (y + 1L) * tile_res
   ymax <- half_world - y * tile_res
 
-  tile_crop <- terra::crop(terra::rast(cog_path), terra::ext(xmin, xmax, ymin, ymax))
-  if (terra::ncell(tile_crop) == 0L) { res$status <- 204L; return(NULL) }
+  tile_crop <- tryCatch(terra::crop(r_cog, terra::ext(xmin, xmax, ymin, ymax), snap = "out"),
+    error = function(e) NULL)
+  if (is.null(tile_crop) || terra::ncell(tile_crop) == 0L) {
+    # Retry at full resolution — GDAL overview alignment can miss at certain zooms
+    r_full <- terra::rast(cog_path)
+    tile_crop <- tryCatch(terra::crop(r_full, terra::ext(xmin, xmax, ymin, ymax), snap = "out"),
+      error = function(e) NULL)
+  }
 
   template <- terra::rast(ncols = 256L, nrows = 256L, xmin = xmin, xmax = xmax,
     ymin = ymin, ymax = ymax, crs = "EPSG:3857")
-  tile_256 <- terra::resample(tile_crop, template, method = "bilinear")
-  vals <- terra::values(tile_256)
 
-  is_na <- is.na(vals) | !is.finite(vals)
-  if (all(is_na)) { res$status <- 204L; return(NULL) }
+  if (is.null(tile_crop) || terra::ncell(tile_crop) == 0L) {
+    # Tile is smaller than a single COG pixel — sample center point
+    cx <- (xmin + xmax) / 2
+    cy <- (ymin + ymax) / 2
+    pt <- terra::vect(data.frame(x = cx, y = cy), geom = c("x", "y"), crs = "EPSG:3857")
+    center_val <- terra::extract(r_full %||% r_cog, pt)[1, 1]
+    if (is.na(center_val) || !is.finite(center_val)) { res$status <- 204L; return(NULL) }
+    vals <- rep(as.numeric(center_val), 65536)
+    is_na <- rep(FALSE, 65536)
+  } else {
+    tile_256 <- tryCatch(terra::resample(tile_crop, template, method = "bilinear"),
+      error = function(e) NULL)
+    if (is.null(tile_256)) { res$status <- 204L; return(NULL) }
+    vals <- terra::values(tile_256)
+    is_na <- is.na(vals) | !is.finite(vals) | (vals <= -9998)
+    if (all(is_na)) { res$status <- 204L; return(NULL) }
+  }
 
   # Apply palette (same ramp as tile_generator.R)
   palette <- c("#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
     "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B")
   pal_rgb <- grDevices::col2rgb(palette, alpha = TRUE)
   n_col <- length(palette)
-  idx <- round((vals - 0) / (1 - 0) * (n_col - 1L)) + 1L
-  idx <- pmax(1L, pmin(n_col, idx))
+  idx <- if (all(is_na)) integer(0) else {
+    round((vals - vr_min) / (vr_max - vr_min) * (n_col - 1L)) + 1L
+  }
+  if (length(idx) > 0) idx <- pmax(1L, pmin(n_col, idx))
 
   rgba <- matrix(0L, nrow = 65536L, ncol = 4L)
   rgba[!is_na, 1L] <- pal_rgb[1, idx[!is_na]]
@@ -3294,12 +3174,12 @@ function(res, run_id, z, x, y) {
   rgba[!is_na, 3L] <- pal_rgb[3, idx[!is_na]]
   rgba[!is_na, 4L] <- 255L
 
+  # Write PNG via GDAL (no external package needed)
   tmp_png <- tempfile(fileext = ".png")
   tile_out <- terra::rast(ncols = 256L, nrows = 256L, xmin = xmin, xmax = xmax,
     ymin = ymin, ymax = ymax, crs = "EPSG:3857", nlyrs = 4L)
   terra::values(tile_out) <- rgba
   terra::writeRaster(tile_out, tmp_png, datatype = "INT1U", gdal = "ZLEVEL=6", overwrite = TRUE)
-
   raw_bytes <- readBin(tmp_png, "raw", n = file.info(tmp_png)$size)
   unlink(tmp_png)
   raw_bytes

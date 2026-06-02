@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ModelConfigForm from "@/components/model/model-config-form";
 import { RunHistory } from "@/components/model/run-history";
@@ -9,7 +9,7 @@ import { JobProgress } from "@/components/jobs/job-progress";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import { useSDMStore } from "@/stores/sdm-store";
 import { apiPost, apiGet } from "@/services/api";
-import { Ban, AlertTriangle, Loader2 } from "lucide-react";
+import { Ban, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import type { ModelConfig } from "@sdm/shared";
 
 interface ActiveRun {
@@ -35,11 +35,13 @@ export default function ModelPage() {
   const [redirectCountdown, setRedirectCountdown] = useState(8);
   const [checkingRuns, setCheckingRuns] = useState(true);
   const [runRefreshKey, setRunRefreshKey] = useState(0);
+  const [cancellingAll, setCancellingAll] = useState(false);
+  const [showCancelAllConfirm, setShowCancelAllConfirm] = useState(false);
   const activeRunsRef = useRef(activeRuns.length);
   activeRunsRef.current = activeRuns.length;
 
-  // SSE-driven active run tracking — no polling needed
-  useJobSSE(true);
+  // SSE-driven active run tracking
+  const { jobs: sseJobs, connected: sseConnected } = useJobSSE(true);
 
   const fetchActiveRuns = useCallback(async () => {
     try {
@@ -52,12 +54,24 @@ export default function ModelPage() {
     }
   }, []);
 
-  // Initial fetch only — SSE updates handle subsequent changes
+  // Initial fetch
   useEffect(() => {
     fetchActiveRuns();
   }, [fetchActiveRuns]);
 
-  // Lightweight poll fallback — only when active runs exist (30s interval, SSE is primary)
+  // SSE-driven updates: on terminal state transitions, refresh active runs
+  useEffect(() => {
+    if (sseJobs.size === 0) return;
+    let needsRefresh = false;
+    for (const [id, event] of sseJobs) {
+      if (["completed", "failed", "cancelled"].includes(event.state)) {
+        if (activeRuns.some(r => r.id === id)) { needsRefresh = true; break; }
+      }
+    }
+    if (needsRefresh) fetchActiveRuns();
+  }, [sseJobs, activeRuns, fetchActiveRuns]);
+
+  // Lightweight poll fallback — only when active runs exist
   useEffect(() => {
     const interval = setInterval(() => {
       if (document.hidden) return;
@@ -79,16 +93,21 @@ export default function ModelPage() {
     setLoading(true);
     setError(null);
 
+    let submittedRunId: string | undefined;
     try {
-      const result = await apiPost<{ jobId: string }>("/api/v1/sdm/run", { ...config, async: true });
-      if (result.jobId) {
-        setJobId(result.jobId);
+      const result = await apiPost<{ runId: string; jobId: string }>("/api/v1/sdm/run", { ...config, async: true });
+      // Use runId (DB UUID) as the canonical identifier — SSE events and API endpoints use this
+      const runId = result.runId || result.jobId;
+      submittedRunId = runId;
+      if (runId) {
+        setJobId(runId);
         setJobStartTime(new Date().toISOString());
         setRunRefreshKey(k => k + 1);
-        // Optimistically add to active runs
-        setActiveRuns(prev => [...prev, { id: result.jobId, species: config.species || "Unknown", model_id: config.modelId || "glm", status: "running" }]);
+        // Optimistically add to active runs (id matches fetchActiveRuns which returns runs.id)
+        setActiveRuns(prev => [...prev, { id: runId, species: config.species || "Untitled species", model_id: config.modelId || "glm", status: "queued" }]);
       }
     } catch (err) {
+      if (submittedRunId) setActiveRuns(prev => prev.filter(r => r.id !== submittedRunId));
       setError(err instanceof Error ? err.message : "Model run failed");
     } finally {
       setLoading(false);
@@ -148,20 +167,44 @@ export default function ModelPage() {
                 <p className="text-xs text-sdm-muted">
                   Wait for the active run(s) to complete before starting a new one.
                 </p>
-                <button
-                  onClick={async () => {
-                    try {
-                      await apiPost("/api/v1/sdm/cancel-all", { status: "active" });
-                      fetchActiveRuns();
-                    } catch {
-                      setError("Failed to cancel run(s)");
-                    }
-                  }}
-                  className="ml-auto inline-flex items-center gap-1 rounded border border-sdm-danger/30 bg-sdm-danger/10 px-2 py-1 text-xs text-sdm-danger hover:bg-sdm-danger/20"
-                >
-                  <Ban className="h-3 w-3" />
-                  Cancel {activeRuns.length === 1 ? "run" : "all"}
-                </button>
+                {showCancelAllConfirm ? (
+                  <div className="ml-auto flex items-center gap-2">
+                    <span className="text-xs text-sdm-warning">Cancel {activeRuns.length === 1 ? "this run" : "all runs"}?</span>
+                    <button
+                      onClick={async () => {
+                        setCancellingAll(true);
+                        try {
+                          await apiPost("/api/v1/sdm/cancel-all", { status: "active" });
+                          setRunRefreshKey(k => k + 1);
+                          fetchActiveRuns();
+                        } catch {
+                          setError("Failed to cancel run(s)");
+                        } finally {
+                          setCancellingAll(false);
+                          setShowCancelAllConfirm(false);
+                        }
+                      }}
+                      disabled={cancellingAll}
+                      className="rounded bg-sdm-danger px-2 py-1 text-xs text-white hover:bg-sdm-danger disabled:opacity-50"
+                    >
+                      {cancellingAll ? "Cancelling..." : "Yes"}
+                    </button>
+                    <button
+                      onClick={() => setShowCancelAllConfirm(false)}
+                      className="rounded border border-sdm-border px-2 py-1 text-xs text-sdm-text hover:bg-sdm-surface-soft"
+                    >
+                      No
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowCancelAllConfirm(true)}
+                    className="ml-auto inline-flex items-center gap-1 rounded border border-sdm-danger/30 bg-sdm-danger/10 px-2 py-1 text-xs text-sdm-danger hover:bg-sdm-danger/20"
+                  >
+                    <Ban className="h-3 w-3" />
+                    Cancel {activeRuns.length === 1 ? "run" : "all"}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -171,8 +214,15 @@ export default function ModelPage() {
             recordCount={recordCount}
             cleanedOccurrence={cleanedOccurrence}
             onSubmit={handleSubmit}
-            loading={loading || checkingRuns || activeRuns.length > 0}
+            loading={loading || activeRuns.length > 0}
           />
+
+          {checkingRuns && (
+            <div className="mt-4 flex items-center gap-2 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-xs text-sdm-muted">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              Checking for active runs...
+            </div>
+          )}
 
           {error && (
             <div className="mt-4 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
@@ -233,9 +283,9 @@ export default function ModelPage() {
                 )}
               </div>
             ) : (
-              <p className="text-xs text-sdm-muted">
+              <Link href="/data?tab=upload" className="text-xs text-sdm-accent underline hover:no-underline">
                 Upload occurrence data in the Data tab first.
-              </p>
+              </Link>
             )}
           </div>
 

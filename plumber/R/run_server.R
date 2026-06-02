@@ -108,9 +108,13 @@ internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
 # Auth helper: stop request with error response
 auth_fail <- function(res, status, msg) {
   tryCatch(res$status <- status, error = function(e) NULL)
-  res$body <- charToRaw(msg)
-  # Signal an error to stop Plumber from calling the handler
-  stop(msg, call. = FALSE)
+  tryCatch(res$setHeader("Content-Type", "application/json"), error = function(e) NULL)
+  tryCatch({
+    res$body <- charToRaw(if (is.character(msg)) msg else jsonlite::toJSON(
+      list(error = as.character(msg)), auto_unbox = TRUE
+    ))
+  }, error = function(e) NULL)
+  stop("REQUEST_REJECTED", call. = FALSE)
 }
 
 # Helper to safely read headers
@@ -130,6 +134,11 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
 
   # Disable auth in dev/test if env var set
   if (identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
+    if (identical(Sys.getenv("NODE_ENV"), "production")) {
+      cat("FATAL: PLUMBER_AUTH_DISABLED is set in production — refusing to start.\n")
+      cat("  Remove PLUMBER_AUTH_DISABLED=true from production environment.\n")
+      quit(status = 1)
+    }
     return(NULL)
   }
 

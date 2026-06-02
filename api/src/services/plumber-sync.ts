@@ -33,12 +33,19 @@ interface Consecutive404 {
 const consecutive404s = new Map<string, Consecutive404>();
 
 function extractHttpStatusCode(msg: string): number | null {
-  const match = msg.match(/status:\s*(\d{3})/);
-  if (match) return parseInt(match[1], 10);
-  const bareMatch = msg.match(/\b(\d{3})\b/);
-  if (bareMatch) {
-    const code = parseInt(bareMatch[1], 10);
-    if (code >= 100 && code < 600) return code;
+  // Match explicit HTTP status patterns only — avoids false positives from arbitrary 3-digit numbers.
+  // These patterns cover: "status: 404", "HTTP/1.1 404", "HTTP 404", "status code 404",
+  // and our own error format: "Failed to X: 404 ..."
+  const patterns = [
+    /status:\s*(\d{3})/i,
+    /HTTP\/\d\.\d\s+(\d{3})/,
+    /HTTP\s+(\d{3})/,
+    /status code (\d{3})/i,
+    /:\s*(404|408|429|500|502|503|504)\b/,
+  ];
+  for (const pat of patterns) {
+    const m = msg.match(pat);
+    if (m) return parseInt(m[1], 10);
   }
   return null;
 }
@@ -101,6 +108,14 @@ async function syncRunningJobs() {
       try {
         const status = await client.getModelStatus(run.jobId);
         const plumberStatus = (status as any).status as string;
+
+        // Guard: re-check DB status in case cancel route changed it since the query above
+        const [currentRun] = await db
+          .select({ status: runs.status })
+          .from(runs)
+          .where(eq(runs.id, run.id))
+          .limit(1);
+        if (currentRun && currentRun.status !== "running") continue;
         const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log : [];
         const progressJson = (status as any).progress_json;
         const error = (status as any).error as string | undefined;
@@ -128,6 +143,23 @@ async function syncRunningJobs() {
             jobId: run.id,
             state: "active",
             progress: pct ?? 50,
+            logs,
+            currentStage: plumberLastStage ?? null,
+            progressJson,
+          });
+        } else if (plumberStatus === "loading" || plumberStatus === "pending") {
+          // Forward progress logs even during initialization phases
+          if (plumberLastStage) {
+            await db
+              .update(runs)
+              .set({ lastStage: plumberLastStage })
+              .where(eq(runs.id, run.id));
+          }
+
+          jobEventBus.emitJobStatus({
+            jobId: run.id,
+            state: plumberStatus === "loading" ? "loading" : "pending",
+            progress: 0,
             logs,
             currentStage: plumberLastStage ?? null,
             progressJson,
@@ -182,7 +214,7 @@ async function syncRunningJobs() {
 
           // Encrypt output files at rest
           if (run.jobId) {
-            const jobDir = join(PROJECT_ROOT, "outputs", "jobs", run.id);
+            const jobDir = join(PROJECT_ROOT, "outputs", "jobs", run.jobId);
             encryptOutputs(jobDir);
           }
 
@@ -216,6 +248,8 @@ async function syncRunningJobs() {
             progress: 0,
             logs,
             failedReason: error ?? "Model run failed",
+            error_code: (status as any).error_code as string | undefined,
+            error_hint: (status as any).error_hint as string | undefined,
             progressJson,
           });
         } else if (plumberStatus === "cancelled") {
@@ -275,18 +309,65 @@ async function syncRunningJobs() {
         const timeSinceFirst = Date.now() - existing.firstSeen;
 
         if (existing.count >= CONSECUTIVE_404_THRESHOLD && timeSinceFirst >= CONSECUTIVE_404_WINDOW_MS) {
+          // Final check: fetch Plumber status directly to see if the run actually completed
+          // (404 may have been transient)
+          let plumberErrorDetail = "";
+          let finalPlumberStatus: string | undefined;
+          try {
+            const probeRes = await fetch(
+              `${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/models/status/${run.jobId}`,
+              { signal: AbortSignal.timeout(3000) },
+            );
+            const probeBody = await probeRes.text().catch(() => "");
+            plumberErrorDetail = `probe_status=${probeRes.status} body=${probeBody.slice(0, 500)}`;
+            // Try to parse probe response — if Plumber reports a terminal state, use it
+            if (probeRes.ok) {
+              const probeJson = JSON.parse(probeBody);
+              const ps = probeJson.status as string;
+              if (["completed", "failed", "cancelled"].includes(ps)) {
+                finalPlumberStatus = ps;
+                await db.update(runs).set({
+                  status: ps as any,
+                  error: ps === "failed" ? ((probeJson.error as string) || "Model run failed") : null,
+                  errorCode: ps === "failed" ? (probeJson.error_code as string ?? null) : null,
+                  errorHint: ps === "failed" ? (probeJson.error_hint as string ?? null) : null,
+                  metrics: ps === "completed" ? (probeJson.metrics ?? null) : null,
+                  outputFiles: ps === "completed" ? (probeJson.output_files ?? null) : null,
+                  completedAt: new Date(),
+                }).where(eq(runs.id, run.id));
+                jobEventBus.emitJobStatus({
+                  jobId: run.id,
+                  state: ps,
+                  progress: ps === "completed" ? 100 : 0,
+                  logs: Array.isArray(probeJson.progress_log) ? probeJson.progress_log : [],
+                  result: ps === "completed" ? probeJson : undefined,
+                  failedReason: ps === "failed" ? (probeJson.error as string | undefined) || undefined : undefined,
+                  progressJson: probeJson.progress_json ?? null,
+                });
+                consecutive404s.delete(run.id);
+                console.warn(`[plumber-sync] Probe found terminal status "${ps}" for run ${run.id} — recovering from 404 streak.`);
+                continue;
+              }
+            }
+          } catch (probeErr) {
+            plumberErrorDetail = `probe_failed=${probeErr instanceof Error ? probeErr.message.slice(0, 200) : "unknown"}`;
+          }
+
           console.error(
             `[plumber-sync] Marking run ${run.id} as failed: ` +
             `consecutive_404s=${existing.count}, ` +
             `time_since_first=${Math.round(timeSinceFirst / 1000)}s, ` +
-            `plumber_url=${process.env.PLUMBER_URL || "http://localhost:8000"}`
+            `plumber_url=${process.env.PLUMBER_URL || "http://localhost:8000"}, ` +
+            plumberErrorDetail
           );
+
+          const failedReason = `Process crashed or was killed before status could be recorded. ${plumberErrorDetail}`;
 
           await db
             .update(runs)
             .set({
               status: "failed",
-              error: "Process crashed or was killed before status could be recorded",
+              error: failedReason,
               errorCode: "PROCESS_CRASH",
               errorHint: "The R computation process was killed (OOM, segfault, or signal). Check memory, reduce resolution, or use fewer covariates.",
               completedAt: new Date(),
@@ -297,7 +378,8 @@ async function syncRunningJobs() {
             jobId: run.id,
             state: "failed",
             progress: 0,
-            failedReason: "Process crashed or was killed before status could be recorded",
+            failedReason,
+            progressJson: null,
           });
 
           consecutive404s.delete(run.id);

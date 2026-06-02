@@ -1,7 +1,7 @@
 import { createMiddleware } from "hono/factory";
-import { Redis } from "ioredis";
+import type { Redis } from "ioredis";
+import { getSharedRedis } from "../services/queue.js";
 
-let redis: Redis | null = null;
 let redisAvailable = false;
 
 // In-memory fallback rate limiter for when Redis is unavailable
@@ -30,17 +30,13 @@ function checkMemoryRateLimit(key: string, windowMs: number, max: number): boole
 }
 
 function getRedis(): Redis | null {
-  if (redis === null) {
-    redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
-      lazyConnect: true,
-      maxRetriesPerRequest: 0,
-      retryStrategy: () => null,
-    });
-    redis.on("error", () => { redisAvailable = false; });
-    redis.on("ready", () => { redisAvailable = true; });
-    redis.connect().then(() => { redisAvailable = true; }).catch(() => { redisAvailable = false; });
+  const shared = getSharedRedis();
+  if (shared) {
+    redisAvailable = shared.status === "ready";
+    return shared;
   }
-  return redisAvailable ? redis : null;
+  redisAvailable = false;
+  return null;
 }
 
 async function redisZremrangebyscore(key: string, min: number, max: number): Promise<void> {
@@ -75,7 +71,8 @@ export interface RateLimitOptions {
 
 export function rateLimit(options: RateLimitOptions) {
   return createMiddleware(async (c, next) => {
-    const key = `${options.keyPrefix || "rl"}:${c.req.url}`;
+    const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || c.req.header("cf-connecting-ip") || "unknown";
+    const key = `${options.keyPrefix || "rl"}:${ip}`;
     const r = getRedis();
 
     if (r) {
@@ -128,9 +125,6 @@ export async function checkRateLimit(key: string, windowMs: number, max: number)
 }
 
 export function closeRateLimitRedis(): void {
-  if (redis) {
-    redis.disconnect();
-    redis = null;
-    redisAvailable = false;
-  }
+  redisAvailable = false;
+  // Redis connection is shared via queue.ts — shutdownQueue handles closure
 }

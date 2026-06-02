@@ -16,19 +16,10 @@ let _worker: Worker<SdmJobData, SdmJobResult> | null = null;
 let _redisDisabled = false;
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let _failCount = 0;
-const MAX_REDIS_FAIL_COUNT = 5;
 
 function getReconnectDelay(): number {
-  const delays = [30000, 60000, 120000, 300000];
+  const delays = [10000, 30000, 60000, 120000, 300000];
   return delays[Math.min(_failCount, delays.length - 1)];
-}
-
-function logPermanentOffline() {
-  const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-  console.error(
-    `[Redis] Permanently offline after ${MAX_REDIS_FAIL_COUNT} consecutive failures at ${redisUrl}. ` +
-    `Restart the API server to retry, or check that Redis is running.`
-  );
 }
 
 const CLIMATE_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.CLIMATE_DOWNLOAD_TIMEOUT_MS || "1800000", 10);
@@ -60,27 +51,23 @@ function isMaxRetriesError(err: unknown): boolean {
 function disableRedis() {
   if (_redisDisabled) return;
   _redisDisabled = true;
+  _worker?.close();
+  _worker = null;
   _connection = null;
   _bullmqConnection = null;
   _queue = null;
 
   _failCount++;
-  if (_failCount >= MAX_REDIS_FAIL_COUNT) {
-    logPermanentOffline();
-    return;
-  }
-
-  if (!_reconnectTimer) {
-    const delay = getReconnectDelay();
-    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-    console.warn(`[Redis] Unavailable at ${redisUrl} (attempt ${_failCount}/${MAX_REDIS_FAIL_COUNT}). Retrying in ${delay / 1000}s.`);
-    _reconnectTimer = setTimeout(() => {
-      _reconnectTimer = null;
-      _redisDisabled = false;
-      _worker = null;
-      console.log(`[Redis] Reconnect timer fired; next request will retry connection.`);
-    }, delay);
-  }
+  const delay = getReconnectDelay();
+  const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+  console.warn(`[Redis] Unavailable at ${redisUrl} (attempt ${_failCount}). Retrying in ${delay / 1000}s.`);
+  if (_reconnectTimer) clearTimeout(_reconnectTimer);
+  _reconnectTimer = setTimeout(() => {
+    _reconnectTimer = null;
+    _redisDisabled = false;
+    console.log(`[Redis] Reconnect timer fired; reinitializing connections.`);
+    ensureWorker();
+  }, delay);
 }
 
 export function resetRedis() {
@@ -349,7 +336,9 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                   } else if (runStatus === "failed") {
                     cleanCompleted = true;
                     const cleanError = (cleanStatus as any).error as string || "Clean job failed";
-                    result = { status: "error", error: cleanError };
+                    const cleanErrCode = (cleanStatus as any).error_code as string | undefined;
+                    const cleanErrHint = (cleanStatus as any).error_hint as string | undefined;
+                    result = { status: "error", error: cleanError, error_code: cleanErrCode ?? null, error_hint: cleanErrHint ?? null };
                     await job.updateProgress(100);
                     jobEventBus.emitJobStatus({
                       jobId: job.id!,
@@ -456,6 +445,14 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                     const metrics = (modelStatus as any).metrics as Record<string, unknown> | undefined;
 
                     if (runId) {
+                      // Guard against plumber-sync having already written a terminal state
+                      const [currentRun] = await db
+                        .select({ status: runs.status })
+                        .from(runs)
+                        .where(eq(runs.id, runId))
+                        .limit(1);
+                      if (currentRun && currentRun.status !== "running") continue;
+
                       await db
                         .update(runs)
                         .set({
@@ -504,7 +501,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       error_code: "CANCELLED",
                       error_hint: null,
                     });
-                    result = { status: "error", error: "Cancelled" };
+                    result = { status: "error", error: "Cancelled", error_code: "CANCELLED" };
                   } else if (pollState === "failed" || pollState === "error") {
                     modelCompleted = true;
                     const errMsg = (modelStatus as any).error as string || "Model run failed";
@@ -530,7 +527,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       error_code: errCode ?? null,
                       error_hint: errHint ?? null,
                     });
-                    result = { status: "error", error: errMsg };
+                    result = { status: "error", error: errMsg, error_code: errCode ?? null, error_hint: errHint ?? null };
                   }
                 } catch (pollErr) {
                   const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr);
@@ -546,7 +543,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                     .set({ status: "failed", completedAt: new Date(), error: timeoutMsg })
                     .where(eq(runs.id, runId));
                 }
-                result = { status: "error", error: timeoutMsg };
+                result = { status: "error", error: timeoutMsg, error_code: "PLUMBER_TIMEOUT" };
                 jobEventBus.emitJobStatus({
                   jobId: runId ?? job.id!,
                   state: "failed",
@@ -699,21 +696,39 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
           }
         }
 
+        // Use run UUID for model jobs (for SSE event routing), fall back to BullMQ job ID
+        const jobIdForEvent = type === "model" ? (payload.runId as string || job.id!) : job.id!;
         jobEventBus.emitJobStatus({
-          jobId: job.id!,
+          jobId: jobIdForEvent,
           state: "failed",
           progress: 0,
           failedReason: finalError,
         });
 
+        // Re-throw for retryable errors so BullMQ's retry mechanism works
+        if (finalError.includes("timeout") || finalError.includes("ECONNREFUSED") || finalError.includes("ETIMEDOUT") || finalError.includes("500") || finalError.includes("502") || finalError.includes("503")) {
+          throw err;
+        }
+
         return {
           status: "error",
           error: finalError,
+          error_code: "INTERNAL_ERROR",
+          error_hint: "Check the Plumber logs for detailed error information",
         };
       }
     },
     { connection: conn, concurrency: 3 }
   );
+
+  // Handle stalled jobs — BullMQ marks jobs as stalled when a worker crashes mid-processing
+  _worker.on("stalled", (jobId: string) => {
+    console.warn(`[Worker] Job stalled: ${jobId}`);
+  });
+  _worker.on("failed", (job: Job | undefined, err: Error) => {
+    if (job) console.warn(`[Worker] Job ${job.id} failed after retries: ${err.message}`);
+  });
+
   return _worker;
 }
 
@@ -723,6 +738,11 @@ export function getJobQueue(): Queue | null {
 
 export function getQueueClient(): IORedis | null {
   if (_redisDisabled) return null;
+  return getConnection();
+}
+
+/** Shared Redis connection for cache and rate-limit modules (avoids creating extra connections) */
+export function getSharedRedis(): IORedis | null {
   return getConnection();
 }
 
@@ -738,7 +758,7 @@ export function getRedisStatus(): {
     disabled: _redisDisabled,
     failCount: _failCount,
     reconnectDelayMs: _reconnectTimer ? getReconnectDelay() : 0,
-    permanentOffline: _failCount >= MAX_REDIS_FAIL_COUNT,
+    permanentOffline: false,
   };
 }
 
@@ -752,6 +772,8 @@ export interface SdmJobResult {
   status: "success" | "error";
   data?: Record<string, unknown>;
   error?: string;
+  error_code?: string | null;
+  error_hint?: string | null;
 }
 
 export async function enqueueSdmJob(data: SdmJobData, userId?: string): Promise<string> {
