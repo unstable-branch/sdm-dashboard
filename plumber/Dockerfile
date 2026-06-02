@@ -1,13 +1,15 @@
 # syntax=docker/dockerfile:1
 FROM rocker/r-ver:4.4.2
 
+LABEL org.opencontainers.image.title="SDM Dashboard — Plumber"
+LABEL org.opencontainers.image.description="R/Plumber computation API for SDM model runs"
+LABEL org.opencontainers.image.source="https://github.com/unstable-branch/sdm-dashboard"
+
 ARG R_CRAN_REPO=https://packagemanager.posit.co/cran/__linux__/noble/latest
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV R_CRAN_REPO=${R_CRAN_REPO}
 
-# System deps: terra + sf need GDAL, GEOS, PROJ; httr/rgbif/finch need libcurl;
-# plumber 1.3.3 needs sodium which needs libsodium-dev
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdal-dev \
     libgeos-dev \
@@ -19,7 +21,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsodium-dev \
     libhiredis-dev \
     curl \
-    pandoc \
     && rm -rf /var/lib/apt/lists/*
 
 RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages(c( \
@@ -34,7 +35,8 @@ RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages
     'testthat', \
     'DBI', 'RPostgres', 'digest', \
     'Rook', 'openssl' \
-  ), Ncpus=4)"
+  ), Ncpus=4)" \
+  && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
 
 WORKDIR /app
 

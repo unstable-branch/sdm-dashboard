@@ -1,5 +1,9 @@
 FROM node:22-alpine AS builder
 
+LABEL org.opencontainers.image.title="SDM Dashboard — API"
+LABEL org.opencontainers.image.description="Hono BFF API server with BullMQ job queue"
+LABEL org.opencontainers.image.source="https://github.com/unstable-branch/sdm-dashboard"
+
 RUN apk add --no-cache dumb-init curl bash
 
 RUN npm install -g pnpm@10.30.3
@@ -35,6 +39,10 @@ RUN if [ ! -f packages/shared/dist/index.js ]; then pnpm --filter @sdm/shared bu
 RUN pnpm --filter @sdm/api build
 
 FROM node:22-alpine AS runner
+
+LABEL org.opencontainers.image.title="SDM Dashboard — API"
+LABEL org.opencontainers.image.description="Hono BFF API server with BullMQ job queue"
+LABEL org.opencontainers.image.source="https://github.com/unstable-branch/sdm-dashboard"
 
 RUN apk add --no-cache dumb-init curl
 
