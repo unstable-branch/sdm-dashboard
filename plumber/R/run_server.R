@@ -34,6 +34,9 @@ source(file.path(app_dir, "plumber", "R", "auth.R"), local = FALSE)
 # Source Redis helper
 source(file.path(app_dir, "plumber", "R", "redis.R"), local = FALSE)
 
+# Source shared plumber helpers used by route handlers
+source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"), local = FALSE)
+
 # Set up DB connection pool for auth and other DB queries
 library(pool)
 db_pool <- tryCatch({
