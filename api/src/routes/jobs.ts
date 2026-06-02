@@ -15,7 +15,7 @@ let activeSseClients = 0;
 
 app.use("/sse", authMiddleware);
 
-app.get("/sse", (c) => {
+app.get("/sse", async (c) => {
   const user = c.get("user");
 
   if (activeSseClients >= MAX_SSE_CLIENTS) {
@@ -24,11 +24,15 @@ app.get("/sse", (c) => {
   activeSseClients++;
   const cleanup = () => { activeSseClients = Math.max(0, activeSseClients - 1); };
 
+  // Get user's project IDs once (admin = null = all)
+  const myProjectIds = await getUserProjectIds(user);
+
   return streamSSE(c, async (stream) => {
     let aborted = false;
     stream.onAbort(() => {
       aborted = true;
       cleanup();
+    });
 
     // Get user's project IDs once (admin = null = all)
     const myProjectIds = await getUserProjectIds(user);
