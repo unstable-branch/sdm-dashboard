@@ -31,6 +31,20 @@ TMUX_CMD="TMPDIR=/tmp tmux -L sdm"
 export PATH="$HOME/.npm-global/bin:$PATH"
 
 MODE="${1:-dev}"
+FRONTEND_BUNDLER="${FRONTEND_BUNDLER:-webpack}"
+
+case "$FRONTEND_BUNDLER" in
+  webpack)
+    NEXT_DEV_BUNDLER_FLAG="--webpack"
+    ;;
+  turbo|turbopack)
+    NEXT_DEV_BUNDLER_FLAG="--turbo"
+    ;;
+  *)
+    echo -e "${RED}FRONTEND_BUNDLER must be 'webpack' or 'turbo'.${NC}"
+    exit 1
+    ;;
+esac
 
 echo ""
 echo "========================================="
@@ -112,8 +126,8 @@ else
 fi
 
 # 5. Start Frontend locally in tmux
-echo -e "${YELLOW}[5/5]${NC} Starting Frontend (Next.js) on port 3000..."
-eval "$TMUX_CMD new-session -d -s sdm-frontend \"cd '${SCRIPT_DIR}/frontend' && npx --yes next dev --port 3000 -H 127.0.0.1\"" 2>&1
+echo -e "${YELLOW}[5/5]${NC} Starting Frontend (Next.js/${FRONTEND_BUNDLER}) on port 3000..."
+eval "$TMUX_CMD new-session -d -s sdm-frontend \"cd '${SCRIPT_DIR}/frontend' && npx --yes next dev ${NEXT_DEV_BUNDLER_FLAG} --port 3000 -H 127.0.0.1\"" 2>&1
 
 # Wait for frontend to start
 sleep 12
