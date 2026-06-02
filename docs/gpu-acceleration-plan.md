@@ -117,8 +117,8 @@ XGBoost R package supports `tree_method = "gpu_hist"` since v1.3.0, but the Posi
 | P5 | XGBoost GPU | ~25 | 1 hr | P1, P3 |
 | P6 | GPU health | ~40 | 45 min | P3, P5 |
 
-**CPU-only (P0-P4):** ~130 lines, ~3.5 hours  
-**With GPU (P0-P6):** ~200 lines, ~5.5 hours  
+**CPU-only (P0-P4):** ~130 lines, ~3.5 hours
+**With GPU (P0-P6):** ~200 lines, ~5.5 hours
 
 ---
 
