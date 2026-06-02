@@ -37,7 +37,7 @@ export const csrfMiddleware = createMiddleware(async (c, next) => {
 
   const origin = c.req.header("Origin");
   const referer = c.req.header("Referer");
-  const host = c.req.header("Host") || c.req.header("x-forwarded-host");
+  const host = c.req.header("x-forwarded-host") || c.req.header("Host");
 
   if (!origin && !referer) {
     return c.json({ error: "CSRF validation failed: missing Origin/Referer" }, 403);
