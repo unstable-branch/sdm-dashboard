@@ -298,57 +298,11 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
     cc_tests = cc_tests
   ), app_dir, user_id)
 
-  tryCatch({
-    cleaned_path <- file.path(
-      app_dir, "data", "uploads",
-      paste0("cleaned_", format(Sys.time(), "%Y%m%d_%H%M%S_"), basename(file_id))
-    )
-    utils::write.csv(occ, cleaned_path, row.names = FALSE)
-    encrypt_file(cleaned_path, cleaned_path)
-
-    # Persist cleaned state to uploads table
-    con <- db_connect()
-    if (!is.null(con)) {
-      on.exit(DBI::dbDisconnect(con), add = TRUE)
-      tryCatch(
-        DBI::dbExecute(con,
-          "UPDATE uploads SET is_cleaned = TRUE, cleaned_file_path = $1,
-           cleaned_valid_records = $2, cleaned_original_rows = $3
-           WHERE file_path = $4",
-          params = list(cleaned_path, nrow(occ), result$original_rows, file_id)
-        ),
-        error = function(e) NULL
-      )
-      # Track cleaned file size toward user's storage quota
-      cleaned_size <- file.info(cleaned_path)$size
-      tryCatch(
-        DBI::dbExecute(con,
-          "UPDATE users SET storage_used_bytes = COALESCE(storage_used_bytes, 0) + $1 WHERE id = $2",
-          params = list(cleaned_size, req$user_id %||% "unknown")
-        ),
-        error = function(e) NULL
-      )
-    }
-
-    preview <- head(occ, 5)
-    preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
-
-    list(
-      cleaned_id = file_id,
-      cleaned_file_id = cleaned_path,
-      valid_records = nrow(occ),
-      original_rows = result$original_rows,
-      removed_bad_coordinates = result$removed_bad_coordinates,
-      removed_duplicates = result$removed_duplicates,
-      n_absent_excluded = result$n_absent_excluded,
-      source_counts = as.list(source_counts),
-      occurrence_preview = preview,
-      cc_flagged = if ("cc_flag" %in% names(occ)) sum(occ$cc_flag, na.rm = TRUE) else 0L,
-      training_extent = make_training_extent(occ, buffer = 2)
-    )
-  }, error = function(e) {
-    sdm_error(req, 400, conditionMessage(e))
-  })
+  list(
+    job_id = job_id,
+    status = "running",
+    message = "Occurrence cleaning started in background"
+  )
 }
 
 #* Search GBIF for occurrence records (async)

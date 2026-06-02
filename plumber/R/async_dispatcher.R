@@ -78,6 +78,7 @@ result <- tryCatch({
           paste0("cleaned_", format(Sys.time(), "%Y%m%d_%H%M%S_"), basename(file_id))
         )
         utils::write.csv(occ$occ, cleaned_path, row.names = FALSE)
+        encrypt_file(cleaned_path, cleaned_path)
 
         list(
           status = "completed",

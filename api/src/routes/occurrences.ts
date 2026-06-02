@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, accessSync, constants, promises as fs } from "fs";
-import { join, resolve, dirname, extname } from "path";
+import { isAbsolute, join, resolve, dirname, extname } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import { plumberClient } from "../services/plumber.js";
@@ -67,6 +67,9 @@ function decryptToUploads(encPath: string): string | null {
 }
 
 function resolveFilePath(fileId: string): { path: string } {
+  if (isAbsolute(fileId) && !fileId.endsWith(".enc")) {
+    return { path: fileId };
+  }
   const encPath = join(UPLOAD_DIR, fileId);
   if (encPath.endsWith(".enc")) {
     const decrypted = decryptToUploads(encPath);
@@ -141,13 +144,25 @@ dataRoutes.post("/occurrences/upload", async (c) => {
 
     const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
 
+    if (result && typeof result === "object" && "error" in result) {
+      const error = String((result as Record<string, unknown>).error || "Upload failed");
+      return c.json({ error }, 400);
+    }
+
+    const fileId = result.file_id || result.file_path;
+    const normalizedResult = {
+      ...result,
+      file_id: fileId,
+      file_path: result.file_path || fileId,
+    };
+
     // Track storage usage on success
     await db
       .update(users)
       .set({ storageUsedBytes: (quota?.used ?? 0) + buffer.length })
       .where(eq(users.id, user.id));
 
-    return c.json(result);
+    return c.json(normalizedResult);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
     const isPlumberDown = message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("connect");

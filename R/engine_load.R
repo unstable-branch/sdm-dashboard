@@ -30,6 +30,7 @@ modules <- c(
   "packages.R",
   "model_payload_normalizer.R",
   "logging.R",
+  "crypto.R",
   "validation.R",
   "app_helpers.R",
   "optimized_sdm.R",
