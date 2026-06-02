@@ -99,6 +99,7 @@ cd "${SCRIPT_DIR}"
 
 # 4. Start API locally in tmux
 echo -e "${YELLOW}[4/5]${NC} Starting API (Hono) on port 4000..."
+eval "$TMUX_CMD kill-session -t sdm-api" 2>/dev/null || true
 eval "$TMUX_CMD new-session -d -s sdm-api \"cd '${SCRIPT_DIR}/api' && npx --yes tsx --env-file=../.env src/index.ts\"" 2>&1
 
 # Wait for API to start
@@ -113,6 +114,7 @@ fi
 
 # 5. Start Frontend locally in tmux
 echo -e "${YELLOW}[5/5]${NC} Starting Frontend (Next.js) on port 3000..."
+eval "$TMUX_CMD kill-session -t sdm-frontend" 2>/dev/null || true
 eval "$TMUX_CMD new-session -d -s sdm-frontend \"cd '${SCRIPT_DIR}/frontend' && npx --yes next dev --port 3000 -H 127.0.0.1\"" 2>&1
 
 # Wait for frontend to start
