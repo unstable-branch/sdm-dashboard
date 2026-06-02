@@ -248,7 +248,17 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
               </tr>
             ))}
           </thead>
-          <tbody>
+          <tbody
+            onClick={(e) => {
+              const tr = (e.target as HTMLElement).closest("tr");
+              if (tr?.dataset.rowIndex !== undefined) toggleFlag(Number(tr.dataset.rowIndex));
+            }}
+            onMouseEnter={(e) => {
+              const tr = (e.target as HTMLElement).closest("tr");
+              if (tr?.dataset.rowIndex !== undefined) setHoveredRow(Number(tr.dataset.rowIndex));
+            }}
+            onMouseLeave={() => setHoveredRow(null)}
+          >
             {paddingTop > 0 && (
               <tr>
                 <td style={{ height: paddingTop }} />
@@ -260,9 +270,7 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
               return (
                   <tr
                     key={row.id}
-                    onClick={() => toggleFlag(virtualRow.index)}
-                    onMouseEnter={() => setHoveredRow(virtualRow.index)}
-                    onMouseLeave={() => setHoveredRow(null)}
+                    data-row-index={virtualRow.index}
                     className="cursor-pointer"
                     style={{ height: virtualRow.size }}
                   >
