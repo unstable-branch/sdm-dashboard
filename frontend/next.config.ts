@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: REPO_ROOT,
   },
-  reactStrictMode: true,
+
   allowedDevOrigins: ['100.84.70.113', '*.tailscale.com', '*.tailscale.net'],
   experimental: {
     proxyClientMaxBodySize: "50mb",
