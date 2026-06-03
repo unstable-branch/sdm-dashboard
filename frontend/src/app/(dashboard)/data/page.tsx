@@ -265,6 +265,8 @@ function DataPageContent() {
         setCleanedOccurrence({ filePath: (result.cleaned_file_id as string) || "", df: (result.cleaned_records as Record<string, unknown>[]) || [], sourceCounts: (result.source_counts as Record<string, number>) || {}, nAbsentExcluded: (result.n_absent_excluded as number) || 0, originalRows: (result.original_rows as number) || 0, validRecords: (result.valid_records as number) || 0 });
         setRecordCount((result.valid_records as number) || 0);
         const rp = (result.pipelineRunId as string) || pipelineRunId; if (rp) setPipelineRunId(rp);
+        const currentFileId = (useSDMStore.getState().uploadResult?.file_id ?? "") as string;
+        if (currentFileId && result.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId)}`, { cleaned: true, cleaned_file_path: result.cleaned_file_id, cleaned_valid_records: result.valid_records || 0, cleaned_original_rows: result.original_rows || 0 }).catch(() => {});
       }
     } catch (err) { setCleanError(err instanceof Error ? err.message : "Clean failed"); } finally { if (!effectiveAsync) setCleanLoading(false); }
   };
@@ -281,7 +283,7 @@ function DataPageContent() {
       useSDMStore.getState().setDetectedSpecies(Object.keys(counts));
     }
     setCleanJobId(null); setCleanLoading(false);
-    const currentFileId = (useSDMStore.getState().uploadResult?.file_id ?? "") as string; if (currentFileId && cleanData.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId)}`, { cleaned: true, cleaned_file_path: cleanData.cleaned_file_id }).catch(() => console.warn("[data] Failed to update upload cleaned status"));
+    const currentFileId = (useSDMStore.getState().uploadResult?.file_id ?? "") as string; if (currentFileId && cleanData.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId)}`, { cleaned: true, cleaned_file_path: cleanData.cleaned_file_id, cleaned_valid_records: cleanData.valid_records || 0, cleaned_original_rows: cleanData.original_rows || 0 }).catch(() => console.warn("[data] Failed to update upload cleaned status"));
   };
 
   const handleGbifSearch = async (taxon: string, country: string, maxRecords: number) => {

@@ -6,7 +6,7 @@ import { randomUUID } from "crypto";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { species, occurrences, users, uploadedFiles } from "../db/schema.js";
+import { species, occurrences, users, uploadedFiles, uploads } from "../db/schema.js";
 import { and, count, eq, inArray, desc, sql } from "drizzle-orm";
 import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware } from "../middleware/auth.js";
@@ -220,7 +220,28 @@ dataRoutes.post("/occurrences/clean", async (c) => {
 
     if (jobId) {
       const result = await pollPlumberJob(jobId, 600000);
+      // Update uploads table with cleaned status (sync path — client polling won't fire handleCleanComplete)
+      if (body.file_id && result && typeof result === "object" && (result as any).cleaned_file_id) {
+        const fp = body.file_id;
+        db.update(uploads).set({
+          isCleaned: true,
+          cleanedFilePath: (result as any).cleaned_file_id as string,
+          cleanedValidRecords: (result as any).valid_records ?? null,
+          cleanedOriginalRows: (result as any).original_rows ?? null,
+        }).where(eq(uploads.filePath, fp)).catch((e: unknown) => console.warn("[clean] Failed to update uploads table:", e instanceof Error ? e.message : e));
+      }
       return c.json(result);
+    }
+
+    // Sync clean (no job ID at all) — update uploads table
+    if (body.file_id && initial && typeof initial === "object" && (initial as any).cleaned_file_id) {
+      const fp = body.file_id;
+      db.update(uploads).set({
+        isCleaned: true,
+        cleanedFilePath: (initial as any).cleaned_file_id as string,
+        cleanedValidRecords: (initial as any).valid_records ?? null,
+        cleanedOriginalRows: (initial as any).original_rows ?? null,
+      }).where(eq(uploads.filePath, fp)).catch((e: unknown) => console.warn("[clean] Failed to update uploads table:", e instanceof Error ? e.message : e));
     }
 
     return c.json(initial);
@@ -451,6 +472,7 @@ dataRoutes.patch("/uploads/:fileId", async (c) => {
       return c.json({ error: "File not found" }, 404);
     }
 
+    // Update the Hono-side uploaded_files table
     const updateData: Record<string, unknown> = {};
     if (typeof body.cleaned === "boolean") updateData.cleaned = body.cleaned;
     if (typeof body.cleaned_file_path === "string") updateData.cleanedFilePath = body.cleaned_file_path;
@@ -462,6 +484,21 @@ dataRoutes.patch("/uploads/:fileId", async (c) => {
         eq(uploadedFiles.filePath, fileId),
         projectIds ? inArray(uploadedFiles.projectId, projectIds) : undefined,
       ));
+
+    // Also update the Plumber-side uploads table (used by upload history listing)
+    if (typeof body.cleaned === "boolean" || typeof body.cleaned_file_path === "string") {
+      const uploadUpdate: Record<string, unknown> = {};
+      if (typeof body.cleaned === "boolean") {
+        uploadUpdate.isCleaned = body.cleaned;
+        uploadUpdate.cleanedFilePath = body.cleaned_file_path || null;
+        uploadUpdate.cleanedValidRecords = typeof body.cleaned_valid_records === "number" ? body.cleaned_valid_records : null;
+        uploadUpdate.cleanedOriginalRows = typeof body.cleaned_original_rows === "number" ? body.cleaned_original_rows : null;
+      }
+      await db
+        .update(uploads)
+        .set(uploadUpdate as any)
+        .where(eq(uploads.filePath, fileId));
+    }
 
     return c.json({ ok: true });
   } catch (err) {
@@ -513,8 +550,9 @@ dataRoutes.delete("/uploads/:fileId", async (c) => {
       if (existsSync(cleanedPlain)) rmSync(cleanedPlain, { force: true });
     }
 
-    // Delete DB record
+    // Delete DB record from both tables
     await db.delete(uploadedFiles).where(eq(uploadedFiles.id, record.id));
+    await db.delete(uploads).where(eq(uploads.filePath, fileId));
 
     // Update storage usage
     await db
