@@ -24,8 +24,9 @@ export function UploadTab({
 }: UploadTabProps) {
   const uploadPreview = uploadResult?.preview as Array<Record<string, unknown>> | undefined;
   const cols = uploadResult?.columns_detected as Record<string, string | null> | undefined;
-  const warnings = uploadResult?.coord_warnings as string[] | undefined;
-  const hasWarnings = warnings && warnings.length > 0;
+  const warningsRaw = uploadResult?.coord_warnings;
+  const warnings = Array.isArray(warningsRaw) ? warningsRaw : (warningsRaw ? [String(warningsRaw)] : []);
+  const hasWarnings = warnings.length > 0;
   const hasResult = typeof uploadResult?.file_path === "string";
 
   return (

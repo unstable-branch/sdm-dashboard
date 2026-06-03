@@ -1,10 +1,11 @@
 "use client";
 
-import { JobProgress } from "@/components/jobs/job-progress";
 import { SourceCounts } from "@/components/data/source-counts";
 import { CleaningTable } from "@/components/data/cleaning-table";
 import { CheckCircle2, Loader2, AlertTriangle, Wand2 } from "lucide-react";
+import { apiGet } from "@/services/api";
 import type { OccurrencePoint } from "./types";
+import { useEffect, useRef, useState } from "react";
 
 interface CleanTabProps {
   uploadResult: Record<string, unknown> | null;
@@ -32,6 +33,45 @@ export function CleanTab({
 }: CleanTabProps) {
   const cleanPreview = cleanResult?.cleaned_records as OccurrencePoint[] | undefined;
   const sourceCounts = cleanResult?.source_counts as Record<string, number> | undefined;
+
+  // Inline progress for background clean jobs — polls the data-jobs endpoint directly
+  const [cleanJobElapsed, setCleanJobElapsed] = useState(0);
+  const [cleanJobLog, setCleanJobLog] = useState<string | null>(null);
+  const cleanJobStartRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!cleanJobId) {
+      setCleanJobElapsed(0);
+      setCleanJobLog(null);
+      cleanJobStartRef.current = null;
+      return;
+    }
+    cleanJobStartRef.current ??= Date.now();
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await apiGet<Record<string, unknown>>(`/api/v1/data/jobs/${cleanJobId}`);
+        if (cancelled) return;
+        if (res.status === "completed") {
+          onCleanComplete(res.result as Record<string, unknown>);
+          return;
+        }
+        if (res.status === "failed") {
+          console.warn("[CleanTab] Clean job failed:", res.error);
+          return;
+        }
+        const logs = Array.isArray(res.progress_log) ? res.progress_log as string[] : [];
+        setCleanJobLog(logs.length > 0 ? logs[logs.length - 1] : null);
+      } catch {
+        // Polling errors are expected — Plumber may be temporarily unreachable
+      }
+    };
+    const timer = setInterval(poll, 2000);
+    poll();
+    const elapsedTimer = setInterval(() => {
+      if (cleanJobStartRef.current) setCleanJobElapsed(Date.now() - cleanJobStartRef.current);
+    }, 1000);
+    return () => { cancelled = true; clearInterval(timer); clearInterval(elapsedTimer); };
+  }, [cleanJobId, onCleanComplete]);
 
   return (
     <div className="space-y-4">
@@ -73,13 +113,20 @@ export function CleanTab({
           </div>
         )}
         {cleanJobId && (
-          <div className="mt-4">
-            <JobProgress jobId={cleanJobId} onComplete={onCleanComplete} />
-            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4 mt-2">
-              <div className="flex items-center gap-2 text-sm text-sdm-muted">
-                <Loader2 className="h-4 w-4 animate-spin text-sdm-accent" />
-                Cleaning in background...
+          <div className="mt-4 space-y-2">
+            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-sdm-muted">
+                  <Loader2 className="h-4 w-4 animate-spin text-sdm-accent" />
+                  <span>Cleaning in background...</span>
+                </div>
+                <span className="text-xs font-mono text-sdm-muted tabular-nums">
+                  {Math.floor(cleanJobElapsed / 1000)}s
+                </span>
               </div>
+              {cleanJobLog && (
+                <p className="mt-2 text-xs text-sdm-muted truncate">{cleanJobLog}</p>
+              )}
             </div>
           </div>
         )}
