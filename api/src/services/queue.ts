@@ -396,7 +396,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                 .set({
                   jobId: plumberJobId ?? null,
                   bullmqId: job.id!,
-                  rCpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
+                  rCpuTimeMs: cpuDelta ? Math.round((cpuDelta.user + cpuDelta.system) / 1000) : null,
                   peakMemoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
                 })
                 .where(eq(runs.id, runId));
