@@ -74,7 +74,6 @@ function DataPageContent() {
   // Clear large occurrence data from global store when leaving data page
   useEffect(() => {
     return () => {
-      setCleanedOccurrence(null);
       useSDMStore.getState().setOccurrenceData(null);
       useSDMStore.getState().setUploadResult(null);
       useSDMStore.getState().setCleanResult(null);
