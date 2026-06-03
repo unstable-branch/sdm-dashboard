@@ -1,7 +1,7 @@
 # OpenSDM MCP + XAI Implementation Plan
 
-**Date:** 2026-05-27  
-**Status:** Final — Ready for Implementation  
+**Date:** 2026-05-27
+**Status:** Final — Ready for Implementation
 **Replaces:** `.opencode/MCP-PLAN.md` (972-line design document)
 
 ---

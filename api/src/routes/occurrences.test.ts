@@ -31,6 +31,9 @@ vi.mock("../db", () => ({
 
 vi.mock("../services/plumber", () => ({
   plumberClient: {
+    withUser: vi.fn(function(this: any) {
+      return this;
+    }),
     uploadOccurrence: vi.fn(() => Promise.resolve({ file_id: "/tmp/test.csv", n_rows: 10 })),
     cleanOccurrences: vi.fn(() => Promise.resolve({ cleaned_id: "/tmp/test.csv", valid_records: 8 })),
     searchGbif: vi.fn(() => Promise.resolve({ n_records: 50 })),
@@ -47,6 +50,9 @@ vi.mock("fs", () => ({
   mkdirSync: vi.fn(),
   existsSync: vi.fn(() => true),
   accessSync: vi.fn(),
+  promises: {
+    writeFile: vi.fn(() => Promise.resolve()),
+  },
   constants: { W_OK: 2 },
 }));
 
@@ -68,6 +74,69 @@ describe("data routes", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("POST /occurrences/upload", () => {
+    it("normalizes Plumber upload file_id into file_path for the frontend", async () => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+      (db.select as any).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([
+              { used: 0, quota: 1024 * 1024 },
+            ])),
+          })),
+        })),
+      });
+      (plumberClient.uploadOccurrence as any).mockResolvedValueOnce({
+        file_id: "/app/data/uploads/test.csv",
+        n_rows: 2,
+      });
+
+      const form = new FormData();
+      form.append("file", new File(["longitude,latitude\n1,2\n3,4"], "test.csv", { type: "text/csv" }));
+
+      const res = await app.request("/api/v1/data/occurrences/upload", {
+        method: "POST",
+        body: form,
+      });
+
+      expect(res.status, await res.clone().text()).toBe(200);
+      const data = await res.json();
+      expect(data.file_id).toBe("/app/data/uploads/test.csv");
+      expect(data.file_path).toBe("/app/data/uploads/test.csv");
+    });
+
+    it("returns Plumber upload errors without counting storage usage", async () => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+      (db.select as any).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([
+              { used: 0, quota: 1024 * 1024 },
+            ])),
+          })),
+        })),
+      });
+      (plumberClient.uploadOccurrence as any).mockResolvedValueOnce({
+        error: "CSV is missing required coordinate columns",
+      });
+
+      const form = new FormData();
+      form.append("file", new File(["name\nAcacia"], "bad.csv", { type: "text/csv" }));
+
+      const res = await app.request("/api/v1/data/occurrences/upload", {
+        method: "POST",
+        body: form,
+      });
+
+      expect(res.status, await res.clone().text()).toBe(400);
+      const data = await res.json();
+      expect(data.error).toBe("CSV is missing required coordinate columns");
+      expect(db.update).not.toHaveBeenCalled();
+    });
   });
 
   describe("GET /species", () => {
