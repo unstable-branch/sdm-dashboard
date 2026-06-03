@@ -9,9 +9,11 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { densifyGeoJSONFeature } from "@/lib/geodesic";
 import { LIGHT_STYLE, DARK_STYLE } from "@/lib/map-styles";
 import { LAYER_IDS } from "@/lib/map-utils";
-import type { FeatureCollection } from "geojson";
+import type { FeatureCollection, Polygon } from "geojson";
 import { getToken } from "@/services/api";
 import { MapToolbar } from "./map-toolbar";
+import intersect from "@turf/intersect";
+import bboxPolygon from "@turf/bbox-polygon";
 
 function extentBounds(
   coords: [[number, number], [number, number], [number, number], [number, number]]
@@ -63,11 +65,25 @@ export default function MaplibreMap({
   const coords = coordinates;
 
   const densifiedEoo = useMemo(() => {
-    if (!eooGeoJSON) return null;
+    if (!eooGeoJSON || !coordinates) return null;
     const feat = eooGeoJSON.features[0];
     if (!feat) return null;
-    return densifyGeoJSONFeature(feat, 20);
-  }, [eooGeoJSON]);
+    const densified = densifyGeoJSONFeature(feat, 20);
+    if (!densified) return null;
+    // Clip EOO polygon to projection extent to prevent red overlay outside target area
+    try {
+      const extentPoly = bboxPolygon([
+        Math.min(...coordinates.map(c => c[0])),
+        Math.min(...coordinates.map(c => c[1])),
+        Math.max(...coordinates.map(c => c[0])),
+        Math.max(...coordinates.map(c => c[1])),
+      ]);
+      const clipped = intersect({ type: "FeatureCollection", features: [densified as any, extentPoly] });
+      return clipped || null;
+    } catch {
+      return densified as any;
+    }
+  }, [eooGeoJSON, coordinates]);
 
   const densifiedAoo = useMemo(() => {
     if (!aooGeoJSON) return null;
