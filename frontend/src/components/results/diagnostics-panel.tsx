@@ -1,28 +1,42 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VifTable } from "@/components/diagnostics/vif-table";
-import { ImportanceChart } from "@/components/diagnostics/importance-chart";
-import { ResponseCurvesChart } from "@/components/diagnostics/response-curves-chart";
-import { CbiChart } from "@/components/diagnostics/cbi-chart";
-import { CvFoldsChart } from "@/components/diagnostics/cv-folds-chart";
-import { RocChart } from "@/components/diagnostics/roc-chart";
-import { CalibrationChart } from "@/components/diagnostics/calibration-chart";
-import { ThresholdChart } from "@/components/diagnostics/threshold-chart";
-import { DensityChart } from "@/components/diagnostics/density-chart";
-import { AleChart } from "@/components/diagnostics/ale-chart";
-import { ClimateDriverChart } from "@/components/diagnostics/climate-driver-chart";
 import { MessSummary } from "@/components/diagnostics/mess-summary";
 import { OverfittingPanel } from "@/components/results/overfitting-panel";
 import { apiGet } from "@/services/api";
 import ErrorBoundary from "@/components/ui/error-boundary";
-import { Download } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
+import dynamic from "next/dynamic";
 import type {
   VifData, ImportanceData, ResponseCurvesData, CbiData, MessData,
   RocData, CalibrationData, CvFoldsData, ThresholdData, DensityData,
   RunDetail,
 } from "@/services/types";
+
+
+function ChartLoading() {
+  return (
+    <div className="flex items-center justify-center h-64 text-sdm-muted">
+      <Loader2 className="h-5 w-5 animate-spin mr-2" />
+      <span className="text-sm">Loading chart...</span>
+    </div>
+  );
+}
+
+type ChartProps = { data: any; loading: boolean };
+
+const DynCvFoldsChart = dynamic(() => import("@/components/diagnostics/cv-folds-chart").then(m => ({ default: m.CvFoldsChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynImportanceChart = dynamic(() => import("@/components/diagnostics/importance-chart").then(m => ({ default: m.ImportanceChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynResponseCurvesChart = dynamic(() => import("@/components/diagnostics/response-curves-chart").then(m => ({ default: m.ResponseCurvesChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynRocChart = dynamic(() => import("@/components/diagnostics/roc-chart").then(m => ({ default: m.RocChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynCbiChart = dynamic(() => import("@/components/diagnostics/cbi-chart").then(m => ({ default: m.CbiChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynCalibrationChart = dynamic(() => import("@/components/diagnostics/calibration-chart").then(m => ({ default: m.CalibrationChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynThresholdChart = dynamic(() => import("@/components/diagnostics/threshold-chart").then(m => ({ default: m.ThresholdChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynDensityChart = dynamic(() => import("@/components/diagnostics/density-chart").then(m => ({ default: m.DensityChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynAleChart = dynamic(() => import("@/components/diagnostics/ale-chart").then(m => ({ default: m.AleChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynClimateDriverChart = dynamic(() => import("@/components/diagnostics/climate-driver-chart").then(m => ({ default: m.ClimateDriverChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
 
 interface DiagnosticsPanelProps {
   run: RunDetail;
@@ -48,47 +62,50 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   const [climateDriverData, setClimateDriverData] = useState<any>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(true);
   const [failedEndpointCount, setFailedEndpointCount] = useState(0);
+  const [activeTab, setActiveTab] = useState("cv");
+  const fetchedTabs = useRef(new Set<string>());
 
+  const TAB_ENDPOINTS: Record<string, string> = {
+    cv: "cv-folds", importance: "importance", curves: "response-curves",
+    roc: "roc", cbi: "cbi", calibration: "calibration",
+    threshold: "threshold", density: "density", vif: "vif",
+    mess: "mess", ale: "ale", "climate-drivers": "climate-drivers",
+  };
+
+  const TAB_SETTERS: Record<string, (data: any) => void> = {
+    cv: setCvFoldsData, importance: setImportanceData, curves: setResponseCurvesData,
+    roc: setRocData, cbi: setCbiData, calibration: setCalibrationData,
+    threshold: setThresholdData, density: setDensityData, vif: setVifData,
+    mess: setMessData, ale: setAleData, "climate-drivers": setClimateDriverData,
+  };
+
+  // Fetch data only when the active tab is clicked for the first time
   useEffect(() => {
     if (run.status !== "completed") {
       setLoadingDiagnostics(false);
       return;
     }
-
-    setLoadingDiagnostics(true);
-    setFailedEndpointCount(0);
-    const fetchDiagnostics = async () => {
-      const endpoints = [
-        { url: `/api/v1/diagnostics/vif/${run.id}`, setter: setVifData },
-        { url: `/api/v1/diagnostics/importance/${run.id}`, setter: setImportanceData },
-        { url: `/api/v1/diagnostics/response-curves/${run.id}`, setter: setResponseCurvesData },
-        { url: `/api/v1/diagnostics/cbi/${run.id}`, setter: setCbiData },
-        { url: `/api/v1/diagnostics/mess/${run.id}`, setter: setMessData },
-        { url: `/api/v1/diagnostics/roc/${run.id}`, setter: setRocData },
-        { url: `/api/v1/diagnostics/calibration/${run.id}`, setter: setCalibrationData },
-        { url: `/api/v1/diagnostics/cv-folds/${run.id}`, setter: setCvFoldsData },
-        { url: `/api/v1/diagnostics/threshold/${run.id}`, setter: setThresholdData },
-        { url: `/api/v1/diagnostics/density/${run.id}`, setter: setDensityData },
-        { url: `/api/v1/diagnostics/ale/${run.id}`, setter: setAleData },
-        { url: `/api/v1/diagnostics/climate-drivers/${run.id}`, setter: setClimateDriverData },
-      ];
-
-      await Promise.allSettled(
-        endpoints.map(async ({ url, setter }) => {
-          try {
-            const data = await apiGet<any>(url);
-            setter(data);
-          } catch (err) {
-            console.warn(`[diagnostics] Failed to fetch ${url}:`, err instanceof Error ? err.message : String(err));
-            setFailedEndpointCount((c) => c + 1);
-          }
-        })
-      );
+    if (fetchedTabs.current.has(activeTab)) {
       setLoadingDiagnostics(false);
-    };
+      return;
+    }
+    fetchedTabs.current.add(activeTab);
+    setLoadingDiagnostics(true);
 
-    fetchDiagnostics();
-  }, [run.id, run.status]);
+    const ep = TAB_ENDPOINTS[activeTab];
+    const setter = TAB_SETTERS[activeTab];
+    if (ep && setter) {
+      apiGet<any>(`/api/v1/diagnostics/${ep}/${run.id}`)
+        .then((data) => { setter(data); setLoadingDiagnostics(false); })
+        .catch((err) => {
+          console.warn(`[diagnostics] Failed to fetch ${ep}:`, err instanceof Error ? err.message : String(err));
+          setFailedEndpointCount((c) => c + 1);
+          setLoadingDiagnostics(false);
+        });
+    } else {
+      setLoadingDiagnostics(false);
+    }
+  }, [activeTab, run.id, run.status]);
 
   return (
     <div className="space-y-4">
@@ -118,7 +135,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
       )}
 
       <ErrorBoundary>
-      <Tabs defaultValue="cv" className="space-y-4">
+      <Tabs defaultValue="cv" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex overflow-x-auto gap-1 pb-px scrollbar-thin">
           <TabsTrigger value="cv" className="text-xs shrink-0">CV Folds</TabsTrigger>
           <TabsTrigger value="importance" className="text-xs shrink-0">Importance</TabsTrigger>
@@ -137,35 +154,35 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
         </TabsList>
 
         <TabsContent value="cv">
-          <CvFoldsChart data={cvFoldsData} loading={loadingDiagnostics} />
+          <DynCvFoldsChart data={cvFoldsData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="importance">
-          <ImportanceChart data={importanceData} loading={loadingDiagnostics} />
+          <DynImportanceChart data={importanceData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="curves">
-          <ResponseCurvesChart data={responseCurvesData} loading={loadingDiagnostics} />
+          <DynResponseCurvesChart data={responseCurvesData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="roc">
-          <RocChart data={rocData} loading={loadingDiagnostics} />
+          <DynRocChart data={rocData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="cbi">
-          <CbiChart data={cbiData} loading={loadingDiagnostics} />
+          <DynCbiChart data={cbiData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="calibration">
-          <CalibrationChart data={calibrationData} loading={loadingDiagnostics} />
+          <DynCalibrationChart data={calibrationData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="threshold">
-          <ThresholdChart data={thresholdData} loading={loadingDiagnostics} />
+          <DynThresholdChart data={thresholdData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="density">
-          <DensityChart data={densityData} loading={loadingDiagnostics} />
+          <DynDensityChart data={densityData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="vif">
@@ -177,11 +194,11 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
         </TabsContent>
 
         <TabsContent value="ale">
-          <AleChart data={aleData} loading={loadingDiagnostics} />
+          <DynAleChart data={aleData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="climate-drivers">
-          <ClimateDriverChart data={climateDriverData} loading={loadingDiagnostics} />
+          <DynClimateDriverChart data={climateDriverData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="overfitting">
