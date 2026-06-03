@@ -64,6 +64,7 @@ services:
       - PLUMBER_URL=http://plumber:8000
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY:?DATA_ENCRYPTION_KEY is required}
       - GARAGE_ENDPOINT=http://garage:3900
       - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY:?GARAGE_ACCESS_KEY is required}
       - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY:?GARAGE_SECRET_KEY is required}
@@ -144,6 +145,7 @@ services:
       - DATABASE_URL=${DATABASE_URL:?Database connection string is required}
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - PLUMBER_AUTH_DISABLED=false
+      - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
     init: true
     healthcheck:
       test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]

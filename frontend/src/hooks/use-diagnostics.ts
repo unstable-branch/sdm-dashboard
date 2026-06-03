@@ -43,7 +43,7 @@ export function useDiagnostics(runId: string | null): UseDiagnosticsResult {
       endpoints.map(async ({ url, setter }) => {
         try {
           const data = await apiGet(url);
-           
+
           (setter as (value: unknown) => void)(data);
         } catch {
           setter(null);
