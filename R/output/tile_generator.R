@@ -37,7 +37,7 @@ process_one_tile <- function(x, y, z, tile_res, half_world, r_proj, tile_size,
 
   vals <- terra::values(tile_256)
   n_col <- length(palette)
-  idx <- if (vr[2] == vr[1]) {
+  idx <- if (abs(vr[2] - vr[1]) < 1e-10) {
     rep(ceiling(n_col / 2), length(vals))
   } else {
     idx <- round((vals - vr[1]) / (vr[2] - vr[1]) * (n_col - 1L)) + 1L
@@ -219,6 +219,7 @@ generate_xyz_tiles <- function(
 
     # Compute tile grid bounds in target CRS
     ext_proj <- terra::ext(r_proj)
+    last_ext_proj <- ext_proj
 
     # Adjust max zoom for high-latitude extents (Mercator compression)
     # At high latitudes the same geographic extent covers fewer projected meters,
@@ -307,7 +308,7 @@ generate_xyz_tiles <- function(
         cancelled <- any(vapply(tile_results, function(r) is.list(r) && isTRUE(r$cancelled), logical(1)))
         if (cancelled) {
           log_msg("  Cancelled at zoom ", z)
-          result <- assemble_result(output_dir, result_bands, t_start, warn_list, world_size, b_name, z_min, z_max)
+          result <- assemble_result(output_dir, result_bands, t_start, warn_list, world_size, b_name, z_min, z_max, ext_proj)
           return(invisible(result))
         }
 
@@ -332,7 +333,7 @@ generate_xyz_tiles <- function(
     log_msg("  Band ", b_name, " complete: ", total_tiles, " tiles")
   }
 
-  result <- assemble_result(output_dir, result_bands, t_start, warn_list, world_size, band_names[1], zoom_min, zoom_max)
+  result <- assemble_result(output_dir, result_bands, t_start, warn_list, world_size, band_names[1], zoom_min, zoom_max, last_ext_proj)
   invisible(result)
 }
 
@@ -356,8 +357,15 @@ write_png_tile <- function(rgba_matrix, template_rast, path, gdal_opts) {
 
 #' Assemble the return value
 assemble_result <- function(output_dir, bands, t_start, warnings, world_size,
-                             band_name, z_min, z_max) {
+                             band_name, z_min, z_max, extent_3857 = NULL) {
   elapsed <- as.numeric(difftime(Sys.time(), t_start, units = "secs"))
+
+  bounds <- if (!is.null(extent_3857)) {
+    ext_geo <- terra::project(extent_3857, "EPSG:3857", "EPSG:4326")
+    c(terra::xmin(ext_geo), terra::ymin(ext_geo), terra::xmax(ext_geo), terra::ymax(ext_geo))
+  } else {
+    c(-180, -90, 180, 90)
+  }
 
   tilejson <- list(
     tilejson = "2.2.0",
@@ -366,7 +374,7 @@ assemble_result <- function(output_dir, bands, t_start, warnings, world_size,
     tiles = character(),
     minzoom = z_min,
     maxzoom = z_max,
-    bounds = c(-180, -90, 180, 90)
+    bounds = bounds
   )
 
   invisible(list(

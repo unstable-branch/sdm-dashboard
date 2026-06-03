@@ -21,16 +21,18 @@ export function DensityChart({ data, loading }: DensityChartProps) {
   }
 
   // Merge into a common x-axis grid for area chart overlay
-  const allX = Array.from(new Set([...pres.x, ...bg.x])).sort((a, b) => a - b);
-  const chartData = allX.map((x) => {
-    const presIdx = pres.x.indexOf(x);
-    const bgIdx = bg.x.indexOf(x);
-    return {
-      suitability: x,
-      presence: presIdx >= 0 ? pres.y[presIdx] : 0,
-      background: bgIdx >= 0 ? bg.y[bgIdx] : 0,
-    };
-  });
+  // Use a Map keyed by rounded values to avoid floating-point indexOf mismatches
+  const toKey = (v: number) => Math.round(v * 1e6).toString();
+  const presMap = new Map<string, number>();
+  pres.x.forEach((x, i) => { if (Number.isFinite(x) && Number.isFinite(pres.y[i])) presMap.set(toKey(x), pres.y[i]); });
+  const bgMap = new Map<string, number>();
+  bg.x.forEach((x, i) => { if (Number.isFinite(x) && Number.isFinite(bg.y[i])) bgMap.set(toKey(x), bg.y[i]); });
+  const allKeys = Array.from(new Set([...presMap.keys(), ...bgMap.keys()])).sort((a, b) => parseFloat(a) - parseFloat(b));
+  const chartData = allKeys.map((k) => ({
+    suitability: parseFloat(k),
+    presence: presMap.get(k) ?? 0,
+    background: bgMap.get(k) ?? 0,
+  }));
 
   return (
     <div className="space-y-3">

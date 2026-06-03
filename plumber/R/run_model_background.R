@@ -31,7 +31,7 @@ heartbeat_file <- file.path(job_dir, "heartbeat.log")
 
 write_heartbeat <- function(stage) {
   ts <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S")
-  cat(ts, "|", stage, "\n", sep = "", file = heartbeat_file, append = FALSE)
+  cat(ts, "|", stage, "\n", sep = "", file = heartbeat_file, append = TRUE)
 }
 
 log_fun <- function(...) {
@@ -73,7 +73,9 @@ read_meta <- function() {
 }
 
 write_meta <- function(meta) {
-  writeLines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE, pretty = TRUE), meta_file)
+  tmp_path <- paste0(meta_file, ".tmp")
+  writeLines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE, pretty = TRUE), tmp_path)
+  file.rename(tmp_path, meta_file)
 }
 
 # Write initial status before module loading (catches OOM during source)
@@ -82,15 +84,20 @@ meta$status <- "loading"
 write_meta(meta)
 write_heartbeat("loading_start")
 
+progress_fun(list(value = 0.0, detail = "Initialising background process"))
+
 log_fun("Loading project initialization modules...")
+progress_fun(list(value = 0.01, detail = "Loading project bootstrap"))
 source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
 write_heartbeat("bootstrap_done")
 
 # Source error codes for classification
+progress_fun(list(value = 0.02, detail = "Loading error classification"))
 source(file.path(app_dir, "plumber", "R", "error_codes.R"), local = TRUE)
 
 log_fun("Loading compute modules (~130 modules)...")
+progress_fun(list(value = 0.03, detail = "Loading compute modules"))
 Sys.setenv(SDM_HEARTBEAT_FILE = heartbeat_file)
 source(file.path(app_dir, "R", "load_compute.R"))
 write_heartbeat("compute_modules_done")
@@ -99,23 +106,25 @@ log_fun("All modules loaded successfully")
 meta <- read_meta()
 meta$status <- "running"
 write_meta(meta)
-config <- meta$config %||% list()
-config <- sdm_normalize_model_payload(config)
 
-# Parse biovars and projection_extent from config (stored as strings by the handler)
-biovars <- as.integer(unlist(strsplit(as.character(config$biovars %||% "1,4,6,12,15,18"), ",")))
-projection_extent <- as.numeric(unlist(strsplit(as.character(config$projection_extent %||% "112,154,-44,-10"), ",")))
-if (length(projection_extent) != 4L || any(!is.finite(projection_extent))) {
-  stop("projection_extent must have 4 numeric values: xmin, xmax, ymin, ymax")
-}
-if (projection_extent[1] >= projection_extent[2] || projection_extent[3] >= projection_extent[4]) {
-  stop("projection_extent has invalid ordering: xmin must be < xmax, ymin must be < ymax")
-}
-if (projection_extent[1] < -180 || projection_extent[2] > 180 || projection_extent[3] < -90 || projection_extent[4] > 90) {
-  stop("projection_extent is outside valid coordinate bounds (±180, ±90)")
-}
-
+# Wrap main execution in tryCatch so failures set meta.json to "failed"
 tryCatch({
+  config <- meta$config %||% list()
+  config <- sdm_normalize_model_payload(config)
+
+  # Parse biovars and projection_extent from config (stored as strings by the handler)
+  biovars <- as.integer(unlist(strsplit(as.character(config$biovars %||% "1,4,6,12,15,18"), ",")))
+  projection_extent <- as.numeric(unlist(strsplit(as.character(config$projection_extent %||% "112,154,-44,-10"), ",")))
+  if (length(projection_extent) != 4L || any(!is.finite(projection_extent))) {
+    stop("projection_extent must have 4 numeric values: xmin, xmax, ymin, ymax")
+  }
+  if (projection_extent[1] >= projection_extent[2] || projection_extent[3] >= projection_extent[4]) {
+    stop("projection_extent has invalid ordering: xmin must be < xmax, ymin must be < ymax")
+  }
+  if (projection_extent[1] < -180 || projection_extent[2] > 180 || projection_extent[3] < -90 || projection_extent[4] > 90) {
+    stop("projection_extent is outside valid coordinate bounds (±180, ±90)")
+  }
+
   cleaned_occurrence <- NULL
   if (is.character(config$cleaned_file_id) && length(config$cleaned_file_id) == 1 && nzchar(config$cleaned_file_id) && file.exists(config$cleaned_file_id)) {
     tmp_clean <- tempfile()

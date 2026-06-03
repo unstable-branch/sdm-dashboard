@@ -58,7 +58,7 @@ export function ShapChart({ data, loading }: ShapChartProps) {
             <XAxis type="number" tick={{ fontSize: 12 }} />
             <YAxis dataKey="variable" type="category" tick={{ fontSize: 12 }} width={90} />
             <Tooltip
-              formatter={(val: number) => val.toFixed(4)}
+              formatter={(val: number) => Number.isFinite(val) ? val.toFixed(4) : "—"}
               labelFormatter={() => ""}
             />
             <Bar dataKey="shap" fill="var(--sdm-accent, #3b82f6)" radius={[0, 4, 4, 0]} />

@@ -17,24 +17,8 @@ import { SuitabilityMap } from "@/components/results/suitability-map";
 import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
 import type { RunDetail, ManifestData, ProgressStage } from "@/services/types";
 import type { PlumberJobLogs } from "@sdm/shared";
-import type { ViewState } from "react-map-gl/maplibre";
 import type { FeatureCollection } from "geojson";
-
-function extentToViewState(extent?: [number, number, number, number]): Partial<ViewState> | undefined {
-  if (!extent || extent.length < 4) return undefined;
-  const [xmin, xmax, ymin, ymax] = extent;
-  const lngSpan = xmax - xmin;
-  const latSpan = ymax - ymin;
-  const maxSpan = Math.max(lngSpan, latSpan);
-  const zoom = maxSpan > 50 ? 4 : maxSpan > 20 ? 5 : maxSpan > 10 ? 6 : maxSpan > 5 ? 7 : 8;
-  return { longitude: (xmin + xmax) / 2, latitude: (ymin + ymax) / 2, zoom };
-}
-
-function extentToCoordinates(extent?: [number, number, number, number]): [[number, number], [number, number], [number, number], [number, number]] | undefined {
-  if (!extent || extent.length < 4) return undefined;
-  const [xmin, xmax, ymin, ymax] = extent;
-  return [[xmin, ymax], [xmax, ymax], [xmax, ymin], [xmin, ymin]];
-}
+import { extentToViewState, extentToCoordinates } from "@/lib/map-utils";
 
 
 
@@ -61,6 +45,8 @@ async function fetchGeoJSON(url: string): Promise<FeatureCollection | null> {
     return null;
   }
 }
+
+const API_BASE = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "";
 
 export default function ResultsPage() {
   const params = useParams();
@@ -90,6 +76,7 @@ export default function ResultsPage() {
   const [showErrorLogs, setShowErrorLogs] = useState(false);
   const [errorLogData, setErrorLogData] = useState<string | null>(null);
   const [errorLogLoading, setErrorLogLoading] = useState(false);
+  const [backendAvailable, setBackendAvailable] = useState(true);
 
   // Show diagnostic message after 20s of loading instead of indefinite spinner
   useEffect(() => {
@@ -97,13 +84,22 @@ export default function ResultsPage() {
     return () => clearTimeout(t);
   }, [loading]);
 
+  // Check if Plumber backend is reachable (all proxy-dependent features need it)
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(5000) })
+      .then((r) => { if (!cancelled) setBackendAvailable(r.ok); })
+      .catch(() => { if (!cancelled) setBackendAvailable(false); });
+    return () => { cancelled = true; };
+  }, []);
+
   const { data: runData, isLoading: runLoading, error: runError, refetch } = useRunDetail(runId);
   useEffect(() => {
     if (runData) {
       setRun(prev => {
         // Preserve existing progress_log/last_stage if new data has none (avoid overwriting with stale)
         if (prev && prev.status === "running" && runData.status === "running" &&
-            runData.progress_log?.length === 0 && prev.progress_log.length > 0) {
+            runData.progress_log?.length === 0 && (prev.progress_log?.length ?? 0) > 0) {
           return { ...runData, progress_log: prev.progress_log, last_stage: prev.last_stage ?? runData.last_stage };
         }
         return runData;
@@ -141,7 +137,7 @@ export default function ResultsPage() {
       changed = true;
     }
     if (changed) setRun(next);
-  }, [sseJob?.logs, sseJob?._receivedAt, sseJob?.currentStage, run?.status]);
+  }, [sseJob?._receivedAt, sseJob?.currentStage, run?.status]);
 
   const toggleErrorLogs = useCallback(async () => {
     if (showErrorLogs) { setShowErrorLogs(false); return; }
@@ -174,10 +170,9 @@ export default function ResultsPage() {
     }
   }, [runId]);
 
-  // Fetch report + manifest after run loads
+  // Fetch manifest after run loads (report.txt fetched below with abort signal)
   useEffect(() => {
     if (!run || run.status !== "completed") return;
-    apiGet<string>(`/api/v1/results/${runId}/report.txt`).catch(() => null).then((text) => setReportText(text));
     if (run.provenance) {
       setManifest(run.provenance as ManifestData);
     } else {
@@ -212,60 +207,46 @@ export default function ResultsPage() {
       .catch(() => setBenchmarkLoading(false));
   }, [run?.id, run?.status, run?.metrics?.auc_mean, run?.species]);
 
-  // Polling fallback: only poll when SSE is unavailable or has only synthetic data
+  // Polling fallback: lightweight check when SSE has only synthetic data
   useEffect(() => {
     if (!run || !["running", "loading", "pending"].includes(run.status)) return;
-
-    // Skip polling when SSE is connected and has real data
     const sseJob = connected ? getJob(runId) : undefined;
     const hasRealSse = sseJob != null && !(sseJob.logs?.length === 1 && sseJob.logs[0] === "Model run in progress...");
     if (connected && hasRealSse) return;
 
     let cancelled = false;
-    let consecutiveErrors = 0;
     const poll = async () => {
       try {
         const res = await apiGet<RunDetail>(`/api/v1/sdm/status/${runId}`);
         if (cancelled || !res) return;
-        consecutiveErrors = 0;
-        setRun(prev => {
-          if (!prev || !["running", "loading", "pending"].includes(prev.status)) return prev;
-          const next = { ...prev };
-          let changed = false;
-          if (res.progress_log?.length > 0 &&
-              (res.progress_log.length !== (prev.progress_log?.length ?? 0) || res.progress_log[res.progress_log.length - 1] !== prev.progress_log?.[prev.progress_log.length - 1])) {
-            next.progress_log = res.progress_log;
-            changed = true;
-          }
-          if (res.last_stage && res.last_stage !== prev.last_stage) {
-            next.last_stage = res.last_stage;
-            changed = true;
-          }
-          if (res.status && res.status !== prev.status && ["running", "loading", "pending"].includes(res.status)) {
-            next.status = res.status as "running" | "loading" | "pending";
-            changed = true;
-          }
-          // Extract progress_json from polling response for stage chips when SSE is unavailable
-          const pollProgressJson = res.progress_json;
-          if (Array.isArray(pollProgressJson) && pollProgressJson.length > 0) {
-            (next as RunDetail).progress_json = pollProgressJson;
-            changed = true;
-          }
-          return changed ? next : prev;
-        });
-        // If API reports terminal state, refresh via React Query to get full data
+        // If terminal state reached, refresh via React Query to get full data
         if (res.status === "completed" || res.status === "failed" || res.status === "cancelled") {
           refetch();
+          return;
+        }
+        // Update stage chips and logs from polling response when SSE lags
+        const pollProgressJson = res.progress_json;
+        const pollProgressLog = Array.isArray(res.progress_log) ? res.progress_log : undefined;
+        if ((Array.isArray(pollProgressJson) && pollProgressJson.length > 0) || pollProgressLog) {
+          setRun(prev => {
+            if (!prev || prev.status !== "running") return prev;
+            const next = { ...prev };
+            if (Array.isArray(pollProgressJson) && pollProgressJson.length > 0) {
+              next.progress_json = pollProgressJson;
+            }
+            // Also update progress_log from polling so the log display stays current
+            if (pollProgressLog && pollProgressLog.length > 0) {
+              next.progress_log = pollProgressLog;
+            }
+            return next;
+          });
         }
       } catch {
-        consecutiveErrors++;
-        if (consecutiveErrors > 12) {
-          console.warn("[results] Polling failed 12 consecutive times for run", runId);
-        }
+        // Polling is fallback only — errors are expected when SSE is primary
       }
     };
     poll();
-    const interval = setInterval(poll, 5000);
+    const interval = setInterval(poll, 15000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [run?.id, run?.status, runId, refetch]);
 
@@ -484,6 +465,12 @@ export default function ResultsPage() {
         </div>
       )}
 
+      {!backendAvailable && run.status === "completed" && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-600">
+          The R computation backend is not available. Some features (diagnostic charts, report downloads, maps) may not load.
+        </div>
+      )}
+
       {run.status === "completed" && (
         <>
           {run.metrics && (
@@ -549,7 +536,7 @@ export default function ResultsPage() {
                   <div className="flex gap-3">
                     {outputFiles?.odmap_report_csv && (
                       <button
-                        onClick={() => downloadFile(outputFiles!.odmap_report_csv)}
+                        onClick={() => downloadFile(outputFiles!.odmap_report_csv!)}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP CSV
@@ -557,7 +544,7 @@ export default function ResultsPage() {
                     )}
                     {outputFiles?.odmap_report_md && (
                       <button
-                        onClick={() => downloadFile(outputFiles!.odmap_report_md)}
+                        onClick={() => downloadFile(outputFiles!.odmap_report_md!)}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP Markdown
@@ -565,7 +552,7 @@ export default function ResultsPage() {
                     )}
                     {outputFiles?.report && (
                       <button
-                        onClick={() => downloadFile(outputFiles!.report)}
+                        onClick={() => downloadFile(outputFiles!.report!)}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> Download report

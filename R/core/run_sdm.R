@@ -254,7 +254,7 @@ run_fast_sdm <- function(...) {
   }
 
   if (thin_by_cell) {
-    progress_step(progress_fun, 0.08, "Thinning duplicate raster-cell records")
+    progress_step(progress_fun, 0.25, "Thinning duplicate raster-cell records")
     occ <- thin_occurrences_by_cell(occ, env$env_train_scaled[[1]], by_source = FALSE, log_fun = log_fun)
   }
 
@@ -643,20 +643,13 @@ run_fast_sdm <- function(...) {
   mask_type <- cfg$mask_type %||% sdm_default_mask_type
   mask_file <- cfg$mask_file %||% sdm_default_mask_file
   mask_buffer_deg <- cfg$mask_buffer_deg %||% sdm_default_mask_buffer_deg
-  if (mask_type != "none") {
-    suit <- apply_boundary_mask(suit, mask_type, mask_file, mask_buffer_deg, log_fun)
-  }
 
-  # Write final suitability raster (temp file to avoid source=target conflict)
+  # Write initial suitability raster to avoid source=target conflicts
   tmp_out <- tempfile(fileext = ".tif")
   terra::writeRaster(suit, tmp_out, overwrite = TRUE,
     wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
   file.rename(tmp_out, output_tif)
   suit <- terra::rast(output_tif)
-  mm <- tryCatch(terra::minmax(suit), error = function(e) NULL)
-  if (!is.null(mm) && all(!is.finite(mm))) {
-    stop("Boundary mask produced all-NA raster — mask does not overlap projection extent", call. = FALSE)
-  }
 
   # Ensemble variable importance (multi-model) — must come after suit is assigned
   if (identical(model_id, "multi_ensemble") && !is.null(attr(suit, "ensemble_importance"))) {
@@ -694,6 +687,18 @@ run_fast_sdm <- function(...) {
       log_message(log_fun, "PA-averaged suitability from ", valid_reps, " replicates written to ", output_tif)
     }
   }
+
+  # Apply boundary mask after PA averaging so all replicates are equally masked
+  if (mask_type != "none") {
+    suit <- apply_boundary_mask(suit, mask_type, mask_file, mask_buffer_deg, log_fun)
+    terra::writeRaster(suit, output_tif, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+    mm <- tryCatch(terra::minmax(suit), error = function(e) NULL)
+    if (!is.null(mm) && all(!is.finite(mm))) {
+      stop("Boundary mask produced all-NA raster — mask does not overlap projection extent", call. = FALSE)
+    }
+  }
+
   progress_step(progress_fun, 0.90, "Writing output raster")
 
   if (check_cancelled(log_fun)) {
@@ -829,7 +834,6 @@ run_fast_sdm <- function(...) {
       }
     )
     if (!is.null(future2)) {
-      future2$summary <- summarise_suitability(future2$suitability, threshold)
       extra_paths <- c(extra_paths, future2$paths)
       if (mask_type != "none") {
         future2$suitability <- apply_boundary_mask(future2$suitability, mask_type, mask_file, mask_buffer_deg, log_fun)
@@ -838,6 +842,7 @@ run_fast_sdm <- function(...) {
             wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
         }
       }
+      future2$summary <- summarise_suitability(future2$suitability, threshold)
 
       # Comparison summary
       area1 <- future$summary$high_risk_area_km2 %||% NA_real_
@@ -956,8 +961,7 @@ run_fast_sdm <- function(...) {
       tr <- generate_xyz_tiles(
         input       = tif_3857_path,
         output_dir  = output_tiles_dir,
-        palette     = c("#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
-                        "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"),
+        palette     = sdm_suitability_palette,
         value_range = c(0, 1),
         band_names  = "suitability",
         verbose     = FALSE,

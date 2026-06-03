@@ -57,7 +57,8 @@ export function useJobProgress(jobId: string | null) {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
     const wsHost = apiUrl ? apiUrl.replace(/^http/, "ws") : `${protocol}//${window.location.host}`;
-    const wsUrl = `${wsHost}/ws`;
+    const token = typeof window !== "undefined" ? (localStorage.getItem("sdm_token") || sessionStorage.getItem("sdm_token")) : null;
+    const wsUrl = `${wsHost}/ws${token ? `?token=${encodeURIComponent(token)}` : ""}`;
 
     let ws: WebSocket;
     try {

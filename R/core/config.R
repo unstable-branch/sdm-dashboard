@@ -192,6 +192,12 @@ sdm_default_extent_preset <- "aus_full"
 sdm_default_projection_extent <- sdm_extent_presets[[sdm_default_extent_preset]]
 if (is.null(sdm_default_projection_extent)) sdm_default_projection_extent <- sdm_extent_presets$aus_full
 
+sdm_suitability_palette <- c(
+  "#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
+  "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"
+)
+sdm_suitability_palette_n <- 180L
+
 sdm_default_mask_type <- "none"
 sdm_default_mask_file <- "data/examples/geo/world_boundary.geojson"
 sdm_default_mask_buffer_deg <- NA_real_

@@ -45,6 +45,19 @@ export type {
 
 // ── API response types — snake_case to match Plumber API ──────────────────
 
+export interface OutputFiles {
+  tif?: string;
+  tif_4326?: string;
+  tif_3857?: string;
+  tile_zoom_min?: string;
+  tile_zoom_max?: string;
+  eoo_polygon?: string;
+  aoo_grid?: string;
+  odmap_report_md?: string;
+  odmap_report_csv?: string;
+  [key: string]: string | undefined;
+}
+
 export interface RunSummary {
   id: string;
   species: string;
@@ -53,10 +66,11 @@ export interface RunSummary {
   started_at: string;
   completed_at: string | null;
   metrics: Record<string, unknown> | null;
-  output_files: Record<string, string> | null;
+  output_files: OutputFiles | null;
   error?: string | null;
   error_code?: string | null;
   error_hint?: string | null;
+  config?: Record<string, unknown> | null;
 }
 
 export interface ProgressStage {

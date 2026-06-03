@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { existsSync, createReadStream } from "fs";
+import { existsSync, createReadStream, readdirSync } from "fs";
 import { isAbsolute, join, relative, resolve } from "path";
 import { stat, readFile } from "fs/promises";
 import { Readable } from "stream";
@@ -91,66 +91,6 @@ async function plumberJobId(runId: string): Promise<string> {
   return run?.jobId ?? runId;
 }
 
-async function serveFile(c: any, filePath: string) {
-  const resolved = resolveResultFilePath(filePath);
-
-  if (!resolved) {
-    return c.json({ error: "Invalid file path" }, 400);
-  }
-
-  const user = c.get("user");
-  try {
-    if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
-      return c.json({ error: "File not found" }, 404);
-    }
-  } catch (e) {
-    console.warn("[results] Access check failed for", resolved.runId, e instanceof Error ? e.message : String(e));
-    return c.json({ error: "File not found" }, 404);
-  }
-
-  const { fullPath } = resolved;
-  let stats;
-  try {
-    stats = await stat(fullPath);
-  } catch {
-    return c.json({ error: "File not found" }, 404);
-  }
-
-  const ext = filePath.split(".").pop()?.toLowerCase();
-  const contentType = ext === "tif" || ext === "tiff" ? "image/tiff" :
-                      ext === "png" ? "image/png" :
-                      ext === "txt" ? "text/plain" :
-                      ext === "csv" ? "text/csv" :
-                      "application/octet-stream";
-
-  const fileStats = await stat(fullPath);
-  const etag = `W/"${fileStats.size}-${fileStats.mtimeMs}"`;
-
-  c.header("ETag", etag);
-  c.header("Cache-Control", "public, max-age=3600");
-
-  if (c.req.header("If-None-Match") === etag) {
-    return c.body(null, 304);
-  }
-
-  const encPath = fullPath + ".enc";
-  const isEncrypted = existsSync(encPath);
-  const servePath = isEncrypted ? encPath : fullPath;
-
-  c.header("Content-Type", contentType);
-  c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
-
-  if (isEncrypted) {
-    const raw = await readFile(servePath);
-    const buffer = decrypt(raw);
-    return c.body(buffer);
-  }
-
-  const stream = createReadStream(servePath);
-  const webStream = Readable.toWeb(stream) as ReadableStream;
-  return c.body(webStream);
-}
-
 resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
   const { runId, z, x, y } = c.req.param();
 
@@ -196,7 +136,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
     const etag = `W/"${stats.size}-${stats.mtimeMs}"`;
     c.header("ETag", etag);
     c.header("Content-Type", "image/png");
-    c.header("Cache-Control", "public, max-age=86400");
+    c.header("Cache-Control", "private, max-age=86400");
     if (c.req.header("If-None-Match") === etag) {
       return c.body(null, 304);
     }
@@ -213,7 +153,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
 
     try {
       const plumberRes = await fetch(
-        `${plumberUrl}/api/v1/results/tiles/cog/${run.jobId}/${z}/${x}/${y}`,
+        `${plumberUrl}/api/v1/results/tiles/cog/${run.jobId ?? runId}/${z}/${x}/${y}`,
         { headers, signal: AbortSignal.timeout(45000) }
       );
       if (plumberRes.status === 204) {
@@ -227,7 +167,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
           return c.body(null, 304);
         }
         c.header("Content-Type", "image/png");
-        c.header("Cache-Control", "public, max-age=86400");
+        c.header("Cache-Control", "private, max-age=86400");
         return c.body(pngBuf);
       }
       console.warn(`[tiles] Plumber tile error for ${runId}/${z}/${x}/${y}: ${plumberRes.status}`);
@@ -237,6 +177,61 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
   }
 
   return c.body(null, 204);
+});
+
+resultsRoutes.get("/tiles/:runId/info", async (c) => {
+  const { runId } = c.req.param();
+
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+
+  const [run] = await db
+    .select({ jobId: runs.jobId })
+    .from(runs)
+    .where(eq(runs.id, runId))
+    .limit(1);
+
+  if (!run) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+
+  const jobDir = resolve(resultRoot, run.jobId ?? runId);
+  const tilesDir = resolve(jobDir, "map_tiles", "suitability");
+
+  if (!existsSync(tilesDir)) {
+    return c.json({ zoom_min: null, zoom_max: null, tile_count: 0, bounds: null });
+  }
+
+  try {
+    const zooms = readdirSync(tilesDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => parseInt(d.name, 10))
+      .filter((z) => !isNaN(z))
+      .sort((a, b) => a - b);
+
+    if (zooms.length === 0) {
+      return c.json({ zoom_min: null, zoom_max: null, tile_count: 0, bounds: null });
+    }
+
+    let totalTiles = 0;
+    for (const z of zooms) {
+      const zDir = resolve(tilesDir, String(z));
+      const xDirs = readdirSync(zDir, { withFileTypes: true }).filter((d) => d.isDirectory());
+      for (const xDir of xDirs) {
+        totalTiles += readdirSync(resolve(zDir, xDir.name)).filter((f) => f.endsWith(".png")).length;
+      }
+    }
+
+    return c.json({
+      zoom_min: zooms[0],
+      zoom_max: zooms[zooms.length - 1],
+      tile_count: totalTiles,
+    });
+  } catch {
+    return c.json({ zoom_min: null, zoom_max: null, tile_count: 0, bounds: null });
+  }
 });
 
 // Shared file serving logic used by both /file/* and /file/download routes
@@ -273,6 +268,7 @@ async function serveFileFromPath(c: any, filePath: string) {
                       ext === "txt" ? "text/plain" :
                       ext === "csv" ? "text/csv" :
                       "application/octet-stream";
+  const disposition = (ext === "tif" || ext === "tiff" || ext === "png") ? "inline" : "attachment";
 
   const etag = `W/"${stats.size}-${stats.mtimeMs}"`;
   c.header("ETag", etag);
@@ -296,7 +292,7 @@ async function serveFileFromPath(c: any, filePath: string) {
         c.header("Content-Range", `bytes ${start}-${end}/${buffer.length}`);
         c.header("Content-Length", String(end - start + 1));
         c.header("Content-Type", contentType);
-        c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
+        c.header("Content-Disposition", `${disposition}; filename="${filePath.split("/").pop()}"`);
         return c.body(buffer.subarray(start, end + 1));
       }
       c.status(416);
@@ -304,7 +300,7 @@ async function serveFileFromPath(c: any, filePath: string) {
       return c.body("Range Not Satisfiable");
     }
     c.header("Content-Type", contentType);
-    c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
+    c.header("Content-Disposition", `${disposition}; filename="${filePath.split("/").pop()}"`);
     return c.body(buffer);
   }
 
@@ -320,7 +316,7 @@ async function serveFileFromPath(c: any, filePath: string) {
       c.header("Content-Range", `bytes ${start}-${end}/${fileSize}`);
       c.header("Content-Length", String(length));
       c.header("Content-Type", contentType);
-      c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
+      c.header("Content-Disposition", `${disposition}; filename="${filePath.split("/").pop()}"`);
       const stream = createReadStream(servePath, { start, end });
       const webStream = Readable.toWeb(stream) as ReadableStream;
       return c.body(webStream);
@@ -331,7 +327,7 @@ async function serveFileFromPath(c: any, filePath: string) {
   }
 
   c.header("Content-Type", contentType);
-  c.header("Content-Disposition", `attachment; filename="${filePath.split("/").pop()}"`);
+  c.header("Content-Disposition", `${disposition}; filename="${filePath.split("/").pop()}"`);
   c.header("Content-Length", String(fileSize));
   const stream = createReadStream(servePath);
   const webStream = Readable.toWeb(stream) as ReadableStream;

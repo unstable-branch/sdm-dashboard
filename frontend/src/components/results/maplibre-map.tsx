@@ -8,6 +8,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { densifyGeoJSONFeature } from "@/lib/geodesic";
 import { LIGHT_STYLE, DARK_STYLE } from "@/lib/map-styles";
+import { LAYER_IDS } from "@/lib/map-utils";
 import type { FeatureCollection } from "geojson";
 import { getToken } from "@/services/api";
 import { MapToolbar } from "./map-toolbar";
@@ -104,10 +105,10 @@ export default function MaplibreMap({
 
   const disabledLayers = useMemo(() => {
     const d: string[] = [];
-    if (!hasEoo) d.push("eoo");
-    if (!hasAoo) d.push("aoo");
-    if (!hasBoundary) d.push("boundary");
-    if (!hasExtent) d.push("extent");
+    if (!hasEoo) d.push(LAYER_IDS.EOO);
+    if (!hasAoo) d.push(LAYER_IDS.AOO);
+    if (!hasBoundary) d.push(LAYER_IDS.BOUNDARY);
+    if (!hasExtent) d.push(LAYER_IDS.EXTENT);
     return d;
   }, [hasEoo, hasAoo, hasBoundary, hasExtent]);
 
@@ -115,25 +116,11 @@ export default function MaplibreMap({
     <div
       ref={containerRef}
       className="relative w-full h-full [&_.maplibregl-canvas]:image-rendering-pixelated"
-      role="application"
-      aria-label="Suitability map — use arrow keys to pan, +/- to zoom"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        const map = mapRef.current?.getMap();
-        if (!map) return;
-        const step = e.shiftKey ? 200 : 50;
-        const panBy = (x: number, y: number) => map.panBy([x, y], { duration: 100 });
-        if (e.key === "ArrowLeft") { panBy(-step, 0); e.preventDefault(); }
-        if (e.key === "ArrowRight") { panBy(step, 0); e.preventDefault(); }
-        if (e.key === "ArrowUp") { panBy(0, -step); e.preventDefault(); }
-        if (e.key === "ArrowDown") { panBy(0, step); e.preventDefault(); }
-        if (e.key === "+" || e.key === "=") { map.zoomIn({ duration: 200 }); e.preventDefault(); }
-        if (e.key === "-") { map.zoomOut({ duration: 200 }); e.preventDefault(); }
-      }}
+      aria-label="Suitability map"
     >
       <Map
         ref={mapRef}
-        key={coords ? coords[0][0].toFixed(1) + coords[0][1].toFixed(1) : runId}
+        key={runId}
         initialViewState={initialViewState}
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle}
@@ -141,7 +128,7 @@ export default function MaplibreMap({
         pixelRatio={1}
         onError={(e: ErrorEvent) => {
           const status = (e.error as any)?.status;
-          if (status === 500 || status === 502 || status === 503 || status === 504) {
+          if (status >= 400 && status < 600) {
             handleTileError();
           }
         }}
@@ -177,7 +164,7 @@ export default function MaplibreMap({
           <Layer
             id="suitability-overlay"
             type="raster"
-            layout={{ visibility: visibility("suitability") }}
+            layout={{ visibility: visibility(LAYER_IDS.SUITABILITY) }}
             paint={{ "raster-opacity": 0.9999, "raster-fade-duration": 0 }}
           />
         </Source>
@@ -187,7 +174,7 @@ export default function MaplibreMap({
             <Layer
               id="aoo-grid-fill"
               type="fill"
-              layout={{ visibility: visibility("aoo") }}
+              layout={{ visibility: visibility(LAYER_IDS.AOO) }}
               paint={{
                 "fill-color": theme === "dark" ? "#fbbf24" : "#f59e0b",
                 "fill-opacity": 0.25,
@@ -202,7 +189,7 @@ export default function MaplibreMap({
             <Layer
               id="boundary-fill"
               type="fill"
-              layout={{ visibility: visibility("boundary") }}
+              layout={{ visibility: visibility(LAYER_IDS.BOUNDARY) }}
               paint={{
                 "fill-color": "#06b6d4",
                 "fill-opacity": 0.08,
@@ -211,7 +198,7 @@ export default function MaplibreMap({
             <Layer
               id="boundary-outline"
               type="line"
-              layout={{ visibility: visibility("boundary") }}
+              layout={{ visibility: visibility(LAYER_IDS.BOUNDARY) }}
               paint={{
                 "line-color": "#06b6d4",
                 "line-width": 2,
@@ -242,7 +229,7 @@ export default function MaplibreMap({
             <Layer
               id="extent-boundary-outline"
               type="line"
-              layout={{ visibility: visibility("extent") }}
+              layout={{ visibility: visibility(LAYER_IDS.EXTENT) }}
               paint={{
                 "line-color": theme === "dark" ? "#60a5fa" : "#2563eb",
                 "line-width": 1.5,
@@ -261,7 +248,7 @@ export default function MaplibreMap({
             <Layer
               id="eoo-polygon-fill"
               type="fill"
-              layout={{ visibility: visibility("eoo") }}
+              layout={{ visibility: visibility(LAYER_IDS.EOO) }}
               paint={{
                 "fill-color": theme === "dark" ? "#ef4444" : "#dc2626",
                 "fill-opacity": 0.08,
@@ -270,7 +257,7 @@ export default function MaplibreMap({
             <Layer
               id="eoo-polygon-outline"
               type="line"
-              layout={{ visibility: visibility("eoo") }}
+              layout={{ visibility: visibility(LAYER_IDS.EOO) }}
               paint={{
                 "line-color": theme === "dark" ? "#ef4444" : "#dc2626",
                 "line-width": 2,

@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useTheme } from "next-themes";
 import type { ViewState } from "react-map-gl/maplibre";
 import type { FeatureCollection } from "geojson";
 import dynamic from "next/dynamic";
 import { fetchWithAuth } from "@/services/api";
+import type { OutputFiles } from "@/services/types";
+import { extentToCoordinates, extentToViewState, parseTileZoom, DEFAULT_TILE_ZOOM_MIN, DEFAULT_TILE_ZOOM_MAX, LAYER_IDS } from "@/lib/map-utils";
 
 interface SuitabilityMapProps {
-  outputFiles: Record<string, string> | null;
+  outputFiles: OutputFiles | null;
   runId: string;
   initialViewState?: Partial<ViewState>;
   coordinates?: [[number, number], [number, number], [number, number], [number, number]];
@@ -18,18 +20,13 @@ interface SuitabilityMapProps {
   boundaryGeoJSON?: FeatureCollection | null;
 }
 
-function extentToCoordinates(e?: number[] | null): [[number, number], [number, number], [number, number], [number, number]] | undefined {
-  if (!e || e.length < 4) return undefined;
-  return [[e[0], e[3]], [e[1], e[3]], [e[1], e[2]], [e[0], e[2]]];
-}
-
-function extentToViewState(e?: number[] | null): Partial<ViewState> | undefined {
-  if (!e || e.length < 4) return undefined;
-  const [xmin, xmax, ymin, ymax] = e;
-  const maxSpan = Math.max(xmax - xmin, ymax - ymin);
-  const zoom = maxSpan > 50 ? 4 : maxSpan > 20 ? 5 : maxSpan > 10 ? 6 : maxSpan > 5 ? 7 : 8;
-  return { longitude: (xmin + xmax) / 2, latitude: (ymin + ymax) / 2, zoom };
-}
+const BASE_LAYER_VISIBILITY: Record<string, boolean> = {
+  [LAYER_IDS.SUITABILITY]: true,
+  [LAYER_IDS.EOO]: false,
+  [LAYER_IDS.AOO]: false,
+  [LAYER_IDS.BOUNDARY]: false,
+  [LAYER_IDS.EXTENT]: true,
+};
 
 function MapPlaceholder({ label }: { label?: string }) {
   return (
@@ -63,18 +60,28 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
   );
   const { resolvedTheme } = useTheme();
   const safeTheme = resolvedTheme ?? "dark";
-  const [layerVisibility, setLayerVisibility] = useState<Record<string, boolean>>({
-    suitability: true,
-    eoo: true,
-    aoo: true,
-    boundary: false,
-    extent: true,
-  });
+  const baseVisibility = useMemo(() => ({
+    [LAYER_IDS.SUITABILITY]: true,
+    [LAYER_IDS.EOO]: !!eooGeoJSON,
+    [LAYER_IDS.AOO]: !!aooGeoJSON,
+    [LAYER_IDS.BOUNDARY]: false,
+    [LAYER_IDS.EXTENT]: true,
+  }), [eooGeoJSON, aooGeoJSON]);
+
+  const [userToggles, setUserToggles] = useState<Record<string, boolean>>({});
+  const layerVisibility: Record<string, boolean> = useMemo(() => {
+    return { ...baseVisibility, ...userToggles };
+  }, [baseVisibility, userToggles]);
+
+  const safeRunId = useMemo(() => runId, [runId]);
+  useEffect(() => {
+    setUserToggles({});
+  }, [safeRunId]);
   const [basemap, setBasemap] = useState<"light" | "dark">("dark");
 
   const onToggleLayer = useCallback((layer: string) => {
-    setLayerVisibility((prev) => ({ ...prev, [layer]: !prev[layer] }));
-  }, []);
+    setUserToggles((prev) => ({ ...prev, [layer]: !layerVisibility[layer] }));
+  }, [layerVisibility]);
 
   const onToggleBasemap = useCallback(() => {
     setBasemap((prev) => (prev === "light" ? "dark" : "light"));
@@ -88,12 +95,8 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
     );
   }
 
-  const rawZoomMin = outputFiles?.tile_zoom_min;
-  const rawZoomMax = outputFiles?.tile_zoom_max;
-  const tileZoomMin = rawZoomMin ? parseInt(rawZoomMin, 10) : 4;
-  const tileZoomMax = rawZoomMax ? parseInt(rawZoomMax, 10) : 8;
-  const safeTileZoomMin = !isNaN(tileZoomMin) ? tileZoomMin : 4;
-  const safeTileZoomMax = !isNaN(tileZoomMax) ? tileZoomMax : 8;
+  const safeTileZoomMin = parseTileZoom(outputFiles?.tile_zoom_min, DEFAULT_TILE_ZOOM_MIN);
+  const safeTileZoomMax = parseTileZoom(outputFiles?.tile_zoom_max, DEFAULT_TILE_ZOOM_MAX);
 
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
@@ -120,7 +123,8 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
         {outputFiles?.tif && (
           <button
             onClick={() => {
-              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(outputFiles.tif)}`)
+              const tifPath = outputFiles.tif!;
+              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(tifPath)}`)
                 .then((res) => {
                   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
                   return res.blob();
@@ -129,7 +133,7 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
                   a.href = url;
-                  a.download = outputFiles.tif.split("/").pop() || "suitability.tif";
+                  a.download = tifPath.split("/").pop() || "suitability.tif";
                   a.click();
                   URL.revokeObjectURL(url);
                 })

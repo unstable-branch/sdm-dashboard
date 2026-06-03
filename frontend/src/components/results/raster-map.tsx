@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Map, Source, Layer, Popup, type MapRef } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useRasterData } from "@/hooks/useRasterData";
+import { extentToViewState } from "@/lib/map-utils";
 import { Loader2 } from "lucide-react";
 
 const CARTO_ATTRIBUTION =
@@ -78,15 +79,7 @@ export function RasterMap({ tileUrl, bounds, geotiffUrl, theme, onCellClick }: R
     }
   }, [data]);
 
-  const [west, south, east, north] = bounds;
-  const lngSpan = east - west;
-  const latSpan = north - south;
-  const initialZoom = Math.max(1, Math.min(10, Math.round(13 - Math.log2(Math.max(lngSpan, latSpan)))));
-  const viewState = {
-    longitude: (west + east) / 2,
-    latitude: (north + south) / 2,
-    zoom: initialZoom,
-  };
+  const viewState = extentToViewState([bounds[0], bounds[2], bounds[1], bounds[3]]) ?? { longitude: 0, latitude: 0, zoom: 2 };
 
   const fitBoundsToExtent = useCallback(() => {
     if (mapRef.current) {
@@ -191,7 +184,7 @@ export function RasterMap({ tileUrl, bounds, geotiffUrl, theme, onCellClick }: R
           type="raster"
           tiles={[tileUrl]}
           tileSize={256}
-          bounds={[west, south, east, north]}
+          bounds={bounds}
           minzoom={0}
           maxzoom={12}
         >

@@ -20,7 +20,7 @@ let _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 const HEARTBEAT_INTERVAL = 30_000;
 const MAX_CLIENTS = 1000;
 const JWT_SECRET = process.env.JWT_SECRET || "";
-const _lastSentEvent = new Map<string, { state: string; progress: number; _receivedAt: number }>();
+const _lastSentEvent = new Map<string, { state: string; progress: number; _receivedAt: number; logsKey: string }>();
 
 function cleanupClient(clientId: string) {
   const client = clients.get(clientId);
@@ -132,10 +132,11 @@ export function setupWebSocket(server: ServerType) {
   _jobStatusHandler = (event) => {
     const subscribers = subscriptions.get(event.jobId);
     if (subscribers) {
-      // Deduplicate: skip if the same event was already sent
+      // Deduplicate: skip if the same event was already sent (compare state, progress, and logs)
       const _lastSent = _lastSentEvent.get(event.jobId);
-      if (_lastSent && _lastSent.state === event.state && _lastSent.progress === event.progress && _lastSent._receivedAt === event._receivedAt) return;
-      _lastSentEvent.set(event.jobId, { state: event.state, progress: event.progress, _receivedAt: event._receivedAt ?? 0 });
+      const logsKey = JSON.stringify(event.logs ?? []);
+      if (_lastSent && _lastSent.state === event.state && _lastSent.progress === event.progress && _lastSent.logsKey === logsKey) return;
+      _lastSentEvent.set(event.jobId, { state: event.state, progress: event.progress, _receivedAt: event._receivedAt, logsKey });
 
       // Evict from dedup map once job reaches terminal state
       if (event.state === "completed" || event.state === "failed" || event.state === "cancelled") {

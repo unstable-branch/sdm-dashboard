@@ -49,6 +49,12 @@ interface SDMState {
   } | null;
   setTargetsProgress: (progress: SDMState["targetsProgress"]) => void;
 
+  modelJobId: string | null;
+  setModelJobId: (id: string | null) => void;
+
+  modelJobStartTime: string | null;
+  setModelJobStartTime: (time: string | null) => void;
+
   error: string | null;
   setError: (error: string | null) => void;
 
@@ -92,6 +98,12 @@ export const useSDMStore = create<SDMState>()((set) => ({
   targetsProgress: null,
   setTargetsProgress: (progress) => set({ targetsProgress: progress }),
 
+  modelJobId: null,
+  setModelJobId: (id) => set({ modelJobId: id }),
+
+  modelJobStartTime: null,
+  setModelJobStartTime: (time) => set({ modelJobStartTime: time }),
+
   error: null,
   setError: (error) => set({ error }),
 
@@ -109,6 +121,8 @@ export const useSDMStore = create<SDMState>()((set) => ({
       detectedSpecies: [],
       targetsRunId: null,
       targetsProgress: null,
+      modelJobId: null,
+      modelJobStartTime: null,
       error: null,
     }),
 }));

@@ -48,6 +48,9 @@ summarise_suitability <- function(suitability, threshold = sdm_default_threshold
     return(base)
   }
 
+  cell_size <- terra::cellSize(suitability, unit = "km")
+  total_area <- tryCatch(as.numeric(terra::global(cell_size, "sum", na.rm = TRUE)[1, 1]), error = function(e) NA_real_)
+
   mean_val <- tryCatch(as.numeric(terra::global(suitability, "mean", na.rm = TRUE)[1, 1]), error = function(e) NA_real_)
   median_val <- tryCatch(as.numeric(terra::global(suitability, "median", na.rm = TRUE)[1, 1]), error = function(e) NA_real_)
   max_val <- tryCatch(as.numeric(terra::global(suitability, "max", na.rm = TRUE)[1, 1]), error = function(e) NA_real_)
@@ -62,8 +65,7 @@ summarise_suitability <- function(suitability, threshold = sdm_default_threshold
 
   high_risk_area <- tryCatch(
     {
-      area <- terra::cellSize(suitability, unit = "km")
-      area_risk <- terra::ifel(suitability >= threshold, area, NA)
+      area_risk <- terra::ifel(suitability >= threshold, cell_size, NA)
       as.numeric(terra::global(area_risk, "sum", na.rm = TRUE)[1, 1])
     },
     error = function(e) NA_real_
@@ -75,9 +77,8 @@ summarise_suitability <- function(suitability, threshold = sdm_default_threshold
 
   if (!is.null(uncertainty_raster) && inherits(uncertainty_raster, "SpatRaster")) {
     tryCatch({
-      area <- terra::cellSize(suitability, unit = "km")
       risk_mask <- terra::ifel(suitability >= threshold, 1, NA)
-      area_risk <- risk_mask * area
+      area_risk <- risk_mask * cell_size
       n_risk_cells <- terra::global(risk_mask, "sum", na.rm = TRUE)[1, 1]
       total_risk_area <- terra::global(area_risk, "sum", na.rm = TRUE)[1, 1]
 
@@ -88,7 +89,7 @@ summarise_suitability <- function(suitability, threshold = sdm_default_threshold
           mean_unc_in_risk <- unc_sum / total_risk_area
           area_uncertainty <- mean_unc_in_risk * total_risk_area
           ci95_lower <- max(0, high_risk_area - 1.96 * area_uncertainty)
-          ci95_upper <- high_risk_area + 1.96 * area_uncertainty
+          ci95_upper <- min(high_risk_area + 1.96 * area_uncertainty, total_area, na.rm = TRUE)
         }
       }
     }, error = function(e) NULL)
