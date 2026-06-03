@@ -237,6 +237,9 @@ generate_xyz_tiles <- function(
         z_max <- min(z_max, extent_z + 3L)
       }
     }
+    # Clamp zoom range to valid values and ensure z_min <= z_max
+    z_min <- max(z_min, 2L)
+    z_max <- max(z_max, z_min)
     log_msg("  Zoom range: ", z_min, " - ", z_max)
 
     total_tiles <- 0L

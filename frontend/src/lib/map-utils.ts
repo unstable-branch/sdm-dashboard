@@ -37,5 +37,5 @@ export function extentToViewState(e?: number[] | null): { longitude: number; lat
 export function parseTileZoom(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw === null) return fallback;
   const parsed = parseInt(raw, 10);
-  return !isNaN(parsed) ? parsed : fallback;
+  return (!isNaN(parsed) && parsed > 0 && parsed <= 20) ? parsed : fallback;
 }

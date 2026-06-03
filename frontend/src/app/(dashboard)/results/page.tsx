@@ -94,8 +94,8 @@ export default function ResultsIndexPage() {
                 }`}>
                   {run.status}
                 </span>
-                {run.error_code && (
-                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-sdm-danger/10 text-sdm-danger border border-sdm-danger/30" title={run.error_hint ?? ""}>
+                {typeof run.error_code === "string" && run.error_code && (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-sdm-danger/10 text-sdm-danger border border-sdm-danger/30" title={typeof run.error_hint === "string" ? run.error_hint : ""}>
                     {run.error_code}
                   </span>
                 )}

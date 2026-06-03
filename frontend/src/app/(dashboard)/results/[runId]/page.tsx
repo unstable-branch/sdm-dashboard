@@ -436,10 +436,10 @@ export default function ResultsPage() {
               {run.error}
             </div>
           )}
-          {run.error_code && (
+          {typeof run.error_code === "string" && run.error_code && (
             <div className="text-xs font-mono text-sdm-muted ml-1">Code: {run.error_code}</div>
           )}
-          {run.error_hint && (
+          {typeof run.error_hint === "string" && run.error_hint && (
             <div className="text-xs text-sdm-warning ml-1">Hint: {run.error_hint}</div>
           )}
           <button
