@@ -26,6 +26,12 @@ process_one_tile <- function(x, y, z, tile_res, half_world, r_proj, tile_size,
   v <- terra::values(tile_crop)
   if (all(is.na(v))) return(NULL)
 
+  # Edge tile detection: if the crop contains NA cells (tile straddles the
+  # projection boundary), use nearest-neighbor to prevent bilinear blending
+  # with NA. Interior tiles stay smooth with the configured resampling method.
+  has_na_edge <- any(is.na(v))
+  method <- if (has_na_edge) "near" else resampling
+
   template <- terra::rast(
     ncols = tile_size, nrows = tile_size,
     xmin = xmin, xmax = xmax,
@@ -33,7 +39,7 @@ process_one_tile <- function(x, y, z, tile_res, half_world, r_proj, tile_size,
     crs = target_crs
   )
 
-  tile_256 <- terra::resample(tile_crop, template, method = resampling)
+  tile_256 <- terra::resample(tile_crop, template, method = method)
 
   vals <- terra::values(tile_256)
   n_col <- length(palette)
