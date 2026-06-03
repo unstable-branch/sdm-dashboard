@@ -1,9 +1,17 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 
 const API_URL = process.env.API_URL || "http://localhost:4000";
+const CONFIG_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(CONFIG_DIR, "..");
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  outputFileTracingRoot: REPO_ROOT,
+  turbopack: {
+    root: REPO_ROOT,
+  },
   reactStrictMode: true,
   allowedDevOrigins: ['100.84.70.113', '*.tailscale.com', '*.tailscale.net'],
   experimental: {
