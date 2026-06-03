@@ -25,6 +25,9 @@ export default function ModelPage() {
   const recordCount = useSDMStore((s) => s.recordCount);
   const species = useSDMStore((s) => s.species);
   const cleanedOccurrence = useSDMStore((s) => s.cleanedOccurrence);
+  const uploadResult = useSDMStore((s) => s.uploadResult);
+  const setCleanedOccurrence = useSDMStore((s) => s.setCleanedOccurrence);
+  const setRecordCount = useSDMStore((s) => s.setRecordCount);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +63,22 @@ export default function ModelPage() {
   useEffect(() => {
     fetchActiveRuns();
   }, [fetchActiveRuns]);
+
+  // Safety net: if upload was cleaned but store hasn't caught up, populate cleanedOccurrence
+  useEffect(() => {
+    if (!cleanedOccurrence && uploadResult?.cleaned_file_id) {
+      setCleanedOccurrence({
+        filePath: uploadResult.cleaned_file_id as string,
+        df: (uploadResult.cleaned_records || []) as Record<string, unknown>[],
+        sourceCounts: (uploadResult.source_counts || {}) as Record<string, number>,
+        nAbsentExcluded: (uploadResult.n_absent_excluded as number) || 0,
+        originalRows: (uploadResult.original_rows as number) || Number(uploadResult.n_rows || 0),
+        validRecords: (uploadResult.valid_records as number) || (uploadResult.cleaned_valid_records as number) || 0,
+      });
+      const count = (uploadResult.valid_records as number) || (uploadResult.cleaned_valid_records as number) || 0;
+      if (count) setRecordCount(count);
+    }
+  }, [cleanedOccurrence, uploadResult, setCleanedOccurrence, setRecordCount]);
 
   // SSE-driven updates: on terminal state transitions, refresh active runs
   useEffect(() => {
