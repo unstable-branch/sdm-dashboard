@@ -159,38 +159,10 @@ load_extra_covariates <- function(template_train, template_project, training_ext
         covariate_cache_dir = covariate_cache_dir, allow_download = allow_download, log_fun = log_fun),
       error = function(e) { log_message(log_fun, "Failed to load drought: ", conditionMessage(e)); NULL }
     )
-    if (!is.null(ndvi)) {
-      sources$vegetation <- ndvi
-      metadata$vegetation <- list(source = ndvi$source, products = ndvi$variables$products)
-      files$vegetation <- ndvi$files
-    }
-  }
-
-  if (isTRUE(use_lulc)) {
-    lulc <- tryCatch(
-      load_lulc_covariate(lulc_year = lulc_year, extent_vec = training_extent,
-        aggregate_factor = 18L, covariate_cache_dir = covariate_cache_dir,
-        allow_download = allow_download, log_fun = log_fun),
-      error = function(e) { log_message(log_fun, "Failed to load LULC: ", conditionMessage(e)); NULL }
-    )
-    if (!is.null(lulc)) {
-      sources$lulc <- lulc
-      metadata$lulc <- list(source = lulc$source, variables = lulc$variables)
-      files$lulc <- lulc$files
-    }
-  }
-
-  if (isTRUE(use_hfp)) {
-    hfp <- tryCatch(
-      load_human_footprint_covariate(hfp_year = hfp_year, extent_vec = training_extent,
-        aggregate_factor = 18L, covariate_cache_dir = covariate_cache_dir,
-        allow_download = allow_download, log_fun = log_fun),
-      error = function(e) { log_message(log_fun, "Failed to load human footprint: ", conditionMessage(e)); NULL }
-    )
-    if (!is.null(hfp)) {
-      sources$hfp <- hfp
-      metadata$hfp <- list(source = hfp$source, variables = hfp$variables)
-      files$hfp <- hfp$files
+    if (!is.null(drought)) {
+      sources$drought <- drought
+      metadata$drought <- list(source = drought$source, variables = drought$variables)
+      files$drought <- drought$files
     }
   }
 
@@ -204,20 +176,6 @@ load_extra_covariates <- function(template_train, template_project, training_ext
       sources$bioclim_season <- bioclim
       metadata$bioclim_season <- list(source = bioclim$source, variables = bioclim$variables)
       files$bioclim_season <- bioclim$files
-    }
-  }
-
-  if (isTRUE(use_drought)) {
-    drought <- tryCatch(
-      load_drought_covariate(selected_periods = selected_drought_periods,
-        extent_vec = training_extent, aggregate_factor = 3L,
-        covariate_cache_dir = covariate_cache_dir, allow_download = allow_download, log_fun = log_fun),
-      error = function(e) { log_message(log_fun, "Failed to load drought: ", conditionMessage(e)); NULL }
-    )
-    if (!is.null(drought)) {
-      sources$drought <- drought
-      metadata$drought <- list(source = drought$source, variables = drought$variables)
-      files$drought <- drought$files
     }
   }
 

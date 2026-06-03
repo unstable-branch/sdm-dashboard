@@ -31,7 +31,7 @@ TMUX_CMD="TMPDIR=/tmp tmux -L sdm"
 export PATH="$HOME/.npm-global/bin:$PATH"
 
 MODE="${1:-dev}"
-FRONTEND_BUNDLER="${FRONTEND_BUNDLER:-webpack}"
+FRONTEND_BUNDLER="${FRONTEND_BUNDLER:-turbo}"
 
 case "$FRONTEND_BUNDLER" in
   webpack)

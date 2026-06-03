@@ -49,6 +49,8 @@ progress_fun <- function(x) {
   cat(log_line, "\n")
   cat(log_line, "\n", file = progress_file, append = TRUE)
   # Write structured progress.json entry (consumed by Plumber status endpoint as progress_json)
+  # Format: append-only JSON-lines (one JSON object per line) — the Plumber reader parses
+  # each line independently, so no outer array wrapper is needed.
   progress_json_path <- file.path(job_dir, "progress.json")
   entry <- list(
     timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
@@ -85,6 +87,9 @@ source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
 write_heartbeat("bootstrap_done")
 
+# Source error codes for classification
+source(file.path(app_dir, "plumber", "R", "error_codes.R"), local = TRUE)
+
 log_fun("Loading compute modules (~130 modules)...")
 Sys.setenv(SDM_HEARTBEAT_FILE = heartbeat_file)
 source(file.path(app_dir, "R", "load_compute.R"))
@@ -112,7 +117,7 @@ if (projection_extent[1] < -180 || projection_extent[2] > 180 || projection_exte
 
 tryCatch({
   cleaned_occurrence <- NULL
-  if (!is.null(config$cleaned_file_id) && nzchar(config$cleaned_file_id) && file.exists(config$cleaned_file_id)) {
+  if (is.character(config$cleaned_file_id) && length(config$cleaned_file_id) == 1 && nzchar(config$cleaned_file_id) && file.exists(config$cleaned_file_id)) {
     tmp_clean <- tempfile()
     on.exit(unlink(tmp_clean), add = TRUE)
     decrypt_file(config$cleaned_file_id, tmp_clean)

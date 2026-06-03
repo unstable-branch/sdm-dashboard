@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -353,7 +353,7 @@ export default function ResultsPage() {
   const outputFiles = run?.output_files ?? null;
 
   const stageData: ProgressStage[] | null = sseJob?.progressJson ?? run.progress_json ?? null;
-  const stageChips = useMemo(() => stageData && stageData.length > 0 ? (
+  const stageChips = stageData && stageData.length > 0 ? (
     <div className="mt-2 flex flex-wrap gap-1.5">
       {stageData.map((entry, i) => (
         <span key={i} className={`text-xs rounded px-1.5 py-0.5 ${
@@ -366,8 +366,8 @@ export default function ResultsPage() {
         </span>
       ))}
     </div>
-  ) : null, [stageData]);
-  const logLines = useMemo(() => run.progress_log.slice(-200), [run.progress_log]);
+  ) : null;
+  const logLines = run.progress_log?.slice(-200) ?? [];
 
   return (
     <div className="space-y-6">
@@ -386,6 +386,8 @@ export default function ResultsPage() {
         <span className={
           run.status === "completed" ? "px-3 py-1 rounded-full text-xs font-medium bg-green-500/10 text-green-500" :
           run.status === "failed" ? "px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-500" :
+          run.status === "cancelled" ? "px-3 py-1 rounded-full text-xs font-medium bg-yellow-500/10 text-yellow-500" :
+          run.status === "queued" || run.status === "pending" ? "px-3 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500" :
           "px-3 py-1 rounded-full text-xs font-medium bg-sdm-accent/10 text-sdm-accent animate-pulse"
         }>
           {run.status}
@@ -434,7 +436,7 @@ export default function ResultsPage() {
             )}
           </div>
           {stageChips}
-          {run.progress_log.length > 0 ? (
+          {(run.progress_log?.length ?? 0) > 0 ? (
             <div className="mt-2 rounded bg-sdm-surface-soft p-2 font-mono text-xs text-sdm-muted max-h-32 overflow-y-auto">
               {logLines.map((line, i) => (
                 <div key={i} className="break-words whitespace-pre-wrap">{line}</div>

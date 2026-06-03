@@ -30,12 +30,17 @@ let plumberActiveRequests = 0;
 
 async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
   if (plumberActiveRequests >= PLUMBER_MAX_CONCURRENT) {
-    // Wait for a slot with a 30s timeout to prevent cascading delays
-    const slotPromise = new Promise<void>(resolve => { plumberQueue.push(resolve); });
-    const timeoutPromise = new Promise<void>((_, reject) =>
-      setTimeout(() => reject(new Error("Plumber semaphore timeout: all connections busy")), 5000)
-    );
-    await Promise.race([slotPromise, timeoutPromise]);
+    await new Promise<void>((resolve, reject) => {
+      const resolver: () => void = resolve;
+      plumberQueue.push(resolver);
+      const timeoutId = setTimeout(() => {
+        const idx = plumberQueue.indexOf(resolver);
+        if (idx >= 0) plumberQueue.splice(idx, 1);
+        reject(new Error("Plumber semaphore timeout: all connections busy"));
+      }, 5000);
+      // Store timeoutId for cleanup when resolver is dequeued and called
+      (resolver as any)._timeoutId = timeoutId;
+    });
   }
   plumberActiveRequests++;
   try {
@@ -44,6 +49,8 @@ async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
     plumberActiveRequests--;
     if (plumberQueue.length > 0) {
       const next = plumberQueue.shift()!;
+      const tid = (next as any)._timeoutId;
+      if (tid) clearTimeout(tid);
       next();
     }
   }
@@ -209,14 +216,14 @@ export class PlumberClient {
   }
 
   async getJobStatus(jobId: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`, { headers: this.headers() });
+    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/status/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
     return res.json();
   }
 
   async cancelJob(jobId: string): Promise<{ ok: boolean }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`, {
-      method: "DELETE",
+    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/cancel/${jobId}`, {
+      method: "POST",
       headers: this.headers(),
     });
     if (!res.ok) throw new Error(`Failed to cancel job: ${res.status}`);

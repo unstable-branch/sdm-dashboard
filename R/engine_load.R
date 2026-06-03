@@ -28,8 +28,8 @@ modules <- c(
   "bootstrap.R",
   "config.R",
   "packages.R",
-  "model_payload_normalizer.R",
   "logging.R",
+  "model_payload_normalizer.R",
   "crypto.R",
   "validation.R",
   "app_helpers.R",
@@ -121,6 +121,7 @@ modules <- c(
   "ale.R",
   "shap.R",
   "climate_driver.R",
+  "xai_methods.R",
 
   # --- output ---
   "metrics_binary.R",

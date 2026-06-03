@@ -22,6 +22,19 @@ const MAX_CLIENTS = 1000;
 const JWT_SECRET = process.env.JWT_SECRET || "";
 const _lastSentEvent = new Map<string, { state: string; progress: number; _receivedAt: number }>();
 
+function cleanupClient(clientId: string) {
+  const client = clients.get(clientId);
+  if (client) {
+    for (const jobId of client.subscriptions) {
+      subscriptions.get(jobId)?.delete(clientId);
+      if (subscriptions.get(jobId)?.size === 0) {
+        subscriptions.delete(jobId);
+      }
+    }
+    clients.delete(clientId);
+  }
+}
+
 function heartbeat() {
   for (const [id, client] of clients) {
     if ((client.ws as any)._isAlive === false) {
@@ -115,19 +128,6 @@ export function setupWebSocket(server: ServerType) {
       cleanupClient(clientId);
     });
   });
-
-  function cleanupClient(clientId: string) {
-    const client = clients.get(clientId);
-    if (client) {
-      for (const jobId of client.subscriptions) {
-        subscriptions.get(jobId)?.delete(clientId);
-        if (subscriptions.get(jobId)?.size === 0) {
-          subscriptions.delete(jobId);
-        }
-      }
-      clients.delete(clientId);
-    }
-  }
 
   _jobStatusHandler = (event) => {
     const subscribers = subscriptions.get(event.jobId);

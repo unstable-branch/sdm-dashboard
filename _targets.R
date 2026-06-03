@@ -104,7 +104,7 @@ list(
   tar_target(occ_clean, sdm_stage_clean(cfg), pattern = map(cfg)),
 
   # Per-species environment loading (correct covariates for each species)
-  tar_target(env, sdm_stage_covariates(cfg, occ_clean$occ), pattern = map(cfg)),
+  tar_target(env, sdm_stage_covariates(cfg), pattern = map(cfg)),
 
   tar_target(fit, sdm_stage_fit(cfg, occ_clean$occ, env), pattern = map(cfg)),
 
@@ -116,8 +116,10 @@ list(
     tif
   }, pattern = map(fit), format = "file"),
 
-  tar_target(future_result, sdm_stage_future(cfg, fit$fit, terra::rast(suit_tif), env,
-    batch_output_dir, cfg$species), pattern = map(suit_tif)),
+  tar_target(future_result, {
+    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", cfg$species)
+    sdm_stage_future(cfg, fit$fit, terra::rast(suit_tif), env, batch_output_dir, safe_name)
+  }, pattern = map(suit_tif)),
 
   tar_target(post, sdm_stage_postprocess(
     cfg, fit$fit, terra::rast(suit_tif), env),

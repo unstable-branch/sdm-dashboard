@@ -63,9 +63,9 @@ export async function invalidateCache(prefix: string) {
   const r = getCacheRedis();
   if (!r) return;
   try {
-    const keys = await r.keys(`${prefix}:*`);
-    if (keys.length > 0) {
-      await r.del(keys);
+    const stream = r.scanStream({ match: `${prefix}:*`, count: 100 });
+    for await (const batchKeys of stream) {
+      if (batchKeys.length > 0) await r.del(batchKeys);
     }
   } catch {
     // Best-effort invalidation

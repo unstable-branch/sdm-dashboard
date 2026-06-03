@@ -10,7 +10,7 @@ if (!dir.exists(mod_dir)) {
 if (!exists("sdm_resolve_module", mode = "function")) {
   sdm_resolve_module <- function(m) {
     mod_dir <- file.path(sdm_project_root(), "R")
-    subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "output")
+    subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "xai", "output")
     for (sub in subdirs) {
       p <- file.path(mod_dir, sub, m)
       if (file.exists(p)) return(p)
@@ -27,6 +27,7 @@ modules <- c(
   "config.R",
   "packages.R",
   "logging.R",
+  "model_payload_normalizer.R",
   "crypto.R",
   "validation.R",
   "app_helpers.R",
@@ -120,6 +121,7 @@ modules <- c(
   "ale.R",
   "shap.R",
   "climate_driver.R",
+  "xai_methods.R",
   "plots.R",
   "report.R",
   "report_odmap.R",
