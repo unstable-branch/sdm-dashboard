@@ -1,5 +1,5 @@
-export const DEFAULT_TILE_ZOOM_MIN = 4;
-export const DEFAULT_TILE_ZOOM_MAX = 8;
+export const DEFAULT_TILE_ZOOM_MIN = 2;
+export const DEFAULT_TILE_ZOOM_MAX = 10;
 
 export const LAYER_IDS = {
   SUITABILITY: "suitability",
