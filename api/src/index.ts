@@ -179,6 +179,22 @@ const port = parseInt(process.env.PORT || "4000", 10);
   }
 })();
 
+// One-time backfill: mark existing uploads as cleaned if they have a cleaned_file_path
+// This ensures previously-cleaned files show the "Cleaned" badge in the upload history
+(async () => {
+  try {
+    const result = await db.execute(
+      sql`UPDATE uploads SET is_cleaned = TRUE WHERE is_cleaned IS DISTINCT FROM TRUE AND cleaned_file_path IS NOT NULL`
+    );
+    if (result.rowCount && result.rowCount > 0) {
+      console.log(`[DB] Backfilled ${result.rowCount} existing upload(s) as cleaned`);
+    }
+  } catch (err) {
+    // Non-critical — errors only affect the "Cleaned" badge display
+    console.warn("[DB] Uploads backfill skipped:", err instanceof Error ? err.message : String(err));
+  }
+})();
+
 // Attempt to start background job worker with retry (will retry until Redis is available)
 async function startWorkerWithRetry(attempt = 0) {
   const w = ensureWorker();

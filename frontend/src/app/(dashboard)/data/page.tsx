@@ -333,6 +333,17 @@ function DataPageContent() {
         originalRows: Number(file.n_rows || 0),
         validRecords: Number(file.cleaned_valid_records || file.n_rows || 0),
       });
+    } else if (file.cleaned_file_id) {
+      // Trust cleaned_file_path even if is_cleaned flag is not set
+      // (catches previously-cleaned files before the DB was updated)
+      setCleanedOccurrence({
+        filePath: file.cleaned_file_id,
+        df: [],
+        sourceCounts: {},
+        nAbsentExcluded: 0,
+        originalRows: Number(file.n_rows || 0),
+        validRecords: Number(file.cleaned_valid_records || file.n_rows || 0),
+      });
     } else {
       setCleanedOccurrence(null);
     }
