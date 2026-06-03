@@ -318,12 +318,12 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
               <span className="font-semibold">Error: </span>{effectiveJob.failedReason}
             </div>
           )}
-          {effectiveJob.error_code && (
+          {typeof effectiveJob.error_code === "string" && effectiveJob.error_code && (
             <div className="text-xs text-sdm-muted font-mono">
               Code: {effectiveJob.error_code}
             </div>
           )}
-          {effectiveJob.error_hint && (
+          {typeof effectiveJob.error_hint === "string" && effectiveJob.error_hint && (
             <div className="text-xs text-sdm-warning">
               Hint: {effectiveJob.error_hint}
             </div>

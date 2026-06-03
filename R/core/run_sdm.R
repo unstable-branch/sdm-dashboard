@@ -964,6 +964,8 @@ run_fast_sdm <- function(...) {
         palette     = sdm_suitability_palette,
         value_range = c(0, 1),
         band_names  = "suitability",
+        zoom_min    = 2,
+        zoom_max    = 10,
         verbose     = FALSE,
         log         = function(msg) log_message(log_fun, "  ", msg)
       )

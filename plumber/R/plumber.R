@@ -641,6 +641,8 @@ function(res, job_id) {
     if (!process_alive) {
       meta$status <- "failed"
       meta$error <- "Process crashed or was killed"
+      meta$error_code <- "PROCESS_CRASH"
+      meta$error_hint <- "The process was terminated by the OS, likely due to insufficient memory. Reduce covariates, use coarser resolution, or increase available memory."
       meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       sdm_write_json(meta, meta_file)
       sdm_process_registry[[job_id]] <- NULL

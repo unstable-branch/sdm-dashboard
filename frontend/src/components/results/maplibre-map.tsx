@@ -173,8 +173,8 @@ export default function MaplibreMap({
         type="raster"
         tiles={[`/api/v1/results/tiles/${runId}/{z}/{x}/{y}`]}
         tileSize={256}
-        minzoom={0}
-        maxzoom={18}
+        minzoom={tileZoomMin && tileZoomMin > 0 ? tileZoomMin : 0}
+        maxzoom={tileZoomMax && tileZoomMax > 0 ? tileZoomMax : 18}
         bounds={tileBounds}
       >
           <Layer
