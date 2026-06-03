@@ -299,18 +299,20 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
                       </span>
                     </p>
                   </div>
-                  <button
-                    onClick={async () => {
-                      if (!window.confirm("Cancel this run?")) return;
-                      try {
-                        await apiPost(`/api/v1/sdm/cancel/${run.id}`);
-                        fetchRuns();
-                      } catch { /* best-effort */ }
-                    }}
-                    className="shrink-0 rounded-md border border-sdm-border bg-sdm-surface px-3 py-1.5 text-xs text-sdm-muted hover:text-sdm-danger hover:border-sdm-danger/30 transition-colors"
-                  >
-                    Cancel
-                  </button>
+                  {run.id !== activeJobId && (
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm("Cancel this run?")) return;
+                        try {
+                          await apiPost(`/api/v1/sdm/cancel/${run.id}`);
+                          fetchRuns();
+                        } catch { /* best-effort */ }
+                      }}
+                      className="shrink-0 rounded-md border border-sdm-border bg-sdm-surface px-3 py-1.5 text-xs text-sdm-muted hover:text-sdm-danger hover:border-sdm-danger/30 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -352,7 +354,7 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
                   )}>
                     {run.status}
                   </span>
-                  {isCancellable && (
+                  {isCancellable && run.id !== activeJobId && (
                     <button
                       onClick={() => handleCancel(run.id)}
                       disabled={isActioning}
