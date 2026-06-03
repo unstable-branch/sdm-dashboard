@@ -3,7 +3,7 @@
 sdm_payload_coalesce <- function(...) {
   values <- list(...)
   for (value in values) {
-    if (!is.null(value)) return(value)
+    if (!is.null(value) && length(value) > 0L) return(value)
   }
   NULL
 }

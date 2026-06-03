@@ -310,48 +310,65 @@ async function syncRunningJobs() {
 
         if (existing.count >= CONSECUTIVE_404_THRESHOLD && timeSinceFirst >= CONSECUTIVE_404_WINDOW_MS) {
           // Final check: fetch Plumber status directly to see if the run actually completed
-          // (404 may have been transient)
+          // (404 may have been transient; 500 may be Plumber auth-crash window — retry)
           let plumberErrorDetail = "";
           let finalPlumberStatus: string | undefined;
-          try {
-            const probeRes = await fetch(
-              `${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/models/status/${run.jobId}`,
-              { signal: AbortSignal.timeout(3000) },
-            );
-            const probeBody = await probeRes.text().catch(() => "");
-            plumberErrorDetail = `probe_status=${probeRes.status} body=${probeBody.slice(0, 500)}`;
-            // Try to parse probe response — if Plumber reports a terminal state, use it
-            if (probeRes.ok) {
-              const probeJson = JSON.parse(probeBody);
-              const ps = probeJson.status as string;
-              if (["completed", "failed", "cancelled"].includes(ps)) {
-                finalPlumberStatus = ps;
-                await db.update(runs).set({
-                  status: ps as any,
-                  error: ps === "failed" ? ((probeJson.error as string) || "Model run failed") : null,
-                  errorCode: ps === "failed" ? (probeJson.error_code as string ?? null) : null,
-                  errorHint: ps === "failed" ? (probeJson.error_hint as string ?? null) : null,
-                  metrics: ps === "completed" ? (probeJson.metrics ?? null) : null,
-                  outputFiles: ps === "completed" ? (probeJson.output_files ?? null) : null,
-                  completedAt: new Date(),
-                }).where(eq(runs.id, run.id));
-                jobEventBus.emitJobStatus({
-                  jobId: run.id,
-                  state: ps,
-                  progress: ps === "completed" ? 100 : 0,
-                  logs: Array.isArray(probeJson.progress_log) ? probeJson.progress_log : [],
-                  result: ps === "completed" ? probeJson : undefined,
-                  failedReason: ps === "failed" ? (probeJson.error as string | undefined) || undefined : undefined,
-                  progressJson: probeJson.progress_json ?? null,
-                });
-                consecutive404s.delete(run.id);
-                console.warn(`[plumber-sync] Probe found terminal status "${ps}" for run ${run.id} — recovering from 404 streak.`);
+          const MAX_500_RETRIES = 2;
+          const RETRY_DELAY_MS = 5000;
+          for (let attempt = 0; attempt <= MAX_500_RETRIES; attempt++) {
+            try {
+              if (attempt > 0) {
+                console.warn(`[plumber-sync] Retry #${attempt} for run ${run.id} after 500...`);
+                await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+              }
+              const probeRes = await fetch(
+                `${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/models/status/${run.jobId}`,
+                { signal: AbortSignal.timeout(3000) },
+              );
+              const probeBody = await probeRes.text().catch(() => "");
+              plumberErrorDetail = `probe_status=${probeRes.status} body=${probeBody.slice(0, 500)}`;
+              // Try to parse probe response — if Plumber reports a terminal state, use it
+              if (probeRes.ok) {
+                const probeJson = JSON.parse(probeBody);
+                const ps = probeJson.status as string;
+                if (["completed", "failed", "cancelled"].includes(ps)) {
+                  finalPlumberStatus = ps;
+                  await db.update(runs).set({
+                    status: ps as any,
+                    error: ps === "failed" ? ((probeJson.error as string) || "Model run failed") : null,
+                    errorCode: ps === "failed" ? (probeJson.error_code as string ?? null) : null,
+                    errorHint: ps === "failed" ? (probeJson.error_hint as string ?? null) : null,
+                    metrics: ps === "completed" ? (probeJson.metrics ?? null) : null,
+                    outputFiles: ps === "completed" ? (probeJson.output_files ?? null) : null,
+                    completedAt: new Date(),
+                  }).where(eq(runs.id, run.id));
+                  jobEventBus.emitJobStatus({
+                    jobId: run.id,
+                    state: ps,
+                    progress: ps === "completed" ? 100 : 0,
+                    logs: Array.isArray(probeJson.progress_log) ? probeJson.progress_log : [],
+                    result: ps === "completed" ? probeJson : undefined,
+                    failedReason: ps === "failed" ? (probeJson.error as string | undefined) || undefined : undefined,
+                    progressJson: probeJson.progress_json ?? null,
+                  });
+                  consecutive404s.delete(run.id);
+                  console.warn(`[plumber-sync] Probe found terminal status "${ps}" for run ${run.id} — recovering from 404 streak.`);
+                  plumberErrorDetail = ""; // clear so we don't fail below
+                  break;
+                }
+              }
+              // 500 error with retries left — continue the loop
+              if (probeRes.status === 500 && attempt < MAX_500_RETRIES) {
                 continue;
               }
+            } catch (probeErr) {
+              plumberErrorDetail = `probe_failed=${probeErr instanceof Error ? probeErr.message.slice(0, 200) : "unknown"}`;
             }
-          } catch (probeErr) {
-            plumberErrorDetail = `probe_failed=${probeErr instanceof Error ? probeErr.message.slice(0, 200) : "unknown"}`;
+            // Non-500 or retries exhausted: stop retrying
+            break;
           }
+          // If we recovered via a terminal status above, skip the fail path
+          if (finalPlumberStatus) continue;
 
           console.error(
             `[plumber-sync] Marking run ${run.id} as failed: ` +

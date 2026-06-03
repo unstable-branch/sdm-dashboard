@@ -36,6 +36,12 @@ jobs:
           files <- files[!grepl("/\\.Rprofile$", files)]
           for (file in files) parse(file)
           message("Parsed ", length(files), " R source files.")
+
+          # Also verify _targets.R parses (it has its own engine_load.R dependency chain)
+          if (file.exists("_targets.R")) {
+            parse("_targets.R")
+            message("_targets.R parsed OK")
+          }
         shell: Rscript --no-init-file {0}
 
       - name: Install system dependencies

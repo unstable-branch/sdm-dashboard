@@ -381,6 +381,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
     // Proactive Plumber check for running runs — fetches live progress_log and progress_json
     let plumberProgressJson: unknown = null;
     let plumberProgressLog: string[] = [];
+    let effectiveStatus = run.status;
     if (run.status === "running" && run.jobId) {
       try {
         const plumberStatus = await plumberClient.getModelStatus(run.jobId, 8000);
@@ -389,6 +390,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
         plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log as string[] : [];
 
         // Fire-and-forget: if Plumber reports terminal state, update DB in background
+        // Only update if DB status is still running (guards against race with cancel)
         if (ps.status === "completed" || ps.status === "failed" || ps.status === "cancelled") {
           db.update(runs).set({
             status: ps.status,
@@ -398,7 +400,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
             errorCode: ps.error_code ?? null,
             errorHint: ps.error_hint ?? null,
             completedAt: new Date(),
-          }).where(eq(runs.id, jobId)).then(() => {
+          }).where(and(eq(runs.id, jobId), inArray(runs.status, ["running", "queued"]))).then(() => {
             jobEventBus.emitJobStatus({
               jobId: run.id,
               state: ps.status,
@@ -412,6 +414,31 @@ sdmRoutes.get("/status/:jobId", async (c) => {
       } catch {
         // Plumber unreachable — fall through to DB response
       }
+    } else if (run.status === "running" && !run.jobId && run.startedAt) {
+      // Orphaned run: worker set status to running but never received a Plumber job ID.
+      // If started more than 5 minutes ago, the worker likely crashed or all retries failed.
+      const orphanThreshold = 5 * 60 * 1000;
+      if (Date.now() - run.startedAt.getTime() > orphanThreshold) {
+        db.update(runs)
+          .set({
+            status: "failed",
+            error: "Model run did not start — worker was unable to connect to the model backend",
+            errorCode: "WORKER_ORPHAN",
+            completedAt: new Date(),
+          })
+          .where(eq(runs.id, jobId))
+          .then(() => {
+            jobEventBus.emitJobStatus({
+              jobId: run.id,
+              state: "failed",
+              progress: 0,
+              failedReason: "Model run did not start — worker was unable to connect to the model backend",
+              error_code: "WORKER_ORPHAN",
+            });
+          })
+          .catch(() => {});
+        effectiveStatus = "failed";
+      }
     }
 
     // Always return 200 when run data exists in DB — the response body fields (status, error_code, etc.)
@@ -421,7 +448,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
 
     return c.json({
       id: run.id,
-      status: run.status,
+      status: effectiveStatus,
       species: run.speciesName,
       model_id: run.modelId,
       started_at: run.startedAt?.toISOString() ?? null,
@@ -465,6 +492,10 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
       return c.json({ error: "Run not found" }, 404);
     }
 
+    if (run.status !== "queued" && run.status !== "running") {
+      return c.json({ error: `Run is already ${run.status} — cannot cancel` }, 409);
+    }
+
     const queue = getJobQueue();
     if (queue && run.bullmqId) {
       const bullJob = await queue.getJob(run.bullmqId);
@@ -478,7 +509,7 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
 
     if (run.jobId) {
       const result = await plumberClient.cancelModel(run.jobId);
-      await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(eq(runs.id, jobId));
+      await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(and(eq(runs.id, jobId), inArray(runs.status, ["queued", "running"])));
       jobEventBus.emitJobStatus({
         jobId: run.id,
         state: "cancelled",
@@ -488,7 +519,7 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
       return c.json(result);
     }
 
-    await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(eq(runs.id, jobId));
+    await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(and(eq(runs.id, jobId), inArray(runs.status, ["queued", "running"])));
     jobEventBus.emitJobStatus({
       jobId: run.id,
       state: "cancelled",
@@ -547,7 +578,7 @@ sdmRoutes.post("/cancel-all", async (c) => {
           await plumberClient.cancelModel(run.jobId).catch(() => console.warn("[sdm] Failed to cancel Plumber run", run.jobId));
         }
 
-        await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, run.id));
+        await db.update(runs).set({ status: "cancelled" }).where(and(eq(runs.id, run.id), inArray(runs.status, ["queued", "running"])));
         cancelled++;
       } catch {
         // Continue with other runs even if one fails
@@ -674,41 +705,49 @@ sdmRoutes.post("/batch", async (c) => {
 
     const jobIds: string[] = [];
 
-    for (const config of configs) {
+    // Batch-insert all runs in one query
+    const parsedConfigs = configs.map((config) => {
       const parsed = modelConfigSchema.safeParse(config);
-      if (!parsed.success) {
-        return c.json({ error: `Invalid config: ${parsed.error.message}` }, 400);
-      }
+      if (!parsed.success) throw new Error(`Invalid config: ${parsed.error.message}`);
+      return parsed;
+    });
 
-      const [run] = await db
-        .insert(runs)
-        .values({
+    const insertedRuns = await db
+      .insert(runs)
+      .values(
+        parsedConfigs.map((parsed) => ({
           speciesName: parsed.data.species,
           projectId,
           modelId: parsed.data.modelId,
-          status: "queued",
+          status: "queued" as const,
           config: parsed.data as any,
           parentRunId: batch.id,
           pipelineRunId: (parsed.data as any).pipelineRunId || null,
-        })
-        .returning();
+        }))
+      )
+      .returning();
 
-      const data = parsed.data;
-      const plumberPayload = { ...buildModelPayload(data, run.id), runId: run.id };
+    // Enqueue all jobs in parallel
+    const enqueueResults = await Promise.allSettled(
+      insertedRuns.map((run) => {
+        const parsed = parsedConfigs[insertedRuns.indexOf(run)];
+        const plumberPayload = { ...buildModelPayload(parsed.data, run.id), runId: run.id };
+        return enqueueSdmJob({ type: "model", payload: plumberPayload }, user.id);
+      })
+    );
 
-      const queuedJobId = await enqueueSdmJob(
-        { type: "model", payload: plumberPayload },
-        user.id,
-      );
-      if (queuedJobId) {
-        await db
+    // Update runs with job IDs in parallel
+    await Promise.all(
+      insertedRuns.map((run, i) => {
+        const queuedJobId = enqueueResults[i].status === "fulfilled" ? enqueueResults[i].value : null;
+        jobIds.push(run.id);
+        if (!queuedJobId) return Promise.resolve();
+        return db
           .update(runs)
           .set({ bullmqId: queuedJobId })
           .where(eq(runs.id, run.id));
-      }
-
-      jobIds.push(run.id);
-    }
+      })
+    );
 
     return c.json({
       batch_id: batch.id,

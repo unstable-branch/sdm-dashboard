@@ -6,7 +6,11 @@
 # Open endpoints (health, reads) bypass auth
 
 # Fatal error handler: dump stack + variables to crash log so OOM/segfault leaves a trail
+# Ignores REQUEST_REJECTED (normal Plumber auth rejection — not a crash)
 options(error = function() {
+  # Plumber preroute hook calls stop("REQUEST_REJECTED") for auth failures.
+  # These are expected and must not trigger crash logging or health-check alarms.
+  if (identical(geterrmessage(), "REQUEST_REJECTED")) return(invisible(NULL))
   crash_file <- file.path(tempdir(), "sdm_crash_dump.rda")
   tryCatch({
     dump.frames("sdm_crash_dump", to.file = TRUE)
@@ -36,6 +40,9 @@ source(file.path(app_dir, "plumber", "R", "redis.R"), local = FALSE)
 
 # Source shared plumber helpers used by route handlers
 source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"), local = FALSE)
+
+# Source error codes and classification
+source(file.path(app_dir, "plumber", "R", "error_codes.R"), local = FALSE)
 
 # Set up DB connection pool for auth and other DB queries
 library(pool)
@@ -110,9 +117,12 @@ auth_fail <- function(res, status, msg) {
   tryCatch(res$status <- status, error = function(e) NULL)
   tryCatch(res$setHeader("Content-Type", "application/json"), error = function(e) NULL)
   tryCatch({
-    res$body <- charToRaw(if (is.character(msg)) msg else jsonlite::toJSON(
+    body_str <- if (is.character(msg)) msg else jsonlite::toJSON(
       list(error = as.character(msg)), auto_unbox = TRUE
-    ))
+    )
+    if (is.character(body_str) && length(body_str) == 1L && nchar(body_str) > 0L) {
+      res$body <- charToRaw(body_str)
+    }
   }, error = function(e) NULL)
   stop("REQUEST_REJECTED", call. = FALSE)
 }

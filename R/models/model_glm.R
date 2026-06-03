@@ -5,9 +5,9 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
                                      target_group_occ = NULL,
                                      thickening_distance_km = NULL) {
   bias_method <- match.arg(bias_method)
-  set.seed(seed)
   n <- as.integer(n)
   if (is.na(n) || n < 1) n <- 100L
+  set.seed(seed)
 
   template_rast <- env_train_scaled[[1]]
   all_cells <- seq_len(terra::ncell(template_rast))

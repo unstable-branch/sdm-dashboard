@@ -30,11 +30,7 @@ import { useJobSSE } from "@/hooks/use-job-sse";
 import { AdminSidebarGroup } from "@/components/layout/admin-sidebar-group";
 
 function ActiveJobDot() {
-  const { jobs } = useJobSSE(true);
-  const hasActive = useMemo(
-    () => Array.from(jobs.values()).some((j) => j.state === "active" || j.state === "waiting"),
-    [jobs]
-  );
+  const { hasActive } = useJobSSE(true);
   if (!hasActive) return null;
   return <span className="ml-auto h-2 w-2 rounded-full bg-green-500 animate-pulse" title="Job active" />;
 }

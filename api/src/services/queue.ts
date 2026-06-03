@@ -3,7 +3,7 @@ import IORedis from "ioredis";
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
 import { runs, species, occurrences, projectMembers } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { extractProgressPercent } from "@sdm/shared";
 import { syncOutputsToS3 } from "./storage.js";
@@ -383,7 +383,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
               await db
                 .update(runs)
                 .set({ status: "running", startedAt: new Date(), bullmqId: job.id! })
-                .where(eq(runs.id, runId));
+                .where(and(eq(runs.id, runId), or(eq(runs.status, "queued"), eq(runs.status, "failed"))));
             }
 
             const modelRes = await client.runModel(payload);
@@ -453,7 +453,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                         .from(runs)
                         .where(eq(runs.id, runId))
                         .limit(1);
-                      if (currentRun && currentRun.status !== "running") continue;
+                      if (currentRun && currentRun.status !== "running") break;
 
                       await db
                         .update(runs)

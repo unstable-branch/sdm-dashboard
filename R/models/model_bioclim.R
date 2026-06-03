@@ -93,7 +93,7 @@ cross_validate_bioclim <- function(pres_vals, env_train_scaled, covariates,
   set.seed(seed)
   n_pres <- nrow(pres_vals)
   folds <- sample(rep(seq_len(k), length.out = n_pres))
-  fold_metrics <- data.frame()
+  fold_list <- vector("list", k)
 
   for (i in seq_len(k)) {
     train_idx <- which(folds != i)
@@ -119,8 +119,9 @@ cross_validate_bioclim <- function(pres_vals, env_train_scaled, covariates,
     obs <- c(rep(1, length(present_pred)), rep(0, length(bg_pred)))
     score <- c(present_pred, bg_pred)
     metrics <- compute_binary_metrics(obs, score, threshold = threshold)
-    fold_metrics <- rbind(fold_metrics, metrics_list_to_row(metrics, fold = i))
+    fold_list[[i]] <- metrics_list_to_row(metrics, fold = i)
   }
+  fold_metrics <- do.call(rbind, fold_list[!vapply(fold_list, is.null, logical(1))])
 
   if (nrow(fold_metrics) == 0) {
     return(list(

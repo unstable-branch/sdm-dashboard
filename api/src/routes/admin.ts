@@ -530,7 +530,6 @@ adminRoutes.get("/diagnostics/uploads", async (c) => {
       .select({
         id: uploadedFiles.id,
         userId: uploadedFiles.userId,
-        pipelineRunId: uploadedFiles.pipelineRunId,
         createdAt: uploadedFiles.createdAt,
         recordCount: uploadedFiles.nRows,
       })
@@ -547,7 +546,6 @@ adminRoutes.get("/diagnostics/uploads", async (c) => {
       id: r.id,
       userId: r.userId,
       userName: r.userId || "unknown",
-      pipelineRunId: r.pipelineRunId,
       details: null,
       createdAt: r.createdAt?.toISOString() ?? "",
       recordCount: r.recordCount ?? 0,

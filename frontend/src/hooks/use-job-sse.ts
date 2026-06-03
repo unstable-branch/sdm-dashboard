@@ -64,6 +64,8 @@ let sharedReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let sharedReconnectAttempts = 0;
 let lastCleanup = 0;
 let subscriberCount = 0;
+let sharedHasActive = false;
+let sharedVersion = 0;
 const listeners = new Set<() => void>();
 
 function notifyListeners(): void {
@@ -90,6 +92,10 @@ function openSharedConnection(): void {
         for (const [k, v] of cleaned) sharedJobs.set(k, v);
         lastCleanup = now;
       }
+      sharedHasActive = Array.from(sharedJobs.values()).some(
+        (j) => !TERMINAL_STATES.has(j.state)
+      );
+      sharedVersion++;
       notifyListeners();
     } catch {
       // Ignore parse errors
@@ -200,6 +206,8 @@ export function useJobSSE(enabled = true) {
   return {
     jobs: sharedJobs,
     connected: sharedConnected,
+    hasActive: sharedHasActive,
+    version: sharedVersion,
     getJob,
     getJobsByType,
   };

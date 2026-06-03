@@ -161,14 +161,17 @@ export function buildModelPayload(config: ModelConfigRecord, runId: string): Rec
   for (const [key, val] of Object.entries(rest)) {
     restSnake[CAMEL_TO_SNAKE[key] || key] = val;
   }
-  return {
+  const payload: Record<string, unknown> = {
     ...restSnake,
     species: config.species,
     model_id: config.modelId,
     occurrence_file: occurrenceFile,
-    cleaned_file_id: cleanedFile,
     biovars: Array.isArray(config.biovars) ? config.biovars.join(",") : "",
     projection_extent: Array.isArray(config.projectionExtent) ? config.projectionExtent.join(",") : "",
     output_dir: join("outputs", "jobs", runId),
   };
+  if (cleanedFile) {
+    payload.cleaned_file_id = cleanedFile;
+  }
+  return payload;
 }

@@ -1369,6 +1369,15 @@ function() {
   )
 }
 
+#* Readiness check (lightweight — for load balancers / probes)
+#* @get /ready
+function() {
+  list(
+    status = "ok",
+    timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+  )
+}
+
 #* Discover available future climate scenarios
 #* @get /api/v1/future/scenarios
 function() {
@@ -1643,7 +1652,7 @@ function(res, scenario_id) {
 #* Cancel a climate download
 #* @post /api/v1/climate/cancel/<job_id>
 function(req, job_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", sdm_basename(job_id))
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
   meta_file <- file.path(job_dir, "meta.json")
 
   if (file.exists(meta_file)) {
@@ -1655,14 +1664,14 @@ function(req, job_id) {
     }
   }
 
-  sdm_redis_cancel_set(sdm_basename(job_id))
+  sdm_redis_cancel_set(basename(job_id))
 
-  proc <- sdm_process_registry[[sdm_basename(job_id)]]
+  proc <- sdm_process_registry[[basename(job_id)]]
   killed <- FALSE
   if (!is.null(proc) && inherits(proc, "Process") && proc$is_alive()) {
     proc$kill()
     killed <- TRUE
-    rm(list = sdm_basename(job_id), envir = sdm_process_registry)
+    rm(list = basename(job_id), envir = sdm_process_registry)
   }
 
   if (file.exists(meta_file)) {
