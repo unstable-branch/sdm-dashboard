@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   GripVertical, Layers, MapPin, Grid3x3, Globe,
   Crop, Navigation, Maximize2, Sun, Moon,
@@ -104,6 +104,24 @@ export function MapToolbar({
       y: Math.max(0, Math.min(pos.y, cr.height - tr.height)),
     };
   }, [containerRef]);
+
+  // Clamp toolbar position on mount and container resize
+  useEffect(() => {
+    setPosition((prev) => {
+      const clamped = clamp(prev);
+      savePosition(clamped);
+      return clamped;
+    });
+    const handleResize = () => {
+      setPosition((prev) => {
+        const clamped = clamp(prev);
+        savePosition(clamped);
+        return clamped;
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [clamp]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();

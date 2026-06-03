@@ -42,6 +42,17 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto", ou
     eoo_result <- tryCatch({
       hull <- sf::st_convex_hull(sf::st_union(pts))
 
+      # Validate hull is a polygon with sufficient geometry
+      hull_type <- sf::st_geometry_type(hull, by_geometry = FALSE)
+      if (hull_type != "POLYGON" && hull_type != "MULTIPOLYGON") {
+        stop("Convex hull produced a ", hull_type, " — need at least 3 non-collinear points")
+      }
+      hull_coords <- sf::st_coordinates(hull)
+      n_ring_pts <- nrow(hull_coords)
+      if (n_ring_pts < 4) {
+        stop("Convex hull polygon has only ", n_ring_pts, " ring points (need ≥4)")
+      }
+
       area_km2 <- as.numeric(sf::st_area(hull)) / 1e6
 
       log_message(log_fun, "  EOO: ", sprintf("%.1f km2", area_km2), " (MCP, WGS84 geodesic area)")
@@ -88,7 +99,7 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto", ou
     ny <- ceiling((bbox["ymax"] - y0) / cell_size)
 
     n_cells_total <- nx * ny
-    if (n_cells_total > 1e6) {
+    if (n_cells_total > 1e7) {
       stop("AOO grid too large (", n_cells_total, " cells) at ", aoo_cell_size_km,
            "km resolution for this extent; try a larger cell size or smaller extent")
     }

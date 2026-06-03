@@ -265,17 +265,17 @@ export default function MaplibreMap({
               id="eoo-polygon-fill"
               type="fill"
               layout={{ visibility: visibility(LAYER_IDS.EOO) }}
-              paint={{
-                "fill-color": theme === "dark" ? "#ef4444" : "#dc2626",
-                "fill-opacity": 0.08,
-              }}
-            />
-            <Layer
-              id="eoo-polygon-outline"
-              type="line"
-              layout={{ visibility: visibility(LAYER_IDS.EOO) }}
-              paint={{
-                "line-color": theme === "dark" ? "#ef4444" : "#dc2626",
+            paint={{
+              "fill-color": theme === "dark" ? "#818cf8" : "#6366f1",
+              "fill-opacity": 0.08,
+            }}
+          />
+          <Layer
+            id="eoo-polygon-outline"
+            type="line"
+            layout={{ visibility: visibility(LAYER_IDS.EOO) }}
+            paint={{
+              "line-color": theme === "dark" ? "#818cf8" : "#6366f1",
                 "line-width": 2,
                 "line-opacity": 0.8,
                 "line-dasharray": [4, 3],
