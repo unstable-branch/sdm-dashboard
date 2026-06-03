@@ -22,8 +22,19 @@ function FileIcon({ ext }: { ext: string }) {
 }
 
 export default function DownloadsPage() {
-  const { data: runs, isLoading } = useCompletedRuns();
+  const { data: runs, isLoading, error } = useCompletedRuns();
   const completedRuns = runs.filter((r) => r.output_files);
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-sdm-heading">Downloads</h1>
+        <div className="rounded-lg border border-red-300/30 bg-red-500/5 p-4 text-sm text-red-500">
+          Failed to load downloads. <button onClick={() => window.location.reload()} className="underline cursor-pointer bg-transparent border-none text-red-500">Retry</button>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -58,7 +69,9 @@ export default function DownloadsPage() {
 
       <div className="space-y-4">
         {completedRuns.map((run) => {
-          const files = run.output_files ? Object.entries(run.output_files) : [];
+          const files = run.output_files
+            ? Object.entries(run.output_files as Record<string, string>)
+            : [];
           if (files.length === 0) return null;
 
           return (

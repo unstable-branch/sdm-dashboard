@@ -64,19 +64,20 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
   const isSyntheticPlaceholder =
     job != null && Array.isArray(job.logs) && job.logs.length === 1 && job.logs[0] === "Model run in progress...";
 
-  // Continuous polling fallback — always active, takes over when SSE has only synthetic placeholder
+  // Continuous polling fallback — always active for running jobs, augments SSE when it lacks real data
   const lastPollErrorRef = useRef(0);
   const pollErrorThreshold = 6;
 
   useEffect(() => {
     if (!jobId) return;
+    // Always poll for active/running jobs — SSE may lack progressJson or currentStage
     if (job && !isSyntheticPlaceholder) {
       if (job.state === "completed" || job.state === "failed" || job.state === "cancelled") {
         setPolledJob(null); // SSE is authoritative for terminal states — clear polling
         return;
       }
-      // SSE has real data for active job — skip polling
-      return;
+      // Keep polling active even when SSE has data, to fill gaps in progressJson/currentStage
+      // (e.g., queue worker emits events without progressJson during loading phase)
     }
 
     let cancelled = false;
@@ -112,16 +113,28 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
         }
       }
     };
-    poll();
+    const initialDelay = job && isSyntheticPlaceholder ? 3000 : 0;
+    const initialTimer = setTimeout(poll, initialDelay);
     const interval = setInterval(poll, 5000);
-    return () => { cancelled = true; clearInterval(interval); };
+    return () => { cancelled = true; clearTimeout(initialTimer); clearInterval(interval); };
   }, [jobId, job, isSyntheticPlaceholder]);
 
   // Use SSE job when it has real data, otherwise fall back to polling
-  // Merge progressJson from polling when SSE lacks it (queue worker emits may not include it)
-  const effectiveJob = (job && !isSyntheticPlaceholder)
+  // Merge progressJson, currentStage, logs from polling when SSE lacks them
+  // (queue worker emits without currentStage; plumber-sync includes it)
+  // Ensure progress never regresses (handles R backend emitting backward progress values)
+  const rawJob = (job && !isSyntheticPlaceholder)
     ? { ...job, progressJson: job.progressJson ?? (polledJob?.progressJson ?? undefined) }
     : polledJob;
+  const effectiveJob = rawJob && polledJob
+    ? {
+        ...rawJob,
+        progress: Math.max(rawJob.progress, polledJob.progress),
+        currentStage: rawJob.currentStage ?? polledJob.currentStage,
+        progressJson: rawJob.progressJson ?? polledJob.progressJson,
+        logs: rawJob.logs?.length ? rawJob.logs : polledJob.logs,
+      }
+    : rawJob;
 
   useEffect(() => {
     if (!startTime && !effectiveJob) return;
@@ -139,11 +152,18 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
     };
   }, [startTime, effectiveJob?.state]);
 
+  const completedRef = useRef(false);
+  const prevJobIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (effectiveJob?.state === "completed" && effectiveJob?.result) {
-      onComplete?.(effectiveJob.result);
+    if (jobId !== prevJobIdRef.current) {
+      completedRef.current = false;
+      prevJobIdRef.current = jobId;
     }
-  }, [effectiveJob?.state, effectiveJob?.result, onComplete]);
+    if (effectiveJob?.state === "completed" && !completedRef.current) {
+      completedRef.current = true;
+      onComplete?.(effectiveJob.result ?? {});
+    }
+  }, [effectiveJob?.state, effectiveJob?.result, onComplete, jobId]);
 
   const handleCancel = useCallback(async () => {
     if (!jobId) return;
@@ -182,7 +202,8 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
 
   const isTerminal = effectiveJob.state === "completed" || effectiveJob.state === "failed" || effectiveJob.state === "cancelled";
   const lastLog = effectiveJob.logs && effectiveJob.logs.length > 0 ? effectiveJob.logs[effectiveJob.logs.length - 1] : null;
-  const currentStage = extractStage(lastLog || "");
+  // Use backend-provided currentStage when available (more accurate), fall back to log-derived
+  const currentStage = effectiveJob.currentStage ?? extractStage(lastLog || "");
 
   return (
     <div className={cn(
@@ -289,24 +310,6 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
           />
         </div>
       </div>
-
-      {effectiveJob.logs && effectiveJob.logs.length > 0 ? (
-        <div className={cn(
-          "rounded bg-sdm-surface-soft p-2 font-mono text-xs text-sdm-muted overflow-y-auto",
-          effectiveJob.state === "failed" ? "max-h-64" : "max-h-24"
-        )}>
-          {effectiveJob.logs.slice(-50).map((log, i) => (
-            <div key={i} className="break-words whitespace-pre-wrap">
-              {log}
-            </div>
-          ))}
-          {effectiveJob.logs.length > 50 && (
-            <div className="text-xs text-sdm-muted italic mt-1">...{effectiveJob.logs.length - 50} earlier lines hidden</div>
-          )}
-        </div>
-      ) : (
-        <div className="text-xs text-sdm-muted italic">No log output yet</div>
-      )}
 
       {effectiveJob.state === "failed" && (
         <div className="space-y-1">

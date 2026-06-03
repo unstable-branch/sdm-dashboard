@@ -26,7 +26,9 @@ sdm_error <- function(req, status, message) {
 
 sdm_write_json <- function(value, path, ...) {
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
-  writeLines(jsonlite::toJSON(value, auto_unbox = TRUE, pretty = TRUE, ...), path)
+  tmp_path <- paste0(path, ".tmp")
+  writeLines(jsonlite::toJSON(value, auto_unbox = TRUE, pretty = TRUE, ...), tmp_path)
+  file.rename(tmp_path, path)
   invisible(path)
 }
 

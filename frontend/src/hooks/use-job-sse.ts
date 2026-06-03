@@ -1,4 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
+import { fetchWithAuth } from "@/services/api";
+
+const API_BASE = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "";
 
 const MAX_JOBS_IN_MAP = 50;
 const TERMINAL_STATES: Set<JobEvent["state"]> = new Set(["completed", "failed", "cancelled"]);
@@ -77,14 +80,27 @@ function notifyListeners(): void {
 function openSharedConnection(): void {
   if (sharedEventSource) return;
 
-  const es = new EventSource("/api/v1/jobs/sse");
+  const es = new EventSource(`${API_BASE}/api/v1/jobs/sse`, { withCredentials: true });
   sharedEventSource = es;
 
   es.addEventListener("job-update", (event) => {
     try {
       const data = JSON.parse(event.data) as JobEvent;
       const now = Date.now();
-      sharedJobs.set(data.id, { ...data, logs: data.logs?.slice(-200) ?? [], _receivedAt: now });
+      const existing = sharedJobs.get(data.id);
+      // Guard: progress must never go backwards (handles R backend regression)
+      const monotonicProgress = existing && existing.progress > (data.progress ?? 0) ? existing.progress : (data.progress ?? 0);
+      // Merge incoming data with existing — preserve currentStage and progressJson if new event lacks them
+      // (queue worker emits events without currentStage; plumber-sync includes it)
+      const merged = {
+        ...data,
+        logs: data.logs?.slice(-200) ?? [],
+        progress: monotonicProgress,
+        currentStage: data.currentStage ?? existing?.currentStage ?? null,
+        progressJson: data.progressJson ?? existing?.progressJson ?? undefined,
+        _receivedAt: now,
+      };
+      sharedJobs.set(data.id, merged);
 
       if (now - lastCleanup > CLEANUP_INTERVAL_MS) {
         const cleaned = cleanupJobs(sharedJobs, now);
@@ -106,13 +122,20 @@ function openSharedConnection(): void {
     sharedConnected = true;
     sharedReconnectAttempts = 0;
     notifyListeners();
-    fetch("/api/v1/sdm/runs?status=running&limit=10")
+    fetchWithAuth(`${API_BASE}/api/v1/sdm/runs?status=running&limit=10`)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (data?.runs) {
           const now = Date.now();
           for (const run of data.runs) {
-            if (!sharedJobs.has(run.id)) {
+            const existing = sharedJobs.get(run.id);
+            if (existing) {
+              // Refresh existing entry with fresher API data — only update fields
+              // that have evolved (state, progress) while keeping SSE-only fields
+              if (existing.state !== "active" && existing.state !== run.status) {
+                sharedJobs.set(run.id, { ...existing, state: run.status === "running" ? "active" : run.status, _receivedAt: now });
+              }
+            } else {
               sharedJobs.set(run.id, {
                 id: run.id,
                 state: "active",
@@ -187,7 +210,9 @@ export function useJobSSE(enabled = true) {
       if (subscriberCount === 0) {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
         closeSharedConnection();
-        sharedJobs.clear();
+        // Preserve sharedJobs across navigation — data survives page transitions so
+        // components remounting (e.g., ModelPage → ResultsPage) retain progress data.
+        // Cleanup of terminal jobs happens via the periodic cleanupJobs() call.
       }
     };
   }, [enabled]);

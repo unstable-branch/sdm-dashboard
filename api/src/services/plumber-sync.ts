@@ -1,7 +1,7 @@
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { extractProgressPercent } from "@sdm/shared";
 import { readFile } from "fs/promises";
@@ -71,6 +71,32 @@ async function syncRunningJobs() {
 
   try {
     cleanupOld404Entries();
+
+    // Detect runs stuck in "queued" status — if a job hasn't been picked up by the worker
+    // within 5 minutes of creation, mark it as failed (worker may be offline or crashed)
+    const queuedCutoff = new Date(Date.now() - 5 * 60 * 1000);
+    const stuckQueuedRuns = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(eq(runs.status, "queued"), sql`${runs.createdAt} < ${queuedCutoff}`));
+    for (const qr of stuckQueuedRuns) {
+      await db
+        .update(runs)
+        .set({
+          status: "failed",
+          error: "Model run was queued but never started — worker may be offline or all retries exhausted",
+          errorCode: "WORKER_ORPHAN",
+          completedAt: new Date(),
+        })
+        .where(eq(runs.id, qr.id));
+      jobEventBus.emitJobStatus({
+        jobId: qr.id,
+        state: "failed",
+        progress: 0,
+        failedReason: "Model run was queued but never started — worker may be offline",
+        error_code: "WORKER_ORPHAN",
+      });
+    }
 
     const activeRuns = await db
       .select({ id: runs.id, jobId: runs.jobId, status: runs.status, startedAt: runs.startedAt })
@@ -199,7 +225,7 @@ async function syncRunningJobs() {
               metrics: (status as any).metrics ?? null,
               outputFiles: (status as any).output_files ?? null,
               completedAt: new Date(),
-              progressLog: progressJson ?? undefined,
+              progressLog: logs.length > 0 ? logs : undefined,
               provenance,
             })
             .where(eq(runs.id, run.id));
@@ -212,12 +238,6 @@ async function syncRunningJobs() {
             });
           }
 
-          // Encrypt output files at rest
-          if (run.jobId) {
-            const jobDir = join(PROJECT_ROOT, "outputs", "jobs", run.jobId);
-            encryptOutputs(jobDir);
-          }
-
           jobEventBus.emitJobStatus({
             jobId: run.id,
             state: "completed",
@@ -226,6 +246,12 @@ async function syncRunningJobs() {
             result: status as Record<string, unknown>,
             progressJson,
           });
+
+          // Encrypt output files at rest (after event so frontend gets completion before encryption)
+          if (run.jobId) {
+            const jobDir = join(PROJECT_ROOT, "outputs", "jobs", run.jobId);
+            encryptOutputs(jobDir);
+          }
         } else if (plumberStatus === "failed") {
           const errorCode = (status as any).error_code as string | undefined;
           const errorHint = (status as any).error_hint as string | undefined;
@@ -323,7 +349,10 @@ async function syncRunningJobs() {
               }
               const probeRes = await fetch(
                 `${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/models/status/${run.jobId}`,
-                { signal: AbortSignal.timeout(3000) },
+                {
+                  headers: { "X-Hono-Internal": process.env.PLUMBER_INTERNAL_KEY || "" },
+                  signal: AbortSignal.timeout(3000),
+                },
               );
               const probeBody = await probeRes.text().catch(() => "");
               plumberErrorDetail = `probe_status=${probeRes.status} body=${probeBody.slice(0, 500)}`;

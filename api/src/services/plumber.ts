@@ -1,17 +1,6 @@
 import type {
-  PlumberRunResponse,
-  PlumberStatusResponse,
   PlumberUploadResponse,
-  PlumberCleanResponse,
-  PlumberModelInfo,
-  PlumberConfigDefaults,
   PlumberDiagnosticsShapCell,
-  PlumberDiagnosticsImportance,
-  PlumberDiagnosticsResponseCurves,
-  PlumberDiagnosticsAle,
-  PlumberDiagnosticsVif,
-  PlumberDiagnosticsClimateDrivers,
-  PlumberClimateStatus,
   PlumberJobLogs,
 } from "@sdm/shared";
 

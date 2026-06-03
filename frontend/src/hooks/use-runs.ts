@@ -1,19 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/services/api";
-
-export interface RunSummary {
-  id: string;
-  species: string;
-  model_id: string;
-  status: string;
-  started_at: string;
-  completed_at: string | null;
-  metrics: Record<string, number | null> | null;
-  output_files: Record<string, string> | null;
-  error: string | null;
-  error_code: string | null;
-  error_hint: string | null;
-}
+import type { RunSummary } from "@/services/types";
 
 interface RunsResponse {
   runs: RunSummary[];

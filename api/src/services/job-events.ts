@@ -11,6 +11,7 @@ export interface JobStatusEvent {
   error_hint?: string | null;
   currentStage?: string | null;
   progressJson?: any;
+  _receivedAt?: number;
 }
 
 class JobEventBus extends EventEmitter {
@@ -29,7 +30,7 @@ class JobEventBus extends EventEmitter {
   }
 
   emitJobStatus(event: JobStatusEvent) {
-    this.emit("jobStatus", event);
+    this.emit("jobStatus", { ...event, _receivedAt: Date.now() });
   }
 }
 

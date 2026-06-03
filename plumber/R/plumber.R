@@ -18,25 +18,31 @@ app_dir <- if (dir.exists("/app/R")) {
   normalizePath(d, winslash = "/")
 }
 
-# Source bootstrap to get sdm_project_root() and source load.R
-source(file.path(app_dir, "R", "core", "bootstrap.R"))
-sdm_set_project_root(app_dir)
+# Guard against double-loading when run_server.R sources plumber.R twice
+# (once via pr() for route discovery, once via source(local=FALSE) for globals).
+if (is.null(.GlobalEnv$.sdm_plumber_initialized)) {
+  # Source bootstrap to get sdm_project_root() and source load.R
+  source(file.path(app_dir, "R", "core", "bootstrap.R"))
+  sdm_set_project_root(app_dir)
 
-# Source existing R modules
-load_path <- file.path(app_dir, "R", "engine_load.R")
-  if (!file.exists(load_path)) {
-    # Fall back to full load.R for backward compatibility
-    load_path <- file.path(app_dir, "R", "load.R")
+  # Source existing R modules
+  load_path <- file.path(app_dir, "R", "engine_load.R")
+    if (!file.exists(load_path)) {
+      # Fall back to full load.R for backward compatibility
+      load_path <- file.path(app_dir, "R", "load.R")
+    }
+    if (!file.exists(load_path)) {
+      stop("Could not find R/load.R at: ", load_path, call. = FALSE)
   }
-  if (!file.exists(load_path)) {
-    stop("Could not find R/load.R at: ", load_path, call. = FALSE)
-}
-source(load_path)
+  source(load_path)
 
-# Source shared Plumber helpers used by route handlers. run_server.R also
-# sources this file before router setup, but plumber.R must be self-contained
-# for direct Plumber parsing and helper-level tests.
-source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"))
+  # Source shared Plumber helpers used by route handlers. run_server.R also
+  # sources this file before router setup, but plumber.R must be self-contained
+  # for direct Plumber parsing and helper-level tests.
+  source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"))
+
+  .GlobalEnv$.sdm_plumber_initialized <- TRUE
+}
 
 # Maximum concurrent model runs to prevent OOM
 SDM_MAX_CONCURRENT_RUNS <- as.integer(Sys.getenv("SDM_MAX_CONCURRENT_RUNS", "2"))
@@ -839,6 +845,22 @@ function(res, job_id) {
         })
       }
     }
+    # Heartbeat staleness check — if process appears alive but heartbeat hasn't updated in 30 min,
+    # the R process is likely stuck (infinite loop, deadlock, or unresponsive)
+    if (process_alive || is.null(proc)) {
+      heartbeat_file <- file.path(job_dir, "heartbeat.log")
+      if (file.exists(heartbeat_file)) {
+        last_line <- tryCatch(tail(readLines(heartbeat_file, warn = FALSE), 1), error = function(e) NULL)
+        if (!is.null(last_line) && length(last_line) > 0 && nchar(last_line) > 0) {
+          hb_ts <- tryCatch(as.POSIXct(sub("\\|.*", "", last_line), format = "%Y-%m-%dT%H:%M:%S"), error = function(e) NULL)
+          if (!is.null(hb_ts) && !is.na(hb_ts)) {
+            if (difftime(Sys.time(), hb_ts, units = "secs") > 1800) {
+              process_alive <- FALSE
+            }
+          }
+        }
+      }
+    }
     if (!process_alive) {
       meta$status <- "failed"
       meta$error <- "Process crashed or was killed (OOM, segfault, or external signal)"
@@ -1309,7 +1331,18 @@ sdm_async_status <- function(job_id) {
 
 #* Get async job status
 #* @get /api/v1/jobs/status/<job_id>
-function(res, job_id) {
+function(req, res, job_id) {
+  job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
+  meta_file <- file.path(job_dir, "meta.json")
+  if (file.exists(meta_file)) {
+    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
+      if (as.character(meta$user_id) != as.character(req$user_id)) {
+        res$status <- 403L
+        return(list(error = "Access denied"))
+      }
+    }
+  }
   status <- sdm_async_status(job_id)
   if (!status$available) {
     res$status <- 404L
@@ -3064,6 +3097,21 @@ function(req) {
   })
 }
 
+# Return a 1x1 transparent PNG for empty tiles (MapLibre handles transparent gracefully)
+sdm_transparent_tile_png <- function() {
+  as.raw(c(
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41,
+    0x54, 0x78, 0x9c, 0x62, 0x00, 0x00, 0x00, 0x02,
+    0x00, 0x01, 0xe5, 0x27, 0xde, 0xfc, 0x00, 0x00,
+    0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42,
+    0x60, 0x82
+  ))
+}
+
 # COG cache keyed by file path + mtime (avoids repeated terra::rast() calls)
 tile_cog_cache <- new.env(parent = emptyenv())
 tile_cog_cache_max <- 20L
@@ -3098,7 +3146,22 @@ function(res, run_id, z, x, y) {
       if (!file.exists(fallback_path)) {
         lock_path <- paste0(fallback_path, ".lock")
         lock_acquired <- dir.create(lock_path, showWarnings = FALSE)
+        if (!lock_acquired && dir.exists(lock_path)) {
+          # Check if lock is stale (>5 minutes old)
+          lock_time_file <- file.path(lock_path, "created_at")
+          if (file.exists(lock_time_file)) {
+            lock_time <- as.POSIXct(readLines(lock_time_file, warn = FALSE))
+            if (is.na(lock_time) || difftime(Sys.time(), lock_time, units = "mins") > 5) {
+              unlink(lock_path, recursive = TRUE)
+              lock_acquired <- dir.create(lock_path, showWarnings = FALSE)
+            }
+          } else {
+            unlink(lock_path, recursive = TRUE)
+            lock_acquired <- dir.create(lock_path, showWarnings = FALSE)
+          }
+        }
         if (lock_acquired) {
+          writeLines(format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"), file.path(lock_path, "created_at"))
           on.exit(unlink(lock_path, recursive = TRUE), add = TRUE)
           # Re-check after acquiring lock (another worker may have created it)
           if (!file.exists(fallback_path)) {
@@ -3121,9 +3184,16 @@ function(res, run_id, z, x, y) {
   r_cog <- tile_cog_cache[[cog_key]]
   if (is.null(r_cog)) {
     if (length(ls(tile_cog_cache)) >= tile_cog_cache_max) {
-      rm(list = ls(tile_cog_cache)[1], envir = tile_cog_cache)
+      access_times <- sapply(ls(tile_cog_cache), function(k) attr(tile_cog_cache[[k]], "accessed") %||% 0)
+      n_excess <- length(ls(tile_cog_cache)) - tile_cog_cache_max + 1L
+      to_remove <- names(sort(access_times))[seq_len(n_excess)]
+      rm(list = to_remove, envir = tile_cog_cache)
     }
     r_cog <- terra::rast(cog_path)
+    attr(r_cog, "accessed") <- Sys.time()
+    tile_cog_cache[[cog_key]] <- r_cog
+  } else {
+    attr(r_cog, "accessed") <- Sys.time()
     tile_cog_cache[[cog_key]] <- r_cog
   }
   cog_range <- terra::minmax(r_cog)
@@ -3141,6 +3211,7 @@ function(res, run_id, z, x, y) {
   ymin <- half_world - (y + 1L) * tile_res
   ymax <- half_world - y * tile_res
 
+  r_full <- NULL
   tile_crop <- tryCatch(terra::crop(r_cog, terra::ext(xmin, xmax, ymin, ymax), snap = "out"),
     error = function(e) NULL)
   if (is.null(tile_crop) || terra::ncell(tile_crop) == 0L) {
@@ -3159,21 +3230,20 @@ function(res, run_id, z, x, y) {
     cy <- (ymin + ymax) / 2
     pt <- terra::vect(data.frame(x = cx, y = cy), geom = c("x", "y"), crs = "EPSG:3857")
     center_val <- terra::extract(r_full %||% r_cog, pt)[1, 1]
-    if (is.na(center_val) || !is.finite(center_val)) { res$status <- 204L; return(NULL) }
+    if (is.na(center_val) || !is.finite(center_val)) { res$status <- 204L; return(sdm_transparent_tile_png()) }
     vals <- rep(as.numeric(center_val), 65536)
     is_na <- rep(FALSE, 65536)
   } else {
     tile_256 <- tryCatch(terra::resample(tile_crop, template, method = "bilinear"),
       error = function(e) NULL)
-    if (is.null(tile_256)) { res$status <- 204L; return(NULL) }
+    if (is.null(tile_256)) { res$status <- 204L; return(sdm_transparent_tile_png()) }
     vals <- terra::values(tile_256)
     is_na <- is.na(vals) | !is.finite(vals) | (vals <= -9998)
-    if (all(is_na)) { res$status <- 204L; return(NULL) }
+    if (all(is_na)) { res$status <- 204L; return(sdm_transparent_tile_png()) }
   }
 
-  # Apply palette (same ramp as tile_generator.R)
-  palette <- c("#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
-    "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B")
+  # Apply palette (shared with R/core/config.R)
+  palette <- sdm_suitability_palette
   pal_rgb <- grDevices::col2rgb(palette, alpha = TRUE)
   n_col <- length(palette)
   idx <- if (all(is_na)) integer(0) else {
@@ -3195,6 +3265,7 @@ function(res, run_id, z, x, y) {
   terra::writeRaster(tile_out, tmp_png, datatype = "INT1U", gdal = "ZLEVEL=6", overwrite = TRUE)
   raw_bytes <- readBin(tmp_png, "raw", n = file.info(tmp_png)$size)
   unlink(tmp_png)
+  res$setHeader("Cache-Control", "public, max-age=3600")
   raw_bytes
 }
 

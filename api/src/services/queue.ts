@@ -3,7 +3,7 @@ import IORedis from "ioredis";
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
 import { runs, species, occurrences, projectMembers } from "../db/schema.js";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, inArray } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { extractProgressPercent } from "@sdm/shared";
 import { syncOutputsToS3 } from "./storage.js";
@@ -404,7 +404,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
 
             await job.updateProgress(30);
 
-            if (plumberJobId) {
+              if (plumberJobId) {
               await job.updateProgress(35);
               jobEventBus.emitJobStatus({
                 jobId: runId ?? job.id!,
@@ -427,17 +427,42 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                   const logs = Array.isArray((modelStatus as any).progress_log)
                     ? (modelStatus as any).progress_log as string[]
                     : [];
-                  const pollProgress = (modelStatus as any).progress as number | undefined;
                   const pollProgressJson = (modelStatus as any).progress_json as unknown;
+                  const pollCurrentStage = (modelStatus as any).last_stage as string | undefined;
+
+                  // Extract real progress from progress_json entries (percent is 0-1) or progress_log lines [XX%]
+                  const pollProgress = (() => {
+                    if (Array.isArray(pollProgressJson) && pollProgressJson.length > 0) {
+                      const last = pollProgressJson[pollProgressJson.length - 1] as any;
+                      if (last && typeof last.percent === "number") return Math.round(last.percent * 100);
+                    }
+                    for (let i = logs.length - 1; i >= 0; i--) {
+                      const p = extractProgressPercent(logs[i]);
+                      if (p !== undefined) return p;
+                    }
+                    return undefined;
+                  })();
+
+                  if (pollState === "loading" || pollState === "pending") {
+                    jobEventBus.emitJobStatus({
+                      jobId: runId ?? job.id!,
+                      state: pollState,
+                      progress: pollProgress ?? 5,
+                      logs,
+                      currentStage: pollCurrentStage ?? (pollState === "loading" ? "Loading modules" : "Queued"),
+                      progressJson: pollProgressJson ?? null,
+                    });
+                    continue;
+                  }
 
                   if (pollState === "running") {
-                    const pct = Math.min(90, 35 + Math.round(modelAttempts * 0.5));
-                    await job.updateProgress(pollProgress ?? pct);
+                    await job.updateProgress(pollProgress ?? Math.min(90, 35 + Math.round(modelAttempts * 0.5)));
                     jobEventBus.emitJobStatus({
                       jobId: runId ?? job.id!,
                       state: "active",
-                      progress: pollProgress ?? pct,
+                      progress: pollProgress ?? Math.min(90, 35 + Math.round(modelAttempts * 0.5)),
                       logs,
+                      currentStage: pollCurrentStage ?? null,
                       progressJson: pollProgressJson ?? null,
                     });
                   }
@@ -453,7 +478,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                         .from(runs)
                         .where(eq(runs.id, runId))
                         .limit(1);
-                      if (currentRun && currentRun.status !== "running") break;
+                      if (currentRun && currentRun.status !== "running") { modelCompleted = true; break; }
 
                       await db
                         .update(runs)
@@ -463,7 +488,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                           error: null,
                           metrics: metrics as any,
                         })
-                        .where(eq(runs.id, runId));
+                        .where(and(eq(runs.id, runId), inArray(runs.status, ["running", "queued"])));
                     }
 
                     // Upload output files to S3 in background
@@ -481,6 +506,7 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       state: "completed",
                       progress: 100,
                       logs: logs.concat(["Model run completed."]),
+                      currentStage: null,
                       result: modelStatus as Record<string, unknown>,
                       error_code: (modelStatus as any).error_code ?? null,
                       error_hint: (modelStatus as any).error_hint ?? null,
@@ -493,13 +519,14 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                       await db
                         .update(runs)
                         .set({ status: "cancelled", completedAt: new Date() })
-                        .where(eq(runs.id, runId));
+                        .where(and(eq(runs.id, runId), inArray(runs.status, ["running", "queued"])));
                     }
                     await job.updateProgress(100);
                     jobEventBus.emitJobStatus({
                       jobId: runId ?? job.id!,
                       state: "cancelled",
                       progress: 100,
+                      currentStage: null,
                       failedReason: "Model run cancelled by user",
                       error_code: "CANCELLED",
                       error_hint: null,
@@ -520,13 +547,14 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                           error: errMsg,
                           provenance: errCode ? { error_code: errCode, error_hint: errHint ?? null } : undefined,
                         })
-                        .where(eq(runs.id, runId));
+                        .where(and(eq(runs.id, runId), inArray(runs.status, ["running", "queued"])));
                     }
                     await job.updateProgress(100);
                     jobEventBus.emitJobStatus({
                       jobId: runId ?? job.id!,
                       state: "failed",
                       progress: 100,
+                      currentStage: null,
                       failedReason: errMsg,
                       error_code: errCode ?? null,
                       error_hint: errHint ?? null,

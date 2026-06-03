@@ -65,21 +65,15 @@ requires_auth <- function(path) {
     return(TRUE)
   }
 
-  # Open endpoints: health, ready, list endpoints
+  # Open endpoints: infrastructure and discovery only
   open_patterns <- c(
     "^/health$",
     "^/ready$",
-    "^/api/v1/models/runs$",
-    "^/api/v1/models/status/",
-    "^/api/v1/models/logs/",
-    "^/api/v1/ecology/",
-    "^/api/v1/diagnostics/",
     "^/api/v1/climate/scenarios$",
     "^/api/v1/climate/check$",
     "^/api/v1/config/defaults$",
     "^/api/v1/models$",
-    "^/api/v1/future/scenarios$",
-    "^/api/v1/results/tiles/cog/"
+    "^/api/v1/future/scenarios$"
   )
 
   if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {
@@ -102,10 +96,27 @@ requires_auth <- function(path) {
 # Simple in-memory rate limiter for Plumber auth filter
 # Tracks request counts per unique key (API key hash or user ID)
 rate_limit_buckets <- new.env(parent = emptyenv())
+rate_limit_check_counter <- 0L
 
 sdm_check_rate_limit <- function(key, max_requests = 60, window_seconds = 60) {
   current <- as.numeric(Sys.time())
   window_start <- current - window_seconds
+
+  # Periodic cleanup (every ~50 calls) to prevent memory leak from stale keys
+  rate_limit_check_counter <<- rate_limit_check_counter + 1L
+  if (rate_limit_check_counter %% 50L == 0L) {
+    threshold <- current - 3600
+    for (k in ls(envir = rate_limit_buckets)) {
+      ts <- rate_limit_buckets[[k]]
+      ts <- ts[ts > threshold]
+      if (length(ts) == 0) {
+        rm(list = k, envir = rate_limit_buckets)
+      } else {
+        rate_limit_buckets[[k]] <- ts
+      }
+    }
+  }
+
   if (exists(key, envir = rate_limit_buckets)) {
     timestamps <- rate_limit_buckets[[key]]
     timestamps <- timestamps[timestamps > window_start]

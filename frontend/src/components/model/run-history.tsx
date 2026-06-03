@@ -8,11 +8,10 @@ import { useJobSSE } from "@/hooks/use-job-sse";
 import type { RunSummary } from "@/services/types";
 import type { PlumberJobLogs } from "@sdm/shared";
 
-interface Run extends RunSummary {}
-
 interface RunHistoryProps {
   onRunSelect?: (runId: string) => void;
   refreshKey?: number;
+  activeJobId?: string | null;
 }
 
 const statusIcons: Record<string, React.ReactNode> = {
@@ -25,12 +24,12 @@ const statusIcons: Record<string, React.ReactNode> = {
   cancelled: <Ban className="h-4 w-4 text-sdm-warning" />,
 };
 
-function hasActiveRuns(runs: Run[]): boolean {
+function hasActiveRuns(runs: RunSummary[]): boolean {
   return runs.some((r) => ["queued", "running", "loading", "pending", "active"].includes(r.status));
 }
 
-export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
-  const [runs, setRuns] = useState<Run[]>([]);
+export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryProps) {
+  const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionRunId, setActionRunId] = useState<string | null>(null);
@@ -47,26 +46,48 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
   runsRef.current = runs;
 
   // SSE-driven live updates — reduce polling frequency when connected
-  const { jobs: sseJobs, connected: sseConnected } = useJobSSE(true);
+  const { jobs: sseJobs, connected: sseConnected, version: sseVersion } = useJobSSE(true);
+  const prevSseVersion = useRef(0);
   useEffect(() => {
+    if (sseVersion === prevSseVersion.current) return;
+    prevSseVersion.current = sseVersion;
     if (sseJobs.size === 0) return;
     setRuns(prev => {
       let changed = false;
+      const existingIds = new Set(prev.map(r => r.id));
       const next = prev.map(r => {
         const event = sseJobs.get(r.id);
         if (!event || event.state === r.status) return r;
-        // Map synthetic "active" from SSE bootstrap to "running" to avoid status corruption
         const mappedState = event.state === "active" ? "running" : event.state;
         if (mappedState === r.status) return r;
         changed = true;
         return { ...r, status: mappedState, error: event.failedReason ?? r.error };
       });
+      // Add new runs from SSE that aren't yet in the list
+      for (const [id, event] of sseJobs) {
+        if (!existingIds.has(id) && (event.type === "sdm_model" || event.type === "model")) {
+          next.push({
+            id,
+            species: event.id,
+            model_id: "",
+            status: event.state === "active" ? "running" : event.state as any,
+            started_at: "",
+            completed_at: null,
+            metrics: null,
+            output_files: null,
+            error: event.failedReason ?? null,
+            error_code: null,
+            error_hint: event.error_hint ?? null,
+          });
+          changed = true;
+        }
+      }
       return changed ? next : prev;
     });
-  }, [sseJobs]);
+  }, [sseVersion, sseJobs]);
 
   const fetchRuns = useCallback(() => {
-    apiGet<{ runs: Run[] }>("/api/v1/sdm/runs")
+    apiGet<{ runs: RunSummary[] }>("/api/v1/sdm/runs")
       .then((data) => {
         setRuns(data.runs || []);
         setError(null);
@@ -100,8 +121,8 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
 
   const activeCount = useMemo(() => runs.filter((r) => ["queued", "running", "loading", "pending"].includes(r.status)).length, [runs]);
   const clearableCount = useMemo(() => runs.filter((r) => ["completed", "failed", "cancelled"].includes(r.status)).length, [runs]);
-  const queuedRuns = useMemo(() => runs.filter((r) => ["queued", "pending", "loading"].includes(r.status)), [runs]);
-  const otherRuns = useMemo(() => runs.filter((r) => !["queued", "pending", "loading"].includes(r.status)), [runs]);
+  const queuedRuns = useMemo(() => runs.filter((r) => r.id !== activeJobId && ["queued", "pending", "loading"].includes(r.status)), [runs, activeJobId]);
+  const otherRuns = useMemo(() => runs.filter((r) => r.id !== activeJobId && !["queued", "pending", "loading"].includes(r.status)), [runs, activeJobId]);
 
   const handleCancel = async (runId: string) => {
     setActionRunId(runId);
@@ -123,7 +144,9 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
         await apiDelete(`/api/v1/sdm/runs/delete/${actionRunId}`);
       }
       fetchRuns();
-    } catch {
+    } catch (err) {
+      console.error("[run-history] Action failed:", err instanceof Error ? err.message : err);
+      setError(actionType === "cancel" ? "Failed to cancel run" : "Failed to delete run");
     } finally {
       setActionRunId(null);
       setActionType(null);
@@ -251,7 +274,8 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
       {queuedRuns.length > 0 && (
         <div className="space-y-2">
           {queuedRuns.slice(0, 3).map((run) => {
-            const elapsed = Math.floor((now - new Date(run.started_at).getTime()) / 1000);
+            const startedMs = run.started_at ? new Date(run.started_at).getTime() : NaN;
+            const elapsed = Number.isFinite(startedMs) ? Math.floor((now - startedMs) / 1000) : 0;
             return (
               <div
                 key={run.id}

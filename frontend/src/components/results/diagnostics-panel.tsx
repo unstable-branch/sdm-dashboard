@@ -16,6 +16,7 @@ import { ClimateDriverChart } from "@/components/diagnostics/climate-driver-char
 import { MessSummary } from "@/components/diagnostics/mess-summary";
 import { OverfittingPanel } from "@/components/results/overfitting-panel";
 import { apiGet } from "@/services/api";
+import ErrorBoundary from "@/components/ui/error-boundary";
 import { Download } from "lucide-react";
 import type {
   VifData, ImportanceData, ResponseCurvesData, CbiData, MessData,
@@ -46,6 +47,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   const [aleData, setAleData] = useState<any>(null);
   const [climateDriverData, setClimateDriverData] = useState<any>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(true);
+  const [failedEndpointCount, setFailedEndpointCount] = useState(0);
 
   useEffect(() => {
     if (run.status !== "completed") {
@@ -54,6 +56,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
     }
 
     setLoadingDiagnostics(true);
+    setFailedEndpointCount(0);
     const fetchDiagnostics = async () => {
       const endpoints = [
         { url: `/api/v1/diagnostics/vif/${run.id}`, setter: setVifData },
@@ -70,13 +73,14 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
         { url: `/api/v1/diagnostics/climate-drivers/${run.id}`, setter: setClimateDriverData },
       ];
 
-      await Promise.all(
+      await Promise.allSettled(
         endpoints.map(async ({ url, setter }) => {
           try {
             const data = await apiGet<any>(url);
             setter(data);
-          } catch {
-            // Silently fail — Recharts components handle null state
+          } catch (err) {
+            console.warn(`[diagnostics] Failed to fetch ${url}:`, err instanceof Error ? err.message : String(err));
+            setFailedEndpointCount((c) => c + 1);
           }
         })
       );
@@ -100,22 +104,36 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
         </div>
       )}
 
+      {!loadingDiagnostics && failedEndpointCount >= 12 && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-600">
+          The R computation backend is not available — all diagnostic endpoints failed to load.
+          Start it with <code className="bg-amber-500/10 px-1 rounded">docker compose up plumber</code> or <code className="bg-amber-500/10 px-1 rounded">Rscript launch_app.R</code>.
+        </div>
+      )}
+
+      {!loadingDiagnostics && failedEndpointCount > 0 && failedEndpointCount < 12 && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-600">
+          {failedEndpointCount} of 12 diagnostics endpoints could not be loaded. Some charts may show &ldquo;Not available&rdquo;.
+        </div>
+      )}
+
+      <ErrorBoundary>
       <Tabs defaultValue="cv" className="space-y-4">
-        <TabsList className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 w-full max-w-4xl">
-          <TabsTrigger value="cv" className="text-xs">CV Folds</TabsTrigger>
-          <TabsTrigger value="importance" className="text-xs">Importance</TabsTrigger>
-          <TabsTrigger value="curves" className="text-xs">Response Curves</TabsTrigger>
-          <TabsTrigger value="roc" className="text-xs">ROC</TabsTrigger>
-          <TabsTrigger value="cbi" className="text-xs">CBI</TabsTrigger>
-          <TabsTrigger value="calibration" className="text-xs">Calibration</TabsTrigger>
-          <TabsTrigger value="threshold" className="text-xs">Threshold</TabsTrigger>
-          <TabsTrigger value="density" className="text-xs">Density</TabsTrigger>
-          <TabsTrigger value="vif" className="text-xs">VIF</TabsTrigger>
-          <TabsTrigger value="mess" className="text-xs">MESS</TabsTrigger>
-          <TabsTrigger value="ale" className="text-xs">ALE</TabsTrigger>
-          <TabsTrigger value="climate-drivers" className="text-xs">Climate</TabsTrigger>
-          <TabsTrigger value="overfitting" className="text-xs text-amber-500">Overfitting</TabsTrigger>
-          <TabsTrigger value="log" className="text-xs">Log</TabsTrigger>
+        <TabsList className="flex overflow-x-auto gap-1 pb-px scrollbar-thin">
+          <TabsTrigger value="cv" className="text-xs shrink-0">CV Folds</TabsTrigger>
+          <TabsTrigger value="importance" className="text-xs shrink-0">Importance</TabsTrigger>
+          <TabsTrigger value="curves" className="text-xs shrink-0">Response Curves</TabsTrigger>
+          <TabsTrigger value="roc" className="text-xs shrink-0">ROC</TabsTrigger>
+          <TabsTrigger value="cbi" className="text-xs shrink-0">CBI</TabsTrigger>
+          <TabsTrigger value="calibration" className="text-xs shrink-0">Calibration</TabsTrigger>
+          <TabsTrigger value="threshold" className="text-xs shrink-0">Threshold</TabsTrigger>
+          <TabsTrigger value="density" className="text-xs shrink-0">Density</TabsTrigger>
+          <TabsTrigger value="vif" className="text-xs shrink-0">VIF</TabsTrigger>
+          <TabsTrigger value="mess" className="text-xs shrink-0">MESS</TabsTrigger>
+          <TabsTrigger value="ale" className="text-xs shrink-0">ALE</TabsTrigger>
+          <TabsTrigger value="climate-drivers" className="text-xs shrink-0">Climate</TabsTrigger>
+          <TabsTrigger value="overfitting" className="text-xs shrink-0 text-amber-500">Overfitting</TabsTrigger>
+          <TabsTrigger value="log" className="text-xs shrink-0">Log</TabsTrigger>
         </TabsList>
 
         <TabsContent value="cv">
@@ -187,6 +205,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
           </div>
         </TabsContent>
       </Tabs>
+      </ErrorBoundary>
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
         <h3 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">

@@ -10,7 +10,7 @@ import { TooltipInfo } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { apiGet } from "@/services/api";
+import { apiGet, fetchWithAuth } from "@/services/api";
 import { ModelSelector } from "./model-selector";
 import { SpeciesInput } from "./species-input";
 import { ClimateBiovarGrid } from "./climate-biovar-grid";
@@ -211,7 +211,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     if (biovars.length < 2) return;
     const timer = setTimeout(() => {
       setClimateCheckLoading(true);
-      fetch(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovarKey}`).then((res) => res.ok ? res.json() : null).then((data) => { if (data && Array.isArray(data.available)) setMissingBiovars(biovars.filter((b) => !(data.available as number[]).includes(b))); }).catch(() => setMissingBiovars(biovars)).finally(() => setClimateCheckLoading(false));
+      fetchWithAuth(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovarKey}`).then((res) => res.ok ? res.json() : null).then((data) => { if (data && Array.isArray(data.available)) setMissingBiovars(biovars.filter((b) => !(data.available as number[]).includes(b))); }).catch(() => setMissingBiovars(biovars)).finally(() => setClimateCheckLoading(false));
     }, 300);
     return () => clearTimeout(timer);
   }, [biovarKey, climateSource, climateRes]);

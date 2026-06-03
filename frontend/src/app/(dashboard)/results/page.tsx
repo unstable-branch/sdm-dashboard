@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRuns } from "@/hooks/use-runs";
 import { CardSkeleton } from "@/components/ui/skeleton";
-import { BarChart3, ArrowRight, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { BarChart3, ArrowRight, Ban, Clock, CheckCircle2, XCircle } from "lucide-react";
 
 export default function ResultsIndexPage() {
   const { data, isLoading, error, refetch } = useRuns();
@@ -73,6 +73,8 @@ export default function ResultsIndexPage() {
                   <CheckCircle2 className="h-5 w-5 text-sdm-success shrink-0" />
                 ) : run.status === "failed" ? (
                   <XCircle className="h-5 w-5 text-sdm-danger shrink-0" />
+                ) : run.status === "cancelled" ? (
+                  <Ban className="h-5 w-5 text-sdm-warning shrink-0" />
                 ) : (
                   <Clock className="h-5 w-5 text-sdm-accent shrink-0 animate-pulse" />
                 )}
@@ -104,7 +106,7 @@ export default function ResultsIndexPage() {
               <div className="mt-2 flex gap-4 text-xs text-sdm-muted">
                 {run.metrics.auc_mean != null && <span>AUC: {Number(run.metrics.auc_mean).toFixed(3)}</span>}
                 {run.metrics.tss_mean != null && <span>TSS: {Number(run.metrics.tss_mean).toFixed(3)}</span>}
-                {run.metrics.presence_records != null && <span>Records: {run.metrics.presence_records}</span>}
+                {run.metrics.presence_records != null && <span>Records: {String(run.metrics.presence_records)}</span>}
               </div>
             )}
             {run.error && (

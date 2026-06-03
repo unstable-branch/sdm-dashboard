@@ -149,6 +149,13 @@ sdmRoutes.post("/run", async (c) => {
         .where(eq(runs.id, run.id));
     }
 
+    jobEventBus.emitJobStatus({
+      jobId: run.id,
+      state: "running",
+      progress: 0,
+      logs: ["Model run started (sync)..."],
+    });
+
     // Fire-and-forget: plumber-sync polls Plumber and updates DB + SSE
     return c.json({
       runId: run.id,
@@ -830,6 +837,12 @@ sdmRoutes.post("/batch/:batchId/cancel", async (c) => {
       if (r.bullmqId && queue) await queue.remove(r.bullmqId);
       if (r.jobId) await plumberClient.cancelModel(r.jobId).catch(() => {});
       await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, r.id));
+      jobEventBus.emitJobStatus({
+        jobId: r.id,
+        state: "cancelled",
+        progress: 0,
+        logs: ["Batch run cancelled by user."],
+      });
     }
 
     await db.update(batches).set({ status: "cancelled", completedAt: new Date() }).where(eq(batches.id, batchId));
@@ -867,6 +880,12 @@ sdmRoutes.post("/batch/:batchId/retry", async (c) => {
       if (queuedJobId) {
         await db.update(runs).set({ bullmqId: queuedJobId }).where(eq(runs.id, r.id));
       }
+      jobEventBus.emitJobStatus({
+        jobId: r.id,
+        state: "queued",
+        progress: 0,
+        logs: ["Model run queued for retry..."],
+      });
       retriedIds.push(r.id);
     }
 

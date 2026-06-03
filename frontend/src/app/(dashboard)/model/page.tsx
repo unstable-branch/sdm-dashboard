@@ -28,8 +28,10 @@ export default function ModelPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [jobStartTime, setJobStartTime] = useState<string | null>(null);
+  const jobId = useSDMStore((s) => s.modelJobId);
+  const setJobId = useSDMStore((s) => s.setModelJobId);
+  const jobStartTime = useSDMStore((s) => s.modelJobStartTime);
+  const setJobStartTime = useSDMStore((s) => s.setModelJobStartTime);
   const [activeRuns, setActiveRuns] = useState<ActiveRun[]>([]);
   const [autoRedirect, setAutoRedirect] = useState(false);
   const [redirectCountdown, setRedirectCountdown] = useState(8);
@@ -71,16 +73,16 @@ export default function ModelPage() {
     if (needsRefresh) fetchActiveRuns();
   }, [sseJobs, activeRuns, fetchActiveRuns]);
 
-  // Lightweight poll fallback — only when active runs exist
+  // Lightweight poll fallback — only when active runs exist and SSE is disconnected
   useEffect(() => {
     const interval = setInterval(() => {
       if (document.hidden) return;
-      if (activeRunsRef.current > 0) {
+      if (activeRunsRef.current > 0 && !sseConnected) {
         fetchActiveRuns();
       }
-    }, 30000);
+    }, 15000);
     return () => clearInterval(interval);
-  }, [fetchActiveRuns]);
+  }, [fetchActiveRuns, sseConnected]);
 
   const handleSubmit = async (config: Partial<ModelConfig>) => {
     if (activeRuns.length > 0) {
@@ -289,7 +291,7 @@ export default function ModelPage() {
             )}
           </div>
 
-          <RunHistory onRunSelect={handleRunSelect} refreshKey={runRefreshKey} />
+          <RunHistory onRunSelect={handleRunSelect} refreshKey={runRefreshKey} activeJobId={jobId} />
         </div>
       </div>
     </div>

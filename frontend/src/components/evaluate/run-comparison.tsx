@@ -6,16 +6,7 @@ import { apiGet } from "@/services/api";
 import type { RunDetail } from "@/services/types";
 import { RunComparisonReport } from "./run-comparison-report";
 
-interface RunSummary {
-  id: string;
-  species: string;
-  model_id: string;
-  status: string;
-  started_at: string;
-  completed_at: string | null;
-  metrics: Record<string, number | null> | null;
-  config?: Record<string, unknown> | null;
-}
+type RunSummary = import("@/services/types").RunSummary;
 
 interface RunComparisonProps {
   runs: RunSummary[];

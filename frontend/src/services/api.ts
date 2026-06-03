@@ -78,6 +78,7 @@ export async function fetchWithAuth(url: string, options: FetchOptions = {}): Pr
       _redirecting = true;
       const redirect = encodeURIComponent(window.location.pathname + window.location.search);
       window.location.href = "/login?redirect=" + redirect;
+      setTimeout(() => { _redirecting = false; }, 30000);
     }
     throw new ApiError(401, "Unauthorized");
   }
