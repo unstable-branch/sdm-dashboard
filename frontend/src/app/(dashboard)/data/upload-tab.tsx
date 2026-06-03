@@ -100,7 +100,7 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-sdm-text truncate">
                       {f.file_name}
-                      {f.cleaned && <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success"><CheckCircle2 className="h-3 w-3" /> Cleaned</span>}
+                      {f.cleaned || f.cleaned_file_id ? <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success"><CheckCircle2 className="h-3 w-3" /> Cleaned</span> : null}
                     </p>
                     <p className="text-xs text-sdm-muted">
                       {sizeStr}{f.n_rows > 0 && ` · ${f.n_rows.toLocaleString()} rows`}{f.modified_at && ` · ${new Date(f.modified_at).toLocaleDateString()}`}
