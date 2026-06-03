@@ -445,7 +445,21 @@ function DataPageContent() {
             maxCoordUncertainty={maxCoordUncertainty}
             onSetUseAsync={setUseAsync} onSetUseCc={setUseCc} onSetMaxCoordUncertainty={setMaxCoordUncertainty}
             onClean={handleClean} onCleanComplete={handleCleanComplete} onFlagToggle={handleFlagToggle}
-            onRunModel={() => router.push("/model")} />
+            onRunModel={() => {
+              // Ensure store has cleaned data before navigating to model page
+              const result = cleanResult || uploadResult;
+              if (result?.cleaned_file_id) {
+                setCleanedOccurrence({
+                  filePath: result.cleaned_file_id as string,
+                  df: (result.cleaned_records || []) as Record<string, unknown>[],
+                  sourceCounts: (result.source_counts || {}) as Record<string, number>,
+                  nAbsentExcluded: (result.n_absent_excluded as number) || 0,
+                  originalRows: (result.original_rows as number) || 0,
+                  validRecords: (result.valid_records as number) || (result.cleaned_valid_records as number) || 0,
+                });
+              }
+              router.push("/model");
+            }} />
         )}
 
         {activeTab === "obs" && cleanPreview && (
