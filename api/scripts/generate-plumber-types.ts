@@ -18,20 +18,80 @@ const PROJECT_ROOT = join(__dirname, "..", "..");
 
 const PLUMBER_URL = process.argv.find((a) => a.startsWith("--url="))?.slice(6) || process.env.PLUMBER_URL || "http://localhost:8000";
 const OUTPUT_PATH = join(PROJECT_ROOT, "packages", "shared", "src", "plumber-types.ts");
+const MIN_OPENAPI_PATHS = process.env.PLUMBER_OPENAPI_MIN_PATHS ? Number(process.env.PLUMBER_OPENAPI_MIN_PATHS) : NaN;
+const REQUIRED_OPENAPI_PATHS = (process.env.PLUMBER_OPENAPI_REQUIRED_PATHS || "")
+  .split(",")
+  .map((path) => path.trim())
+  .filter(Boolean);
 
-async function fetchOpenAPISpec(): Promise<Record<string, unknown>> {
-  const url = `${PLUMBER_URL.replace(/\/+$/, "")}/__docs__/openapi.json`;
-  console.log(`[plumber-types] Fetching OpenAPI spec from ${url}`);
+const PLACEHOLDER_TOKEN = /<[^>]+>|\{[^}]+\}/g;
 
-  const res = await fetch(url);
-  if (!res.ok) {
+function patternToRegex(pattern: string): RegExp {
+  const placeholderPattern = pattern.replace(PLACEHOLDER_TOKEN, "__OPENAPI_PLACEHOLDER__");
+  const escaped = placeholderPattern
+    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*/g, ".*")
+    .replace(/__OPENAPI_PLACEHOLDER__/g, "[^/]+");
+
+  return new RegExp(`^${escaped}$`);
+}
+
+function validateOpenAPIBaseline(spec: Record<string, unknown>): void {
+  const paths = (spec.paths as Record<string, Record<string, unknown>>) || {};
+  const availablePaths = Object.keys(paths);
+  const pathCount = availablePaths.length;
+
+  if (!Number.isFinite(MIN_OPENAPI_PATHS) && REQUIRED_OPENAPI_PATHS.length === 0) {
+    return;
+  }
+
+  console.log(`[plumber-types] OpenAPI path count: ${pathCount}`);
+
+  if (Number.isFinite(MIN_OPENAPI_PATHS) && pathCount < MIN_OPENAPI_PATHS) {
     throw new Error(
-      `Failed to fetch OpenAPI spec: ${res.status} ${res.statusText}\n` +
-      `Is Plumber running at ${PLUMBER_URL} with OpenAPI docs enabled?`
+      `OpenAPI baseline check failed: expected >= ${MIN_OPENAPI_PATHS} paths, got ${pathCount}`
     );
   }
 
-  return res.json() as Promise<Record<string, unknown>>;
+  for (const requiredPath of REQUIRED_OPENAPI_PATHS) {
+    const matcher = patternToRegex(requiredPath);
+    const ok = availablePaths.some((path) => matcher.test(path));
+    if (!ok) {
+      throw new Error(`OpenAPI baseline check failed: missing required path matching "${requiredPath}"`);
+    }
+  }
+
+  if (REQUIRED_OPENAPI_PATHS.length > 0) {
+    console.log(
+      `[plumber-types] Required OpenAPI path patterns present: ${REQUIRED_OPENAPI_PATHS.length}/${REQUIRED_OPENAPI_PATHS.length}`
+    );
+  }
+}
+
+async function fetchOpenAPISpec(): Promise<Record<string, unknown>> {
+  const baseUrl = PLUMBER_URL.replace(/\/+$/, "");
+  const endpoints = ["/openapi.json", "/__openapi__/"];
+  const failures: string[] = [];
+
+  for (const endpoint of endpoints) {
+    const url = `${baseUrl}${endpoint}`;
+    console.log(`[plumber-types] Fetching OpenAPI spec from ${url}`);
+
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        return res.json() as Promise<Record<string, unknown>>;
+      }
+      failures.push(`${endpoint}: ${res.status} ${res.statusText}`);
+    } catch (err) {
+      failures.push(`${endpoint}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  throw new Error(
+    `Failed to fetch OpenAPI spec from Plumber endpoints: ${failures.join("; ")}\n` +
+    `Is Plumber running at ${PLUMBER_URL} with OpenAPI docs enabled?`
+  );
 }
 
 function generateTypes(spec: Record<string, unknown>): string {
@@ -186,6 +246,7 @@ function generateTypes(spec: Record<string, unknown>): string {
 async function main() {
   try {
     const spec = await fetchOpenAPISpec();
+    validateOpenAPIBaseline(spec);
     const types = generateTypes(spec);
 
     mkdirSync(join(PROJECT_ROOT, "packages", "shared", "src"), { recursive: true });

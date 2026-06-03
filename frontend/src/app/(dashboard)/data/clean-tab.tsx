@@ -15,7 +15,7 @@ interface CleanTabProps {
   useAsync: boolean;
   useCc: boolean;
   maxCoordUncertainty: string;
-  
+
   onSetUseAsync: (v: boolean) => void;
   onSetUseCc: (v: boolean) => void;
   onSetMaxCoordUncertainty: (v: string) => void;

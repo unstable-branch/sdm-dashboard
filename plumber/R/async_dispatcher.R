@@ -79,6 +79,7 @@ result <- tryCatch({
           paste0("cleaned_", format(Sys.time(), "%Y%m%d_%H%M%S_"), basename(file_id))
         )
         utils::write.csv(occ$occ, cleaned_path, row.names = FALSE)
+        encrypt_file(cleaned_path, cleaned_path)
 
         species_counts <- if ("species" %in% names(occ$occ)) {
           as.list(sort(table(occ$occ$species), decreasing = TRUE))

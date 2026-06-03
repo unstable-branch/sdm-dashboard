@@ -66,7 +66,7 @@ def main():
         imp_max = np.max(np.abs(importance))
         if imp_max > 0:
             importance = importance / imp_max
-        imp_df = [{"variable": name, "importance": float(imp)} 
+        imp_df = [{"variable": name, "importance": float(imp)}
                   for name, imp in zip(feature_names, importance)]
     except Exception:
         imp_df = None

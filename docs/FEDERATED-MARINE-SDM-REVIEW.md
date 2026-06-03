@@ -1,6 +1,6 @@
 # Federated SDM, Marine SDM & Model Backend Review
 
-**Date:** 2026-05-27  
+**Date:** 2026-05-27
 **Type:** Feasibility assessment
 
 ---
