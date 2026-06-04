@@ -406,6 +406,7 @@ sdmRoutes.get("/status/:jobId", async (c) => {
             error: ps.error ?? null,
             errorCode: ps.error_code ?? null,
             errorHint: ps.error_hint ?? null,
+            progressLog: plumberProgressLog.length > 0 ? plumberProgressLog : undefined,
             completedAt: new Date(),
           }).where(and(eq(runs.id, jobId), inArray(runs.status, ["running", "queued"]))).then(() => {
             jobEventBus.emitJobStatus({

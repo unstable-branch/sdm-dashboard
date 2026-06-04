@@ -133,26 +133,28 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto",
     nx <- ceiling((bbox["xmax"] - x0) / cell_size)
     ny <- ceiling((bbox["ymax"] - y0) / cell_size)
 
-    grid_cells <- expand.grid(ix = seq_len(nx), iy = seq_len(ny))
-    grid_polys <- lapply(seq_len(nrow(grid_cells)), function(i) {
-      x_min <- x0 + (grid_cells$ix[i] - 1) * cell_size
-      y_min <- y0 + (grid_cells$iy[i] - 1) * cell_size
+    # Compute cell indices for each point, only create polygons for occupied cells
+    coords <- sf::st_coordinates(pts_proj)
+    ix <- floor((coords[, 1] - x0) / cell_size) + 1
+    iy <- floor((coords[, 2] - y0) / cell_size) + 1
+    cell_keys <- paste(ix, iy, sep = ",")
+    unique_keys <- unique(cell_keys)
+    n_occupied <- length(unique_keys)
+
+    occupied_polys <- lapply(seq_len(n_occupied), function(i) {
+      parts <- as.integer(strsplit(unique_keys[i], ",")[[1]])
+      cx <- x0 + (parts[1] - 1) * cell_size
+      cy <- y0 + (parts[2] - 1) * cell_size
       sf::st_polygon(list(matrix(c(
-        x_min, y_min,
-        x_min + cell_size, y_min,
-        x_min + cell_size, y_min + cell_size,
-        x_min, y_min + cell_size,
-        x_min, y_min
+        cx, cy,
+        cx + cell_size, cy,
+        cx + cell_size, cy + cell_size,
+        cx, cy + cell_size,
+        cx, cy
       ), ncol = 2, byrow = TRUE)))
     })
 
-    grid_sf <- sf::st_sf(geometry = sf::st_sfc(grid_polys, crs = aoo_crs))
-
-    intersects <- sf::st_intersects(pts_proj, grid_sf, sparse = FALSE)
-    occupied <- which(colSums(intersects) > 0)
-    n_occupied <- length(occupied)
-
-    aoo_grid_proj <- if (n_occupied > 0) grid_sf[occupied, ] else NULL
+    aoo_grid_proj <- if (n_occupied > 0) sf::st_sf(geometry = sf::st_sfc(occupied_polys, crs = aoo_crs)) else NULL
 
     aoo_grid_wgs84 <- NULL
     if (!is.null(aoo_grid_proj)) {
