@@ -263,7 +263,7 @@ async function syncRunningJobs() {
               errorCode: errorCode ?? null,
               errorHint: errorHint ?? null,
               completedAt: new Date(),
-              progressLog: progressJson ?? undefined,
+              progressLog: logs.length > 0 ? logs : undefined,
               provenance: errorCode ? { error_code: errorCode, error_hint: errorHint } : undefined,
             })
             .where(eq(runs.id, run.id));
@@ -284,7 +284,7 @@ async function syncRunningJobs() {
             .set({
               status: "cancelled",
               completedAt: new Date(),
-              progressLog: progressJson ?? undefined,
+              progressLog: logs.length > 0 ? logs : undefined,
             })
             .where(eq(runs.id, run.id));
 
