@@ -196,6 +196,7 @@ function DataPageContent() {
         cleaned: u.is_cleaned,
         cleaned_file_id: u.cleaned_file_path,
         cleaned_valid_records: u.cleaned_valid_records,
+        format: u.format,
       }));
       setUploadHistory(mapped as UploadFile[]);
     } catch {
@@ -436,6 +437,9 @@ function DataPageContent() {
             species={species}
             recordCount={recordCount}
             hasGbifCredentials={hasGbifCredentials}
+            climateSource={climateSource}
+            climateRes={climateRes}
+            onTabChange={onTabChange}
           />
         )}
 
