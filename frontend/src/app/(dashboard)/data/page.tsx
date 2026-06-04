@@ -4,12 +4,11 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, FileArchive, Wand2, Flag, Cloud, Layers, Map } from "lucide-react";
+import { Upload, Globe, Wand2, Flag, Cloud, Layers, Map, LayoutDashboard } from "lucide-react";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { apiUpload, apiPost, apiGet, apiPatch } from "@/services/api";
-import { FileUpload } from "@/components/data/file-upload";
 import { PreviewTable } from "@/components/data/preview-table";
 import { UploadTab } from "./upload-tab";
 import { CleanTab } from "./clean-tab";
@@ -17,8 +16,9 @@ import { ClimateTab } from "./climate-tab";
 import { CovariateTab } from "./covariate-tab";
 import { BatchTab } from "./batch-tab";
 import { BoundaryTab } from "./boundary-tab";
+import { OverviewTab } from "./overview-tab";
 import type { OccurrencePoint } from "./types";
-import type { UploadFile, CleanResult, DwcaResult, ClimateScenarioResponse } from "@/services/types";
+import type { UploadFile, CleanResult, ClimateScenarioResponse } from "@/services/types";
 
 const GbifSearch = dynamic(() => import("@/components/data/gbif-search"), { ssr: false });
 const ObservationRecordsTab = dynamic(() => import("./observation-records-tab").then(m => ({ default: m.ObservationRecordsTab })), { ssr: false });
@@ -92,6 +92,8 @@ function DataPageContent() {
   const fetchSettings = useSettingsStore((s) => s.fetchSettings);
   useEffect(() => { if (!settings) fetchSettings(); }, []);
   const hasGbifCredentials = !!(settings?.gbifUsername && settings?.gbifEmail);
+  const species = useSDMStore((s) => s.species);
+  const recordCount = useSDMStore((s) => s.recordCount);
 
   // Climate state
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
@@ -108,11 +110,6 @@ function DataPageContent() {
   const [climateError, setClimateError] = useState<string | null>(null);
   const [scenarios, setScenarios] = useState<ClimateScenarioResponse[]>([]);
   const [scenariosLoading, setScenariosLoading] = useState(false);
-
-  // DwCA state
-  const [dwcaLoading, setDwcaLoading] = useState(false);
-  const [dwcaError, setDwcaError] = useState<string | null>(null);
-  const [dwcaResult, setDwcaResult] = useState<DwcaResult | null>(null);
 
   const handleCancelDownload = useCallback(async () => {
     const active = climateDownloadJob || cmip6DownloadJob || avgDownloadJob;
@@ -313,15 +310,6 @@ function DataPageContent() {
     } catch (err) { setGbifError(err instanceof Error ? err.message : "Failed to save GBIF records"); } finally { setGbifSaving(false); }
   };
 
-  const handleDwcaUpload = async (file: File) => {
-    setDwcaLoading(true); setDwcaError(null); setDwcaResult(null);
-    try {
-      const result = await apiUpload<Record<string, unknown>>("/api/v1/data/occurrences/dwca", file, undefined, 600000);
-      setDwcaResult(result); setUploadResult(result); setPipelineRunId((result.pipelineRunId as string) || null);
-      if (typeof result.file_path === "string") { setOccurrenceFilePath(result.file_path); setRecordCount(Number(result.n_returned || result.n_rows || result.n_records || 0)); }
-    } catch (err) { setDwcaError(err instanceof Error ? err.message : "DwCA parsing failed"); } finally { setDwcaLoading(false); }
-  };
-
   const cleanPreview = cleanResult?.cleaned_records as OccurrencePoint[] | undefined;
   const cleanSourceCounts = cleanResult?.source_counts as Record<string, number> | undefined;
   const cleanCcLog = (cleanResult?.cc_log as string[]) || [];
@@ -375,6 +363,10 @@ function DataPageContent() {
 
       <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
         <TabsList className="flex w-full overflow-x-auto [&::-webkit-scrollbar]:hidden border-b border-sdm-border rounded-none bg-transparent p-0 gap-0">
+          <TabsTrigger value="overview" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <LayoutDashboard className="h-3 w-3" />
+            Overview
+          </TabsTrigger>
           <TabsTrigger value="upload" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
             <Upload className="h-3 w-3" />
             Upload
@@ -382,10 +374,6 @@ function DataPageContent() {
           <TabsTrigger value="gbif" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
             <Globe className="h-3 w-3" />
             GBIF
-          </TabsTrigger>
-          <TabsTrigger value="dwca" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
-            <FileArchive className="h-3 w-3" />
-            DwC-A
           </TabsTrigger>
           <TabsTrigger value="clean" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
             <Wand2 className="h-3 w-3" />
@@ -441,32 +429,14 @@ function DataPageContent() {
           </div>
         )}
 
-        {activeTab === "dwca" && (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
-              <h2 className="text-lg font-semibold text-sdm-heading mb-4">Parse Darwin Core Archive</h2>
-              <p className="text-sm text-sdm-muted mb-4">Upload a GBIF bulk download ZIP file. The archive is parsed automatically, extracting occurrence data and dataset DOI for provenance.</p>
-              <FileUpload onUpload={handleDwcaUpload} loading={dwcaLoading} error={dwcaError} />
-            </div>
-            {dwcaError && <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">{dwcaError}</div>}
-            {dwcaResult && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Datasets</p><p className="mt-1 text-xl font-bold text-sdm-heading">{dwcaResult.datasets?.length ?? 0}</p></div>
-                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Returned</p><p className="mt-1 text-xl font-bold text-sdm-accent">{(dwcaResult.n_returned ?? 0).toLocaleString()}</p></div>
-                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Raw</p><p className="mt-1 text-xl font-bold text-sdm-heading">{(dwcaResult.n_raw ?? 0).toLocaleString()}</p></div>
-                  <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4"><p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">DOI</p><p className="mt-1 text-xs font-mono text-sdm-text truncate">{dwcaResult.doi || "—"}</p></div>
-                </div>
-                {dwcaResult.preview && dwcaResult.preview.length > 0 && <PreviewTable data={dwcaResult.preview} title="DwC-A Preview (first 5 records)" />}
-                {dwcaResult.file_path && (
-                  <div className="flex items-center justify-between rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3">
-                    <div className="flex items-center gap-2 text-sm text-sdm-warning"><span>DwC-A parsed — {(dwcaResult.n_returned ?? 0).toLocaleString()} records. Clean before modeling.</span></div>
-                    <button onClick={() => onTabChange("clean")} className="text-sm font-medium text-sdm-accent hover:underline">Clean data →</button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+        {activeTab === "overview" && (
+          <OverviewTab
+            uploadResult={uploadResult}
+            cleanResult={cleanResult}
+            species={species}
+            recordCount={recordCount}
+            hasGbifCredentials={hasGbifCredentials}
+          />
         )}
 
         {activeTab === "clean" && (
