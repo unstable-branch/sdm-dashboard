@@ -730,8 +730,8 @@ dataRoutes.post("/boundary/download", async (c) => {
   try {
     const user = c.get("user");
     const body = await c.req.json();
-    const res = await plumberClient.withUser(user.id).post("/api/v1/data/boundary/download", body);
-    return c.json(res);
+    const [status, data] = await plumberClient.withUser(user.id).postRaw("/api/v1/data/boundary/download", body);
+    return c.json(data, status >= 400 ? (status as 400 | 404 | 500) : 200);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to download boundary";
     return c.json({ status: "error", message }, 502);
