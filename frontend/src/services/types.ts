@@ -282,6 +282,7 @@ export interface UploadFile {
   cleaned_file_id?: string;
   cleaned_valid_records?: number;
   species?: string;
+  format?: string;
 }
 
 export interface ClimateScenarioResponse {

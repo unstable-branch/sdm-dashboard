@@ -122,6 +122,13 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-sdm-text truncate">
                       {f.file_name}
+                      {f.format && (
+                        <span className={`ml-1.5 inline-flex items-center rounded px-1 py-0.5 text-xs font-medium ${
+                          f.format === "dwca" ? "bg-blue-500/10 text-blue-400" :
+                          f.format === "tsv" ? "bg-amber-500/10 text-amber-400" :
+                          "bg-green-500/10 text-green-400"
+                        }`}>{f.format.toUpperCase()}</span>
+                      )}
                       {f.cleaned || f.cleaned_file_id ? <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success"><CheckCircle2 className="h-3 w-3" /> Cleaned</span> : null}
                     </p>
                     <p className="text-xs text-sdm-muted">
