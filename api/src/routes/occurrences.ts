@@ -724,3 +724,16 @@ dataRoutes.get("/boundary/extent", async (c) => {
     return c.json({ error: message }, 502);
   }
 });
+
+// Download NE boundary to custom directory for model use
+dataRoutes.post("/boundary/download", async (c) => {
+  try {
+    const user = c.get("user");
+    const body = await c.req.json();
+    const res = await plumberClient.withUser(user.id).post("/api/v1/data/boundary/download", body);
+    return c.json(res);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to download boundary";
+    return c.json({ status: "error", message }, 502);
+  }
+});

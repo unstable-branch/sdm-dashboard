@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Download, Upload, Trash2, Loader2, CheckCircle2, AlertTriangle, Globe } from "lucide-react";
-import { apiGet, apiDelete, apiUpload } from "@/services/api";
+import { apiGet, apiPost, apiDelete, apiUpload } from "@/services/api";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 
 interface BoundaryFile {
@@ -18,8 +18,9 @@ export function BoundaryTab() {
   const [country, setCountry] = useState("all");
   const [countries, setCountries] = useState<string[]>([]);
   const [countriesLoading, setCountriesLoading] = useState(false);
-  const [downloadLoading, setDownloadLoading] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  type DownloadStatus = "idle" | "downloading" | "success" | "error";
+  const [downloadStatus, setDownloadStatus] = useState<DownloadStatus>("idle");
+  const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
 
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadLoading, setUploadLoading] = useState(false);
@@ -65,28 +66,23 @@ export function BoundaryTab() {
   }, [type, fetchCountries]);
 
   const handleDownload = async () => {
-    setDownloadLoading(true);
-    setDownloadError(null);
+    setDownloadStatus("downloading");
+    setDownloadMessage(null);
     try {
-      const params = new URLSearchParams({ type, resolution, country, save_to_custom: "true" });
-      const data = await apiGet<Record<string, unknown>>(`/api/v1/data/boundary/default?${params}`);
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/geo+json" });
-      const name = country !== "all"
-        ? `ne_${resolution}_${country.toLowerCase().replace(/\s+/g, "_")}_boundary.geojson`
-        : `ne_${resolution}_${type}_boundary.geojson`;
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-      fetchBoundaries();
+      const result = await apiPost<{ status: string; message: string }>("/api/v1/data/boundary/download", {
+        type, resolution, country,
+      });
+      if (result.status === "success") {
+        setDownloadStatus("success");
+        setDownloadMessage(result.message || "Boundary downloaded");
+        fetchBoundaries();
+      } else {
+        setDownloadStatus("error");
+        setDownloadMessage(result.message || "Download failed");
+      }
     } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : "Download failed");
-    } finally {
-      setDownloadLoading(false);
+      setDownloadStatus("error");
+      setDownloadMessage(err instanceof Error ? err.message : "Download failed");
     }
   };
 
@@ -134,10 +130,17 @@ export function BoundaryTab() {
           Download country or coastline boundaries for use in model masking.
         </p>
 
-        {downloadError && (
+        {downloadStatus === "error" && downloadMessage && (
           <div className="mb-4 flex items-center gap-2 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span>{downloadError}</span>
+            <span>{downloadMessage}</span>
+          </div>
+        )}
+
+        {downloadStatus === "success" && (
+          <div className="mb-4 flex items-center gap-2 rounded-md border border-sdm-success/30 bg-sdm-success/5 p-3 text-sm text-sdm-success">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span>{downloadMessage || "Boundary downloaded and ready for model use"}</span>
           </div>
         )}
 
@@ -183,15 +186,19 @@ export function BoundaryTab() {
           <div className="flex items-end">
             <button
               onClick={handleDownload}
-              disabled={downloadLoading}
+              disabled={downloadStatus === "downloading"}
               className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50"
             >
-              {downloadLoading ? (
+              {downloadStatus === "downloading" ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
+              ) : downloadStatus === "success" ? (
+                <CheckCircle2 className="h-4 w-4" />
               ) : (
                 <Download className="h-4 w-4" />
               )}
-              {downloadLoading ? "Downloading..." : "Download GeoJSON"}
+              {downloadStatus === "downloading" ? "Downloading..." :
+               downloadStatus === "success" ? "Downloaded" :
+               "Download to Server"}
             </button>
           </div>
         </div>
