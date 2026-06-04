@@ -144,12 +144,36 @@ result <- tryCatch({
       if (is.null(taxon) || !nzchar(taxon)) {
         list(status = "failed", error = "taxon is required")
       } else {
-        occ <- read_gbif_records(
-          taxon = taxon,
-          country = input$country %||% NULL,
-          max_records = input$max_records %||% 100L,
-          log_fun = log_msg
-        )
+        # Check for authenticated download credentials
+        use_auth <- isTRUE(input$use_auth)
+        gbif_user <- if (use_auth) {
+          input$gbif_user %||% Sys.getenv("GBIF_USER", unset = NA_character_)
+        } else NA_character_
+        gbif_pwd <- if (use_auth) {
+          input$gbif_pwd %||% Sys.getenv("GBIF_PWD", unset = NA_character_)
+        } else NA_character_
+        gbif_email <- if (use_auth) {
+          input$gbif_email %||% Sys.getenv("GBIF_EMAIL", unset = NA_character_)
+        } else NA_character_
+
+        if (use_auth && !is.na(gbif_user) && !is.na(gbif_pwd) && !is.na(gbif_email)) {
+          occ <- read_gbif_download(
+            taxon = taxon,
+            country = input$country %||% NULL,
+            gbif_user = gbif_user,
+            gbif_pwd = gbif_pwd,
+            email = gbif_email,
+            max_records = input$max_records %||% 200000L,
+            log_fun = log_msg
+          )
+        } else {
+          occ <- read_gbif_records(
+            taxon = taxon,
+            country = input$country %||% NULL,
+            max_records = input$max_records %||% 100L,
+            log_fun = log_msg
+          )
+        }
 
         upload_dir <- file.path(app_dir, "data", "uploads")
         dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)

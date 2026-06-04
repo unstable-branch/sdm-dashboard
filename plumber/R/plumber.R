@@ -319,9 +319,15 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
 #* @param taxon Species name (e.g., "Acacia mearnsii")
 #* @param country Country code filter (e.g., "AU")
 #* @param max_records Maximum records to fetch (default: 100)
+#* @param use_auth If true, use authenticated download (unlimited records)
+#* @param gbif_user GBIF username for authenticated download
+#* @param gbif_pwd GBIF password for authenticated download
+#* @param gbif_email GBIF email for authenticated download
 sdm_submit_gbif_search <- function(req, taxon, country = NULL, max_records = 100,
-                                   app_dir_override = app_dir,
-                                   submit_fun = sdm_async_submit) {
+                                    use_auth = NULL,
+                                    gbif_user = NULL, gbif_pwd = NULL, gbif_email = NULL,
+                                    app_dir_override = app_dir,
+                                    submit_fun = sdm_async_submit) {
   if (is.null(taxon) || !nzchar(taxon)) {
     return(sdm_error(req, 400, "taxon is required"))
   }
@@ -334,7 +340,11 @@ sdm_submit_gbif_search <- function(req, taxon, country = NULL, max_records = 100
   job_id <- submit_fun("gbif", list(
     taxon = taxon,
     country = if (!is.null(country) && nzchar(country)) country else NULL,
-    max_records = max_records
+    max_records = max_records,
+    use_auth = isTRUE(use_auth),
+    gbif_user = gbif_user %||% NULL,
+    gbif_pwd = gbif_pwd %||% NULL,
+    gbif_email = gbif_email %||% NULL
   ), app_dir_override, user_id)
 
   list(
@@ -345,8 +355,10 @@ sdm_submit_gbif_search <- function(req, taxon, country = NULL, max_records = 100
 }
 
 #* @post /api/v1/occurrences/gbif/search
-function(req, taxon, country = NULL, max_records = 100) {
-  sdm_submit_gbif_search(req, taxon, country, max_records)
+function(req, taxon, country = NULL, max_records = 100, use_auth = NULL,
+         gbif_user = NULL, gbif_pwd = NULL, gbif_email = NULL) {
+  sdm_submit_gbif_search(req, taxon, country, max_records,
+                         use_auth, gbif_user, gbif_pwd, gbif_email)
 }
 
 #* Parse a Darwin Core Archive (.zip file) (async)

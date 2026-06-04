@@ -272,6 +272,31 @@ dataRoutes.post("/occurrences/gbif/search", gbifRateLimit, async (c) => {
 dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
   try {
     const body = await c.req.json();
+    const filePath = body.file_path as string | undefined;
+
+    // If a cached file_path is provided, skip re-running the search
+    if (filePath) {
+      const pipelineRunId = randomUUID();
+      const user = c.get("user");
+      const { ipAddress, userAgent } = extractClientInfo(c);
+      logAction({
+        userId: user.id,
+        action: "occurrence_upload",
+        entity: "occurrence",
+        entityId: pipelineRunId,
+        ipAddress,
+        userAgent,
+        details: { source: "gbif", file_path: filePath, pipelineRunId },
+      });
+      return c.json({
+        file_path: filePath,
+        file_id: filePath,
+        n_rows: 0,
+        filename: filePath.split("/").pop() || "gbif_records.csv",
+        pipelineRunId,
+      });
+    }
+
     const taxon = body.taxon as string;
     const country = body.country as string | undefined;
     const maxRecords = (body.max_records as number) || 100;
@@ -284,10 +309,10 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
 
     const jobId = initial?.job_id as string | undefined;
     const searchResult = jobId ? await pollPlumberJob(jobId) : initial;
-    const filePath = searchResult.file_path as string | undefined;
+    const resultFilePath = searchResult.file_path as string | undefined;
     const nRecords = (searchResult.n_records as number) || 0;
 
-    if (!filePath || nRecords === 0) {
+    if (!resultFilePath || nRecords === 0) {
       return c.json({ error: "No GBIF records found" }, 404);
     }
 
@@ -305,10 +330,10 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
     });
 
     return c.json({
-      file_path: filePath,
-      file_id: filePath,
+      file_path: resultFilePath,
+      file_id: resultFilePath,
       n_rows: nRecords,
-      filename: filePath.split("/").pop() || "gbif_records.csv",
+      filename: resultFilePath.split("/").pop() || "gbif_records.csv",
       pipelineRunId,
     });
   } catch (err) {

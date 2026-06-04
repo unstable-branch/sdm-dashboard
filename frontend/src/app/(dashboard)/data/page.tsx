@@ -84,29 +84,30 @@ function DataPageContent() {
   const [gbifLoading, setGbifLoading] = useState(false);
   const [gbifError, setGbifError] = useState<string | null>(null);
   const [gbifResult, setGbifResult] = useState<Record<string, unknown> | null>(null);
+  const [gbifSaving, setGbifSaving] = useState(false);
+  const [gbifSaved, setGbifSaved] = useState(false);
+  const [gbifSearchFile, setGbifSearchFile] = useState<string | null>(null);
 
-  const [dwcaLoading, setDwcaLoading] = useState(false);
-  const [dwcaError, setDwcaError] = useState<string | null>(null);
-  const [dwcaResult, setDwcaResult] = useState<DwcaResult | null>(null);
-
+  // Climate state
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
   const [climateBiovars, setClimateBiovars] = useState<number[]>([1, 4, 6, 12, 15, 18]);
   const [climateDownloadJob, setClimateDownloadJob] = useState<string | null>(null);
   const [availableBiovars, setAvailableBiovars] = useState<Set<number>>(new Set());
-
   const [cmip6Gcm, setCmip6Gcm] = useState("UKESM1-0-LL");
   const [cmip6Ssp, setCmip6Ssp] = useState("SSP2-4.5");
   const [cmip6Period, setCmip6Period] = useState("2041-2060");
   const [cmip6DownloadJob, setCmip6DownloadJob] = useState<string | null>(null);
-
   const [avgGcms, setAvgGcms] = useState<string[]>([]);
   const [avgDownloadJob, setAvgDownloadJob] = useState<string | null>(null);
   const [climateError, setClimateError] = useState<string | null>(null);
   const [scenarios, setScenarios] = useState<ClimateScenarioResponse[]>([]);
   const [scenariosLoading, setScenariosLoading] = useState(false);
-  const [gbifSaving, setGbifSaving] = useState(false);
-  const [gbifSaved, setGbifSaved] = useState(false);
+
+  // DwCA state
+  const [dwcaLoading, setDwcaLoading] = useState(false);
+  const [dwcaError, setDwcaError] = useState<string | null>(null);
+  const [dwcaResult, setDwcaResult] = useState<DwcaResult | null>(null);
 
   const handleCancelDownload = useCallback(async () => {
     const active = climateDownloadJob || cmip6DownloadJob || avgDownloadJob;
@@ -286,16 +287,23 @@ function DataPageContent() {
     const currentFileId = (useSDMStore.getState().uploadResult?.file_id ?? "") as string; if (currentFileId && cleanData.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId)}`, { cleaned: true, cleaned_file_path: cleanData.cleaned_file_id, cleaned_valid_records: cleanData.valid_records || 0, cleaned_original_rows: cleanData.original_rows || 0 }).catch(() => console.warn("[data] Failed to update upload cleaned status"));
   };
 
-  const handleGbifSearch = async (taxon: string, country: string, maxRecords: number) => {
-    setGbifLoading(true); setGbifError(null); setGbifResult(null);
-    try { const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/search", { taxon, country, max_records: maxRecords }); setGbifResult(result); }
-    catch (err) { setGbifError(err instanceof Error ? err.message : "GBIF search failed"); } finally { setGbifLoading(false); }
+  const handleGbifSearch = async (taxon: string, country: string, maxRecords: number, useAuth: boolean, username?: string, password?: string, email?: string) => {
+    setGbifLoading(true); setGbifError(null); setGbifResult(null); setGbifSearchFile(null);
+    try {
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/search", {
+        taxon, country, max_records: maxRecords, use_auth: useAuth, gbif_user: username, gbif_pwd: password, gbif_email: email,
+      });
+      setGbifResult(result);
+      if (typeof result.file_path === "string") setGbifSearchFile(result.file_path);
+    } catch (err) { setGbifError(err instanceof Error ? err.message : "GBIF search failed"); } finally { setGbifLoading(false); }
   };
 
   const handleGbifSave = async () => {
     if (!gbifResult) return; setGbifSaving(true);
     try {
-      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", { taxon: gbifResult.taxon, country: gbifResult.country, max_records: gbifResult.max_records });
+      const result = gbifSearchFile
+        ? await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", { file_path: gbifSearchFile })
+        : await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", { taxon: gbifResult.taxon, country: gbifResult.country, max_records: gbifResult.max_records });
       if (typeof result.file_path === "string") { setOccurrenceFilePath(result.file_path); setRecordCount(Number(result.n_rows || 0)); useSDMStore.getState().setSpecies(String(gbifResult.taxon || "Untitled species")); setUploadResult(result); setPipelineRunId((result.pipelineRunId as string) || null); setGbifSaved(true); }
     } catch (err) { setGbifError(err instanceof Error ? err.message : "Failed to save GBIF records"); } finally { setGbifSaving(false); }
   };
