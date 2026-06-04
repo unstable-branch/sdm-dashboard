@@ -30,7 +30,7 @@ export const modelConfigSchema = z.object({
   generateCog: z.boolean().default(true),
   maskType: z.enum(["none", "landmass", "ocean"]).optional().default("none"),
   maskFile: z.string().optional(),
-  maskBufferDeg: z.number().positive().optional(),
+  maskBufferDeg: z.number().min(0).optional(),
   maskBoundaryType: z.enum(["admin0", "land", "custom"]).optional().default("admin0"),
   maskResolution: z.enum(["auto", "10m", "50m", "110m"]).optional().default("auto"),
   maskCountry: z.string().optional().default("all"),

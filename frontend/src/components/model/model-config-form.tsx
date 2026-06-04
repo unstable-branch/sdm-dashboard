@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useDeferredValue, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from "react";
 import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
 import { EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath, CHELSA_EXTRA_CHOICES, ANALYSIS_CRS_CHOICES } from "@sdm/shared";
 import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
@@ -53,6 +53,15 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [countriesLoading, setCountriesLoading] = useState(false);
   const [customBoundaries, setCustomBoundaries] = useState<Array<{ file_path: string; file_name: string }>>([]);
   const [autoExtentFromBoundary, setAutoExtentFromBoundary] = useState(false);
+  // Reset maskCountry when switching away from custom boundary source
+  // to prevent stale server file paths being sent as country names
+  const prevBoundaryType = useRef(maskBoundaryType);
+  useEffect(() => {
+    if (prevBoundaryType.current === "custom" && maskBoundaryType !== "custom") {
+      setMaskCountry("all");
+    }
+    prevBoundaryType.current = maskBoundaryType;
+  }, [maskBoundaryType]);
   const [restrictBackground, setRestrictBackground] = useState(false);
   const [backgroundN, setBackgroundN] = useState(DEFAULT_CONFIG.backgroundN);
   const [cvFolds, setCvFolds] = useState(DEFAULT_CONFIG.cvFolds);
@@ -304,6 +313,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         : undefined,
       maskType,
       maskBufferDeg,
+      maskFile: maskBoundaryType === "custom" ? maskCountry : undefined,
       maskBoundaryType,
       maskResolution,
       maskCountry,

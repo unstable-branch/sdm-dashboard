@@ -122,6 +122,7 @@ filter_admin0_to_country <- function(geojson_path, country_name) {
       jsonlite::write_json(all, tmp, auto_unbox = TRUE)
       return(tmp)
     }
+    warning("Country '", country_name, "' not found in Admin 0 boundary — using full dataset", call. = FALSE)
     geojson_path
   }, error = function(e) geojson_path)
 }
