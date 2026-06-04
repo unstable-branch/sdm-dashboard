@@ -47,7 +47,7 @@ release_exclude_patterns <- function(include_worldclim = FALSE) {
   worldclim_pattern <- if (include_worldclim) "^Worldclim_future(/|$)|^worldclim_future(/|$)|^WorldClim_future(/|$)" else "^Worldclim(/|$)|^worldclim(/|$)|^WorldClim(/|$)|^Worldclim_future(/|$)|^worldclim_future(/|$)|^WorldClim_future(/|$)"
   c(
     "(^|/)presence_data\\.csv$",
-    "^outputs(/|$)", "^screenshots(/|$)", "^logs(/|$)", "^docs(/|$)",
+    "^outputs(/|$)", "^screenshots(/|$)", "^logs(/|$)", "^docs(/|$)", "^data/boundaries(/|$)",
     "^covariates(/|$)", worldclim_pattern,
     "(^|/)AGENTS\\.md$", "(^|/)\\.Renviron$", "(^|/)\\.env$", "(^|/)\\.env[.A-Za-z0-9_-]*$",
     "\\.zip$", "\\.log$", "(^|/)[^/]*hyprshot[^/]*\\.(png|jpg|jpeg)$"

@@ -3275,6 +3275,9 @@ function(res, run_id, z, x, y) {
 }
 
 #* Serve boundary GeoJSON (NE Admin 0, Land, or custom — auto-downloads if missing)
+#* @param resolution Boundary resolution: auto, 110m, 50m, or 10m
+#* @param type Boundary type: admin0, land, or custom
+#* @param country Country name or ISO code, or "all" for no filter
 #* @post /api/v1/data/boundary/default
 function(resolution = NULL, type = NULL, country = NULL, res) {
   dataset_type <- type %||% "admin0"
@@ -3313,6 +3316,8 @@ function(resolution = NULL, type = NULL, country = NULL, res) {
 
 #* Upload custom boundary (GeoJSON, KML, GPKG, or zipped shapefile — converted to GeoJSON)
 #* Receives file content as base64-encoded JSON (Hono converts multipart to base64)
+#* @param file_name Original filename with extension (.geojson, .json, .kml, .gpkg, .zip)
+#* @param file_content Base64-encoded file content
 #* @post /api/v1/data/boundary/upload
 function(file_name, file_content, res) {
   if (is.null(file_name) || is.null(file_content) || !nzchar(file_content)) {
@@ -3385,6 +3390,7 @@ function(res) {
 }
 
 #* Delete custom boundary
+#* @param file_path Absolute path to the boundary file to delete
 #* @post /api/v1/data/boundary/delete
 function(file_path, res) {
   if (is.null(file_path) || !file.exists(file_path)) {
@@ -3417,6 +3423,11 @@ function(res) {
 }
 
 #* Compute bounding box extent of a boundary file
+#* @param file_path Direct path to a boundary file (alternative to type/resolution/country)
+#* @param type Boundary type: admin0, land, or custom
+#* @param resolution Boundary resolution: auto, 110m, 50m, or 10m
+#* @param country Country name or ISO code, or "all"
+#* @param buffer_deg Buffer in degrees around computed extent (default: 2)
 #* @post /api/v1/data/boundary/extent
 function(file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2, res) {
   # Resolve file path from params if not given directly
