@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Globe, FileArchive, Wand2, Flag, Cloud, Layers, Map } from "lucide-react";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { apiUpload, apiPost, apiGet, apiPatch } from "@/services/api";
 import { FileUpload } from "@/components/data/file-upload";
 import { PreviewTable } from "@/components/data/preview-table";
@@ -87,6 +88,10 @@ function DataPageContent() {
   const [gbifSaving, setGbifSaving] = useState(false);
   const [gbifSaved, setGbifSaved] = useState(false);
   const [gbifSearchFile, setGbifSearchFile] = useState<string | null>(null);
+  const settings = useSettingsStore((s) => s.settings);
+  const fetchSettings = useSettingsStore((s) => s.fetchSettings);
+  useEffect(() => { if (!settings) fetchSettings(); }, []);
+  const hasGbifCredentials = !!(settings?.gbifUsername && settings?.gbifEmail);
 
   // Climate state
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
@@ -287,11 +292,11 @@ function DataPageContent() {
     const currentFileId = (useSDMStore.getState().uploadResult?.file_id ?? "") as string; if (currentFileId && cleanData.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId)}`, { cleaned: true, cleaned_file_path: cleanData.cleaned_file_id, cleaned_valid_records: cleanData.valid_records || 0, cleaned_original_rows: cleanData.original_rows || 0 }).catch(() => console.warn("[data] Failed to update upload cleaned status"));
   };
 
-  const handleGbifSearch = async (taxon: string, country: string, maxRecords: number, useAuth: boolean, username?: string, password?: string, email?: string) => {
+  const handleGbifSearch = async (taxon: string, country: string, maxRecords: number, useAuth: boolean) => {
     setGbifLoading(true); setGbifError(null); setGbifResult(null); setGbifSearchFile(null);
     try {
       const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/search", {
-        taxon, country, max_records: maxRecords, use_auth: useAuth, gbif_user: username, gbif_pwd: password, gbif_email: email,
+        taxon, country, max_records: maxRecords, use_auth: useAuth,
       });
       setGbifResult(result);
       if (typeof result.file_path === "string") setGbifSearchFile(result.file_path);
@@ -416,7 +421,7 @@ function DataPageContent() {
 
         {activeTab === "gbif" && (
           <div className="space-y-4">
-            <GbifSearch onSearch={handleGbifSearch} loading={gbifLoading} error={gbifError} result={gbifResult} />
+            <GbifSearch onSearch={handleGbifSearch} loading={gbifLoading} error={gbifError} result={gbifResult} hasSavedCredentials={hasGbifCredentials} />
             {gbifPreview && gbifPreview.length > 0 && <PreviewTable data={gbifPreview} title="GBIF Preview (first 5 records)" />}
             {gbifResult && typeof gbifResult.n_records === "number" && gbifResult.n_records > 0 && (
               <div className="space-y-3">

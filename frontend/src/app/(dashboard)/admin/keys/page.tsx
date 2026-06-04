@@ -18,21 +18,7 @@ const KEY_METADATA: Record<string, { label: string; description: string; docs?: 
     description: "Free elevation data service. Register at opentopography.org for a free API key.",
     docs: "https://opentopography.org",
   },
-  "secret.gbif_username": {
-    label: "GBIF Username",
-    description: "GBIF account username for authenticated occurrence downloads.",
-    docs: "https://gbif.org",
-  },
-  "secret.gbif_password": {
-    label: "GBIF Password",
-    description: "GBIF account password for authenticated occurrence downloads.",
-    docs: "https://gbif.org",
-  },
-  "service.gbif_email": {
-    label: "GBIF Email",
-    description: "Email address registered with GBIF account. Required for authenticated downloads.",
-    docs: "https://gbif.org",
-  },
+
 };
 
 const KNOWN_KEYS = Object.keys(KEY_METADATA);

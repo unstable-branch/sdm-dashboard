@@ -6,7 +6,7 @@ import { randomUUID } from "crypto";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { species, occurrences, users, uploadedFiles, uploads } from "../db/schema.js";
+import { species, occurrences, users, uploadedFiles, uploads, userSettings } from "../db/schema.js";
 import { and, count, eq, inArray, desc, sql } from "drizzle-orm";
 import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware } from "../middleware/auth.js";
@@ -254,6 +254,30 @@ dataRoutes.post("/occurrences/clean", async (c) => {
 dataRoutes.post("/occurrences/gbif/search", gbifRateLimit, async (c) => {
   try {
     const body = await c.req.json();
+
+    // Inject saved GBIF credentials from user settings when use_auth is true
+    // and inline credentials are not provided
+    if (body.use_auth && !body.gbif_user && !body.gbif_pwd && !body.gbif_email) {
+      try {
+        const user = c.get("user");
+        const [settings] = await db
+          .select({ gbifUsername: userSettings.gbifUsername, gbifPassword: userSettings.gbifPassword, gbifEmail: userSettings.gbifEmail })
+          .from(userSettings)
+          .where(eq(userSettings.userId, user.id))
+          .limit(1);
+        if (settings) {
+          if (settings.gbifUsername) body.gbif_user = settings.gbifUsername;
+          if (settings.gbifPassword) {
+            try {
+              const { decryptString, isEncryptionKeyConfigured } = await import("../services/encryption.js");
+              if (isEncryptionKeyConfigured()) body.gbif_pwd = decryptString(settings.gbifPassword);
+            } catch { /* decryption failed — skip */ }
+          }
+          if (settings.gbifEmail) body.gbif_email = settings.gbifEmail;
+        }
+      } catch { /* failed to look up settings — continue without injection */ }
+    }
+
     const initial = await plumberClient.searchGbif(body);
 
     const jobId = initial?.job_id as string | undefined;

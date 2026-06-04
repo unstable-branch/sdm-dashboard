@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { userSettings } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth.js";
+import { encryptString, decryptString, isEncryptionKeyConfigured } from "../services/encryption.js";
 import type { AppEnv } from "../middleware/auth.js";
 
 export const settingsRoutes = new Hono<AppEnv>();
@@ -26,6 +27,15 @@ settingsRoutes.get("/", async (c) => {
     return c.json(created);
   }
 
+  // Decrypt GBIF password for the response
+  if (settings.gbifPassword && isEncryptionKeyConfigured()) {
+    try {
+      (settings as Record<string, unknown>).gbifPassword = decryptString(settings.gbifPassword);
+    } catch {
+      (settings as Record<string, unknown>).gbifPassword = null;
+    }
+  }
+
   return c.json(settings);
 });
 
@@ -46,12 +56,22 @@ settingsRoutes.put("/", async (c) => {
     "theme",
     "tablePageSize",
     "compactMode",
+    "gbifUsername",
+    "gbifPassword",
+    "gbifEmail",
   ];
 
   const updates: Record<string, unknown> = {};
   for (const key of allowed) {
     if (body[key] !== undefined) {
-      updates[key] = body[key];
+      // Encrypt GBIF password at rest
+      if (key === "gbifPassword" && body[key] !== null && body[key] !== "") {
+        if (isEncryptionKeyConfigured()) {
+          updates[key] = encryptString(String(body[key]));
+        }
+      } else {
+        updates[key] = body[key];
+      }
     }
   }
 
