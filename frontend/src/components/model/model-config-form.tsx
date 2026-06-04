@@ -53,6 +53,15 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [countriesLoading, setCountriesLoading] = useState(false);
   const [customBoundaries, setCustomBoundaries] = useState<Array<{ file_path: string; file_name: string }>>([]);
   const [autoExtentFromBoundary, setAutoExtentFromBoundary] = useState(false);
+  const extentBeforeAutoRef = useRef<{ preset: string; custom: [number, number, number, number] } | null>(null);
+  // Restore extent preset when auto-extent is disabled
+  useEffect(() => {
+    if (!autoExtentFromBoundary && extentBeforeAutoRef.current) {
+      setExtentPreset(extentBeforeAutoRef.current.preset);
+      setCustomExtent(extentBeforeAutoRef.current.custom);
+      extentBeforeAutoRef.current = null;
+    }
+  }, [autoExtentFromBoundary]);
   // Reset maskCountry when switching away from custom boundary source
   // to prevent stale server file paths being sent as country names
   const prevBoundaryType = useRef(maskBoundaryType);
@@ -262,6 +271,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           `/api/v1/data/boundary/extent?${params}`
         );
         if (data && typeof data.xmin === "number") {
+          extentBeforeAutoRef.current = { preset: extentPreset, custom: customExtent };
           setExtentPreset("custom");
           setCustomExtent([data.xmin, data.xmax, data.ymin, data.ymax]);
         }
@@ -1061,43 +1071,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           </>
         )}
 
-        <div>
-          <label className="block text-sm font-medium text-sdm-text mb-1">
-            Analysis CRS
-            <TooltipInfo content="Projection for area calculations (EOO/AOO) and distance metrics. Auto-detect UTM is usually best." />
-          </label>
-          <select
-            value={analysisCrs}
-            onChange={(e) => setAnalysisCrs(e.target.value)}
-            className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
-          >
-            {ANALYSIS_CRS_CHOICES.map((crs: { id: string; label: string; description: string }) => (
-              <option key={crs.id} value={crs.id} title={crs.description}>{crs.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-sdm-text mb-1">
-            High-suitability threshold
-            <TooltipInfo content="Suitability threshold for presence/absence. Lower = higher sensitivity but may overpredict. TSS finds the optimal tradeoff." />
-          </label>
-          <input
-            type="range"
-            min={0.05}
-            max={0.95}
-            step={0.05}
-            value={threshold}
-            onChange={(e) => setThreshold(Number(e.target.value))}
-            className="w-full"
-          />
-          <span className="text-sm text-sdm-muted">{threshold.toFixed(2)}</span>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
-        <h2 className="text-lg font-semibold text-sdm-heading">Spatial filtering</h2>
-        <div className="pt-2">
+        {/* Boundary masking */}
+        <div className="border-t border-sdm-border pt-4">
           <h3 className="text-sm font-semibold text-sdm-heading mb-2">Boundary masking</h3>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -1224,32 +1199,41 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           </div>
         </div>
 
-        <div className="border-t border-sdm-border pt-4">
-          <h3 className="text-sm font-semibold text-sdm-heading mb-3">Climate matching</h3>
-          <p className="text-xs text-sdm-muted mb-3">
-            Computes environmental similarity (MESS) between training and projection areas. Helps detect
-            extrapolation beyond the climate range used for model training.
-          </p>
-          <label className="flex items-center gap-2 text-sm text-sdm-text mb-2">
-            <input type="checkbox" checked={climateMatching} onChange={(e) => setClimateMatching(e.target.checked)} />
-            Compute climate matching
+        <div>
+          <label className="block text-sm font-medium text-sdm-text mb-1">
+            Analysis CRS
+            <TooltipInfo content="Projection for area calculations (EOO/AOO) and distance metrics. Auto-detect UTM is usually best." />
           </label>
-          {climateMatching && (
-            <div>
-              <label className="block text-xs font-medium text-sdm-muted mb-1">Distance method</label>
-              <select
-                value={climateMatchingMethod}
-                onChange={(e) => setClimateMatchingMethod(e.target.value as typeof climateMatchingMethod)}
-                className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
-              >
-                <option value="mahalanobis">Mahalanobis (multivariate, recommended)</option>
-                <option value="standardised">Standardised Euclidean</option>
-                <option value="euclidean">Raw Euclidean</option>
-              </select>
-            </div>
-          )}
+          <select
+            value={analysisCrs}
+            onChange={(e) => setAnalysisCrs(e.target.value)}
+            className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
+          >
+            {ANALYSIS_CRS_CHOICES.map((crs: { id: string; label: string; description: string }) => (
+              <option key={crs.id} value={crs.id} title={crs.description}>{crs.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-sdm-text mb-1">
+            High-suitability threshold
+            <TooltipInfo content="Suitability threshold for presence/absence. Lower = higher sensitivity but may overpredict. TSS finds the optimal tradeoff." />
+          </label>
+          <input
+            type="range"
+            min={0.05}
+            max={0.95}
+            step={0.05}
+            value={threshold}
+            onChange={(e) => setThreshold(Number(e.target.value))}
+            className="w-full"
+          />
+          <span className="text-sm text-sdm-muted">{threshold.toFixed(2)}</span>
         </div>
       </div>
+
+      {/* Climate matching moved to Advanced settings */}
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
         <h2 className="text-lg font-semibold text-sdm-heading">Future projection</h2>
@@ -1615,7 +1599,33 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
             </div>
           )}
 
-          <div className="pt-2 border-t border-sdm-border/50 space-y-2">
+          <div className="pt-2 border-t border-sdm-border/50 space-y-3">
+            <div>
+              <h4 className="text-sm font-semibold text-sdm-heading mb-2">Climate matching</h4>
+              <p className="text-xs text-sdm-muted mb-2">
+                Computes environmental similarity (MESS) between training and projection areas. Helps detect
+                extrapolation beyond the climate range used for model training.
+              </p>
+              <label className="flex items-center gap-2 text-sm text-sdm-text mb-2">
+                <input type="checkbox" checked={climateMatching} onChange={(e) => setClimateMatching(e.target.checked)} />
+                Compute climate matching
+              </label>
+              {climateMatching && (
+                <div>
+                  <label className="block text-xs font-medium text-sdm-muted mb-1">Distance method</label>
+                  <select
+                    value={climateMatchingMethod}
+                    onChange={(e) => setClimateMatchingMethod(e.target.value as typeof climateMatchingMethod)}
+                    className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
+                  >
+                    <option value="mahalanobis">Mahalanobis (multivariate, recommended)</option>
+                    <option value="standardised">Standardised Euclidean</option>
+                    <option value="euclidean">Raw Euclidean</option>
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
             <label className="flex items-center gap-2 text-sm text-sdm-text">
               <input type="checkbox" checked={generateTiles} onChange={(e) => setGenerateTiles(e.target.checked)} />
               Pre-generate map tiles
@@ -1628,6 +1638,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
             </label>
           </div>
         </div>
+      </div>
       </details>
 
       <button
