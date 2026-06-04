@@ -156,6 +156,9 @@ export const userSettings = pgTable("user_settings", {
   theme: varchar("theme", { length: 20 }).default("system"),
   tablePageSize: integer("table_page_size").default(50),
   compactMode: boolean("compact_mode").default(false),
+  gbifUsername: text("gbif_username"),
+  gbifPassword: text("gbif_password"),
+  gbifEmail: text("gbif_email"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [

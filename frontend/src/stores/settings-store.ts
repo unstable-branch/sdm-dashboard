@@ -16,6 +16,9 @@ export interface UserSettings {
   theme: string;
   tablePageSize: number;
   compactMode: boolean;
+  gbifUsername?: string | null;
+  gbifPassword?: string | null;
+  gbifEmail?: string | null;
   createdAt: string;
   updatedAt: string;
 }

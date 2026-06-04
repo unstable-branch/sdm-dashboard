@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, CheckCircle2, AlertCircle, Database, Cloud, HardDrive } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle, Database, Cloud, HardDrive, Globe, Key, Mail, User, Eye, EyeOff } from "lucide-react";
 import { ApiKeyManager } from "@/components/settings/api-key-manager";
+import { useSettingsStore } from "@/stores/settings-store";
 
 interface HealthStatus {
   status: string;
@@ -25,6 +26,16 @@ export default function SettingsPage() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [defaults, setDefaults] = useState<ConfigDefaults | null>(null);
   const [loading, setLoading] = useState(true);
+  const settings = useSettingsStore((s) => s.settings);
+  const fetchSettings = useSettingsStore((s) => s.fetchSettings);
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  const [gbifUsername, setGbifUsername] = useState("");
+  const [gbifPassword, setGbifPassword] = useState("");
+  const [gbifEmail, setGbifEmail] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [savingGbif, setSavingGbif] = useState(false);
+  const [gbifSaved, setGbifSaved] = useState(false);
+  const [gbifError, setGbifError] = useState<string | null>(null);
 
   useEffect(() => {
     const signal = AbortSignal.timeout(15000);
@@ -37,6 +48,38 @@ export default function SettingsPage() {
       setLoading(false);
     });
   }, []);
+
+  // Load GBIF credentials from settings
+  useEffect(() => {
+    if (!settings) fetchSettings();
+  }, []);
+
+  useEffect(() => {
+    if (settings) {
+      setGbifUsername(settings.gbifUsername || "");
+      setGbifPassword(settings.gbifPassword || "");
+      setGbifEmail(settings.gbifEmail || "");
+    }
+  }, [settings]);
+
+  const handleSaveGbif = async () => {
+    setSavingGbif(true);
+    setGbifError(null);
+    setGbifSaved(false);
+    try {
+      await updateSettings({
+        gbifUsername: gbifUsername || null,
+        gbifPassword: gbifPassword || null,
+        gbifEmail: gbifEmail || null,
+      });
+      setGbifSaved(true);
+      setTimeout(() => setGbifSaved(false), 3000);
+    } catch (err) {
+      setGbifError(err instanceof Error ? err.message : "Failed to save credentials");
+    } finally {
+      setSavingGbif(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -150,6 +193,75 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-5 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sdm-surface-soft text-sdm-accent">
+            <Globe className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-sdm-heading">GBIF Credentials</h3>
+            <p className="text-xs text-sdm-muted">
+              Used for authenticated occurrence downloads with unlimited record limits.
+              Your password is encrypted at rest.
+            </p>
+          </div>
+        </div>
+
+        {gbifError && (
+          <div className="flex items-center gap-2 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{gbifError}</span>
+          </div>
+        )}
+
+        {gbifSaved && (
+          <div className="flex items-center gap-2 rounded-md border border-sdm-success/30 bg-sdm-success/5 p-3 text-sm text-sdm-success">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span>GBIF credentials saved</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-sdm-muted mb-1">
+              <User className="h-3 w-3" /> Username
+            </label>
+            <input type="text" value={gbifUsername} onChange={(e) => setGbifUsername(e.target.value)}
+              placeholder="GBIF username"
+              className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text placeholder:text-sdm-muted" />
+          </div>
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-sdm-muted mb-1">
+              <Key className="h-3 w-3" /> Password
+            </label>
+            <div className="relative">
+              <input type={showPassword ? "text" : "password"} value={gbifPassword}
+                onChange={(e) => setGbifPassword(e.target.value)}
+                placeholder="GBIF password"
+                className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 pr-8 text-sm text-sdm-text placeholder:text-sdm-muted" />
+              <button type="button" onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-sdm-muted hover:text-sdm-text">
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-sdm-muted mb-1">
+              <Mail className="h-3 w-3" /> Email
+            </label>
+            <input type="email" value={gbifEmail} onChange={(e) => setGbifEmail(e.target.value)}
+              placeholder="your@email.com"
+              className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text placeholder:text-sdm-muted" />
+          </div>
+        </div>
+
+        <button onClick={handleSaveGbif} disabled={savingGbif}
+          className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50">
+          {savingGbif ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          {savingGbif ? "Saving..." : "Save GBIF credentials"}
+        </button>
       </div>
 
       <ApiKeyManager />

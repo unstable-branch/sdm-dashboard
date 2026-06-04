@@ -1,28 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { Globe, Search, Download, ChevronDown, Key, Mail, User, AlertCircle, Loader2 } from "lucide-react";
+import { Globe, Search, Download, ChevronDown, AlertCircle, Loader2 } from "lucide-react";
 
 interface GbifSearchProps {
-  onSearch: (taxon: string, country: string, maxRecords: number, useAuth: boolean, username?: string, password?: string, email?: string) => void;
+  onSearch: (taxon: string, country: string, maxRecords: number, useAuth: boolean) => void;
   loading?: boolean;
   error?: string | null;
   result?: Record<string, unknown> | null;
+  hasSavedCredentials?: boolean;
 }
 
-export function GbifSearch({ onSearch, loading, error, result }: GbifSearchProps) {
+export function GbifSearch({ onSearch, loading, error, result, hasSavedCredentials }: GbifSearchProps) {
   const [taxon, setTaxon] = useState("");
   const [country, setCountry] = useState("");
   const [maxRecords, setMaxRecords] = useState(1000);
   const [useAuth, setUseAuth] = useState(false);
-  const [gbifUser, setGbifUser] = useState("");
-  const [gbifPass, setGbifPass] = useState("");
-  const [gbifEmail, setGbifEmail] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!taxon.trim()) return;
-    onSearch(taxon.trim(), country.trim(), maxRecords, useAuth, gbifUser || undefined, gbifPass || undefined, gbifEmail || undefined);
+    onSearch(taxon.trim(), country.trim(), maxRecords, useAuth);
   };
 
   return (
@@ -65,46 +63,19 @@ export function GbifSearch({ onSearch, loading, error, result }: GbifSearchProps
         </div>
 
         {/* Authenticated download toggle */}
-        <details className="group">
-          <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium text-sdm-muted hover:text-sdm-text transition-colors [&::-webkit-details-marker]:hidden">
-            <Download className="h-4 w-4" />
-            Use authenticated download (unlimited records)
-            <ChevronDown className="h-3.5 w-3.5 ml-auto transition-transform group-open:rotate-180" />
-          </summary>
-          <div className="mt-3 p-3 rounded-lg border border-sdm-border/50 bg-sdm-surface-soft space-y-3">
-            <p className="text-xs text-sdm-muted">
-              Requires a GBIF account. Set up your credentials in the{" "}
-              <a href="/admin/keys" className="text-sdm-accent hover:underline">API Keys</a>{" "}
-              admin page or enter them below.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="flex items-center gap-1.5 text-xs font-medium text-sdm-muted mb-1">
-                  <User className="h-3 w-3" /> Username
-                </label>
-                <input type="text" value={gbifUser} onChange={(e) => setGbifUser(e.target.value)}
-                  placeholder="GBIF username"
-                  className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text placeholder:text-sdm-muted" />
-              </div>
-              <div>
-                <label className="flex items-center gap-1.5 text-xs font-medium text-sdm-muted mb-1">
-                  <Key className="h-3 w-3" /> Password
-                </label>
-                <input type="password" value={gbifPass} onChange={(e) => setGbifPass(e.target.value)}
-                  placeholder="GBIF password"
-                  className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text placeholder:text-sdm-muted" />
-              </div>
-              <div>
-                <label className="flex items-center gap-1.5 text-xs font-medium text-sdm-muted mb-1">
-                  <Mail className="h-3 w-3" /> Email
-                </label>
-                <input type="email" value={gbifEmail} onChange={(e) => setGbifEmail(e.target.value)}
-                  placeholder="your@email.com"
-                  className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text placeholder:text-sdm-muted" />
-              </div>
-            </div>
+        <label className="flex items-center gap-2 text-sm text-sdm-text cursor-pointer pt-1">
+          <input type="checkbox" checked={useAuth} onChange={(e) => setUseAuth(e.target.checked)}
+            className="rounded border-sdm-border bg-sdm-surface-soft" />
+          <div>
+            <span className="font-medium">Authenticated download (unlimited records)</span>
+            {!hasSavedCredentials && useAuth && (
+              <p className="text-xs text-sdm-warning mt-0.5">
+                No saved credentials found. Set up your GBIF username and password in{" "}
+                <a href="/settings" className="text-sdm-accent hover:underline">Settings</a>.
+              </p>
+            )}
           </div>
-        </details>
+        </label>
 
         <button type="submit" disabled={loading || !taxon.trim()}
           className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed">
