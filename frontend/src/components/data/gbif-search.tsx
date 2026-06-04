@@ -67,7 +67,7 @@ export function GbifSearch({ onSearch, loading, error, result, hasSavedCredentia
           <input type="checkbox" checked={useAuth} onChange={(e) => setUseAuth(e.target.checked)}
             className="rounded border-sdm-border bg-sdm-surface-soft" />
           <div>
-            <span className="font-medium">Authenticated download (unlimited records)</span>
+            <span className="font-medium">Authenticated download using saved credentials or API key</span>
             {!hasSavedCredentials && useAuth && (
               <p className="text-xs text-sdm-warning mt-0.5">
                 No saved credentials found. Set up your GBIF username and password in{" "}

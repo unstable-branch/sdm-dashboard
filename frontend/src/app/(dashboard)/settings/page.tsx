@@ -234,7 +234,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <label className="flex items-center gap-1.5 text-xs font-medium text-sdm-muted mb-1">
-              <Key className="h-3 w-3" /> Password
+              <Key className="h-3 w-3" /> Password or API Key
             </label>
             <div className="relative">
               <input type={showPassword ? "text" : "password"} value={gbifPassword}
