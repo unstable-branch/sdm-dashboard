@@ -48,6 +48,7 @@ modules <- c(
   "covariates_stack.R",
   "predictor_selection.R",
   "boundary.R",
+  "ne_boundary.R",
   "download_helper.R",
   "verify_cache.R",
   "future_projection.R",

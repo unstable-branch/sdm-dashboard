@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, FileArchive, Wand2, Flag, Cloud, Layers } from "lucide-react";
+import { Upload, Globe, FileArchive, Wand2, Flag, Cloud, Layers, Map } from "lucide-react";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { apiUpload, apiPost, apiGet, apiPatch } from "@/services/api";
@@ -15,6 +15,7 @@ import { CleanTab } from "./clean-tab";
 import { ClimateTab } from "./climate-tab";
 import { CovariateTab } from "./covariate-tab";
 import { BatchTab } from "./batch-tab";
+import { BoundaryTab } from "./boundary-tab";
 import type { OccurrencePoint } from "./types";
 import type { UploadFile, CleanResult, DwcaResult, ClimateScenarioResponse } from "@/services/types";
 
@@ -393,6 +394,10 @@ function DataPageContent() {
             <Layers className="h-3 w-3" />
             Covariates
           </TabsTrigger>
+          <TabsTrigger value="boundary" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <Map className="h-3 w-3" />
+            Boundary
+          </TabsTrigger>
         </TabsList>
 
         {activeTab === "upload" && (
@@ -504,6 +509,10 @@ function DataPageContent() {
 
         {activeTab === "covariates" && (
           <CovariateTab />
+        )}
+
+        {activeTab === "boundary" && (
+          <BoundaryTab />
         )}
       </Tabs>
     </div>

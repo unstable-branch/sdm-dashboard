@@ -33,6 +33,7 @@ api/tmp/
 
 # R data directories
 data/uploads/
+data/boundaries/
 outputs/
 /covariates/
 Worldclim/

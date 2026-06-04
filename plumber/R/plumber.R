@@ -3168,7 +3168,7 @@ function(res, run_id, z, x, y) {
           # Re-check after acquiring lock (another worker may have created it)
           if (!file.exists(fallback_path)) {
             r_4326 <- terra::rast(suit_files[1L])
-            r_3857 <- terra::project(r_4326, "EPSG:3857", method = "bilinear")
+            r_3857 <- terra::project(r_4326, "EPSG:3857", method = "near")
             terra::writeRaster(r_3857, fallback_path, filetype = "COG",
               gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512"),
               NAflag = -9999, datatype = "FLT4S", overwrite = TRUE)
@@ -3236,7 +3236,10 @@ function(res, run_id, z, x, y) {
     vals <- rep(as.numeric(center_val), 65536)
     is_na <- rep(FALSE, 65536)
   } else {
-    tile_256 <- tryCatch(terra::resample(tile_crop, template, method = "bilinear"),
+    vals <- terra::values(tile_crop)
+    has_na_edge <- any(is.na(vals))
+    resample_method <- if (has_na_edge) "near" else "bilinear"
+    tile_256 <- tryCatch(terra::resample(tile_crop, template, method = resample_method),
       error = function(e) NULL)
     if (is.null(tile_256)) { res$status <- 204L; return(sdm_transparent_tile_png()) }
     vals <- terra::values(tile_256)
@@ -3271,14 +3274,181 @@ function(res, run_id, z, x, y) {
   raw_bytes
 }
 
-#* Serve the default world boundary GeoJSON
+#* Serve boundary GeoJSON (NE Admin 0, Land, or custom — auto-downloads if missing)
 #* @post /api/v1/data/boundary/default
-function(res) {
-  boundary_path <- sdm_default_mask_file
+function(resolution = NULL, type = NULL, country = NULL, res) {
+  dataset_type <- type %||% "admin0"
+  scale <- resolution %||% "110m"
+  country_val <- country %||% "all"
+
+  boundary_path <- if (dataset_type == "custom" && !is.null(country) && nzchar(country)) {
+    country
+  } else if (dataset_type %in% c("admin0", "land")) {
+    tryCatch(
+      resolve_mask_file(dataset_type, scale, country_val, raster_res = NULL, default_file = NULL),
+      error = function(e) NULL
+    )
+  } else {
+    NULL
+  }
+
+  # Plumber sets wd to plumber.R directory, so relative paths from R modules
+  # need to be resolved against the project root (app_dir).
+  if (!is.null(boundary_path) && !file.exists(boundary_path)) {
+    abs_path <- file.path(app_dir, boundary_path)
+    if (file.exists(abs_path)) boundary_path <- abs_path
+  }
+  if (is.null(boundary_path) || !file.exists(boundary_path)) {
+    fallback <- sdm_default_mask_file
+    if (!file.exists(fallback)) fallback <- file.path(app_dir, fallback)
+    boundary_path <- fallback
+  }
   if (!file.exists(boundary_path)) {
     res$status <- 404L
-    return(list(error = "Default boundary file not found"))
+    return(list(error = "Boundary file not found"))
   }
   geojson <- jsonlite::fromJSON(boundary_path, simplifyVector = FALSE)
   geojson
+}
+
+#* Upload custom boundary (GeoJSON, KML, GPKG, or zipped shapefile — converted to GeoJSON)
+#* Receives file content as base64-encoded JSON (Hono converts multipart to base64)
+#* @post /api/v1/data/boundary/upload
+function(file_name, file_content, res) {
+  if (is.null(file_name) || is.null(file_content) || !nzchar(file_content)) {
+    res$status <- 400L
+    return(list(error = "No file uploaded"))
+  }
+  ext <- tolower(tools::file_ext(file_name))
+  if (!ext %in% c("geojson", "json", "kml", "gpkg", "zip")) {
+    res$status <- 400L
+    return(list(error = "Only .geojson, .json, .kml, .gpkg, or .zip files accepted. For shapefiles, zip the .shp + .shx + .dbf + .prj together."))
+  }
+  tmp <- tempfile(fileext = paste0(".", ext))
+  on.exit(unlink(tmp), add = TRUE)
+  writeBin(jsonlite::base64_dec(file_content), tmp)
+
+  boundary_dir <- file.path("data", "boundaries", "custom")
+  dir.create(boundary_dir, recursive = TRUE, showWarnings = FALSE)
+  uuid_base <- paste0(format(Sys.time(), "%Y%m%d_%H%M%S"), "_", gsub("-", "", uuid::UUIDgenerate()))
+
+  needs_conversion <- !ext %in% c("geojson", "json")
+  src <- tmp
+  if (needs_conversion) {
+    if (ext == "zip") {
+      zip_dir <- tempfile()
+      dir.create(zip_dir, showWarnings = FALSE)
+      on.exit(unlink(zip_dir, recursive = TRUE), add = TRUE)
+      utils::unzip(src, exdir = zip_dir)
+      src <- list.files(zip_dir, pattern = "\\.(shp|kml|gpkg|geojson|json)$", full.names = TRUE, recursive = TRUE)[1]
+      if (is.na(src) || !file.exists(src)) {
+        res$status <- 400L
+        return(list(error = "ZIP archive does not contain a valid vector file (.shp, .kml, .gpkg, .geojson)"))
+      }
+    }
+    dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
+    tryCatch({
+      vec <- sf::st_read(src, quiet = TRUE)
+      sf::st_write(vec, dest, delete_dsn = TRUE, quiet = TRUE)
+    }, error = function(e) {
+      res$status <- 400L
+      stop("Failed to convert boundary file: ", conditionMessage(e))
+    })
+  } else {
+    dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
+    file.copy(src, dest, overwrite = TRUE)
+  }
+  list(
+    file_path = normalizePath(dest, winslash = "/"),
+    file_name = file_name,
+    file_size = file.size(dest)
+  )
+}
+
+#* List custom boundaries
+#* @post /api/v1/data/boundary/list
+function(res) {
+  custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
+  if (!dir.exists(custom_dir)) {
+    return(list(boundaries = list()))
+  }
+  files <- list.files(custom_dir, pattern = "\\.geojson$", full.names = TRUE)
+  boundaries <- lapply(files, function(f) {
+    list(
+      file_path = normalizePath(f, winslash = "/"),
+      file_name = basename(f),
+      file_size = file.size(f),
+      modified_at = format(file.mtime(f), "%Y-%m-%dT%H:%M:%SZ")
+    )
+  })
+  list(boundaries = boundaries)
+}
+
+#* Delete custom boundary
+#* @post /api/v1/data/boundary/delete
+function(file_path, res) {
+  if (is.null(file_path) || !file.exists(file_path)) {
+    res$status <- 404L
+    return(list(error = "File not found"))
+  }
+  file.remove(file_path)
+  list(ok = TRUE)
+}
+
+#* List country names from Admin 0 boundary
+#* @post /api/v1/data/boundary/countries
+function(res) {
+  boundary_path <- file.path("data", "boundaries", "ne", "110m", "ne_10m_admin_0_countries.geojson")
+  if (!file.exists(boundary_path)) {
+    boundary_path <- file.path(app_dir, boundary_path)
+  }
+  if (!file.exists(boundary_path)) {
+    res$status <- 404L
+    return(list(error = "Admin 0 boundary not found — download NE data first"))
+  }
+  geojson <- jsonlite::fromJSON(boundary_path, simplifyVector = FALSE)
+  feats <- geojson$features %||% list()
+  countries <- unique(vapply(feats, function(f) {
+    props <- f$properties %||% list()
+    props$ADMIN %||% props$NAME %||% props$name %||% "Unknown"
+  }, character(1)))
+  countries <- sort(countries[!is.na(countries) & countries != ""])
+  list(countries = countries)
+}
+
+#* Compute bounding box extent of a boundary file
+#* @post /api/v1/data/boundary/extent
+function(file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2, res) {
+  # Resolve file path from params if not given directly
+  if (is.null(file_path) || !file.exists(file_path)) {
+    if (!is.null(type)) {
+      res_type <- type %||% "admin0"
+      res_scale <- resolution %||% "110m"
+      if (res_type == "custom" && !is.null(country) && nzchar(country)) {
+        file_path <- country
+      } else if (res_type %in% c("admin0", "land")) {
+        file_path <- get_ne_boundary_path(res_scale, res_type)
+        if (!file.exists(file_path)) {
+          file_path <- download_ne_boundary(res_scale, res_type)
+        }
+        if (res_type == "admin0" && !is.null(country) && nzchar(country) && tolower(country) != "all") {
+          file_path <- filter_admin0_to_country(file_path, country)
+        }
+      }
+    }
+  }
+  if (is.null(file_path) || !file.exists(file_path)) {
+    res$status <- 404L
+    return(list(error = "Boundary file not found"))
+  }
+  tryCatch({
+    vec <- terra::vect(file_path)
+    e <- terra::ext(vec)
+    xmin <- e[1]; xmax <- e[2]; ymin <- e[3]; ymax <- e[4]
+    buf <- as.numeric(buffer_deg) %||% 2
+    list(xmin = xmin - buf, xmax = xmax + buf, ymin = ymin - buf, ymax = ymax + buf)
+  }, error = function(e) {
+    res$status <- 500L
+    list(error = paste("Failed to compute extent:", conditionMessage(e)))
+  })
 }

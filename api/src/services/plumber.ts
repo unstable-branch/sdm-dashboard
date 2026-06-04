@@ -452,6 +452,16 @@ export class PlumberClient {
     return res.json();
   }
 
+  async postForm(path: string, formData: FormData): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: this.headers(),
+      body: formData,
+    });
+    if (!res.ok) throw new Error(`POST ${path} (form) failed: ${res.status}`);
+    return res.json();
+  }
+
   // ── Targets pipeline ───────────────────────────────────────────────────
 
   async targetsRun(data: { configs: Record<string, unknown>[] }): Promise<Record<string, unknown>> {

@@ -1,15 +1,15 @@
 "use client";
 
 import { useMemo, useRef, useCallback, useState, useEffect } from "react";
-import { Map, Source, Layer, useMap } from "react-map-gl/maplibre";
+import { Map, Source, Layer } from "react-map-gl/maplibre";
 import type { ViewState, MapRef, ErrorEvent } from "react-map-gl/maplibre";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { densifyGeoJSONFeature } from "@/lib/geodesic";
 import { LIGHT_STYLE, DARK_STYLE } from "@/lib/map-styles";
-import { LAYER_IDS } from "@/lib/map-utils";
-import type { FeatureCollection, Polygon } from "geojson";
+import { LAYER_IDS, DEFAULT_TILE_ZOOM_MAX } from "@/lib/map-utils";
+import type { FeatureCollection } from "geojson";
 import { getToken } from "@/services/api";
 import { MapToolbar } from "./map-toolbar";
 import intersect from "@turf/intersect";
@@ -81,7 +81,7 @@ export default function MaplibreMap({
       const clipped = intersect({ type: "FeatureCollection", features: [densified as any, extentPoly] });
       return clipped || null;
     } catch {
-      return densified as any;
+      return null;
     }
   }, [eooGeoJSON, coordinates]);
 
@@ -108,11 +108,32 @@ export default function MaplibreMap({
   const handleFitExtent = useCallback(() => {
     if (!coords) return;
     const bounds = extentBounds(coords);
-    mapRef.current?.getMap()?.fitBounds(bounds, { padding: 40, maxZoom: 12 });
+    mapRef.current?.getMap()?.fitBounds(bounds, { padding: 40, maxZoom: 16 });
   }, [coords]);
 
   const visibility = (layer: string) =>
     layerVisibility[layer] !== false ? "visible" : "none";
+
+  const maskFillGeoJSON = useMemo(() => {
+    if (!coords) return null;
+    const outerRing: [number, number][] = [
+      [-180, -85.0511], [180, -85.0511], [180, 85.0511], [-180, 85.0511], [-180, -85.0511],
+    ];
+    const holeRing: [number, number][] = [
+      coords[0], coords[1], coords[2], coords[3], coords[0],
+    ];
+    return {
+      type: "FeatureCollection" as const,
+      features: [{
+        type: "Feature" as const,
+        properties: {},
+        geometry: {
+          type: "Polygon" as const,
+          coordinates: [outerRing, holeRing],
+        },
+      }],
+    };
+  }, [coords]);
 
   const hasEoo = !!densifiedEoo;
   const hasAoo = !!densifiedAoo;
@@ -131,7 +152,7 @@ export default function MaplibreMap({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full [&_.maplibregl-canvas]:image-rendering-pixelated"
+      className="relative w-full h-full"
       aria-label="Suitability map"
     >
       <Map
@@ -141,10 +162,12 @@ export default function MaplibreMap({
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle}
         maxZoom={18}
-        pixelRatio={1}
         onError={(e: ErrorEvent) => {
           const status = (e.error as any)?.status;
-          if (status >= 400 && status < 600) {
+          if (status === 401) {
+            import("@/services/api").then((m) => m.clearAuthToken());
+          }
+          if (status >= 400 && status < 600 || !status) {
             handleTileError();
           }
         }}
@@ -155,8 +178,8 @@ export default function MaplibreMap({
         onLoad={() => {
           const map = mapRef.current?.getMap();
           if (!map) return;
-          if ((map as any)._sdmControlsAdded) return;
-          (map as any)._sdmControlsAdded = true;
+          if (controlsAdded.current) return;
+          controlsAdded.current = true;
           map.addControl(new maplibregl.NavigationControl(), "bottom-right");
           map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
         }}
@@ -181,9 +204,23 @@ export default function MaplibreMap({
             id="suitability-overlay"
             type="raster"
             layout={{ visibility: visibility(LAYER_IDS.SUITABILITY) }}
-            paint={{ "raster-opacity": 0.9999, "raster-fade-duration": 0 }}
+            paint={{ "raster-opacity": 0.9999, "raster-fade-duration": 0, "raster-resampling": "nearest" }}
           />
         </Source>
+
+        {maskFillGeoJSON && (
+          <Source id="extent-mask" type="geojson" data={maskFillGeoJSON}>
+            <Layer
+              id="extent-mask-fill"
+              type="fill"
+              layout={{ visibility: visibility(LAYER_IDS.SUITABILITY) }}
+              paint={{
+                "fill-color": theme === "dark" ? "#1b2030" : "#f2efe9",
+                "fill-opacity": 1,
+              }}
+            />
+          </Source>
+        )}
 
         {hasAoo && (
           <Source id="aoo-grid" type="geojson" data={densifiedAoo!}>
@@ -285,7 +322,7 @@ export default function MaplibreMap({
         )}
       </Map>
 
-      {currentZoom !== null && currentZoom > (tileZoomMax ?? 8) && (
+      {currentZoom !== null && currentZoom > (tileZoomMax ?? DEFAULT_TILE_ZOOM_MAX) && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 rounded-md bg-sdm-surface/90 px-3 py-1.5 text-xs text-sdm-warning shadow-sm border border-sdm-warning/30 whitespace-nowrap">
           Suitability overlay not available at zoom {Math.round(currentZoom)} — zoom out
         </div>

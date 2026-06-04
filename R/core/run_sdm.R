@@ -83,6 +83,12 @@ run_fast_sdm <- function(...) {
   use_cc <- cfg$use_cc
   cc_tests <- cfg$cc_tests
   max_coordinate_uncertainty <- cfg$max_coordinate_uncertainty %||% NULL
+  mask_type <- cfg$mask_type %||% sdm_default_mask_type
+  mask_boundary_type <- cfg$mask_boundary_type %||% sdm_default_mask_boundary_type
+  mask_resolution <- cfg$mask_resolution %||% sdm_default_mask_resolution
+  mask_country <- cfg$mask_country %||% sdm_default_mask_country
+  mask_file <- cfg$mask_file %||% sdm_default_mask_file
+  restrict_background <- isTRUE(cfg$restrict_background)
   cleaned_occurrence <- cfg$cleaned_occurrence
   output_dir <- cfg$output_dir
   seed <- cfg$seed
@@ -432,6 +438,20 @@ run_fast_sdm <- function(...) {
     log_message(log_fun, "Using 0.5 for initial CV; will select optimal threshold post-fit")
   }
 
+  # Restrict background points to boundary polygon if requested
+  if (restrict_background && mask_type != "none") {
+    train_res <- tryCatch(terra::res(env$env_train), error = function(e) NULL)
+    train_mask_file <- mask_file
+    if (!identical(mask_boundary_type, "auto")) {
+      resolved <- resolve_mask_file(mask_boundary_type, mask_resolution, mask_country, train_res, train_mask_file)
+      if (!is.null(resolved) && nzchar(resolved))
+        train_mask_file <- resolved
+    }
+    if (!is.null(train_mask_file) && file.exists(train_mask_file)) {
+      env$env_train_scaled <- restrict_raster_to_boundary(env$env_train_scaled, train_mask_file)
+    }
+  }
+
   # PA replication: fit model N times with different background seeds
   replicate_fits <- vector("list", pa_replicates)
   last_error <- NULL
@@ -640,9 +660,15 @@ run_fast_sdm <- function(...) {
     log_message(log_fun, "  Clipped suitability raster to projection extent")
   }
 
-  mask_type <- cfg$mask_type %||% sdm_default_mask_type
-  mask_file <- cfg$mask_file %||% sdm_default_mask_file
   mask_buffer_deg <- cfg$mask_buffer_deg %||% sdm_default_mask_buffer_deg
+
+  # Resolve boundary file from new params (override legacy mask_file)
+  if (mask_type != "none" && !identical(mask_boundary_type, "auto")) {
+    raster_res <- tryCatch(terra::res(suit), error = function(e) NULL)
+    resolved <- resolve_mask_file(mask_boundary_type, mask_resolution, mask_country, raster_res, mask_file)
+    if (!is.null(resolved) && nzchar(resolved))
+      mask_file <- resolved
+  }
 
   # Write initial suitability raster to avoid source=target conflicts
   tmp_out <- tempfile(fileext = ".tif")
@@ -938,7 +964,7 @@ run_fast_sdm <- function(...) {
   if (isTRUE(cfg$generate_cog %||% TRUE)) {
     cog_path <- file.path(output_dir, paste0(base_name, "_3857.tif"))
     tryCatch({
-      r_3857 <- terra::project(suit, "EPSG:3857", method = "bilinear")
+      r_3857 <- terra::project(suit, "EPSG:3857", method = "near")
       terra::writeRaster(r_3857, cog_path,
         filetype = "COG",
         gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
@@ -1057,6 +1083,8 @@ run_fast_sdm <- function(...) {
       gbif_doi = dwca_doi %||% gbif_doi, climate_source = source,
       overlap_warn = isTRUE(overlap_warn),
       mask_type = mask_type, mask_file = mask_file,
+      mask_boundary_type = mask_boundary_type, mask_resolution = mask_resolution,
+      mask_country = mask_country,
       mask_buffer_deg = if (is.na(mask_buffer_deg)) NA_real_ else mask_buffer_deg
     ),
     occurrence = occ, occurrence_used = fit$occurrence_used, source_counts = sort(table(occ$source), decreasing = TRUE),

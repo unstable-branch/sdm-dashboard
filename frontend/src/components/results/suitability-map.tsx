@@ -20,14 +20,6 @@ interface SuitabilityMapProps {
   boundaryGeoJSON?: FeatureCollection | null;
 }
 
-const BASE_LAYER_VISIBILITY: Record<string, boolean> = {
-  [LAYER_IDS.SUITABILITY]: true,
-  [LAYER_IDS.EOO]: false,
-  [LAYER_IDS.AOO]: false,
-  [LAYER_IDS.BOUNDARY]: false,
-  [LAYER_IDS.EXTENT]: true,
-};
-
 function MapPlaceholder({ label }: { label?: string }) {
   return (
     <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">
@@ -60,7 +52,7 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
   );
   const { resolvedTheme } = useTheme();
   const safeTheme = resolvedTheme ?? "dark";
-  const baseVisibility = useMemo(() => ({
+  const baseVisibility: Record<string, boolean> = useMemo(() => ({
     [LAYER_IDS.SUITABILITY]: true,
     [LAYER_IDS.EOO]: !!eooGeoJSON,
     [LAYER_IDS.AOO]: !!aooGeoJSON,
@@ -73,15 +65,17 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
     return { ...baseVisibility, ...userToggles };
   }, [baseVisibility, userToggles]);
 
-  const safeRunId = useMemo(() => runId, [runId]);
   useEffect(() => {
     setUserToggles({});
-  }, [safeRunId]);
+  }, [runId]);
   const [basemap, setBasemap] = useState<"light" | "dark">("dark");
 
   const onToggleLayer = useCallback((layer: string) => {
-    setUserToggles((prev) => ({ ...prev, [layer]: !layerVisibility[layer] }));
-  }, [layerVisibility]);
+    setUserToggles((prev) => {
+      const current = layer in prev ? prev[layer] : baseVisibility[layer];
+      return { ...prev, [layer]: !current };
+    });
+  }, [baseVisibility]);
 
   const onToggleBasemap = useCallback(() => {
     setBasemap((prev) => (prev === "light" ? "dark" : "light"));
