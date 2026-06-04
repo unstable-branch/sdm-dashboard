@@ -18,6 +18,7 @@ export interface UserSettings {
   compactMode: boolean;
   gbifUsername?: string | null;
   gbifPassword?: string | null;
+  hasGbifPassword?: boolean;
   gbifEmail?: string | null;
   createdAt: string;
   updatedAt: string;

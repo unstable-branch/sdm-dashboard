@@ -36,6 +36,8 @@ export default function SettingsPage() {
   const [savingGbif, setSavingGbif] = useState(false);
   const [gbifSaved, setGbifSaved] = useState(false);
   const [gbifError, setGbifError] = useState<string | null>(null);
+  const [hasGbifPassword, setHasGbifPassword] = useState(false);
+  const [passwordChanged, setPasswordChanged] = useState(false);
 
   useEffect(() => {
     const signal = AbortSignal.timeout(15000);
@@ -57,7 +59,8 @@ export default function SettingsPage() {
   useEffect(() => {
     if (settings) {
       setGbifUsername(settings.gbifUsername || "");
-      setGbifPassword(settings.gbifPassword || "");
+      setGbifPassword(settings.hasGbifPassword ? "••••••••" : "");
+      setHasGbifPassword(!!settings.hasGbifPassword);
       setGbifEmail(settings.gbifEmail || "");
     }
   }, [settings]);
@@ -67,12 +70,19 @@ export default function SettingsPage() {
     setGbifError(null);
     setGbifSaved(false);
     try {
-      await updateSettings({
+      const updates: Record<string, unknown> = {
         gbifUsername: gbifUsername || null,
-        gbifPassword: gbifPassword || null,
         gbifEmail: gbifEmail || null,
-      });
+      };
+      if (passwordChanged) {
+        updates.gbifPassword = gbifPassword || null;
+      }
+      // If not changed and hasGbifPassword is true, don't send gbifPassword
+      // backend keeps existing encrypted value
+      await updateSettings(updates as any);
       setGbifSaved(true);
+      setPasswordChanged(false);
+      setHasGbifPassword(!!gbifPassword);
       setTimeout(() => setGbifSaved(false), 3000);
     } catch (err) {
       setGbifError(err instanceof Error ? err.message : "Failed to save credentials");
@@ -238,14 +248,20 @@ export default function SettingsPage() {
             </label>
             <div className="relative">
               <input type={showPassword ? "text" : "password"} value={gbifPassword}
-                onChange={(e) => setGbifPassword(e.target.value)}
-                placeholder="GBIF password"
+                onChange={(e) => { setGbifPassword(e.target.value); setPasswordChanged(true); }}
+                onFocus={() => { if (!passwordChanged && hasGbifPassword) { setGbifPassword(""); } }}
+                placeholder={hasGbifPassword && !passwordChanged ? "Saved password — click to change" : "GBIF password or API key"}
                 className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 pr-8 text-sm text-sdm-text placeholder:text-sdm-muted" />
               <button type="button" onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-sdm-muted hover:text-sdm-text">
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
+            {hasGbifPassword && !passwordChanged && (
+              <p className="text-xs text-sdm-success flex items-center gap-1 mt-1">
+                <CheckCircle2 className="h-3 w-3" /> Password saved
+              </p>
+            )}
           </div>
           <div>
             <label className="flex items-center gap-1.5 text-xs font-medium text-sdm-muted mb-1">

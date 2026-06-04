@@ -27,14 +27,9 @@ settingsRoutes.get("/", async (c) => {
     return c.json(created);
   }
 
-  // Decrypt GBIF password for the response
-  if (settings.gbifPassword && isEncryptionKeyConfigured()) {
-    try {
-      (settings as Record<string, unknown>).gbifPassword = decryptString(settings.gbifPassword);
-    } catch {
-      (settings as Record<string, unknown>).gbifPassword = null;
-    }
-  }
+  // Return boolean flag instead of plaintext password
+  (settings as Record<string, unknown>).hasGbifPassword = !!settings.gbifPassword;
+  (settings as Record<string, unknown>).gbifPassword = null;
 
   return c.json(settings);
 });
@@ -65,10 +60,19 @@ settingsRoutes.put("/", async (c) => {
   for (const key of allowed) {
     if (body[key] !== undefined) {
       // Encrypt GBIF password at rest
-      if (key === "gbifPassword" && body[key] !== null && body[key] !== "") {
-        if (isEncryptionKeyConfigured()) {
-          updates[key] = encryptString(String(body[key]));
+      if (key === "gbifPassword") {
+        if (body[key] === null) {
+          // Explicit null = clear the stored password
+          if (isEncryptionKeyConfigured()) {
+            updates[key] = encryptString("");
+          }
+        } else if (body[key] !== "") {
+          // Non-empty string = update the password
+          if (isEncryptionKeyConfigured()) {
+            updates[key] = encryptString(String(body[key]));
+          }
         }
+        // Empty string + not explicitly null = keep existing (skip)
       } else {
         updates[key] = body[key];
       }
