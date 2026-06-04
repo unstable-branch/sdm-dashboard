@@ -3394,11 +3394,21 @@ function(res) {
 #* @param file_path Absolute path to the boundary file to delete
 #* @post /api/v1/data/boundary/delete
 function(file_path, res) {
-  if (is.null(file_path) || !file.exists(file_path)) {
+  if (is.null(file_path) || !nzchar(file_path)) {
+    res$status <- 400L
+    return(list(error = "File path required"))
+  }
+  custom_dir <- tryCatch(normalizePath(file.path(app_dir, "data", "boundaries", "custom"), winslash = "/"), error = function(e) NULL)
+  resolved_path <- tryCatch(normalizePath(file_path, winslash = "/", mustWork = FALSE), error = function(e) NULL)
+  if (is.null(resolved_path) || is.null(custom_dir) || !startsWith(resolved_path, custom_dir)) {
+    res$status <- 403L
+    return(list(error = "Invalid file path"))
+  }
+  if (!file.exists(resolved_path)) {
     res$status <- 404L
     return(list(error = "File not found"))
   }
-  file.remove(file_path)
+  file.remove(resolved_path)
   list(ok = TRUE)
 }
 
@@ -3436,6 +3446,7 @@ function(file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffe
     if (!is.null(type)) {
       res_type <- type %||% "admin0"
       res_scale <- resolution %||% "110m"
+      if (identical(res_scale, "auto")) res_scale <- ne_boundary_infer_scale(NULL)
       if (res_type == "custom" && !is.null(country) && nzchar(country)) {
         file_path <- country
       } else if (res_type %in% c("admin0", "land")) {
