@@ -161,7 +161,7 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
                   <span className="truncate text-sdm-text">{u.file_name}</span>
                   <FormatBadge format={u.format} />
                   {u.species && <span className="text-xs text-sdm-muted truncate">{u.species}</span>}
-                  {u.cleaned ? <CheckCircle2 className="h-3 w-3 shrink-0 text-sdm-success" /> : <AlertTriangle className="h-3 w-3 shrink-0 text-sdm-warning" />}
+                  {u.cleaned || u.cleaned_file_id ? <CheckCircle2 className="h-3 w-3 shrink-0 text-sdm-success" /> : <AlertTriangle className="h-3 w-3 shrink-0 text-sdm-warning" />}
                 </div>
                 <span className="text-sdm-muted shrink-0">{u.n_rows.toLocaleString()} rows</span>
               </div>
