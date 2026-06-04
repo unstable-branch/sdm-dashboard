@@ -88,6 +88,10 @@ run_fast_sdm <- function(...) {
   mask_resolution <- cfg$mask_resolution %||% sdm_default_mask_resolution
   mask_country <- cfg$mask_country %||% sdm_default_mask_country
   mask_file <- cfg$mask_file %||% sdm_default_mask_file
+  if (!is.null(mask_file) && nzchar(mask_file) && !file.exists(mask_file)) {
+    abs_path <- file.path(sdm_project_root(), mask_file)
+    if (file.exists(abs_path)) mask_file <- abs_path
+  }
   restrict_background <- isTRUE(cfg$restrict_background)
   cleaned_occurrence <- cfg$cleaned_occurrence
   output_dir <- cfg$output_dir

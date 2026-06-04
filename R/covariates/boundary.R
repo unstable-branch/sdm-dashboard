@@ -159,10 +159,13 @@ validate_boundary_extent <- function(extent) {
 apply_boundary_mask <- function(suit, mask_type = "none",
                                 mask_file = NULL, buffer_deg = NA,
                                 log_fun = NULL, output_tif = NULL) {
-  if (mask_type == "none" || is.null(mask_file))
+  if (mask_type == "none" || is.null(mask_file)) {
+    log_message(log_fun, "  Boundary masking skipped: no mask type or file")
     return(suit)
+  }
 
   if (!file.exists(mask_file)) {
+    log_message(log_fun, "  Boundary mask file not found: ", mask_file, " — returning unmasked")
     warning("Boundary mask file not found: ", mask_file, " — returning unmasked raster", call. = FALSE)
     return(suit)
   }
