@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Download, Upload, Trash2, Loader2, CheckCircle2, AlertTriangle, Globe } from "lucide-react";
+import { Download, Upload, Trash2, Loader2, CheckCircle2, AlertTriangle, Globe, RefreshCw } from "lucide-react";
 import { apiGet, apiPost, apiDelete, apiUpload } from "@/services/api";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 
@@ -30,6 +30,7 @@ export function BoundaryTab() {
   const [boundaries, setBoundaries] = useState<BoundaryFile[]>([]);
   const [boundariesLoading, setBoundariesLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const fetchBoundaries = useCallback(async () => {
     setBoundariesLoading(true);
@@ -103,11 +104,12 @@ export function BoundaryTab() {
     }
   };
 
-  const handleDelete = async (file: BoundaryFile) => {
-    setDeleteLoading(file.file_path);
+  const handleDelete = async (filePath: string) => {
+    setDeleteLoading(filePath);
     try {
-      await apiDelete(`/api/v1/data/boundary/delete/${encodeURIComponent(file.file_path)}`);
-      setBoundaries((prev) => prev.filter((b) => b.file_path !== file.file_path));
+      await apiDelete(`/api/v1/data/boundary/delete/${encodeURIComponent(filePath)}`);
+      setBoundaries((prev) => prev.filter((b) => b.file_path !== filePath));
+      setConfirmDelete(null);
     } catch {
       // swallow
     } finally {
@@ -253,16 +255,26 @@ export function BoundaryTab() {
           </button>
         </div>
 
-        {/* Previously uploaded list */}
+        {/* Downloaded boundaries list */}
         <div>
-          <h3 className="text-sm font-semibold text-sdm-heading mb-2">Previously uploaded boundaries</h3>
-          {boundariesLoading ? (
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-sdm-heading">Downloaded boundaries</h3>
+            <button
+              onClick={fetchBoundaries}
+              disabled={boundariesLoading}
+              className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border/50 px-2.5 py-1 text-xs font-medium text-sdm-muted hover:text-sdm-text hover:bg-sdm-surface transition-colors disabled:opacity-40"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${boundariesLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+          </div>
+          {boundariesLoading && boundaries.length === 0 ? (
             <div className="flex items-center gap-2 text-sm text-sdm-muted py-4">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading...
             </div>
           ) : boundaries.length === 0 ? (
-            <p className="text-sm text-sdm-muted py-4">No custom boundaries uploaded yet.</p>
+            <p className="text-sm text-sdm-muted py-4">No boundaries downloaded yet.</p>
           ) : (
             <div className="space-y-2">
               {boundaries.map((b) => (
@@ -277,18 +289,38 @@ export function BoundaryTab() {
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDelete(b)}
-                    disabled={deleteLoading === b.file_path}
-                    className="ml-3 rounded p-1.5 text-sdm-muted hover:text-sdm-danger hover:bg-sdm-danger/10 transition-colors disabled:opacity-40"
-                    title="Delete boundary"
-                  >
-                    {deleteLoading === b.file_path ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
+                  {confirmDelete === b.file_path ? (
+                    <div className="flex items-center gap-2 ml-3 shrink-0">
+                      <span className="flex items-center gap-1 text-xs text-sdm-danger font-medium">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Delete?
+                      </span>
+                      <button
+                        onClick={() => handleDelete(b.file_path)}
+                        disabled={deleteLoading === b.file_path}
+                        className="rounded bg-sdm-danger px-2 py-1 text-xs font-medium text-white hover:bg-sdm-danger/90 disabled:opacity-40 transition-colors"
+                      >
+                        {deleteLoading === b.file_path ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : "Yes"}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(null)}
+                        disabled={deleteLoading === b.file_path}
+                        className="rounded border border-sdm-border/50 px-2 py-1 text-xs font-medium text-sdm-muted hover:text-sdm-text transition-colors disabled:opacity-40"
+                      >
+                        No
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDelete(b.file_path)}
+                      className="ml-3 rounded p-1.5 text-sdm-muted hover:text-sdm-danger hover:bg-sdm-danger/10 transition-colors shrink-0"
+                      title="Delete boundary"
+                    >
                       <Trash2 className="h-4 w-4" />
-                    )}
-                  </button>
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
