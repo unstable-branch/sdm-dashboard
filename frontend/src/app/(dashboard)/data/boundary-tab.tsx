@@ -255,78 +255,92 @@ export function BoundaryTab() {
           </button>
         </div>
 
-        {/* Downloaded boundaries list */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
+      </div>
+
+      {/* Downloaded boundaries list */}
+      {boundaries.length === 0 && !boundariesLoading ? (
+        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center">
+          <p className="text-sm text-sdm-muted">No boundaries downloaded yet.</p>
+          <p className="text-xs text-sdm-muted mt-1">Use the download form above to get Natural Earth boundaries.</p>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
+          <div className="px-4 py-3 border-b border-sdm-border flex items-center justify-between">
             <h3 className="text-sm font-semibold text-sdm-heading">Downloaded boundaries</h3>
             <button
               onClick={fetchBoundaries}
               disabled={boundariesLoading}
-              className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border/50 px-2.5 py-1 text-xs font-medium text-sdm-muted hover:text-sdm-text hover:bg-sdm-surface transition-colors disabled:opacity-40"
+              className="text-xs text-sdm-muted hover:text-sdm-text flex items-center gap-1 disabled:opacity-50"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${boundariesLoading ? "animate-spin" : ""}`} />
-              Refresh
+              <RefreshCw className={`h-3 w-3 ${boundariesLoading ? "animate-spin" : ""}`} /> Refresh
             </button>
           </div>
+
           {boundariesLoading && boundaries.length === 0 ? (
-            <div className="flex items-center gap-2 text-sm text-sdm-muted py-4">
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-sdm-muted">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading...
             </div>
-          ) : boundaries.length === 0 ? (
-            <p className="text-sm text-sdm-muted py-4">No boundaries downloaded yet.</p>
           ) : (
-            <div className="space-y-2">
-              {boundaries.map((b) => (
-                <div key={b.file_path}
-                  className="flex items-center justify-between rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-4 py-2.5">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Globe className="h-4 w-4 shrink-0 text-sdm-accent" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-sdm-text truncate">{b.file_name}</p>
-                      <p className="text-xs text-sdm-muted">
-                        {formatSize(b.file_size)} &middot; {b.modified_at?.slice(0, 10) || "—"}
-                      </p>
-                    </div>
-                  </div>
-                  {confirmDelete === b.file_path ? (
-                    <div className="flex items-center gap-2 ml-3 shrink-0">
-                      <span className="flex items-center gap-1 text-xs text-sdm-danger font-medium">
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                        Delete?
-                      </span>
-                      <button
-                        onClick={() => handleDelete(b.file_path)}
-                        disabled={deleteLoading === b.file_path}
-                        className="rounded bg-sdm-danger px-2 py-1 text-xs font-medium text-white hover:bg-sdm-danger/90 disabled:opacity-40 transition-colors"
-                      >
-                        {deleteLoading === b.file_path ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : "Yes"}
-                      </button>
-                      <button
-                        onClick={() => setConfirmDelete(null)}
-                        disabled={deleteLoading === b.file_path}
-                        className="rounded border border-sdm-border/50 px-2 py-1 text-xs font-medium text-sdm-muted hover:text-sdm-text transition-colors disabled:opacity-40"
-                      >
-                        No
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmDelete(b.file_path)}
-                      className="ml-3 rounded p-1.5 text-sdm-muted hover:text-sdm-danger hover:bg-sdm-danger/10 transition-colors shrink-0"
-                      title="Delete boundary"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-sdm-border text-sdm-muted">
+                    <th className="text-left px-4 py-2 font-medium">Name</th>
+                    <th className="text-right px-4 py-2 font-medium">Size</th>
+                    <th className="text-right px-4 py-2 font-medium">Date</th>
+                    <th className="text-right px-4 py-2 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {boundaries.map((b) => (
+                    <tr key={b.file_path} className="border-b border-sdm-border/50 hover:bg-sdm-surface-soft/50">
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-2">
+                          <Globe className="h-3.5 w-3.5 shrink-0 text-sdm-accent" />
+                          <span className="text-sdm-text font-medium truncate max-w-[300px]">{b.file_name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2 text-right text-sdm-muted whitespace-nowrap">{formatSize(b.file_size)}</td>
+                      <td className="px-4 py-2 text-right text-sdm-muted whitespace-nowrap">{b.modified_at?.slice(0, 10) || "—"}</td>
+                      <td className="px-4 py-2 text-right">
+                        {confirmDelete === b.file_path ? (
+                          <div className="flex items-center gap-1 justify-end">
+                            <span className="text-sdm-warning flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" /> Delete?
+                            </span>
+                            <button
+                              onClick={() => handleDelete(b.file_path)}
+                              disabled={deleteLoading === b.file_path}
+                              className="px-2 py-0.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 text-xs disabled:opacity-50"
+                            >
+                              {deleteLoading === b.file_path ? "..." : "Yes"}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDelete(null)}
+                              className="px-2 py-0.5 rounded bg-sdm-surface-soft text-sdm-muted hover:text-sdm-text text-xs"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDelete(b.file_path)}
+                            className="text-sdm-muted hover:text-red-400 transition-colors"
+                            title="Delete boundary"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
