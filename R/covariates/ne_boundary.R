@@ -93,6 +93,10 @@ resolve_mask_file <- function(boundary_type = "admin0", resolution = "auto",
     path <- download_ne_boundary(scale, boundary_type)
   if (is.null(path) || !file.exists(path)) {
     warning("NE boundary not available at ", scale, " — using default", call. = FALSE)
+    if (!is.null(default_file) && nzchar(default_file) && !file.exists(default_file)) {
+      abs_path <- file.path(sdm_project_root(), default_file)
+      if (file.exists(abs_path)) default_file <- abs_path
+    }
     return(default_file)
   }
   if (boundary_type == "admin0" && !is.null(country) && nzchar(country) && tolower(country) != "all")
