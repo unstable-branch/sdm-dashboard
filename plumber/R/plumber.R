@@ -906,7 +906,15 @@ function(res, job_id) {
     }
     if (!process_alive) {
       meta$status <- "failed"
-      meta$error <- "R process died while loading modules (possible OOM). Reduce covariates, use coarser resolution, or increase container memory."
+      stderr_content <- tryCatch({
+        lines <- readLines(file.path(job_dir, "stderr.log"), warn = FALSE)
+        paste(tail(lines, 15), collapse = "\n")
+      }, error = function(e) NULL)
+      if (!is.null(stderr_content) && nzchar(stderr_content)) {
+        meta$error <- paste0("R process died while loading modules: ", stderr_content)
+      } else {
+        meta$error <- "R process died while loading modules — no stderr output available"
+      }
       meta$error_code <- "RUNNER_LOAD_FAILED"
       meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       sdm_write_json(meta, meta_file)
@@ -933,7 +941,15 @@ function(res, job_id) {
     }
     if (!process_alive) {
       meta$status <- "failed"
-      meta$error <- "R process died before loading modules (possible OOM or spawn failure). Check container memory and logs."
+      stderr_content <- tryCatch({
+        lines <- readLines(file.path(job_dir, "stderr.log"), warn = FALSE)
+        paste(tail(lines, 15), collapse = "\n")
+      }, error = function(e) NULL)
+      if (!is.null(stderr_content) && nzchar(stderr_content)) {
+        meta$error <- paste0("R process died: ", stderr_content)
+      } else {
+        meta$error <- "R process died before loading modules — no stderr output available"
+      }
       meta$error_code <- "RUNNER_START_FAILED"
       meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       sdm_write_json(meta, meta_file)
@@ -1262,7 +1278,15 @@ sdm_async_status <- function(job_id) {
     }
     if (!process_alive) {
       meta$status <- "failed"
-      meta$error <- "R process died while loading modules (possible OOM). Reduce covariates, use coarser resolution, or increase container memory."
+      stderr_content <- tryCatch({
+        lines <- readLines(file.path(job_dir, "stderr.log"), warn = FALSE)
+        paste(tail(lines, 15), collapse = "\n")
+      }, error = function(e) NULL)
+      if (!is.null(stderr_content) && nzchar(stderr_content)) {
+        meta$error <- paste0("R process died while loading modules: ", stderr_content)
+      } else {
+        meta$error <- "R process died while loading modules — no stderr output available"
+      }
       meta$error_code <- "RUNNER_LOAD_FAILED"
       sdm_write_json(meta, meta_file)
       sdm_process_registry[[basename(job_id)]] <- NULL
