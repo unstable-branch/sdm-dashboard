@@ -58,6 +58,28 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
         </div>
       )}
       {uploadPreview && uploadPreview.length > 0 && <PreviewTable data={uploadPreview} title="Preview (first 5 records)" />}
+
+      {hasResult && Array.isArray(uploadResult?.datasets) && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Datasets</p>
+            <p className="mt-1 text-xl font-bold text-sdm-heading">{String((uploadResult.datasets as unknown[]).length)}</p>
+          </div>
+          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Returned</p>
+            <p className="mt-1 text-xl font-bold text-sdm-accent">{(uploadResult.n_rows ?? 0).toLocaleString()}</p>
+          </div>
+          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Raw records</p>
+            <p className="mt-1 text-xl font-bold text-sdm-heading">{(uploadResult.n_raw ?? 0).toLocaleString()}</p>
+          </div>
+          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Format</p>
+            <p className="mt-1 text-xl font-bold text-sdm-heading">Darwin Core</p>
+          </div>
+        </div>
+      )}
+
       {hasResult && uploadResult?.cleaned ? (
         <div className="flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
           <div className="flex items-center gap-2 text-sm text-green-500">
