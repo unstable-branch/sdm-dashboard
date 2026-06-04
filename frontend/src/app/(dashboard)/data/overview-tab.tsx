@@ -99,7 +99,7 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
   }, [climateRes]);
 
   const hasOccurrences = !!(uploadResult?.file_id || recordCount > 0 || recentUploads.length > 0);
-  const isCleaned = !!cleanResult?.valid_records;
+  const isCleaned = !!(cleanResult?.valid_records || (uploadResult as any)?.cleaned_file_id || (uploadResult as any)?.cleaned);
   const validRecordCount = (cleanResult?.valid_records as number) || recordCount || 0;
   const futureScenarios = scenarios.filter((s) => s.type === "future");
   const currentScenarios = scenarios.filter((s) => s.type === "current");
