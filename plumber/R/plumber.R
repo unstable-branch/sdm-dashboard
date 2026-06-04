@@ -3488,8 +3488,13 @@ function(type = "admin0", resolution = "110m", country = "all", res) {
     }
 
     if (is.null(boundary_path) || !file.exists(boundary_path)) {
-      res$status <- 404L
-      return(list(status = "error", message = "Boundary not found — check Natural Earth download"))
+      fallback <- sdm_default_mask_file
+      if (!file.exists(fallback)) fallback <- file.path(app_dir, fallback)
+      if (file.exists(fallback)) {
+        boundary_path <- fallback
+      } else {
+        return(list(status = "error", message = "Boundary not available via Natural Earth download"))
+      }
     }
 
     custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
