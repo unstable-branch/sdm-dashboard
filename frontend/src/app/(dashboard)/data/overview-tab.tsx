@@ -160,6 +160,7 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span className="truncate text-sdm-text">{u.file_name}</span>
                   <FormatBadge format={u.format} />
+                  {u.species && <span className="text-xs text-sdm-muted truncate">{u.species}</span>}
                   {u.cleaned && <CheckCircle2 className="h-3 w-3 shrink-0 text-sdm-success" />}
                 </div>
                 <span className="text-sdm-muted shrink-0">{u.n_rows.toLocaleString()} rows</span>
