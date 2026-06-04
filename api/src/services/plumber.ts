@@ -204,6 +204,16 @@ export class PlumberClient {
     return res.json();
   }
 
+  async downloadCovariateBg(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/covariates/download_bg`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`Failed to start covariate download: ${res.status}`);
+    return res.json();
+  }
+
   async getJobStatus(jobId: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/status/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);

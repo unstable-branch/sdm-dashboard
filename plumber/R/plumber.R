@@ -3123,6 +3123,52 @@ function(req) {
   })
 }
 
+#* Download covariate layer in background — returns job_id for progress polling
+#* @post /api/v1/covariates/download_bg
+function(req) {
+  body <- req$postBody
+  if (is.null(body)) body <- list()
+  if (is.character(body)) body <- jsonlite::fromJSON(body, simplifyVector = FALSE)
+
+  type <- body$type %||% ""
+  job_id <- paste0("cov_", format(Sys.time(), "%Y%m%d_%H%M%S"), "_", paste(sample(letters, 6), collapse = ""))
+  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
+  dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+
+  job_meta <- list(
+    id = job_id,
+    type = type,
+    status = "running",
+    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+    completed_at = NULL,
+    error = NULL,
+    config = body
+  )
+  sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
+
+  script_path <- file.path(app_dir, "plumber", "R", "covariate_download.R")
+  if (!file.exists(script_path)) {
+    stop("Covariate download script not found at: ", script_path, call. = FALSE)
+  }
+
+  proc <- callr::r_bg(function(script, job_dir, app_dir) {
+    source(script, local = TRUE)
+  }, args = list(script_path, job_dir, app_dir),
+  stdout = file.path(job_dir, "stdout.log"),
+  stderr = file.path(job_dir, "stderr.log"),
+  env = c(R_MAX_VSIZE = Sys.getenv("SDM_CHILD_MAX_VSIZE", "6Gb")))
+
+  sdm_process_registry[[job_id]] <- proc
+  job_meta$process_pid <- proc$get_pid()
+  sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
+
+  list(
+    job_id = job_id,
+    status = "running",
+    message = paste("Covariate download started:", type)
+  )
+}
+
 # Return a 1x1 transparent PNG for empty tiles (MapLibre handles transparent gracefully)
 sdm_transparent_tile_png <- function() {
   as.raw(c(

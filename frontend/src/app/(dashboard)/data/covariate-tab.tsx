@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Download, Loader2, CheckCircle2, AlertTriangle, Info, Trash2, RefreshCw } from "lucide-react";
 import { apiGet, apiPost } from "@/services/api";
+import { DownloadProgress } from "@/components/climate/download-progress";
 
 type CovariateType =
   | "elevation"
@@ -21,6 +22,7 @@ interface StatusMap {
 export function CovariateTab() {
   const [status, setStatus] = useState<StatusMap>({});
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [activeJob, setActiveJob] = useState<string | null>(null);
 
   // Elevation
   const [demType, setDemType] = useState("COP90");
@@ -56,14 +58,14 @@ export function CovariateTab() {
     setStatus((prev) => ({ ...prev, [type]: "downloading" }));
     setErrorMsg(null);
     try {
-      const result = await apiPost<{ status: string; message: string }>("/api/v1/covariates/download", {
+      const result = await apiPost<{ jobId: string; status: string }>("/api/v1/covariates/download_bg", {
         type, ...extra,
       });
-      if (result.status === "success") {
-        setStatus((prev) => ({ ...prev, [type]: "success" }));
+      if (result.jobId) {
+        setActiveJob(result.jobId);
       } else {
         setStatus((prev) => ({ ...prev, [type]: "error" }));
-        setErrorMsg(result.message || `${type} download failed`);
+        setErrorMsg("Download did not return a job ID");
       }
     } catch (err) {
       setStatus((prev) => ({ ...prev, [type]: "error" }));
@@ -71,9 +73,23 @@ export function CovariateTab() {
     }
   }, []);
 
+  const handleComplete = useCallback(async () => {
+    setActiveJob(null);
+  }, []);
+
+  const handleFailed = useCallback(async () => {
+    setActiveJob(null);
+  }, []);
+
+  const handleCancel = useCallback(async () => {
+    if (activeJob) {
+      try { await apiPost(`/api/v1/climate/cancel/${activeJob}`); } catch { }
+    }
+    setActiveJob(null);
+  }, [activeJob]);
+
   const statusIcon = (t: CovariateType) => {
     const s = status[t];
-    if (s === "downloading") return <Loader2 className="h-4 w-4 animate-spin text-sdm-accent" />;
     if (s === "success") return <CheckCircle2 className="h-4 w-4 text-sdm-success" />;
     if (s === "error") return <AlertTriangle className="h-4 w-4 text-sdm-danger" />;
     return null;
@@ -88,6 +104,15 @@ export function CovariateTab() {
 
   return (
     <div className="space-y-6">
+      {activeJob && (
+        <DownloadProgress
+          jobId={activeJob}
+          onComplete={handleComplete}
+          onFailed={handleFailed}
+          onCancel={handleCancel}
+        />
+      )}
+
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
         <h2 className="text-lg font-semibold text-sdm-heading mb-1">Download Covariate Layers</h2>
         <p className="text-sm text-sdm-muted mb-4">
@@ -144,7 +169,7 @@ export function CovariateTab() {
             </p>
             <button
               onClick={() => downloadCovariate("elevation", { dem_type: demType, apikey: opentopoKey })}
-              disabled={status.elevation === "downloading" || !opentopoKey}
+              disabled={!!activeJob || !opentopoKey}
               className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="h-3.5 w-3.5" />
@@ -202,7 +227,7 @@ export function CovariateTab() {
             </div>
             <button
               onClick={() => downloadCovariate("soil", { soil_vars: soilVars, soil_depths: soilDepths })}
-              disabled={status.soil === "downloading" || soilVars.length === 0 || soilDepths.length === 0}
+              disabled={!!activeJob || soilVars.length === 0 || soilDepths.length === 0}
               className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="h-3.5 w-3.5" />
@@ -230,7 +255,7 @@ export function CovariateTab() {
             </p>
             <button
               onClick={() => downloadCovariate("uv")}
-              disabled={status.uv === "downloading"}
+              disabled={!!activeJob}
               className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="h-3.5 w-3.5" />
@@ -258,7 +283,7 @@ export function CovariateTab() {
             </p>
             <button
               onClick={() => downloadCovariate("vegetation")}
-              disabled={status.vegetation === "downloading"}
+              disabled={!!activeJob}
               className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="h-3.5 w-3.5" />
@@ -295,7 +320,7 @@ export function CovariateTab() {
             </div>
             <button
               onClick={() => downloadCovariate("lulc", { lulc_year: lulcYear })}
-              disabled={status.lulc === "downloading"}
+              disabled={!!activeJob}
               className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="h-3.5 w-3.5" />
@@ -332,7 +357,7 @@ export function CovariateTab() {
             </div>
             <button
               onClick={() => downloadCovariate("hfp", { hfp_year: hfpYear })}
-              disabled={status.hfp === "downloading"}
+              disabled={!!activeJob}
               className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="h-3.5 w-3.5" />
@@ -367,7 +392,7 @@ export function CovariateTab() {
             </div>
             <button
               onClick={() => downloadCovariate("drought", { drought_periods: droughtPeriods })}
-              disabled={status.drought === "downloading" || droughtPeriods.length === 0}
+              disabled={!!activeJob || droughtPeriods.length === 0}
               className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="h-3.5 w-3.5" />
@@ -395,7 +420,7 @@ export function CovariateTab() {
             </p>
             <button
               onClick={() => downloadCovariate("bioclim_seasonality")}
-              disabled={status.bioclim_seasonality === "downloading"}
+              disabled={!!activeJob}
               className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="h-3.5 w-3.5" />

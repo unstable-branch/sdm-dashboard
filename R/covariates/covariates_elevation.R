@@ -99,6 +99,9 @@ download_opentopo_tile <- function(tile_extent, demtype, api_key, destfile, max_
     ok <- !inherits(result, "try-error") && file.exists(destfile) && {
       fi <- file.info(destfile)
       is.finite(fi$size) && fi$size > 1024
+    } && {
+      hdr <- readBin(destfile, "raw", n = 4)
+      length(hdr) >= 2 && (hdr[1] == 0x49 && hdr[2] == 0x49 || hdr[1] == 0x4d && hdr[2] == 0x4d)
     }
     if (ok) {
       return(invisible(destfile))

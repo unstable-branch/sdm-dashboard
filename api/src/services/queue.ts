@@ -702,6 +702,72 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
             }
             break;
           }
+          case "covariate_download": {
+            await job.updateProgress(10);
+            jobEventBus.emitJobStatus({ jobId: job.id!, state: "active", progress: 10 });
+
+            const downloadRes = await client.downloadCovariateBg(payload);
+            const covJobId = (downloadRes as any).job_id as string | undefined;
+
+            await job.updateProgress(20);
+            jobEventBus.emitJobStatus({ jobId: job.id!, state: "active", progress: 20 });
+
+            if (covJobId) {
+              let status: Record<string, unknown> = {};
+              let completed = false;
+              let attempts = 0;
+              const MAX_ATTEMPTS = 60;
+              const POLL_INTERVAL_MS = 5000;
+
+              while (!completed && attempts < MAX_ATTEMPTS) {
+                await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+                attempts++;
+
+                try {
+                  status = await client.getJobStatus(covJobId);
+                  const runStatus = (status as any).status as string;
+                  const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log as string[] : [];
+
+                  if (runStatus === "running") {
+                    const pct = (() => {
+                      for (let i = logs.length - 1; i >= 0; i--) {
+                        const m = logs[i].match(/\[(\d+)%\]/);
+                        if (m) return Math.min(90, parseInt(m[1]));
+                      }
+                      return Math.min(90, 10 + Math.round(logs.length * 5));
+                    })();
+                    await job.updateProgress(pct);
+                    jobEventBus.emitJobStatus({ jobId: job.id!, state: "running", progress: pct, logs });
+                  }
+
+                  if (runStatus === "completed" || runStatus === "failed") {
+                    completed = true;
+                    const error = (status as any).error as string | undefined;
+                    result = {
+                      status: runStatus === "completed" ? "success" : "error",
+                      data: status,
+                      error,
+                    };
+                    await job.updateProgress(100);
+                    jobEventBus.emitJobStatus({
+                      jobId: job.id!,
+                      state: runStatus,
+                      progress: 100,
+                      logs,
+                      result: status,
+                      failedReason: error,
+                    });
+                  }
+                } catch {
+                  // Poll failed — continue
+                }
+              }
+            }
+
+            await job.updateProgress(100);
+            jobEventBus.emitJobStatus({ jobId: job.id!, state: "completed", progress: 100, result: downloadRes });
+            break;
+          }
           default:
             throw new Error(`Unknown job type: ${type}`);
         }
@@ -796,7 +862,7 @@ export function getRedisStatus(): {
 }
 
 export interface SdmJobData {
-  type: "clean" | "model" | "climate_download";
+  type: "clean" | "model" | "climate_download" | "covariate_download";
   payload: Record<string, unknown>;
   userId?: string;
 }
