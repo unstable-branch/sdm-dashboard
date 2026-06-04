@@ -3275,14 +3275,11 @@ function(res, run_id, z, x, y) {
 }
 
 #* Serve boundary GeoJSON (NE Admin 0, Land, or custom — auto-downloads if missing)
-#* Saves a copy to data/boundaries/custom/ when save_to_custom is true
-#* so the boundary appears in the model config form's custom boundary list.
 #* @param resolution Boundary resolution: auto, 110m, 50m, or 10m
 #* @param type Boundary type: admin0, land, or custom
 #* @param country Country name or ISO code, or "all" for no filter
-#* @param save_to_custom If true, persist resolved boundary to custom dir for model use
 #* @post /api/v1/data/boundary/default
-function(resolution = NULL, type = NULL, country = NULL, save_to_custom = NULL, res) {
+function(resolution = NULL, type = NULL, country = NULL, res) {
   dataset_type <- type %||% "admin0"
   scale <- resolution %||% "110m"
   country_val <- country %||% "all"
@@ -3312,23 +3309,6 @@ function(resolution = NULL, type = NULL, country = NULL, save_to_custom = NULL, 
   if (!file.exists(boundary_path)) {
     res$status <- 404L
     return(list(error = "Boundary file not found"))
-  }
-
-  # Save a persistent copy to custom boundaries dir so it appears in the
-  # model config form's "Uploaded boundary file" dropdown.
-  if (isTRUE(as.logical(save_to_custom))) {
-    custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
-    dir.create(custom_dir, recursive = TRUE, showWarnings = FALSE)
-    label <- if (country_val != "all") {
-      gsub("[^a-zA-Z0-9_-]", "_", tolower(country_val))
-    } else {
-      dataset_type
-    }
-    saved_name <- sprintf("ne_%s_%s_%s.geojson", scale, dataset_type, label)
-    saved_path <- file.path(custom_dir, saved_name)
-    if (!file.exists(saved_path)) {
-      file.copy(boundary_path, saved_path)
-    }
   }
 
   geojson <- jsonlite::fromJSON(boundary_path, simplifyVector = FALSE)
@@ -3482,5 +3462,54 @@ function(file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffe
   }, error = function(e) {
     res$status <- 500L
     list(error = paste("Failed to compute extent:", conditionMessage(e)))
+  })
+}
+
+#* Download Natural Earth boundary to custom directory for model use
+#* Saves the resolved boundary to data/boundaries/custom/ so it appears
+#* in the model config form's "Uploaded boundary file" dropdown.
+#* @param type Boundary type: admin0 or land
+#* @param resolution Boundary resolution: 110m, 50m, or 10m
+#* @param country Country name or "all"
+#* @post /api/v1/data/boundary/download
+function(type = "admin0", resolution = "110m", country = "all", res) {
+  tryCatch({
+    scale <- resolution %||% "110m"
+    country_val <- country %||% "all"
+
+    boundary_path <- tryCatch(
+      resolve_mask_file(type, scale, country_val, raster_res = NULL, default_file = NULL),
+      error = function(e) NULL
+    )
+
+    if (!is.null(boundary_path) && !file.exists(boundary_path)) {
+      abs_path <- file.path(app_dir, boundary_path)
+      if (file.exists(abs_path)) boundary_path <- abs_path
+    }
+
+    if (is.null(boundary_path) || !file.exists(boundary_path)) {
+      res$status <- 404L
+      return(list(status = "error", message = "Boundary not found — check Natural Earth download"))
+    }
+
+    custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
+    dir.create(custom_dir, recursive = TRUE, showWarnings = FALSE)
+    label <- if (country_val != "all") gsub("[^a-zA-Z0-9_-]", "_", tolower(country_val)) else type
+    saved_name <- sprintf("ne_%s_%s_%s.geojson", scale, type, label)
+    saved_path <- file.path(custom_dir, saved_name)
+
+    file.copy(boundary_path, saved_path, overwrite = TRUE)
+
+    list(
+      status = "success",
+      message = paste("Downloaded", type, "boundary at", scale, "resolution"),
+      file = list(
+        file_path = normalizePath(saved_path, winslash = "/"),
+        file_name = saved_name,
+        file_size = file.size(saved_path)
+      )
+    )
+  }, error = function(e) {
+    list(status = "error", message = conditionMessage(e))
   })
 }
