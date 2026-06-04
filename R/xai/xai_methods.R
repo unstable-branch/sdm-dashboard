@@ -23,13 +23,14 @@ xai_importance <- function(fit, method = "auto", ...) {
         sd = numeric(), baseline = numeric(), stringsAsFactors = FALSE
       ))
     }
-    permutation_importance(
-      fit = fit, model_data = fit$model_data,
-      predict_fun = pred_fun,
-      metric_fun = auc_rank,
-      n_perm = getOption("sdm.n_perm", sdm_default_n_perm),
-      ...
-    )
+    pi_args <- list(...)
+    pi_args$log_fun <- NULL
+    do.call(permutation_importance, c(
+      list(fit = fit, model_data = fit$model_data,
+           predict_fun = pred_fun, metric_fun = auc_rank,
+           n_perm = getOption("sdm.n_perm", sdm_default_n_perm)),
+      pi_args
+    ))
   }
 }
 
