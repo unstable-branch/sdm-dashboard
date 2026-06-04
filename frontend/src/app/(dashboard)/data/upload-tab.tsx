@@ -1,10 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
 import { PreviewTable } from "@/components/data/preview-table";
-import { Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertTriangle, CheckCircle2, Trash2 } from "lucide-react";
 import type { UploadFile } from "@/services/types";
 
 interface UploadTabProps {
@@ -13,21 +14,35 @@ interface UploadTabProps {
   uploadError: string | null;
   onUpload: (file: File) => void;
   onSelectUpload: (file: UploadFile) => void;
+  onDelete: (fileId: string) => void;
   onTabChange: (tab: string) => void;
   previousUploads: UploadFile[];
   previousUploadsLoading: boolean;
 }
 
 export function UploadTab({
-  uploadResult, uploadLoading, uploadError, onUpload, onSelectUpload, onTabChange,
+  uploadResult, uploadLoading, uploadError, onUpload, onSelectUpload, onDelete, onTabChange,
   previousUploads, previousUploadsLoading,
 }: UploadTabProps) {
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const uploadPreview = uploadResult?.preview as Array<Record<string, unknown>> | undefined;
   const cols = uploadResult?.columns_detected as Record<string, string | null> | undefined;
   const warningsRaw = uploadResult?.coord_warnings;
   const warnings = Array.isArray(warningsRaw) ? warningsRaw : (warningsRaw ? [String(warningsRaw)] : []);
   const hasWarnings = warnings.length > 0;
   const hasResult = typeof uploadResult?.file_path === "string";
+
+  const handleDelete = async (fileId: string) => {
+    setDeleting(fileId);
+    try {
+      await onDelete(fileId);
+      setConfirmDelete(null);
+    } catch {
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -130,18 +145,48 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
                         }`}>{f.format.toUpperCase()}</span>
                       )}
                       {f.species && <span className="ml-1.5 text-xs text-sdm-muted">— {f.species}</span>}
-                      {f.cleaned || f.cleaned_file_id ? <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success"><CheckCircle2 className="h-3 w-3" /> Cleaned</span> : null}
+                      {f.cleaned || f.cleaned_file_id ? (
+                        <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success">
+                          <CheckCircle2 className="h-3 w-3" /> Cleaned
+                        </span>
+                      ) : (
+                        <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-warning/10 px-1.5 py-0.5 text-xs font-medium text-sdm-warning">
+                          <AlertTriangle className="h-3 w-3" /> Uncleaned
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-sdm-muted">
                       {sizeStr}{f.n_rows > 0 && ` · ${f.n_rows.toLocaleString()} rows`}{f.modified_at && ` · ${new Date(f.modified_at).toLocaleDateString()}`}
                     </p>
                   </div>
-                  {isSelected ? (
-                    <span className="shrink-0 text-xs font-medium text-sdm-accent ml-3">Selected</span>
-                  ) : (
-                    <button onClick={() => onSelectUpload(f)}
-                      className="shrink-0 rounded border border-sdm-border bg-sdm-surface px-3 py-1 text-xs font-medium text-sdm-text hover:bg-sdm-surface-soft ml-3">Use</button>
-                  )}
+                  <div className="flex items-center gap-1 shrink-0 ml-3">
+                    {confirmDelete === f.file_id ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-sdm-warning flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" /> Delete?
+                        </span>
+                        <button onClick={() => handleDelete(f.file_id)} disabled={deleting === f.file_id}
+                          className="px-2 py-0.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 text-xs disabled:opacity-50">
+                          {deleting === f.file_id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Yes"}
+                        </button>
+                        <button onClick={() => setConfirmDelete(null)}
+                          className="px-2 py-0.5 rounded bg-sdm-surface-soft text-sdm-muted hover:text-sdm-text text-xs">
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setConfirmDelete(f.file_id)}
+                        className="rounded p-1 text-sdm-muted hover:text-red-400 transition-colors" title="Delete upload">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {isSelected ? (
+                      <span className="text-xs font-medium text-sdm-accent ml-1">Selected</span>
+                    ) : (
+                      <button onClick={() => onSelectUpload(f)}
+                        className="rounded border border-sdm-border bg-sdm-surface px-3 py-1 text-xs font-medium text-sdm-text hover:bg-sdm-surface-soft">Use</button>
+                    )}
+                  </div>
                 </div>
               );
             })}
