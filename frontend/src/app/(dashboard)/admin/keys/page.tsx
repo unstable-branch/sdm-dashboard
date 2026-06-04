@@ -227,6 +227,19 @@ export default function AdminKeysPage() {
             );
           })}
 
+          <div className="rounded-lg border border-sdm-border/50 bg-sdm-surface-soft p-4 text-xs text-sdm-muted space-y-1">
+            <p className="font-medium text-sdm-text">About cached covariate data</p>
+            <p>
+              Downloaded covariate layers (elevation, soil, vegetation, etc.) are cached on the
+              server and shared across all users. All currently supported data sources are public
+              domain or open-access, so per-user data isolation is not needed.
+            </p>
+            <p>
+              API keys you provide are used only for rate-limiting and access purposes &mdash;
+              your key is not stored with the cached tiles, and other users benefit from tiles
+              already downloaded by any key.
+            </p>
+          </div>
           <p className="text-xs text-sdm-muted text-center pt-2">
             API keys are stored in the database. Keys prefixed with{" "}
             <code className="text-sdm-text">secret.</code> are encrypted at rest.
