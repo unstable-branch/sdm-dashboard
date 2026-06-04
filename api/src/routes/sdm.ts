@@ -509,7 +509,9 @@ sdmRoutes.post("/cancel/:jobId", async (c) => {
       const bullJob = await queue.getJob(run.bullmqId);
       if (bullJob) {
         const state = await bullJob.getState();
-        if (state === "active" || state === "waiting" || state === "delayed") {
+        if (state === "active") {
+          await bullJob.discard();
+        } else if (state === "waiting" || state === "delayed") {
           await bullJob.remove();
         }
       }
@@ -576,7 +578,9 @@ sdmRoutes.post("/cancel-all", async (c) => {
           const bullJob = await queue.getJob(run.bullmqId);
           if (bullJob) {
             const state = await bullJob.getState();
-            if (state === "active" || state === "waiting" || state === "delayed") {
+            if (state === "active") {
+              await bullJob.discard();
+            } else if (state === "waiting" || state === "delayed") {
               await bullJob.remove();
             }
           }
