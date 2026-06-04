@@ -118,3 +118,41 @@ test_that("model payload normalizer handles masks and climate extras", {
   expect_equal(payload$analysis_crs, "EPSG:3577")
   expect_false(payload$generate_tiles)
 })
+
+test_that("model payload normalizer handles NE boundary and training extent fields", {
+  payload <- sdm_normalize_model_payload(list(
+    maskBoundaryType = "admin0",
+    maskResolution = "auto",
+    maskCountry = "all",
+    restrictBackground = TRUE,
+    trainingExtent = c(140, 150, -30, -20)
+  ))
+
+  expect_equal(payload$mask_boundary_type, "admin0")
+  expect_equal(payload$mask_resolution, "auto")
+  expect_equal(payload$mask_country, "all")
+  expect_true(payload$restrict_background)
+
+  camel <- sdm_normalize_model_payload(list(
+    mask_boundary_type = "land",
+    mask_resolution = "50m",
+    mask_country = "Australia",
+    restrict_background = "true",
+    training_extent = "112,154,-44,-10"
+  ))
+
+  expect_equal(camel$mask_boundary_type, "land")
+  expect_equal(camel$mask_resolution, "50m")
+  expect_equal(camel$mask_country, "Australia")
+  expect_true(camel$restrict_background)
+
+  logical_false <- sdm_normalize_model_payload(list(
+    restrictBackground = "false"
+  ))
+  expect_false(logical_false$restrict_background)
+
+  default_restrict <- sdm_normalize_model_payload(list(
+    maskBoundaryType = "admin0"
+  ))
+  expect_null(default_restrict$restrict_background)
+})

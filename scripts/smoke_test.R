@@ -1941,6 +1941,58 @@ test_boundary_helpers_smoke <- function() {
   cat("[boundary_helpers smoke] passed\n")
 }
 
+test_ne_boundary_smoke <- function() {
+  cat("[ne_boundary smoke] starting...\n")
+
+  # ne_boundary_infer_scale: fine resolution -> 10m
+  s10 <- ne_boundary_infer_scale(1/120)
+  if (!identical(s10, "10m")) stop("ne_boundary_infer_scale(1/120) should be 10m", call. = FALSE)
+
+  # ne_boundary_infer_scale: medium resolution -> 50m
+  s50 <- ne_boundary_infer_scale(1/30)
+  if (!identical(s50, "50m")) stop("ne_boundary_infer_scale(1/30) should be 50m", call. = FALSE)
+
+  # ne_boundary_infer_scale: coarse resolution -> 110m
+  s110 <- ne_boundary_infer_scale(0.5)
+  if (!identical(s110, "110m")) stop("ne_boundary_infer_scale(0.5) should be 110m", call. = FALSE)
+
+  # ne_boundary_infer_scale: NULL/NA -> 110m
+  s_null <- ne_boundary_infer_scale(NULL)
+  if (!identical(s_null, "110m")) stop("ne_boundary_infer_scale(NULL) should be 110m", call. = FALSE)
+
+  # ne_boundary_infer_scale: empty -> 110m
+  s_empty <- ne_boundary_infer_scale(numeric(0))
+  if (!identical(s_empty, "110m")) stop("ne_boundary_infer_scale(numeric(0)) should be 110m", call. = FALSE)
+
+  # get_ne_boundary_path constructs correct paths
+  p_admin0_110m <- get_ne_boundary_path("110m", "admin0")
+  if (!is.character(p_admin0_110m) || length(p_admin0_110m) != 1) stop("get_ne_boundary_path returned wrong type", call. = FALSE)
+  if (!grepl("ne_10m_admin_0_countries\\.geojson$", p_admin0_110m)) stop("get_ne_boundary_path admin0 should end with ne_10m_admin_0_countries.geojson", call. = FALSE)
+  if (!grepl("110m", p_admin0_110m)) stop("get_ne_boundary_path 110m should include scale in path", call. = FALSE)
+
+  p_land_50m <- get_ne_boundary_path("50m", "land")
+  if (!grepl("ne_10m_land\\.geojson$", p_land_50m)) stop("get_ne_boundary_path land should end with ne_10m_land.geojson", call. = FALSE)
+
+  # filter_admin0_to_country with test boundary file
+  test_geo <- "data/examples/geo/world_boundary.geojson"
+  if (file.exists(test_geo)) {
+    filtered <- filter_admin0_to_country(test_geo, "Australia")
+    if (!is.null(filtered) && file.exists(filtered)) {
+      if (filtered == test_geo) stop("filter_admin0_to_country should return a new file path", call. = FALSE)
+      filtered_json <- jsonlite::fromJSON(filtered, simplifyVector = FALSE)
+      n_feats <- length(filtered_json$features %||% list())
+      if (n_feats != 1) stop("filtered Australia should have 1 feature, got ", n_feats, call. = FALSE)
+      unlink(filtered)
+    }
+  }
+
+  # resolve_mask_file with explicit non-auto resolution (no download needed if file doesn't exist)
+  resolved <- resolve_mask_file("admin0", "110m", "all", raster_res = NULL, default_file = test_geo)
+  if (is.null(resolved) || !nzchar(resolved)) stop("resolve_mask_file should return a non-empty path", call. = FALSE)
+
+  cat("[ne_boundary smoke] passed\n")
+}
+
 test_metrics_helpers_smoke <- function() {
   cat("[metrics_helpers smoke] starting...\n")
 
@@ -2254,6 +2306,7 @@ if (has_tag("core")) {
   test_cv_folds_smoke()
   test_bioclim_math_smoke()
   test_boundary_helpers_smoke()
+  test_ne_boundary_smoke()
   test_metrics_helpers_smoke()
   test_ensemble_importance_smoke()
   test_torch_helpers_smoke()
