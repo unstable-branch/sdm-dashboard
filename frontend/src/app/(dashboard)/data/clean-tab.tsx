@@ -7,6 +7,16 @@ import { apiGet } from "@/services/api";
 import type { OccurrencePoint } from "./types";
 import { useEffect, useRef, useState } from "react";
 
+const CC_TEST_OPTIONS = [
+  { id: "all", label: "All tests" },
+  { id: "sea", label: "Sea" },
+  { id: "capitals", label: "Capitals" },
+  { id: "centroids", label: "Centroids" },
+  { id: "institutions", label: "Institutions" },
+  { id: "urban", label: "Urban" },
+  { id: "zero", label: "Zero" },
+];
+
 interface CleanTabProps {
   uploadResult: Record<string, unknown> | null;
   cleanResult: Record<string, unknown> | null;
@@ -16,9 +26,15 @@ interface CleanTabProps {
   useAsync: boolean;
   useCc: boolean;
   maxCoordUncertainty: string;
+  minSourceRecords: number;
+  mergeSmallSources: boolean;
+  ccTests: string;
 
   onSetUseAsync: (v: boolean) => void;
   onSetUseCc: (v: boolean) => void;
+  onSetMinSourceRecords: (v: number) => void;
+  onSetMergeSmallSources: (v: boolean) => void;
+  onSetCcTests: (v: string) => void;
   onSetMaxCoordUncertainty: (v: string) => void;
   onClean: () => void;
   onCleanComplete: (result: Record<string, unknown>) => void;
@@ -28,11 +44,13 @@ interface CleanTabProps {
 
 export function CleanTab({
   uploadResult, cleanResult, cleanLoading, cleanError, cleanJobId,
-  useAsync, useCc, maxCoordUncertainty,
-  onSetUseAsync, onSetUseCc, onSetMaxCoordUncertainty, onClean, onCleanComplete, onFlagToggle, onRunModel,
+  useAsync, useCc, maxCoordUncertainty, minSourceRecords, mergeSmallSources, ccTests,
+  onSetUseAsync, onSetUseCc, onSetMinSourceRecords, onSetMergeSmallSources, onSetCcTests,
+  onSetMaxCoordUncertainty, onClean, onCleanComplete, onFlagToggle, onRunModel,
 }: CleanTabProps) {
   const cleanPreview = cleanResult?.cleaned_records as OccurrencePoint[] | undefined;
   const sourceCounts = cleanResult?.source_counts as Record<string, number> | undefined;
+  const speciesCounts = cleanResult?.species_counts as Record<string, number> | undefined;
 
   // Inline progress for background clean jobs — polls the data-jobs endpoint directly
   const [cleanJobElapsed, setCleanJobElapsed] = useState(0);
@@ -81,23 +99,58 @@ export function CleanTab({
           Remove duplicates, filter invalid coordinates, and optionally run CoordinateCleaner tests.
         </p>
 
-        <div className="flex items-center gap-4 mb-4">
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useAsync} onChange={(e) => onSetUseAsync(e.target.checked)}
-              className="rounded border-sdm-border bg-sdm-surface-soft" />
-            Run in background (for large datasets)
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <input type="checkbox" checked={useCc} onChange={(e) => onSetUseCc(e.target.checked)}
-              className="rounded border-sdm-border bg-sdm-surface-soft" />
-            CoordinateCleaner
-          </label>
-          <label className="flex items-center gap-2 text-sm text-sdm-text">
-            <span>Max coord uncertainty (m):</span>
-            <input type="number" min={0} step={100} placeholder="No filter" value={maxCoordUncertainty}
-              onChange={(e) => onSetMaxCoordUncertainty(e.target.value)}
-              className="w-28 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text" />
-          </label>
+        <div className="space-y-3 mb-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-2 text-sm text-sdm-text">
+              <input type="checkbox" checked={useAsync} onChange={(e) => onSetUseAsync(e.target.checked)}
+                className="rounded border-sdm-border bg-sdm-surface-soft" />
+              Run in background (for large datasets)
+            </label>
+            <label className="flex items-center gap-2 text-sm text-sdm-text">
+              <input type="checkbox" checked={useCc} onChange={(e) => onSetUseCc(e.target.checked)}
+                className="rounded border-sdm-border bg-sdm-surface-soft" />
+              CoordinateCleaner
+            </label>
+            <label className="flex items-center gap-2 text-sm text-sdm-text">
+              <span>Max coord uncertainty (m):</span>
+              <input type="number" min={0} step={100} placeholder="No filter" value={maxCoordUncertainty}
+                onChange={(e) => onSetMaxCoordUncertainty(e.target.value)}
+                className="w-28 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text" />
+            </label>
+          </div>
+
+          {useCc && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-sdm-muted">CC tests:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {CC_TEST_OPTIONS.map((opt) => (
+                  <label key={opt.id}
+                    className={`px-2 py-1 rounded text-xs cursor-pointer border transition-colors ${
+                      ccTests === opt.id
+                        ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
+                        : "border-sdm-border text-sdm-muted hover:border-sdm-accent/50"}`}>
+                    <input type="radio" name="ccTests" checked={ccTests === opt.id}
+                      onChange={() => onSetCcTests(opt.id)} className="sr-only" />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-sdm-text">
+              <span className="text-xs text-sdm-muted">Min source records:</span>
+              <input type="number" min={1} max={1000} value={minSourceRecords}
+                onChange={(e) => onSetMinSourceRecords(Math.max(1, Number(e.target.value) || 1))}
+                className="w-20 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text" />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-sdm-text">
+              <input type="checkbox" checked={mergeSmallSources} onChange={(e) => onSetMergeSmallSources(e.target.checked)}
+                className="rounded border-sdm-border bg-sdm-surface-soft" />
+              <span className="text-xs text-sdm-muted">Merge small sources</span>
+            </label>
+          </div>
         </div>
 
         <button onClick={onClean}
@@ -154,6 +207,20 @@ export function CleanTab({
           </div>
 
           {sourceCounts && <SourceCounts counts={sourceCounts} total={Number(cleanResult.valid_records) || 0} />}
+
+          {speciesCounts && Object.keys(speciesCounts).length > 0 && (
+            <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+              <h4 className="text-sm font-semibold text-sdm-heading mb-2">Species detected</h4>
+              <div className="space-y-1">
+                {Object.entries(speciesCounts).map(([name, count]) => (
+                  <div key={name} className="flex items-center justify-between text-sm">
+                    <span className="text-sdm-text">{name}</span>
+                    <span className="text-sdm-muted">{count.toLocaleString()} records</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {cleanPreview && cleanPreview.length > 0 && (
             <CleaningTable data={cleanPreview} title="Cleaned records" onFlagToggle={onFlagToggle} />

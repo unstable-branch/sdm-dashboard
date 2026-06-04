@@ -8,7 +8,7 @@ import { Upload, Globe, Wand2, Flag, Cloud, Layers, Map, LayoutDashboard } from 
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { apiUpload, apiPost, apiGet, apiPatch } from "@/services/api";
+import { apiUpload, apiPost, apiGet, apiDelete, apiPatch } from "@/services/api";
 import { PreviewTable } from "@/components/data/preview-table";
 import { UploadTab } from "./upload-tab";
 import { CleanTab } from "./clean-tab";
@@ -65,6 +65,9 @@ function DataPageContent() {
   const [cleanJobId, setCleanJobId] = useState<string | null>(null);
   const [useAsync, setUseAsync] = useState(false);
   const [useCc, setUseCc] = useState(true);
+  const [minSourceRecords, setMinSourceRecords] = useState(15);
+  const [mergeSmallSources, setMergeSmallSources] = useState(true);
+  const [ccTests, setCcTests] = useState("all");
   const [maxCoordUncertainty, setMaxCoordUncertainty] = useState<string>("");
 
   useEffect(() => {
@@ -253,7 +256,7 @@ function DataPageContent() {
     const pipelineRunId = useSDMStore.getState().pipelineRunId;
     try {
       const uncert = maxCoordUncertainty ? Math.max(0, Number(maxCoordUncertainty)) || undefined : undefined;
-      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", { file_id: uploadResult.file_id, species: useSDMStore.getState().species, min_source_records: 15, merge_small_sources: true, use_cc: useCc, cc_tests: "all", max_coordinate_uncertainty: uncert, async: effectiveAsync, pipelineRunId }, { timeout: 600000 });
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", { file_id: uploadResult.file_id, species: useSDMStore.getState().species, min_source_records: minSourceRecords, merge_small_sources: mergeSmallSources, use_cc: useCc, cc_tests: ccTests, max_coordinate_uncertainty: uncert, async: effectiveAsync, pipelineRunId }, { timeout: 600000 });
       if (effectiveAsync && (result.job_id || result.jobId)) {
         const jid = (result.job_id || result.jobId) as string; setCleanJobId(jid);
         const poll = async () => {
@@ -352,6 +355,14 @@ function DataPageContent() {
     const species = file.species as string;
     if (species && species !== "—") useSDMStore.getState().setSpecies(species);
   };
+  const handleDeleteUpload = async (fileId: string) => {
+    try {
+      await apiDelete(`/api/v1/data/uploads/${encodeURIComponent(fileId)}`);
+      fetchUploads();
+    } catch (err) {
+      console.error("[data] Failed to delete upload:", err);
+    }
+  };
   const previousUploads = uploadHistory;
   const previousUploadsLoading = historyLoading;
 
@@ -405,6 +416,7 @@ function DataPageContent() {
         {activeTab === "upload" && (
           <UploadTab uploadResult={uploadResult} uploadLoading={uploadLoading} uploadError={uploadError}
             onUpload={handleUpload} onSelectUpload={handleSelectUpload} onTabChange={onTabChange}
+            onDelete={handleDeleteUpload}
             previousUploads={previousUploads} previousUploadsLoading={previousUploadsLoading} />
         )}
 
@@ -447,7 +459,10 @@ function DataPageContent() {
           <CleanTab uploadResult={uploadResult} cleanResult={cleanResult} cleanLoading={cleanLoading}
             cleanError={cleanError} cleanJobId={cleanJobId} useAsync={useAsync} useCc={useCc}
             maxCoordUncertainty={maxCoordUncertainty}
-            onSetUseAsync={setUseAsync} onSetUseCc={setUseCc} onSetMaxCoordUncertainty={setMaxCoordUncertainty}
+            minSourceRecords={minSourceRecords} mergeSmallSources={mergeSmallSources} ccTests={ccTests}
+            onSetUseAsync={setUseAsync} onSetUseCc={setUseCc}
+            onSetMinSourceRecords={setMinSourceRecords} onSetMergeSmallSources={setMergeSmallSources} onSetCcTests={setCcTests}
+            onSetMaxCoordUncertainty={setMaxCoordUncertainty}
             onClean={handleClean} onCleanComplete={handleCleanComplete} onFlagToggle={handleFlagToggle}
             onRunModel={() => {
               // Ensure store has cleaned data before navigating to model page
