@@ -55,6 +55,18 @@ export function isEncrypted(buffer: Buffer): boolean {
   return buffer.length >= NONCE_LENGTH + TAG_LENGTH + 1;
 }
 
+export function encryptString(plaintext: string): string {
+  return encrypt(Buffer.from(plaintext, "utf-8")).toString("hex");
+}
+
+export function decryptString(ciphertextHex: string): string {
+  return decrypt(Buffer.from(ciphertextHex, "hex")).toString("utf-8");
+}
+
+export function isEncryptionKeyConfigured(): boolean {
+  return !!(process.env.DATA_ENCRYPTION_KEY || process.env.SDM_ENCRYPTION_KEY);
+}
+
 function encryptedPath(filePath: string): string {
   return filePath + ".enc";
 }

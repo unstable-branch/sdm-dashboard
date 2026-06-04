@@ -10,6 +10,7 @@ import { rateLimit } from "../middleware/rate-limit.js";
 import { hash } from "bcrypt";
 import type { AppEnv } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
+import { encryptString, decryptString, isEncryptionKeyConfigured } from "../services/encryption.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -388,6 +389,136 @@ adminRoutes.put("/system/settings", async (c) => {
     return c.json(updated);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to update setting" }, 500);
+  }
+});
+
+// ── System Secrets (API Keys) ──────────────────────────────────────────────
+
+// Helper: mask a sensitive value for display, preserving last 4 chars
+function maskSecret(value: string): string {
+  if (value.length <= 8) return "****";
+  return value.slice(0, value.length - 4).replace(/./g, "*") + value.slice(-4);
+}
+
+// GET /system/secrets — list all service keys with masked values
+adminRoutes.get("/system/secrets", async (c) => {
+  try {
+    const allSettings = await db.select().from(systemSettings)
+      .where(sql`key LIKE 'secret.%' OR key LIKE 'service.%'`)
+      .orderBy(systemSettings.key);
+
+    const result = allSettings.map((s) => {
+      const isSensitive = s.key.startsWith("secret.");
+      const rawValue = typeof s.value === "string" ? s.value : "";
+      let displayValue = "";
+      if (rawValue) {
+        if (isSensitive && isEncryptionKeyConfigured()) {
+          try {
+            const decrypted = decryptString(rawValue);
+            displayValue = maskSecret(decrypted);
+          } catch {
+            displayValue = "**** (decrypt failed)";
+          }
+        } else {
+          displayValue = maskSecret(rawValue);
+        }
+      }
+      return {
+        key: s.key,
+        configured: !!(rawValue && rawValue !== "" && rawValue !== "\"\""),
+        displayValue,
+        sensitive: isSensitive,
+        updatedAt: s.updatedAt,
+      };
+    });
+
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to get secrets" }, 500);
+  }
+});
+
+// GET /system/secrets/:key?raw=1 — reveal a single secret in plaintext
+adminRoutes.get("/system/secrets/:key", async (c) => {
+  try {
+    const key = c.req.param("key");
+    const raw = c.req.query("raw") === "1";
+    const [setting] = await db.select().from(systemSettings)
+      .where(eq(systemSettings.key, key)).limit(1);
+    if (!setting) return c.json({ error: "Secret not found" }, 404);
+    if (!setting.value) return c.json({ error: "Secret is empty" }, 404);
+
+    const isSensitive = key.startsWith("secret.");
+    const storedValue = typeof setting.value === "string" ? setting.value : "";
+    let value = storedValue;
+    if (isSensitive && isEncryptionKeyConfigured()) {
+      try {
+        value = decryptString(storedValue);
+      } catch {
+        return c.json({ error: "Failed to decrypt secret" }, 500);
+      }
+    }
+    if (!raw) value = maskSecret(value);
+    return c.json({ key, value, sensitive: isSensitive });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to get secret" }, 500);
+  }
+});
+
+// PUT /system/secrets/:key — upsert a service key
+adminRoutes.put("/system/secrets/:key", async (c) => {
+  try {
+    const key = c.req.param("key");
+    const body = await c.req.json();
+    const adminUser = c.get("user");
+    const plaintext = String(body.value ?? "");
+
+    const isSensitive = key.startsWith("secret.");
+    let storedValue: string = plaintext;
+    if (isSensitive && isEncryptionKeyConfigured()) {
+      storedValue = encryptString(plaintext);
+    } else if (isSensitive && !isEncryptionKeyConfigured()) {
+      return c.json({ error: "Encryption key not configured — cannot store sensitive secrets. Set DATA_ENCRYPTION_KEY." }, 400);
+    }
+
+    const [existing] = await db.select().from(systemSettings)
+      .where(eq(systemSettings.key, key)).limit(1);
+
+    if (existing) {
+      const [updated] = await db.update(systemSettings)
+        .set({ value: storedValue, updatedBy: adminUser.id, updatedAt: new Date() })
+        .where(eq(systemSettings.key, key))
+        .returning();
+      return c.json(updated);
+    } else {
+      const [created] = await db.insert(systemSettings)
+        .values({
+          key,
+          value: storedValue,
+          description: body.description || `Service key: ${key}`,
+          updatedBy: adminUser.id,
+          updatedAt: new Date(),
+        })
+        .returning();
+      return c.json(created);
+    }
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to update secret" }, 500);
+  }
+});
+
+// DELETE /system/secrets/:key — remove a service key
+adminRoutes.delete("/system/secrets/:key", async (c) => {
+  try {
+    const key = c.req.param("key");
+    const [existing] = await db.select().from(systemSettings)
+      .where(eq(systemSettings.key, key)).limit(1);
+    if (!existing) return c.json({ error: "Secret not found" }, 404);
+
+    await db.delete(systemSettings).where(eq(systemSettings.key, key));
+    return c.json({ ok: true });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to delete secret" }, 500);
   }
 });
 

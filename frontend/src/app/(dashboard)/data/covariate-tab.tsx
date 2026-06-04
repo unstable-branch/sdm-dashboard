@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Download, Loader2, CheckCircle2, AlertTriangle, Info, Trash2, RefreshCw } from "lucide-react";
-import { apiPost } from "@/services/api";
+import { apiGet, apiPost } from "@/services/api";
 
 type CovariateType =
   | "elevation"
@@ -25,6 +25,12 @@ export function CovariateTab() {
   // Elevation
   const [demType, setDemType] = useState("COP90");
   const [opentopoKey, setOpentopoKey] = useState("");
+  // Load stored OpenTopography key on mount
+  useEffect(() => {
+    apiGet<{ value: string }>("/api/v1/admin/system/secrets/service.open_topography_api_key?raw=1")
+      .then((data) => { if (data?.value) setOpentopoKey(data.value); })
+      .catch(() => {});
+  }, []);
 
   // Soil
   const [soilVars, setSoilVars] = useState<string[]>([]);
