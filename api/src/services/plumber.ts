@@ -452,6 +452,16 @@ export class PlumberClient {
     return res.json();
   }
 
+  async postRaw(path: string, body: unknown): Promise<[number, Record<string, unknown>]> {
+    const res = await this._fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json() as Record<string, unknown>;
+    return [res.status, data];
+  }
+
   async postForm(path: string, formData: FormData): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}${path}`, {
       method: "POST",
