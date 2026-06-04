@@ -315,6 +315,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
     const config = {
       species,
+      speciesFilter: species,
       modelId,
       biovars,
       projectionExtent: extent,
