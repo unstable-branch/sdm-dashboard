@@ -68,7 +68,7 @@ export function BoundaryTab() {
     setDownloadLoading(true);
     setDownloadError(null);
     try {
-      const params = new URLSearchParams({ type, resolution, country });
+      const params = new URLSearchParams({ type, resolution, country, save_to_custom: "true" });
       const data = await apiGet<Record<string, unknown>>(`/api/v1/data/boundary/default?${params}`);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/geo+json" });
       const name = country !== "all"
@@ -82,6 +82,7 @@ export function BoundaryTab() {
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      fetchBoundaries();
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : "Download failed");
     } finally {

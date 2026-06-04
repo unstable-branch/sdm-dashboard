@@ -3275,11 +3275,14 @@ function(res, run_id, z, x, y) {
 }
 
 #* Serve boundary GeoJSON (NE Admin 0, Land, or custom — auto-downloads if missing)
+#* Saves a copy to data/boundaries/custom/ when save_to_custom is true
+#* so the boundary appears in the model config form's custom boundary list.
 #* @param resolution Boundary resolution: auto, 110m, 50m, or 10m
 #* @param type Boundary type: admin0, land, or custom
 #* @param country Country name or ISO code, or "all" for no filter
+#* @param save_to_custom If true, persist resolved boundary to custom dir for model use
 #* @post /api/v1/data/boundary/default
-function(resolution = NULL, type = NULL, country = NULL, res) {
+function(resolution = NULL, type = NULL, country = NULL, save_to_custom = NULL, res) {
   dataset_type <- type %||% "admin0"
   scale <- resolution %||% "110m"
   country_val <- country %||% "all"
@@ -3310,6 +3313,24 @@ function(resolution = NULL, type = NULL, country = NULL, res) {
     res$status <- 404L
     return(list(error = "Boundary file not found"))
   }
+
+  # Save a persistent copy to custom boundaries dir so it appears in the
+  # model config form's "Uploaded boundary file" dropdown.
+  if (isTRUE(as.logical(save_to_custom))) {
+    custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
+    dir.create(custom_dir, recursive = TRUE, showWarnings = FALSE)
+    label <- if (country_val != "all") {
+      gsub("[^a-zA-Z0-9_-]", "_", tolower(country_val))
+    } else {
+      dataset_type
+    }
+    saved_name <- sprintf("ne_%s_%s_%s.geojson", scale, dataset_type, label)
+    saved_path <- file.path(custom_dir, saved_name)
+    if (!file.exists(saved_path)) {
+      file.copy(boundary_path, saved_path)
+    }
+  }
+
   geojson <- jsonlite::fromJSON(boundary_path, simplifyVector = FALSE)
   geojson
 }
