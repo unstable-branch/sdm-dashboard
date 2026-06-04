@@ -903,7 +903,9 @@ run_fast_sdm <- function(...) {
   eoo_aoo_result <- NULL
   if (!is.null(fit$occurrence_used)) {
     eoo_aoo_result <- tryCatch(
-      compute_eoo_aoo(fit$occurrence_used, aoo_cell_size_km = 2, analysis_crs = analysis_crs, output_dir = output_dir, log_fun = log_fun),
+      compute_eoo_aoo(fit$occurrence_used, aoo_cell_size_km = 2,
+                      analysis_crs = analysis_crs, output_dir = output_dir,
+                      log_fun = log_fun, mask_type = mask_type, mask_file = mask_file),
       error = function(e) {
         log_message(log_fun, "EOO/AOO calculation failed: ", conditionMessage(e))
         NULL
@@ -1318,7 +1320,11 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   # EOO/AOO
   if (!is.null(fit$occurrence_used)) {
     result$eoo_aoo <- tryCatch(
-      compute_eoo_aoo(fit$occurrence_used, aoo_cell_size_km = 2, analysis_crs = cfg$analysis_crs %||% sdm_default_analysis_crs, output_dir = cfg$output_dir %||% NULL, log_fun = log_fun),
+      compute_eoo_aoo(fit$occurrence_used, aoo_cell_size_km = 2,
+                      analysis_crs = cfg$analysis_crs %||% sdm_default_analysis_crs,
+                      output_dir = cfg$output_dir %||% NULL, log_fun = log_fun,
+                      mask_type = cfg$mask_type %||% "none",
+                      mask_file = cfg$mask_file %||% sdm_default_mask_file),
       error = function(e) {
         log_message(log_fun, "  EOO/AOO computation failed: ", conditionMessage(e))
         NULL
