@@ -145,7 +145,7 @@ export function CovariateTab() {
               <select
                 value={demType}
                 onChange={(e) => setDemType(e.target.value)}
-                className="rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-xs text-sdm-text outline-none"
+                className="rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
               >
                 <option value="COP90">Copernicus 90m</option>
                 <option value="SRTMGL3">SRTM GL 90m</option>
@@ -159,7 +159,7 @@ export function CovariateTab() {
                 value={opentopoKey}
                 onChange={(e) => setOpentopoKey(e.target.value)}
                 placeholder="OpenTopography API key"
-                className="col-span-2 rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-xs text-sdm-text outline-none placeholder:text-sdm-muted"
+                className="col-span-2 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text placeholder:text-sdm-muted"
               />
             </div>
             <p className="text-xs text-sdm-muted">
@@ -170,7 +170,7 @@ export function CovariateTab() {
             <button
               onClick={() => downloadCovariate("elevation", { dem_type: demType, apikey: opentopoKey })}
               disabled={!!activeJob || !opentopoKey}
-              className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="h-3.5 w-3.5" />
               Download elevation tiles
@@ -228,7 +228,7 @@ export function CovariateTab() {
             <button
               onClick={() => downloadCovariate("soil", { soil_vars: soilVars, soil_depths: soilDepths })}
               disabled={!!activeJob || soilVars.length === 0 || soilDepths.length === 0}
-              className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="h-3.5 w-3.5" />
               Download selected soil layers
@@ -256,7 +256,7 @@ export function CovariateTab() {
             <button
               onClick={() => downloadCovariate("uv")}
               disabled={!!activeJob}
-              className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="h-3.5 w-3.5" />
               Download UV-B layers
@@ -284,7 +284,7 @@ export function CovariateTab() {
             <button
               onClick={() => downloadCovariate("vegetation")}
               disabled={!!activeJob}
-              className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="h-3.5 w-3.5" />
               Download GIMMS NDVI
@@ -311,7 +311,7 @@ export function CovariateTab() {
               <select
                 value={lulcYear}
                 onChange={(e) => setLulcYear(Number(e.target.value))}
-                className="rounded-md border border-sdm-border bg-sdm-surface px-2 py-1.5 text-xs text-sdm-text outline-none"
+                className="rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
               >
                 {Array.from({ length: 23 }, (_, i) => 2001 + i).map((y) => (
                   <option key={y} value={y}>{y}</option>
@@ -321,7 +321,7 @@ export function CovariateTab() {
             <button
               onClick={() => downloadCovariate("lulc", { lulc_year: lulcYear })}
               disabled={!!activeJob}
-              className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="h-3.5 w-3.5" />
               Download LULC year
@@ -348,7 +348,7 @@ export function CovariateTab() {
               <select
                 value={hfpYear}
                 onChange={(e) => setHfpYear(Number(e.target.value))}
-                className="rounded-md border border-sdm-border bg-sdm-surface px-2 py-1.5 text-xs text-sdm-text outline-none"
+                className="rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
               >
                 {Array.from({ length: 20 }, (_, i) => 2001 + i).map((y) => (
                   <option key={y} value={y}>{y}</option>
@@ -358,7 +358,7 @@ export function CovariateTab() {
             <button
               onClick={() => downloadCovariate("hfp", { hfp_year: hfpYear })}
               disabled={!!activeJob}
-              className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="h-3.5 w-3.5" />
               Download HFP year
@@ -393,7 +393,7 @@ export function CovariateTab() {
             <button
               onClick={() => downloadCovariate("drought", { drought_periods: droughtPeriods })}
               disabled={!!activeJob || droughtPeriods.length === 0}
-              className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="h-3.5 w-3.5" />
               Download drought layers
@@ -421,7 +421,7 @@ export function CovariateTab() {
             <button
               onClick={() => downloadCovariate("bioclim_seasonality")}
               disabled={!!activeJob}
-              className="inline-flex items-center gap-2 rounded-md border border-sdm-border px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="h-3.5 w-3.5" />
               Download seasonality
