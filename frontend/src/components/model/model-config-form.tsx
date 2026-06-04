@@ -203,8 +203,13 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [climateRes, setClimateRes] = useState(10);
   const [missingBiovars, setMissingBiovars] = useState<number[]>([]);
   const [climateCheckLoading, setClimateCheckLoading] = useState(false);
+  const detectedSpecies = useSDMStore((s) => s.detectedSpecies);
   const deferredSpecies = useDeferredValue(species);
-  const speciesFiltered = useMemo(() => speciesSuggestions.filter((s) => s.toLowerCase().includes(deferredSpecies.toLowerCase()) && s !== deferredSpecies).slice(0, 10), [deferredSpecies, speciesSuggestions]);
+  const speciesFiltered = useMemo(() => {
+    const fromDetected = (detectedSpecies || []).filter((s) => s.toLowerCase().includes(deferredSpecies.toLowerCase()) && s !== deferredSpecies);
+    const fromHistory = speciesSuggestions.filter((s) => s.toLowerCase().includes(deferredSpecies.toLowerCase()) && s !== deferredSpecies && !fromDetected.includes(s));
+    return [...fromDetected, ...fromHistory].slice(0, 10);
+  }, [deferredSpecies, speciesSuggestions, detectedSpecies]);
 
   const currentExtent = useMemo<[number, number, number, number]>(() =>
     extentPreset === "custom" ? customExtent : EXTENT_PRESETS[extentPreset]?.extent ?? [112, 154, -44, -10],
@@ -505,6 +510,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           onSelect={(s) => { setSpecies(s); setSpeciesStore(s); setSpeciesInputFocused(false); }}
           onFocus={setSpeciesInputFocused}
           onKeyNav={handleSpeciesKeyNav}
+          detectedSpecies={detectedSpecies}
         />
 
         <ModelSelector models={availableModels} selected={modelId} onSelect={setModelId} />
