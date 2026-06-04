@@ -6,6 +6,7 @@ import {
   Download,
   FolderKanban,
   HardDrive,
+  Key,
   Layers,
   LayoutDashboard,
   Leaf,
@@ -47,6 +48,7 @@ export const adminItems: DashboardNavItem[] = [
   { title: "Database", href: "/admin/database", icon: Database },
   { title: "System", href: "/admin/system", icon: Settings },
   { title: "Diagnostics", href: "/admin/diagnostics", icon: Brain },
+  { title: "API Keys", href: "/admin/keys", icon: Key },
 ];
 
 export const dashboardNavItems = [...pipelineItems, ...systemItems];

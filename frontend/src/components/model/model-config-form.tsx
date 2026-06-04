@@ -139,6 +139,12 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [hfpYear, setHfpYear] = useState(DEFAULT_CONFIG.hfpYear);
   const [vegYear, setVegYear] = useState<number | undefined>(undefined);
   const [opentopoApiKey, setOpentopoApiKey] = useState("");
+  // Load stored OpenTopography key on mount
+  useEffect(() => {
+    apiGet<{ value: string }>("/api/v1/admin/system/secrets/service.open_topography_api_key?raw=1")
+      .then((data) => { if (data?.value) setOpentopoApiKey(data.value); })
+      .catch(() => {});
+  }, []);
   const [analysisCrs, setAnalysisCrs] = useState("auto");
   const [esmMinAuc, setEsmMinAuc] = useState(0.7);
   const [esmPower, setEsmPower] = useState(1);
