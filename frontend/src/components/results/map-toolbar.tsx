@@ -89,8 +89,6 @@ export function MapToolbar({
   containerRef,
 }: MapToolbarProps) {
   const [position, setPosition] = useState(loadPosition);
-  const dragging = useRef(false);
-  const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const toolbarRef = useRef<HTMLDivElement>(null);
 
   const clamp = useCallback((pos: { x: number; y: number }) => {
@@ -190,6 +188,7 @@ export function MapToolbar({
         tabIndex={0}
         aria-label="Drag to reposition toolbar"
         onKeyDown={(e) => {
+          e.preventDefault();
           const step = 10;
           setPosition((prev) => {
             const next = { x: prev.x, y: prev.y };

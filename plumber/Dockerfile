@@ -34,7 +34,7 @@ RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages
     'future', 'future.apply', \
     'testthat', \
     'DBI', 'RPostgres', 'digest', \
-    'Rook', 'openssl' \
+    'Rook', 'openssl', 'pool', 'uuid' \
   ), Ncpus=4)" \
   && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
 

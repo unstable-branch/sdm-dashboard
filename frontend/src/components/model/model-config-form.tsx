@@ -13,6 +13,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { apiGet, fetchWithAuth } from "@/services/api";
 import { ModelSelector } from "./model-selector";
 import { SpeciesInput } from "./species-input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ClimateBiovarGrid } from "./climate-biovar-grid";
 
 interface ModelInfo {
@@ -40,8 +41,19 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [biovars, setBiovars] = useState<number[]>(DEFAULT_CONFIG.biovars);
   const [extentPreset, setExtentPreset] = useState("aus_full");
   const [customExtent, setCustomExtent] = useState<[number, number, number, number]>([112, 154, -44, -10]);
+  const [separateTrainingExtent, setSeparateTrainingExtent] = useState(false);
+  const [trainingExtentPreset, setTrainingExtentPreset] = useState("auto");
+  const [trainingCustomExtent, setTrainingCustomExtent] = useState<[number, number, number, number]>([112, 154, -44, -10]);
   const [maskType, setMaskType] = useState<"none" | "landmass" | "ocean">("none");
   const [maskBufferDeg, setMaskBufferDeg] = useState<number | undefined>(undefined);
+  const [maskBoundaryType, setMaskBoundaryType] = useState<"admin0" | "land" | "custom">("admin0");
+  const [maskResolution, setMaskResolution] = useState<"auto" | "10m" | "50m" | "110m">("auto");
+  const [maskCountry, setMaskCountry] = useState("all");
+  const [countries, setCountries] = useState<string[]>([]);
+  const [countriesLoading, setCountriesLoading] = useState(false);
+  const [customBoundaries, setCustomBoundaries] = useState<Array<{ file_path: string; file_name: string }>>([]);
+  const [autoExtentFromBoundary, setAutoExtentFromBoundary] = useState(false);
+  const [restrictBackground, setRestrictBackground] = useState(false);
   const [backgroundN, setBackgroundN] = useState(DEFAULT_CONFIG.backgroundN);
   const [cvFolds, setCvFolds] = useState(DEFAULT_CONFIG.cvFolds);
   const [cvStrategy, setCvStrategy] = useState<"random" | "spatial_blocks">("spatial_blocks");
@@ -204,6 +216,52 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
   useEffect(() => { useSettingsStore.getState().fetchSettings(); }, []);
   useEffect(() => { apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100").then((data) => { if (data && Array.isArray(data.species)) setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string)); }).catch(() => console.warn("[model-config] Failed to fetch species suggestions")); }, []);
+  useEffect(() => {
+    apiGet<{ boundaries: Array<{ file_path: string; file_name: string }> }>("/api/v1/data/boundary/list")
+      .then((data) => setCustomBoundaries(data.boundaries || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (maskBoundaryType !== "admin0") return;
+    setCountriesLoading(true);
+    apiGet<{ countries: string[] }>("/api/v1/data/boundary/countries")
+      .then((data) => setCountries(data.countries || []))
+      .catch(() => setCountries([]))
+      .finally(() => setCountriesLoading(false));
+  }, [maskBoundaryType]);
+
+  const countryOptions = useMemo(
+    () => ["all", ...countries],
+    [countries],
+  );
+
+  // Auto-set projection extent from boundary
+  useEffect(() => {
+    if (!autoExtentFromBoundary || maskType === "none") return;
+    const timer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams();
+        if (maskBoundaryType === "custom") {
+          params.set("file_path", maskCountry);
+        } else {
+          params.set("type", maskBoundaryType);
+          params.set("resolution", maskResolution);
+          params.set("country", maskCountry);
+        }
+        params.set("buffer_deg", "2");
+        const data = await apiGet<{ xmin: number; xmax: number; ymin: number; ymax: number }>(
+          `/api/v1/data/boundary/extent?${params}`
+        );
+        if (data && typeof data.xmin === "number") {
+          setExtentPreset("custom");
+          setCustomExtent([data.xmin, data.xmax, data.ymin, data.ymax]);
+        }
+      } catch {
+        // Silently fail — extent stays as-is
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [autoExtentFromBoundary, maskType, maskBoundaryType, maskResolution, maskCountry]);
 
   const biovarKey = useMemo(() => biovars.join(","), [biovars]);
 
@@ -241,8 +299,16 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       modelId,
       biovars,
       projectionExtent: extent,
+      trainingExtent: separateTrainingExtent && trainingExtentPreset !== "auto"
+        ? (trainingExtentPreset === "custom" ? trainingCustomExtent : EXTENT_PRESETS[trainingExtentPreset]?.extent)
+        : undefined,
       maskType,
       maskBufferDeg,
+      maskBoundaryType,
+      maskResolution,
+      maskCountry,
+      autoExtentFromBoundary,
+      restrictBackground,
       backgroundN,
       cvFolds,
       cvStrategy,
@@ -894,7 +960,22 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       </div>
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
-        <h2 className="text-lg font-semibold text-sdm-heading">Projection &amp; Threshold</h2>
+        <h2 className="text-lg font-semibold text-sdm-heading">Projection Extent &amp; Threshold</h2>
+
+        <div>
+          <label className="block text-sm font-medium text-sdm-text mb-1">Projection extent (prediction area)</label>
+          <select
+            value={extentPreset}
+            onChange={(e) => setExtentPreset(e.target.value)}
+            className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
+          >
+            {Object.entries(EXTENT_PRESETS).map(([key, { label }]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+
         {extentPreset === "custom" && (
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -914,6 +995,60 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
               <input type="number" min={-90} max={90} step={0.1} value={customExtent[3]} onChange={(e) => setCustomExtent([customExtent[0], customExtent[1], customExtent[2], Number(e.target.value)])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
             </div>
           </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="separate-training-extent"
+            checked={separateTrainingExtent}
+            onChange={(e) => setSeparateTrainingExtent(e.target.checked)}
+            className="h-4 w-4 rounded border-sdm-border text-sdm-accent focus:ring-sdm-accent"
+          />
+          <label htmlFor="separate-training-extent" className="text-sm font-medium text-sdm-text">
+            Use separate training extent
+            <TooltipInfo content="Train model on one region (e.g. South America) and project to another (e.g. Australia). Useful for biosecurity risk assessments." />
+          </label>
+        </div>
+
+        {separateTrainingExtent && (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-sdm-text mb-1">Training extent (model fitting area)</label>
+              <select
+                value={trainingExtentPreset}
+                onChange={(e) => setTrainingExtentPreset(e.target.value)}
+                className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
+              >
+                <option value="auto">Auto (occurrence bounding box)</option>
+                {Object.entries(EXTENT_PRESETS).map(([key, { label }]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+
+            {trainingExtentPreset === "custom" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-sdm-muted mb-1">xmin</label>
+                  <input type="number" min={-180} max={180} step={0.1} value={trainingCustomExtent[0]} onChange={(e) => setTrainingCustomExtent([Number(e.target.value), trainingCustomExtent[1], trainingCustomExtent[2], trainingCustomExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-sdm-muted mb-1">xmax</label>
+                  <input type="number" min={-180} max={180} step={0.1} value={trainingCustomExtent[1]} onChange={(e) => setTrainingCustomExtent([trainingCustomExtent[0], Number(e.target.value), trainingCustomExtent[2], trainingCustomExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-sdm-muted mb-1">ymin</label>
+                  <input type="number" min={-90} max={90} step={0.1} value={trainingCustomExtent[2]} onChange={(e) => setTrainingCustomExtent([trainingCustomExtent[0], trainingCustomExtent[1], Number(e.target.value), trainingCustomExtent[3]])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-sdm-muted mb-1">ymax</label>
+                  <input type="number" min={-90} max={90} step={0.1} value={trainingCustomExtent[3]} onChange={(e) => setTrainingCustomExtent([trainingCustomExtent[0], trainingCustomExtent[1], trainingCustomExtent[2], Number(e.target.value)])} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         <div>
@@ -954,26 +1089,27 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         <h2 className="text-lg font-semibold text-sdm-heading">Spatial filtering</h2>
         <div className="pt-2">
           <h3 className="text-sm font-semibold text-sdm-heading mb-2">Boundary masking</h3>
-          <div className="space-y-2">
-            <div>
-              <label className="block text-xs font-medium text-sdm-muted mb-1">
-                Mask type
-                <TooltipInfo content="Clips suitability to landmass or ocean boundary. Uses Natural Earth 1:110m Admin 0 countries." />
-              </label>
-              <select
-                value={maskType}
-                onChange={(e) => setMaskType(e.target.value as "none" | "landmass" | "ocean")}
-                className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
-              >
-                <option value="none">None</option>
-                <option value="landmass">Landmass (remove ocean)</option>
-                <option value="ocean">Ocean (remove land)</option>
-              </select>
-            </div>
-            {maskType !== "none" && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-sdm-muted mb-1">
-                  Buffer (decimal degrees, optional — auto = half cell)
+                  Mask type
+                  <TooltipInfo content="Clips suitability to landmass or ocean boundary." />
+                </label>
+                <select
+                  value={maskType}
+                  onChange={(e) => setMaskType(e.target.value as "none" | "landmass" | "ocean")}
+                  className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
+                >
+                  <option value="none">None</option>
+                  <option value="landmass">Landmass (remove ocean)</option>
+                  <option value="ocean">Ocean (remove land)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Buffer (deg, optional)
+                  <TooltipInfo content="Extends or shrinks boundary. Auto = half cell width." />
                 </label>
                 <input
                   type="number"
@@ -985,7 +1121,94 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
                   onChange={(e) => setMaskBufferDeg(e.target.value ? Number(e.target.value) : undefined)}
                   className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
                 />
-                <TooltipInfo content="Clips suitability to landmass or ocean boundary. Uses Natural Earth 1:110m Admin 0 countries." />
+              </div>
+            </div>
+
+            {maskType !== "none" && (
+              <div className="space-y-3 border-t border-sdm-border pt-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-sdm-muted mb-1">Boundary source</label>
+                    <select
+                      value={maskBoundaryType}
+                      onChange={(e) => setMaskBoundaryType(e.target.value as "admin0" | "land" | "custom")}
+                      className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
+                    >
+                      <option value="admin0">Admin 0 Countries</option>
+                      <option value="land">Coastline (land)</option>
+                      <option value="custom">Custom upload</option>
+                    </select>
+                  </div>
+                  {maskBoundaryType !== "custom" && (
+                    <div>
+                      <label className="block text-xs font-medium text-sdm-muted mb-1">Resolution</label>
+                      <select
+                        value={maskResolution}
+                        onChange={(e) => setMaskResolution(e.target.value as "auto" | "10m" | "50m" | "110m")}
+                        className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
+                      >
+                        <option value="auto">Auto (match covariates)</option>
+                        <option value="110m">1:110m (~18 km)</option>
+                        <option value="50m">1:50m (~9 km)</option>
+                        <option value="10m">1:10m (~1.8 km)</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {maskBoundaryType === "admin0" && (
+                  <div>
+                    <label className="block text-xs font-medium text-sdm-muted mb-1">Country</label>
+                    <SearchableSelect
+                      options={countryOptions}
+                      value={maskCountry}
+                      onChange={setMaskCountry}
+                      placeholder="Search countries..."
+                      loading={countriesLoading}
+                      allLabel="All countries"
+                    />
+                  </div>
+                )}
+
+                {maskBoundaryType === "custom" && (
+                  <div>
+                    <label className="block text-xs font-medium text-sdm-muted mb-1">Uploaded boundary file</label>
+                    <select
+                      value={maskCountry}
+                      onChange={(e) => setMaskCountry(e.target.value)}
+                      className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
+                    >
+                      <option value="">Select a boundary...</option>
+                      {customBoundaries.map((b) => (
+                        <option key={b.file_path} value={b.file_path}>{b.file_name}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-sdm-muted">
+                      Upload custom GeoJSON on the{" "}
+                      <a href="/data?tab=boundary" className="text-sdm-accent hover:underline">Boundary</a>{" "}
+                      data page.
+                    </p>
+                  </div>
+                )}
+
+                <label className="flex items-center gap-2 text-xs text-sdm-muted cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={autoExtentFromBoundary}
+                    onChange={(e) => setAutoExtentFromBoundary(e.target.checked)}
+                    className="rounded border-sdm-border bg-sdm-surface-soft"
+                  />
+                  Auto-set projection extent from boundary (+2&deg; margin)
+                </label>
+                <label className="flex items-center gap-2 text-xs text-sdm-muted cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={restrictBackground}
+                    onChange={(e) => setRestrictBackground(e.target.checked)}
+                    className="rounded border-sdm-border bg-sdm-surface-soft"
+                  />
+                  Restrict background points to boundary (model trains only within boundary area)
+                </label>
               </div>
             )}
           </div>

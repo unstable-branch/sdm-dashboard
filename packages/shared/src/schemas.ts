@@ -13,6 +13,14 @@ export const modelConfigSchema = z.object({
   ]).refine(([xmin, xmax, ymin, ymax]) => xmin < xmax && ymin < ymax, {
     message: "Invalid extent: xmin must be < xmax and ymin must be < ymax",
   }),
+  trainingExtent: z.tuple([
+    z.number().min(-180).max(180),
+    z.number().min(-180).max(180),
+    z.number().min(-90).max(90),
+    z.number().min(-90).max(90),
+  ]).refine(([xmin, xmax, ymin, ymax]) => xmin < xmax && ymin < ymax, {
+    message: "Invalid training extent: xmin must be < xmax and ymin must be < ymax",
+  }).optional(),
   backgroundN: z.number().int().min(500).max(100000).default(10000),
   cvFolds: z.number().int().min(0).max(10).default(3),
   cvStrategy: z.enum(["random", "spatial_blocks"]).default("random"),
@@ -23,6 +31,10 @@ export const modelConfigSchema = z.object({
   maskType: z.enum(["none", "landmass", "ocean"]).optional().default("none"),
   maskFile: z.string().optional(),
   maskBufferDeg: z.number().positive().optional(),
+  maskBoundaryType: z.enum(["admin0", "land", "custom"]).optional().default("admin0"),
+  maskResolution: z.enum(["auto", "10m", "50m", "110m"]).optional().default("auto"),
+  maskCountry: z.string().optional().default("all"),
+  restrictBackground: z.boolean().optional().default(false),
   includeQuadratic: z.boolean().default(true),
   useElevation: z.boolean().default(false),
   elevationDemtype: z.string().default("COP90"),

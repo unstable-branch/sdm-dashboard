@@ -115,21 +115,20 @@ internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
 # Auth helper: stop request with error response
 auth_fail <- function(res, status, msg) {
   tryCatch(res$status <- status, error = function(e) NULL)
-  tryCatch(res$setHeader("Content-Type", "application/json"), error = function(e) NULL)
-  tryCatch({
-    body_str <- if (is.character(msg)) msg else jsonlite::toJSON(
-      list(error = as.character(msg)), auto_unbox = TRUE
-    )
-    if (is.character(body_str) && length(body_str) == 1L && nchar(body_str) > 0L) {
-      res$body <- charToRaw(body_str)
-    }
-  }, error = function(e) NULL)
   stop("REQUEST_REJECTED", call. = FALSE)
 }
 
 # Helper to safely read headers
 get_hdr <- function(req, name) {
-  tryCatch(req$HEADERS[[name]], error = function(e) NULL)
+  tryCatch({
+    hdrs <- req$HEADERS
+    if (is.null(hdrs) || length(hdrs) == 0L) return(NULL)
+    name_lower <- tolower(name)
+    for (h in names(hdrs)) {
+      if (tolower(h) == name_lower) return(hdrs[[h]])
+    }
+    NULL
+  }, error = function(e) NULL)
 }
 
 # Global preroute hook - runs before every endpoint

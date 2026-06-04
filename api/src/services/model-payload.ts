@@ -9,6 +9,7 @@ export type ModelConfigRecord = Record<string, unknown> & {
   occurrenceFile?: string;
   biovars?: number[];
   projectionExtent?: number[];
+  trainingExtent?: number[];
   backgroundN?: number;
   cvFolds?: number;
 };
@@ -39,6 +40,10 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   maskType: "mask_type",
   maskFile: "mask_file",
   maskBufferDeg: "mask_buffer_deg",
+  maskBoundaryType: "mask_boundary_type",
+  maskResolution: "mask_resolution",
+  maskCountry: "mask_country",
+  restrictBackground: "restrict_background",
   biasMethod: "bias_method",
   thickeningDistanceKm: "thickening_distance_km",
   targetGroupFile: "target_group_file",
@@ -150,10 +155,11 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   generateTiles: "generate_tiles",
   generateCog: "generate_cog",
   speciesFilter: "species_filter",
+  trainingExtent: "training_extent",
 };
 
 export function buildModelPayload(config: ModelConfigRecord, runId: string): Record<string, unknown> {
-  const { biovars, projectionExtent, ...rest } = config;
+  const { biovars, projectionExtent, trainingExtent, ...rest } = config;
   const occurrenceFile = resolveEncryptedFile(config.cleanedFilePath || config.occurrenceFile);
   const cleanedFile = resolveEncryptedFile(config.cleanedFilePath);
   // Convert remaining camelCase keys to snake_case for Plumber API
@@ -168,6 +174,7 @@ export function buildModelPayload(config: ModelConfigRecord, runId: string): Rec
     occurrence_file: occurrenceFile,
     biovars: Array.isArray(config.biovars) ? config.biovars.join(",") : "",
     projection_extent: Array.isArray(config.projectionExtent) ? config.projectionExtent.join(",") : "",
+    training_extent: Array.isArray(config.trainingExtent) ? config.trainingExtent.join(",") : undefined,
     output_dir: join("outputs", "jobs", runId),
   };
   if (cleanedFile) {

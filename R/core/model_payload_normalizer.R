@@ -20,6 +20,14 @@ sdm_payload_coalesce_numeric <- function(...) {
   suppressWarnings(as.numeric(value))
 }
 
+sdm_payload_coalesce_logical <- function(...) {
+  value <- sdm_payload_coalesce(...)
+  if (is.null(value)) return(NULL)
+  if (is.logical(value)) return(value)
+  if (is.numeric(value)) return(as.logical(value))
+  tolower(as.character(value)) %in% c("true", "t", "yes", "y", "1")
+}
+
 sdm_normalize_model_payload <- function(payload) {
   payload <- as.list(payload %||% list())
 
@@ -121,6 +129,22 @@ sdm_normalize_model_payload <- function(payload) {
   payload$mask_buffer_deg <- sdm_payload_coalesce_numeric(
     payload$mask_buffer_deg,
     payload$maskBufferDeg
+  )
+  payload$mask_boundary_type <- sdm_payload_coalesce(
+    payload$mask_boundary_type,
+    payload$maskBoundaryType
+  )
+  payload$mask_resolution <- sdm_payload_coalesce(
+    payload$mask_resolution,
+    payload$maskResolution
+  )
+  payload$mask_country <- sdm_payload_coalesce(
+    payload$mask_country,
+    payload$maskCountry
+  )
+  payload$restrict_background <- sdm_payload_coalesce_logical(
+    payload$restrict_background,
+    payload$restrictBackground
   )
   payload$selected_uv_months <- sdm_payload_coalesce(
     payload$selected_uv_months,

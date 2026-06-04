@@ -201,6 +201,10 @@ sdm_suitability_palette_n <- 180L
 sdm_default_mask_type <- "none"
 sdm_default_mask_file <- "data/examples/geo/world_boundary.geojson"
 sdm_default_mask_buffer_deg <- NA_real_
+sdm_default_mask_boundary_type <- "admin0"
+sdm_default_mask_resolution <- "auto"
+sdm_default_mask_country <- "all"
+sdm_default_restrict_background <- FALSE
 
 sdm_default_dirs <- c(
   sdm_default_output_dir,
