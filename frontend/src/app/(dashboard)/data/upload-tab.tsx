@@ -1,37 +1,244 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useState, useEffect, useCallback } from "react";
+import {
+  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, closestCenter,
+  type DragStartEvent, type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { Upload, Globe, ChevronDown, ChevronRight, Play, Loader2, AlertTriangle, CheckCircle2, HardDrive, Search, Layers } from "lucide-react";
 import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
 import { PreviewTable } from "@/components/data/preview-table";
-import { Loader2, AlertTriangle, CheckCircle2, Trash2, HardDrive } from "lucide-react";
-import { apiGet } from "@/services/api";
+import { WorkspaceSourceCard } from "@/components/data/workspace-source-card";
+import { WorkspaceCard } from "@/components/data/workspace-card";
+import { ReviewRecordsModal } from "@/components/data/review-records-modal";
+import { GbifSearch } from "@/components/data/gbif-search";
+import { apiPost, apiGet } from "@/services/api";
 import type { UploadFile } from "@/services/types";
+import type { WorkspaceFile, BatchConfig, OccurrencePoint } from "./types";
 
 interface UploadTabProps {
   uploadResult: Record<string, unknown> | null;
   uploadLoading: boolean;
   uploadError: string | null;
   onUpload: (file: File) => void;
-  onSelectUpload: (file: UploadFile) => void;
   onDelete: (fileId: string) => void;
-  onTabChange: (tab: string) => void;
   previousUploads: UploadFile[];
   previousUploadsLoading: boolean;
+  workspaceFiles: WorkspaceFile[];
+  onWorkspaceAdd: (file: UploadFile, species?: string) => void;
+  onWorkspaceUpdate: (id: string, updates: Partial<WorkspaceFile>) => void;
+  onWorkspaceRemove: (id: string) => void;
+  onRunModels: (configs: BatchConfig[]) => void;
 }
 
 export function UploadTab({
-  uploadResult, uploadLoading, uploadError, onUpload, onSelectUpload, onDelete, onTabChange,
+  uploadResult, uploadLoading, uploadError, onUpload, onDelete,
   previousUploads, previousUploadsLoading,
+  workspaceFiles, onWorkspaceAdd, onWorkspaceUpdate, onWorkspaceRemove, onRunModels,
 }: UploadTabProps) {
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [storage, setStorage] = useState<{ used_mb: number; quota_mb: number; pct_used: number; available_mb: number } | null>(null);
+  // ── Drag state ──────────────────────────────────────────────
+  const [activeDragFile, setActiveDragFile] = useState<UploadFile | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    if (event.active.data.current?.type === "source") {
+      setActiveDragFile(event.active.data.current.file as UploadFile);
+    }
+  }, []);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    setActiveDragFile(null);
+    const { active, over } = event;
+    if (!over || over.id === active.id) return;
+    // Dropped on workspace drop zone → add file
+    if (over.id === "workspace-drop-zone" && active.data.current?.type === "source") {
+      const file = active.data.current.file as UploadFile;
+      if (file && !workspaceFiles.some(f => f.fileId === file.file_id)) {
+        onWorkspaceAdd(file);
+      }
+      return;
+    }
+    // Dropped on another workspace card → reorder
+    if (active.data.current?.type === "workspace" && over.data.current?.type === "workspace") {
+      // Reordering is handled by SortableContext + onDragEnd in the DndContext
+    }
+  }, [workspaceFiles, onWorkspaceAdd]);
+
+  // ── Storage ─────────────────────────────────────────────────
+  const [storage, setStorage] = useState<{ used_mb: number; quota_mb: number; pct_used: number } | null>(null);
   useEffect(() => {
-    apiGet<{ used_mb: number; quota_mb: number; pct_used: number; available_mb: number }>("/api/v1/data/storage")
+    apiGet<{ used_mb: number; quota_mb: number; pct_used: number }>("/api/v1/data/storage")
       .then((d) => setStorage(d)).catch(() => {});
   }, [uploadResult]);
+
+  // ── GBIF inline ─────────────────────────────────────────────
+  const [gbifOpen, setGbifOpen] = useState(false);
+  const [gbifLoading, setGbifLoading] = useState(false);
+  const [gbifError, setGbifError] = useState<string | null>(null);
+  const [gbifResult, setGbifResult] = useState<Record<string, unknown> | null>(null);
+  const [gbifSaving, setGbifSaving] = useState(false);
+
+  const handleGbifSearch = async (taxon: string, country: string, maxRecords: number, useAuth: boolean) => {
+    setGbifLoading(true); setGbifError(null); setGbifResult(null);
+    try {
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/search", {
+        taxon, country, max_records: maxRecords, use_auth: useAuth,
+      });
+      setGbifResult(result);
+    } catch (err) {
+      setGbifError(err instanceof Error ? err.message : "GBIF search failed");
+    } finally {
+      setGbifLoading(false);
+    }
+  };
+
+  const handleGbifAddToWorkspace = async () => {
+    if (!gbifResult) return;
+    setGbifSaving(true);
+    try {
+      const filePath = gbifResult.file_path as string | undefined;
+      const result = filePath
+        ? await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", { file_path: filePath })
+        : await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", {
+            taxon: gbifResult.taxon, country: gbifResult.country, max_records: gbifResult.max_records,
+          });
+      const fakeFile: UploadFile = {
+        file_id: result.file_path as string,
+        file_name: `GBIF-${String(gbifResult.taxon || "search")}.csv`,
+        file_size: 0,
+        n_rows: Number(gbifResult.n_records || 0),
+        cleaned: false,
+        modified_at: new Date().toISOString(),
+        species: String(gbifResult.taxon || ""),
+        format: "csv",
+      };
+      onWorkspaceAdd(fakeFile, String(gbifResult.taxon || ""));
+      setGbifResult(null);
+    } catch (err) {
+      setGbifError(err instanceof Error ? err.message : "Failed to save GBIF records");
+    } finally {
+      setGbifSaving(false);
+    }
+  };
+
+  // ── History panel open/close ────────────────────────────────
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  // ── Per-card cleaning ───────────────────────────────────────
+  const cleanRunning = workspaceFiles.some(f => f.cleanLoading);
+
+  const handleCleanCard = async (cardId: string) => {
+    const card = workspaceFiles.find(f => f.id === cardId);
+    if (!card || card.cleanLoading) return;
+    onWorkspaceUpdate(cardId, { cleanLoading: true, cleanError: null });
+    try {
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", {
+        file_id: card.fileId,
+        species: card.selectedSpecies[0] || "",
+        min_source_records: 15,
+        merge_small_sources: true,
+        use_cc: true,
+        cc_tests: "all",
+      }, { timeout: 600000 });
+      const cleanedFileId = (result.cleaned_file_id || result.cleaned_file_path) as string | undefined;
+      const validRecords = (result.valid_records as number) || 0;
+      onWorkspaceUpdate(cardId, {
+        cleanLoading: false,
+        cleanedFileId,
+        cleanValidRecords: validRecords,
+      });
+      if (cleanedFileId) {
+        apiPost(`/api/v1/data/occurrences/clean/update-upload`, {
+          file_id: card.fileId,
+          cleaned: true,
+          cleaned_file_path: cleanedFileId,
+          cleaned_valid_records: validRecords,
+        }).catch(() => {});
+      }
+    } catch (err) {
+      onWorkspaceUpdate(cardId, {
+        cleanLoading: false,
+        cleanError: err instanceof Error ? err.message : "Clean failed",
+      });
+    }
+  };
+
+  const handleCleanAll = async () => {
+    const toClean = workspaceFiles.filter(f => f.cleanBeforeRun && !f.cleanedFileId && !f.cleanLoading);
+    await Promise.allSettled(toClean.map(f => handleCleanCard(f.id)));
+  };
+
+  // ── Run N models ────────────────────────────────────────────
+  const [runLoading, setRunLoading] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+
+  const handleRun = async () => {
+    const validCards = workspaceFiles.filter(f => f.selectedSpecies[0]?.trim());
+    if (validCards.length === 0) return;
+    setRunLoading(true); setRunError(null);
+    const configs: BatchConfig[] = validCards.map(f => ({
+      species: f.selectedSpecies[0].trim(),
+      modelId: f.modelId,
+      occurrenceFile: f.filePath,
+      cleanedFilePath: f.cleanedFileId || undefined,
+      speciesFilter: f.selectedSpecies[0].trim(),
+    }));
+    try {
+      await onRunModels(configs);
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "Run failed");
+    } finally {
+      setRunLoading(false);
+    }
+  };
+
+  const canRun = workspaceFiles.length > 0 && workspaceFiles.every(f => f.selectedSpecies[0]?.trim()) && !runLoading;
+
+  // ── Review records modal ────────────────────────────────────
+  const [reviewCardId, setReviewCardId] = useState<string | null>(null);
+  const reviewCard = reviewCardId ? workspaceFiles.find(f => f.id === reviewCardId) : null;
+  const [reviewData, setReviewData] = useState<{
+    records: OccurrencePoint[]; sourceCounts: Record<string, number>; ccLog: string[];
+    validRecords: number; originalRows: number;
+  } | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+
+  const handleReviewRecords = async (cardId: string) => {
+    const card = workspaceFiles.find(f => f.id === cardId);
+    if (!card) return;
+    setReviewCardId(cardId);
+    setReviewLoading(true);
+    try {
+      const result = await apiGet<Record<string, unknown>>(`/api/v1/data/occurrences/clean/result?file_id=${encodeURIComponent(card.fileId)}`).catch(() => null);
+      if (result) {
+        setReviewData({
+          records: (result.cleaned_records || []) as OccurrencePoint[],
+          sourceCounts: (result.source_counts || {}) as Record<string, number>,
+          ccLog: (result.cc_log || []) as string[],
+          validRecords: (result.valid_records as number) || 0,
+          originalRows: (result.original_rows as number) || 0,
+        });
+      } else {
+        setReviewData({
+          records: [],
+          sourceCounts: {},
+          ccLog: [],
+          validRecords: 0,
+          originalRows: 0,
+        });
+      }
+    } catch {
+      setReviewData(null);
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  // ── Derived ─────────────────────────────────────────────────
   const uploadPreview = uploadResult?.preview as Array<Record<string, unknown>> | undefined;
   const cols = uploadResult?.columns_detected as Record<string, string | null> | undefined;
   const warningsRaw = uploadResult?.coord_warnings;
@@ -39,182 +246,169 @@ export function UploadTab({
   const hasWarnings = warnings.length > 0;
   const hasResult = typeof uploadResult?.file_path === "string";
 
-  const handleDelete = async (fileId: string) => {
-    setDeleting(fileId);
-    try {
-      await onDelete(fileId);
-      setConfirmDelete(null);
-    } catch {
-    } finally {
-      setDeleting(null);
-    }
-  };
-
+  // ── Render ──────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
-        <h2 className="text-lg font-semibold text-sdm-heading mb-4">Upload occurrence file</h2>
-        <p className="text-sm text-sdm-muted mb-4">
-          Upload a CSV, TSV, or ZIP file containing occurrence records.
-        </p>
-        <details className="mb-4 rounded-lg border border-sdm-border/50 bg-sdm-surface-soft">
-          <summary className="cursor-pointer px-4 py-2 text-xs font-semibold text-sdm-heading">
-            Preparing detection-history data for occupancy models
+      <DndContext sensors={sensors} collisionDetection={closestCenter}
+        onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+
+        {/* ── Add data section ──────────────────────────────── */}
+        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
+          <h2 className="text-lg font-semibold text-sdm-heading mb-4">Add occurrence data</h2>
+
+          <FileUpload key={String(uploadResult?.file_id ?? "new")} onUpload={onUpload} loading={uploadLoading} error={uploadError} />
+
+          {storage && (
+            <div className="mt-3 flex items-center gap-3 rounded-lg border border-sdm-border/50 bg-sdm-surface-soft px-4 py-2.5">
+              <HardDrive className="h-4 w-4 shrink-0 text-sdm-muted" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between text-xs text-sdm-muted mb-1">
+                  <span>Storage: {storage.used_mb} MB used</span>
+                  <span>{storage.pct_used}%</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-sdm-border overflow-hidden">
+                  <div className={`h-full rounded-full transition-all ${storage.pct_used > 90 ? "bg-sdm-danger" : "bg-sdm-accent"}`}
+                    style={{ width: `${Math.min(storage.pct_used, 100)}%` }} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {cols && Object.keys(cols).length > 0 && <div className="mt-3"><DetectedColumns columns={cols} /></div>}
+          {hasWarnings && (
+            <div className="mt-3 rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 text-sm text-sdm-warning">
+              <AlertTriangle className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+              {warnings.join("; ")}
+            </div>
+          )}
+          {uploadPreview && uploadPreview.length > 0 && <div className="mt-3"><PreviewTable data={uploadPreview} title="Preview (first 5 records)" /></div>}
+
+          {/* GBIF inline */}
+          <details className="mt-4" open={gbifOpen} onToggle={(e) => setGbifOpen((e.target as HTMLDetailsElement).open)}>
+            <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium text-sdm-heading">
+              <Globe className="h-4 w-4 text-sdm-accent" />
+              Search GBIF
+            </summary>
+            <div className="mt-3">
+              <GbifSearch onSearch={handleGbifSearch} loading={gbifLoading} error={gbifError} result={gbifResult} />
+              {gbifResult && Number(gbifResult.n_records) > 0 && (
+                <div className="mt-3 flex items-center gap-3">
+                  <button onClick={handleGbifAddToWorkspace} disabled={gbifSaving}
+                    className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white hover:bg-sdm-accent/90 disabled:opacity-50">
+                    {gbifSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                    Add {Number(gbifResult.n_records).toLocaleString()} records to workspace
+                  </button>
+                </div>
+              )}
+            </div>
+          </details>
+        </div>
+
+        {/* ── Workspace ──────────────────────────────────────── */}
+        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6"
+          id="workspace-drop-zone">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-sdm-heading">Workspace</h2>
+              <p className="text-sm text-sdm-muted">{workspaceFiles.length} file{workspaceFiles.length !== 1 ? "s" : ""} selected</p>
+            </div>
+            {workspaceFiles.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button onClick={handleCleanAll} disabled={cleanRunning || workspaceFiles.filter(f => f.cleanBeforeRun && !f.cleanedFileId).length === 0}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-50">
+                  {cleanRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                  Clean all
+                </button>
+                <button onClick={handleRun} disabled={!canRun}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-sdm-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-sdm-accent/90 disabled:opacity-50">
+                  {runLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                  Run {workspaceFiles.length} model{workspaceFiles.length !== 1 ? "s" : ""}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {workspaceFiles.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-sdm-border bg-sdm-surface-soft py-12 text-center">
+              <Layers className="h-8 w-8 text-sdm-muted mb-2" />
+              <p className="text-sm text-sdm-muted">Drag files from the history below, or upload a new file above</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <SortableContext items={workspaceFiles.map(f => f.id)} strategy={verticalListSortingStrategy}>
+                {workspaceFiles.map((f, i) => (
+                  <WorkspaceCard key={f.id} item={f} index={i}
+                    onUpdate={onWorkspaceUpdate} onRemove={onWorkspaceRemove}
+                    onClean={handleCleanCard} onReviewRecords={handleReviewRecords}
+                    disabled={runLoading} />
+                ))}
+              </SortableContext>
+            </div>
+          )}
+
+          {runError && (
+            <div className="mt-3 flex items-center gap-2 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 px-4 py-3 text-sm text-sdm-danger">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>{runError}</span>
+            </div>
+          )}
+        </div>
+
+        {/* ── Sources (history) ─────────────────────────────── */}
+        <details className="rounded-lg border border-sdm-border bg-sdm-surface" open={historyOpen}
+          onToggle={(e) => setHistoryOpen((e.target as HTMLDetailsElement).open)}>
+          <summary className="flex cursor-pointer items-center gap-2 px-6 py-3 text-sm font-medium text-sdm-heading">
+            {historyOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            Sources ({previousUploads.length} files)
           </summary>
-          <div className="px-4 pb-4 space-y-2 text-xs text-sdm-muted">
-            <p>Occupancy models require detection/non-detection data with repeated surveys at each site.</p>
-            <pre className="bg-sdm-surface p-3 rounded overflow-x-auto mt-2">{`site_id,longitude,latitude,survey_1,survey_2,survey_3,elevation
-site_A,140.0,-23.0,1,0,1,200
-site_B,141.5,-24.0,0,1,0,450`}</pre>
+          <div className="px-6 pb-4 space-y-2 max-h-80 overflow-y-auto">
+            {previousUploadsLoading ? (
+              <div className="flex items-center gap-2 py-4 text-sm text-sdm-muted">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+              </div>
+            ) : previousUploads.length === 0 ? (
+              <p className="py-4 text-sm text-sdm-muted">No previous uploads found.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {previousUploads.map((f) => (
+                  <WorkspaceSourceCard key={f.file_id} file={f}
+                    disabled={workspaceFiles.some(w => w.fileId === f.file_id)}
+                    onAddToWorkspace={() => onWorkspaceAdd(f)} />
+                ))}
+              </div>
+            )}
           </div>
         </details>
-        <FileUpload key={String(uploadResult?.file_id ?? "new")} onUpload={onUpload} loading={uploadLoading} error={uploadError} />
-      </div>
 
-      {storage && (
-        <div className="flex items-center gap-3 rounded-lg border border-sdm-border/50 bg-sdm-surface-soft px-4 py-2.5">
-          <HardDrive className="h-4 w-4 shrink-0 text-sdm-muted" />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between text-xs text-sdm-muted mb-1">
-              <span>Storage: {storage.used_mb} MB of {storage.quota_mb} MB used</span>
-              <span>{storage.available_mb} MB available</span>
+        {/* ── Drag overlay ──────────────────────────────────── */}
+        <DragOverlay>
+          {activeDragFile ? (
+            <div className="flex items-center gap-2 rounded-md border border-sdm-accent bg-sdm-surface px-3 py-2.5 shadow-xl opacity-80">
+              <Upload className="h-4 w-4 text-sdm-accent" />
+              <span className="text-sm font-medium text-sdm-text">{activeDragFile.file_name}</span>
+              <span className="text-xs text-sdm-muted">{activeDragFile.n_rows.toLocaleString()} rows</span>
             </div>
-            <div className="h-1.5 rounded-full bg-sdm-border overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${storage.pct_used > 90 ? "bg-sdm-danger" : "bg-sdm-accent"}`}
-                style={{ width: `${Math.min(storage.pct_used, 100)}%` }} />
-            </div>
-          </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      {/* ── Review records modal ───────────────────────────── */}
+      {reviewLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <Loader2 className="h-8 w-8 animate-spin text-sdm-accent" />
         </div>
       )}
-
-      {cols && Object.keys(cols).length > 0 && <DetectedColumns columns={cols} />}
-      {hasWarnings && (
-        <div className="rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 text-sm text-sdm-warning">
-          <AlertTriangle className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-          {warnings.join("; ")}
-        </div>
+      {reviewData && reviewCardId && (
+        <ReviewRecordsModal
+          open={true}
+          onClose={() => { setReviewCardId(null); setReviewData(null); }}
+          records={reviewData.records}
+          sourceCounts={reviewData.sourceCounts}
+          ccLog={reviewData.ccLog}
+          validRecords={reviewData.validRecords}
+          originalRows={reviewData.originalRows}
+        />
       )}
-      {uploadPreview && uploadPreview.length > 0 && <PreviewTable data={uploadPreview} title="Preview (first 5 records)" />}
-
-      {hasResult && Array.isArray(uploadResult?.datasets) && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Datasets</p>
-            <p className="mt-1 text-xl font-bold text-sdm-heading">{String((uploadResult.datasets as unknown[]).length)}</p>
-          </div>
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Returned</p>
-            <p className="mt-1 text-xl font-bold text-sdm-accent">{(uploadResult.n_rows ?? 0).toLocaleString()}</p>
-          </div>
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Raw records</p>
-            <p className="mt-1 text-xl font-bold text-sdm-heading">{(uploadResult.n_raw ?? 0).toLocaleString()}</p>
-          </div>
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Format</p>
-            <p className="mt-1 text-xl font-bold text-sdm-heading">Darwin Core</p>
-          </div>
-        </div>
-      )}
-
-      {hasResult && uploadResult?.cleaned ? (
-        <div className="flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm text-green-500">
-            <CheckCircle2 className="h-4 w-4 shrink-0" />
-            <span>Previously cleaned — {Number(uploadResult.cleaned_valid_records ?? uploadResult.n_rows ?? 0).toLocaleString()} valid records ready.</span>
-          </div>
-          <Link href="/model" className="text-sm font-medium text-sdm-accent hover:underline">
-            Run SDM →
-          </Link>
-        </div>
-      ) : hasResult && (
-        <div className="flex items-center justify-between rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm text-sdm-warning">
-            <AlertTriangle className="h-4 w-4" />
-            <span>{Number(uploadResult.n_rows ?? 0).toLocaleString()} records uploaded — clean before modeling.</span>
-          </div>
-          <button onClick={() => onTabChange("clean")} className="text-sm font-medium text-sdm-accent hover:underline">Clean data →</button>
-        </div>
-      )}
-
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
-        <h3 className="text-sm font-semibold text-sdm-heading mb-3">Previous uploads</h3>
-        {previousUploadsLoading ? (
-          <div className="flex items-center gap-2 text-sm text-sdm-muted">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading...
-          </div>
-        ) : previousUploads.length === 0 ? (
-          <p className="text-sm text-sdm-muted">No previous uploads found.</p>
-        ) : (
-          <div className="space-y-2 max-h-80 overflow-y-auto">
-            {previousUploads.map((f, idx) => {
-              const isSelected = !!uploadResult?.file_id && uploadResult.file_id === f.file_id;
-              const sizeStr = (f.file_size as number) > 1024 * 1024
-                ? `${((f.file_size as number) / 1024 / 1024).toFixed(1)} MB`
-                : `${((f.file_size as number) / 1024).toFixed(0)} KB`;
-              return (
-                <div key={String(f.file_id ?? idx)}
-                  className={`flex items-center justify-between rounded-md border px-4 py-2.5 text-sm transition-colors ${
-                    isSelected ? "border-sdm-accent bg-sdm-accent/5" : "border-sdm-border bg-sdm-surface-soft hover:border-sdm-accent/50"}`}>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-sdm-text truncate">
-                      {f.file_name}
-                      {f.format && (
-                        <span className={`ml-1.5 inline-flex items-center rounded px-1 py-0.5 text-xs font-medium ${
-                          f.format === "dwca" ? "bg-blue-500/10 text-blue-400" :
-                          f.format === "tsv" ? "bg-amber-500/10 text-amber-400" :
-                          "bg-green-500/10 text-green-400"
-                        }`}>{f.format.toUpperCase()}</span>
-                      )}
-                      {f.species && <span className="ml-1.5 text-xs text-sdm-muted">— {f.species}</span>}
-                      {f.cleaned || f.cleaned_file_id ? (
-                        <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-success/10 px-1.5 py-0.5 text-xs font-medium text-sdm-success">
-                          <CheckCircle2 className="h-3 w-3" /> Cleaned
-                        </span>
-                      ) : (
-                        <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sdm-warning/10 px-1.5 py-0.5 text-xs font-medium text-sdm-warning">
-                          <AlertTriangle className="h-3 w-3" /> Uncleaned
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-xs text-sdm-muted">
-                      {sizeStr}{f.n_rows > 0 && ` · ${f.n_rows.toLocaleString()} rows`}{f.modified_at && ` · ${new Date(f.modified_at).toLocaleDateString()}`}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0 ml-3">
-                    {confirmDelete === f.file_id ? (
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-sdm-warning flex items-center gap-1">
-                          <AlertTriangle className="h-3 w-3" /> Delete?
-                        </span>
-                        <button onClick={() => handleDelete(f.file_id)} disabled={deleting === f.file_id}
-                          className="px-2 py-0.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 text-xs disabled:opacity-50">
-                          {deleting === f.file_id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Yes"}
-                        </button>
-                        <button onClick={() => setConfirmDelete(null)}
-                          className="px-2 py-0.5 rounded bg-sdm-surface-soft text-sdm-muted hover:text-sdm-text text-xs">
-                          No
-                        </button>
-                      </div>
-                    ) : (
-                      <button onClick={() => setConfirmDelete(f.file_id)}
-                        className="rounded p-1 text-sdm-muted hover:text-red-400 transition-colors" title="Delete upload">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    {isSelected ? (
-                      <span className="text-xs font-medium text-sdm-accent ml-1">Selected</span>
-                    ) : (
-                      <button onClick={() => onSelectUpload(f)}
-                        className="rounded border border-sdm-border bg-sdm-surface px-3 py-1 text-xs font-medium text-sdm-text hover:bg-sdm-surface-soft">Use</button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
