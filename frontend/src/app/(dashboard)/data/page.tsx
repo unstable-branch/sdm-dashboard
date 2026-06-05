@@ -102,6 +102,10 @@ function DataPageContent() {
     setWorkspaceFiles((prev) => prev.filter(f => f.id !== id));
   }, []);
 
+  const handleWorkspaceReorder = useCallback((reordered: WorkspaceFile[]) => {
+    setWorkspaceFiles(reordered);
+  }, []);
+
   const handleOpenInModel = useCallback((cardId: string) => {
     const card = workspaceFiles.find(f => f.id === cardId);
     if (!card) return;
@@ -334,6 +338,7 @@ function DataPageContent() {
             onWorkspaceUpdate={handleWorkspaceUpdate}
             onWorkspaceRemove={handleWorkspaceRemove}
             onOpenInModel={handleOpenInModel}
+            onWorkspaceReorder={handleWorkspaceReorder}
             hasGbifCredentials={hasGbifCredentials}
           />
         )}
