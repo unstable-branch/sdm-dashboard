@@ -156,7 +156,7 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-sdm-muted mb-1">Recent uploads</p>
             {recentUploads.map((u) => (
-              <div key={u.file_id} className="flex items-center gap-2 text-xs">
+              <div key={u.file_id + u.file_name + u.n_rows + u.modified_at} className="flex items-center gap-2 text-xs">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span className="truncate text-sdm-text">{u.file_name}</span>
                   <FormatBadge format={u.format} />
