@@ -1,13 +1,14 @@
 "use client";
 
 import { useDraggable } from "@dnd-kit/core";
-import { GripVertical, Plus } from "lucide-react";
+import { GripVertical, Plus, Trash2 } from "lucide-react";
 import type { UploadFile } from "@/services/types";
 
 interface WorkspaceSourceCardProps {
   file: UploadFile;
   disabled?: boolean;
   onAddToWorkspace?: () => void;
+  onDelete?: (fileId: string) => void;
 }
 
 const FORMAT_COLORS: Record<string, string> = {
@@ -16,7 +17,7 @@ const FORMAT_COLORS: Record<string, string> = {
   tsv: "bg-amber-500/10 text-amber-400",
 };
 
-export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace }: WorkspaceSourceCardProps) {
+export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace, onDelete }: WorkspaceSourceCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: file.file_id,
     data: { type: "source", file },
@@ -70,6 +71,15 @@ export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace }: Worksp
       )}
       {disabled && !onAddToWorkspace && (
         <span className="shrink-0 text-xs text-sdm-accent">In workspace</span>
+      )}
+      {onDelete && !disabled && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(file.file_id); }}
+          className="flex shrink-0 items-center gap-1 rounded p-1 text-sdm-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          title="Delete from history"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       )}
     </div>
   );
