@@ -7,9 +7,13 @@ vi.mock("bcrypt", () => ({
   compare: vi.fn(() => Promise.resolve(true)),
 }));
 
-vi.mock("ioredis", () => ({
-  Redis: class { on = vi.fn(); connect = vi.fn(() => Promise.resolve()); },
-}));
+vi.mock("ioredis", () => {
+  class MockRedis {
+    on = vi.fn();
+    connect = vi.fn(() => Promise.resolve());
+  }
+  return { default: MockRedis, Redis: MockRedis };
+});
 
 process.env.JWT_SECRET = "test-secret";
 
