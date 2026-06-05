@@ -13,7 +13,7 @@ import { CovariateTab } from "./covariate-tab";
 import { BoundaryTab } from "./boundary-tab";
 import { OverviewTab } from "./overview-tab";
 import type { UploadFile, ClimateScenarioResponse } from "@/services/types";
-import type { WorkspaceFile, BatchConfig } from "./types";
+import type { WorkspaceFile } from "./types";
 
 export default function DataPage() {
   return (
@@ -98,10 +98,25 @@ function DataPageContent() {
     setWorkspaceFiles((prev) => prev.filter(f => f.id !== id));
   }, []);
 
-  const handleRunModels = async (configs: BatchConfig[]) => {
-    const result = await apiPost<Record<string, unknown>>("/api/v1/sdm/targets/run", { configs });
+  const handleOpenInModel = useCallback((cardId: string) => {
+    const card = workspaceFiles.find(f => f.id === cardId);
+    if (!card) return;
+    const store = useSDMStore.getState();
+    store.setOccurrenceFilePath(card.filePath);
+    store.setSpecies(card.selectedSpecies[0] || "Untitled species");
+    store.setRecordCount(card.fileRows);
+    if (card.cleanedFileId) {
+      store.setCleanedOccurrence({
+        filePath: card.cleanedFileId,
+        df: [],
+        sourceCounts: {},
+        nAbsentExcluded: 0,
+        originalRows: card.fileRows,
+        validRecords: card.cleanValidRecords || card.fileRows,
+      });
+    }
     router.push("/model");
-  };
+  }, [workspaceFiles, router]);
 
   // ── Climate state ───────────────────────────────────────────
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
@@ -348,7 +363,7 @@ function DataPageContent() {
             onWorkspaceAdd={handleWorkspaceAdd}
             onWorkspaceUpdate={handleWorkspaceUpdate}
             onWorkspaceRemove={handleWorkspaceRemove}
-            onRunModels={handleRunModels}
+            onOpenInModel={handleOpenInModel}
           />
         )}
 
