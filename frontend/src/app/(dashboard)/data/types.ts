@@ -16,9 +16,6 @@ export interface WorkspaceFile {
   fileCleaned: boolean;
   fileCleanedFileId?: string;
   selectedSpecies: string[];
-  modelType: "single" | "community";
-  modelId: string;
-  cleanBeforeRun: boolean;
   cleanedFileId?: string;
   cleanValidRecords?: number;
   cleanLoading: boolean;

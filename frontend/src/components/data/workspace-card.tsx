@@ -2,7 +2,7 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Loader2, CheckCircle2, AlertTriangle, Eye, Trash2, RotateCcw, ArrowRight } from "lucide-react";
+import { GripVertical, Loader2, CheckCircle2, AlertTriangle, Eye, Trash2, RotateCcw } from "lucide-react";
 import type { WorkspaceFile } from "@/app/(dashboard)/data/types";
 
 interface WorkspaceCardProps {
@@ -12,19 +12,11 @@ interface WorkspaceCardProps {
   onRemove: (id: string) => void;
   onClean: (id: string) => void;
   onReviewRecords: (id: string) => void;
-  onOpenInModel: (id: string) => void;
   disabled?: boolean;
 }
 
-const MODEL_OPTIONS = [
-  { value: "glm", label: "GLM" },
-  { value: "maxent", label: "MaxEnt" },
-  { value: "brt", label: "BRT" },
-  { value: "randomforest", label: "Random Forest" },
-];
-
 export function WorkspaceCard({
-  item, index, onUpdate, onRemove, onClean, onReviewRecords, onOpenInModel, disabled,
+  item, index, onUpdate, onRemove, onClean, onReviewRecords, disabled,
 }: WorkspaceCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
@@ -62,7 +54,7 @@ export function WorkspaceCard({
             <span className="text-xs text-sdm-muted shrink-0">{item.fileRows.toLocaleString()} records</span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
               <label className="text-xs text-sdm-muted">Species:</label>
               <input
@@ -76,30 +68,6 @@ export function WorkspaceCard({
                   disabled:opacity-50"
               />
             </div>
-            <div className="flex items-center gap-1.5">
-              <label className="text-xs text-sdm-muted">Model:</label>
-              <select
-                value={item.modelId}
-                onChange={(e) => onUpdate(item.id, { modelId: e.target.value })}
-                disabled={disabled}
-                className="rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text
-                  focus:outline-none focus:ring-1 focus:ring-sdm-accent/50 disabled:opacity-50"
-              >
-                {MODEL_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-            <label className="flex items-center gap-1.5 text-xs text-sdm-text cursor-pointer">
-              <input
-                type="checkbox"
-                checked={item.cleanBeforeRun}
-                onChange={(e) => onUpdate(item.id, { cleanBeforeRun: e.target.checked })}
-                disabled={disabled}
-                className="rounded border-sdm-border bg-sdm-surface-soft"
-              />
-              Clean before run
-            </label>
           </div>
 
           <div className="flex items-center justify-between pt-1">
@@ -131,14 +99,6 @@ export function WorkspaceCard({
                   className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-sdm-accent hover:bg-sdm-accent/10 disabled:opacity-50"
                 >
                   Clean
-                </button>
-              )}
-              {isCleaned && (
-                <button
-                  onClick={() => onOpenInModel(item.id)}
-                  className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-sdm-accent hover:bg-sdm-accent/10"
-                >
-                  Open in model <ArrowRight className="h-3 w-3" />
                 </button>
               )}
               {isCleaned && (
