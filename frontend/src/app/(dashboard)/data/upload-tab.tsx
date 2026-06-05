@@ -27,7 +27,6 @@ interface UploadTabProps {
   onWorkspaceAdd: (file: UploadFile, species?: string) => void;
   onWorkspaceUpdate: (id: string, updates: Partial<WorkspaceFile>) => void;
   onWorkspaceRemove: (id: string) => void;
-  onOpenInModel: (id: string) => void;
   onWorkspaceReorder: (files: WorkspaceFile[]) => void;
   hasGbifCredentials?: boolean;
 }
@@ -35,7 +34,7 @@ interface UploadTabProps {
 export function UploadTab({
   uploadResult, uploadLoading, uploadError, onUpload, onDelete,
   previousUploads, previousUploadsLoading,
-  workspaceFiles, onWorkspaceAdd, onWorkspaceUpdate, onWorkspaceRemove, onOpenInModel,
+  workspaceFiles, onWorkspaceAdd, onWorkspaceUpdate, onWorkspaceRemove,
   onWorkspaceReorder, hasGbifCredentials,
 }: UploadTabProps) {
   // ── Storage ─────────────────────────────────────────────────
@@ -204,7 +203,7 @@ export function UploadTab({
   };
 
   const handleCleanAll = async () => {
-    const toClean = workspaceFiles.filter(f => f.cleanBeforeRun && !f.cleanedFileId && !f.cleanLoading);
+    const toClean = workspaceFiles.filter(f => !f.cleanedFileId && !f.cleanLoading);
     await Promise.allSettled(toClean.map(f => handleCleanCard(f.id)));
   };
 
@@ -340,7 +339,7 @@ export function UploadTab({
           </div>
           {workspaceFiles.length > 0 && (
             <div className="flex items-center gap-2">
-              <button onClick={handleCleanAll} disabled={cleanRunning || workspaceFiles.filter(f => f.cleanBeforeRun && !f.cleanedFileId).length === 0}
+              <button onClick={handleCleanAll} disabled={cleanRunning || workspaceFiles.filter(f => !f.cleanedFileId).length === 0}
                 className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-50">
                 {cleanRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                 Clean all
@@ -366,7 +365,6 @@ export function UploadTab({
                   <WorkspaceCard key={f.id} item={f} index={i}
                     onUpdate={onWorkspaceUpdate} onRemove={onWorkspaceRemove}
                     onClean={handleCleanCard} onReviewRecords={handleReviewRecords}
-                    onOpenInModel={onOpenInModel}
                     disabled={cleanRunning} />
                 ))}
               </SortableContext>

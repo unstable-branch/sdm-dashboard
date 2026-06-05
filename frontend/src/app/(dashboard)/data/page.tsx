@@ -85,9 +85,6 @@ function DataPageContent() {
         fileCleaned: file.cleaned,
         fileCleanedFileId: file.cleaned_file_id,
         selectedSpecies: [speciesOverride || file.species || extractSpeciesFromFilename(file.file_name) || "Untitled species"],
-        modelType: "single",
-        modelId: "glm",
-        cleanBeforeRun: true,
         cleanLoading: false,
         cleanError: null,
       }];
@@ -105,26 +102,6 @@ function DataPageContent() {
   const handleWorkspaceReorder = useCallback((reordered: WorkspaceFile[]) => {
     setWorkspaceFiles(reordered);
   }, []);
-
-  const handleOpenInModel = useCallback((cardId: string) => {
-    const card = workspaceFiles.find(f => f.id === cardId);
-    if (!card) return;
-    const store = useSDMStore.getState();
-    store.setOccurrenceFilePath(card.filePath);
-    store.setSpecies(card.selectedSpecies[0] || "Untitled species");
-    store.setRecordCount(card.fileRows);
-    if (card.cleanedFileId) {
-      store.setCleanedOccurrence({
-        filePath: card.cleanedFileId,
-        df: [],
-        sourceCounts: {},
-        nAbsentExcluded: 0,
-        originalRows: card.fileRows,
-        validRecords: card.cleanValidRecords || card.fileRows,
-      });
-    }
-    router.push("/model");
-  }, [workspaceFiles, router]);
 
   // ── Climate state ───────────────────────────────────────────
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
@@ -337,7 +314,6 @@ function DataPageContent() {
             onWorkspaceAdd={handleWorkspaceAdd}
             onWorkspaceUpdate={handleWorkspaceUpdate}
             onWorkspaceRemove={handleWorkspaceRemove}
-            onOpenInModel={handleOpenInModel}
             onWorkspaceReorder={handleWorkspaceReorder}
             hasGbifCredentials={hasGbifCredentials}
           />
