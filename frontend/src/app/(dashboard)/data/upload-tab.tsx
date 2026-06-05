@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, closestCenter,
+  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, pointerWithin,
   type DragStartEvent, type DragEndEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -225,7 +225,7 @@ export function UploadTab({
   // ── Render ──────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      <DndContext sensors={sensors} collisionDetection={closestCenter}
+      <DndContext sensors={sensors} collisionDetection={pointerWithin}
         onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
 
         {/* ── Add data section ──────────────────────────────── */}
