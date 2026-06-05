@@ -1,6 +1,5 @@
 "use client";
 
-import { useDraggable } from "@dnd-kit/core";
 import { GripVertical, Plus, Trash2 } from "lucide-react";
 import type { UploadFile } from "@/services/types";
 
@@ -18,32 +17,15 @@ const FORMAT_COLORS: Record<string, string> = {
 };
 
 export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace, onDelete }: WorkspaceSourceCardProps) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: file.file_id,
-    data: { type: "source", file },
-    disabled: disabled || !file.file_id,
-  });
-
-  const style = transform
-    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
-    : undefined;
-
   const sizeStr = file.file_size > 1024 * 1024
     ? `${(file.file_size / 1024 / 1024).toFixed(1)} MB`
     : `${(file.file_size / 1024).toFixed(0)} KB`;
 
   return (
     <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      data-dragging={isDragging || undefined}
+      className="flex items-center gap-2 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm transition-colors
+        hover:border-sdm-accent/50 data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed"
       data-disabled={disabled || undefined}
-      className="flex items-center gap-2 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm transition-colors touch-none select-none
-        hover:border-sdm-accent/50 data-[dragging]:opacity-50 data-[dragging]:shadow-lg
-        data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed cursor-grab active:cursor-grabbing"
-      onDragStart={(e) => e.preventDefault()}
     >
       <GripVertical className="h-4 w-4 shrink-0 text-sdm-muted" />
       <div className="min-w-0 flex-1">
@@ -69,7 +51,7 @@ export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace, onDelete
           <Plus className="h-3 w-3" /> Add
         </button>
       )}
-      {disabled && !onAddToWorkspace && (
+      {disabled && (
         <span className="shrink-0 text-xs text-sdm-accent">In workspace</span>
       )}
       {onDelete && !disabled && (
