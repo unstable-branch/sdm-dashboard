@@ -244,7 +244,7 @@ function(req) {
     }
 
     db_insert_upload(
-      con, req$user_id %||% "unknown",
+      con, req$user_id,
       dest_path, upload_result$filename %||% basename(dest_path), file_size,
       upload_result$format %||% "csv", upload_result$n_rows %||% 0L,
       if (is.character(upload_result$species_detected)) upload_result$species_detected else NULL,
@@ -266,13 +266,22 @@ function(req, limit = 50) {
   if (is.null(con)) return(list(uploads = list()))
   on.exit(DBI::dbDisconnect(con), add = TRUE)
   tryCatch({
-    user_filter <- req$user_id %||% "unknown"
-    rows <- DBI::dbGetQuery(con,
-      "SELECT id, filename, file_path, file_size, format, n_rows, species, columns_detected, created_at,
-              is_cleaned, cleaned_file_path, cleaned_valid_records, cleaned_original_rows
-       FROM uploads WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
-      params = list(user_filter, limit)
-    )
+    user_filter <- req$user_id
+    rows <- if (is.null(user_filter)) {
+      DBI::dbGetQuery(con,
+        "SELECT id, filename, file_path, file_size, format, n_rows, species, columns_detected, created_at,
+                is_cleaned, cleaned_file_path, cleaned_valid_records, cleaned_original_rows
+         FROM uploads ORDER BY created_at DESC LIMIT $1",
+        params = list(limit)
+      )
+    } else {
+      DBI::dbGetQuery(con,
+        "SELECT id, filename, file_path, file_size, format, n_rows, species, columns_detected, created_at,
+                is_cleaned, cleaned_file_path, cleaned_valid_records, cleaned_original_rows
+         FROM uploads WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
+        params = list(user_filter, limit)
+      )
+    }
     if (nrow(rows) == 0) return(list(uploads = list()))
     list(uploads = lapply(seq_len(nrow(rows)), function(i) as.list(rows[i, ])))
   }, error = function(e) list(uploads = list(), error = conditionMessage(e)))

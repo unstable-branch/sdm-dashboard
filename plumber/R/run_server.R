@@ -149,6 +149,10 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
       cat("  Remove PLUMBER_AUTH_DISABLED=true from production environment.\n")
       quit(status = 1)
     }
+    fwd_user <- get_hdr(req, "x-forwarded-user")
+    if (!is.null(fwd_user) && nzchar(fwd_user)) {
+      req$user_id <- fwd_user
+    }
     return(NULL)
   }
 
