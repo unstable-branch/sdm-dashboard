@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { DndContext, PointerSensor, useSensor, useSensors, closestCenter } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { Upload, Globe, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Layers, Plus } from "lucide-react";
+import { Upload, Globe, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Layers, Plus, Settings } from "lucide-react";
 import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
 import { PreviewTable } from "@/components/data/preview-table";
@@ -14,6 +14,18 @@ import { GbifSearch } from "@/components/data/gbif-search";
 import { apiPost, apiGet } from "@/services/api";
 import type { UploadFile } from "@/services/types";
 import type { WorkspaceFile, OccurrencePoint } from "./types";
+
+const CC_TESTS_OPTIONS = [
+  { value: "sea", label: "Sea" },
+  { value: "capitals", label: "Capitals" },
+  { value: "centroids", label: "Centroids" },
+  { value: "institutions", label: "Institutions" },
+  { value: "urban", label: "Urban" },
+  { value: "zero", label: "Zero coordinates" },
+  { value: "equal", label: "Equal coordinates" },
+  { value: "gbif", label: "GBIF headquarters" },
+  { value: "country", label: "Country" },
+];
 
 interface UploadTabProps {
   uploadResult: Record<string, unknown> | null;
@@ -161,11 +173,50 @@ export function UploadTab({
     } catch {}
   }, [workspaceFiles, onWorkspaceRemove]);
 
+  // ── Cleaning defaults ────────────────────────────────────────
+  const [cleaningDefaults, setCleaningDefaults] = useState({
+    use_cc: true,
+    cc_tests: "all",
+    min_source_records: 15,
+    merge_small_sources: true,
+  });
+
+  const isCcTestSelected = (test: string) =>
+    cleaningDefaults.cc_tests === "all" || cleaningDefaults.cc_tests.split(",").includes(test);
+
+  const handleToggleCcTest = (test: string) => {
+    setCleaningDefaults(prev => {
+      const current = prev.cc_tests === "all"
+        ? CC_TESTS_OPTIONS.map(o => o.value)
+        : prev.cc_tests.split(",").filter(Boolean);
+      const next = current.includes(test)
+        ? current.filter(t => t !== test)
+        : [...current, test];
+      return { ...prev, cc_tests: next.length === CC_TESTS_OPTIONS.length ? "all" : next.join(",") };
+    });
+  };
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
+        setSettingsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [settingsOpen]);
+
   // ── History panel open/close ────────────────────────────────
   const [historyOpen, setHistoryOpen] = useState(false);
 
   // ── Per-card cleaning ───────────────────────────────────────
   const cleanRunning = workspaceFiles.some(f => f.cleanLoading);
+  const cleanAllCount = workspaceFiles.filter(f => !f.cleanedFileId && !f.cleanLoading).length;
+  const cleanActiveCount = workspaceFiles.filter(f => f.cleanLoading).length;
 
   const handleCleanCard = async (cardId: string) => {
     const card = workspaceFiles.find(f => f.id === cardId);
@@ -175,26 +226,25 @@ export function UploadTab({
       const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", {
         file_id: card.fileId,
         species: card.selectedSpecies[0] || "",
-        min_source_records: 15,
-        merge_small_sources: true,
-        use_cc: true,
-        cc_tests: "all",
+        min_source_records: cleaningDefaults.min_source_records,
+        merge_small_sources: cleaningDefaults.merge_small_sources,
+        use_cc: cleaningDefaults.use_cc,
+        cc_tests: cleaningDefaults.cc_tests,
       }, { timeout: 600000 });
       const cleanedFileId = (result.cleaned_file_id || result.cleaned_file_path) as string | undefined;
+      if (!cleanedFileId) throw new Error("API returned no cleaned file ID");
       const validRecords = (result.valid_records as number) || 0;
       onWorkspaceUpdate(cardId, {
         cleanLoading: false,
         cleanedFileId,
         cleanValidRecords: validRecords,
       });
-      if (cleanedFileId) {
-        apiPost(`/api/v1/data/occurrences/clean/update-upload`, {
-          file_id: card.fileId,
-          cleaned: true,
-          cleaned_file_path: cleanedFileId,
-          cleaned_valid_records: validRecords,
-        }).catch(() => {});
-      }
+      apiPost(`/api/v1/data/occurrences/clean/update-upload`, {
+        file_id: card.fileId,
+        cleaned: true,
+        cleaned_file_path: cleanedFileId,
+        cleaned_valid_records: validRecords,
+      }).catch(() => {});
     } catch (err) {
       onWorkspaceUpdate(cardId, {
         cleanLoading: false,
@@ -205,7 +255,9 @@ export function UploadTab({
 
   const handleCleanAll = async () => {
     const toClean = workspaceFiles.filter(f => !f.cleanedFileId && !f.cleanLoading);
-    await Promise.allSettled(toClean.map(f => handleCleanCard(f.id)));
+    for (let i = 0; i < toClean.length; i += 3) {
+      await Promise.allSettled(toClean.slice(i, i + 3).map(f => handleCleanCard(f.id)));
+    }
   };
 
   // ── Review records modal ────────────────────────────────────
@@ -214,6 +266,7 @@ export function UploadTab({
     records: OccurrencePoint[]; sourceCounts: Record<string, number>; ccLog: string[];
     validRecords: number; originalRows: number;
   } | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
 
   const handleReviewRecords = async (cardId: string) => {
@@ -221,27 +274,25 @@ export function UploadTab({
     if (!card) return;
     setReviewCardId(cardId);
     setReviewLoading(true);
+    setReviewError(null);
     try {
-      const result = await apiGet<Record<string, unknown>>(`/api/v1/data/occurrences/clean/result?file_id=${encodeURIComponent(card.fileId)}`).catch(() => null);
-      if (result) {
-        setReviewData({
-          records: (result.cleaned_records || []) as OccurrencePoint[],
-          sourceCounts: (result.source_counts || {}) as Record<string, number>,
-          ccLog: (result.cc_log || []) as string[],
-          validRecords: (result.valid_records as number) || 0,
-          originalRows: (result.original_rows as number) || 0,
-        });
-      } else {
-        setReviewData({
-          records: [],
-          sourceCounts: {},
-          ccLog: [],
-          validRecords: 0,
-          originalRows: 0,
-        });
-      }
-    } catch {
-      setReviewData(null);
+      const result = await apiGet<Record<string, unknown>>(`/api/v1/data/occurrences/clean/result?file_id=${encodeURIComponent(card.fileId)}`);
+      setReviewData({
+        records: (result.cleaned_records || []) as OccurrencePoint[],
+        sourceCounts: (result.source_counts || {}) as Record<string, number>,
+        ccLog: (result.cc_log || []) as string[],
+        validRecords: (result.valid_records as number) || 0,
+        originalRows: (result.original_rows as number) || 0,
+      });
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : "Failed to load review data");
+      setReviewData({
+        records: [],
+        sourceCounts: {},
+        ccLog: [],
+        validRecords: 0,
+        originalRows: 0,
+      });
     } finally {
       setReviewLoading(false);
     }
@@ -340,10 +391,52 @@ export function UploadTab({
           </div>
           {workspaceFiles.length > 0 && (
             <div className="flex items-center gap-2">
-              <button onClick={handleCleanAll} disabled={cleanRunning || workspaceFiles.filter(f => !f.cleanedFileId).length === 0}
+              <div className="relative" ref={settingsRef}>
+                <button onClick={() => setSettingsOpen(!settingsOpen)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-2.5 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface">
+                  <Settings className="h-3.5 w-3.5" />
+                </button>
+                {settingsOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-50 w-72 rounded-lg border border-sdm-border bg-sdm-bg shadow-xl p-4 space-y-3">
+                    <h3 className="text-sm font-semibold text-sdm-heading">Clean settings</h3>
+                    <label className="flex items-center gap-2 text-xs text-sdm-text cursor-pointer">
+                      <input type="checkbox" checked={cleaningDefaults.use_cc}
+                        onChange={(e) => setCleaningDefaults(p => ({ ...p, use_cc: e.target.checked }))}
+                        className="rounded border-sdm-border" />
+                      Use CoordinateCleaner
+                    </label>
+                    {cleaningDefaults.use_cc && (
+                      <div className="space-y-1 pl-4">
+                        <p className="text-xs text-sdm-muted">CC tests</p>
+                        {CC_TESTS_OPTIONS.map(opt => (
+                          <label key={opt.value} className="flex items-center gap-1.5 text-xs text-sdm-text cursor-pointer">
+                            <input type="checkbox" checked={isCcTestSelected(opt.value)}
+                              onChange={() => handleToggleCcTest(opt.value)}
+                              className="rounded border-sdm-border" />
+                            {opt.label}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    <div>
+                      <label className="text-xs text-sdm-muted">Min records per source</label>
+                      <input type="number" value={cleaningDefaults.min_source_records}
+                        onChange={(e) => setCleaningDefaults(p => ({ ...p, min_source_records: Math.max(1, parseInt(e.target.value) || 1) }))}
+                        min={1} className="w-full rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text" />
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-sdm-text cursor-pointer">
+                      <input type="checkbox" checked={cleaningDefaults.merge_small_sources}
+                        onChange={(e) => setCleaningDefaults(p => ({ ...p, merge_small_sources: e.target.checked }))}
+                        className="rounded border-sdm-border" />
+                      Merge small sources
+                    </label>
+                  </div>
+                )}
+              </div>
+              <button onClick={handleCleanAll} disabled={cleanRunning || cleanAllCount === 0}
                 className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-50">
                 {cleanRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                Clean all
+                {cleanRunning ? `Cleaning (${cleanActiveCount} active)` : "Clean all"}
               </button>
             </div>
           )}
@@ -413,16 +506,31 @@ export function UploadTab({
           <Loader2 className="h-8 w-8 animate-spin text-sdm-accent" />
         </div>
       )}
-      {reviewData && reviewCardId && (
+      {reviewData && reviewCardId && !reviewError && (
         <ReviewRecordsModal
           open={true}
-          onClose={() => { setReviewCardId(null); setReviewData(null); }}
+          onClose={() => { setReviewCardId(null); setReviewData(null); setReviewError(null); }}
           records={reviewData.records}
           sourceCounts={reviewData.sourceCounts}
           ccLog={reviewData.ccLog}
           validRecords={reviewData.validRecords}
           originalRows={reviewData.originalRows}
         />
+      )}
+      {reviewError && reviewCardId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="rounded-lg border border-sdm-danger/30 bg-sdm-surface p-6 max-w-md shadow-xl">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="h-5 w-5 text-sdm-danger" />
+              <h3 className="text-sm font-semibold text-sdm-heading">Failed to load review</h3>
+            </div>
+            <p className="text-sm text-sdm-muted">{reviewError}</p>
+            <button onClick={() => { setReviewCardId(null); setReviewData(null); setReviewError(null); }}
+              className="mt-4 rounded-md bg-sdm-surface-soft px-3 py-1.5 text-xs font-medium text-sdm-text hover:bg-sdm-border">
+              Close
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
