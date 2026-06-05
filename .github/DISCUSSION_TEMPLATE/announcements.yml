@@ -1,0 +1,52 @@
+title: "[Announcement] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use announcements for maintainer updates: releases, beta notes, breaking changes, roadmap changes, hosting changes, or project governance updates.
+  - type: input
+    id: headline
+    attributes:
+      label: Headline
+      description: Short version of the update.
+      placeholder: "v2 beta release candidate is ready for wider testing"
+    validations:
+      required: true
+  - type: dropdown
+    id: update-type
+    attributes:
+      label: Update type
+      options:
+        - Release
+        - Beta note
+        - Roadmap
+        - Maintenance
+        - Documentation
+        - Hosting or deployment
+        - Community
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What changed, why it matters, and who should read this.
+      placeholder: "Summarize the change in a few paragraphs."
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: User impact
+      description: Call out required action, compatibility notes, migration steps, or "No action required."
+      placeholder: "Existing projects are unaffected. New Docker users should pull the latest image."
+    validations:
+      required: true
+  - type: textarea
+    id: links
+    attributes:
+      label: Links
+      description: Relevant release notes, docs, pull requests, tags, or commits.
+      placeholder: "- Release: ...\n- Docs: ..."
+    validations:
+      required: false

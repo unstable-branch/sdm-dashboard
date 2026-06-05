@@ -1,0 +1,69 @@
+title: "[Help and Q&A] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use Help and Q&A for usage questions, modelling workflow questions, installation help, API questions, and interpretation questions. For reproducible bugs, please open an issue instead.
+  - type: input
+    id: question
+    attributes:
+      label: Question
+      description: Ask the question in one sentence.
+      placeholder: "Why are my future projection rasters returning mostly NA values?"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Installation/setup
+        - Data import
+        - Occurrence cleaning
+        - Model selection
+        - Cross-validation/evaluation
+        - Future projection
+        - Output interpretation
+        - Docker/modern stack
+        - Legacy Shiny app
+        - API usage
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Describe what you are trying to do, what you expected, and where you are stuck.
+      placeholder: "I loaded presence records for..., selected..., and expected..."
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Include commands, settings, docs pages, or workflow steps already checked.
+      placeholder: "- Checked docs/METHODS.md\n- Re-ran with GLM only\n- ..."
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Add versions and runtime details when relevant.
+      value: |
+        - SDM Dashboard version/commit:
+        - OS:
+        - Browser:
+        - R version:
+        - Docker or local:
+    validations:
+      required: false
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Data privacy
+      options:
+        - label: I have removed private occurrence records, API keys, credentials, and unpublished sensitive locality data.
+          required: true
