@@ -241,7 +241,7 @@ export function UploadTab({
       while (Date.now() < deadline) {
         await new Promise(r => setTimeout(r, 2000));
         try {
-          const status = await apiGet<Record<string, unknown>>(`/api/v1/models/status/${encodeURIComponent(jobId)}`);
+          const status = await apiGet<Record<string, unknown>>(`/api/v1/data/jobs/${encodeURIComponent(jobId)}`);
           const s = status?.status as string | undefined;
           if (s === "completed" || s === "success") {
             const cleanedFileId = (status.cleaned_file_id || status.cleaned_file_path || (status.result as Record<string, unknown> | undefined)?.cleaned_file_id) as string | undefined;
