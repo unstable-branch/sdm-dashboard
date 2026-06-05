@@ -467,7 +467,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
             <p className="text-sm font-medium text-sdm-text">Cleaned occurrence data ready</p>
             <p className="text-xs text-sdm-muted">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords.toLocaleString()} cleaned records</p>
           </div>
-          <Link href="/data?tab=clean" className="text-xs font-medium text-sdm-accent hover:underline shrink-0">Review →</Link>
+          <Link href="/data?tab=upload" className="text-xs font-medium text-sdm-accent hover:underline shrink-0">Review →</Link>
         </div>
       ) : occurrenceFile ? (
         <div className="rounded-md border border-sdm-success/30 bg-sdm-success/5 px-4 py-3 flex items-center gap-3">
@@ -493,7 +493,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           <AlertTriangle className="h-4 w-4 text-sdm-warning shrink-0 mt-0.5" />
           <div className="min-w-0">
             <p className="text-sm font-medium text-sdm-warning">Cleaning recommended</p>
-            <p className="text-xs text-sdm-warning">Clean your occurrence data on the <Link href="/data?tab=clean" className="underline">Data page</Link> before running the model.</p>
+            <p className="text-xs text-sdm-warning">Clean your occurrence data on the <Link href="/data?tab=upload" className="underline">Data page</Link> before running the model.</p>
           </div>
         </div>
       )}

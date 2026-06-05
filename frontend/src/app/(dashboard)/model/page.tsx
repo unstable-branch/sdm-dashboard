@@ -259,7 +259,7 @@ export default function ModelPage() {
               <div>
                 <p className="text-sm text-sdm-text font-medium">Cleaned occurrence data</p>
                 <p className="text-xs text-sdm-muted mt-1">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords.toLocaleString()} cleaned records</p>
-                <p className="text-xs text-sdm-accent mt-1"><Link href="/data?tab=clean" className="underline">Review on Data page</Link></p>
+                <p className="text-xs text-sdm-accent mt-1"><Link href="/data?tab=upload" className="underline">Review on Data page</Link></p>
                 {species && species !== "Untitled species" && (
                   <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>
                 )}
@@ -271,7 +271,7 @@ export default function ModelPage() {
                   <p className="text-sm text-sdm-text font-mono truncate">{typeof occurrenceFile === "string" ? occurrenceFile.split("/").pop() : String(occurrenceFile)}</p>
                 </div>
                 <p className="text-xs text-sdm-muted mt-1">{recordCount.toLocaleString()} records loaded</p>
-                <p className="text-xs text-sdm-warning mt-1">Not cleaned. <Link href="/data?tab=clean" className="underline">Clean on Data page</Link> first.</p>
+                <p className="text-xs text-sdm-warning mt-1">Not cleaned. <Link href="/data?tab=upload" className="underline">Clean on Data page</Link> first.</p>
                 {species && species !== "Untitled species" && (
                   <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>
                 )}

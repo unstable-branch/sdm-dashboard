@@ -103,6 +103,23 @@ function DataPageContent() {
     setWorkspaceFiles(reordered);
   }, []);
 
+  const handleOpenInModel = useCallback((cardId: string) => {
+    const card = workspaceFiles.find(f => f.id === cardId);
+    if (!card) return;
+    const store = useSDMStore.getState();
+    store.setOccurrenceFilePath(card.filePath);
+    store.setSpecies(card.selectedSpecies[0] || "Untitled species");
+    store.setRecordCount(card.fileRows);
+    if (card.cleanedFileId) {
+      store.setCleanedOccurrence({
+        filePath: card.cleanedFileId, df: [], sourceCounts: {},
+        nAbsentExcluded: 0, originalRows: card.fileRows,
+        validRecords: card.cleanValidRecords || card.fileRows,
+      });
+    }
+    router.push("/model");
+  }, [workspaceFiles, router]);
+
   // ── Climate state ───────────────────────────────────────────
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
@@ -315,6 +332,7 @@ function DataPageContent() {
             onWorkspaceUpdate={handleWorkspaceUpdate}
             onWorkspaceRemove={handleWorkspaceRemove}
             onWorkspaceReorder={handleWorkspaceReorder}
+            onOpenInModel={handleOpenInModel}
             hasGbifCredentials={hasGbifCredentials}
           />
         )}
