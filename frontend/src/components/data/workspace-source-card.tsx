@@ -23,8 +23,17 @@ export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace, onDelete
 
   return (
     <div
-      className="flex items-center gap-2 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm transition-colors
-        hover:border-sdm-accent/50 data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed"
+      draggable={!disabled}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/x-sdm-file", JSON.stringify({
+          file_id: file.file_id,
+          file_name: file.file_name,
+          n_rows: file.n_rows,
+        }));
+        e.dataTransfer.effectAllowed = "copy";
+      }}
+      className="flex items-center gap-2 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm transition-colors touch-none
+        hover:border-sdm-accent/50 data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed cursor-grab active:cursor-grabbing"
       data-disabled={disabled || undefined}
     >
       <GripVertical className="h-4 w-4 shrink-0 text-sdm-muted" />
