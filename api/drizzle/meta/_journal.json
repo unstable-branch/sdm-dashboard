@@ -134,6 +134,13 @@
       "when": 1780500000000,
       "tag": "0017_add_performance_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781000000000,
+      "tag": "0018_add_run_storage_bytes",
+      "breakpoints": true
     }
   ]
 }
