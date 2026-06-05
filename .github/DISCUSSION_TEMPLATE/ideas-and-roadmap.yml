@@ -1,0 +1,65 @@
+title: "[Ideas and Roadmap] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use Ideas and Roadmap for product, modelling, API, documentation, workflow, or ecosystem proposals that need discussion before becoming issues or pull requests.
+  - type: input
+    id: idea
+    attributes:
+      label: Idea
+      description: One-sentence version of the proposal.
+      placeholder: "Add a guided ODMAP report review step after each model run"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Modelling workflow
+        - Data import and cleaning
+        - Climate/future projection
+        - Output interpretation
+        - API/automation
+        - Frontend UX
+        - Legacy Shiny app
+        - Documentation/tutorials
+        - Packaging/deployment
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What user need, research workflow, or maintenance pain does this address?
+      placeholder: "Users can export ODMAP, but they still need help checking whether required fields are complete."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed shape
+      description: Describe the workflow, UI/API behavior, docs, or implementation direction you imagine.
+      placeholder: "After a run completes, show a checklist..."
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Tradeoffs and constraints
+      description: Note performance, scientific validity, package availability, data licensing, privacy, or maintenance concerns.
+      placeholder: "This should not require hosted data or external APIs by default."
+    validations:
+      required: false
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Before posting
+      options:
+        - label: I have checked for an existing discussion or issue about this idea.
+          required: true
+        - label: I understand this is a discussion, not a commitment that the feature will be built.
+          required: true
