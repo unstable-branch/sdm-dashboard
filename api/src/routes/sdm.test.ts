@@ -160,7 +160,6 @@ vi.mock("../services/queue", () => ({
   getJobQueue: vi.fn(() => ({
     remove: vi.fn(async () => {}),
   })),
-  getSharedRedis: vi.fn(() => null),
 }));
 
 vi.mock("hono/jwt", () => ({
