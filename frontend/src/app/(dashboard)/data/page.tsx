@@ -69,8 +69,9 @@ function DataPageContent() {
     };
   }, []);
 
-  // ── Workspace state ─────────────────────────────────────────
-  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
+  // ── Workspace state (persisted in Zustand store across navigations) ──
+  const workspaceFiles = useSDMStore((s) => s.workspaceFiles);
+  const setWorkspaceFiles = useSDMStore((s) => s.setWorkspaceFiles);
 
   const handleWorkspaceAdd = useCallback((file: UploadFile, speciesOverride?: string) => {
     setWorkspaceFiles((prev) => {
@@ -89,19 +90,19 @@ function DataPageContent() {
         cleanError: null,
       }];
     });
-  }, []);
+  }, [setWorkspaceFiles]);
 
   const handleWorkspaceUpdate = useCallback((id: string, updates: Partial<WorkspaceFile>) => {
     setWorkspaceFiles((prev) => prev.map(f => f.id === id ? { ...f, ...updates } : f));
-  }, []);
+  }, [setWorkspaceFiles]);
 
   const handleWorkspaceRemove = useCallback((id: string) => {
     setWorkspaceFiles((prev) => prev.filter(f => f.id !== id));
-  }, []);
+  }, [setWorkspaceFiles]);
 
   const handleWorkspaceReorder = useCallback((reordered: WorkspaceFile[]) => {
     setWorkspaceFiles(reordered);
-  }, []);
+  }, [setWorkspaceFiles]);
 
   const handleOpenInModel = useCallback((cardId: string) => {
     const card = workspaceFiles.find(f => f.id === cardId);
@@ -333,6 +334,7 @@ function DataPageContent() {
             onWorkspaceRemove={handleWorkspaceRemove}
             onWorkspaceReorder={handleWorkspaceReorder}
             onOpenInModel={handleOpenInModel}
+            onRefreshUploads={fetchUploads}
             hasGbifCredentials={hasGbifCredentials}
           />
         )}

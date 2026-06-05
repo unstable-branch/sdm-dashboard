@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { WorkspaceFile } from "@/app/(dashboard)/data/types";
 
 interface SDMState {
   species: string;
@@ -55,6 +56,9 @@ interface SDMState {
   modelJobStartTime: string | null;
   setModelJobStartTime: (time: string | null) => void;
 
+  workspaceFiles: WorkspaceFile[];
+  setWorkspaceFiles: (files: WorkspaceFile[] | ((prev: WorkspaceFile[]) => WorkspaceFile[])) => void;
+
   error: string | null;
   setError: (error: string | null) => void;
 
@@ -104,6 +108,11 @@ export const useSDMStore = create<SDMState>()((set) => ({
   modelJobStartTime: null,
   setModelJobStartTime: (time) => set({ modelJobStartTime: time }),
 
+  workspaceFiles: [],
+  setWorkspaceFiles: (files) => set((state) => ({
+    workspaceFiles: typeof files === "function" ? files(state.workspaceFiles) : files,
+  })),
+
   error: null,
   setError: (error) => set({ error }),
 
@@ -123,6 +132,7 @@ export const useSDMStore = create<SDMState>()((set) => ({
       targetsProgress: null,
       modelJobId: null,
       modelJobStartTime: null,
+      workspaceFiles: [],
       error: null,
     }),
 }));
