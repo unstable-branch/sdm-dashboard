@@ -8,7 +8,7 @@ import { useJobSSE } from "@/hooks/use-job-sse";
 import type { RunSummary } from "@/services/types";
 import type { PlumberJobLogs } from "@sdm/shared";
 
-interface Run extends RunSummary {}
+type Run = RunSummary;
 
 interface RunHistoryProps {
   onRunSelect?: (runId: string) => void;

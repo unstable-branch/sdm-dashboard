@@ -8,7 +8,7 @@ test_that("same seed produces identical output", {
   dir.create(tmp_out1, showWarnings = FALSE)
   dir.create(tmp_out2, showWarnings = FALSE)
 
-  occ <- make_synthetic_occurrence(tmp_occ, n_pres = 40, seed = 42L)
+  occ <- make_synthetic_occurrence(tmp_occ, n_pres = 60, seed = 42L)
 
   env <- make_test_raster(xmin = 137, xmax = 145, ymin = -27, ymax = -19,
                           nrows = 30, ncols = 30, n_layers = 2,
@@ -82,7 +82,7 @@ test_that("different seeds produce different output", {
   dir.create(tmp_out1, showWarnings = FALSE)
   dir.create(tmp_out2, showWarnings = FALSE)
 
-  occ <- make_synthetic_occurrence(tmp_occ, n_pres = 40, seed = 42L)
+  occ <- make_synthetic_occurrence(tmp_occ, n_pres = 60, seed = 42L)
 
   env <- make_test_raster(xmin = 137, xmax = 145, ymin = -27, ymax = -19,
                           nrows = 30, ncols = 30, n_layers = 2,
@@ -132,7 +132,7 @@ test_that("GAM backend is deterministic with same seed", {
   dir.create(tmp_out1, showWarnings = FALSE)
   dir.create(tmp_out2, showWarnings = FALSE)
 
-  occ <- make_synthetic_occurrence(tmp_occ, n_pres = 40, seed = 42L)
+  occ <- make_synthetic_occurrence(tmp_occ, n_pres = 60, seed = 42L)
 
   env <- make_test_raster(xmin = 137, xmax = 145, ymin = -27, ymax = -19,
                           nrows = 30, ncols = 30, n_layers = 2,
@@ -180,7 +180,7 @@ test_that("ranger (RF) backend is deterministic with same seed and nthread=1", {
   dir.create(tmp_out1, showWarnings = FALSE)
   dir.create(tmp_out2, showWarnings = FALSE)
 
-  occ <- make_synthetic_occurrence(tmp_occ, n_pres = 40, seed = 42L)
+  occ <- make_synthetic_occurrence(tmp_occ, n_pres = 60, seed = 42L)
 
   env <- make_test_raster(xmin = 137, xmax = 145, ymin = -27, ymax = -19,
                           nrows = 30, ncols = 30, n_layers = 2,
@@ -228,7 +228,7 @@ test_that("xgboost backend is deterministic with same seed and nthread=1", {
   dir.create(tmp_out1, showWarnings = FALSE)
   dir.create(tmp_out2, showWarnings = FALSE)
 
-  occ <- make_synthetic_occurrence(tmp_occ, n_pres = 40, seed = 42L)
+  occ <- make_synthetic_occurrence(tmp_occ, n_pres = 60, seed = 42L)
 
   env <- make_test_raster(xmin = 137, xmax = 145, ymin = -27, ymax = -19,
                           nrows = 30, ncols = 30, n_layers = 2,

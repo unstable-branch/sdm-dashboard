@@ -2,16 +2,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import { dataRoutes } from "./occurrences.js";
 
-vi.mock("ioredis", () => ({
-  Redis: class MockRedis {
+vi.mock("ioredis", () => {
+  class MockRedis {
     on = vi.fn();
     connect = vi.fn(() => Promise.resolve());
     zremrangebyscore = vi.fn(() => Promise.resolve(0));
     zcard = vi.fn(() => Promise.resolve(0));
     zadd = vi.fn(() => Promise.resolve(1));
     expire = vi.fn(() => Promise.resolve(1));
-  },
-}));
+  }
+  return { default: MockRedis, Redis: MockRedis };
+});
 
 vi.mock("../db", () => ({
   db: {
@@ -42,6 +43,7 @@ vi.mock("../services/plumber", () => ({
 
 vi.mock("../services/queue", () => ({
   enqueueSdmJob: vi.fn(() => Promise.resolve("job-123")),
+  getSharedRedis: vi.fn(() => null),
 }));
 
 vi.mock("fs", () => ({
