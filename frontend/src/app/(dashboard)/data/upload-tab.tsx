@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, closestCenter,
+  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, closestCenter,
   type DragStartEvent, type DragEndEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -54,18 +54,17 @@ export function UploadTab({
     setActiveDragFile(null);
     const { active, over } = event;
     if (!over || over.id === active.id) return;
-    // Dropped on workspace drop zone → add file
-    if (over.id === "workspace-drop-zone" && active.data.current?.type === "source") {
+    // Source card dropped on workspace zone or any workspace card → add file
+    if (active.data.current?.type === "source") {
       const file = active.data.current.file as UploadFile;
-      if (file && !workspaceFiles.some(f => f.fileId === file.file_id)) {
+      const isWorkspaceTarget = over.id === "workspace-drop-zone" ||
+        workspaceFiles.some(f => f.id === over.id);
+      if (file && isWorkspaceTarget && !workspaceFiles.some(f => f.fileId === file.file_id)) {
         onWorkspaceAdd(file);
       }
       return;
     }
-    // Dropped on another workspace card → reorder
-    if (active.data.current?.type === "workspace" && over.data.current?.type === "workspace") {
-      // Reordering is handled by SortableContext + onDragEnd in the DndContext
-    }
+    // Reordering handled by SortableContext
   }, [workspaceFiles, onWorkspaceAdd]);
 
   // ── Storage ─────────────────────────────────────────────────
@@ -238,6 +237,9 @@ export function UploadTab({
     }
   };
 
+  // ── Workspace drop zone ─────────────────────────────────────
+  const { setNodeRef: dropZoneRef, isOver } = useDroppable({ id: "workspace-drop-zone" });
+
   // ── Derived ─────────────────────────────────────────────────
   const uploadPreview = uploadResult?.preview as Array<Record<string, unknown>> | undefined;
   const cols = uploadResult?.columns_detected as Record<string, string | null> | undefined;
@@ -305,8 +307,12 @@ export function UploadTab({
         </div>
 
         {/* ── Workspace ──────────────────────────────────────── */}
-        <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6"
-          id="workspace-drop-zone">
+        <div ref={dropZoneRef}
+          className={`rounded-lg border p-6 transition-colors ${
+            isOver && activeDragFile
+              ? "border-sdm-accent bg-sdm-accent/5"
+              : "border-sdm-border bg-sdm-surface"
+          }`}>
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-lg font-semibold text-sdm-heading">Workspace</h2>
@@ -329,9 +335,15 @@ export function UploadTab({
           </div>
 
           {workspaceFiles.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-sdm-border bg-sdm-surface-soft py-12 text-center">
+            <div className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed py-12 text-center transition-colors ${
+              isOver && activeDragFile
+                ? "border-sdm-accent bg-sdm-accent/5"
+                : "border-sdm-border bg-sdm-surface-soft"
+            }`}>
               <Layers className="h-8 w-8 text-sdm-muted mb-2" />
-              <p className="text-sm text-sdm-muted">Drag files from the history below, or upload a new file above</p>
+              <p className="text-sm text-sdm-muted">
+                {isOver && activeDragFile ? "Drop to add file" : "Drag files from the history below, or upload a new file above"}
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
