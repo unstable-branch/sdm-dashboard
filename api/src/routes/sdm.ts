@@ -3,7 +3,7 @@ import { modelConfigSchema } from "@sdm/shared";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob, getJobQueue } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { runs, species, batches } from "../db/schema.js";
+import { runs, species, batches, projects, users } from "../db/schema.js";
 import { eq, desc, count, and, inArray, sql } from "drizzle-orm";
 import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
@@ -617,6 +617,8 @@ sdmRoutes.delete("/runs/delete/:runId", async (c) => {
         id: runs.id,
         status: runs.status,
         jobId: runs.jobId,
+        projectId: runs.projectId,
+        runStorageBytes: runs.runStorageBytes,
       })
       .from(runs)
       .where(projectIds ? and(eq(runs.id, runId), inArray(runs.projectId, projectIds)) : eq(runs.id, runId))
@@ -636,6 +638,23 @@ sdmRoutes.delete("/runs/delete/:runId", async (c) => {
     }
 
     await db.delete(runs).where(eq(runs.id, runId));
+
+    // Subtract run storage from user's quota
+    if (run.runStorageBytes && run.runStorageBytes > 0 && run.projectId) {
+      try {
+        const [project] = await db
+          .select({ ownerId: projects.ownerId })
+          .from(projects)
+          .where(eq(projects.id, run.projectId))
+          .limit(1);
+        if (project) {
+          await db
+            .update(users)
+            .set({ storageUsedBytes: sql`greatest(0, ${users.storageUsedBytes} - ${run.runStorageBytes})` })
+            .where(eq(users.id, project.ownerId));
+        }
+      } catch { /* best-effort */ }
+    }
 
     return c.json({ ok: true, message: "Run deleted" });
   } catch (err) {

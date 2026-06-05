@@ -1,6 +1,6 @@
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
-import { runs } from "../db/schema.js";
+import { runs, projects, users } from "../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { extractProgressPercent } from "@sdm/shared";
@@ -8,7 +8,7 @@ import { readFile } from "fs/promises";
 import { readFileSync, writeFileSync, rmSync, existsSync, readdirSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join, resolve, extname } from "path";
-import { uploadFile, getBucketNames } from "./storage.js";
+import { uploadFile, getBucketNames, getDirSize } from "./storage.js";
 import { encrypt } from "./encryption.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -99,7 +99,7 @@ async function syncRunningJobs() {
     }
 
     const activeRuns = await db
-      .select({ id: runs.id, jobId: runs.jobId, status: runs.status, startedAt: runs.startedAt })
+      .select({ id: runs.id, jobId: runs.jobId, status: runs.status, startedAt: runs.startedAt, projectId: runs.projectId })
       .from(runs)
       .where(and(eq(runs.status, "running")));
 
@@ -218,6 +218,13 @@ async function syncRunningJobs() {
             // Manifest fetch is best-effort
           }
 
+          // Calculate run output directory size and add to user storage
+          let runSize = 0;
+          if (run.jobId) {
+            const jobDir = join(PROJECT_ROOT, "outputs", "jobs", run.jobId);
+            runSize = getDirSize(jobDir);
+          }
+
           await db
             .update(runs)
             .set({
@@ -227,8 +234,26 @@ async function syncRunningJobs() {
               completedAt: new Date(),
               progressLog: logs.length > 0 ? logs : undefined,
               provenance,
+              runStorageBytes: runSize,
             })
             .where(eq(runs.id, run.id));
+
+          // Add run output size to user's total storage
+          if (runSize > 0 && run.projectId) {
+            try {
+              const [project] = await db
+                .select({ ownerId: projects.ownerId })
+                .from(projects)
+                .where(eq(projects.id, run.projectId))
+                .limit(1);
+              if (project) {
+                await db
+                  .update(users)
+                  .set({ storageUsedBytes: sql`${users.storageUsedBytes} + ${runSize}` })
+                  .where(eq(users.id, project.ownerId));
+              }
+            } catch { /* best-effort */ }
+          }
 
           // Upload the 3857 COG to Garage S3 for TiTiler serving
           const tif3857Path = (status as any)?.output_files?.tif_3857;

@@ -104,6 +104,7 @@ export const runs = pgTable("runs", {
   peakMemoryMb: integer("peak_memory_mb"),
   rCpuTimeMs: integer("r_cpu_time_ms"),
   rPeakMemoryMb: integer("r_peak_memory_mb"),
+  runStorageBytes: bigint("run_storage_bytes", { mode: "number" }),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
   lastStage: text("last_stage"),

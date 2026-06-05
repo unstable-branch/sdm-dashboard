@@ -7,6 +7,7 @@ import {
   DeleteObjectCommand,
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
+import { readdirSync, statSync } from "fs";
 import { stat, readFile } from "fs/promises";
 import { join, isAbsolute, normalize, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -14,6 +15,24 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 export const PROJECT_ROOT = resolve(__dirname, "../..");
+
+export function getDirSize(dirPath: string): number {
+  let total = 0;
+  try {
+    const entries = readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        total += getDirSize(fullPath);
+      } else if (entry.isFile()) {
+        total += statSync(fullPath).size;
+      }
+    }
+  } catch {
+    // Directory doesn't exist or can't be read — return 0
+  }
+  return total;
+}
 
 function envOrDevDefault(name: string, devDefault: string): string {
   const value = process.env[name];
