@@ -1164,39 +1164,44 @@ function(req) {
 # --- Async data job helpers ---
 
 sdm_async_submit <- function(job_type, params, app_dir, user_id = "anonymous") {
-  job_id <- paste0("data-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
-  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
-  dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+  tryCatch({
+    job_id <- paste0("data-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
+    job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
+    dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
 
-  meta <- list(
-    id = job_id,
-    user_id = user_id,
-    type = job_type,
-    status = "running",
-    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    params = params
-  )
-  sdm_write_json(meta, file.path(job_dir, "meta.json"))
+    meta <- list(
+      id = job_id,
+      user_id = user_id,
+      type = job_type,
+      status = "running",
+      started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+      params = params
+    )
+    sdm_write_json(meta, file.path(job_dir, "meta.json"))
 
-  input <- params
-  input$type <- job_type
-  # Strip NULL entries — jsonlite toJSON with auto_unbox converts NULL to {} not null
-  input <- input[!sapply(input, is.null)]
-  writeLines(jsonlite::toJSON(input, auto_unbox = TRUE, pretty = TRUE), file.path(job_dir, "input.json"))
+    input <- params
+    input$type <- job_type
+    # Strip NULL entries — jsonlite toJSON with auto_unbox converts NULL to {} not null
+    input <- input[!sapply(input, is.null)]
+    writeLines(jsonlite::toJSON(input, auto_unbox = TRUE, pretty = TRUE), file.path(job_dir, "input.json"))
 
-  dispatcher_path <- file.path(app_dir, "plumber", "R", "async_dispatcher.R")
-  proc <- processx::process$new(
-    "Rscript",
-    c("--no-save", "--no-restore", dispatcher_path, app_dir, job_dir),
-    stdout = file.path(job_dir, "stdout.log"),
-    stderr = file.path(job_dir, "stderr.log")
-  )
+    dispatcher_path <- file.path(app_dir, "plumber", "R", "async_dispatcher.R")
+    proc <- processx::process$new(
+      "Rscript",
+      c("--no-save", "--no-restore", dispatcher_path, app_dir, job_dir),
+      stdout = file.path(job_dir, "stdout.log"),
+      stderr = file.path(job_dir, "stderr.log")
+    )
 
-  sdm_process_registry[[job_id]] <- proc
-  meta$process_pid <- proc$get_pid()
-  sdm_write_json(meta, file.path(job_dir, "meta.json"))
+    sdm_process_registry[[job_id]] <- proc
+    meta$process_pid <- proc$get_pid()
+    sdm_write_json(meta, file.path(job_dir, "meta.json"))
 
-  job_id
+    job_id
+  }, error = function(e) {
+    cat(sprintf("[sdm_async_submit] ERROR: %s\n", conditionMessage(e)), stderr())
+    NULL
+  })
 }
 
 sdm_async_status <- function(job_id) {
