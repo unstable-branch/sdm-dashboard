@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
+import { Readable } from "stream";
 import { resultsRoutes } from "./results.js";
 
 vi.mock("../db", () => ({
@@ -29,6 +30,7 @@ vi.mock("../db", () => ({
 vi.mock("fs", () => ({
   existsSync: vi.fn((path: string) => !path.includes("..") && !path.endsWith(".enc")),
   readFileSync: vi.fn(() => "test content"),
+  createReadStream: vi.fn(() => Readable.from([])),
 }));
 
 vi.mock("fs/promises", () => ({

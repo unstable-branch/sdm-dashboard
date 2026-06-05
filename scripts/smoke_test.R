@@ -8,6 +8,7 @@ script_path <- if (length(file_arg) > 0) normalizePath(sub("^--file=", "", file_
 project_root <- dirname(dirname(script_path))
 source(file.path(project_root, "R", "core", "bootstrap.R"))
 sdm_set_project_root(project_root)
+.libPaths(c("/usr/lib/R/site-library", .libPaths()))
 
 tags_arg <- grep("^--tags=", cmd_args, value = TRUE)
 requested_tags <- if (length(tags_arg) > 0) strsplit(sub("^--tags=", "", tags_arg[1]), ",")[[1]] else c("fast", "heavy")

@@ -1,6 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 
+vi.mock("ioredis", () => ({
+  default: class {
+    on = vi.fn();
+    connect = vi.fn(() => Promise.resolve());
+    get status() { return "ready"; }
+    zremrangebyscore = vi.fn(() => Promise.resolve(0));
+    zcard = vi.fn(() => Promise.resolve(0));
+    zadd = vi.fn(() => Promise.resolve(1));
+    expire = vi.fn(() => Promise.resolve(1));
+  },
+}));
+
 vi.mock("bcrypt", () => ({
   hash: vi.fn(() => Promise.resolve("$2b$10$hashedpassword")),
   verify: vi.fn(() => Promise.resolve(true)),

@@ -2,6 +2,19 @@ import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { Hono } from "hono";
 import { normalizeSpeciesIntelligenceFromRun, publicRoutes } from "./public.js";
 
+let redisCallCount = 0;
+vi.mock("ioredis", () => ({
+  default: class {
+    on = vi.fn();
+    connect = vi.fn(() => Promise.resolve());
+    get status() { return "ready"; }
+    zremrangebyscore = vi.fn(() => Promise.resolve(0));
+    zcard = vi.fn(() => Promise.resolve(redisCallCount));
+    zadd = vi.fn(() => { redisCallCount++; return Promise.resolve(1); });
+    expire = vi.fn(() => Promise.resolve(1));
+  },
+}));
+
 type NormalizerInput = Parameters<typeof normalizeSpeciesIntelligenceFromRun>[0];
 type NormalizerRun = NonNullable<NormalizerInput["run"]>;
 
@@ -56,6 +69,7 @@ describe("public species-intelligence", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    redisCallCount = 0;
   });
 
   it("returns a safe fallback when no completed run is available", async () => {

@@ -11,6 +11,7 @@ vi.mock("bcrypt", () => ({
 }));
 
 vi.mock("ioredis", () => ({
+  default: class MockRedis { on = vi.fn(); connect = vi.fn(() => Promise.resolve()); },
   Redis: class MockRedis { on = vi.fn(); connect = vi.fn(() => Promise.resolve()); },
 }));
 
