@@ -2,7 +2,7 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Loader2, CheckCircle2, AlertTriangle, Eye, Trash2, RotateCcw } from "lucide-react";
+import { GripVertical, Loader2, CheckCircle2, AlertTriangle, Eye, Trash2, RotateCcw, ArrowRight } from "lucide-react";
 import type { WorkspaceFile } from "@/app/(dashboard)/data/types";
 
 interface WorkspaceCardProps {
@@ -12,6 +12,7 @@ interface WorkspaceCardProps {
   onRemove: (id: string) => void;
   onClean: (id: string) => void;
   onReviewRecords: (id: string) => void;
+  onOpenInModel: (id: string) => void;
   disabled?: boolean;
 }
 
@@ -23,7 +24,7 @@ const MODEL_OPTIONS = [
 ];
 
 export function WorkspaceCard({
-  item, index, onUpdate, onRemove, onClean, onReviewRecords, disabled,
+  item, index, onUpdate, onRemove, onClean, onReviewRecords, onOpenInModel, disabled,
 }: WorkspaceCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
@@ -130,6 +131,14 @@ export function WorkspaceCard({
                   className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-sdm-accent hover:bg-sdm-accent/10 disabled:opacity-50"
                 >
                   Clean
+                </button>
+              )}
+              {isCleaned && (
+                <button
+                  onClick={() => onOpenInModel(item.id)}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-sdm-accent hover:bg-sdm-accent/10"
+                >
+                  Open in model <ArrowRight className="h-3 w-3" />
                 </button>
               )}
               {isCleaned && (

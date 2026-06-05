@@ -6,7 +6,7 @@ import {
   type DragStartEvent, type DragEndEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { Upload, Globe, ChevronDown, ChevronRight, Play, Loader2, AlertTriangle, CheckCircle2, HardDrive, Search, Layers } from "lucide-react";
+import { Upload, Globe, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Search, Layers, Plus } from "lucide-react";
 import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
 import { PreviewTable } from "@/components/data/preview-table";
@@ -16,7 +16,7 @@ import { ReviewRecordsModal } from "@/components/data/review-records-modal";
 import { GbifSearch } from "@/components/data/gbif-search";
 import { apiPost, apiGet } from "@/services/api";
 import type { UploadFile } from "@/services/types";
-import type { WorkspaceFile, BatchConfig, OccurrencePoint } from "./types";
+import type { WorkspaceFile, OccurrencePoint } from "./types";
 
 interface UploadTabProps {
   uploadResult: Record<string, unknown> | null;
@@ -30,13 +30,13 @@ interface UploadTabProps {
   onWorkspaceAdd: (file: UploadFile, species?: string) => void;
   onWorkspaceUpdate: (id: string, updates: Partial<WorkspaceFile>) => void;
   onWorkspaceRemove: (id: string) => void;
-  onRunModels: (configs: BatchConfig[]) => void;
+  onOpenInModel: (id: string) => void;
 }
 
 export function UploadTab({
   uploadResult, uploadLoading, uploadError, onUpload, onDelete,
   previousUploads, previousUploadsLoading,
-  workspaceFiles, onWorkspaceAdd, onWorkspaceUpdate, onWorkspaceRemove, onRunModels,
+  workspaceFiles, onWorkspaceAdd, onWorkspaceUpdate, onWorkspaceRemove, onOpenInModel,
 }: UploadTabProps) {
   // ── Drag state ──────────────────────────────────────────────
   const [activeDragFile, setActiveDragFile] = useState<UploadFile | null>(null);
@@ -171,32 +171,6 @@ export function UploadTab({
     await Promise.allSettled(toClean.map(f => handleCleanCard(f.id)));
   };
 
-  // ── Run N models ────────────────────────────────────────────
-  const [runLoading, setRunLoading] = useState(false);
-  const [runError, setRunError] = useState<string | null>(null);
-
-  const handleRun = async () => {
-    const validCards = workspaceFiles.filter(f => f.selectedSpecies[0]?.trim());
-    if (validCards.length === 0) return;
-    setRunLoading(true); setRunError(null);
-    const configs: BatchConfig[] = validCards.map(f => ({
-      species: f.selectedSpecies[0].trim(),
-      modelId: f.modelId,
-      occurrenceFile: f.filePath,
-      cleanedFilePath: f.cleanedFileId || undefined,
-      speciesFilter: f.selectedSpecies[0].trim(),
-    }));
-    try {
-      await onRunModels(configs);
-    } catch (err) {
-      setRunError(err instanceof Error ? err.message : "Run failed");
-    } finally {
-      setRunLoading(false);
-    }
-  };
-
-  const canRun = workspaceFiles.length > 0 && workspaceFiles.every(f => f.selectedSpecies[0]?.trim()) && !runLoading;
-
   // ── Review records modal ────────────────────────────────────
   const [reviewCardId, setReviewCardId] = useState<string | null>(null);
   const reviewCard = reviewCardId ? workspaceFiles.find(f => f.id === reviewCardId) : null;
@@ -297,7 +271,7 @@ export function UploadTab({
                 <div className="mt-3 flex items-center gap-3">
                   <button onClick={handleGbifAddToWorkspace} disabled={gbifSaving}
                     className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white hover:bg-sdm-accent/90 disabled:opacity-50">
-                    {gbifSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                    {gbifSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                     Add {Number(gbifResult.n_records).toLocaleString()} records to workspace
                   </button>
                 </div>
@@ -325,11 +299,6 @@ export function UploadTab({
                   {cleanRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                   Clean all
                 </button>
-                <button onClick={handleRun} disabled={!canRun}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-sdm-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-sdm-accent/90 disabled:opacity-50">
-                  {runLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                  Run {workspaceFiles.length} model{workspaceFiles.length !== 1 ? "s" : ""}
-                </button>
               </div>
             )}
           </div>
@@ -352,16 +321,10 @@ export function UploadTab({
                   <WorkspaceCard key={f.id} item={f} index={i}
                     onUpdate={onWorkspaceUpdate} onRemove={onWorkspaceRemove}
                     onClean={handleCleanCard} onReviewRecords={handleReviewRecords}
-                    disabled={runLoading} />
+                    onOpenInModel={onOpenInModel}
+                    disabled={false} />
                 ))}
               </SortableContext>
-            </div>
-          )}
-
-          {runError && (
-            <div className="mt-3 flex items-center gap-2 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 px-4 py-3 text-sm text-sdm-danger">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              <span>{runError}</span>
             </div>
           )}
         </div>
