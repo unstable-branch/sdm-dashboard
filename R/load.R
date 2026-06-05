@@ -122,6 +122,7 @@ modules <- c(
   "response_curves.R",
 
   # --- xai ---
+  "xai_methods.R",
   "ale.R",
   "shap.R",
   "climate_driver.R",

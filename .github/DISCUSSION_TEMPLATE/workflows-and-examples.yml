@@ -1,0 +1,59 @@
+title: "[Workflows and Examples] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share public-safe examples, teaching workflows, reproducible demos, maps, or integrations built with SDM Dashboard. Keep sensitive species locations and private data out of public posts.
+  - type: input
+    id: title
+    attributes:
+      label: What are you sharing?
+      description: Short name for the workflow, result, map, or integration.
+      placeholder: "A classroom workflow for comparing GLM and MaxEnt outputs"
+    validations:
+      required: true
+  - type: dropdown
+    id: share-type
+    attributes:
+      label: Type
+      options:
+        - Workflow
+        - Map/result
+        - Teaching material
+        - Integration
+        - Dataset example
+        - Documentation/example improvement
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What did you make, test, teach, or learn?
+      placeholder: "This demonstrates..."
+    validations:
+      required: true
+  - type: textarea
+    id: reproducibility
+    attributes:
+      label: Reproducibility notes
+      description: Link public data, commands, settings, notebooks, or repos if others can reproduce it.
+      placeholder: "- Public data source:\n- SDM settings:\n- Repository/notebook:"
+    validations:
+      required: false
+  - type: textarea
+    id: limitations
+    attributes:
+      label: Caveats
+      description: Note assumptions, limitations, model uncertainty, or known gaps.
+      placeholder: "This is a demonstration only and should not be used for conservation decisions without validation."
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Public sharing check
+      options:
+        - label: This post does not include credentials, private datasets, sensitive species locality data, or generated outputs that should remain private.
+          required: true

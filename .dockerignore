@@ -83,6 +83,7 @@ libtorch/
 .vscode/
 pr_body.md
 sdm-dashboard-jacob-roadmap.md
+tools/
 docker-compose*.yml
 nginx.conf
 prometheus.yml

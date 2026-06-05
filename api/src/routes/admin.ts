@@ -677,6 +677,7 @@ adminRoutes.get("/diagnostics/uploads", async (c) => {
       id: r.id,
       userId: r.userId,
       userName: r.userId || "unknown",
+      pipelineRunId: null,
       details: null,
       createdAt: r.createdAt?.toISOString() ?? "",
       recordCount: r.recordCount ?? 0,

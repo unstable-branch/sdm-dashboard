@@ -126,16 +126,17 @@ vi.mock("../services/plumber", () => ({
   },
 }));
 
-vi.mock("ioredis", () => ({
-  Redis: class MockRedis {
+vi.mock("ioredis", () => {
+  class MockRedis {
     on = vi.fn();
     connect = vi.fn(() => Promise.resolve());
     zremrangebyscore = vi.fn(() => Promise.resolve(0));
     zcard = vi.fn(() => Promise.resolve(0));
     zadd = vi.fn(() => Promise.resolve(1));
     expire = vi.fn(() => Promise.resolve(1));
-  },
-}));
+  }
+  return { default: MockRedis, Redis: MockRedis };
+});
 
 vi.mock("../middleware/auth", () => ({
   authMiddleware: vi.fn(async (c: any, next: any) => {
@@ -155,6 +156,7 @@ vi.mock("../services/access", () => ({
 
 vi.mock("../services/queue", () => ({
   enqueueSdmJob: vi.fn(async () => "job-1"),
+  getSharedRedis: vi.fn(() => null),
   getJobQueue: vi.fn(() => ({
     remove: vi.fn(async () => {}),
   })),
