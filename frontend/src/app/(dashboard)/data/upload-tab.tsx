@@ -6,7 +6,7 @@ import {
   type DragStartEvent, type DragEndEvent, type CollisionDetection,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { Upload, Globe, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Search, Layers, Plus } from "lucide-react";
+import { Upload, Globe, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Layers, Plus } from "lucide-react";
 import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
 import { PreviewTable } from "@/components/data/preview-table";
@@ -18,35 +18,14 @@ import { apiPost, apiGet } from "@/services/api";
 import type { UploadFile } from "@/services/types";
 import type { WorkspaceFile, OccurrencePoint } from "./types";
 
-function isPointWithinRect(
-  point: { x: number; y: number },
-  rect: { top: number; left: number; bottom: number; right: number }
-): boolean {
-  return (
-    rect.top <= point.y &&
-    point.y <= rect.bottom &&
-    rect.left <= point.x &&
-    point.x <= rect.right
-  );
-}
-
 const customCollisionDetection: CollisionDetection = (args) => {
   const activeType = args.active.data.current?.type;
   if (activeType === "source") {
-    const workspaceDroppable = args.droppableContainers.find(
+    const container = args.droppableContainers.find(
       (c) => c.id === "workspace-drop-zone"
     );
-    if (
-      workspaceDroppable &&
-      args.pointerCoordinates
-    ) {
-      const rect = args.droppableRects.get(workspaceDroppable.id);
-      if (rect && isPointWithinRect(args.pointerCoordinates, rect)) {
-        return [{
-          id: workspaceDroppable.id,
-          data: { droppableContainer: workspaceDroppable, value: 0 },
-        }];
-      }
+    if (container) {
+      return [{ id: container.id, data: { droppableContainer: container, value: 0 } }];
     }
     return [];
   }
@@ -78,7 +57,7 @@ export function UploadTab({
   // ── Drag state ──────────────────────────────────────────────
   const [activeDragFile, setActiveDragFile] = useState<UploadFile | null>(null);
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 2 } })
   );
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
@@ -383,18 +362,10 @@ export function UploadTab({
             ) : (
               <div className="space-y-1.5">
                 {previousUploads.map((f) => (
-                  <div key={f.file_id} className="group flex items-center gap-1">
-                    <WorkspaceSourceCard file={f}
-                      disabled={workspaceFiles.some(w => w.fileId === f.file_id)}
-                      onAddToWorkspace={() => onWorkspaceAdd(f)} />
-                    <button
-                      onClick={() => onDelete(f.file_id)}
-                      className="shrink-0 rounded p-1 text-sdm-muted opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity"
-                      title="Delete from history"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                    </button>
-                  </div>
+                  <WorkspaceSourceCard key={f.file_id} file={f}
+                    disabled={workspaceFiles.some(w => w.fileId === f.file_id)}
+                    onAddToWorkspace={() => onWorkspaceAdd(f)}
+                    onDelete={onDelete} />
                 ))}
               </div>
             )}
