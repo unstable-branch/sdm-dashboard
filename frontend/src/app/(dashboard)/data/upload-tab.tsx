@@ -11,7 +11,7 @@ import { WorkspaceSourceCard } from "@/components/data/workspace-source-card";
 import { WorkspaceCard } from "@/components/data/workspace-card";
 import { ReviewRecordsModal } from "@/components/data/review-records-modal";
 import { GbifSearch } from "@/components/data/gbif-search";
-import { apiPost, apiGet } from "@/services/api";
+import { apiPost, apiGet, apiPatch } from "@/services/api";
 import type { UploadFile } from "@/services/types";
 import type { WorkspaceFile, OccurrencePoint } from "./types";
 
@@ -253,8 +253,7 @@ export function UploadTab({
               cleanedFileId,
               cleanValidRecords: validRecords,
             });
-            apiPost(`/api/v1/data/occurrences/clean/update-upload`, {
-              file_id: card.fileId,
+            apiPatch(`/api/v1/data/uploads/${encodeURIComponent(card.fileId)}`, {
               cleaned: true,
               cleaned_file_path: cleanedFileId,
               cleaned_valid_records: validRecords,
