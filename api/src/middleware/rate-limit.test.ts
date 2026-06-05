@@ -4,8 +4,8 @@ import { rateLimit } from "../middleware/rate-limit.js";
 
 let callCount = 0;
 
-vi.mock("ioredis", () => ({
-  Redis: class MockRedis {
+vi.mock("ioredis", () => {
+  class MockRedis {
     on = vi.fn();
     connect = vi.fn(() => Promise.resolve());
     zremrangebyscore = vi.fn(() => Promise.resolve(0));
@@ -15,8 +15,9 @@ vi.mock("ioredis", () => ({
       return Promise.resolve(1);
     });
     expire = vi.fn(() => Promise.resolve(1));
-  },
-}));
+  }
+  return { default: MockRedis, Redis: MockRedis };
+});
 
 describe("rate limiting middleware", () => {
   let app: Hono;

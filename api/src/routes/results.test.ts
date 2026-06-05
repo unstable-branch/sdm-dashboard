@@ -26,10 +26,14 @@ vi.mock("../db", () => ({
   },
 }));
 
-vi.mock("fs", () => ({
-  existsSync: vi.fn((path: string) => !path.includes("..") && !path.endsWith(".enc")),
-  readFileSync: vi.fn(() => "test content"),
-}));
+vi.mock("fs", async () => {
+  const { Readable } = await import("node:stream");
+  return {
+    existsSync: vi.fn((path: string) => !path.includes("..") && !path.endsWith(".enc")),
+    readFileSync: vi.fn(() => "test content"),
+    createReadStream: vi.fn(() => Readable.from(["test content"])),
+  };
+});
 
 vi.mock("fs/promises", () => ({
   stat: vi.fn(() => Promise.resolve({ size: 1024, mtimeMs: 123456789 })),

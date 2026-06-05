@@ -10,9 +10,13 @@ vi.mock("bcrypt", () => ({
   compare: vi.fn(() => Promise.resolve(true)),
 }));
 
-vi.mock("ioredis", () => ({
-  Redis: class MockRedis { on = vi.fn(); connect = vi.fn(() => Promise.resolve()); },
-}));
+vi.mock("ioredis", () => {
+  class MockRedis {
+    on = vi.fn();
+    connect = vi.fn(() => Promise.resolve());
+  }
+  return { default: MockRedis, Redis: MockRedis };
+});
 
 vi.mock("../middleware/auth", () => ({
   authMiddleware: vi.fn(async (c: any, next: any) => {

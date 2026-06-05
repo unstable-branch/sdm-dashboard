@@ -35,6 +35,19 @@ function heartbeat() {
   }
 }
 
+function cleanupClient(clientId: string) {
+  const client = clients.get(clientId);
+  if (client) {
+    for (const jobId of client.subscriptions) {
+      subscriptions.get(jobId)?.delete(clientId);
+      if (subscriptions.get(jobId)?.size === 0) {
+        subscriptions.delete(jobId);
+      }
+    }
+    clients.delete(clientId);
+  }
+}
+
 async function verifyWsToken(url: string): Promise<{ userId: string; role: string } | null> {
   try {
     const parsed = new URL(url, "http://localhost");
@@ -115,19 +128,6 @@ export function setupWebSocket(server: ServerType) {
       cleanupClient(clientId);
     });
   });
-
-  function cleanupClient(clientId: string) {
-    const client = clients.get(clientId);
-    if (client) {
-      for (const jobId of client.subscriptions) {
-        subscriptions.get(jobId)?.delete(clientId);
-        if (subscriptions.get(jobId)?.size === 0) {
-          subscriptions.delete(jobId);
-        }
-      }
-      clients.delete(clientId);
-    }
-  }
 
   _jobStatusHandler = (event) => {
     const subscribers = subscriptions.get(event.jobId);
