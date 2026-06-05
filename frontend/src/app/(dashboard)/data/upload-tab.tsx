@@ -120,13 +120,46 @@ export function UploadTab({
     const raw = e.dataTransfer.getData("application/x-sdm-file");
     if (!raw) return;
     try {
-      const { file_id } = JSON.parse(raw) as { file_id: string };
+      const { file_id, in_workspace } = JSON.parse(raw) as { file_id: string; in_workspace?: boolean };
+      if (in_workspace) return;
       const file = previousUploads.find(f => f.file_id === file_id);
       if (file && !workspaceFiles.some(w => w.fileId === file.file_id)) {
         onWorkspaceAdd(file);
       }
     } catch {}
   }, [previousUploads, workspaceFiles, onWorkspaceAdd]);
+
+  // ── Sources panel drop zone (remove from workspace on drag-back) ─
+  const [sourcesDragOver, setSourcesDragOver] = useState(false);
+
+  const handleSourcesDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const handleSourcesDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setSourcesDragOver(true);
+  }, []);
+
+  const handleSourcesDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+    setSourcesDragOver(false);
+  }, []);
+
+  const handleSourcesDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setSourcesDragOver(false);
+    const raw = e.dataTransfer.getData("application/x-sdm-file");
+    if (!raw) return;
+    try {
+      const { file_id, in_workspace } = JSON.parse(raw) as { file_id: string; in_workspace?: boolean };
+      if (!in_workspace) return;
+      const wsFile = workspaceFiles.find(w => w.fileId === file_id);
+      if (wsFile) onWorkspaceRemove(wsFile.id);
+    } catch {}
+  }, [workspaceFiles, onWorkspaceRemove]);
 
   // ── History panel open/close ────────────────────────────────
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -349,7 +382,12 @@ export function UploadTab({
           {historyOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           Sources ({previousUploads.length} files)
         </summary>
-        <div className="px-6 pb-4 space-y-2 max-h-80 overflow-y-auto">
+        <div
+          onDragOver={handleSourcesDragOver} onDragEnter={handleSourcesDragEnter}
+          onDragLeave={handleSourcesDragLeave} onDrop={handleSourcesDrop}
+          className={`px-6 pb-4 space-y-2 max-h-80 overflow-y-auto transition-colors ${
+            sourcesDragOver ? "ring-2 ring-sdm-danger/50 bg-sdm-danger/5" : ""
+          }`}>
           {previousUploadsLoading ? (
             <div className="flex items-center gap-2 py-4 text-sm text-sdm-muted">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading...
