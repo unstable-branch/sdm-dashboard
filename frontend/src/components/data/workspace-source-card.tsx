@@ -39,9 +39,10 @@ export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace }: Worksp
       {...listeners}
       data-dragging={isDragging || undefined}
       data-disabled={disabled || undefined}
-      className="flex items-center gap-2 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm transition-colors
+      className="flex items-center gap-2 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm transition-colors touch-none select-none
         hover:border-sdm-accent/50 data-[dragging]:opacity-50 data-[dragging]:shadow-lg
         data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed cursor-grab active:cursor-grabbing"
+      onDragStart={(e) => e.preventDefault()}
     >
       <GripVertical className="h-4 w-4 shrink-0 text-sdm-muted" />
       <div className="min-w-0 flex-1">
