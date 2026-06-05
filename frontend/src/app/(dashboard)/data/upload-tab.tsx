@@ -41,6 +41,7 @@ interface UploadTabProps {
   onWorkspaceRemove: (id: string) => void;
   onOpenInModel: (id: string) => void;
   onWorkspaceReorder: (files: WorkspaceFile[]) => void;
+  onRefreshUploads?: () => void;
   hasGbifCredentials?: boolean;
 }
 
@@ -48,7 +49,7 @@ export function UploadTab({
   uploadResult, uploadLoading, uploadError, onUpload, onDelete,
   previousUploads, previousUploadsLoading,
   workspaceFiles, onWorkspaceAdd, onWorkspaceUpdate, onWorkspaceRemove,
-  onOpenInModel, onWorkspaceReorder, hasGbifCredentials,
+  onOpenInModel, onWorkspaceReorder, onRefreshUploads, hasGbifCredentials,
 }: UploadTabProps) {
   // ── Storage ─────────────────────────────────────────────────
   const [storage, setStorage] = useState<{ used_mb: number; quota_mb: number; pct_used: number } | null>(null);
@@ -258,6 +259,7 @@ export function UploadTab({
               cleaned_file_path: cleanedFileId,
               cleaned_valid_records: validRecords,
             }).catch(() => {});
+            onRefreshUploads?.();
             return;
           }
           if (s === "failed" || s === "error") {
