@@ -23,14 +23,15 @@ export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace, onDelete
 
   return (
     <div
-      draggable={!disabled}
+      draggable
       onDragStart={(e) => {
         e.dataTransfer.setData("application/x-sdm-file", JSON.stringify({
           file_id: file.file_id,
           file_name: file.file_name,
           n_rows: file.n_rows,
+          in_workspace: !!disabled,
         }));
-        e.dataTransfer.effectAllowed = "copy";
+        e.dataTransfer.effectAllowed = disabled ? "move" : "copy";
       }}
       className="flex items-center gap-2 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm transition-colors touch-none
         hover:border-sdm-accent/50 data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed cursor-grab active:cursor-grabbing"
