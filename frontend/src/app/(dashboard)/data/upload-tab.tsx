@@ -230,21 +230,48 @@ export function UploadTab({
         merge_small_sources: cleaningDefaults.merge_small_sources,
         use_cc: cleaningDefaults.use_cc,
         cc_tests: cleaningDefaults.cc_tests,
-      }, { timeout: 600000 });
-      const cleanedFileId = (result.cleaned_file_id || result.cleaned_file_path) as string | undefined;
-      if (!cleanedFileId) throw new Error("API returned no cleaned file ID");
-      const validRecords = (result.valid_records as number) || 0;
-      onWorkspaceUpdate(cardId, {
-        cleanLoading: false,
-        cleanedFileId,
-        cleanValidRecords: validRecords,
-      });
-      apiPost(`/api/v1/data/occurrences/clean/update-upload`, {
-        file_id: card.fileId,
-        cleaned: true,
-        cleaned_file_path: cleanedFileId,
-        cleaned_valid_records: validRecords,
-      }).catch(() => {});
+        async: true,
+      }, { timeout: 15000 });
+      const jobId = (result.job_id || result.jobId) as string | undefined;
+      if (!jobId) throw new Error("No job ID returned from clean request");
+
+      // Poll for job completion
+      const deadline = Date.now() + 600000;
+      let lastError: string | null = null;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          const status = await apiGet<Record<string, unknown>>(`/api/v1/models/status/${encodeURIComponent(jobId)}`);
+          const s = status?.status as string | undefined;
+          if (s === "completed" || s === "success") {
+            const cleanedFileId = (status.cleaned_file_id || status.cleaned_file_path || (status.result as Record<string, unknown> | undefined)?.cleaned_file_id) as string | undefined;
+            if (!cleanedFileId) throw new Error("API returned no cleaned file ID");
+            const validRecords = (status.valid_records as number) || ((status.result as Record<string, unknown> | undefined)?.valid_records as number) || 0;
+            onWorkspaceUpdate(cardId, {
+              cleanLoading: false,
+              cleanedFileId,
+              cleanValidRecords: validRecords,
+            });
+            apiPost(`/api/v1/data/occurrences/clean/update-upload`, {
+              file_id: card.fileId,
+              cleaned: true,
+              cleaned_file_path: cleanedFileId,
+              cleaned_valid_records: validRecords,
+            }).catch(() => {});
+            return;
+          }
+          if (s === "failed" || s === "error") {
+            throw new Error((status.error as string) || "Clean job failed");
+          }
+        } catch (err) {
+          if (err instanceof Error && err.message !== "Clean job failed") {
+            lastError = err.message;
+          } else {
+            throw err;
+          }
+        }
+      }
+      throw new Error(lastError || "Clean job timed out");
     } catch (err) {
       onWorkspaceUpdate(cardId, {
         cleanLoading: false,
