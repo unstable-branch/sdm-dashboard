@@ -6,14 +6,6 @@ export interface OccurrencePoint {
   [key: string]: unknown;
 }
 
-export interface BatchConfig {
-  species: string;
-  modelId: string;
-  occurrenceFile: string;
-  cleanedFilePath?: string;
-  speciesFilter?: string;
-}
-
 export interface WorkspaceFile {
   id: string;
   fileId: string;
