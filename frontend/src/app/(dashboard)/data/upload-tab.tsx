@@ -27,6 +27,7 @@ interface UploadTabProps {
   onWorkspaceAdd: (file: UploadFile, species?: string) => void;
   onWorkspaceUpdate: (id: string, updates: Partial<WorkspaceFile>) => void;
   onWorkspaceRemove: (id: string) => void;
+  onOpenInModel: (id: string) => void;
   onWorkspaceReorder: (files: WorkspaceFile[]) => void;
   hasGbifCredentials?: boolean;
 }
@@ -35,7 +36,7 @@ export function UploadTab({
   uploadResult, uploadLoading, uploadError, onUpload, onDelete,
   previousUploads, previousUploadsLoading,
   workspaceFiles, onWorkspaceAdd, onWorkspaceUpdate, onWorkspaceRemove,
-  onWorkspaceReorder, hasGbifCredentials,
+  onOpenInModel, onWorkspaceReorder, hasGbifCredentials,
 }: UploadTabProps) {
   // ── Storage ─────────────────────────────────────────────────
   const [storage, setStorage] = useState<{ used_mb: number; quota_mb: number; pct_used: number } | null>(null);
@@ -365,6 +366,7 @@ export function UploadTab({
                   <WorkspaceCard key={f.id} item={f} index={i}
                     onUpdate={onWorkspaceUpdate} onRemove={onWorkspaceRemove}
                     onClean={handleCleanCard} onReviewRecords={handleReviewRecords}
+                    onOpenInModel={onOpenInModel}
                     disabled={cleanRunning} />
                 ))}
               </SortableContext>
