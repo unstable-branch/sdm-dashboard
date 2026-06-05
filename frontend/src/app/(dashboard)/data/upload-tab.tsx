@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
 import { PreviewTable } from "@/components/data/preview-table";
-import { Loader2, AlertTriangle, CheckCircle2, Trash2 } from "lucide-react";
+import { Loader2, AlertTriangle, CheckCircle2, Trash2, HardDrive } from "lucide-react";
+import { apiGet } from "@/services/api";
 import type { UploadFile } from "@/services/types";
 
 interface UploadTabProps {
@@ -26,6 +27,11 @@ export function UploadTab({
 }: UploadTabProps) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [storage, setStorage] = useState<{ used_mb: number; quota_mb: number; pct_used: number; available_mb: number } | null>(null);
+  useEffect(() => {
+    apiGet<{ used_mb: number; quota_mb: number; pct_used: number; available_mb: number }>("/api/v1/data/storage")
+      .then((d) => setStorage(d)).catch(() => {});
+  }, [uploadResult]);
   const uploadPreview = uploadResult?.preview as Array<Record<string, unknown>> | undefined;
   const cols = uploadResult?.columns_detected as Record<string, string | null> | undefined;
   const warningsRaw = uploadResult?.coord_warnings;
@@ -64,6 +70,22 @@ site_B,141.5,-24.0,0,1,0,450`}</pre>
         </details>
         <FileUpload key={String(uploadResult?.file_id ?? "new")} onUpload={onUpload} loading={uploadLoading} error={uploadError} />
       </div>
+
+      {storage && (
+        <div className="flex items-center gap-3 rounded-lg border border-sdm-border/50 bg-sdm-surface-soft px-4 py-2.5">
+          <HardDrive className="h-4 w-4 shrink-0 text-sdm-muted" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between text-xs text-sdm-muted mb-1">
+              <span>Storage: {storage.used_mb} MB of {storage.quota_mb} MB used</span>
+              <span>{storage.available_mb} MB available</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-sdm-border overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${storage.pct_used > 90 ? "bg-sdm-danger" : "bg-sdm-accent"}`}
+                style={{ width: `${Math.min(storage.pct_used, 100)}%` }} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {cols && Object.keys(cols).length > 0 && <DetectedColumns columns={cols} />}
       {hasWarnings && (
