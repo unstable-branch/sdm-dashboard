@@ -95,6 +95,39 @@ export function UploadTab({
     }
   };
 
+  // ── Native drag-and-drop ────────────────────────────────────
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const raw = e.dataTransfer.getData("application/x-sdm-file");
+    if (!raw) return;
+    try {
+      const { file_id } = JSON.parse(raw) as { file_id: string };
+      const file = previousUploads.find(f => f.file_id === file_id);
+      if (file && !workspaceFiles.some(w => w.fileId === file.file_id)) {
+        onWorkspaceAdd(file);
+      }
+    } catch {}
+  }, [previousUploads, workspaceFiles, onWorkspaceAdd]);
+
   // ── History panel open/close ────────────────────────────────
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -261,7 +294,12 @@ export function UploadTab({
       </div>
 
       {/* ── Workspace ──────────────────────────────────────── */}
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6">
+      <div
+        onDragOver={handleDragOver} onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave} onDrop={handleDrop}
+        className={`rounded-lg border p-6 transition-colors ${
+          isDragOver ? "border-sdm-accent bg-sdm-accent/5" : "border-sdm-border bg-sdm-surface"
+        }`}>
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-semibold text-sdm-heading">Workspace</h2>
@@ -279,10 +317,12 @@ export function UploadTab({
         </div>
 
         {workspaceFiles.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed py-12 text-center border-sdm-border bg-sdm-surface-soft">
+          <div className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed py-12 text-center transition-colors ${
+            isDragOver ? "border-sdm-accent bg-sdm-accent/5" : "border-sdm-border bg-sdm-surface-soft"
+          }`}>
             <Layers className="h-8 w-8 text-sdm-muted mb-2" />
             <p className="text-sm text-sdm-muted">
-              Click "Add" on a source file below, or upload a new file above
+              {isDragOver ? "Drop to add file" : 'Click "Add" on a source file below, or upload a new file above'}
             </p>
           </div>
         ) : (
