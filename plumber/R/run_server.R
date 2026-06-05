@@ -139,6 +139,7 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   # Guard against malformed requests
   if (is.null(path) || length(path) == 0L) {
     auth_fail(res, 400L, '{"error":"Malformed request"}')
+    return(NULL)
   }
 
   # Disable auth in dev/test if env var set
@@ -172,11 +173,13 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   api_key <- get_hdr(req, "x-api-key")
   if (is.null(api_key) || !nzchar(api_key)) {
     auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}')
+    return(NULL)
   }
 
   user_info <- validate_api_key(api_key, pool = db_pool, app_dir = app_dir)
   if (is.null(user_info)) {
     auth_fail(res, 401L, '{"error":"Invalid or expired API key."}')
+    return(NULL)
   }
 
   req$user_id <- user_info$user_id
@@ -188,6 +191,7 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   if (!is.null(rate_key) && nzchar(rate_key)) {
     if (!sdm_check_rate_limit(rate_key, max_requests = 120, window_seconds = 60)) {
       auth_fail(res, 429L, '{"error":"Rate limit exceeded. Try again in 60 seconds."}')
+      return(NULL)
     }
   }
 
