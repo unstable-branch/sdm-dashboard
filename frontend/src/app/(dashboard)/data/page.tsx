@@ -26,9 +26,13 @@ export default function DataPage() {
 function extractSpeciesFromFilename(filename: string): string | null {
   const base = filename.replace(/\.(csv|tsv|txt|zip)$/i, "");
   const cleaned = base.replace(/[_-]/g, " ").trim();
-  const titleCase = cleaned.split(" ").filter((w) => w.length > 0).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-  if (titleCase.length < 3 || titleCase === cleaned.toUpperCase()) return null;
-  return titleCase;
+  const parts = cleaned.split(" ").filter((w) => w.length > 0);
+  if (parts.length < 2) return null;
+  if (parts.every((w) => w === w.toUpperCase())) return null;
+  const genus = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+  const species = parts[1].toLowerCase();
+  const rest = parts.slice(2).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+  return rest ? `${genus} ${species} ${rest}` : `${genus} ${species}`;
 }
 
 function DataPageContent() {
@@ -277,40 +281,6 @@ function DataPageContent() {
     }
   };
 
-  const handleSelectUpload = (file: UploadFile) => {
-    const fp = file.file_id;
-    if (!fp) return;
-    setUploadResult({ ...file, file_id: fp, file_path: fp } as Record<string, unknown>);
-    setOccurrenceFilePath(fp);
-    setRecordCount(file.n_rows || 0);
-    setPipelineRunId(null);
-    setCleanResult(null);
-    if (file.cleaned && file.cleaned_file_id) {
-      setCleanedOccurrence({
-        filePath: file.cleaned_file_id,
-        df: [],
-        sourceCounts: {},
-        nAbsentExcluded: 0,
-        originalRows: Number(file.n_rows || 0),
-        validRecords: Number(file.cleaned_valid_records || file.n_rows || 0),
-      });
-    } else if (file.cleaned_file_id) {
-      setCleanedOccurrence({
-        filePath: file.cleaned_file_id,
-        df: [],
-        sourceCounts: {},
-        nAbsentExcluded: 0,
-        originalRows: Number(file.n_rows || 0),
-        validRecords: Number(file.cleaned_valid_records || file.n_rows || 0),
-      });
-    } else {
-      setCleanedOccurrence(null);
-    }
-    const species = file.species as string;
-    if (species && species !== "—") useSDMStore.getState().setSpecies(species);
-    handleWorkspaceAdd(file);
-  };
-
   // ── Legacy tab redirect ─────────────────────────────────────
   useEffect(() => {
     if (["gbif", "clean", "obs", "batch"].includes(activeTab)) {
@@ -364,6 +334,7 @@ function DataPageContent() {
             onWorkspaceUpdate={handleWorkspaceUpdate}
             onWorkspaceRemove={handleWorkspaceRemove}
             onOpenInModel={handleOpenInModel}
+            hasGbifCredentials={hasGbifCredentials}
           />
         )}
 

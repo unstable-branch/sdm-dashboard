@@ -118,5 +118,3 @@ export function GbifSearch({ onSearch, loading, error, result, hasSavedCredentia
     </div>
   );
 }
-
-export default GbifSearch;

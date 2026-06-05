@@ -66,12 +66,14 @@ interface UploadTabProps {
   onWorkspaceUpdate: (id: string, updates: Partial<WorkspaceFile>) => void;
   onWorkspaceRemove: (id: string) => void;
   onOpenInModel: (id: string) => void;
+  hasGbifCredentials?: boolean;
 }
 
 export function UploadTab({
   uploadResult, uploadLoading, uploadError, onUpload, onDelete,
   previousUploads, previousUploadsLoading,
   workspaceFiles, onWorkspaceAdd, onWorkspaceUpdate, onWorkspaceRemove, onOpenInModel,
+  hasGbifCredentials,
 }: UploadTabProps) {
   // ── Drag state ──────────────────────────────────────────────
   const [activeDragFile, setActiveDragFile] = useState<UploadFile | null>(null);
@@ -301,7 +303,7 @@ export function UploadTab({
               Search GBIF
             </summary>
             <div className="mt-3">
-              <GbifSearch onSearch={handleGbifSearch} loading={gbifLoading} error={gbifError} result={gbifResult} />
+              <GbifSearch onSearch={handleGbifSearch} loading={gbifLoading} error={gbifError} result={gbifResult} hasSavedCredentials={hasGbifCredentials} />
               {gbifResult && Number(gbifResult.n_records) > 0 && (
                 <div className="mt-3 flex items-center gap-3">
                   <button onClick={handleGbifAddToWorkspace} disabled={gbifSaving}
@@ -357,7 +359,7 @@ export function UploadTab({
                     onUpdate={onWorkspaceUpdate} onRemove={onWorkspaceRemove}
                     onClean={handleCleanCard} onReviewRecords={handleReviewRecords}
                     onOpenInModel={onOpenInModel}
-                    disabled={false} />
+                    disabled={cleanRunning} />
                 ))}
               </SortableContext>
             </div>
@@ -381,9 +383,18 @@ export function UploadTab({
             ) : (
               <div className="space-y-1.5">
                 {previousUploads.map((f) => (
-                  <WorkspaceSourceCard key={f.file_id} file={f}
-                    disabled={workspaceFiles.some(w => w.fileId === f.file_id)}
-                    onAddToWorkspace={() => onWorkspaceAdd(f)} />
+                  <div key={f.file_id} className="group flex items-center gap-1">
+                    <WorkspaceSourceCard file={f}
+                      disabled={workspaceFiles.some(w => w.fileId === f.file_id)}
+                      onAddToWorkspace={() => onWorkspaceAdd(f)} />
+                    <button
+                      onClick={() => onDelete(f.file_id)}
+                      className="shrink-0 rounded p-1 text-sdm-muted opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity"
+                      title="Delete from history"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
