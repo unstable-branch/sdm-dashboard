@@ -5,3 +5,30 @@ export interface OccurrencePoint {
   flagged?: boolean;
   [key: string]: unknown;
 }
+
+export interface BatchConfig {
+  species: string;
+  modelId: string;
+  occurrenceFile: string;
+  cleanedFilePath?: string;
+  speciesFilter?: string;
+}
+
+export interface WorkspaceFile {
+  id: string;
+  fileId: string;
+  fileName: string;
+  filePath: string;
+  fileFormat?: string;
+  fileRows: number;
+  fileCleaned: boolean;
+  fileCleanedFileId?: string;
+  selectedSpecies: string[];
+  modelType: "single" | "community";
+  modelId: string;
+  cleanBeforeRun: boolean;
+  cleanedFileId?: string;
+  cleanValidRecords?: number;
+  cleanLoading: boolean;
+  cleanError: string | null;
+}

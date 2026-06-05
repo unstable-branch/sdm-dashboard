@@ -1,27 +1,19 @@
 "use client";
 
 import { useState, useEffect, useCallback, Suspense } from "react";
-import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Globe, Wand2, Flag, Cloud, Layers, Map, LayoutDashboard } from "lucide-react";
-import Link from "next/link";
+import { Upload, Cloud, Layers, Map, LayoutDashboard } from "lucide-react";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { apiUpload, apiPost, apiGet, apiDelete, apiPatch } from "@/services/api";
-import { PreviewTable } from "@/components/data/preview-table";
+import { apiUpload, apiPost, apiGet, apiDelete } from "@/services/api";
 import { UploadTab } from "./upload-tab";
-import { CleanTab } from "./clean-tab";
 import { ClimateTab } from "./climate-tab";
 import { CovariateTab } from "./covariate-tab";
-import { BatchTab } from "./batch-tab";
 import { BoundaryTab } from "./boundary-tab";
 import { OverviewTab } from "./overview-tab";
-import type { OccurrencePoint } from "./types";
-import type { UploadFile, CleanResult, ClimateScenarioResponse } from "@/services/types";
-
-const GbifSearch = dynamic(() => import("@/components/data/gbif-search"), { ssr: false });
-const ObservationRecordsTab = dynamic(() => import("./observation-records-tab").then(m => ({ default: m.ObservationRecordsTab })), { ssr: false });
+import type { UploadFile, ClimateScenarioResponse } from "@/services/types";
+import type { WorkspaceFile, BatchConfig } from "./types";
 
 export default function DataPage() {
   return (
@@ -46,37 +38,25 @@ function DataPageContent() {
 
   const setOccurrenceFilePath = useSDMStore((s) => s.setOccurrenceFilePath);
   const setRecordCount = useSDMStore((s) => s.setRecordCount);
+  const setCleanedOccurrence = useSDMStore((s) => s.setCleanedOccurrence);
+  const setPipelineRunId = useSDMStore((s) => s.setPipelineRunId);
   const uploadResult = useSDMStore((s) => s.uploadResult);
   const setUploadResult = useSDMStore((s) => s.setUploadResult);
   const cleanResult = useSDMStore((s) => s.cleanResult);
   const setCleanResult = useSDMStore((s) => s.setCleanResult);
-  const setCleanedOccurrence = useSDMStore((s) => s.setCleanedOccurrence);
-  const setPipelineRunId = useSDMStore((s) => s.setPipelineRunId);
-  const _flaggedIndicesArray = useSDMStore((s) => s.flaggedIndices);
-  const setFlaggedIndicesArray = useSDMStore((s) => s.setFlaggedIndices);
+  const species = useSDMStore((s) => s.species);
+  const recordCount = useSDMStore((s) => s.recordCount);
+  const settings = useSettingsStore((s) => s.settings);
+  const fetchSettings = useSettingsStore((s) => s.fetchSettings);
+  useEffect(() => { if (!settings) fetchSettings(); }, []);
+  const hasGbifCredentials = !!(settings?.gbifUsername && settings?.gbifEmail);
 
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadHistory, setUploadHistory] = useState<UploadFile[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  const [cleanLoading, setCleanLoading] = useState(false);
-  const [cleanError, setCleanError] = useState<string | null>(null);
-  const [cleanJobId, setCleanJobId] = useState<string | null>(null);
-  const [useAsync, setUseAsync] = useState(false);
-  const [useCc, setUseCc] = useState(true);
-  const [minSourceRecords, setMinSourceRecords] = useState(15);
-  const [mergeSmallSources, setMergeSmallSources] = useState(true);
-  const [ccTests, setCcTests] = useState("all");
-  const [maxCoordUncertainty, setMaxCoordUncertainty] = useState<string>("");
-
-  useEffect(() => {
-    if (!cleanJobId) return;
-    const timeout = setTimeout(() => { setCleanError("Clean job timed out after 5 minutes"); setCleanJobId(null); setCleanLoading(false); }, 300_000);
-    return () => clearTimeout(timeout);
-  }, [cleanJobId]);
-
-  // Clear large occurrence data from global store when leaving data page
+  // Clean data from global store when leaving data page
   useEffect(() => {
     return () => {
       useSDMStore.getState().setOccurrenceData(null);
@@ -85,20 +65,45 @@ function DataPageContent() {
     };
   }, []);
 
-  const [gbifLoading, setGbifLoading] = useState(false);
-  const [gbifError, setGbifError] = useState<string | null>(null);
-  const [gbifResult, setGbifResult] = useState<Record<string, unknown> | null>(null);
-  const [gbifSaving, setGbifSaving] = useState(false);
-  const [gbifSaved, setGbifSaved] = useState(false);
-  const [gbifSearchFile, setGbifSearchFile] = useState<string | null>(null);
-  const settings = useSettingsStore((s) => s.settings);
-  const fetchSettings = useSettingsStore((s) => s.fetchSettings);
-  useEffect(() => { if (!settings) fetchSettings(); }, []);
-  const hasGbifCredentials = !!(settings?.gbifUsername && settings?.gbifEmail);
-  const species = useSDMStore((s) => s.species);
-  const recordCount = useSDMStore((s) => s.recordCount);
+  // ── Workspace state ─────────────────────────────────────────
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
 
-  // Climate state
+  const handleWorkspaceAdd = useCallback((file: UploadFile, speciesOverride?: string) => {
+    setWorkspaceFiles((prev) => {
+      if (prev.some(f => f.fileId === file.file_id)) return prev;
+      return [...prev, {
+        id: crypto.randomUUID(),
+        fileId: file.file_id,
+        fileName: file.file_name,
+        filePath: file.file_id,
+        fileFormat: file.format,
+        fileRows: file.n_rows,
+        fileCleaned: file.cleaned,
+        fileCleanedFileId: file.cleaned_file_id,
+        selectedSpecies: [speciesOverride || file.species || extractSpeciesFromFilename(file.file_name) || "Untitled species"],
+        modelType: "single",
+        modelId: "glm",
+        cleanBeforeRun: true,
+        cleanLoading: false,
+        cleanError: null,
+      }];
+    });
+  }, []);
+
+  const handleWorkspaceUpdate = useCallback((id: string, updates: Partial<WorkspaceFile>) => {
+    setWorkspaceFiles((prev) => prev.map(f => f.id === id ? { ...f, ...updates } : f));
+  }, []);
+
+  const handleWorkspaceRemove = useCallback((id: string) => {
+    setWorkspaceFiles((prev) => prev.filter(f => f.id !== id));
+  }, []);
+
+  const handleRunModels = async (configs: BatchConfig[]) => {
+    const result = await apiPost<Record<string, unknown>>("/api/v1/sdm/targets/run", { configs });
+    router.push("/model");
+  };
+
+  // ── Climate state ───────────────────────────────────────────
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
   const [climateBiovars, setClimateBiovars] = useState<number[]>([1, 4, 6, 12, 15, 18]);
@@ -117,7 +122,7 @@ function DataPageContent() {
   const handleCancelDownload = useCallback(async () => {
     const active = climateDownloadJob || cmip6DownloadJob || avgDownloadJob;
     if (active) {
-      try { await apiPost(`/api/v1/climate/cancel/${active}`); } catch { /* best-effort */ }
+      try { await apiPost(`/api/v1/climate/cancel/${active}`); } catch { }
     }
     setClimateDownloadJob(null);
     setCmip6DownloadJob(null);
@@ -181,10 +186,10 @@ function DataPageContent() {
     try {
       await apiPost(`/api/v1/climate/delete/${id}`);
       setScenarios((prev) => prev.filter((s) => s.id !== id));
-    } catch {
-    }
+    } catch { }
   };
 
+  // ── Upload ──────────────────────────────────────────────────
   const fetchUploads = useCallback(async () => {
     setHistoryLoading(true);
     try {
@@ -209,9 +214,7 @@ function DataPageContent() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchUploads();
-  }, [fetchUploads]);
+  useEffect(() => { fetchUploads(); }, [fetchUploads]);
 
   const handleUpload = async (file: File) => {
     setUploadLoading(true); setUploadError(null); setUploadResult(null); setCleanResult(null); setCleanedOccurrence(null);
@@ -227,14 +230,19 @@ function DataPageContent() {
       if (fileId) {
         setOccurrenceFilePath(fileId);
         setRecordCount(nRows);
-        if (detectedSpecies) {
-          useSDMStore.getState().setSpecies(detectedSpecies);
-        } else {
-          const extracted = extractSpeciesFromFilename(file.name);
-          if (extracted) {
-            useSDMStore.getState().setSpecies(extracted);
-          }
-        }
+        const speciesName = detectedSpecies || extractSpeciesFromFilename(file.name) || null;
+        if (speciesName) useSDMStore.getState().setSpecies(speciesName);
+        const fakeFile: UploadFile = {
+          file_id: fileId,
+          file_name: file.name,
+          file_size: file.size,
+          n_rows: nRows,
+          cleaned: false,
+          modified_at: new Date().toISOString(),
+          species: speciesName || undefined,
+          format: file.name.endsWith(".zip") ? "dwca" : file.name.endsWith(".tsv") ? "tsv" : "csv",
+        };
+        handleWorkspaceAdd(fakeFile, speciesName || undefined);
       }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
@@ -244,83 +252,16 @@ function DataPageContent() {
     }
   };
 
-  const handleFlagToggle = useCallback((idx: number, flagged: boolean) => {
-    const current = useSDMStore.getState().flaggedIndices;
-    setFlaggedIndicesArray(flagged ? [...current, idx] : current.filter(i => i !== idx));
-  }, [setFlaggedIndicesArray]);
-
-  const handleClean = async () => {
-    if (!uploadResult?.file_id) return;
-    setCleanLoading(true); setCleanError(null); setFlaggedIndicesArray([]);
-    const effectiveAsync = useAsync || useCc;
-    const pipelineRunId = useSDMStore.getState().pipelineRunId;
+  const handleDeleteUpload = async (fileId: string) => {
     try {
-      const uncert = maxCoordUncertainty ? Math.max(0, Number(maxCoordUncertainty)) || undefined : undefined;
-      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", { file_id: uploadResult.file_id, species: useSDMStore.getState().species, min_source_records: minSourceRecords, merge_small_sources: mergeSmallSources, use_cc: useCc, cc_tests: ccTests, max_coordinate_uncertainty: uncert, async: effectiveAsync, pipelineRunId }, { timeout: 600000 });
-      if (effectiveAsync && (result.job_id || result.jobId)) {
-        const jid = (result.job_id || result.jobId) as string; setCleanJobId(jid);
-        const poll = async () => {
-          for (let i = 0; i < 150; i++) {
-            try { const status = await apiGet<Record<string, unknown>>(`/api/v1/data/jobs/${jid}`); const s = status?.status as string; if (s === "completed") { handleCleanComplete(status?.result as Record<string, unknown> || status); return; } if (s === "failed") { setCleanError((status?.error as string) || "Clean job failed"); setCleanJobId(null); setCleanLoading(false); return; } }
-            catch { } await new Promise(r => setTimeout(r, 2000));
-          }
-          setCleanError("Clean job timed out after 5 minutes"); setCleanJobId(null); setCleanLoading(false);
-        };
-        poll();
-      } else {
-        setCleanResult(result);
-        setCleanedOccurrence({ filePath: (result.cleaned_file_id as string) || "", df: (result.cleaned_records as Record<string, unknown>[]) || [], sourceCounts: (result.source_counts as Record<string, number>) || {}, nAbsentExcluded: (result.n_absent_excluded as number) || 0, originalRows: (result.original_rows as number) || 0, validRecords: (result.valid_records as number) || 0 });
-        setRecordCount((result.valid_records as number) || 0);
-        const rp = (result.pipelineRunId as string) || pipelineRunId; if (rp) setPipelineRunId(rp);
-        const currentFileId = (useSDMStore.getState().uploadResult?.file_id ?? "") as string;
-        if (currentFileId && result.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId)}`, { cleaned: true, cleaned_file_path: result.cleaned_file_id, cleaned_valid_records: result.valid_records || 0, cleaned_original_rows: result.original_rows || 0 }).catch(() => {});
-      }
-    } catch (err) { setCleanError(err instanceof Error ? err.message : "Clean failed"); } finally { if (!effectiveAsync) setCleanLoading(false); }
-  };
-
-  const handleCleanComplete = (result: CleanResult) => {
-    if (result.status === "error") { setCleanError(result.error || "Clean job failed"); setCleanJobId(null); setCleanLoading(false); return; }
-    const cleanData = result.data ?? result;
-    setCleanResult(cleanData as unknown as Record<string, unknown>); const cleanedRowCount = cleanData.valid_records || 0;
-    setCleanedOccurrence({ filePath: cleanData.cleaned_file_id || "", df: cleanData.cleaned_records || [], sourceCounts: cleanData.source_counts || {}, nAbsentExcluded: cleanData.n_absent_excluded || 0, originalRows: cleanData.original_rows || 0, validRecords: cleanedRowCount });
-    setRecordCount(cleanedRowCount);
-    const pipelineRunId = useSDMStore.getState().pipelineRunId; if (cleanData.pipelineRunId) setPipelineRunId(cleanData.pipelineRunId); else if (pipelineRunId) setPipelineRunId(pipelineRunId);
-    if (cleanData.species_counts) {
-      const counts = cleanData.species_counts as Record<string, number>;
-      useSDMStore.getState().setDetectedSpecies(Object.keys(counts));
+      await apiDelete(`/api/v1/data/uploads/${encodeURIComponent(fileId)}`);
+      setWorkspaceFiles((prev) => prev.filter(f => f.fileId !== fileId));
+      fetchUploads();
+    } catch (err) {
+      console.error("[data] Failed to delete upload:", err);
     }
-    setCleanJobId(null); setCleanLoading(false);
-    const currentFileId = (useSDMStore.getState().uploadResult?.file_id ?? "") as string; if (currentFileId && cleanData.cleaned_file_id) apiPatch(`/api/v1/data/uploads/${encodeURIComponent(currentFileId)}`, { cleaned: true, cleaned_file_path: cleanData.cleaned_file_id, cleaned_valid_records: cleanData.valid_records || 0, cleaned_original_rows: cleanData.original_rows || 0 }).catch(() => console.warn("[data] Failed to update upload cleaned status"));
   };
 
-  const handleGbifSearch = async (taxon: string, country: string, maxRecords: number, useAuth: boolean) => {
-    setGbifLoading(true); setGbifError(null); setGbifResult(null); setGbifSearchFile(null);
-    try {
-      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/search", {
-        taxon, country, max_records: maxRecords, use_auth: useAuth,
-      });
-      setGbifResult(result);
-      if (typeof result.file_path === "string") setGbifSearchFile(result.file_path);
-    } catch (err) { setGbifError(err instanceof Error ? err.message : "GBIF search failed"); } finally { setGbifLoading(false); }
-  };
-
-  const handleGbifSave = async () => {
-    if (!gbifResult) return; setGbifSaving(true);
-    try {
-      const result = gbifSearchFile
-        ? await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", { file_path: gbifSearchFile })
-        : await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", { taxon: gbifResult.taxon, country: gbifResult.country, max_records: gbifResult.max_records });
-      if (typeof result.file_path === "string") { setOccurrenceFilePath(result.file_path); setRecordCount(Number(result.n_rows || 0)); useSDMStore.getState().setSpecies(String(gbifResult.taxon || "Untitled species")); setUploadResult(result); setPipelineRunId((result.pipelineRunId as string) || null); setGbifSaved(true); }
-    } catch (err) { setGbifError(err instanceof Error ? err.message : "Failed to save GBIF records"); } finally { setGbifSaving(false); }
-  };
-
-  const cleanPreview = cleanResult?.cleaned_records as OccurrencePoint[] | undefined;
-  const cleanSourceCounts = cleanResult?.source_counts as Record<string, number> | undefined;
-  const cleanCcLog = (cleanResult?.cc_log as string[]) || [];
-  const cleanValidRecords = Number(cleanResult?.valid_records || 0);
-  const cleanOriginalRows = Number(cleanResult?.original_rows || 0);
-  const gbifPreview = gbifResult?.preview as Record<string, unknown>[] | undefined;
-  const uploadPreview = uploadResult?.preview as Record<string, unknown>[] | undefined;
   const handleSelectUpload = (file: UploadFile) => {
     const fp = file.file_id;
     if (!fp) return;
@@ -339,8 +280,6 @@ function DataPageContent() {
         validRecords: Number(file.cleaned_valid_records || file.n_rows || 0),
       });
     } else if (file.cleaned_file_id) {
-      // Trust cleaned_file_path even if is_cleaned flag is not set
-      // (catches previously-cleaned files before the DB was updated)
       setCleanedOccurrence({
         filePath: file.cleaned_file_id,
         df: [],
@@ -354,23 +293,22 @@ function DataPageContent() {
     }
     const species = file.species as string;
     if (species && species !== "—") useSDMStore.getState().setSpecies(species);
+    handleWorkspaceAdd(file);
   };
-  const handleDeleteUpload = async (fileId: string) => {
-    try {
-      await apiDelete(`/api/v1/data/uploads/${encodeURIComponent(fileId)}`);
-      fetchUploads();
-    } catch (err) {
-      console.error("[data] Failed to delete upload:", err);
-    }
-  };
-  const previousUploads = uploadHistory;
-  const previousUploadsLoading = historyLoading;
 
+  // ── Legacy tab redirect ─────────────────────────────────────
+  useEffect(() => {
+    if (["gbif", "clean", "obs", "batch"].includes(activeTab)) {
+      router.replace("/data?tab=upload");
+    }
+  }, [activeTab, router]);
+
+  // ── Render ──────────────────────────────────────────────────
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-sdm-heading">Occurrence Data</h1>
-        <p className="text-sdm-muted mt-1">Upload occurrence records, fetch from GBIF, or parse a Darwin Core Archive.</p>
+        <p className="text-sdm-muted mt-1">Upload occurrence records, fetch from GBIF, or manage multiple occurrence files for model runs.</p>
       </div>
 
       <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
@@ -381,23 +319,7 @@ function DataPageContent() {
           </TabsTrigger>
           <TabsTrigger value="upload" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
             <Upload className="h-3 w-3" />
-            Upload
-          </TabsTrigger>
-          <TabsTrigger value="gbif" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
-            <Globe className="h-3 w-3" />
-            GBIF
-          </TabsTrigger>
-          <TabsTrigger value="clean" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
-            <Wand2 className="h-3 w-3" />
-            Clean
-          </TabsTrigger>
-          <TabsTrigger value="obs" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
-            <Flag className="h-3 w-3" />
-            Records
-          </TabsTrigger>
-          <TabsTrigger value="batch" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
-            <Layers className="h-3 w-3" />
-            Batch
+            Occurrence{workspaceFiles.length > 0 ? ` (${workspaceFiles.length})` : ""}
           </TabsTrigger>
           <TabsTrigger value="climate" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
             <Cloud className="h-3 w-3" />
@@ -414,32 +336,20 @@ function DataPageContent() {
         </TabsList>
 
         {activeTab === "upload" && (
-          <UploadTab uploadResult={uploadResult} uploadLoading={uploadLoading} uploadError={uploadError}
-            onUpload={handleUpload} onSelectUpload={handleSelectUpload} onTabChange={onTabChange}
+          <UploadTab
+            uploadResult={uploadResult}
+            uploadLoading={uploadLoading}
+            uploadError={uploadError}
+            onUpload={handleUpload}
             onDelete={handleDeleteUpload}
-            previousUploads={previousUploads} previousUploadsLoading={previousUploadsLoading} />
-        )}
-
-        {activeTab === "gbif" && (
-          <div className="space-y-4">
-            <GbifSearch onSearch={handleGbifSearch} loading={gbifLoading} error={gbifError} result={gbifResult} hasSavedCredentials={hasGbifCredentials} />
-            {gbifPreview && gbifPreview.length > 0 && <PreviewTable data={gbifPreview} title="GBIF Preview (first 5 records)" />}
-            {gbifResult && typeof gbifResult.n_records === "number" && gbifResult.n_records > 0 && (
-              <div className="space-y-3">
-                {gbifSaved ? (
-                  <div className="flex items-center justify-between rounded-md border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3">
-                    <div className="flex items-center gap-2 text-sm text-sdm-warning"><span>{Number(gbifResult.n_records).toLocaleString()} GBIF records saved — clean before modeling</span></div>
-                    <button onClick={() => onTabChange("clean")} className="text-sm font-medium text-sdm-accent hover:underline">Clean data →</button>
-                  </div>
-                ) : (
-                  <button onClick={handleGbifSave} disabled={gbifSaving}
-                    className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50">
-                    Save {Number(gbifResult.n_records).toLocaleString()} records for modeling
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+            previousUploads={uploadHistory}
+            previousUploadsLoading={historyLoading}
+            workspaceFiles={workspaceFiles}
+            onWorkspaceAdd={handleWorkspaceAdd}
+            onWorkspaceUpdate={handleWorkspaceUpdate}
+            onWorkspaceRemove={handleWorkspaceRemove}
+            onRunModels={handleRunModels}
+          />
         )}
 
         {activeTab === "overview" && (
@@ -453,46 +363,6 @@ function DataPageContent() {
             climateRes={climateRes}
             onTabChange={onTabChange}
           />
-        )}
-
-        {activeTab === "clean" && (
-          <CleanTab uploadResult={uploadResult} cleanResult={cleanResult} cleanLoading={cleanLoading}
-            cleanError={cleanError} cleanJobId={cleanJobId} useAsync={useAsync} useCc={useCc}
-            maxCoordUncertainty={maxCoordUncertainty}
-            minSourceRecords={minSourceRecords} mergeSmallSources={mergeSmallSources} ccTests={ccTests}
-            onSetUseAsync={setUseAsync} onSetUseCc={setUseCc}
-            onSetMinSourceRecords={setMinSourceRecords} onSetMergeSmallSources={setMergeSmallSources} onSetCcTests={setCcTests}
-            onSetMaxCoordUncertainty={setMaxCoordUncertainty}
-            onClean={handleClean} onCleanComplete={handleCleanComplete} onFlagToggle={handleFlagToggle}
-            onRunModel={() => {
-              // Ensure store has cleaned data before navigating to model page
-              const result = cleanResult || uploadResult;
-              if (result?.cleaned_file_id) {
-                setCleanedOccurrence({
-                  filePath: result.cleaned_file_id as string,
-                  df: (result.cleaned_records || []) as Record<string, unknown>[],
-                  sourceCounts: (result.source_counts || {}) as Record<string, number>,
-                  nAbsentExcluded: (result.n_absent_excluded as number) || 0,
-                  originalRows: (result.original_rows as number) || 0,
-                  validRecords: (result.valid_records as number) || (result.cleaned_valid_records as number) || 0,
-                });
-              }
-              router.push("/model");
-            }} />
-        )}
-
-        {activeTab === "obs" && cleanPreview && (
-          <ObservationRecordsTab
-            records={cleanPreview}
-            sourceCounts={cleanSourceCounts || {}}
-            ccLog={cleanCcLog}
-            validRecords={cleanValidRecords}
-            originalRows={cleanOriginalRows}
-          />
-        )}
-
-        {activeTab === "batch" && (
-          <BatchTab />
         )}
 
         {activeTab === "climate" && (
@@ -509,13 +379,8 @@ function DataPageContent() {
             onFetchScenarios={fetchScenarios} onDeleteScenario={handleDeleteScenario} />
         )}
 
-        {activeTab === "covariates" && (
-          <CovariateTab />
-        )}
-
-        {activeTab === "boundary" && (
-          <BoundaryTab />
-        )}
+        {activeTab === "covariates" && <CovariateTab />}
+        {activeTab === "boundary" && <BoundaryTab />}
       </Tabs>
     </div>
   );
