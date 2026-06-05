@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, pointerWithin,
-  type DragStartEvent, type DragEndEvent,
+  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, closestCenter,
+  type DragStartEvent, type DragEndEvent, type CollisionDetection,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Upload, Globe, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Search, Layers, Plus } from "lucide-react";
@@ -17,6 +17,41 @@ import { GbifSearch } from "@/components/data/gbif-search";
 import { apiPost, apiGet } from "@/services/api";
 import type { UploadFile } from "@/services/types";
 import type { WorkspaceFile, OccurrencePoint } from "./types";
+
+function isPointWithinRect(
+  point: { x: number; y: number },
+  rect: { top: number; left: number; bottom: number; right: number }
+): boolean {
+  return (
+    rect.top <= point.y &&
+    point.y <= rect.bottom &&
+    rect.left <= point.x &&
+    point.x <= rect.right
+  );
+}
+
+const customCollisionDetection: CollisionDetection = (args) => {
+  const activeType = args.active.data.current?.type;
+  if (activeType === "source") {
+    const workspaceDroppable = args.droppableContainers.find(
+      (c) => c.id === "workspace-drop-zone"
+    );
+    if (
+      workspaceDroppable &&
+      args.pointerCoordinates
+    ) {
+      const rect = args.droppableRects.get(workspaceDroppable.id);
+      if (rect && isPointWithinRect(args.pointerCoordinates, rect)) {
+        return [{
+          id: workspaceDroppable.id,
+          data: { droppableContainer: workspaceDroppable, value: 0 },
+        }];
+      }
+    }
+    return [];
+  }
+  return closestCenter(args);
+};
 
 interface UploadTabProps {
   uploadResult: Record<string, unknown> | null;
@@ -225,7 +260,7 @@ export function UploadTab({
   // ── Render ──────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      <DndContext sensors={sensors} collisionDetection={pointerWithin}
+      <DndContext sensors={sensors} collisionDetection={customCollisionDetection}
         onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
 
         {/* ── Add data section ──────────────────────────────── */}
