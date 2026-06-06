@@ -486,6 +486,35 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
       call. = FALSE)
   }
 
+  # When source is CHELSA, auto-compute aggregation factor to match worldclim_res
+  if (identical(source, "chelsa") && length(files) > 0 && any(!is.na(files))) {
+    sample_file <- files[!is.na(files)][1]
+    if (!is.na(sample_file) && file.exists(sample_file)) {
+      sample_rast <- terra::rast(sample_file)
+      native_res_deg <- max(terra::res(sample_rast))
+      rm(sample_rast)
+      native_res_arcmin <- native_res_deg * 60
+      target_agg <- max(1L, as.integer(ceiling(worldclim_res / native_res_arcmin)))
+      if (target_agg > aggregation_factor) {
+        log_message(log_fun, sprintf(
+          "CHELSA native resolution ~%.2f arc-min; auto-aggregating %dx to match worldclim_res=%g arc-min (effective ~%.1f arc-min)",
+          native_res_arcmin, target_agg, worldclim_res, native_res_arcmin * target_agg
+        ))
+        aggregation_factor <- target_agg
+      } else if (aggregation_factor > target_agg) {
+        log_message(log_fun, sprintf(
+          "CHELSA native resolution ~%.2f arc-min; using user-specified aggregation %dx (>=%dx needed for worldclim_res=%g arc-min)",
+          native_res_arcmin, aggregation_factor, target_agg, worldclim_res
+        ))
+      } else {
+        log_message(log_fun, sprintf(
+          "CHELSA native resolution ~%.2f arc-min already matches worldclim_res=%g arc-min; no additional aggregation",
+          native_res_arcmin, worldclim_res
+        ))
+      }
+    }
+  }
+
   log_message(log_fun, "Loading ", length(files), " ", source, " layer(s) from ", climate_dir)
   env_global <- terra::rast(unname(files))
   names(env_global) <- paste0("bio", selected_biovars)

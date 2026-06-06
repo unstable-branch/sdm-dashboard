@@ -40,6 +40,7 @@ if (is.null(.GlobalEnv$.sdm_plumber_initialized)) {
   # sources this file before router setup, but plumber.R must be self-contained
   # for direct Plumber parsing and helper-level tests.
   source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"))
+  source(file.path(app_dir, "plumber", "R", "helpers", "vsize.R"))
 
   .GlobalEnv$.sdm_plumber_initialized <- TRUE
 }
@@ -559,9 +560,11 @@ function(req) {
   }, args = list(script_path, job_dir, app_dir),
   stdout = file.path(job_dir, "stdout.log"),
   stderr = file.path(job_dir, "stderr.log"),
+  cmdargs = c("--no-save", "--no-restore", "--no-init-file"),
   env = c(
+    HOME = "/app",
     OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
-    R_MAX_VSIZE = Sys.getenv("SDM_CHILD_MAX_VSIZE", "6Gb")
+    R_MAX_VSIZE = sdm_detect_vsize()
   ))
   sdm_process_registry[[job_id]] <- proc
 
@@ -647,7 +650,9 @@ function(req) {
     source(script, local = TRUE)
   }, args = list(script_path, job_dir, app_dir),
   stdout = file.path(job_dir, "stdout.log"),
-  stderr = file.path(job_dir, "stderr.log"))
+  stderr = file.path(job_dir, "stderr.log"),
+  cmdargs = c("--no-save", "--no-restore", "--no-init-file"),
+  env = c(HOME = "/app"))
   sdm_process_registry[[job_id]] <- proc
 
   job_meta$process_pid <- proc$get_pid()
@@ -1234,9 +1239,10 @@ sdm_async_submit <- function(job_type, params, app_dir, user_id = "anonymous") {
     dispatcher_path <- file.path(app_dir, "plumber", "R", "async_dispatcher.R")
     proc <- processx::process$new(
       "Rscript",
-      c("--no-save", "--no-restore", dispatcher_path, app_dir, job_dir),
+      c("--no-save", "--no-restore", "--no-init-file", dispatcher_path, app_dir, job_dir),
       stdout = file.path(job_dir, "stdout.log"),
-      stderr = file.path(job_dir, "stderr.log")
+      stderr = file.path(job_dir, "stderr.log"),
+      env = c(HOME = "/app")
     )
 
     sdm_process_registry[[job_id]] <- proc
@@ -3265,7 +3271,11 @@ function(req) {
   }, args = list(script_path, job_dir, app_dir),
   stdout = file.path(job_dir, "stdout.log"),
   stderr = file.path(job_dir, "stderr.log"),
-  env = c(R_MAX_VSIZE = Sys.getenv("SDM_CHILD_MAX_VSIZE", "6Gb")))
+  cmdargs = c("--no-save", "--no-restore", "--no-init-file"),
+  env = c(
+    HOME = "/app",
+    R_MAX_VSIZE = sdm_detect_vsize()
+  ))
 
   sdm_process_registry[[job_id]] <- proc
   job_meta$process_pid <- proc$get_pid()

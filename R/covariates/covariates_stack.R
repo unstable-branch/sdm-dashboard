@@ -258,6 +258,29 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
   }
   if (terra::nlyr(env_train) < 2) stop("Too few usable environmental layers after filtering.", call. = FALSE)
 
+  # Memory guard: reject if climate rasters + scaled copies + overhead would exceed 60% of available RAM
+  tryCatch({
+    mem_info <- terra::mem_info()
+    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail) && mem_info$memavail > 0) {
+      n_cells_train <- terra::ncell(env_train)
+      n_cells_proj <- terra::ncell(env_project)
+      n_layers <- terra::nlyr(env_train)
+      total_cells <- n_cells_train + n_cells_proj
+      # raw + scaled copy + terra overhead + model fitting ≈ 3x multiplier
+      est_gb <- total_cells * n_layers * 8 * 3.0 / (1024^3)
+      threshold_gb <- mem_info$memavail * 0.6
+      if (is.finite(est_gb) && est_gb > threshold_gb) {
+        stop(sprintf(
+          "Climate raster too large: estimated %.1f GB needed (training: %s cells x %d layers, projection: %s cells). Available: %.1f GB (threshold: %.1f GB). Reduce resolution by increasing worldclimRes or aggregationFactor, or reduce the projection extent.",
+          est_gb, format(n_cells_train, big.mark = ","), n_layers, format(n_cells_proj, big.mark = ","),
+          mem_info$memavail, threshold_gb
+        ), call. = FALSE)
+      }
+    }
+  }, error = function(e) {
+    if (grepl("^Climate raster too large", conditionMessage(e))) stop(e)
+  })
+
   env_train_scaled <- scale_raster_stack(env_train, means, sds)
   env_project_scaled <- scale_raster_stack(env_project, means, sds)
   log_message(

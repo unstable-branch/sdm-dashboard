@@ -906,9 +906,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
             <select
               value={climateSource}
               onChange={(e) => {
-                const src = e.target.value as "worldclim" | "chelsa";
-                setClimateSource(src);
-                if (src === "chelsa") setClimateRes(0.5);
+                setClimateSource(e.target.value as "worldclim" | "chelsa");
               }}
               className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
             >
@@ -923,14 +921,19 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
               onChange={(e) => setClimateRes(Number(e.target.value))}
               className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
             >
-              {climateSource === "worldclim" ? (
+              {climateSource === "chelsa" ? (
+                <>
+                  <option value={0.5}>30 arc-seconds (~1 km) — native</option>
+                  <option value={2.5}>2.5 arc-minutes (~5 km) — auto-agg 5x</option>
+                  <option value={5}>5 arc-minutes (~10 km) — auto-agg 10x</option>
+                  <option value={10}>10 arc-minutes (~20 km) — auto-agg 20x</option>
+                </>
+              ) : (
                 <>
                   <option value={10}>10 arc-minutes (~20 km)</option>
                   <option value={5}>5 arc-minutes (~10 km)</option>
                   <option value={2.5}>2.5 arc-minutes (~5 km)</option>
                 </>
-              ) : (
-                <option value={0.5}>30 arc-seconds (~1 km)</option>
               )}
             </select>
           </div>
@@ -966,6 +969,31 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
             <span>All selected BIO variables available locally</span>
           </div>
         ) : null}
+
+        <div className="text-xs text-sdm-muted border-t border-sdm-border pt-3 mt-2">
+          {climateSource === "chelsa"
+            ? (() => {
+                const nativeArcmin = 0.5;
+                const targetAgg = Math.max(1, Math.ceil(climateRes / nativeArcmin));
+                const effectiveAgg = Math.max(aggregationFactor, targetAgg);
+                const effArcmin = nativeArcmin * effectiveAgg;
+                const effKm = (effArcmin * 1.852).toFixed(1);
+                if (targetAgg > aggregationFactor) {
+                  return `CHELSA native 30 arc-sec x auto-aggregation ${effectiveAgg}x (target: worldclimRes=${climateRes} arc-min) -> ~${effArcmin.toFixed(1)} arc-min (~${effKm} km)`;
+                } else if (aggregationFactor > 1) {
+                  return `CHELSA native 30 arc-sec x user aggregation ${aggregationFactor}x -> ~${effArcmin.toFixed(1)} arc-min (~${effKm} km)`;
+                }
+                return `CHELSA native 30 arc-sec (~1 km) - no aggregation`;
+              })()
+            : (() => {
+                const effArcmin = climateRes * aggregationFactor;
+                const effKm = (effArcmin * 1.852).toFixed(1);
+                if (aggregationFactor > 1) {
+                  return `WorldClim ${climateRes} arc-min x ${aggregationFactor}x aggregation -> ~${effArcmin} arc-min (~${effKm} km)`;
+                }
+                return `WorldClim ${climateRes} arc-min (~${effKm} km)`;
+              })()}
+        </div>
 
         {climateSource === "chelsa" && (
           <div className="border-t border-sdm-border pt-4 mt-2">
