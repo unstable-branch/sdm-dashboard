@@ -328,6 +328,7 @@ export function CovariateTab() {
       {activeJob && (
         <DownloadProgress
           jobId={activeJob}
+          typeLabel="covariate"
           onComplete={handleComplete}
           onFailed={handleFailed}
           onCancel={handleCancel}

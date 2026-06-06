@@ -219,7 +219,8 @@ cmip6_period_choices <- c(
 )
 
 average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
-                               out_dir = "Worldclim_future", quiet = FALSE, ...) {
+                               out_dir = "Worldclim_future", quiet = FALSE,
+                               log_fun = NULL, progress_fun = NULL, ...) {
   if (length(gcm_list) < 2) {
     stop("average_cmip6_gcms requires at least 2 GCMs", call. = FALSE)
   }
@@ -227,14 +228,21 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
   ssp_map <- c("SSP1-2.6" = "126", "SSP2-4.5" = "245", "SSP3-7.0" = "370", "SSP5-8.5" = "585")
   ssp_code <- ssp_map[ssp] %||% gsub("[^0-9]", "", ssp)
   ssp_display <- gsub("-", "_", ssp)
+  n_gcms <- length(gcm_list)
 
   cached_dirs <- list()
-  for (gcm in gcm_list) {
+  for (i in seq_along(gcm_list)) {
+    gcm <- gcm_list[i]
     result <- fetch_cmip6_worldclim(
       gcm = gcm, ssp = ssp, period = period,
-      var = var, res = res, out_dir = out_dir, quiet = quiet, ...
+      var = var, res = res, out_dir = out_dir, quiet = quiet,
+      log_fun = log_fun, ...
     )
     cached_dirs[[gcm]] <- result$dir
+    if (!is.null(progress_fun)) {
+      pct <- 10 + round(40 * i / n_gcms)
+      progress_fun(pct, paste0("Downloading GCM ", gcm, " (", i, "/", n_gcms, ")"))
+    }
   }
 
   out_path <- file.path(out_dir, paste("averaged", paste(gcm_list, collapse = "_"), ssp_display, period, sep = "_"))
@@ -243,7 +251,8 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
   all_bio_vars <- paste0("bio", 1:19)
   first_dir <- cached_dirs[[1]]
 
-  for (bio in all_bio_vars) {
+  for (i in seq_along(all_bio_vars)) {
+    bio <- all_bio_vars[i]
     tryCatch({
       bio_pattern <- paste0("_(", bio, ")[^0-9]|[_]", bio, "\\.tif$")
       bio_files <- character()
@@ -275,6 +284,10 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
     }, error = function(e) {
       log_message(log_fun, "Failed to process bio", bio, " for GCM averaging: ", conditionMessage(e))
     })
+    if (!is.null(progress_fun)) {
+      pct <- 50 + round(40 * i / length(all_bio_vars))
+      progress_fun(pct, paste0("Averaging bio", bio, " (", i, "/", length(all_bio_vars), ")"))
+    }
   }
 
   baseline_dir <- sdm_default_worldclim_dir

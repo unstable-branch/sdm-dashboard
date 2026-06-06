@@ -55,34 +55,45 @@ climateRoutes.post("/download", async (c) => {
       return c.json({ error: "Invalid download type. Must be: cmip6, cmip6_average, worldclim, chelsa" }, 400);
     }
 
+    // Validate resolution per type
+    const res = body.res !== undefined ? Number(body.res) : undefined;
+    const validResolutions: Record<string, number[]> = {
+      worldclim: [2.5, 5, 10],
+      chelsa: [0.5],
+      cmip6: [2.5, 5, 10],
+      cmip6_average: [2.5, 5, 10],
+    };
+    if (res !== undefined && !validResolutions[type]?.includes(res)) {
+      return c.json({
+        error: `Invalid resolution '${body.res}' for type '${type}'. Valid: ${validResolutions[type].join(", ")}`,
+      }, 400);
+    }
+
     if (type === "cmip6_average" && (!Array.isArray(body.gcm_list) || body.gcm_list.length < 2)) {
       return c.json({ error: "Multi-GCM averaging requires at least 2 GCMs in gcm_list" }, 400);
     }
 
-    const jobId = await enqueueSdmJob(
-      {
-        type: "climate_download",
-        payload: body,
+    // Try BullMQ queue first; fall back to calling Plumber directly
+    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
+    const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
+
+    const plumberRes = await fetch(`${plumberUrl}/api/v1/climate/download`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
+        "X-Forwarded-User": user.id,
       },
-      user.id
-    ).catch((err) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("Redis unavailable")) {
-        return null;
-      }
-      throw err;
+      body: JSON.stringify(body),
     });
 
-    if (jobId === null) {
-      const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-      return c.json({
-        error: "Climate download queuing requires Redis.",
-        detail: `Cannot connect to ${redisUrl}. Check that Redis is running, or set REDIS_URL to the correct address.`,
-        tip: "Run 'docker compose up -d redis' to start Redis.",
-      }, 503);
+    if (!plumberRes.ok) {
+      const errBody = await plumberRes.json().catch(() => null);
+      return c.json({ error: errBody?.error || `Plumber returned ${plumberRes.status}` }, 502);
     }
 
-    return c.json({ jobId, status: "queued" });
+    const plumberData = await plumberRes.json() as Record<string, unknown>;
+    return c.json({ jobId: plumberData.job_id, status: "queued" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Climate download failed";
     return c.json({ error: message }, 502);

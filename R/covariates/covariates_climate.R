@@ -329,8 +329,12 @@ download_chelsa_extras <- function(chelsa_dir, selected_extras = names(chelsa_ex
   )
 }
 
-download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, log_fun = NULL, n_cores = NULL) {
+download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, log_fun = NULL, progress_fun = NULL, n_cores = NULL) {
   ensure_sdm_packages(c("terra", "geodata"), n_cores = n_cores)
+  if (!requireNamespace("geodata", quietly = TRUE)) {
+    stop("geodata package required for WorldClim download but is not installed. ",
+         "Run install.packages('geodata') to install it.", call. = FALSE)
+  }
   dir.create(worldclim_dir, recursive = TRUE, showWarnings = FALSE)
 
   check_internet_connectivity("https://geodata.ucdavis.edu/", log_fun = log_fun)
@@ -351,9 +355,10 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
   old_timeout <- getOption("timeout")
   options(timeout = timeout_sec)
   on.exit(options(timeout = old_timeout), add = TRUE)
-  log_message(log_fun, sprintf("  Download timeout set to %d seconds (resolution: %d arc-min)", timeout_sec, res))
+  log_message(log_fun, sprintf("  Download timeout set to %d seconds (resolution: %.1f arc-min)", timeout_sec, res))
 
   log_message(log_fun, "  Downloading WorldClim (this may take a while)...")
+  if (!is.null(progress_fun)) progress_fun(30, "Downloading WorldClim")
   wc <- geodata::worldclim_global(var = "bio", res = res, path = worldclim_dir)
   log_message(log_fun, "  WorldClim download complete.")
   failed <- character()
@@ -361,12 +366,12 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
   # geodata writes files to worldclim_dir/climate/wc2.1_{res}m/ — use them directly
   # No need to write duplicate top-level copies (H3 fix)
   list(
-    files = find_worldclim_files(worldclim_dir, selected_biovars),
+    files = find_worldclim_files(worldclim_dir, selected_biovars, res = res),
     failed = failed
   )
 }
 
-download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_cores = NULL, period = "1981-2010") {
+download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, progress_fun = NULL, n_cores = NULL, period = "1981-2010") {
   if (!requireNamespace("curl", quietly = TRUE)) {
     stop("curl package required for CHELSA downloads. Install with: install.packages('curl')", call. = FALSE)
   }
@@ -376,14 +381,16 @@ download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_
 
   check_internet_connectivity("https://os.unil.cloud.switch.ch/", log_fun = log_fun)
   biovars <- as.integer(selected_biovars)
+  n_biovars <- length(biovars)
 
   # Determine parallel workers — use at most length(biovars) but cap at n_cores
-  n_workers <- min(length(biovars), max(1L, n_cores %||% 2L))
+  n_workers <- min(n_biovars, max(1L, n_cores %||% 2L))
 
-  log_message(log_fun, "Downloading ", length(biovars), " BIO layers using lapply (fork-safe serial; parallel disabled to avoid RPostgres fork deadlock) (period: ", period, ")")
+  log_message(log_fun, "Downloading ", n_biovars, " BIO layers using lapply (fork-safe serial; parallel disabled to avoid RPostgres fork deadlock) (period: ", period, ")")
 
   # Serial download using lapply — mclapply (fork) is unsafe inside Plumber (inherits DB pool, Redis connections)
-  results <- lapply(biovars, function(bv) {
+  results <- lapply(seq_along(biovars), function(i) {
+    bv <- biovars[i]
     bio_padded <- if (bv < 10) sprintf("bio0%d", bv) else sprintf("bio%d", bv)
     fname <- sprintf("CHELSA_%s_%s_V.2.1.tif", bio_padded, period)
     dest <- file.path(chelsa_dir, fname)
@@ -396,7 +403,12 @@ download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, n_
 
     url <- get_chelsa_bio_url(bv, period)
     success <- download_chelsa_file(url, dest, log_fun)
-    list(success = success, bio = bv, file = if (success) dest else NA_character_)
+    result <- list(success = success, bio = bv, file = if (success) dest else NA_character_)
+    if (!is.null(progress_fun)) {
+      pct <- 10 + round(80 * i / n_biovars)
+      progress_fun(pct, paste0("CHELSA BIO", bv, " (", i, "/", n_biovars, ")"))
+    }
+    result
   })
 
   failed_biovars <- character()
@@ -453,13 +465,13 @@ load_climate_covariates <- function(worldclim_dir, selected_biovars, training_ex
       files <- find_worldclim_files(climate_dir, selected_biovars, source = source)
       if (any(is.na(files))) {
         if (identical(source, "chelsa")) {
-          result <- download_chelsa_bio(chelsa_dir, selected_biovars, log_fun, n_cores)
+          result <- download_chelsa_bio(chelsa_dir = chelsa_dir, selected_biovars = selected_biovars, log_fun = log_fun, n_cores = n_cores)
           files <- result$files
           if (length(result$failed) > 0) {
             log_message(log_fun, "Partial failure: ", length(result$failed), " CHELSA BIO layers failed to download")
           }
         } else {
-          result <- download_worldclim_bio(worldclim_dir, selected_biovars, worldclim_res, log_fun, n_cores)
+          result <- download_worldclim_bio(worldclim_dir = worldclim_dir, selected_biovars = selected_biovars, res = worldclim_res, log_fun = log_fun, n_cores = n_cores)
           files <- result$files
         }
       }

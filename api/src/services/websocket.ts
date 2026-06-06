@@ -3,6 +3,7 @@ import { verify } from "hono/jwt";
 import type { ServerType } from "@hono/node-server";
 import { jobEventBus } from "./job-events.js";
 import { canAccessRun } from "./access.js";
+import { getJobStatus } from "./queue.js";
 
 interface Client {
   ws: WebSocket;
@@ -109,6 +110,23 @@ export function setupWebSocket(server: ServerType) {
             subscriptions.set(jobId, new Set());
           }
           subscriptions.get(jobId)?.add(clientId);
+
+          // Send current job status immediately to prevent race where
+          // the job completed before the WebSocket subscribed
+          getJobStatus(jobId).then((status) => {
+            if (!status || !ws || ws.readyState !== WebSocket.OPEN) return;
+            if (status.state === "completed" || status.state === "failed") {
+              ws.send(JSON.stringify({
+                type: "status",
+                jobId,
+                status: status.state,
+                progress: status.progress ?? 100,
+                result: status.result,
+                failedReason: status.failedReason,
+                logs: [],
+              }));
+            }
+          }).catch(() => {});
         } else if (msg.type === "unsubscribe") {
           const jobId = msg.jobId;
           clients.get(clientId)?.subscriptions.delete(jobId);

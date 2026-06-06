@@ -50,6 +50,7 @@ sdm_optional_packages <- list(
   esm = c("ecospat", "biomod2"),
   targets = c("targets", "tarchetypes", "geotargets"),
   dnn = c("cito", "torch"),
+  ala = c("galah"),
   devtools = c("devtools")
 )
 

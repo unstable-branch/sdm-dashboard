@@ -96,7 +96,7 @@ tryCatch({
     gcm <- config$gcm %||% "UKESM1-0-LL"
     ssp <- config$ssp %||% "SSP2-4.5"
     period <- config$period %||% "2041-2060"
-    res <- as.integer(config$res %||% 10)
+    res <- as.numeric(config$res %||% 10)
 
     if (download_type == "cmip6") {
       progress_fun(10, "Downloading CMIP6")
@@ -113,11 +113,11 @@ tryCatch({
       source(file.path(app_dir, "R", "covariates", "covariates_climate_future.R"), local = TRUE)
       average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res,
                          out_dir = file.path(app_dir, sdm_default_future_worldclim_dir),
-                         quiet = FALSE, log_fun = log_fun)
+                         quiet = FALSE, log_fun = log_fun, progress_fun = progress_fun)
       progress_fun(90, "GCM averaging complete")
     }
   } else if (download_type == "worldclim") {
-    climate_res <- as.integer(config$res %||% 10)
+    climate_res <- as.numeric(config$res %||% 10)
     biovars <- config$biovars
     if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
     worldclim_dir <- file.path(app_dir, sdm_default_worldclim_dir)
@@ -125,7 +125,7 @@ tryCatch({
     log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
     source(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
     result <- download_worldclim_bio(worldclim_dir = worldclim_dir, selected_biovars = biovars,
-      res = climate_res, log_fun = log_fun)
+      res = climate_res, log_fun = log_fun, progress_fun = progress_fun)
     created_files <- result$files %||% character()
     if (length(result$failed) > 0) {
       meta$failed_vars <- result$failed
@@ -143,7 +143,7 @@ tryCatch({
     progress_fun(10, "Downloading CHELSA v2.1 BIO layers")
     log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
     source(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
-    result <- download_chelsa_bio(chelsa_dir = chelsa_dir, selected_biovars = biovars, log_fun = log_fun)
+    result <- download_chelsa_bio(chelsa_dir = chelsa_dir, selected_biovars = biovars, log_fun = log_fun, progress_fun = progress_fun)
     created_files <- result$files %||% character()
     if (length(result$failed) > 0) {
       meta$failed_vars <- result$failed
@@ -187,4 +187,5 @@ tryCatch({
   meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
   progress_fun(0, paste0("Failed: ", msg))
   write_meta(meta)
+  quit(save = "no", status = 1)
 })

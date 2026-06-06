@@ -20,6 +20,8 @@ export interface UserSettings {
   gbifPassword?: string | null;
   hasGbifPassword?: boolean;
   gbifEmail?: string | null;
+  alaApiKey?: string | null;
+  hasAlaApiKey?: boolean;
   createdAt: string;
   updatedAt: string;
 }

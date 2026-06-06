@@ -9,11 +9,10 @@ interface DownloadProgressProps {
   onComplete: () => void;
   onFailed?: () => void;
   onCancel: () => void;
+  typeLabel?: string;
 }
 
-const typeLabel = "climate download";
-
-export function DownloadProgress({ jobId, onComplete, onFailed, onCancel }: DownloadProgressProps) {
+export function DownloadProgress({ jobId, onComplete, onFailed, onCancel, typeLabel = "download" }: DownloadProgressProps) {
   const [progress, setProgress] = useState(10);
   const { job: wsJob } = useJobProgress(jobId);
 

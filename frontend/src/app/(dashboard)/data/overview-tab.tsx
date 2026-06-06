@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { apiGet } from "@/services/api";
 import {
   Cloud, Globe, Map, Mountain, Upload, CheckCircle2, AlertTriangle, Loader2,
-  ArrowRight, FlaskConical, Sun, Leaf, Map as MapIcon, Footprints, Thermometer, BarChart3,
+  ArrowRight, RefreshCw, FlaskConical, Sun, Leaf, Map as MapIcon, Footprints, Thermometer, BarChart3,
 } from "lucide-react";
 import type { UploadFile } from "@/services/types";
 
@@ -23,14 +23,27 @@ interface BoundaryFile {
   file_size: number;
 }
 
+interface CovariateStatus {
+  available: boolean;
+  detail: string;
+  file_count?: number;
+  size_bytes?: number;
+}
+
+interface CovariateCheckResponse {
+  covariates: Record<string, CovariateStatus>;
+}
+
 interface OverviewTabProps {
   uploadResult: Record<string, unknown> | null;
   cleanResult: Record<string, unknown> | null;
   species: string;
   recordCount: number;
   hasGbifCredentials: boolean;
-  climateSource: string;
+  hasAlaCredentials: boolean;
   climateRes: number;
+  climateBiovars: number[];
+  workspaceFileCount: number;
   onTabChange: (tab: string) => void;
 }
 
@@ -67,7 +80,35 @@ function NavButton({ tab }: { tab: string }) {
   );
 }
 
-export function OverviewTab({ uploadResult, cleanResult, species, recordCount, hasGbifCredentials, climateSource, climateRes, onTabChange }: OverviewTabProps) {
+function RefreshButton({ onClick, loading }: { onClick: () => void; loading?: boolean }) {
+  return (
+    <button onClick={onClick} disabled={loading}
+      className="flex h-7 w-7 items-center justify-center rounded-md text-sdm-muted hover:text-sdm-text hover:bg-sdm-surface-soft transition-colors disabled:opacity-40"
+      title="Refresh">
+      <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+    </button>
+  );
+}
+
+function detectSource(fileName: string | undefined | null): string {
+  if (!fileName) return "Upload";
+  if (fileName.startsWith("GBIF-")) return "GBIF";
+  if (fileName.startsWith("ALA-")) return "ALA";
+  return "Upload";
+}
+
+function computeSourceLabel(uploads: UploadFile[]): string {
+  const sources = new Set(uploads.map((u) => detectSource(u.file_name)));
+  if (sources.size === 0) return "—";
+  if (sources.size === 1) return sources.values().next().value as string;
+  return "Mixed";
+}
+
+export function OverviewTab({
+  uploadResult, cleanResult, species, recordCount,
+  hasGbifCredentials, hasAlaCredentials,
+  climateRes, climateBiovars, workspaceFileCount, onTabChange,
+}: OverviewTabProps) {
   const [scenarios, setScenarios] = useState<ClimateScenario[]>([]);
   const [scenariosLoading, setScenariosLoading] = useState(true);
   const [boundaries, setBoundaries] = useState<BoundaryFile[]>([]);
@@ -77,8 +118,10 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
   const [wcCheck, setWcCheck] = useState<{ available: number[]; missing: number[] } | null>(null);
   const [chelsaCheck, setChelsaCheck] = useState<{ available: number[]; missing: number[] } | null>(null);
   const [climateCheckLoading, setClimateCheckLoading] = useState(true);
+  const [covariateStatus, setCovariateStatus] = useState<Record<string, CovariateStatus> | null>(null);
+  const [covariateCheckLoading, setCovariateCheckLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchMountData = useCallback(() => {
     apiGet<{ scenarios: ClimateScenario[] }>("/api/v1/climate/scenarios")
       .then((d) => setScenarios(d.scenarios || []))
       .catch(() => {}).finally(() => setScenariosLoading(false));
@@ -88,24 +131,52 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
     apiGet<{ uploads: UploadFile[] }>("/api/v1/data/occurrences/uploads?limit=3")
       .then((d) => setRecentUploads(d.uploads || []))
       .catch(() => {}).finally(() => setUploadsLoading(false));
+    apiGet<CovariateCheckResponse>("/api/v1/covariates/check")
+      .then((d) => setCovariateStatus(d.covariates || null))
+      .catch(() => {}).finally(() => setCovariateCheckLoading(false));
+  }, []);
+
+  // Mount-only fetches
+  useEffect(() => { fetchMountData(); }, [fetchMountData]);
+
+  // Climate checks — depend on resolution and selected biovars
+  useEffect(() => {
+    if (climateBiovars.length === 0) return;
+    const bioStr = climateBiovars.join(",");
+    setClimateCheckLoading(true);
     Promise.all([
-      apiGet<{ available: number[]; missing: number[] }>(`/api/v1/climate/check?source=worldclim&res=${climateRes}&biovars=1,4,6,12,15,18`).catch(() => null),
-      apiGet<{ available: number[]; missing: number[] }>("/api/v1/climate/check?source=chelsa&res=0.5&biovars=1,4,6,12,15,18").catch(() => null),
+      apiGet<{ available: number[]; missing: number[] }>(`/api/v1/climate/check?source=worldclim&res=${climateRes}&biovars=${bioStr}`).catch(() => null),
+      apiGet<{ available: number[]; missing: number[] }>(`/api/v1/climate/check?source=chelsa&res=${climateRes}&biovars=${bioStr}`).catch(() => null),
     ]).then(([wc, ch]) => {
       setWcCheck(wc);
       setChelsaCheck(ch);
       setClimateCheckLoading(false);
     });
-  }, [climateRes]);
+  }, [climateRes, climateBiovars]);
 
-  const hasOccurrences = !!(uploadResult?.file_id || recordCount > 0 || recentUploads.length > 0);
-  const isCleaned = !!(cleanResult?.valid_records || (uploadResult as any)?.cleaned_file_id || (uploadResult as any)?.cleaned);
-  const validRecordCount = (cleanResult?.valid_records as number) || recordCount || 0;
+  const hasStoredUploads = recentUploads.length > 0;
+  const hasOccurrences = !!(uploadResult?.file_id || recordCount > 0 || hasStoredUploads);
+
+  const sessionCleaned = !!(typeof cleanResult?.valid_records === "number" && cleanResult.valid_records > 0
+    || typeof (uploadResult as Record<string, unknown>)?.cleaned_file_id === "string"
+    || (uploadResult as Record<string, unknown>)?.cleaned);
+  const recentCleaned = recentUploads.some((u) => u.cleaned || u.cleaned_file_id);
+  const isCleaned = sessionCleaned || recentCleaned;
+
+  const sessionRecordCount = typeof cleanResult?.valid_records === "number"
+    ? cleanResult.valid_records : recordCount || 0;
+  const recentTotalRecords = recentUploads.reduce(
+    (sum, u) => sum + (u.cleaned_valid_records || u.n_rows || 0), 0
+  );
+  const validRecordCount = sessionRecordCount || recentTotalRecords || 0;
+
+  const displaySource = computeSourceLabel(recentUploads);
+
   const futureScenarios = scenarios.filter((s) => s.type === "future");
-  const currentScenarios = scenarios.filter((s) => s.type === "current");
   const wcLayers = wcCheck?.available?.length || 0;
   const chelsaLayers = chelsaCheck?.available?.length || 0;
   const totalClimateLayers = wcLayers + chelsaLayers;
+  const bioCheckCount = climateBiovars.length || 6;
 
   const readinessItems = [
     { label: "Occurrence data loaded", ok: hasOccurrences, detail: hasOccurrences ? `${validRecordCount.toLocaleString()} records` : "Upload data in the Upload tab" },
@@ -113,7 +184,8 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
     { label: "Species selected", ok: !!species && species !== "Untitled species", detail: species || "Select a species on the Model page" },
     { label: "Climate layers ready", ok: totalClimateLayers > 0, detail: totalClimateLayers > 0 ? `${wcLayers} WorldClim + ${chelsaLayers} CHELSA layers` : "Download in Climate tab" },
     { label: "Boundary configured", ok: boundaries.length > 0, detail: boundaries.length > 0 ? `${boundaries.length} file(s)` : "Set up in Boundary tab" },
-    { label: "GBIF credentials", ok: hasGbifCredentials, detail: hasGbifCredentials ? "Connected" : "Set up in Settings" },
+    { label: "GBIF credentials", ok: hasGbifCredentials, detail: hasGbifCredentials ? "Connected" : "Set up in Settings", settingsTab: "gbif" },
+    { label: "ALA credentials", ok: hasAlaCredentials, detail: hasAlaCredentials ? "Connected" : "Set up in Settings", settingsTab: "ala" },
   ];
 
   return (
@@ -126,7 +198,11 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold text-sdm-heading">Occurrence Data</h3>
+            {workspaceFileCount > 0 && (
+              <p className="text-xs text-sdm-muted">{workspaceFileCount} file{workspaceFileCount !== 1 ? "s" : ""} in workspace</p>
+            )}
           </div>
+          <RefreshButton onClick={fetchMountData} loading={uploadsLoading} />
           <NavButton tab="upload" />
           {hasOccurrences ? (
             <span className="flex items-center gap-1.5 text-xs font-medium text-sdm-success">
@@ -143,9 +219,9 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
         {hasOccurrences && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-3 pb-3 border-b border-sdm-border/50">
             <div><span className="text-sdm-muted">Records:</span> <span className="font-medium text-sdm-text">{validRecordCount.toLocaleString()}</span></div>
-            <div><span className="text-sdm-muted">Species:</span> <span className="font-medium text-sdm-text">{species}</span></div>
+            <div><span className="text-sdm-muted">Species:</span> <span className="font-medium text-sdm-text">{species || "—"}</span></div>
             <div><span className="text-sdm-muted">Cleaned:</span> <span className={`font-medium ${isCleaned ? "text-sdm-success" : "text-sdm-warning"}`}>{isCleaned ? "Yes" : "No"}</span></div>
-            <div><span className="text-sdm-muted">Source:</span> <span className="font-medium text-sdm-text">{(uploadResult?.source as string) || "Upload"}</span></div>
+            <div><span className="text-sdm-muted">Source:</span> <span className="font-medium text-sdm-text">{displaySource}</span></div>
           </div>
         )}
 
@@ -156,14 +232,14 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-sdm-muted mb-1">Recent uploads</p>
             {recentUploads.map((u) => (
-              <div key={u.file_id + u.file_name + u.n_rows + u.modified_at} className="flex items-center gap-2 text-xs">
+              <div key={u.id || u.file_id || u.file_name} className="flex items-center gap-2 text-xs">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span className="truncate text-sdm-text">{u.file_name}</span>
                   <FormatBadge format={u.format} />
                   {u.species && <span className="text-xs text-sdm-muted truncate">{u.species}</span>}
                   {u.cleaned || u.cleaned_file_id ? <CheckCircle2 className="h-3 w-3 shrink-0 text-sdm-success" /> : <AlertTriangle className="h-3 w-3 shrink-0 text-sdm-warning" />}
                 </div>
-                <span className="text-sdm-muted shrink-0">{u.n_rows.toLocaleString()} rows</span>
+                <span className="text-sdm-muted shrink-0">{(u.cleaned_valid_records || u.n_rows).toLocaleString()} rows</span>
               </div>
             ))}
           </div>
@@ -181,7 +257,6 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold text-sdm-heading">Climate Data</h3>
           </div>
-          <NavButton tab="climate" />
           {climateCheckLoading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-sdm-muted" />
           ) : (
@@ -189,15 +264,16 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
               {totalClimateLayers > 0 ? `${totalClimateLayers} layers` : "None"}
             </span>
           )}
+          <NavButton tab="climate" />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
           <div>
             <span className="text-sdm-muted">WorldClim BIO:</span>
-            <p className="mt-0.5 font-medium text-sdm-text">{wcLayers > 0 ? `${wcLayers} of 6 available` : "Not downloaded"}</p>
+            <p className="mt-0.5 font-medium text-sdm-text">{wcLayers > 0 ? `${wcLayers} of ${bioCheckCount} available` : "Not downloaded"}</p>
           </div>
           <div>
             <span className="text-sdm-muted">CHELSA BIO:</span>
-            <p className="mt-0.5 font-medium text-sdm-text">{chelsaLayers > 0 ? `${chelsaLayers} of 6 available` : "Not downloaded"}</p>
+            <p className="mt-0.5 font-medium text-sdm-text">{chelsaLayers > 0 ? `${chelsaLayers} of ${bioCheckCount} available` : "Not downloaded"}</p>
           </div>
           <div>
             <span className="text-sdm-muted">Future scenarios:</span>
@@ -215,16 +291,32 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold text-sdm-heading">Covariates</h3>
           </div>
+          <RefreshButton onClick={fetchMountData} loading={covariateCheckLoading} />
           <NavButton tab="covariates" />
-          <span className="text-xs text-sdm-muted">Download per-layer</span>
+          {covariateCheckLoading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-sdm-muted" />
+          ) : (
+            <span className="text-xs font-medium text-sdm-muted">
+              {covariateStatus ? `${Object.values(covariateStatus).filter(s => s.available).length} of ${COVARIATE_TYPES.length} available` : "No data"}
+            </span>
+          )}
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {COVARIATE_TYPES.map((ct) => (
-            <div key={ct.id} className="flex items-center gap-2 rounded-md border border-sdm-border/50 bg-sdm-surface-soft px-3 py-2 text-xs text-sdm-muted">
-              <span className="text-sdm-accent shrink-0">{ct.icon}</span>
-              {ct.label}
-            </div>
-          ))}
+          {COVARIATE_TYPES.map((ct) => {
+            const status = covariateStatus?.[ct.id];
+            const isAvailable = status?.available ?? false;
+            return (
+              <div key={ct.id} className={`flex items-center gap-2 rounded-md border px-3 py-2 text-xs ${isAvailable ? "border-sdm-border bg-sdm-surface-soft text-sdm-text" : "border-sdm-border/30 bg-sdm-surface-soft/50 text-sdm-muted/60"}`}>
+                <span className={`shrink-0 ${isAvailable ? "text-sdm-success" : "text-sdm-muted"}`}>{ct.icon}</span>
+                <span className="flex-1 truncate">{ct.label}</span>
+                {isAvailable ? (
+                  <span className="shrink-0 text-xs text-sdm-muted">{status?.file_count ?? ""}</span>
+                ) : (
+                  <span className="text-xs text-sdm-muted/50">—</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -237,6 +329,7 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold text-sdm-heading">Boundaries</h3>
           </div>
+          <RefreshButton onClick={fetchMountData} loading={boundariesLoading} />
           <NavButton tab="boundary" />
           {boundariesLoading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-sdm-muted" />
@@ -279,7 +372,13 @@ export function OverviewTab({ uploadResult, cleanResult, species, recordCount, h
             <div key={item.label} className="flex items-center gap-3 text-sm">
               {item.ok ? <CheckCircle2 className="h-4 w-4 shrink-0 text-sdm-success" /> : <AlertTriangle className="h-4 w-4 shrink-0 text-sdm-warning" />}
               <span className="text-sdm-text">{item.label}</span>
-              <span className="ml-auto text-xs text-sdm-muted">{item.detail}</span>
+              <span className="ml-auto text-xs text-sdm-muted">
+                {"settingsTab" in item && !item.ok ? (
+                  <a href="/settings" className="text-sdm-accent hover:underline">{item.detail}</a>
+                ) : (
+                  item.detail
+                )}
+              </span>
             </div>
           ))}
         </div>

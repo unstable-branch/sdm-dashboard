@@ -73,7 +73,8 @@ requires_auth <- function(path) {
     "^/api/v1/climate/check$",
     "^/api/v1/config/defaults$",
     "^/api/v1/models$",
-    "^/api/v1/future/scenarios$"
+    "^/api/v1/future/scenarios$",
+    "^/api/v1/covariates/check$"
   )
 
   if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {

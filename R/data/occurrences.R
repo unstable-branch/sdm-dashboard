@@ -510,11 +510,14 @@ read_gbif_records <- function(taxon, country = NULL, max_records = 100,
   doi <- result$meta$doi
   if (is.null(doi)) doi <- NA_character_
 
+  total_available <- result$meta$count %||% nrow(result$data)
+  if (is.null(total_available)) total_available <- nrow(result$data)
+
   # Extract coordinate uncertainty if available
   uncert <- result$data$coordinateUncertaintyInMeters
   if (is.null(uncert)) uncert <- rep(NA_real_, nrow(result$data))
 
-  data.frame(
+  out <- data.frame(
     longitude = result$data$decimalLongitude,
     latitude = result$data$decimalLatitude,
     species = if (!is.null(result$data$species)) result$data$species else taxon,
@@ -524,6 +527,8 @@ read_gbif_records <- function(taxon, country = NULL, max_records = 100,
     coord_uncertainty_m = as.numeric(uncert),
     stringsAsFactors = FALSE
   )
+  attr(out, "gbif_total_available") <- total_available
+  out
 }
 
 #' Download GBIF occurrence records via authenticated API (occ_download)
@@ -621,4 +626,161 @@ read_gbif_download <- function(taxon, country = NULL, gbif_user = NULL, gbif_pwd
     doi = doi,
     gbif_key = download_key
   )
+}
+
+#' Fetch ALA occurrence records via galah (public API)
+#' @param taxon Species name to search for (e.g., "Acacia mearnsii")
+#' @param country Optional country filter (e.g., "Australia")
+#' @param max_records Maximum number of records to fetch
+#' @param api_key Optional ALA API key for authenticated access
+#' @param log_fun Optional logging function
+#' @return data.frame with columns: longitude, latitude, species, source, ala_key, coord_uncertainty_m
+read_ala_records <- function(taxon, country = NULL, max_records = 100,
+                              api_key = NULL, log_fun = NULL) {
+  if (!requireNamespace("httr", quietly = TRUE)) {
+    stop("httr package required for ALA search. Install with: install.packages('httr')", call. = FALSE)
+  }
+
+  log_message(log_fun, "Fetching ALA records for: ", taxon)
+
+  if ((is.null(api_key) || is.na(api_key) || !nzchar(api_key)) && nzchar(Sys.getenv("ALA_API_KEY", unset = ""))) {
+    api_key <- Sys.getenv("ALA_API_KEY")
+  }
+  has_api_key <- !is.null(api_key) && !is.na(api_key) && nzchar(api_key)
+
+  limit_cap <- if (has_api_key) 100000L else 10000L
+  query_max <- min(max_records, limit_cap)
+
+  total_available <- NA_integer_
+  tryCatch({
+    if (requireNamespace("galah", quietly = TRUE)) {
+      suppressPackageStartupMessages(library(galah))
+      galah::galah_config(email = Sys.getenv("ALA_EMAIL", unset = NA_character_))
+      if (has_api_key) galah::galah_config(api_key = api_key)
+      count_query <- galah::galah_call() |> galah::identify(taxon)
+      if (!is.null(country) && nzchar(country)) {
+        count_query <- count_query |> galah::galah_filter(country == country)
+      }
+      count_result <- count_query |> galah::atlas_counts()
+      total_available <- as.integer(count_result$count[1] %||% NA)
+    }
+  }, error = function(e) {
+    log_message(log_fun, "Could not fetch ALA total count: ", conditionMessage(e))
+  })
+
+  result <- tryCatch({
+    new_url <- "https://api.ala.org.au/common/biocache/occurrences/search"
+    old_url <- "https://biocache-ws.ala.org.au/ws/occurrences/search"
+    params <- list(
+      q = taxon,
+      pageSize = query_max,
+      fl = "decimalLatitude,decimalLongitude,scientificName,occurrenceID,coordinateUncertaintyInMeters"
+    )
+    if (!is.null(country) && nzchar(country)) {
+      params$fq <- paste0("country:", country)
+    }
+
+    try_api_key <- if (has_api_key) api_key else NULL
+    base_url <- new_url
+    headers <- NULL
+    if (!is.null(try_api_key)) {
+      base_url <- new_url
+      headers <- httr::add_headers(`x-api-key` = try_api_key)
+    }
+
+    max_attempts <- 3L
+    for (attempt in seq_len(max_attempts)) {
+      if (is.null(headers)) {
+        resp <- httr::GET(base_url, query = params, httr::user_agent("sdm-dashboard/1.0"),
+                          httr::timeout(120))
+      } else {
+        resp <- httr::GET(base_url, query = params, headers,
+                          httr::user_agent("sdm-dashboard/1.0"), httr::timeout(120))
+      }
+      status <- httr::status_code(resp)
+      if (status >= 200L && status < 300L) break
+      if (status %in% c(429L, 503L) && attempt < max_attempts) {
+        log_message(log_fun, sprintf("ALA API %s returned %d on attempt %d/%d, retrying in 15s...", base_url, status, attempt, max_attempts))
+        Sys.sleep(15)
+        next
+      }
+      if (status == 403L && attempt < max_attempts) {
+        log_message(log_fun, "New ALA API gateway returned 403 (needs API key), falling back to legacy endpoint...")
+        base_url <- old_url
+        headers <- NULL
+        next
+      }
+      httr::stop_for_status(resp)
+    }
+    httr::stop_for_status(resp)
+    parsed <- httr::content(resp, as = "parsed", type = "application/json")
+
+    if (is.null(parsed$occurrences) || length(parsed$occurrences) == 0) {
+      data.frame(
+        decimalLongitude = numeric(),
+        decimalLatitude = numeric(),
+        scientificName = character(),
+        occurrenceID = character(),
+        coordinateUncertaintyInMeters = numeric(),
+        stringsAsFactors = FALSE
+      )
+    } else {
+      do.call(rbind, lapply(parsed$occurrences, function(o) {
+        data.frame(
+          decimalLongitude = as.numeric(o$decimalLongitude %||% NA),
+          decimalLatitude = as.numeric(o$decimalLatitude %||% NA),
+          scientificName = o$scientificName %||% taxon,
+          occurrenceID = as.character(o$occurrenceID %||% NA),
+          coordinateUncertaintyInMeters = as.numeric(o$coordinateUncertaintyInMeters %||% NA),
+          stringsAsFactors = FALSE
+        )
+      }))
+    }
+  }, error = function(e) {
+    err_msg <- conditionMessage(e)
+    if (grepl("Timeout|timed out|Connection timed out", err_msg)) {
+      hint <- " The ALA legacy API is slow or unreachable from this network. Try configuring an ALA API key in Settings → ALA API Key (free from https://support.ala.org.au/) to use the faster API gateway."
+    } else {
+      hint <- " Check internet connectivity or ALA API availability."
+    }
+    stop("ALA occurrence search failed for '", taxon, "': ", err_msg, hint, call. = FALSE)
+  })
+
+  if (is.null(result) || nrow(result) == 0) {
+    log_message(log_fun, "No ALA records found for: ", taxon)
+    out <- data.frame(
+      longitude = numeric(),
+      latitude = numeric(),
+      species = character(),
+      source = character(),
+      ala_key = character(),
+      coord_uncertainty_m = numeric(),
+      stringsAsFactors = FALSE
+    )
+    attr(out, "ala_total_available") <- total_available
+    attr(out, "ala_limit_applied") <- query_max
+    return(out)
+  }
+
+  lon_col <- if (!is.null(result$decimalLongitude)) "decimalLongitude" else if (!is.null(result$longitude)) "longitude" else "lon"
+  lat_col <- if (!is.null(result$decimalLatitude)) "decimalLatitude" else if (!is.null(result$latitude)) "lat" else "lat"
+
+  uncert <- if (!is.null(result$coordinateUncertaintyInMeters)) {
+    as.numeric(result$coordinateUncertaintyInMeters)
+  } else {
+    rep(NA_real_, nrow(result))
+  }
+
+  out <- data.frame(
+    longitude = as.numeric(result[[lon_col]]),
+    latitude = as.numeric(result[[lat_col]]),
+    species = result$scientificName %||% result$species %||% taxon,
+    source = "ALA",
+    ala_key = as.character(result$occurrenceID %||% seq_len(nrow(result))),
+    coord_uncertainty_m = uncert,
+    stringsAsFactors = FALSE
+  )
+  attr(out, "ala_total_available") <- total_available
+  attr(out, "ala_limit_applied") <- query_max
+  out
 }
