@@ -100,6 +100,126 @@ async function pollPlumberJob(jobId: string, timeout?: number): Promise<Record<s
 
 export const dataRoutes = new Hono<AppEnv>();
 
+dataRoutes.use("*", authMiddleware);
+
+// Lightweight read-only routes exempt from rate limiting (polling, listings)
+dataRoutes.get("/occurrences/uploads", async (c) => {
+  try {
+    const limit = c.req.query("limit") || "50";
+    const user = c.get("user");
+    const result = await plumberClient.withUser(user.id).getUploads(parseInt(limit, 10));
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to list uploads";
+    return c.json({ error: message }, 502);
+  }
+});
+
+dataRoutes.get("/occurrences/job/:jobId", async (c) => {
+  const jobId = c.req.param("jobId");
+  if (!jobId) return c.json({ error: "jobId is required" }, 400);
+  try {
+    const status = await plumberClient.getJobStatus(jobId);
+    if (status.status === "completed") {
+      if (status.result && typeof status.result === "object") {
+        return c.json({ status: "completed", result: status.result });
+      }
+      return c.json({ error: "Job completed but no result data" }, 502);
+    }
+    if (status.status === "failed" || status.status === "error") {
+      return c.json({ error: (status.error as string) || "Job failed" }, 502);
+    }
+    return c.json(status);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to get job status";
+    return c.json({ error: message }, 502);
+  }
+});
+
+dataRoutes.get("/occurrences/clean/result", async (c) => {
+  try {
+    const fileId = c.req.query("file_id");
+    const cleanedFileId = c.req.query("cleaned_file_id");
+    if (!fileId && !cleanedFileId) return c.json({ error: "file_id or cleaned_file_id is required" }, 400);
+
+    // Primary path: resolve the cleaned file directly
+    if (cleanedFileId) {
+      const resolved = resolveFilePath(cleanedFileId);
+      const result = readCleanResultFromFile(resolved.path);
+      if (result) {
+        return c.json({
+          cleaned_records: result.records,
+          source_counts: result.sourceCounts,
+          cc_log: result.ccLog,
+          valid_records: result.totalRecords,
+          original_rows: result.totalRecords,
+        });
+      }
+    }
+
+    // Fallback: look up the Plumber upload listing to find the cleaned file path
+    if (fileId) {
+      const resolved = resolveFilePath(fileId);
+      try {
+        const uploadsList = await plumberClient.withUser(c.get("user").id).getUploads(200);
+        const uploadsArray = (uploadsList as any)?.uploads as Array<Record<string, unknown>> | undefined;
+        if (uploadsArray) {
+          const match = uploadsArray.find(u => String(u.file_path || "") === resolved.path || String(u.file_id || "") === resolved.path);
+          if (match) {
+            const cleanedPath = (match.cleaned_file_path as string) || (match.cleaned_file_id as string);
+            if (cleanedPath) {
+              const result = readCleanResultFromFile(cleanedPath);
+              if (result) {
+                return c.json({
+                  cleaned_records: result.records,
+                  source_counts: result.sourceCounts,
+                  cc_log: result.ccLog,
+                  valid_records: result.totalRecords,
+                  original_rows: (match.cleaned_original_rows as number) || result.totalRecords,
+                });
+              }
+            }
+            // File was cleaned but cleaned file not on disk — return summary
+            return c.json({
+              cleaned_records: [],
+              source_counts: {},
+              cc_log: [],
+              valid_records: (match.cleaned_valid_records as number) || 0,
+              original_rows: (match.cleaned_original_rows as number) || (match.n_rows as number) || 0,
+            });
+          }
+        }
+      } catch {
+        // Plumber lookup failed, continue to minimal response
+      }
+
+      // Last resort: try reading the original file as cleaned file
+      const result = readCleanResultFromFile(resolved.path);
+      if (result) {
+        return c.json({
+          cleaned_records: result.records,
+          source_counts: result.sourceCounts,
+          cc_log: result.ccLog,
+          valid_records: result.totalRecords,
+          original_rows: result.totalRecords,
+        });
+      }
+    }
+
+    // Return empty summary rather than 404 so the frontend always gets valid JSON
+    return c.json({
+      cleaned_records: [],
+      source_counts: {},
+      cc_log: [],
+      valid_records: 0,
+      original_rows: 0,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to get cleaning result";
+    return c.json({ error: message }, 502);
+  }
+});
+
 dataRoutes.use("*", defaultRateLimit);
 dataRoutes.use("*", authMiddleware);
 
@@ -171,18 +291,6 @@ dataRoutes.post("/occurrences/upload", async (c) => {
         ? "Upload failed: Plumber backend is not running. Start it with: docker compose -f docker-compose.dev.yml --profile computation up -d"
         : message,
     }, isPlumberDown ? 503 : 502);
-  }
-});
-
-dataRoutes.get("/occurrences/uploads", async (c) => {
-  try {
-    const limit = c.req.query("limit") || "50";
-    const user = c.get("user");
-    const result = await plumberClient.withUser(user.id).getUploads(parseInt(limit, 10));
-    return c.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to list uploads";
-    return c.json({ error: message }, 502);
   }
 });
 
@@ -418,90 +526,6 @@ function readCleanResultFromFile(cleanedPath: string): {
 
   return { records, sourceCounts, ccLog, totalRecords };
 }
-
-dataRoutes.get("/occurrences/clean/result", async (c) => {
-  try {
-    const fileId = c.req.query("file_id");
-    const cleanedFileId = c.req.query("cleaned_file_id");
-    if (!fileId && !cleanedFileId) return c.json({ error: "file_id or cleaned_file_id is required" }, 400);
-
-    // Primary path: resolve the cleaned file directly
-    if (cleanedFileId) {
-      const resolved = resolveFilePath(cleanedFileId);
-      const result = readCleanResultFromFile(resolved.path);
-      if (result) {
-        return c.json({
-          cleaned_records: result.records,
-          source_counts: result.sourceCounts,
-          cc_log: result.ccLog,
-          valid_records: result.totalRecords,
-          original_rows: result.totalRecords,
-        });
-      }
-    }
-
-    // Fallback: look up the Plumber upload listing to find the cleaned file path
-    if (fileId) {
-      const resolved = resolveFilePath(fileId);
-      try {
-        const uploadsList = await plumberClient.withUser(c.get("user").id).getUploads(200);
-        const uploadsArray = (uploadsList as any)?.uploads as Array<Record<string, unknown>> | undefined;
-        if (uploadsArray) {
-          const match = uploadsArray.find(u => String(u.file_path || "") === resolved.path || String(u.file_id || "") === resolved.path);
-          if (match) {
-            const cleanedPath = (match.cleaned_file_path as string) || (match.cleaned_file_id as string);
-            if (cleanedPath) {
-              const result = readCleanResultFromFile(cleanedPath);
-              if (result) {
-                return c.json({
-                  cleaned_records: result.records,
-                  source_counts: result.sourceCounts,
-                  cc_log: result.ccLog,
-                  valid_records: result.totalRecords,
-                  original_rows: (match.cleaned_original_rows as number) || result.totalRecords,
-                });
-              }
-            }
-            // File was cleaned but cleaned file not on disk — return summary
-            return c.json({
-              cleaned_records: [],
-              source_counts: {},
-              cc_log: [],
-              valid_records: (match.cleaned_valid_records as number) || 0,
-              original_rows: (match.cleaned_original_rows as number) || (match.n_rows as number) || 0,
-            });
-          }
-        }
-      } catch {
-        // Plumber lookup failed, continue to minimal response
-      }
-
-      // Last resort: try reading the original file as cleaned file
-      const result = readCleanResultFromFile(resolved.path);
-      if (result) {
-        return c.json({
-          cleaned_records: result.records,
-          source_counts: result.sourceCounts,
-          cc_log: result.ccLog,
-          valid_records: result.totalRecords,
-          original_rows: result.totalRecords,
-        });
-      }
-    }
-
-    // Return empty summary rather than 404 so the frontend always gets valid JSON
-    return c.json({
-      cleaned_records: [],
-      source_counts: {},
-      cc_log: [],
-      valid_records: 0,
-      original_rows: 0,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to get cleaning result";
-    return c.json({ error: message }, 502);
-  }
-});
 
 dataRoutes.post("/occurrences/gbif/search", gbifRateLimit, async (c) => {
   try {
@@ -739,27 +763,6 @@ dataRoutes.post("/occurrences/ala/save", authMiddleware, async (c) => {
 });
 
 // ── Data job status (polled by frontend after async submission) ──
-dataRoutes.get("/occurrences/job/:jobId", async (c) => {
-  const jobId = c.req.param("jobId");
-  if (!jobId) return c.json({ error: "jobId is required" }, 400);
-  try {
-    const status = await plumberClient.getJobStatus(jobId);
-    if (status.status === "completed") {
-      if (status.result && typeof status.result === "object") {
-        return c.json({ status: "completed", result: status.result });
-      }
-      return c.json({ error: "Job completed but no result data" }, 502);
-    }
-    if (status.status === "failed" || status.status === "error") {
-      return c.json({ error: (status.error as string) || "Job failed" }, 502);
-    }
-    return c.json(status);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to get job status";
-    return c.json({ error: message }, 502);
-  }
-});
-
 dataRoutes.post("/occurrences/dwca", async (c) => {
   try {
     const body = await c.req.parseBody();
