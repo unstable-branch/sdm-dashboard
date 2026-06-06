@@ -746,7 +746,7 @@ dataRoutes.get("/occurrences/job/:jobId", async (c) => {
     const status = await plumberClient.getJobStatus(jobId);
     if (status.status === "completed") {
       if (status.result && typeof status.result === "object") {
-        return c.json(status.result);
+        return c.json({ status: "completed", result: status.result });
       }
       return c.json({ error: "Job completed but no result data" }, 502);
     }

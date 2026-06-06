@@ -56,7 +56,7 @@ export function GbifSearch({ onSearch, loading, error, result, hasSavedCredentia
             <label htmlFor="gbif-max" className="block text-sm font-medium text-sdm-text mb-1">Max records</label>
             <input id="gbif-max" type="number" value={maxRecords}
               onChange={(e) => setMaxRecords(Math.min(100000, Math.max(10, parseInt(e.target.value) || 10)))}
-              min={10} max={100000} step={100}
+              min={10} max={100000} step={10}
               className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:outline-none focus:ring-2 focus:ring-sdm-accent/50 focus:border-sdm-accent" />
             <p className="text-xs text-sdm-muted mt-1">Max 10,000 for public API; unlimited with authenticated download</p>
           </div>
@@ -100,19 +100,33 @@ export function GbifSearch({ onSearch, loading, error, result, hasSavedCredentia
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
             <div>
               <span className="text-sdm-muted">Records:</span>
-              <span className="ml-1.5 font-medium text-sdm-text">{String(result.n_records)}</span>
+              <span className="ml-1.5 font-medium text-sdm-text">
+                {Number(result.n_records ?? 0).toLocaleString()}
+                {result.total_available != null && Number(result.total_available) > Number(result.n_records ?? 0) && (
+                  <span className="text-sdm-muted"> / {Number(result.total_available).toLocaleString()} available</span>
+                )}
+              </span>
             </div>
             <div>
               <span className="text-sdm-muted">Taxon:</span>
-              <span className="ml-1.5 font-medium text-sdm-text">{String(result.taxon)}</span>
+              <span className="ml-1.5 font-medium text-sdm-text">{String(result.taxon ?? "—")}</span>
             </div>
-            {result.doi != null && String(result.doi) !== "null" ? (
-              <div>
-                <span className="text-sdm-muted">DOI:</span>
-                <span className="ml-1.5 font-mono text-xs text-sdm-accent-blue">{String(result.doi).substring(0, 30)}…</span>
-              </div>
-            ) : null}
+            {(() => {
+              const doi = result.doi;
+              const doiStr = typeof doi === "string" && doi !== "null" && doi !== "NA" && doi.length > 0 ? doi : null;
+              return doiStr ? (
+                <div>
+                  <span className="text-sdm-muted">DOI:</span>
+                  <span className="ml-1.5 font-mono text-xs text-sdm-accent-blue">{doiStr.substring(0, 30)}…</span>
+                </div>
+              ) : null;
+            })()}
           </div>
+          {result.total_available != null && Number(result.total_available) > Number(result.n_records) && (
+            <p className="mt-3 text-xs text-sdm-warning">
+              Only {Number(result.n_records ?? 0).toLocaleString()} records fetched. Increase "Max records" or use authenticated download for the full dataset.
+            </p>
+          )}
         </div>
       )}
     </div>
