@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, accessSync, constants, promises as fs } from "fs";
+import { mkdirSync, existsSync, statSync, writeFileSync, readFileSync, rmSync, accessSync, constants, promises as fs } from "fs";
 import { isAbsolute, join, resolve, dirname, extname } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID, createDecipheriv } from "crypto";
@@ -575,6 +575,7 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
     if (filePath) {
       const pipelineRunId = randomUUID();
       const user = c.get("user");
+      const nRows = (body.n_rows as number) || 0;
       const { ipAddress, userAgent } = extractClientInfo(c);
       logAction({
         userId: user.id,
@@ -585,11 +586,22 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
         userAgent,
         details: { source: "gbif", file_path: filePath, pipelineRunId },
       });
+      const filename = filePath.split("/").pop() || "gbif_records.csv";
+      const fileSize = existsSync(filePath) ? statSync(filePath).size : 0;
+      await db.insert(uploads).values({
+        userId: user.id,
+        filename: `GBIF-${filename}`,
+        filePath,
+        fileSize,
+        format: "csv",
+        nRows,
+        isCleaned: false,
+      }).onConflictDoNothing();
       return c.json({
         file_path: filePath,
         file_id: filePath,
-        n_rows: 0,
-        filename: filePath.split("/").pop() || "gbif_records.csv",
+        n_rows: nRows,
+        filename,
         pipelineRunId,
       });
     }
@@ -634,11 +646,24 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
       details: { source: "gbif", taxon, country, n_rows: nRecords, pipelineRunId },
     });
 
+    const filename = resultFilePath.split("/").pop() || "gbif_records.csv";
+    const fileSize = existsSync(resultFilePath) ? statSync(resultFilePath).size : 0;
+    await db.insert(uploads).values({
+      userId: user.id,
+      filename: `GBIF-${filename}`,
+      filePath: resultFilePath,
+      fileSize,
+      format: "csv",
+      nRows: nRecords,
+      species: taxon,
+      isCleaned: false,
+    }).onConflictDoNothing();
+
     return c.json({
       file_path: resultFilePath,
       file_id: resultFilePath,
       n_rows: nRecords,
-      filename: resultFilePath.split("/").pop() || "gbif_records.csv",
+      filename,
       pipelineRunId,
     });
   } catch (err) {
@@ -690,6 +715,7 @@ dataRoutes.post("/occurrences/ala/save", authMiddleware, async (c) => {
     if (filePath) {
       const pipelineRunId = randomUUID();
       const user = c.get("user");
+      const nRows = (body.n_rows as number) || 0;
       const { ipAddress, userAgent } = extractClientInfo(c);
       logAction({
         userId: user.id,
@@ -700,11 +726,22 @@ dataRoutes.post("/occurrences/ala/save", authMiddleware, async (c) => {
         userAgent,
         details: { source: "ala", file_path: filePath, pipelineRunId },
       });
+      const filename = filePath.split("/").pop() || "ala_records.csv";
+      const fileSize = existsSync(filePath) ? statSync(filePath).size : 0;
+      await db.insert(uploads).values({
+        userId: user.id,
+        filename: `ALA-${filename}`,
+        filePath,
+        fileSize,
+        format: "csv",
+        nRows,
+        isCleaned: false,
+      }).onConflictDoNothing();
       return c.json({
         file_path: filePath,
         file_id: filePath,
-        n_rows: 0,
-        filename: filePath.split("/").pop() || "ala_records.csv",
+        n_rows: nRows,
+        filename,
         pipelineRunId,
       });
     }
@@ -749,11 +786,24 @@ dataRoutes.post("/occurrences/ala/save", authMiddleware, async (c) => {
       details: { source: "ala", taxon, country, n_rows: nRecords, pipelineRunId },
     });
 
+    const filename = resultFilePath.split("/").pop() || "ala_records.csv";
+    const fileSize = existsSync(resultFilePath) ? statSync(resultFilePath).size : 0;
+    await db.insert(uploads).values({
+      userId: user.id,
+      filename: `ALA-${filename}`,
+      filePath: resultFilePath,
+      fileSize,
+      format: "csv",
+      nRows: nRecords,
+      species: taxon,
+      isCleaned: false,
+    }).onConflictDoNothing();
+
     return c.json({
       file_path: resultFilePath,
       file_id: resultFilePath,
       n_rows: nRecords,
-      filename: resultFilePath.split("/").pop() || "ala_records.csv",
+      filename,
       pipelineRunId,
     });
   } catch (err) {
