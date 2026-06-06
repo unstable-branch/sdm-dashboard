@@ -88,8 +88,9 @@ export function UploadTab({
     setGbifSaving(true);
     try {
       const filePath = gbifResult.file_path as string | undefined;
+      const nRecords = Number(gbifResult.n_records || 0);
       const result = filePath
-        ? await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", { file_path: filePath })
+        ? await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", { file_path: filePath, n_rows: nRecords })
         : await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", {
             taxon: gbifResult.taxon, country: gbifResult.country, max_records: gbifResult.max_records,
           });
@@ -97,7 +98,7 @@ export function UploadTab({
         file_id: result.file_path as string,
         file_name: `GBIF-${String(gbifResult.taxon || "search")}.csv`,
         file_size: 0,
-        n_rows: Number(gbifResult.n_records || 0),
+        n_rows: nRecords,
         cleaned: false,
         modified_at: new Date().toISOString(),
         species: String(gbifResult.taxon || ""),
@@ -157,8 +158,9 @@ export function UploadTab({
     setAlaSaving(true);
     try {
       const filePath = alaResult.file_path as string | undefined;
+      const nRecords = Number(alaResult.n_records || 0);
       const result = filePath
-        ? await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/ala/save", { file_path: filePath })
+        ? await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/ala/save", { file_path: filePath, n_rows: nRecords })
         : await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/ala/save", {
             taxon: alaResult.taxon, country: alaResult.country, max_records: alaResult.max_records,
           });
@@ -166,7 +168,7 @@ export function UploadTab({
         file_id: result.file_path as string,
         file_name: `ALA-${String(alaResult.taxon || "search")}.csv`,
         file_size: 0,
-        n_rows: Number(alaResult.n_records || 0),
+        n_rows: nRecords,
         cleaned: false,
         modified_at: new Date().toISOString(),
         species: String(alaResult.taxon || ""),
