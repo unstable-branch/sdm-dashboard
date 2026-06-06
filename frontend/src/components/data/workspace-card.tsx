@@ -52,6 +52,17 @@ export function WorkspaceCard({
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium text-sdm-heading">{item.fileName}</span>
+            {(() => {
+              const n = item.fileName || "";
+              const badge = n.startsWith("GBIF-") ? { label: "GBIF", color: "bg-teal-500/10 text-teal-600" }
+                : n.startsWith("ALA-") ? { label: "ALA", color: "bg-orange-500/10 text-orange-600" }
+                : null;
+              return badge ? (
+                <span className={`shrink-0 inline-flex items-center rounded px-1 py-0.5 text-xs font-medium ${badge.color}`}>
+                  {badge.label}
+                </span>
+              ) : null;
+            })()}
             <span className="text-xs text-sdm-muted shrink-0">{item.fileRows.toLocaleString()} records</span>
           </div>
 
