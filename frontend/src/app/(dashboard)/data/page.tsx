@@ -216,6 +216,7 @@ function DataPageContent() {
     try {
       const data = await apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/occurrences/uploads");
       const mapped = (data.uploads || []).map((u) => ({
+        id: u.id,
         file_id: u.file_path,
         file_name: u.filename,
         file_size: u.file_size,

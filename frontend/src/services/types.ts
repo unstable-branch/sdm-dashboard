@@ -273,6 +273,7 @@ export interface ManifestData {
 // ── Upload / GBIF / Clean / DwCA response types ────────────────────────────
 
 export interface UploadFile {
+  id?: string;
   file_id: string;
   file_name: string;
   file_size: number;

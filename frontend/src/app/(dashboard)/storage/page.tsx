@@ -6,6 +6,7 @@ import { Loader2, HardDrive, Trash2, Database, FolderOpen, RefreshCw } from "luc
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface UploadedFile {
+  id?: string;
   file_id: string;
   file_name: string;
   file_size: number;
@@ -47,12 +48,13 @@ export default function StoragePage() {
       ]);
       setStorageInfo(storage);
       setUploadedFiles((uploadsRes.uploads || []).map((f) => ({
-        file_id: f.file_id as string,
-        file_name: f.file_name as string,
+        id: f.id as string,
+        file_id: f.file_path as string,
+        file_name: (f.filename as string) || (f.file_name as string) || "unknown",
         file_size: f.file_size as number,
         n_rows: f.n_rows as number,
-        modified_at: f.modified_at as string,
-        cleaned: f.cleaned as boolean,
+        modified_at: f.created_at as string,
+        cleaned: f.is_cleaned as boolean,
       })));
       setRuns(Array.isArray(runsRes.runs) ? runsRes.runs.filter((r) => r.status !== "running" && r.status !== "queued") : []);
     } catch {
@@ -156,7 +158,7 @@ export default function StoragePage() {
         ) : (
           <div className="divide-y divide-sdm-border">
             {uploadedFiles.map((file) => (
-              <div key={file.file_id} className="flex items-center justify-between px-6 py-3">
+              <div key={file.id || file.file_id} className="flex items-center justify-between px-6 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-sdm-text truncate">{file.file_name}</p>
                   <p className="text-xs text-sdm-muted">
