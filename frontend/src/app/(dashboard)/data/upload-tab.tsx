@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { DndContext, PointerSensor, useSensor, useSensors, closestCenter } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { Upload, Globe, Leaf, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Layers, Plus, Settings } from "lucide-react";
+import { Upload, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Layers, Plus, Settings } from "lucide-react";
+import { GbifMark, AlaMark } from "@/components/data/source-icons";
 import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
 import { PreviewTable } from "@/components/data/preview-table";
@@ -507,7 +508,7 @@ export function UploadTab({
         {/* GBIF inline */}
         <details className="mt-4" open={gbifOpen} onToggle={(e) => setGbifOpen((e.target as HTMLDetailsElement).open)}>
           <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium text-sdm-heading">
-            <Globe className="h-4 w-4 text-sdm-accent" />
+            <GbifMark className="h-4 w-4" />
             Search GBIF
           </summary>
           <div className="mt-3">
@@ -527,7 +528,7 @@ export function UploadTab({
         {/* ALA inline */}
         <details className="mt-4" open={alaOpen} onToggle={(e) => setAlaOpen((e.target as HTMLDetailsElement).open)}>
           <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium text-sdm-heading">
-            <Leaf className="h-4 w-4 text-sdm-accent" />
+            <AlaMark className="h-4 w-4" />
             Search ALA
           </summary>
           <div className="mt-3">
@@ -658,7 +659,7 @@ export function UploadTab({
           ) : (
             <div className="space-y-1.5">
               {previousUploads.map((f) => (
-                <WorkspaceSourceCard key={f.file_id} file={f}
+                <WorkspaceSourceCard key={f.id || f.file_id} file={f}
                   disabled={workspaceFiles.some(w => w.fileId === f.file_id)}
                   onAddToWorkspace={() => onWorkspaceAdd(f)}
                   onDelete={onDelete} />

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Globe, Search, Download, ChevronDown, AlertCircle, Loader2 } from "lucide-react";
+import { Search, Download, ChevronDown, AlertCircle, Loader2 } from "lucide-react";
+import { GbifMark } from "@/components/data/source-icons";
 
 interface GbifSearchProps {
   onSearch: (taxon: string, country: string, maxRecords: number, useAuth: boolean) => void;
@@ -28,7 +29,7 @@ export function GbifSearch({ onSearch, loading, error, result, hasSavedCredentia
       <form onSubmit={handleSubmit} className="rounded-lg border border-sdm-border bg-sdm-surface p-5 space-y-4">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sdm-surface-soft text-sdm-accent">
-            <Globe className="h-5 w-5" />
+            <GbifMark className="h-5 w-5" />
           </div>
           <div>
             <h3 className="text-sm font-semibold text-sdm-heading">Search GBIF</h3>
@@ -94,7 +95,7 @@ export function GbifSearch({ onSearch, loading, error, result, hasSavedCredentia
       {result && (
         <div className="rounded-lg border border-sdm-border bg-sdm-surface p-5">
           <div className="flex items-center gap-2 mb-3">
-            <Globe className="h-4 w-4 text-sdm-accent" />
+            <GbifMark className="h-4 w-4" />
             <span className="font-medium text-sdm-heading">GBIF Results</span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
