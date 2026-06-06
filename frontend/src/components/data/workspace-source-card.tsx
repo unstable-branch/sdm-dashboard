@@ -16,6 +16,18 @@ const FORMAT_COLORS: Record<string, string> = {
   tsv: "bg-amber-500/10 text-amber-400",
 };
 
+const SOURCE_COLORS: Record<string, string> = {
+  gbif: "bg-teal-500/10 text-teal-600",
+  ala: "bg-orange-500/10 text-orange-600",
+  upload: "bg-gray-500/10 text-gray-400",
+};
+
+function detectSource(name: string): { label: string; color: string } {
+  if (name.startsWith("GBIF-")) return { label: "GBIF", color: SOURCE_COLORS.gbif };
+  if (name.startsWith("ALA-")) return { label: "ALA", color: SOURCE_COLORS.ala };
+  return { label: "Upload", color: SOURCE_COLORS.upload };
+}
+
 export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace, onDelete }: WorkspaceSourceCardProps) {
   const sizeStr = file.file_size > 1024 * 1024
     ? `${(file.file_size / 1024 / 1024).toFixed(1)} MB`
@@ -45,6 +57,14 @@ export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace, onDelete
             {file.format.toUpperCase()}
           </span>
         )}
+        {(() => {
+          const src = detectSource(file.file_name || "");
+          return (
+            <span className={`ml-1.5 inline-flex items-center rounded px-1 py-0.5 text-xs font-medium ${src.color}`}>
+              {src.label}
+            </span>
+          );
+        })()}
         {file.species && <span className="ml-1.5 text-xs text-sdm-muted">— {file.species}</span>}
         <p className="text-xs text-sdm-muted">
           {sizeStr}{file.n_rows > 0 && ` · ${file.n_rows.toLocaleString()} rows`}
