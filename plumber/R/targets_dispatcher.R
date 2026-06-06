@@ -36,7 +36,7 @@ write_meta <- function(meta) {
 
 source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
-source(file.path(app_dir, "R", "load.R"))
+source(file.path(app_dir, "R", "engine_load.R"))
 
 log_fun("Targets pipeline starting for ", basename(job_dir))
 

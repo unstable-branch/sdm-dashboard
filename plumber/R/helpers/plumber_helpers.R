@@ -15,6 +15,22 @@ sdm_count_active_runs <- function() {
   count
 }
 
+# Check if a background process is still alive by process registry + PID fallback
+sdm_check_process_alive <- function(job_id, meta) {
+  proc <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv)[[job_id]], error = function(e) NULL)
+  process_alive <- FALSE
+  if (!is.null(proc)) {
+    tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
+  }
+  if (!process_alive && !is.null(meta$process_pid)) {
+    pid <- as.integer(meta$process_pid)
+    if (is.finite(pid)) {
+      tryCatch({ process_alive <- tools::pskill(pid, signal = 0) }, error = function(e) NULL)
+    }
+  }
+  process_alive
+}
+
 # Helper for error responses
 sdm_error <- function(req, status, message) {
   res <- tryCatch(req$res, error = function(e) NULL)
@@ -55,7 +71,30 @@ sdm_safe_job_dir <- function(run_id) {
   NULL
 }
 
-# Database connection helper (reuses DATABASE_URL from auth.R)
+# Database connection helper — uses shared pool when available, falls back to direct connection
+db_conn <- function() {
+  pool <- tryCatch(get("db_pool", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.null(pool)) {
+    tryCatch({
+      conn <- pool::poolCheckout(pool)
+      return(conn)
+    }, error = function(e) NULL)
+  }
+  db_connect()
+}
+
+db_release <- function(con) {
+  if (is.null(con)) return(invisible(NULL))
+  pool <- tryCatch(get("db_pool", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.null(pool)) {
+    tryCatch(pool::poolReturn(con), error = function(e) NULL)
+  } else {
+    tryCatch(DBI::dbDisconnect(con), error = function(e) NULL)
+  }
+  invisible(NULL)
+}
+
+# Direct connection helper (fallback when pool unavailable)
 db_connect <- function() {
   db_url <- Sys.getenv("DATABASE_URL", "")
   if (!nzchar(db_url)) return(NULL)

@@ -1,14 +1,19 @@
 # Raster prediction and suitability summary helpers.
 
-predict_suitability <- function(model, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
-  dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+predict_suitability <- function(model, env_project_scaled, output_tif = NULL, n_cores = 1, log_fun = NULL) {
+  if (!is.null(output_tif)) {
+    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+  }
   n_cores <- normalize_core_count(n_cores)
   log_message(log_fun, "Predicting suitability raster with ", n_cores, " core(s)")
   predict_args <- list(
     object = env_project_scaled, model = model, type = "response", na.rm = TRUE,
-    filename = output_tif, overwrite = TRUE,
     wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999"))
   )
+  if (!is.null(output_tif)) {
+    predict_args$filename <- output_tif
+    predict_args$overwrite <- TRUE
+  }
   if (n_cores > 1) predict_args$cores <- n_cores
   suit <- tryCatch(do.call(terra::predict, predict_args), error = function(e) {
     err_msg <- conditionMessage(e)

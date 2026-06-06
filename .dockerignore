@@ -94,4 +94,5 @@ frontend/.next/
 frontend/node_modules/
 plumber/renv/
 plumber/renv.lock
+_targets.R
 *.md

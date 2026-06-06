@@ -45,7 +45,8 @@ function clearToken() {
 
 function writeTokenCookie(token: string, remember: boolean) {
   const maxAge = remember ? "; Max-Age=86400" : "";
-  document.cookie = `sdm_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${maxAge}`;
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `sdm_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${maxAge}${secure}`;
 }
 
 export async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<Response> {

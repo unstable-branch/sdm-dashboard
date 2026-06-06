@@ -1277,7 +1277,7 @@ sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL, progress_fun = NULL) {
 }
 
 #' Run SDM pipeline: Stage 4 — Predict suitability
-sdm_stage_predict <- function(cfg, fit, env, output_tif, log_fun = NULL) {
+sdm_stage_predict <- function(cfg, fit, env, output_tif = NULL, log_fun = NULL) {
   log_message(log_fun, "Stage 4: Predicting suitability")
   suit <- tryCatch(
     predict_sdm_model(fit, env$env_project_scaled, output_tif, cfg$n_cores, log_fun),
@@ -1285,7 +1285,11 @@ sdm_stage_predict <- function(cfg, fit, env, output_tif, log_fun = NULL) {
       stop("Stage 4 (predict) failed: ", conditionMessage(e), call. = FALSE)
     }
   )
-  list(suit = suit, output_tif = output_tif)
+  if (!is.null(output_tif)) {
+    invisible(output_tif)
+  } else {
+    suit
+  }
 }
 
 #' Run SDM pipeline: Stage 4b — Future climate projection

@@ -11,7 +11,7 @@ import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
-import { buildModelPayload, type ModelConfigRecord } from "../services/model-payload.js";
+import { buildModelPayload, cleanupDecryptedFiles, type ModelConfigRecord } from "../services/model-payload.js";
 
 async function plumberJobId(runId: string): Promise<string> {
   const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
@@ -103,6 +103,7 @@ sdmRoutes.post("/run", async (c) => {
         { type: "model", payload: { ...buildModelPayload(config, run.id), runId: run.id } },
         user.id,
       );
+      cleanupDecryptedFiles();
 
       await db
         .update(runs)
@@ -139,6 +140,7 @@ sdmRoutes.post("/run", async (c) => {
       .returning();
 
     const result = await plumberClient.runModel(buildModelPayload(config, run.id));
+    cleanupDecryptedFiles();
 
     const plumberJobId = (result as any).job_id;
 
@@ -767,6 +769,8 @@ sdmRoutes.post("/batch", async (c) => {
       })
     );
 
+    cleanupDecryptedFiles();
+
     // Update runs with job IDs in parallel
     await Promise.all(
       insertedRuns.map((run, i) => {
@@ -912,6 +916,7 @@ sdmRoutes.post("/batch/:batchId/retry", async (c) => {
       });
       retriedIds.push(r.id);
     }
+    cleanupDecryptedFiles();
 
     if (retriedIds.length > 0) {
       await db.update(batches).set({ status: "running", failedJobs: 0 }).where(eq(batches.id, batchId));
