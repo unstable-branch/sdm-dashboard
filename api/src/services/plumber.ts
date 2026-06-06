@@ -165,6 +165,16 @@ export class PlumberClient {
     return res.json();
   }
 
+  async searchAla(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/occurrences/ala/search`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`Failed to search ALA: ${res.status}`);
+    return res.json();
+  }
+
   async parseDwca(data: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/occurrences/dwca`, {
       method: "POST",
@@ -449,6 +459,14 @@ export class PlumberClient {
   async getRunComparison(runId1: string, runId2: string): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/compare/${runId1}/${runId2}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to compare runs: ${res.status}`);
+    return res.json();
+  }
+
+  async get(path: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}${path}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
     return res.json();
   }
 

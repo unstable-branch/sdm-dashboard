@@ -163,7 +163,7 @@ export function ClimateTab({
         <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">{climateError}</div>
       )}
       {activeJob && (
-        <DownloadProgress jobId={activeJob} onComplete={() => onDownloadComplete(activeJob)} onFailed={() => onDownloadFailed(activeJob)} onCancel={onCancelDownload} />
+        <DownloadProgress jobId={activeJob} typeLabel="climate download" onComplete={() => onDownloadComplete(activeJob)} onFailed={() => onDownloadFailed(activeJob)} onCancel={onCancelDownload} />
       )}
       <ScenarioList scenarios={scenarios} onRefresh={onFetchScenarios} onDelete={onDeleteScenario} loading={scenariosLoading} />
     </div>

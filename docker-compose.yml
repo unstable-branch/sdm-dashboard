@@ -95,6 +95,7 @@ services:
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
       - GDAL_CACHEMAX=64
       - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
+      - ALA_API_KEY=${ALA_API_KEY:-}
     init: true
     healthcheck:
       test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]

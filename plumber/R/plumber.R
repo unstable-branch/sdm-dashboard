@@ -370,6 +370,43 @@ function(req, taxon, country = NULL, max_records = 100, use_auth = NULL,
                          use_auth, gbif_user, gbif_pwd, gbif_email)
 }
 
+#* Search ALA for occurrence records (async)
+#* @param taxon Species name (e.g., "Acacia mearnsii")
+#* @param country Country filter (e.g., "Australia")
+#* @param max_records Maximum records to fetch (default: 100)
+#* @param api_key ALA API key for authenticated access (optional)
+sdm_submit_ala_search <- function(req, taxon, country = NULL, max_records = 100,
+                                   api_key = NULL,
+                                   app_dir_override = app_dir,
+                                   submit_fun = sdm_async_submit) {
+  if (is.null(taxon) || !nzchar(taxon)) {
+    return(sdm_error(req, 400, "taxon is required"))
+  }
+
+  max_records <- suppressWarnings(as.integer(max_records))
+  if (!is.finite(max_records) || max_records < 1) max_records <- 100L
+
+  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
+
+  job_id <- submit_fun("ala", list(
+    taxon = taxon,
+    country = if (!is.null(country) && nzchar(country)) country else NULL,
+    max_records = max_records,
+    api_key = api_key %||% NULL
+  ), app_dir_override, user_id)
+
+  list(
+    job_id = job_id,
+    status = "running",
+    message = "ALA search started in background"
+  )
+}
+
+#* @post /api/v1/occurrences/ala/search
+function(req, taxon, country = NULL, max_records = 100, api_key = NULL) {
+  sdm_submit_ala_search(req, taxon, country, max_records, api_key)
+}
+
 #* Parse a Darwin Core Archive (.zip file) (async)
 #* @param file_id Path to the uploaded .zip file
 #* @param species_filter Optional species name filter
@@ -3005,11 +3042,11 @@ function(source = "worldclim", resolution = "10", biovars = "", gcm = "", ssp = 
 
     if (source == "worldclim") {
       res_esc <- gsub("\\.", "\\\\.", as.character(resolution))
-      pattern <- sprintf("^wc2\\.1_%sm_bio_\\d+\\.tif$", res_esc)
-      files <- list.files(file.path(app_dir, sdm_default_worldclim_dir), pattern = pattern)
+      pattern <- sprintf("wc2\\.1_%sm_bio_\\d+\\.tif$", res_esc)
+      files <- list.files(file.path(app_dir, sdm_default_worldclim_dir), pattern = pattern, recursive = TRUE)
       existing_nums <- as.integer(gsub("^.*_bio_(\\d+)\\.tif$", "\\1", files))
     } else if (source == "chelsa") {
-      files <- list.files(file.path(app_dir, sdm_default_chelsa_dir), pattern = "^CHELSA_bio\\d+_.*\\.tif$")
+      files <- list.files(file.path(app_dir, sdm_default_chelsa_dir), pattern = "CHELSA_bio\\d+_.*\\.tif$", recursive = TRUE)
       existing_nums <- as.integer(gsub("^CHELSA_bio0*(\\d+)_.*$", "\\1", files))
     } else if (source == "cmip6") {
       if (nzchar(gcm) && nzchar(ssp) && nzchar(period)) {
@@ -3041,6 +3078,52 @@ function(source = "worldclim", resolution = "10", biovars = "", gcm = "", ssp = 
       available = as.list(integer(0)),
       missing = as.list(requested_safe)
     )
+  })
+}
+
+#* Check availability of non-climate covariates (elevation, soil, UV, vegetation, LULC, HFP, drought, bioclim seasonality)
+#* @get /api/v1/covariates/check
+function() {
+  tryCatch({
+    covariate_dir <- file.path(app_dir, "covariates")
+    
+    check_dir <- function(subdir, patterns) {
+      full_path <- file.path(covariate_dir, subdir)
+      if (!dir.exists(full_path)) {
+        return(list(available = FALSE, detail = "Not downloaded"))
+      }
+      files <- list.files(full_path, pattern = patterns)
+      if (length(files) > 0) {
+        size_bytes <- sum(file.info(file.path(full_path, files))$size, na.rm = TRUE)
+        list(available = TRUE, detail = sprintf("%d file(s)", length(files)), file_count = length(files), size_bytes = size_bytes)
+      } else {
+        list(available = FALSE, detail = "Empty directory")
+      }
+    }
+    
+    list(
+      covariates = list(
+        elevation = check_dir("opentopo", "\\.tif$"),
+        soil = check_dir("soilgrids", "\\.tif$"),
+        uv = check_dir("gluv", "\\.(tif|asc)$"),
+        vegetation = check_dir("vegetation", "\\.tif$"),
+        lulc = check_dir("lulc", "\\.tif$"),
+        hfp = check_dir("human_footprint", "\\.tif$"),
+        drought = check_dir("drought", "\\.tif$"),
+        bioclim_seasonality = check_dir("bioclim_season", "\\.tif$")
+      )
+    )
+  }, error = function(e) {
+    list(covariates = list(
+      elevation = list(available = FALSE, detail = "Error"),
+      soil = list(available = FALSE, detail = "Error"),
+      uv = list(available = FALSE, detail = "Error"),
+      vegetation = list(available = FALSE, detail = "Error"),
+      lulc = list(available = FALSE, detail = "Error"),
+      hfp = list(available = FALSE, detail = "Error"),
+      drought = list(available = FALSE, detail = "Error"),
+      bioclim_seasonality = list(available = FALSE, detail = "Error")
+    ))
   })
 }
 

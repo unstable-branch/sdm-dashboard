@@ -6,6 +6,17 @@ import type { AppEnv } from "../middleware/auth.js";
 
 export const covariatesRoutes = new Hono<AppEnv>();
 
+// Check availability of covariates — open (no auth required, matches climate/check pattern)
+covariatesRoutes.get("/check", async (c) => {
+  try {
+    const result = await plumberClient.get("/api/v1/covariates/check");
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to check covariates";
+    return c.json({ error: message }, 502);
+  }
+});
+
 covariatesRoutes.use("*", authMiddleware);
 
 // Existing sync download — kept for backward compatibility (direct Plumber proxy)

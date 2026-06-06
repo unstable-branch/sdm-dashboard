@@ -114,6 +114,13 @@ function DataPageContent() {
     store.setOccurrenceFilePath(card.filePath);
     store.setSpecies(card.selectedSpecies[0] || "Untitled species");
     store.setRecordCount(card.fileRows);
+    store.setUploadResult({
+      file_id: card.fileId,
+      n_rows: card.fileRows,
+      cleaned: card.cleanedFileId ? true : false,
+      cleaned_file_id: card.cleanedFileId,
+      cleaned_valid_records: card.cleanValidRecords,
+    });
     if (card.cleanedFileId) {
       store.setCleanedOccurrence({
         filePath: card.cleanedFileId, df: [], sourceCounts: {},
@@ -179,16 +186,6 @@ function DataPageContent() {
     setAvgDownloadJob(prev => prev === jobId ? null : prev);
   }, []);
 
-  const handleDownloadComplete = useCallback((completedJobId: string) => {
-    clearDownloadJob(completedJobId);
-    fetchScenarios();
-  }, [clearDownloadJob]);
-
-  const handleDownloadFailed = useCallback((failedJobId: string) => {
-    clearDownloadJob(failedJobId);
-    fetchScenarios();
-  }, [clearDownloadJob]);
-
   const fetchScenarios = useCallback(async () => {
     setScenariosLoading(true);
     try { const data = await apiGet<{ scenarios: ClimateScenarioResponse[] }>("/api/v1/climate/scenarios"); setScenarios(data.scenarios || []); }
@@ -197,11 +194,29 @@ function DataPageContent() {
 
   useEffect(() => { fetchScenarios(); }, [fetchScenarios]);
 
-  useEffect(() => {
+  const fetchAvailableBiovars = useCallback(async () => {
     const allBiovars = "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19";
-    apiGet<{ available: number[] }>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${encodeURIComponent(allBiovars)}`)
-      .then(data => setAvailableBiovars(new Set(data.available || []))).catch(() => setAvailableBiovars(new Set()));
+    try {
+      const data = await apiGet<{ available: number[] }>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${encodeURIComponent(allBiovars)}`);
+      setAvailableBiovars(new Set(data.available || []));
+    } catch {
+      setAvailableBiovars(new Set());
+    }
   }, [climateSource, climateRes]);
+
+  useEffect(() => { fetchAvailableBiovars(); }, [fetchAvailableBiovars]);
+
+  const handleDownloadComplete = useCallback((completedJobId: string) => {
+    clearDownloadJob(completedJobId);
+    fetchScenarios();
+    fetchAvailableBiovars();
+  }, [clearDownloadJob, fetchScenarios, fetchAvailableBiovars]);
+
+  const handleDownloadFailed = useCallback((failedJobId: string) => {
+    clearDownloadJob(failedJobId);
+    fetchScenarios();
+    fetchAvailableBiovars();
+  }, [clearDownloadJob, fetchScenarios, fetchAvailableBiovars]);
 
   const handleDeleteScenario = async (id: string) => {
     try {
@@ -352,8 +367,9 @@ function DataPageContent() {
             recordCount={recordCount}
             hasGbifCredentials={hasGbifCredentials}
             hasAlaCredentials={hasAlaCredentials}
-            climateSource={climateSource}
             climateRes={climateRes}
+            climateBiovars={climateBiovars}
+            workspaceFileCount={workspaceFiles.length}
             onTabChange={onTabChange}
           />
         )}

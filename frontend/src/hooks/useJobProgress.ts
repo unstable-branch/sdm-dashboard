@@ -10,46 +10,76 @@ export interface JobProgress {
   failedReason?: string;
 }
 
+const TERMINAL_STATES = new Set(["completed", "failed", "cancelled"]);
+const POLL_INTERVAL = 5000;
+
+function mapJobData(jobId: string, data: any): JobProgress {
+  return {
+    id: jobId,
+    state: (data.state ?? "active") as JobProgress["state"],
+    progress: (data.progress ?? 0) as number,
+    type: (data.type ?? "") as string,
+    logs: Array.isArray(data.logs) ? data.logs : [],
+    result: data.result as Record<string, unknown> | undefined,
+    failedReason: data.failedReason as string | undefined,
+  };
+}
+
 export function useJobProgress(jobId: string | null) {
   const [job, setJob] = useState<JobProgress | null>(null);
   const [connected, setConnected] = useState(false);
   const [_error, _setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fetchedRef = useRef(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const jobIdRef = useRef(jobId);
 
   useEffect(() => { jobIdRef.current = jobId; }, [jobId]);
 
-  // Fetch initial job status via REST API
+  // Fetch job status via REST API — called once on mount and as polling fallback
+  const fetchStatus = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/v1/jobs/${id}`, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data) return null;
+      return data;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Initial fetch + polling fallback for missed terminal events
   useEffect(() => {
-    if (!jobId || fetchedRef.current) return;
-    fetchedRef.current = true;
-    _setError(null);
+    if (!jobId) return;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    let cancelled = false;
 
-    fetch(`/api/v1/jobs/${jobId}`, { signal: controller.signal })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data) return;
-        const state = data.state as string;
-        setJob({
-          id: jobId,
-          state: state as JobProgress["state"],
-          progress: (data.progress ?? 0) as number,
-          type: (data.type ?? "") as string,
-          logs: [],
-          result: data.result as Record<string, unknown> | undefined,
-          failedReason: data.failedReason as string | undefined,
-        });
-      })
-      .catch((err) => _setError(err instanceof Error ? err.message : "Failed to fetch job status"))
-      .finally(() => clearTimeout(timeoutId));
+    const poll = async () => {
+      const data = await fetchStatus(jobId);
+      if (cancelled || !data) return;
+      const state = data.state as string;
+      setJob(mapJobData(jobId, data));
+      // Stop polling once job reaches terminal state
+      if (TERMINAL_STATES.has(state)) {
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      }
+    };
 
-    return () => clearTimeout(timeoutId);
-  }, [jobId]);
+    poll();
+    pollRef.current = setInterval(poll, POLL_INTERVAL);
+
+    return () => {
+      cancelled = true;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [jobId, fetchStatus]);
 
   const connect = useCallback(() => {
     if (!jobId || typeof window === "undefined") return;

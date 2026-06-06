@@ -45,6 +45,7 @@ vi.mock("../services/plumber", () => ({
     uploadOccurrence: vi.fn(() => Promise.resolve({ file_id: "/tmp/test.csv", n_rows: 10 })),
     cleanOccurrences: vi.fn(() => Promise.resolve({ cleaned_id: "/tmp/test.csv", valid_records: 8 })),
     searchGbif: vi.fn(() => Promise.resolve({ n_records: 50 })),
+    searchAla: vi.fn(() => Promise.resolve({ n_records: 30 })),
   },
 }));
 
@@ -256,6 +257,78 @@ describe("data routes", () => {
       const data = await res.json();
       expect(data.occurrences).toHaveLength(1);
       expect(data.pagination.total).toBe(1);
+    });
+  });
+
+  describe("POST /occurrences/ala/search", () => {
+    it("returns ALA search results", async () => {
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.searchAla as any).mockResolvedValueOnce({ n_records: 30, taxon: "Acacia mearnsii" });
+
+      const res = await app.request("/api/v1/data/occurrences/ala/search", {
+        method: "POST",
+        body: JSON.stringify({ taxon: "Acacia mearnsii", max_records: 100 }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.n_records).toBe(30);
+      expect(data.taxon).toBe("Acacia mearnsii");
+    });
+
+    it("handles Plumber errors gracefully", async () => {
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.searchAla as any).mockRejectedValueOnce(new Error("Plumber error"));
+
+      const res = await app.request("/api/v1/data/occurrences/ala/search", {
+        method: "POST",
+        body: JSON.stringify({ taxon: "Acacia mearnsii" }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(502);
+      const data = await res.json();
+      expect(data.error).toBe("Plumber error");
+    });
+
+    it("injects ALA API key from user settings", async () => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+      (db.select as any).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([{ alaApiKey: "encrypted-key" }])),
+          })),
+        })),
+      });
+      (plumberClient.searchAla as any).mockResolvedValueOnce({ n_records: 30 });
+
+      const res = await app.request("/api/v1/data/occurrences/ala/search", {
+        method: "POST",
+        body: JSON.stringify({ taxon: "Acacia mearnsii" }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("POST /occurrences/ala/save", () => {
+    it("saves ALA search results to workspace", async () => {
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.searchAla as any).mockResolvedValueOnce({
+        n_records: 30,
+        file_path: "/app/data/uploads/ala_test.csv",
+        taxon: "Acacia mearnsii",
+      });
+
+      const res = await app.request("/api/v1/data/occurrences/ala/save", {
+        method: "POST",
+        body: JSON.stringify({ taxon: "Acacia mearnsii", max_records: 100 }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.file_path).toBeTruthy();
+      expect(data.n_rows).toBe(30);
     });
   });
 });

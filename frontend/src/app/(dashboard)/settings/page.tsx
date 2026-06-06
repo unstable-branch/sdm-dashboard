@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, CheckCircle2, AlertCircle, Database, Cloud, HardDrive, Globe, Key, Mail, User, Eye, EyeOff } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle, Database, Cloud, HardDrive, Globe, Key, Mail, User, Eye, EyeOff, Leaf } from "lucide-react";
 import { ApiKeyManager } from "@/components/settings/api-key-manager";
 import { useSettingsStore } from "@/stores/settings-store";
 
@@ -39,6 +39,13 @@ export default function SettingsPage() {
   const [hasGbifPassword, setHasGbifPassword] = useState(false);
   const [passwordChanged, setPasswordChanged] = useState(false);
 
+  const [alaApiKey, setAlaApiKey] = useState("");
+  const [savingAla, setSavingAla] = useState(false);
+  const [alaSaved, setAlaSaved] = useState(false);
+  const [alaError, setAlaError] = useState<string | null>(null);
+  const [hasAlaApiKey, setHasAlaApiKey] = useState(false);
+  const [alaKeyChanged, setAlaKeyChanged] = useState(false);
+
   useEffect(() => {
     const signal = AbortSignal.timeout(15000);
     Promise.all([
@@ -62,6 +69,8 @@ export default function SettingsPage() {
       setGbifPassword(settings.hasGbifPassword ? "••••••••" : "");
       setHasGbifPassword(!!settings.hasGbifPassword);
       setGbifEmail(settings.gbifEmail || "");
+      setAlaApiKey(settings.hasAlaApiKey ? "••••••••" : "");
+      setHasAlaApiKey(!!settings.hasAlaApiKey);
     }
   }, [settings]);
 
@@ -88,6 +97,27 @@ export default function SettingsPage() {
       setGbifError(err instanceof Error ? err.message : "Failed to save credentials");
     } finally {
       setSavingGbif(false);
+    }
+  };
+
+  const handleSaveAla = async () => {
+    setSavingAla(true);
+    setAlaError(null);
+    setAlaSaved(false);
+    try {
+      const updates: Record<string, unknown> = {};
+      if (alaKeyChanged) {
+        updates.alaApiKey = alaApiKey || null;
+      }
+      await updateSettings(updates as any);
+      setAlaSaved(true);
+      setAlaKeyChanged(false);
+      setHasAlaApiKey(!!alaApiKey);
+      setTimeout(() => setAlaSaved(false), 3000);
+    } catch (err) {
+      setAlaError(err instanceof Error ? err.message : "Failed to save ALA API key");
+    } finally {
+      setSavingAla(false);
     }
   };
 
@@ -277,6 +307,58 @@ export default function SettingsPage() {
           className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50">
           {savingGbif ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
           {savingGbif ? "Saving..." : "Save GBIF credentials"}
+        </button>
+      </div>
+
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-5 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sdm-surface-soft text-sdm-accent">
+            <Leaf className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-sdm-heading">ALA API Key</h3>
+            <p className="text-xs text-sdm-muted">
+              Optional. Used for higher-rate access to the Atlas of Living Australia occurrence API.
+              Request one from <a href="mailto:support@ala.org.au" className="text-sdm-accent hover:underline">support@ala.org.au</a>.
+              Your key is encrypted at rest.
+            </p>
+          </div>
+        </div>
+
+        {alaError && (
+          <div className="flex items-center gap-2 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{alaError}</span>
+          </div>
+        )}
+
+        {alaSaved && (
+          <div className="flex items-center gap-2 rounded-md border border-sdm-success/30 bg-sdm-success/5 p-3 text-sm text-sdm-success">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span>ALA API key saved</span>
+          </div>
+        )}
+
+        <div>
+          <label className="flex items-center gap-1.5 text-xs font-medium text-sdm-muted mb-1">
+            <Key className="h-3 w-3" /> API Key
+          </label>
+          <input type="password" value={alaApiKey}
+            onChange={(e) => { setAlaApiKey(e.target.value); setAlaKeyChanged(true); }}
+            onFocus={() => { if (!alaKeyChanged && hasAlaApiKey) { setAlaApiKey(""); } }}
+            placeholder={hasAlaApiKey && !alaKeyChanged ? "Saved key — click to change" : "Enter your ALA API key"}
+            className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text placeholder:text-sdm-muted" />
+          {hasAlaApiKey && !alaKeyChanged && (
+            <p className="text-xs text-sdm-success flex items-center gap-1 mt-1">
+              <CheckCircle2 className="h-3 w-3" /> API key saved
+            </p>
+          )}
+        </div>
+
+        <button onClick={handleSaveAla} disabled={savingAla}
+          className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50">
+          {savingAla ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          {savingAla ? "Saving..." : "Save ALA API key"}
         </button>
       </div>
 

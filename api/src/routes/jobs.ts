@@ -130,7 +130,8 @@ app.get("/:jobId", async (c) => {
   const myProjectIds = await getUserProjectIds(user);
 
   // Verify the job's run belongs to this user
-  if (myProjectIds !== null) {
+  const isClimateJob = jobId.startsWith("climate_");
+  if (myProjectIds !== null && !isClimateJob) {
     try {
       const [run] = await db
         .select({ id: runs.id })
@@ -148,13 +149,39 @@ app.get("/:jobId", async (c) => {
     }
   }
 
+  // Try BullMQ queue first
   const status = await getJobStatus(jobId).catch(() => null);
-
-  if (!status) {
-    return c.json({ error: "Job not found or queue unavailable" }, 404);
+  if (status) {
+    return c.json(status);
   }
 
-  return c.json(status);
+  // Fallback: check Plumber's climate/download job status
+  const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
+  const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
+  try {
+    const res = await fetch(`${plumberUrl}/api/v1/jobs/status/${jobId}`, {
+      headers: {
+        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
+        "X-Forwarded-User": user.id,
+      },
+    });
+    if (res.ok) {
+      const plumberStatus = await res.json();
+      return c.json({
+        id: jobId,
+        state: plumberStatus.status || "unknown",
+        progress: plumberStatus.progress ?? 0,
+        type: plumberStatus.type || "climate_download",
+        logs: plumberStatus.progress_log || [],
+        result: plumberStatus.result || null,
+        failedReason: plumberStatus.error || null,
+      });
+    }
+  } catch {
+    // Plumber unavailable — return queue-unavailable error below
+  }
+
+  return c.json({ error: "Job not found or queue unavailable" }, 404);
 });
 
 export default app;

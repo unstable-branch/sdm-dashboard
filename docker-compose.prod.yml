@@ -146,6 +146,7 @@ services:
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - PLUMBER_AUTH_DISABLED=false
       - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
+      - ALA_API_KEY=${ALA_API_KEY:-}
     init: true
     healthcheck:
       test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]
