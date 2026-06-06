@@ -566,7 +566,7 @@ run_fast_sdm <- function(...) {
       n_layers <- terra::nlyr(env$env_project_scaled)
       bytes_per_val <- 8
       gb_per_cell_layer <- bytes_per_val / (1024^3)
-      existing_gb <- (n_cells_train + n_cells_proj) * n_layers * gb_per_cell_layer
+      existing_gb <- (n_cells_train + n_cells_proj) * n_layers * gb_per_cell_layer * 1.5
       pred_gb <- n_cells_proj * gb_per_cell_layer * 3.0
       total_est_gb <- existing_gb + pred_gb
       if (is.finite(total_est_gb) && total_est_gb > mem_info$memavail * 0.6) {

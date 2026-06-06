@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Ban, Trash2, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 import { apiGet, apiPost, apiDelete } from "@/services/api";
@@ -40,6 +41,7 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [displayLimit, setDisplayLimit] = useState(10);
+  const queryClient = useQueryClient();
   const [expandedLogRunId, setExpandedLogRunId] = useState<string | null>(null);
   const [logData, setLogData] = useState<Record<string, PlumberJobLogs>>({});
   const [logErrors, setLogErrors] = useState<Record<string, string>>({});
@@ -145,6 +147,7 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
       } else {
         await apiDelete(`/api/v1/sdm/runs/delete/${actionRunId}`);
       }
+      queryClient.invalidateQueries({ queryKey: ["sdm-runs"] });
       fetchRuns();
     } catch (err) {
       console.error("[run-history] Action failed:", err instanceof Error ? err.message : err);
@@ -165,6 +168,7 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
     setClearing(true);
     try {
       await apiPost("/api/v1/sdm/runs/clear-all", { includeCompleted: true });
+      queryClient.invalidateQueries({ queryKey: ["sdm-runs"] });
       fetchRuns();
     } catch {
     } finally {
@@ -307,6 +311,7 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
                         if (!window.confirm("Cancel this run?")) return;
                         try {
                           await apiPost(`/api/v1/sdm/cancel/${run.id}`);
+                          queryClient.invalidateQueries({ queryKey: ["sdm-runs"] });
                           fetchRuns();
                         } catch { /* best-effort */ }
                       }}

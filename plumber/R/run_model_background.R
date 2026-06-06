@@ -8,7 +8,10 @@
 # Set resource limits early — these must be set inside the child process
 # (callr's r_env option may not be reliably passed)
 Sys.setenv(OMP_THREAD_LIMIT = getOption("sdm.omp_thread_limit", "1"))
-Sys.setenv(R_MAX_VSIZE = Sys.getenv("SDM_CHILD_MAX_VSIZE", "6Gb"))
+# R_MAX_VSIZE is set after app_dir is resolved below (shared vsize.R helper)
+
+# Clean up stale crash dumps from previous runs that may fill temp space
+unlink(file.path(tempdir(), "sdm_crash_dump.rda"), force = TRUE)
 
 # Support both: callr::r_bg with direct arguments (script, job_dir, app_dir)
 # and CLI invocation via Rscript (commandArgs trailingOnly)
@@ -24,6 +27,10 @@ if (!exists("app_dir", inherits = FALSE) || is.null(app_dir) || length(app_dir) 
 }
 if (is.na(job_dir) || !nzchar(job_dir)) stop("job_dir is required")
 if (is.na(app_dir) || !nzchar(app_dir)) stop("app_dir is required")
+
+# Set R_MAX_VSIZE now that app_dir is known (shared helper in vsize.R)
+source(file.path(app_dir, "plumber", "R", "helpers", "vsize.R"))
+Sys.setenv(R_MAX_VSIZE = sdm_detect_vsize())
 
 meta_file <- file.path(job_dir, "meta.json")
 progress_file <- file.path(job_dir, "progress.log")

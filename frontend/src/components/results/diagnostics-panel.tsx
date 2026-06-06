@@ -241,6 +241,44 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
               <div className="text-sdm-text">{new Date(run.completed_at).toLocaleString()}</div>
             </>
           )}
+          {run.config && (() => {
+            const cfg = run.config as Record<string, any>;
+            const source = cfg.source || cfg.climate_source || "worldclim";
+            const worldclimRes = cfg.worldclimRes ?? cfg.worldclim_res ?? 10;
+            const aggFactor = cfg.aggregationFactor ?? cfg.aggregation_factor ?? 1;
+            const chelsaNativeArcmin = 0.5;
+            const nativeArcmin = source === "chelsa" ? chelsaNativeArcmin : worldclimRes;
+            const targetAgg = source === "chelsa"
+              ? Math.max(1, Math.ceil(worldclimRes / chelsaNativeArcmin))
+              : 1;
+            const effectiveAgg = source === "chelsa"
+              ? Math.max(aggFactor, targetAgg)
+              : aggFactor;
+            const effectiveResArcmin = nativeArcmin * effectiveAgg;
+            const label = source === "chelsa" ? "CHELSA v2.1" : "WorldClim v2.1";
+            const resLabel = source === "chelsa" ? `${worldclimRes} arc-min (worldclimRes)` : `${worldclimRes} arc-min`;
+            const aggLabel = source === "chelsa" && targetAgg > aggFactor
+              ? `${effectiveAgg}× (auto: ${targetAgg}× for worldclimRes)`
+              : source === "chelsa" && aggFactor > 1
+                ? `${aggFactor}× (user-specified)`
+                : `${effectiveAgg}×`;
+            const effKm = (effectiveResArcmin * 1.852).toFixed(1);
+            const effLabel = effectiveResArcmin < 1
+              ? `${(effectiveResArcmin * 60).toFixed(0)} arc-sec (~${effKm} km)`
+              : `~${effectiveResArcmin.toFixed(1)} arc-min (~${effKm} km)`;
+            return (
+              <>
+                <div className="text-sdm-muted">Climate source</div>
+                <div className="text-sdm-text font-medium">{label}</div>
+                <div className="text-sdm-muted">Resolution</div>
+                <div className="text-sdm-text">{resLabel}</div>
+                <div className="text-sdm-muted">Aggregation</div>
+                <div className="text-sdm-text font-mono text-xs">{aggLabel}</div>
+                <div className="text-sdm-muted">Effective resolution</div>
+                <div className="text-sdm-text font-mono text-xs">{effLabel}</div>
+              </>
+            );
+          })()}
         </div>
       </div>
     </div>
