@@ -1,6 +1,6 @@
 "use client";
 
-import { GripVertical, Plus, Trash2 } from "lucide-react";
+import { GripVertical, Plus, Trash2, BadgeCheck, CircleAlert } from "lucide-react";
 import type { UploadFile } from "@/services/types";
 
 interface WorkspaceSourceCardProps {
@@ -48,9 +48,17 @@ export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace, onDelete
         {file.species && <span className="ml-1.5 text-xs text-sdm-muted">— {file.species}</span>}
         <p className="text-xs text-sdm-muted">
           {sizeStr}{file.n_rows > 0 && ` · ${file.n_rows.toLocaleString()} rows`}
-          {file.cleaned || file.cleaned_file_id
-            ? ` · ✅ Cleaned`
-            : ` · ◌ Uncleaned`}
+        </p>
+        <p className="text-xs">
+          {file.cleaned || file.cleaned_file_id ? (
+            <span className="inline-flex items-center gap-0.5 text-sdm-success">
+              <BadgeCheck className="h-3 w-3" /> Cleaned
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-0.5 text-sdm-muted">
+              <CircleAlert className="h-3 w-3" /> Uncleaned
+            </span>
+          )}
         </p>
       </div>
       {onAddToWorkspace && !disabled && (

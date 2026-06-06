@@ -160,6 +160,7 @@ export const userSettings = pgTable("user_settings", {
   gbifUsername: text("gbif_username"),
   gbifPassword: text("gbif_password"),
   gbifEmail: text("gbif_email"),
+  alaApiKey: text("ala_api_key"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -191,6 +192,8 @@ export const uploads = pgTable("uploads", {
   cleanedFilePath: text("cleaned_file_path"),
   cleanedValidRecords: integer("cleaned_valid_records"),
   cleanedOriginalRows: integer("cleaned_original_rows"),
+  cleaningCcLog: jsonb("cleaning_cc_log"),
+  cleaningSourceCounts: jsonb("cleaning_source_counts"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_uploads_user_id").on(t.userId),

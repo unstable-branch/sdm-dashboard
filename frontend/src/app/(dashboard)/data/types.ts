@@ -18,6 +18,10 @@ export interface WorkspaceFile {
   selectedSpecies: string[];
   cleanedFileId?: string;
   cleanValidRecords?: number;
+  cleanOriginalRows?: number;
+  cleanSourceCounts?: Record<string, number>;
+  cleanCcLog?: string[];
+  cleanRecords?: OccurrencePoint[];
   cleanLoading: boolean;
   cleanError: string | null;
 }

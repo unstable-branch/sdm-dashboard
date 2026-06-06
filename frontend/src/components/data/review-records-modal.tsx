@@ -6,7 +6,7 @@ import { SourceCounts } from "@/components/data/source-counts";
 import { X, Download, RotateCcw, Filter, AlertTriangle } from "lucide-react";
 import type { OccurrencePoint } from "@/app/(dashboard)/data/types";
 
-type SourceFilter = "all" | "upload" | "gbif" | "gbif_download";
+type SourceFilter = "all" | "upload" | "gbif" | "gbif_download" | "ala";
 
 interface UndoEntry {
   action: "flag" | "unflag" | "bulk_remove";
@@ -132,7 +132,7 @@ export function ReviewRecordsModal({
     }
   }, [open]);
 
-  if (!open || records.length === 0) return null;
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-8 pb-8">
@@ -229,7 +229,7 @@ export function ReviewRecordsModal({
           {filteredRecords.length === 0 ? (
             <div className="flex items-center gap-2 rounded-lg border border-sdm-warning/30 bg-sdm-warning/5 px-4 py-3 text-sm text-sdm-warning">
               <AlertTriangle className="h-4 w-4" />
-              <span>No records match the current filter.</span>
+              <span>{records.length === 0 ? "No detailed record data available. Summary counts shown above." : "No records match the current filter."}</span>
             </div>
           ) : (
             <CleaningTable data={filteredRecords} onFlagToggle={toggleFlag} title={`Records (${filteredRecords.length} of ${records.length})`} />

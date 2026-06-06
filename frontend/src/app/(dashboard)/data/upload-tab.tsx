@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { DndContext, PointerSensor, useSensor, useSensors, closestCenter } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { Upload, Globe, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Layers, Plus, Settings } from "lucide-react";
+import { Upload, Globe, Leaf, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Layers, Plus, Settings } from "lucide-react";
 import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
 import { PreviewTable } from "@/components/data/preview-table";
@@ -11,6 +11,7 @@ import { WorkspaceSourceCard } from "@/components/data/workspace-source-card";
 import { WorkspaceCard } from "@/components/data/workspace-card";
 import { ReviewRecordsModal } from "@/components/data/review-records-modal";
 import { GbifSearch } from "@/components/data/gbif-search";
+import { AlaSearch } from "@/components/data/ala-search";
 import { apiPost, apiGet, apiPatch } from "@/services/api";
 import type { UploadFile } from "@/services/types";
 import type { WorkspaceFile, OccurrencePoint } from "./types";
@@ -43,13 +44,14 @@ interface UploadTabProps {
   onWorkspaceReorder: (files: WorkspaceFile[]) => void;
   onRefreshUploads?: () => void;
   hasGbifCredentials?: boolean;
+  hasAlaCredentials?: boolean;
 }
 
 export function UploadTab({
   uploadResult, uploadLoading, uploadError, onUpload, onDelete,
   previousUploads, previousUploadsLoading,
   workspaceFiles, onWorkspaceAdd, onWorkspaceUpdate, onWorkspaceRemove,
-  onOpenInModel, onWorkspaceReorder, onRefreshUploads, hasGbifCredentials,
+  onOpenInModel, onWorkspaceReorder, onRefreshUploads, hasGbifCredentials, hasAlaCredentials,
 }: UploadTabProps) {
   // ── Storage ─────────────────────────────────────────────────
   const [storage, setStorage] = useState<{ used_mb: number; quota_mb: number; pct_used: number } | null>(null);
@@ -68,9 +70,11 @@ export function UploadTab({
   const handleGbifSearch = async (taxon: string, country: string, maxRecords: number, useAuth: boolean) => {
     setGbifLoading(true); setGbifError(null); setGbifResult(null);
     try {
-      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/search", {
+      const initial = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/search", {
         taxon, country, max_records: maxRecords, use_auth: useAuth,
       });
+      const jobId = initial?.job_id as string | undefined;
+      const result = jobId ? await pollDataJob(jobId) : initial;
       setGbifResult(result);
     } catch (err) {
       setGbifError(err instanceof Error ? err.message : "GBIF search failed");
@@ -105,6 +109,75 @@ export function UploadTab({
       setGbifError(err instanceof Error ? err.message : "Failed to save GBIF records");
     } finally {
       setGbifSaving(false);
+    }
+  };
+
+  // ── Async job polling ─────────────────────────────────────────
+  const pollDataJob = useCallback(async (jobId: string): Promise<Record<string, unknown>> => {
+    const deadline = Date.now() + 300_000;
+    while (Date.now() < deadline) {
+      const status = await apiGet<Record<string, unknown>>(`/api/v1/data/occurrences/job/${jobId}`);
+      if (status.status === "completed") {
+        if (status.result && typeof status.result === "object") return status.result as Record<string, unknown>;
+        throw new Error("Job completed but no result data");
+      }
+      if (status.status === "failed" || status.status === "error") {
+        throw new Error((status.error as string) || "Job failed");
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    throw new Error("Search timed out. Please try again.");
+  }, []);
+
+  // ── ALA inline ──────────────────────────────────────────────
+  const [alaOpen, setAlaOpen] = useState(false);
+  const [alaLoading, setAlaLoading] = useState(false);
+  const [alaError, setAlaError] = useState<string | null>(null);
+  const [alaResult, setAlaResult] = useState<Record<string, unknown> | null>(null);
+  const [alaSaving, setAlaSaving] = useState(false);
+
+  const handleAlaSearch = async (taxon: string, country: string, maxRecords: number, apiKey: string) => {
+    setAlaLoading(true); setAlaError(null); setAlaResult(null);
+    try {
+      const initial = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/ala/search", {
+        taxon, country, max_records: maxRecords, api_key: apiKey || undefined,
+      });
+      const jobId = initial?.job_id as string | undefined;
+      const result = jobId ? await pollDataJob(jobId) : initial;
+      setAlaResult(result);
+    } catch (err) {
+      setAlaError(err instanceof Error ? err.message : "ALA search failed");
+    } finally {
+      setAlaLoading(false);
+    }
+  };
+
+  const handleAlaAddToWorkspace = async () => {
+    if (!alaResult) return;
+    setAlaSaving(true);
+    try {
+      const filePath = alaResult.file_path as string | undefined;
+      const result = filePath
+        ? await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/ala/save", { file_path: filePath })
+        : await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/ala/save", {
+            taxon: alaResult.taxon, country: alaResult.country, max_records: alaResult.max_records,
+          });
+      const fakeFile: UploadFile = {
+        file_id: result.file_path as string,
+        file_name: `ALA-${String(alaResult.taxon || "search")}.csv`,
+        file_size: 0,
+        n_rows: Number(alaResult.n_records || 0),
+        cleaned: false,
+        modified_at: new Date().toISOString(),
+        species: String(alaResult.taxon || ""),
+        format: "csv",
+      };
+      onWorkspaceAdd(fakeFile, String(alaResult.taxon || ""));
+      setAlaResult(null);
+    } catch (err) {
+      setAlaError(err instanceof Error ? err.message : "Failed to save ALA records");
+    } finally {
+      setAlaSaving(false);
     }
   };
 
@@ -245,13 +318,22 @@ export function UploadTab({
           const status = await apiGet<Record<string, unknown>>(`/api/v1/data/jobs/${encodeURIComponent(jobId)}`);
           const s = status?.status as string | undefined;
           if (s === "completed" || s === "success") {
-            const cleanedFileId = (status.cleaned_file_id || status.cleaned_file_path || (status.result as Record<string, unknown> | undefined)?.cleaned_file_id) as string | undefined;
+            const resultData = (status.result as Record<string, unknown> | undefined) || status;
+            const cleanedFileId = (resultData.cleaned_file_id || resultData.cleaned_file_path) as string | undefined;
             if (!cleanedFileId) throw new Error("API returned no cleaned file ID");
-            const validRecords = (status.valid_records as number) || ((status.result as Record<string, unknown> | undefined)?.valid_records as number) || 0;
+            const validRecords = (resultData.valid_records as number) || 0;
+            const originalRows = (resultData.original_rows as number) || 0;
+            const sourceCounts = (resultData.source_counts as Record<string, number>) || undefined;
+            const ccLog = (resultData.cc_log as string[]) || undefined;
+            const records = (resultData.cleaned_records as OccurrencePoint[]) || undefined;
             onWorkspaceUpdate(cardId, {
               cleanLoading: false,
               cleanedFileId,
               cleanValidRecords: validRecords,
+              cleanOriginalRows: originalRows,
+              cleanSourceCounts: sourceCounts,
+              cleanCcLog: ccLog,
+              cleanRecords: records,
             });
             apiPatch(`/api/v1/data/uploads/${encodeURIComponent(card.fileId)}`, {
               cleaned: true,
@@ -301,26 +383,62 @@ export function UploadTab({
     const card = workspaceFiles.find(f => f.id === cardId);
     if (!card) return;
     setReviewCardId(cardId);
-    setReviewLoading(true);
     setReviewError(null);
+
+    // Use locally stored data if available (from job poll result)
+    if (card.cleanRecords && card.cleanSourceCounts) {
+      setReviewData({
+        records: card.cleanRecords,
+        sourceCounts: card.cleanSourceCounts,
+        ccLog: card.cleanCcLog || [],
+        validRecords: card.cleanValidRecords || 0,
+        originalRows: card.cleanOriginalRows || 0,
+      });
+      return;
+    }
+
+    setReviewLoading(true);
     try {
-      const result = await apiGet<Record<string, unknown>>(`/api/v1/data/occurrences/clean/result?file_id=${encodeURIComponent(card.fileId)}`);
-      setReviewData({
-        records: (result.cleaned_records || []) as OccurrencePoint[],
-        sourceCounts: (result.source_counts || {}) as Record<string, number>,
-        ccLog: (result.cc_log || []) as string[],
-        validRecords: (result.valid_records as number) || 0,
-        originalRows: (result.original_rows as number) || 0,
-      });
+      const params = new URLSearchParams({ file_id: card.fileId });
+      if (card.cleanedFileId) params.set("cleaned_file_id", card.cleanedFileId);
+      const result = await apiGet<Record<string, unknown>>(`/api/v1/data/occurrences/clean/result?${params}`);
+      const apiRecords = (result.cleaned_records || []) as OccurrencePoint[];
+      const apiSourceCounts = (result.source_counts || {}) as Record<string, number>;
+      const apiCcLog = (result.cc_log || []) as string[];
+      const apiValidRecords = (result.valid_records as number) || 0;
+
+      // If API returned empty but card is known cleaned, use card summary counts
+      if (apiValidRecords === 0 && card.cleanedFileId && card.cleanValidRecords) {
+        setReviewData({
+          records: apiRecords,
+          sourceCounts: apiSourceCounts,
+          ccLog: apiCcLog,
+          validRecords: card.cleanValidRecords,
+          originalRows: card.cleanOriginalRows || card.fileRows,
+        });
+      } else {
+        setReviewData({
+          records: apiRecords,
+          sourceCounts: apiSourceCounts,
+          ccLog: apiCcLog,
+          validRecords: apiValidRecords,
+          originalRows: (result.original_rows as number) || card.fileRows,
+        });
+      }
     } catch (err) {
-      setReviewError(err instanceof Error ? err.message : "Failed to load review data");
-      setReviewData({
-        records: [],
-        sourceCounts: {},
-        ccLog: [],
-        validRecords: 0,
-        originalRows: 0,
-      });
+      // If file was cleaned, show summary counts even if detailed data unavailable
+      if (card.cleanedFileId) {
+        setReviewData({
+          records: [],
+          sourceCounts: {},
+          ccLog: [],
+          validRecords: card.cleanValidRecords || card.fileRows,
+          originalRows: card.fileRows,
+        });
+      } else {
+        setReviewError(err instanceof Error ? err.message : "Failed to load review data");
+        setReviewData({ records: [], sourceCounts: {}, ccLog: [], validRecords: 0, originalRows: 0 });
+      }
     } finally {
       setReviewLoading(false);
     }
@@ -398,6 +516,26 @@ export function UploadTab({
                   className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white hover:bg-sdm-accent/90 disabled:opacity-50">
                   {gbifSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                   Add {Number(gbifResult.n_records).toLocaleString()} records to workspace
+                </button>
+              </div>
+            )}
+          </div>
+        </details>
+
+        {/* ALA inline */}
+        <details className="mt-4" open={alaOpen} onToggle={(e) => setAlaOpen((e.target as HTMLDetailsElement).open)}>
+          <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium text-sdm-heading">
+            <Leaf className="h-4 w-4 text-sdm-accent" />
+            Search ALA
+          </summary>
+          <div className="mt-3">
+            <AlaSearch onSearch={handleAlaSearch} loading={alaLoading} error={alaError} result={alaResult} hasApiKey={hasAlaCredentials} />
+            {alaResult && Number(alaResult.n_records) > 0 && (
+              <div className="mt-3 flex items-center gap-3">
+                <button onClick={handleAlaAddToWorkspace} disabled={alaSaving}
+                  className="inline-flex items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white hover:bg-sdm-accent/90 disabled:opacity-50">
+                  {alaSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Add {Number(alaResult.n_records).toLocaleString()} records to workspace
                 </button>
               </div>
             )}

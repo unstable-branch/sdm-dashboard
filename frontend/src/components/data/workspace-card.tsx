@@ -2,7 +2,7 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Loader2, CheckCircle2, AlertTriangle, Eye, Trash2, RotateCcw, ArrowRight } from "lucide-react";
+import { GripVertical, Loader2, BadgeCheck, CircleAlert, Eye, Minus, RotateCcw, ArrowRight } from "lucide-react";
 import type { WorkspaceFile } from "@/app/(dashboard)/data/types";
 
 interface WorkspaceCardProps {
@@ -79,15 +79,15 @@ export function WorkspaceCard({
                 </span>
               ) : isCleaned ? (
                 <span className="flex items-center gap-1 text-xs text-sdm-success">
-                  <CheckCircle2 className="h-3 w-3" /> Cleaned — {item.cleanValidRecords?.toLocaleString()} valid records
+                  <BadgeCheck className="h-3 w-3" /> Cleaned — {item.cleanValidRecords?.toLocaleString()} valid records
                 </span>
               ) : item.cleanError ? (
                 <span className="flex items-center gap-1 text-xs text-sdm-danger">
-                  <AlertTriangle className="h-3 w-3" /> {item.cleanError}
+                  <CircleAlert className="h-3 w-3" /> {item.cleanError}
                 </span>
               ) : (
                 <span className="flex items-center gap-1 text-xs text-sdm-muted">
-                  <AlertTriangle className="h-3 w-3" /> Not cleaned
+                  <CircleAlert className="h-3 w-3" /> Not cleaned
                 </span>
               )}
             </div>
@@ -141,7 +141,7 @@ export function WorkspaceCard({
                 disabled={disabled || item.cleanLoading}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-sdm-muted hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50"
               >
-                <Trash2 className="h-3 w-3" />
+                <Minus className="h-3 w-3" />
               </button>
             </div>
           </div>
