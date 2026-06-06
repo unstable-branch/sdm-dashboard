@@ -43,7 +43,8 @@ tar_option_set(
   storage = if (cache_mode == "minimal") "worker" else "main",
   retrieval = if (cache_mode == "minimal") "worker" else "main",
   packages = c("terra", "sf"),
-  error = "continue"
+  error = "continue",
+  workspace_on_error = "all"
 )
 
 # ── Load SDM engine ─────────────────────────────────────────────────────────
@@ -108,27 +109,22 @@ list(
 
   tar_target(fit, sdm_stage_fit(cfg, occ_clean$occ, env), pattern = map(cfg)),
 
-  tar_target(suit_tif, {
-    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", cfg$species)
-    tif <- file.path(batch_output_dir, paste0(safe_name, "_", cfg$model_id, "_suit.tif"))
-    dir.create(dirname(tif), recursive = TRUE, showWarnings = FALSE)
-    sdm_stage_predict(cfg, fit$fit, env, tif)
-    tif
-  }, pattern = map(fit), format = "file"),
+  tar_terra_rast(suit, sdm_stage_predict(cfg, fit$fit, env),
+    pattern = map(fit)),
 
   tar_target(future_result, {
     safe_name <- gsub("[^a-zA-Z0-9._-]", "_", cfg$species)
-    sdm_stage_future(cfg, fit$fit, terra::rast(suit_tif), env, batch_output_dir, safe_name)
-  }, pattern = map(suit_tif)),
+    sdm_stage_future(cfg, fit$fit, suit, env, batch_output_dir, safe_name)
+  }, pattern = map(suit)),
 
   tar_target(post, sdm_stage_postprocess(
-    cfg, fit$fit, terra::rast(suit_tif), env),
-    pattern = map(suit_tif)),
+    cfg, fit$fit, suit, env),
+    pattern = map(suit)),
 )
 
 # ── Usage ──────────────────────────────────────────────────────────────────
 # tar_visnetwork()                     # view dependency graph
 # tar_make()                           # run single-species fallback
 # SDM_BATCH_CONFIG=batch.csv tar_make()  # run multi-species batch
-# tar_read(post)                       # read post-processing results
+# tar_read(post)                       # read post-processing results (branched per species)
 # tar_outdated()                       # check stale targets

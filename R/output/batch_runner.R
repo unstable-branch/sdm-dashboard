@@ -332,6 +332,8 @@ batch_run_parallel <- function(species_configs,
                                output_dir = "batch_results/",
                                progress_fun = NULL,
                                seed = 42L) {
+  .Deprecated("batch_run_targets",
+    msg = "batch_run_parallel() is legacy Shiny-only. Use batch_run_targets() (targets pipeline) for production multi-species runs — it provides caching, incremental rebuild, HPC/cluster support, and auto-resume on crash.")
   if (!is.list(species_configs) || length(species_configs) == 0) {
     stop("species_configs must be a non-empty list", call. = FALSE)
   }

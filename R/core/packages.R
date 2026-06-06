@@ -48,7 +48,7 @@ sdm_optional_packages <- list(
   xai = c("fastshap", "iml"),
   dwca = c("finch"),
   esm = c("ecospat", "biomod2"),
-  targets = c("targets", "tarchetypes", "geotargets"),
+  targets = c("targets", "tarchetypes", "geotargets", "crew", "crew.cluster", "crew.aws.batch"),
   dnn = c("cito", "torch"),
   ala = c("galah"),
   devtools = c("devtools")

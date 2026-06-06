@@ -45,5 +45,6 @@ Suggests:
     geotargets,
     crew,
     crew.cluster,
+    crew.aws.batch,
     redux,
     openssl

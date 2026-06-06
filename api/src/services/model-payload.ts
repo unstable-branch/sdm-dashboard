@@ -1,5 +1,5 @@
 import { join } from "path";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync, unlinkSync } from "fs";
 import { decrypt } from "./encryption.js";
 
 export type ModelConfigRecord = Record<string, unknown> & {
@@ -14,6 +14,15 @@ export type ModelConfigRecord = Record<string, unknown> & {
   cvFolds?: number;
 };
 
+const _decryptedFiles = new Set<string>();
+
+export function cleanupDecryptedFiles(): void {
+  for (const p of _decryptedFiles) {
+    try { unlinkSync(p); } catch { /* ignore */ }
+  }
+  _decryptedFiles.clear();
+}
+
 function resolveEncryptedFile(filePath: string | undefined | null): string | null {
   if (!filePath || !filePath.endsWith(".enc")) return filePath ?? null;
   try {
@@ -21,6 +30,7 @@ function resolveEncryptedFile(filePath: string | undefined | null): string | nul
     const plaintext = decrypt(ciphertext);
     const resolvedPath = filePath.replace(/\.enc$/, "");
     writeFileSync(resolvedPath, plaintext);
+    _decryptedFiles.add(resolvedPath);
     return resolvedPath;
   } catch {
     return filePath;

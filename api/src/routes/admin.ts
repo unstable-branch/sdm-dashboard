@@ -543,13 +543,24 @@ adminRoutes.post("/system/cache/clear", async (c) => {
 
 adminRoutes.post("/system/jobs/cleanup", async (c) => {
   try {
+    const staleThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const staleRuns = await db
       .select({ id: runs.id })
       .from(runs)
-      .where(inArray(runs.status, ["queued", "running"]))
-      .limit(0);
+      .where(
+        and(
+          inArray(runs.status, ["queued", "running"]),
+          sql`${runs.createdAt} < ${staleThreshold}`
+        )
+      );
 
-    return c.json({ ok: true, message: `Found ${staleRuns.length} stale jobs`, staleJobs: staleRuns.length });
+    if (staleRuns.length > 0) {
+      const staleIds = staleRuns.map(r => r.id);
+      await db.update(runs).set({ status: "failed", error: "Stale job auto-cleaned by admin" })
+        .where(inArray(runs.id, staleIds));
+    }
+
+    return c.json({ ok: true, message: `Cleaned ${staleRuns.length} stale jobs`, cleaned: staleRuns.length });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to clean up jobs" }, 500);
   }
