@@ -31,10 +31,12 @@ input_file <- file.path(job_dir, "input.json")
 result_file <- file.path(job_dir, "result.json")
 progress_file <- file.path(job_dir, "progress.log")
 
+log_lines <- character(0)
 log_msg <- function(...) {
   msg <- paste0(format(Sys.time(), "%H:%M:%S"), " ", ...)
   cat(msg, "\n")
   cat(msg, "\n", file = progress_file, append = TRUE)
+  log_lines <<- c(log_lines, msg)
 }
 
 if (!file.exists(input_file)) {
@@ -79,7 +81,9 @@ result <- tryCatch({
           paste0("cleaned_", format(Sys.time(), "%Y%m%d_%H%M%S_"), basename(file_id))
         )
         utils::write.csv(occ$occ, cleaned_path, row.names = FALSE)
-        encrypt_file(cleaned_path, cleaned_path)
+        encrypt_file(cleaned_path, paste0(cleaned_path, ".enc"))
+        unlink(cleaned_path)
+        cleaned_path <- paste0(cleaned_path, ".enc")
 
         species_counts <- if ("species" %in% names(occ$occ)) {
           as.list(sort(table(occ$occ$species), decreasing = TRUE))
@@ -98,6 +102,7 @@ result <- tryCatch({
             source_counts = as.list(occ$source_counts),
             species_counts = species_counts,
             cc_flagged = if ("cc_flag" %in% names(occ$occ)) sum(occ$occ$cc_flag, na.rm = TRUE) else 0L,
+            cc_log = I(log_lines),
             cleaned_records = head(lapply(seq_len(nrow(occ$occ)), function(i) as.list(occ$occ[i, ])), 100)
           )
         )
@@ -157,7 +162,7 @@ result <- tryCatch({
         } else NA_character_
 
         if (use_auth && !is.na(gbif_user) && !is.na(gbif_pwd) && !is.na(gbif_email)) {
-          occ <- read_gbif_download(
+          dl <- read_gbif_download(
             taxon = taxon,
             country = input$country %||% NULL,
             gbif_user = gbif_user,
@@ -166,6 +171,9 @@ result <- tryCatch({
             max_records = input$max_records %||% 200000L,
             log_fun = log_msg
           )
+          occ <- dl$occurrences
+          doi <- dl$doi %||% NA_character_
+          total_available <- nrow(occ)
         } else {
           occ <- read_gbif_records(
             taxon = taxon,
@@ -173,6 +181,8 @@ result <- tryCatch({
             max_records = input$max_records %||% 100L,
             log_fun = log_msg
           )
+          doi <- if (!is.null(occ$gbif_doi[1]) && nzchar(occ$gbif_doi[1])) occ$gbif_doi[1] else NA_character_
+          total_available <- attr(occ, "gbif_total_available", exact = TRUE) %||% nrow(occ)
         }
 
         upload_dir <- file.path(app_dir, "data", "uploads")
@@ -189,7 +199,47 @@ result <- tryCatch({
             country = input$country %||% NULL,
             n_records = nrow(occ),
             max_records = input$max_records %||% 100L,
-            doi = if (!is.null(occ$gbif_doi[1]) && nzchar(occ$gbif_doi[1])) occ$gbif_doi[1] else NA_character_,
+            total_available = total_available,
+            doi = doi,
+            file_path = csv_path,
+            preview = head(lapply(seq_len(min(5, nrow(occ))), function(i) as.list(occ[i, ])), 5)
+          )
+        )
+      }
+    },
+
+    ala = {
+      taxon <- input$taxon
+      if (is.null(taxon) || !nzchar(taxon)) {
+        list(status = "failed", error = "taxon is required")
+      } else {
+        api_key <- input$api_key %||% NA_character_
+
+        occ <- read_ala_records(
+          taxon = taxon,
+          country = input$country %||% NULL,
+          max_records = input$max_records %||% 100L,
+          api_key = if (nzchar(api_key %||% "")) api_key else NULL,
+          log_fun = log_msg
+        )
+
+        upload_dir <- file.path(app_dir, "data", "uploads")
+        dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
+        safe_name <- gsub("[^a-zA-Z0-9._-]", "_", taxon)
+        ts <- format(Sys.time(), "%Y%m%d_%H%M%S")
+        csv_path <- file.path(upload_dir, paste0(ts, "_ala_", safe_name, ".csv"))
+        utils::write.csv(occ, csv_path, row.names = FALSE)
+
+        list(
+          status = "completed",
+          result = list(
+            taxon = taxon,
+            country = input$country %||% NULL,
+            n_records = nrow(occ),
+            max_records = input$max_records %||% 100L,
+            total_available = attr(occ, "ala_total_available", exact = TRUE) %||% nrow(occ),
+            limit = attr(occ, "ala_limit_applied", exact = TRUE) %||% nrow(occ),
+            doi = NA_character_,
             file_path = csv_path,
             preview = head(lapply(seq_len(min(5, nrow(occ))), function(i) as.list(occ[i, ])), 5)
           )

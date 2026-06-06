@@ -54,6 +54,7 @@ function DataPageContent() {
   const fetchSettings = useSettingsStore((s) => s.fetchSettings);
   useEffect(() => { if (!settings) fetchSettings(); }, []);
   const hasGbifCredentials = !!(settings?.gbifUsername && settings?.gbifEmail);
+  const hasAlaCredentials = !!settings?.hasAlaApiKey;
 
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -85,6 +86,8 @@ function DataPageContent() {
         fileRows: file.n_rows,
         fileCleaned: file.cleaned,
         fileCleanedFileId: file.cleaned_file_id,
+        cleanedFileId: file.cleaned_file_id,
+        cleanValidRecords: file.cleaned_valid_records,
         selectedSpecies: [speciesOverride || file.species || extractSpeciesFromFilename(file.file_name) || "Untitled species"],
         cleanLoading: false,
         cleanError: null,
@@ -336,6 +339,7 @@ function DataPageContent() {
             onOpenInModel={handleOpenInModel}
             onRefreshUploads={fetchUploads}
             hasGbifCredentials={hasGbifCredentials}
+            hasAlaCredentials={hasAlaCredentials}
           />
         )}
 
@@ -346,6 +350,7 @@ function DataPageContent() {
             species={species}
             recordCount={recordCount}
             hasGbifCredentials={hasGbifCredentials}
+            hasAlaCredentials={hasAlaCredentials}
             climateSource={climateSource}
             climateRes={climateRes}
             onTabChange={onTabChange}

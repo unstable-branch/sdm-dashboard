@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, accessSync, constants, promises as fs } from "fs";
 import { isAbsolute, join, resolve, dirname, extname } from "path";
 import { fileURLToPath } from "url";
-import { randomUUID } from "crypto";
+import { randomUUID, createDecipheriv } from "crypto";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
@@ -220,14 +220,18 @@ dataRoutes.post("/occurrences/clean", async (c) => {
 
     if (jobId) {
       const result = await pollPlumberJob(jobId, 600000);
-      // Update uploads table with cleaned status (sync path — client polling won't fire handleCleanComplete)
-      if (body.file_id && result && typeof result === "object" && (result as any).cleaned_file_id) {
+      // Plumber returns { available: true, status: "completed", result: { ... } }
+      const cleanResult = (result && typeof result === "object" ? (result as any).result : null) || result;
+      if (body.file_id && cleanResult && typeof cleanResult === "object" && (cleanResult as any).cleaned_file_id) {
         const fp = body.file_id;
+        const r = cleanResult as Record<string, unknown>;
         db.update(uploads).set({
           isCleaned: true,
-          cleanedFilePath: (result as any).cleaned_file_id as string,
-          cleanedValidRecords: (result as any).valid_records ?? null,
-          cleanedOriginalRows: (result as any).original_rows ?? null,
+          cleanedFilePath: r.cleaned_file_id as string,
+          cleanedValidRecords: (r.valid_records ?? null) as number | null,
+          cleanedOriginalRows: (r.original_rows ?? null) as number | null,
+          cleaningCcLog: (r.cc_log ?? null) as string[] | null,
+          cleaningSourceCounts: (r.source_counts ?? null) as Record<string, number> | null,
         }).where(eq(uploads.filePath, fp)).catch((e: unknown) => console.warn("[clean] Failed to update uploads table:", e instanceof Error ? e.message : e));
       }
       return c.json(result);
@@ -236,17 +240,265 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     // Sync clean (no job ID at all) — update uploads table
     if (body.file_id && initial && typeof initial === "object" && (initial as any).cleaned_file_id) {
       const fp = body.file_id;
+      const r = initial as Record<string, unknown>;
       db.update(uploads).set({
         isCleaned: true,
-        cleanedFilePath: (initial as any).cleaned_file_id as string,
-        cleanedValidRecords: (initial as any).valid_records ?? null,
-        cleanedOriginalRows: (initial as any).original_rows ?? null,
+        cleanedFilePath: r.cleaned_file_id as string,
+        cleanedValidRecords: (r.valid_records ?? null) as number | null,
+        cleanedOriginalRows: (r.original_rows ?? null) as number | null,
+        cleaningCcLog: (r.cc_log ?? null) as string[] | null,
+        cleaningSourceCounts: (r.source_counts ?? null) as Record<string, number> | null,
       }).where(eq(uploads.filePath, fp)).catch((e: unknown) => console.warn("[clean] Failed to update uploads table:", e instanceof Error ? e.message : e));
     }
 
     return c.json(initial);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Clean failed";
+    return c.json({ error: message }, 502);
+  }
+});
+
+const PLUMBER_MAGIC = Buffer.from([0x53, 0x44, 0x4d, 0x45, 0x4e, 0x43, 0x31, 0x0a]);
+
+function splitCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+    } else if (ch === "," && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+function decryptPlumberFile(encPath: string): string | null {
+  if (!existsSync(encPath)) return null;
+  try {
+    const encrypted = readFileSync(encPath);
+    if (encrypted.length < PLUMBER_MAGIC.length + 12 + 1 || !PLUMBER_MAGIC.equals(encrypted.subarray(0, PLUMBER_MAGIC.length))) {
+      return null;
+    }
+    const keyHex = process.env.DATA_ENCRYPTION_KEY || process.env.SDM_ENCRYPTION_KEY || "";
+    if (!keyHex) return null;
+    const key = Buffer.from(keyHex, "hex");
+    if (key.length !== 32) return null;
+
+    const iv = encrypted.subarray(PLUMBER_MAGIC.length, PLUMBER_MAGIC.length + 12);
+    const payload = encrypted.subarray(PLUMBER_MAGIC.length + 12);
+    const tag = payload.subarray(payload.length - 16);
+    const ciphertext = payload.subarray(0, payload.length - 16);
+
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const plainPath = encPath + ".decrypted";
+    writeFileSync(plainPath, decrypted);
+    return plainPath;
+  } catch {
+    return null;
+  }
+}
+
+function looksLikeCsv(content: string): boolean {
+  const firstNewline = content.indexOf("\n");
+  if (firstNewline < 1) return false;
+  const firstLine = content.slice(0, firstNewline);
+  return firstLine.includes(",") || firstLine.includes("\t");
+}
+
+function tryReadFile(path: string): string | null {
+  if (!existsSync(path)) return null;
+  try {
+    return readFileSync(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+function readCleanResultFromFile(cleanedPath: string): {
+  records: Record<string, unknown>[];
+  sourceCounts: Record<string, number>;
+  ccLog: string[];
+  totalRecords: number;
+} | null {
+  let dataPath = cleanedPath;
+
+  // Handle .enc files (Hono/API convention)
+  if (cleanedPath.endsWith(".enc")) {
+    const decrypted = decryptToUploads(cleanedPath);
+    if (decrypted) dataPath = decrypted;
+  }
+
+  // Remap Docker paths to local paths (Docker mounts ./data -> /app/data)
+  if (!existsSync(dataPath) && dataPath.startsWith("/app/")) {
+    const localPath = dataPath.replace(/^\/app\//, join(PROJECT_ROOT, "/"));
+    if (existsSync(localPath)) dataPath = localPath;
+  }
+
+  if (!existsSync(dataPath)) return null;
+
+  // Try reading as text, validate it's actually CSV
+  let content = tryReadFile(dataPath);
+  if (content !== null && !looksLikeCsv(content)) {
+    content = null; // binary/garbled — not CSV
+  }
+
+  // If not readable as CSV, try Plumber-encrypted format (magic bytes, no .enc)
+  if (content === null) {
+    const plainPath = decryptPlumberFile(dataPath);
+    if (plainPath) {
+      content = tryReadFile(plainPath);
+      if (content) dataPath = plainPath;
+    }
+  }
+
+  if (content === null || content.trim().length === 0) return null;
+
+  const lines = content.trim().split("\n");
+  if (lines.length < 2) return { records: [], sourceCounts: {}, ccLog: [], totalRecords: 0 };
+
+  const stripQuotes = (s: string) => s.replace(/^"|"$/g, "").trim();
+  const headers = lines[0].split(",").map(h => stripQuotes(h));
+  const records: Record<string, unknown>[] = [];
+  const sourceCounts: Record<string, number> = {};
+
+  for (let i = 1; i < Math.min(lines.length, 101); i++) {
+    const values = splitCsvLine(lines[i]).map(v => stripQuotes(v));
+    const row: Record<string, unknown> = {};
+    headers.forEach((h, idx) => {
+      const val = values[idx];
+      const num = Number(val);
+      row[h] = isNaN(num) ? (val || null) : num;
+    });
+    records.push(row);
+    const src = String(row.source || row["source"] || "unknown");
+    sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+  }
+
+  // Derive CC log from per-test columns
+  const ccLog: string[] = [];
+  const totalRecords = lines.length - 1;
+  ccLog.push("CoordinateCleaner Results:");
+  ccLog.push(`  Total records: ${totalRecords.toLocaleString()}`);
+
+  const ccTestNames: Record<string, string> = {
+    cc_test_sea: "Sea coordinates",
+    cc_test_capitals: "Capital cities",
+    cc_test_centroids: "Country centroids",
+    cc_test_institutions: "Biodiversity institutions",
+    cc_test_urban: "Urban areas",
+    cc_test_zero: "Zero coordinates",
+  };
+
+  let totalFlagged = 0;
+  for (const [col, label] of Object.entries(ccTestNames)) {
+    const colIdx = headers.indexOf(col);
+    if (colIdx === -1) continue;
+    let count = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const vals = splitCsvLine(lines[i]);
+      const v = stripQuotes(vals[colIdx] || "");
+      if (v === "true" || v === "TRUE" || v === "1") count++;
+    }
+    totalFlagged += count;
+    ccLog.push(`    ${label}: ${count.toLocaleString()}`);
+  }
+
+  if (totalFlagged > 0) {
+    ccLog.splice(1, 0, `  Flagged: ${totalFlagged.toLocaleString()} (${(100 * totalFlagged / totalRecords).toFixed(1)}%)`);
+  }
+
+  return { records, sourceCounts, ccLog, totalRecords };
+}
+
+dataRoutes.get("/occurrences/clean/result", async (c) => {
+  try {
+    const fileId = c.req.query("file_id");
+    const cleanedFileId = c.req.query("cleaned_file_id");
+    if (!fileId && !cleanedFileId) return c.json({ error: "file_id or cleaned_file_id is required" }, 400);
+
+    // Primary path: resolve the cleaned file directly
+    if (cleanedFileId) {
+      const resolved = resolveFilePath(cleanedFileId);
+      const result = readCleanResultFromFile(resolved.path);
+      if (result) {
+        return c.json({
+          cleaned_records: result.records,
+          source_counts: result.sourceCounts,
+          cc_log: result.ccLog,
+          valid_records: result.totalRecords,
+          original_rows: result.totalRecords,
+        });
+      }
+    }
+
+    // Fallback: look up the Plumber upload listing to find the cleaned file path
+    if (fileId) {
+      const resolved = resolveFilePath(fileId);
+      try {
+        const uploadsList = await plumberClient.withUser(c.get("user").id).getUploads(200);
+        const uploadsArray = (uploadsList as any)?.uploads as Array<Record<string, unknown>> | undefined;
+        if (uploadsArray) {
+          const match = uploadsArray.find(u => String(u.file_path || "") === resolved.path || String(u.file_id || "") === resolved.path);
+          if (match) {
+            const cleanedPath = (match.cleaned_file_path as string) || (match.cleaned_file_id as string);
+            if (cleanedPath) {
+              const result = readCleanResultFromFile(cleanedPath);
+              if (result) {
+                return c.json({
+                  cleaned_records: result.records,
+                  source_counts: result.sourceCounts,
+                  cc_log: result.ccLog,
+                  valid_records: result.totalRecords,
+                  original_rows: (match.cleaned_original_rows as number) || result.totalRecords,
+                });
+              }
+            }
+            // File was cleaned but cleaned file not on disk — return summary
+            return c.json({
+              cleaned_records: [],
+              source_counts: {},
+              cc_log: [],
+              valid_records: (match.cleaned_valid_records as number) || 0,
+              original_rows: (match.cleaned_original_rows as number) || (match.n_rows as number) || 0,
+            });
+          }
+        }
+      } catch {
+        // Plumber lookup failed, continue to minimal response
+      }
+
+      // Last resort: try reading the original file as cleaned file
+      const result = readCleanResultFromFile(resolved.path);
+      if (result) {
+        return c.json({
+          cleaned_records: result.records,
+          source_counts: result.sourceCounts,
+          cc_log: result.ccLog,
+          valid_records: result.totalRecords,
+          original_rows: result.totalRecords,
+        });
+      }
+    }
+
+    // Return empty summary rather than 404 so the frontend always gets valid JSON
+    return c.json({
+      cleaned_records: [],
+      source_counts: {},
+      cc_log: [],
+      valid_records: 0,
+      original_rows: 0,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to get cleaning result";
     return c.json({ error: message }, 502);
   }
 });
@@ -281,10 +533,7 @@ dataRoutes.post("/occurrences/gbif/search", gbifRateLimit, async (c) => {
     const initial = await plumberClient.searchGbif(body);
 
     const jobId = initial?.job_id as string | undefined;
-    if (jobId) {
-      const result = await pollPlumberJob(jobId);
-      return c.json(result);
-    }
+    if (jobId) return c.json({ job_id: jobId, status: "running" });
 
     return c.json(initial);
   } catch (err) {
@@ -332,7 +581,15 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
     const initial = await plumberClient.searchGbif({ taxon, country, max_records: maxRecords });
 
     const jobId = initial?.job_id as string | undefined;
-    const searchResult = jobId ? await pollPlumberJob(jobId) : initial;
+    let searchResult: Record<string, unknown>;
+    if (jobId) {
+      const polled = await pollPlumberJob(jobId, 120_000);
+      searchResult = (polled.status === "completed" && polled.result && typeof polled.result === "object")
+        ? (polled.result as Record<string, unknown>)
+        : polled;
+    } else {
+      searchResult = initial;
+    }
     const resultFilePath = searchResult.file_path as string | undefined;
     const nRecords = (searchResult.n_records as number) || 0;
 
@@ -362,6 +619,143 @@ dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to save GBIF records";
+    return c.json({ error: message }, 502);
+  }
+});
+
+// ── ALA Search ─────────────────────────────────────────────
+dataRoutes.post("/occurrences/ala/search", defaultRateLimit, async (c) => {
+  try {
+    const body = await c.req.json();
+
+    // Inject saved ALA API key from user settings if not provided inline
+    if (!body.api_key) {
+      try {
+        const user = c.get("user");
+        const [settings] = await db
+          .select({ alaApiKey: userSettings.alaApiKey })
+          .from(userSettings)
+          .where(eq(userSettings.userId, user.id))
+          .limit(1);
+        if (settings?.alaApiKey) {
+          try {
+            const { decryptString, isEncryptionKeyConfigured } = await import("../services/encryption.js");
+            if (isEncryptionKeyConfigured()) body.api_key = decryptString(settings.alaApiKey);
+          } catch { /* decryption failed — skip */ }
+        }
+      } catch { /* failed to look up settings — continue without injection */ }
+    }
+
+    const initial = await plumberClient.searchAla(body);
+
+    const jobId = initial?.job_id as string | undefined;
+    if (jobId) return c.json({ job_id: jobId, status: "running" });
+
+    return c.json(initial);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "ALA search failed";
+    return c.json({ error: message }, 502);
+  }
+});
+
+dataRoutes.post("/occurrences/ala/save", authMiddleware, async (c) => {
+  try {
+    const body = await c.req.json();
+    const filePath = body.file_path as string | undefined;
+
+    if (filePath) {
+      const pipelineRunId = randomUUID();
+      const user = c.get("user");
+      const { ipAddress, userAgent } = extractClientInfo(c);
+      logAction({
+        userId: user.id,
+        action: "occurrence_upload",
+        entity: "occurrence",
+        entityId: pipelineRunId,
+        ipAddress,
+        userAgent,
+        details: { source: "ala", file_path: filePath, pipelineRunId },
+      });
+      return c.json({
+        file_path: filePath,
+        file_id: filePath,
+        n_rows: 0,
+        filename: filePath.split("/").pop() || "ala_records.csv",
+        pipelineRunId,
+      });
+    }
+
+    const taxon = body.taxon as string;
+    const country = body.country as string | undefined;
+    const maxRecords = (body.max_records as number) || 1000;
+
+    if (!taxon) {
+      return c.json({ error: "taxon is required" }, 400);
+    }
+
+    const initial = await plumberClient.searchAla({ taxon, country, max_records: maxRecords });
+
+    const jobId = initial?.job_id as string | undefined;
+    let searchResult: Record<string, unknown>;
+    if (jobId) {
+      const polled = await pollPlumberJob(jobId, 120_000);
+      searchResult = (polled.status === "completed" && polled.result && typeof polled.result === "object")
+        ? (polled.result as Record<string, unknown>)
+        : polled;
+    } else {
+      searchResult = initial;
+    }
+    const resultFilePath = searchResult.file_path as string | undefined;
+    const nRecords = (searchResult.n_records as number) || 0;
+
+    if (!resultFilePath || nRecords === 0) {
+      return c.json({ error: "No ALA records found" }, 404);
+    }
+
+    const pipelineRunId = randomUUID();
+    const user = c.get("user");
+    const { ipAddress, userAgent } = extractClientInfo(c);
+    logAction({
+      userId: user.id,
+      action: "occurrence_upload",
+      entity: "occurrence",
+      entityId: pipelineRunId,
+      ipAddress,
+      userAgent,
+      details: { source: "ala", taxon, country, n_rows: nRecords, pipelineRunId },
+    });
+
+    return c.json({
+      file_path: resultFilePath,
+      file_id: resultFilePath,
+      n_rows: nRecords,
+      filename: resultFilePath.split("/").pop() || "ala_records.csv",
+      pipelineRunId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to save ALA records";
+    return c.json({ error: message }, 502);
+  }
+});
+
+// ── Data job status (polled by frontend after async submission) ──
+dataRoutes.get("/occurrences/job/:jobId", async (c) => {
+  const jobId = c.req.param("jobId");
+  if (!jobId) return c.json({ error: "jobId is required" }, 400);
+  try {
+    const status = await plumberClient.getJobStatus(jobId);
+    if (status.status === "completed") {
+      if (status.result && typeof status.result === "object") {
+        return c.json(status.result);
+      }
+      return c.json({ error: "Job completed but no result data" }, 502);
+    }
+    if (status.status === "failed" || status.status === "error") {
+      return c.json({ error: (status.error as string) || "Job failed" }, 502);
+    }
+    return c.json(status);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to get job status";
     return c.json({ error: message }, 502);
   }
 });
@@ -557,14 +951,27 @@ dataRoutes.patch("/uploads/:fileId", async (c) => {
 });
 
 // Delete an uploaded occurrence file and reclaim storage
+async function deleteFilesFromDisk(filePath: string | null, cleanedFilePath: string | null) {
+  if (filePath) {
+    if (existsSync(filePath)) rmSync(filePath, { force: true });
+    const plain = filePath.replace(/\.enc$/, "");
+    if (plain !== filePath && existsSync(plain)) rmSync(plain, { force: true });
+  }
+  if (cleanedFilePath) {
+    if (existsSync(cleanedFilePath)) rmSync(cleanedFilePath, { force: true });
+    const cleanedPlain = cleanedFilePath.replace(/\.enc$/, "");
+    if (cleanedPlain !== cleanedFilePath && existsSync(cleanedPlain)) rmSync(cleanedPlain, { force: true });
+  }
+}
+
 dataRoutes.delete("/uploads/:fileId", async (c) => {
   try {
     const fileId = decodeURIComponent(c.req.param("fileId"));
     const user = c.get("user");
     const projectIds = await getUserProjectIds(user);
 
-    // Find the file record (scoped to user's projects)
-    const [record] = await db
+    // Try uploadedFiles table first (Hono-managed)
+    const [ufRecord] = await db
       .select({
         id: uploadedFiles.id,
         filePath: uploadedFiles.filePath,
@@ -577,37 +984,33 @@ dataRoutes.delete("/uploads/:fileId", async (c) => {
         : eq(uploadedFiles.filePath, fileId))
       .limit(1);
 
-    if (!record) {
+    if (ufRecord) {
+      await deleteFilesFromDisk(ufRecord.filePath, ufRecord.cleanedFilePath);
+      await db.delete(uploadedFiles).where(eq(uploadedFiles.id, ufRecord.id));
+      await db.delete(uploads).where(eq(uploads.filePath, fileId));
+      await db
+        .update(users)
+        .set({ storageUsedBytes: sql`greatest(0, ${users.storageUsedBytes} - ${ufRecord.fileSize})` })
+        .where(eq(users.id, user.id));
+      return c.json({ ok: true, message: "Upload deleted" });
+    }
+
+    // Fallback to uploads table (Plumber-managed)
+    const [upRecord] = await db
+      .select({
+        filePath: uploads.filePath,
+        cleanedFilePath: uploads.cleanedFilePath,
+      })
+      .from(uploads)
+      .where(eq(uploads.filePath, fileId))
+      .limit(1);
+
+    if (!upRecord) {
       return c.json({ error: "Upload not found" }, 404);
     }
 
-    // Remove files from disk
-    const encPath = record.filePath;
-    if (encPath && existsSync(encPath)) {
-      rmSync(encPath, { force: true });
-    }
-    // Remove decrypted version if exists
-    const plainPath = encPath?.replace(/\.enc$/, "");
-    if (plainPath && existsSync(plainPath)) {
-      rmSync(plainPath, { force: true });
-    }
-    // Remove cleaned file if exists
-    if (record.cleanedFilePath) {
-      const cleanedEnc = record.cleanedFilePath;
-      if (existsSync(cleanedEnc)) rmSync(cleanedEnc, { force: true });
-      const cleanedPlain = cleanedEnc.replace(/\.enc$/, "");
-      if (existsSync(cleanedPlain)) rmSync(cleanedPlain, { force: true });
-    }
-
-    // Delete DB record from both tables
-    await db.delete(uploadedFiles).where(eq(uploadedFiles.id, record.id));
+    await deleteFilesFromDisk(upRecord.filePath, upRecord.cleanedFilePath);
     await db.delete(uploads).where(eq(uploads.filePath, fileId));
-
-    // Update storage usage
-    await db
-      .update(users)
-      .set({ storageUsedBytes: sql`greatest(0, ${users.storageUsedBytes} - ${record.fileSize})` })
-      .where(eq(users.id, user.id));
 
     return c.json({ ok: true, message: "Upload deleted" });
   } catch (err) {
