@@ -95,7 +95,7 @@ jobs:
             type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
 
       - name: Build Plumber image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: plumber/Dockerfile
@@ -113,7 +113,7 @@ jobs:
             type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
 
       - name: Build API image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.api
@@ -131,7 +131,7 @@ jobs:
             type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
 
       - name: Build Frontend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.frontend

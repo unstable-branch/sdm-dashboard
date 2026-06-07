@@ -105,6 +105,50 @@ authRoutes.post("/register", async (c) => {
   }
 });
 
+const LOGIN_LOCKOUT_MAX_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
+const _loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
+
+function checkLoginLockout(email: string): string | null {
+  const key = email.toLowerCase().trim();
+  const now = Date.now();
+  const record = _loginAttempts.get(key);
+
+  if (record) {
+    if (now < record.lockedUntil) {
+      const remaining = Math.ceil((record.lockedUntil - now) / 1000 / 60);
+      return `Account temporarily locked. Try again in ${remaining} minute(s).`;
+    }
+    if (now >= record.lockedUntil) {
+      _loginAttempts.delete(key);
+    }
+  }
+  return null;
+}
+
+function recordLoginAttempt(email: string, success: boolean) {
+  const key = email.toLowerCase().trim();
+  if (success) {
+    _loginAttempts.delete(key);
+    return;
+  }
+  const now = Date.now();
+  const record = _loginAttempts.get(key) || { count: 0, lockedUntil: now };
+  record.count += 1;
+  if (record.count >= LOGIN_LOCKOUT_MAX_ATTEMPTS) {
+    record.lockedUntil = now + LOGIN_LOCKOUT_WINDOW_MS;
+    record.count = 0;
+  }
+  _loginAttempts.set(key, record);
+
+  if (_loginAttempts.size > 10000) {
+    const cutoff = now - LOGIN_LOCKOUT_WINDOW_MS;
+    for (const [k, v] of _loginAttempts) {
+      if (now >= v.lockedUntil && v.count === 0) _loginAttempts.delete(k);
+    }
+  }
+}
+
 authRoutes.post("/login", async (c) => {
   if (!JWT_SECRET) {
     return c.json({ error: "Server configuration error" }, 500);
@@ -118,6 +162,11 @@ authRoutes.post("/login", async (c) => {
       return c.json({ error: "Email and password are required" }, 400);
     }
 
+    const lockoutMsg = checkLoginLockout(email);
+    if (lockoutMsg) {
+      return c.json({ error: lockoutMsg }, 429);
+    }
+
     const [user] = await db
       .select()
       .from(users)
@@ -125,6 +174,7 @@ authRoutes.post("/login", async (c) => {
       .limit(1);
 
     if (!user) {
+      recordLoginAttempt(email, false);
       const client = extractClientInfo(c as any);
       logAction({ action: "login_failed", entity: "users", details: { email, reason: "not_found" }, ...client }).catch((e) => console.warn("[auth] Failed to log login_failed (not_found):", e));
       return c.json({ error: "Invalid credentials" }, 401);
@@ -132,10 +182,13 @@ authRoutes.post("/login", async (c) => {
 
     const valid = await compare(password, user.passwordHash);
     if (!valid) {
+      recordLoginAttempt(email, false);
       const client = extractClientInfo(c as any);
       logAction({ userId: user.id, action: "login_failed", entity: "users", entityId: user.id, details: { reason: "wrong_password" }, ...client }).catch((e) => console.warn("[auth] Failed to log login_failed (wrong_password):", e));
       return c.json({ error: "Invalid credentials" }, 401);
     }
+
+    recordLoginAttempt(email, true);
 
     await db
       .update(users)

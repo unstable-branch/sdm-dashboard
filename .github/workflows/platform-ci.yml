@@ -333,7 +333,6 @@ jobs:
           cd frontend
           pnpm install --frozen-lockfile
           pnpm run test:e2e
-        continue-on-error: true
 
       - name: Type contract check (Plumber OpenAPI → TS types)
         run: |
@@ -352,7 +351,8 @@ jobs:
           image-ref: sdm-plumber:test
           format: sarif
           output: trivy-results.sarif
-        continue-on-error: true
+          severity: CRITICAL,HIGH
+          exit-code: 1
 
       - name: Teardown
         if: always()

@@ -179,6 +179,26 @@ services:
       - sdm-network
     restart: unless-stopped
 
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    environment:
+      DATA_SOURCE_NAME: postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform?sslmode=disable
+    ports:
+      - "9187:9187"
+    networks:
+      - sdm-network
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.67.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "9121:9121"
+    networks:
+      - sdm-network
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v2.53.0
     ports:

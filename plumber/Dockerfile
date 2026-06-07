@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM rocker/r-ver:4.4.2
+FROM rocker/r-ver:4.4.2@sha256:df26749182af64d5263bf64149d51a427b476ed28c4e046997143be3f97fdd7c
 
 LABEL org.opencontainers.image.title="SDM Dashboard — Plumber"
 LABEL org.opencontainers.image.description="R/Plumber computation API for SDM model runs"
@@ -32,7 +32,6 @@ RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages
     'CAST', 'blockCV', \
     'CoordinateCleaner', 'rgbif', 'finch', \
     'future', 'future.apply', \
-    'testthat', \
     'DBI', 'RPostgres', 'digest', \
     'Rook', 'openssl', 'pool', 'uuid' \
   ), Ncpus=4)" \
@@ -55,5 +54,8 @@ RUN groupadd -g 2000 uploadgroup && \
 USER sdm
 
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
+  CMD curl -f http://localhost:8000/health || exit 1
 
 CMD ["Rscript", "/app/plumber/R/run_server.R"]
