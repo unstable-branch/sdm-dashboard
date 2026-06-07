@@ -28,6 +28,10 @@ cat("═════════════════════════
 cat("  SDM Dashboard — DNN/cito Installer\n")
 cat("═══════════════════════════════════════════════\n\n")
 
+# Increase timeout for large package downloads (default 60s is too short)
+options(timeout = 900)
+cat("  Download timeout: 900 seconds (15 min)\n")
+
 n_cores <- tryCatch({
   max(1, as.integer(Sys.getenv("NCPUS", parallel::detectCores()))[1])
 }, error = function(e) 4L)
@@ -39,10 +43,37 @@ if (force_gpu) {
 }
 cat(sprintf("  Started at: %s\n\n", format(start_time, "%Y-%m-%d %H:%M:%S")))
 
-repos <- "https://cloud.r-project.org"
+# Use binary repo on Linux for faster install (avoids source compilation)
+os <- tolower(Sys.info()["sysname"])
+if (os == "linux") {
+  # Detect Ubuntu/Debian version for Posit Package Manager
+  os_release <- tryCatch(
+    readLines("/etc/os-release", warn = FALSE),
+    error = function(e) ""
+  )
+  version_codename <- ""
+  for (line in os_release) {
+    if (grepl("^VERSION_CODENAME=", line)) {
+      version_codename <- sub("^VERSION_CODENAME=", "", line)
+      version_codename <- gsub('"', "", version_codename)
+      break
+    }
+  }
+  if (nzchar(version_codename)) {
+    repos <- sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", version_codename)
+  } else {
+    repos <- "https://packagemanager.posit.co/cran/latest"
+  }
+  cat("  OS: Linux (binary repo:", repos, ")\n")
+} else {
+  repos <- "https://cloud.r-project.org"
+  cat("  OS:", os, "(source repo:", repos, ")\n")
+}
+cat("\n")
 
 # ── Step 1: cito ──────────────────────────────────────────────────────────
 log_step("Installing cito...")
+cat("  Downloading cito R package...\n")
 t1 <- Sys.time()
 install.packages("cito", repos = repos, Ncpus = n_cores)
 elapsed <- difftime(Sys.time(), t1, units = "mins")
@@ -51,6 +82,14 @@ cat(sprintf("  ✓ cito installed (%.1f min)\n\n", elapsed))
 # ── Step 2: torch ─────────────────────────────────────────────────────────
 log_step("Installing torch...")
 cat("  This also installs torchvision as a dependency.\n")
+if (os == "linux") {
+  cat("  Using pre-compiled Linux binary — should complete in 1-3 minutes.\n")
+} else {
+  cat("  Compiling from source — this can take 5-20 minutes.\n")
+  cat("  The terminal will appear frozen with no output until compilation finishes.\n")
+  cat("  This is NORMAL — do not interrupt.\n")
+}
+cat("  Downloading torch R package (~50-100 MB tar.gz)...\n")
 t2 <- Sys.time()
 install.packages("torch", repos = repos, Ncpus = n_cores)
 elapsed <- difftime(Sys.time(), t2, units = "mins")
@@ -59,7 +98,8 @@ cat(sprintf("  ✓ torch installed (%.1f min)\n\n", elapsed))
 # ── Step 3: libtorch binaries ─────────────────────────────────────────────
 log_step("Downloading and installing libtorch binaries (~1 GB)")
 cat("  This may take 5–30 minutes depending on your internet connection.\n")
-cat("  Progress is shown as the download streams to disk.\n\n")
+cat("  Progress is shown as the download streams to disk.\n")
+cat("  The download URL and speed are displayed in real time.\n\n")
 
 suppressPackageStartupMessages(library(torch))
 

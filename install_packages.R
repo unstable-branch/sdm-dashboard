@@ -14,13 +14,36 @@
 cat("SDM Dashboard Package Installer\n")
 cat("===============================\n\n")
 
+options(timeout = 900)
+cat("Download timeout: 900 seconds (15 min)\n")
+
 n_cores <- tryCatch({
   max(1, as.integer(Sys.getenv("NCPUS", parallel::detectCores()))[1])
 }, error = function(e) 4L)
 
 cat("Using", n_cores, "CPU cores for compilation.\n\n")
 
-repos <- "https://cloud.r-project.org"
+os <- tolower(Sys.info()["sysname"])
+if (os == "linux") {
+  os_release <- tryCatch(readLines("/etc/os-release", warn = FALSE), error = function(e) "")
+  version_codename <- ""
+  for (line in os_release) {
+    if (grepl("^VERSION_CODENAME=", line)) {
+      version_codename <- sub("^VERSION_CODENAME=", "", line)
+      version_codename <- gsub('"', "", version_codename)
+      break
+    }
+  }
+  if (nzchar(version_codename)) {
+    repos <- sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", version_codename)
+  } else {
+    repos <- "https://packagemanager.posit.co/cran/latest"
+  }
+  cat("OS: Linux (binary repo:", repos, ")\n")
+} else {
+  repos <- "https://cloud.r-project.org"
+  cat("OS:", os, "(source repo:", repos, ")\n")
+}
 
 # ---------------------------------------------------------------------------
 # Core packages (always installed)
