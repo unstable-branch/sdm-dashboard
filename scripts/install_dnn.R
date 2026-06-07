@@ -2,7 +2,7 @@
 # SDM Dashboard — DNN/cito dependency installer
 # Run: Rscript scripts/install_dnn.R
 #
-# Installs cito, torch, and the libtorch backend.
+# Installs torch, cito, and the libtorch backend — one at a time.
 # torch::install_torch() downloads ~1 GB of binaries.
 # For GPU support, ensure CUDA 12.8+ is available before running.
 # GPU will be auto-detected if torch::install_torch() detects CUDA.
@@ -12,7 +12,7 @@
 #   Rscript scripts/install_dnn.R gpu           # GPU with CUDA
 
 step <- 0
-total_steps <- 3
+total_steps <- 4
 start_time <- Sys.time()
 
 log_step <- function(msg) {
@@ -61,10 +61,10 @@ if (force_gpu) {
 }
 cat(sprintf("  Started at: %s\n\n", format(start_time, "%Y-%m-%d %H:%M:%S")))
 
-# Repos for cito (standard CRAN only)
+# Standard CRAN repo
 cran_repos <- "https://cloud.r-project.org"
 
-# Repos for torch: try Posit binary on Linux (faster), fall back to CRAN
+# For torch: try Posit binary on Linux first (faster), fall back to CRAN
 os <- tolower(Sys.info()["sysname"])
 torch_repos <- cran_repos
 if (os == "linux") {
@@ -87,37 +87,24 @@ if (os == "linux") {
 } else {
   cat("  OS:", os, "\n")
 }
-
-# ── Step 1: cito ──────────────────────────────────────────────────────────
-log_step("Installing cito...")
-t1 <- Sys.time()
-install.packages("cito", repos = cran_repos, Ncpus = n_cores, quiet = TRUE)
-elapsed <- difftime(Sys.time(), t1, units = "mins")
-cat(sprintf("  ✓ cito installed (%.1f min)\n", elapsed))
-
-# ── Step 2: torch ─────────────────────────────────────────────────────────
-log_step("Installing torch...")
-cat("  Repos to try:\n")
-for (r in torch_repos) cat("    -", r, "\n")
 cat("\n")
 
+# ── Step 1: torch (first, so cito's dependency is already satisfied) ──────
+log_step("Installing torch...")
 if (os == "linux") {
-  cat("  Attempting binary install from Posit Package Manager first...\n")
-  cat("  If binary unavailable, falls back to source compile.\n")
-  cat("  Source compilation takes 10-30 minutes and shows NO output.\n")
-  cat("  A dot (.) every 30 seconds confirms it's still working.\n\n")
+  cat("  Attempting binary install from Posit Package Manager...\n")
+  cat("  If unavailable, falls back to source compile (10-30 min).\n")
 } else {
-  cat("  Compiling from source — 10-30 minutes with no terminal output. Be patient.\n")
-  cat("  A dot (.) every 30 seconds confirms it's still working.\n\n")
+  cat("  Installing from CRAN.\n")
 }
+cat("  A dot (.) every 30 seconds confirms it's still working.\n\n")
 
-t2 <- Sys.time()
-
-# Try binary first on Linux, fall back to source
 installed <- FALSE
+t1 <- Sys.time()
+
 for (r in torch_repos) {
   if (installed) break
-  cat(sprintf("  Trying repo: %s\n", r))
+  cat(sprintf("  Trying: %s\n", r))
   start_heartbeat(30)
   tryCatch({
     if (os == "linux") {
@@ -127,7 +114,6 @@ for (r in torch_repos) {
     } else {
       install.packages("torch", repos = r, Ncpus = n_cores, quiet = FALSE)
     }
-    # Check if actually installed
     if (requireNamespace("torch", quietly = TRUE)) {
       installed <- TRUE
       cat("  ✓ torch installed from:", r, "\n")
@@ -139,10 +125,9 @@ for (r in torch_repos) {
   })
 }
 
-# Final fallback: source compile from CRAN
 if (!installed) {
-  cat("  Binary installs unavailable. Attempting source compile from CRAN...\n")
-  cat("  This will take 10-30 minutes. Get a coffee.\n")
+  cat("  Binary unavailable. Attempting source compile from CRAN...\n")
+  cat("  This will take 10-30 minutes. A dot (.) every 30s confirms it's alive.\n")
   start_heartbeat(30)
   tryCatch({
     install.packages("torch", repos = "https://cloud.r-project.org", Ncpus = n_cores, quiet = FALSE, type = "source")
@@ -160,9 +145,17 @@ if (!installed) {
 if (!installed) {
   stop("Failed to install torch from any repository.", call. = FALSE)
 }
+elapsed <- difftime(Sys.time(), t1, units = "mins")
+cat(sprintf("  ✓ torch completed (%.1f min)\n\n", elapsed))
 
+# ── Step 2: cito (no dependency resolution — torch already installed) ────
+log_step("Installing cito...")
+cat("  torch was already installed in step 1.\n")
+cat("  Installing cito without re-resolving dependencies.\n\n")
+t2 <- Sys.time()
+install.packages("cito", repos = cran_repos, Ncpus = n_cores, quiet = TRUE, dependencies = FALSE)
 elapsed <- difftime(Sys.time(), t2, units = "mins")
-cat(sprintf("\n  ✓ torch installation completed (%.1f min)\n", elapsed))
+cat(sprintf("  ✓ cito installed (%.1f min)\n\n", elapsed))
 
 # ── Step 3: libtorch binaries ─────────────────────────────────────────────
 log_step("Downloading and installing libtorch binaries (~1 GB)")
@@ -186,13 +179,13 @@ if (force_gpu) {
   torch::install_torch()
 }
 elapsed <- difftime(Sys.time(), t3, units = "mins")
-cat(sprintf("  ✓ libtorch installed (%.1f min)\n", elapsed))
+cat(sprintf("  ✓ libtorch installed (%.1f min)\n\n", elapsed))
 
 # ── Summary ───────────────────────────────────────────────────────────────
 total_elapsed <- difftime(Sys.time(), start_time, units = "mins")
-cat("\n═══════════════════════════════════════════════\n")
+cat("═══════════════════════════════════════════════\n")
 cat(sprintf("  Installation complete (%.1f min total)\n", total_elapsed))
 cat("═══════════════════════════════════════════════\n\n")
 cat("  Verify:\n")
 cat("    Rscript -e 'library(torch); cat(\"libtorch:\", torch::torch_is_installed(), \"\\n\")'\n")
-cat("    Rscript -e 'cat(\"dnn:\", requireNamespace(\"cito\", quietly=TRUE) && requireNamespace(\"torch\", quietly=TRUE), \"\\n\")'\n")
+cat("    Rscript -e 'cat(\"dnn available:\", requireNamespace(\"cito\", quietly=TRUE) && requireNamespace(\"torch\", quietly=TRUE), \"\\n\")'\n")
