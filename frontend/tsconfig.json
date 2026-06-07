@@ -43,7 +43,6 @@
     "vitest.config.ts",
     "playwright.config.ts",
     "tailwind.config.ts",
-    "**/*.test.ts",
-    "**/*.test.tsx"
+
   ]
 }

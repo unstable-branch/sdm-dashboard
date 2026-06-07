@@ -70,6 +70,7 @@
     "@vitest/coverage-v8": "^4.1.7",
     "eslint": "^9.0.0",
     "eslint-config-next": "^16.2.6",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "happy-dom": "^20.9.0",
     "jsdom": "^29.1.1",
     "msw": "^2.14.6",
