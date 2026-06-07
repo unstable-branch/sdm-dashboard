@@ -95,11 +95,22 @@ if (length(missing_core) > 0) {
 # After running this script, in an interactive R session do:
 #   torch::install_torch()
 
-cat("\nInstalling torch + cito (optional)...\n")
-install.packages(c("torch", "cito"), repos = repos, Ncpus = n_cores, lib = .libPaths()[1])
-cat("\nInstalling libtorch binaries...\n")
+cat(sprintf("[%s] [1/3] Installing cito...\n", format(Sys.time(), "%H:%M:%S")))
+t1 <- Sys.time()
+install.packages("cito", repos = repos, Ncpus = n_cores)
+cat(sprintf("  Done (%.1f min)\n", difftime(Sys.time(), t1, units = "mins")))
+
+cat(sprintf("[%s] [2/3] Installing torch...\n", format(Sys.time(), "%H:%M:%S")))
+t2 <- Sys.time()
+install.packages("torch", repos = repos, Ncpus = n_cores)
+cat(sprintf("  Done (%.1f min)\n", difftime(Sys.time(), t2, units = "mins")))
+
+cat(sprintf("[%s] [3/3] Downloading libtorch binaries (~1 GB)...\n", format(Sys.time(), "%H:%M:%S")))
+cat("  This may take 5–30 minutes. Progress is shown as the download streams.\n")
 suppressPackageStartupMessages(library(torch))
+t3 <- Sys.time()
 torch::install_torch()
+cat(sprintf("  Done (%.1f min)\n", difftime(Sys.time(), t3, units = "mins")))
 
 # ---------------------------------------------------------------------------
 # Optional: Google Earth Engine (rgee)
