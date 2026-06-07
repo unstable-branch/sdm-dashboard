@@ -264,7 +264,7 @@ dataRoutes.post("/occurrences/upload", async (c) => {
 
     await db
       .update(users)
-      .set({ storageUsedBytes: (quota?.used ?? 0) + buffer.length })
+      .set({ storageUsedBytes: sql`${users.storageUsedBytes} + ${buffer.length}` })
       .where(eq(users.id, user.id));
 
     return c.json(normalizedResult);

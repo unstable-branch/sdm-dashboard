@@ -47,10 +47,14 @@ async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
 
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
-async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 2): Promise<Response> {
+async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 2, timeoutMs?: number): Promise<Response> {
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const attemptOptions = { ...options };
+    if (timeoutMs && timeoutMs > 0) {
+      attemptOptions.signal = AbortSignal.timeout(timeoutMs);
+    }
     try {
-      const res = await fetch(url, options);
+      const res = await fetch(url, attemptOptions);
       if (attempt < retries && RETRYABLE_STATUSES.has(res.status)) {
         const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
         await new Promise(r => setTimeout(r, delay));
@@ -58,6 +62,9 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
       }
       return res;
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw err;
+      }
       if (attempt >= retries) throw err;
       const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
       await new Promise(r => setTimeout(r, delay));
@@ -90,10 +97,7 @@ export class PlumberClient {
   private async _fetch(url: string, options?: RequestInit, timeoutMs?: number): Promise<Response> {
     const ms = timeoutMs ?? PLUMBER_DEFAULT_TIMEOUT_MS;
     const opts = options ?? {};
-    if (!opts.signal) {
-      opts.signal = AbortSignal.timeout(ms);
-    }
-    return plumberSemaphore(() => fetchWithRetry(url, opts));
+    return plumberSemaphore(() => fetchWithRetry(url, opts, 2, ms));
   }
 
   async healthCheck(): Promise<{ status: string; r_version: string; timestamp: string }> {

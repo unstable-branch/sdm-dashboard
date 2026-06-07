@@ -72,10 +72,8 @@ settingsRoutes.put("/", async (c) => {
       // Encrypt GBIF password at rest
       if (key === "gbifPassword") {
         if (body[key] === null) {
-          // Explicit null = clear the stored password
-          if (isEncryptionKeyConfigured()) {
-            updates[key] = encryptString("");
-          }
+          // Explicit null = clear the stored password from DB
+          updates[key] = null;
         } else if (body[key] !== "") {
           // Non-empty string = update the password
           if (isEncryptionKeyConfigured()) {
