@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { modelConfigSchema } from "@sdm/shared";
 import { plumberClient } from "../services/plumber.js";
-import { enqueueSdmJob, getJobQueue } from "../services/queue.js";
+import { getJobQueue } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { runs, batches, projects, users } from "../db/schema.js";
+import { runs, batches, users, projects } from "../db/schema.js";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
@@ -11,6 +11,7 @@ import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
 import { buildModelPayload, cleanupDecryptedFiles, type ModelConfigRecord } from "../services/model-payload.js";
+import { enqueueSdmJob } from "../services/queue.js";
 
 export const sdmBatchRoutes = new Hono<AppEnv>();
 
@@ -185,56 +186,30 @@ sdmBatchRoutes.post("/batch", async (c) => {
       })
       .returning();
 
-    const jobIds: string[] = [];
-
     const parsedConfigs = configs.map((config) => {
       const parsed = modelConfigSchema.safeParse(config);
       if (!parsed.success) throw new Error(`Invalid config: ${parsed.error.message}`);
       return parsed;
     });
 
-    const insertedRuns = await db
-      .insert(runs)
-      .values(
-        parsedConfigs.map((parsed) => ({
-          speciesName: parsed.data.species,
-          projectId,
-          modelId: parsed.data.modelId,
-          status: "queued" as const,
-          config: parsed.data,
-          parentRunId: batch.id,
-          pipelineRunId: (parsed.data as Record<string, unknown>).pipelineRunId as string || null,
-        }))
-      )
-      .returning();
+    const plumberPayload = await plumberClient.targetsRun({ configs: parsedConfigs.map(p => p.data) });
 
-    const enqueueResults = await Promise.allSettled(
-      insertedRuns.map((run) => {
-        const parsed = parsedConfigs[insertedRuns.indexOf(run)];
-        const plumberPayload = { ...buildModelPayload(parsed.data, run.id), runId: run.id };
-        return enqueueSdmJob({ type: "model", payload: plumberPayload }, user.id);
-      })
-    );
+    const targetsJobId = plumberPayload.job_id as string | undefined;
 
-    cleanupDecryptedFiles();
+    if (!targetsJobId) {
+      throw new Error("Targets pipeline did not return a job ID");
+    }
 
-    await Promise.all(
-      insertedRuns.map((run, i) => {
-        const queuedJobId = enqueueResults[i].status === "fulfilled" ? enqueueResults[i].value : null;
-        jobIds.push(run.id);
-        if (!queuedJobId) return Promise.resolve();
-        return db
-          .update(runs)
-          .set({ bullmqId: queuedJobId })
-          .where(eq(runs.id, run.id));
-      })
-    );
+    await db
+      .update(batches)
+      .set({ jobId: targetsJobId })
+      .where(eq(batches.id, batch.id));
 
     return c.json({
       batch_id: batch.id,
-      job_ids: jobIds,
-      total: jobIds.length,
-      message: `Batch of ${jobIds.length} runs started`,
+      job_id: targetsJobId,
+      total: configs.length,
+      message: `Batch of ${configs.length} configs started via targets pipeline`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Batch run failed";

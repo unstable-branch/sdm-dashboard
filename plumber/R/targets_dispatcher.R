@@ -38,6 +38,20 @@ source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
 source(file.path(app_dir, "R", "engine_load.R"))
 
+# Source Redis helpers for progress reporting and cancel checks
+redis_path <- file.path(app_dir, "plumber", "R", "redis.R")
+if (file.exists(redis_path)) source(redis_path)
+
+ts_start <- Sys.time()
+
+progress_fun <- function(pct, detail) {
+  msg <- paste0(format(Sys.time(), "%H:%M:%S"), " [", sprintf("%.0f", pct * 100), "%] ", detail)
+  cat(msg, "\n")
+  cat(msg, "\n", file = progress_file, append = TRUE)
+  sdm_redis_progress_set(basename(job_dir),
+    jsonlite::toJSON(list(percent = pct, detail = detail, stage = "targets"), auto_unbox = TRUE))
+}
+
 log_fun("Targets pipeline starting for ", basename(job_dir))
 
 Sys.setenv(SDM_TARGETS_CONFIG = config_csv)
@@ -47,11 +61,20 @@ meta <- read_meta()
 meta$status <- "running"
 write_meta(meta)
 
+progress_fun(0.0, "Pipeline initialising")
+
 tryCatch({
+  if (sdm_redis_cancel_check(basename(job_dir))) {
+    stop("CANCELLED", call. = FALSE)
+  }
+
+  progress_fun(0.1, "Loading modules and reading config")
   targets::tar_make(
     store = store_path,
     callr_function = NULL
   )
+
+  progress_fun(1.0, "Pipeline complete")
 
   meta <- read_meta()
   meta$status <- "completed"
@@ -69,10 +92,13 @@ tryCatch({
   log_fun(sprintf("Targets complete: %d done, %d errored", n_completed, n_errored))
   write_meta(meta)
 }, error = function(e) {
+  err_msg <- conditionMessage(e)
   meta <- read_meta()
-  meta$status <- "failed"
-  meta$error <- conditionMessage(e)
+  meta$status <- if (identical(err_msg, "CANCELLED")) "cancelled" else "failed"
+  meta$error <- err_msg
   meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
   write_meta(meta)
-  cat("Targets pipeline failed:", conditionMessage(e), "\n")
+  sdm_redis_progress_set(basename(job_dir),
+    jsonlite::toJSON(list(percent = 1.0, detail = err_msg, stage = "targets", status = meta$status), auto_unbox = TRUE))
+  cat("Targets pipeline", meta$status, ":", err_msg, "\n")
 })
