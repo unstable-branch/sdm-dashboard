@@ -86,7 +86,19 @@ build_run_args <- function(row) {
     veg_products = "veg_products"
   )
   integer_params <- c("background_n", "cv_folds", "aggregation_factor", "seed",
-    "worldclim_res", "veg_year", "lulc_year", "hfp_year")
+    "worldclim_res", "veg_year", "lulc_year", "hfp_year",
+    "n_cores", "pa_replicates", "min_source_records", "thickening_distance_km",
+    "dnn_n_seeds", "dnn_multispecies_n_seeds",
+    "brt_n_trees", "brt_interaction_depth", "cta_maxdepth", "cta_minsplit",
+    "mars_degree", "mars_nk", "fda_degree", "fda_nprune",
+    "ann_size", "ann_maxit", "ann_rang",
+    "rf_num_trees", "rf_mtry", "rf_min_node_size",
+    "xgb_max_depth",
+    "bart_ntree", "bart_ndpost", "bart_nskip",
+    "brms_chains", "brms_iter", "brms_warmup", "gam_k",
+    "multi_ensemble_power",
+    "rangebag_n_bags", "rangebag_vars_per_bag",
+    "esm_n_runs", "esm_split", "esm_power", "vif_threshold")
   scalar_param_map <- c(
     occurrences_csv = "occurrence_file"
   )
@@ -124,7 +136,11 @@ build_run_args <- function(row) {
     if (p %in% c("include_quadratic", "use_elevation", "use_soil", "use_uv",
                   "use_vegetation", "use_lulc", "use_hfp", "use_bioclim_season",
                   "use_drought", "vif_reduction", "future_projection",
-                  "merge_small_sources", "thin_by_cell", "extrapolation_mask")) {
+                  "merge_small_sources", "thin_by_cell", "extrapolation_mask",
+                  "generate_tiles", "generate_cog",
+                  "climate_matching", "restrict_background",
+                  "multi_ensemble_export", "multi_ensemble_uncertainty",
+                  "maxnet_auto_tune")) {
       args[[p]] <- parse_logical(as.character(val))
       next
     }
@@ -139,11 +155,7 @@ build_run_args <- function(row) {
     args[[p]] <- if (is.na(val_num)) val else val_num
   }
 
-  args$use_cc <- FALSE
-  args$cleaned_occurrence <- NULL
-  args$log_fun <- NULL
-  args$progress_fun <- NULL
-
+  # Let sdm_config() set defaults for any missing params (use_cc, log_fun, etc.)
   args
 }
 
@@ -174,16 +186,18 @@ batch_run_targets <- function(config_csv, output_dir = "batch_results/",
   out_dir <- normalizePath(output_dir, mustWork = FALSE)
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
+  targets_store <- file.path(out_dir, "_targets")
   Sys.setenv(SDM_BATCH_CONFIG = config_csv)
   Sys.setenv(SDM_BATCH_OUTPUT = out_dir)
-  if (!is.null(workers)) Sys.setenv(SDM_TARGETS_WORKERS = as.character(workers))
+  Sys.setenv(SDM_TARGETS_STORE = targets_store)
+  if (!is.null(workers)) Sys.setenv(SDM_CLUSTER_WORKERS = as.character(workers))
   if (!is.na(seed)) Sys.setenv(SDM_BATCH_SEED = as.character(seed))
 
   message("[targets] Running batch pipeline from: ", config_csv)
   message("[targets] Output directory: ", out_dir)
 
   targets::tar_make(
-    store = file.path(out_dir, "_targets")
+    store = targets_store
   )
 }
 
