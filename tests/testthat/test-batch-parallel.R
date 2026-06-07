@@ -147,8 +147,8 @@ test_that("parse_batch_config parses valid CSV into list of lists", {
 })
 
 test_that("batch_run_parallel rejects empty species_configs", {
-  expect_error(batch_run_parallel(list(), n_cores = 1), "non-empty list")
-  expect_error(batch_run_parallel(NULL, n_cores = 1), "non-empty list")
+  expect_error(suppressWarnings(batch_run_parallel(list(), n_cores = 1)), "non-empty list")
+  expect_error(suppressWarnings(batch_run_parallel(NULL, n_cores = 1)), "non-empty list")
 })
 
 test_that("batch_run_parallel runs two species with n_cores=1 (sequential)", {
@@ -188,7 +188,7 @@ test_that("batch_run_parallel runs two species with n_cores=1 (sequential)", {
          cv_folds = "3", aggregation_factor = "4")
   )
 
-  results <- batch_run_parallel(configs, n_cores = 1, output_dir = tmp_dir, seed = 42)
+  results <- suppressWarnings(batch_run_parallel(configs, n_cores = 1, output_dir = tmp_dir, seed = 42))
 
   expect_length(results, 2)
   expect_false(is.null(results[[1]]))
@@ -243,7 +243,7 @@ test_that("batch_run_parallel parallel mode (n_cores=2)", {
          cv_folds = "3", aggregation_factor = "4")
   )
 
-  results <- batch_run_parallel(configs, n_cores = 2, output_dir = tmp_dir, seed = 42)
+  results <- suppressWarnings(batch_run_parallel(configs, n_cores = 2, output_dir = tmp_dir, seed = 42))
 
   expect_length(results, 2)
   expect_false(is.null(results[[1]]))
@@ -268,7 +268,7 @@ test_that("batch_run_parallel returns NULL for errored species without crashing 
          model_id = "glm", biovars = "1,4,12")
   )
 
-  results <- batch_run_parallel(bad_configs, n_cores = 1, output_dir = tmp_dir, seed = 42)
+  results <- suppressWarnings(batch_run_parallel(bad_configs, n_cores = 1, output_dir = tmp_dir, seed = 42))
 
   expect_length(results, 1)
   expect_null(results[[1]])
@@ -309,7 +309,7 @@ test_that("batch_run_parallel saves results with AUC in metadata", {
          cv_folds = "3", aggregation_factor = "4")
   )
 
-  results <- batch_run_parallel(configs, n_cores = 1, output_dir = tmp_dir, seed = 99)
+  results <- suppressWarnings(batch_run_parallel(configs, n_cores = 1, output_dir = tmp_dir, seed = 99))
   expect_false(is.null(results[[1]]))
   expect_true(is.numeric(results[[1]]$metrics$auc_mean))
 

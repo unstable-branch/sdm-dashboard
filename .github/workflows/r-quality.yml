@@ -34,6 +34,7 @@ jobs:
           files <- list.files(pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE)
           files <- files[!grepl("^\\.git/", files)]
           files <- files[!grepl("/\\.Rprofile$", files)]
+          files <- files[!grepl("/renv/", files)]
           for (file in files) parse(file)
           message("Parsed ", length(files), " R source files.")
 

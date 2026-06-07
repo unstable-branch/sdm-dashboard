@@ -38,8 +38,9 @@ outputs/
 /covariates/
 Worldclim/
 Worldclim_future/
-renv/
-renv.lock
+renv/library/
+renv/staging/
+renv/python/
 species/
 TestSpp/
 
