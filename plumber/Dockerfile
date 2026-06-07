@@ -10,7 +10,7 @@ ARG R_CRAN_REPO=https://packagemanager.posit.co/cran/__linux__/noble/latest
 ENV DEBIAN_FRONTEND=noninteractive
 ENV R_CRAN_REPO=${R_CRAN_REPO}
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
     libgdal-dev \
     libgeos-dev \
     libproj-dev \
