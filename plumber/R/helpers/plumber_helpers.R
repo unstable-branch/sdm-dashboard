@@ -1,5 +1,19 @@
 # Shared helpers for Plumber route handlers. Keep route annotations in plumber.R.
 
+# Structured JSON logging
+sdm_log <- function(level, msg, ...) {
+  entry <- list(
+    timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%OS3"),
+    level = level,
+    message = sprintf(msg, ...)
+  )
+  cat(jsonlite::toJSON(entry, auto_unbox = TRUE), "\n")
+}
+
+sdm_log_info <- function(msg, ...) sdm_log("INFO", msg, ...)
+sdm_log_warn <- function(msg, ...) sdm_log("WARN", msg, ...)
+sdm_log_error <- function(msg, ...) sdm_log("ERROR", msg, ...)
+
 # Count currently running model processes
 sdm_count_active_runs <- function() {
   if (!exists("sdm_process_registry", envir = .GlobalEnv, inherits = FALSE)) return(0L)
