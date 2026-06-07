@@ -50,6 +50,8 @@ if (is.null(.GlobalEnv$.sdm_plumber_initialized)) {
   .GlobalEnv$.sdm_plumber_initialized <- TRUE
 }
 
+SDM_MAX_CONCURRENT_RUNS <- as.integer(Sys.getenv("SDM_MAX_CONCURRENT_RUNS", "2"))
+
 #* Upload occurrence file (CSV/TSV/ZIP)
 #* @param file The occurrence file to upload
 #* @post /api/v1/occurrences/upload
