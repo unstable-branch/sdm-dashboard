@@ -159,10 +159,18 @@ cat(sprintf("  ✓ cito installed (%.1f min)\n\n", elapsed))
 
 # ── Step 3: libtorch binaries ─────────────────────────────────────────────
 log_step("Downloading and installing libtorch binaries (~1 GB)")
-cat("  This may take 5–30 minutes depending on your internet connection.\n")
-cat("  Progress is shown as the download streams to disk.\n\n")
-
 suppressPackageStartupMessages(library(torch))
+
+# Enable live download progress bar (R >= 4.2 shows percentage)
+options(download.file.method = "libcurl")
+
+has_curl <- nzchar(Sys.which("curl"))
+if (has_curl) {
+  cat("  Using system curl for live progress: % Total | Speed | ETA\n")
+} else {
+  cat("  Download progress will show as a text progress bar.\n")
+}
+cat("  This may take 5–30 minutes depending on your internet connection.\n\n")
 
 t3 <- Sys.time()
 if (force_gpu) {
