@@ -95,9 +95,11 @@ if (length(missing_core) > 0) {
 # After running this script, in an interactive R session do:
 #   torch::install_torch()
 
-# cat("\nInstalling torch + cito (optional)...\n")
-# install.packages(c("torch", "reticulate", "cito"), repos = repos, Ncpus = n_cores, lib = .libPaths()[1])
-# In an interactive R session, run: torch::install_torch()
+cat("\nInstalling torch + cito (optional)...\n")
+install.packages(c("torch", "cito"), repos = repos, Ncpus = n_cores, lib = .libPaths()[1])
+cat("\nInstalling libtorch binaries...\n")
+suppressPackageStartupMessages(library(torch))
+torch::install_torch()
 
 # ---------------------------------------------------------------------------
 # Optional: Google Earth Engine (rgee)

@@ -88,6 +88,8 @@ interface ModelConfigAdvancedProps {
   onDnnDropoutChange: (val: number) => void;
   dnnL2Lambda: number;
   onDnnL2LambdaChange: (val: number) => void;
+  dnnNSeeds: number;
+  onDnnNSeedsChange: (val: number) => void;
 
   useElevation: boolean;
   onUseElevationChange: (val: boolean) => void;
@@ -167,7 +169,7 @@ export function ModelConfigAdvanced({
   rfNumTrees, onRfNumTreesChange, rfMtry, onRfMtryChange, rfMinNodeSize, onRfMinNodeSizeChange,
   gamK, onGamKChange,
   xgbMaxDepth, onXgbMaxDepthChange, xgbEta, onXgbEtaChange, xgbNRounds, onXgbNRoundsChange,
-  dnnArchitecture, onDnnArchitectureChange, dnnDropout, onDnnDropoutChange, dnnL2Lambda, onDnnL2LambdaChange,
+  dnnArchitecture, onDnnArchitectureChange, dnnDropout, onDnnDropoutChange, dnnL2Lambda, onDnnL2LambdaChange, dnnNSeeds, onDnnNSeedsChange,
   gllvmFamily, onGllvmFamilyChange, gllvmNumLv, onGllvmNumLvChange, gllvmNumRows, onGllvmNumRowsChange, gllvmLvCorr, onGllvmLvCorrChange,
   useElevation, onUseElevationChange, elevationDemtype, onElevationDemtypeChange, opentopoApiKey, onOpentopoApiKeyChange, demWarning,
   useSoil, onUseSoilChange, soilVars, soilDepths, onToggleSoilVar, onToggleSoilDepth,
@@ -483,6 +485,13 @@ export function ModelConfigAdvanced({
                 <TooltipInfo content="L2 weight decay penalty. Higher = stronger regularization. 0.001 is standard." />
               </label>
               <input type="number" min={0.0001} max={0.1} step={0.0001} value={dnnL2Lambda} onChange={(e) => onDnnL2LambdaChange(Number(e.target.value))} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">
+                Seeds ({dnnNSeeds})
+                <TooltipInfo content="Number of independent training runs. More seeds = more robust ensemble but slower. 5 is standard." />
+              </label>
+              <input type="range" min={1} max={20} step={1} value={dnnNSeeds} onChange={(e) => onDnnNSeedsChange(Number(e.target.value))} className="w-full" />
             </div>
           </div>
         </details>
