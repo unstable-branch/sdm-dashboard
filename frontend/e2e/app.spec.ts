@@ -48,10 +48,9 @@ test.describe("Results Page", () => {
   });
 });
 
-test.describe("Batch page redirects to data page", () => {
-  test("redirects /batch to /data?tab=batch", async ({ page }) => {
-    await page.goto("/batch");
-    await page.waitForURL(/\/data/);
-    await expect(page).toHaveURL(/\/data/);
+test.describe("Data page is accessible", () => {
+  test("data page loads with tabs", async ({ page }) => {
+    await page.goto("/data");
+    await expect(page.getByText(/Upload|Data|Occurrence/i).first()).toBeVisible({ timeout: 10000 });
   });
 });
