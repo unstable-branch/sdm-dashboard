@@ -69,6 +69,7 @@ export const MODEL_BACKENDS = [
   // Tier 6 — Niche / Specialised
   { id: "occupancy", label: "Occupancy Model (unmarked)", maturity: "experimental" as const, min_records: 10, available: false, notes: "Requires unmarked package + detection-history data" },
   { id: "dnn_multispecies", label: "Multi-Species DNN (cito)", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires cito + torch. Predicts 2+ species simultaneously with shared covariates." },
+  { id: "gllvm", label: "gllvm JSDM", maturity: "experimental" as const, min_records: 5, available: false, notes: "Requires gllvm package. Joint Species Distribution Model with latent variables." },
   { id: "python_elapid", label: "Elapid — Python MaxEnt", maturity: "experimental" as const, min_records: 10, available: false, notes: "Requires Python + elapid package" },
   { id: "python_sklearn_rf", label: "Scikit-Learn Random Forest (Python)", maturity: "experimental" as const, min_records: 15, available: false, notes: "Requires Python + scikit-learn package" },
 ];
@@ -97,6 +98,7 @@ export const MODEL_TIERS: Record<string, string> = {
   inla_spde: "Bayesian / Heavy",
   occupancy: "Specialised",
   dnn_multispecies: "Specialised",
+  gllvm: "Specialised",
   python_elapid: "Specialised",
   python_sklearn_rf: "Specialised",
 };
@@ -252,6 +254,10 @@ export const DEFAULT_CONFIG = {
   detectionModelType: "occu" as const,
   dnnMultispeciesArchitecture: "DNN_Medium" as const,
   dnnMultispeciesNSeeds: 3,
+  gllvmFamily: "binomial" as const,
+  gllvmNumLv: 2,
+  gllvmNumRows: 1,
+  gllvmLvCorr: false,
   worldclimRes: 10,
   source: "worldclim" as const,
   elevationDemtype: "COP90",

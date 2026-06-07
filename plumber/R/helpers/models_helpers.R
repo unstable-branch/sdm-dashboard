@@ -93,6 +93,186 @@ handle_model_run <- function(req, app_dir) {
   )
 }
 
+sdm_camel_to_snake <- list(
+  modelId = "model_id", backgroundN = "background_n", cvFolds = "cv_folds",
+  cvStrategy = "cv_strategy", cvBlockSizeKm = "cv_block_size_km",
+  includeQuadratic = "include_quadratic", nCores = "n_cores",
+  paReplicates = "pa_replicates", maskType = "mask_type",
+  maskFile = "mask_file", maskBufferDeg = "mask_buffer_deg",
+  maskBoundaryType = "mask_boundary_type", maskResolution = "mask_resolution",
+  maskCountry = "mask_country", restrictBackground = "restrict_background",
+  biasMethod = "bias_method", thickeningDistanceKm = "thickening_distance_km",
+  targetGroupFile = "target_group_file", minSourceRecords = "min_source_records",
+  mergeSmallSources = "merge_small_sources", thinByCell = "thin_by_cell",
+  vifReduction = "vif_reduction", vifThreshold = "vif_threshold",
+  climateMatching = "climate_matching",
+  climateMatchingMethod = "climate_matching_method",
+  futureProjection = "future_projection",
+  futureWorldclimDir = "future_worldclim_dir", futureLabel = "future_label",
+  futureWorldclimDir2 = "future_worldclim_dir2", futureLabel2 = "future_label2",
+  worldclimDir = "worldclim_dir", worldclimRes = "worldclim_res",
+  useElevation = "use_elevation", elevationDemtype = "elevation_demtype",
+  opentopoApiKey = "opentopo_api_key", useSoil = "use_soil",
+  soilVars = "soil_vars", soilDepths = "soil_depths",
+  useUv = "use_uv", uvVars = "uv_vars", uvMonths = "uv_months",
+  useVegetation = "use_vegetation", vegYear = "veg_year",
+  vegProducts = "veg_products", useLulc = "use_lulc", lulcYear = "lulc_year",
+  useHfp = "use_hfp", hfpYear = "hfp_year",
+  useBioclimSeason = "use_bioclim_season", useDrought = "use_drought",
+  droughtPeriods = "drought_periods", maxnetFeatures = "maxnet_features",
+  maxnetRegmult = "maxnet_regmult", aggregationFactor = "aggregation_factor",
+  occurrenceFile = "occurrence_file", cleanedFilePath = "cleaned_file_path",
+  pipelineRunId = "pipeline_run_id", extrapolationMask = "extrapolation_mask",
+  messThreshold = "mess_threshold", dnnArchitecture = "dnn_architecture",
+  dnnNSeeds = "dnn_n_seeds", dnnDevice = "dnn_device",
+  brtNTrees = "brt_n_trees", brtInteractionDepth = "brt_interaction_depth",
+  brtShrinkage = "brt_shrinkage", brtBagFraction = "brt_bag_fraction",
+  ctaCp = "cta_cp", ctaMaxdepth = "cta_maxdepth",
+  ctaMinsplit = "cta_minsplit", marsDegree = "mars_degree",
+  marsPenalty = "mars_penalty", marsNk = "mars_nk",
+  fdaDegree = "fda_degree", fdaNprune = "fda_nprune",
+  annSize = "ann_size", annDecay = "ann_decay", annMaxit = "ann_maxit",
+  annRang = "ann_rang", rfNumTrees = "rf_num_trees", rfMtry = "rf_mtry",
+  rfMinNodeSize = "rf_min_node_size", xgbMaxDepth = "xgb_max_depth",
+  xgbEta = "xgb_eta", xgbNrounds = "xgb_nrounds",
+  xgbNRounds = "xgb_nrounds", bartNtree = "bart_ntree",
+  bartNdpost = "bart_ndpost", bartNskip = "bart_nskip",
+  brmsChains = "brms_chains", brmsIter = "brms_iter",
+  brmsWarmup = "brms_warmup", inlaMeshMaxEdge = "inla_mesh_max_edge",
+  inlaMeshCutoff = "inla_mesh_cutoff", inlaPriorRange = "inla_prior_range",
+  inlaPriorSigma = "inla_prior_sigma", rangebagNBags = "rangebag_n_bags",
+  rangebagBagFraction = "rangebag_bag_fraction",
+  rangebagVarsPerBag = "rangebag_vars_per_bag",
+  detectionFormula = "detection_formula",
+  detectionModelType = "detection_model_type",
+  dnnMultispeciesArchitecture = "dnn_multispecies_architecture",
+  dnnMultispeciesNSeeds = "dnn_multispecies_n_seeds",
+  gllvmFamily = "gllvm_family",
+  gllvmNumLv = "gllvm_num_lv",
+  gllvmNumRows = "gllvm_num_rows",
+  gllvmLvCorr = "gllvm_lv_corr",
+  multiEnsembleModels = "multi_ensemble_models",
+  multiEnsembleBiomod2 = "biomod2_models",
+  multiEnsembleWeighting = "multi_ensemble_weighting",
+  multiEnsemblePower = "multi_ensemble_power",
+  multiEnsembleMinAuc = "multi_ensemble_min_auc",
+  multiEnsembleMinTss = "multi_ensemble_min_tss",
+  biomod2Models = "biomod2_models", esmNRuns = "esm_n_runs",
+  esmSplit = "esm_split", esmMinAuc = "esm_min_auc",
+  esmWeightingMetric = "esm_weighting_metric", esmPower = "esm_power",
+  esmBiovars = "esm_biovars", maxnetAutoTune = "maxnet_auto_tune",
+  gamK = "gam_k", dnnDropout = "dnn_dropout", dnnL2Lambda = "dnn_lambda",
+  multiEnsembleExport = "multi_ensemble_export",
+  multiEnsembleUncertainty = "multi_ensemble_uncertainty",
+  chelsaExtras = "chelsa_extras", analysisCrs = "analysis_crs",
+  generateTiles = "generate_tiles", generateCog = "generate_cog",
+  speciesFilter = "species_filter", trainingExtent = "training_extent",
+  dnnModelType = "dnn_model_type", dnnMultispeciesNSeeds = "dnn_multispecies_n_seeds",
+  dnnMultispeciesArchitecture = "dnn_multispecies_architecture",
+  cleanedFileId = "cleaned_file_id"
+)
+
+sdm_targets_config_field_types <- list(
+  logical = c("include_quadratic", "use_elevation", "use_soil", "use_uv",
+    "use_vegetation", "use_lulc", "use_hfp", "use_bioclim_season",
+    "use_drought", "vif_reduction", "thin_by_cell", "merge_small_sources",
+    "extrapolation_mask", "future_projection", "climate_matching",
+    "restrict_background", "multi_ensemble_export", "multi_ensemble_uncertainty",
+    "maxnet_auto_tune", "generate_tiles", "generate_cog"),
+  integer = c("background_n", "cv_folds", "aggregation_factor", "seed",
+    "n_cores", "pa_replicates", "min_source_records", "thickening_distance_km",
+    "worldclim_res", "dnn_n_seeds", "dnn_multispecies_n_seeds",
+    "brt_n_trees", "brt_interaction_depth", "cta_maxdepth", "cta_minsplit",
+    "mars_degree", "mars_nk", "fda_degree", "fda_nprune", "ann_size",
+    "ann_maxit", "ann_rang", "rf_num_trees", "rf_mtry", "rf_min_node_size",
+    "xgb_max_depth", "bart_ntree", "bart_ndpost", "bart_nskip",
+    "brms_chains", "brms_iter", "brms_warmup", "gam_k",
+    "multi_ensemble_power", "rangebag_n_bags", "rangebag_vars_per_bag",
+    "esm_n_runs", "esm_split", "esm_power", "vif_threshold"),
+  numeric = c("threshold", "cv_block_size_km", "brt_shrinkage",
+    "brt_bag_fraction", "mars_penalty", "ann_decay", "xgb_eta",
+    "maxnet_regmult", "rangebag_bag_fraction", "dnn_dropout",
+    "dnn_lambda", "mess_threshold", "multi_ensemble_min_auc",
+    "multi_ensemble_min_tss", "esm_min_auc", "inla_mesh_max_edge",
+    "inla_mesh_cutoff", "inla_prior_range", "inla_prior_sigma",
+    "opentopo_api_key"),
+  comma_doubles = c("projection_extent", "training_extent",
+    "future_projection_extent"),
+  comma_ints = c("biovars", "esm_biovars"),
+  comma_strings = c("soil_vars", "soil_depths", "uv_vars", "uv_months",
+    "veg_products", "drought_periods", "chelsa_extras",
+    "multi_ensemble_models", "biomod2_models"),
+  target_group_files = c("target_group_file")
+)
+
+normalize_targets_config <- function(cfg) {
+  cfg <- as.list(cfg)
+  result <- list()
+
+  # 1. Normalize camelCase keys to snake_case
+  for (name in names(cfg)) {
+    snake <- sdm_camel_to_snake[[name]]
+    if (!is.null(snake)) {
+      names(cfg)[names(cfg) == name] <- snake
+    }
+  }
+
+  # 2. Handle occurrence file coalescing
+  occ_file <- sdm_payload_coalesce(
+    cfg[["cleaned_file_id"]],
+    cfg[["cleaned_file_path"]],
+    cfg[["cleanedFilePath"]],
+    cfg[["occurrence_file"]],
+    cfg[["occurrenceFile"]]
+  )
+  if (is.null(occ_file) || !nzchar(occ_file %||% "")) {
+    stop("No occurrence file found in config. Provide occurrenceFile or cleanedFilePath.", call. = FALSE)
+  }
+  result$occurrences_csv <- occ_file
+
+  # 3. Handle species_filter — only set if explicitly provided
+  result$species <- as.character(cfg[["species"]] %||% "")
+  sp_filter <- sdm_payload_coalesce(cfg[["species_filter"]], cfg[["speciesFilter"]])
+  if (!is.null(sp_filter) && nzchar(sp_filter %||% "")) {
+    result$species_filter <- as.character(sp_filter)
+  }
+
+  # 4. Handle model_id
+  result$model_id <- as.character(cfg[["model_id"]] %||% cfg[["modelId"]] %||% "glm")
+
+  # 5. Format fields by type
+  for (field in names(cfg)) {
+    val <- cfg[[field]]
+    if (is.null(val)) next
+    # Skip already-handled fields and reserved names
+    if (field %in% names(result)) next
+    if (field %in% c("species", "species_filter", "model_id", "cleaned_file_id",
+                     "cleaned_file_path", "occurrence_file", "runId", "pipeline_run_id",
+                     "id", "projectId", "userId", "createdAt", "updatedAt")) next
+
+    snake <- sdm_camel_to_snake[[field]]
+    field_name <- snake %||% field
+
+    if (field_name %in% sdm_targets_config_field_types$comma_doubles) {
+      result[[field_name]] <- paste(as.numeric(val), collapse = ",")
+    } else if (field_name %in% sdm_targets_config_field_types$comma_ints) {
+      result[[field_name]] <- paste(as.integer(val), collapse = ",")
+    } else if (field_name %in% sdm_targets_config_field_types$comma_strings) {
+      result[[field_name]] <- paste(as.character(val), collapse = ",")
+    } else if (field_name %in% sdm_targets_config_field_types$logical) {
+      result[[field_name]] <- if (isTRUE(as.logical(val[1]))) "TRUE" else "FALSE"
+    } else if (field_name %in% sdm_targets_config_field_types$integer) {
+      result[[field_name]] <- as.character(as.integer(val[1]))
+    } else if (field_name %in% sdm_targets_config_field_types$numeric) {
+      result[[field_name]] <- as.character(as.numeric(val[1]))
+    } else {
+      result[[field_name]] <- as.character(val)
+    }
+  }
+
+  result
+}
+
 handle_targets_run <- function(req, app_dir) {
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody),
@@ -110,21 +290,17 @@ handle_targets_run <- function(req, app_dir) {
 
   configs <- body$configs
   csv_rows <- lapply(seq_along(configs), function(i) {
-    c <- configs[[i]]
-    data.frame(
-      species = c$species %||% "",
-      species_filter = c$species_filter %||% c$species %||% "",
-      occurrences_csv = c$cleaned_file_id %||% c$occurrence_file %||% "",
-      model_id = c$model_id %||% "glm",
-      biovars = paste(c$biovars %||% "1,4,6,12,15,18", collapse = ","),
-      projection_extent = paste(c$projection_extent %||% "112,154,-44,-10", collapse = ","),
-      background_n = as.character(c$background_n %||% 10000),
-      cv_folds = as.character(c$cv_folds %||% 5),
-      threshold = as.character(c$threshold %||% 0.5),
-      stringsAsFactors = FALSE
-    )
+    as.data.frame(normalize_targets_config(configs[[i]]), stringsAsFactors = FALSE)
   })
-  config_df <- do.call(rbind, csv_rows)
+  all_cols <- unique(unlist(lapply(csv_rows, names)))
+  config_df <- do.call(rbind, lapply(csv_rows, function(r) {
+    missing <- setdiff(all_cols, names(r))
+    r[missing] <- NA_character_
+    r[all_cols]
+  }))
+  # Ensure essential columns exist
+  if (!"species" %in% names(config_df)) config_df$species <- ""
+  if (!"occurrences_csv" %in% names(config_df)) config_df$occurrences_csv <- ""
   config_csv <- file.path(job_dir, "config.csv")
   write.csv(config_df, config_csv, row.names = FALSE)
 
@@ -144,13 +320,27 @@ handle_targets_run <- function(req, app_dir) {
     return(sdm_error_code(req, "INTERNAL_ERROR", paste("Targets dispatcher not found at:", script_path)))
   }
 
+  # Detect multi-species mode (any model flagged as multispecies, e.g. dnn_multispecies, gllvm)
+  model_ids <- unique(vapply(configs, function(c) {
+    sdm_payload_coalesce(c[["model_id"]], c[["modelId"]], "glm") %||% "glm"
+  }, character(1)))
+  is_multispecies <- sdm_any_multispecies_model(model_ids)
+
+  env_vars <- c(
+    HOME = "/app",
+    OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
+    R_MAX_VSIZE = sdm_detect_vsize())
+  if (is_multispecies) {
+    env_vars["SDM_MULTISPECIES"] <- "true"
+  }
+
   proc <- callr::r_bg(function(script, job_dir, app_dir) {
     source(script, local = TRUE)
   }, args = list(script_path, job_dir, app_dir),
   stdout = file.path(job_dir, "stdout.log"),
   stderr = file.path(job_dir, "stderr.log"),
   cmdargs = c("--no-save", "--no-restore", "--no-init-file"),
-  env = c(HOME = "/app"))
+  env = env_vars)
   sdm_process_registry[[job_id]] <- proc
 
   job_meta$process_pid <- proc$get_pid()
@@ -265,24 +455,38 @@ handle_targets_results <- function(res, job_id) {
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
   store_path <- file.path(job_dir, "_targets")
 
+  config_csv <- file.path(job_dir, "config.csv")
+  species_list <- character(0)
+  if (file.exists(config_csv)) {
+    tryCatch({
+      df <- read.csv(config_csv, stringsAsFactors = FALSE)
+      species_list <- df$species
+    }, error = function(e) NULL)
+  }
+
   results <- list()
   if (dir.exists(store_path)) {
     tryCatch({
       tm <- targets::tar_meta(store = store_path)
       if (is.data.frame(tm) && nrow(tm) > 0) {
-        post_rows <- tm[tm$name %in% grep("^post_", tm$name, value = TRUE), , drop = FALSE]
-        for (i in seq_len(nrow(post_rows))) {
-          pr <- post_rows[i, , drop = FALSE]
-          species_name <- gsub("^post_", "", pr$name)
-          result_path <- file.path(job_dir, pr$data[[1]]$path %||% "")
+        # Match post-process branch targets to species list by index
+        post_names <- grep("^post_", tm$name, value = TRUE)
+        post_names <- post_names[order(as.integer(gsub("^post_", "", post_names)))]
+        for (i in seq_along(post_names)) {
+          pr <- tm[tm$name == post_names[i], , drop = FALSE]
+          species_name <- if (i <= length(species_list)) species_list[i] else paste0("species_", i)
           species_result <- NULL
-          if (file.exists(result_path) && grepl("\\.rds$", result_path)) {
-            safe_rds <- sdm_safe_path(result_path, job_dir)
-            if (!is.null(safe_rds)) {
-              species_result <- tryCatch(readRDS(safe_rds), error = function(e) NULL)
+          if (!is.null(pr$format) && identical(pr$format, "rds") &&
+              !is.null(pr$data[[1]]$path) && nzchar(pr$data[[1]]$path %||% "")) {
+            result_path <- file.path(job_dir, pr$data[[1]]$path)
+            if (file.exists(result_path)) {
+              safe_rds <- sdm_safe_path(result_path, job_dir)
+              if (!is.null(safe_rds)) {
+                species_result <- tryCatch(readRDS(safe_rds), error = function(e) NULL)
+              }
             }
           }
-          row <- list(
+          results[[species_name]] <- list(
             name = species_name,
             status = pr$status %||% "unknown",
             error = if (!is.null(pr$error) && nzchar(pr$error[1] %||% "")) pr$error[1] else NULL,
@@ -300,18 +504,43 @@ handle_targets_results <- function(res, job_id) {
               } else NULL
             }, error = function(e) NULL)
           )
-          results[[species_name]] <- row
+        }
+
+        # Also handle bare `post` target (multi-species joint pipeline mode)
+        if ("post" %in% tm$name) {
+          pr <- tm[tm$name == "post", , drop = FALSE]
+          species_result <- NULL
+          if (!is.null(pr$format) && identical(pr$format, "rds") &&
+              !is.null(pr$data[[1]]$path) && nzchar(pr$data[[1]]$path %||% "")) {
+            result_path <- file.path(job_dir, pr$data[[1]]$path)
+            if (file.exists(result_path)) {
+              safe_rds <- sdm_safe_path(result_path, job_dir)
+              if (!is.null(safe_rds)) {
+                species_result <- tryCatch(readRDS(safe_rds), error = function(e) NULL)
+              }
+            }
+          }
+          composite_name <- paste(species_list, collapse = " + ")
+          results[["multi_species"]] <- list(
+            name = composite_name,
+            status = pr$status %||% "unknown",
+            error = if (!is.null(pr$error) && nzchar(pr$error[1] %||% "")) pr$error[1] else NULL,
+            metrics = tryCatch({
+              if (!is.null(species_result)) {
+                list(
+                  auc_mean = species_result$cv$auc_mean %||% NA_real_,
+                  auc_sd = species_result$cv$auc_sd %||% NA_real_,
+                  tss_mean = species_result$cv$tss_mean %||% NA_real_,
+                  tss_sd = species_result$cv$tss_sd %||% NA_real_,
+                  cbi = species_result$metrics$cbi %||% NA_real_,
+                  presence_records = species_result$metrics$presence_records %||% NA_integer_,
+                  elapsed_seconds = species_result$metrics$elapsed_seconds %||% NA_real_
+                )
+              } else NULL
+            }, error = function(e) NULL)
+          )
         }
       }
-    }, error = function(e) NULL)
-  }
-
-  config_csv <- file.path(job_dir, "config.csv")
-  species_list <- character(0)
-  if (file.exists(config_csv)) {
-    tryCatch({
-      df <- read.csv(config_csv, stringsAsFactors = FALSE)
-      species_list <- df$species
     }, error = function(e) NULL)
   }
 

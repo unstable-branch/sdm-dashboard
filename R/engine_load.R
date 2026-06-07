@@ -92,6 +92,7 @@ modules <- c(
   "model_esm.R",
   "model_dnn.R",
   "model_dnn_multispecies.R",
+  "model_gllvm.R",
   "model_python.R",
   "model_registry.R",
   "model_biomod2.R",
