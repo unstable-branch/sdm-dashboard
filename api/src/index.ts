@@ -19,6 +19,7 @@ import { sdmRunRoutes } from "./routes/sdm-runs.js";
 import { sdmBatchRoutes } from "./routes/sdm-batch.js";
 import { sdmTargetsRoutes } from "./routes/sdm-targets.js";
 import { dataRoutes } from "./routes/occurrences.js";
+import { examplesRoutes } from "./routes/examples.js";
 import { gbifAlaRoutes } from "./routes/gbif-ala.js";
 import { boundaryRoutes } from "./routes/boundary.js";
 import { resultsRoutes } from "./routes/results.js";
@@ -34,17 +35,17 @@ import { diagnosticsRoutes } from "./routes/diagnostics.js";
 import jobsRoutes from "./routes/jobs.js";
 
 process.on("uncaughtException", (err) => {
+  console.error("[FATAL] Uncaught exception:", err?.stack ?? err?.message ?? err);
   const msg = err?.message ?? "";
   if (
-    msg.includes("ioredis") ||
-    msg.includes("ECONNREFUSED") ||
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("ECONNRESET") ||
-    msg.includes("ENOTFOUND")
+    !msg.includes("ioredis") &&
+    !msg.includes("ECONNREFUSED") &&
+    !msg.includes("ETIMEDOUT") &&
+    !msg.includes("ECONNRESET") &&
+    !msg.includes("ENOTFOUND")
   ) {
-    return;
+    process.exit(1);
   }
-  console.error("[FATAL] Uncaught exception (keeping process alive):", err);
 });
 
 const app = new Hono();
@@ -157,6 +158,7 @@ app.route("/api/v1/sdm", sdmRunRoutes);
 app.route("/api/v1/sdm", sdmBatchRoutes);
 app.route("/api/v1/sdm", sdmTargetsRoutes);
 app.route("/api/v1/data", dataRoutes);
+app.route("/api/v1/data/examples", examplesRoutes);
 app.route("/api/v1/data", gbifAlaRoutes);
 app.route("/api/v1/data", boundaryRoutes);
 app.route("/api/v1/results", resultsRoutes);
@@ -274,9 +276,6 @@ const server = serve(
 setupWebSocket(server);
 
 process.on("unhandledRejection", (reason) => {
-  const msg = reason instanceof Error ? reason.message : String(reason);
-  if (msg.includes("ioredis") || msg.includes("ECONNREFUSED") || msg.includes("ETIMEDOUT") || msg.includes("ECONNRESET") || msg.includes("ENOTFOUND")) {
-    return;
-  }
-  console.error("[API] Unhandled rejection:", reason);
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  console.error("[API] Unhandled rejection:", err.stack ?? err.message);
 });
