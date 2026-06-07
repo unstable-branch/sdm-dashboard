@@ -333,7 +333,7 @@ jobs:
         run: |
           cd frontend
           pnpm install --frozen-lockfile
-          npx playwright install --with-deps
+          pnpm exec playwright install --with-deps
           pnpm run test:e2e
 
       - name: Type contract check (Plumber OpenAPI → TS types)
