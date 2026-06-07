@@ -122,7 +122,7 @@ test_that("sdm_submit_gbif_search submits an async GBIF job", {
     taxon = "Acacia mearnsii",
     country = "AU",
     max_records = 7L,
-    app_dir_override = "test-app",
+    app_dir = "test-app",
     submit_fun = fake_submit
   )
 
@@ -140,7 +140,7 @@ test_that("sdm_submit_gbif_search submits an async GBIF job", {
 test_that("sdm_submit_gbif_search returns validation error for missing taxon", {
   source(file.path(project_root, "plumber", "R", "plumber.R"))
 
-  result <- sdm_submit_gbif_search(req = list(), taxon = NULL, app_dir_override = tempfile("sdm-gbif-search-empty-"))
+  result <- sdm_submit_gbif_search(req = list(), taxon = NULL, app_dir = tempfile("sdm-gbif-search-empty-"))
   expect_true(!is.null(result$error))
   expect_equal(result$error, "taxon is required")
 })

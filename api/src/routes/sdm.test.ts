@@ -127,6 +127,7 @@ vi.mock("../services/plumber", () => ({
   plumberClient: {
     getModelStatus: vi.fn(),
     runModel: vi.fn(async () => ({ job_id: "plumber-job-1" })),
+    targetsRun: vi.fn(async () => ({ job_id: "targets-job-1" })),
   },
 }));
 
@@ -391,19 +392,18 @@ describe("SDM routes", () => {
   });
 
   describe("POST /batch run queue", () => {
-    it("uses buildModelPayload for batch queue payloads", async () => {
+    it("routes batch through targets pipeline", async () => {
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.targetsRun as any).mockResolvedValueOnce({ job_id: "targets-job-1" });
+
       const { db } = await import("../db");
-      let insertCalls = 0;
       (db.insert as any).mockImplementation(() => ({
         values: vi.fn(() => ({
-          returning: vi.fn(async () => {
-            insertCalls += 1;
-            return [{ id: insertCalls === 1 ? "batch-1" : "run-1" }];
-          }),
+          returning: vi.fn(async () => [{ id: "batch-1" }]),
         })),
+        set: vi.fn(() => ({ where: vi.fn() })),
       }));
 
-      const { enqueueSdmJob } = await import("../services/queue");
       const res = await app.request("/api/v1/sdm/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -414,22 +414,9 @@ describe("SDM routes", () => {
       });
 
       expect(res.status).toBe(200);
-      expect((enqueueSdmJob as any).mock.calls).toHaveLength(1);
-
-      const payload = (enqueueSdmJob as any).mock.calls[0][0].payload as Record<string, unknown>;
-      expect(payload).toMatchObject({
-        runId: "run-1",
-        multi_ensemble_models: buildRunPayloadConfig.multiEnsembleModels,
-        biomod2_models: buildRunPayloadConfig.biomod2Models,
-        dnn_model_type: buildRunPayloadConfig.dnnArchitecture,
-        dnn_lambda: buildRunPayloadConfig.dnnL2Lambda,
-        dnn_multispecies_architecture: buildRunPayloadConfig.dnnMultispeciesArchitecture,
-        dnn_multispecies_n_seeds: buildRunPayloadConfig.dnnMultispeciesNSeeds,
-        xgb_nrounds: buildRunPayloadConfig.xgbNRounds,
-      });
-      expect(payload.biovars).toBe("1,4,6,12");
-      expect(payload.projection_extent).toBe("-180,180,-90,90");
-      expect(payload.dnn_l2_lambda).toBeUndefined();
+      const data = await res.json();
+      expect(data.job_id).toBe("targets-job-1");
+      expect(data.batch_id).toBe("batch-1");
     });
   });
 

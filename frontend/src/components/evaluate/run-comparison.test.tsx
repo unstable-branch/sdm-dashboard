@@ -13,6 +13,7 @@ const mockRuns = [
     started_at: "2024-01-01T00:00:00Z",
     completed_at: "2024-01-01T01:00:00Z",
     metrics: { auc_mean: 0.85, tss_mean: 0.7 },
+    output_files: {},
   },
   {
     id: "run-2",
@@ -22,6 +23,7 @@ const mockRuns = [
     started_at: "2024-01-02T00:00:00Z",
     completed_at: "2024-01-02T01:00:00Z",
     metrics: { auc_mean: 0.92, tss_mean: 0.81 },
+    output_files: {},
   },
   {
     id: "run-3",
@@ -31,6 +33,7 @@ const mockRuns = [
     started_at: "2024-01-03T00:00:00Z",
     completed_at: null,
     metrics: null,
+    output_files: {},
   },
 ];
 

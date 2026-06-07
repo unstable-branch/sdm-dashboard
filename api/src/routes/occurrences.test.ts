@@ -30,6 +30,7 @@ vi.mock("../db", () => ({
     insert: vi.fn(() => ({
       values: vi.fn(() => ({
         returning: vi.fn(() => Promise.resolve([{ id: "sp-1", name: "Test species", occurrenceCount: 0 }])),
+        onConflictDoNothing: vi.fn(),
       })),
     })),
     update: vi.fn(() => ({
@@ -38,6 +39,17 @@ vi.mock("../db", () => ({
       })),
     })),
   },
+}));
+
+vi.mock("../db/schema.js", () => ({
+  uploads: {},
+  userSettings: {},
+  users: {},
+  runs: {},
+  species: {},
+  projects: {},
+  occurrences: {},
+  apiKeys: {},
 }));
 
 vi.mock("../services/plumber", () => ({
@@ -62,11 +74,17 @@ vi.mock("fs", () => ({
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
   existsSync: vi.fn(() => true),
+  statSync: vi.fn(() => ({ size: 100 })),
   accessSync: vi.fn(),
   promises: {
     writeFile: vi.fn(() => Promise.resolve()),
   },
   constants: { W_OK: 2 },
+}));
+
+vi.mock("../middleware/rate-limit", () => ({
+  gbifRateLimit: vi.fn(async (_c: any, next: any) => next()),
+  defaultRateLimit: vi.fn(async (_c: any, next: any) => next()),
 }));
 
 vi.mock("../middleware/auth", () => ({
@@ -76,9 +94,29 @@ vi.mock("../middleware/auth", () => ({
   }),
 }));
 
+vi.mock("crypto", () => ({
+  randomUUID: vi.fn(() => "mocked-uuid"),
+  randomBytes: vi.fn((n: number) => Buffer.alloc(n)),
+  createCipheriv: vi.fn(() => ({
+    update: vi.fn(() => Buffer.from("")),
+    final: vi.fn(() => Buffer.from("")),
+    getAuthTag: vi.fn(() => Buffer.alloc(16)),
+  })),
+  createDecipheriv: vi.fn(() => ({
+    setAuthTag: vi.fn(),
+    update: vi.fn(() => Buffer.from("")),
+    final: vi.fn(() => Buffer.from("")),
+  })),
+}));
+
 vi.mock("../services/access", () => ({
   ensureDefaultProject: vi.fn(async () => "proj-1"),
   getUserProjectIds: vi.fn(async () => null),
+}));
+
+vi.mock("../services/audit", () => ({
+  logAction: vi.fn(() => Promise.resolve()),
+  extractClientInfo: vi.fn(() => ({ ipAddress: "127.0.0.1", userAgent: "vitest" })),
 }));
 
 describe("data routes", () => {

@@ -6,9 +6,8 @@ vi.mock("next-themes", () => ({
   useTheme: () => ({ theme: "light" }),
 }));
 
-const mockMapComponent = vi.fn(() => <div data-testid="maplibre-map" />);
 vi.mock("./maplibre-map", () => ({
-  default: (props: Record<string, unknown>) => mockMapComponent(props),
+  default: () => <div data-testid="maplibre-map" />,
 }));
 
 const mockCoordinates: [[number, number], [number, number], [number, number], [number, number]] =
@@ -16,7 +15,7 @@ const mockCoordinates: [[number, number], [number, number], [number, number], [n
 
 describe("SuitabilityMap", () => {
   it("shows not available when runId is missing", () => {
-    render(<SuitabilityMap outputFiles={{}} />);
+    render(<SuitabilityMap outputFiles={{}} runId="" />);
     expect(screen.getByText("Suitability map not available.")).toBeInTheDocument();
   });
 
