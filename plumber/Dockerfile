@@ -23,7 +23,7 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get inst
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages(c( \
+RUN R -e "options(timeout = 900, repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages(c( \
     'jsonlite', 'plumber', 'httr', 'callr', \
     'randomForest', 'gbm', 'maxnet', 'nnet', \
     'mgcv', 'earth', 'rpart', 'mda', 'gam', 'xgboost', 'ranger', \
