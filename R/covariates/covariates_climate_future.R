@@ -41,6 +41,10 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
 
   check_internet_connectivity("https://geodata.ucdavis.edu/climate/cmip6/5m/", log_fun = log_fun)
 
+  old_timeout <- getOption("timeout")
+  on.exit(options(timeout = old_timeout), add = TRUE)
+  options(timeout = 600)
+
   tryCatch(
     {
       out <- geodata::cmip6_world(
