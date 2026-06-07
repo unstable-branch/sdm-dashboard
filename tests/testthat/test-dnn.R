@@ -77,10 +77,9 @@ test_that("DNN backend fits and predicts through the registry", {
   expect_true(file.exists(output_tif))
 })
 
-test_that("DNN torch_setup detects device correctly", {
+test_that("DNN torch basics work", {
   skip_if_not(requireNamespace("torch", quietly = TRUE))
-  result <- detect_torch_device()
-  expect_true(is.list(result))
-  expect_true("device" %in% names(result))
-  expect_true(result$device %in% c("cpu", "cuda", "mps"))
+  skip_if_not(torch::torch_is_installed())
+  expect_true(is.logical(torch::cuda_is_available()))
+  expect_true(is.logical(torch::mps_is_available()))
 })

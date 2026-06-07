@@ -686,12 +686,13 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
                         dnn_device = "auto",
                         dropout = NULL,
                         lambda = NULL,
+                        n_seeds = 5L,
                         ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
   }
 
-  # Extract presence values and filter for complete cases (consistent with prepare_dnn_data)
+  # Extract presence values and filter for complete cases
   coords <- occ[, c("longitude", "latitude"), drop = FALSE]
   pres_vals <- tryCatch(terra::extract(env_train_scaled, coords), error = function(e) NULL)
   if (is.null(pres_vals) || nrow(pres_vals) == 0) stop("No valid presence points found after raster extraction.", call. = FALSE)
@@ -699,7 +700,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
   occurrence_used <- occ[complete.cases(pres_vals), , drop = FALSE]
 
-  # Sample background points using shared function (supports bias methods)
+  # Sample background points using shared function
   bg_xy <- sample_background_points(env_train_scaled, background_n,
     seed = seed, bias_method = bias_method,
     target_group_occ = target_group_occ,
@@ -719,27 +720,16 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     data.frame(presence = 1L, pres_vals, check.names = FALSE),
     data.frame(presence = 0L, bg_vals, check.names = FALSE)
   )
-  occ_used <- d$occ_used
-  bg_xy <- d$bg_xy
-  model_data <- d$model_data
-  covariates <- d$covariates
 
-  log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", sum(model_data$presence == 1), " presences")
-
-  # Run DNN
-  dnn_result <- run_dnn(
-    occ_df = occ,
-    pred_stack = env_train_scaled,
-    selected_dnn_models = dnn_model_type,
-    background_n = background_n,
-    device = dnn_device,
-    dropout = dropout,
-    lambda = lambda,
-    log_fun = log_fun
+  # Build scaler from covariate columns
+  x_mat <- as.matrix(model_data[, covariates, drop = FALSE])
+  scaler <- list(
+    mean = colMeans(x_mat, na.rm = TRUE),
+    sd = apply(x_mat, 2, stats::sd, na.rm = TRUE)
   )
   scaler$sd[scaler$sd == 0 | !is.finite(scaler$sd)] <- 1
-  x_train_scaled <- sweep(x_train, 2, scaler$mean, "-")
-  x_train_scaled <- sweep(x_train_scaled, 2, scaler$sd, "/")
+  x_scaled <- sweep(x_mat, 2, scaler$mean, "-")
+  x_scaled <- sweep(x_scaled, 2, scaler$sd, "/")
 
   n_seeds <- as.integer(n_seeds)[1]
   if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
@@ -749,16 +739,12 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
   # Train multiple seeds
   seed_models <- vector("list", n_seeds)
-  seed_metrics <- vector("list", n_seeds)
-  train_df <- as.data.frame(x_train_scaled)
-  names(train_df) <- covariates
-
   for (s in seq_len(n_seeds)) {
     log_message(log_fun, "  Training seed ", s, "/", n_seeds)
     dnn_data <- list(
-      train_x = x_train_scaled,
+      train_x = x_scaled,
       train_y = model_data$presence,
-      test_x = x_train_scaled,
+      test_x = x_scaled,
       test_y = model_data$presence,
       feature_names = covariates
     )
@@ -772,7 +758,6 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       }
     )
     if (is.null(model)) next
-
     seed_models[[s]] <- model
   }
 
@@ -782,16 +767,14 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   n_success <- length(seed_models)
   log_message(log_fun, "  ", n_success, "/", n_seeds, " seeds trained successfully")
 
-  # Ensemble: average predictions across seeds
   best_model <- seed_models[[1]]
-  ensemble_models <- seed_models
 
   # Compute mean AUC across seeds
   auc_vals <- vapply(seed_models, function(m) {
     tryCatch({
-      pred <- predict(m, newdata = as.data.frame(dnn_data$train_x), type = "response")
+      pred <- predict(m, newdata = as.data.frame(x_scaled), type = "response")
       if (is.matrix(pred)) pred <- pred[, 1]
-      auc_rank(dnn_data$train_y, as.numeric(pred))
+      auc_rank(model_data$presence, as.numeric(pred))
     }, error = function(e) NA_real_)
   }, numeric(1))
   auc_mean <- mean(auc_vals, na.rm = TRUE)
@@ -813,7 +796,10 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
   }
 
-  # Compute SHAP and native importance/PDP on the first model
+  # SHAP on the best model
+  train_df <- as.data.frame(x_scaled)
+  names(train_df) <- covariates
+
   shap_values <- tryCatch({
     cito::explain(best_model, data = train_df)
   }, error = function(e) {
@@ -840,7 +826,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
   list(
     model = best_model,
-    ensemble_models = ensemble_models,
+    ensemble_models = seed_models,
     formula = NULL,
     coefficients = NULL,
     model_data = model_data,
