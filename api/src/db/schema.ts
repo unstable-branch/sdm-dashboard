@@ -76,6 +76,7 @@ export const batches = pgTable("batches", {
   completedJobs: integer("completed_jobs").notNull().default(0),
   failedJobs: integer("failed_jobs").notNull().default(0),
   status: varchar("status", { length: 20 }).notNull().default("running"),
+  jobId: varchar("job_id", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
 }, (t) => [
