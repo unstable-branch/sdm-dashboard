@@ -42,8 +42,8 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   log_message(log_fun, "Fitting multi-species DNN (", n_species, " species, ", n_sites, " sites, ",
     dnn_architecture, ")")
 
-  arch <- config$dnn_arch[[dnn_architecture]]
-  if (is.null(arch)) arch <- config$dnn_arch[["DNN_Medium"]]
+  arch <- sdm_dnn_arch(dnn_architecture)
+  if (is.null(arch)) arch <- sdm_dnn_arch("DNN_Medium")
 
   # Build training data for cito multi-output
   colnames(community_mat) <- paste0("sp__", make.names(cm$species_names))
@@ -97,14 +97,42 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   best_model <- seed_models[[1]]
   n_success <- length(seed_models)
 
+  # Compute per-species AUC across seeds
+  if (n_success > 0 && n_species >= 2) {
+    auc_vals <- vapply(seq_len(n_species), function(s) {
+      obs <- community_mat[, s]
+      if (length(unique(obs)) < 2) return(NA_real_)
+      preds <- vapply(seed_models, function(m) {
+        tryCatch({
+          p <- stats::predict(m, newdata = as.data.frame(x_train_scaled), type = "response")
+          as.numeric(p[, s] %||% p[, 1])
+        }, error = function(e) rep(NA_real_, nrow(x_train_scaled)))
+      }, numeric(nrow(x_train_scaled)))
+      mean_pred <- rowMeans(preds, na.rm = TRUE)
+      if (all(is.na(mean_pred))) return(NA_real_)
+      tryCatch(pROC::auc(obs, mean_pred), error = function(e) NA_real_)
+    }, numeric(1))
+  } else {
+    auc_vals <- NA_real_
+  }
+  auc_mean <- mean(auc_vals, na.rm = TRUE)
+  auc_sd <- stats::sd(auc_vals, na.rm = TRUE)
+
   cv <- list(
     k = n_seeds,
     strategy = "dnn_multi_seed",
     n_species = n_species,
-    n_sites = n_sites
+    n_sites = n_sites,
+    auc_mean = if (is.finite(auc_mean)) auc_mean else NA_real_,
+    auc_sd = if (is.finite(auc_sd)) auc_sd else NA_real_,
+    tss_mean = NA_real_,
+    tss_sd = NA_real_
   )
 
   log_message(log_fun, "  ", n_success, "/", n_seeds, " seeds trained successfully")
+  if (is.finite(cv$auc_mean)) {
+    log_message(log_fun, "  Multi-species DNN mean AUC across species: ", sprintf("%.3f", cv$auc_mean))
+  }
 
   # SHAP on the first species only (cito::explain on multi-output is expensive)
   shap_values <- tryCatch({
