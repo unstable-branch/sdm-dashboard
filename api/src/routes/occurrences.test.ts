@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import { dataRoutes } from "./occurrences.js";
+import { gbifAlaRoutes } from "./gbif-ala.js";
+
+const app = new Hono().route("/api/v1/data", dataRoutes).route("/api/v1/data", gbifAlaRoutes);
 
 vi.mock("ioredis", () => ({
   default: class MockRedis {
@@ -81,6 +84,7 @@ vi.mock("../services/access", () => ({
 describe("data routes", () => {
   const app = new Hono();
   app.route("/api/v1/data", dataRoutes);
+  app.route("/api/v1/data", gbifAlaRoutes);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -314,11 +318,11 @@ describe("data routes", () => {
   describe("POST /occurrences/ala/save", () => {
     it("saves ALA search results to workspace", async () => {
       const { plumberClient } = await import("../services/plumber");
-      (plumberClient.searchAla as any).mockResolvedValueOnce({
+      (plumberClient.searchAla as any).mockImplementation(() => Promise.resolve({
         n_records: 30,
         file_path: "/app/data/uploads/ala_test.csv",
         taxon: "Acacia mearnsii",
-      });
+      }));
 
       const res = await app.request("/api/v1/data/occurrences/ala/save", {
         method: "POST",

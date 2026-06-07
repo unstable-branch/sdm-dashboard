@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { sdmRoutes } from "./sdm.js";
+import { sdmRunRoutes } from "./sdm-runs.js";
+import { sdmBatchRoutes } from "./sdm-batch.js";
+import { sdmTargetsRoutes } from "./sdm-targets.js";
+
+const sdmRoutes = new Hono().route("/", sdmRunRoutes).route("/", sdmBatchRoutes).route("/", sdmTargetsRoutes);
 
 const mockChain = (result: unknown) => ({
   from: vi.fn(() => ({
