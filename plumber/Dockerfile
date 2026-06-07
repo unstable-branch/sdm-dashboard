@@ -33,7 +33,8 @@ RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages
     'CoordinateCleaner', 'rgbif', 'finch', \
     'future', 'future.apply', \
     'DBI', 'RPostgres', 'digest', \
-    'Rook', 'openssl', 'pool', 'uuid' \
+    'Rook', 'openssl', 'pool', 'uuid', \
+    'targets', 'tarchetypes', 'geotargets' \
   ), Ncpus=4)" \
   && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
 
