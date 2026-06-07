@@ -9,6 +9,9 @@ import { getUserProjectIds } from "../services/access.js";
 
 export const sdmTargetsRoutes = new Hono<AppEnv>();
 
+sdmTargetsRoutes.use("/targets/run", authMiddleware);
+sdmTargetsRoutes.use("/targets/status/*", authMiddleware);
+sdmTargetsRoutes.use("/targets/results/*", authMiddleware);
 sdmTargetsRoutes.use("/runs", authMiddleware);
 sdmTargetsRoutes.use("*", optionalAuth);
 

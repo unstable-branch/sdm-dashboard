@@ -25,7 +25,11 @@ function getTransporter(): nodemailer.Transporter | null {
 }
 
 export function hashToken(token: string): string {
-  return createHmac("sha256", process.env.JWT_SECRET || "sdm-dev-secret").update(token).digest("hex");
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("JWT_SECRET is required for email token generation");
+  }
+  return createHmac("sha256", secret).update(token).digest("hex");
 }
 
 export function generateToken(): string {

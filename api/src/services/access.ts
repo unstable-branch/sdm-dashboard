@@ -52,6 +52,7 @@ export async function getUserProjectIds(user: AuthUser): Promise<string[] | null
 }
 
 export async function ensureDefaultProject(user: AuthUser): Promise<string> {
+  // Check existing membership first
   const [membership] = await db
     .select({ projectId: projectMembers.projectId })
     .from(projectMembers)
@@ -62,6 +63,23 @@ export async function ensureDefaultProject(user: AuthUser): Promise<string> {
     return membership.projectId;
   }
 
+  // Check if a "Default Project" already exists for this user (prevents duplicates
+  // on concurrent calls where the race-condition check below might otherwise fire)
+  const [existing] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.name, "Default Project"), eq(projects.ownerId, user.id)))
+    .limit(1);
+
+  if (existing) {
+    // Project exists but user is not a member (edge case) — add membership
+    await db
+      .insert(projectMembers)
+      .values({ projectId: existing.id, userId: user.id, role: "admin" });
+    return existing.id;
+  }
+
+  // Create new project and membership
   const [project] = await db
     .insert(projects)
     .values({
