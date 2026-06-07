@@ -120,7 +120,7 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     community_matrix = community_mat,
     species_names = cm$species_names,
     n_species = n_species,
-    occurrence_used = data.frame(),
+    occurrence_used = NULL,
     background_xy = site_xy[!duplicated(site_xy), , drop = FALSE],
     cv = cv,
     covariates = covariates,
