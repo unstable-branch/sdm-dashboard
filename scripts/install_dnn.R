@@ -61,12 +61,12 @@ if (force_gpu) {
 }
 cat(sprintf("  Started at: %s\n\n", format(start_time, "%Y-%m-%d %H:%M:%S")))
 
-# Multiple repos to try: torch CDN first (faster), then CRAN, then Posit binary
-torch_repos <- c(
-  "https://torch-cdn.mlverse.org",
-  "https://cloud.r-project.org"
-)
+# Repos for cito (standard CRAN only)
+cran_repos <- "https://cloud.r-project.org"
+
+# Repos for torch: try Posit binary on Linux (faster), fall back to CRAN
 os <- tolower(Sys.info()["sysname"])
+torch_repos <- cran_repos
 if (os == "linux") {
   os_release <- tryCatch(readLines("/etc/os-release", warn = FALSE), error = function(e) "")
   version_codename <- ""
@@ -79,7 +79,6 @@ if (os == "linux") {
   }
   if (nzchar(version_codename)) {
     torch_repos <- c(
-      "https://torch-cdn.mlverse.org",
       sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", version_codename),
       "https://cloud.r-project.org"
     )
@@ -92,7 +91,7 @@ if (os == "linux") {
 # ── Step 1: cito ──────────────────────────────────────────────────────────
 log_step("Installing cito...")
 t1 <- Sys.time()
-install.packages("cito", repos = torch_repos, Ncpus = n_cores, quiet = TRUE)
+install.packages("cito", repos = cran_repos, Ncpus = n_cores, quiet = TRUE)
 elapsed <- difftime(Sys.time(), t1, units = "mins")
 cat(sprintf("  ✓ cito installed (%.1f min)\n", elapsed))
 
