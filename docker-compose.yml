@@ -17,8 +17,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U sdm -d sdm_platform"]
       interval: 5s
       timeout: 5s
-      retries: 10
-      start_period: 30s
+      retries: 20
+      start_period: 60s
     deploy:
       resources:
         limits:
