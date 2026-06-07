@@ -14,10 +14,10 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sdm -d sdm_platform"]
+      test: ["CMD-SHELL", "pg_isready -U sdm"]
       interval: 5s
       timeout: 5s
-      retries: 20
+      retries: 30
       start_period: 60s
     deploy:
       resources:
