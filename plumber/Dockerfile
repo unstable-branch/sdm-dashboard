@@ -55,7 +55,4 @@ USER sdm
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
-  CMD curl -f http://localhost:8000/health || exit 1
-
 CMD ["Rscript", "/app/plumber/R/run_server.R"]
