@@ -64,7 +64,7 @@ log_step("Installing cito...")
 cat("  torch was already installed in step 1.\n")
 cat("  Installing cito without re-resolving dependencies.\n\n")
 t2 <- Sys.time()
-install.packages("cito", repos = repos, Ncpus = n_cores, quiet = TRUE, dependencies = FALSE)
+install.packages("cito", repos = repos, Ncpus = n_cores, quiet = TRUE, dependencies = NA)
 elapsed <- difftime(Sys.time(), t2, units = "mins")
 cat(sprintf("  ✓ cito installed (%.1f min)\n\n", elapsed))
 

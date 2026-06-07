@@ -328,8 +328,15 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   formula_str <- paste("y ~", paste(train_data$feature_names, collapse = " + "))
   df <- as.data.frame(cbind(y = train_data$train_y, train_data$train_x))
 
-  # Check device availability if GPU requested
-  if (device == "cuda") {
+  # Resolve device: "auto" → detect, fall back to CPU
+  if (device == "auto" || device == "gpu") {
+    if (torch::cuda_is_available()) {
+      device <- "cuda"
+    } else {
+      has_mps <- tryCatch(torch::mps_is_available(), error = function(e) FALSE)
+      if (has_mps) device <- "mps" else device <- "cpu"
+    }
+  } else if (device == "cuda") {
     if (!torch::cuda_is_available()) {
       warning("DNN: CUDA requested but not available. Falling back to CPU.")
       device <- "cpu"
@@ -339,6 +346,8 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
       warning("DNN: MPS requested but not available. Falling back to CPU.")
       device <- "cpu"
     }
+  } else {
+    device <- "cpu"
   }
 
   # DNN-204: Train model with error handling
@@ -706,6 +715,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   pres_vals <- tryCatch(terra::extract(env_train_scaled, coords), error = function(e) NULL)
   if (is.null(pres_vals) || nrow(pres_vals) == 0) stop("No valid presence points found after raster extraction.", call. = FALSE)
   pres_vals <- pres_vals[complete.cases(pres_vals), , drop = FALSE]
+  if ("ID" %in% names(pres_vals)) pres_vals <- pres_vals[, setdiff(names(pres_vals), "ID"), drop = FALSE]
   if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
   occurrence_used <- occ[complete.cases(pres_vals), , drop = FALSE]
 
@@ -714,7 +724,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     seed = seed, bias_method = bias_method,
     target_group_occ = target_group_occ,
     thickening_distance_km = thickening_distance_km,
-    pres_xy = occurrence_used[, c("longitude", "latitude"), drop = FALSE])
+    presence_xy = occurrence_used[, c("longitude", "latitude"), drop = FALSE])
   bg_vals <- extract_covariates(env_train_scaled, bg_xy)
   bg_keep <- stats::complete.cases(bg_vals)
   bg_vals <- bg_vals[bg_keep, , drop = FALSE]
