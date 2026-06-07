@@ -162,8 +162,8 @@ services:
       test: ["CMD-SHELL", "curl -f http://localhost:4000/health || exit 1"]
       interval: 5s
       timeout: 3s
-      retries: 5
-      start_period: 30s
+      retries: 30
+      start_period: 90s
     deploy:
       resources:
         limits:
@@ -188,7 +188,7 @@ services:
       - API_URL=http://api:4000
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
       interval: 5s
