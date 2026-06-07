@@ -161,7 +161,6 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:4000/health || exit 1"]
       interval: 5s
-      start_period: 30s
       timeout: 3s
       retries: 5
       start_period: 30s
