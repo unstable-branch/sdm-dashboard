@@ -49,8 +49,17 @@ tar_option_set(
 
 # ── Load SDM engine ─────────────────────────────────────────────────────────
 source(file.path("R", "core", "bootstrap.R"))
-sdm_set_project_root(getwd())
+# Only set project root if not already set (e.g., by targets_dispatcher.R)
+if (is.null(sdm_project_root())) sdm_set_project_root(getwd())
 source(file.path("R", "engine_load.R"))
+
+# ── Multi-species mode switch ───────────────────────────────────────────────
+# When SDM_MULTISPECIES=true and model_id = "dnn_multispecies",
+# delegate to a joint pipeline that fits all species in a single model.
+multispecies_mode <- identical(Sys.getenv("SDM_MULTISPECIES"), "true")
+if (multispecies_mode) {
+  source("_targets_multispecies.R", local = TRUE)
+} else {
 
 # ── Batch configuration ─────────────────────────────────────────────────────
 # When SDM_BATCH_CONFIG is set, the pipeline branches over all rows in the CSV.
@@ -114,13 +123,71 @@ list(
 
   tar_target(future_result, {
     safe_name <- gsub("[^a-zA-Z0-9._-]", "_", cfg$species)
-    sdm_stage_future(cfg, fit$fit, suit, env, batch_output_dir, safe_name)
+    sp_output_dir <- file.path(batch_output_dir, safe_name)
+    dir.create(sp_output_dir, recursive = TRUE, showWarnings = FALSE)
+    sdm_stage_future(cfg, fit$fit, suit, env, sp_output_dir, safe_name)
   }, pattern = map(suit)),
 
   tar_target(post, sdm_stage_postprocess(
     cfg, fit$fit, suit, env),
-    pattern = map(suit)),
+    pattern = map(suit),
+    format = "rds"),
+
+  # ── Multi-species aggregation targets (batch mode only) ─────────────────
+
+  # Aggregate per-species suitability rasters into a richness map
+  tar_combine(
+    richness_map,
+    suit,
+    command = {
+      rasts <- list(!!!.x)
+      rasts <- rasts[!sapply(rasts, is.null)]
+      if (length(rasts) == 0) return(NULL)
+      stack <- do.call(c, rasts)
+      threshold <- 0.5
+      richness <- sum(stack > threshold, na.rm = TRUE)
+      names(richness) <- "species_richness"
+      out_tif <- file.path(batch_output_dir, "species_richness.tif")
+      dir.create(dirname(out_tif), recursive = TRUE, showWarnings = FALSE)
+      terra::writeRaster(richness, out_tif, overwrite = TRUE)
+      richness
+    },
+    packages = "terra"
+  ),
+
+  # Aggregate per-species post-process metrics into a batch summary CSV
+  tar_combine(
+    batch_report,
+    post,
+    command = {
+      results <- list(!!!.x)
+      rows <- lapply(seq_along(results), function(i) {
+        r <- results[[i]]
+        if (is.null(r)) {
+          data.frame(species = paste0("species_", i), status = "error",
+            stringsAsFactors = FALSE)
+        } else {
+          data.frame(
+            species = r$species_name %||% paste0("species_", i),
+            status = "success",
+            auc_mean = r$cv$auc_mean %||% NA_real_,
+            tss_mean = r$cv$tss_mean %||% NA_real_,
+            eoo_km2 = r$eoo_aoo$eoo_km2 %||% NA_real_,
+            aoo_km2 = r$eoo_aoo$aoo_km2 %||% NA_real_,
+            stringsAsFactors = FALSE
+          )
+        }
+      })
+      df <- do.call(rbind, rows)
+      out_csv <- file.path(batch_output_dir, "batch_metrics.csv")
+      dir.create(dirname(out_csv), recursive = TRUE, showWarnings = FALSE)
+      write.csv(df, out_csv, row.names = FALSE)
+      df
+    }
+  ),
 )
+
+} # end else (single-species pipeline mode)
 
 # ── Usage ──────────────────────────────────────────────────────────────────
 # tar_visnetwork()                     # view dependency graph
