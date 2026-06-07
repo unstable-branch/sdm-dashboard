@@ -10,6 +10,15 @@ interface ModelConfigAdvancedProps {
   isESM: boolean;
   isRangebag: boolean;
 
+  gllvmFamily: "binomial" | "poisson" | "negative.binomial";
+  onGllvmFamilyChange: (val: "binomial" | "poisson" | "negative.binomial") => void;
+  gllvmNumLv: number;
+  onGllvmNumLvChange: (val: number) => void;
+  gllvmNumRows: number;
+  onGllvmNumRowsChange: (val: number) => void;
+  gllvmLvCorr: boolean;
+  onGllvmLvCorrChange: (val: boolean) => void;
+
   maxnetFeatures: string;
   onMaxnetFeaturesChange: (val: string) => void;
   maxnetRegmult: number;
@@ -159,6 +168,7 @@ export function ModelConfigAdvanced({
   gamK, onGamKChange,
   xgbMaxDepth, onXgbMaxDepthChange, xgbEta, onXgbEtaChange, xgbNRounds, onXgbNRoundsChange,
   dnnArchitecture, onDnnArchitectureChange, dnnDropout, onDnnDropoutChange, dnnL2Lambda, onDnnL2LambdaChange,
+  gllvmFamily, onGllvmFamilyChange, gllvmNumLv, onGllvmNumLvChange, gllvmNumRows, onGllvmNumRowsChange, gllvmLvCorr, onGllvmLvCorrChange,
   useElevation, onUseElevationChange, elevationDemtype, onElevationDemtypeChange, opentopoApiKey, onOpentopoApiKeyChange, demWarning,
   useSoil, onUseSoilChange, soilVars, soilDepths, onToggleSoilVar, onToggleSoilDepth,
   useUv, onUseUvChange, uvVars, uvMonths, onToggleUvVar, onUvMonthsChange,
@@ -473,6 +483,50 @@ export function ModelConfigAdvanced({
                 <TooltipInfo content="L2 weight decay penalty. Higher = stronger regularization. 0.001 is standard." />
               </label>
               <input type="number" min={0.0001} max={0.1} step={0.0001} value={dnnL2Lambda} onChange={(e) => onDnnL2LambdaChange(Number(e.target.value))} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text" />
+            </div>
+          </div>
+        </details>
+      )}
+
+      {modelId === "gllvm" && (
+        <details className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-sdm-heading uppercase tracking-wide">gllvm JSDM tuning</summary>
+          <div className="px-3 pb-3 space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">
+                Family
+                <TooltipInfo content="Response distribution. binomial for presence-absence, poisson for counts, negative.binomial for overdispersed counts." />
+              </label>
+              <select value={gllvmFamily} onChange={(e) => onGllvmFamilyChange(e.target.value as "binomial" | "poisson" | "negative.binomial")} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
+                <option value="binomial">Binomial</option>
+                <option value="poisson">Poisson</option>
+                <option value="negative.binomial">Negative binomial</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">
+                Latent variables ({gllvmNumLv})
+                <TooltipInfo content="Number of latent variables. More = captures more residual correlation. 2-3 is typical for most datasets." />
+              </label>
+              <input type="range" min={1} max={10} step={1} value={gllvmNumLv} onChange={(e) => onGllvmNumLvChange(Number(e.target.value))} className="w-full" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">
+                Row effect
+                <TooltipInfo content="Row effect type. 0 = none, 1 = fixed, 2 = random. Fixed is generally recommended for presence-absence data." />
+              </label>
+              <select value={gllvmNumRows} onChange={(e) => onGllvmNumRowsChange(Number(e.target.value))} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
+                <option value={0}>None</option>
+                <option value={1}>Fixed</option>
+                <option value={2}>Random</option>
+              </select>
+            </div>
+            <div>
+              <label className="flex items-center gap-2 text-xs font-medium text-sdm-muted">
+                <input type="checkbox" checked={gllvmLvCorr} onChange={(e) => onGllvmLvCorrChange(e.target.checked)} />
+                Latent variable correlation
+                <TooltipInfo content="If enabled, estimates correlation between latent variables. More flexible but slower to fit." />
+              </label>
             </div>
           </div>
         </details>

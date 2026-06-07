@@ -7,7 +7,7 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
                                supports_importance = FALSE, supports_uncertainty = FALSE,
                                supports_future = TRUE, diagnostics = list(), notes = character(),
                                predict_component_fun = NULL, fit_component_fun = NULL,
-                               min_records = NULL,
+                               min_records = NULL, multispecies = FALSE,
                                importance_fun = NULL, pdp_fun = NULL,
                                ale_fun = NULL, shap_fun = NULL) {
   id <- as.character(id)[1]
@@ -31,6 +31,7 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
     predict_component_fun = if (!is.null(predict_component_fun)) predict_component_fun else predict_fun,
     fit_component_fun = fit_component_fun,
     min_records = as.integer(min_records)[1] %||% NA_integer_,
+    multispecies = isTRUE(multispecies),
     importance_fun = if (is.function(importance_fun)) importance_fun else NULL,
     pdp_fun = if (is.function(pdp_fun)) pdp_fun else NULL,
     ale_fun = if (is.function(ale_fun)) ale_fun else NULL,
@@ -38,6 +39,15 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
   )
   assign(id, spec, envir = sdm_model_registry)
   invisible(spec)
+}
+
+sdm_is_multispecies_model <- function(model_id) {
+  spec <- tryCatch(get_sdm_model(model_id), error = function(e) NULL)
+  isTRUE(spec$multispecies)
+}
+
+sdm_any_multispecies_model <- function(model_ids) {
+  any(vapply(model_ids, sdm_is_multispecies_model, logical(1)))
 }
 
 sdm_model_ids <- function() {
@@ -701,8 +711,31 @@ if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietl
     supports_importance = FALSE,
     supports_uncertainty = TRUE,
     supports_future = TRUE,
+    multispecies = TRUE,
     diagnostics = list(n_species = TRUE, species_presence = TRUE),
     notes = "Multi-species DNN with shared covariates. Predicts all species simultaneously using a multi-output network. Requires cito and torch.",
+    min_records = 5L
+  )
+}
+
+# gllvm JSDM — conditional
+if (requireNamespace("gllvm", quietly = TRUE)) {
+  register_sdm_model(
+    id = "gllvm",
+    label = "gllvm JSDM",
+    method = "Joint Species Distribution Model via gllvm (generalized linear latent variable model)",
+    packages = "gllvm",
+    maturity = "experimental",
+    fit_fun = function(...) fit_gllvm_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_gllvm_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    multispecies = TRUE,
+    diagnostics = list(n_species = TRUE, species_presence = TRUE),
+    notes = "Joint Species Distribution Model using gllvm with latent variables. Predicts all species simultaneously. Requires gllvm package.",
     min_records = 5L
   )
 }

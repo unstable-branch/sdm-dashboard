@@ -134,6 +134,7 @@ COMPLEXITY_MODEL_TIERS <- c(
   "xgboost" = "very_complex",
   "dnn" = "very_complex",
   "dnn_multispecies" = "very_complex",
+  "gllvm" = "very_complex",
   "bart" = "very_complex",
   "brms" = "very_complex",
   "inla_spde" = "very_complex",

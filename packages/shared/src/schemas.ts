@@ -12,7 +12,7 @@ export const modelConfigSchema = z.object({
     z.number().min(-90).max(90),
   ]).refine(([xmin, xmax, ymin, ymax]) => xmin < xmax && ymin < ymax, {
     message: "Invalid extent: xmin must be < xmax and ymin must be < ymax",
-  }),
+  }).optional(),
   trainingExtent: z.tuple([
     z.number().min(-180).max(180),
     z.number().min(-180).max(180),
@@ -129,7 +129,7 @@ export const modelConfigSchema = z.object({
   aggregationFactor: z.number().int().min(1).max(8).default(1),
   nCores: z.number().int().min(1).max(64).default(1),
   seed: z.number().int().default(42),
-  occurrenceFile: z.string().min(1),
+  occurrenceFile: z.string().min(1).optional(),
   worldclimDir: z.string().default("Worldclim"),
   worldclimRes: z.number().default(10),
   source: z.enum(["worldclim", "chelsa"]).default("worldclim"),
@@ -148,6 +148,10 @@ export const modelConfigSchema = z.object({
   uvMonths: z.array(z.string()).default([]).optional(),
   droughtPeriods: z.array(z.string()).default(["annual_mean"]).optional(),
   xgbNRounds: z.number().int().min(50).max(500).default(100),
+  gllvmFamily: z.enum(["binomial", "poisson", "negative.binomial"]).default("binomial"),
+  gllvmNumLv: z.number().int().min(1).max(20).default(2),
+  gllvmNumRows: z.number().int().min(0).max(2).default(0),
+  gllvmLvCorr: z.boolean().default(false),
 });
 
 export type ModelConfig = z.infer<typeof modelConfigSchema>;

@@ -70,6 +70,23 @@ sdm_normalize_model_payload <- function(payload) {
     payload$dnnMultispeciesNSeeds
   )
 
+  payload$gllvm_family <- sdm_payload_coalesce(
+    payload$gllvm_family,
+    payload$gllvmFamily
+  )
+  payload$gllvm_num_lv <- sdm_payload_coalesce_integer(
+    payload$gllvm_num_lv,
+    payload$gllvmNumLv
+  )
+  payload$gllvm_num_rows <- sdm_payload_coalesce_integer(
+    payload$gllvm_num_rows,
+    payload$gllvmNumRows
+  )
+  payload$gllvm_lv_corr <- sdm_payload_coalesce_logical(
+    payload$gllvm_lv_corr,
+    payload$gllvmLvCorr
+  )
+
   payload$xgb_max_depth <- sdm_payload_coalesce_integer(
     payload$xgb_max_depth,
     payload$xgbMaxDepth

@@ -194,6 +194,10 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [detectionFormula, setDetectionFormula] = useState("");
   const [detectionModelType, setDetectionModelType] = useState("");
   const [dnnMultispeciesArchitecture, setDnnMultispeciesArchitecture] = useState<"DNN_Small" | "DNN_Medium" | "DNN_Large">("DNN_Small");
+  const [gllvmFamily, setGllvmFamily] = useState<"binomial" | "poisson" | "negative.binomial">("binomial");
+  const [gllvmNumLv, setGllvmNumLv] = useState(2);
+  const [gllvmNumRows, setGllvmNumRows] = useState(0);
+  const [gllvmLvCorr, setGllvmLvCorr] = useState(false);
 
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
@@ -418,6 +422,10 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       dnnDropout: modelId === "dnn" ? dnnDropout : undefined,
       dnnL2Lambda: modelId === "dnn" ? dnnL2Lambda : undefined,
       dnnMultispeciesNSeeds: modelId === "dnn_multispecies" ? dnnMultispeciesNSeeds : undefined,
+      gllvmFamily: modelId === "gllvm" ? gllvmFamily : undefined,
+      gllvmNumLv: modelId === "gllvm" ? gllvmNumLv : undefined,
+      gllvmNumRows: modelId === "gllvm" ? gllvmNumRows : undefined,
+      gllvmLvCorr: modelId === "gllvm" ? gllvmLvCorr : undefined,
       generateTiles,
       generateCog,
     };
@@ -783,6 +791,14 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         esmBiovars={esmBiovars}
         onEsmBiovarsChange={setEsmBiovars}
         biovars={biovars}
+        gllvmFamily={gllvmFamily}
+        onGllvmFamilyChange={setGllvmFamily}
+        gllvmNumLv={gllvmNumLv}
+        onGllvmNumLvChange={setGllvmNumLv}
+        gllvmNumRows={gllvmNumRows}
+        onGllvmNumRowsChange={setGllvmNumRows}
+        gllvmLvCorr={gllvmLvCorr}
+        onGllvmLvCorrChange={setGllvmLvCorr}
         rangebagNBags={rangebagNBags}
         onRangebagNBagsChange={setRangebagNBags}
         rangebagBagFraction={rangebagBagFraction}

@@ -147,9 +147,17 @@ run_fast_sdm <- function(...) {
   if (length(aggregation_factor) != 1 || is.na(aggregation_factor) || aggregation_factor < 1) aggregation_factor <- 1L
   selected_soil_vars <- unique(as.character(selected_soil_vars))
   selected_soil_vars <- selected_soil_vars[nzchar(selected_soil_vars)]
+  # Per-run cancellation token (mutable environment) — preferred over global option
+  cancelled_env <- cfg$cancelled_env %||% new.env(parent = emptyenv())
+  if (is.null(cancelled_env$cancelled)) cancelled_env$cancelled <- FALSE
   check_cancelled <- function(log_fun = NULL) {
-    if (isTRUE(getOption("sdm_cancelled"))) {
+    if (isTRUE(cancelled_env$cancelled)) {
       log_message(log_fun, "Run cancelled by user")
+      return(TRUE)
+    }
+    # Backward compatibility: also check global option
+    if (isTRUE(getOption("sdm_cancelled"))) {
+      log_message(log_fun, "Run cancelled by user (global)")
       return(TRUE)
     }
     FALSE
@@ -431,8 +439,8 @@ run_fast_sdm <- function(...) {
 
   if (pa_replicates > 1) {
     log_message(log_fun, "Running ", pa_replicates, " PA replicates with different background samples")
-    if (model_id %in% c("multi_ensemble", "esm_glm", "esm_maxnet", "ensemble_glm_rangebag", "bioclim")) {
-      log_message(log_fun, "Note: PA replication applies to single-model backends only; ensemble/ESM models use one PA set.")
+    if (model_id %in% c("multi_ensemble", "esm_glm", "esm_maxnet", "ensemble_glm_rangebag", "bioclim", "dnn_multispecies", "gllvm")) {
+      log_message(log_fun, "Note: PA replication applies to single-model backends only; ensemble/ESM/multi-species models use one PA set.")
       pa_replicates <- 1L
     }
   }
@@ -678,7 +686,10 @@ run_fast_sdm <- function(...) {
   tmp_out <- tempfile(fileext = ".tif")
   terra::writeRaster(suit, tmp_out, overwrite = TRUE,
     wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
-  file.rename(tmp_out, output_tif)
+  if (!file.rename(tmp_out, output_tif)) {
+    file.copy(tmp_out, output_tif, overwrite = TRUE)
+    unlink(tmp_out)
+  }
   suit <- terra::rast(output_tif)
 
   # Ensemble variable importance (multi-model) — must come after suit is assigned
@@ -792,7 +803,7 @@ run_fast_sdm <- function(...) {
     if (!is.null(cpaths) && !is.null(cpaths[["disagreement"]])) {
       extra_paths$multi_ens_disagreement_tif <- cpaths[["disagreement"]]
     }
-  } else if (identical(model_id, "dnn_multispecies")) {
+  } else if (identical(model_id, "dnn_multispecies") || identical(model_id, "gllvm")) {
     extra_paths <- c(extra_paths, sdm_multispecies_output_paths(suit))
   }
 
@@ -1168,8 +1179,13 @@ build_stage_extra_args <- function(cfg, model_id) {
   } else if (identical(model_id, "occupancy")) {
     list(detection_formula = cfg$detection_formula %||% "~1", model_type = cfg$occupancy_model_type %||% "occu")
   } else if (identical(model_id, "dnn_multispecies")) {
-    list(dnn_model_type = cfg$dnn_architecture %||% "DNN_Medium", n_seeds = cfg$dnn_multispecies_n_seeds %||% 3L,
+    list(dnn_architecture = cfg$dnn_architecture %||% cfg$dnn_multispecies_architecture %||% "DNN_Medium", n_seeds = cfg$dnn_multispecies_n_seeds %||% 3L,
       dnn_device = cfg$dnn_device %||% "auto")
+  } else if (identical(model_id, "gllvm")) {
+    list(gllvm_family = cfg$gllvm_family %||% "binomial",
+      gllvm_num_lv = cfg$gllvm_num_lv %||% 2L,
+      gllvm_num_rows = cfg$gllvm_num_rows %||% 1L,
+      gllvm_lv_corr = isTRUE(cfg$gllvm_lv_corr %||% FALSE))
   } else if (identical(model_id, "biomod2")) {
     list(models = cfg$biomod2_models %||% config$biomod2_default %||% c("GLM", "MAXNET", "RF"))
   } else if (identical(model_id, "multi_ensemble")) {
@@ -1190,21 +1206,28 @@ build_stage_extra_args <- function(cfg, model_id) {
 
 sdm_stage_clean <- function(cfg, log_fun = NULL) {
   log_message(log_fun, "Stage 1: Cleaning occurrence data")
-  cleaned <- tryCatch(
-    clean_occurrences(
-      cfg$occurrence_file,
-      min_source_records = cfg$min_source_records,
-      merge_small_sources = cfg$merge_small_sources,
-      use_cc = cfg$use_cc,
-      cc_tests = cfg$cc_tests,
-      log_fun = log_fun,
-      max_coordinate_uncertainty = cfg$max_coordinate_uncertainty
-    ),
-    error = function(e) {
-      stop("Stage 1 (clean) failed: ", conditionMessage(e), call. = FALSE)
-    }
-  )
-  occ <- cleaned$occ
+  cleaned_occurrence <- cfg$cleaned_occurrence
+  if (!is.null(cleaned_occurrence) && is.list(cleaned_occurrence) && is.data.frame(cleaned_occurrence$df) && nrow(cleaned_occurrence$df) > 0) {
+    occ <- cleaned_occurrence$df
+    cleaned <- list(occ = occ, removed_bad_coordinates = 0, removed_duplicates = 0, original_rows = nrow(occ), columns = colnames(occ))
+    if (is.null(occ$cc_flag)) occ$cc_flag <- FALSE
+  } else {
+    cleaned <- tryCatch(
+      clean_occurrences(
+        cfg$occurrence_file,
+        min_source_records = cfg$min_source_records,
+        merge_small_sources = cfg$merge_small_sources,
+        use_cc = cfg$use_cc,
+        cc_tests = cfg$cc_tests,
+        log_fun = log_fun,
+        max_coordinate_uncertainty = cfg$max_coordinate_uncertainty
+      ),
+      error = function(e) {
+        stop("Stage 1 (clean) failed: ", conditionMessage(e), call. = FALSE)
+      }
+    )
+    occ <- cleaned$occ
+  }
   species_filter <- cfg$species_filter %||% ""
   if (nzchar(species_filter) && "species" %in% names(occ)) {
     occ <- occ[occ$species == species_filter, , drop = FALSE]
@@ -1217,11 +1240,21 @@ sdm_stage_clean <- function(cfg, log_fun = NULL) {
 #' Run SDM pipeline: Stage 2 — Load and scale environmental covariates
 sdm_stage_covariates <- function(cfg, occ = NULL, log_fun = NULL) {
   log_message(log_fun, "Stage 2: Loading covariates")
+  training_extent <- cfg$training_extent
+  projection_extent <- cfg$projection_extent
+  if (is.null(training_extent) && !is.null(occ) && nrow(occ) > 0) {
+    training_extent <- make_training_extent(occ, buffer = cfg$training_buffer %||% 2)
+    log_message(log_fun, "  Auto-computed training extent: ", paste(training_extent, collapse = ", "))
+  }
+  if (is.null(projection_extent) && !is.null(occ) && nrow(occ) > 0) {
+    projection_extent <- sdm_auto_extent(occ, buffer_deg = 2)
+    log_message(log_fun, "  Auto-computed projection extent: ", paste(projection_extent, collapse = ", "))
+  }
   tryCatch(load_environment(
     worldclim_dir = cfg$worldclim_dir,
     selected_biovars = cfg$selected_biovars,
-    training_extent = cfg$training_extent,
-    projection_extent = cfg$projection_extent,
+    training_extent = training_extent,
+    projection_extent = projection_extent,
     aggregation_factor = cfg$aggregation_factor,
     allow_download = cfg$allow_download %||% TRUE,
     worldclim_res = cfg$worldclim_res,
@@ -1378,6 +1411,7 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   }, error = function(e) {
     stop("Stage 5 (postprocess) failed: ", conditionMessage(e), call. = FALSE)
   })
+  result$species_name <- cfg$species
   result
 }
 

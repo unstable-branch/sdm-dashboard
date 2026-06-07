@@ -52,6 +52,7 @@ sdmBatchRoutes.get("/models", async (c) => {
       { id: "inla_spde", label: "INLA / Bayesian Spatial Model (SPDE)", maturity: "experimental", available: false, notes: "Requires INLA package (install from r-inla-download.org)" },
       { id: "occupancy", label: "Occupancy Model (unmarked)", maturity: "experimental", available: false, notes: "Requires unmarked package + detection-history data" },
       { id: "dnn_multispecies", label: "Multi-Species DNN (cito)", maturity: "experimental", available: false, notes: "Requires cito + torch packages" },
+      { id: "gllvm", label: "gllvm JSDM", maturity: "experimental", available: false, notes: "Requires gllvm package" },
       { id: "python_elapid", label: "Elapid — Python MaxEnt", maturity: "experimental", available: false, notes: "Requires Python + elapid package" },
       { id: "python_sklearn_rf", label: "Scikit-Learn Random Forest (Python)", maturity: "experimental", available: false, notes: "Requires Python + scikit-learn package" },
     ]);
@@ -200,6 +201,21 @@ sdmBatchRoutes.post("/batch", async (c) => {
       throw new Error("Targets pipeline did not return a job ID");
     }
 
+    // Create per-species run records so batch status/cancel/retry can work
+    const runRecords = parsedConfigs.map((p) => ({
+      projectId,
+      parentRunId: batch.id,
+      speciesName: p.data.species,
+      modelId: p.data.modelId,
+      config: p.data as unknown as Record<string, unknown>,
+      status: "queued" as const,
+      jobId: targetsJobId,
+    }));
+
+    if (runRecords.length > 0) {
+      await db.insert(runs).values(runRecords);
+    }
+
     await db
       .update(batches)
       .set({ jobId: targetsJobId })
@@ -319,6 +335,50 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
       .from(runs)
       .where(and(eq(runs.parentRunId, batchId), eq(runs.status, "failed")));
 
+    if (failedRuns.length === 0) {
+      return c.json({ ok: true, retried: 0, message: "No failed runs to retry" });
+    }
+
+    // Check if this batch was a targets pipeline batch (all runs share the same jobId)
+    const targetsJobId = batch.jobId;
+    const isTargetsBatch = targetsJobId != null && targetsJobId.startsWith("targets-");
+
+    if (isTargetsBatch) {
+      // For targets batches, re-submit all failed configs as a new targets run
+      const configs = failedRuns.map((r) => (r.config as unknown as ModelConfigRecord));
+
+      const plumberPayload = await plumberClient.targetsRun({ configs });
+      const newTargetsJobId = plumberPayload.job_id as string | undefined;
+      if (!newTargetsJobId) throw new Error("Targets pipeline did not return a job ID");
+
+      // Update all failed runs with the new targets job ID
+      const retriedIds: string[] = [];
+      for (const r of failedRuns) {
+        await db.update(runs).set({
+          status: "queued",
+          error: null,
+          jobId: newTargetsJobId,
+          bullmqId: null,
+        }).where(eq(runs.id, r.id));
+        jobEventBus.emitJobStatus({
+          jobId: r.id,
+          state: "queued",
+          progress: 0,
+          logs: ["Targets pipeline re-submitted for retry..."],
+        });
+        retriedIds.push(r.id);
+      }
+
+      await db.update(batches).set({
+        status: "running",
+        jobId: newTargetsJobId,
+        failedJobs: 0,
+      }).where(eq(batches.id, batchId));
+
+      return c.json({ ok: true, retried: retriedIds.length, job_id: newTargetsJobId });
+    }
+
+    // Legacy single-species batch retry: re-enqueue individual runs
     const retriedIds: string[] = [];
     for (const r of failedRuns) {
       const [updated] = await db.update(runs).set({ status: "queued", error: null, jobId: null, bullmqId: null }).where(eq(runs.id, r.id)).returning();

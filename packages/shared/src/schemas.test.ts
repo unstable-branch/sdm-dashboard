@@ -176,16 +176,16 @@ describe("modelConfigSchema", () => {
       expect(result.success).toBe(false);
     });
 
-    it("rejects missing projectionExtent", () => {
+    it("accepts missing projectionExtent (auto-detected from occurrence data)", () => {
       const { projectionExtent, ...rest } = validMinimal;
       const result = modelConfigSchema.safeParse(rest);
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
     });
 
-    it("rejects missing occurrenceFile", () => {
+    it("accepts missing occurrenceFile (can use cleanedFilePath instead)", () => {
       const { occurrenceFile, ...rest } = validMinimal;
       const result = modelConfigSchema.safeParse(rest);
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
     });
   });
 
