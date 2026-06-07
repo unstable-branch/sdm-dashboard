@@ -23,27 +23,7 @@ n_cores <- tryCatch({
 
 cat("Using", n_cores, "CPU cores for compilation.\n\n")
 
-os <- tolower(Sys.info()["sysname"])
-if (os == "linux") {
-  os_release <- tryCatch(readLines("/etc/os-release", warn = FALSE), error = function(e) "")
-  version_codename <- ""
-  for (line in os_release) {
-    if (grepl("^VERSION_CODENAME=", line)) {
-      version_codename <- sub("^VERSION_CODENAME=", "", line)
-      version_codename <- gsub('"', "", version_codename)
-      break
-    }
-  }
-  if (nzchar(version_codename)) {
-    repos <- sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", version_codename)
-  } else {
-    repos <- "https://packagemanager.posit.co/cran/latest"
-  }
-  cat("OS: Linux (binary repo:", repos, ")\n")
-} else {
-  repos <- "https://cloud.r-project.org"
-  cat("OS:", os, "(source repo:", repos, ")\n")
-}
+repos <- "https://cloud.r-project.org"
 
 # ---------------------------------------------------------------------------
 # Core packages (always installed)
@@ -131,17 +111,13 @@ cat(sprintf("  Done (%.1f min)\n", difftime(Sys.time(), t2, units = "mins")))
 
 cat(sprintf("[%s] [3/4] Downloading libtorch binaries (~1 GB)...\n", format(Sys.time(), "%H:%M:%S")))
 cat("  This may take 5-30 minutes.\n")
+options(download.file.method = "libcurl")
 suppressPackageStartupMessages(library(torch))
 t3 <- Sys.time()
 torch::install_torch()
 cat(sprintf("  Done (%.1f min)\n", difftime(Sys.time(), t3, units = "mins")))
 
 cat(sprintf("[%s] [4/4] Verification...\n", format(Sys.time(), "%H:%M:%S")))
-cat("  This may take 5–30 minutes. Progress is shown as the download streams.\n")
-suppressPackageStartupMessages(library(torch))
-t3 <- Sys.time()
-torch::install_torch()
-cat(sprintf("  Done (%.1f min)\n", difftime(Sys.time(), t3, units = "mins")))
 
 # ---------------------------------------------------------------------------
 # Optional: Google Earth Engine (rgee)

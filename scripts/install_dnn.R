@@ -21,25 +21,6 @@ log_step <- function(msg) {
   utils::flush.console()
 }
 
-heartbeat_pid <- NULL
-start_heartbeat <- function(interval = 30) {
-  heartbeat_pid <<- parallel::mcparallel({
-    while (TRUE) {
-      cat(".")
-      utils::flush.console()
-      Sys.sleep(interval)
-    }
-  })
-}
-stop_heartbeat <- function() {
-  if (!is.null(heartbeat_pid)) {
-    tryCatch(tools::pskill(heartbeat_pid), error = function(e) NULL)
-    tryCatch(parallel::mccollect(heartbeat_pid, wait = FALSE), error = function(e) NULL)
-    heartbeat_pid <<- NULL
-    cat("\n")
-  }
-}
-
 args <- commandArgs(trailingOnly = TRUE)
 force_gpu <- isTRUE(as.logical(args[1]))
 
@@ -61,89 +42,19 @@ if (force_gpu) {
 }
 cat(sprintf("  Started at: %s\n\n", format(start_time, "%Y-%m-%d %H:%M:%S")))
 
-# Standard CRAN repo
-cran_repos <- "https://cloud.r-project.org"
-
-# For torch: try Posit binary on Linux first (faster), fall back to CRAN
+repos <- "https://cloud.r-project.org"
 os <- tolower(Sys.info()["sysname"])
-torch_repos <- cran_repos
-if (os == "linux") {
-  os_release <- tryCatch(readLines("/etc/os-release", warn = FALSE), error = function(e) "")
-  version_codename <- ""
-  for (line in os_release) {
-    if (grepl("^VERSION_CODENAME=", line)) {
-      version_codename <- sub("^VERSION_CODENAME=", "", line)
-      version_codename <- gsub('"', "", version_codename)
-      break
-    }
-  }
-  if (nzchar(version_codename)) {
-    torch_repos <- c(
-      sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", version_codename),
-      "https://cloud.r-project.org"
-    )
-  }
-  cat("  OS: Linux\n")
-} else {
-  cat("  OS:", os, "\n")
-}
-cat("\n")
+cat(sprintf("  OS: %s\n\n", os))
 
 # ── Step 1: torch (first, so cito's dependency is already satisfied) ──────
 log_step("Installing torch...")
-if (os == "linux") {
-  cat("  Attempting binary install from Posit Package Manager...\n")
-  cat("  If unavailable, falls back to source compile (10-30 min).\n")
-} else {
-  cat("  Installing from CRAN.\n")
-}
-cat("  A dot (.) every 30 seconds confirms it's still working.\n\n")
+cat("  R automatically selects binary package when available,\n")
+cat("  otherwise compiles from source. Compiler output is shown below.\n\n")
 
-installed <- FALSE
 t1 <- Sys.time()
-
-for (r in torch_repos) {
-  if (installed) break
-  cat(sprintf("  Trying: %s\n", r))
-  start_heartbeat(30)
-  tryCatch({
-    if (os == "linux") {
-      suppressWarnings(
-        install.packages("torch", repos = r, Ncpus = n_cores, quiet = FALSE, type = "binary")
-      )
-    } else {
-      install.packages("torch", repos = r, Ncpus = n_cores, quiet = FALSE)
-    }
-    if (requireNamespace("torch", quietly = TRUE)) {
-      installed <- TRUE
-      cat("  ✓ torch installed from:", r, "\n")
-    }
-  }, error = function(e) {
-    cat(sprintf("  ✗ Failed: %s\n", conditionMessage(e)))
-  }, finally = {
-    stop_heartbeat()
-  })
-}
-
-if (!installed) {
-  cat("  Binary unavailable. Attempting source compile from CRAN...\n")
-  cat("  This will take 10-30 minutes. A dot (.) every 30s confirms it's alive.\n")
-  start_heartbeat(30)
-  tryCatch({
-    install.packages("torch", repos = "https://cloud.r-project.org", Ncpus = n_cores, quiet = FALSE, type = "source")
-    if (requireNamespace("torch", quietly = TRUE)) {
-      installed <- TRUE
-      cat("  ✓ torch installed from CRAN source\n")
-    }
-  }, error = function(e) {
-    cat(sprintf("  ✗ Failed: %s\n", conditionMessage(e)))
-  }, finally = {
-    stop_heartbeat()
-  })
-}
-
-if (!installed) {
-  stop("Failed to install torch from any repository.", call. = FALSE)
+install.packages("torch", repos = repos, Ncpus = n_cores, quiet = FALSE)
+if (!requireNamespace("torch", quietly = TRUE)) {
+  stop("Failed to install torch.", call. = FALSE)
 }
 elapsed <- difftime(Sys.time(), t1, units = "mins")
 cat(sprintf("  ✓ torch completed (%.1f min)\n\n", elapsed))
@@ -153,7 +64,7 @@ log_step("Installing cito...")
 cat("  torch was already installed in step 1.\n")
 cat("  Installing cito without re-resolving dependencies.\n\n")
 t2 <- Sys.time()
-install.packages("cito", repos = cran_repos, Ncpus = n_cores, quiet = TRUE, dependencies = FALSE)
+install.packages("cito", repos = repos, Ncpus = n_cores, quiet = TRUE, dependencies = FALSE)
 elapsed <- difftime(Sys.time(), t2, units = "mins")
 cat(sprintf("  ✓ cito installed (%.1f min)\n\n", elapsed))
 
