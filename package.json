@@ -18,7 +18,9 @@
     "check:compose": "env DATABASE_URL=postgresql://sdm:dummy@postgres:5432/sdm_platform JWT_SECRET=dummy-jwt-secret-at-least-32-characters DATA_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 SDM_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 PLUMBER_INTERNAL_KEY=dummy-plumber-internal-key POSTGRES_PASSWORD=dummy GARAGE_ACCESS_KEY=dummy-access-key GARAGE_SECRET_KEY=dummy-secret-key-for-ci-only-1234567890 GARAGE_BUCKET=sdm-artifacts GARAGE_BUCKET_RASTERS=sdm-rasters GARAGE_BUCKET_EXPORTS=sdm-exports GARAGE_RPC_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef GARAGE_ADMIN_TOKEN=dummy-garage-admin-token GRAFANA_PASSWORD=dummy sh -c 'docker compose -f docker-compose.yml config && docker compose -f docker-compose.dev.yml config && docker compose -f docker-compose.prod.yml config'",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f"
+    "docker:logs": "docker compose logs -f",
+    "install:dnn": "Rscript scripts/install_dnn.R",
+    "install:dnn:gpu": "Rscript scripts/install_dnn.R true"
   },
   "engines": {
     "node": ">=22.0.0"
