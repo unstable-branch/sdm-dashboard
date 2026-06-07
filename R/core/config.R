@@ -176,6 +176,8 @@ dnn_device_choices <- c(
   "GPU if available (faster)" = "gpu"
 )
 config$dnn_weight_default <- 0.3
+config$dnn_n_seeds <- 5L
+config$dnn_default_n_seeds <- 5L
 config$dnn_multispecies_default <- "DNN_Medium"
 config$dnn_multispecies_n_seeds <- 3L
 config$sdm_default_extrapolation_mask <- TRUE

@@ -1,3 +1,12 @@
+# Helper: resolve DNN architecture from option, config env, or fallback
+sdm_dnn_arch <- function(model_type = "DNN_Medium") {
+  arch <- getOption("sdm.dnn_arch")[[model_type]]
+  if (!is.null(arch)) return(arch)
+  arch <- config$dnn_arch[[model_type]]
+  if (!is.null(arch)) return(arch)
+  config$dnn_arch[["DNN_Medium"]]
+}
+
 ## DNN Modelling Wrapper using cito/torch ---------------------------------------
 ## This module provides deep neural network training and prediction using
 ## the cito package (torch backend) for species distribution modelling.
@@ -298,7 +307,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   }
 
   # DNN-202: Validate architecture
-  arch <- config$dnn_arch[[model_type]]
+  arch <- sdm_dnn_arch(model_type)
   if (is.null(arch)) {
     stop(paste("DNN-202: Unknown DNN architecture:", model_type, ". Valid options: DNN_Small, DNN_Medium, DNN_Large"), call. = FALSE)
   }

@@ -825,6 +825,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         onDnnDropoutChange={setDnnDropout}
         dnnL2Lambda={dnnL2Lambda}
         onDnnL2LambdaChange={setDnnL2Lambda}
+        dnnNSeeds={dnnNSeeds}
+        onDnnNSeedsChange={setDnnNSeeds}
         useElevation={useElevation}
         onUseElevationChange={setUseElevation}
         elevationDemtype={elevationDemtype}
