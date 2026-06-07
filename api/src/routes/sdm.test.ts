@@ -131,6 +131,15 @@ vi.mock("../services/plumber", () => ({
   },
 }));
 
+vi.mock("../middleware/rate-limit", () => ({
+  modelRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
+  rateLimit: vi.fn(() => vi.fn(async (_c: any, next: any) => { await next(); })),
+  gbifRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
+  climateRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
+  defaultRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
+  authRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
+}));
+
 vi.mock("ioredis", () => {
   class MockRedis {
     on = vi.fn();
@@ -447,6 +456,160 @@ describe("SDM routes", () => {
         method: "POST",
       });
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("Multi-species batch operations", () => {
+    it("submits batch with 3 species configs", async () => {
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.targetsRun as any).mockResolvedValueOnce({ job_id: "targets-3sp" });
+
+      const { db } = await import("../db");
+      (db.insert as any).mockImplementation(() => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => [{ id: "batch-ms-1" }]),
+        })),
+        set: vi.fn(() => ({ where: vi.fn() })),
+      }));
+
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Multi-species test",
+          configs: [
+            { ...buildRunPayloadConfig, species: "Species_North" },
+            { ...buildRunPayloadConfig, species: "Species_East" },
+            { ...buildRunPayloadConfig, species: "Species_West" },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.job_id).toBe("targets-3sp");
+      expect(data.batch_id).toBe("batch-ms-1");
+      expect(data.total).toBe(3);
+    });
+
+    it("passes all configs to plumber targetsRun", async () => {
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.targetsRun as any).mockClear();
+      (plumberClient.targetsRun as any).mockResolvedValueOnce({ job_id: "targets-check" });
+
+      const { db } = await import("../db");
+      (db.insert as any).mockImplementation(() => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => [{ id: "batch-check" }]),
+        })),
+        set: vi.fn(() => ({ where: vi.fn() })),
+      }));
+
+      const configs = [
+        { ...buildRunPayloadConfig, species: "Sp1", modelId: "glm" },
+        { ...buildRunPayloadConfig, species: "Sp2", modelId: "rangebag" },
+      ];
+
+      await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Mixed models", configs }),
+      });
+
+      expect(plumberClient.targetsRun).toHaveBeenCalledTimes(1);
+      const payload = (plumberClient.targetsRun as any).mock.calls[0][0] as Record<string, any>;
+      expect(payload.configs).toHaveLength(2);
+      expect(payload.configs[0].species).toBe("Sp1");
+      expect(payload.configs[1].species).toBe("Sp2");
+      expect(payload.configs[0].modelId).toBe("glm");
+      expect(payload.configs[1].modelId).toBe("rangebag");
+    });
+  });
+
+  describe("Batch config validation", () => {
+    it("rejects batch over 50 configs", async () => {
+      const manyConfigs = new Array(51).fill(null).map((_, i) => ({
+        ...buildRunPayloadConfig,
+        species: `Species_${i}`,
+      }));
+
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Too many", configs: manyConfigs }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects batch with missing species name", async () => {
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          configs: [{ ...buildRunPayloadConfig, species: "" }],
+        }),
+      });
+
+      expect([400, 422, 500]).toContain(res.status);
+    });
+
+    it("rejects config with invalid projection extent", async () => {
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          configs: [{
+            ...buildRunPayloadConfig,
+            projectionExtent: [200, 300, -100, 100],
+          }],
+        }),
+      });
+
+      expect([400, 422, 500]).toContain(res.status);
+    });
+
+    it("rejects config with too few biovars", async () => {
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          configs: [{
+            ...buildRunPayloadConfig,
+            biovars: [1],
+          }],
+        }),
+      });
+
+      expect([400, 422, 500]).toContain(res.status);
+    });
+
+    it("accepts batch with exactly 50 configs", async () => {
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.targetsRun as any).mockResolvedValueOnce({ job_id: "targets-50" });
+
+      const { db } = await import("../db");
+      (db.insert as any).mockImplementation(() => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => [{ id: "batch-50" }]),
+        })),
+        set: vi.fn(() => ({ where: vi.fn() })),
+      }));
+
+      const manyConfigs = new Array(50).fill(null).map((_, i) => ({
+        ...buildRunPayloadConfig,
+        species: `Species_${i}`,
+      }));
+
+      const res = await app.request("/api/v1/sdm/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Max batch", configs: manyConfigs }),
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.total).toBe(50);
     });
   });
 });
