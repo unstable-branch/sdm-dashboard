@@ -62,7 +62,7 @@ handle_occurrences_upload <- function(req, app_dir) {
     max_size <- 100 * 1024 * 1024
     file_size <- file.info(file_path)$size
     if (file_size > max_size) {
-      return(sdm_error(req, 413, paste("File too large. Maximum", max_size / 1e6, "MB.")))
+      return(sdm_error_code(req, "INVALID_INPUT", paste("File too large. Maximum", max_size / 1e6, "MB.")))
     }
 
     orig_name <- uploaded$filename[[1]] %||% uploaded$name[[1]] %||% "upload"

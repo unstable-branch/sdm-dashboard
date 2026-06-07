@@ -1,0 +1,53 @@
+{
+  "title": "SDM Dashboard Platform",
+  "uid": "sdm-platform",
+  "version": 1,
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "title": "API Request Rate",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "rate(http_requests_total[5m])", "legendFormat": "{{handler}}" }]
+    },
+    {
+      "title": "Active Model Runs",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 3, "x": 6, "y": 0 },
+      "targets": [{ "expr": "count(sdm_active_runs)", "legendFormat": "active" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "title": "Plumber Memory (GB)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 3, "x": 9, "y": 0 },
+      "targets": [{ "expr": "sdm_plumber_memory_gb", "legendFormat": "memory" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "title": "Queue Depth (BullMQ)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 3, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sdm_queue_depth", "legendFormat": "jobs" }]
+    },
+    {
+      "title": "Postgres Connections",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
+      "targets": [{ "expr": "pg_stat_activity_count", "legendFormat": "{{state}}" }]
+    },
+    {
+      "title": "Redis Memory Usage",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 8 },
+      "targets": [{ "expr": "redis_memory_used_bytes", "legendFormat": "used" }]
+    },
+    {
+      "title": "Recent Errors",
+      "type": "log",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [{ "expr": "{job=\"api\"} |= \"ERROR\"", "legendFormat": "" }]
+    }
+  ]
+}

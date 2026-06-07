@@ -201,17 +201,6 @@ export const uploads = pgTable("uploads", {
   index("idx_uploads_created").on(t.createdAt),
 ]);
 
-export const maintenanceLog = pgTable("maintenance_log", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  type: varchar("type", { length: 50 }).notNull(),
-  status: varchar("status", { length: 20 }).notNull().default("running"),
-  details: jsonb("details"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (t) => [
-  index("idx_maintenance_log_type").on(t.type),
-  index("idx_maintenance_log_created").on(t.createdAt),
-]);
-
 export const usersRelations = relations(users, ({ many }) => ({
   projects: many(projects),
   apiKeys: many(apiKeys),
