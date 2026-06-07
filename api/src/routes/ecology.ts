@@ -4,6 +4,7 @@ import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { authMiddleware, type AppEnv } from "../middleware/auth.js";
+import { canAccessRun } from "../services/access.js";
 
 export const ecologyRoutes = new Hono<AppEnv>();
 
@@ -16,6 +17,10 @@ async function resolveJobId(runId: string): Promise<string> {
     .where(eq(runs.id, runId))
     .limit(1);
   return run?.jobId || runId;
+}
+
+async function checkAccess(userId: string, userRole: string, runId: string): Promise<boolean> {
+  return canAccessRun(userId, userRole, runId);
 }
 
 ecologyRoutes.post("/niche-overlap", async (c) => {
@@ -32,6 +37,10 @@ ecologyRoutes.post("/niche-overlap", async (c) => {
 ecologyRoutes.get("/:runId", async (c) => {
   try {
     const runId = c.req.param("runId");
+    const user = c.get("user");
+    if (!(await checkAccess(user.id, user.role, runId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const data = await plumberClient.getEcologyData(await resolveJobId(runId));
     return c.json(data);
   } catch (err) {
@@ -43,6 +52,10 @@ ecologyRoutes.get("/:runId", async (c) => {
 ecologyRoutes.get("/:runId/eoo-aoo", async (c) => {
   try {
     const runId = c.req.param("runId");
+    const user = c.get("user");
+    if (!(await checkAccess(user.id, user.role, runId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const data = await plumberClient.getEooAoo(await resolveJobId(runId));
     return c.json(data);
   } catch (err) {
@@ -54,6 +67,10 @@ ecologyRoutes.get("/:runId/eoo-aoo", async (c) => {
 ecologyRoutes.get("/:runId/aoa", async (c) => {
   try {
     const runId = c.req.param("runId");
+    const user = c.get("user");
+    if (!(await checkAccess(user.id, user.role, runId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const data = await plumberClient.getAoa(await resolveJobId(runId));
     return c.json(data);
   } catch (err) {
@@ -65,6 +82,10 @@ ecologyRoutes.get("/:runId/aoa", async (c) => {
 ecologyRoutes.get("/:runId/report", async (c) => {
   try {
     const runId = c.req.param("runId");
+    const user = c.get("user");
+    if (!(await checkAccess(user.id, user.role, runId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const report = await plumberClient.getEcologyReport(await resolveJobId(runId));
     return c.json({ report });
   } catch (err) {

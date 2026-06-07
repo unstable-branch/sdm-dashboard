@@ -2,8 +2,8 @@ import { createMiddleware } from "hono/factory";
 import { verify } from "hono/jwt";
 import { createHash } from "crypto";
 import { db } from "../db/index.js";
-import { users, apiKeys, projectMembers } from "../db/schema.js";
-import { eq, and, inArray } from "drizzle-orm";
+import { users, apiKeys, projectMembers, projects } from "../db/schema.js";
+import { eq, and, or, inArray } from "drizzle-orm";
 import { checkRateLimit } from "./rate-limit.js";
 
 // Batch lastUsedAt updates — flush every 30s or after 100 queued writes
@@ -247,14 +247,23 @@ export const requireProjectAccess = (role: "owner" | "member" = "member") => {
     }
 
     try {
-      const [member] = await db
-        .select()
-        .from(projectMembers)
-        .where(and(eq(projectMembers.userId, user.id), eq(projectMembers.projectId, projectId)))
+      // Check project membership OR project ownership
+      const [ownerCheck] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.id, projectId), eq(projects.ownerId, user.id)))
         .limit(1);
 
-      if (!member) {
-        return c.json({ error: "Access denied" }, 403);
+      if (!ownerCheck) {
+        const [member] = await db
+          .select()
+          .from(projectMembers)
+          .where(and(eq(projectMembers.userId, user.id), eq(projectMembers.projectId, projectId)))
+          .limit(1);
+
+        if (!member) {
+          return c.json({ error: "Access denied" }, 403);
+        }
       }
     } catch {
       return c.json({ error: "Authorization service unavailable" }, 503);
