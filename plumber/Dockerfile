@@ -34,8 +34,10 @@ RUN R -e "options(repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages
     'future', 'future.apply', \
     'DBI', 'RPostgres', 'digest', \
     'Rook', 'openssl', 'pool', 'uuid', \
-    'targets', 'tarchetypes', 'geotargets' \
+    'targets', 'tarchetypes', 'geotargets', \
+    'cito', 'torch' \
   ), Ncpus=4)" \
+  && R -e "library(torch); torch::install_torch()" \
   && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
 
 WORKDIR /app
