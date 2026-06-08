@@ -11,42 +11,47 @@ run_species <- function(row, seed = 42L) {
   occ_clean <- sdm_stage_clean(cfg)
   env <- sdm_stage_covariates(cfg)
 
-  # ENMeval tuning (conditional — only for maxnet with tuning method)
-  enmeval_result <- NULL
-  if (identical(cfg$model_id, "maxnet") && identical(cfg$tuning_method, "enmeval")) {
-    enmeval_result <- tryCatch({
-      if (!requireNamespace("ENMeval", quietly = TRUE)) {
-        warning("ENMeval package not available for tuning — using manual params", call. = FALSE)
-        NULL
-      } else {
-        occ_coords <- occ_clean$occ[, c("longitude", "latitude"), drop = FALSE]
-        occ_coords <- occ_coords[complete.cases(occ_coords), , drop = FALSE]
-        if (nrow(occ_coords) == 0) {
-          warning("No valid occurrence coords for ENMeval — using manual params", call. = FALSE)
-          NULL
-        } else {
-          tune_args <- cfg$enmeval_tune_args %||% sdm_default_enmeval_tune_args
-          env_r <- env$env_train_scaled
-          tune_enmeval(
-            occ = occ_coords, env_rasters = env_r, bg = NULL,
-            tune.args = tune_args,
-            algorithm = cfg$enmeval_algorithm %||% "maxnet",
-            partitions = cfg$enmeval_partitions %||% "block",
-            partition.settings = list(kfolds = max(cfg$cv_folds %||% 5L, 3L)),
-            selection_metric = cfg$enmeval_selection_metric %||% "auc.val.avg",
-            categoricals = cfg$enmeval_categoricals %||% NULL,
-            other.settings = cfg$enmeval_other_settings %||% sdm_default_enmeval_other_settings,
-            n_cores = cfg$n_cores %||% 1, seed = cfg$seed %||% 42L
-          )
-        }
+  # ENMeval tuning (conditional — uses shared block with CV sync + dashboard background)
+  enmeval_tuned <- FALSE
+  if (identical(cfg$tuning_method, "enmeval")) {
+    tune_result <- run_enmeval_tune_block(
+      cfg = cfg, occ = occ_clean$occ,
+      env_train_scaled = env$env_train_scaled,
+      background_n = cfg$background_n %||% sdm_default_background_n,
+      cv_folds = cfg$cv_folds %||% sdm_default_cv_folds,
+      cv_block_size_km = cfg$cv_block_size_km %||% NA_real_,
+      seed = cfg$seed %||% 42L,
+      n_cores = cfg$n_cores %||% 1
+    )
+    if (isTRUE(tune_result$success)) {
+      enmeval_tuned <- TRUE
+      bp <- tune_result$best_params %||% list()
+      if (identical(cfg$model_id, "maxnet")) {
+        cfg$maxnet_features <- bp$features %||% cfg$maxnet_features
+        cfg$maxnet_regmult <- bp$regmult %||% cfg$maxnet_regmult
+      } else if (identical(cfg$model_id, "rf")) {
+        if (!is.null(bp$mtry)) cfg$rf_mtry <- as.integer(bp$mtry)
+        if (!is.null(bp$min_node_size)) cfg$rf_min_node_size <- as.integer(bp$min_node_size)
       }
-    }, error = function(e) {
-      warning("ENMeval tuning failed: ", conditionMessage(e), " — using manual params", call. = FALSE)
-      NULL
-    })
-    if (is.list(enmeval_result) && isTRUE(enmeval_result$success)) {
-      cfg$maxnet_features <- enmeval_result$best_params$features %||% cfg$maxnet_features
-      cfg$maxnet_regmult <- enmeval_result$best_params$regmult %||% cfg$maxnet_regmult
+    }
+  }
+
+  # ENMeval null model (conditional — only when tuning ran and user requested null test)
+  enmeval_null_p_value <- NULL
+  if (enmeval_tuned && !is.null(tune_result$enmeval_object) &&
+      isTRUE(cfg$enmeval_null_iterations > 0) &&
+      requireNamespace("ENMeval", quietly = TRUE)) {
+    null_res <- run_enmeval_null_block(
+      enmeval_object = tune_result$enmeval_object,
+      no.iter = cfg$enmeval_null_iterations %||% 100L,
+      n_cores = cfg$n_cores %||% 1,
+      seed = cfg$seed %||% 42L
+    )
+    if (isTRUE(null_res$success)) {
+      enmeval_null_p_value <- null_res$p_value
+      cfg$enmeval_null_p_value <- null_res$p_value
+      cfg$enmeval_null_auc_mean <- null_res$null_auc_mean
+      cfg$enmeval_null_auc_sd <- null_res$null_auc_sd
     }
   }
 
@@ -64,6 +69,7 @@ run_species <- function(row, seed = 42L) {
     post = post,
     species = cfg$species,
     model_id = cfg$model_id,
-    enmeval_tuned = is.list(enmeval_result) && isTRUE(enmeval_result$success)
+    enmeval_tuned = enmeval_tuned,
+    enmeval_null_p_value = enmeval_null_p_value
   )
 }
