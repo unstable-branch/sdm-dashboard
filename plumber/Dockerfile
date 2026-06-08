@@ -23,6 +23,8 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get inst
     curl \
     cmake \
     build-essential \
+    git \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Add NVIDIA CUDA repo for GPU support (installed after system deps above)
@@ -54,6 +56,11 @@ COPY R/ /app/R/
 COPY plumber/ /app/plumber/
 COPY data/ /app/data/
 COPY python_models/ /app/python_models/
+
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.6/lib64:/usr/lib/x86_64-linux-gnu
+ENV TORCH_HOME=/app/outputs/.torch
+ENV CUDA_HOME=/usr/local/cuda-12.6
+ENV CUDA_PATH=/usr/local/cuda-12.6
 
 RUN groupadd -g 2000 uploadgroup && \
     useradd -m -s /bin/bash -G uploadgroup sdm && \
