@@ -475,6 +475,7 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
   # Create raster
   pred_raster <- pred_stack[[1]]
   terra::values(pred_raster) <- pred_vals
+  names(pred_raster) <- "suitability"
   pred_raster
 }
 

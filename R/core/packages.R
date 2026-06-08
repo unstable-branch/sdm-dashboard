@@ -51,6 +51,7 @@ sdm_optional_packages <- list(
   targets = c("targets", "tarchetypes", "geotargets", "crew", "crew.cluster", "crew.aws.batch"),
   dnn = c("cito", "torch"),
   ala = c("galah"),
+  enmeval = c("ENMeval"),
   devtools = c("devtools")
 )
 
@@ -137,6 +138,17 @@ configure_parallel <- function(n_cores = NULL, log_fun = NULL) {
   n_cores
 }
 
+safe_torch_probe <- function(expr, label = "torch") {
+  tryCatch(
+    {
+      list(ok = isTRUE(expr), message = NA_character_)
+    },
+    error = function(e) {
+      list(ok = FALSE, message = paste0(label, " probe failed: ", conditionMessage(e)))
+    }
+  )
+}
+
 setup_torch_cuda <- function(force_gpu = FALSE, log_fun = NULL) {
   result <- list(
     device = "cpu",
@@ -159,15 +171,21 @@ setup_torch_cuda <- function(force_gpu = FALSE, log_fun = NULL) {
     error = function(e) NULL
   )
 
-  result$installation_status <- tryCatch(
-    {
-      if (torch::torch_is_installed()) "ok" else "not_installed"
-    },
-    error = function(e) "error"
-  )
+  installed_probe <- safe_torch_probe(torch::torch_is_installed(), "LibTorch")
+  result$installation_status <- if (installed_probe$ok) {
+    "ok"
+  } else if (!is.na(installed_probe$message)) {
+    "error"
+  } else {
+    "not_installed"
+  }
 
   if (result$installation_status != "ok") {
-    result$message <- "LibTorch not installed - run torch::install_torch()"
+    result$message <- if (!is.na(installed_probe$message)) {
+      installed_probe$message
+    } else {
+      "LibTorch not installed - run torch::install_torch()"
+    }
     return(result)
   }
 
@@ -175,26 +193,29 @@ setup_torch_cuda <- function(force_gpu = FALSE, log_fun = NULL) {
 
   tryCatch(
     {
-      has_cuda <- torch::cuda_is_available()
-      has_mps <- torch::mps_is_available()
+      cuda_probe <- safe_torch_probe(torch::cuda_is_available(), "CUDA")
+      mps_probe <- safe_torch_probe(torch::mps_is_available(), "MPS")
+      has_cuda <- cuda_probe$ok
+      has_mps <- mps_probe$ok
 
       if (has_cuda) {
         cuda_ver <- Sys.getenv("CUDA", NA_character_)
         if (nzchar(cuda_ver)) result$cuda_version <- cuda_ver
       }
 
-      if (force_gpu || has_cuda) {
+      if (has_cuda) {
         result$gpu_available <- TRUE
-        result$device <- if (has_cuda) "cuda" else "cpu"
-        result$message <- if (has_cuda) {
-          paste("CUDA GPU available (version:", result$cuda_version, ")")
-        } else {
-          "CUDA requested but not available"
-        }
+        result$device <- "cuda"
+        result$message <- paste("CUDA GPU available (version:", result$cuda_version, ")")
       } else if (has_mps) {
         result$gpu_available <- TRUE
         result$device <- "mps"
         result$message <- "MPS (Apple Silicon) GPU available"
+      } else if (force_gpu) {
+        failed <- c(cuda_probe$message, mps_probe$message)
+        failed <- failed[!is.na(failed)]
+        detail <- if (length(failed) > 0) paste(failed, collapse = " ") else "torch reports no CUDA/MPS device"
+        result$message <- paste("GPU requested but unavailable - using CPU.", detail)
       }
     },
     error = function(e) {

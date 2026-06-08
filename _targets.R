@@ -186,6 +186,8 @@ list(
             tss_mean = cv$tss_mean %||% NA_real_,
             eoo_km2 = post$eoo_aoo$eoo_km2 %||% NA_real_,
             aoo_km2 = post$eoo_aoo$aoo_km2 %||% NA_real_,
+            enmeval_tuned = isTRUE(r$enmeval_tuned),
+            enmeval_null_p_value = r$enmeval_null_p_value %||% NA_real_,
             stringsAsFactors = FALSE
           )
         }

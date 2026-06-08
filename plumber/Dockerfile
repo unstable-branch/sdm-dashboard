@@ -21,7 +21,16 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get inst
     libsodium-dev \
     libhiredis-dev \
     curl \
+    cmake \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+# Add NVIDIA CUDA repo for GPU support (installed after system deps above)
+RUN curl -sL https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb -o /tmp/cuda-keyring.deb \
+  && dpkg -i /tmp/cuda-keyring.deb \
+  && apt-get update -qq \
+  && apt-get install -y -qq --no-install-recommends cuda-nvcc-12-6 cuda-cudart-12-6 cuda-nvrtc-12-6 \
+  && rm -rf /var/lib/apt/lists/* /tmp/cuda-keyring.deb
 
 RUN R -e "options(timeout = 900, repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); install.packages(c( \
     'jsonlite', 'plumber', 'httr', 'callr', \
@@ -37,7 +46,6 @@ RUN R -e "options(timeout = 900, repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); i
     'targets', 'tarchetypes', 'geotargets', \
     'cito', 'torch' \
   ), Ncpus=4)" \
-  && R -e "library(torch); torch::install_torch()" \
   && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
 
 WORKDIR /app
@@ -58,4 +66,6 @@ USER sdm
 
 EXPOSE 8000
 
-CMD ["Rscript", "/app/plumber/R/run_server.R"]
+COPY plumber/R/entrypoint.R /app/plumber/R/entrypoint.R
+
+CMD ["Rscript", "/app/plumber/R/entrypoint.R"]
