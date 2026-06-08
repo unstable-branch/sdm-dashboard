@@ -22,15 +22,25 @@ cache_mode <- Sys.getenv("SDM_TARGETS_CACHE", "standard")
 
 # ── Cluster backend (crew) ──────────────────────────────────────────────────
 # Set SDM_CLUSTER_BACKEND=slurm (or sge, pbs, aws) for distributed workers.
+# For GPU models (dnn, dnn_multispecies), set SDM_CREW_WORKERS=1 to prevent OOM.
 cluster_backend <- Sys.getenv("SDM_CLUSTER_BACKEND", "local")
 cluster_workers <- as.integer(Sys.getenv("SDM_CLUSTER_WORKERS",
   max(1, parallel::detectCores() / 2)))
 
-if (cluster_backend != "local" && requireNamespace("crew", quietly = TRUE)) {
-  controller <- build_crew_controller(cluster_backend, workers = cluster_workers)
-  if (!is.null(controller)) {
+if (requireNamespace("crew", quietly = TRUE)) {
+  if (cluster_backend != "local") {
+    controller <- build_crew_controller(cluster_backend, workers = cluster_workers)
+    if (!is.null(controller)) {
+      tar_option_set(controller = controller)
+      message("[targets] Using ", cluster_backend, " cluster with ", cluster_workers, " workers")
+    }
+  } else {
+    # Local crew controller — 1 worker for GPU safety, override via SDM_CREW_WORKERS
+    crew_workers <- as.integer(Sys.getenv("SDM_CREW_WORKERS",
+      Sys.getenv("SDM_CLUSTER_WORKERS", "1")))
+    controller <- crew::crew_controller_local(workers = crew_workers)
     tar_option_set(controller = controller)
-    message("[targets] Using ", cluster_backend, " cluster with ", cluster_workers, " workers")
+    message("[targets] Using local crew controller with ", crew_workers, " worker(s)")
   }
 }
 
@@ -49,12 +59,14 @@ tar_option_set(
 
 # ── Load SDM engine ─────────────────────────────────────────────────────────
 source(file.path("R", "core", "bootstrap.R"))
-# Only set project root if not already set (e.g., by targets_dispatcher.R)
 if (is.null(sdm_project_root())) sdm_set_project_root(getwd())
 source(file.path("R", "engine_load.R"))
 
+# ── Load pipeline helper functions ──────────────────────────────────────────
+tar_source("R/pipeline/")
+
 # ── Multi-species mode switch ───────────────────────────────────────────────
-# When SDM_MULTISPECIES=true and model_id = "dnn_multispecies",
+# When SDM_MULTISPECIES=true and model_id = "dnn_multispecies" (or gllvm),
 # delegate to a joint pipeline that fits all species in a single model.
 multispecies_mode <- identical(Sys.getenv("SDM_MULTISPECIES"), "true")
 if (multispecies_mode) {
@@ -62,8 +74,6 @@ if (multispecies_mode) {
 } else {
 
 # ── Batch configuration ─────────────────────────────────────────────────────
-# When SDM_BATCH_CONFIG is set, the pipeline branches over all rows in the CSV.
-# Otherwise, falls back to the single-species config defined below.
 batch_config_path <- Sys.getenv("SDM_BATCH_CONFIG", "")
 batch_output_dir <- Sys.getenv("SDM_BATCH_OUTPUT", "outputs")
 batch_seed <- as.integer(Sys.getenv("SDM_BATCH_SEED", "42"))
@@ -107,31 +117,30 @@ list(
     }
   }),
 
-  # Build sdm_config per row → creates a branch per row
-  tar_target(cfg, build_config_from_row(config_rows, seed = batch_seed),
-    pattern = map(config_rows)),
+  # Consolidated per-species run: clean + covariates + fit + postprocess
+  # Returns list(cfg, occ, env, fit, post, species, model_id)
+  tar_target(species_model, run_species(config_rows, seed = batch_seed),
+    pattern = map(config_rows),
+    priority = 0.8),
 
-  tar_target(occ_clean, sdm_stage_clean(cfg), pattern = map(cfg)),
+  # Predict suitability (kept separate for efficient tar_terra_rast storage)
+  tar_terra_rast(suit, {
+    sm <- species_model
+    sdm_stage_predict(sm$cfg, sm$fit$fit, sm$env)
+  }, pattern = map(species_model)),
 
-  # Per-species environment loading (correct covariates for each species)
-  tar_target(env, sdm_stage_covariates(cfg), pattern = map(cfg)),
-
-  tar_target(fit, sdm_stage_fit(cfg, occ_clean$occ, env), pattern = map(cfg)),
-
-  tar_terra_rast(suit, sdm_stage_predict(cfg, fit$fit, env),
-    pattern = map(fit)),
-
+  # Future projection (conditional)
   tar_target(future_result, {
-    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", cfg$species)
-    sp_output_dir <- file.path(batch_output_dir, safe_name)
-    dir.create(sp_output_dir, recursive = TRUE, showWarnings = FALSE)
-    sdm_stage_future(cfg, fit$fit, suit, env, sp_output_dir, safe_name)
-  }, pattern = map(suit)),
-
-  tar_target(post, sdm_stage_postprocess(
-    cfg, fit$fit, suit, env),
-    pattern = map(suit),
-    format = "rds"),
+    sm <- species_model
+    if (isTRUE(sm$cfg$future_projection)) {
+      safe_name <- gsub("[^a-zA-Z0-9._-]", "_", sm$species)
+      sp_output_dir <- file.path(batch_output_dir, safe_name)
+      dir.create(sp_output_dir, recursive = TRUE, showWarnings = FALSE)
+      sdm_stage_future(sm$cfg, sm$fit$fit, suit, sm$env, sp_output_dir, safe_name)
+    } else {
+      NULL
+    }
+  }, pattern = map(species_model, suit)),
 
   # ── Multi-species aggregation targets (batch mode only) ─────────────────
 
@@ -155,10 +164,10 @@ list(
     packages = "terra"
   ),
 
-  # Aggregate per-species post-process metrics into a batch summary CSV
+  # Aggregate per-species metrics into a batch summary CSV
   tar_combine(
     batch_report,
-    post,
+    species_model,
     command = {
       results <- list(!!!.x)
       rows <- lapply(seq_along(results), function(i) {
@@ -167,13 +176,16 @@ list(
           data.frame(species = paste0("species_", i), status = "error",
             stringsAsFactors = FALSE)
         } else {
+          post <- r$post %||% list()
+          cv <- r$fit$fit$cv %||% list()
           data.frame(
-            species = r$species_name %||% paste0("species_", i),
+            species = r$species %||% paste0("species_", i),
             status = "success",
-            auc_mean = r$cv$auc_mean %||% NA_real_,
-            tss_mean = r$cv$tss_mean %||% NA_real_,
-            eoo_km2 = r$eoo_aoo$eoo_km2 %||% NA_real_,
-            aoo_km2 = r$eoo_aoo$aoo_km2 %||% NA_real_,
+            model_id = r$model_id %||% NA_character_,
+            auc_mean = cv$auc_mean %||% NA_real_,
+            tss_mean = cv$tss_mean %||% NA_real_,
+            eoo_km2 = post$eoo_aoo$eoo_km2 %||% NA_real_,
+            aoo_km2 = post$eoo_aoo$aoo_km2 %||% NA_real_,
             stringsAsFactors = FALSE
           )
         }
@@ -191,7 +203,7 @@ list(
 
 # ── Usage ──────────────────────────────────────────────────────────────────
 # tar_visnetwork()                     # view dependency graph
-# tar_make()                           # run single-species fallback
+# tar_make()                           # run (with crew parallelism)
 # SDM_BATCH_CONFIG=batch.csv tar_make()  # run multi-species batch
-# tar_read(post)                       # read post-processing results (branched per species)
+# tar_read(species_model)              # read per-species results (branched)
 # tar_outdated()                       # check stale targets
