@@ -61,6 +61,8 @@ ENV LD_LIBRARY_PATH=/usr/local/cuda-12.6/lib64:/usr/lib/x86_64-linux-gnu
 ENV TORCH_HOME=/app/outputs/.torch
 ENV CUDA_HOME=/usr/local/cuda-12.6
 ENV CUDA_PATH=/usr/local/cuda-12.6
+ENV TORCH_VERIFY_LOAD=FALSE
+ENV TORCH_LOAD=0
 
 RUN groupadd -g 2000 uploadgroup && \
     useradd -m -s /bin/bash -G uploadgroup sdm && \
