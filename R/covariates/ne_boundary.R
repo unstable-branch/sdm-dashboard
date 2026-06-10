@@ -57,14 +57,14 @@ download_ne_boundary <- function(scale = "110m", type = "admin0", force = FALSE)
     extracted <- list.files(dirname(boundary_path), pattern = "\\.(geojson|json|shp)$", full.names = TRUE, recursive = TRUE)
     src <- grep("\\.geojson$", extracted, value = TRUE)
     if (length(src) > 0) {
-      file.rename(src[1], boundary_path)
+      sdm_safe_rename(src[1], boundary_path)
     } else {
       src <- grep("\\.shp$", extracted, value = TRUE)
       if (length(src) > 0) {
         tryCatch({
           sf_obj <- sf::st_read(src[1], quiet = TRUE)
           sf::st_write(sf_obj, boundary_path, delete_dsn = TRUE, quiet = TRUE)
-        }, error = function(e) file.rename(src[1], boundary_path))
+        }, error = function(e) sdm_safe_rename(src[1], boundary_path))
       }
     }
     if (file.exists(boundary_path)) return(boundary_path)

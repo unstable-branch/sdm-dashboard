@@ -80,7 +80,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
           new_bn <- gsub("_ssp", "_SSP", new_bn)
           new_path <- file.path(cache_subdir, new_bn)
           if (file.exists(new_path)) file.remove(new_path)
-          file.rename(tf, new_path)
+          sdm_safe_rename(tf, new_path)
         }
         empty_after_move <- length(list.files(actual_path, pattern = "\\.tif$")) == 0L
         if (empty_after_move && actual_path != cache_subdir) {
