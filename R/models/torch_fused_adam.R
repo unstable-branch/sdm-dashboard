@@ -164,8 +164,18 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
 
   # AMP scaler
   scaler <- NULL
+  amp_pseudo_opt <- NULL
   if (use_amp) {
     scaler <- torch::cuda_amp_grad_scaler()
+    amp_pseudo_opt <- structure(
+      list(
+        param_groups = list(
+          list(params = NULL, has_sparse_grad = FALSE)
+        ),
+        state = list()
+      ),
+      class = "torch_optimizer"
+    )
   }
 
   use_traced <- FALSE
@@ -284,19 +294,11 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
 
       if (batch_count %% acc_steps == 0L) {
         if (use_amp && !is.null(scaler)) {
-          # Unscale gradients and check for inf, then fused_adam_step
-          pseudo_opt <- structure(
-            list(
-              param_groups = list(
-                list(params = opt_state$params, has_sparse_grad = FALSE)
-              ),
-              state = list()
-            ),
-            class = "torch_optimizer"
-          )
-          scaler$unscale_(pseudo_opt)
+          amp_pseudo_opt$param_groups[[1]]$params <- opt_state$params
+          scaler$unscale_(amp_pseudo_opt)
         }
         fused_adam_step(opt_state)
+        if (use_amp && !is.null(scaler)) scaler$update()
       }
 
       # Record loss (every loss_record_interval, always first 2)
@@ -323,18 +325,11 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
     # Final step for incomplete accumulation
     if (acc_steps > 1L && batch_count %% acc_steps != 0L) {
       if (use_amp && !is.null(scaler)) {
-        pseudo_opt <- structure(
-          list(param_groups = list(list(params = opt_state$params, has_sparse_grad = FALSE))),
-          class = "torch_optimizer"
-        )
-        scaler$unscale_(pseudo_opt)
+        amp_pseudo_opt$param_groups[[1]]$params <- opt_state$params
+        scaler$unscale_(amp_pseudo_opt)
       }
       fused_adam_step(opt_state)
-    }
-
-    # Update AMP scaler
-    if (use_amp && !is.null(scaler)) {
-      scaler$update()
+      if (use_amp && !is.null(scaler)) scaler$update()
     }
 
     # Clean up CUDA graph
