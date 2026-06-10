@@ -25,6 +25,18 @@ interface ModelConfigAdvancedProps {
   onMaxnetRegmultChange: (val: number) => void;
   maxnetAutoTune: boolean;
   onMaxnetAutoTuneChange: (val: boolean) => void;
+  tuningMethod: "none" | "enmeval";
+  onTuningMethodChange: (val: "none" | "enmeval") => void;
+  enmevalAlgorithm: string;
+  onEnmevalAlgorithmChange: (val: string) => void;
+  enmevalPartitions: string;
+  onEnmevalPartitionsChange: (val: string) => void;
+  enmevalSelectionMetric: string;
+  onEnmevalSelectionMetricChange: (val: string) => void;
+  enmevalTuneArgs: Record<string, unknown>;
+  onEnmevalTuneArgsChange: (val: Record<string, unknown>) => void;
+  enmevalNullIterations: number;
+  onEnmevalNullIterationsChange: (val: number) => void;
 
   multiEnsembleModels: string[];
   multiEnsembleWeighting: "auc" | "equal" | "tss";
@@ -90,6 +102,16 @@ interface ModelConfigAdvancedProps {
   onDnnL2LambdaChange: (val: number) => void;
   dnnNSeeds: number;
   onDnnNSeedsChange: (val: number) => void;
+
+  dnnDevice: "auto" | "cpu" | "gpu";
+  onDnnDeviceChange: (val: "auto" | "cpu" | "gpu") => void;
+  dnnFusedAdam: "auto" | "always" | "off";
+  onDnnFusedAdamChange: (val: "auto" | "always" | "off") => void;
+
+  dnnMultispeciesArchitecture: "DNN_Small" | "DNN_Medium" | "DNN_Large";
+  onDnnMultispeciesArchitectureChange: (val: "DNN_Small" | "DNN_Medium" | "DNN_Large") => void;
+  dnnMultispeciesNSeeds: number;
+  onDnnMultispeciesNSeedsChange: (val: number) => void;
 
   useElevation: boolean;
   onUseElevationChange: (val: boolean) => void;
@@ -162,6 +184,7 @@ interface ModelConfigAdvancedProps {
 export function ModelConfigAdvanced({
   modelId, isESM, isRangebag,
   maxnetFeatures, onMaxnetFeaturesChange, maxnetRegmult, onMaxnetRegmultChange, maxnetAutoTune, onMaxnetAutoTuneChange,
+  tuningMethod, onTuningMethodChange, enmevalAlgorithm, onEnmevalAlgorithmChange, enmevalPartitions, onEnmevalPartitionsChange, enmevalSelectionMetric, onEnmevalSelectionMetricChange, enmevalTuneArgs, onEnmevalTuneArgsChange, enmevalNullIterations, onEnmevalNullIterationsChange,
   multiEnsembleModels, multiEnsembleWeighting, multiEnsemblePower, multiEnsembleMinAuc, multiEnsembleMinTss, multiEnsembleExport, multiEnsembleUncertainty, onToggleEnsembleModel, onMultiEnsembleWeightingChange, onMultiEnsemblePowerChange, onMultiEnsembleMinAucChange, onMultiEnsembleMinTssChange, onMultiEnsembleExportChange, onMultiEnsembleUncertaintyChange,
   biomod2Models, onToggleBiomod2Model,
   esmNRuns, onEsmNRunsChange, esmSplit, onEsmSplitChange, esmWeightingMetric, onEsmWeightingMetricChange, esmPower, onEsmPowerChange, esmMinAuc, onEsmMinAucChange, esmBiovars, onEsmBiovarsChange, biovars,
@@ -169,7 +192,8 @@ export function ModelConfigAdvanced({
   rfNumTrees, onRfNumTreesChange, rfMtry, onRfMtryChange, rfMinNodeSize, onRfMinNodeSizeChange,
   gamK, onGamKChange,
   xgbMaxDepth, onXgbMaxDepthChange, xgbEta, onXgbEtaChange, xgbNRounds, onXgbNRoundsChange,
-  dnnArchitecture, onDnnArchitectureChange, dnnDropout, onDnnDropoutChange, dnnL2Lambda, onDnnL2LambdaChange, dnnNSeeds, onDnnNSeedsChange,
+  dnnArchitecture, onDnnArchitectureChange, dnnDropout, onDnnDropoutChange, dnnL2Lambda, onDnnL2LambdaChange, dnnNSeeds, onDnnNSeedsChange, dnnDevice, onDnnDeviceChange, dnnFusedAdam, onDnnFusedAdamChange,
+  dnnMultispeciesArchitecture, onDnnMultispeciesArchitectureChange, dnnMultispeciesNSeeds, onDnnMultispeciesNSeedsChange,
   gllvmFamily, onGllvmFamilyChange, gllvmNumLv, onGllvmNumLvChange, gllvmNumRows, onGllvmNumRowsChange, gllvmLvCorr, onGllvmLvCorrChange,
   useElevation, onUseElevationChange, elevationDemtype, onElevationDemtypeChange, opentopoApiKey, onOpentopoApiKeyChange, demWarning,
   useSoil, onUseSoilChange, soilVars, soilDepths, onToggleSoilVar, onToggleSoilDepth,
@@ -492,6 +516,73 @@ export function ModelConfigAdvanced({
                 <TooltipInfo content="Number of independent training runs. More seeds = more robust ensemble but slower. 5 is standard." />
               </label>
               <input type="range" min={1} max={20} step={1} value={dnnNSeeds} onChange={(e) => onDnnNSeedsChange(Number(e.target.value))} className="w-full" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">
+                Device
+                <TooltipInfo content="GPU acceleration requires an NVIDIA GPU with CUDA. 'auto' uses GPU if available, falls back to CPU otherwise." />
+              </label>
+              <select value={dnnDevice} onChange={(e) => onDnnDeviceChange(e.target.value as typeof dnnDevice)} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
+                <option value="auto">Auto (GPU if available)</option>
+                <option value="gpu">GPU (CUDA)</option>
+                <option value="cpu">CPU only</option>
+              </select>
+            </div>
+            <details className="border-t border-sdm-border/50 pt-3">
+              <summary className="text-xs font-semibold text-sdm-heading uppercase tracking-wide cursor-pointer">
+                Experimental
+              </summary>
+              <div className="mt-2">
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Fused Adam optimizer
+                </label>
+                <select
+                  value={dnnFusedAdam}
+                  onChange={(e) => onDnnFusedAdamChange(e.target.value as "auto" | "always" | "off")}
+                  className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text"
+                >
+                  <option value="auto">Auto (GPU only)</option>
+                  <option value="always">Always (GPU + CPU)</option>
+                  <option value="off">Off (standard Adam)</option>
+                </select>
+              </div>
+            </details>
+          </div>
+        </details>
+      )}
+
+      {modelId === "dnn_multispecies" && (
+        <details className="rounded-md border border-sdm-border/50 bg-sdm-surface-soft">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-sdm-heading uppercase tracking-wide">Multi-Species DNN tuning</summary>
+          <div className="px-3 pb-3 space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">
+                Architecture
+                <TooltipInfo content="Hidden layer config. Small (64) for under 250 records, Medium (100-100) for most cases, Large (100-100-100) for over 1000 records." />
+              </label>
+              <select value={dnnMultispeciesArchitecture} onChange={(e) => onDnnMultispeciesArchitectureChange(e.target.value as typeof dnnMultispeciesArchitecture)} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
+                <option value="DNN_Small">DNN Small (64 units, 1 layer)</option>
+                <option value="DNN_Medium">DNN Medium (100-100, 2 layers)</option>
+                <option value="DNN_Large">DNN Large (100-100-100, 3 layers)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">
+                Seeds ({dnnMultispeciesNSeeds})
+                <TooltipInfo content="Number of independent training runs. More seeds = more robust ensemble but slower. 3 is standard for multi-species." />
+              </label>
+              <input type="range" min={1} max={20} step={1} value={dnnMultispeciesNSeeds} onChange={(e) => onDnnMultispeciesNSeedsChange(Number(e.target.value))} className="w-full" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">
+                Device
+                <TooltipInfo content="GPU acceleration requires an NVIDIA GPU with CUDA. 'auto' uses GPU if available, falls back to CPU otherwise." />
+              </label>
+              <select value={dnnDevice} onChange={(e) => onDnnDeviceChange(e.target.value as typeof dnnDevice)} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
+                <option value="auto">Auto (GPU if available)</option>
+                <option value="gpu">GPU (CUDA)</option>
+                <option value="cpu">CPU only</option>
+              </select>
             </div>
           </div>
         </details>

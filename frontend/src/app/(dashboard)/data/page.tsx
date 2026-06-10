@@ -88,7 +88,9 @@ function DataPageContent() {
         fileCleanedFileId: file.cleaned_file_id,
         cleanedFileId: file.cleaned_file_id,
         cleanValidRecords: file.cleaned_valid_records,
-        selectedSpecies: [speciesOverride || file.species || extractSpeciesFromFilename(file.file_name) || "Untitled species"],
+        selectedSpecies: speciesOverride || file.species
+          ? [speciesOverride || file.species || "Untitled species"]
+          : [],
         cleanLoading: false,
         cleanError: null,
       }];

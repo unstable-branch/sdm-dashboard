@@ -155,7 +155,11 @@ export class PlumberClient {
       headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error(`Failed to clean occurrences: ${res.status}`);
+    if (!res.ok) {
+      let errorMsg = `Failed to clean occurrences: ${res.status}`;
+      try { const body = await res.json(); if (body.error) errorMsg = body.error; } catch {}
+      throw new Error(errorMsg);
+    }
     return res.json();
   }
 
