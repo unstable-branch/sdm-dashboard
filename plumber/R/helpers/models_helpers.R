@@ -60,6 +60,8 @@ handle_model_run <- function(req, app_dir) {
   job_id <- paste0("run-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
   job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+  tmp_dir <- file.path(job_dir, ".tmp")
+  dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
 
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 
@@ -81,6 +83,7 @@ handle_model_run <- function(req, app_dir) {
 
   env <- c(
     HOME = "/app",
+    TMPDIR = tmp_dir,
     OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
     R_MAX_VSIZE = sdm_detect_vsize(),
     PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True",
