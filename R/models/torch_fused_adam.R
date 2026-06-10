@@ -61,7 +61,14 @@ fused_adam_step <- function(state) {
 
   for (j in seq_along(steps)) steps[[j]]$add_(1L)
 
-  if (is.loaded("fused_adam_step_direct", PACKAGE = "")) {
+  # Custom Adam kernel via ATen ops — works on CPU/CUDA/MPS (no NaN on Blackwell)
+  if (is.loaded("adam_step_direct", PACKAGE = "")) {
+    .Call("adam_step_direct",
+      params, grads,
+      state$exp_avgs, state$exp_avg_sqs, steps,
+      state$lr, state$b1, state$b2, state$eps, state$weight_decay
+    )
+  } else if (is.loaded("fused_adam_step_direct", PACKAGE = "")) {
     .Call("fused_adam_step_direct",
       params, grads,
       state$exp_avgs, state$exp_avg_sqs, steps,

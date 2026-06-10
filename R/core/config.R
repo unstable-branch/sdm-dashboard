@@ -192,6 +192,7 @@ dnn_device_choices <- c(
 config$dnn_weight_default <- 0.3
 config$dnn_n_seeds <- 5L
 config$dnn_fused_adam_default <- "auto"
+# Uses custom ATen-op Adam kernel (sdmtorch/train_step_adam.so) on CPU and GPU
 config$dnn_default_n_seeds <- 5L
 config$dnn_multispecies_default <- "DNN_Medium"
 config$dnn_multispecies_n_seeds <- 3L
