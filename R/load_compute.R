@@ -86,6 +86,7 @@ modules <- c(
   "model_xgboost.R",
   "model_multi_ensemble.R",
   "model_esm.R",
+  "torch_fused_adam.R",
   "model_dnn.R",
   "model_dnn_multispecies.R",
   "model_registry.R",
@@ -99,6 +100,8 @@ modules <- c(
   "calibration.R",
   "ensemble_importance.R",
   "hyperparameter_tuning.R",
+  "enmeval_registry.R",
+  "enmeval.R",
   "prediction.R",
 
   # --- output ---

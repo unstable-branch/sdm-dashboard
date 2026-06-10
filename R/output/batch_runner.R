@@ -145,6 +145,13 @@ build_run_args <- function(row) {
       next
     }
 
+    # String enum parameters (tuning method, algorithm selection)
+    if (p %in% c("tuning_method", "enmeval_algorithm", "enmeval_partitions",
+                 "enmeval_selection_metric", "enmeval_null_iterations")) {
+      args[[p]] <- as.character(val)
+      next
+    }
+
     if (p %in% integer_params) {
       args[[p]] <- as.integer(val)
       next

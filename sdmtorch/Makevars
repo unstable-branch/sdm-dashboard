@@ -1,0 +1,6 @@
+# This Makevars is used when compiling as part of R package.
+# For standalone compilation, use the Makefile instead.
+RENV_LIB = ../renv/library/linux-debian-trixie/R-4.5/x86_64-pc-linux-gnu
+TORCH_LIB = $(RENV_LIB)/torch/lib
+PKG_CPPFLAGS = -I$(RENV_LIB)/torch/include -I$(RENV_LIB)/Rcpp/include
+PKG_LIBS =

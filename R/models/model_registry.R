@@ -9,7 +9,8 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
                                predict_component_fun = NULL, fit_component_fun = NULL,
                                min_records = NULL, multispecies = FALSE,
                                importance_fun = NULL, pdp_fun = NULL,
-                               ale_fun = NULL, shap_fun = NULL) {
+                               ale_fun = NULL, shap_fun = NULL,
+                               enmeval_compatible = FALSE, enmeval_algorithm = NULL) {
   id <- as.character(id)[1]
   if (is.na(id) || !nzchar(id)) stop("Model id must be a non-empty string.", call. = FALSE)
   if (!is.function(fit_fun)) stop("fit_fun must be a function for model id: ", id, call. = FALSE)
@@ -35,7 +36,9 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
     importance_fun = if (is.function(importance_fun)) importance_fun else NULL,
     pdp_fun = if (is.function(pdp_fun)) pdp_fun else NULL,
     ale_fun = if (is.function(ale_fun)) ale_fun else NULL,
-    shap_fun = if (is.function(shap_fun)) shap_fun else NULL
+    shap_fun = if (is.function(shap_fun)) shap_fun else NULL,
+    enmeval_compatible = isTRUE(enmeval_compatible),
+    enmeval_algorithm = enmeval_algorithm %||% id
   )
   assign(id, spec, envir = sdm_model_registry)
   invisible(spec)
@@ -110,6 +113,8 @@ register_sdm_model(
   },
   supports_importance = FALSE,
   supports_uncertainty = FALSE,
+  enmeval_compatible = TRUE,
+  enmeval_algorithm = "bioclim",
   supports_future = TRUE,
   diagnostics = list(cv_auc = TRUE, cv_tss = TRUE),
   notes = "Simple environmental envelope model. Presence-only — does not use background points. No permutation importance.",
@@ -423,6 +428,8 @@ register_sdm_model(
   },
   supports_importance = TRUE,
   supports_uncertainty = FALSE,
+  enmeval_compatible = TRUE,
+  enmeval_algorithm = "glm",
   supports_future = TRUE,
   diagnostics = list(coefficients = TRUE, cv_auc = TRUE),
   predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
@@ -640,6 +647,8 @@ if (requireNamespace("ranger", quietly = TRUE)) {
     },
     supports_importance = TRUE,
     supports_uncertainty = FALSE,
+    enmeval_compatible = TRUE,
+    enmeval_algorithm = "rf",
     supports_future = TRUE,
     diagnostics = list(coefficients = FALSE, cv_auc = TRUE, cv_tss = TRUE, oob_auc = TRUE),
     notes = "Experimental RF backend via ranger. Handles interactions and nonlinear responses natively.",

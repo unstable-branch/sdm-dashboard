@@ -35,9 +35,10 @@ if (requireNamespace("crew", quietly = TRUE)) {
       message("[targets] Using ", cluster_backend, " cluster with ", cluster_workers, " workers")
     }
   } else {
-    # Local crew controller — 1 worker for GPU safety, override via SDM_CREW_WORKERS
+    # Local crew controller — auto-detect cores, cap at 8 for GPU safety, override via SDM_CREW_WORKERS
+    auto_workers <- max(1L, floor(parallel::detectCores() / 2), na.rm = TRUE)
     crew_workers <- as.integer(Sys.getenv("SDM_CREW_WORKERS",
-      Sys.getenv("SDM_CLUSTER_WORKERS", "1")))
+      Sys.getenv("SDM_CLUSTER_WORKERS", as.character(min(auto_workers, 8L)))))
     controller <- crew::crew_controller_local(workers = crew_workers)
     tar_option_set(controller = controller)
     message("[targets] Using local crew controller with ", crew_workers, " worker(s)")

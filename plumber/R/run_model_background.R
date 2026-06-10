@@ -240,6 +240,14 @@ tryCatch({
     rangebag_n_bags = as.integer(config$rangebag_n_bags %||% sdm_default_rangebag_n_bags),
     rangebag_bag_fraction = as.numeric(config$rangebag_bag_fraction %||% sdm_default_rangebag_fraction),
     rangebag_vars_per_bag = as.integer(config$rangebag_vars_per_bag %||% sdm_default_rangebag_vars_per_bag),
+    tuning_method = config$tuning_method %||% sdm_default_tuning_method,
+    enmeval_algorithm = config$enmeval_algorithm %||% sdm_default_enmeval_algorithm,
+    enmeval_partitions = config$enmeval_partitions %||% sdm_default_enmeval_partitions,
+    enmeval_selection_metric = config$enmeval_selection_metric %||% sdm_default_enmeval_selection_metric,
+    enmeval_tune_args = config$enmeval_tune_args %||% sdm_default_enmeval_tune_args,
+    enmeval_categoricals = config$enmeval_categoricals %||% sdm_default_enmeval_categoricals,
+    enmeval_other_settings = config$enmeval_other_settings %||% sdm_default_enmeval_other_settings,
+    enmeval_null_iterations = as.integer(config$enmeval_null_iterations %||% sdm_default_enmeval_null_iterations),
     maxnet_auto_tune = isTRUE(config$maxnet_auto_tune %||% FALSE),
     rf_num_trees = as.integer(config$rf_num_trees %||% 500L),
     rf_mtry = as.integer(config$rf_mtry %||% NA_integer_),
@@ -253,6 +261,9 @@ tryCatch({
     dnn_device = config$dnn_device %||% "auto",
     dnn_dropout = as.numeric(config$dnn_dropout %||% 0.3),
     dnn_lambda = as.numeric(config$dnn_lambda %||% 0.001),
+    dnn_fused_adam = config$dnn_fused_adam %||% "auto",
+    dnn_mixed_precision = config$dnn_mixed_precision %||% "auto",
+    dnn_cuda_graphs = config$dnn_cuda_graphs %||% "auto",
     dnn_architecture = config$dnn_architecture %||% config$dnn_model_type %||% "DNN_Medium",
     dnn_multispecies_architecture = config$dnn_multispecies_architecture %||% config$dnn_model_type %||% "DNN_Medium",
     dnn_multispecies_n_seeds = as.integer(config$dnn_multispecies_n_seeds %||% 3L)
@@ -334,7 +345,17 @@ tryCatch({
       training_auc = result$metrics$training_auc,
       auc_diff = result$metrics$auc_diff,
       overfitting_level = result$metrics$overfitting_level,
-      cbi_diff = result$metrics$cbi_diff
+      cbi_diff = result$metrics$cbi_diff,
+      enmeval_tuned = isTRUE(result$metrics$enmeval_tuned),
+      enmeval_delta_aicc = result$metrics$enmeval_delta_aicc %||% NA_real_,
+      enmeval_or_mtp = result$metrics$enmeval_or_mtp %||% NA_real_,
+      enmeval_or_10p = result$metrics$enmeval_or_10p %||% NA_real_,
+      enmeval_auc_diff = result$metrics$enmeval_auc_diff %||% NA_real_,
+      enmeval_selection_metric = result$metrics$enmeval_selection_metric %||% NA_character_,
+      enmeval_null_p_value = result$metrics$enmeval_null_p_value %||% NA_real_,
+      enmeval_null_auc_mean = result$metrics$enmeval_null_auc_mean %||% NA_real_,
+      enmeval_null_auc_sd = result$metrics$enmeval_null_auc_sd %||% NA_real_,
+      enmeval_null_iterations = result$metrics$enmeval_null_iterations %||% NA_integer_
     )
     meta$output_files <- c(result$paths, diag_files, list(result_rds = result_rds_path %||% NA_character_))
 
