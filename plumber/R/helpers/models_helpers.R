@@ -95,7 +95,7 @@ handle_model_run <- function(req, app_dir) {
   }, args = list(script_path, job_dir, app_dir),
   stdout = file.path(job_dir, "stdout.log"),
   stderr = file.path(job_dir, "stderr.log"),
-  cmdargs = c("--no-save", "--no-restore", "--no-init-file"),
+  cmdargs = c("--no-save", "--no-restore"),
   env = env)
   device_tag <- if (is_gpu_model) "cuda" else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
@@ -393,7 +393,7 @@ handle_targets_run <- function(req, app_dir) {
   }, args = list(script_path, job_dir, app_dir),
   stdout = file.path(job_dir, "stdout.log"),
   stderr = file.path(job_dir, "stderr.log"),
-  cmdargs = c("--no-save", "--no-restore", "--no-init-file"),
+  cmdargs = c("--no-save", "--no-restore"),
   env = env_vars)
   has_gpu_target <- any(vapply(configs, function(c) {
     mid <- c$model_id %||% c[["modelId"]] %||% "glm"
