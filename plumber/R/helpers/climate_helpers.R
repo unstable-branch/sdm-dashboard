@@ -71,7 +71,7 @@ handle_climate_download <- function(req, app_dir) {
   proc <- callr::r_bg(function(script, job_dir, app_dir) {
     source(script, local = TRUE)
   }, args = list(script_path, job_dir, app_dir), stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"))
-  sdm_process_registry[[job_id]] <- proc
+  sdm_process_registry[[job_id]] <- list(proc = proc, device = "cpu")
   job_meta$process_pid <- proc$get_pid()
   sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
 
@@ -97,7 +97,8 @@ handle_climate_status <- function(res, job_id, app_dir) {
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
 
   if (identical(meta$status, "running")) {
-    proc <- sdm_process_registry[[basename(job_id)]]
+    entry <- sdm_process_registry[[basename(job_id)]]
+    proc <- sdm_registry_proc(entry)
     process_alive <- FALSE
     if (!is.null(proc)) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
@@ -270,7 +271,8 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
 
   sdm_redis_cancel_set(basename(job_id))
 
-  proc <- sdm_process_registry[[basename(job_id)]]
+  entry <- sdm_process_registry[[basename(job_id)]]
+  proc <- sdm_registry_proc(entry)
   killed <- FALSE
   if (!is.null(proc) && inherits(proc, "Process") && proc$is_alive()) {
     proc$kill()

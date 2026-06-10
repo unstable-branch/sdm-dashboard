@@ -21,8 +21,45 @@ sdm_count_active_runs <- function() {
   if (!is.environment(reg)) return(0L)
   count <- 0L
   for (key in ls(reg)) {
-    proc <- reg[[key]]
+    entry <- reg[[key]]
+    proc <- if (is.list(entry)) entry$proc else entry
     if (inherits(proc, "process") && tryCatch(proc$is_alive(), error = function(e) FALSE)) {
+      count <- count + 1L
+    }
+  }
+  count
+}
+
+# Count GPU-using model runs
+sdm_count_active_gpu_runs <- function() {
+  if (!exists("sdm_process_registry", envir = .GlobalEnv, inherits = FALSE)) return(0L)
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(0L)
+  count <- 0L
+  for (key in ls(reg)) {
+    entry <- reg[[key]]
+    device <- if (is.list(entry)) entry$device else "cpu"
+    proc <- if (is.list(entry)) entry$proc else entry
+    if (identical(device, "cuda") && inherits(proc, "process") &&
+        tryCatch(proc$is_alive(), error = function(e) FALSE)) {
+      count <- count + 1L
+    }
+  }
+  count
+}
+
+# Count CPU-only model runs
+sdm_count_active_cpu_runs <- function() {
+  if (!exists("sdm_process_registry", envir = .GlobalEnv, inherits = FALSE)) return(0L)
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(0L)
+  count <- 0L
+  for (key in ls(reg)) {
+    entry <- reg[[key]]
+    device <- if (is.list(entry)) entry$device else "cpu"
+    proc <- if (is.list(entry)) entry$proc else entry
+    if (!identical(device, "cuda") && inherits(proc, "process") &&
+        tryCatch(proc$is_alive(), error = function(e) FALSE)) {
       count <- count + 1L
     }
   }
@@ -31,7 +68,8 @@ sdm_count_active_runs <- function() {
 
 # Check if a background process is still alive by process registry + PID fallback
 sdm_check_process_alive <- function(job_id, meta) {
-  proc <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv)[[job_id]], error = function(e) NULL)
+  entry <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv)[[job_id]], error = function(e) NULL)
+  proc <- if (is.list(entry)) entry$proc else entry
   process_alive <- FALSE
   if (!is.null(proc)) {
     tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
@@ -60,6 +98,26 @@ sdm_write_json <- function(value, path, ...) {
   writeLines(jsonlite::toJSON(value, auto_unbox = TRUE, pretty = TRUE, ...), tmp_path)
   file.rename(tmp_path, path)
   invisible(path)
+}
+
+# Check if a model run is expected to use GPU acceleration
+sdm_is_gpu_model <- function(model_id, dnn_device = "auto") {
+  if (!is.character(model_id) || length(model_id) != 1) return(FALSE)
+  gpu_models <- c("dnn", "dnn_multispecies")
+  if (!model_id %in% gpu_models) return(FALSE)
+  if (identical(dnn_device, "cpu")) return(FALSE)
+  if (!torch_is_available()) return(FALSE)
+  tryCatch(torch::cuda_is_available(), error = function(e) FALSE)
+}
+
+torch_is_available <- function() {
+  requireNamespace("torch", quietly = TRUE) &&
+    tryCatch(torch::torch_is_installed(), error = function(e) FALSE)
+}
+
+# Extract process object from registry entry (handles both list and old direct-proc formats)
+sdm_registry_proc <- function(entry) {
+  if (is.list(entry) && !inherits(entry, "process")) entry$proc else entry
 }
 
 # Safe path resolution - restricts access to a base directory
