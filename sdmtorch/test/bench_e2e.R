@@ -1,11 +1,17 @@
 # E2E benchmark: multi-species DNN across architectures (Small + Large).
-# Tests C++ Adam kernel on CPU/GPU and GPU AMP vs standard Adam baseline.
+# Tests C++ Adam kernel on CPU/GPU, GPU AMP, CUDA Graphs, MC Dropout, gradient accumulation.
+# Benchmarks training throughput and inference.
 
 library(torch)
 
 # Load C++ extensions
 so_adam <- file.path(getwd(), "sdmtorch", "train_step_adam.so")
+so_cuda_graph <- file.path(getwd(), "sdmtorch", "cuda_graph.so")
 if (file.exists(so_adam)) dyn.load(so_adam)
+has_cuda_graphs <- FALSE
+if (file.exists(so_cuda_graph) && cuda_is_available()) {
+  tryCatch({ dyn.load(so_cuda_graph); has_cuda_graphs <- is.loaded("cuda_graph_begin", PACKAGE = "") }, error = function(e) NULL)
+}
 
 ARCHS <- list(
   Small = list(hidden = c(64L),          lr = 0.01, epochs = 20L, dropout = 0.4, lambda = 0.01),
@@ -17,12 +23,23 @@ run_benchmark <- function(label, expr, reps = 3) {
   result <- NULL
   for (r in seq_len(reps)) {
     gc(full = TRUE)
+    if (cuda_is_available()) cuda_synchronize()
     t0 <- Sys.time()
     result <- suppressWarnings(force(expr))
-    torch::cuda_synchronize()
+    if (cuda_is_available()) cuda_synchronize()
     times[r] <- as.numeric(Sys.time() - t0)
   }
   list(label = label, losses = result, time_mean = mean(times), time_sd = sd(times))
+}
+
+report_mem <- function() {
+  if (!cuda_is_available()) return(NA_integer_)
+  tryCatch({
+    stats <- cuda_memory_stats()
+    allocated <- stats$allocated_bytes$all$current %/% (1024L * 1024L)
+    reserved <- stats$reserved_bytes$all$current %/% (1024L * 1024L)
+    list(allocated_mb = allocated, reserved_mb = reserved)
+  }, error = function(e) NA_integer_)
 }
 
 zero_grad_safe <- function(params) {
@@ -201,6 +218,78 @@ run_architecture <- function(name, arch) {
       if (d < 0.05) "✓" else "⚠"))
   }
 
+  # --- 5. MC Dropout inference timing (GPU) ---
+  if (cuda_is_available()) {
+    cat("  Benchmark 5: MC Dropout CPU (T=30)...\n"); gc()
+    m_cpu <- build_model("cpu")
+    xt_cpu <- xt
+    t0 <- Sys.time()
+    for (t in seq_len(30)) {
+      m_cpu$train()
+      out <- m_cpu(xt_cpu)
+      l <- loss_fkt(out, yt)
+    }
+    mc_time <- as.numeric(Sys.time() - t0) / 30
+    cat(sprintf("  MC Dropout CPU: %.4f s/sample, %.1f s total\n", mc_time, mc_time * 30))
+
+    cat("  Benchmark 6: MC Dropout GPU (T=30, FP16)...\n"); gc()
+    m_gpu <- build_model("cuda")
+    xd <- torch_tensor(x, device = "cuda")
+    yd <- torch_tensor(y, device = "cuda")
+    t0 <- Sys.time()
+    for (t in seq_len(30)) {
+      m_gpu$train()
+      with_autocast(device_type = "cuda", {
+        out <- m_gpu(xd)
+        l <- loss_fkt(out, yd)
+      })
+    }
+    mc_gpu_time <- as.numeric(Sys.time() - t0) / 30
+    cat(sprintf("  MC Dropout GPU (FP16): %.4f s/sample, %.1f s total (%.1fx vs CPU)\n",
+      mc_gpu_time, mc_gpu_time * 30, mc_time / mc_gpu_time))
+  }
+
+  # --- 6. Gradient accumulation benchmark ---
+  if (cuda_is_available() && is.loaded("adam_step_direct", PACKAGE = "")) {
+    cat("  Benchmark 7: GPU C++ Adam (acc_steps=4)...\n"); gc()
+    train_gpu_acc4 <- function(ep) {
+      fn <- "adam_step_direct"
+      m <- build_model("cuda"); p <- m$parameters
+      xd <- torch_tensor(x, device = "cuda"); yd <- torch_tensor(y, device = "cuda")
+      os <- list(params = p, lr = lr, b1 = 0.9, b2 = 0.999, eps = 1e-8, weight_decay = lambda,
+        exp_avgs = lapply(p, function(pp) torch_zeros_like(pp)),
+        exp_avg_sqs = lapply(p, function(pp) torch_zeros_like(pp)),
+        state_steps = lapply(p, function(pp) torch_tensor(0L, dtype = torch_int64())))
+      acc_steps <- 4L; losses <- numeric(ep)
+      for (epoch in seq_len(ep)) {
+        perm <- sample(n_sites); el <- 0; nb <- 0
+        for (i in seq(1, n_sites, batch_size)) {
+          idx <- perm[i:min(i + batch_size - 1, n_sites)]
+          zero_grad_safe(p)
+          out <- m(xd[idx, ]); l <- loss_fkt(out, yd[idx, ])
+          (l / acc_steps)$backward()
+          if (nb %% acc_steps == 0) {
+            for (j in seq_along(os$state_steps)) os$state_steps[[j]]$add_(1L)
+            .Call(fn, p, lapply(p, function(pp) pp$grad),
+              os$exp_avgs, os$exp_avg_sqs, os$state_steps, lr, 0.9, 0.999, 1e-8, lambda)
+          }
+          el <- el + as.numeric(l$item()); nb <- nb + 1
+        }
+        losses[epoch] <- el / nb
+      }
+      losses
+    }
+    results[[length(results) + 1]] <- run_benchmark("GPU C++ Adam (acc=4)", train_gpu_acc4(epochs))
+  }
+
+  # --- 7. Memory snapshot ---
+  if (cuda_is_available()) {
+    gc(); cuda_synchronize()
+    mem <- report_mem()
+    if (is.list(mem)) cat(sprintf("\n  Peak GPU memory: %d MiB allocated, %d MiB reserved\n",
+      mem$allocated_mb, mem$reserved_mb))
+  }
+
   results
 }
 
@@ -209,3 +298,6 @@ all_results <- list()
 for (nm in names(ARCHS)) {
   all_results[[nm]] <- run_architecture(nm, ARCHS[[nm]])
 }
+
+cat("\n", strrep("=", 70), "\n", sep = "")
+cat("All benchmarks complete.\n")
