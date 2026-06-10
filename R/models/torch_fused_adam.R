@@ -10,6 +10,40 @@ set_train_opts <- function(mixed_precision = "auto", cuda_graphs = "auto") {
   .train_opts$cuda_graphs <- cuda_graphs
 }
 
+# Optional GPU memory profiler — records allocation traceback history.
+# Enable with env SDM_GPU_PROFILE=true or gpu_profile=TRUE in train_model_fused.
+# Writes gpu_memory_snapshot.json to the output dir for analysis with
+# pytorch's memory_viz.py: python memory_viz.py trace gpu_memory_snapshot.json
+gpu_profile_start <- function(enabled = FALSE) {
+  if (!enabled) return(FALSE)
+  if (!requireNamespace("torch", quietly = TRUE)) return(FALSE)
+  if (!torch::cuda_is_available()) return(FALSE)
+  tryCatch({
+    torch::cuda_record_memory_history()
+    TRUE
+  }, error = function(e) FALSE)
+}
+
+gpu_profile_dump <- function(enabled, output_dir = NULL) {
+  if (!isTRUE(enabled)) return(invisible(NULL))
+  if (!requireNamespace("torch", quietly = TRUE)) return(invisible(NULL))
+  tryCatch({
+    if (!is.null(output_dir) && nzchar(output_dir)) {
+      dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+      torch::cuda_dump_memory_snapshot(file.path(output_dir, "gpu_memory_snapshot.json"))
+    }
+  }, error = function(e) NULL)
+}
+
+gpu_profile_stop <- function(enabled) {
+  if (!isTRUE(enabled)) return(invisible(NULL))
+  tryCatch({
+    if (requireNamespace("torch", quietly = TRUE)) {
+      torch::cuda_memory_snapshot()
+    }
+  }, error = function(e) NULL)
+}
+
 # === Fused Elastic Net Regularization ===
 
 fused_regularize_weights <- function(parameters, alpha, lambda) {
@@ -91,7 +125,7 @@ fused_adam_step <- function(state) {
 # === GC-Protected Training Loop with AMP + CUDA Graphs ===
 
 train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
-                              verbose = TRUE, plot_new = FALSE,
+                              verbose = TRUE, use_traced = FALSE,
                               accumulation_steps = 1L,
                               loss_record_interval = 10L) {
   model$net$to(device = device)
@@ -101,6 +135,13 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   .old_gc_threshold <- getOption("torch.threshold_call_gc", 4000L)
   options(torch.threshold_call_gc = Inf)
   on.exit(options(torch.threshold_call_gc = .old_gc_threshold), add = TRUE)
+
+  # Optional GPU memory profiling — activated by SDM_GPU_PROFILE=true env var
+  gpu_profile <- isTRUE(as.logical(Sys.getenv("SDM_GPU_PROFILE", "false")))
+  if (gpu_profile && gpu_profile_start(TRUE)) {
+    cat("[GPU Profile] Memory history recording started\n")
+    on.exit(gpu_profile_stop(TRUE), add = TRUE)
+  }
 
   opt_state <- fused_adam_init(
     model$net$parameters,
@@ -484,6 +525,9 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
       )
     }
   }
+
+  # Dump GPU profile snapshot if profiling was active
+  gpu_profile_dump(gpu_profile, getwd())
 
   model$net$to(device = "cpu")
   model$weights[[2]] <- lapply(model$net$parameters,
