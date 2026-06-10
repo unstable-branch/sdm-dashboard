@@ -88,7 +88,7 @@ build_run_args <- function(row) {
   integer_params <- c("background_n", "cv_folds", "aggregation_factor", "seed",
     "worldclim_res", "veg_year", "lulc_year", "hfp_year",
     "n_cores", "pa_replicates", "min_source_records", "thickening_distance_km",
-    "dnn_n_seeds", "dnn_multispecies_n_seeds",
+    "dnn_n_seeds", "dnn_multispecies_n_seeds", "dnn_mc_samples",
     "brt_n_trees", "brt_interaction_depth", "cta_maxdepth", "cta_minsplit",
     "mars_degree", "mars_nk", "fda_degree", "fda_nprune",
     "ann_size", "ann_maxit", "ann_rang",
