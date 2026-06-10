@@ -82,6 +82,7 @@ handle_model_run <- function(req, app_dir) {
   }
 
   env <- c(
+    Sys.getenv(),
     HOME = "/app",
     TMPDIR = tmp_dir,
     OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
@@ -379,6 +380,7 @@ handle_targets_run <- function(req, app_dir) {
   is_multispecies <- sdm_any_multispecies_model(model_ids)
 
   env_vars <- c(
+    Sys.getenv(),
     HOME = "/app",
     OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
     R_MAX_VSIZE = sdm_detect_vsize(),
