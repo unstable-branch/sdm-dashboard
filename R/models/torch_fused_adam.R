@@ -212,11 +212,11 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   for (epoch in start_epoch:(start_epoch + epochs - 1)) {
     model$training_properties$epoch <- epoch
 
-    # Pre-allocate loss vectors (avoid O(n^2) from c() growth)
-    max_train_batches <- length(train_dl)
-    train_l_vec <- numeric(max_train_batches)
+    # Materialize all batches once (avoids coro::loop overhead)
+    train_batches <- coro::collect(train_dl)
+    n_batches <- length(train_batches)
+    train_l_vec <- numeric(n_batches)
     train_batch_idx <- 0L
-    batch_count <- 0L
 
     # CUDA Graph state
     cg_graph <- NULL
@@ -224,8 +224,10 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
     cg_captured <- FALSE
     cg_batches_this_epoch <- 0L
 
-    coro::loop(for (b in train_dl) {
-      if (batch_count %% acc_steps == 0L) {
+    for (batch_count in seq_len(n_batches)) {
+      b <- train_batches[[batch_count]]
+
+      if (batch_count %% acc_steps == 1L) {
         fused_adam_zero_grad(opt_state)
       }
 
@@ -234,7 +236,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
 
       # CUDA Graphs: capture after 3 warmup steps
       can_use_graph <- use_cudagraphs && !cg_captured && cg_warmup >= 3L &&
-        batch_count %% acc_steps == 0L
+        batch_count %% acc_steps == 1L
       if (can_use_graph) {
         cg_captured <- TRUE
         .Call("cuda_graph_begin", TRUE)
@@ -297,8 +299,6 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
         total_loss$backward()
       }
 
-      batch_count <- batch_count + 1L
-
       if (batch_count %% acc_steps == 0L) {
         if (use_amp && !is.null(scaler)) {
           amp_pseudo_opt$param_groups[[1]]$params <- opt_state$params
@@ -318,7 +318,6 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
       if (use_cudagraphs) {
         cg_batches_this_epoch <- cg_batches_this_epoch + 1L
         if (cg_captured && cg_batches_this_epoch == 2L) {
-          # First captured batch: end capture, start replaying
           cg_graph <- .Call("cuda_graph_end", TRUE)
         }
         if (!is.null(cg_graph) && cg_batches_this_epoch > 2L) {
@@ -327,10 +326,10 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
           cg_warmup <- cg_warmup + 1L
         }
       }
-    })
+    }
 
     # Final step for incomplete accumulation
-    if (acc_steps > 1L && batch_count %% acc_steps != 0L) {
+    if (acc_steps > 1L && n_batches %% acc_steps != 0L) {
       if (use_amp && !is.null(scaler)) {
         amp_pseudo_opt$param_groups[[1]]$params <- opt_state$params
         scaler$unscale_(amp_pseudo_opt)
@@ -372,12 +371,10 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
       model$net$train(FALSE)
       if (use_traced) traced_module$eval()
 
-      max_valid_batches <- length(valid_dl)
-      valid_losses_vec <- numeric(max_valid_batches)
+      valid_losses_vec <- numeric(length(valid_dl))
       valid_batch_idx <- 0L
-
       torch::with_no_grad({
-        coro::loop(for (b in valid_dl) {
+        for (b in coro::collect(valid_dl)) {
           x_batch <- b[[1]]$to(device = device, non_blocking = TRUE)
           y_batch <- b[[2]]$to(device = device, non_blocking = TRUE)
 
@@ -405,7 +402,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
 
           valid_batch_idx <- valid_batch_idx + 1L
           valid_losses_vec[valid_batch_idx] <- as.numeric(vloss$item())
-        })
+        }
       })
 
       model$losses$valid_l[epoch] <- mean(valid_losses_vec[seq_len(valid_batch_idx)])
