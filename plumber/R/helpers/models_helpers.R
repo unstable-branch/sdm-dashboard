@@ -28,6 +28,15 @@ handle_model_run <- function(req, app_dir) {
     return(sdm_error_code(req, "INVALID_INPUT", "projection_extent is outside valid coordinate bounds (\u00b1180, \u00b190)"))
   }
 
+  # Validate ENMeval algorithm when tuning_method is enmeval
+  tuning_method <- sdm_payload_coalesce(body$tuning_method, body$tuningMethod) %||% "none"
+  if (identical(tuning_method, "enmeval")) {
+    enmeval_algo <- sdm_payload_coalesce(body$enmeval_algorithm, body$enmevalAlgorithm) %||% "maxnet"
+    if (!has_enmdetails(enmeval_algo)) {
+      return(sdm_error_code(req, "INVALID_INPUT", paste0("ENMeval algorithm '", enmeval_algo, "' is not available. Supported: ", paste(ls(envir = sdm_enmdetails_registry), collapse = ", "))))
+    }
+  }
+
   tryCatch({
     mem_info <- terra::mem_info()
     if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
@@ -161,7 +170,8 @@ sdm_camel_to_snake <- list(
   esmSplit = "esm_split", esmMinAuc = "esm_min_auc",
   esmWeightingMetric = "esm_weighting_metric", esmPower = "esm_power",
   esmBiovars = "esm_biovars", maxnetAutoTune = "maxnet_auto_tune",
-  gamK = "gam_k", dnnDropout = "dnn_dropout", dnnL2Lambda = "dnn_lambda",
+  gamK = "gam_k",   dnnDropout = "dnn_dropout", dnnL2Lambda = "dnn_lambda",
+  dnnMixedPrecision = "dnn_mixed_precision", dnnCudaGraphs = "dnn_cuda_graphs",
   multiEnsembleExport = "multi_ensemble_export",
   multiEnsembleUncertainty = "multi_ensemble_uncertainty",
   chelsaExtras = "chelsa_extras", analysisCrs = "analysis_crs",
@@ -169,7 +179,14 @@ sdm_camel_to_snake <- list(
   speciesFilter = "species_filter", trainingExtent = "training_extent",
   dnnModelType = "dnn_model_type", dnnMultispeciesNSeeds = "dnn_multispecies_n_seeds",
   dnnMultispeciesArchitecture = "dnn_multispecies_architecture",
-  cleanedFileId = "cleaned_file_id"
+  cleanedFileId = "cleaned_file_id",
+  tuningMethod = "tuning_method",
+  enmevalAlgorithm = "enmeval_algorithm",
+  enmevalPartitions = "enmeval_partitions",
+  enmevalSelectionMetric = "enmeval_selection_metric",
+  enmevalTuneArgs = "enmeval_tune_args",
+  enmevalCategoricals = "enmeval_categoricals",
+  enmevalNullIterations = "enmeval_null_iterations"
 )
 
 sdm_targets_config_field_types <- list(
@@ -202,7 +219,8 @@ sdm_targets_config_field_types <- list(
   comma_strings = c("soil_vars", "soil_depths", "uv_vars", "uv_months",
     "veg_products", "drought_periods", "chelsa_extras",
     "multi_ensemble_models", "biomod2_models"),
-  target_group_files = c("target_group_file")
+  target_group_files = c("target_group_file"),
+  enmeval_json = c("enmeval_tune_args", "enmeval_other_settings")
 )
 
 normalize_targets_config <- function(cfg) {
@@ -280,6 +298,18 @@ handle_targets_run <- function(req, app_dir) {
   )
   if (is.null(body) || is.null(body$configs) || length(body$configs) == 0) {
     return(sdm_error_code(req, "INVALID_INPUT", "Request body must contain a non-empty 'configs' array"))
+  }
+
+  # Validate ENMeval algorithms in all configs
+  for (i in seq_along(body$configs)) {
+    c <- body$configs[[i]]
+    tuning <- sdm_payload_coalesce(c$tuning_method, c$tuningMethod) %||% "none"
+    if (identical(tuning, "enmeval")) {
+      algo <- sdm_payload_coalesce(c$enmeval_algorithm, c$enmevalAlgorithm) %||% "maxnet"
+      if (!has_enmdetails(algo)) {
+        return(sdm_error_code(req, "INVALID_INPUT", paste0("Config ", i, ": ENMeval algorithm '", algo, "' not available.")))
+      }
+    }
   }
 
   job_id <- paste0("targets-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
@@ -930,7 +960,15 @@ sdm_submit_async_job <- function(req, app_dir, job_type, params, user_id = "anon
       c("--no-save", "--no-restore", "--no-init-file", dispatcher_path, app_dir, job_dir),
       stdout = file.path(job_dir, "stdout.log"),
       stderr = file.path(job_dir, "stderr.log"),
-      env = c(HOME = "/app")
+      env = c(
+        HOME = "/app",
+        PATH = Sys.getenv("PATH"),
+        LD_LIBRARY_PATH = Sys.getenv("LD_LIBRARY_PATH"),
+        R_HOME = Sys.getenv("R_HOME"),
+        R_LIBS_USER = Sys.getenv("R_LIBS_USER"),
+        OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
+        R_MAX_VSIZE = sdm_detect_vsize()
+      )
     )
 
     sdm_process_registry[[job_id]] <- proc
@@ -939,7 +977,7 @@ sdm_submit_async_job <- function(req, app_dir, job_type, params, user_id = "anon
 
     job_id
   }, error = function(e) {
-    cat(sprintf("[sdm_async_submit] ERROR: %s\n", conditionMessage(e)), stderr())
+    cat(sprintf("[sdm_submit_async_job] ERROR: %s\n", conditionMessage(e)), stderr())
     NULL
   })
 }

@@ -120,16 +120,31 @@ run_fast_sdm <- function(...) {
   rangebag_bag_fraction <- cfg$rangebag_bag_fraction
   rangebag_vars_per_bag <- cfg$rangebag_vars_per_bag
   maxnet_auto_tune <- isTRUE(cfg$maxnet_auto_tune)
+  tuning_method <- cfg$tuning_method %||% sdm_default_tuning_method
+  enmeval_algorithm <- cfg$enmeval_algorithm %||% sdm_default_enmeval_algorithm
+  enmeval_partitions <- cfg$enmeval_partitions %||% sdm_default_enmeval_partitions
+  enmeval_selection_metric <- cfg$enmeval_selection_metric %||% sdm_default_enmeval_selection_metric
+  enmeval_tune_args <- cfg$enmeval_tune_args %||% sdm_default_enmeval_tune_args
+  enmeval_categoricals <- cfg$enmeval_categoricals %||% sdm_default_enmeval_categoricals
+  enmeval_other_settings <- cfg$enmeval_other_settings %||% sdm_default_enmeval_other_settings
+  enmeval_null_iterations <- cfg$enmeval_null_iterations %||% sdm_default_enmeval_null_iterations
   rf_num_trees <- cfg$rf_num_trees %||% 500L
   rf_mtry <- cfg$rf_mtry %||% NA_integer_
   rf_min_node_size <- cfg$rf_min_node_size %||% 10L
   gam_k <- cfg$gam_k %||% 5L
+  glm_alpha <- cfg$glm_alpha %||% NA_real_
   xgb_max_depth <- cfg$xgb_max_depth %||% 6L
   xgb_eta <- cfg$xgb_eta %||% 0.3
   xgb_nrounds <- cfg$xgb_nrounds %||% 100L
   dnn_model_type <- cfg$dnn_model_type %||% "DNN_Medium"
   dnn_dropout <- cfg$dnn_dropout %||% 0.3
   dnn_lambda <- cfg$dnn_lambda %||% 0.001
+  dnn_fused_adam <- cfg$dnn_fused_adam %||% "auto"
+  dnn_multispecies_architecture <- cfg$dnn_multispecies_architecture %||% "DNN_Medium"
+  dnn_multispecies_n_seeds <- cfg$dnn_multispecies_n_seeds %||% 3L
+  dnn_device <- cfg$dnn_device %||% "auto"
+  dnn_mixed_precision <- cfg$dnn_mixed_precision %||% "auto"
+  dnn_cuda_graphs <- cfg$dnn_cuda_graphs %||% "auto"
   overlap_warn <- cfg$overlap_warn
   validation_occurrences <- cfg$validation_occurrences
   niche_breadth <- cfg$niche_breadth %||% sdm_default_niche_breadth
@@ -382,56 +397,94 @@ run_fast_sdm <- function(...) {
     )
   } else if (identical(model_id, "dnn")) {
     list(
-      dnn_model_type = dnn_model_type, dropout = dnn_dropout, lambda = dnn_lambda
+      dnn_model_type = dnn_model_type, dropout = dnn_dropout, lambda = dnn_lambda,
+      use_fused_adam = dnn_fused_adam,
+      dnn_mixed_precision = dnn_mixed_precision,
+      dnn_cuda_graphs = dnn_cuda_graphs
+    )
+  } else if (identical(model_id, "dnn_multispecies")) {
+    list(
+      dnn_architecture = dnn_multispecies_architecture,
+      n_seeds = dnn_multispecies_n_seeds,
+      dnn_device = dnn_device,
+      use_fused_adam = dnn_fused_adam,
+      dnn_mixed_precision = dnn_mixed_precision,
+      dnn_cuda_graphs = dnn_cuda_graphs
     )
   } else {
     character(0)
   }
 
-  # MaxNet auto-tune: override features/regmult with grid search results
-  if (identical(model_id, "maxnet") && isTRUE(maxnet_auto_tune)) {
-    log_message(log_fun, "Auto-tuning MaxNet hyperparameters via grid search")
-    if (!requireNamespace("maxnet", quietly = TRUE)) {
-      log_message(log_fun, "  maxnet package not available — using manual settings")
-    } else {
-      tune_data <- tryCatch(
-        prepare_sdm_data(occ, env$env_train_scaled, background_n,
-          seed = seed, log_fun = log_fun,
-          bias_method = bias_method %||% "uniform",
-          target_group_occ = target_group_occ,
-          thickening_distance_km = thickening_distance_km
-        ),
-        error = function(e) {
-          log_message(log_fun, "  Data preparation for auto-tune failed: ", conditionMessage(e))
-          NULL
-        }
-      )
-      if (!is.null(tune_data) && nrow(tune_data$model_data) > 0 && length(tune_data$covariates) > 0) {
-        tune_result <- tryCatch(
-          tune_maxnet(tune_data$model_data, tune_data$covariates,
-            regmult_grid = c(0.5, 1.0, 1.5, 2.0, 3.0),
-            feature_sets = c("lqph", "lqp", "lp", "l"),
-            k = max(cv_folds, 3L), seed = seed, n_cores = n_cores, log_fun = log_fun
-          ),
-          error = function(e) {
-            log_message(log_fun, "  Auto-tune failed: ", conditionMessage(e))
-            NULL
-          }
-        )
-        if (!is.null(tune_result)) {
-          best <- attr(tune_result, "best")
-          if (!is.null(best)) {
-            maxnet_features <- best$features
-            maxnet_regmult <- best$regmult
-            log_message(log_fun, "  Best: features=", maxnet_features, " regmult=", sprintf("%.1f", maxnet_regmult))
-          }
-        }
-      } else {
-        log_message(log_fun, "  Auto-tune skipped: could not prepare model data")
+  # Tuning: ENMeval (via shared block) or legacy auto-tune, overrides features/regmult
+  enmeval_tune_result <- NULL
+  if (identical(tuning_method, "enmeval")) {
+    if (identical(model_id, "maxnet") && isTRUE(maxnet_auto_tune)) {
+      log_message(log_fun, "NOTE: Both legacy auto-tune and ENMeval tuning enabled. ENMeval takes precedence.")
+    }
+    tune_result <- run_enmeval_tune_block(
+      cfg = cfg, occ = occ, env_train_scaled = env$env_train_scaled,
+      background_n = background_n, cv_folds = cv_folds,
+      cv_block_size_km = cv_block_size_km,
+      seed = seed, n_cores = n_cores, log_fun = log_fun
+    )
+    if (isTRUE(tune_result$success)) {
+      enmeval_tune_result <- tune_result
+      bp <- tune_result$best_params %||% list()
+      if (identical(model_id, "maxnet")) {
+        maxnet_features <- bp$features %||% maxnet_features
+        maxnet_regmult <- bp$regmult %||% maxnet_regmult
+      } else if (identical(model_id, "glm") && !is.null(bp$alpha)) {
+        glm_alpha <- as.numeric(bp$alpha)
+        cfg$glm_alpha <- glm_alpha
+      } else if (identical(model_id, "rf")) {
+        if (!is.null(bp$mtry)) { rf_mtry <- as.integer(bp$mtry); cfg$rf_mtry <- rf_mtry }
+        if (!is.null(bp$min_node_size)) { rf_min_node_size <- as.integer(bp$min_node_size); cfg$rf_min_node_size <- rf_min_node_size }
       }
     }
   }
-
+  # Legacy auto-tune for maxnet (only when ENMeval not active)
+  if (identical(model_id, "maxnet") && isTRUE(maxnet_auto_tune) && !identical(tuning_method, "enmeval")) {
+      log_message(log_fun, "Auto-tuning MaxNet hyperparameters via grid search")
+      if (!requireNamespace("maxnet", quietly = TRUE)) {
+        log_message(log_fun, "  maxnet package not available — using manual settings")
+      } else {
+        tune_data <- tryCatch(
+          prepare_sdm_data(occ, env$env_train_scaled, background_n,
+            seed = seed, log_fun = log_fun,
+            bias_method = bias_method %||% "uniform",
+            target_group_occ = target_group_occ,
+            thickening_distance_km = thickening_distance_km
+          ),
+          error = function(e) {
+            log_message(log_fun, "  Data preparation for auto-tune failed: ", conditionMessage(e))
+            NULL
+          }
+        )
+        if (!is.null(tune_data) && nrow(tune_data$model_data) > 0 && length(tune_data$covariates) > 0) {
+          tune_result <- tryCatch(
+            tune_maxnet(tune_data$model_data, tune_data$covariates,
+              regmult_grid = c(0.5, 1.0, 1.5, 2.0, 3.0),
+              feature_sets = c("lqph", "lqp", "lp", "l"),
+              k = max(cv_folds, 3L), seed = seed, n_cores = n_cores, log_fun = log_fun
+            ),
+            error = function(e) {
+              log_message(log_fun, "  Auto-tune failed: ", conditionMessage(e))
+              NULL
+            }
+          )
+          if (!is.null(tune_result)) {
+            best <- attr(tune_result, "best")
+            if (!is.null(best)) {
+              maxnet_features <- best$features
+              maxnet_regmult <- best$regmult
+              log_message(log_fun, "  Best: features=", maxnet_features, " regmult=", sprintf("%.1f", maxnet_regmult))
+            }
+          }
+        } else {
+          log_message(log_fun, "  Auto-tune skipped: could not prepare model data")
+        }
+      }
+    }
   bias_method <- match.arg(bias_method, c("uniform", "target_group", "thickened"))
   pa_replicates <- cfg$pa_replicates %||% 1L
   if (is.null(pa_replicates) || !is.finite(pa_replicates) || pa_replicates < 1) pa_replicates <- 1L
@@ -704,24 +757,57 @@ run_fast_sdm <- function(...) {
     on.exit(unlink(pa_temp_files), add = TRUE)
     suit_sum <- suit
     valid_reps <- 1L
-    for (rep_i in seq_len(pa_replicates)[-1]) {
-      rep_fit <- replicate_fits[[rep_i]]
-      if (is.null(rep_fit)) next
-      rep_tif <- tempfile(pattern = paste0("pa_rep", rep_i, "_"), fileext = ".tif")
-      pa_temp_files <- c(pa_temp_files, rep_tif)
-      rep_suit <- tryCatch(
-        predict_sdm_model(rep_fit, env$env_project_scaled, rep_tif, n_cores, log_fun),
-        error = function(e) {
-          log_message(log_fun, "  PA replicate ", rep_i, " prediction failed: ", conditionMessage(e))
+
+    # Indices of valid replicates (skip first — already in suit_sum)
+    rep_indices <- which(!vapply(replicate_fits, is.null, logical(1)))
+    rep_indices <- rep_indices[rep_indices > 1]
+
+    if (length(rep_indices) > 0 && n_cores > 1) {
+      # Parallel prediction across replicates using mclapply (fork-based)
+      # Each worker uses 1 core for prediction — parallelism is across replicates
+      pa_workers <- min(n_cores, length(rep_indices), 4L)
+      rep_results <- parallel::mclapply(rep_indices, function(i) {
+        rep_fit <- replicate_fits[[i]]
+        rep_tif <- tempfile(pattern = paste0("pa_rep", i, "_"), fileext = ".tif")
+        pa_temp_files <<- c(pa_temp_files, rep_tif)
+        tryCatch({
+          s <- predict_sdm_model(rep_fit, env$env_project_scaled, rep_tif, 1, NULL)
+          unlink(rep_tif)
+          s
+        }, error = function(e) {
+          message("  PA replicate ", i, " prediction failed: ", conditionMessage(e))
           NULL
+        })
+      }, mc.cores = pa_workers, mc.preschedule = TRUE)
+
+      for (rr in rep_results) {
+        if (!is.null(rr)) {
+          suit_sum <- suit_sum + rr
+          valid_reps <- valid_reps + 1L
         }
-      )
-      if (!is.null(rep_suit)) {
-        suit_sum <- suit_sum + rep_suit
-        valid_reps <- valid_reps + 1L
-        unlink(rep_tif)
+      }
+    } else if (length(rep_indices) > 0) {
+      # Fallback: sequential for single-core or edge case
+      for (rep_i in rep_indices) {
+        rep_fit <- replicate_fits[[rep_i]]
+        if (is.null(rep_fit)) next
+        rep_tif <- tempfile(pattern = paste0("pa_rep", rep_i, "_"), fileext = ".tif")
+        pa_temp_files <- c(pa_temp_files, rep_tif)
+        rep_suit <- tryCatch(
+          predict_sdm_model(rep_fit, env$env_project_scaled, rep_tif, 1, log_fun),
+          error = function(e) {
+            log_message(log_fun, "  PA replicate ", rep_i, " prediction failed: ", conditionMessage(e))
+            NULL
+          }
+        )
+        if (!is.null(rep_suit)) {
+          suit_sum <- suit_sum + rep_suit
+          valid_reps <- valid_reps + 1L
+          unlink(rep_tif)
+        }
       }
     }
+
     if (valid_reps > 1) {
       suit <- suit_sum / valid_reps
       terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
@@ -1060,6 +1146,19 @@ run_fast_sdm <- function(...) {
     log_message(log_fun, "Warning: AUC/TSS may be unreliable — fewer than 25 presence or background observations (n_pres=", n_pres, ", n_bg=", n_bg, ")")
   }
 
+  # ENMeval null model (conditional — only when tuning ran and user requested null test)
+  enmeval_null_result <- NULL
+  if (!is.null(enmeval_tune_result) && isTRUE(enmeval_tune_result$success) &&
+      !is.null(enmeval_tune_result$enmeval_object) && isTRUE(enmeval_null_iterations > 0)) {
+    progress_step(progress_fun, 0.75, "Running ENMeval null model")
+    log_message(log_fun, "Running ENMeval null model (", enmeval_null_iterations, " iterations)")
+    enmeval_null_result <- run_enmeval_null_block(
+      enmeval_object = enmeval_tune_result$enmeval_object,
+      no.iter = enmeval_null_iterations,
+      n_cores = n_cores, seed = seed, log_fun = log_fun
+    )
+  }
+
   metrics <- list(
     presence_records = n_pres, background_points = n_bg,
     auc_mean = fit$cv$auc_mean, auc_sd = fit$cv$auc_sd, cv_folds = fit$cv$k,
@@ -1074,6 +1173,25 @@ run_fast_sdm <- function(...) {
     auc_unreliable = auc_unreliable,
     tss_unreliable = tss_unreliable
   )
+
+  if (!is.null(enmeval_tune_result)) {
+    bp <- enmeval_tune_result$best_params %||% list()
+    metrics$enmeval_tuned <- TRUE
+    metrics$enmeval_delta_aicc <- bp$delta_aicc %||% NA_real_
+    metrics$enmeval_or_mtp <- bp$or_mtp_avg %||% NA_real_
+    metrics$enmeval_or_10p <- bp$or_10p_avg %||% NA_real_
+    metrics$enmeval_auc_diff <- bp$auc_diff_avg %||% NA_real_
+    metrics$enmeval_selection_metric <- enmeval_tune_result$selection_metric %||% NA_character_
+    metrics$enmeval_tuning_report <- enmeval_tune_result$tuning_report %||% NA_character_
+  }
+
+  if (!is.null(enmeval_null_result) && isTRUE(enmeval_null_result$success)) {
+    metrics$enmeval_null_p_value <- enmeval_null_result$p_value %||% NA_real_
+    metrics$enmeval_null_auc_mean <- enmeval_null_result$null_auc_mean %||% NA_real_
+    metrics$enmeval_null_auc_sd <- enmeval_null_result$null_auc_sd %||% NA_real_
+    metrics$enmeval_null_iterations <- enmeval_null_result$n_iterations %||% NA_integer_
+    log_message(log_fun, "Null model: p=", sprintf("%.4f", metrics$enmeval_null_p_value))
+  }
 
   result <- list(
     config = list(
@@ -1159,7 +1277,8 @@ build_stage_extra_args <- function(cfg, model_id) {
     list(size = cfg$ann_size %||% 5L, decay = cfg$ann_decay %||% 0.01, maxit = cfg$ann_maxit %||% 200L)
   } else if (identical(model_id, "dnn")) {
     list(n_seeds = cfg$dnn_n_seeds %||% 5L, dnn_model_type = cfg$dnn_model_type %||% "DNN_Medium", dnn_device = cfg$dnn_device %||% "auto",
-         dropout = cfg$dnn_dropout %||% 0.3, lambda = cfg$dnn_lambda %||% 0.001)
+         dropout = cfg$dnn_dropout %||% 0.3, lambda = cfg$dnn_lambda %||% 0.001, use_fused_adam = cfg$dnn_fused_adam %||% "auto",
+         dnn_mixed_precision = cfg$dnn_mixed_precision %||% "auto", dnn_cuda_graphs = cfg$dnn_cuda_graphs %||% "auto")
   } else if (identical(model_id, "gam")) {
     list(max_k = cfg$gam_k %||% 5L)
   } else if (identical(model_id, "rf")) {
@@ -1180,7 +1299,8 @@ build_stage_extra_args <- function(cfg, model_id) {
     list(detection_formula = cfg$detection_formula %||% "~1", model_type = cfg$occupancy_model_type %||% "occu")
   } else if (identical(model_id, "dnn_multispecies")) {
     list(dnn_architecture = cfg$dnn_architecture %||% cfg$dnn_multispecies_architecture %||% "DNN_Medium", n_seeds = cfg$dnn_multispecies_n_seeds %||% 3L,
-      dnn_device = cfg$dnn_device %||% "auto")
+      dnn_device = cfg$dnn_device %||% "auto", use_fused_adam = cfg$dnn_fused_adam %||% "auto",
+      dnn_mixed_precision = cfg$dnn_mixed_precision %||% "auto", dnn_cuda_graphs = cfg$dnn_cuda_graphs %||% "auto")
   } else if (identical(model_id, "gllvm")) {
     list(gllvm_family = cfg$gllvm_family %||% "binomial",
       gllvm_num_lv = cfg$gllvm_num_lv %||% 2L,

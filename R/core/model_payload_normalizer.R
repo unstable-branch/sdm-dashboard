@@ -44,6 +44,10 @@ sdm_normalize_model_payload <- function(payload) {
     payload$dnn_device,
     payload$dnnDevice
   )
+  payload$dnn_fused_adam <- sdm_payload_coalesce(
+    payload$dnn_fused_adam,
+    payload$dnnFusedAdam
+  )
   payload$dnn_dropout <- sdm_payload_coalesce_numeric(
     payload$dnn_dropout,
     payload$dnnDropout
@@ -68,6 +72,14 @@ sdm_normalize_model_payload <- function(payload) {
   payload$dnn_multispecies_n_seeds <- sdm_payload_coalesce_integer(
     payload$dnn_multispecies_n_seeds,
     payload$dnnMultispeciesNSeeds
+  )
+  payload$dnn_mixed_precision <- sdm_payload_coalesce(
+    payload$dnn_mixed_precision,
+    payload$dnnMixedPrecision
+  )
+  payload$dnn_cuda_graphs <- sdm_payload_coalesce(
+    payload$dnn_cuda_graphs,
+    payload$dnnCudaGraphs
   )
 
   payload$gllvm_family <- sdm_payload_coalesce(
@@ -188,6 +200,31 @@ sdm_normalize_model_payload <- function(payload) {
   payload$generate_tiles <- sdm_payload_coalesce(
     payload$generate_tiles,
     payload$generateTiles
+  )
+
+  payload$tuning_method <- sdm_payload_coalesce(
+    payload$tuning_method,
+    payload$tuningMethod
+  )
+  payload$enmeval_algorithm <- sdm_payload_coalesce(
+    payload$enmeval_algorithm,
+    payload$enmevalAlgorithm
+  )
+  payload$enmeval_partitions <- sdm_payload_coalesce(
+    payload$enmeval_partitions,
+    payload$enmevalPartitions
+  )
+  payload$enmeval_selection_metric <- sdm_payload_coalesce(
+    payload$enmeval_selection_metric,
+    payload$enmevalSelectionMetric
+  )
+  payload$enmeval_categoricals <- sdm_payload_coalesce(
+    payload$enmeval_categoricals,
+    payload$enmevalCategoricals
+  )
+  payload$enmeval_null_iterations <- sdm_payload_coalesce_integer(
+    payload$enmeval_null_iterations,
+    payload$enmevalNullIterations
   )
 
   payload

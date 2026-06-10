@@ -10,7 +10,7 @@ handle_job_status <- function(req, res, job_id, app_dir) {
       }
     }
   }
-  status <- sdm_async_status(job_id)
+  status <- handle_async_status(NULL, job_id, app_dir)
   if (!status$available) {
     res$status <- 404L
     return(list(error = "Job not found"))

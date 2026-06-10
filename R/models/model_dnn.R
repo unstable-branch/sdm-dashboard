@@ -287,7 +287,8 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
 #' @return Trained cito model object
 #' @export
 train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu", log_fun = NULL,
-                            dropout = NULL, lambda = NULL) {
+                            dropout = NULL, lambda = NULL, use_fused_adam = "auto",
+                            dnn_mixed_precision = "auto", dnn_cuda_graphs = "auto") {
   # DNN-201: Check cito package is installed
   if (!requireNamespace("cito", quietly = TRUE)) {
     stop("DNN-201: cito package not installed. Install with: install.packages('cito')", call. = FALSE)
@@ -302,7 +303,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
     stop(paste(
       "DNN-201b: LibTorch not installed.",
       "\n  Fix: Run in R: library(torch); torch::install_torch()",
-      "\n  For GPU: Ensure CUDA Toolkit 12.8 + cuDNN installed, then: torch::install_torch(reinstall = TRUE)"
+      "\n  For GPU: Ensure CUDA Toolkit 12.6 + cuDNN installed, then: torch::install_torch(reinstall = TRUE)"
     ), call. = FALSE)
   }
 
@@ -351,6 +352,32 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   }
 
   # DNN-204: Train model with error handling
+  # Resolve fused Adam: "off" → no, "always" → yes if available, "auto" → yes on CUDA
+  torch_has_fused <- exists("torch__fused_adam_", envir = asNamespace("torch"))
+  use_fused <- if (identical(use_fused_adam, "off")) {
+    FALSE
+  } else if (identical(use_fused_adam, "always")) {
+    torch_has_fused
+  } else {
+    startsWith(device, "cuda") && torch_has_fused
+  }
+
+  # Silence "no visible binding" NOTE from R CMD check
+  .old_train_model <- NULL
+  if (use_fused) {
+    .old_train_model <- get("train_model", envir = asNamespace("cito"))
+    tryCatch({
+      assignInNamespace("train_model", train_model_fused, ns = "cito")
+    }, error = function(e) {
+      use_fused <<- FALSE
+      if (!is.null(log_fun)) log_fun("Fused Adam not available, falling back to standard Adam")
+    })
+    set_train_opts(
+      mixed_precision = dnn_mixed_precision,
+      cuda_graphs = dnn_cuda_graphs
+    )
+  }
+
   model <- tryCatch(
     {
       cito::dnn(
@@ -362,9 +389,9 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
         optimizer = "adam",
         lr = arch$lr,
         epochs = arch$epochs,
-        batchsize = min(100L, max(32L, floor(n_train / 10))),
+        batchsize = min(512L, max(32L, floor(n_train / 10))),
         dropout = dropout %||% arch$dropout,
-        lambda = lambda %||% 0.001,
+        lambda = lambda %||% arch$lambda %||% 0.001,
         alpha = 1.0,
         validation = 0.3,
         lr_scheduler = cito::config_lr_scheduler("reduce_on_plateau", patience = 7),
@@ -374,14 +401,17 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
       )
     },
     error = function(e) {
+      # Restore original train_model if we patched it
+      if (!is.null(.old_train_model)) {
+        tryCatch(assignInNamespace("train_model", .old_train_model, ns = "cito"),
+          error = function(e) NULL)
+      }
       err_msg <- conditionMessage(e)
-
-      # Provide specific suggestions based on error type
       if (grepl("cuda|CUDA", err_msg, ignore.case = TRUE)) {
         stop(paste(
           "DNN-204: CUDA error:", err_msg,
           "\n  Suggestions:",
-          "\n  1. Verify CUDA Toolkit 12.8 is installed: nvidia-smi",
+          "\n  1. Verify CUDA Toolkit 12.6 is installed: nvidia-smi",
           "\n  2. Reinstall torch with GPU: torch::install_torch(reinstall = TRUE)",
           "\n  3. Try CPU device instead: device = 'cpu'"
         ), call. = FALSE)
@@ -404,6 +434,12 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
       }
     }
   )
+
+  # Restore original train_model if we patched it
+  if (!is.null(.old_train_model)) {
+    tryCatch(assignInNamespace("train_model", .old_train_model, ns = "cito"),
+      error = function(e) NULL)
+  }
 
   model
 }
@@ -706,6 +742,9 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
                         dropout = NULL,
                         lambda = NULL,
                         n_seeds = 5L,
+                        use_fused_adam = "auto",
+                        dnn_mixed_precision = "auto",
+                        dnn_cuda_graphs = "auto",
                         ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
@@ -771,7 +810,8 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
     model <- tryCatch(
       train_dnn_model(dnn_data, model_type = dnn_model_type, device = dnn_device, log_fun = log_fun,
-                       dropout = dropout, lambda = lambda),
+                       dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
+                       dnn_mixed_precision = dnn_mixed_precision, dnn_cuda_graphs = dnn_cuda_graphs),
       error = function(e) {
         log_message(log_fun, "    Seed ", s, " failed: ", conditionMessage(e))
         NULL
@@ -861,7 +901,8 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     scaler = scaler,
     n_seeds = n_success,
     dnn_device = dnn_device,
-    dnn_model_type = dnn_model_type
+    dnn_model_type = dnn_model_type,
+    use_fused_adam = use_fused_adam
   )
 }
 
