@@ -1276,7 +1276,8 @@ build_stage_extra_args <- function(cfg, model_id) {
     list(n_seeds = cfg$dnn_n_seeds %||% 5L, dnn_model_type = cfg$dnn_model_type %||% "DNN_Medium", dnn_device = cfg$dnn_device %||% "auto",
          dropout = cfg$dnn_dropout %||% 0.3, lambda = cfg$dnn_lambda %||% 0.001,
          dnn_mixed_precision = cfg$dnn_mixed_precision %||% "auto", dnn_cuda_graphs = cfg$dnn_cuda_graphs %||% "auto",
-         mc_samples = cfg$dnn_mc_samples %||% 0L)
+         mc_samples = cfg$dnn_mc_samples %||% 0L,
+         uncertainty_method = cfg$dnn_uncertainty_method %||% "none")
   } else if (identical(model_id, "gam")) {
     list(max_k = cfg$gam_k %||% 5L)
   } else if (identical(model_id, "rf")) {

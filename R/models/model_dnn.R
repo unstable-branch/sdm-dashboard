@@ -771,6 +771,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
                         dnn_mixed_precision = "auto",
                         dnn_cuda_graphs = "auto",
                         mc_samples = 0L,
+                        uncertainty_method = "none",
                         ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
@@ -929,14 +930,20 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     dnn_device = dnn_device,
     dnn_model_type = dnn_model_type,
     use_fused_adam = use_fused_adam,
-    mc_samples = as.integer(mc_samples)
+    mc_samples = as.integer(mc_samples),
+    uncertainty_method = match.arg(uncertainty_method, c("none", "mc_dropout", "heteroscedastic"))
   )
 }
 
-#' MC Dropout prediction for epistemic uncertainty
+#' MC Dropout prediction with uncertainty decomposition
 #'
 #' Runs forward passes with dropout active (model in train mode) to estimate
 #' predictive uncertainty via Monte Carlo dropout.
+#'
+#' Uses law of total variance decomposition for Bernoulli models:
+#'   total = aleatoric + epistemic
+#'   aleatoric = mean(p_t * (1 - p_t))   — inherent Bernoulli noise
+#'   epistemic = Var(p_t) = mean(p^2) - mean(p)^2  — model uncertainty
 #'
 #' @param model Trained cito DNN model
 #' @param pred_stack SpatRaster stack of scaled environmental covariates
@@ -945,10 +952,11 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 #' @param batch_size Cells per prediction batch
 #' @param mc_samples Number of MC dropout forward passes (default 30)
 #' @param log_fun Optional logging function
-#' @return List with rasters: mean, sd, cv
+#' @param decompose If TRUE, also compute aleatoric/epistemic decomposition
+#' @return List with rasters: mean, sd, cv. If decompose=TRUE, also aleatoric, epistemic, total
 predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
                            batch_size = 1000L, mc_samples = 30L,
-                           log_fun = NULL) {
+                           log_fun = NULL, decompose = FALSE) {
   log_message(log_fun, "MC Dropout: ", mc_samples, " forward passes with dropout active")
 
   # Enable dropout for MC sampling
@@ -1005,8 +1013,27 @@ predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
 
   # Row-wise statistics across MC samples
   mean_vec <- rowMeans(mc_matrix, na.rm = TRUE)
-  sd_vec <- apply(mc_matrix, 1, stats::sd, na.rm = TRUE)
-  cv_vec <- sd_vec / pmax(mean_vec, 1e-10)
+
+  if (decompose && mc_samples >= 2) {
+    # Aleatoric: mean of Bernoulli variance p_t * (1 - p_t) across MC samples
+    aleatoric_vec <- rowMeans(mc_matrix * (1 - mc_matrix), na.rm = TRUE)
+
+    # Epistemic: variance of the means across MC samples
+    mean_sq <- rowMeans(mc_matrix^2, na.rm = TRUE)
+    epistemic_vec <- pmax(mean_sq - mean_vec^2, 0)
+
+    # Total: aleatoric + epistemic
+    total_vec <- aleatoric_vec + epistemic_vec
+
+    sd_vec <- sqrt(total_vec)
+    cv_vec <- sd_vec / pmax(mean_vec, 1e-10)
+  } else {
+    sd_vec <- apply(mc_matrix, 1, stats::sd, na.rm = TRUE)
+    cv_vec <- sd_vec / pmax(mean_vec, 1e-10)
+    aleatoric_vec <- NULL
+    epistemic_vec <- NULL
+    total_vec <- NULL
+  }
 
   # Map back to full raster
   mean_raster <- pred_stack[[1]]
@@ -1024,37 +1051,83 @@ predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
   terra::values(cv_raster)[valid_cells] <- cv_vec
   names(cv_raster) <- "uncertainty_cv"
 
-  list(mean = mean_raster, sd = sd_raster, cv = cv_raster)
+  result <- list(mean = mean_raster, sd = sd_raster, cv = cv_raster)
+
+  if (decompose && !is.null(aleatoric_vec)) {
+    alea_raster <- pred_stack[[1]]
+    terra::values(alea_raster) <- NA_real_
+    terra::values(alea_raster)[valid_cells] <- aleatoric_vec
+    names(alea_raster) <- "aleatoric"
+
+    epi_raster <- pred_stack[[1]]
+    terra::values(epi_raster) <- NA_real_
+    terra::values(epi_raster)[valid_cells] <- epistemic_vec
+    names(epi_raster) <- "epistemic"
+
+    total_raster <- pred_stack[[1]]
+    terra::values(total_raster) <- NA_real_
+    terra::values(total_raster)[valid_cells] <- total_vec
+    names(total_raster) <- "total"
+
+    result$aleatoric <- alea_raster
+    result$epistemic <- epi_raster
+    result$total <- total_raster
+  }
+
+  result
 }
 
 #' Predict DNN suitability (registry pattern)
 predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
   mc_samples <- fit$mc_samples %||% 0L
+  uncertainty_method <- fit$uncertainty_method %||% "none"
 
-  # MC Dropout path — uses trained model with dropout active
+  # MC Dropout / heteroscedastic path — uses trained model with dropout active
   if (isTRUE(mc_samples > 0L)) {
-    log_message(log_fun, "Predicting suitability with MC Dropout (", mc_samples, " samples, ", fit$dnn_model_type, ")")
+    decompose <- identical(uncertainty_method, "heteroscedastic")
+    label <- if (decompose) "Heteroscedastic MC" else "MC Dropout"
+    log_message(log_fun, "Predicting suitability with ", label, " (", mc_samples, " samples, ", fit$dnn_model_type, ")")
 
     mc_result <- predict_dnn_mc(fit$model, env_project_scaled, fit$scaler,
-      device = fit$dnn_device, mc_samples = mc_samples, log_fun = log_fun)
+      device = fit$dnn_device, mc_samples = mc_samples, log_fun = log_fun,
+      decompose = decompose)
 
     dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
     terra::writeRaster(mc_result$mean, output_tif, overwrite = TRUE,
       wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
-    log_message(log_fun, "DNN MC Dropout suitability saved: ", output_tif)
+    log_message(log_fun, "DNN ", label, " suitability saved: ", output_tif)
 
     uncertainty_tif <- sub("\\.tif$", "_uncertainty_epistemic.tif", output_tif)
     terra::writeRaster(mc_result$sd, uncertainty_tif, overwrite = TRUE,
       wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
-    log_message(log_fun, "DNN MC Dropout uncertainty (SD) saved: ", uncertainty_tif)
+    log_message(log_fun, "DNN ", label, " uncertainty (SD) saved: ", uncertainty_tif)
 
     cv_tif <- sub("\\.tif$", "_uncertainty_cv.tif", output_tif)
     terra::writeRaster(mc_result$cv, cv_tif, overwrite = TRUE,
       wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
-    log_message(log_fun, "DNN MC Dropout CV saved: ", cv_tif)
+    log_message(log_fun, "DNN ", label, " CV saved: ", cv_tif)
 
     attr(mc_result$mean, "uncertainty_tif") <- uncertainty_tif
     attr(mc_result$mean, "uncertainty_cv_tif") <- cv_tif
+
+    # Write decomposition rasters for heteroscedastic method
+    if (decompose && !is.null(mc_result$aleatoric)) {
+      alea_tif <- sub("\\.tif$", "_aleatoric.tif", output_tif)
+      terra::writeRaster(mc_result$aleatoric, alea_tif, overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN aleatoric uncertainty saved: ", alea_tif)
+
+      epi_tif <- sub("\\.tif$", "_epistemic.tif", output_tif)
+      terra::writeRaster(mc_result$epistemic, epi_tif, overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN epistemic uncertainty saved: ", epi_tif)
+
+      total_tif <- sub("\\.tif$", "_total_uncertainty.tif", output_tif)
+      terra::writeRaster(mc_result$total, total_tif, overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN total uncertainty saved: ", total_tif)
+    }
+
     mc_result$mean
 
   } else {
