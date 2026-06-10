@@ -1,3 +1,24 @@
+# VRAM-safe batch size: cap batch to avoid OOM on consumer GPUs
+.vram_safe_batchsize <- function(n_train, hidden_layers, device, max_batch = 512L) {
+  if (!identical(device, "cuda") && !startsWith(device, "cuda")) {
+    return(min(max_batch, max(32L, floor(n_train / 10))))
+  }
+  free_mib <- NA_real_
+  if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
+    free_mib <- tryCatch(sdm_gpu_available_vram(), error = function(e) NA_real_)
+  }
+  if (!is.finite(free_mib) || free_mib < 128) {
+    return(min(max_batch, max(32L, floor(n_train / 10))))
+  }
+  # Rough per-sample cost estimate (MiB): parameters + activations + gradients + optim states
+  # Assumes ~4 bytes per float, ~3x overhead for activations + grads + Adam states
+  max_hidden <- max(hidden_layers %||% 64L)
+  per_sample_mib <- max_hidden * length(hidden_layers) * 4 * 8 / (1024 * 1024)
+  if (per_sample_mib < 0.001) per_sample_mib <- 0.001
+  vram_cap <- max(32L, floor(free_mib * 0.7 / per_sample_mib))
+  min(max_batch, max(32L, floor(n_train / 10), vram_cap))
+}
+
 # Helper: resolve DNN architecture from option, config env, or fallback
 sdm_dnn_arch <- function(model_type = "DNN_Medium") {
   arch <- getOption("sdm.dnn_arch")[[model_type]]
@@ -393,7 +414,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
         optimizer = "adam",
         lr = arch$lr,
         epochs = arch$epochs,
-        batchsize = min(512L, max(32L, floor(n_train / 10))),
+        batchsize = .vram_safe_batchsize(n_train, arch$hidden, device, max_batch = 512L),
         dropout = dropout %||% arch$dropout,
         lambda = lambda %||% arch$lambda %||% 0.001,
         alpha = 1.0,

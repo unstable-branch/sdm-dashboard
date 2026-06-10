@@ -22,10 +22,23 @@ cache_mode <- Sys.getenv("SDM_TARGETS_CACHE", "standard")
 
 # ── Cluster backend (crew) ──────────────────────────────────────────────────
 # Set SDM_CLUSTER_BACKEND=slurm (or sge, pbs, aws) for distributed workers.
-# For GPU models (dnn, dnn_multispecies), set SDM_CREW_WORKERS=1 to prevent OOM.
+# For GPU models (dnn, dnn_multispecies), crew_workers is forced to 1 to prevent OOM.
 cluster_backend <- Sys.getenv("SDM_CLUSTER_BACKEND", "local")
 cluster_workers <- as.integer(Sys.getenv("SDM_CLUSTER_WORKERS",
   max(1, parallel::detectCores() / 2)))
+
+# Detect GPU models in batch config to force single-worker mode
+batch_config_path <- Sys.getenv("SDM_BATCH_CONFIG", "")
+has_gpu_targets <- FALSE
+if (nzchar(batch_config_path) && file.exists(batch_config_path)) {
+  gpu_models <- c("dnn", "dnn_multispecies")
+  tryCatch({
+    csv_rows <- read.csv(batch_config_path, stringsAsFactors = FALSE)
+    if ("model_id" %in% names(csv_rows)) {
+      has_gpu_targets <- any(csv_rows$model_id %in% gpu_models, na.rm = TRUE)
+    }
+  }, error = function(e) NULL)
+}
 
 if (requireNamespace("crew", quietly = TRUE)) {
   if (cluster_backend != "local") {
@@ -35,10 +48,16 @@ if (requireNamespace("crew", quietly = TRUE)) {
       message("[targets] Using ", cluster_backend, " cluster with ", cluster_workers, " workers")
     }
   } else {
-    # Local crew controller — auto-detect cores, cap at 8 for GPU safety, override via SDM_CREW_WORKERS
     auto_workers <- max(1L, floor(parallel::detectCores() / 2), na.rm = TRUE)
-    crew_workers <- as.integer(Sys.getenv("SDM_CREW_WORKERS",
+    user_workers <- as.integer(Sys.getenv("SDM_CREW_WORKERS",
       Sys.getenv("SDM_CLUSTER_WORKERS", as.character(min(auto_workers, 8L)))))
+    # Force single worker for GPU models or if explicitly set
+    if (has_gpu_targets && user_workers > 1) {
+      message("[targets] GPU model(s) detected — forcing crew_workers=1 to prevent OOM")
+      crew_workers <- 1L
+    } else {
+      crew_workers <- user_workers
+    }
     controller <- crew::crew_controller_local(workers = crew_workers)
     tar_option_set(controller = controller)
     message("[targets] Using local crew controller with ", crew_workers, " worker(s)")
@@ -75,7 +94,6 @@ if (multispecies_mode) {
 } else {
 
 # ── Batch configuration ─────────────────────────────────────────────────────
-batch_config_path <- Sys.getenv("SDM_BATCH_CONFIG", "")
 batch_output_dir <- Sys.getenv("SDM_BATCH_OUTPUT", "outputs")
 batch_seed <- as.integer(Sys.getenv("SDM_BATCH_SEED", "42"))
 
