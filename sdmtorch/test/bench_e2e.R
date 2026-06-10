@@ -6,9 +6,11 @@
 
 library(torch)
 
-# Load C++ extension if available
-so <- file.path(getwd(), "sdmtorch", "train_step_libtorch.so")
-if (file.exists(so)) dyn.load(so)
+# Load C++ extensions
+so_adam <- file.path(getwd(), "sdmtorch", "train_step_adam.so")
+if (file.exists(so_adam)) dyn.load(so_adam)
+so_libtorch <- file.path(getwd(), "sdmtorch", "train_step_libtorch.so")
+if (file.exists(so_libtorch) && !is.loaded("adam_step_direct", PACKAGE = "")) dyn.load(so_libtorch)
 
 # --- Configuration ---
 n_species <- 20
@@ -74,14 +76,18 @@ train_cpu_std <- function(epochs) {
   losses
 }
 
-# --- 2. CPU fused Adam (C++ extension) ---
-train_cpu_fused <- function(epochs) {
-  if (!is.loaded("fused_adam_step_direct", PACKAGE = "")) {
-    stop("C++ extension not loaded")
+# --- 2. CPU/GPU Adam via C++ extension ---
+train_cxx_adam <- function(epochs, device = "cpu") {
+  fn <- if (is.loaded("adam_step_direct", PACKAGE = "")) "adam_step_direct"
+        else if (is.loaded("fused_adam_step_direct", PACKAGE = "")) "fused_adam_step_direct"
+        else stop("No C++ Adam extension loaded")
+  m <- build_model()$to(device = device)
+  p <- m$parameters; wd <- 0
+  if (device == "cuda" && cuda_is_available()) {
+    xt <- torch_tensor(x, device = "cuda"); yt <- torch_tensor(y, device = "cuda")
+  } else {
+    device <- "cpu"; xt <- torch_tensor(x); yt <- torch_tensor(y)
   }
-  m <- build_model()
-  p <- m$parameters
-  xt <- torch_tensor(x); yt <- torch_tensor(y)
   os <- list(
     params = p, lr = lr, b1 = 0.9, b2 = 0.999, eps = 1e-8, weight_decay = 0,
     exp_avgs = lapply(p, function(pp) torch_zeros_like(pp)),
@@ -99,8 +105,7 @@ train_cpu_fused <- function(epochs) {
       l <- loss_fkt(out, yt[idx, ])
       l$backward()
       for (j in seq_along(os$state_steps)) os$state_steps[[j]]$add_(1L)
-      .Call("fused_adam_step_direct",
-        p, lapply(p, function(pp) pp$grad),
+      .Call(fn, p, lapply(p, function(pp) pp$grad),
         os$exp_avgs, os$exp_avg_sqs, os$state_steps,
         0.01, 0.9, 0.999, 1e-8, 0)
       el <- el + as.numeric(l$item()); nb <- nb + 1
@@ -157,12 +162,14 @@ results <- list()
 cat("Benchmark 1: CPU (standard Adam)...\n"); gc()
 results[[1]] <- bench("CPU (std Adam)", train_cpu_std(n_epochs))
 
-cat("Benchmark 2: CPU (fused Adam C++)...\n"); gc()
-results[[2]] <- bench("CPU (fused C++)", train_cpu_fused(n_epochs))
+cat("Benchmark 2: CPU (C++ Adam)...\n"); gc()
+results[[2]] <- bench("CPU (C++ Adam)", train_cxx_adam(n_epochs, "cpu"))
 
 if (cuda_is_available()) {
-  cat("Benchmark 3: GPU AMP (standard Adam)...\n"); gc()
-  results[[3]] <- bench("GPU AMP", train_gpu_amp(n_epochs))
+  cat("Benchmark 3: GPU (C++ Adam)...\n"); gc()
+  results[[3]] <- bench("GPU (C++ Adam)", train_cxx_adam(n_epochs, "cuda"))
+  cat("Benchmark 4: GPU AMP (standard Adam)...\n"); gc()
+  results[[4]] <- bench("GPU AMP", train_gpu_amp(n_epochs))
 }
 
 # --- Report ---

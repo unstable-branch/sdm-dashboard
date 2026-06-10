@@ -352,19 +352,23 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   }
 
   # DNN-204: Train model with error handling
-  # Resolve fused Adam: "off" → no, "always" → yes if available, "auto" → yes on CUDA
+  # Resolve fused Adam: "off" → no, "always"/"auto" → yes if torch is available
+  # Uses custom ATen-op Adam kernel (train_step_adam.so) — works on CPU/CUDA/MPS
   torch_has_fused <- exists("torch__fused_adam_", envir = asNamespace("torch"))
   use_fused <- if (identical(use_fused_adam, "off")) {
     FALSE
-  } else if (identical(use_fused_adam, "always")) {
-    torch_has_fused
   } else {
-    !startsWith(device, "cuda") && torch_has_fused
+    torch_has_fused
   }
 
   # Silence "no visible binding" NOTE from R CMD check
   .old_train_model <- NULL
   if (use_fused) {
+    # Load custom ATen-op Adam kernel
+    cpp_so <- file.path(getwd(), "sdmtorch", "train_step_adam.so")
+    if (file.exists(cpp_so) && !is.loaded("adam_step_direct", PACKAGE = "")) {
+      tryCatch(dyn.load(cpp_so, local = FALSE, now = TRUE), error = function(e) NULL)
+    }
     .old_train_model <- get("train_model", envir = asNamespace("cito"))
     tryCatch({
       assignInNamespace("train_model", train_model_fused, ns = "cito")
