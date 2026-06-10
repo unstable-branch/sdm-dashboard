@@ -55,6 +55,26 @@ export function OverfittingPanel({ run }: OverfittingPanelProps) {
     });
   }
 
+  // ENMeval AUC difference (from tuning CV)
+  const enmevalAucDiff = toNum(m.enmeval_auc_diff);
+  if (enmevalAucDiff !== null && m.enmeval_tuned === true) {
+    indicators.push({
+      label: "ENMeval AUC diff (tuning CV)",
+      value: fmtFixed(enmevalAucDiff, 3),
+      status: enmevalAucDiff > 0.1 ? "warn" : "ok",
+    });
+  }
+
+  // ENMeval null model significance
+  const nullP = toNum(m.enmeval_null_p_value);
+  if (nullP !== null && m.enmeval_tuned === true) {
+    indicators.push({
+      label: "Null model p-value",
+      value: nullP < 0.001 ? "< 0.001" : fmtFixed(nullP, 4),
+      status: nullP < 0.05 ? "ok" : nullP < 0.1 ? "warn" : "error",
+    });
+  }
+
   // CBI gap
   if (trainingCbiVal !== null && cvCbi !== null && cbiDiff !== null) {
     indicators.push({

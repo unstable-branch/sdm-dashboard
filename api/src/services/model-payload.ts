@@ -101,6 +101,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   dnnArchitecture: "dnn_model_type",
   dnnNSeeds: "dnn_n_seeds",
   dnnDevice: "dnn_device",
+  dnnFusedAdam: "dnn_fused_adam",
   brtNTrees: "brt_n_trees",
   brtInteractionDepth: "brt_interaction_depth",
   brtShrinkage: "brt_shrinkage",
@@ -141,6 +142,10 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   detectionModelType: "detection_model_type",
   dnnMultispeciesArchitecture: "dnn_multispecies_architecture",
   dnnMultispeciesNSeeds: "dnn_multispecies_n_seeds",
+  gllvmFamily: "gllvm_family",
+  gllvmNumLv: "gllvm_num_lv",
+  gllvmNumRows: "gllvm_num_rows",
+  gllvmLvCorr: "gllvm_lv_corr",
   multiEnsembleModels: "multi_ensemble_models",
   multiEnsembleBiomod2: "biomod2_models",
   multiEnsembleWeighting: "multi_ensemble_weighting",
@@ -166,6 +171,13 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   generateCog: "generate_cog",
   speciesFilter: "species_filter",
   trainingExtent: "training_extent",
+  tuningMethod: "tuning_method",
+  enmevalAlgorithm: "enmeval_algorithm",
+  enmevalPartitions: "enmeval_partitions",
+  enmevalSelectionMetric: "enmeval_selection_metric",
+  enmevalTuneArgs: "enmeval_tune_args",
+  enmevalCategoricals: "enmeval_categoricals",
+  enmevalNullIterations: "enmeval_null_iterations",
 };
 
 export function buildModelPayload(config: ModelConfigRecord, runId: string): Record<string, unknown> {

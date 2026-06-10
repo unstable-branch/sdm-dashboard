@@ -93,7 +93,7 @@ services:
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
-      - GDAL_CACHEMAX=64
+       - GDAL_CACHEMAX=512
       - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
       - ALA_API_KEY=${ALA_API_KEY:-}
     init: true
@@ -153,7 +153,7 @@ services:
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     volumes:
       - upload-data:/app/data/uploads
-      - plumber-outputs:/app/outputs:ro
+      - plumber-outputs:/app/outputs
     depends_on:
       postgres:
         condition: service_healthy
