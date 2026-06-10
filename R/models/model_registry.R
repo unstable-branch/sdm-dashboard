@@ -762,7 +762,7 @@ if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietl
       predict_dnn_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
     },
     supports_importance = TRUE,
-    supports_uncertainty = FALSE,
+    supports_uncertainty = TRUE,
     supports_future = TRUE,
     diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, shap = TRUE, pdp = TRUE),
     importance_fun = function(fit, ...) fit$cito_importance,

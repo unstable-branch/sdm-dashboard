@@ -74,11 +74,13 @@ handle_model_run <- function(req, app_dir) {
   stdout = file.path(job_dir, "stdout.log"),
   stderr = file.path(job_dir, "stderr.log"),
   cmdargs = c("--no-save", "--no-restore", "--no-init-file"),
-  env = c(
+  env <- c(
     HOME = "/app",
     OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
-    R_MAX_VSIZE = sdm_detect_vsize()
-  ))
+    R_MAX_VSIZE = sdm_detect_vsize(),
+    PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True",
+    CUBLAS_WORKSPACE_CONFIG = ":4096:8"
+  )
   sdm_process_registry[[job_id]] <- proc
 
   job_meta <- list(
@@ -360,7 +362,9 @@ handle_targets_run <- function(req, app_dir) {
   env_vars <- c(
     HOME = "/app",
     OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
-    R_MAX_VSIZE = sdm_detect_vsize())
+    R_MAX_VSIZE = sdm_detect_vsize(),
+    PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True",
+    CUBLAS_WORKSPACE_CONFIG = ":4096:8")
   if (is_multispecies) {
     env_vars["SDM_MULTISPECIES"] <- "true"
   }
@@ -968,7 +972,9 @@ sdm_submit_async_job <- function(req, app_dir, job_type, params, user_id = "anon
         R_HOME = Sys.getenv("R_HOME"),
         R_LIBS_USER = Sys.getenv("R_LIBS_USER"),
         OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
-        R_MAX_VSIZE = sdm_detect_vsize()
+        R_MAX_VSIZE = sdm_detect_vsize(),
+        PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True",
+        CUBLAS_WORKSPACE_CONFIG = ":4096:8"
       )
     )
 
