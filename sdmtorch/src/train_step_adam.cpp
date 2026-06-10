@@ -3,26 +3,7 @@
 #include <ATen/core/grad_mode.h>
 #include <Rcpp.h>
 #include <cmath>
-
-at::Tensor extract_tensor(SEXP xptr) {
-  if (TYPEOF(xptr) != EXTPTRSXP)
-    Rcpp::stop("Expected external pointer");
-  void* raw = R_ExternalPtrAddr(xptr);
-  if (!raw) Rcpp::stop("NULL tensor pointer");
-  at::Tensor* t = static_cast<at::Tensor*>(*static_cast<void**>(raw));
-  if (!t) Rcpp::stop("NULL tensor handle in XPtrTorch");
-  return *t;
-}
-
-std::vector<at::Tensor> extract_list(SEXP list_sexp) {
-  Rcpp::List xptrs(list_sexp);
-  int n = xptrs.size();
-  std::vector<at::Tensor> tensors;
-  tensors.reserve(n);
-  for (int i = 0; i < n; i++)
-    tensors.push_back(extract_tensor((SEXP)xptrs[i]));
-  return tensors;
-}
+#include "common.h"
 
 extern "C" {
 
@@ -55,7 +36,7 @@ SEXP adam_step_direct(SEXP params_, SEXP grads_,
       at::Tensor& es = esqs[i];
       at::Tensor& st = steps[i];
 
-      // item() handles device→host copy (required for CUDA tensors)
+      // item() handles device-to-host copy (required for CUDA tensors)
       int64_t step = st.item<int64_t>();
 
       // Gradient with weight decay (L2 regularization)
@@ -68,11 +49,9 @@ SEXP adam_step_direct(SEXP params_, SEXP grads_,
       at::NoGradGuard no_grad;
 
       // Update biased first moment estimate
-      // exp_avg = b1 * exp_avg + (1 - b1) * grad
       ea.mul_(b1).add_(g_adj, 1.0 - b1);
 
       // Update biased second raw moment estimate
-      // exp_avg_sq = b2 * exp_avg_sq + (1 - b2) * grad * grad
       es.mul_(b2).addcmul_(g_adj, g_adj, 1.0 - b2);
 
       // Bias correction and step size
