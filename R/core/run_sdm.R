@@ -139,7 +139,6 @@ run_fast_sdm <- function(...) {
   dnn_model_type <- cfg$dnn_model_type %||% "DNN_Medium"
   dnn_dropout <- cfg$dnn_dropout %||% 0.3
   dnn_lambda <- cfg$dnn_lambda %||% 0.001
-  dnn_fused_adam <- cfg$dnn_fused_adam %||% "auto"
   dnn_multispecies_architecture <- cfg$dnn_multispecies_architecture %||% "DNN_Medium"
   dnn_multispecies_n_seeds <- cfg$dnn_multispecies_n_seeds %||% 3L
   dnn_device <- cfg$dnn_device %||% "auto"
@@ -398,7 +397,6 @@ run_fast_sdm <- function(...) {
   } else if (identical(model_id, "dnn")) {
     list(
       dnn_model_type = dnn_model_type, dropout = dnn_dropout, lambda = dnn_lambda,
-      use_fused_adam = dnn_fused_adam,
       dnn_mixed_precision = dnn_mixed_precision,
       dnn_cuda_graphs = dnn_cuda_graphs
     )
@@ -407,7 +405,6 @@ run_fast_sdm <- function(...) {
       dnn_architecture = dnn_multispecies_architecture,
       n_seeds = dnn_multispecies_n_seeds,
       dnn_device = dnn_device,
-      use_fused_adam = dnn_fused_adam,
       dnn_mixed_precision = dnn_mixed_precision,
       dnn_cuda_graphs = dnn_cuda_graphs
     )
@@ -1277,7 +1274,7 @@ build_stage_extra_args <- function(cfg, model_id) {
     list(size = cfg$ann_size %||% 5L, decay = cfg$ann_decay %||% 0.01, maxit = cfg$ann_maxit %||% 200L)
   } else if (identical(model_id, "dnn")) {
     list(n_seeds = cfg$dnn_n_seeds %||% 5L, dnn_model_type = cfg$dnn_model_type %||% "DNN_Medium", dnn_device = cfg$dnn_device %||% "auto",
-         dropout = cfg$dnn_dropout %||% 0.3, lambda = cfg$dnn_lambda %||% 0.001, use_fused_adam = cfg$dnn_fused_adam %||% "auto",
+         dropout = cfg$dnn_dropout %||% 0.3, lambda = cfg$dnn_lambda %||% 0.001,
          dnn_mixed_precision = cfg$dnn_mixed_precision %||% "auto", dnn_cuda_graphs = cfg$dnn_cuda_graphs %||% "auto")
   } else if (identical(model_id, "gam")) {
     list(max_k = cfg$gam_k %||% 5L)
@@ -1299,7 +1296,7 @@ build_stage_extra_args <- function(cfg, model_id) {
     list(detection_formula = cfg$detection_formula %||% "~1", model_type = cfg$occupancy_model_type %||% "occu")
   } else if (identical(model_id, "dnn_multispecies")) {
     list(dnn_architecture = cfg$dnn_architecture %||% cfg$dnn_multispecies_architecture %||% "DNN_Medium", n_seeds = cfg$dnn_multispecies_n_seeds %||% 3L,
-      dnn_device = cfg$dnn_device %||% "auto", use_fused_adam = cfg$dnn_fused_adam %||% "auto",
+      dnn_device = cfg$dnn_device %||% "auto",
       dnn_mixed_precision = cfg$dnn_mixed_precision %||% "auto", dnn_cuda_graphs = cfg$dnn_cuda_graphs %||% "auto")
   } else if (identical(model_id, "gllvm")) {
     list(gllvm_family = cfg$gllvm_family %||% "binomial",

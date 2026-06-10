@@ -44,10 +44,6 @@ sdm_normalize_model_payload <- function(payload) {
     payload$dnn_device,
     payload$dnnDevice
   )
-  payload$dnn_fused_adam <- sdm_payload_coalesce(
-    payload$dnn_fused_adam,
-    payload$dnnFusedAdam
-  )
   payload$dnn_dropout <- sdm_payload_coalesce_numeric(
     payload$dnn_dropout,
     payload$dnnDropout

@@ -261,7 +261,6 @@ tryCatch({
     dnn_device = config$dnn_device %||% "auto",
     dnn_dropout = as.numeric(config$dnn_dropout %||% 0.3),
     dnn_lambda = as.numeric(config$dnn_lambda %||% 0.001),
-    dnn_fused_adam = config$dnn_fused_adam %||% "auto",
     dnn_mixed_precision = config$dnn_mixed_precision %||% "auto",
     dnn_cuda_graphs = config$dnn_cuda_graphs %||% "auto",
     dnn_architecture = config$dnn_architecture %||% config$dnn_model_type %||% "DNN_Medium",
