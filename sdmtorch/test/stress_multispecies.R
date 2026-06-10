@@ -47,6 +47,22 @@ stress_main <- function() {
 
   has_cuda <- tryCatch(torch::cuda_is_available(), error = function(e) FALSE)
 
+  # CUDA JIT (TensorExpr fuser) requires libnvrtc.so.12 on LD_LIBRARY_PATH.
+  # R's Sys.setenv does NOT affect dlopen() — the env var must be set before R
+  # starts. Use the wrapper script: ./sdmtorch/test/run_gpu_stress.sh
+  if (has_cuda) {
+    torch_lib_dir <- file.path(system.file(package = "torch"), "lib")
+    nvrtc_test <- tryCatch({
+      suppressWarnings(torch::torch_tensor(1, device = "cuda")$pow(2)$sum()$item())
+      TRUE
+    }, error = function(e) FALSE)
+    if (!nvrtc_test) {
+      cat("WARNING: CUDA available but JIT compilation fails (libnvrtc not found).\n")
+      cat("  GPU test combos will be skipped.\n")
+      cat("  To enable GPU, use: ./sdmtorch/test/run_gpu_stress.sh\n")
+    }
+  }
+
   # Set terra temp dir to a local temp directory to avoid cross-device link errors
   local_tmp <- file.path(tempdir(), "stress_tmp")
   dir.create(local_tmp, recursive = TRUE, showWarnings = FALSE)
@@ -223,6 +239,15 @@ stress_main <- function() {
       gc(full = TRUE)
 
       if (is_gpu && torch::cuda_is_available()) {
+        # Verify CUDA JIT works — a simple tensor operation triggers it
+        jit_ok <- tryCatch({
+          suppressWarnings(torch::torch_tensor(1, device = "cuda")$pow(2)$sum()$item())
+          TRUE
+        }, error = function(e) FALSE)
+        if (!jit_ok) {
+          result$errors <- c(result$errors, "CUDA JIT compiler unavailable (missing libnvrtc)")
+          return(result)
+        }
         torch::cuda_synchronize()
         gc(full = TRUE)
         result$device_used <- "cuda"
@@ -250,6 +275,12 @@ stress_main <- function() {
       cat("  Fitting", arch, "with", n_seeds, "seed(s)...\n")
       fit_time_start <- Sys.time()
       device <- if (is_gpu) "cuda" else "cpu"
+      # Multi-species DNN on GPU: disable fused Adam and mixed precision because
+      # the fused Adam kernel triggers CUDA JIT (TensorExpr fuser) which fails on
+      # multi-output models with this torch/CUDA version. Single-species DNN with
+      # fused Adam + AMP works fine (see bench_e2e.R).
+      fa_setting <- if (is_gpu) "off" else "auto"
+      mp_setting <- if (is_gpu) "off" else "off"
 
       fit <- fit_dnn_multispecies_sdm(
         occ = occ_data,
@@ -261,8 +292,8 @@ stress_main <- function() {
         dnn_architecture = arch,
         dnn_device = device,
         n_seeds = n_seeds,
-        use_fused_adam = "auto",
-        dnn_mixed_precision = if (is_gpu) "auto" else "off",
+        use_fused_adam = fa_setting,
+        dnn_mixed_precision = mp_setting,
         dnn_cuda_graphs = "off"
       )
       result$fit_time <- as.numeric(Sys.time() - fit_time_start)
@@ -424,8 +455,9 @@ stress_main <- function() {
           dnn_architecture = rcombo$arch,
           dnn_device = "cuda",
           n_seeds = 1L,
-          use_fused_adam = "auto",
-          dnn_mixed_precision = "auto",
+          use_fused_adam = "off",
+          dnn_mixed_precision = "off",
+          dnn_mixed_precision = "off",
           dnn_cuda_graphs = "off"
         )
         fit_t <- as.numeric(Sys.time() - t0)
