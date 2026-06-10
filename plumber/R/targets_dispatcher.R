@@ -73,6 +73,8 @@ log_fun("Targets pipeline starting for ", basename(job_dir))
 
 Sys.setenv(SDM_BATCH_CONFIG = config_csv)
 Sys.setenv(SDM_TARGETS_STORE = store_path)
+Sys.setenv(PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True")
+Sys.setenv(CUBLAS_WORKSPACE_CONFIG = ":4096:8")
 
 # Detect multi-species mode: if any config row uses a multispecies model
 # (dnn_multispecies, gllvm, etc.), set SDM_MULTISPECIES=true so _targets.R
