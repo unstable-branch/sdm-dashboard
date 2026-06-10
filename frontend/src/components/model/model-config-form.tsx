@@ -36,6 +36,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const setSpeciesStore = useSDMStore((s) => s.setSpecies);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>(MODEL_BACKENDS);
   const [species, setSpecies] = useState(() => useSDMStore.getState().species || "Untitled species");
+  const [multispeciesText, setMultispeciesText] = useState("");
   const [speciesSuggestions, setSpeciesSuggestions] = useState<string[]>([]);
   const [speciesInputFocused, setSpeciesInputFocused] = useState(false);
   const [speciesSelectedIndex, setSpeciesSelectedIndex] = useState(-1);
@@ -348,8 +349,13 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     if (!extent) { setError("Invalid extent preset"); return; }
     const useCleaned = cleanedOccurrence && cleanedOccurrence.filePath;
 
+    // For multi-species models, join species names with comma
+    const resolvedSpecies = (modelId === "dnn_multispecies" || modelId === "gllvm")
+      ? multispeciesText.split("\n").map((s) => s.trim()).filter(Boolean).join(",")
+      : species;
+
     const config = {
-      species,
+      species: resolvedSpecies,
       speciesFilter: (modelId === "dnn_multispecies" || modelId === "gllvm") ? "" : species,
       modelId,
       biovars,
@@ -539,17 +545,33 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
         <h2 className="text-lg font-semibold text-sdm-heading">Species & Model</h2>
 
-        <SpeciesInput
-          species={species}
-          speciesFiltered={speciesFiltered}
-          speciesSelectedIndex={speciesSelectedIndex}
-          focused={speciesInputFocused}
-          onSpeciesChange={setSpecies}
-          onSelect={(s) => { setSpecies(s); setSpeciesStore(s); setSpeciesInputFocused(false); }}
-          onFocus={setSpeciesInputFocused}
-          onKeyNav={handleSpeciesKeyNav}
-          detectedSpecies={detectedSpecies}
-        />
+        {modelId === "dnn_multispecies" || modelId === "gllvm" ? (
+          <div>
+            <label className="block text-sm font-medium text-sdm-text mb-1">
+              Species names (one per line)
+              <TooltipInfo content="Enter each species name on a separate line. All species will be modeled together in a joint multi-species model." />
+            </label>
+            <textarea
+              value={multispeciesText}
+              onChange={(e) => setMultispeciesText(e.target.value)}
+              rows={4}
+              className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
+              placeholder="Species_A&#10;Species_B&#10;Species_C"
+            />
+          </div>
+        ) : (
+          <SpeciesInput
+            species={species}
+            speciesFiltered={speciesFiltered}
+            speciesSelectedIndex={speciesSelectedIndex}
+            focused={speciesInputFocused}
+            onSpeciesChange={setSpecies}
+            onSelect={(s) => { setSpecies(s); setSpeciesStore(s); setSpeciesInputFocused(false); }}
+            onFocus={setSpeciesInputFocused}
+            onKeyNav={handleSpeciesKeyNav}
+            detectedSpecies={detectedSpecies}
+          />
+        )}
 
         <ModelSelector models={availableModels} selected={modelId} onSelect={(m) => { setModelId(m); setTuningMethod("none"); }} />
         {selectedModel?.enmeval_compatible && (
