@@ -296,6 +296,14 @@ ui_sidebar_controls <- function() {
           ),
           numericInput("dnn_n_seeds", "Ensemble seeds (for uncertainty)", value = 5, min = 1, max = 20, step = 1),
           numericInput("dnn_mc_samples", "MC Dropout samples (0 = off)", value = 0, min = 0, max = 100, step = 5),
+          conditionalPanel(
+            "input.dnn_mc_samples > 0",
+            selectInput("dnn_uncertainty_method", "Uncertainty method",
+              choices = c("MC Dropout (epistemic only)" = "mc_dropout", "Full decomposition (aleatoric + epistemic)" = "heteroscedastic"),
+              selected = "mc_dropout"
+            ),
+            div(class = "small-muted", "MC Dropout: SD across dropout masks (epistemic). Full: also decomposes Bernoulli aleatoric noise.")
+          ),
           selectInput("dnn_device", "Device",
             choices = c("Auto" = "auto", "CPU" = "cpu", "GPU" = "gpu"),
             selected = "auto"

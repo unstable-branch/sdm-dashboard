@@ -262,6 +262,7 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           ann_maxit = input$ann_maxit %||% 200L,
           dnn_n_seeds = input$dnn_n_seeds %||% 5L,
           dnn_mc_samples = input$dnn_mc_samples %||% 0L,
+          dnn_uncertainty_method = input$dnn_uncertainty_method %||% "none",
           dnn_model_type = input$dnn_model_type %||% "DNN_Medium",
           dnn_device = input$dnn_device %||% "auto",
           dnn_mixed_precision = input$dnn_mixed_precision %||% "auto",

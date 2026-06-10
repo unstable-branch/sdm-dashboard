@@ -44,6 +44,10 @@ sdm_normalize_model_payload <- function(payload) {
     payload$dnn_mc_samples,
     payload$dnnMcSamples
   )
+  payload$dnn_uncertainty_method <- sdm_payload_coalesce(
+    payload$dnn_uncertainty_method,
+    payload$dnnUncertaintyMethod
+  )
   payload$dnn_device <- sdm_payload_coalesce(
     payload$dnn_device,
     payload$dnnDevice

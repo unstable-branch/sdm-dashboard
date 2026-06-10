@@ -108,6 +108,7 @@ sdm_config <- function(...) {
     dnn_lambda = 0.001,
     dnn_n_seeds = 5L,
     dnn_mc_samples = 0L,
+    dnn_uncertainty_method = "none",
     overlap_warn = FALSE,
     validation_occurrences = sdm_default_validation_occurrences,
     pa_replicates = 1,
