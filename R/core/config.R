@@ -198,6 +198,8 @@ config$dnn_multispecies_default <- "DNN_Medium"
 config$dnn_multispecies_n_seeds <- 3L
 config$dnn_mixed_precision_default <- "auto"
 config$dnn_cuda_graphs_default <- "off"
+config$dnn_mc_samples_default <- 30L
+config$dnn_uncertainty_method_default <- "none"
 config$sdm_default_extrapolation_mask <- TRUE
 config$sdm_default_mess_threshold <- 0
 config$ensemble_method_default <- "weighted_average"
