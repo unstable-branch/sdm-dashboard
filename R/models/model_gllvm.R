@@ -69,7 +69,7 @@ fit_gllvm_sdm <- function(occ, env_train_scaled, background_n = sdm_default_back
     pred <- stats::predict(fit)
     if (is.matrix(pred)) {
       auc_values <- vapply(seq_len(n_species), function(s) {
-        tryCatch(pROC::auc(community_mat[, s], pred[, s]), error = function(e) NA_real_)
+        tryCatch(auc_rank(community_mat[, s], pred[, s]), error = function(e) NA_real_)
       }, numeric(1))
       list(
         k = as.integer(gllvm_num_lv),
