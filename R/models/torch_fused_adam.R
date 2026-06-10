@@ -214,7 +214,12 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
     tryCatch(torch::torch_backends_cudnn_benchmark(TRUE), error = function(e) NULL)
   }
 
+  # GPU metrics tracking
+  model$gpu_metrics <- list()
+
   for (epoch in start_epoch:(start_epoch + epochs - 1)) {
+    epoch_start <- Sys.time()
+    epoch_start_mem <- if (is_cuda) tryCatch(torch::cuda_memory_stats()$allocated_bytes$all$current %/% (1024L * 1024L), error = function(e) NA_integer_) else NA_integer_
     model$training_properties$epoch <- epoch
 
     # Materialize all batches once (avoids coro::loop overhead)
@@ -460,6 +465,23 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
     if (is.numeric(model$training_properties$early_stopping)) {
       if (counter >= model$training_properties$early_stopping) break
       counter <- counter + 1L
+    }
+
+    # Record per-epoch GPU metrics
+    if (is_cuda) {
+      epoch_end_mem <- tryCatch(torch::cuda_memory_stats()$allocated_bytes$all$current %/% (1024L * 1024L), error = function(e) NA_integer_)
+      epoch_reserved <- tryCatch(torch::cuda_memory_stats()$reserved_bytes$all$current %/% (1024L * 1024L), error = function(e) NA_integer_)
+      epoch_time_s <- as.numeric(difftime(Sys.time(), epoch_start, units = "secs"))
+      n_samples <- n_batches * as.integer(model$training_properties$batchsize %||% 1L)
+      model$gpu_metrics[[length(model$gpu_metrics) + 1L]] <- list(
+        epoch = epoch,
+        time_s = epoch_time_s,
+        samples_per_sec = if (epoch_time_s > 0) n_samples / epoch_time_s else NA_real_,
+        mem_allocated_mb = epoch_end_mem,
+        mem_reserved_mb = epoch_reserved,
+        mem_delta_mb = if (is.finite(epoch_start_mem) && is.finite(epoch_end_mem)) epoch_end_mem - epoch_start_mem else NA_integer_,
+        amp_scale = if (use_amp && !is.null(scaler)) tryCatch(as.numeric(scaler$scale$item()), error = function(e) NA_real_) else NA_real_
+      )
     }
   }
 
