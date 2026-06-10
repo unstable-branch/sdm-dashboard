@@ -70,14 +70,16 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     dnn_device <- "cpu"
   }
 
-  # Resolve fused Adam: "off" → no, "always" → yes if available, "auto" → yes on CUDA
+  # Resolve fused Adam: "off" → no, "always" → yes if available, "auto" → yes on non-CUDA
+  # NOTE: _fused_adam_ CUDA kernel produces NaN on Blackwell (compute 12.0) and likely
+  # other newer architectures. CPU fused Adam works correctly. Use "always" to force on GPU.
   torch_has_fused <- exists("torch__fused_adam_", envir = asNamespace("torch"))
   use_fused <- if (identical(use_fused_adam, "off")) {
     FALSE
   } else if (identical(use_fused_adam, "always")) {
     torch_has_fused
   } else {
-    startsWith(dnn_device, "cuda") && torch_has_fused
+    !startsWith(dnn_device, "cuda") && torch_has_fused
   }
 
   # Build training data for cito multi-output
