@@ -40,6 +40,10 @@ sdm_normalize_model_payload <- function(payload) {
     payload$dnn_n_seeds,
     payload$dnnNSeeds
   )
+  payload$dnn_mc_samples <- sdm_payload_coalesce_integer(
+    payload$dnn_mc_samples,
+    payload$dnnMcSamples
+  )
   payload$dnn_device <- sdm_payload_coalesce(
     payload$dnn_device,
     payload$dnnDevice
