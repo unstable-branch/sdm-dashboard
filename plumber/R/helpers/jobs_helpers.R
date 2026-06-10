@@ -31,7 +31,8 @@ handle_job_cancel <- function(req, job_id, app_dir) {
     }
   }
 
-  proc <- sdm_process_registry[[basename(job_id)]]
+  entry <- sdm_process_registry[[basename(job_id)]]
+  proc <- sdm_registry_proc(entry)
   killed <- FALSE
   if (!is.null(proc) && inherits(proc, "Process") && proc$is_alive()) {
     proc$kill()
