@@ -134,6 +134,8 @@ export const modelConfigSchema = z.object({
   detectionModelType: z.enum(["occu", "occuRN"]).default("occu"),
   dnnMultispeciesArchitecture: z.enum(["DNN_Small", "DNN_Medium", "DNN_Large"]).default("DNN_Medium"),
   dnnMultispeciesNSeeds: z.number().int().min(1).max(20).default(3),
+  dnnMcSamples: z.number().int().min(0).max(100).default(0),
+  dnnUncertaintyMethod: z.enum(["none", "mc_dropout", "heteroscedastic"]).default("none"),
   aggregationFactor: z.number().int().min(1).max(8).default(1),
   nCores: z.number().int().min(1).max(64).default(1),
   seed: z.number().int().default(42),

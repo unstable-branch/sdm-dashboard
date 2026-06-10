@@ -214,6 +214,8 @@ export const DEFAULT_CONFIG = {
   generateCog: true,
   dnnDevice: "auto" as const,
   dnnFusedAdam: "auto" as const,
+  dnnMcSamples: 0,
+  dnnUncertaintyMethod: "none" as const,
   brtNTrees: 2000,
   brtInteractionDepth: 3,
   brtShrinkage: 0.01,
