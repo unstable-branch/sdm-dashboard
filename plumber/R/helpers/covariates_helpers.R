@@ -180,7 +180,7 @@ handle_covariates_download_bg <- function(req, app_dir) {
     R_MAX_VSIZE = sdm_detect_vsize()
   ))
 
-  sdm_process_registry[[job_id]] <- proc
+  sdm_process_registry[[job_id]] <- list(proc = proc, device = "cpu")
   job_meta$process_pid <- proc$get_pid()
   sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
 

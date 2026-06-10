@@ -51,6 +51,7 @@ if (is.null(.GlobalEnv$.sdm_plumber_initialized)) {
 }
 
 SDM_MAX_CONCURRENT_RUNS <- as.integer(Sys.getenv("SDM_MAX_CONCURRENT_RUNS", "2"))
+SDM_MAX_GPU_CONCURRENT_RUNS <- as.integer(Sys.getenv("SDM_MAX_GPU_CONCURRENT_RUNS", "1"))
 
 #* Upload occurrence file (CSV/TSV/ZIP)
 #* @param file The occurrence file to upload
@@ -151,6 +152,10 @@ function(req, job_id) handle_job_cancel(req, job_id, app_dir)
 #* Health check
 #* @get /health
 function(res) handle_health(res, app_dir)
+
+#* GPU status
+#* @get /api/v1/gpu/status
+function(res) handle_gpu_status(res)
 
 #* Readiness probe
 #* @get /ready

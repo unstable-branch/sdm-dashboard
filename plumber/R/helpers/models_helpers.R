@@ -68,12 +68,17 @@ handle_model_run <- function(req, app_dir) {
     return(sdm_error_code(req, "INTERNAL_ERROR", paste("Model run script not found at:", script_path)))
   }
 
-  proc <- callr::r_bg(function(script, job_dir, app_dir) {
-    source(script, local = TRUE)
-  }, args = list(script_path, job_dir, app_dir),
-  stdout = file.path(job_dir, "stdout.log"),
-  stderr = file.path(job_dir, "stderr.log"),
-  cmdargs = c("--no-save", "--no-restore", "--no-init-file"),
+  is_gpu_model <- sdm_is_gpu_model(body$model_id, body$dnn_device %||% "auto")
+  if (is_gpu_model) {
+    active_gpu <- sdm_count_active_gpu_runs()
+    if (active_gpu >= SDM_MAX_GPU_CONCURRENT_RUNS) {
+      return(sdm_error_code(req, "GPU_BUSY", paste0(
+        "GPU busy: ", active_gpu, " GPU model run(s) in progress (max ", SDM_MAX_GPU_CONCURRENT_RUNS,
+        "). Queue this run or wait."
+      )))
+    }
+  }
+
   env <- c(
     HOME = "/app",
     OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
@@ -81,7 +86,16 @@ handle_model_run <- function(req, app_dir) {
     PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True",
     CUBLAS_WORKSPACE_CONFIG = ":4096:8"
   )
-  sdm_process_registry[[job_id]] <- proc
+
+  proc <- callr::r_bg(function(script, job_dir, app_dir) {
+    source(script, local = TRUE)
+  }, args = list(script_path, job_dir, app_dir),
+  stdout = file.path(job_dir, "stdout.log"),
+  stderr = file.path(job_dir, "stderr.log"),
+  cmdargs = c("--no-save", "--no-restore", "--no-init-file"),
+  env = env)
+  device_tag <- if (is_gpu_model) "cuda" else "cpu"
+  sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
   job_meta <- list(
     id = job_id,
@@ -376,7 +390,13 @@ handle_targets_run <- function(req, app_dir) {
   stderr = file.path(job_dir, "stderr.log"),
   cmdargs = c("--no-save", "--no-restore", "--no-init-file"),
   env = env_vars)
-  sdm_process_registry[[job_id]] <- proc
+  has_gpu_target <- any(vapply(configs, function(c) {
+    mid <- c$model_id %||% c[["modelId"]] %||% "glm"
+    dev <- c$dnn_device %||% c[["dnnDevice"]] %||% "auto"
+    sdm_is_gpu_model(mid, dev)
+  }, logical(1)))
+  device_tag <- if (has_gpu_target) "cuda" else "cpu"
+  sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
   job_meta$process_pid <- proc$get_pid()
   job_meta$status <- "running"
@@ -410,7 +430,8 @@ handle_targets_status <- function(res, job_id) {
   if (is.list(meta) && !is.null(meta$error)) return(meta)
 
   if (identical(meta$status, "running")) {
-    proc <- sdm_process_registry[[job_id]]
+    entry <- sdm_process_registry[[job_id]]
+    proc <- sdm_registry_proc(entry)
     process_alive <- FALSE
     if (!is.null(proc)) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
@@ -636,7 +657,8 @@ handle_model_status <- function(res, job_id) {
   if (is.list(meta) && !is.null(meta$error)) return(meta)
 
   if (identical(meta$status, "running")) {
-    proc <- sdm_process_registry[[job_id]]
+    entry <- sdm_process_registry[[job_id]]
+    proc <- sdm_registry_proc(entry)
     process_alive <- FALSE
     if (!is.null(proc)) {
       tryCatch({
@@ -681,7 +703,8 @@ handle_model_status <- function(res, job_id) {
   }
 
   if (identical(meta$status, "loading")) {
-    proc <- sdm_process_registry[[job_id]]
+    entry <- sdm_process_registry[[job_id]]
+    proc <- sdm_registry_proc(entry)
     process_alive <- FALSE
     if (!is.null(proc)) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
@@ -729,7 +752,8 @@ handle_model_status <- function(res, job_id) {
   }
 
   if (identical(meta$status, "pending")) {
-    proc <- sdm_process_registry[[job_id]]
+    entry <- sdm_process_registry[[job_id]]
+    proc <- sdm_registry_proc(entry)
     process_alive <- FALSE
     if (!is.null(proc)) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
@@ -837,13 +861,19 @@ handle_model_cancel <- function(req, job_id) {
     }
   }
 
-  proc <- sdm_process_registry[[job_id]]
+  entry <- sdm_process_registry[[job_id]]
+  proc <- sdm_registry_proc(entry)
   killed <- FALSE
 
   if (!is.null(proc) && inherits(proc, "Process")) {
     if (proc$is_alive()) {
       proc$kill()
       killed <- TRUE
+    }
+    device_tag <- if (is.list(entry)) entry$device else "cpu"
+    # If this was a GPU run, wait briefly for VRAM recovery
+    if (killed && identical(device_tag, "cuda")) {
+      Sys.sleep(2)
     }
     rm(list = job_id, envir = sdm_process_registry)
   }
@@ -978,7 +1008,7 @@ sdm_submit_async_job <- function(req, app_dir, job_type, params, user_id = "anon
       )
     )
 
-    sdm_process_registry[[job_id]] <- proc
+    sdm_process_registry[[job_id]] <- list(proc = proc, device = "cpu")
     meta$process_pid <- proc$get_pid()
     sdm_write_json(meta, file.path(job_dir, "meta.json"))
 
