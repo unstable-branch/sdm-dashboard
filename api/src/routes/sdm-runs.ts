@@ -211,7 +211,7 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
         plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log as string[] : [];
 
         if (ps.status === "completed" || ps.status === "failed" || ps.status === "cancelled") {
-          db.update(runs).set({
+          await db.update(runs).set({
             status: ps.status as "completed" | "failed" | "cancelled",
             metrics: ps.status === "completed" ? (ps.metrics ?? {}) : {},
             outputFiles: ps.status === "completed" ? (ps.output_files ?? {}) : {},
@@ -220,40 +220,36 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
             errorHint: ps.error_hint ? String(ps.error_hint) : null,
             progressLog: plumberProgressLog.length > 0 ? plumberProgressLog : undefined,
             completedAt: new Date(),
-          }).where(and(eq(runs.id, jobId), inArray(runs.status, ["running", "queued"]))).then(() => {
-            jobEventBus.emitJobStatus({
-              jobId: run.id,
-              state: ps.status as string,
-              progress: ps.status === "completed" ? 100 : 0,
-              logs: Array.isArray(ps.progress_log) ? ps.progress_log as string[] : [],
-              result: ps.status === "completed" ? ps : undefined,
-              failedReason: ps.error as string ?? undefined,
-            });
-          }).catch(() => {});
+          }).where(and(eq(runs.id, jobId), inArray(runs.status, ["running", "queued"])));
+          jobEventBus.emitJobStatus({
+            jobId: run.id,
+            state: ps.status as string,
+            progress: ps.status === "completed" ? 100 : 0,
+            logs: Array.isArray(ps.progress_log) ? ps.progress_log as string[] : [],
+            result: ps.status === "completed" ? ps : undefined,
+            failedReason: ps.error as string ?? undefined,
+          });
         }
       } catch {
       }
     } else if (run.status === "running" && !run.jobId && run.startedAt) {
       const orphanThreshold = 5 * 60 * 1000;
       if (Date.now() - run.startedAt.getTime() > orphanThreshold) {
-        db.update(runs)
+        await db.update(runs)
           .set({
             status: "failed",
             error: "Model run did not start — worker was unable to connect to the model backend",
             errorCode: "WORKER_ORPHAN",
             completedAt: new Date(),
           })
-          .where(eq(runs.id, jobId))
-          .then(() => {
-            jobEventBus.emitJobStatus({
-              jobId: run.id,
-              state: "failed",
-              progress: 0,
-              failedReason: "Model run did not start — worker was unable to connect to the model backend",
-              error_code: "WORKER_ORPHAN",
-            });
-          })
-          .catch(() => {});
+          .where(eq(runs.id, jobId));
+        jobEventBus.emitJobStatus({
+          jobId: run.id,
+          state: "failed",
+          progress: 0,
+          failedReason: "Model run did not start — worker was unable to connect to the model backend",
+          error_code: "WORKER_ORPHAN",
+        });
         effectiveStatus = "failed";
       }
     }

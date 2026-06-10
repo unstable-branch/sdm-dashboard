@@ -13,6 +13,7 @@ import { WorkspaceCard } from "@/components/data/workspace-card";
 import { ReviewRecordsModal } from "@/components/data/review-records-modal";
 import { GbifSearch } from "@/components/data/gbif-search";
 import { AlaSearch } from "@/components/data/ala-search";
+import { SyntheticExamplesPanel } from "@/components/data/synthetic-examples-panel";
 import { apiPost, apiGet, apiPatch } from "@/services/api";
 import type { UploadFile } from "@/services/types";
 import type { WorkspaceFile, OccurrencePoint } from "./types";
@@ -184,37 +185,6 @@ export function UploadTab({
     }
   };
 
-  // ── Synthetic test data loader ───────────────────────────────
-  const [exampleLoading, setExampleLoading] = useState(false);
-
-  const handleLoadExample = useCallback(async () => {
-    setExampleLoading(true);
-    try {
-      const result = await apiPost<Record<string, unknown>>("/api/v1/data/examples/load", {
-        name: "multi_species_test",
-      });
-      const fileId = (result.file_id as string) || (result.file_path as string) || "";
-      const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
-      const speciesDetected = (result.species_detected as string) || null;
-
-      const fakeFile: UploadFile = {
-        file_id: fileId,
-        file_name: "synthetic_multi_species_test.csv",
-        file_size: 0,
-        n_rows: nRows,
-        cleaned: false,
-        modified_at: new Date().toISOString(),
-        species: speciesDetected || undefined,
-        format: "csv",
-      };
-      onWorkspaceAdd(fakeFile, speciesDetected || undefined);
-    } catch (err) {
-      console.error("[data] Failed to load example data:", err);
-    } finally {
-      setExampleLoading(false);
-    }
-  }, [onWorkspaceAdd]);
-
   // ── Native drag-and-drop ────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -238,15 +208,37 @@ export function UploadTab({
     e.preventDefault();
     setIsDragOver(false);
     const raw = e.dataTransfer.getData("application/x-sdm-file");
-    if (!raw) return;
-    try {
-      const { file_id, in_workspace } = JSON.parse(raw) as { file_id: string; in_workspace?: boolean };
-      if (in_workspace) return;
-      const file = previousUploads.find(f => f.file_id === file_id);
-      if (file && !workspaceFiles.some(w => w.fileId === file.file_id)) {
-        onWorkspaceAdd(file);
-      }
-    } catch {}
+    const rawExample = e.dataTransfer.getData("application/x-sdm-example");
+    if (raw) {
+      try {
+        const { file_id, in_workspace } = JSON.parse(raw) as { file_id: string; in_workspace?: boolean };
+        if (in_workspace) return;
+        const file = previousUploads.find(f => f.file_id === file_id);
+        if (file && !workspaceFiles.some(w => w.fileId === file.file_id)) {
+          onWorkspaceAdd(file);
+        }
+      } catch {}
+    } else if (rawExample) {
+      e.preventDefault();
+      const name = rawExample;
+      apiPost<Record<string, unknown>>("/api/v1/data/examples/load", { name }).then((result) => {
+        if (!result) return;
+        const fileId = (result.file_id as string) || (result.file_path as string) || "";
+        const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
+        const speciesDetected = (result.species_detected as string) || null;
+        const file: UploadFile = {
+          file_id: fileId,
+          file_name: `${name}.csv`,
+          file_size: 0,
+          n_rows: nRows,
+          cleaned: false,
+          modified_at: new Date().toISOString(),
+          species: speciesDetected || undefined,
+          format: "csv",
+        };
+        onWorkspaceAdd(file, speciesDetected || undefined);
+      }).catch(() => {});
+    }
   }, [previousUploads, workspaceFiles, onWorkspaceAdd]);
 
   // ── Sources panel drop zone (remove from workspace on drag-back) ─
@@ -576,19 +568,7 @@ export function UploadTab({
           </div>
         </details>
 
-        {/* Synthetic test data */}
-        <div className="mt-4 flex items-center gap-3 rounded-lg border border-dashed border-sdm-border/60 bg-sdm-surface-soft/30 px-4 py-3">
-          <Layers className="h-4 w-4 shrink-0 text-sdm-muted" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-sdm-heading">Synthetic test data</p>
-            <p className="text-xs text-sdm-muted mt-0.5">Loads 3 synthetic species (50 on-land records) for testing the multi-species pipeline</p>
-          </div>
-          <button onClick={handleLoadExample} disabled={exampleLoading}
-            className="inline-flex shrink-0 items-center gap-2 rounded-md bg-sdm-accent px-4 py-2 text-sm font-medium text-white hover:bg-sdm-accent/90 disabled:opacity-50">
-            {exampleLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Load test data
-          </button>
-        </div>
+        <SyntheticExamplesPanel onAddToWorkspace={onWorkspaceAdd} />
       </div>
 
       {/* ── Workspace ──────────────────────────────────────── */}

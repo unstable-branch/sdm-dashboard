@@ -20,6 +20,8 @@ interface ModelInfo {
   id: string; label: string; maturity: string;
   min_records?: number | null; packages?: string[]; notes?: string; available?: boolean;
   complexity_tier?: string;
+  enmeval_compatible?: boolean;
+  enmeval_algorithm?: string;
 }
 
 interface ModelConfigFormProps {
@@ -153,6 +155,12 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [rangebagVarsPerBag, setRangebagVarsPerBag] = useState(3);
 
   const [maxnetAutoTune, setMaxnetAutoTune] = useState(false);
+  const [tuningMethod, setTuningMethod] = useState<"none" | "enmeval">("none");
+  const [enmevalAlgorithm, setEnmevalAlgorithm] = useState<string>(DEFAULT_CONFIG.enmevalAlgorithm);
+  const [enmevalPartitions, setEnmevalPartitions] = useState<string>(DEFAULT_CONFIG.enmevalPartitions);
+  const [enmevalSelectionMetric, setEnmevalSelectionMetric] = useState<string>(DEFAULT_CONFIG.enmevalSelectionMetric);
+  const [enmevalTuneArgs, setEnmevalTuneArgs] = useState<Record<string, unknown>>(DEFAULT_CONFIG.enmevalTuneArgs);
+  const [enmevalNullIterations, setEnmevalNullIterations] = useState(DEFAULT_CONFIG.enmevalNullIterations);
   const [rfNumTrees, setRfNumTrees] = useState(500);
   const [rfMtry, setRfMtry] = useState<number | undefined>(undefined);
   const [rfMinNodeSize, setRfMinNodeSize] = useState(10);
@@ -164,7 +172,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [dnnDropout, setDnnDropout] = useState(0.3);
   const [dnnL2Lambda, setDnnL2Lambda] = useState(0.001);
   const [dnnNSeeds, setDnnNSeeds] = useState(3);
-  const [dnnDevice, setDnnDevice] = useState("auto");
+  const [dnnDevice, setDnnDevice] = useState<"auto" | "cpu" | "gpu">("auto");
+  const [dnnFusedAdam, setDnnFusedAdam] = useState<"auto" | "always" | "off">("auto");
   const [dnnMultispeciesNSeeds, setDnnMultispeciesNSeeds] = useState(3);
   const [brtNTrees, setBrtNTrees] = useState(500);
   const [brtInteractionDepth, setBrtInteractionDepth] = useState(3);
@@ -193,7 +202,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [inlaMeshCutoff, setInlaMeshCutoff] = useState<number | undefined>(undefined);
   const [detectionFormula, setDetectionFormula] = useState("");
   const [detectionModelType, setDetectionModelType] = useState("");
-  const [dnnMultispeciesArchitecture, setDnnMultispeciesArchitecture] = useState<"DNN_Small" | "DNN_Medium" | "DNN_Large">("DNN_Small");
+  const [dnnMultispeciesArchitecture, setDnnMultispeciesArchitecture] = useState<"DNN_Small" | "DNN_Medium" | "DNN_Large">("DNN_Medium");
   const [gllvmFamily, setGllvmFamily] = useState<"binomial" | "poisson" | "negative.binomial">("binomial");
   const [gllvmNumLv, setGllvmNumLv] = useState(2);
   const [gllvmNumRows, setGllvmNumRows] = useState(0);
@@ -303,6 +312,20 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     return () => clearTimeout(timer);
   }, [biovarKey, climateSource, climateRes]);
 
+  // Auto-select enmevalAlgorithm to match model. Always overwrites on model change.
+  useEffect(() => {
+    const model = availableModels.find((m) => m.id === modelId);
+    if (model?.enmeval_algorithm) {
+      setEnmevalAlgorithm(model.enmeval_algorithm);
+      if (tuningMethod === "enmeval") {
+        setEnmevalTuneArgs({});
+      }
+    } else if (!model?.enmeval_compatible) {
+      setTuningMethod("none");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelId, availableModels]);
+
   const toggleBiovar = useCallback((id: number) => setBiovars((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]), []);
   const toggleSoilVar = useCallback((id: string) => setSoilVars((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]), []);
   const toggleSoilDepth = useCallback((depth: string) => setSoilDepths((prev) => prev.includes(depth) ? prev.filter((d) => d !== depth) : [...prev, depth]), []);
@@ -325,7 +348,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
     const config = {
       species,
-      speciesFilter: species,
+      speciesFilter: (modelId === "dnn_multispecies" || modelId === "gllvm") ? "" : species,
       modelId,
       biovars,
       projectionExtent: extent,
@@ -382,6 +405,12 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       paReplicates,
       maxnetFeatures,
       maxnetRegmult,
+      tuningMethod: modelId === "maxnet" ? tuningMethod : undefined,
+      enmevalAlgorithm: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalAlgorithm : undefined,
+      enmevalPartitions: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalPartitions : undefined,
+      enmevalSelectionMetric: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalSelectionMetric : undefined,
+      enmevalTuneArgs: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalTuneArgs : undefined,
+      enmevalNullIterations: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalNullIterations : undefined,
       aggregationFactor,
       nCores,
       seed,
@@ -419,9 +448,11 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       xgbNRounds: modelId === "xgboost" ? xgbNRounds : undefined,
       dnnArchitecture: modelId === "dnn" ? dnnArchitecture : undefined,
       dnnMultispeciesArchitecture: modelId === "dnn_multispecies" ? dnnMultispeciesArchitecture : undefined,
-      dnnDropout: modelId === "dnn" ? dnnDropout : undefined,
-      dnnL2Lambda: modelId === "dnn" ? dnnL2Lambda : undefined,
+      dnnDropout: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnDropout : undefined,
+      dnnL2Lambda: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnL2Lambda : undefined,
       dnnMultispeciesNSeeds: modelId === "dnn_multispecies" ? dnnMultispeciesNSeeds : undefined,
+        dnnDevice: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnDevice : undefined,
+        dnnFusedAdam: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnFusedAdam : undefined,
       gllvmFamily: modelId === "gllvm" ? gllvmFamily : undefined,
       gllvmNumLv: modelId === "gllvm" ? gllvmNumLv : undefined,
       gllvmNumRows: modelId === "gllvm" ? gllvmNumRows : undefined,
@@ -516,7 +547,26 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           detectedSpecies={detectedSpecies}
         />
 
-        <ModelSelector models={availableModels} selected={modelId} onSelect={setModelId} />
+        <ModelSelector models={availableModels} selected={modelId} onSelect={(m) => { setModelId(m); setTuningMethod("none"); }} />
+        {selectedModel?.enmeval_compatible && (
+          <div className="space-y-2 rounded-md border border-sdm-border/50 bg-sdm-surface-soft p-3">
+            <label className="block text-sm font-medium text-sdm-text">
+              Tuning method
+              <TooltipInfo content="ENMeval runs an automated grid search over hyperparameters, selecting the best by CV AUC. Manual uses the provided parameters directly." />
+            </label>
+            <select
+              value={tuningMethod}
+              onChange={(e) => setTuningMethod(e.target.value as "none" | "enmeval")}
+              className="w-full rounded-md border border-sdm-border bg-sdm-surface px-3 py-2 text-sm text-sdm-text"
+            >
+              <option value="none">Manual (use provided parameters)</option>
+              <option value="enmeval">ENMeval (automated hyperparameter tuning)</option>
+            </select>
+            {tuningMethod === "enmeval" && enmevalAlgorithm !== modelId && (
+              <p className="text-xs text-sdm-muted mt-1">ENMeval algorithm auto-set to match model ({selectedModel.enmeval_algorithm || modelId}).</p>
+            )}
+          </div>
+        )}
         {isESM && (
           <div className="rounded-md bg-sdm-accent-blue/10 border border-sdm-accent-blue/30 p-3 text-xs text-sdm-text">
             <p className="font-medium flex items-center gap-1.5"><Info className="h-3.5 w-3.5" /> Ensembles of Small Models (ESM)</p>
@@ -762,6 +812,18 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         onMaxnetRegmultChange={setMaxnetRegmult}
         maxnetAutoTune={maxnetAutoTune}
         onMaxnetAutoTuneChange={setMaxnetAutoTune}
+        tuningMethod={tuningMethod}
+        onTuningMethodChange={setTuningMethod}
+        enmevalAlgorithm={enmevalAlgorithm}
+        onEnmevalAlgorithmChange={setEnmevalAlgorithm}
+        enmevalPartitions={enmevalPartitions}
+        onEnmevalPartitionsChange={setEnmevalPartitions}
+        enmevalSelectionMetric={enmevalSelectionMetric}
+        onEnmevalSelectionMetricChange={setEnmevalSelectionMetric}
+        enmevalTuneArgs={enmevalTuneArgs}
+        onEnmevalTuneArgsChange={setEnmevalTuneArgs}
+        enmevalNullIterations={enmevalNullIterations}
+        onEnmevalNullIterationsChange={setEnmevalNullIterations}
         multiEnsembleModels={multiEnsembleModels}
         multiEnsembleWeighting={multiEnsembleWeighting}
         multiEnsemblePower={multiEnsemblePower}
@@ -827,6 +889,14 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         onDnnL2LambdaChange={setDnnL2Lambda}
         dnnNSeeds={dnnNSeeds}
         onDnnNSeedsChange={setDnnNSeeds}
+        dnnDevice={dnnDevice}
+        onDnnDeviceChange={setDnnDevice}
+        dnnFusedAdam={dnnFusedAdam}
+        onDnnFusedAdamChange={setDnnFusedAdam}
+        dnnMultispeciesArchitecture={dnnMultispeciesArchitecture}
+        onDnnMultispeciesArchitectureChange={setDnnMultispeciesArchitecture}
+        dnnMultispeciesNSeeds={dnnMultispeciesNSeeds}
+        onDnnMultispeciesNSeedsChange={setDnnMultispeciesNSeeds}
         useElevation={useElevation}
         onUseElevationChange={setUseElevation}
         elevationDemtype={elevationDemtype}

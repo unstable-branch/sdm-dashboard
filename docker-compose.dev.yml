@@ -97,19 +97,24 @@ services:
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD}@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-dev-plumber-key}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-true}
-      - GDAL_CACHEMAX=64
+       - GDAL_CACHEMAX=512
     init: true
     deploy:
       resources:
         limits:
           cpus: "4"
           memory: 8G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 120s
+      start_period: 30s
     networks:
       - sdm-network
 
