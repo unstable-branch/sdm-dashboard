@@ -90,7 +90,7 @@ read_meta <- function() {
 write_meta <- function(meta) {
   tmp_path <- paste0(meta_file, ".tmp")
   writeLines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE, pretty = TRUE), tmp_path)
-  file.rename(tmp_path, meta_file)
+  sdm_safe_rename(tmp_path, meta_file)
 }
 
 # Write initial status before module loading (catches OOM during source)

@@ -280,7 +280,7 @@ download_chelsa_file <- function(url, dest, log_fun = NULL) {
         if (!is.na(partial_size) && file.exists(dest)) {
           file.remove(dest)
         }
-        file.rename(tmp, dest)
+        sdm_safe_rename(tmp, dest)
         log_message(log_fun, "  Downloaded: ", basename(dest))
         return(TRUE)
       } else {

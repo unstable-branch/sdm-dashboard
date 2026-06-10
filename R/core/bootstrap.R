@@ -75,3 +75,15 @@ sdm_ensure_project_dirs <- function(dirs = NULL) {
   for (dir in dirs) dir.create(sdm_project_path(dir), recursive = TRUE, showWarnings = FALSE)
   invisible(dirs)
 }
+
+# Safe file rename with cross-device fallback.
+# On Docker, /tmp is often a separate tmpfs mount and file.rename() fails
+# with EXDEV ("Invalid cross-device link"). Falls back to copy + delete.
+sdm_safe_rename <- function(from, to) {
+  if (file.exists(to)) unlink(to, force = TRUE)
+  if (!file.rename(from, to)) {
+    file.copy(from, to, overwrite = TRUE)
+    unlink(from, force = TRUE)
+  }
+  invisible(TRUE)
+}

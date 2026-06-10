@@ -736,10 +736,7 @@ run_fast_sdm <- function(...) {
   tmp_out <- tempfile(fileext = ".tif")
   terra::writeRaster(suit, tmp_out, overwrite = TRUE,
     wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
-  if (!file.rename(tmp_out, output_tif)) {
-    file.copy(tmp_out, output_tif, overwrite = TRUE)
-    unlink(tmp_out)
-  }
+  sdm_safe_rename(tmp_out, output_tif)
   suit <- terra::rast(output_tif)
 
   # Ensemble variable importance (multi-model) — must come after suit is assigned

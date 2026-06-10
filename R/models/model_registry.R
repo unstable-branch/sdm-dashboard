@@ -718,7 +718,7 @@ if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietl
       predict_dnn_multispecies_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
     },
     supports_importance = FALSE,
-    supports_uncertainty = TRUE,
+    supports_uncertainty = FALSE,
     supports_future = TRUE,
     multispecies = TRUE,
     diagnostics = list(n_species = TRUE, species_presence = TRUE),
@@ -729,8 +729,8 @@ if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietl
 
 # gllvm JSDM — conditional
 if (requireNamespace("gllvm", quietly = TRUE)) {
-  register_sdm_model(
-    id = "gllvm",
+register_sdm_model(
+  id = "gllvm",
     label = "gllvm JSDM",
     method = "Joint Species Distribution Model via gllvm (generalized linear latent variable model)",
     packages = "gllvm",

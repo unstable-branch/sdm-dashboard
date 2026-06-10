@@ -71,9 +71,15 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   }
 
   # Resolve fused Adam: "off" → no, "always"/"auto" → yes if torch is available
-  # Uses custom ATen-op Adam kernel (train_step_adam.so) which works on CPU/CUDA/MPS
+  # Uses custom ATen-op Adam kernel (train_step_adam.so) which works on CPU/CUDA/MPS.
+  # Multi-output (multi-species) DNN on CUDA must disable fused Adam — the JIT
+  # fuser (TensorExpr) fails to compile fused kernels for multi-output models
+  # with half-precision operations (libnvrtc resolution + __half2float bug).
+  # Single-output DNN with fused Adam works fine on GPU (see bench_e2e.R).
   torch_has_fused <- exists("torch__fused_adam_", envir = asNamespace("torch"))
   use_fused <- if (identical(use_fused_adam, "off")) {
+    FALSE
+  } else if (identical(dnn_device, "cuda")) {
     FALSE
   } else {
     torch_has_fused
@@ -179,7 +185,7 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
       }, numeric(nrow(x_train_scaled)))
       mean_pred <- rowMeans(preds, na.rm = TRUE)
       if (all(is.na(mean_pred))) return(NA_real_)
-      tryCatch(pROC::auc(obs, mean_pred), error = function(e) NA_real_)
+      tryCatch(auc_rank(obs, mean_pred), error = function(e) NA_real_)
     }, numeric(1))
   } else {
     auc_vals <- NA_real_
