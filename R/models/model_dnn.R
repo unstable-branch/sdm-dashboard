@@ -386,7 +386,8 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   .old_train_model <- NULL
   if (use_fused) {
     # Load custom ATen-op Adam kernel
-    cpp_so <- file.path(getwd(), "sdmtorch", "train_step_adam.so")
+    sdm_root <- if (exists("sdm_project_root", mode = "function")) sdm_project_root() else getwd()
+    cpp_so <- file.path(sdm_root, "sdmtorch", "train_step_adam.so")
     if (file.exists(cpp_so) && !is.loaded("adam_step_direct", PACKAGE = "")) {
       tryCatch(dyn.load(cpp_so, local = FALSE, now = TRUE), error = function(e) NULL)
     }
@@ -972,73 +973,103 @@ predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
     stop("DNN-302: No valid cells for MC Dropout prediction", call. = FALSE)
   }
 
-  # Allocate matrix: cells x mc_samples
-  mc_matrix <- matrix(NA_real_, nrow = length(valid_cells), ncol = mc_samples)
-
-  for (t in seq_len(mc_samples)) {
-    if (!is.null(log_fun) && mc_samples > 5 && (t %% 5 == 0 || t == 1)) {
-      log_message(log_fun, sprintf("  MC sample %d/%d", t, mc_samples))
-    }
-
-    col_idx <- t
-    pred_vals <- rep(NA, n_cells)
-
-    for (i in seq(1, length(valid_cells), by = batch_size)) {
-      batch_idx <- valid_cells[i:min(i + batch_size - 1, length(valid_cells))]
-      batch_xy <- terra::xyFromCell(pred_stack, batch_idx)
-      batch_vals <- tryCatch(
-        terra::extract(pred_stack, batch_xy),
-        error = function(e) {
-          stop(paste("DNN-303: Failed to extract raster values:", conditionMessage(e)), call. = FALSE)
-        }
-      )
-
-      valid_rows <- complete.cases(batch_vals)
-      valid_batch_idx <- batch_idx[valid_rows]
-      valid_batch_vals <- batch_vals[valid_rows, , drop = FALSE]
-
-      if (nrow(valid_batch_vals) > 0) {
-        batch_scaled <- sweep(as.matrix(valid_batch_vals), 2, scaler$mean, "-")
-        batch_scaled <- sweep(batch_scaled, 2, scaler$sd, "/")
-
-        batch_pred <- tryCatch({
-          if (use_fp16) {
-            torch::with_autocast(device_type = "cuda", {
-              pred <- stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response")
-              if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
-            })
-          } else {
-            pred <- stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response")
-            if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
-          }
-        }, error = function(e) {
-          stop(paste("DNN-303: MC prediction failed:", conditionMessage(e)), call. = FALSE)
-        })
-        pred_vals[valid_batch_idx] <- batch_pred
-      }
-    }
-
-    mc_matrix[, t] <- pred_vals[valid_cells]
+  # Pre-flight memory check — mc_matrix is n_valid_cells x mc_samples doubles (8 bytes each)
+  mc_matrix_bytes <- length(valid_cells) * mc_samples * 8
+  mc_matrix_gb <- mc_matrix_bytes / (1024^3)
+  if (mc_matrix_gb > 4) {
+    chunk_size <- max(1L, floor(4 * 1024^3 / (length(valid_cells) * 8)))
+    log_message(log_fun, sprintf(
+      "MC matrix would be %.1f GB — chunking to %d-sample blocks", mc_matrix_gb, chunk_size
+    ))
+  } else {
+    chunk_size <- mc_samples
   }
 
-  # Row-wise statistics across MC samples
-  mean_vec <- rowMeans(mc_matrix, na.rm = TRUE)
+  mean_vec <- numeric(length(valid_cells))
+  m2_vec <- numeric(length(valid_cells))
+  alea_sum_vec <- numeric(length(valid_cells))
+
+  for (chunk_start in seq(1, mc_samples, by = chunk_size)) {
+    chunk_end <- min(chunk_start + chunk_size - 1, mc_samples)
+    chunk_n <- chunk_end - chunk_start + 1L
+
+    mc_chunk <- matrix(NA_real_, nrow = length(valid_cells), ncol = chunk_n)
+
+    for (t_local in seq_len(chunk_n)) {
+      t_global <- chunk_start + t_local - 1L
+      if (!is.null(log_fun) && mc_samples > 5 && (t_global %% 5 == 0 || t_global == 1)) {
+        log_message(log_fun, sprintf("  MC sample %d/%d", t_global, mc_samples))
+      }
+
+      pred_vals <- rep(NA, n_cells)
+
+      for (i in seq(1, length(valid_cells), by = batch_size)) {
+        batch_idx <- valid_cells[i:min(i + batch_size - 1, length(valid_cells))]
+        batch_xy <- terra::xyFromCell(pred_stack, batch_idx)
+        batch_vals <- tryCatch(
+          terra::extract(pred_stack, batch_xy),
+          error = function(e) {
+            stop(paste("DNN-303: Failed to extract raster values:", conditionMessage(e)), call. = FALSE)
+          }
+        )
+
+        valid_rows <- complete.cases(batch_vals)
+        valid_batch_idx <- batch_idx[valid_rows]
+        valid_batch_vals <- batch_vals[valid_rows, , drop = FALSE]
+
+        if (nrow(valid_batch_vals) > 0) {
+          batch_scaled <- sweep(as.matrix(valid_batch_vals), 2, scaler$mean, "-")
+          batch_scaled <- sweep(batch_scaled, 2, scaler$sd, "/")
+
+          batch_pred <- tryCatch({
+            if (use_fp16) {
+              torch::with_autocast(device_type = "cuda", {
+                pred <- stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response")
+                if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+              })
+            } else {
+              pred <- stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response")
+              if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+            }
+          }, error = function(e) {
+            stop(paste("DNN-303: MC prediction failed:", conditionMessage(e)), call. = FALSE)
+          })
+          pred_vals[valid_batch_idx] <- batch_pred
+        }
+      }
+
+      mc_chunk[, t_local] <- pred_vals[valid_cells]
+    }
+
+    # Welford-style incremental mean/M2 across chunks
+    for (t_local in seq_len(chunk_n)) {
+      col <- mc_chunk[, t_local]
+      t_global <- chunk_start + t_local - 1L
+      delta <- col - mean_vec
+      mean_vec <- mean_vec + delta / t_global
+      delta2 <- col - mean_vec
+      m2_vec <- m2_vec + delta * delta2
+      if (decompose) {
+        alea_sum_vec <- alea_sum_vec + col * (1 - col)
+      }
+    }
+  }
+
+  # Compute final statistics
+  if (mc_samples >= 2) {
+    var_vec <- m2_vec / mc_samples
+  } else {
+    var_vec <- rep(0, length(valid_cells))
+  }
 
   if (decompose && mc_samples >= 2) {
-    # Aleatoric: mean of Bernoulli variance p_t * (1 - p_t) across MC samples
-    aleatoric_vec <- rowMeans(mc_matrix * (1 - mc_matrix), na.rm = TRUE)
-
-    # Epistemic: variance of the means across MC samples
-    mean_sq <- rowMeans(mc_matrix^2, na.rm = TRUE)
-    epistemic_vec <- pmax(mean_sq - mean_vec^2, 0)
-
-    # Total: aleatoric + epistemic
+    aleatoric_vec <- alea_sum_vec / mc_samples
+    epistemic_vec <- pmax(var_vec - aleatoric_vec, 0)
     total_vec <- aleatoric_vec + epistemic_vec
-
     sd_vec <- sqrt(total_vec)
     cv_vec <- sd_vec / pmax(mean_vec, 1e-10)
   } else {
-    sd_vec <- apply(mc_matrix, 1, stats::sd, na.rm = TRUE)
+    sd_vec <- sqrt(var_vec)
     cv_vec <- sd_vec / pmax(mean_vec, 1e-10)
     aleatoric_vec <- NULL
     epistemic_vec <- NULL
@@ -1095,6 +1126,10 @@ predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores
   # MC Dropout / heteroscedastic path — uses trained model with dropout active
   if (isTRUE(mc_samples > 0L)) {
     decompose <- identical(uncertainty_method, "heteroscedastic")
+    if (decompose && mc_samples < 2L) {
+      log_message(log_fun, "Warning: uncertainty decomposition requires mc_samples >= 2, falling back to mc_dropout")
+      decompose <- FALSE
+    }
     label <- if (decompose) "Heteroscedastic MC" else "MC Dropout"
     log_message(log_fun, "Predicting suitability with ", label, " (", mc_samples, " samples, ", fit$dnn_model_type, ")")
 

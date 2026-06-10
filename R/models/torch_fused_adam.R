@@ -200,7 +200,8 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
 
   # Load CUDA Graphs .so if needed
   if (use_cudagraphs) {
-    cg_so <- file.path(getwd(), "sdmtorch", "cuda_graph.so")
+    sdm_root <- if (exists("sdm_project_root", mode = "function")) sdm_project_root() else getwd()
+    cg_so <- file.path(sdm_root, "sdmtorch", "cuda_graph.so")
     if (file.exists(cg_so) && !is.loaded("cuda_graph_begin", PACKAGE = "")) {
       tryCatch(dyn.load(cg_so, local = FALSE, now = TRUE), error = function(e) {
         use_cudagraphs <<- FALSE
@@ -457,7 +458,6 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
       })
 
       model$losses$valid_l[epoch] <- mean(valid_losses_vec[seq_len(valid_batch_idx)])
-      suppress_warning <- tryCatch(as.numeric(model$losses$valid_l[epoch]), error = function(e) NA_real_)
 
       model$net$train(TRUE)
       if (use_traced) traced_module$train()

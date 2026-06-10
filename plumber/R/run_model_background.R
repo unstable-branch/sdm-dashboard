@@ -267,7 +267,9 @@ tryCatch({
     dnn_cuda_graphs = config$dnn_cuda_graphs %||% "auto",
     dnn_architecture = config$dnn_architecture %||% config$dnn_model_type %||% "DNN_Medium",
     dnn_multispecies_architecture = config$dnn_multispecies_architecture %||% config$dnn_model_type %||% "DNN_Medium",
-    dnn_multispecies_n_seeds = as.integer(config$dnn_multispecies_n_seeds %||% 3L)
+    dnn_multispecies_n_seeds = as.integer(config$dnn_multispecies_n_seeds %||% 3L),
+    dnn_mc_samples = as.integer(config$dnn_mc_samples %||% 0L),
+    dnn_uncertainty_method = config$dnn_uncertainty_method %||% "none"
   )
 
   result <- run_fast_sdm(cfg)

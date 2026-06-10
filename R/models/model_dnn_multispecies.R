@@ -102,12 +102,13 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     .old_train_model <- NULL
     if (use_fused) {
       # Load custom ATen-op Adam kernel (works on CPU/CUDA/MPS)
-      cpp_so <- file.path(getwd(), "sdmtorch", "train_step_adam.so")
+      sdm_root <- if (exists("sdm_project_root", mode = "function")) sdm_project_root() else getwd()
+      cpp_so <- file.path(sdm_root, "sdmtorch", "train_step_adam.so")
       if (file.exists(cpp_so) && !is.loaded("adam_step_direct", PACKAGE = "")) {
         tryCatch(dyn.load(cpp_so, local = FALSE, now = TRUE), error = function(e) NULL)
       }
       # Fall back to libtorch _fused_adam_ kernel (CPU only, NaN on Blackwell GPU)
-      cpp_so2 <- file.path(getwd(), "sdmtorch", "train_step_libtorch.so")
+      cpp_so2 <- file.path(sdm_root, "sdmtorch", "train_step_libtorch.so")
       if (!is.loaded("adam_step_direct", PACKAGE = "") &&
           file.exists(cpp_so2) && !is.loaded("fused_adam_step_direct", PACKAGE = "")) {
         tryCatch(dyn.load(cpp_so2, local = FALSE, now = TRUE), error = function(e) NULL)
