@@ -30,6 +30,12 @@ if (!exists("app_dir", inherits = FALSE) || is.null(app_dir) || length(app_dir) 
 if (is.na(job_dir) || !nzchar(job_dir)) stop("job_dir is required")
 if (is.na(app_dir) || !nzchar(app_dir)) stop("app_dir is required")
 
+# Set terra temp dir to job dir to avoid cross-device link errors from
+# writeRaster's internal file.rename (Docker /tmp is often a separate tmpfs mount).
+# Also used by callr path via TMPDIR env var set before process start.
+tmp_dir <- file.path(job_dir, ".tmp")
+dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+
 # Set R_MAX_VSIZE now that app_dir is known (shared helper in vsize.R)
 source(file.path(app_dir, "plumber", "R", "helpers", "vsize.R"))
 Sys.setenv(R_MAX_VSIZE = sdm_detect_vsize())
@@ -109,6 +115,7 @@ log_fun("Loading compute modules (~130 modules)...")
 progress_fun(list(value = 0.03, detail = "Loading compute modules"))
 Sys.setenv(SDM_HEARTBEAT_FILE = heartbeat_file)
 source(file.path(app_dir, "R", "load_compute.R"))
+terraOptions(tempdir = tmp_dir)
 write_heartbeat("compute_modules_done")
 log_fun("All modules loaded successfully")
 
