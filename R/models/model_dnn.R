@@ -749,6 +749,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
                         use_fused_adam = "auto",
                         dnn_mixed_precision = "auto",
                         dnn_cuda_graphs = "auto",
+                        mc_samples = 0L,
                         ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
@@ -906,46 +907,172 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     n_seeds = n_success,
     dnn_device = dnn_device,
     dnn_model_type = dnn_model_type,
-    use_fused_adam = use_fused_adam
+    use_fused_adam = use_fused_adam,
+    mc_samples = as.integer(mc_samples)
   )
+}
+
+#' MC Dropout prediction for epistemic uncertainty
+#'
+#' Runs forward passes with dropout active (model in train mode) to estimate
+#' predictive uncertainty via Monte Carlo dropout.
+#'
+#' @param model Trained cito DNN model
+#' @param pred_stack SpatRaster stack of scaled environmental covariates
+#' @param scaler Scaling parameters (mean, sd) from training
+#' @param device Device string ("cpu", "cuda", "mps")
+#' @param batch_size Cells per prediction batch
+#' @param mc_samples Number of MC dropout forward passes (default 30)
+#' @param log_fun Optional logging function
+#' @return List with rasters: mean, sd, cv
+predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
+                           batch_size = 1000L, mc_samples = 30L,
+                           log_fun = NULL) {
+  log_message(log_fun, "MC Dropout: ", mc_samples, " forward passes with dropout active")
+
+  # Enable dropout for MC sampling
+  model$net$train()
+  on.exit(model$net$eval(), add = TRUE)
+
+  n_cells <- terra::ncell(pred_stack)
+  valid_cells <- which(!is.na(terra::values(pred_stack[[1]])))
+  if (length(valid_cells) == 0) {
+    stop("DNN-302: No valid cells for MC Dropout prediction", call. = FALSE)
+  }
+
+  # Allocate matrix: cells x mc_samples
+  mc_matrix <- matrix(NA_real_, nrow = length(valid_cells), ncol = mc_samples)
+
+  for (t in seq_len(mc_samples)) {
+    if (!is.null(log_fun) && mc_samples > 5 && (t %% 5 == 0 || t == 1)) {
+      log_message(log_fun, sprintf("  MC sample %d/%d", t, mc_samples))
+    }
+
+    col_idx <- t
+    pred_vals <- rep(NA, n_cells)
+
+    for (i in seq(1, length(valid_cells), by = batch_size)) {
+      batch_idx <- valid_cells[i:min(i + batch_size - 1, length(valid_cells))]
+      batch_xy <- terra::xyFromCell(pred_stack, batch_idx)
+      batch_vals <- tryCatch(
+        terra::extract(pred_stack, batch_xy),
+        error = function(e) {
+          stop(paste("DNN-303: Failed to extract raster values:", conditionMessage(e)), call. = FALSE)
+        }
+      )
+
+      valid_rows <- complete.cases(batch_vals)
+      valid_batch_idx <- batch_idx[valid_rows]
+      valid_batch_vals <- batch_vals[valid_rows, , drop = FALSE]
+
+      if (nrow(valid_batch_vals) > 0) {
+        batch_scaled <- sweep(as.matrix(valid_batch_vals), 2, scaler$mean, "-")
+        batch_scaled <- sweep(batch_scaled, 2, scaler$sd, "/")
+
+        batch_pred <- tryCatch({
+          pred <- stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response")
+          if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+        }, error = function(e) {
+          stop(paste("DNN-303: MC prediction failed:", conditionMessage(e)), call. = FALSE)
+        })
+        pred_vals[valid_batch_idx] <- batch_pred
+      }
+    }
+
+    mc_matrix[, t] <- pred_vals[valid_cells]
+  }
+
+  # Row-wise statistics across MC samples
+  mean_vec <- rowMeans(mc_matrix, na.rm = TRUE)
+  sd_vec <- apply(mc_matrix, 1, stats::sd, na.rm = TRUE)
+  cv_vec <- sd_vec / pmax(mean_vec, 1e-10)
+
+  # Map back to full raster
+  mean_raster <- pred_stack[[1]]
+  terra::values(mean_raster) <- NA_real_
+  terra::values(mean_raster)[valid_cells] <- mean_vec
+  names(mean_raster) <- "suitability"
+
+  sd_raster <- pred_stack[[1]]
+  terra::values(sd_raster) <- NA_real_
+  terra::values(sd_raster)[valid_cells] <- sd_vec
+  names(sd_raster) <- "uncertainty_sd"
+
+  cv_raster <- pred_stack[[1]]
+  terra::values(cv_raster) <- NA_real_
+  terra::values(cv_raster)[valid_cells] <- cv_vec
+  names(cv_raster) <- "uncertainty_cv"
+
+  list(mean = mean_raster, sd = sd_raster, cv = cv_raster)
 }
 
 #' Predict DNN suitability (registry pattern)
 predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
-  n_seeds <- length(fit$ensemble_models %||% list())
-  if (n_seeds > 1) {
-    log_message(log_fun, "Predicting suitability raster with DNN ensemble (", n_seeds, " seeds, ", fit$dnn_model_type, ")")
+  mc_samples <- fit$mc_samples %||% 0L
 
-    seed_preds <- vector("list", n_seeds)
-    for (s in seq_len(n_seeds)) {
-      seed_preds[[s]] <- predict_dnn_raster(fit$ensemble_models[[s]], env_project_scaled,
-        fit$scaler, device = fit$dnn_device)
-    }
+  # MC Dropout path — uses trained model with dropout active
+  if (isTRUE(mc_samples > 0L)) {
+    log_message(log_fun, "Predicting suitability with MC Dropout (", mc_samples, " samples, ", fit$dnn_model_type, ")")
 
-    pred_stack <- terra::rast(seed_preds)
-    mean_pred <- mean(pred_stack, na.rm = TRUE)
-    sd_pred <- terra::stdev(pred_stack, na.rm = TRUE)
-
-    terra::values(mean_pred)[is.nan(terra::values(mean_pred))] <- NA
-    terra::values(sd_pred)[is.nan(terra::values(sd_pred))] <- NA
-    names(mean_pred) <- "suitability"
+    mc_result <- predict_dnn_mc(fit$model, env_project_scaled, fit$scaler,
+      device = fit$dnn_device, mc_samples = mc_samples, log_fun = log_fun)
 
     dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(mean_pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
-    log_message(log_fun, "DNN ensemble suitability saved: ", output_tif)
+    terra::writeRaster(mc_result$mean, output_tif, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+    log_message(log_fun, "DNN MC Dropout suitability saved: ", output_tif)
 
-    uncertainty_tif <- sub("\\.tif$", "_uncertainty.tif", output_tif)
-    terra::writeRaster(sd_pred, uncertainty_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
-    log_message(log_fun, "DNN ensemble uncertainty (SD) saved: ", uncertainty_tif, " +/- ", sprintf("%.3f", mean(terra::values(sd_pred), na.rm = TRUE)))
+    uncertainty_tif <- sub("\\.tif$", "_uncertainty_epistemic.tif", output_tif)
+    terra::writeRaster(mc_result$sd, uncertainty_tif, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+    log_message(log_fun, "DNN MC Dropout uncertainty (SD) saved: ", uncertainty_tif)
 
-    attr(mean_pred, "uncertainty_tif") <- uncertainty_tif
-    mean_pred
+    cv_tif <- sub("\\.tif$", "_uncertainty_cv.tif", output_tif)
+    terra::writeRaster(mc_result$cv, cv_tif, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+    log_message(log_fun, "DNN MC Dropout CV saved: ", cv_tif)
+
+    attr(mc_result$mean, "uncertainty_tif") <- uncertainty_tif
+    attr(mc_result$mean, "uncertainty_cv_tif") <- cv_tif
+    mc_result$mean
+
   } else {
-    log_message(log_fun, "Predicting suitability raster with DNN (", fit$dnn_model_type, ")")
-    pred <- predict_dnn_raster(fit$model, env_project_scaled, fit$scaler, device = fit$dnn_device)
-    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
-    log_message(log_fun, "DNN suitability saved: ", output_tif)
-    pred
+    # Standard (non-MC) prediction path
+    n_seeds <- length(fit$ensemble_models %||% list())
+    if (n_seeds > 1) {
+      log_message(log_fun, "Predicting suitability raster with DNN ensemble (", n_seeds, " seeds, ", fit$dnn_model_type, ")")
+
+      seed_preds <- vector("list", n_seeds)
+      for (s in seq_len(n_seeds)) {
+        seed_preds[[s]] <- predict_dnn_raster(fit$ensemble_models[[s]], env_project_scaled,
+          fit$scaler, device = fit$dnn_device)
+      }
+
+      pred_stack <- terra::rast(seed_preds)
+      mean_pred <- mean(pred_stack, na.rm = TRUE)
+      sd_pred <- terra::stdev(pred_stack, na.rm = TRUE)
+
+      terra::values(mean_pred)[is.nan(terra::values(mean_pred))] <- NA
+      terra::values(sd_pred)[is.nan(terra::values(sd_pred))] <- NA
+      names(mean_pred) <- "suitability"
+
+      dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+      terra::writeRaster(mean_pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN ensemble suitability saved: ", output_tif)
+
+      uncertainty_tif <- sub("\\.tif$", "_uncertainty.tif", output_tif)
+      terra::writeRaster(sd_pred, uncertainty_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN ensemble uncertainty (SD) saved: ", uncertainty_tif, " +/- ", sprintf("%.3f", mean(terra::values(sd_pred), na.rm = TRUE)))
+
+      attr(mean_pred, "uncertainty_tif") <- uncertainty_tif
+      mean_pred
+    } else {
+      log_message(log_fun, "Predicting suitability raster with DNN (", fit$dnn_model_type, ")")
+      pred <- predict_dnn_raster(fit$model, env_project_scaled, fit$scaler, device = fit$dnn_device)
+      dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+      terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN suitability saved: ", output_tif)
+      pred
+    }
   }
 }

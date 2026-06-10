@@ -106,6 +106,8 @@ sdm_config <- function(...) {
     dnn_model_type = "DNN_Medium",
     dnn_dropout = 0.3,
     dnn_lambda = 0.001,
+    dnn_n_seeds = 5L,
+    dnn_mc_samples = 0L,
     overlap_warn = FALSE,
     validation_occurrences = sdm_default_validation_occurrences,
     pa_replicates = 1,
