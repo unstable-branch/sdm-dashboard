@@ -359,7 +359,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   } else if (identical(use_fused_adam, "always")) {
     torch_has_fused
   } else {
-    startsWith(device, "cuda") && torch_has_fused
+    !startsWith(device, "cuda") && torch_has_fused
   }
 
   # Silence "no visible binding" NOTE from R CMD check
