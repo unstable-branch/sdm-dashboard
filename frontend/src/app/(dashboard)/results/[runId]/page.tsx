@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -69,6 +69,7 @@ export default function ResultsPage() {
   const [ensembleGenerating, setEnsembleGenerating] = useState(false);
   const [ensembleGenerated, setEnsembleGenerated] = useState(false);
   const [ensembleError, setEnsembleError] = useState<string | null>(null);
+  const [selectedMultiSpeciesIdx, setSelectedMultiSpeciesIdx] = useState(-1); // -1 = show default map
   const [run, setRun] = useState<RunDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadTimeout, setLoadTimeout] = useState(false);
@@ -155,6 +156,26 @@ export default function ResultsPage() {
   }, [runId, showErrorLogs, errorLogData]);
 
   const isMultiEnsemble = run?.model_id === "multi_ensemble";
+  const isMultiSpecies = run?.model_id === "dnn_multispecies" || run?.model_id === "gllvm";
+
+  // Parse multi-species output files into species list (uses run?.output_files, defined after outputFiles)
+  const multiSpeciesTifs = useMemo(() => {
+    const of = run?.output_files ?? null;
+    if (!isMultiSpecies || !of) return [];
+    const count = parseInt(of["multi_species_tif_count"] as string || "0", 10);
+    if (isNaN(count) || count < 1) return [];
+    const species: Array<{ name: string; tif: string }> = [];
+    for (let i = 1; i <= count; i++) {
+      const tif = of[`multi_species_tif_${i}`] as string | undefined;
+      if (tif) {
+        const name = tif.split("/").pop()?.replace(/\.tif$/i, "").replace(/^.*?_/, "") || `Species ${i}`;
+        species.push({ name, tif });
+      }
+    }
+    return species;
+  }, [isMultiSpecies, run?.output_files]);
+
+  const richnessTif = isMultiSpecies ? (run?.output_files?.["multi_species_richness_tif"] as string | undefined) : undefined;
 
   const handleGenerateEnsemble = useCallback(async () => {
     setEnsembleGenerating(true);
@@ -476,6 +497,37 @@ export default function ResultsPage() {
           {run.metrics && (
             <div className="space-y-3">
               <MetricCards metrics={run.metrics} modelId={run.model_id} />
+              {isMultiSpecies && multiSpeciesTifs.length > 0 && (
+                <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
+                  <h3 className="text-sm font-semibold text-sdm-heading mb-2">Species</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {multiSpeciesTifs.map((sp, i) => (
+                      <span key={i} className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-2.5 py-1 text-xs text-sdm-text">
+                        {sp.name}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {multiSpeciesTifs.map((sp, i) => (
+                      <button
+                        key={i}
+                        onClick={() => downloadFile(sp.tif)}
+                        className="text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
+                      >
+                        Download {sp.name}
+                      </button>
+                    ))}
+                    {richnessTif && (
+                      <button
+                        onClick={() => downloadFile(richnessTif!)}
+                        className="text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
+                      >
+                        Download richness
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               {benchmark && (
                 <div className="rounded-lg border border-sdm-border bg-sdm-surface p-3 text-xs">
                   <span className="text-sdm-muted">vs. best previous run: </span>
@@ -509,8 +561,55 @@ export default function ResultsPage() {
             </TabsList>
 
             <TabsContent value="map">
-              <SuitabilityMap key={runId}
-                outputFiles={run.output_files}
+              {isMultiSpecies && multiSpeciesTifs.length > 0 && (
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-sdm-muted">Species:</span>
+                  <button
+                    onClick={() => setSelectedMultiSpeciesIdx(-1)}
+                    className={`text-xs rounded px-2 py-1 border ${selectedMultiSpeciesIdx === -1
+                      ? "bg-sdm-accent/15 text-sdm-accent border-sdm-accent/30"
+                      : "bg-sdm-surface text-sdm-muted border-sdm-border hover:text-sdm-text"
+                    }`}
+                  >
+                    All species
+                  </button>
+                  {multiSpeciesTifs.map((sp, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setSelectedMultiSpeciesIdx(i)}
+                      className={`text-xs rounded px-2 py-1 border ${selectedMultiSpeciesIdx === i
+                        ? "bg-sdm-accent/15 text-sdm-accent border-sdm-accent/30"
+                        : "bg-sdm-surface text-sdm-muted border-sdm-border hover:text-sdm-text"
+                      }`}
+                    >
+                      {sp.name}
+                    </button>
+                  ))}
+                  {richnessTif && (
+                    <button
+                      onClick={() => setSelectedMultiSpeciesIdx(-2)}
+                      className={`text-xs rounded px-2 py-1 border ${selectedMultiSpeciesIdx === -2
+                        ? "bg-sdm-accent/15 text-sdm-accent border-sdm-accent/30"
+                        : "bg-sdm-surface text-sdm-muted border-sdm-border hover:text-sdm-text"
+                      }`}
+                    >
+                      Richness
+                    </button>
+                  )}
+                </div>
+              )}
+              <SuitabilityMap key={`${runId}-${selectedMultiSpeciesIdx}`}
+                outputFiles={(() => {
+                  const of = run?.output_files ?? null;
+                  if (!isMultiSpecies || selectedMultiSpeciesIdx < 0 || !of) return of;
+                  const override = { ...of };
+                  if (selectedMultiSpeciesIdx === -2 && richnessTif) {
+                    override.tif = richnessTif;
+                  } else if (selectedMultiSpeciesIdx >= 0 && selectedMultiSpeciesIdx < multiSpeciesTifs.length) {
+                    override.tif = multiSpeciesTifs[selectedMultiSpeciesIdx].tif;
+                  }
+                  return override;
+                })()}
                 runId={runId}
                 projectionExtent={(run.config?.projection_extent as [number, number, number, number] | undefined) ?? null}
                 initialViewState={extentToViewState((run.config?.projection_extent ?? undefined) as [number, number, number, number] | undefined)}

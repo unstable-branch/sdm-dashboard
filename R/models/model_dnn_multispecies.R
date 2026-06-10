@@ -256,6 +256,13 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
 
   log_message(log_fun, "Predicting multi-species DNN suitability (", n_species, " species)")
 
+  # MC Dropout uncertainty is not yet supported for multi-output (multi-species)
+  # models. Warn users who configure it via the UI/API.
+  mc_samples <- fit$mc_samples %||% 0L
+  if (isTRUE(mc_samples > 0L)) {
+    log_message(log_fun, "  Note: MC Dropout uncertainty not available for multi-species model")
+  }
+
   env_df <- as.data.frame(terra::values(env_subset))
   names(env_df) <- covariates
   complete_idx <- which(stats::complete.cases(env_df))

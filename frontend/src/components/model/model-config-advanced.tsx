@@ -617,6 +617,23 @@ export function ModelConfigAdvanced({
                 <option value="cpu">CPU only</option>
               </select>
             </div>
+            <div>
+              <label className="block text-xs font-medium text-sdm-muted mb-1">
+                MC Dropout samples ({dnnMcSamples})
+                <TooltipInfo content="Number of Monte Carlo dropout forward passes for uncertainty estimation. 0 = off. Note: uncertainty quantification is currently available for single-species DNN only." />
+              </label>
+              <input type="range" min={0} max={100} step={5} value={dnnMcSamples} onChange={(e) => onDnnMcSamplesChange(Number(e.target.value))} className="w-full" />
+              <p className="text-[10px] text-sdm-danger/70 mt-0.5">Uncertainty Q currently single-species only</p>
+            </div>
+            {dnnMcSamples > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-sdm-muted mb-1">Uncertainty method</label>
+                <select value={dnnUncertaintyMethod} onChange={(e) => onDnnUncertaintyMethodChange(e.target.value as typeof dnnUncertaintyMethod)} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
+                  <option value="mc_dropout">MC Dropout (epistemic only)</option>
+                  <option value="heteroscedastic">Full decomposition (aleatoric + epistemic)</option>
+                </select>
+              </div>
+            )}
           </div>
         </details>
       )}
