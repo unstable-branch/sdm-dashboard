@@ -135,7 +135,7 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
         optimizer = "adam",
         lr = arch$lr,
         epochs = arch$epochs,
-        batchsize = min(512L, max(32L, floor(n_sites / 10))),
+        batchsize = .vram_safe_batchsize(n_sites, arch$hidden, dnn_device, max_batch = 512L),
         dropout = arch$dropout,
         lambda = arch$lambda %||% 0.001,
         alpha = 1.0,
