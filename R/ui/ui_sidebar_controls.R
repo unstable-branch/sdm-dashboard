@@ -300,7 +300,7 @@ ui_sidebar_controls <- function() {
             selected = "auto"
           ),
           selectInput("dnn_fused_adam", "Fused Adam (experimental)",
-            choices = c("Auto (CPU only)" = "auto", "Always (GPU + CPU)" = "always", "Off (standard Adam)" = "off"),
+            choices = c("Auto (CPU + GPU)" = "auto", "Off (standard Adam)" = "off"),
             selected = "auto"
           ),
           selectInput("dnn_mixed_precision", "Mixed precision (FP16)",

@@ -70,16 +70,13 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     dnn_device <- "cpu"
   }
 
-  # Resolve fused Adam: "off" → no, "always" → yes if available, "auto" → yes on non-CUDA
-  # NOTE: _fused_adam_ CUDA kernel produces NaN on Blackwell (compute 12.0) and likely
-  # other newer architectures. CPU fused Adam works correctly. Use "always" to force on GPU.
+  # Resolve fused Adam: "off" → no, "always"/"auto" → yes if torch is available
+  # Uses custom ATen-op Adam kernel (train_step_adam.so) which works on CPU/CUDA/MPS
   torch_has_fused <- exists("torch__fused_adam_", envir = asNamespace("torch"))
   use_fused <- if (identical(use_fused_adam, "off")) {
     FALSE
-  } else if (identical(use_fused_adam, "always")) {
-    torch_has_fused
   } else {
-    !startsWith(dnn_device, "cuda") && torch_has_fused
+    torch_has_fused
   }
 
   # Build training data for cito multi-output
@@ -104,9 +101,16 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     # Patch cito's train_model with fused Adam if enabled
     .old_train_model <- NULL
     if (use_fused) {
-      cpp_so <- file.path(getwd(), "sdmtorch", "train_step_libtorch.so")
-      if (file.exists(cpp_so)) {
+      # Load custom ATen-op Adam kernel (works on CPU/CUDA/MPS)
+      cpp_so <- file.path(getwd(), "sdmtorch", "train_step_adam.so")
+      if (file.exists(cpp_so) && !is.loaded("adam_step_direct", PACKAGE = "")) {
         tryCatch(dyn.load(cpp_so, local = FALSE, now = TRUE), error = function(e) NULL)
+      }
+      # Fall back to libtorch _fused_adam_ kernel (CPU only, NaN on Blackwell GPU)
+      cpp_so2 <- file.path(getwd(), "sdmtorch", "train_step_libtorch.so")
+      if (!is.loaded("adam_step_direct", PACKAGE = "") &&
+          file.exists(cpp_so2) && !is.loaded("fused_adam_step_direct", PACKAGE = "")) {
+        tryCatch(dyn.load(cpp_so2, local = FALSE, now = TRUE), error = function(e) NULL)
       }
       set_train_opts(
         mixed_precision = dnn_mixed_precision,
