@@ -299,6 +299,18 @@ ui_sidebar_controls <- function() {
             choices = c("Auto" = "auto", "CPU" = "cpu", "GPU" = "gpu"),
             selected = "auto"
           ),
+          selectInput("dnn_fused_adam", "Fused Adam (experimental)",
+            choices = c("Auto (GPU only)" = "auto", "Always (GPU + CPU)" = "always", "Off (standard Adam)" = "off"),
+            selected = "auto"
+          ),
+          selectInput("dnn_mixed_precision", "Mixed precision (FP16)",
+            choices = c("Auto (GPU only)" = "auto", "Off" = "off"),
+            selected = "auto"
+          ),
+          selectInput("dnn_cuda_graphs", "CUDA Graphs (experimental)",
+            choices = c("Off" = "off"),
+            selected = "off"
+          ),
           div(class = "small-muted", "Multiple seeds train independent networks with different random initialisations. Prediction SD across seeds measures epistemic uncertainty.")
         ),
         conditionalPanel(

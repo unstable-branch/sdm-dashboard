@@ -9,7 +9,12 @@ handle_config_defaults <- function(res, app_dir) {
     analysis_crs = sdm_default_analysis_crs,
     analysis_crs_choices = lapply(seq_along(sdm_analysis_crs_choices), function(i) {
       list(value = unname(sdm_analysis_crs_choices[i]), label = names(sdm_analysis_crs_choices)[i])
-    })
+    }),
+    enmeval_available = requireNamespace("ENMeval", quietly = TRUE),
+    tuning_methods = list(
+      list(id = "none", label = "Manual (use provided parameters)"),
+      list(id = "enmeval", label = "ENMeval (automated hyperparameter tuning)")
+    )
   )
 }
 
@@ -26,7 +31,10 @@ handle_models_list <- function(res, app_dir) {
       min_records = if (!is.na(spec$min_records)) spec$min_records else NULL,
       packages = spec$packages,
       notes = if (length(spec$notes) > 0) paste(spec$notes, collapse = " ") else "",
-      complexity_tier = tier
+      complexity_tier = tier,
+      enmeval_compatible = isTRUE(spec$enmeval_compatible),
+      enmeval_algorithm = spec$enmeval_algorithm %||% NULL,
+      available = TRUE
     )
   })
 }

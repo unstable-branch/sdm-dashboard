@@ -193,11 +193,11 @@ handle_ecology_niche_overlap <- function(req, app_dir) {
 
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 
-  job_id <- sdm_async_submit("niche_overlap", list(
+  job_id <- sdm_submit_async_job(req, app_dir, "niche_overlap", list(
     run_id_1 = run_id_1,
     run_id_2 = run_id_2,
     n_boot = body$n_boot %||% 100
-  ), app_dir, user_id)
+  ), user_id)
 
   list(
     job_id = job_id,

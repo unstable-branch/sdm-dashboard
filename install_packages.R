@@ -56,6 +56,9 @@ core_packages <- c(
   # Python bridge
   "arrow", "reticulate",
 
+  # Model tuning
+  "ENMeval",
+
   # XAI / explainability
   "fastshap", "iml",
 

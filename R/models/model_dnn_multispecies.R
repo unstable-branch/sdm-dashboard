@@ -9,6 +9,9 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
                                       dnn_architecture = "DNN_Medium",
                                       dnn_device = "auto",
                                       n_seeds = 3L,
+                                      use_fused_adam = "auto",
+                                      dnn_mixed_precision = "auto",
+                                      dnn_cuda_graphs = "auto",
                                       ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages.", call. = FALSE)
@@ -45,6 +48,38 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   arch <- sdm_dnn_arch(dnn_architecture)
   if (is.null(arch)) arch <- sdm_dnn_arch("DNN_Medium")
 
+  # Resolve device: "auto"/"gpu" → "cuda"/"cpu"/"mps"
+  if (dnn_device == "auto" || dnn_device == "gpu") {
+    if (torch::cuda_is_available()) {
+      dnn_device <- "cuda"
+    } else {
+      has_mps <- tryCatch(torch::mps_is_available(), error = function(e) FALSE)
+      if (has_mps) dnn_device <- "mps" else dnn_device <- "cpu"
+    }
+  } else if (dnn_device == "cuda") {
+    if (!torch::cuda_is_available()) {
+      warning("DNN: CUDA requested but not available. Falling back to CPU.")
+      dnn_device <- "cpu"
+    }
+  } else if (dnn_device == "mps") {
+    if (!tryCatch(torch::mps_is_available(), error = function(e) FALSE)) {
+      warning("DNN: MPS requested but not available. Falling back to CPU.")
+      dnn_device <- "cpu"
+    }
+  } else {
+    dnn_device <- "cpu"
+  }
+
+  # Resolve fused Adam: "off" → no, "always" → yes if available, "auto" → yes on CUDA
+  torch_has_fused <- exists("torch__fused_adam_", envir = asNamespace("torch"))
+  use_fused <- if (identical(use_fused_adam, "off")) {
+    FALSE
+  } else if (identical(use_fused_adam, "always")) {
+    torch_has_fused
+  } else {
+    startsWith(dnn_device, "cuda") && torch_has_fused
+  }
+
   # Build training data for cito multi-output
   colnames(community_mat) <- paste0("sp__", make.names(cm$species_names))
   train_df <- as.data.frame(x_train_scaled)
@@ -64,6 +99,26 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   for (s in seq_len(n_seeds)) {
     log_message(log_fun, "  Training seed ", s, "/", n_seeds)
 
+    # Patch cito's train_model with fused Adam if enabled
+    .old_train_model <- NULL
+    if (use_fused) {
+      cpp_so <- file.path(getwd(), "sdmtorch", "train_step_libtorch.so")
+      if (file.exists(cpp_so)) {
+        tryCatch(dyn.load(cpp_so, local = FALSE, now = TRUE), error = function(e) NULL)
+      }
+      set_train_opts(
+        mixed_precision = dnn_mixed_precision,
+        cuda_graphs = dnn_cuda_graphs
+      )
+      .old_train_model <- get("train_model", envir = asNamespace("cito"))
+      tryCatch({
+        assignInNamespace("train_model", train_model_fused, ns = "cito")
+      }, error = function(e) {
+        use_fused <<- FALSE
+        .old_train_model <<- NULL
+      })
+    }
+
     model <- tryCatch({
       cito::dnn(
         formula = model_formula,
@@ -74,9 +129,9 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
         optimizer = "adam",
         lr = arch$lr,
         epochs = arch$epochs,
-        batchsize = min(100L, max(32L, floor(n_sites / 10))),
+        batchsize = min(512L, max(32L, floor(n_sites / 10))),
         dropout = arch$dropout,
-        lambda = 0.001,
+        lambda = arch$lambda %||% 0.001,
         alpha = 1.0,
         validation = 0.3,
         lr_scheduler = cito::config_lr_scheduler("reduce_on_plateau", patience = 7),
@@ -88,6 +143,13 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
       log_message(log_fun, "    Seed ", s, " failed: ", conditionMessage(e))
       NULL
     })
+
+    # Restore original train_model
+    if (!is.null(.old_train_model)) {
+      tryCatch(assignInNamespace("train_model", .old_train_model, ns = "cito"),
+        error = function(e) NULL)
+    }
+
     if (!is.null(model)) seed_models[[s]] <- model
   }
 

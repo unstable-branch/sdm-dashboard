@@ -107,18 +107,10 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
   }
 
   fold_results <- if (n_cores > 1 && k > 1) {
-    cl <- parallel::makeCluster(n_cores)
-    on.exit(parallel::stopCluster(cl), add = TRUE)
-    if (is.function(cluster_setup_fn)) {
-      cluster_setup_fn(cl)
-    }
-    required_exports <- unique(c(cluster_exports, "model_data", "fold_id", "threshold", "fit_fun", "log_message"))
-    if (length(required_exports) > 0) {
-      parallel::clusterExport(cl, required_exports, envir = environment())
-    }
     parallel_result <- tryCatch(
       {
-        rows <- parallel::parLapply(cl, seq_len(k), fit_one_fold)
+        rows <- parallel::mclapply(seq_len(k), fit_one_fold,
+          mc.cores = n_cores, mc.preschedule = TRUE)
         if (collect_predictions) {
           metrics_list <- lapply(rows, function(r) if (is.list(r) && !is.data.frame(r) && !is.null(r$metrics)) r$metrics else r)
           pred_list <- lapply(seq_along(rows), function(i) {

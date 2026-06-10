@@ -236,14 +236,14 @@ handle_occurrences_clean <- function(req, app_dir, file_id, min_source_records =
 
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 
-  job_id <- sdm_async_submit("clean", list(
+  job_id <- sdm_submit_async_job(req, app_dir, "clean", list(
     file_id = file_id,
     min_source_records = min_source_records,
     merge_small_sources = merge_small_sources,
     use_cc = use_cc,
     cc_tests = cc_tests,
     max_coordinate_uncertainty = max_coordinate_uncertainty
-  ), app_dir, user_id)
+  ), user_id)
 
   if (is.null(job_id)) {
     return(sdm_error(req, 500, "Failed to submit clean job"))
@@ -256,7 +256,9 @@ sdm_submit_gbif_search <- function(req, taxon, country = NULL, max_records = 100
                                     use_auth = NULL,
                                     gbif_user = NULL, gbif_pwd = NULL, gbif_email = NULL,
                                     app_dir,
-                                    submit_fun = sdm_async_submit) {
+                                    submit_fun = function(job_type, params, app_dir, user_id) {
+                                      sdm_submit_async_job(req, app_dir, job_type, params, user_id)
+                                    }) {
   if (is.null(taxon) || !nzchar(taxon)) {
     return(sdm_error(req, 400, "taxon is required"))
   }
@@ -291,9 +293,11 @@ handle_occurrences_gbif_search <- function(req, app_dir, taxon, country = NULL, 
 }
 
 sdm_submit_ala_search <- function(req, taxon, country = NULL, max_records = 100,
-                                   api_key = NULL,
-                                   app_dir,
-                                   submit_fun = sdm_async_submit) {
+                                    api_key = NULL,
+                                    app_dir,
+                                    submit_fun = function(job_type, params, app_dir, user_id) {
+                                      sdm_submit_async_job(req, app_dir, job_type, params, user_id)
+                                    }) {
   if (is.null(taxon) || !nzchar(taxon)) {
     return(sdm_error(req, 400, "taxon is required"))
   }
@@ -346,12 +350,12 @@ handle_occurrences_dwca <- function(req, app_dir, file_id, species_filter = NULL
 
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 
-  job_id <- sdm_async_submit("dwca", list(
+  job_id <- sdm_submit_async_job(req, app_dir, "dwca", list(
     file_id = file_id,
     species_filter = if (!is.null(species_filter) && nzchar(species_filter)) species_filter else NULL,
     max_coord_uncertainty_m = max_unc,
     basis_of_record_filter = bor_filter
-  ), app_dir, user_id)
+  ), user_id)
 
   list(
     job_id = job_id,

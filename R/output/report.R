@@ -200,6 +200,28 @@ write_summary_report <- function(result, path) {
       character()
     },
     future_lines,
+    if (isTRUE(result$metrics$enmeval_tuned)) {
+      extra_enmeval <- c(
+        paste0("- Tuning method: ENMeval"),
+        paste0("- Selection metric: ", fmt_chr(result$metrics$enmeval_selection_metric, "auc.val.avg")),
+        paste0("- Delta AICc: ", fmt_num(result$metrics$enmeval_delta_aicc, 1)),
+        paste0("- Omission rate (MTP): ", fmt_num(result$metrics$enmeval_or_mtp, 3)),
+        paste0("- Omission rate (10p): ", fmt_num(result$metrics$enmeval_or_10p, 3)),
+        paste0("- AUC diff (tuning CV): ", fmt_num(result$metrics$enmeval_auc_diff, 3))
+      )
+      if (isTRUE(result$metrics$enmeval_null_p_value > 0)) {
+        p_val <- result$metrics$enmeval_null_p_value
+        p_label <- if (p_val < 0.001) "p < 0.001" else paste0("p = ", sprintf("%.4f", p_val))
+        extra_enmeval <- c(extra_enmeval,
+          paste0("- Null model p-value: ", p_label),
+          paste0("- Null model AUC: ", fmt_num(result$metrics$enmeval_null_auc_mean, 3),
+            " +/- ", fmt_num(result$metrics$enmeval_null_auc_sd, 3))
+        )
+      }
+      c("", "ENMeval hyperparameter tuning", extra_enmeval)
+    } else {
+      character()
+    },
     "", "Outputs",
     paste0("- Suitability GeoTIFF: ", fmt_chr(result$paths$tif)),
     paste0("- Suitability PNG: ", fmt_chr(result$paths$png)),

@@ -72,6 +72,10 @@ build_community_matrix <- function(species_data, env_train_scaled, background_n 
 
   # Extract environmental values at all sites
   env_vals <- terra::extract(env_train_scaled, site_xy)
+  # terra::extract adds an "ID" column — strip it before passing to model
+  if ("ID" %in% names(env_vals)) {
+    env_vals <- env_vals[, setdiff(names(env_vals), "ID"), drop = FALSE]
+  }
   complete <- stats::complete.cases(env_vals)
   site_xy <- site_xy[complete, , drop = FALSE]
   env_vals <- env_vals[complete, , drop = FALSE]

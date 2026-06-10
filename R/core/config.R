@@ -65,6 +65,20 @@ sdm_default_rangebag_fraction <- 0.5
 sdm_default_rangebag_vars_per_bag <- 3L
 sdm_default_maxnet_features <- "lqp"
 sdm_default_maxnet_regmult <- 1.0
+sdm_default_tuning_method <- "none"
+sdm_default_enmeval_algorithm <- "maxnet"
+sdm_default_enmeval_partitions <- "block"
+sdm_default_enmeval_selection_metric <- "auc.val.avg"
+sdm_default_enmeval_tune_args <- list(
+  fc = c("L", "LQ", "LQH"),
+  rm = seq(0.5, 4, 0.5)
+)
+sdm_default_enmeval_categoricals <- NULL
+sdm_default_enmeval_other_settings <- list(
+  pred.type = "cloglog",
+  doClamp = TRUE
+)
+sdm_default_enmeval_null_iterations <- 100L
 sdm_default_ensemble_weighting <- "auc"
 sdm_default_multi_ensemble_models <- c("glm", "rangebag")
 sdm_default_multi_ensemble_weighting <- "auc"
@@ -157,14 +171,14 @@ biomod2_nn_choices <- c("ANN" = "ANN")
 
 config$dnn_default <- c("DNN_Medium")
 config$dnn_arch <- list(
-  "DNN_Small"   = list(hidden = c(64L), epochs = 150L, lr = 0.05, dropout = 0.3),
-  "DNN_Medium"  = list(hidden = c(100L, 100L), epochs = 150L, lr = 0.05, dropout = 0.3),
-  "DNN_Large"   = list(hidden = c(100L, 100L, 100L), epochs = 200L, lr = 0.05, dropout = 0.3)
+  "DNN_Small"   = list(hidden = c(64L), epochs = 100L, lr = 0.01, dropout = 0.4, lambda = 0.01),
+  "DNN_Medium"  = list(hidden = c(100L, 100L), epochs = 150L, lr = 0.05, dropout = 0.3, lambda = 0.001),
+  "DNN_Large"   = list(hidden = c(200L, 200L, 100L), epochs = 200L, lr = 0.05, dropout = 0.2, lambda = 0.0005)
 )
 dnn_choices <- c(
   "DNN Small (64 units, 1 hidden layer)" = "DNN_Small",
   "DNN Medium (100->100 units, 2 hidden layers)" = "DNN_Medium",
-  "DNN Large (100->100->100 units, 3 hidden layers)" = "DNN_Large"
+  "DNN Large (200->200->100 units, 3 layers)" = "DNN_Large"
 )
 config$dnn_hard_block <- 50L
 config$dnn_warning_threshold <- 100L
@@ -177,9 +191,12 @@ dnn_device_choices <- c(
 )
 config$dnn_weight_default <- 0.3
 config$dnn_n_seeds <- 5L
+config$dnn_fused_adam_default <- "auto"
 config$dnn_default_n_seeds <- 5L
 config$dnn_multispecies_default <- "DNN_Medium"
 config$dnn_multispecies_n_seeds <- 3L
+config$dnn_mixed_precision_default <- "auto"
+config$dnn_cuda_graphs_default <- "off"
 config$sdm_default_extrapolation_mask <- TRUE
 config$sdm_default_mess_threshold <- 0
 config$ensemble_method_default <- "weighted_average"
