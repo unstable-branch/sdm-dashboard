@@ -209,6 +209,11 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   acc_steps <- max(1L, as.integer(accumulation_steps)[1])
   start_epoch <- min(which(is.na(model$losses$train_l)))
 
+  # Enable cuDNN autotuner for optimal kernel selection on cuDNN >= 7.6
+  if (is_cuda) {
+    tryCatch(torch::torch_backends_cudnn_benchmark(TRUE), error = function(e) NULL)
+  }
+
   for (epoch in start_epoch:(start_epoch + epochs - 1)) {
     model$training_properties$epoch <- epoch
 
