@@ -275,12 +275,39 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
   pred_df <- as.data.frame(x_pred_scaled)
   names(pred_df) <- covariates
 
-  pred <- tryCatch({
-    p <- stats::predict(fit$model, newdata = pred_df, type = "response")
-    if (is.matrix(p)) p else as.matrix(p)
-  }, error = function(e) {
-    stop("Multi-species DNN prediction failed: ", conditionMessage(e), call. = FALSE)
-  })
+  # Ensemble across seeds if available
+  all_models <- c(list(fit$model), fit$ensemble_models %||% list())
+  n_ensemble <- length(all_models)
+  if (n_ensemble > 1) {
+    log_message(log_fun, "  Ensembling ", n_ensemble, " seeds")
+  }
+
+  pred_list <- vector("list", n_ensemble)
+  for (e in seq_len(n_ensemble)) {
+    pred_list[[e]] <- tryCatch({
+      p <- stats::predict(all_models[[e]], newdata = pred_df, type = "response")
+      if (is.matrix(p)) p else as.matrix(p)
+    }, error = function(e) {
+      log_message(log_fun, "  Seed ", e, " prediction failed: ", conditionMessage(e))
+      NULL
+    })
+  }
+  pred_list <- Filter(Negate(is.null), pred_list)
+  if (length(pred_list) == 0) {
+    stop("Multi-species DNN prediction failed for all ensemble models", call. = FALSE)
+  }
+
+  # Average predictions across ensemble
+  pred_array <- array(dim = c(nrow(pred_df), n_species, length(pred_list)))
+  for (e in seq_along(pred_list)) {
+    pmat <- pred_list[[e]]
+    if (ncol(pmat) < n_species) {
+      pmat <- cbind(pmat, matrix(NA_real_, nrow = nrow(pmat), ncol = n_species - ncol(pmat)))
+    }
+    pred_array[, seq_len(n_species), e] <- pmat[, seq_len(n_species), drop = FALSE]
+  }
+  pred <- apply(pred_array, 1:2, mean, na.rm = TRUE)
+  pred_sd <- apply(pred_array, 1:2, stats::sd, na.rm = TRUE)
 
   if (ncol(pred) != n_species) {
     log_message(log_fun, "  Warning: model predicted ", ncol(pred), " outputs but expected ", n_species)
@@ -311,9 +338,27 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
   terra::writeRaster(richness, richness_tif, overwrite = TRUE,
     wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
 
-  log_message(log_fun, "  Wrote ", n_species, " species rasters + richness to ", dirname(output_tif))
+  # Per-species uncertainty (seed disagreement) rasters if ensemble > 1
+  unc_tifs <- character(0)
+  if (n_ensemble > 1) {
+    unc_tifs <- character(n_species)
+    for (i in seq_len(n_species)) {
+      unc_tif <- sub("\\.tif$", paste0("_", make.names(species_names[i]), "_uncertainty.tif"), output_tif)
+      unc_rast <- terra::rast(env_subset[[1]])
+      terra::values(unc_rast) <- NA_real_
+      unc_rast[complete_idx] <- pmax(0, pred_sd[, i])
+      names(unc_rast) <- paste0(make.names(species_names[i]), "_uncertainty")
+      terra::writeRaster(unc_rast, unc_tif, overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      unc_tifs[i] <- unc_tif
+    }
+  }
+
+  log_message(log_fun, "  Wrote ", n_species, " species rasters + richness",
+    if (length(unc_tifs) > 0) paste0(" + ", length(unc_tifs), " uncertainty rasters"), " to ", dirname(output_tif))
 
   attr(multi_rast, "species_tifs") <- species_tifs
   attr(multi_rast, "richness_tif") <- richness_tif
+  attr(multi_rast, "uncertainty_tifs") <- unc_tifs
   multi_rast
 }
