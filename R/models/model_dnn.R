@@ -957,7 +957,10 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
                            batch_size = 1000L, mc_samples = 30L,
                            log_fun = NULL, decompose = FALSE) {
-  log_message(log_fun, "MC Dropout: ", mc_samples, " forward passes with dropout active")
+  is_cuda <- startsWith(as.character(device), "cuda")
+  use_fp16 <- is_cuda && requireNamespace("torch", quietly = TRUE) && torch::cuda_is_available()
+  label <- if (use_fp16) "MC Dropout (FP16)" else "MC Dropout"
+  log_message(log_fun, label, ": ", mc_samples, " forward passes with dropout active")
 
   # Enable dropout for MC sampling
   model$net$train()
@@ -999,8 +1002,15 @@ predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
         batch_scaled <- sweep(batch_scaled, 2, scaler$sd, "/")
 
         batch_pred <- tryCatch({
-          pred <- stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response")
-          if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+          if (use_fp16) {
+            torch::with_autocast(device_type = "cuda", {
+              pred <- stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response")
+              if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+            })
+          } else {
+            pred <- stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response")
+            if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+          }
         }, error = function(e) {
           stop(paste("DNN-303: MC prediction failed:", conditionMessage(e)), call. = FALSE)
         })
