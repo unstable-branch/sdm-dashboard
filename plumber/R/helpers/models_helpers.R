@@ -172,6 +172,7 @@ sdm_camel_to_snake <- list(
   esmBiovars = "esm_biovars", maxnetAutoTune = "maxnet_auto_tune",
   gamK = "gam_k",   dnnDropout = "dnn_dropout", dnnL2Lambda = "dnn_lambda",
   dnnMixedPrecision = "dnn_mixed_precision", dnnCudaGraphs = "dnn_cuda_graphs",
+  dnnFusedAdam = "dnn_fused_adam",
   multiEnsembleExport = "multi_ensemble_export",
   multiEnsembleUncertainty = "multi_ensemble_uncertainty",
   chelsaExtras = "chelsa_extras", analysisCrs = "analysis_crs",
