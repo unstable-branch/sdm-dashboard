@@ -102,6 +102,8 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   dnnNSeeds: "dnn_n_seeds",
   dnnDevice: "dnn_device",
   dnnFusedAdam: "dnn_fused_adam",
+  dnnMcSamples: "dnn_mc_samples",
+  dnnUncertaintyMethod: "dnn_uncertainty_method",
   brtNTrees: "brt_n_trees",
   brtInteractionDepth: "brt_interaction_depth",
   brtShrinkage: "brt_shrinkage",

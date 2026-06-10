@@ -174,6 +174,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [dnnNSeeds, setDnnNSeeds] = useState(3);
   const [dnnDevice, setDnnDevice] = useState<"auto" | "cpu" | "gpu">("auto");
   const [dnnFusedAdam, setDnnFusedAdam] = useState<"auto" | "always" | "off">("auto");
+  const [dnnMcSamples, setDnnMcSamples] = useState(0);
+  const [dnnUncertaintyMethod, setDnnUncertaintyMethod] = useState<"none" | "mc_dropout" | "heteroscedastic">("none");
   const [dnnMultispeciesNSeeds, setDnnMultispeciesNSeeds] = useState(3);
   const [brtNTrees, setBrtNTrees] = useState(500);
   const [brtInteractionDepth, setBrtInteractionDepth] = useState(3);
@@ -453,6 +455,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       dnnMultispeciesNSeeds: modelId === "dnn_multispecies" ? dnnMultispeciesNSeeds : undefined,
         dnnDevice: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnDevice : undefined,
         dnnFusedAdam: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnFusedAdam : undefined,
+        dnnMcSamples: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnMcSamples : undefined,
+        dnnUncertaintyMethod: (modelId === "dnn" || modelId === "dnn_multispecies") && dnnMcSamples > 0 ? dnnUncertaintyMethod : undefined,
       gllvmFamily: modelId === "gllvm" ? gllvmFamily : undefined,
       gllvmNumLv: modelId === "gllvm" ? gllvmNumLv : undefined,
       gllvmNumRows: modelId === "gllvm" ? gllvmNumRows : undefined,
@@ -893,6 +897,10 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         onDnnDeviceChange={setDnnDevice}
         dnnFusedAdam={dnnFusedAdam}
         onDnnFusedAdamChange={setDnnFusedAdam}
+        dnnMcSamples={dnnMcSamples}
+        onDnnMcSamplesChange={setDnnMcSamples}
+        dnnUncertaintyMethod={dnnUncertaintyMethod}
+        onDnnUncertaintyMethodChange={setDnnUncertaintyMethod}
         dnnMultispeciesArchitecture={dnnMultispeciesArchitecture}
         onDnnMultispeciesArchitectureChange={setDnnMultispeciesArchitecture}
         dnnMultispeciesNSeeds={dnnMultispeciesNSeeds}

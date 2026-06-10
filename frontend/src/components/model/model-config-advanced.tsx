@@ -107,6 +107,10 @@ interface ModelConfigAdvancedProps {
   onDnnDeviceChange: (val: "auto" | "cpu" | "gpu") => void;
   dnnFusedAdam: "auto" | "always" | "off";
   onDnnFusedAdamChange: (val: "auto" | "always" | "off") => void;
+  dnnMcSamples: number;
+  onDnnMcSamplesChange: (val: number) => void;
+  dnnUncertaintyMethod: "none" | "mc_dropout" | "heteroscedastic";
+  onDnnUncertaintyMethodChange: (val: "none" | "mc_dropout" | "heteroscedastic") => void;
 
   dnnMultispeciesArchitecture: "DNN_Small" | "DNN_Medium" | "DNN_Large";
   onDnnMultispeciesArchitectureChange: (val: "DNN_Small" | "DNN_Medium" | "DNN_Large") => void;
@@ -192,7 +196,7 @@ export function ModelConfigAdvanced({
   rfNumTrees, onRfNumTreesChange, rfMtry, onRfMtryChange, rfMinNodeSize, onRfMinNodeSizeChange,
   gamK, onGamKChange,
   xgbMaxDepth, onXgbMaxDepthChange, xgbEta, onXgbEtaChange, xgbNRounds, onXgbNRoundsChange,
-  dnnArchitecture, onDnnArchitectureChange, dnnDropout, onDnnDropoutChange, dnnL2Lambda, onDnnL2LambdaChange, dnnNSeeds, onDnnNSeedsChange, dnnDevice, onDnnDeviceChange, dnnFusedAdam, onDnnFusedAdamChange,
+  dnnArchitecture, onDnnArchitectureChange, dnnDropout, onDnnDropoutChange, dnnL2Lambda, onDnnL2LambdaChange, dnnNSeeds, onDnnNSeedsChange, dnnDevice, onDnnDeviceChange, dnnFusedAdam, onDnnFusedAdamChange, dnnMcSamples, onDnnMcSamplesChange, dnnUncertaintyMethod, onDnnUncertaintyMethodChange,
   dnnMultispeciesArchitecture, onDnnMultispeciesArchitectureChange, dnnMultispeciesNSeeds, onDnnMultispeciesNSeedsChange,
   gllvmFamily, onGllvmFamilyChange, gllvmNumLv, onGllvmNumLvChange, gllvmNumRows, onGllvmNumRowsChange, gllvmLvCorr, onGllvmLvCorrChange,
   useElevation, onUseElevationChange, elevationDemtype, onElevationDemtypeChange, opentopoApiKey, onOpentopoApiKeyChange, demWarning,
@@ -528,6 +532,35 @@ export function ModelConfigAdvanced({
                 <option value="cpu">CPU only</option>
               </select>
             </div>
+            <div className="mt-2">
+              <label className="block text-xs font-medium text-sdm-muted mb-1">
+                MC Dropout samples (0 = off)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={5}
+                value={dnnMcSamples}
+                onChange={(e) => onDnnMcSamplesChange(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text"
+              />
+            </div>
+            {dnnMcSamples > 0 && (
+              <div className="mt-2">
+                <label className="block text-xs font-medium text-sdm-muted mb-1">
+                  Uncertainty method
+                </label>
+                <select
+                  value={dnnUncertaintyMethod}
+                  onChange={(e) => onDnnUncertaintyMethodChange(e.target.value as typeof dnnUncertaintyMethod)}
+                  className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text"
+                >
+                  <option value="mc_dropout">MC Dropout (epistemic only)</option>
+                  <option value="heteroscedastic">Full decomposition (aleatoric + epistemic)</option>
+                </select>
+              </div>
+            )}
             <details className="border-t border-sdm-border/50 pt-3">
               <summary className="text-xs font-semibold text-sdm-heading uppercase tracking-wide cursor-pointer">
                 Experimental
