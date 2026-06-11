@@ -465,7 +465,7 @@ export class PlumberClient {
   }
 
   async getRunComparison(runId1: string, runId2: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models/compare/${runId1}/${runId2}`, { headers: this.headers() });
+    const res = await this._fetch(`${this.baseUrl}/api/v1/output/compare/${runId1}/${runId2}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to compare runs: ${res.status}`);
     return res.json();
   }
@@ -541,6 +541,14 @@ export class PlumberClient {
       headers: this.headers(),
     });
     if (!res.ok) throw new Error(`Failed to get model logs: ${res.status}`);
+    return res.json();
+  }
+
+  async getGpuStatus(): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/gpu/status`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get GPU status: ${res.status}`);
     return res.json();
   }
 }
