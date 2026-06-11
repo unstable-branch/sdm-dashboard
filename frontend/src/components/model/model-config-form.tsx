@@ -33,10 +33,28 @@ interface ModelConfigFormProps {
 }
 
 export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence, onSubmit, loading }: ModelConfigFormProps) {
-  const setSpeciesStore = useSDMStore((s) => s.setSpecies);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>(MODEL_BACKENDS);
-  const [species, setSpecies] = useState(() => useSDMStore.getState().species || "Untitled species");
-  const [multispeciesText, setMultispeciesText] = useState("");
+  const species = useSDMStore((s) => s.species) || "Untitled species";
+  const setSpecies = useSDMStore((s) => s.setSpecies);
+  const storeDetectedSpecies = useSDMStore((s) => s.detectedSpecies);
+  const workspaceFiles = useSDMStore((s) => s.workspaceFiles);
+  const [multispeciesTextOverride, setMultispeciesTextOverride] = useState<string | null>(null);
+  const multispeciesText = useMemo(() => {
+    if (multispeciesTextOverride !== null) return multispeciesTextOverride;
+    if (storeDetectedSpecies.length > 0) return storeDetectedSpecies.join("\n");
+    if (species && species !== "Untitled species") return species;
+    return "";
+  }, [multispeciesTextOverride, storeDetectedSpecies, species]);
+
+  // Auto-populate species from workspace on mount (handles direct /model navigation)
+  useEffect(() => {
+    if (species !== "Untitled species" || storeDetectedSpecies.length > 0) return;
+    const withSpecies = workspaceFiles.find(f => f.selectedSpecies.length > 0);
+    if (!withSpecies) return;
+    setSpecies(withSpecies.selectedSpecies[0]);
+    useSDMStore.getState().setDetectedSpecies(withSpecies.selectedSpecies);
+  }, [workspaceFiles]);
+
   const [speciesSuggestions, setSpeciesSuggestions] = useState<string[]>([]);
   const [speciesInputFocused, setSpeciesInputFocused] = useState(false);
   const [speciesSelectedIndex, setSpeciesSelectedIndex] = useState(-1);
@@ -252,11 +270,11 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       const mergedIds = new Set(apiModels.map(m => m.id));
       const missingFromApi = MODEL_BACKENDS.filter(m => !mergedIds.has(m.id)).map(m => { const x = getExtra(m as unknown as Record<string, unknown>); return { id: m.id, label: m.label, maturity: m.maturity, min_records: m.min_records ?? null, packages: x.packages, notes: x.notes, available: x.available }; });
       setAvailableModels([...apiModels, ...missingFromApi]);
-    }).catch(() => console.warn("[model-config] Failed to fetch available models from API"));
+    }).catch(() => {});
   }, []);
 
   useEffect(() => { useSettingsStore.getState().fetchSettings(); }, []);
-  useEffect(() => { apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100").then((data) => { if (data && Array.isArray(data.species)) setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string)); }).catch(() => console.warn("[model-config] Failed to fetch species suggestions")); }, []);
+  useEffect(() => { apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100").then((data) => { if (data && Array.isArray(data.species)) setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string)); }).catch(() => {}); }, []);
   useEffect(() => {
     apiGet<{ boundaries: Array<{ file_path: string; file_name: string }> }>("/api/v1/data/boundary/list")
       .then((data) => setCustomBoundaries(data.boundaries || [])).catch(() => {});
@@ -350,9 +368,28 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     const useCleaned = cleanedOccurrence && cleanedOccurrence.filePath;
 
     // For multi-species models, join species names with comma
+    let speciesText = multispeciesText;
+    if (!speciesText.trim()) {
+      const fallback = useSDMStore.getState().detectedSpecies;
+      if (fallback.length > 0) {
+        const split = fallback.flatMap(s => s.split(",").map(x => x.trim()).filter(Boolean));
+        if (split.length > 0) {
+          speciesText = split.join("\n");
+          setMultispeciesTextOverride(speciesText);
+        }
+      }
+      if (!speciesText.trim() && species && species !== "Untitled species") {
+        speciesText = species;
+        setMultispeciesTextOverride(speciesText);
+      }
+    }
     const resolvedSpecies = (modelId === "dnn_multispecies" || modelId === "gllvm")
-      ? multispeciesText.split("\n").map((s) => s.trim()).filter(Boolean).join(",")
+      ? speciesText.split("\n").map((s) => s.trim()).filter(Boolean).join(",")
       : species;
+    if ((modelId === "dnn_multispecies" || modelId === "gllvm") && !resolvedSpecies) {
+      setError("Enter at least one species name for multi-species models");
+      return;
+    }
 
     const config = {
       species: resolvedSpecies,
@@ -422,7 +459,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       aggregationFactor,
       nCores,
       seed,
-      occurrenceFile: useCleaned ? cleanedOccurrence!.filePath : (occurrenceFile || ""),
+      occurrenceFile: useCleaned ? cleanedOccurrence!.filePath : (occurrenceFile || undefined),
       cleanedFilePath: useCleaned ? cleanedOccurrence!.filePath : undefined,
       source: climateSource,
       worldclimRes: climateRes,
@@ -496,7 +533,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const handleSpeciesKeyNav = (dir: "up" | "down" | "enter" | "escape") => {
     if (dir === "down") setSpeciesSelectedIndex((prev) => (prev + 1) % Math.max(speciesFiltered.length, 1));
     else if (dir === "up") setSpeciesSelectedIndex((prev) => (prev - 1 + Math.max(speciesFiltered.length, 1)) % Math.max(speciesFiltered.length, 1));
-    else if (dir === "enter" && speciesSelectedIndex >= 0 && speciesSelectedIndex < speciesFiltered.length) { setSpecies(speciesFiltered[speciesSelectedIndex]); setSpeciesStore(speciesFiltered[speciesSelectedIndex]); setSpeciesInputFocused(false); }
+    else if (dir === "enter" && speciesSelectedIndex >= 0 && speciesSelectedIndex < speciesFiltered.length) { setSpecies(speciesFiltered[speciesSelectedIndex]); setSpeciesInputFocused(false); }
     else if (dir === "escape") setSpeciesInputFocused(false);
   };
 
@@ -553,7 +590,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
             </label>
             <textarea
               value={multispeciesText}
-              onChange={(e) => setMultispeciesText(e.target.value)}
+              onChange={(e) => setMultispeciesTextOverride(e.target.value)}
               rows={4}
               className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text focus:border-sdm-accent focus:outline-none"
               placeholder="Species_A&#10;Species_B&#10;Species_C"
@@ -566,7 +603,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
             speciesSelectedIndex={speciesSelectedIndex}
             focused={speciesInputFocused}
             onSpeciesChange={setSpecies}
-            onSelect={(s) => { setSpecies(s); setSpeciesStore(s); setSpeciesInputFocused(false); }}
+            onSelect={(s) => { setSpecies(s); setSpeciesInputFocused(false); }}
             onFocus={setSpeciesInputFocused}
             onKeyNav={handleSpeciesKeyNav}
             detectedSpecies={detectedSpecies}

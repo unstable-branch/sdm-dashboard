@@ -620,10 +620,9 @@ export function ModelConfigAdvanced({
             <div>
               <label className="block text-xs font-medium text-sdm-muted mb-1">
                 MC Dropout samples ({dnnMcSamples})
-                <TooltipInfo content="Number of Monte Carlo dropout forward passes for uncertainty estimation. 0 = off. Note: uncertainty quantification is currently available for single-species DNN only." />
+                <TooltipInfo content="Number of Monte Carlo dropout forward passes for uncertainty estimation per species. 0 = off." />
               </label>
               <input type="range" min={0} max={100} step={5} value={dnnMcSamples} onChange={(e) => onDnnMcSamplesChange(Number(e.target.value))} className="w-full" />
-              <p className="text-[10px] text-sdm-danger/70 mt-0.5">Uncertainty Q currently single-species only</p>
             </div>
             {dnnMcSamples > 0 && (
               <div>

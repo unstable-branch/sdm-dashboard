@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/components/query-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import ErrorBoundary from "@/components/ui/error-boundary";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], display: "optional" });
@@ -25,11 +26,13 @@ export default function RootLayout({
           defaultTheme="dark"
           enableSystem={false}
         >
-          <QueryProvider>
-            <TooltipProvider delayDuration={300}>
-              {children}
-            </TooltipProvider>
-          </QueryProvider>
+          <ErrorBoundary>
+            <QueryProvider>
+              <TooltipProvider delayDuration={300}>
+                {children}
+              </TooltipProvider>
+            </QueryProvider>
+          </ErrorBoundary>
         </ThemeProvider>
       </body>
     </html>

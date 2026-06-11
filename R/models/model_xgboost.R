@@ -19,14 +19,17 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
     model <- tryCatch({
       weights <- class_balance_weights(y_train)
       dtrain <- xgboost::xgb.DMatrix(data = x_train, label = y_train, weight = weights)
+      gpu_xgb_fold <- sdm_use_gpu_xgb(nrow(x_train))
       xgboost::xgb.train(
         params = list(
           objective = "reg:logistic",
           eval_metric = "auc",
           max_depth = max_depth,
           learning_rate = eta,
-          nthread = 1L,
-          seed = seed
+          nthread = if (gpu_xgb_fold) 1L else 1L,
+          seed = seed,
+          tree_method = if (gpu_xgb_fold) "gpu_hist" else "hist",
+          predictor  = if (gpu_xgb_fold) "gpu_predictor" else "cpu_predictor"
         ),
         data = dtrain,
         nrounds = nrounds,
@@ -56,7 +59,8 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = sdm_default_threshold, fit_fun = fit_fun,
     cluster_exports = c("covariates", "class_balance_weights",
-                        "compute_binary_metrics", "metrics_list_to_row", "log_message"),
+                        "compute_binary_metrics", "metrics_list_to_row", "log_message",
+                        "sdm_use_gpu_xgb"),
     log_fun = log_fun
   )
 }
@@ -106,11 +110,14 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   dtrain <- xgboost::xgb.DMatrix(x_train, label = y_train, weight = train_weights)
   dval <- xgboost::xgb.DMatrix(x_val, label = y_val)
 
+  gpu_xgb <- sdm_use_gpu_xgb(nrow(x_train))
   model <- tryCatch({
     xgboost::xgb.train(
       params = list(objective = "binary:logistic", eval_metric = "auc",
                     max_depth = max_depth, eta = eta,
-                    nthread = max(1L, as.integer(n_cores))),
+                    nthread = if (gpu_xgb) 1L else max(1L, as.integer(n_cores)),
+                    tree_method = if (gpu_xgb) "gpu_hist" else "hist",
+                    predictor  = if (gpu_xgb) "gpu_predictor" else "cpu_predictor"),
       data = dtrain,
       nrounds = nrounds,
       evals = list(train = dtrain, val = dval),
@@ -131,7 +138,9 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
     xgboost::xgb.train(
       params = list(objective = "binary:logistic", eval_metric = "auc",
                     max_depth = max_depth, eta = eta,
-                    nthread = max(1L, as.integer(n_cores))),
+                    nthread = if (gpu_xgb) 1L else max(1L, as.integer(n_cores)),
+                    tree_method = if (gpu_xgb) "gpu_hist" else "hist",
+                    predictor  = if (gpu_xgb) "gpu_predictor" else "cpu_predictor"),
       data = dtrain_full,
       nrounds = model$best_iteration %||% nrounds,
       verbose = 0

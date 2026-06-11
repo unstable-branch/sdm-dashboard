@@ -24,17 +24,13 @@ import { extentToViewState, extentToCoordinates } from "@/lib/map-utils";
 
 
 async function downloadFile(filePath: string) {
-  try {
-    const res = await fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(filePath)}`);
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filePath.split("/").pop() || "download";
-    a.click();
-    URL.revokeObjectURL(url);
-  } catch { /* ignore */ }
+  const filename = filePath.split("/").pop() || "download";
+  const a = document.createElement("a");
+  a.href = `/api/v1/results/file/download?path=${encodeURIComponent(filePath)}`;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 async function fetchGeoJSON(url: string): Promise<FeatureCollection | null> {

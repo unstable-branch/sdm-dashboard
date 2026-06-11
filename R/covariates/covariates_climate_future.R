@@ -271,14 +271,22 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
       if (length(bio_files) == length(gcm_list)) {
         stacked <- terra::rast(bio_files)
 
-        avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
+        if (sdm_use_gpu_for(terra::ncell(stacked) * terra::nlyr(stacked))) {
+          avg <- gpu_raster_app(stacked, function(t) torch::torch_mean(t, dim = 2))
+        } else {
+          avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
+        }
         out_mean <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, ".tif"))
         terra::writeRaster(avg, out_mean,
           overwrite = TRUE,
           wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
         )
 
-        sd_layer <- terra::app(stacked, fun = "sd", na.rm = TRUE)
+        if (sdm_use_gpu_for(terra::ncell(stacked) * terra::nlyr(stacked))) {
+          sd_layer <- gpu_raster_app(stacked, function(t) torch::torch_std(t, dim = 2))
+        } else {
+          sd_layer <- terra::app(stacked, fun = "sd", na.rm = TRUE)
+        }
         out_sd <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, "_sd.tif"))
         terra::writeRaster(sd_layer, out_sd,
           overwrite = TRUE,
@@ -409,7 +417,11 @@ average_gcm_layers <- function(gcm_names, future_worldclim_dir, bio_variables,
 
     if (length(bio_files) >= 2) {
       stacked <- terra::rast(bio_files)
-      avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
+      if (sdm_use_gpu_for(terra::ncell(stacked) * terra::nlyr(stacked))) {
+        avg <- gpu_raster_app(stacked, function(t) torch::torch_mean(t, dim = 2))
+      } else {
+        avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
+      }
       if (is.null(averaged_stack)) {
         averaged_stack <- avg
       } else {
@@ -417,7 +429,11 @@ average_gcm_layers <- function(gcm_names, future_worldclim_dir, bio_variables,
       }
 
       if (include_sd) {
-        sd_val <- terra::app(stacked, fun = "sd", na.rm = TRUE)
+        if (sdm_use_gpu_for(terra::ncell(stacked) * terra::nlyr(stacked))) {
+          sd_val <- gpu_raster_app(stacked, function(t) torch::torch_std(t, dim = 2))
+        } else {
+          sd_val <- terra::app(stacked, fun = "sd", na.rm = TRUE)
+        }
         if (is.null(sd_stack)) {
           sd_stack <- sd_val
         } else {

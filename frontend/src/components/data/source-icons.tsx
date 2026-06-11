@@ -9,6 +9,6 @@ export function GbifMark({ className = "h-4 w-4" }: { className?: string }) {
 
 export function AlaMark({ className = "h-4 w-4" }: { className?: string }) {
   return (
-    <img src="/img/ala-mark.png" className={className} alt="ALA" style={{ objectFit: "contain" }} />
+    <img src="/img/ala-mark.webp" className={className} alt="ALA" style={{ objectFit: "contain" }} />
   );
 }

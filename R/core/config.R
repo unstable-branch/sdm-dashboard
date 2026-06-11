@@ -205,6 +205,12 @@ config$sdm_default_mess_threshold <- 0
 config$ensemble_method_default <- "weighted_average"
 config$use_rangebag <- FALSE
 
+# GPU acceleration defaults
+config$gpu_enabled <- "auto"
+config$gpu_min_cells <- 100000L
+config$gpu_min_rows <- 5000L
+config$gpu_device <- "auto"
+
 sdm_extent_presets <- list(
   "aus_full"   = c(112, 154, -44, -10),
   "aus_north"  = c(112, 154, -26, -10),

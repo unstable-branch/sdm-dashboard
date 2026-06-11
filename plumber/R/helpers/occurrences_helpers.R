@@ -165,6 +165,7 @@ handle_occurrences_upload <- function(req, app_dir) {
         source = src_col
       )
       species_detected <- infer_species_label(file_path)
+      species_names <- infer_species_labels(file_path)
       preview <- head(occ, 5)
       preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
 
@@ -175,6 +176,7 @@ handle_occurrences_upload <- function(req, app_dir) {
         format = if (ext %in% c("tsv", "txt")) "tsv" else "csv",
         n_rows = n_rows,
         species_detected = species_detected,
+        species_names = species_names,
         columns_detected = columns_detected,
         coord_warnings = if (length(coord_warnings) > 0) coord_warnings else NULL,
         preview = preview

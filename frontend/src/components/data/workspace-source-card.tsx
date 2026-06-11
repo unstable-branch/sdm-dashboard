@@ -41,6 +41,7 @@ export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace, onDelete
           file_id: file.file_id,
           file_name: file.file_name,
           n_rows: file.n_rows,
+          species: file.species,
           in_workspace: !!disabled,
         }));
         e.dataTransfer.effectAllowed = disabled ? "move" : "copy";

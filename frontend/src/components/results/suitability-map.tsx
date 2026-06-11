@@ -5,7 +5,6 @@ import { useTheme } from "next-themes";
 import type { ViewState } from "react-map-gl/maplibre";
 import type { FeatureCollection } from "geojson";
 import dynamic from "next/dynamic";
-import { fetchWithAuth } from "@/services/api";
 import type { OutputFiles } from "@/services/types";
 import { extentToCoordinates, extentToViewState, parseTileZoom, DEFAULT_TILE_ZOOM_MIN, DEFAULT_TILE_ZOOM_MAX, LAYER_IDS } from "@/lib/map-utils";
 
@@ -118,22 +117,12 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
           <button
             onClick={() => {
               const tifPath = outputFiles.tif!;
-              fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(tifPath)}`)
-                .then((res) => {
-                  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-                  return res.blob();
-                })
-                .then((blob) => {
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = tifPath.split("/").pop() || "suitability.tif";
-                  a.click();
-                  URL.revokeObjectURL(url);
-                })
-                .catch((err) => {
-                  console.error("[SuitabilityMap] Download TIFF failed:", err);
-                });
+              const a = document.createElement("a");
+              a.href = `/api/v1/results/file/download?path=${encodeURIComponent(tifPath)}`;
+              a.download = tifPath.split("/").pop() || "suitability.tif";
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
             }}
             className="text-sdm-accent hover:underline cursor-pointer bg-transparent border-none text-xs"
           >

@@ -4,7 +4,7 @@ import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { db } from "../db/index.js";
 import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles } from "../db/schema.js";
-import { eq, desc, sql, and, like, inArray, count } from "drizzle-orm";
+import { eq, desc, sql, and, ilike, inArray, count } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { hash } from "bcrypt";
@@ -94,7 +94,7 @@ adminRoutes.get("/users", async (c) => {
         updatedAt: users.updatedAt,
       })
       .from(users)
-      .where(search ? like(users.email, `%${search}%`) : undefined)
+      .where(search ? ilike(users.email, `${search}%`) : undefined)
       .orderBy(desc(users.createdAt))
       .offset(offset)
       .limit(limit);

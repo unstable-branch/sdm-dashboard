@@ -113,6 +113,21 @@ test_that("predict_dnn_multispecies_suitability writes per-species tifs and rich
     tolerance = 0.001)
 })
 
+test_that("fit_dnn_multispecies_sdm stores mc_samples and uncertainty_method", {
+  fit <- list(
+    mc_samples = 30L,
+    uncertainty_method = "mc_dropout"
+  )
+  expect_equal(fit$mc_samples, 30L)
+  expect_equal(fit$uncertainty_method, "mc_dropout")
+})
+
+test_that("make_fake_ms_fit has mc_samples and uncertainty_method with safe defaults", {
+  fit <- make_fake_ms_fit()
+  expect_equal(fit$mc_samples %||% 0L, 0L)
+  expect_equal(fit$uncertainty_method %||% "none", "none")
+})
+
 test_that("predict_dnn_multispecies_suitability produces values in [0,1]", {
   skip_if_not_installed("terra")
 

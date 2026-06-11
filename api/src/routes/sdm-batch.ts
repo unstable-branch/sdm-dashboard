@@ -129,9 +129,19 @@ sdmBatchRoutes.post("/cancel-all", async (c) => {
     const queue = getJobQueue();
     let cancelled = 0;
 
-    for (const run of allRuns) {
-      try {
-        if (queue && run.bullmqId) {
+    // Batch DB update: cancel all qualifying runs in one query
+    const runIds = allRuns.map((r) => r.id);
+    const [updateResult] = await db
+      .update(runs)
+      .set({ status: "cancelled" })
+      .where(and(inArray(runs.id, runIds), inArray(runs.status, ["queued", "running"])))
+      .returning({ id: runs.id });
+    cancelled = Array.isArray(updateResult) ? updateResult.length : 0;
+
+    // Parallelize BullMQ and Plumber cancellations
+    const cancelPromises = allRuns.map(async (run) => {
+      if (queue && run.bullmqId) {
+        try {
           const bullJob = await queue.getJob(run.bullmqId);
           if (bullJob) {
             const state = await bullJob.getState();
@@ -141,17 +151,13 @@ sdmBatchRoutes.post("/cancel-all", async (c) => {
               await bullJob.remove();
             }
           }
-        }
-
-        if (run.jobId) {
-          await plumberClient.cancelModel(run.jobId).catch(() => console.warn("[sdm] Failed to cancel Plumber run", run.jobId));
-        }
-
-        await db.update(runs).set({ status: "cancelled" }).where(and(eq(runs.id, run.id), inArray(runs.status, ["queued", "running"])));
-        cancelled++;
-      } catch {
+        } catch { /* best effort */ }
       }
-    }
+      if (run.jobId) {
+        await plumberClient.cancelModel(run.jobId).catch(() => {});
+      }
+    });
+    await Promise.allSettled(cancelPromises);
 
     return c.json({ ok: true, message: `Cancelled ${cancelled}/${allRuns.length} runs`, cancelled, total: allRuns.length });
   } catch (err) {
@@ -298,17 +304,23 @@ sdmBatchRoutes.post("/batch/:batchId/cancel", async (c) => {
     const cancellable = runRows.filter(r => r.status === "queued" || r.status === "running");
     const queue = getJobQueue();
 
-    for (const r of cancellable) {
-      if (r.bullmqId && queue) await queue.remove(r.bullmqId);
+    // Batch DB update: cancel all in one query
+    const cancellableIds = cancellable.map(r => r.id);
+    if (cancellableIds.length > 0) {
+      await db.update(runs).set({ status: "cancelled" }).where(inArray(runs.id, cancellableIds));
+    }
+
+    // Parallelize BullMQ and Plumber cancellations
+    await Promise.allSettled(cancellable.map(async (r) => {
+      if (r.bullmqId && queue) await queue.remove(r.bullmqId).catch(() => {});
       if (r.jobId) await plumberClient.cancelModel(r.jobId).catch(() => {});
-      await db.update(runs).set({ status: "cancelled" }).where(eq(runs.id, r.id));
       jobEventBus.emitJobStatus({
         jobId: r.id,
         state: "cancelled",
         progress: 0,
         logs: ["Batch run cancelled by user."],
       });
-    }
+    }));
 
     await db.update(batches).set({ status: "cancelled", completedAt: new Date() }).where(eq(batches.id, batchId));
 
@@ -351,22 +363,21 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
       const newTargetsJobId = plumberPayload.job_id as string | undefined;
       if (!newTargetsJobId) throw new Error("Targets pipeline did not return a job ID");
 
-      // Update all failed runs with the new targets job ID
-      const retriedIds: string[] = [];
-      for (const r of failedRuns) {
-        await db.update(runs).set({
-          status: "queued",
-          error: null,
-          jobId: newTargetsJobId,
-          bullmqId: null,
-        }).where(eq(runs.id, r.id));
+      // Bulk-update all failed runs with the new targets job ID
+      const retriedIds = failedRuns.map((r) => r.id);
+      await db.update(runs).set({
+        status: "queued",
+        error: null,
+        jobId: newTargetsJobId,
+        bullmqId: null,
+      }).where(inArray(runs.id, retriedIds));
+      for (const id of retriedIds) {
         jobEventBus.emitJobStatus({
-          jobId: r.id,
+          jobId: id,
           state: "queued",
           progress: 0,
           logs: ["Targets pipeline re-submitted for retry..."],
         });
-        retriedIds.push(r.id);
       }
 
       await db.update(batches).set({
@@ -379,15 +390,16 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
     }
 
     // Legacy single-species batch retry: re-enqueue individual runs
-    const retriedIds: string[] = [];
+    const retriedIds = failedRuns.map((r) => r.id);
+    const bullmqIds = new Map<string, string>();
+    await db.update(runs).set({ status: "queued", error: null, jobId: null, bullmqId: null }).where(inArray(runs.id, retriedIds));
     for (const r of failedRuns) {
-      const [updated] = await db.update(runs).set({ status: "queued", error: null, jobId: null, bullmqId: null }).where(eq(runs.id, r.id)).returning();
       const queuedJobId = await enqueueSdmJob(
         { type: "model", payload: buildModelPayload((r.config as unknown as ModelConfigRecord), r.id) },
         user.id,
       );
       if (queuedJobId) {
-        await db.update(runs).set({ bullmqId: queuedJobId }).where(eq(runs.id, r.id));
+        bullmqIds.set(r.id, queuedJobId);
       }
       jobEventBus.emitJobStatus({
         jobId: r.id,
@@ -395,7 +407,13 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
         progress: 0,
         logs: ["Model run queued for retry..."],
       });
-      retriedIds.push(r.id);
+    }
+    // Bulk-update bullmqId for runs that were enqueued
+    const bullmqUpdates = Array.from(bullmqIds.entries());
+    if (bullmqUpdates.length > 0) {
+      await Promise.all(bullmqUpdates.map(([runId, bullmqId]) =>
+        db.update(runs).set({ bullmqId }).where(eq(runs.id, runId))
+      ));
     }
     cleanupDecryptedFiles();
 
@@ -487,14 +505,17 @@ sdmBatchRoutes.post("/runs/clear-all", async (c) => {
 
     let deletedCount = 0;
 
-    for (const run of runsToDelete) {
-      if (run.jobId) {
-        await plumberClient.deleteModelOutputs(run.jobId).catch(() => console.warn("[sdm] Batch clear: failed to delete Plumber outputs for run", run.jobId));
-      }
-      deletedCount++;
-    }
-
+    // Parallelize Plumber output deletions
     if (runsToDelete.length > 0) {
+      await Promise.allSettled(
+        runsToDelete.map((run) =>
+          run.jobId
+            ? plumberClient.deleteModelOutputs(run.jobId).catch(() => {})
+            : Promise.resolve()
+        )
+      );
+      deletedCount = runsToDelete.length;
+
       await db.delete(runs).where(inArray(runs.id, runsToDelete.map((r) => r.id)));
     }
 

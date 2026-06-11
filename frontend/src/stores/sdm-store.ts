@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { WorkspaceFile } from "@/app/(dashboard)/data/types";
 
 interface SDMState {
@@ -65,7 +66,9 @@ interface SDMState {
   reset: () => void;
 }
 
-export const useSDMStore = create<SDMState>()((set) => ({
+export const useSDMStore = create<SDMState>()(
+  persist(
+    (set) => ({
   species: "Untitled species",
   setSpecies: (species) => set({ species }),
 
@@ -116,7 +119,8 @@ export const useSDMStore = create<SDMState>()((set) => ({
   error: null,
   setError: (error) => set({ error }),
 
-  reset: () =>
+  reset: () => {
+    useSDMStore.persist.clearStorage();
     set({
       species: "Untitled species",
       occurrenceFilePath: null,
@@ -134,5 +138,25 @@ export const useSDMStore = create<SDMState>()((set) => ({
       modelJobStartTime: null,
       workspaceFiles: [],
       error: null,
+    });
+  },
     }),
-}));
+    {
+      name: "sdm-store",
+      partialize: (state) => ({
+        species: state.species,
+        detectedSpecies: state.detectedSpecies,
+        occurrenceFilePath: state.occurrenceFilePath,
+        recordCount: state.recordCount,
+        uploadResult: state.uploadResult,
+        pipelineRunId: state.pipelineRunId,
+        modelJobId: state.modelJobId,
+        modelJobStartTime: state.modelJobStartTime,
+        workspaceFiles: state.workspaceFiles,
+        cleanedOccurrence: state.cleanedOccurrence
+          ? { ...state.cleanedOccurrence, df: [] }
+          : null,
+      }),
+    }
+  )
+);
