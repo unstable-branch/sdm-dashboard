@@ -238,15 +238,6 @@ export class PlumberClient {
     return res.json();
   }
 
-  async cancelJob(jobId: string): Promise<{ ok: boolean }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/cancel/${jobId}`, {
-      method: "POST",
-      headers: this.headers(),
-    });
-    if (!res.ok) throw new Error(`Failed to cancel job: ${res.status}`);
-    return res.json();
-  }
-
   async getModelStatus(jobId: string, timeoutMs: number = 10_000): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`, {
       headers: this.headers(),
@@ -438,15 +429,6 @@ export class PlumberClient {
       headers: this.headers(),
     });
     if (!res.ok) throw new Error(`Failed to generate ensemble rasters: ${res.status}`);
-    return res.json();
-  }
-
-  async generatePlots(runId: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/plots/${runId}`, {
-      method: "POST",
-      headers: this.headers(),
-    });
-    if (!res.ok) throw new Error(`Failed to generate plots: ${res.status}`);
     return res.json();
   }
 

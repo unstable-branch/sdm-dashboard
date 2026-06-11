@@ -65,6 +65,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   climateMatching: "climate_matching",
   climateMatchingMethod: "climate_matching_method",
   futureProjection: "future_projection",
+  futureProjection2: "future_projection2",
   futureWorldclimDir: "future_worldclim_dir",
   futureLabel: "future_label",
   futureWorldclimDir2: "future_worldclim_dir2",

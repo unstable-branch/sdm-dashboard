@@ -37,11 +37,8 @@ gpu_profile_dump <- function(enabled, output_dir = NULL) {
 
 gpu_profile_stop <- function(enabled) {
   if (!isTRUE(enabled)) return(invisible(NULL))
-  tryCatch({
-    if (requireNamespace("torch", quietly = TRUE)) {
-      torch::cuda_memory_snapshot()
-    }
-  }, error = function(e) NULL)
+  # Recording is already stopped by cuda_dump_memory_snapshot; this is a no-op
+  invisible(TRUE)
 }
 
 # === Fused Elastic Net Regularization ===
@@ -125,7 +122,7 @@ fused_adam_step <- function(state) {
 # === GC-Protected Training Loop with AMP + CUDA Graphs ===
 
 train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
-                              verbose = TRUE, use_traced = FALSE,
+                              verbose = TRUE,
                               accumulation_steps = 1L,
                               loss_record_interval = 10L) {
   model$net$to(device = device)

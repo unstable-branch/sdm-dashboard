@@ -47,7 +47,9 @@ handle_model_run <- function(req, app_dir) {
         )))
       }
     }
-  }, error = function(e) NULL)
+  }, error = function(e) {
+    sdm_log_error("Memory check failed: %s", conditionMessage(e))
+  })
 
   active <- sdm_count_active_runs()
   if (active >= SDM_MAX_CONCURRENT_RUNS) {
@@ -137,6 +139,7 @@ sdm_camel_to_snake <- list(
   climateMatching = "climate_matching",
   climateMatchingMethod = "climate_matching_method",
   futureProjection = "future_projection",
+  futureProjection2 = "future_projection2",
   futureWorldclimDir = "future_worldclim_dir", futureLabel = "future_label",
   futureWorldclimDir2 = "future_worldclim_dir2", futureLabel2 = "future_label2",
   worldclimDir = "worldclim_dir", worldclimRes = "worldclim_res",
@@ -317,7 +320,10 @@ normalize_targets_config <- function(cfg) {
 handle_targets_run <- function(req, app_dir) {
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody),
-    error = function(e) NULL
+    error = function(e) {
+      sdm_log_error("Targets run JSON parse failed: %s", conditionMessage(e))
+      NULL
+    }
   )
   if (is.null(body) || is.null(body$configs) || length(body$configs) == 0) {
     return(sdm_error_code(req, "INVALID_INPUT", "Request body must contain a non-empty 'configs' array"))
@@ -1042,7 +1048,9 @@ handle_async_status <- function(res, job_id, app_dir) {
       return(list(available = FALSE, error = paste0("Corrupted meta.json: ", conditionMessage(e))))
     }
   )
-  if (is.list(meta) && !is.null(meta$error)) return(meta)
+  if (is.list(meta) && !is.null(meta$available) && identical(meta$available, FALSE)) {
+    return(meta)
+  }
   result <- NULL
   if (file.exists(result_file)) {
     result <- jsonlite::fromJSON(result_file, simplifyVector = FALSE)
