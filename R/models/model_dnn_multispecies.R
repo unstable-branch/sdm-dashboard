@@ -313,7 +313,7 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
     }
     pred_array[, seq_len(n_species), e] <- pmat[, seq_len(n_species), drop = FALSE]
   }
-  pred <- apply(pred_array, 1:2, mean, na.rm = TRUE)
+  pred <- rowMeans(pred_array, dims = 2, na.rm = TRUE)
   pred_sd <- apply(pred_array, 1:2, stats::sd, na.rm = TRUE)
 
   if (ncol(pred) != n_species) {

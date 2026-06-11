@@ -19,6 +19,9 @@ redis-data/
 
 # Temp files
 api/tmp/
+.trash/
+*.deb
+*.run
 
 # Env
 .env
@@ -30,6 +33,7 @@ api/tmp/
 .RData
 .Rproj.user/
 .Renviron
+Rplots.pdf
 
 # R data directories
 data/uploads/
