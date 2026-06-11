@@ -725,7 +725,7 @@ read_ala_records <- function(taxon, country = NULL, max_records = 100,
         stringsAsFactors = FALSE
       )
     } else {
-      do.call(rbind, lapply(parsed$occurrences, function(o) {
+      data.table::rbindlist(lapply(parsed$occurrences, function(o) {
         data.frame(
           decimalLongitude = as.numeric(o$decimalLongitude %||% NA),
           decimalLatitude = as.numeric(o$decimalLatitude %||% NA),

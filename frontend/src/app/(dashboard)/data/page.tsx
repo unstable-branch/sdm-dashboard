@@ -75,6 +75,10 @@ function DataPageContent() {
   const setWorkspaceFiles = useSDMStore((s) => s.setWorkspaceFiles);
 
   const handleWorkspaceAdd = useCallback((file: UploadFile, speciesOverride?: string) => {
+    const allSpecies = (speciesOverride || file.species)
+      ? (speciesOverride || file.species || "")
+          .split(",").map((s: string) => s.trim()).filter(Boolean)
+      : [];
     setWorkspaceFiles((prev) => {
       if (prev.some(f => f.fileId === file.file_id)) return prev;
       return [...prev, {
@@ -88,13 +92,15 @@ function DataPageContent() {
         fileCleanedFileId: file.cleaned_file_id,
         cleanedFileId: file.cleaned_file_id,
         cleanValidRecords: file.cleaned_valid_records,
-        selectedSpecies: speciesOverride || file.species
-          ? [speciesOverride || file.species || "Untitled species"]
-          : [],
+        selectedSpecies: allSpecies,
         cleanLoading: false,
         cleanError: null,
       }];
     });
+    if (allSpecies.length > 0) {
+      useSDMStore.getState().setSpecies(allSpecies[0]);
+      useSDMStore.getState().setDetectedSpecies(allSpecies);
+    }
   }, [setWorkspaceFiles]);
 
   const handleWorkspaceUpdate = useCallback((id: string, updates: Partial<WorkspaceFile>) => {
@@ -115,6 +121,7 @@ function DataPageContent() {
     const store = useSDMStore.getState();
     store.setOccurrenceFilePath(card.filePath);
     store.setSpecies(card.selectedSpecies[0] || "Untitled species");
+    store.setDetectedSpecies(card.selectedSpecies);
     store.setRecordCount(card.fileRows);
     store.setUploadResult({
       file_id: card.fileId,
@@ -270,7 +277,12 @@ function DataPageContent() {
         setOccurrenceFilePath(fileId);
         setRecordCount(nRows);
         const speciesName = detectedSpecies || extractSpeciesFromFilename(file.name) || null;
-        if (speciesName) useSDMStore.getState().setSpecies(speciesName);
+        if (speciesName) {
+          useSDMStore.getState().setSpecies(speciesName);
+          useSDMStore.getState().setDetectedSpecies(
+            speciesName.split(",").map((s: string) => s.trim()).filter(Boolean)
+          );
+        }
         const fakeFile: UploadFile = {
           file_id: fileId,
           file_name: file.name,

@@ -40,6 +40,10 @@ dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
 source(file.path(app_dir, "plumber", "R", "helpers", "vsize.R"))
 Sys.setenv(R_MAX_VSIZE = sdm_detect_vsize())
 
+# Bootstrap must load before write_meta (which uses sdm_safe_rename)
+source(file.path(app_dir, "R", "core", "bootstrap.R"))
+sdm_set_project_root(app_dir)
+
 meta_file <- file.path(job_dir, "meta.json")
 progress_file <- file.path(job_dir, "progress.log")
 heartbeat_file <- file.path(job_dir, "heartbeat.log")
@@ -103,8 +107,6 @@ progress_fun(list(value = 0.0, detail = "Initialising background process"))
 
 log_fun("Loading project initialization modules...")
 progress_fun(list(value = 0.01, detail = "Loading project bootstrap"))
-source(file.path(app_dir, "R", "core", "bootstrap.R"))
-sdm_set_project_root(app_dir)
 write_heartbeat("bootstrap_done")
 
 # Source error codes for classification
@@ -115,7 +117,7 @@ log_fun("Loading compute modules (~130 modules)...")
 progress_fun(list(value = 0.03, detail = "Loading compute modules"))
 Sys.setenv(SDM_HEARTBEAT_FILE = heartbeat_file)
 source(file.path(app_dir, "R", "load_compute.R"))
-terraOptions(tempdir = tmp_dir)
+  terra::terraOptions(tempdir = tmp_dir)
 write_heartbeat("compute_modules_done")
 log_fun("All modules loaded successfully")
 

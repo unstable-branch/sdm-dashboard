@@ -99,10 +99,10 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
           r$predictions
         } else NULL
       })
-      preds <- do.call(rbind, pred_list[!vapply(pred_list, is.null, logical(1))])
-      list(metrics = do.call(rbind, metrics_list), predictions = preds)
+      preds <- data.table::rbindlist(pred_list[!vapply(pred_list, is.null, logical(1))])
+      list(metrics = data.table::rbindlist(metrics_list), predictions = preds)
     } else {
-      list(metrics = do.call(rbind, results))
+      list(metrics = data.table::rbindlist(results))
     }
   }
 
@@ -120,10 +120,10 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
               r$predictions
             } else NULL
           })
-          preds <- do.call(rbind, pred_list[!vapply(pred_list, is.null, logical(1))])
-          list(metrics = do.call(rbind, metrics_list), predictions = preds)
+          preds <- data.table::rbindlist(pred_list[!vapply(pred_list, is.null, logical(1))])
+          list(metrics = data.table::rbindlist(metrics_list), predictions = preds)
         } else {
-          list(metrics = do.call(rbind, rows))
+          list(metrics = data.table::rbindlist(rows))
         }
       },
       error = function(e) e

@@ -203,9 +203,22 @@ db_insert_upload <- function(con, user_id, file_path, filename, file_size, forma
   }, error = function(e) message("Failed to record upload: ", conditionMessage(e)))
 }
 
-# Read saved result RDS and unwrap SpatRasters
+# LRU cache for deserialized result.rds — avoids re-reading the same
+# multi-MB RDS file on every diagnostic endpoint call.
+sdm_result_cache <- new.env(parent = emptyenv())
+sdm_result_cache_max <- 10L
+
+# Read saved result RDS and unwrap SpatRasters (cached by file path)
 sdm_read_result <- function(path) {
   if (is.null(path) || !file.exists(path)) return(NULL)
+
+  # Check cache
+  cached <- sdm_result_cache[[path]]
+  if (!is.null(cached)) {
+    attr(sdm_result_cache[[path]], "accessed") <- Sys.time()
+    return(cached)
+  }
+
   tryCatch({
     res <- readRDS(path)
     if (inherits(res$suitability, "PackedSpatRaster")) {
@@ -226,6 +239,23 @@ sdm_read_result <- function(path) {
     if (!is.null(res$aoa) && inherits(res$aoa, "PackedSpatRaster")) {
       res$aoa <- terra::unwrap(res$aoa)
     }
+
+    # Evict LRU if cache is full
+    cached_keys <- ls(sdm_result_cache)
+    if (length(cached_keys) >= sdm_result_cache_max) {
+      access_times <- sapply(cached_keys, function(k) {
+        attr(sdm_result_cache[[k]], "accessed") %||% 0
+      })
+      n_excess <- length(cached_keys) - sdm_result_cache_max + 1L
+      to_remove <- names(sort(unlist(access_times)))[seq_len(n_excess)]
+      rm(list = to_remove, envir = sdm_result_cache)
+    }
+
+    attr(res, "accessed") <- Sys.time()
+    sdm_result_cache[[path]] <- res
     res
-  }, error = function(e) NULL)
+  }, error = function(e) {
+    sdm_log_error("Failed to read result RDS: %s", conditionMessage(e))
+    NULL
+  })
 }

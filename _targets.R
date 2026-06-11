@@ -211,7 +211,7 @@ list(
           )
         }
       })
-      df <- do.call(rbind, rows)
+      df <- data.table::rbindlist(rows)
       out_csv <- file.path(batch_output_dir, "batch_metrics.csv")
       dir.create(dirname(out_csv), recursive = TRUE, showWarnings = FALSE)
       write.csv(df, out_csv, row.names = FALSE)

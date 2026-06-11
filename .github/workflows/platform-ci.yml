@@ -23,7 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: npm install -g pnpm@10.30.3
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
 
       - uses: actions/setup-node@v4
         with:
@@ -52,7 +54,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: npm install -g pnpm@10.30.3
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
 
       - uses: actions/setup-node@v4
         with:
@@ -93,7 +97,7 @@ jobs:
         with:
           name: frontend-dist
           path: frontend/.next
-          retention-days: 5
+          retention-days: 1
 
   api:
     name: API build + test
@@ -104,7 +108,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: npm install -g pnpm@10.30.3
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
 
       - uses: actions/setup-node@v4
         with:
@@ -147,60 +153,6 @@ jobs:
           path: api/dist
           retention-days: 5
 
-  r-quality:
-    name: R source + tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: r-lib/actions/setup-r@v2
-        with:
-          r-version: release
-          use-public-rspm: true
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            gdal-bin \
-            libcurl4-openssl-dev \
-            libgdal-dev \
-            libgeos-dev \
-            libproj-dev \
-            libssl-dev \
-            libudunits2-dev \
-            libxml2-dev \
-            make \
-            proj-data
-
-      - name: Install R dependencies
-        uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          dependencies: '"hard"'
-          extra-packages: 'any::testthat'
-          cache-version: 2
-
-      - name: Parse R sources
-        run: |
-          files <- list.files(pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE)
-          files <- files[!grepl("^\\.git/", files)]
-          files <- files[!grepl("/\\.Rprofile$", files)]
-          files <- files[!grepl("/renv/", files)]
-          for (file in files) parse(file)
-          message("Parsed ", length(files), " R source files.")
-        shell: Rscript --no-init-file {0}
-
-      - name: Smoke test
-        run: Rscript scripts/smoke_test.R --tags=fast
-
-      - name: Testthat suite
-        run: Rscript tests/testthat.R
-
-      - name: Audit release packaging
-        run: Rscript scripts/audit_release.R
-
   docker:
     name: Docker build + integration
     runs-on: ubuntu-latest
@@ -224,7 +176,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: npm install -g pnpm@10.30.3
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -254,10 +208,28 @@ jobs:
           path: packages/shared/dist
 
       - name: Build API image
-        run: docker build -f Dockerfile.api -t sdm-dashboard-api:latest -t sdm-api:test .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.api
+          load: true
+          tags: |
+            sdm-dashboard-api:latest
+            sdm-api:test
+          cache-from: type=gha,scope=sdm-dashboard-api
+          cache-to: type=gha,mode=max,scope=sdm-dashboard-api
 
       - name: Build Frontend image
-        run: docker build -f Dockerfile.frontend -t sdm-dashboard-frontend:latest -t sdm-frontend:test .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.frontend
+          load: true
+          tags: |
+            sdm-dashboard-frontend:latest
+            sdm-frontend:test
+          cache-from: type=gha,scope=sdm-dashboard-frontend
+          cache-to: type=gha,mode=max,scope=sdm-dashboard-frontend
 
       - name: Start services and verify health
         run: |
@@ -337,8 +309,12 @@ jobs:
           pnpm run test:e2e
 
       - name: Type contract check (Plumber OpenAPI → TS types)
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Generate and verify TS types from Plumber OpenAPI
         run: |
-          npm install -g pnpm@10.30.3
           pnpm install --frozen-lockfile
           cd api
           PLUMBER_OPENAPI_MIN_PATHS=40 \

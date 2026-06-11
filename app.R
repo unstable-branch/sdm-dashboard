@@ -292,7 +292,7 @@ server <- function(input, output, session) {
         )
       }
     })
-    df <- do.call(rbind, summary_rows)
+    df <- data.table::rbindlist(summary_rows)
     div(
       h4("Batch results"),
       DT::datatable(df, options = list(dom = "t", ordering = TRUE, pageLength = 25),

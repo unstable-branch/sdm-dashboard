@@ -101,38 +101,68 @@ compute_climate_match <- function(env_train, env_proj,
   }
 
   # Compute distance for each projection cell
-  compute_dist_block <- function(rast_block) {
-    df <- as.data.frame(rast_block)
-    if (is.null(dim(df)) || ncol(df) == 1 && length(common_vars) > 1) {
-      df <- as.data.frame(matrix(unlist(rast_block), ncol = length(common_vars), byrow = TRUE))
+  n_proj_cells <- terra::ncell(env_proj_subset)
+  n_vars <- length(common_vars)
+  if (sdm_use_gpu_for(n_proj_cells * n_vars)) {
+    dev <- gpu_device()
+    proj_vals <- as.matrix(terra::values(env_proj_subset))
+    valid <- stats::complete.cases(proj_vals)
+    dist <- rep(NA_real_, nrow(proj_vals))
+    if (any(valid)) {
+      x_t <- torch::torch_tensor(proj_vals[valid, , drop = FALSE], device = dev)
+      centre_t <- torch::torch_tensor(train_centre, device = dev)
+      if (method == "mahalanobis") {
+        cov_inv <- tryCatch(chol2inv(chol(train_cov)), error = function(e) MASS::ginv(train_cov))
+        cov_inv_t <- torch::torch_tensor(cov_inv, device = dev)
+        diff <- x_t - centre_t
+        d_t <- (diff$matmul(cov_inv_t$t()) * diff)$sum(dim = 2)
+      } else if (method == "standardised") {
+        train_sd <- matrixStats::colSds(train_vals, na.rm = TRUE)
+        train_sd[train_sd < 1e-10] <- 1
+        sd_t <- torch::torch_tensor(train_sd, device = dev)
+        scaled <- (x_t - centre_t) / sd_t
+        d_t <- scaled$pow(2)$sum(dim = 2)
+      } else {
+        diff <- x_t - centre_t
+        d_t <- diff$pow(2)$sum(dim = 2)
+      }
+      dist[valid] <- as.numeric(d_t$to(device = "cpu"))
     }
-    names(df) <- common_vars
-    df_complete <- stats::complete.cases(df)
+    dist_rast <- terra::rast(env_proj_subset[[1]])
+    terra::values(dist_rast) <- dist
+    gpu_empty_cache()
+  } else {
+    compute_dist_block <- function(rast_block) {
+      df <- as.data.frame(rast_block)
+      if (is.null(dim(df)) || ncol(df) == 1 && length(common_vars) > 1) {
+        df <- as.data.frame(matrix(unlist(rast_block), ncol = length(common_vars), byrow = TRUE))
+      }
+      names(df) <- common_vars
+      df_complete <- stats::complete.cases(df)
 
-    dist <- rep(NA_real_, nrow(df))
-    if (sum(df_complete) == 0) return(dist)
+      dist <- rep(NA_real_, nrow(df))
+      if (sum(df_complete) == 0) return(dist)
 
-    df_valid <- df[df_complete, , drop = FALSE]
+      df_valid <- df[df_complete, , drop = FALSE]
 
-    if (method == "mahalanobis") {
-      d <- stats::mahalanobis(df_valid, train_centre, train_cov)
-    } else if (method == "standardised") {
-      train_sd <- apply(train_vals, 2, stats::sd, na.rm = TRUE)
-      train_sd[train_sd < 1e-10] <- 1
-      scaled <- sweep(df_valid, 2, train_centre, "-")
-      scaled <- sweep(scaled, 2, train_sd, "/")
-      d <- rowSums(scaled^2)
-    } else {
-      # Euclidean
-      scaled <- sweep(df_valid, 2, train_centre, "-")
-      d <- rowSums(scaled^2)
+      if (method == "mahalanobis") {
+        d <- stats::mahalanobis(df_valid, train_centre, train_cov)
+      } else if (method == "standardised") {
+        train_sd <- matrixStats::colSds(train_vals, na.rm = TRUE)
+        train_sd[train_sd < 1e-10] <- 1
+        scaled <- sweep(df_valid, 2, train_centre, "-")
+        scaled <- sweep(scaled, 2, train_sd, "/")
+        d <- rowSums(scaled^2)
+      } else {
+        scaled <- sweep(df_valid, 2, train_centre, "-")
+        d <- rowSums(scaled^2)
+      }
+
+      dist[df_complete] <- d
+      dist
     }
-
-    dist[df_complete] <- d
-    dist
+    dist_rast <- terra::app(env_proj_subset, compute_dist_block)
   }
-
-  dist_rast <- terra::app(env_proj_subset, compute_dist_block)
   names(dist_rast) <- paste0("climatch_", method)
 
   # Normalise to 0-1 similarity (1 = identical climate, 0 = very different)

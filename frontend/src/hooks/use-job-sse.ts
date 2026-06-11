@@ -7,6 +7,7 @@ const MAX_JOBS_IN_MAP = 50;
 const TERMINAL_STATES: Set<JobEvent["state"]> = new Set(["completed", "failed", "cancelled"]);
 const TERMINAL_CLEANUP_MS = 5 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 30_000;
+const MAX_RECONNECT_ATTEMPTS = 20;
 
 export interface ProgressStage {
   timestamp: string;
@@ -156,9 +157,14 @@ function openSharedConnection(): void {
     sharedConnected = false;
     es.close();
     sharedEventSource = null;
-    notifyListeners();
-    const delay = Math.min(3000 * Math.pow(2, sharedReconnectAttempts), 60000);
     sharedReconnectAttempts++;
+    if (sharedReconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+      sharedReconnectAttempts = 0;
+      notifyListeners();
+      return;
+    }
+    notifyListeners();
+    const delay = Math.min(3000 * Math.pow(2, sharedReconnectAttempts - 1), 60000);
     if (sharedReconnectTimer) clearTimeout(sharedReconnectTimer);
     sharedReconnectTimer = setTimeout(() => {
       sharedReconnectTimer = null;

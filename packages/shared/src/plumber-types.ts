@@ -42,6 +42,7 @@ export interface PlumberModelInfo {
   packages: string[];
   notes: string;
   complexity_tier: string;
+  supports_uncertainty: boolean;
 }
 
 // ── Occurrences ─────────────────────────────────────────────────────────────

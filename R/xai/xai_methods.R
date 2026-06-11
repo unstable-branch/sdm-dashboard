@@ -113,6 +113,23 @@ build_importance_predict_fun <- function(fit) {
       if (nrow(df) == 0) return(numeric(0))
       as.numeric(maxnet::predict.maxnet(mod$model, df, clamp = TRUE, type = "cloglog"))
     },
+    dnn = function(mod, newdata) {
+      df <- as.data.frame(newdata)
+      if (nrow(df) == 0) return(numeric(0))
+      if (sdm_use_gpu() && nrow(df) >= 100L) {
+        dev <- gpu_device()
+        pred <- torch::with_no_grad({
+          as.numeric(stats::predict(mod$model, newdata = df, type = "response", device = dev))
+        })
+        gpu_empty_cache()
+        pred
+      } else {
+        pred <- torch::with_no_grad({
+          stats::predict(mod$model, newdata = df, type = "response")
+        })
+        if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+      }
+    },
     # Default: generic predict()
     function(mod, newdata) {
       df <- as.data.frame(newdata)

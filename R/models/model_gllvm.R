@@ -37,7 +37,7 @@ fit_gllvm_sdm <- function(occ, env_train_scaled, background_n = sdm_default_back
   # Standardize covariates for better gllvm convergence
   scaler <- list(
     mean = colMeans(x_train, na.rm = TRUE),
-    sd = apply(x_train, 2, stats::sd, na.rm = TRUE)
+    sd = matrixStats::colSds(x_train, na.rm = TRUE)
   )
   scaler$sd[scaler$sd == 0 | !is.finite(scaler$sd)] <- 1
   x_train_scaled <- sweep(x_train, 2, scaler$mean, "-")

@@ -70,7 +70,12 @@ COPY --from=torch-builder ${TORCH_HOME}/lib ${TORCH_HOME}/lib
 
 ENV TORCH_HOME=${TORCH_HOME}
 
-RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
+# Add NVIDIA CUDA repo for runtime libraries, then install all system deps in one layer.
+# nvcc (compiler) is intentionally excluded — only cudart + nvrtc are needed at runtime.
+# ADD fetches the keyring before any RUN commands, so curl is not required.
+ADD https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb /tmp/cuda-keyring.deb
+RUN dpkg -i /tmp/cuda-keyring.deb \
+  && apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
     libgdal-dev \
     libgeos-dev \
     libproj-dev \
@@ -80,18 +85,13 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get inst
     libcurl4-openssl-dev \
     libsodium-dev \
     libhiredis-dev \
-    curl \
     cmake \
     build-essential \
+    curl \
     git \
     libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Add NVIDIA CUDA repo for GPU support at runtime
-RUN curl -sL https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb -o /tmp/cuda-keyring.deb \
-  && dpkg -i /tmp/cuda-keyring.deb \
-  && apt-get update -qq \
-  && apt-get install -y -qq --no-install-recommends cuda-nvcc-12-8 cuda-cudart-12-8 cuda-nvrtc-12-8 \
+    cuda-cudart-12-8 \
+    cuda-nvrtc-12-8 \
   && rm -rf /var/lib/apt/lists/* /tmp/cuda-keyring.deb
 
 ENV LD_LIBRARY_PATH=${TORCH_HOME}/lib:/usr/local/cuda-12.8/lib64:/usr/lib/x86_64-linux-gnu

@@ -66,7 +66,22 @@ simulate_dispersal <- function(suitability, introduction_points,
 
   for (step in seq_len(n_steps - 1) + 1) {
     # Convolve current occupancy with dispersal kernel
-    dispersed <- terra::focal(step_rasters[[step - 1]], w = kernel, fun = sum, na.policy = "omit")
+    n_cells <- terra::ncell(step_rasters[[step - 1]])
+    if (sdm_use_gpu_for(n_cells, min_n = 100000L)) {
+      dev <- gpu_device()
+      occ_mat <- terra::values(step_rasters[[step - 1]], mat = TRUE)
+      occ_tensor <- torch::torch_tensor(occ_mat, device = dev)$reshape(c(1, 1, nrow(occ_mat), ncol(occ_mat)))
+      na_mask <- torch::torch_isnan(occ_tensor)
+      occ_tensor <- torch::torch_where(na_mask, torch::torch_tensor(0, device = dev), occ_tensor)
+      kernel_tensor <- torch::torch_tensor(kernel, device = dev)$reshape(c(1, 1, kernel_size, kernel_size))
+      dispersed_tensor <- torch::nnf_conv2d(occ_tensor, kernel_tensor, padding = kernel_radius_cells)
+      dispersed_vals <- as.numeric(dispersed_tensor$to(device = "cpu"))
+      dispersed <- terra::rast(step_rasters[[step - 1]])
+      terra::values(dispersed) <- dispersed_vals
+      gpu_empty_cache()
+    } else {
+      dispersed <- terra::focal(step_rasters[[step - 1]], w = kernel, fun = sum, na.policy = "omit")
+    }
 
     # Establishment: cell must be suitable enough AND receive propagules
     can_establish <- suitability >= establishment_threshold

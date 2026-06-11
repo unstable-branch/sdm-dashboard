@@ -37,6 +37,7 @@ Rplots.pdf
 
 # R data directories
 data/uploads/
+data/examples/saved_*
 data/boundaries/
 outputs/
 /covariates/
@@ -67,3 +68,10 @@ __pycache__/
 # Coverage
 api/coverage/
 frontend/coverage/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

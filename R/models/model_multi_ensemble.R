@@ -184,7 +184,11 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
 
   pred_stack <- terra::rast(preds)
 
-  ensemble_mean <- terra::app(pred_stack, mean, na.rm = TRUE)
+  if (sdm_use_gpu_for(terra::ncell(pred_stack) * terra::nlyr(pred_stack))) {
+    ensemble_mean <- gpu_raster_app(pred_stack, function(t) torch::torch_mean(t, dim = 2))
+  } else {
+    ensemble_mean <- terra::app(pred_stack, mean, na.rm = TRUE)
+  }
   names(ensemble_mean) <- "ensemble_mean"
   mean_tif <- sub(".tif$", "_ensemble_mean.tif", output_tif)
   terra::writeRaster(ensemble_mean, mean_tif,
@@ -195,7 +199,11 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   rm(ensemble_mean)
   gc(verbose = FALSE)
 
-  ensemble_median <- terra::app(pred_stack, median, na.rm = TRUE)
+  if (sdm_use_gpu_for(terra::ncell(pred_stack) * terra::nlyr(pred_stack))) {
+    ensemble_median <- gpu_raster_app(pred_stack, function(t) torch::torch_median(t, dim = 2)$values)
+  } else {
+    ensemble_median <- terra::app(pred_stack, median, na.rm = TRUE)
+  }
   names(ensemble_median) <- "ensemble_median"
   median_tif <- sub(".tif$", "_ensemble_median.tif", output_tif)
   terra::writeRaster(ensemble_median, median_tif,
@@ -211,7 +219,11 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   active_weights[!is.finite(active_weights)] <- 0
   weighted_layers <- mapply(function(pred, wi) pred * wi, preds, active_weights, SIMPLIFY = FALSE)
   weighted_stack <- terra::rast(weighted_layers)
-  ensemble_weighted <- terra::app(weighted_stack, sum, na.rm = TRUE)
+  if (sdm_use_gpu_for(terra::ncell(weighted_stack) * terra::nlyr(weighted_stack))) {
+    ensemble_weighted <- gpu_raster_app(weighted_stack, function(t) t$sum(dim = 2))
+  } else {
+    ensemble_weighted <- terra::app(weighted_stack, sum, na.rm = TRUE)
+  }
   names(ensemble_weighted) <- "suitability"
   terra::writeRaster(ensemble_weighted, output_tif,
     overwrite = TRUE,
@@ -234,7 +246,11 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     preds[[mid]] >= thresh
   })
   committee_stack <- do.call(c, binary_preds)
-  ensemble_committee <- terra::app(committee_stack, mean, na.rm = TRUE)
+  if (sdm_use_gpu_for(terra::ncell(committee_stack) * terra::nlyr(committee_stack))) {
+    ensemble_committee <- gpu_raster_app(committee_stack, function(t) torch::torch_mean(t, dim = 2))
+  } else {
+    ensemble_committee <- terra::app(committee_stack, mean, na.rm = TRUE)
+  }
   names(ensemble_committee) <- "ensemble_committee"
   committee_tif <- sub(".tif$", "_ensemble_committee.tif", output_tif)
   terra::writeRaster(ensemble_committee, committee_tif,
@@ -246,7 +262,11 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   gc(verbose = FALSE)
 
   if (include_uncertainty) {
-    ensemble_sd <- terra::app(pred_stack, sd, na.rm = TRUE)
+    if (sdm_use_gpu_for(terra::ncell(pred_stack) * terra::nlyr(pred_stack))) {
+      ensemble_sd <- gpu_raster_app(pred_stack, function(t) torch::torch_std(t, dim = 2))
+    } else {
+      ensemble_sd <- terra::app(pred_stack, sd, na.rm = TRUE)
+    }
     names(ensemble_sd) <- "ensemble_sd"
     sd_tif <- sub(".tif$", "_ensemble_sd.tif", output_tif)
     terra::writeRaster(ensemble_sd, sd_tif,
@@ -258,9 +278,15 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     gc(verbose = FALSE)
   }
 
-  disagreement <- terra::app(pred_stack, function(x) {
-    if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
-  })
+  if (sdm_use_gpu_for(terra::ncell(pred_stack) * terra::nlyr(pred_stack))) {
+    disagreement <- gpu_raster_app(pred_stack, function(t) {
+      t$max(dim = 2)$values - t$min(dim = 2)$values
+    })
+  } else {
+    disagreement <- terra::app(pred_stack, function(x) {
+      if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
+    })
+  }
   names(disagreement) <- "ensemble_disagreement"
   disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
   terra::writeRaster(disagreement, disagreement_tif,
@@ -398,10 +424,10 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
   components <- list()
   cv_list <- list()
   methods <- character()
-  component_k <- integer()
-  component_auc <- numeric()
-  component_tss <- numeric()
   n_components <- length(standalone_selected)
+  component_k <- integer(n_components)
+  component_auc <- numeric(n_components)
+  component_tss <- numeric(n_components)
 
   for (i in seq_along(standalone_selected)) {
     m <- standalone_selected[i]
@@ -456,9 +482,9 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     components[[m]] <- comp_fit
     methods[[m]] <- m
     cv_list[[m]] <- comp_fit$cv
-    component_k <- c(component_k, comp_fit$cv$k %||% NA_integer_)
-    component_auc <- c(component_auc, comp_fit$cv$auc_mean %||% NA_real_)
-    component_tss <- c(component_tss, comp_fit$cv$tss_mean %||% NA_real_)
+    component_k[i] <- comp_fit$cv$k %||% NA_integer_
+    component_auc[i] <- comp_fit$cv$auc_mean %||% NA_real_
+    component_tss[i] <- comp_fit$cv$tss_mean %||% NA_real_
   }
 
   if (length(components) == 0) {
@@ -477,7 +503,13 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     )
     eval_df <- biomod2_fit$cv$per_algorithm
     if (is.data.frame(eval_df) && nrow(eval_df) > 0) {
-      for (i in seq_len(nrow(eval_df))) {
+      n_biomod2 <- nrow(eval_df)
+      total_components <- n_components + n_biomod2
+      component_k <- c(component_k, integer(n_biomod2))
+      component_auc <- c(component_auc, numeric(n_biomod2))
+      component_tss <- c(component_tss, numeric(n_biomod2))
+      for (i in seq_len(n_biomod2)) {
+        idx <- n_components + i
         algo <- eval_df$algorithm[i]
         m <- paste0("biomod2.", algo)
         components[[m]] <- list(
@@ -487,9 +519,9 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
         )
         methods[[m]] <- "biomod2"
         cv_list[[m]] <- list(auc_mean = eval_df$auc[i], tss_mean = eval_df$tss[i], k = cv_folds)
-        component_k <- c(component_k, as.integer(cv_folds))
-        component_auc <- c(component_auc, eval_df$auc[i])
-        component_tss <- c(component_tss, eval_df$tss[i])
+        component_k[idx] <- as.integer(cv_folds)
+        component_auc[idx] <- eval_df$auc[i]
+        component_tss[idx] <- eval_df$tss[i]
       }
     }
   }

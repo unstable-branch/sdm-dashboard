@@ -34,7 +34,8 @@ handle_models_list <- function(res, app_dir) {
       complexity_tier = tier,
       enmeval_compatible = isTRUE(spec$enmeval_compatible),
       enmeval_algorithm = spec$enmeval_algorithm %||% NULL,
-      available = TRUE
+      available = TRUE,
+      supports_uncertainty = isTRUE(spec$supports_uncertainty)
     )
   })
 }

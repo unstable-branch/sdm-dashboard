@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { readFileSync, existsSync } from "fs";
-import { isAbsolute, join, resolve, dirname } from "path";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, copyFileSync } from "fs";
+import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { plumberClient } from "../services/plumber.js";
 import { optionalAuth, type AppEnv } from "../middleware/auth.js";
@@ -10,6 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, "../../..");
 const EXAMPLES_DIR = join(PROJECT_ROOT, "data", "examples");
+const SAVED_META_PATH = join(EXAMPLES_DIR, "saved_examples_meta.json");
 
 const EXAMPLE_FILES: Record<string, string> = {
   multi_species_test: join(EXAMPLES_DIR, "multi_species_test.csv"),
@@ -27,6 +28,19 @@ interface ExampleInfo {
   description: string;
   isMultiSpecies: boolean;
   hasCoordinateCleanerTests: boolean;
+}
+
+interface SavedExampleMeta {
+  name: string;
+  fileName: string;
+  species: number;
+  totalRecords: number;
+  cleanRecords: number;
+  dirtyRecords: number;
+  description: string;
+  isMultiSpecies: boolean;
+  hasCoordinateCleanerTests: boolean;
+  speciesNames?: string[];
 }
 
 const EXAMPLE_METADATA: Record<string, ExampleInfo> = {
@@ -65,6 +79,22 @@ const EXAMPLE_METADATA: Record<string, ExampleInfo> = {
   },
 };
 
+function loadSavedMeta(): Record<string, SavedExampleMeta> {
+  try {
+    if (existsSync(SAVED_META_PATH)) {
+      return JSON.parse(readFileSync(SAVED_META_PATH, "utf-8"));
+    }
+  } catch {}
+  return {};
+}
+
+function saveSavedMeta(meta: Record<string, SavedExampleMeta>): void {
+  try {
+    mkdirSync(EXAMPLES_DIR, { recursive: true });
+    writeFileSync(SAVED_META_PATH, JSON.stringify(meta, null, 2), "utf-8");
+  } catch {}
+}
+
 export const examplesRoutes = new Hono<AppEnv>();
 
 examplesRoutes.use("*", optionalAuth);
@@ -74,6 +104,13 @@ examplesRoutes.get("/list", async (c) => {
   for (const [name, path] of Object.entries(EXAMPLE_FILES)) {
     if (existsSync(path)) {
       available[name] = path;
+    }
+  }
+  const savedMeta = loadSavedMeta();
+  for (const [name, meta] of Object.entries(savedMeta)) {
+    const filePath = join(EXAMPLES_DIR, meta.fileName);
+    if (existsSync(filePath)) {
+      available[name] = filePath;
     }
   }
   return c.json({ examples: available });
@@ -86,6 +123,13 @@ examplesRoutes.get("/details", async (c) => {
       available.push(EXAMPLE_METADATA[name]);
     }
   }
+  const savedMeta = loadSavedMeta();
+  for (const [name, meta] of Object.entries(savedMeta)) {
+    const filePath = join(EXAMPLES_DIR, meta.fileName);
+    if (existsSync(filePath)) {
+      available.push(meta);
+    }
+  }
   return c.json({ examples: available });
 });
 
@@ -94,7 +138,18 @@ examplesRoutes.post("/load", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const name = (body.name as string) || (body.example as string) || "multi_species_test";
 
-    const srcPath = EXAMPLE_FILES[name];
+    // Check built-in examples first
+    let srcPath = EXAMPLE_FILES[name];
+
+    // Then check saved examples
+    if (!srcPath || !existsSync(srcPath)) {
+      const savedMeta = loadSavedMeta();
+      const saved = savedMeta[name];
+      if (saved) {
+        srcPath = join(EXAMPLES_DIR, saved.fileName);
+      }
+    }
+
     if (!srcPath || !existsSync(srcPath)) {
       return c.json({ error: `Example '${name}' not found` }, 404);
     }
@@ -102,19 +157,87 @@ examplesRoutes.post("/load", async (c) => {
     const buffer = readFileSync(srcPath);
     const fileName = `${name}.csv`;
 
-    // Forward to Plumber's upload endpoint to get metadata and store remotely
     const plumberResponse: PlumberUploadResponse = await plumberClient.uploadOccurrence(
       buffer,
       fileName,
     );
 
+    // For saved examples, include species_names from metadata
+    const savedMeta = loadSavedMeta();
+    const saved = savedMeta[name];
+    const speciesNames = saved?.speciesNames || [];
+
     return c.json({
       ...plumberResponse,
       example_name: name,
       file_path: srcPath,
+      species_names: speciesNames,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to load example data";
     return c.json({ error: message }, 502);
+  }
+});
+
+examplesRoutes.post("/save", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const fileId = body.file_id as string | undefined;
+    const cleanedFileId = body.cleaned_file_id as string | undefined;
+    const useCleaned = cleanedFileId || fileId;
+    if (!useCleaned) {
+      return c.json({ error: "file_id or cleaned_file_id is required" }, 400);
+    }
+
+    // The generated file is in data/uploads/ — look for it
+    const uploadsDir = join(PROJECT_ROOT, "data", "uploads");
+    let srcPath = join(uploadsDir, useCleaned);
+    if (!existsSync(srcPath)) {
+      return c.json({ error: `File not found: ${useCleaned}` }, 404);
+    }
+
+    // Build a saved name
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const savedName = `saved_${useCleaned.replace(/\.csv$/i, "")}_${timestamp}`;
+    const savedFileName = `${savedName}.csv`;
+    const destPath = join(EXAMPLES_DIR, savedFileName);
+
+    mkdirSync(EXAMPLES_DIR, { recursive: true });
+    copyFileSync(srcPath, destPath);
+
+    const meta = body.metadata as Record<string, unknown> | undefined;
+    const speciesNames = (meta?.species_names as string[]) || [];
+    const nSpecies = (meta?.n_species as number) || (speciesNames.length) || 1;
+    const nRecords = (meta?.n_records as number) || 0;
+    const nErrors = (meta?.n_errors as number) || 0;
+    const validRecords = (meta?.valid_records as number) || nRecords;
+    const originalRows = (meta?.original_rows as number) || nRecords;
+    const isSavedCleaned = !!cleanedFileId;
+
+    const exampleMeta: SavedExampleMeta = {
+      name: savedName,
+      fileName: savedFileName,
+      species: nSpecies,
+      totalRecords: isSavedCleaned ? originalRows : nRecords,
+      cleanRecords: isSavedCleaned ? validRecords : nRecords,
+      dirtyRecords: isSavedCleaned ? (originalRows - validRecords) : nErrors,
+      description: (meta?.description as string) || `Saved synthetic data (${nSpecies} species, ${nRecords} records)`,
+      isMultiSpecies: nSpecies > 1 || speciesNames.length > 1,
+      hasCoordinateCleanerTests: (!isSavedCleaned && nErrors > 0) || (isSavedCleaned && originalRows > validRecords),
+      speciesNames,
+    };
+
+    const allMeta = loadSavedMeta();
+    allMeta[savedName] = exampleMeta;
+    saveSavedMeta(allMeta);
+
+    return c.json({
+      file_name: savedFileName,
+      path: destPath,
+      ...exampleMeta,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to save example";
+    return c.json({ error: message }, 500);
   }
 });

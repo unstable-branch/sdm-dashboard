@@ -76,6 +76,33 @@ infer_species_label <- function(path) {
   top
 }
 
+infer_species_labels <- function(path, top_n = NULL) {
+  if (is.null(path) || length(path) == 0 || is.na(path[1]) || !file.exists(path[1])) {
+    return(character(0))
+  }
+  path <- path[1]
+  quiet_log <- function(message) invisible(NULL)
+  raw <- tryCatch(read_occurrence_file(path, log_fun = quiet_log), error = function(e) NULL)
+  if (is.null(raw) || nrow(raw) == 0) {
+    return(character(0))
+  }
+  species_col <- detect_column(names(raw), c("^(species|scientificname|taxon)$", "scientific.*name", "taxon.*name"))
+  if (is.na(species_col)) {
+    return(character(0))
+  }
+  values <- trimws(as.character(raw[[species_col]]))
+  values <- values[!is.na(values) & nzchar(values) & values != "NA"]
+  if (length(values) == 0) {
+    return(character(0))
+  }
+  counts <- sort(table(values), decreasing = TRUE)
+  if (!is.null(top_n) && is.numeric(top_n) && top_n > 0) {
+    head(names(counts), top_n)
+  } else {
+    names(counts)
+  }
+}
+
 default_species_label <- function(path = sdm_default_occurrence_file) {
   inferred <- infer_species_label(path)
   if (!is.na(inferred) && nzchar(inferred)) inferred else sdm_default_species

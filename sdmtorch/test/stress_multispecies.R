@@ -210,7 +210,7 @@ stress_main <- function() {
       occ_df$species <- species_names[s]
       all_occ_list[[s]] <- occ_df
     }
-    occ_data <- do.call(rbind, all_occ_list)
+    occ_data <- data.table::rbindlist(all_occ_list)
     cat("  Occurrence rows:", nrow(occ_data), "\n")
 
     # Run the combo
@@ -429,7 +429,7 @@ stress_main <- function() {
         # Build a model with the same architecture
         niches <- generate_niches(rcombo$n_species, 6L, seed = 99L)
         sp_names <- paste0("Sp_", LETTERS[seq_len(rcombo$n_species)])
-        all_occ <- do.call(rbind, lapply(seq_len(rcombo$n_species), function(s) {
+        all_occ <- data.table::rbindlist(lapply(seq_len(rcombo$n_species), function(s) {
           occ_df <- sample_occurrences(
             env_raster, env_vals, complete_cells,
             center = niches$centers[s, ],

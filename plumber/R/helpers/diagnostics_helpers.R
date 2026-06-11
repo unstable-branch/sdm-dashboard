@@ -727,7 +727,7 @@ handle_diagnostics_data <- function(res, run_id, type) {
     response_curves = {
       rc <- result$response_curves
       if (is.null(rc) || length(rc) == 0) return(NULL)
-      do.call(rbind, lapply(names(rc), function(nm) { df <- rc[[nm]]; df$covariate <- nm; df }))
+      data.table::rbindlist(lapply(names(rc), function(nm) { df <- rc[[nm]]; df$covariate <- nm; df }))
     },
     cbi = {
       cbi_result <- tryCatch({

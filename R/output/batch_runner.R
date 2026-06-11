@@ -307,7 +307,7 @@ write_batch_summary_csv <- function(results, output_dir) {
       )
     }
   })
-  df <- do.call(rbind, summary_rows)
+  df <- data.table::rbindlist(summary_rows)
   out_path <- file.path(output_dir, "batch_summary.csv")
   write.csv(df, out_path, row.names = FALSE)
   message("[batch] Wrote summary: ", out_path)

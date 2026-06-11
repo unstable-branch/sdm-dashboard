@@ -718,7 +718,7 @@ if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietl
       predict_dnn_multispecies_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
     },
     supports_importance = FALSE,
-    supports_uncertainty = FALSE,
+    supports_uncertainty = TRUE,
     supports_future = TRUE,
     multispecies = TRUE,
     diagnostics = list(n_species = TRUE, species_presence = TRUE),

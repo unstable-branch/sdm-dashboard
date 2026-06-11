@@ -65,6 +65,7 @@ export const species = pgTable("species", {
 }, (t) => [
   index("idx_species_project").on(t.projectId),
   index("idx_species_user_id").on(t.userId),
+  index("idx_species_name").on(t.name),
 ]);
 
 export const batches = pgTable("batches", {
@@ -118,6 +119,8 @@ export const runs = pgTable("runs", {
   index("idx_runs_pipeline").on(t.pipelineRunId),
   index("idx_runs_parent").on(t.parentRunId),
   index("idx_runs_species_name").on(t.speciesName),
+  index("idx_runs_created_at").on(t.createdAt),
+  index("idx_runs_job_id").on(t.jobId),
 ]);
 
 export const occurrences = pgTable("occurrences", {

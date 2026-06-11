@@ -80,7 +80,7 @@ test_that("plot_response_curves returns ggplot2 object", {
   p <- plot_response_curves(curves)
   expect_true(inherits(p, "ggplot"))
 
-  combined_df <- do.call(rbind, curves)
+  combined_df <- data.table::rbindlist(curves)
   p2 <- plot_response_curves(combined_df)
   expect_true(inherits(p2, "ggplot"))
 })

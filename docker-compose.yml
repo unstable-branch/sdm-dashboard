@@ -40,6 +40,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     networks:
       - sdm-network
 
@@ -62,6 +66,10 @@ services:
     volumes:
       - garage-data:/var/lib/garage
       - ./garage/config.toml:/etc/garage.toml:ro
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     healthcheck:
       test: ["CMD", "/garage", "status"]
       interval: 5s
@@ -93,7 +101,7 @@ services:
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
-       - GDAL_CACHEMAX=512
+      - GDAL_CACHEMAX=512
       - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
       - ALA_API_KEY=${ALA_API_KEY:-}
     init: true

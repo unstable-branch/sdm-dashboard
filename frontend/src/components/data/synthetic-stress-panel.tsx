@@ -7,6 +7,7 @@ import type { UploadFile } from "@/services/types";
 
 interface SyntheticStressPanelProps {
   onAddToWorkspace: (file: UploadFile, species?: string) => void;
+  onSavedExample?: () => void;
 }
 
 interface GenerationResult {
@@ -33,7 +34,7 @@ const PRESETS: Record<string, { species: number; occ: number; arch: string; desc
   large:  { species: 20, occ: 50000, arch: "DNN_Large",  desc: "20 species × 50,000 occ — full stress test" },
 };
 
-export function SyntheticStressPanel({ onAddToWorkspace }: SyntheticStressPanelProps) {
+export function SyntheticStressPanel({ onAddToWorkspace, onSavedExample }: SyntheticStressPanelProps) {
   const [level, setLevel] = useState<StressLevel>("medium");
   const [customSpecies, setCustomSpecies] = useState(5);
   const [customOcc, setCustomOcc] = useState(5000);
@@ -41,6 +42,8 @@ export function SyntheticStressPanel({ onAddToWorkspace }: SyntheticStressPanelP
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GenerationResult | null>(null);
   const [resultError, setResultError] = useState<string | null>(null);
+  const [savingExample, setSavingExample] = useState(false);
+  const [savedExampleName, setSavedExampleName] = useState<string | null>(null);
 
   const handleGenerate = useCallback(async () => {
     setLoading(true);
@@ -67,12 +70,38 @@ export function SyntheticStressPanel({ onAddToWorkspace }: SyntheticStressPanelP
       };
       const speciesList = Array.isArray(data.species_names) ? data.species_names.join(", ") : undefined;
       onAddToWorkspace(file, speciesList);
+      setSavedExampleName(null);
     } catch (err) {
       setResultError(err instanceof Error ? err.message : "Generation failed");
     } finally {
       setLoading(false);
     }
   }, [level, customSpecies, customOcc, errorRate, onAddToWorkspace]);
+
+  const handleSaveExample = useCallback(async () => {
+    if (!result) return;
+    setSavingExample(true);
+    setSavedExampleName(null);
+    try {
+      const res = await apiPost<{ name: string }>("/api/v1/data/examples/save", {
+        file_id: result.file_id,
+        metadata: {
+          n_species: result.n_species,
+          n_records: result.n_records,
+          n_errors: result.n_errors,
+          species_names: result.species_names,
+          description: result.message,
+          level: result.level,
+        },
+      });
+      setSavedExampleName(res.name);
+      onSavedExample?.();
+    } catch (err) {
+      setResultError(err instanceof Error ? err.message : "Failed to save example");
+    } finally {
+      setSavingExample(false);
+    }
+  }, [result, onSavedExample]);
 
   const preset = level !== "custom" ? PRESETS[level] : null;
   const totalRecords = preset ? preset.species * preset.occ : customSpecies * customOcc;
@@ -220,6 +249,22 @@ export function SyntheticStressPanel({ onAddToWorkspace }: SyntheticStressPanelP
               ))}
             </div>
           )}
+          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-sdm-border/50">
+            <button
+              onClick={handleSaveExample}
+              disabled={savingExample || savedExampleName !== null}
+              className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-2.5 py-1 text-xs font-medium text-sdm-text hover:bg-sdm-surface disabled:opacity-50 transition-colors"
+            >
+              {savingExample ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : savedExampleName !== null ? (
+                <CheckCircle2 className="h-3 w-3 text-sdm-success" />
+              ) : (
+                <CheckCircle2 className="h-3 w-3" />
+              )}
+              {savingExample ? "Saving..." : savedExampleName !== null ? "Saved to examples" : "Save to examples"}
+            </button>
+          </div>
         </div>
       )}
     </div>

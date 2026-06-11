@@ -10,8 +10,13 @@
   if (!is.finite(free_mib) || free_mib < 128) {
     return(min(max_batch, max(32L, floor(n_train / 10))))
   }
+  # VRAM-tier max_batch override: larger GPUs handle bigger batches
+  max_batch <- if (free_mib >= 24000) 8192L
+    else if (free_mib >= 16000) 4096L
+    else if (free_mib >= 8000) 2048L
+    else 512L
   # Rough per-sample cost estimate (MiB): parameters + activations + gradients + optim states
-  # Assumes ~4 bytes per float, ~3x overhead for activations + grads + Adam states
+  # Assumes ~4 bytes per float, ~8x overhead for activations + grads + Adam states + output layer
   max_hidden <- max(hidden_layers %||% 64L)
   per_sample_mib <- max_hidden * length(hidden_layers) * 4 * 8 / (1024 * 1024)
   if (per_sample_mib < 0.001) per_sample_mib <- 0.001
@@ -278,7 +283,7 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
   # Scale features (z-score normalization)
   scaler <- list(
     mean = colMeans(train_x),
-    sd = apply(train_x, 2, sd)
+    sd = matrixStats::colSds(train_x)
   )
   scaler$sd[scaler$sd == 0] <- 1
 
@@ -495,6 +500,8 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
     stop("DNN-302: Raster stack has no valid cells to predict. Check that the projection extent overlaps with covariate rasters.", call. = FALSE)
   }
 
+  is_cuda_pred <- identical(device, "cuda") || startsWith(device, "cuda")
+
   # Process in batches with error handling
   pred_vals <- rep(NA, n_cells)
 
@@ -520,10 +527,11 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
       batch_scaled <- sweep(as.matrix(valid_batch_vals), 2, scaler$mean, "-")
       batch_scaled <- sweep(batch_scaled, 2, scaler$sd, "/")
 
-      # DNN-303: Predict with error handling
       batch_pred <- tryCatch(
         {
-          pred <- predict(model, newdata = as.data.frame(batch_scaled), type = "response")
+          pred <- torch::with_no_grad({
+            stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response", device = device)
+          })
           if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
         },
         error = function(e) {
@@ -534,6 +542,10 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
       # Map back to valid cell indices
       pred_vals[valid_batch_idx] <- batch_pred
     }
+  }
+
+  if (is_cuda_pred) {
+    tryCatch(torch::cuda_empty_cache(), error = function(e) NULL)
   }
 
   # Create raster
@@ -562,7 +574,9 @@ get_dnn_metrics <- function(model, test_data) {
   # DNN-402: Get predictions with error handling
   pred_probs <- tryCatch(
     {
-      pred <- predict(model, newdata = as.data.frame(test_data$test_x), type = "response")
+      pred <- torch::with_no_grad({
+        stats::predict(model, newdata = as.data.frame(test_data$test_x), type = "response")
+      })
       if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
     },
     error = function(e) {
@@ -814,7 +828,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   x_mat <- as.matrix(model_data[, covariates, drop = FALSE])
   scaler <- list(
     mean = colMeans(x_mat, na.rm = TRUE),
-    sd = apply(x_mat, 2, stats::sd, na.rm = TRUE)
+    sd = matrixStats::colSds(x_mat, na.rm = TRUE)
   )
   scaler$sd[scaler$sd == 0 | !is.finite(scaler$sd)] <- 1
   x_scaled <- sweep(x_mat, 2, scaler$mean, "-")
@@ -862,7 +876,9 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   # Compute mean AUC across seeds
   auc_vals <- vapply(seed_models, function(m) {
     tryCatch({
-      pred <- predict(m, newdata = as.data.frame(x_scaled), type = "response")
+      pred <- torch::with_no_grad({
+        predict(m, newdata = as.data.frame(x_scaled), type = "response", device = dnn_device)
+      })
       if (is.matrix(pred)) pred <- pred[, 1]
       auc_rank(model_data$presence, as.numeric(pred))
     }, error = function(e) NA_real_)
@@ -991,6 +1007,33 @@ predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
   m2_vec <- numeric(length(valid_cells))
   alea_sum_vec <- numeric(length(valid_cells))
 
+  # Pre-extract and scale raster values once — shared across all MC samples.
+  # Each batch produces a matrix [batch_size x n_covariates] of scaled env data.
+  n_covariates <- terra::nlyr(pred_stack)
+  pre_scaled <- vector("list", length = ceiling(length(valid_cells) / batch_size))
+  pre_cell_idx <- vector("list", length = length(pre_scaled))
+  pre_scaled_rows <- 0L
+  for (i in seq(1, length(valid_cells), by = batch_size)) {
+    pre_scaled_rows <- pre_scaled_rows + 1L
+    batch_idx <- valid_cells[i:min(i + batch_size - 1, length(valid_cells))]
+    batch_xy <- terra::xyFromCell(pred_stack, batch_idx)
+    batch_vals <- tryCatch(
+      terra::extract(pred_stack, batch_xy),
+      error = function(e) {
+        stop(paste("DNN-303: Failed to extract raster values:", conditionMessage(e)), call. = FALSE)
+      }
+    )
+    valid_rows <- complete.cases(batch_vals)
+    pre_cell_idx[[pre_scaled_rows]] <- batch_idx[valid_rows]
+    if (nrow(batch_vals[valid_rows, , drop = FALSE]) > 0) {
+      scaled <- sweep(as.matrix(batch_vals[valid_rows, , drop = FALSE]), 2, scaler$mean, "-")
+      scaled <- sweep(scaled, 2, scaler$sd, "/")
+      pre_scaled[[pre_scaled_rows]] <- scaled
+    } else {
+      pre_scaled[[pre_scaled_rows]] <- matrix(0, nrow = 0, ncol = n_covariates)
+    }
+  }
+
   for (chunk_start in seq(1, mc_samples, by = chunk_size)) {
     chunk_end <- min(chunk_start + chunk_size - 1, mc_samples)
     chunk_n <- chunk_end - chunk_start + 1L
@@ -1005,39 +1048,20 @@ predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
 
       pred_vals <- rep(NA, n_cells)
 
-      for (i in seq(1, length(valid_cells), by = batch_size)) {
-        batch_idx <- valid_cells[i:min(i + batch_size - 1, length(valid_cells))]
-        batch_xy <- terra::xyFromCell(pred_stack, batch_idx)
-        batch_vals <- tryCatch(
-          terra::extract(pred_stack, batch_xy),
-          error = function(e) {
-            stop(paste("DNN-303: Failed to extract raster values:", conditionMessage(e)), call. = FALSE)
-          }
-        )
+      for (b in seq_len(pre_scaled_rows)) {
+        batch_idx <- pre_cell_idx[[b]]
+        batch_scaled <- pre_scaled[[b]]
+        if (length(batch_idx) == 0) next
 
-        valid_rows <- complete.cases(batch_vals)
-        valid_batch_idx <- batch_idx[valid_rows]
-        valid_batch_vals <- batch_vals[valid_rows, , drop = FALSE]
-
-        if (nrow(valid_batch_vals) > 0) {
-          batch_scaled <- sweep(as.matrix(valid_batch_vals), 2, scaler$mean, "-")
-          batch_scaled <- sweep(batch_scaled, 2, scaler$sd, "/")
-
-          batch_pred <- tryCatch({
-            if (use_fp16) {
-              torch::with_autocast(device_type = "cuda", {
-                pred <- stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response")
-                if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
-              })
-            } else {
-              pred <- stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response")
-              if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
-            }
-          }, error = function(e) {
-            stop(paste("DNN-303: MC prediction failed:", conditionMessage(e)), call. = FALSE)
+        batch_pred <- tryCatch({
+          pred <- torch::with_no_grad({
+            stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response", device = device)
           })
-          pred_vals[valid_batch_idx] <- batch_pred
-        }
+          if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+        }, error = function(e) {
+          stop(paste("DNN-303: MC prediction failed:", conditionMessage(e)), call. = FALSE)
+        })
+        pred_vals[batch_idx] <- batch_pred
       }
 
       mc_chunk[, t_local] <- pred_vals[valid_cells]

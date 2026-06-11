@@ -12,6 +12,8 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
                                       use_fused_adam = "auto",
                                       dnn_mixed_precision = "auto",
                                       dnn_cuda_graphs = "auto",
+                                      mc_samples = 0L,
+                                      uncertainty_method = "none",
                                       ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages.", call. = FALSE)
@@ -32,7 +34,7 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   x_train <- as.matrix(cm$model_data[, covariates, drop = FALSE])
   scaler <- list(
     mean = colMeans(x_train, na.rm = TRUE),
-    sd = apply(x_train, 2, stats::sd, na.rm = TRUE)
+    sd = matrixStats::colSds(x_train, na.rm = TRUE)
   )
   scaler$sd[scaler$sd == 0 | !is.finite(scaler$sd)] <- 1
   x_train_scaled <- sweep(x_train, 2, scaler$mean, "-")
@@ -43,7 +45,7 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   }
 
   log_message(log_fun, "Fitting multi-species DNN (", n_species, " species, ", n_sites, " sites, ",
-    dnn_architecture, ")")
+    dnn_architecture, ", ", dnn_device, ")")
 
   arch <- sdm_dnn_arch(dnn_architecture)
   if (is.null(arch)) arch <- sdm_dnn_arch("DNN_Medium")
@@ -80,7 +82,9 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   use_fused <- if (identical(use_fused_adam, "off")) {
     FALSE
   } else if (identical(dnn_device, "cuda")) {
-    FALSE
+    log_message(log_fun, "  Fused Adam enabled for multi-species on CUDA (FP32-only, JIT fuser incompatible with FP16 multi-output)")
+    dnn_mixed_precision <- "off"
+    TRUE
   } else {
     torch_has_fused
   }
@@ -99,6 +103,11 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
 
   n_seeds <- as.integer(n_seeds)[1]
   if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
+
+  # Enable cuDNN autotuner for optimal kernel selection on CUDA
+  if (identical(dnn_device, "cuda")) {
+    tryCatch(torch::torch_backends_cudnn_benchmark(TRUE), error = function(e) NULL)
+  }
 
   seed_models <- vector("list", n_seeds)
   for (s in seq_len(n_seeds)) {
@@ -164,6 +173,10 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     }
 
     if (!is.null(model)) seed_models[[s]] <- model
+
+    if (identical(dnn_device, "cuda")) {
+      tryCatch(torch::cuda_empty_cache(), error = function(e) NULL)
+    }
   }
 
   seed_models <- Filter(Negate(is.null), seed_models)
@@ -179,7 +192,9 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
       if (length(unique(obs)) < 2) return(NA_real_)
       preds <- vapply(seed_models, function(m) {
         tryCatch({
-          p <- stats::predict(m, newdata = as.data.frame(x_train_scaled), type = "response")
+          p <- torch::with_no_grad({
+            stats::predict(m, newdata = as.data.frame(x_train_scaled), type = "response", device = dnn_device)
+          })
           as.numeric(p[, s] %||% p[, 1])
         }, error = function(e) rep(NA_real_, nrow(x_train_scaled)))
       }, numeric(nrow(x_train_scaled)))
@@ -231,7 +246,141 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     shap = shap_values,
     scaler = scaler,
     dnn_device = dnn_device,
-    dnn_model_type = dnn_architecture
+    gpu_used = identical(dnn_device, "cuda"),
+    dnn_model_type = dnn_architecture,
+    mc_samples = as.integer(mc_samples),
+    uncertainty_method = match.arg(uncertainty_method, c("none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"))
+  )
+}
+
+#' MC Dropout prediction for multi-species DNN
+#' Runs forward passes with dropout active for each species output independently.
+predict_dnn_multispecies_mc <- function(model, env_subset, scaler, device = "cpu",
+                                        batch_size = 1000L, mc_samples = 30L,
+                                        log_fun = NULL, decompose = FALSE) {
+  is_cuda <- startsWith(as.character(device), "cuda")
+  use_fp16 <- is_cuda && requireNamespace("torch", quietly = TRUE) && torch::cuda_is_available()
+  label <- if (use_fp16) "MC Dropout (FP16)" else "MC Dropout"
+
+  log_message(log_fun, label, ": ", mc_samples, " forward passes with dropout active (batch_size=", batch_size, ")")
+
+  model$net$train()
+  on.exit(model$net$eval(), add = TRUE)
+
+  n_cells <- terra::ncell(env_subset)
+  valid_cells <- which(!is.na(terra::values(env_subset[[1]])))
+  if (length(valid_cells) == 0) {
+    stop("DNN-302: No valid cells for MC Dropout prediction", call. = FALSE)
+  }
+
+  n_covariates <- terra::nlyr(env_subset)
+  n_valid <- length(valid_cells)
+  n_species <- 1L
+
+  # Probe model output dimension with a single prediction
+  probe_df <- as.data.frame(matrix(0, nrow = 1, ncol = n_covariates))
+  names(probe_df) <- names(env_subset)
+  probe_pred <- tryCatch(
+    torch::with_no_grad({
+      stats::predict(model, newdata = probe_df, type = "response", device = device)
+    }),
+    error = function(e) stop("DNN probe failed: ", conditionMessage(e), call. = FALSE)
+  )
+  if (is.matrix(probe_pred)) {
+    n_species <- ncol(probe_pred)
+  }
+
+  # Pre-extract and scale raster values in spatial batches (same pattern as single-species predict_dnn_mc)
+  pre_scaled <- vector("list", length = ceiling(n_valid / batch_size))
+  pre_cell_idx <- vector("list", length = length(pre_scaled))
+  pre_batch_rows <- 0L
+  for (i in seq(1, n_valid, by = batch_size)) {
+    pre_batch_rows <- pre_batch_rows + 1L
+    batch_global <- i:min(i + batch_size - 1, n_valid)
+    batch_cells <- valid_cells[batch_global]
+    batch_xy <- terra::xyFromCell(env_subset, batch_cells)
+    batch_vals <- tryCatch(
+      terra::extract(env_subset, batch_xy),
+      error = function(e) stop("Failed to extract raster values: ", conditionMessage(e), call. = FALSE)
+    )
+    valid_rows <- stats::complete.cases(batch_vals)
+    pre_cell_idx[[pre_batch_rows]] <- batch_global[valid_rows]
+    if (sum(valid_rows) > 0) {
+      scaled <- sweep(as.matrix(batch_vals[valid_rows, , drop = FALSE]), 2, scaler$mean, "-")
+      scaled <- sweep(scaled, 2, scaler$sd, "/")
+      pre_scaled[[pre_batch_rows]] <- scaled
+    } else {
+      pre_scaled[[pre_batch_rows]] <- matrix(0, nrow = 0, ncol = n_covariates)
+    }
+  }
+
+  mean_mat <- matrix(0, nrow = n_valid, ncol = n_species)
+  m2_mat <- matrix(0, nrow = n_valid, ncol = n_species)
+  alea_sum_mat <- matrix(0, nrow = n_valid, ncol = n_species)
+
+  for (t in seq_len(mc_samples)) {
+    if (!is.null(log_fun) && mc_samples > 5 && (t %% 5 == 0 || t == 1)) {
+      log_message(log_fun, sprintf("  MC sample %d/%d", t, mc_samples))
+    }
+
+    pred_matrix <- matrix(NA_real_, nrow = n_valid, ncol = n_species)
+
+    for (b in seq_len(pre_batch_rows)) {
+      batch_scaled <- pre_scaled[[b]]
+      if (nrow(batch_scaled) == 0) next
+      batch_pred <- tryCatch({
+        p <- torch::with_no_grad({
+          stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response", device = device)
+        })
+        if (is.matrix(p)) p else as.matrix(p)
+      }, error = function(e) {
+        stop("MC prediction failed: ", conditionMessage(e), call. = FALSE)
+      })
+      batch_rows <- pre_cell_idx[[b]]
+      pred_matrix[batch_rows, ] <- batch_pred[, seq_len(n_species), drop = FALSE]
+    }
+
+    # Welford incremental mean/variance per species
+    delta <- pred_matrix - mean_mat
+    mean_mat <- mean_mat + delta / t
+    delta2 <- pred_matrix - mean_mat
+    m2_mat <- m2_mat + delta * delta2
+    if (decompose) {
+      alea_sum_mat <- alea_sum_mat + pred_matrix * (1 - pred_matrix)
+    }
+
+  }
+
+  if (is_cuda) {
+    tryCatch(torch::cuda_empty_cache(), error = function(e) NULL)
+  }
+
+  # Final statistics per species
+  if (mc_samples >= 2) {
+    var_mat <- m2_mat / mc_samples
+  } else {
+    var_mat <- matrix(0, nrow = n_valid, ncol = n_species)
+  }
+
+  if (decompose && mc_samples >= 2) {
+    aleatoric_mat <- alea_sum_mat / mc_samples
+    epistemic_mat <- pmax(var_mat - aleatoric_mat, 0)
+    total_mat <- aleatoric_mat + epistemic_mat
+    sd_mat <- sqrt(total_mat)
+  } else {
+    sd_mat <- sqrt(var_mat)
+    aleatoric_mat <- NULL
+    epistemic_mat <- NULL
+    total_mat <- NULL
+  }
+
+  list(
+    mean = mean_mat,
+    sd = sd_mat,
+    aleatoric = aleatoric_mat,
+    epistemic = epistemic_mat,
+    total = total_mat,
+    n_species = n_species
   )
 }
 
@@ -253,15 +402,11 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
   n_species <- fit$n_species
   species_names <- fit$species_names
   scaler <- fit$scaler
+  dnn_device <- fit$dnn_device %||% "cpu"
+  mc_samples <- fit$mc_samples %||% 0L
+  uncertainty_method <- fit$uncertainty_method %||% "none"
 
   log_message(log_fun, "Predicting multi-species DNN suitability (", n_species, " species)")
-
-  # MC Dropout uncertainty is not yet supported for multi-output (multi-species)
-  # models. Warn users who configure it via the UI/API.
-  mc_samples <- fit$mc_samples %||% 0L
-  if (isTRUE(mc_samples > 0L)) {
-    log_message(log_fun, "  Note: MC Dropout uncertainty not available for multi-species model")
-  }
 
   env_df <- as.data.frame(terra::values(env_subset))
   names(env_df) <- covariates
@@ -289,32 +434,71 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
     log_message(log_fun, "  Ensembling ", n_ensemble, " seeds")
   }
 
-  pred_list <- vector("list", n_ensemble)
-  for (e in seq_len(n_ensemble)) {
-    pred_list[[e]] <- tryCatch({
-      p <- stats::predict(all_models[[e]], newdata = pred_df, type = "response")
-      if (is.matrix(p)) p else as.matrix(p)
-    }, error = function(e) {
-      log_message(log_fun, "  Seed ", e, " prediction failed: ", conditionMessage(e))
-      NULL
-    })
-  }
-  pred_list <- Filter(Negate(is.null), pred_list)
-  if (length(pred_list) == 0) {
-    stop("Multi-species DNN prediction failed for all ensemble models", call. = FALSE)
+  # Determine if MC Dropout should be used
+  use_mc <- isTRUE(mc_samples > 0L) && uncertainty_method != "none"
+  decompose <- identical(uncertainty_method, "aleatoric_epistemic")
+
+  if (use_mc) {
+    # MC Dropout: run on the best model with dropout active
+    mc_result <- predict_dnn_multispecies_mc(
+      fit$model, env_subset, scaler, device = dnn_device,
+      mc_samples = mc_samples, log_fun = log_fun, decompose = decompose
+    )
+    pred <- mc_result$mean
+    pred_sd <- mc_result$sd
+    if (ncol(pred) < n_species) {
+      n_species <- ncol(pred)
+    }
+    if (identical(dnn_device, "cuda")) {
+      tryCatch(torch::cuda_empty_cache(), error = function(e) NULL)
+    }
+  } else {
+    # Standard prediction across ensemble seeds — process in spatial batches
+    is_cuda_pred <- identical(dnn_device, "cuda") || startsWith(dnn_device, "cuda")
+    batch_size_pred <- 1000L
+    n_pred_cells <- nrow(pred_df)
+    pred <- matrix(NA_real_, nrow = n_pred_cells, ncol = n_species)
+    pred_sd <- matrix(NA_real_, nrow = n_pred_cells, ncol = n_species)
+
+    for (batch_start in seq(1, n_pred_cells, by = batch_size_pred)) {
+      batch_end <- min(batch_start + batch_size_pred - 1, n_pred_cells)
+      batch_idx <- batch_start:batch_end
+      batch_len <- length(batch_idx)
+
+      # Collect predictions for this batch across all seeds
+      batch_pred <- array(dim = c(batch_len, n_species, n_ensemble))
+      n_ok <- 0L
+      for (e in seq_len(n_ensemble)) {
+        p <- tryCatch({
+          pmat <- torch::with_no_grad({
+            stats::predict(all_models[[e]], newdata = pred_df[batch_idx, , drop = FALSE], type = "response", device = dnn_device)
+          })
+          if (is.matrix(pmat)) pmat else as.matrix(pmat)
+        }, error = function(e) {
+          log_message(log_fun, "  Seed ", e, " prediction failed for batch: ", conditionMessage(e))
+          NULL
+        })
+        if (!is.null(p)) {
+          n_ok <- n_ok + 1L
+          if (ncol(p) < n_species) {
+            p <- cbind(p, matrix(NA_real_, nrow = batch_len, ncol = n_species - ncol(p)))
+          }
+          batch_pred[, , n_ok] <- p[, seq_len(n_species), drop = FALSE]
+        }
+      }
+
+      if (n_ok == 0) {
+        stop("Multi-species DNN prediction failed for all ensemble models", call. = FALSE)
+      }
+
+      pred[batch_idx, ] <- rowMeans(batch_pred[, , seq_len(n_ok), drop = FALSE], dims = 2, na.rm = TRUE)
+      pred_sd[batch_idx, ] <- apply(batch_pred[, , seq_len(n_ok), drop = FALSE], 1:2, stats::sd, na.rm = TRUE)
+    }
   }
 
-  # Average predictions across ensemble
-  pred_array <- array(dim = c(nrow(pred_df), n_species, length(pred_list)))
-  for (e in seq_along(pred_list)) {
-    pmat <- pred_list[[e]]
-    if (ncol(pmat) < n_species) {
-      pmat <- cbind(pmat, matrix(NA_real_, nrow = nrow(pmat), ncol = n_species - ncol(pmat)))
-    }
-    pred_array[, seq_len(n_species), e] <- pmat[, seq_len(n_species), drop = FALSE]
+  if (is_cuda_pred) {
+    tryCatch(torch::cuda_empty_cache(), error = function(e) NULL)
   }
-  pred <- rowMeans(pred_array, dims = 2, na.rm = TRUE)
-  pred_sd <- apply(pred_array, 1:2, stats::sd, na.rm = TRUE)
 
   if (ncol(pred) != n_species) {
     log_message(log_fun, "  Warning: model predicted ", ncol(pred), " outputs but expected ", n_species)
@@ -345,9 +529,9 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
   terra::writeRaster(richness, richness_tif, overwrite = TRUE,
     wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
 
-  # Per-species uncertainty (seed disagreement) rasters if ensemble > 1
+  # Write per-species uncertainty rasters (MC Dropout or seed ensemble)
   unc_tifs <- character(0)
-  if (n_ensemble > 1) {
+  if (use_mc || n_ensemble > 1) {
     unc_tifs <- character(n_species)
     for (i in seq_len(n_species)) {
       unc_tif <- sub("\\.tif$", paste0("_", make.names(species_names[i]), "_uncertainty.tif"), output_tif)
@@ -361,8 +545,33 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
     }
   }
 
+  # Write decomposition rasters if using MC Dropout with aleatoric/epistemic
+  if (use_mc && decompose && !is.null(mc_result$aleatoric)) {
+    for (i in seq_len(n_species)) {
+      # Aleatoric
+      alea_tif <- sub("\\.tif$", paste0("_", make.names(species_names[i]), "_aleatoric.tif"), output_tif)
+      alea_rast <- terra::rast(env_subset[[1]])
+      terra::values(alea_rast) <- NA_real_
+      alea_rast[complete_idx] <- pmax(0, mc_result$aleatoric[, i])
+      names(alea_rast) <- paste0(make.names(species_names[i]), "_aleatoric")
+      terra::writeRaster(alea_rast, alea_tif, overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+
+      # Epistemic
+      epi_tif <- sub("\\.tif$", paste0("_", make.names(species_names[i]), "_epistemic.tif"), output_tif)
+      epi_rast <- terra::rast(env_subset[[1]])
+      terra::values(epi_rast) <- NA_real_
+      epi_rast[complete_idx] <- pmax(0, mc_result$epistemic[, i])
+      names(epi_rast) <- paste0(make.names(species_names[i]), "_epistemic")
+      terra::writeRaster(epi_rast, epi_tif, overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+    }
+  }
+
   log_message(log_fun, "  Wrote ", n_species, " species rasters + richness",
-    if (length(unc_tifs) > 0) paste0(" + ", length(unc_tifs), " uncertainty rasters"), " to ", dirname(output_tif))
+    if (length(unc_tifs) > 0) paste0(" + ", length(unc_tifs), " uncertainty rasters"),
+    if (use_mc && decompose) " + aleatoric/epistemic decomposition",
+    " to ", dirname(output_tif))
 
   attr(multi_rast, "species_tifs") <- species_tifs
   attr(multi_rast, "richness_tif") <- richness_tif

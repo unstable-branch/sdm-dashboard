@@ -19,9 +19,10 @@ interface ExampleInfo {
 
 interface SyntheticExamplesPanelProps {
   onAddToWorkspace: (file: UploadFile, species?: string) => void;
+  reloadTrigger?: number;
 }
 
-export function SyntheticExamplesPanel({ onAddToWorkspace }: SyntheticExamplesPanelProps) {
+export function SyntheticExamplesPanel({ onAddToWorkspace, reloadTrigger }: SyntheticExamplesPanelProps) {
   const [examples, setExamples] = useState<ExampleInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingName, setLoadingName] = useState<string | null>(null);
@@ -36,7 +37,7 @@ export function SyntheticExamplesPanel({ onAddToWorkspace }: SyntheticExamplesPa
       })
       .catch(() => setError("Failed to load synthetic test data"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [reloadTrigger]);
 
   const loadExample = useCallback(async (name: string) => {
     setLoadingName(name);
@@ -46,6 +47,10 @@ export function SyntheticExamplesPanel({ onAddToWorkspace }: SyntheticExamplesPa
       const fileId = (result.file_id as string) || (result.file_path as string) || "";
       const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
       const speciesDetected = (result.species_detected as string) || null;
+      const speciesNames = (result.species_names as string[]) || [];
+      const speciesOverride = speciesNames.length > 0
+        ? speciesNames.join(", ")
+        : speciesDetected || undefined;
 
       const file: UploadFile = {
         file_id: fileId,
@@ -54,10 +59,10 @@ export function SyntheticExamplesPanel({ onAddToWorkspace }: SyntheticExamplesPa
         n_rows: nRows,
         cleaned: false,
         modified_at: new Date().toISOString(),
-        species: speciesDetected || undefined,
+        species: speciesOverride || undefined,
         format: "csv",
       };
-      onAddToWorkspace(file, speciesDetected || undefined);
+      onAddToWorkspace(file, speciesOverride || undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load example");
     } finally {
@@ -95,11 +100,7 @@ export function SyntheticExamplesPanel({ onAddToWorkspace }: SyntheticExamplesPa
   if (examples.length === 0) return null;
 
   return (
-    <div className="mt-4 space-y-2">
-      <div className="flex items-center gap-2 px-1">
-        <Beaker className="h-4 w-4 text-sdm-accent" />
-        <span className="text-sm font-semibold text-sdm-heading">Synthetic test data</span>
-      </div>
+    <div className="space-y-2">
       {examples.map((ex) => (
         <div
           key={ex.name}

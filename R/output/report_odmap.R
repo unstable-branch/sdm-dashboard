@@ -355,7 +355,7 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
       paste0("- **Author:** ", authorship),
       paste0("- **Objective:** ", objective),
       paste0("- **Target output:** ", target_output),
-      paste0("- **Hypotheses:** ", ifelse(nzchar(hypotheses), hypotheses, "(none)")),
+      paste0("- **Hypotheses:** ", if (isTRUE(nzchar(hypotheses))) hypotheses else "(none)"),
       paste0("- **Assumptions:** ", assumptions),
       "",
       "## Data",

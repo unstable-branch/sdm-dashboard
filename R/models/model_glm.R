@@ -76,10 +76,20 @@ sample_background_points <- function(env_train_scaled, n, seed = 42, presence_xy
     cell_xy <- terra::xyFromCell(template_rast, all_cell_idx)
     cell_km <- lonlat_to_km(cell_xy[, "x"], cell_xy[, "y"])
     pres_km <- lonlat_to_km(presence_xy$x, presence_xy$y)
-    weights <- numeric(nrow(cell_km))
-    for (j in seq_len(nrow(pres_km))) {
-      d2 <- (cell_km$x_km - pres_km$x_km[j])^2 + (cell_km$y_km - pres_km$y_km[j])^2
-      weights <- weights + exp(-d2 / (2 * sigma_km^2))
+    if (sdm_use_gpu_for(nrow(cell_km) * nrow(pres_km), min_n = 50000L)) {
+      dev <- gpu_device()
+      cell_tensor <- torch::torch_tensor(as.matrix(cell_km), device = dev)
+      pres_tensor <- torch::torch_tensor(as.matrix(pres_km), device = dev)
+      d2 <- torch::torch_cdist(pres_tensor, cell_tensor)$pow(2)
+      weights_tensor <- torch::torch_exp(-d2 / (2 * sigma_km^2))$sum(dim = 1)
+      weights <- as.numeric(weights_tensor$to(device = "cpu"))
+      gpu_empty_cache()
+    } else {
+      weights <- numeric(nrow(cell_km))
+      for (j in seq_len(nrow(pres_km))) {
+        d2 <- (cell_km$x_km - pres_km$x_km[j])^2 + (cell_km$y_km - pres_km$y_km[j])^2
+        weights <- weights + exp(-d2 / (2 * sigma_km^2))
+      }
     }
     weights <- weights / max(weights, na.rm = TRUE)
     weights[is.na(weights)] <- 0

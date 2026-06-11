@@ -39,7 +39,7 @@ list(
       }
       occ
     })
-    all_occ <- do.call(rbind, occ_list)
+    all_occ <- data.table::rbindlist(occ_list)
 
     # Add species column if not present (fallback to row species name)
     if (!"species" %in% names(all_occ)) {

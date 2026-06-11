@@ -31,7 +31,7 @@ build_clean <- function(src, r, n) {
   )
 }
 
-clean <- do.call(rbind, lapply(group_names, function(src) {
+clean <- data.table::rbindlist(lapply(group_names, function(src) {
   build_clean(src, ranges[[src]], n_clean)
 }))
 
@@ -213,7 +213,7 @@ for (i in 1:5) {
 }
 
 # ─── Combine and write ─────────────────────────────────────────────────────
-dirty_df <- do.call(rbind, dirty)
+dirty_df <- data.table::rbindlist(dirty)
 rownames(dirty_df) <- NULL
 
 # Fix column types for clean bind

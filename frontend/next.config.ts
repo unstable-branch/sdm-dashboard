@@ -1,10 +1,13 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
+import withBundleAnalyzer from "@next/bundle-analyzer";
 
 const API_URL = process.env.API_URL || "http://localhost:4000";
 const CONFIG_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(CONFIG_DIR, "..");
+
+const analyze = process.env.ANALYZE === "true";
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -45,4 +48,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default analyze ? withBundleAnalyzer()(nextConfig) : nextConfig;

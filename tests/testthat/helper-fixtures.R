@@ -73,7 +73,7 @@ make_multi_species_occurrence <- function(path = NULL, n_per_species = 20, seed 
       stringsAsFactors = FALSE
     )
   })
-  occ <- do.call(rbind, dfs)
+  occ <- data.table::rbindlist(dfs)
   rownames(occ) <- NULL
   if (!is.null(path)) utils::write.csv(occ, path, row.names = FALSE)
   occ
@@ -133,7 +133,7 @@ make_on_land_multi_species_occurrence <- function(path = NULL, n_per_species = 2
       stringsAsFactors = FALSE
     )
   })
-  occ <- do.call(rbind, dfs)
+  occ <- data.table::rbindlist(dfs)
   rownames(occ) <- NULL
   if (!is.null(path)) utils::write.csv(occ, path, row.names = FALSE)
   occ

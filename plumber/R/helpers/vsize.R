@@ -1,15 +1,20 @@
 # Detect available RAM to set R_MAX_VSIZE as 75% of total (cgroup-aware),
 # overridable via SDM_CHILD_MAX_VSIZE env var.
-sdm_detect_vsize <- function() {
-  Sys.getenv("SDM_CHILD_MAX_VSIZE", {
-    vsize_gb <- tryCatch({
-      mem_total <- readLines("/proc/meminfo", n = 1)
-      kb <- as.numeric(gsub(".*:\\s*(\\d+).*", "\\1", mem_total))
-      if (is.finite(kb) && kb > 0) max(4L, floor(kb / (1024 * 1024) * 0.75)) else 16L
-    }, error = function(e) 16L)
-    paste0(vsize_gb, "Gb")
-  })
-}
+sdm_detect_vsize <- local({
+  .cached <- NULL
+  function() {
+    if (!is.null(.cached)) return(.cached)
+    .cached <<- Sys.getenv("SDM_CHILD_MAX_VSIZE", {
+      vsize_gb <- tryCatch({
+        mem_total <- readLines("/proc/meminfo", n = 1)
+        kb <- as.numeric(gsub(".*:\\s*(\\d+).*", "\\1", mem_total))
+        if (is.finite(kb) && kb > 0) max(4L, floor(kb / (1024 * 1024) * 0.75)) else 16L
+      }, error = function(e) 16L)
+      paste0(vsize_gb, "Gb")
+    })
+    .cached
+  }
+})
 
 # Query NVIDIA GPU VRAM via nvidia-smi.
 # Returns: available VRAM in MiB, or NA if no GPU / nvidia-smi unavailable.
@@ -17,7 +22,7 @@ sdm_gpu_available_vram <- function() {
   tryCatch({
     out <- system2("nvidia-smi", c("--query-gpu=memory.free", "--format=csv,noheader,nounits"),
       stdout = TRUE, stderr = FALSE)
-    if (length(out) == 0 || !nzchar(out[1])) return(NA_real_)
+    if (length(out) == 0 || isTRUE(!nzchar(out[1]))) return(NA_real_)
     vals <- suppressWarnings(as.numeric(trimws(out)))
     vals <- vals[is.finite(vals)]
     if (length(vals) == 0) NA_real_ else min(vals)
@@ -29,7 +34,7 @@ sdm_gpu_total_vram <- function() {
   tryCatch({
     out <- system2("nvidia-smi", c("--query-gpu=memory.total", "--format=csv,noheader,nounits"),
       stdout = TRUE, stderr = FALSE)
-    if (length(out) == 0 || !nzchar(out[1])) return(NA_real_)
+    if (length(out) == 0 || isTRUE(!nzchar(out[1]))) return(NA_real_)
     vals <- suppressWarnings(as.numeric(trimws(out)))
     vals <- vals[is.finite(vals)]
     if (length(vals) == 0) NA_real_ else max(vals)

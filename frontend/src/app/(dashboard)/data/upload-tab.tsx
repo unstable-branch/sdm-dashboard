@@ -245,6 +245,10 @@ export function UploadTab({
         const fileId = (result.file_id as string) || (result.file_path as string) || "";
         const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
         const speciesDetected = (result.species_detected as string) || null;
+        const speciesNames = (result.species_names as string[]) || [];
+        const speciesOverride = speciesNames.length > 0
+          ? speciesNames.join(", ")
+          : speciesDetected || undefined;
         const file: UploadFile = {
           file_id: fileId,
           file_name: `${name}.csv`,
@@ -252,10 +256,10 @@ export function UploadTab({
           n_rows: nRows,
           cleaned: false,
           modified_at: new Date().toISOString(),
-          species: speciesDetected || undefined,
+          species: speciesOverride || undefined,
           format: "csv",
         };
-        onWorkspaceAdd(file, speciesDetected || undefined);
+        onWorkspaceAdd(file, speciesOverride || undefined);
       }).catch(() => {});
     }
   }, [previousUploads, workspaceFiles, onWorkspaceAdd]);
@@ -331,6 +335,7 @@ export function UploadTab({
 
   // ── History panel open/close ────────────────────────────────
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [syntheticReloadKey, setSyntheticReloadKey] = useState(0);
 
   // ── Per-card cleaning ───────────────────────────────────────
   const cleanRunning = workspaceFiles.some(f => f.cleanLoading);
@@ -587,8 +592,6 @@ export function UploadTab({
             )}
           </div>
         </details>
-
-        <SyntheticExamplesPanel onAddToWorkspace={onWorkspaceAdd} />
       </div>
 
       {/* ── Workspace ──────────────────────────────────────── */}
@@ -714,14 +717,15 @@ export function UploadTab({
         </div>
       </details>
 
-      {/* ── Synthetic stress data generator ───────────────────── */}
+      {/* ── Synthetic data ─────────────────────────────────── */}
       <details className="mt-4 rounded-lg border border-sdm-border bg-sdm-surface" open={false}>
         <summary className="flex cursor-pointer items-center gap-2 px-6 py-3 text-sm font-medium text-sdm-heading">
           <Beaker className="h-4 w-4" />
-          Synthetic stress data
+          Synthetic data
         </summary>
-        <div className="px-6 pb-4">
-          <SyntheticStressPanel onAddToWorkspace={onWorkspaceAdd} />
+        <div className="px-6 pb-4 space-y-4">
+          <SyntheticStressPanel onAddToWorkspace={onWorkspaceAdd} onSavedExample={() => setSyntheticReloadKey(k => k + 1)} />
+          <SyntheticExamplesPanel onAddToWorkspace={onWorkspaceAdd} reloadTrigger={syntheticReloadKey} />
         </div>
       </details>
 
