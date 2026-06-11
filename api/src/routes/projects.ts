@@ -92,3 +92,35 @@ projectRoutes.put("/:id", async (c) => {
     return c.json({ error: "Internal error" }, 500);
   }
 });
+
+projectRoutes.delete("/:id", async (c) => {
+  try {
+    const user = c.get("user");
+    const id = c.req.param("id");
+
+    const [member] = await db
+      .select()
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, id), eq(projectMembers.userId, user.id)))
+      .limit(1);
+
+    if (!member || member.role !== "admin") {
+      return c.json({ error: "Only project admins can delete projects" }, 403);
+    }
+
+    // Delete project members first, then the project
+    await db.delete(projectMembers).where(eq(projectMembers.projectId, id));
+    const [deleted] = await db
+      .delete(projects)
+      .where(eq(projects.id, id))
+      .returning();
+
+    if (!deleted) {
+      return c.json({ error: "Project not found" }, 404);
+    }
+
+    return c.json({ id, deleted: true });
+  } catch {
+    return c.json({ error: "Internal error" }, 500);
+  }
+});

@@ -399,3 +399,22 @@ sdmRunRoutes.get("/logs/:jobId", async (c) => {
     return c.json({ error: message }, 502);
   }
 });
+
+sdmRunRoutes.get("/gpu/status", async (c) => {
+  try {
+    const status = await plumberClient.getGpuStatus();
+    return c.json(status);
+  } catch {
+    try {
+      const viaNvsmi = await fetch(`${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/gpu/status`, {
+        headers: { "X-Hono-Internal": process.env.PLUMBER_INTERNAL_KEY || "" },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (viaNvsmi.ok) {
+        const data = await viaNvsmi.json();
+        return c.json({ ...data, proxied: true });
+      }
+    } catch { /* fall through */ }
+    return c.json({ available: false, message: "GPU status unavailable" });
+  }
+});

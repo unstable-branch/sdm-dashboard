@@ -123,4 +123,18 @@ climateRoutes.post("/cancel/:jobId", async (c) => {
 });
 
 // Climate progress is tracked via SSE (/api/v1/jobs/sse) and BullMQ job status
-// No separate HTTP endpoint needed
+// The dedicated status endpoint exists on Plumber but is not proxied through Hono:
+//   GET /api/v1/climate/status/:jobId  →  plumber GET /api/v1/climate/status/{job_id}
+climateRoutes.get("/status/:jobId", async (c) => {
+  try {
+    const jobId = c.req.param("jobId");
+    const result = await fetch(
+      `${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/climate/status/${jobId}`,
+      { headers: { "X-Hono-Internal": process.env.PLUMBER_INTERNAL_KEY || "" } }
+    );
+    if (!result.ok) return c.json({ status: "unknown" }, 502);
+    return c.json(await result.json());
+  } catch {
+    return c.json({ status: "unknown" }, 502);
+  }
+});
