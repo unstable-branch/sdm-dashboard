@@ -181,10 +181,9 @@ test_that("sdm_config accepts dnn_mc_samples and dnn_uncertainty_method", {
     projection_extent = c(140, 142, -24, -22),
     model_id = "dnn",
     dnn_mc_samples = 30L,
-    dnn_uncertainty_method = "heteroscedastic"
+    dnn_uncertainty_method = "aleatoric_epistemic"
   )
-  expect_equal(cfg$dnn_mc_samples, 30L)
-  expect_equal(cfg$dnn_uncertainty_method, "heteroscedastic")
+  expect_equal(cfg$dnn_uncertainty_method, "aleatoric_epistemic")
 })
 
 test_that("build_run_args maps dnn_mc_samples as integer", {

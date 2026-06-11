@@ -135,7 +135,7 @@ export const modelConfigSchema = z.object({
   dnnMultispeciesArchitecture: z.enum(["DNN_Small", "DNN_Medium", "DNN_Large"]).default("DNN_Medium"),
   dnnMultispeciesNSeeds: z.number().int().min(1).max(20).default(3),
   dnnMcSamples: z.number().int().min(0).max(100).default(0),
-  dnnUncertaintyMethod: z.enum(["none", "mc_dropout", "heteroscedastic"]).default("none"),
+  dnnUncertaintyMethod: z.enum(["none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"]).default("none"),
   aggregationFactor: z.number().int().min(1).max(8).default(1),
   nCores: z.number().int().min(1).max(64).default(1),
   seed: z.number().int().default(42),

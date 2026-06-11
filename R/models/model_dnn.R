@@ -932,7 +932,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     dnn_model_type = dnn_model_type,
     use_fused_adam = use_fused_adam,
     mc_samples = as.integer(mc_samples),
-    uncertainty_method = match.arg(uncertainty_method, c("none", "mc_dropout", "heteroscedastic"))
+    uncertainty_method = match.arg(uncertainty_method, c("none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"))
   )
 }
 
@@ -1125,7 +1125,7 @@ predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores
 
   # MC Dropout / heteroscedastic path — uses trained model with dropout active
   if (isTRUE(mc_samples > 0L)) {
-    decompose <- identical(uncertainty_method, "heteroscedastic")
+    decompose <- identical(uncertainty_method, "aleatoric_epistemic") || identical(uncertainty_method, "heteroscedastic")
     if (decompose && mc_samples < 2L) {
       log_message(log_fun, "Warning: uncertainty decomposition requires mc_samples >= 2, falling back to mc_dropout")
       decompose <- FALSE

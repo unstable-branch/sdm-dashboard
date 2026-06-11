@@ -109,8 +109,8 @@ interface ModelConfigAdvancedProps {
   onDnnFusedAdamChange: (val: "auto" | "always" | "off") => void;
   dnnMcSamples: number;
   onDnnMcSamplesChange: (val: number) => void;
-  dnnUncertaintyMethod: "none" | "mc_dropout" | "heteroscedastic";
-  onDnnUncertaintyMethodChange: (val: "none" | "mc_dropout" | "heteroscedastic") => void;
+  dnnUncertaintyMethod: "none" | "mc_dropout" | "heteroscedastic" | "aleatoric_epistemic";
+  onDnnUncertaintyMethodChange: (val: "none" | "mc_dropout" | "heteroscedastic" | "aleatoric_epistemic") => void;
 
   dnnMultispeciesArchitecture: "DNN_Small" | "DNN_Medium" | "DNN_Large";
   onDnnMultispeciesArchitectureChange: (val: "DNN_Small" | "DNN_Medium" | "DNN_Large") => void;
@@ -557,7 +557,7 @@ export function ModelConfigAdvanced({
                   className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text"
                 >
                   <option value="mc_dropout">MC Dropout (epistemic only)</option>
-                  <option value="heteroscedastic">Full decomposition (aleatoric + epistemic)</option>
+                  <option value="aleatoric_epistemic">Full decomposition (aleatoric + epistemic)</option>
                 </select>
               </div>
             )}
@@ -630,7 +630,7 @@ export function ModelConfigAdvanced({
                 <label className="block text-xs font-medium text-sdm-muted mb-1">Uncertainty method</label>
                 <select value={dnnUncertaintyMethod} onChange={(e) => onDnnUncertaintyMethodChange(e.target.value as typeof dnnUncertaintyMethod)} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
                   <option value="mc_dropout">MC Dropout (epistemic only)</option>
-                  <option value="heteroscedastic">Full decomposition (aleatoric + epistemic)</option>
+                  <option value="aleatoric_epistemic">Full decomposition (aleatoric + epistemic)</option>
                 </select>
               </div>
             )}
