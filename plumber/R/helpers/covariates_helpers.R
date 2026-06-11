@@ -1,7 +1,7 @@
 handle_covariates_check <- function(res, app_dir) {
   tryCatch({
     covariate_dir <- file.path(app_dir, "covariates")
-    
+
     check_dir <- function(subdir, patterns) {
       full_path <- file.path(covariate_dir, subdir)
       if (!dir.exists(full_path)) {
@@ -15,7 +15,7 @@ handle_covariates_check <- function(res, app_dir) {
         list(available = FALSE, detail = "Empty directory")
       }
     }
-    
+
     list(
       covariates = list(
         elevation = check_dir("opentopo", "\\.tif$"),

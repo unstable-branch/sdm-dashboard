@@ -266,7 +266,7 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           dnn_model_type = input$dnn_model_type %||% "DNN_Medium",
           dnn_device = input$dnn_device %||% "auto",
           dnn_mixed_precision = input$dnn_mixed_precision %||% "auto",
-          dnn_cuda_graphs = input$dnn_cuda_graphs %||% "auto",
+          dnn_cuda_graphs = input$dnn_cuda_graphs %||% "off",
           bias_method = input$bias_method %||% "uniform",
           target_group_occ = if (isTRUE(input$bias_method == "target_group") && !is.null(input$target_group_file)) {
             tryCatch(read.csv(input$target_group_file$datapath, header = TRUE), error = function(e) NULL)
