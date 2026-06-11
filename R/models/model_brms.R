@@ -159,7 +159,7 @@ predict_brms_suitability <- function(fit, env_project_scaled, output_tif, n_core
 
   if (nrow(epred) >= 20) {
     uncertainty_tif <- sub("\\.tif$", "_uncertainty.tif", output_tif)
-    sd_suit <- apply(epred, 2, sd, na.rm = TRUE)
+    sd_suit <- matrixStats::colSds(epred, na.rm = TRUE)
     sd_suit[!is.finite(sd_suit)] <- 0
     uncertainty_rast <- terra::rast(env_subset[[1]])
     terra::values(uncertainty_rast) <- NA_real_

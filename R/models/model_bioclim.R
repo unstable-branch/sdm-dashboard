@@ -121,7 +121,7 @@ cross_validate_bioclim <- function(pres_vals, env_train_scaled, covariates,
     metrics <- compute_binary_metrics(obs, score, threshold = threshold)
     fold_list[[i]] <- metrics_list_to_row(metrics, fold = i)
   }
-  fold_metrics <- do.call(rbind, fold_list[!vapply(fold_list, is.null, logical(1))])
+  fold_metrics <- data.table::rbindlist(fold_list[!vapply(fold_list, is.null, logical(1))])
 
   if (nrow(fold_metrics) == 0) {
     return(list(

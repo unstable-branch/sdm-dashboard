@@ -106,7 +106,7 @@ handle_synthetic_occurrences <- function(req, res, app_dir) {
       stringsAsFactors = FALSE
     )
   }
-  occ_df <- do.call(rbind, all_occ)
+  occ_df <- data.table::rbindlist(all_occ)
 
   # ---- 4. Inject coordinate errors to stress-test CoordinateCleaner pipeline ----
   if (error_rate > 0) {

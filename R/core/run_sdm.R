@@ -3,6 +3,7 @@
 sdm_multispecies_output_paths <- function(suitability) {
   species_tifs <- attr(suitability, "species_tifs", exact = TRUE)
   richness_tif <- attr(suitability, "richness_tif", exact = TRUE)
+  unc_tifs <- attr(suitability, "uncertainty_tifs", exact = TRUE)
   paths <- list()
 
   if (!is.null(species_tifs) && length(species_tifs) > 0) {
@@ -16,6 +17,15 @@ sdm_multispecies_output_paths <- function(suitability) {
 
   if (!is.null(richness_tif) && length(richness_tif) > 0) {
     paths$multi_species_richness_tif <- as.character(richness_tif)[[1]]
+  }
+
+  if (!is.null(unc_tifs) && length(unc_tifs) > 0) {
+    unc_tifs <- as.character(unc_tifs)
+    names(unc_tifs) <- NULL
+    paths$multi_species_uncertainty_count <- as.character(length(unc_tifs))
+    for (i in seq_along(unc_tifs)) {
+      paths[[paste0("multi_species_uncertainty_", i)]] <- unc_tifs[[i]]
+    }
   }
 
   paths
@@ -212,7 +222,7 @@ run_fast_sdm <- function(...) {
     cleaned <- clean_occurrences(occurrence_file, min_source_records = min_source_records, merge_small_sources = merge_small_sources, use_cc = use_cc, cc_tests = cc_tests, log_fun = log_fun, max_coordinate_uncertainty = max_coordinate_uncertainty)
     occ <- cleaned$occ
   }
-  if (nzchar(species_filter) && "species" %in% names(occ)) {
+  if (isTRUE(nzchar(species_filter)) && "species" %in% names(occ)) {
     occ <- occ[occ$species == species_filter, , drop = FALSE]
     if (nrow(occ) == 0) stop("No records remain after filtering for species '", species_filter, "'", call. = FALSE)
     log_message(log_fun, "Filtered to species '", species_filter, "': ", nrow(occ), " records remaining")
@@ -1063,7 +1073,10 @@ run_fast_sdm <- function(...) {
     }
   }
 
-  save_suitability_png(suit, occ, projection_extent, species, threshold, output_png)
+  tryCatch(
+    save_suitability_png(suit, occ, projection_extent, species, threshold, output_png),
+    error = function(e) log_message(log_fun, "  Suitability PNG failed: ", conditionMessage(e))
+  )
 
   # --- EPSG:3857 COG generation (for tile gen + web map) ---
   output_tiles_dir <- file.path(output_dir, "map_tiles")
@@ -1358,7 +1371,7 @@ sdm_stage_clean <- function(cfg, log_fun = NULL) {
     occ <- cleaned$occ
   }
   species_filter <- cfg$species_filter %||% ""
-  if (nzchar(species_filter) && "species" %in% names(occ)) {
+  if (isTRUE(nzchar(species_filter)) && "species" %in% names(occ)) {
     occ <- occ[occ$species == species_filter, , drop = FALSE]
     if (nrow(occ) == 0) stop("No records remain after filtering for species '", species_filter, "'")
     log_message(log_fun, "Filtered to species '", species_filter, "': ", nrow(occ), " records remaining")

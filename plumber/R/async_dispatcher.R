@@ -104,7 +104,7 @@ result <- tryCatch({
             species_counts = species_counts,
             cc_flagged = if ("cc_flag" %in% names(occ$occ)) sum(occ$occ$cc_flag, na.rm = TRUE) else 0L,
             cc_log = I(log_lines),
-            cleaned_records = head(lapply(seq_len(nrow(occ$occ)), function(i) as.list(occ$occ[i, ])), 100)
+            cleaned_records = lapply(head(seq_len(nrow(occ$occ)), 100), function(i) as.list(occ$occ[i, ]))
           )
         )
       }

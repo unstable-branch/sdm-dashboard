@@ -1,12 +1,9 @@
-FROM rocker/r-ver:4.4.2@sha256:df26749182af64d5263bf64149d51a427b476ed28c4e046997143be3f97fdd7c
-
-LABEL org.opencontainers.image.title="SDM Dashboard — Shiny"
-LABEL org.opencontainers.image.description="Legacy R/Shiny SDM workbench for local/desktop use"
-LABEL org.opencontainers.image.source="https://github.com/unstable-branch/sdm-dashboard"
+# syntax=docker/dockerfile:1
+# Multi-stage build: stage 1 installs R packages, stage 2 builds the runtime image.
+FROM rocker/r-ver:4.4.2@sha256:df26749182af64d5263bf64149d51a427b476ed28c4e046997143be3f97fdd7c AS r-deps
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    RENV_CONFIG_AUTOLOADER_ENABLED=FALSE \
-    PORT=3838
+    RENV_CONFIG_AUTOLOADER_ENABLED=FALSE
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -34,6 +31,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN R -e "pkgs <- c('shiny', 'bslib', 'terra', 'geodata', 'leaflet', 'sf', 'DT', 'ggplot2', 'callr', 'curl', 'maxnet', 'mgcv', 'shinyjs', 'future', 'future.apply', 'marginaleffects', 'mapview'); install.packages(pkgs, repos = 'https://cloud.r-project.org', Ncpus = max(1, parallel::detectCores() - 1)); missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]; if (length(missing)) stop('Package installation failed: ', paste(missing, collapse = ', '))" \
     && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
+
+# ─── Stage 2: Runtime image ────────────────────────────────────────
+FROM rocker/r-ver:4.4.2@sha256:df26749182af64d5263bf64149d51a427b476ed28c4e046997143be3f97fdd7c
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    RENV_CONFIG_AUTOLOADER_ENABLED=FALSE \
+    PORT=3838
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    gdal-bin \
+    libcurl4-openssl-dev \
+    libgdal-dev \
+    libgeos-dev \
+    libproj-dev \
+    libssl-dev \
+    libudunits2-dev \
+    libxml2-dev \
+    proj-data \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=r-deps /usr/local/lib/R /usr/local/lib/R
 
 WORKDIR /srv/sdm-dashboard
 

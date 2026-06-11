@@ -54,7 +54,7 @@ export const useAuthStore = create<AuthState>()(
       name: "sdm-auth",
       partialize: (state) => ({
         user: state.user,
-        token: null,
+        token: state.token,
         project: state.project,
         projects: state.projects,
       }),

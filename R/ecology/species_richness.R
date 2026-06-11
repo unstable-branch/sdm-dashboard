@@ -41,14 +41,22 @@ stack_species_richness <- function(rasters, threshold = 0.5,
     })
     stack <- do.call(c, binary_maps)
     names(stack) <- species_names
-    richness <- terra::app(stack, sum, na.rm = TRUE)
+    if (sdm_use_gpu_for(terra::ncell(stack) * terra::nlyr(stack))) {
+      richness <- gpu_raster_app(stack, function(t) t$sum(dim = 2))
+    } else {
+      richness <- terra::app(stack, sum, na.rm = TRUE)
+    }
     names(richness) <- "species_richness"
 
   } else if (method == "probabilistic") {
     # Sum suitability values directly
     stack <- do.call(c, aligned)
     names(stack) <- species_names
-    richness <- terra::app(stack, sum, na.rm = TRUE)
+    if (sdm_use_gpu_for(terra::ncell(stack) * terra::nlyr(stack))) {
+      richness <- gpu_raster_app(stack, function(t) t$sum(dim = 2))
+    } else {
+      richness <- terra::app(stack, sum, na.rm = TRUE)
+    }
     names(richness) <- "species_richness"
 
   } else {
@@ -61,7 +69,11 @@ stack_species_richness <- function(rasters, threshold = 0.5,
     weighted_maps <- mapply(function(r, w) r * w, aligned, weights, SIMPLIFY = FALSE)
     stack <- do.call(c, weighted_maps)
     names(stack) <- species_names
-    richness <- terra::app(stack, sum, na.rm = TRUE)
+    if (sdm_use_gpu_for(terra::ncell(stack) * terra::nlyr(stack))) {
+      richness <- gpu_raster_app(stack, function(t) t$sum(dim = 2))
+    } else {
+      richness <- terra::app(stack, sum, na.rm = TRUE)
+    }
     names(richness) <- "species_richness_weighted"
   }
 

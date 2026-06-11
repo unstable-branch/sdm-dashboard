@@ -43,13 +43,13 @@ build_community_matrix <- function(species_data, env_train_scaled, background_n 
   set.seed(seed)
   template_rast <- env_train_scaled[[1]]
 
-  all_pres_xy <- do.call(rbind, lapply(seq_len(n_species), function(i) {
+  all_pres_xy <- as.data.frame(data.table::rbindlist(lapply(seq_len(n_species), function(i) {
     sp_data <- species_list[[i]]
     xy <- sp_data[, c("longitude", "latitude"), drop = FALSE]
     names(xy) <- c("x", "y")
     xy$species <- species_names[i]
     xy
-  }))
+  })))
   all_pres_xy <- all_pres_xy[stats::complete.cases(all_pres_xy[, c("x", "y")]), , drop = FALSE]
 
   # Sample shared background points
@@ -89,17 +89,36 @@ build_community_matrix <- function(species_data, env_train_scaled, background_n 
   community_mat <- matrix(0L, nrow = n_sites, ncol = n_species)
   colnames(community_mat) <- species_names
 
-  for (i in seq_len(n_species)) {
-    sp_xy <- species_list[[i]]
-    sp_xy <- sp_xy[, c("longitude", "latitude"), drop = FALSE]
-    names(sp_xy) <- c("x", "y")
-    sp_xy <- sp_xy[stats::complete.cases(sp_xy), , drop = FALSE]
+  if (sdm_use_gpu_for(n_sites * n_species, min_n = 10000L)) {
+    dev <- gpu_device()
+    site_tensor <- torch::torch_tensor(as.matrix(site_xy), device = dev)
+    for (i in seq_len(n_species)) {
+      sp_xy <- species_list[[i]]
+      sp_xy <- sp_xy[, c("longitude", "latitude"), drop = FALSE]
+      names(sp_xy) <- c("x", "y")
+      sp_xy <- sp_xy[stats::complete.cases(sp_xy), , drop = FALSE]
+      if (nrow(sp_xy) == 0) next
+      sp_tensor <- torch::torch_tensor(as.matrix(sp_xy), device = dev)
+      dists <- torch::torch_cdist(sp_tensor, site_tensor)
+      nearest <- as.integer(torch::torch_argmin(dists, dim = 2)$to(device = "cpu"))
+      for (k in seq_along(nearest)) {
+        community_mat[nearest[k], i] <- 1L
+      }
+    }
+    gpu_empty_cache()
+  } else {
+    for (i in seq_len(n_species)) {
+      sp_xy <- species_list[[i]]
+      sp_xy <- sp_xy[, c("longitude", "latitude"), drop = FALSE]
+      names(sp_xy) <- c("x", "y")
+      sp_xy <- sp_xy[stats::complete.cases(sp_xy), , drop = FALSE]
 
-    # Match to nearest site
-    for (j in seq_len(nrow(sp_xy))) {
-      dists <- (site_xy$x - sp_xy$x[j])^2 + (site_xy$y - sp_xy$y[j])^2
-      nearest <- which.min(dists)
-      community_mat[nearest, i] <- 1L
+      # Match to nearest site
+      for (j in seq_len(nrow(sp_xy))) {
+        dists <- (site_xy$x - sp_xy$x[j])^2 + (site_xy$y - sp_xy$y[j])^2
+        nearest <- which.min(dists)
+        community_mat[nearest, i] <- 1L
+      }
     }
   }
 

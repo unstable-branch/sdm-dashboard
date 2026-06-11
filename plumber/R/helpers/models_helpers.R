@@ -352,7 +352,7 @@ handle_targets_run <- function(req, app_dir) {
     as.data.frame(normalize_targets_config(configs[[i]]), stringsAsFactors = FALSE)
   })
   all_cols <- unique(unlist(lapply(csv_rows, names)))
-  config_df <- do.call(rbind, lapply(csv_rows, function(r) {
+  config_df <- data.table::rbindlist(lapply(csv_rows, function(r) {
     missing <- setdiff(all_cols, names(r))
     r[missing] <- NA_character_
     r[all_cols]

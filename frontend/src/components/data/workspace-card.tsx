@@ -1,9 +1,11 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Loader2, BadgeCheck, CircleAlert, Eye, Minus, RotateCcw, ArrowRight } from "lucide-react";
+import { GripVertical, Loader2, BadgeCheck, CircleAlert, Eye, Minus, RotateCcw, ArrowRight, Save } from "lucide-react";
 import type { WorkspaceFile } from "@/app/(dashboard)/data/types";
+import { apiPost } from "@/services/api";
 
 interface WorkspaceCardProps {
   item: WorkspaceFile;
@@ -31,6 +33,32 @@ export function WorkspaceCard({
   };
 
   const isCleaned = !!item.cleanedFileId;
+  const [savingExample, setSavingExample] = useState(false);
+  const [savedExampleName, setSavedExampleName] = useState<string | null>(null);
+
+  const handleSaveExample = useCallback(async () => {
+    setSavingExample(true);
+    setSavedExampleName(null);
+    try {
+      const res = await apiPost<{ name: string }>("/api/v1/data/examples/save", {
+        file_id: item.fileId,
+        cleaned_file_id: item.cleanedFileId || undefined,
+        metadata: {
+          n_species: item.selectedSpecies.length,
+          n_records: item.fileRows,
+          valid_records: item.cleanValidRecords || item.fileRows,
+          original_rows: item.fileRows,
+          species_names: item.selectedSpecies,
+          description: `Cleaned data: ${item.selectedSpecies.length} species, ${item.cleanValidRecords?.toLocaleString() || item.fileRows.toLocaleString()} valid records`,
+        },
+      });
+      setSavedExampleName(res.name);
+    } catch {
+      setSavedExampleName(null);
+    } finally {
+      setSavingExample(false);
+    }
+  }, [item]);
 
   return (
     <div
@@ -71,9 +99,11 @@ export function WorkspaceCard({
               <label className="text-xs text-sdm-muted">Species:</label>
               <input
                 type="text"
-                value={item.selectedSpecies[0] || ""}
-                onChange={(e) => onUpdate(item.id, { selectedSpecies: [e.target.value] })}
-                placeholder="Enter species"
+                value={item.selectedSpecies.join(", ")}
+                onChange={(e) => onUpdate(item.id, {
+                  selectedSpecies: e.target.value.split(",").map((s) => s.trim()).filter(Boolean)
+                })}
+                placeholder={item.selectedSpecies.length > 1 ? "Species_A, Species_B, ..." : "Enter species"}
                 disabled={disabled}
                 className="w-44 rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text
                   placeholder:text-sdm-muted focus:outline-none focus:ring-1 focus:ring-sdm-accent/50
@@ -119,6 +149,21 @@ export function WorkspaceCard({
                   className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-sdm-accent hover:bg-sdm-accent/10"
                 >
                   Send to model <ArrowRight className="h-3 w-3" />
+                </button>
+              )}
+              {isCleaned && (
+                <button
+                  onClick={handleSaveExample}
+                  disabled={savingExample}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-sdm-text hover:bg-sdm-surface-soft disabled:opacity-50"
+                  title={savedExampleName ? "Saved to examples" : "Save to examples"}
+                >
+                  {savingExample ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Save className="h-3 w-3" />
+                  )}
+                  {savingExample ? "Saving..." : savedExampleName ? "Saved" : "Save example"}
                 </button>
               )}
               {isCleaned && (

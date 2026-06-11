@@ -138,7 +138,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
         stringsAsFactors = FALSE
       )
     })
-    do.call(rbind, imp_results)
+    data.table::rbindlist(imp_results)
   }
 
   predict_maxnet_suitability <- function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {

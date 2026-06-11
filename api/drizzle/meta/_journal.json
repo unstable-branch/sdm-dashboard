@@ -141,6 +141,34 @@
       "when": 1781000000000,
       "tag": "0018_add_run_storage_bytes",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1782000000000,
+      "tag": "0019_add_ala_api_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1782100000000,
+      "tag": "0020_add_gbif_settings_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1782200000000,
+      "tag": "0021_drop_maintenance_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1755000000000,
+      "tag": "0022_add_missing_indexes",
+      "breakpoints": true
     }
   ]
 }
