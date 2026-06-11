@@ -141,9 +141,10 @@ run_fast_sdm <- function(...) {
   dnn_lambda <- cfg$dnn_lambda %||% 0.001
   dnn_multispecies_architecture <- cfg$dnn_multispecies_architecture %||% "DNN_Medium"
   dnn_multispecies_n_seeds <- cfg$dnn_multispecies_n_seeds %||% 3L
+  dnn_n_seeds <- cfg$dnn_n_seeds %||% 5L
   dnn_device <- cfg$dnn_device %||% "auto"
   dnn_mixed_precision <- cfg$dnn_mixed_precision %||% "auto"
-  dnn_cuda_graphs <- cfg$dnn_cuda_graphs %||% "auto"
+  dnn_cuda_graphs <- cfg$dnn_cuda_graphs %||% "off"
   dnn_mc_samples <- cfg$dnn_mc_samples %||% 0L
   dnn_uncertainty_method <- cfg$dnn_uncertainty_method %||% "none"
   overlap_warn <- cfg$overlap_warn
@@ -399,8 +400,11 @@ run_fast_sdm <- function(...) {
   } else if (identical(model_id, "dnn")) {
     list(
       dnn_model_type = dnn_model_type, dropout = dnn_dropout, lambda = dnn_lambda,
+      dnn_device = dnn_device, n_seeds = dnn_n_seeds,
       dnn_mixed_precision = dnn_mixed_precision,
-      dnn_cuda_graphs = dnn_cuda_graphs
+      dnn_cuda_graphs = dnn_cuda_graphs,
+      mc_samples = dnn_mc_samples,
+      uncertainty_method = dnn_uncertainty_method
     )
   } else if (identical(model_id, "dnn_multispecies")) {
     list(
@@ -1278,7 +1282,7 @@ build_stage_extra_args <- function(cfg, model_id) {
   } else if (identical(model_id, "dnn")) {
     list(n_seeds = cfg$dnn_n_seeds %||% 5L, dnn_model_type = cfg$dnn_model_type %||% "DNN_Medium", dnn_device = cfg$dnn_device %||% "auto",
          dropout = cfg$dnn_dropout %||% 0.3, lambda = cfg$dnn_lambda %||% 0.001,
-         dnn_mixed_precision = cfg$dnn_mixed_precision %||% "auto", dnn_cuda_graphs = cfg$dnn_cuda_graphs %||% "auto",
+         dnn_mixed_precision = cfg$dnn_mixed_precision %||% "auto", dnn_cuda_graphs = cfg$dnn_cuda_graphs %||% "off",
          mc_samples = cfg$dnn_mc_samples %||% 0L,
          uncertainty_method = cfg$dnn_uncertainty_method %||% "none")
   } else if (identical(model_id, "gam")) {
@@ -1303,7 +1307,7 @@ build_stage_extra_args <- function(cfg, model_id) {
     list(dnn_architecture = cfg$dnn_architecture %||% cfg$dnn_multispecies_architecture %||% "DNN_Medium", n_seeds = cfg$dnn_multispecies_n_seeds %||% 3L,
       dnn_device = cfg$dnn_device %||% "auto",
       dnn_dropout = cfg$dnn_dropout %||% 0.3, dnn_lambda = cfg$dnn_lambda %||% 0.001,
-      dnn_mixed_precision = cfg$dnn_mixed_precision %||% "auto", dnn_cuda_graphs = cfg$dnn_cuda_graphs %||% "auto",
+      dnn_mixed_precision = cfg$dnn_mixed_precision %||% "auto", dnn_cuda_graphs = cfg$dnn_cuda_graphs %||% "off",
       mc_samples = cfg$dnn_mc_samples %||% 0L,
       uncertainty_method = cfg$dnn_uncertainty_method %||% "none")
   } else if (identical(model_id, "gllvm")) {

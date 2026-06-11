@@ -271,7 +271,7 @@ tryCatch({
     dnn_dropout = as.numeric(config$dnn_dropout %||% 0.3),
     dnn_lambda = as.numeric(config$dnn_lambda %||% 0.001),
     dnn_mixed_precision = config$dnn_mixed_precision %||% "auto",
-    dnn_cuda_graphs = config$dnn_cuda_graphs %||% "auto",
+    dnn_cuda_graphs = config$dnn_cuda_graphs %||% "off",
     dnn_architecture = config$dnn_architecture %||% config$dnn_model_type %||% "DNN_Medium",
     dnn_multispecies_architecture = config$dnn_multispecies_architecture %||% config$dnn_model_type %||% "DNN_Medium",
     dnn_multispecies_n_seeds = as.integer(config$dnn_multispecies_n_seeds %||% 3L),
