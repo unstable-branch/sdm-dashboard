@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { DndContext, PointerSensor, useSensor, useSensors, closestCenter } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { Upload, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Layers, Plus, Settings } from "lucide-react";
+import { Upload, ChevronDown, ChevronRight, Loader2, AlertTriangle, CheckCircle2, HardDrive, Layers, Plus, Settings, Beaker } from "lucide-react";
 import { GbifMark, AlaMark } from "@/components/data/source-icons";
 import { FileUpload } from "@/components/data/file-upload";
 import { DetectedColumns } from "@/components/data/detected-columns";
@@ -14,6 +14,7 @@ import { ReviewRecordsModal } from "@/components/data/review-records-modal";
 import { GbifSearch } from "@/components/data/gbif-search";
 import { AlaSearch } from "@/components/data/ala-search";
 import { SyntheticExamplesPanel } from "@/components/data/synthetic-examples-panel";
+import { SyntheticStressPanel } from "@/components/data/synthetic-stress-panel";
 import { apiPost, apiGet, apiPatch } from "@/services/api";
 import type { UploadFile } from "@/services/types";
 import type { WorkspaceFile, OccurrencePoint } from "./types";
@@ -211,11 +212,29 @@ export function UploadTab({
     const rawExample = e.dataTransfer.getData("application/x-sdm-example");
     if (raw) {
       try {
-        const { file_id, in_workspace } = JSON.parse(raw) as { file_id: string; in_workspace?: boolean };
-        if (in_workspace) return;
-        const file = previousUploads.find(f => f.file_id === file_id);
-        if (file && !workspaceFiles.some(w => w.fileId === file.file_id)) {
-          onWorkspaceAdd(file);
+        const payload = JSON.parse(raw) as {
+          file_id: string; file_name?: string; n_rows?: number;
+          species?: string; format?: string; in_workspace?: boolean;
+        };
+        if (payload.in_workspace) return;
+
+        // First try to find in previous uploads
+        const existing = previousUploads.find(f => f.file_id === payload.file_id);
+        if (existing && !workspaceFiles.some(w => w.fileId === existing.file_id)) {
+          onWorkspaceAdd(existing);
+        } else if (payload.file_name && !workspaceFiles.some(w => w.fileId === payload.file_id)) {
+          // Construct from drag data (e.g., synthetic stress files)
+          const file: UploadFile = {
+            file_id: payload.file_id,
+            file_name: payload.file_name,
+            file_size: 0,
+            n_rows: payload.n_rows || 0,
+            cleaned: false,
+            modified_at: new Date().toISOString(),
+            species: payload.species || undefined,
+            format: (payload.format as UploadFile["format"]) || "csv",
+          };
+          onWorkspaceAdd(file, payload.species || undefined);
         }
       } catch {}
     } else if (rawExample) {
@@ -331,6 +350,7 @@ export function UploadTab({
         use_cc: cleaningDefaults.use_cc,
         cc_tests: cleaningDefaults.cc_tests,
         async: true,
+        ...(card.fileRows > 200000 ? { max_records: card.fileRows + 100000 } : {}),
       }, { timeout: 15000 });
       const jobId = (result.job_id || result.jobId) as string | undefined;
       if (!jobId) throw new Error("No job ID returned from clean request");
@@ -691,6 +711,17 @@ export function UploadTab({
               ))}
             </div>
           )}
+        </div>
+      </details>
+
+      {/* ── Synthetic stress data generator ───────────────────── */}
+      <details className="mt-4 rounded-lg border border-sdm-border bg-sdm-surface" open={false}>
+        <summary className="flex cursor-pointer items-center gap-2 px-6 py-3 text-sm font-medium text-sdm-heading">
+          <Beaker className="h-4 w-4" />
+          Synthetic stress data
+        </summary>
+        <div className="px-6 pb-4">
+          <SyntheticStressPanel onAddToWorkspace={onWorkspaceAdd} />
         </div>
       </details>
 

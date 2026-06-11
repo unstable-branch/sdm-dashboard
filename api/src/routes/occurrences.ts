@@ -777,3 +777,27 @@ dataRoutes.get("/jobs/:jobId", async (c) => {
     return c.json({ error: message }, 502);
   }
 });
+
+// Generate synthetic multi-species occurrence data for stress testing
+dataRoutes.post("/occurrences/synthetic", async (c) => {
+  try {
+    const body = await c.req.json();
+    const user = c.get("user");
+    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
+    const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
+    const res = await fetch(`${plumberUrl}/api/v1/occurrences/synthetic`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
+        "X-Forwarded-User": user.id,
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    return c.json(data, res.status as 200 | 400 | 500 | 502);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Synthetic data generation failed";
+    return c.json({ error: message }, 502);
+  }
+});

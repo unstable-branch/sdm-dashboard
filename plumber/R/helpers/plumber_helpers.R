@@ -150,7 +150,10 @@ db_conn <- function() {
     tryCatch({
       conn <- pool::poolCheckout(pool)
       return(conn)
-    }, error = function(e) NULL)
+  }, error = function(e) {
+    sdm_log_error("Failed to read result RDS: %s", conditionMessage(e))
+    NULL
+  })
   }
   db_connect()
 }

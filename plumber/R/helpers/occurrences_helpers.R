@@ -223,7 +223,7 @@ handle_occurrences_uploads <- function(req, app_dir, limit = 50) {
   }, error = function(e) list(uploads = list(), error = conditionMessage(e)))
 }
 
-handle_occurrences_clean <- function(req, app_dir, file_id, min_source_records = 15, merge_small_sources = TRUE, use_cc = FALSE, cc_tests = "all", max_coordinate_uncertainty = NULL) {
+handle_occurrences_clean <- function(req, app_dir, file_id, min_source_records = 15, merge_small_sources = TRUE, use_cc = FALSE, cc_tests = "all", max_coordinate_uncertainty = NULL, max_records = 200000L) {
   min_source_records <- suppressWarnings(as.integer(min_source_records))
   if (!is.finite(min_source_records)) min_source_records <- 15L
 
@@ -242,7 +242,8 @@ handle_occurrences_clean <- function(req, app_dir, file_id, min_source_records =
     merge_small_sources = merge_small_sources,
     use_cc = use_cc,
     cc_tests = cc_tests,
-    max_coordinate_uncertainty = max_coordinate_uncertainty
+    max_coordinate_uncertainty = max_coordinate_uncertainty,
+    max_records = max_records
   ), user_id)
 
   if (is.null(job_id)) {

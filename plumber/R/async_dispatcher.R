@@ -73,6 +73,7 @@ result <- tryCatch({
           use_cc = input$use_cc %||% FALSE,
           cc_tests = input$cc_tests %||% "all",
           max_coordinate_uncertainty = input$max_coordinate_uncertainty %||% NULL,
+          max_records = input$max_records %||% 200000L,
           log_fun = log_msg
         )
 

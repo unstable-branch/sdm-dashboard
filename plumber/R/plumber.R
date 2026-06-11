@@ -4,9 +4,10 @@
 
 library(jsonlite)
 
-# Resolve project root: Docker uses /app, local uses tree-walk to find R/core/bootstrap.R
-app_dir <- if (dir.exists("/app/R")) {
-  "/app"
+# Resolve project root: Docker uses SDM_PROJECT_ROOT (default /app), local uses tree-walk
+SDM_PROJECT_ROOT <- Sys.getenv("SDM_PROJECT_ROOT", "/app")
+app_dir <- if (dir.exists(file.path(SDM_PROJECT_ROOT, "R"))) {
+  SDM_PROJECT_ROOT
 } else {
   d <- getwd()
   for (i in 1:10) {
@@ -40,7 +41,8 @@ if (is.null(.GlobalEnv$.sdm_plumber_initialized)) {
     "occurrences_helpers.R", "models_helpers.R", "diagnostics_helpers.R",
     "ecology_helpers.R", "climate_helpers.R", "config_helpers.R",
     "output_helpers.R", "covariates_helpers.R", "boundary_helpers.R",
-    "health_helpers.R", "jobs_helpers.R"
+    "health_helpers.R", "jobs_helpers.R",
+    "ensemble_helpers.R", "synthetic_helpers.R"
   )
   for (hf in helper_files) {
     hf_path <- file.path(app_dir, "plumber", "R", "helpers", hf)
@@ -69,9 +71,10 @@ function(req, limit = 50) handle_occurrences_uploads(req, app_dir, limit)
 #* @param use_cc Run CoordinateCleaner (default: false)
 #* @param cc_tests CC tests to run: all, sea, capitals, centroids, institutions, urban, zero (default: all)
 #* @param max_coordinate_uncertainty Max coordinate uncertainty in meters (default: no filter)
+#* @param max_records Maximum records to process (default: 200000)
 #* @post /api/v1/occurrences/clean
-function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_cc = FALSE, cc_tests = "all", max_coordinate_uncertainty = NULL)
-  handle_occurrences_clean(req, app_dir, file_id, min_source_records, merge_small_sources, use_cc, cc_tests, max_coordinate_uncertainty)
+function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_cc = FALSE, cc_tests = "all", max_coordinate_uncertainty = NULL, max_records = 200000L)
+  handle_occurrences_clean(req, app_dir, file_id, min_source_records, merge_small_sources, use_cc, cc_tests, max_coordinate_uncertainty, max_records)
 
 #* Search GBIF for occurrence records
 #* @param taxon Species name (e.g., "Acacia mearnsii")
@@ -362,3 +365,11 @@ function(res, file_path = NULL, type = NULL, resolution = NULL, country = NULL, 
 #* @post /api/v1/data/boundary/download
 function(res, type = "admin0", resolution = "110m", country = "all")
   handle_boundary_download(res, app_dir, type, resolution, country)
+
+#* Generate ensemble summary rasters from component TIFFs
+#* @post /api/v1/models/ensemble-rasters/<job_id>
+function(res, job_id) handle_ensemble_rasters(res, job_id, app_dir)
+
+#* Generate synthetic multi-species occurrence data for stress testing
+#* @post /api/v1/occurrences/synthetic
+function(req, res) handle_synthetic_occurrences(req, res, app_dir)

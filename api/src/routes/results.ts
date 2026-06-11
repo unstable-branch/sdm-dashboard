@@ -24,7 +24,9 @@ const resultRoot = resolve(appDir, "outputs", "jobs");
  * within the allowed resultRoot directory.
  */
 function resolveResultFilePath(filePath: string): { fullPath: string; runId: string } | null {
-  const hostPath = filePath.startsWith("/app/") ? join(appDir, filePath.slice(5)) : filePath;
+  const projectRoot = process.env.SDM_PROJECT_ROOT || "/app";
+  const containerPrefix = `${projectRoot}/`;
+  const hostPath = filePath.startsWith(containerPrefix) ? join(appDir, filePath.slice(projectRoot.length + 1)) : filePath;
   const requested = isAbsolute(hostPath) ? hostPath : join(appDir, hostPath);
   const fullPath = resolve(requested);
   const rel = relative(resultRoot, fullPath);
@@ -431,8 +433,8 @@ resultsRoutes.get("/:id/report.txt", async (c) => {
   let reportPath: string;
   if (run?.outputFiles && typeof run.outputFiles === "object" && "report" in (run.outputFiles as object)) {
     const containerPath = (run.outputFiles as Record<string, string>).report;
-    reportPath = containerPath.startsWith("/app/")
-      ? join(PROJECT_ROOT, containerPath.slice(5))
+    reportPath = containerPath.startsWith(PROJECT_ROOT + "/")
+      ? join(PROJECT_ROOT, containerPath.slice(PROJECT_ROOT.length + 1))
       : join(PROJECT_ROOT, containerPath);
   } else {
     reportPath = join(PROJECT_ROOT, "outputs", "jobs", id, "report.txt");

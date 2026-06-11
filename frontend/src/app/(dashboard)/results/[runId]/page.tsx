@@ -14,6 +14,7 @@ import { apiGet, apiPost, fetchWithAuth } from "@/services/api";
 import { useRunDetail } from "@/hooks/use-queries";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import { SuitabilityMap } from "@/components/results/suitability-map";
+import { OverfittingPanel } from "@/components/results/overfitting-panel";
 import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
 import type { RunDetail, ManifestData, ProgressStage } from "@/services/types";
 import type { PlumberJobLogs } from "@sdm/shared";
@@ -555,6 +556,7 @@ export default function ResultsPage() {
             <TabsList className="grid w-full max-w-lg grid-cols-5">
               <TabsTrigger value="map">Map</TabsTrigger>
               <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
+              <TabsTrigger value="overfitting">Overfitting</TabsTrigger>
               <TabsTrigger value="future">Future</TabsTrigger>
               <TabsTrigger value="report">Report</TabsTrigger>
               <TabsTrigger value="provenance">Provenance</TabsTrigger>
@@ -622,6 +624,10 @@ export default function ResultsPage() {
 
             <TabsContent value="diagnostics">
               <DiagnosticsPanel run={run} />
+            </TabsContent>
+
+            <TabsContent value="overfitting">
+              <OverfittingPanel run={run} />
             </TabsContent>
 
             <TabsContent value="future">

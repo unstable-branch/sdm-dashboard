@@ -24,8 +24,9 @@ options(error = function() {
   cat("FATAL: Unrecoverable R error — process terminating\n")
 })
 
-app_dir <- if (dir.exists("/app/R")) {
-  "/app"
+SDM_PROJECT_ROOT <- Sys.getenv("SDM_PROJECT_ROOT", "/app")
+app_dir <- if (dir.exists(file.path(SDM_PROJECT_ROOT, "R"))) {
+  SDM_PROJECT_ROOT
 } else if (dir.exists(file.path(getwd(), "R"))) {
   normalizePath(getwd(), winslash = "/")
 } else {
