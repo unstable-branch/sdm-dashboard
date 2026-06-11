@@ -176,7 +176,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [dnnDevice, setDnnDevice] = useState<"auto" | "cpu" | "gpu">("auto");
   const [dnnFusedAdam, setDnnFusedAdam] = useState<"auto" | "always" | "off">("auto");
   const [dnnMcSamples, setDnnMcSamples] = useState(0);
-  const [dnnUncertaintyMethod, setDnnUncertaintyMethod] = useState<"none" | "mc_dropout" | "heteroscedastic">("none");
+  const [dnnUncertaintyMethod, setDnnUncertaintyMethod] = useState<"none" | "mc_dropout" | "heteroscedastic" | "aleatoric_epistemic">("none");
   const [dnnMultispeciesNSeeds, setDnnMultispeciesNSeeds] = useState(3);
   const [brtNTrees, setBrtNTrees] = useState(500);
   const [brtInteractionDepth, setBrtInteractionDepth] = useState(3);

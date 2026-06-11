@@ -299,7 +299,7 @@ ui_sidebar_controls <- function() {
           conditionalPanel(
             "input.dnn_mc_samples > 0",
             selectInput("dnn_uncertainty_method", "Uncertainty method",
-              choices = c("MC Dropout (epistemic only)" = "mc_dropout", "Full decomposition (aleatoric + epistemic)" = "heteroscedastic"),
+              choices = c("MC Dropout (epistemic only)" = "mc_dropout", "Full decomposition (aleatoric + epistemic)" = "aleatoric_epistemic"),
               selected = "mc_dropout"
             ),
             div(class = "small-muted", "MC Dropout: SD across dropout masks (epistemic). Full: also decomposes Bernoulli aleatoric noise.")
