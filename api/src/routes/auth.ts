@@ -6,16 +6,36 @@ import { users, apiKeys, projects, projectMembers, userSettings } from "../db/sc
 import { eq, and } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
-import { randomBytes, createHash } from "crypto";
+import { randomBytes, createHash, createHmac } from "crypto";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import { sendPasswordResetEmail, generateToken, hashToken } from "../services/email.js";
 import type { AppEnv } from "../middleware/auth.js";
+import { refreshTokens } from "../db/schema.js";
 
 export const authRoutes = new Hono<AppEnv>();
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_ISSUER = process.env.JWT_ISSUER || "sdm-dashboard";
 const BCRYPT_ROUNDS = 12;
+const ACCESS_TOKEN_EXPIRY_S = 900; // 15 minutes
+const REFRESH_TOKEN_EXPIRY_DAYS = 30;
+const REFRESH_TOKEN_BYTES = 32;
+
+function hashRefreshToken(token: string): string {
+  const secret = process.env.JWT_SECRET || "refresh-secret";
+  return createHmac("sha256", secret).update(token).digest("hex");
+}
+
+async function issueRefreshToken(userId: string): Promise<string> {
+  const token = randomBytes(REFRESH_TOKEN_BYTES).toString("hex");
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 86400000);
+  await db.insert(refreshTokens).values({
+    userId,
+    tokenHash: hashRefreshToken(token),
+    expiresAt,
+  });
+  return token;
+}
 
 function validatePassword(password: string): string | null {
   if (password.length < 8) return "Password must be at least 8 characters";
@@ -91,13 +111,15 @@ authRoutes.post("/register", async (c) => {
     });
 
     const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + 86400 },
-      JWT_SECRET
+      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
+      JWT_SECRET as string
     );
+    const refreshToken = await issueRefreshToken(user.id);
 
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       token,
+      refresh_token: refreshToken,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Registration failed";
@@ -205,22 +227,78 @@ authRoutes.post("/login", async (c) => {
     });
 
     const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + 86400 },
-      JWT_SECRET
+      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
+      JWT_SECRET as string
     );
+    const refreshToken = await issueRefreshToken(user.id);
 
     const isSecure = process.env.NODE_ENV === "production";
-    const maxAge = 86400;
+    const maxAge = ACCESS_TOKEN_EXPIRY_S;
     c.header("Set-Cookie", `sdm_token=${token}; Path=/; HttpOnly; SameSite=Strict${isSecure ? "; Secure" : ""}; Max-Age=${maxAge}`);
 
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       token,
+      refresh_token: refreshToken,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Login failed";
     return c.json({ error: message }, 500);
   }
+});
+
+authRoutes.post("/refresh", rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "refresh" }), async (c) => {
+  try {
+    const body = await c.req.json();
+    const { refresh_token } = body;
+    if (!refresh_token) {
+      return c.json({ error: "refresh_token is required" }, 400);
+    }
+
+    const hashedToken = hashRefreshToken(refresh_token);
+    const [stored] = await db
+      .select({
+        id: refreshTokens.id,
+        userId: refreshTokens.userId,
+        expiresAt: refreshTokens.expiresAt,
+        revokedAt: refreshTokens.revokedAt,
+        userEmail: users.email,
+        userRole: users.role,
+      })
+      .from(refreshTokens)
+      .innerJoin(users, eq(users.id, refreshTokens.userId))
+      .where(eq(refreshTokens.tokenHash, hashedToken))
+      .limit(1);
+
+    if (!stored || stored.revokedAt) {
+      return c.json({ error: "Invalid or revoked refresh token" }, 401);
+    }
+    if (new Date(stored.expiresAt) < new Date()) {
+      return c.json({ error: "Refresh token expired" }, 401);
+    }
+
+    // Rotate: revoke old token, issue new pair
+    await db.update(refreshTokens).set({ revokedAt: new Date() }).where(eq(refreshTokens.id, stored.id));
+
+    const newToken = await sign(
+      { sub: stored.userId, email: stored.userEmail, role: stored.userRole, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
+      JWT_SECRET as string
+    );
+    const newRefreshToken = await issueRefreshToken(stored.userId);
+
+    return c.json({ token: newToken, refresh_token: newRefreshToken });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Refresh failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+authRoutes.post("/revoke-all", authMiddleware, async (c) => {
+  const user = c.get("user");
+  await db.update(refreshTokens).set({ revokedAt: new Date() }).where(
+    and(eq(refreshTokens.userId, user.id), eq(refreshTokens.revokedAt, null as unknown as Date))
+  );
+  return c.json({ ok: true });
 });
 
 authRoutes.get("/me", authMiddleware, async (c) => {

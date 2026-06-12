@@ -283,6 +283,16 @@ tryCatch({
 
   result <- run_fast_sdm(cfg)
 
+  # Handle cancellation: run_fast_sdm returns NULL when cancelled
+  if (is.null(result)) {
+    meta$status <- "cancelled"
+    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    meta$error <- "Cancelled by user"
+    write_meta(meta)
+    log_fun("Model run cancelled by user")
+    quit(save = "no", status = 0, runLast = TRUE)
+  }
+
   # Save full result object for diagnostic/ecology API endpoints
   # Wrap SpatRasters before serialization to avoid loading full raster data into memory
   result_rds_path <- file.path(job_dir, "result.rds")
@@ -316,8 +326,11 @@ tryCatch({
   # Generate diagnostic PNG plots
   diag_files <- list()
   tryCatch({
-    source(file.path(app_dir, "R", "output", "diagnostics_plots.R"), local = TRUE)
-    diag_files <- save_diagnostic_plots(result, job_dir, log_fun = log_fun)
+    diag_path <- file.path(app_dir, "R", "output", "diagnostics_plots.R")
+    if (file.exists(diag_path)) {
+      source(diag_path, local = TRUE)
+      diag_files <- save_diagnostic_plots(result, job_dir, log_fun = log_fun)
+    }
   }, error = function(e) {
     cat("Diagnostic plots failed:", conditionMessage(e), "\n")
     cat(conditionMessage(e), "\n", file = progress_file, append = TRUE)
