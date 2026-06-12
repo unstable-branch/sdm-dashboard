@@ -28,7 +28,7 @@ covariatesRoutes.post("/download", async (c) => {
     return c.json(result, status >= 400 ? (status as 400 | 500) : 200);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Covariate download failed";
-    return c.json({ status: "error", message }, 502);
+    return c.json({ error: message }, 502);
   }
 });
 

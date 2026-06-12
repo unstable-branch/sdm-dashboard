@@ -57,7 +57,7 @@ COPY --from=r-deps /usr/local/lib/R /usr/local/lib/R
 WORKDIR /srv/sdm-dashboard
 
 # Only copy files needed for the Shiny app — not the full project tree
-COPY app.R R/ www/ data/examples/ DESCRIPTION /srv/sdm-dashboard/
+COPY app.R R www data/examples DESCRIPTION /srv/sdm-dashboard/
 
 RUN groupadd --system shiny --gid 999 && \
     useradd --system --create-home --gid shiny --uid 999 shiny && \
