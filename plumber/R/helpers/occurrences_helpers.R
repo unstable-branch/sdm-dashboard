@@ -290,6 +290,18 @@ sdm_submit_gbif_search <- function(req, taxon, country = NULL, max_records = 100
 
 handle_occurrences_gbif_search <- function(req, app_dir, taxon, country = NULL, max_records = 100, use_auth = NULL,
          gbif_user = NULL, gbif_pwd = NULL, gbif_email = NULL) {
+  # Prefer credentials from headers to avoid exposure in request logs
+  header_user <- req$HTTP_X_GBIF_USER %||% req$headers$`x-gbif-user` %||% NULL
+  header_pwd <- req$HTTP_X_GBIF_PWD %||% req$headers$`x-gbif-pwd` %||% NULL
+  header_email <- req$HTTP_X_GBIF_EMAIL %||% req$headers$`x-gbif-email` %||% NULL
+  if (!is.null(header_user) || !is.null(header_pwd) || !is.null(header_email)) {
+    gbif_user <- header_user
+    gbif_pwd <- header_pwd
+    gbif_email <- header_email
+  } else if (!is.null(gbif_user) || !is.null(gbif_pwd) || !is.null(gbif_email)) {
+    warning("GBIF credentials passed as body params. This exposes credentials in request logs. ",
+            "Use X-Gbif-User, X-Gbif-Pwd, X-Gbif-Email headers instead.")
+  }
   sdm_submit_gbif_search(req, taxon, country, max_records,
                          use_auth, gbif_user, gbif_pwd, gbif_email,
                          app_dir)

@@ -12,6 +12,7 @@ import { setupWebSocket, cleanupWebSocket } from "./services/websocket.js";
 import { mediumCache, longCache, closeCache } from "./middleware/cache.js";
 import { closeRateLimitRedis } from "./middleware/rate-limit.js";
 import { csrfMiddleware } from "./middleware/csrf.js";
+import { securityHeaders } from "./middleware/security-headers.js";
 import { startMemoryMonitor, stopMemoryMonitor } from "./middleware/memory-monitor.js";
 import { db } from "./db/index.js";
 import { sql } from "drizzle-orm";
@@ -63,6 +64,8 @@ app.use("*", bodyLimit({
   maxSize: 100 * 1024 * 1024, // 100 MB
 }));
 app.use("*", logger());
+app.use("*", securityHeaders);
+app.use("/api/v1/auth/*", csrfMiddleware);
 app.use("/api/v1/sdm/*", csrfMiddleware);
 app.use("/api/v1/data/*", csrfMiddleware);
 app.use("/api/v1/climate/*", csrfMiddleware);

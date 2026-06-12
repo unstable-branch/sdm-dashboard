@@ -9,9 +9,9 @@ function getKnownOrigins(): string[] {
 }
 
 function getCsrfSecret(): string {
-  const secret = process.env.JWT_SECRET || process.env.CSRF_SECRET;
+  const secret = process.env.CSRF_SECRET;
   if (!secret) {
-    throw new Error("CSRF secret not configured — set JWT_SECRET or CSRF_SECRET");
+    throw new Error("CSRF_SECRET environment variable must be configured");
   }
   return secret;
 }

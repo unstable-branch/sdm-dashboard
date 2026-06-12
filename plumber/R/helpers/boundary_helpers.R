@@ -4,7 +4,13 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
   country_val <- country %||% "all"
 
   boundary_path <- if (dataset_type == "custom" && !is.null(country) && nzchar(country)) {
-    country
+    custom_dir <- tryCatch(normalizePath(file.path(app_dir, "data", "boundaries"), winslash = "/"), error = function(e) NULL)
+    resolved_path <- tryCatch(normalizePath(country, winslash = "/", mustWork = FALSE), error = function(e) NULL)
+    if (is.null(resolved_path) || is.null(custom_dir) || !startsWith(resolved_path, custom_dir)) {
+      res$status <- 403L
+      return(list(error = "Invalid boundary file path"))
+    }
+    resolved_path
   } else if (dataset_type %in% c("admin0", "land")) {
     tryCatch(
       resolve_mask_file(dataset_type, scale, country_val, raster_res = NULL, default_file = NULL),
