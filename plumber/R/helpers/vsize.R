@@ -18,9 +18,25 @@ sdm_detect_vsize <- local({
 
 # Query NVIDIA GPU VRAM via nvidia-smi.
 # Returns: available VRAM in MiB, or NA if no GPU / nvidia-smi unavailable.
+.sdm_which_nvidia_smi <- local({
+  .cached <- NULL
+  function() {
+    if (!is.null(.cached)) return(.cached)
+    path <- Sys.which("nvidia-smi")
+    if (!nzchar(path)) path <- Sys.which("/usr/local/cuda/bin/nvidia-smi")
+    if (!nzchar(path) && nzchar(Sys.getenv("CUDA_HOME"))) {
+      path <- Sys.which(file.path(Sys.getenv("CUDA_HOME"), "bin", "nvidia-smi"))
+    }
+    .cached <<- if (nzchar(path)) path else NA_character_
+    .cached
+  }
+})
+
 sdm_gpu_available_vram <- function() {
+  smi <- .sdm_which_nvidia_smi()
+  if (is.na(smi)) return(NA_real_)
   tryCatch({
-    out <- system2("nvidia-smi", c("--query-gpu=memory.free", "--format=csv,noheader,nounits"),
+    out <- system2(smi, c("--query-gpu=memory.free", "--format=csv,noheader,nounits"),
       stdout = TRUE, stderr = FALSE)
     if (length(out) == 0 || isTRUE(!nzchar(out[1]))) return(NA_real_)
     vals <- suppressWarnings(as.numeric(trimws(out)))
@@ -31,8 +47,10 @@ sdm_gpu_available_vram <- function() {
 
 # Query total GPU VRAM in MiB
 sdm_gpu_total_vram <- function() {
+  smi <- .sdm_which_nvidia_smi()
+  if (is.na(smi)) return(NA_real_)
   tryCatch({
-    out <- system2("nvidia-smi", c("--query-gpu=memory.total", "--format=csv,noheader,nounits"),
+    out <- system2(smi, c("--query-gpu=memory.total", "--format=csv,noheader,nounits"),
       stdout = TRUE, stderr = FALSE)
     if (length(out) == 0 || isTRUE(!nzchar(out[1]))) return(NA_real_)
     vals <- suppressWarnings(as.numeric(trimws(out)))
@@ -43,15 +61,16 @@ sdm_gpu_total_vram <- function() {
 
 # Get full GPU info as a list for the health endpoint
 sdm_gpu_info <- function() {
-  if (!nzchar(Sys.which("nvidia-smi"))) return(NULL)
+  smi_path <- .sdm_which_nvidia_smi()
+  if (is.na(smi_path)) return(NULL)
   tryCatch({
-    name_out <- system2("nvidia-smi", c("--query-gpu=name", "--format=csv,noheader"),
+    name_out <- system2(smi_path, c("--query-gpu=name", "--format=csv,noheader"),
       stdout = TRUE, stderr = FALSE)
-    driver_out <- system2("nvidia-smi", c("--query-gpu=driver_version", "--format=csv,noheader"),
+    driver_out <- system2(smi_path, c("--query-gpu=driver_version", "--format=csv,noheader"),
       stdout = TRUE, stderr = FALSE)
-    util_out <- system2("nvidia-smi", c("--query-gpu=utilization.gpu", "--format=csv,noheader"),
+    util_out <- system2(smi_path, c("--query-gpu=utilization.gpu", "--format=csv,noheader"),
       stdout = TRUE, stderr = FALSE)
-    temp_out <- system2("nvidia-smi", c("--query-gpu=temperature.gpu", "--format=csv,noheader"),
+    temp_out <- system2(smi_path, c("--query-gpu=temperature.gpu", "--format=csv,noheader"),
       stdout = TRUE, stderr = FALSE)
 
     gpu_name <- if (length(name_out) > 0) trimws(name_out[1]) else NA_character_
@@ -60,7 +79,7 @@ sdm_gpu_info <- function() {
     temp <- if (length(temp_out) > 0) suppressWarnings(as.numeric(trimws(temp_out[1]))) else NA_real_
 
     cuda_ver <- tryCatch({
-      cv <- system2("nvidia-smi", "--version", stdout = TRUE, stderr = FALSE)
+      cv <- system2(smi_path, "--version", stdout = TRUE, stderr = FALSE)
       cv_line <- grep("CUDA Version", cv, value = TRUE)[1]
       if (!is.na(cv_line)) sub(".*CUDA Version:\\s*", "", cv_line) else NA_character_
     }, error = function(e) NA_character_)
