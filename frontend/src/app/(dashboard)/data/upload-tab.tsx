@@ -56,6 +56,12 @@ export function UploadTab({
   workspaceFiles, onWorkspaceAdd, onWorkspaceUpdate, onWorkspaceRemove,
   onOpenInModel, onWorkspaceReorder, onRefreshUploads, hasGbifCredentials, hasAlaCredentials,
 }: UploadTabProps) {
+  // ── Abort controller for cleaning poll cleanup ───────────────
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
+
   // ── Storage ─────────────────────────────────────────────────
   const [storage, setStorage] = useState<{ used_mb: number; quota_mb: number; pct_used: number } | null>(null);
   useEffect(() => {
@@ -346,6 +352,8 @@ export function UploadTab({
     const card = workspaceFiles.find(f => f.id === cardId);
     if (!card || card.cleanLoading) return;
     onWorkspaceUpdate(cardId, { cleanLoading: true, cleanError: null });
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", {
         file_id: card.fileId,
@@ -364,6 +372,10 @@ export function UploadTab({
       const deadline = Date.now() + 600000;
       let lastError: string | null = null;
       while (Date.now() < deadline) {
+        if (controller.signal.aborted) {
+          onWorkspaceUpdate(cardId, { cleanLoading: false, cleanError: "Cancelled" });
+          return;
+        }
         await new Promise(r => setTimeout(r, 2000));
         try {
           const status = await apiGet<Record<string, unknown>>(`/api/v1/data/jobs/${encodeURIComponent(jobId)}`);

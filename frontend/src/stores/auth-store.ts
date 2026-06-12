@@ -24,8 +24,25 @@ interface AuthState {
   setProject: (project: { id: string; name: string; role: string }) => void;
   setProjects: (projects: Array<{ id: string; name: string; role: string }>) => void;
   updateProfile: (profile: Partial<User>) => void;
-  hydrateProfile: (profile: Partial<User>) => void;
   setError: (error: string | null) => void;
+}
+
+function writeStorageToken(token: string, remember = true) {
+  const storage = remember ? localStorage : sessionStorage;
+  storage.setItem("sdm_token", token);
+  if (typeof document !== "undefined") {
+    const maxAge = remember ? "; Max-Age=86400" : "";
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `sdm_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${maxAge}${secure}`;
+  }
+}
+
+function clearStorageToken() {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("sdm_token");
+    sessionStorage.removeItem("sdm_token");
+    document.cookie = "sdm_token=; Path=/; SameSite=Lax; Max-Age=0";
+  }
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -36,16 +53,18 @@ export const useAuthStore = create<AuthState>()(
       project: null,
       projects: [],
       error: null,
-      setAuth: (user, token) => set({ user, token, error: null }),
-      clearAuth: () => set({ user: null, token: null, project: null, projects: [], error: null }),
+      setAuth: (user, token) => {
+        writeStorageToken(token, true);
+        set({ user, token, error: null });
+      },
+      clearAuth: () => {
+        clearStorageToken();
+        set({ user: null, token: null, project: null, projects: [], error: null });
+      },
       setProject: (project) => set({ project }),
       setProjects: (projects) => set({ projects }),
       setError: (error) => set({ error }),
       updateProfile: (profile) =>
-        set((state) => ({
-          user: state.user ? { ...state.user, ...profile } : null,
-        })),
-      hydrateProfile: (profile) =>
         set((state) => ({
           user: state.user ? { ...state.user, ...profile } : null,
         })),

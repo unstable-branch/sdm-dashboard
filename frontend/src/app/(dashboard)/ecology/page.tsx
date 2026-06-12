@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { ConservationSummary } from "@/components/ecology/conservation-summary";
 import { CommunitySummary } from "@/components/ecology/community-summary";
@@ -8,7 +8,7 @@ import { ExportPanel } from "@/components/ecology/export-panel";
 import { useCompletedRuns } from "@/hooks/use-runs";
 import { Leaf, Loader2 } from "lucide-react";
 
-export default function EcologyPage() {
+function EcologyPageContent() {
   const { data: runs, isLoading } = useCompletedRuns();
   const searchParams = useSearchParams();
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
@@ -103,5 +103,18 @@ export default function EcologyPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function EcologyPage() {
+  return (
+    <Suspense fallback={
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-sdm-heading">Ecology</h1>
+        <p className="text-sdm-muted">Loading page...</p>
+      </div>
+    }>
+      <EcologyPageContent />
+    </Suspense>
   );
 }

@@ -1,7 +1,7 @@
 // ── Frontend Type Definitions ─────────────────────────────────────────────
 // SOURCE OF TRUTH: @sdm/shared (camelCase types in packages/shared/src/types.ts)
 //
-// Re-exports from @sdm/shared for types without naming conflicts.
+// Re-exports from @sdm/shared for types shared across the stack.
 // Frontend retains snake_case versions matching Plumber API responses.
 
 import type {
@@ -14,22 +14,6 @@ import type {
 export type {
   ThresholdData,
   DensityData,
-  PlumberStatusResponse,
-  PlumberRunResponse,
-  PlumberUploadResponse,
-  PlumberCleanResponse,
-  PlumberModelInfo,
-  PlumberConfigDefaults,
-  PlumberClimateScenario,
-  PlumberManifestResponse,
-  PlumberErrorResponse,
-  PlumberHealthResponse,
-  PlumberDiagnosticsVif,
-  PlumberDiagnosticsImportance,
-  PlumberDiagnosticsResponseCurves,
-  PlumberDiagnosticsAle,
-  PlumberDiagnosticsShapCell,
-  PlumberDiagnosticsClimateDrivers,
   BiovarChoice,
   ModelBackend,
   Species,
