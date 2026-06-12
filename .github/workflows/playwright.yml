@@ -1,20 +1,40 @@
 name: Playwright Tests
 on:
   push:
-    branches: [ main, master ]
+    branches: [ dev, main, master ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ dev, main, master ]
 jobs:
   test:
     timeout-minutes: 60
     runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci_test_password
+      JWT_SECRET: ci_test_jwt_secret_change_me
+      DATA_ENCRYPTION_KEY: ci_test_enc_key_00000000000000000000000000000000
+      PLUMBER_INTERNAL_KEY: ci_test_plumber_key
+      GARAGE_RPC_SECRET: ci_test_garage_rpc_secret_00000000000000000000
+      GARAGE_ADMIN_TOKEN: ci_test_admin_token
+      GARAGE_ACCESS_KEY: ci_test_access_key
+      GARAGE_SECRET_KEY: ci_test_secret_key
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-node@v4
       with:
         node-version: lts/*
+    - name: Start backend services
+      run: |
+        docker compose -f docker-compose.yml --profile core up -d
+        # Wait for services to be healthy
+        for i in $(seq 1 30); do
+          if docker compose exec -T postgres pg_isready -U sdm -d sdm_platform 2>/dev/null; then
+            echo "Postgres is ready"
+            break
+          fi
+          sleep 2
+        done
     - name: Install dependencies
-      run: npm install -g pnpm && pnpm install
+      run: npm install -g pnpm && pnpm install --frozen-lockfile
     - name: Install Playwright Browsers
       run: pnpm exec playwright install --with-deps
     - name: Run Playwright tests
@@ -25,3 +45,6 @@ jobs:
         name: playwright-report
         path: playwright-report/
         retention-days: 30
+    - name: Teardown
+      if: always()
+      run: docker compose -f docker-compose.yml --profile core down -v
