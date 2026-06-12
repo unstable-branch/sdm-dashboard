@@ -100,6 +100,8 @@ services:
       - GDAL_CACHEMAX=512
       - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
       - ALA_API_KEY=${ALA_API_KEY:-}
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
     init: true
     healthcheck:
       test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]
@@ -110,7 +112,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "4"
+          cpus: ${PLUMBER_CPU_LIMIT:-8}
           memory: 8G
         reservations:
           devices:
