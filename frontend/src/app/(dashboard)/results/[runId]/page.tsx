@@ -541,12 +541,18 @@ export default function ResultsPage() {
               )}
             </div>
           )}
-          {benchmarkLoading && (
+              {benchmarkLoading && (
             <div className="flex items-center gap-2 text-xs text-sdm-muted">
               <Loader2 className="h-3 w-3 animate-spin" />
               Comparing with past runs...
             </div>
           )}
+          <Link
+            href={`/ecology?runId=${run.id}`}
+            className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline"
+          >
+            View ecology analysis →
+          </Link>
 
           <Tabs defaultValue="map" className="space-y-4">
             <TabsList className="grid w-full max-w-lg grid-cols-5">

@@ -216,7 +216,8 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     auc_mean = if (is.finite(auc_mean)) auc_mean else NA_real_,
     auc_sd = if (is.finite(auc_sd)) auc_sd else NA_real_,
     tss_mean = NA_real_,
-    tss_sd = NA_real_
+    tss_sd = NA_real_,
+    species_auc = setNames(as.list(auc_vals), cm$species_names)
   )
 
   log_message(log_fun, "  ", n_success, "/", n_seeds, " seeds trained successfully")
@@ -239,6 +240,7 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     species_names = cm$species_names,
     n_species = n_species,
     occurrence_used = NULL,
+    species_presence_counts = setNames(as.list(colSums(community_mat > 0, na.rm = TRUE)), cm$species_names),
     background_xy = site_xy[!duplicated(site_xy), , drop = FALSE],
     cv = cv,
     covariates = covariates,
@@ -337,6 +339,7 @@ predict_dnn_multispecies_mc <- function(model, env_subset, scaler, device = "cpu
         stop("MC prediction failed: ", conditionMessage(e), call. = FALSE)
       })
       batch_rows <- pre_cell_idx[[b]]
+      batch_pred[is.na(batch_pred)] <- 0
       pred_matrix[batch_rows, ] <- batch_pred[, seq_len(n_species), drop = FALSE]
     }
 
@@ -511,7 +514,9 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
     sp_tif <- sub("\\.tif$", paste0("_", make.names(species_names[i]), ".tif"), output_tif)
     sp_rast <- terra::rast(env_subset[[1]])
     terra::values(sp_rast) <- NA_real_
-    sp_rast[complete_idx] <- pmax(0, pmin(1, pred[, i]))
+    pred_vals <- pred[, i]
+    pred_vals[is.na(pred_vals)] <- 0
+    sp_rast[complete_idx] <- pmax(0, pmin(1, pred_vals))
     names(sp_rast) <- make.names(species_names[i])
     terra::writeRaster(sp_rast, sp_tif, overwrite = TRUE,
       wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
