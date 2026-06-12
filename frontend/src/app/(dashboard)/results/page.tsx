@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRuns } from "@/hooks/use-runs";
 import { CardSkeleton } from "@/components/ui/skeleton";
+import { fmtFixed, fmtLocale } from "@/lib/utils";
 import { BarChart3, ArrowRight, Ban, Clock, CheckCircle2, XCircle } from "lucide-react";
 
 export default function ResultsIndexPage() {
@@ -104,9 +105,9 @@ export default function ResultsIndexPage() {
             </div>
             {run.metrics && (
               <div className="mt-2 flex gap-4 text-xs text-sdm-muted">
-                {run.metrics.auc_mean != null && <span>AUC: {Number(run.metrics.auc_mean).toFixed(3)}</span>}
-                {run.metrics.tss_mean != null && <span>TSS: {Number(run.metrics.tss_mean).toFixed(3)}</span>}
-                {run.metrics.presence_records != null && <span>Records: {String(run.metrics.presence_records)}</span>}
+                {run.metrics.auc_mean != null && <span>AUC: {fmtFixed(run.metrics.auc_mean, 3)}</span>}
+                {run.metrics.tss_mean != null && <span>TSS: {fmtFixed(run.metrics.tss_mean, 3)}</span>}
+                {run.metrics.presence_records != null && <span>Records: {fmtLocale(run.metrics.presence_records)}</span>}
               </div>
             )}
             {run.error && (
