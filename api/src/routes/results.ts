@@ -95,6 +95,7 @@ async function plumberJobId(runId: string): Promise<string> {
 
 resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
   const { runId, z, x, y } = c.req.param();
+  const band = c.req.query("band") || "suitability";
 
   if (!/^\d+$/.test(z) || !/^\d+$/.test(x) || !/^\d+$/.test(y)) {
     return c.json({ error: "Invalid tile coordinates" }, 400);
@@ -127,7 +128,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
 
   const jobDir = resolve(resultRoot, run.jobId ?? runId);
 
-  const tilePath = resolve(jobDir, "map_tiles", "suitability", String(zoom), String(tileX), `${tileY}.png`);
+  const tilePath = resolve(jobDir, "map_tiles", band, String(zoom), String(tileX), `${tileY}.png`);
   const rel = relative(resultRoot, tilePath);
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
     return c.json({ error: "Invalid tile path" }, 400);
@@ -155,7 +156,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
 
     try {
       const plumberRes = await fetch(
-        `${plumberUrl}/api/v1/results/tiles/cog/${run.jobId ?? runId}/${z}/${x}/${y}`,
+        `${plumberUrl}/api/v1/results/tiles/cog/${run.jobId ?? runId}/${z}/${x}/${y}?band=${encodeURIComponent(band)}`,
         { headers, signal: AbortSignal.timeout(45000) }
       );
       if (plumberRes.status === 204) {
@@ -183,6 +184,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
 
 resultsRoutes.get("/tiles/:runId/info", async (c) => {
   const { runId } = c.req.param();
+  const band = c.req.query("band") || "suitability";
 
   const user = c.get("user");
   if (!(await canAccessRun(user.id, user.role, runId))) {
@@ -200,7 +202,7 @@ resultsRoutes.get("/tiles/:runId/info", async (c) => {
   }
 
   const jobDir = resolve(resultRoot, run.jobId ?? runId);
-  const tilesDir = resolve(jobDir, "map_tiles", "suitability");
+  const tilesDir = resolve(jobDir, "map_tiles", band);
 
   if (!existsSync(tilesDir)) {
     return c.json({ zoom_min: null, zoom_max: null, tile_count: 0, bounds: null });

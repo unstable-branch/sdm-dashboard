@@ -18,6 +18,11 @@ import { OverfittingPanel } from "@/components/results/overfitting-panel";
 import { DiagnosticsPanel } from "@/components/results/diagnostics-panel";
 import type { RunDetail, ManifestData, ProgressStage } from "@/services/types";
 import type { PlumberJobLogs } from "@sdm/shared";
+
+function makeNames(name: string): string {
+  const sanitized = name.replace(/[^a-zA-Z0-9_.]/g, ".");
+  return /^[0-9.]/.test(sanitized) ? "X" + sanitized : sanitized;
+}
 import type { FeatureCollection } from "geojson";
 import { extentToViewState, extentToCoordinates } from "@/lib/map-utils";
 
@@ -603,6 +608,14 @@ export default function ResultsPage() {
                 </div>
               )}
               <SuitabilityMap key={`${runId}-${selectedMultiSpeciesIdx}`}
+                bandName={(() => {
+                  if (!isMultiSpecies) return undefined;
+                  if (selectedMultiSpeciesIdx === -2 && richnessTif) return "richness";
+                  if (selectedMultiSpeciesIdx >= 0 && selectedMultiSpeciesIdx < multiSpeciesTifs.length) {
+                    return makeNames(multiSpeciesTifs[selectedMultiSpeciesIdx].name);
+                  }
+                  return "suitability";
+                })()}
                 outputFiles={(() => {
                   const of = run?.output_files ?? null;
                   if (!isMultiSpecies || selectedMultiSpeciesIdx < 0 || !of) return of;

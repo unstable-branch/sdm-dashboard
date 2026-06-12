@@ -156,7 +156,7 @@ sdm_transparent_tile_png <- function() {
 tile_cog_cache <- new.env(parent = emptyenv())
 tile_cog_cache_max <- 20L
 
-handle_tile_serve <- function(res, run_id, z, x, y, app_dir) {
+handle_tile_serve <- function(res, run_id, z, x, y, app_dir, band = NULL) {
   z <- as.integer(z); x <- as.integer(x); y <- as.integer(y)
   if (is.na(z) || is.na(x) || is.na(y) || z < 0L || z > 20L) {
     res$status <- 400L; stop("Invalid tile coordinates")
@@ -227,7 +227,24 @@ handle_tile_serve <- function(res, run_id, z, x, y, app_dir) {
     attr(r_cog, "accessed") <- Sys.time()
     tile_cog_cache[[cog_key]] <- r_cog
   }
+
+  # Select single band if multi-band COG and band param provided
+  if (!is.null(band) && nzchar(band) && terra::nlyr(r_cog) > 1) {
+    band_idx <- suppressWarnings(as.integer(band))
+    if (is.na(band_idx) || band_idx < 1) {
+      band_names <- names(r_cog)
+      band_idx <- which(band_names == band)
+      if (length(band_idx) == 0) band_idx <- 1L
+    }
+    r_cog <- r_cog[[band_idx[1]]]
+  }
+
+  if (terra::nlyr(r_cog) > 1) {
+    r_cog <- r_cog[[1L]]
+  }
+
   cog_range <- terra::minmax(r_cog)
+  vr_min <- max(0, cog_range[1, 1])
   vr_min <- max(0, cog_range[1, 1])
   vr_max <- min(1, cog_range[2, 1])
   if (!is.finite(vr_min) || !is.finite(vr_max) || vr_max <= vr_min) {

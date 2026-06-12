@@ -28,6 +28,7 @@ function extentBounds(
 
 interface MaplibreMapProps {
   runId: string;
+  band: string;
   theme: string | undefined;
   initialViewState?: Partial<ViewState>;
   coordinates?: [[number, number], [number, number], [number, number], [number, number]];
@@ -44,7 +45,7 @@ interface MaplibreMapProps {
 }
 
 export default function MaplibreMap({
-  runId, theme, initialViewState, coordinates, tileZoomMin, tileZoomMax, tileBounds,
+  runId, band, theme, initialViewState, coordinates, tileZoomMin, tileZoomMax, tileBounds,
   eooGeoJSON, aooGeoJSON, boundaryGeoJSON,
   layerVisibility, onToggleLayer, basemap, onToggleBasemap,
 }: MaplibreMapProps) {
@@ -194,7 +195,7 @@ export default function MaplibreMap({
       <Source
         id="suitability"
         type="raster"
-        tiles={[`/api/v1/results/tiles/${runId}/{z}/{x}/{y}`]}
+        tiles={[`/api/v1/results/tiles/${runId}/{z}/{x}/{y}?band=${encodeURIComponent(band)}`]}
         tileSize={256}
         minzoom={tileZoomMin && tileZoomMin > 0 ? tileZoomMin : 0}
         maxzoom={tileZoomMax && tileZoomMax > 0 ? tileZoomMax : 18}

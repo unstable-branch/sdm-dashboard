@@ -11,6 +11,7 @@ import { extentToCoordinates, extentToViewState, parseTileZoom, DEFAULT_TILE_ZOO
 interface SuitabilityMapProps {
   outputFiles: OutputFiles | null;
   runId: string;
+  bandName?: string;
   initialViewState?: Partial<ViewState>;
   coordinates?: [[number, number], [number, number], [number, number], [number, number]];
   projectionExtent?: number[] | null;
@@ -32,7 +33,7 @@ const DynamicMap = dynamic(() => import("./maplibre-map"), {
   loading: () => <MapPlaceholder />,
 });
 
-export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinates, projectionExtent, eooGeoJSON, aooGeoJSON, boundaryGeoJSON }: SuitabilityMapProps) {
+export function SuitabilityMap({ outputFiles, runId, bandName, initialViewState, coordinates, projectionExtent, eooGeoJSON, aooGeoJSON, boundaryGeoJSON }: SuitabilityMapProps) {
   const finalCoordinates = useMemo(
     () => coordinates || extentToCoordinates(projectionExtent),
     [coordinates, projectionExtent]
@@ -96,6 +97,7 @@ export function SuitabilityMap({ outputFiles, runId, initialViewState, coordinat
       <div className="relative h-[60vh]">
         <DynamicMap
           runId={runId}
+          band={bandName || "suitability"}
           theme={safeTheme}
           initialViewState={finalViewState}
           coordinates={finalCoordinates}
