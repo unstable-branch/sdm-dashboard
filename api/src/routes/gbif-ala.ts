@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { statSync, existsSync, mkdirSync, writeFileSync, readFileSync, promises as fs } from "fs";
-import { isAbsolute, join, dirname, extname, resolve } from "path";
+import { statSync, existsSync, promises as fs } from "fs";
+import { join, dirname, extname, resolve } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import { plumberClient } from "../services/plumber.js";
@@ -12,77 +12,13 @@ import { authMiddleware } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { encrypt, decrypt } from "../services/encryption.js";
+import { setUploadDir, saveUploadEncrypted, decryptToUploads, resolveFilePath, pollPlumberJob } from "../services/upload-utils.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, "../../..");
 const UPLOAD_DIR = join(PROJECT_ROOT, "data", "uploads");
-
-async function pollPlumberJob(jobId: string, timeout?: number): Promise<Record<string, unknown>> {
-  const deadline = timeout ? Date.now() + timeout : Infinity;
-  let lastError: Error | undefined;
-  while (Date.now() < deadline) {
-    try {
-      const status = await plumberClient.getJobStatus(jobId);
-      if (status?.status === "completed" || status?.status === "success") {
-        return status as Record<string, unknown>;
-      }
-      if (status?.status === "failed" || status?.status === "error") {
-        return { error: status.error || "Job failed" };
-      }
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  throw lastError || new Error("Polling timed out");
-}
-
-function saveUploadEncrypted(buffer: Buffer, originalName: string): { encPath: string; pipelineRunId: string } {
-  if (!existsSync(UPLOAD_DIR)) {
-    mkdirSync(UPLOAD_DIR, { recursive: true });
-  }
-  const pipelineRunId = randomUUID();
-  const uuid = randomUUID();
-  const ext = extname(originalName) || ".csv";
-  const encPath = join(UPLOAD_DIR, `${uuid}${ext}.enc`);
-  const encrypted = encrypt(buffer);
-  writeFileSync(encPath, encrypted);
-  return { encPath, pipelineRunId };
-}
-
-function decryptToUploads(encPath: string): string | null {
-  if (!existsSync(encPath)) {
-    console.warn(`[encrypt] File not found: ${encPath}`);
-    return null;
-  }
-  if (!encPath.endsWith(".enc")) return null;
-  const plaintextPath = encPath.replace(/\.enc$/, "");
-  if (existsSync(plaintextPath)) return plaintextPath;
-  try {
-    const ciphertext = readFileSync(encPath);
-    const plaintext = decrypt(ciphertext);
-    writeFileSync(plaintextPath, plaintext);
-    const lineCount = plaintext.toString().split("\n").filter((l) => l.trim().length > 0).length - 1;
-    console.log(`[encrypt] Decrypted ${encPath} → ${plaintextPath} (${lineCount} lines)`);
-    return plaintextPath;
-  } catch (err) {
-    console.error(`[encrypt] Failed to decrypt ${encPath}:`, err instanceof Error ? err.message : String(err));
-    return null;
-  }
-}
-
-function resolveFilePath(fileId: string): { path: string } {
-  if (isAbsolute(fileId) && !fileId.endsWith(".enc")) {
-    return { path: fileId };
-  }
-  const encPath = join(UPLOAD_DIR, fileId);
-  if (encPath.endsWith(".enc")) {
-    const decrypted = decryptToUploads(encPath);
-    return { path: decrypted ?? encPath };
-  }
-  return { path: encPath };
-}
+setUploadDir(UPLOAD_DIR);
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 

@@ -244,7 +244,7 @@ handle_climate_delete <- function(res, scenario_id, app_dir) {
   } else if (scenario_id == "chelsa_current") {
     target_dir <- chelsa_dir
   } else {
-    target_dir <- file.path(future_dir, scenario_id)
+    target_dir <- file.path(future_dir, basename(scenario_id))
   }
 
   if (is.null(target_dir) || !dir.exists(target_dir)) {
