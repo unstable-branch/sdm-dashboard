@@ -1104,24 +1104,28 @@ run_fast_sdm <- function(...) {
   # --- XYZ tile generation from COG (already in EPSG:3857, has overviews) ---
   if (isTRUE(cfg$generate_tiles %||% TRUE) && !is.null(tif_3857_path) && file.exists(tif_3857_path)) {
     tile_result <- tryCatch({
+      n_bands <- terra::nlyr(suit)
+      band_names <- if (n_bands > 1) names(suit) else "suitability"
       tr <- generate_xyz_tiles(
         input       = tif_3857_path,
         output_dir  = output_tiles_dir,
         palette     = sdm_suitability_palette,
         value_range = c(0, 1),
-        band_names  = "suitability",
+        bands       = seq_len(n_bands),
+        band_names  = band_names,
         zoom_min    = 2,
         zoom_max    = 10,
         verbose     = FALSE,
         log         = function(msg) log_message(log_fun, "  ", msg)
       )
-      log_message(log_fun, "  XYZ tiles: ", tr$bands[["suitability"]]$tile_count,
-                  " tiles (zoom ", tr$bands[["suitability"]]$zoom_min, "-",
-                  tr$bands[["suitability"]]$zoom_max, ") in ",
+      first_band <- names(tr$bands)[1]
+      log_message(log_fun, "  XYZ tiles: ", tr$bands[[first_band]]$tile_count,
+                  " tiles (zoom ", tr$bands[[first_band]]$zoom_min, "-",
+                  tr$bands[[first_band]]$zoom_max, ") in ",
                   round(tr$generation_time, 1), "s")
       extra_paths[["tiles_dir"]] <- output_tiles_dir
-      extra_paths[["tile_zoom_min"]] <- as.character(tr$bands[["suitability"]]$zoom_min)
-      extra_paths[["tile_zoom_max"]] <- as.character(tr$bands[["suitability"]]$zoom_max)
+      extra_paths[["tile_zoom_min"]] <- as.character(tr$bands[[first_band]]$zoom_min)
+      extra_paths[["tile_zoom_max"]] <- as.character(tr$bands[[first_band]]$zoom_max)
       tr
     }, error = function(e) {
       log_message(log_fun, "  Tile generation skipped: ", conditionMessage(e))
