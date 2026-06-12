@@ -70,7 +70,7 @@ sdmBatchRoutes.get("/config/defaults", async (c) => {
       cvFolds: 3,
       cvStrategy: "spatial_blocks",
       threshold: 0.5,
-      nCores: 1,
+      nCores: 8,
       seed: 42,
       dnnArchitecture: "DNN_Medium",
       dnnNSeeds: 5,
