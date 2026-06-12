@@ -163,7 +163,7 @@ run_fast_sdm <- function(...) {
   species_filter <- cfg$species_filter %||% ""
   ensure_sdm_packages("terra", n_cores = n_cores)
   n_cores <- configure_parallel(n_cores, log_fun = log_fun)
-  projection_extent <- validate_extent(as.numeric(projection_extent), "projection_extent")
+  projection_extent <- validate_extent(as.numeric(projection_extent %||% sdm_default_projection_extent), "projection_extent")
   if (!is.null(training_extent)) training_extent <- validate_extent(as.numeric(training_extent), "training_extent")
   selected_biovars <- validate_biovars(selected_biovars)
   model_id <- validate_sdm_model_id(model_id)

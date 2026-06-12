@@ -92,7 +92,7 @@ plot_suitability_map <- function(suitability, occ = NULL, projection_extent = NU
 
 plot_delta_map <- function(delta, scenario_label = "Future climate") {
   delta_plot <- plot_downsample_raster(delta)
-  max_abs <- tryCatch(max(abs(terra::values(delta_plot)), na.rm = TRUE), error = function(e) NA_real_)
+  max_abs <- tryCatch(max(abs(terra::minmax(delta_plot)), na.rm = TRUE), error = function(e) NA_real_)
   if (!is.finite(max_abs) || max_abs <= 0) max_abs <- 1
   cols <- grDevices::colorRampPalette(c("#2C4C9C", "#9FC5E8", "#F7F7F7", "#F6B26B", "#B94E48"))(160)
   old_par <- graphics::par(no.readonly = TRUE)
@@ -255,8 +255,7 @@ render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
       }
     )
     if (!is.null(r_mess)) {
-      mess_binary <- r_mess
-      terra::values(mess_binary) <- ifelse(terra::values(r_mess) < 0, 1, 0)
+      mess_binary <- terra::classify(r_mess, cbind(-Inf, 0, 1), others = 0)
       map <- map %>%
         leaflet::addRasterImage(mess_binary,
           opacity = 0.5, layerId = "mess",

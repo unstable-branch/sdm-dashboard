@@ -270,7 +270,7 @@ result <- tryCatch({
         } else {
           env_dir <- meta_1$config$worldclim_dir %||% sdm_default_worldclim_dir
           biovars <- as.integer(unlist(strsplit(as.character(meta_1$config$biovars %||% "1,4,6,12,15,18"), ",")))
-          tif_pattern <- paste0("bio", biovars, "\\.tif$")
+          tif_pattern <- paste0("(", paste0("bio", biovars, collapse = "|"), ")\\.tif$")
           tif_files <- list.files(env_dir, pattern = tif_pattern, full.names = TRUE, recursive = TRUE)
 
           if (length(tif_files) == 0) {
