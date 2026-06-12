@@ -92,7 +92,6 @@ export function shutdownQueue() {
   _worker?.close();
   _queue?.close();
   _bullmqConnection?.disconnect(false);
-  _connection?.disconnect(false);
   _connection = null;
   _bullmqConnection = null;
   _queue = null;
@@ -101,36 +100,7 @@ export function shutdownQueue() {
 }
 
 function getConnection(): IORedis | null {
-  if (_redisDisabled) return null;
-  if (_connection) {
-    if (_connection.status === "close" || _connection.status === "end") {
-      disableRedis();
-      return null;
-    }
-    return _connection;
-  }
-  _connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
-    maxRetriesPerRequest: 1,
-    enableReadyCheck: false,
-    retryStrategy: (times) => {
-      if (times > 2) {
-        disableRedis();
-        return null;
-      }
-      return Math.min(times * 200, 2000);
-    },
-  });
-  _connection.on("connect", () => {
-    _failCount = 0;
-  });
-  _connection.on("error", (err) => {
-    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
-      disableRedis();
-      return;
-    }
-    console.error("[ioredis] unexpected error:", err);
-  });
-  return _connection;
+  return getBullMqConnection();
 }
 
 function getBullMqConnection(): IORedis | null {
@@ -312,7 +282,7 @@ export function getRedisStatus(): {
   permanentOffline: boolean;
 } {
   return {
-    available: !_redisDisabled && (_connection?.status === "ready" || _bullmqConnection?.status === "ready"),
+    available: !_redisDisabled && (_bullmqConnection?.status === "ready"),
     disabled: _redisDisabled,
     failCount: _failCount,
     reconnectDelayMs: _reconnectTimer ? getReconnectDelay() : 0,
