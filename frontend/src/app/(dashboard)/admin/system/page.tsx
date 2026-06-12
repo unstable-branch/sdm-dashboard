@@ -59,10 +59,6 @@ export default function AdminSystemPage() {
     }
   }
 
-  if (loading) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="h-6 w-6 animate-spin text-sdm-accent" /></div>;
-  }
-
   const groups = {
     General: ["site_name", "maintenance_mode", "default_theme"],
     Auth: ["jwt_expiry_seconds", "max_login_attempts", "api_key_default_expiry_days"],
@@ -88,6 +84,10 @@ export default function AdminSystemPage() {
   }, [groups, settings]);
 
   const allKeys = Object.values(groups).flat();
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-64"><Loader2 className="h-6 w-6 animate-spin text-sdm-accent" /></div>;
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
