@@ -197,7 +197,7 @@ export const DEFAULT_CONFIG = {
   cvFolds: 5,
   cvStrategy: "spatial_blocks" as const,
   threshold: 0.5,
-  nCores: 1,
+  nCores: 8,
   seed: 42,
   minSourceRecords: 15,
   aggregationFactor: 1,
