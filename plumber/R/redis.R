@@ -19,7 +19,12 @@ sdm_redis_url <- function() {
 
 sdm_redis_connect <- function() {
   if (!is.null(.redis_conn) && inherits(.redis_conn, "redis_api")) {
-    return(.redis_conn)
+    tryCatch({
+      .redis_conn$PING()
+      return(.redis_conn)
+    }, error = function(e) {
+      .redis_conn <<- NULL
+    })
   }
   if (!requireNamespace("redux", quietly = TRUE)) {
     return(NULL)

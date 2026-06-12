@@ -151,14 +151,14 @@ get_chelsa_base_url <- function() {
 }
 
 get_chelsa_bio_url <- function(bio_num, period = "1981-2010") {
-  base <- get_chelsa_base_url()
+  base <- get_chelsa_url()
   bio_id <- if (bio_num < 10) sprintf("bio0%d", bio_num) else sprintf("bio%d", bio_num)
   file_name <- sprintf("CHELSA_%s_%s_V.2.1.tif", bio_id, period)
   paste0(base, "/", bio_id, "/", period, "/", file_name)
 }
 
 get_chelsa_extra_url <- function(var_name, period = "1981-2010") {
-  base <- get_chelsa_base_url()
+  base <- get_chelsa_url()
   file_name <- sprintf("CHELSA_%s_%s_V.2.1.tif", var_name, period)
   paste0(base, "/", var_name, "/", period, "/", file_name)
 }
