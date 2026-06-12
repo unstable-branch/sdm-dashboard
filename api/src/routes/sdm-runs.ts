@@ -230,7 +230,8 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
             failedReason: ps.error as string ?? undefined,
           });
         }
-      } catch {
+      } catch (err) {
+        console.warn(`[sdm-status] Plumber poll failed for job ${run.jobId}:`, err instanceof Error ? err.message : String(err));
       }
     } else if (run.status === "running" && !run.jobId && run.startedAt) {
       const orphanThreshold = 5 * 60 * 1000;

@@ -109,6 +109,6 @@ boundaryRoutes.post("/boundary/download", async (c) => {
     return c.json(data, status >= 400 ? (status as 400 | 404 | 500) : 200);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to download boundary";
-    return c.json({ status: "error", message }, 502);
+    return c.json({ error: message }, 502);
   }
 });

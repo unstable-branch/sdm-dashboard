@@ -79,7 +79,7 @@ export function getBucketNames(): { rasters: string; exports: string } {
 function createS3Client(): S3Client {
   const config = getGarageConfig();
   return new S3Client({
-    endpoint: `http://${config.endPoint}:${config.port}`,
+    endpoint: `${config.useSSL ? "https" : "http"}://${config.endPoint}:${config.port}`,
     region: "garage",
     forcePathStyle: true,
     credentials: {

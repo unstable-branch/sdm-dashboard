@@ -38,8 +38,8 @@ COPY frontend/ frontend/
 RUN if [ ! -f packages/shared/dist/index.js ]; then pnpm --filter @sdm/shared build; fi
 RUN pnpm --filter @sdm/api build
 
-# Clean pnpm store to reduce image size
-RUN pnpm store prune
+# Clean pnpm store and prune dev dependencies to reduce image size
+RUN pnpm store prune && pnpm prune --prod
 
 FROM node:22-alpine AS runner
 
