@@ -1,12 +1,30 @@
 # WorldClim discovery, download, cropping, and scaling helpers.
 
 # Simple file-based lock for concurrent download protection
-sdm_download_lock <- function(lock_path, timeout_sec = 300, poll_ms = 500) {
+# Stale locks older than stale_sec are automatically cleaned up.
+sdm_download_lock <- function(lock_path, timeout_sec = 300, poll_ms = 500, stale_sec = 600) {
   lock_dir <- paste0(lock_path, ".lock")
+  lock_info <- file.path(lock_dir, ".lock_info")
   deadline <- Sys.time() + timeout_sec
   while (Sys.time() < deadline) {
     if (dir.create(lock_dir, showWarnings = FALSE)) {
+      writeLines(format(Sys.time(), "%Y-%m-%dT%H:%M:%S"), lock_info)
       return(lock_dir)
+    }
+    # Stale lock detection: if lock dir exists and is older than stale_sec, remove it
+    if (file.exists(lock_info)) {
+      lock_time <- tryCatch(as.POSIXct(readLines(lock_info, warn = FALSE)[1]), error = function(e) NULL)
+      if (!is.null(lock_time) && is.finite(lock_time) && difftime(Sys.time(), lock_time, units = "secs") > stale_sec) {
+        unlink(lock_dir, recursive = TRUE)
+        next
+      }
+    } else if (dir.exists(lock_dir)) {
+      # Lock dir exists but no info file — use directory mtime as fallback
+      lock_time <- tryCatch(file.info(lock_dir)$mtime, error = function(e) NULL)
+      if (!is.null(lock_time) && is.finite(lock_time) && difftime(Sys.time(), lock_time, units = "secs") > stale_sec) {
+        unlink(lock_dir, recursive = TRUE)
+        next
+      }
     }
     Sys.sleep(poll_ms / 1000)
   }
