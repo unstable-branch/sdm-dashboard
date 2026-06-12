@@ -122,11 +122,15 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
       if (file.exists(cpp_so) && !is.loaded("adam_step_direct", PACKAGE = "")) {
         tryCatch(dyn.load(cpp_so, local = FALSE, now = TRUE), error = function(e) NULL)
       }
-      # Fall back to libtorch _fused_adam_ kernel (CPU only, NaN on Blackwell GPU)
-      cpp_so2 <- file.path(sdm_root, "sdmtorch", "train_step_libtorch.so")
-      if (!is.loaded("adam_step_direct", PACKAGE = "") &&
-          file.exists(cpp_so2) && !is.loaded("fused_adam_step_direct", PACKAGE = "")) {
-        tryCatch(dyn.load(cpp_so2, local = FALSE, now = TRUE), error = function(e) NULL)
+      # Fall back to libtorch _fused_adam_ kernel (CPU only; produces NaN on Blackwell GPU)
+      # Only attempt this fallback on CPU — CUDA fallback is unsafe
+      is_cuda <- tryCatch(torch::cuda_is_available(), error = function(e) FALSE)
+      if (!is_cuda) {
+        cpp_so2 <- file.path(sdm_root, "sdmtorch", "train_step_libtorch.so")
+        if (!is.loaded("adam_step_direct", PACKAGE = "") &&
+            file.exists(cpp_so2) && !is.loaded("fused_adam_step_direct", PACKAGE = "")) {
+          tryCatch(dyn.load(cpp_so2, local = FALSE, now = TRUE), error = function(e) NULL)
+        }
       }
       set_train_opts(
         mixed_precision = dnn_mixed_precision,

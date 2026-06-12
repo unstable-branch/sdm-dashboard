@@ -6,6 +6,16 @@
   free_mib <- NA_real_
   if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
     free_mib <- tryCatch(sdm_gpu_available_vram(), error = function(e) NA_real_)
+    if (!is.finite(free_mib)) {
+      # nvidia-smi unavailable inside container; attempt torch-level query as fallback
+      tryCatch({
+        stats <- torch::cuda_memory_stats()
+        # Use max_split_size as a proxy: if torch hasn't allocated yet, assume reasonable VRAM
+        allocated <- stats[["allocated_bytes"]][["current"]] %||% 0
+        total <- stats[["reserved_bytes"]][["all"]] %||% 0
+        if (total > 0) free_mib <- floor((total - allocated) / (1024 * 1024))
+      }, error = function(e) NULL)
+    }
   }
   if (!is.finite(free_mib) || free_mib < 128) {
     return(min(max_batch, max(32L, floor(n_train / 10))))
@@ -390,7 +400,9 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   # Silence "no visible binding" NOTE from R CMD check
   .old_train_model <- NULL
   if (use_fused) {
-    # Load custom ATen-op Adam kernel
+    # Load custom ATen-op Adam kernel (works on CPU/CUDA/MPS)
+    # NOTE: The libtorch _fused_adam_ kernel produces NaN on Blackwell GPUs (compute 12.0).
+    #       This code only loads the safe ATen-op kernel (train_step_adam.so).
     sdm_root <- if (exists("sdm_project_root", mode = "function")) sdm_project_root() else getwd()
     cpp_so <- file.path(sdm_root, "sdmtorch", "train_step_adam.so")
     if (file.exists(cpp_so) && !is.loaded("adam_step_direct", PACKAGE = "")) {

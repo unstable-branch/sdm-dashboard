@@ -237,7 +237,12 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
       )
       traced_forward <- function(x) traced_module(x)
       use_traced <- TRUE
-    }, error = function(e) NULL)
+    }, error = function(e) {
+      if (isTRUE(verbose) && device != "cpu") {
+        cat("[GPU] JIT trace failed (NVRTC may be unavailable):", conditionMessage(e), "\n")
+        cat("[GPU] Falling back to eager mode execution\n")
+      }
+    })
   }
 
   # CUDA Graphs: skip if model has stochastic elements (embeddings or dropout)
