@@ -52,7 +52,6 @@ sdm_set_project_root <- function(start = NULL) {
   } else {
     root <- sdm_find_project_root(start)
   }
-  setwd(root)
   assign(".__sdm_project_root", root, envir = .GlobalEnv)
   invisible(root)
 }
