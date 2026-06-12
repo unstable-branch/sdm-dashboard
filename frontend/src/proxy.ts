@@ -12,7 +12,7 @@ const PUBLIC_ROUTES = [
   "/api",
 ];
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (PUBLIC_ROUTES.some((r) => pathname.startsWith(r))) {
