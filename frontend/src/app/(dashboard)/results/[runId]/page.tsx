@@ -555,7 +555,7 @@ export default function ResultsPage() {
           </Link>
 
           <Tabs defaultValue="map" className="space-y-4">
-            <TabsList className="grid w-full max-w-lg grid-cols-5">
+            <TabsList className="grid w-full max-w-lg grid-cols-6">
               <TabsTrigger value="map">Map</TabsTrigger>
               <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
               <TabsTrigger value="overfitting">Overfitting</TabsTrigger>
