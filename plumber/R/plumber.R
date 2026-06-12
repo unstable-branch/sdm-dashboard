@@ -81,10 +81,11 @@ function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_
 #* @param country Country code filter (e.g., "AU")
 #* @param max_records Maximum records to fetch (default: 100)
 #* @param use_auth If true, use authenticated download (unlimited records)
-#* @param gbif_user GBIF username for authenticated download
-#* @param gbif_pwd GBIF password for authenticated download
-#* @param gbif_email GBIF email for authenticated download
+#* @param gbif_user GBIF username for authenticated download (DEPRECATED: use X-Gbif-User header)
+#* @param gbif_pwd GBIF password for authenticated download (DEPRECATED: use X-Gbif-Pwd header)
+#* @param gbif_email GBIF email for authenticated download (DEPRECATED: use X-Gbif-Email header)
 #* @post /api/v1/occurrences/gbif/search
+#* @security GBIF credentials should be passed via X-Gbif-User, X-Gbif-Pwd, X-Gbif-Email headers to avoid exposure in request logs
 function(req, taxon, country = NULL, max_records = 100, use_auth = NULL, gbif_user = NULL, gbif_pwd = NULL, gbif_email = NULL)
   handle_occurrences_gbif_search(req, app_dir, taxon, country, max_records, use_auth, gbif_user, gbif_pwd, gbif_email)
 

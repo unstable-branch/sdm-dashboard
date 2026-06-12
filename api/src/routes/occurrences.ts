@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { mkdirSync, existsSync, statSync, writeFileSync, readFileSync, rmSync, accessSync, constants, promises as fs } from "fs";
-import { isAbsolute, join, resolve, dirname, extname } from "path";
+import { join, resolve, dirname, extname } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID, createDecipheriv } from "crypto";
 import { plumberClient } from "../services/plumber.js";
@@ -12,12 +12,14 @@ import { authMiddleware } from "../middleware/auth.js";
 import { getUserProjectIds } from "../services/access.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { encrypt, decrypt } from "../services/encryption.js";
+import { setUploadDir, saveUploadEncrypted, decryptToUploads, resolveFilePath, pollPlumberJob } from "../services/upload-utils.js";
 import type { PlumberUploadResponse } from "@sdm/shared";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, "../../..");
 const UPLOAD_DIR = join(PROJECT_ROOT, "data", "uploads");
+setUploadDir(UPLOAD_DIR);
 
 async function saveUpload(buffer: Buffer, originalName: string): Promise<string> {
   if (!existsSync(UPLOAD_DIR)) {
@@ -28,72 +30,6 @@ async function saveUpload(buffer: Buffer, originalName: string): Promise<string>
   const destPath = join(UPLOAD_DIR, `${ts}_${safeName}`);
   await fs.writeFile(destPath, buffer);
   return destPath;
-}
-
-function saveUploadEncrypted(buffer: Buffer, originalName: string): { encPath: string; pipelineRunId: string } {
-  if (!existsSync(UPLOAD_DIR)) {
-    mkdirSync(UPLOAD_DIR, { recursive: true });
-  }
-  const pipelineRunId = randomUUID();
-  const uuid = randomUUID();
-  const ext = extname(originalName) || ".csv";
-  const encPath = join(UPLOAD_DIR, `${uuid}${ext}.enc`);
-  const encrypted = encrypt(buffer);
-  writeFileSync(encPath, encrypted);
-  return { encPath, pipelineRunId };
-}
-
-function decryptToUploads(encPath: string): string | null {
-  if (!existsSync(encPath)) {
-    console.warn(`[encrypt] File not found: ${encPath}`);
-    return null;
-  }
-  if (!encPath.endsWith(".enc")) return null;
-  const plaintextPath = encPath.replace(/\.enc$/, "");
-  if (existsSync(plaintextPath)) return plaintextPath;
-  try {
-    const ciphertext = readFileSync(encPath);
-    const plaintext = decrypt(ciphertext);
-    writeFileSync(plaintextPath, plaintext);
-    const lineCount = plaintext.toString().split("\n").filter((l) => l.trim().length > 0).length - 1;
-    console.log(`[encrypt] Decrypted ${encPath} → ${plaintextPath} (${lineCount} lines)`);
-    return plaintextPath;
-  } catch (err) {
-    console.error(`[encrypt] Failed to decrypt ${encPath}:`, err instanceof Error ? err.message : String(err));
-    return null;
-  }
-}
-
-function resolveFilePath(fileId: string): { path: string } {
-  if (isAbsolute(fileId) && !fileId.endsWith(".enc")) {
-    return { path: fileId };
-  }
-  const encPath = join(UPLOAD_DIR, fileId);
-  if (encPath.endsWith(".enc")) {
-    const decrypted = decryptToUploads(encPath);
-    return { path: decrypted ?? encPath };
-  }
-  return { path: encPath };
-}
-
-async function pollPlumberJob(jobId: string, timeout?: number): Promise<Record<string, unknown>> {
-  const deadline = timeout ? Date.now() + timeout : Infinity;
-  let lastError: Error | undefined;
-  while (Date.now() < deadline) {
-    try {
-      const status = await plumberClient.getJobStatus(jobId);
-      if (status?.status === "completed" || status?.status === "success") {
-        return status as Record<string, unknown>;
-      }
-      if (status?.status === "failed" || status?.status === "error") {
-        return { error: status.error || "Job failed" };
-      }
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  throw lastError || new Error("Polling timed out");
 }
 
 export const dataRoutes = new Hono<AppEnv>();
@@ -313,14 +249,18 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       if (body.file_id && cleanResult && typeof cleanResult === "object" && (cleanResult as Record<string, unknown>).cleaned_file_id) {
         const fp = body.file_id;
         const r = cleanResult as Record<string, unknown>;
-        db.update(uploads).set({
-          isCleaned: true,
-          cleanedFilePath: r.cleaned_file_id as string,
-          cleanedValidRecords: (r.valid_records ?? null) as number | null,
-          cleanedOriginalRows: (r.original_rows ?? null) as number | null,
-          cleaningCcLog: (r.cc_log ?? null) as string[] | null,
-          cleaningSourceCounts: (r.source_counts ?? null) as Record<string, number> | null,
-        }).where(eq(uploads.filePath, fp)).catch((e: unknown) => console.warn("[clean] Failed to update uploads table:", e instanceof Error ? e.message : e));
+        try {
+          await db.update(uploads).set({
+            isCleaned: true,
+            cleanedFilePath: r.cleaned_file_id as string,
+            cleanedValidRecords: (r.valid_records ?? null) as number | null,
+            cleanedOriginalRows: (r.original_rows ?? null) as number | null,
+            cleaningCcLog: (r.cc_log ?? null) as string[] | null,
+            cleaningSourceCounts: (r.source_counts ?? null) as Record<string, number> | null,
+          }).where(eq(uploads.filePath, fp));
+        } catch (e: unknown) {
+          console.warn("[clean] Failed to update uploads table:", e instanceof Error ? e.message : e);
+        }
       }
       return c.json(result);
     }
@@ -328,14 +268,18 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     if (body.file_id && initial && typeof initial === "object" && (initial as Record<string, unknown>).cleaned_file_id) {
       const fp = body.file_id;
       const r = initial as Record<string, unknown>;
-      db.update(uploads).set({
-        isCleaned: true,
-        cleanedFilePath: r.cleaned_file_id as string,
-        cleanedValidRecords: (r.valid_records ?? null) as number | null,
-        cleanedOriginalRows: (r.original_rows ?? null) as number | null,
-        cleaningCcLog: (r.cc_log ?? null) as string[] | null,
-        cleaningSourceCounts: (r.source_counts ?? null) as Record<string, number> | null,
-      }).where(eq(uploads.filePath, fp)).catch((e: unknown) => console.warn("[clean] Failed to update uploads table:", e instanceof Error ? e.message : e));
+      try {
+        await db.update(uploads).set({
+          isCleaned: true,
+          cleanedFilePath: r.cleaned_file_id as string,
+          cleanedValidRecords: (r.valid_records ?? null) as number | null,
+          cleanedOriginalRows: (r.original_rows ?? null) as number | null,
+          cleaningCcLog: (r.cc_log ?? null) as string[] | null,
+          cleaningSourceCounts: (r.source_counts ?? null) as Record<string, number> | null,
+        }).where(eq(uploads.filePath, fp));
+      } catch (e: unknown) {
+        console.warn("[clean] Failed to update uploads table:", e instanceof Error ? e.message : e);
+      }
     }
 
     return c.json(initial);

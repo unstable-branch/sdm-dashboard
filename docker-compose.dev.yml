@@ -12,7 +12,7 @@ services:
     shm_size: 256m
     environment:
       POSTGRES_USER: sdm
-      POSTGRES_PASSWORD: sdm_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sdm_dev_only_change_me}
       POSTGRES_DB: sdm_platform
     ports:
       - "5432:5432"
@@ -61,10 +61,10 @@ services:
       - "3902:3902"
       - "3903:3903"
     environment:
-      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
-      - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN:-dev-admin-token}
-      - GARAGE_DEFAULT_ACCESS_KEY=${GARAGE_ACCESS_KEY:-dev-access-key}
-      - GARAGE_DEFAULT_SECRET_KEY=${GARAGE_SECRET_KEY:-dev-secret-key-for-local-only}
+      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef_DEV}
+      - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN:-dev-admin-token-CHANGE-ME}
+      - GARAGE_DEFAULT_ACCESS_KEY=${GARAGE_ACCESS_KEY:-dev-access-key-CHANGE-ME}
+      - GARAGE_DEFAULT_SECRET_KEY=${GARAGE_SECRET_KEY:-dev-secret-key-for-local-only-CHANGE-ME}
       - GARAGE_DEFAULT_BUCKET=${GARAGE_BUCKET:-sdm-artifacts}
     volumes:
       - ./garage.toml:/etc/garage.toml:ro
