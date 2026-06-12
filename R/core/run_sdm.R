@@ -1191,6 +1191,13 @@ run_fast_sdm <- function(...) {
     tss_unreliable = tss_unreliable
   )
 
+  if (!is.null(fit$cv$species_auc)) {
+    metrics$species_auc <- fit$cv$species_auc
+  }
+  if (!is.null(fit$species_presence_counts)) {
+    metrics$species_presence_counts <- fit$species_presence_counts
+  }
+
   if (!is.null(enmeval_tune_result)) {
     bp <- enmeval_tune_result$best_params %||% list()
     metrics$enmeval_tuned <- TRUE

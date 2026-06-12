@@ -1,20 +1,30 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { ConservationSummary } from "@/components/ecology/conservation-summary";
+import { CommunitySummary } from "@/components/ecology/community-summary";
 import { ExportPanel } from "@/components/ecology/export-panel";
 import { useCompletedRuns } from "@/hooks/use-runs";
 import { Leaf, Loader2 } from "lucide-react";
 
 export default function EcologyPage() {
   const { data: runs, isLoading } = useCompletedRuns();
+  const searchParams = useSearchParams();
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
 
   useEffect(() => {
-    if (runs.length > 0 && !selectedRun) {
+    if (runs.length === 0) return;
+    const runIdFromUrl = searchParams.get("runId");
+    if (runIdFromUrl && runs.some((r) => r.id === runIdFromUrl)) {
+      setSelectedRun(runIdFromUrl);
+    } else if (!selectedRun) {
       setSelectedRun(runs[0].id);
     }
-  }, [runs, selectedRun]);
+  }, [runs, searchParams, selectedRun]);
+
+  const selectedRunData = runs.find((r) => r.id === selectedRun) ?? null;
+  const isMultiSpecies = selectedRunData?.model_id === "dnn_multispecies" || selectedRunData?.model_id === "gllvm";
 
   if (isLoading) {
     return (
@@ -61,6 +71,9 @@ export default function EcologyPage() {
                   >
                     <p className="font-medium">{run.species}</p>
                     <p className="text-xs text-sdm-muted">{run.model_id} · {new Date(run.started_at).toLocaleDateString()}</p>
+                    {(run.model_id === "dnn_multispecies" || run.model_id === "gllvm") && (
+                      <span className="inline-block mt-1 text-[10px] uppercase tracking-wider text-sdm-accent/70">multi-species</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -73,9 +86,14 @@ export default function EcologyPage() {
             )}
           </div>
 
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-6">
             {selectedRun ? (
-              <ConservationSummary runId={selectedRun} />
+              <>
+                <ConservationSummary runId={selectedRun} />
+                {isMultiSpecies && selectedRunData && (
+                  <CommunitySummary run={selectedRunData} />
+                )}
+              </>
             ) : (
               <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
                 Select a run to view ecology data.
