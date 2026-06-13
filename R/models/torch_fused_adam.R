@@ -41,6 +41,28 @@ gpu_profile_stop <- function(enabled) {
   invisible(TRUE)
 }
 
+# ABI compatibility check: verify .so was compiled against the same torch version
+# that is currently loaded. Prevents silent memory corruption from ABI mismatches.
+sdm_check_so_abi <- function(so_path, so_label = "C++ extension") {
+  if (!file.exists(so_path)) return(invisible(FALSE))
+  if (!requireNamespace("torch", quietly = TRUE)) return(invisible(FALSE))
+  # Get version from the .so — it should already be loaded
+  so_version <- tryCatch(.Call("sdmtorch_torch_version"), error = function(e) "unknown")
+  torch_version <- tryCatch(as.character(packageVersion("torch")), error = function(e) "unknown")
+  if (identical(so_version, "unknown") || identical(torch_version, "unknown")) return(invisible(FALSE))
+  # Major.minor must match (patch can differ)
+  so_major <- strsplit(so_version, "\\.")[[1]][1:2]
+  torch_major <- strsplit(torch_version, "\\.")[[1]][1:2]
+  if (!identical(so_major, torch_major)) {
+    warning(sprintf(
+      "%s compiled against torch %s but running torch %s — ABI mismatch risk. Rebuild with: make -C sdmtorch clean all",
+      so_label, so_version, torch_version
+    ))
+    return(invisible(FALSE))
+  }
+  invisible(TRUE)
+}
+
 # === Fused Elastic Net Regularization ===
 
 fused_regularize_weights <- function(parameters, alpha, lambda) {
