@@ -538,6 +538,10 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
         mem_delta_mb = if (is.finite(epoch_start_mem) && is.finite(epoch_end_mem)) epoch_end_mem - epoch_start_mem else NA_integer_,
         amp_scale = if (use_amp && !is.null(scaler)) tryCatch(as.numeric(scaler$scale$item()), error = function(e) NA_real_) else NA_real_
       )
+      if (is.finite(epoch_time_s) && epoch_time_s > 0) {
+        cat(sprintf("  Epoch %d: %.1fs, %.0f samples/s, %d MiB\n",
+          epoch, epoch_time_s, n_samples / epoch_time_s, epoch_end_mem %||% NA_integer_))
+      }
     }
   }
 
