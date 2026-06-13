@@ -154,7 +154,9 @@ sdmBatchRoutes.post("/cancel-all", async (c) => {
         } catch { /* best effort */ }
       }
       if (run.jobId) {
-        await plumberClient.cancelModel(run.jobId).catch(() => {});
+        await       plumberClient.cancelModel(run.jobId).catch((e: unknown) =>
+        console.warn(`[batch] Cancel model run ${run.jobId} failed:`, e instanceof Error ? e.message : String(e))
+      );
       }
     });
     await Promise.allSettled(cancelPromises);
@@ -312,8 +314,10 @@ sdmBatchRoutes.post("/batch/:batchId/cancel", async (c) => {
 
     // Parallelize BullMQ and Plumber cancellations
     await Promise.allSettled(cancellable.map(async (r) => {
-      if (r.bullmqId && queue) await queue.remove(r.bullmqId).catch(() => {});
-      if (r.jobId) await plumberClient.cancelModel(r.jobId).catch(() => {});
+      if (r.bullmqId && queue) await queue.remove(r.bullmqId).catch((e: unknown) =>
+        console.warn(`[batch] Remove queue job ${r.bullmqId} failed:`, e instanceof Error ? e.message : String(e)));
+      if (r.jobId) await plumberClient.cancelModel(r.jobId).catch((e: unknown) =>
+        console.warn(`[batch] Cancel model run ${r.jobId} failed:`, e instanceof Error ? e.message : String(e)));
       jobEventBus.emitJobStatus({
         jobId: r.id,
         state: "cancelled",
@@ -510,7 +514,8 @@ sdmBatchRoutes.post("/runs/clear-all", async (c) => {
       await Promise.allSettled(
         runsToDelete.map((run) =>
           run.jobId
-            ? plumberClient.deleteModelOutputs(run.jobId).catch(() => {})
+            ? plumberClient.deleteModelOutputs(run.jobId).catch((e: unknown) =>
+              console.warn(`[batch] Delete outputs for ${run.jobId} failed:`, e instanceof Error ? e.message : String(e)))
             : Promise.resolve()
         )
       );

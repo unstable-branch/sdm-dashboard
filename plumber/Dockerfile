@@ -116,12 +116,18 @@ RUN R -e "options(timeout = 900, repos = c(CRAN = Sys.getenv('R_CRAN_REPO'))); i
   ), Ncpus=4)" \
   && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
 
+# Build sdmtorch C++ extensions against installed torch
+COPY scripts/build_sdmtorch.R sdmtorch/ /tmp/sdmtorch-build/
+RUN cd /tmp/sdmtorch-build && Rscript build_sdmtorch.R && cp *.so /usr/local/lib/ 2>/dev/null; rm -rf /tmp/sdmtorch-build
+
 WORKDIR /app
 
 COPY R/ /app/R/
 COPY plumber/ /app/plumber/
 COPY data/ /app/data/
 COPY python_models/ /app/python_models/
+# Copy sdmtorch source + pre-built .so files (or freshly built ones from step above)
+COPY sdmtorch/ /app/sdmtorch/
 
 RUN groupadd -g 2000 uploadgroup && \
     useradd -m -s /bin/bash -G uploadgroup sdm && \

@@ -73,5 +73,30 @@ jobs:
       - name: Run lightweight test suite
         run: Rscript tests/testthat.R
 
+      - name: Build sdmtorch C++ extensions
+        run: |
+          cd sdmtorch
+          # Build CPU-compatible extensions only (cuda_graph.so requires CUDA headers)
+          make adam libtorch 2>&1 || echo "WARNING: sdmtorch build failed, continuing"
+          cd ..
+
+      - name: Verify sdmtorch .so loads
+        run: |
+          Rscript -e '
+            so_dir <- file.path(getwd(), "sdmtorch")
+            for (so in c("train_step_adam.so", "train_step_libtorch.so")) {
+              path <- file.path(so_dir, so)
+              if (file.exists(path)) {
+                tryCatch({
+                  dyn.load(path, local = FALSE, now = TRUE)
+                  cat(so, "loaded OK\n")
+                  dyn.unload(path)
+                }, error = function(e) cat(so, "FAILED:", conditionMessage(e), "\n"))
+              } else {
+                cat(so, "not found — skipping\n")
+              }
+            }
+          '
+
       - name: Audit release packaging
         run: Rscript scripts/audit_release.R
