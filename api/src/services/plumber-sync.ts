@@ -30,6 +30,18 @@ interface Consecutive404 {
   firstSeen: number;
 }
 
+interface PlumberModelStatus {
+  status: string;
+  progress_log?: string[];
+  progress_json?: unknown;
+  error?: string | null;
+  last_stage?: string | null;
+  error_code?: string | null;
+  error_hint?: string | null;
+  metrics?: Record<string, unknown> | null;
+  output_files?: { tif_3857?: string } | null;
+}
+
 const consecutive404s = new Map<string, Consecutive404>();
 
 function extractHttpStatusCode(msg: string): number | null {
@@ -132,8 +144,8 @@ async function syncRunningJobs() {
       }
 
       try {
-        const status = await client.getModelStatus(run.jobId);
-        const plumberStatus = (status as any).status as string;
+        const status = await client.getModelStatus(run.jobId) as unknown as PlumberModelStatus;
+        const plumberStatus = status.status;
 
         // Guard: re-check DB status in case cancel route changed it since the query above
         const [currentRun] = await db
@@ -142,10 +154,10 @@ async function syncRunningJobs() {
           .where(eq(runs.id, run.id))
           .limit(1);
         if (currentRun && currentRun.status !== "running") continue;
-        const logs = Array.isArray((status as any).progress_log) ? (status as any).progress_log : [];
-        const progressJson = (status as any).progress_json;
-        const error = (status as any).error as string | undefined;
-        const plumberLastStage = (status as any).last_stage as string | undefined;
+        const logs = Array.isArray(status.progress_log) ? status.progress_log as string[] : [];
+        const progressJson = status.progress_json;
+        const error = status.error;
+        const plumberLastStage = status.last_stage;
 
         consecutive404s.delete(run.id);
 
@@ -229,8 +241,8 @@ async function syncRunningJobs() {
             .update(runs)
             .set({
               status: "completed",
-              metrics: (status as any).metrics ?? null,
-              outputFiles: (status as any).output_files ?? null,
+              metrics: status.metrics ?? null,
+              outputFiles: status.output_files ?? null,
               completedAt: new Date(),
               progressLog: logs.length > 0 ? logs : undefined,
               provenance,
@@ -256,7 +268,7 @@ async function syncRunningJobs() {
           }
 
           // Upload the 3857 COG to Garage S3 for TiTiler serving
-          const tif3857Path = (status as any)?.output_files?.tif_3857;
+          const tif3857Path = status.output_files?.tif_3857;
           if (tif3857Path) {
             uploadCogToGarage(tif3857Path, run.id).catch((err) => {
               console.warn(`[Garage] Failed to upload COG for run ${run.id}:`, err instanceof Error ? err.message : err);
@@ -268,7 +280,7 @@ async function syncRunningJobs() {
             state: "completed",
             progress: 100,
             logs,
-            result: status as Record<string, unknown>,
+            result: status as unknown as Record<string, unknown>,
             progressJson,
           });
 
@@ -278,8 +290,8 @@ async function syncRunningJobs() {
             encryptOutputs(jobDir);
           }
         } else if (plumberStatus === "failed") {
-          const errorCode = (status as any).error_code as string | undefined;
-          const errorHint = (status as any).error_hint as string | undefined;
+          const errorCode = status.error_code;
+          const errorHint = status.error_hint;
           await db
             .update(runs)
             .set({
@@ -299,7 +311,7 @@ async function syncRunningJobs() {
             progress: 0,
             logs,
             failedReason: error ?? "Model run failed",
-            error_code: (status as any).error_code as string | undefined,
+            error_code: status.error_code as string | undefined,
             error_hint: (status as any).error_hint as string | undefined,
             progressJson,
           });
@@ -388,7 +400,7 @@ async function syncRunningJobs() {
                 if (["completed", "failed", "cancelled"].includes(ps)) {
                   finalPlumberStatus = ps;
                   await db.update(runs).set({
-                    status: ps as any,
+                    status: ps as "completed" | "failed" | "cancelled",
                     error: ps === "failed" ? ((probeJson.error as string) || "Model run failed") : null,
                     errorCode: ps === "failed" ? (probeJson.error_code as string ?? null) : null,
                     errorHint: ps === "failed" ? (probeJson.error_hint as string ?? null) : null,
