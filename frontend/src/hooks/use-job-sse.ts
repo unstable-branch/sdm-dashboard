@@ -150,7 +150,7 @@ function openSharedConnection(): void {
           notifyListeners();
         }
       })
-      .catch(() => {});
+      .catch((e) => console.warn("[sse] Failed to fetch active runs:", e instanceof Error ? e.message : String(e)));
   };
 
   es.onerror = () => {

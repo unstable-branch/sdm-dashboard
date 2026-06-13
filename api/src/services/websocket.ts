@@ -126,7 +126,9 @@ export function setupWebSocket(server: ServerType) {
                 logs: [],
               }));
             }
-          }).catch(() => {});
+          }).catch((e: unknown) => {
+            console.warn("[ws] Failed to send:", e instanceof Error ? e.message : String(e));
+          });
         } else if (msg.type === "unsubscribe") {
           const jobId = msg.jobId;
           clients.get(clientId)?.subscriptions.delete(jobId);
