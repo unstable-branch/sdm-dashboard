@@ -349,6 +349,20 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
     stop(paste("DNN-202: Unknown DNN architecture:", model_type, ". Valid options: DNN_Small, DNN_Medium, DNN_Large"), call. = FALSE)
   }
 
+  # DNN-202b: GPU guard — skip GPU for models too small to benefit
+  n_input_feats <- length(train_data$feature_names)
+  param_estimate <- arch$hidden[1] * n_input_feats + arch$hidden[1]  # input layer
+  for (i in seq_len(max(0, length(arch$hidden) - 1))) {
+    param_estimate <- param_estimate + arch$hidden[i] * arch$hidden[i + 1] + arch$hidden[i + 1]
+  }
+  param_estimate <- param_estimate + arch$hidden[length(arch$hidden)] * 1 + 1  # output layer
+  if (identical(device, "cuda") && param_estimate < 100000) {
+    if (!is.null(log_fun)) {
+      log_fun(paste("DNN:", model_type, "~", param_estimate, "params — GPU not beneficial below 100K params. Forcing CPU."))
+    }
+    device <- "cpu"
+  }
+
   # DNN-203: Check training data size
   n_train <- length(train_data$train_y)
   if (n_train < 20) {
@@ -385,6 +399,11 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
     }
   } else {
     device <- "cpu"
+  }
+
+  # Enable TF32 matmul precision on Ampere+ GPUs (up to 8x faster matmuls)
+  if (identical(device, "cuda")) {
+    tryCatch(torch::set_float32_matmul_precision("high"), error = function(e) NULL)
   }
 
   # DNN-204: Train model with error handling
@@ -554,10 +573,6 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
       # Map back to valid cell indices
       pred_vals[valid_batch_idx] <- batch_pred
     }
-  }
-
-  if (is_cuda_pred) {
-    tryCatch(torch::cuda_empty_cache(), error = function(e) NULL)
   }
 
   # Create raster
