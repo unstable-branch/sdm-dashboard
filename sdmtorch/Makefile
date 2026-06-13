@@ -54,6 +54,9 @@ LIBTORCH_OUT := train_step_libtorch.so
 CUDAGRAPH_SRC := $(SRC_DIR)/cuda_graph.cpp
 CUDAGRAPH_OUT := cuda_graph.so
 
+TENSORVIEW_SRC := $(SRC_DIR)/tensor_view.cpp
+TENSORVIEW_OUT := tensor_view.so
+
 # Resolve torch version for ABI check at compile time
 TORCH_VERSION := $(shell Rscript -e 'if (requireNamespace("torch", quietly=TRUE)) cat(as.character(packageVersion("torch")))' 2>/dev/null)
 ifeq ($(strip $(TORCH_VERSION)),)
@@ -67,7 +70,7 @@ VERSION_FLAG := -DSDMTORCH_TORCH_VERSION=\"$(TORCH_VERSION)\"
 CFLAGS := -std=c++17 -shared -fPIC -O2 $(VERSION_FLAG)
 INCLUDES := $(TORCH_INC) $(RCPP_INC) $(R_INC)
 
-all: $(ADAM_OUT) $(LIBTORCH_OUT)
+all: $(ADAM_OUT) $(LIBTORCH_OUT) $(TENSORVIEW_OUT)
 	@if [ -n "$(TORCH_CUDA_LIBS)" ]; then $(MAKE) $(CUDAGRAPH_OUT); fi
 
 adam: $(ADAM_OUT)
@@ -75,6 +78,8 @@ adam: $(ADAM_OUT)
 libtorch: $(LIBTORCH_OUT)
 
 cuda_graph: $(CUDAGRAPH_OUT)
+
+tensor_view: $(TENSORVIEW_OUT)
 
 $(ADAM_OUT): $(ADAM_SRC) $(VERSION_SRC) $(SRC_DIR)/common.h
 	$(CXX) $(CFLAGS) $(INCLUDES) $(TORCH_LIB) \
@@ -89,6 +94,11 @@ $(LIBTORCH_OUT): $(LIBTORCH_SRC) $(VERSION_SRC) $(SRC_DIR)/common.h
 $(CUDAGRAPH_OUT): $(CUDAGRAPH_SRC) $(VERSION_SRC) $(SRC_DIR)/common.h
 	$(CXX) $(CFLAGS) $(INCLUDES) $(TORCH_LIB) \
 		-o $@ $(CUDAGRAPH_SRC) $(VERSION_SRC) $(TORCH_LIBS) $(RPATH) $(R_LIB)
+	@echo "Built $@"
+
+$(TENSORVIEW_OUT): $(TENSORVIEW_SRC) $(SRC_DIR)/common.h
+	$(CXX) $(CFLAGS) $(INCLUDES) $(TORCH_LIB) \
+		-o $@ $(TENSORVIEW_SRC) $(TORCH_LIBS) $(RPATH) $(R_LIB)
 	@echo "Built $@"
 
 test-adam: $(ADAM_OUT)
