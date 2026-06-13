@@ -1,6 +1,9 @@
-// Audit logging has been removed (task 12: drop audit_logs table).
-// Keep client metadata extraction available for callers that include it in
-// structured security logs, but avoid writing to the removed audit_logs table.
+// Structured audit logging — writes JSON entries to stdout for log collection.
+// Each entry is a single line of JSON that can be ingested by Docker, ELK,
+// Grafana Loki, or any log aggregator.
+//
+// If you need DB-backed audit logs, re-create the audit_logs table and
+// replace the console.log below with a DB insert.
 
 import type { Context } from "hono";
 
@@ -14,8 +17,12 @@ export interface AuditEntry {
   details?: Record<string, unknown> | null;
 }
 
-export async function logAction(_entry: AuditEntry): Promise<void> {
-  // No-op: audit_logs table has been removed
+export async function logAction(entry: AuditEntry): Promise<void> {
+  const logLine = JSON.stringify({
+    timestamp: new Date().toISOString(),
+    ...entry,
+  });
+  console.log(`[audit] ${logLine}`);
 }
 
 export function extractClientInfo(c: Context | any) {

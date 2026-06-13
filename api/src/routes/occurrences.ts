@@ -35,6 +35,7 @@ async function saveUpload(buffer: Buffer, originalName: string): Promise<string>
 export const dataRoutes = new Hono<AppEnv>();
 
 dataRoutes.use("*", authMiddleware);
+dataRoutes.use("*", defaultRateLimit);
 
 dataRoutes.get("/occurrences/uploads", async (c) => {
   try {
@@ -143,8 +144,6 @@ dataRoutes.get("/occurrences/clean/result", async (c) => {
     return c.json({ error: message }, 502);
   }
 });
-
-dataRoutes.use("*", defaultRateLimit);
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB
 
