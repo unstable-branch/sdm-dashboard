@@ -438,11 +438,10 @@ adminRoutes.get("/system/secrets", async (c) => {
   }
 });
 
-// GET /system/secrets/:key?raw=1 — reveal a single secret in plaintext
+// GET /system/secrets/:key — reveal a single secret (always masked)
 adminRoutes.get("/system/secrets/:key", async (c) => {
   try {
     const key = c.req.param("key");
-    const raw = c.req.query("raw") === "1";
     const [setting] = await db.select().from(systemSettings)
       .where(eq(systemSettings.key, key)).limit(1);
     if (!setting) return c.json({ error: "Secret not found" }, 404);
@@ -458,7 +457,7 @@ adminRoutes.get("/system/secrets/:key", async (c) => {
         return c.json({ error: "Failed to decrypt secret" }, 500);
       }
     }
-    if (!raw) value = maskSecret(value);
+    value = maskSecret(value);
     return c.json({ key, value, sensitive: isSensitive });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to get secret" }, 500);

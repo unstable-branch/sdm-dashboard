@@ -3,7 +3,7 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync, copyFileSync } from
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { plumberClient } from "../services/plumber.js";
-import { optionalAuth, type AppEnv } from "../middleware/auth.js";
+import { optionalAuth, authMiddleware, type AppEnv } from "../middleware/auth.js";
 import type { PlumberUploadResponse } from "@sdm/shared";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -179,7 +179,7 @@ examplesRoutes.post("/load", async (c) => {
   }
 });
 
-examplesRoutes.post("/save", async (c) => {
+examplesRoutes.post("/save", authMiddleware, async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const fileId = body.file_id as string | undefined;

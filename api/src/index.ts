@@ -66,6 +66,8 @@ app.use("*", bodyLimit({
 app.use("*", logger());
 app.use("*", securityHeaders);
 app.use("/api/v1/auth/*", csrfMiddleware);
+app.use("/api/v1/admin/*", csrfMiddleware);
+app.use("/api/v1/settings/*", csrfMiddleware);
 app.use("/api/v1/sdm/*", csrfMiddleware);
 app.use("/api/v1/data/*", csrfMiddleware);
 app.use("/api/v1/climate/*", csrfMiddleware);
