@@ -572,10 +572,12 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
 
       batch_pred <- tryCatch(
         {
+          x_tensor <- torch::torch_tensor(batch_scaled, device = device)$to(dtype = torch::torch_float32())
           pred <- torch::with_no_grad({
-            stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response", device = device)
+            logits <- model$net(x_tensor)
+            torch::torch_sigmoid(logits)
           })
-          if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+          as.numeric(pred$cpu())
         },
         error = function(e) {
           stop(paste("DNN-303: Prediction failed for batch:", conditionMessage(e)), call. = FALSE)
@@ -1092,38 +1094,38 @@ predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
     chunk_end <- min(chunk_start + chunk_size - 1, mc_samples)
     chunk_n <- chunk_end - chunk_start + 1L
 
-    mc_chunk <- matrix(NA_real_, nrow = length(valid_cells), ncol = chunk_n)
-
     for (t_local in seq_len(chunk_n)) {
       t_global <- chunk_start + t_local - 1L
       if (!is.null(log_fun) && mc_samples > 5 && (t_global %% 5 == 0 || t_global == 1)) {
         log_message(log_fun, sprintf("  MC sample %d/%d", t_global, mc_samples))
       }
 
-      pred_vals <- rep(NA, n_cells)
+      # For each spatial batch: run forward pass on device, accumulate on device
+      chunk_mean_vec <- numeric(length(valid_cells))
+      chunk_m2_vec <- numeric(length(valid_cells))
 
       for (b in seq_len(pre_scaled_rows)) {
         batch_idx <- pre_cell_idx[[b]]
         batch_scaled <- pre_scaled[[b]]
         if (length(batch_idx) == 0) next
 
-        batch_pred <- tryCatch({
-          pred <- torch::with_no_grad({
-            stats::predict(model, newdata = as.data.frame(batch_scaled), type = "response", device = device)
-          })
-          if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
-        }, error = function(e) {
-          stop(paste("DNN-303: MC prediction failed:", conditionMessage(e)), call. = FALSE)
+        # Convert scaled matrix to torch tensor on the device (GPU if available).
+        # Avoid stats::predict() which does model.matrix + $to(device) + GPU sync per call.
+        x_tensor <- torch::torch_tensor(batch_scaled, device = device)
+        with_no_grad_ctx <- torch::with_no_grad({
+          pred <- model$net(x_tensor)
+          # Apply link function for binomial loss (sigmoid)
+          if (inherits(pred, "torch_tensor")) {
+            pred <- torch::torch_sigmoid(pred)
+          }
+          # Transfer to CPU — one sync per spatial batch per MC sample
+          batch_pred <- as.numeric(pred$cpu())
         })
         pred_vals[batch_idx] <- batch_pred
       }
 
-      mc_chunk[, t_local] <- pred_vals[valid_cells]
-    }
-
-    # Welford-style incremental mean/M2 across chunks
-    for (t_local in seq_len(chunk_n)) {
-      col <- mc_chunk[, t_local]
+      # Welford incremental mean/M2 across MC samples
+      col <- pred_vals[valid_cells]
       t_global <- chunk_start + t_local - 1L
       delta <- col - mean_vec
       mean_vec <- mean_vec + delta / t_global
