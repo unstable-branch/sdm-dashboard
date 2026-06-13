@@ -572,7 +572,7 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
 
       batch_pred <- tryCatch(
         {
-          x_tensor <- torch::torch_tensor(batch_scaled, device = device)$to(dtype = torch::torch_float32())
+          x_tensor <- torch::torch_tensor(batch_scaled, device = device)
           pred <- torch::with_no_grad({
             logits <- model$net(x_tensor)
             torch::torch_sigmoid(logits)
