@@ -89,7 +89,7 @@ handle_model_run <- function(req, app_dir) {
     TMPDIR = tmp_dir,
     OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
     R_MAX_VSIZE = sdm_detect_vsize(),
-    PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True",
+    PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True,max_split_size_mb:512",
     CUBLAS_WORKSPACE_CONFIG = ":4096:8"
   )
 
@@ -390,7 +390,7 @@ handle_targets_run <- function(req, app_dir) {
     HOME = "/app",
     OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
     R_MAX_VSIZE = sdm_detect_vsize(),
-    PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True",
+    PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True,max_split_size_mb:512",
     CUBLAS_WORKSPACE_CONFIG = ":4096:8")
   if (is_multispecies) {
     env_vars["SDM_MULTISPECIES"] <- "true"
@@ -1016,7 +1016,7 @@ sdm_submit_async_job <- function(req, app_dir, job_type, params, user_id = "anon
         R_LIBS_USER = Sys.getenv("R_LIBS_USER"),
         OMP_THREAD_LIMIT = as.character(getOption("sdm.omp_thread_limit", "1")),
         R_MAX_VSIZE = sdm_detect_vsize(),
-        PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True",
+        PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True,max_split_size_mb:512",
         CUBLAS_WORKSPACE_CONFIG = ":4096:8"
       )
     )

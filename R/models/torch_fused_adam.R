@@ -256,10 +256,23 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   # Enable cuDNN autotuner for optimal kernel selection on cuDNN >= 7.6
   if (is_cuda) {
     tryCatch(torch::torch_backends_cudnn_benchmark(TRUE), error = function(e) NULL)
+    tryCatch(torch::set_float32_matmul_precision("high"), error = function(e) NULL)
   }
 
   # GPU metrics tracking
   model$gpu_metrics <- list()
+
+  # CUDA Graphs: setup non-default stream before epoch loop (required for graph capture)
+  cg_stream_setup <- FALSE
+  if (use_cudagraphs && is_cuda) {
+    tryCatch({
+      .Call("cuda_setup_graph_stream")
+      cg_stream_setup <- TRUE
+    }, error = function(e) {
+      cat("[GPU] CUDA Graph stream setup failed, disabling CUDA Graphs:", conditionMessage(e), "\n")
+      use_cudagraphs <<- FALSE
+    })
+  }
 
   for (epoch in start_epoch:(start_epoch + epochs - 1)) {
     epoch_start <- Sys.time()
@@ -531,7 +544,12 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   # Dump GPU profile snapshot if profiling was active
   gpu_profile_dump(gpu_profile, getwd())
 
-  model$net$to(device = "cpu")
+  # Restore default CUDA stream after CUDA Graph capture
+  if (cg_stream_setup) {
+    tryCatch(.Call("cuda_graph_cleanup"), error = function(e) NULL)
+  }
+
+  # Keep model on GPU for subsequent seeds; caller transfers to CPU when done
   model$weights[[2]] <- lapply(model$net$parameters,
     function(x) torch::as_array(x$to(device = "cpu")))
   if (!is.null(model$loss$parameter)) {
