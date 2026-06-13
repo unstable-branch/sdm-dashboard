@@ -1090,6 +1090,14 @@ predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
     }
   }
 
+  # Initialize Welford accumulators on GPU
+  if (is_cuda) {
+    gpu_mean_vec <- torch::torch_zeros(length(valid_cells), device = device)
+    gpu_m2_vec <- torch::torch_zeros(length(valid_cells), device = device)
+    gpu_alea_sum_vec <- torch::torch_zeros(length(valid_cells), device = device)
+    gpu_pred_vals <- torch::torch_zeros(n_cells, device = device)
+  }
+
   for (chunk_start in seq(1, mc_samples, by = chunk_size)) {
     chunk_end <- min(chunk_start + chunk_size - 1, mc_samples)
     chunk_n <- chunk_end - chunk_start + 1L
@@ -1100,41 +1108,60 @@ predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
         log_message(log_fun, sprintf("  MC sample %d/%d", t_global, mc_samples))
       }
 
-      # For each spatial batch: run forward pass on device, accumulate on device
-      chunk_mean_vec <- numeric(length(valid_cells))
-      chunk_m2_vec <- numeric(length(valid_cells))
+      pred_vals <- rep(NA, n_cells)
 
       for (b in seq_len(pre_scaled_rows)) {
         batch_idx <- pre_cell_idx[[b]]
         batch_scaled <- pre_scaled[[b]]
         if (length(batch_idx) == 0) next
 
-        # Convert scaled matrix to torch tensor on the device (GPU if available).
-        # Avoid stats::predict() which does model.matrix + $to(device) + GPU sync per call.
         x_tensor <- torch::torch_tensor(batch_scaled, device = device)
         with_no_grad_ctx <- torch::with_no_grad({
           pred <- model$net(x_tensor)
-          # Apply link function for binomial loss (sigmoid)
           if (inherits(pred, "torch_tensor")) {
             pred <- torch::torch_sigmoid(pred)
           }
-          # Transfer to CPU — one sync per spatial batch per MC sample
-          batch_pred <- as.numeric(pred$cpu())
+          # Keep on GPU or transfer to CPU for Welford
+          if (is_cuda) {
+            gpu_pred_vals <- gpu_pred_vals$index_copy(0,
+              torch::torch_tensor(batch_idx - 1L, device = device, dtype = torch::kLong),
+              pred$reshape(-1))
+          } else {
+            batch_pred <- as.numeric(pred$cpu())
+            pred_vals[batch_idx] <- batch_pred
+          }
         })
-        pred_vals[batch_idx] <- batch_pred
       }
 
-      # Welford incremental mean/M2 across MC samples
-      col <- pred_vals[valid_cells]
-      t_global <- chunk_start + t_local - 1L
-      delta <- col - mean_vec
-      mean_vec <- mean_vec + delta / t_global
-      delta2 <- col - mean_vec
-      m2_vec <- m2_vec + delta * delta2
-      if (decompose) {
-        alea_sum_vec <- alea_sum_vec + col * (1 - col)
+      # Welford: on GPU or CPU
+      if (is_cuda) {
+        col <- gpu_pred_vals[valid_cells - 1L]
+        delta <- col - gpu_mean_vec
+        gpu_mean_vec <- gpu_mean_vec + delta / t_global
+        delta2 <- col - gpu_mean_vec
+        gpu_m2_vec <- gpu_m2_vec + delta * delta2
+        if (decompose) {
+          gpu_alea_sum_vec <- gpu_alea_sum_vec + col * (1 - col)
+        }
+      } else {
+        col <- pred_vals[valid_cells]
+        delta <- col - mean_vec
+        mean_vec <- mean_vec + delta / t_global
+        delta2 <- col - mean_vec
+        m2_vec <- m2_vec + delta * delta2
+        if (decompose) {
+          alea_sum_vec <- alea_sum_vec + col * (1 - col)
+        }
       }
     }
+  }
+
+  # Transfer GPU results to CPU
+  if (is_cuda) {
+    mean_vec <- as.numeric(gpu_mean_vec$cpu())
+    m2_vec <- as.numeric(gpu_m2_vec$cpu())
+    if (decompose) alea_sum_vec <- as.numeric(gpu_alea_sum_vec$cpu())
+    rm(gpu_mean_vec, gpu_m2_vec, gpu_alea_sum_vec, gpu_pred_vals)
   }
 
   # Compute final statistics
