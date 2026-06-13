@@ -104,9 +104,10 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   n_seeds <- as.integer(n_seeds)[1]
   if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
 
-  # Enable cuDNN autotuner for optimal kernel selection on CUDA
+  # Enable cuDNN autotuner + TF32 matmul precision on CUDA
   if (identical(dnn_device, "cuda")) {
     tryCatch(torch::torch_backends_cudnn_benchmark(TRUE), error = function(e) NULL)
+    tryCatch(torch::set_float32_matmul_precision("high"), error = function(e) NULL)
   }
 
   seed_models <- vector("list", n_seeds)

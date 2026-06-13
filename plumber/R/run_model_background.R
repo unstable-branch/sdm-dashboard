@@ -416,6 +416,20 @@ tryCatch({
   meta$error_code <- err_code
   meta$error_hint <- tryCatch(SDM_ERR_CODES[[err_code]]$hint, error = function(ee) NA_character_)
   meta$error_traceback <- paste(utils::tail(traceback(), 10), collapse = "\n")
+  # Capture GPU memory snapshot on CUDA-related failures
+  if (grepl("CUDA|cuda|out of memory|OOM", err_msg, ignore.case = TRUE)) {
+    tryCatch({
+      meta$gpu_memory_mb <- list(
+        free = sdm_gpu_available_vram(),
+        total = sdm_gpu_total_vram()
+      )
+      if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
+        stats <- torch::cuda_memory_stats()
+        meta$gpu_memory_mb$allocated_mb <- stats$allocated_bytes$all$current %/% (1024L * 1024L)
+        meta$gpu_memory_mb$reserved_mb <- stats$reserved_bytes$all$current %/% (1024L * 1024L)
+      }
+    }, error = function(e) NULL)
+  }
   meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
   write_meta(meta)
   cat("Run failed [", err_code, "]:", err_msg, "\n")

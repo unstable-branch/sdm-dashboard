@@ -697,7 +697,10 @@ handle_model_status <- function(res, job_id) {
         if (!is.null(last_line) && length(last_line) > 0 && nchar(last_line) > 0) {
           hb_ts <- tryCatch(as.POSIXct(sub("\\|.*", "", last_line), format = "%Y-%m-%dT%H:%M:%S"), error = function(e) NULL)
           if (!is.null(hb_ts) && !is.na(hb_ts)) {
-            if (difftime(Sys.time(), hb_ts, units = "secs") > 1800) {
+            # GPU runs have shorter heartbeat timeout — CUDA crashes are detected faster
+            is_gpu <- identical(meta$config$dnn_device, "cuda") || identical(meta$config$dnn_device, "auto")
+            hb_timeout <- if (is_gpu) 300 else 1800
+            if (difftime(Sys.time(), hb_ts, units = "secs") > hb_timeout) {
               process_alive <- FALSE
             }
           }
