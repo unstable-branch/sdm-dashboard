@@ -38,6 +38,9 @@ SEXP adam_step_direct(SEXP params_, SEXP grads_,
 
       // item() handles device-to-host copy (required for CUDA tensors)
       int64_t step = st.item<int64_t>();
+      if (step < 1) {
+        Rcpp::stop("adam_step_direct: step counter must be >= 1 (got %lld)", (long long)step);
+      }
 
       // Gradient with weight decay (L2 regularization)
       at::Tensor g_adj = g;

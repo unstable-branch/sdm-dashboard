@@ -550,7 +550,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
 
   # Restore default CUDA stream after CUDA Graph capture
   if (cg_stream_setup) {
-    tryCatch(.Call("cuda_graph_cleanup"), error = function(e) NULL)
+    tryCatch(.Call("cuda_graph_cleanup", NULL), error = function(e) NULL)
   }
 
   # Keep model on GPU for subsequent seeds; caller transfers to CPU when done
