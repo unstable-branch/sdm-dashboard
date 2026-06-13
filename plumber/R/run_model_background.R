@@ -7,8 +7,8 @@
 
 # Set resource limits early — these must be set inside the child process
 # (callr's r_env option may not be reliably passed)
-Sys.setenv(OMP_THREAD_LIMIT = getOption("sdm.omp_thread_limit", "1"))
-Sys.setenv(PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True")
+Sys.setenv(OMP_THREAD_LIMIT = getOption("sdm.omp_thread_limit", as.character(min(4, tryCatch(parallel::detectCores(), error = function(e) 4L)))))
+Sys.setenv(PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True,max_split_size_mb:512")
 Sys.setenv(CUBLAS_WORKSPACE_CONFIG = ":4096:8")
 # R_MAX_VSIZE is set after app_dir is resolved below (shared vsize.R helper)
 

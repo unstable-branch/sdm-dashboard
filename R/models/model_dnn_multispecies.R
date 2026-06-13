@@ -179,7 +179,6 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     if (!is.null(model)) seed_models[[s]] <- model
 
     if (identical(dnn_device, "cuda")) {
-      tryCatch(torch::cuda_empty_cache(), error = function(e) NULL)
     }
   }
 
@@ -359,7 +358,6 @@ predict_dnn_multispecies_mc <- function(model, env_subset, scaler, device = "cpu
   }
 
   if (is_cuda) {
-    tryCatch(torch::cuda_empty_cache(), error = function(e) NULL)
   }
 
   # Final statistics per species
@@ -457,7 +455,6 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
       n_species <- ncol(pred)
     }
     if (identical(dnn_device, "cuda")) {
-      tryCatch(torch::cuda_empty_cache(), error = function(e) NULL)
     }
   } else {
     # Standard prediction across ensemble seeds — process in spatial batches
@@ -504,7 +501,6 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
   }
 
   if (is_cuda_pred) {
-    tryCatch(torch::cuda_empty_cache(), error = function(e) NULL)
   }
 
   if (ncol(pred) != n_species) {
