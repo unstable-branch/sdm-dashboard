@@ -9,11 +9,17 @@
 //
 // NOTE: This couples to the torch R package's internal XPtrTorchTensor
 // layout, which is NOT a public API. If torch R package is upgraded,
-// verify with: Rscript -e 'library(torch); .Call("diag_extptr", xptr)'.
+// rebuild sdmtorch with: make -C sdmtorch clean all
 
 #include <RcppCommon.h>
 #include <ATen/ATen.h>
 #include <Rcpp.h>
+
+// Compile-time torch version hash for ABI compatibility checks.
+// Set at build time via -DSDMTORCH_TORCH_VERSION="x.y.z"
+#ifndef SDMTORCH_TORCH_VERSION
+#define SDMTORCH_TORCH_VERSION "unknown"
+#endif
 
 // Sentinel value to validate layout assumption.
 // Must not conflict with valid at::Tensor* alignment (16-byte).

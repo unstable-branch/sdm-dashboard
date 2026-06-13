@@ -433,7 +433,11 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
     sdm_root <- if (exists("sdm_project_root", mode = "function")) sdm_project_root() else getwd()
     cpp_so <- file.path(sdm_root, "sdmtorch", "train_step_adam.so")
     if (file.exists(cpp_so) && !is.loaded("adam_step_direct", PACKAGE = "")) {
-      tryCatch(dyn.load(cpp_so, local = FALSE, now = TRUE), error = function(e) {
+      tryCatch({
+        dyn.load(cpp_so, local = FALSE, now = TRUE)
+        # Verify ABI compatibility
+        sdm_check_so_abi(cpp_so, "train_step_adam.so")
+      }, error = function(e) {
         if (!is.null(log_fun)) log_fun("Fused Adam .so not loaded (", conditionMessage(e), ")")
       })
     }

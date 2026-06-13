@@ -82,7 +82,7 @@ if (is.loaded("fused_adam_step_direct")) {
     t0 <- Sys.time()
     .Call("fused_adam_step_direct",
           params, lapply(params, function(p) p$grad),
-          ea, eas, ss, 0.01, 0.9, 0.999, 0.001, 1e-8,
+          ea, eas, ss, 0.01, 0.9, 0.999, 1e-8, 0.001,
           if (device == "cuda") 0L else -1L)
     if (device == "cuda") torch::cuda_synchronize()
     times_cpp[i] <- as.numeric(Sys.time() - t0)
