@@ -404,6 +404,14 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   # Enable TF32 matmul precision on Ampere+ GPUs (up to 8x faster matmuls)
   if (identical(device, "cuda")) {
     tryCatch(torch::set_float32_matmul_precision("high"), error = function(e) NULL)
+    # Log cuDNN version for debugging GPU acceleration
+    if (!is.null(log_fun)) {
+      tryCatch({
+        cudnn_avail <- torch::torch_backends_cudnn_is_available()
+        cudnn_ver <- torch::torch_backends_cudnn_version()
+        log_fun(paste("cuDNN available:", cudnn_avail, "| version:", cudnn_ver))
+      }, error = function(e) NULL)
+    }
   }
 
   # DNN-204: Train model with error handling
@@ -884,8 +892,23 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
                        dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
                        dnn_mixed_precision = dnn_mixed_precision, dnn_cuda_graphs = dnn_cuda_graphs),
       error = function(e) {
-        log_message(log_fun, "    Seed ", s, " failed: ", conditionMessage(e))
-        NULL
+        err_msg <- conditionMessage(e)
+        # If GPU failed and CPU fallback available, retry on CPU
+        if (identical(dnn_device, "cuda") && grepl("CUDA|out of memory|cuda|memory", err_msg, ignore.case = TRUE)) {
+          log_message(log_fun, "    Seed ", s, " GPU failed (", err_msg, "). Retrying on CPU...")
+          tryCatch(
+            train_dnn_model(dnn_data, model_type = dnn_model_type, device = "cpu", log_fun = log_fun,
+                             dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
+                             dnn_mixed_precision = "off", dnn_cuda_graphs = "off"),
+            error = function(e2) {
+              log_message(log_fun, "    Seed ", s, " CPU fallback also failed: ", conditionMessage(e2))
+              NULL
+            }
+          )
+        } else {
+          log_message(log_fun, "    Seed ", s, " failed: ", err_msg)
+          NULL
+        }
       }
     )
     if (is.null(model)) next

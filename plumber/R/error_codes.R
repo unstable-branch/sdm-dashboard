@@ -111,6 +111,12 @@ SDM_ERR_CODES <- list(
     message = "Run cancelled by user",
     hint = "The run was cancelled — no further action needed"
   ),
+  GPU_BUSY = list(
+    code = "GPU_BUSY",
+    http_status = 429L,
+    message = "Too many GPU model runs are currently active",
+    hint = "Wait for a GPU model run to finish before starting another, or increase SDM_MAX_GPU_CONCURRENT_RUNS"
+  ),
   INTERNAL_ERROR = list(
     code = "INTERNAL_ERROR",
     http_status = 500L,
@@ -154,7 +160,7 @@ sdm_error_code_direct <- function(code_key, detail_msg = NULL) {
 # Helper to categorise a raw R error into a known error code
 sdm_classify_error <- function(err_msg) {
   err_msg <- as.character(err_msg)
-  if (grepl("out of memory|cannot allocate|OOM|CUD", err_msg, ignore.case = TRUE)) {
+  if (grepl("out of memory|cannot allocate|OOM|CUDA out of memory|CUDA error|cuBLAS error|cuDNN error", err_msg, ignore.case = TRUE)) {
     return("OOM_PREDICTION")
   }
   if (grepl("perfect separation|singular|glm\\.fit", err_msg, ignore.case = TRUE)) {
