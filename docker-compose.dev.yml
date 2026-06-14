@@ -15,7 +15,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sdm_dev_only_change_me}
       POSTGRES_DB: sdm_platform
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -30,7 +30,7 @@ services:
     profiles: ["core", "all"]
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     command: ["redis-server", "--maxmemory", "2gb", "--maxmemory-policy", "noeviction"]
@@ -46,8 +46,8 @@ services:
     profiles: ["email", "all"]
     image: axllent/mailpit:latest
     ports:
-      - "5000:8025"
-      - "2525:1025"
+      - "127.0.0.1:5000:8025"
+      - "127.0.0.1:2525:1025"
     networks:
       - sdm-network
 
@@ -56,10 +56,10 @@ services:
     image: dxflrs/garage:v2.3.0
     command: ["/garage", "server", "--single-node", "--default-bucket"]
     ports:
-      - "3900:3900"
-      - "3901:3901"
-      - "3902:3902"
-      - "3903:3903"
+      - "127.0.0.1:3900:3900"
+      - "127.0.0.1:3901:3901"
+      - "127.0.0.1:3902:3902"
+      - "127.0.0.1:3903:3903"
     environment:
       - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef_DEV}
       - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN:-dev-admin-token-CHANGE-ME}
@@ -84,7 +84,7 @@ services:
       context: .
       dockerfile: plumber/Dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./R:/app/R:ro
       - ./plumber:/app/plumber:ro
@@ -124,7 +124,7 @@ services:
     profiles: ["computation", "all"]
     image: ghcr.io/developmentseed/titiler:latest
     ports:
-      - "9000:8000"
+      - "127.0.0.1:9000:8000"
     volumes:
       - ./outputs:/data/outputs:ro
     command: >
