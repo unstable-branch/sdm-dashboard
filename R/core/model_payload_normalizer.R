@@ -85,6 +85,15 @@ sdm_normalize_model_payload <- function(payload) {
     payload$dnn_cuda_graphs,
     payload$dnnCudaGraphs
   )
+  payload$dnn_fused_adam <- sdm_payload_coalesce(
+    payload$dnn_fused_adam,
+    payload$dnnFusedAdam
+  )
+
+  payload$gpu_enabled <- sdm_payload_coalesce(
+    payload$gpu_enabled,
+    payload$gpuEnabled
+  )
 
   payload$gllvm_family <- sdm_payload_coalesce(
     payload$gllvm_family,
