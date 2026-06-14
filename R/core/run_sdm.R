@@ -157,6 +157,9 @@ run_fast_sdm <- function(...) {
   dnn_cuda_graphs <- cfg$dnn_cuda_graphs %||% "off"
   dnn_mc_samples <- cfg$dnn_mc_samples %||% 0L
   dnn_uncertainty_method <- cfg$dnn_uncertainty_method %||% "none"
+  dnn_fused_adam <- cfg$dnn_fused_adam %||% "auto"
+  gpu_enabled <- cfg$gpu_enabled %||% "auto"
+  config$gpu_enabled <- gpu_enabled
   overlap_warn <- cfg$overlap_warn
   validation_occurrences <- cfg$validation_occurrences
   niche_breadth <- cfg$niche_breadth %||% sdm_default_niche_breadth
@@ -408,21 +411,25 @@ run_fast_sdm <- function(...) {
       max_depth = xgb_max_depth, eta = xgb_eta, nrounds = xgb_nrounds
     )
   } else if (identical(model_id, "dnn")) {
+    dnn_dev <- if (identical(gpu_enabled, "off")) "cpu" else dnn_device
     list(
       dnn_model_type = dnn_model_type, dropout = dnn_dropout, lambda = dnn_lambda,
-      dnn_device = dnn_device, n_seeds = dnn_n_seeds,
+      dnn_device = dnn_dev, n_seeds = dnn_n_seeds,
+      use_fused_adam = dnn_fused_adam,
       dnn_mixed_precision = dnn_mixed_precision,
       dnn_cuda_graphs = dnn_cuda_graphs,
       mc_samples = dnn_mc_samples,
       uncertainty_method = dnn_uncertainty_method
     )
   } else if (identical(model_id, "dnn_multispecies")) {
+    dnn_dev <- if (identical(gpu_enabled, "off")) "cpu" else dnn_device
     list(
       dnn_architecture = dnn_multispecies_architecture,
       n_seeds = dnn_multispecies_n_seeds,
-      dnn_device = dnn_device,
+      dnn_device = dnn_dev,
       dnn_dropout = dnn_dropout,
       dnn_lambda = dnn_lambda,
+      use_fused_adam = dnn_fused_adam,
       dnn_mixed_precision = dnn_mixed_precision,
       dnn_cuda_graphs = dnn_cuda_graphs,
       mc_samples = dnn_mc_samples,
@@ -783,20 +790,21 @@ run_fast_sdm <- function(...) {
       rep_results <- parallel::mclapply(rep_indices, function(i) {
         rep_fit <- replicate_fits[[i]]
         rep_tif <- tempfile(pattern = paste0("pa_rep", i, "_"), fileext = ".tif")
-        pa_temp_files <<- c(pa_temp_files, rep_tif)
         tryCatch({
           s <- predict_sdm_model(rep_fit, env$env_project_scaled, rep_tif, 1, NULL)
           unlink(rep_tif)
-          s
+          list(result = s, temp_file = rep_tif)
         }, error = function(e) {
+          unlink(rep_tif)
           message("  PA replicate ", i, " prediction failed: ", conditionMessage(e))
-          NULL
+          list(result = NULL, temp_file = rep_tif)
         })
       }, mc.cores = pa_workers, mc.preschedule = TRUE)
 
       for (rr in rep_results) {
-        if (!is.null(rr)) {
-          suit_sum <- suit_sum + rr
+        pa_temp_files <- c(pa_temp_files, rr$temp_file)
+        if (!is.null(rr$result)) {
+          suit_sum <- suit_sum + rr$result
           valid_reps <- valid_reps + 1L
         }
       }
@@ -1308,7 +1316,8 @@ build_stage_extra_args <- function(cfg, model_id) {
          dropout = cfg$dnn_dropout %||% 0.3, lambda = cfg$dnn_lambda %||% 0.001,
          dnn_mixed_precision = cfg$dnn_mixed_precision %||% "auto", dnn_cuda_graphs = cfg$dnn_cuda_graphs %||% "off",
          mc_samples = cfg$dnn_mc_samples %||% 0L,
-         uncertainty_method = cfg$dnn_uncertainty_method %||% "none")
+         uncertainty_method = cfg$dnn_uncertainty_method %||% "none",
+         use_fused_adam = cfg$dnn_fused_adam %||% "auto")
   } else if (identical(model_id, "gam")) {
     list(max_k = cfg$gam_k %||% 5L)
   } else if (identical(model_id, "rf")) {
@@ -1333,7 +1342,8 @@ build_stage_extra_args <- function(cfg, model_id) {
       dnn_dropout = cfg$dnn_dropout %||% 0.3, dnn_lambda = cfg$dnn_lambda %||% 0.001,
       dnn_mixed_precision = cfg$dnn_mixed_precision %||% "auto", dnn_cuda_graphs = cfg$dnn_cuda_graphs %||% "off",
       mc_samples = cfg$dnn_mc_samples %||% 0L,
-      uncertainty_method = cfg$dnn_uncertainty_method %||% "none")
+      uncertainty_method = cfg$dnn_uncertainty_method %||% "none",
+      use_fused_adam = cfg$dnn_fused_adam %||% "auto")
   } else if (identical(model_id, "gllvm")) {
     list(gllvm_family = cfg$gllvm_family %||% "binomial",
       gllvm_num_lv = cfg$gllvm_num_lv %||% 2L,

@@ -101,13 +101,17 @@ sdm_write_json <- function(value, path, ...) {
 }
 
 # Check if a model run is expected to use GPU acceleration
-sdm_is_gpu_model <- function(model_id, dnn_device = "auto") {
+sdm_is_gpu_model <- function(model_id, dnn_device = "auto", gpu_enabled = "auto") {
   if (!is.character(model_id) || length(model_id) != 1) return(FALSE)
-  gpu_models <- c("dnn", "dnn_multispecies")
-  if (!model_id %in% gpu_models) return(FALSE)
-  if (identical(dnn_device, "cpu")) return(FALSE)
+  if (identical(gpu_enabled, "off")) return(FALSE)
   if (!torch_is_available()) return(FALSE)
-  tryCatch(torch::cuda_is_available(), error = function(e) FALSE)
+  has_cuda <- tryCatch(torch::cuda_is_available(), error = function(e) FALSE)
+  has_mps <- tryCatch(torch::mps_is_available(), error = function(e) FALSE)
+  if (!has_cuda && !has_mps) return(FALSE)
+  gpu_models <- c("dnn", "dnn_multispecies", "xgboost")
+  if (!model_id %in% gpu_models) return(FALSE)
+  if (model_id %in% c("dnn", "dnn_multispecies") && identical(dnn_device, "cpu")) return(FALSE)
+  TRUE
 }
 
 torch_is_available <- function() {
