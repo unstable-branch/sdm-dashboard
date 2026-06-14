@@ -133,7 +133,7 @@ services:
       args:
         - PNPM_REGISTRY=${PNPM_REGISTRY:-https://registry.npmmirror.com}
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     environment:
       - SDM_PROJECT_ROOT=/app
       - NODE_ENV=production
