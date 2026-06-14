@@ -176,7 +176,10 @@ predict_gllvm_suitability <- function(fit, env_project_scaled, output_tif, n_cor
   names(multi_rast) <- make.names(species_names)
 
   # Richness raster
-  richness <- sum(multi_rast, na.rm = TRUE)
+  richness <- if (sdm_use_gpu_for(terra::ncell(multi_rast) * terra::nlyr(multi_rast)))
+    gpu_raster_app(multi_rast, function(t) t$sum(dim = 2))
+  else
+    sum(multi_rast, na.rm = TRUE)
   names(richness) <- "richness"
   richness_tif <- sub("\\.tif$", "_richness.tif", output_tif)
   terra::writeRaster(richness, richness_tif, overwrite = TRUE,

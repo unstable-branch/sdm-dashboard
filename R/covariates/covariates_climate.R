@@ -1,8 +1,9 @@
 # WorldClim discovery, download, cropping, and scaling helpers.
 
-# Simple file-based lock for concurrent download protection
-# Stale locks older than stale_sec are automatically cleaned up.
-sdm_download_lock <- function(lock_path, timeout_sec = 300, poll_ms = 500, stale_sec = 600) {
+# Simple file-based lock for concurrent download protection.
+# timeout_sec MUST be >= stale_sec, otherwise a waiter can never reclaim
+# a stale lock left behind by a crashed process.
+sdm_download_lock <- function(lock_path, timeout_sec = 3600, poll_ms = 500, stale_sec = 1800) {
   lock_dir <- paste0(lock_path, ".lock")
   lock_info <- file.path(lock_dir, ".lock_info")
   deadline <- Sys.time() + timeout_sec
@@ -11,24 +12,22 @@ sdm_download_lock <- function(lock_path, timeout_sec = 300, poll_ms = 500, stale
       writeLines(format(Sys.time(), "%Y-%m-%dT%H:%M:%S"), lock_info)
       return(lock_dir)
     }
-    # Stale lock detection: if lock dir exists and is older than stale_sec, remove it
-    if (file.exists(lock_info)) {
-      lock_time <- tryCatch(as.POSIXct(readLines(lock_info, warn = FALSE)[1]), error = function(e) NULL)
-      if (!is.null(lock_time) && is.finite(lock_time) && difftime(Sys.time(), lock_time, units = "secs") > stale_sec) {
-        unlink(lock_dir, recursive = TRUE)
-        next
-      }
-    } else if (dir.exists(lock_dir)) {
-      # Lock dir exists but no info file — use directory mtime as fallback
-      lock_time <- tryCatch(file.info(lock_dir)$mtime, error = function(e) NULL)
-      if (!is.null(lock_time) && is.finite(lock_time) && difftime(Sys.time(), lock_time, units = "secs") > stale_sec) {
-        unlink(lock_dir, recursive = TRUE)
-        next
-      }
+    # Stale lock detection: check .lock_info first, fall back to dir mtime
+    lock_time <- if (file.exists(lock_info)) {
+      tryCatch(as.POSIXct(readLines(lock_info, warn = FALSE)[1]), error = function(e) NA)
+    } else {
+      tryCatch(file.info(lock_dir)$mtime, error = function(e) NA)
+    }
+    if (!is.na(lock_time) && is.finite(lock_time) &&
+        difftime(Sys.time(), lock_time, units = "secs") > stale_sec) {
+      unlink(lock_dir, recursive = TRUE)
+      next
     }
     Sys.sleep(poll_ms / 1000)
   }
-  stop("Download lock timeout after ", timeout_sec, "s for: ", lock_path, call. = FALSE)
+  stop("Download lock timeout after ", timeout_sec, "s for: ", lock_path,
+       "\n  A previous download may have crashed. Try removing: ", lock_dir,
+       call. = FALSE)
 }
 
 sdm_download_unlock <- function(lock_dir) {

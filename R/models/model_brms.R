@@ -48,8 +48,10 @@ fit_brms_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   log_message(log_fun, "  Note: First fit may take 5-15 min for Stan compilation")
 
+  use_gpu_stan <- sdm_use_gpu() && requireNamespace("cmdstanr", quietly = TRUE)
+
   fit <- tryCatch({
-    brms::brm(
+    brm_args <- list(
       formula = stats::as.formula(formula_str),
       data = model_data,
       family = brms::bernoulli(link = "logit"),
@@ -63,6 +65,11 @@ fit_brms_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
       silent = 2,
       save_pars = brms::save_pars(all = TRUE)
     )
+    if (use_gpu_stan) {
+      brm_args$backend <- "cmdstanr"
+      brm_args$stan_model_args <- list(GPU = TRUE)
+    }
+    do.call(brms::brm, brm_args)
   }, error = function(e) {
     stop("brms model fitting failed: ", conditionMessage(e), call. = FALSE)
   })
@@ -145,8 +152,24 @@ predict_brms_suitability <- function(fit, env_project_scaled, output_tif, n_core
     stop("brms posterior prediction failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  mean_suit <- colMeans(epred)
-  mean_suit <- pmax(0, pmin(1, mean_suit))
+  n_total <- nrow(epred) * ncol(epred)
+  if (sdm_use_gpu_for(n_total)) {
+    dev <- gpu_device()
+    epred_t <- torch::torch_tensor(epred, device = dev)
+    mean_suit <- as.numeric(torch::torch_mean(epred_t, dim = 1)$to(device = "cpu"))
+    mean_suit <- pmax(0, pmin(1, mean_suit))
+    if (nrow(epred) >= 20) {
+      sd_suit <- as.numeric(torch::torch_std(epred_t, dim = 1)$to(device = "cpu"))
+      sd_suit[!is.finite(sd_suit)] <- 0
+    }
+  } else {
+    mean_suit <- colMeans(epred)
+    mean_suit <- pmax(0, pmin(1, mean_suit))
+    if (nrow(epred) >= 20) {
+      sd_suit <- matrixStats::colSds(epred, na.rm = TRUE)
+      sd_suit[!is.finite(sd_suit)] <- 0
+    }
+  }
 
   suit <- terra::rast(env_subset[[1]])
   terra::values(suit) <- NA_real_
@@ -159,8 +182,6 @@ predict_brms_suitability <- function(fit, env_project_scaled, output_tif, n_core
 
   if (nrow(epred) >= 20) {
     uncertainty_tif <- sub("\\.tif$", "_uncertainty.tif", output_tif)
-    sd_suit <- matrixStats::colSds(epred, na.rm = TRUE)
-    sd_suit[!is.finite(sd_suit)] <- 0
     uncertainty_rast <- terra::rast(env_subset[[1]])
     terra::values(uncertainty_rast) <- NA_real_
     uncertainty_rast[complete_idx] <- sd_suit
