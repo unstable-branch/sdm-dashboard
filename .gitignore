@@ -22,6 +22,10 @@ api/tmp/
 .trash/
 *.deb
 *.run
+*.bak
+
+# Built artifacts
+sdmtorch/*.so
 
 # Env
 .env
