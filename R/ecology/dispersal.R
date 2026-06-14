@@ -63,43 +63,72 @@ simulate_dispersal <- function(suitability, introduction_points,
   # Iterative dispersal simulation
   step_rasters <- list()
   step_rasters[[1]] <- occupancy
+  n_cells <- terra::ncell(suitability)
 
-  for (step in seq_len(n_steps - 1) + 1) {
-    # Convolve current occupancy with dispersal kernel
-    n_cells <- terra::ncell(step_rasters[[step - 1]])
-    if (sdm_use_gpu_for(n_cells, min_n = 100000L)) {
-      dev <- gpu_device()
-      occ_mat <- terra::values(step_rasters[[step - 1]], mat = TRUE)
-      occ_tensor <- torch::torch_tensor(occ_mat, device = dev)$reshape(c(1, 1, nrow(occ_mat), ncol(occ_mat)))
-      na_mask <- torch::torch_isnan(occ_tensor)
-      occ_tensor <- torch::torch_where(na_mask, torch::torch_tensor(0, device = dev), occ_tensor)
-      kernel_tensor <- torch::torch_tensor(kernel, device = dev)$reshape(c(1, 1, kernel_size, kernel_size))
-      dispersed_tensor <- torch::nnf_conv2d(occ_tensor, kernel_tensor, padding = kernel_radius_cells)
-      dispersed_vals <- as.numeric(dispersed_tensor$to(device = "cpu"))
-      dispersed <- terra::rast(step_rasters[[step - 1]])
-      terra::values(dispersed) <- dispersed_vals
-      gpu_empty_cache()
-    } else {
-      dispersed <- terra::focal(step_rasters[[step - 1]], w = kernel, fun = sum, na.policy = "omit")
+  gpu_path <- sdm_use_gpu_for(n_cells * n_steps, min_n = 100000L)
+
+  if (gpu_path) {
+    dev <- gpu_device()
+    r_nrow <- as.integer(terra::nrow(suitability))
+    r_ncol <- as.integer(terra::ncol(suitability))
+
+    # Upload constants once
+    suitability_vals <- terra::values(suitability, mat = FALSE)
+    suitability_mat <- matrix(suitability_vals, nrow = r_nrow, ncol = r_ncol, byrow = TRUE)
+    suitability_tensor <- torch::torch_tensor(suitability_mat, device = dev)
+    na_mask <- torch::torch_isnan(suitability_tensor)
+    can_establish <- suitability_tensor >= establishment_threshold
+
+    # Kernel
+    kernel_tensor <- torch::torch_tensor(kernel, device = dev)$reshape(c(1, 1, kernel_size, kernel_size))
+
+    # Initial occupancy tensor on GPU
+    occ_vals <- terra::values(step_rasters[[1]], mat = FALSE)
+    occ_mat <- matrix(occ_vals, nrow = r_nrow, ncol = r_ncol, byrow = TRUE)
+    occ_tensor <- torch::torch_tensor(occ_mat, device = dev)
+
+    for (step in seq_len(n_steps - 1) + 1) {
+      conv_input <- torch::torch_where(na_mask,
+        torch::torch_tensor(0, device = dev), occ_tensor)
+      dispersed <- torch::nnf_conv2d(
+        conv_input$reshape(c(1, 1, r_nrow, r_ncol)),
+        kernel_tensor,
+        padding = kernel_radius_cells
+      )$reshape(c(r_nrow, r_ncol))
+
+      received <- dispersed > 0.01
+      establish <- can_establish & received & (occ_tensor < 0.5)
+      occ_tensor <- torch::torch_where(establish,
+        torch::torch_tensor(1, device = dev), occ_tensor)
+      occ_tensor <- torch::torch_where(na_mask,
+        torch::torch_tensor(NaN, device = dev), occ_tensor)
+
+      # Download for storage
+      step_vals <- as.numeric(occ_tensor$to(device = "cpu"))
+      step_rasters[[step]] <- terra::setValues(suitability, step_vals)
+
+      n_new <- sum(step_vals == 1, na.rm = TRUE) -
+        sum(terra::values(step_rasters[[step - 1]] == 1, na.rm = TRUE))
+      log_message(log_fun, "  Step ", step, ": ", n_new, " newly occupied cells")
     }
+  } else {
+    for (step in seq_len(n_steps - 1) + 1) {
+      dispersed <- terra::focal(step_rasters[[step - 1]], w = kernel, fun = sum, na.policy = "omit")
 
-    # Establishment: cell must be suitable enough AND receive propagules
-    can_establish <- suitability >= establishment_threshold
-    received_propagules <- dispersed > 0.01  # minimum propagule pressure
+      can_establish <- suitability >= establishment_threshold
+      received_propagules <- dispersed > 0.01
 
-    # New occupancy: already occupied OR newly established
-    new_occupancy <- terra::ifel(
-      step_rasters[[step - 1]] == 1, 1,  # keep existing
-      terra::ifel(can_establish & received_propagules, 1, 0)  # new colonisations
-    )
-    new_occupancy <- terra::mask(new_occupancy, suitability)
+      new_occupancy <- terra::ifel(
+        step_rasters[[step - 1]] == 1, 1,
+        terra::ifel(can_establish & received_propagules, 1, 0)
+      )
+      new_occupancy <- terra::mask(new_occupancy, suitability)
+      step_rasters[[step]] <- new_occupancy
 
-    step_rasters[[step]] <- new_occupancy
-
-    # Count newly occupied cells
-    n_new <- sum(terra::values(new_occupancy == 1, na.rm = TRUE)) -
-      sum(terra::values(step_rasters[[step - 1]] == 1, na.rm = TRUE))
-    log_message(log_fun, "  Step ", step, ": ", n_new, " newly occupied cells")
+      n_new <- sum(terra::values(new_occupancy == 1, na.rm = TRUE)) -
+        sum(terra::values(step_rasters[[step - 1]] == 1, na.rm = TRUE))
+      log_message(log_fun, "  Step ", step, ": ", n_new, " newly occupied cells")
+    }
   }
 
   # Final statistics

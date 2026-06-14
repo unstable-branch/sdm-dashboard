@@ -264,6 +264,7 @@ mod_model_run_server <- function(id, rv, input, append_log, occurrence_source, l
           dnn_mc_samples = input$dnn_mc_samples %||% 0L,
           dnn_uncertainty_method = input$dnn_uncertainty_method %||% "none",
           dnn_model_type = input$dnn_model_type %||% "DNN_Medium",
+          gpu_enabled = input$gpu_enabled %||% "auto",
           dnn_device = input$dnn_device %||% "auto",
           dnn_mixed_precision = input$dnn_mixed_precision %||% "auto",
           dnn_cuda_graphs = input$dnn_cuda_graphs %||% "off",
