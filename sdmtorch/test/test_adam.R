@@ -16,7 +16,7 @@ eas <- lapply(params, function(p) torch_zeros_like(p))
 ss <- lapply(params, function(p) torch_tensor(0L, dtype = torch_int64()))
 for (j in seq_along(ss)) ss[[j]]$add_(1L)
 .Call("adam_step_direct", params, lapply(params, function(p) p$grad),
-  ea, eas, ss, 0.01, 0.9, 0.999, 0.001, 1e-8)
+  ea, eas, ss, 0.01, 0.9, 0.999, 0.001, 1e-8, FALSE)
 cpu_sum <- as.numeric(params[[1]]$sum())
 cat("CPU param sum:", cpu_sum, "\n")
 
@@ -46,7 +46,7 @@ if (cuda_is_available()) {
   ss3 <- lapply(params3, function(p) torch_tensor(0L, dtype = torch_int64(), device = "cuda"))
   for (j in seq_along(ss3)) ss3[[j]]$add_(1L)
   .Call("adam_step_direct", params3, lapply(params3, function(p) p$grad),
-    ea3, eas3, ss3, 0.01, 0.9, 0.999, 0.001, 1e-8)
+    ea3, eas3, ss3, 0.01, 0.9, 0.999, 0.001, 1e-8, FALSE)
   gpu_sum <- as.numeric(params3[[1]]$cpu()$sum())
   cat("GPU param sum:", gpu_sum, "\n")
   cat("GPU NaN:", is.nan(gpu_sum), "\n")

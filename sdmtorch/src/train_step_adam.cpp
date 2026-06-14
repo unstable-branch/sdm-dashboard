@@ -7,14 +7,18 @@
 
 extern "C" {
 
-// Custom Adam step using standard ATen ops.
+// Custom Adam / AdamW step using standard ATen ops.
 // Replaces _fused_adam_ CUDA kernel which produces NaN on Blackwell GPUs.
-// These ATen ops auto-dispatch to CPU/CUDA and work correctly everywhere.
+// When use_adamw=TRUE applies decoupled weight decay (AdamW):
+//   param -= lr * wd * param  (before momentum update)
+// When use_adamw=FALSE applies L2-style weight decay:
+//   grad += wd * param        (L2 regularization)
 SEXP adam_step_direct(SEXP params_, SEXP grads_,
                        SEXP exp_avgs_, SEXP exp_avg_sqs_,
                        SEXP state_steps_,
                        SEXP lr_, SEXP b1_, SEXP b2_,
-                       SEXP eps_, SEXP wd_) {
+                       SEXP eps_, SEXP wd_,
+                       SEXP use_adamw_) {
   try {
     auto params = extract_list(params_);
     auto grads = extract_list(grads_);
@@ -27,6 +31,7 @@ SEXP adam_step_direct(SEXP params_, SEXP grads_,
     double b2 = Rcpp::as<double>(b2_);
     double eps = Rcpp::as<double>(eps_);
     double wd = Rcpp::as<double>(wd_);
+    bool use_adamw = Rcpp::as<bool>(use_adamw_);
 
     int n = params.size();
     for (int i = 0; i < n; i++) {
@@ -42,14 +47,19 @@ SEXP adam_step_direct(SEXP params_, SEXP grads_,
         Rcpp::stop("adam_step_direct: step counter must be >= 1 (got %lld)", (long long)step);
       }
 
-      // Gradient with weight decay (L2 regularization)
-      at::Tensor g_adj = g;
-      if (wd != 0.0) {
-        g_adj = g + wd * p;
-      }
-
       // Disable autograd for in-place optimizer updates
       at::NoGradGuard no_grad;
+
+      if (use_adamw && wd != 0.0) {
+        // AdamW: decoupled weight decay — apply directly to param before momentum
+        p.mul_(1.0 - lr * wd);
+      }
+
+      // Gradient with optional L2-style weight decay (only when NOT using AdamW)
+      at::Tensor g_adj = g;
+      if (!use_adamw && wd != 0.0) {
+        g_adj = g + wd * p;
+      }
 
       // Update biased first moment estimate
       ea.mul_(b1).add_(g_adj, 1.0 - b1);
