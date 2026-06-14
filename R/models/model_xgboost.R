@@ -201,11 +201,28 @@ predict_xgboost_suitability <- function(fit, env_project_scaled, output_tif, n_c
   }
   env_subset <- env_project_scaled[[raster_names[cov_idx]]]
 
+  gpu_avail <- sdm_use_gpu()
+  gpu_min_rows <- config$gpu_min_rows %||% 5000L
+
   predict_one_block <- function(rast_block) {
     df <- as.data.frame(rast_block)
-    names(df) <- covariates  # match make.names-ified covariate names
+    names(df) <- covariates
     x <- as.matrix(df[, covariates, drop = FALSE])
-    pred <- predict(xgb_fit, x)
+    use_gpu_pred <- gpu_avail && nrow(x) >= gpu_min_rows
+    if (use_gpu_pred) {
+      old_params <- xgboost::xgb.parameters(xgb_fit)
+      xgboost::xgb.parameters(xgb_fit) <- list(predictor = "gpu_predictor")
+      pred <- tryCatch(
+        xgboost::predict(xgb_fit, x),
+        error = function(e) {
+          xgboost::xgb.parameters(xgb_fit) <- list(predictor = "cpu_predictor")
+          xgboost::predict(xgb_fit, x)
+        }
+      )
+      xgboost::xgb.parameters(xgb_fit) <- old_params
+    } else {
+      pred <- xgboost::predict(xgb_fit, x)
+    }
     pred[!is.finite(pred)] <- 0
     pred <- pmin(pmax(pred, 0), 1)
     pred

@@ -313,8 +313,8 @@ ui_sidebar_controls <- function() {
             selected = "auto"
           ),
           selectInput("dnn_cuda_graphs", "CUDA Graphs (experimental)",
-            choices = c("Off" = "off"),
-            selected = "off"
+            choices = c("Off" = "off", "Auto" = "auto", "On" = "on"),
+            selected = getOption("sdm.dnn_cuda_graphs_default", "auto")
           ),
           div(class = "small-muted", "Multiple seeds train independent networks with different random initialisations. Prediction SD across seeds measures epistemic uncertainty.")
         ),
@@ -404,6 +404,11 @@ ui_sidebar_controls <- function() {
           ),
           div(class = "small-muted", "Auto-estimated if left at default.")
         ),
+        selectInput("gpu_enabled", "GPU acceleration",
+          choices = c("Auto (use if available)" = "auto", "CPU only" = "off"),
+          selected = "auto"
+        ),
+        div(class = "small-muted", "Controls whether models use GPU. When 'CPU only', all GPU acceleration is disabled."),
         numericInput("n_cores", "CPU cores for compile/predict/CV", value = safe_numeric(default_cores, 1), min = 1, max = safe_numeric(detect_available_cores(TRUE), 4), step = 1),
         div(class = "small-muted", "Also sets MAKEFLAGS=-jN for source package compilation."),
         numericInput("aggregation_factor", "Raster aggregation for speed (1 = native)", value = sdm_default_aggregation_factor, min = 1, max = 8, step = 1)

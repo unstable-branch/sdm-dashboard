@@ -51,8 +51,8 @@ compute_mess <- function(env_train, env_proj) {
     train_ranges_v <- train_maxs - train_mins
     train_ranges_v[train_ranges_v == 0 | is.na(train_ranges_v) | !is.finite(train_ranges_v)] <- 1
 
-    min_t <- torch::torch_tensor(matrix(train_mins, nrow = sum(valid), ncol = n_vars, byrow = TRUE), device = dev)
-    range_t <- torch::torch_tensor(matrix(train_ranges_v, nrow = sum(valid), ncol = n_vars, byrow = TRUE), device = dev)
+    min_t <- torch::torch_tensor(train_mins, device = dev)$unsqueeze(1)
+    range_t <- torch::torch_tensor(train_ranges_v, device = dev)$unsqueeze(1)
 
     d <- (proj_tensor - min_t) / range_t
     below <- proj_tensor < min_t
@@ -67,9 +67,10 @@ compute_mess <- function(env_train, env_proj) {
     overall_mess[which(valid)] <- mess_vals
     names(overall_mess) <- "MESS"
 
+    d_cpu <- as.matrix(d$to(device = "cpu"))
     for (i in seq_along(common_vars)) {
       var <- common_vars[i]
-      var_vals <- as.numeric(d[, i]$to(device = "cpu"))
+      var_vals <- d_cpu[, i]
       r <- terra::rast(env_proj[[1]])
       terra::values(r) <- NA_real_
       r[which(valid)] <- var_vals
