@@ -135,7 +135,7 @@ run_architecture <- function(name, arch) {
         for (j in seq_along(os$state_steps)) os$state_steps[[j]]$add_(1L)
         .Call(fn, p, lapply(p, function(pp) pp$grad),
           os$exp_avgs, os$exp_avg_sqs, os$state_steps,
-          lr, 0.9, 0.999, 1e-8, lambda)
+          lr, 0.9, 0.999, 1e-8, lambda, FALSE)
         el <- el + as.numeric(l$item()); nb <- nb + 1
       }
       losses[epoch] <- el / nb
@@ -271,7 +271,7 @@ run_architecture <- function(name, arch) {
           if (nb %% acc_steps == 0) {
             for (j in seq_along(os$state_steps)) os$state_steps[[j]]$add_(1L)
             .Call(fn, p, lapply(p, function(pp) pp$grad),
-              os$exp_avgs, os$exp_avg_sqs, os$state_steps, lr, 0.9, 0.999, 1e-8, lambda)
+              os$exp_avgs, os$exp_avg_sqs, os$state_steps, lr, 0.9, 0.999, 1e-8, lambda, FALSE)
           }
           el <- el + as.numeric(l$item()); nb <- nb + 1
         }
