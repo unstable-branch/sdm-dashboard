@@ -31,6 +31,12 @@ else
   RCPP_INC := -I/usr/share/R/include
 endif
 
+# Auto-detect CUDA include path for pinned_alloc and cuda_graph builds
+CUDA_INC := $(shell nvcc --print-search-dirs 2>/dev/null | sed -n 's/program: *//p' | xargs dirname 2>/dev/null | xargs -I{} dirname {} 2>/dev/null | xargs -I{} echo "-I{}/include" 2>/dev/null)
+ifeq ($(strip $(CUDA_INC)),)
+  CUDA_INC := $(shell test -d /usr/local/cuda/include && echo "-I/usr/local/cuda/include" || echo "")
+endif
+
 # Conditionally link CUDA libs only if they exist
 TORCH_CUDA_LIBS := $(shell ls $(TORCH_HOME)/lib/libtorch_cuda.so 2>/dev/null || echo "")
 ifneq ($(strip $(TORCH_CUDA_LIBS)),)
@@ -57,6 +63,9 @@ CUDAGRAPH_OUT := cuda_graph.so
 TENSORVIEW_SRC := $(SRC_DIR)/tensor_view.cpp
 TENSORVIEW_OUT := tensor_view.so
 
+PINNEDALLOC_SRC := $(SRC_DIR)/pinned_alloc.cpp
+PINNEDALLOC_OUT := pinned_alloc.so
+
 # Resolve torch version for ABI check at compile time
 TORCH_VERSION := $(shell Rscript -e 'if (requireNamespace("torch", quietly=TRUE)) cat(as.character(packageVersion("torch")))' 2>/dev/null)
 ifeq ($(strip $(TORCH_VERSION)),)
@@ -67,11 +76,11 @@ ifeq ($(strip $(TORCH_VERSION)),)
 endif
 VERSION_FLAG := -DSDMTORCH_TORCH_VERSION=\"$(TORCH_VERSION)\"
 
-CFLAGS := -std=c++17 -shared -fPIC -O2 $(VERSION_FLAG)
+CFLAGS := -std=c++17 -shared -fPIC -O3 -march=native -flto -funroll-loops -DNDEBUG $(VERSION_FLAG)
 INCLUDES := $(TORCH_INC) $(RCPP_INC) $(R_INC)
 
 all: $(ADAM_OUT) $(LIBTORCH_OUT) $(TENSORVIEW_OUT)
-	@if [ -n "$(TORCH_CUDA_LIBS)" ]; then $(MAKE) $(CUDAGRAPH_OUT); fi
+	@if [ -n "$(TORCH_CUDA_LIBS)" ]; then $(MAKE) $(CUDAGRAPH_OUT) $(PINNEDALLOC_OUT); fi
 
 adam: $(ADAM_OUT)
 
@@ -101,6 +110,13 @@ $(TENSORVIEW_OUT): $(TENSORVIEW_SRC) $(SRC_DIR)/common.h
 		-o $@ $(TENSORVIEW_SRC) $(TORCH_LIBS) $(RPATH) $(R_LIB)
 	@echo "Built $@"
 
+pinned_alloc: $(PINNEDALLOC_OUT)
+
+$(PINNEDALLOC_OUT): $(PINNEDALLOC_SRC) $(SRC_DIR)/common.h
+	$(CXX) $(CFLAGS) $(INCLUDES) $(CUDA_INC) $(TORCH_LIB) \
+ 		-o $@ $(PINNEDALLOC_SRC) $(TORCH_LIBS) $(RPATH) $(R_LIB) -lcudart
+	@echo "Built $@"
+
 test-adam: $(ADAM_OUT)
 	cd $(CURDIR)/.. && Rscript sdmtorch/test/test_adam.R
 
@@ -110,7 +126,7 @@ test-libtorch: $(LIBTORCH_OUT)
 check:
 	@Rscript -e '
 	  so_dir <- file.path(getwd(), "sdmtorch")
-	  for (so in c("train_step_adam.so", "train_step_libtorch.so", "cuda_graph.so")) {
+	  for (so in c("train_step_adam.so", "train_step_libtorch.so", "cuda_graph.so", "pinned_alloc.so", "tensor_view.so")) {
 	    path <- file.path(so_dir, so)
 	    if (file.exists(path)) {
 	      cat(so, ": OK\n")
@@ -123,4 +139,4 @@ check:
 clean:
 	rm -f *.o *.so src/*.o
 
-.PHONY: clean test-adam test-libtorch adam libtorch cuda_graph check
+.PHONY: clean test-adam test-libtorch adam libtorch cuda_graph tensor_view pinned_alloc check
