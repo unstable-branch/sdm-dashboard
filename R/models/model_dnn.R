@@ -276,6 +276,11 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
   all_data <- rbind(pres_vals, bg_vals)
   labels <- c(rep(1, n_pres), rep(0, n_bg))
 
+  # Strip ID column inserted by terra::extract
+  if (ncol(all_data) > 1 && tolower(names(all_data)[1]) == "id") {
+    all_data <- all_data[, -1, drop = FALSE]
+  }
+
   # DNN-103: Train/test split (80/20)
   n_total <- length(labels)
   if (n_total < 10) {
@@ -292,10 +297,10 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
 
   # Scale features (z-score normalization)
   scaler <- list(
-    mean = colMeans(train_x),
-    sd = matrixStats::colSds(train_x)
+    mean = colMeans(train_x, na.rm = TRUE),
+    sd = matrixStats::colSds(train_x, na.rm = TRUE)
   )
-  scaler$sd[scaler$sd == 0] <- 1
+  scaler$sd[!is.finite(scaler$sd) | scaler$sd == 0] <- 1
 
   train_x_scaled <- sweep(train_x, 2, scaler$mean, "-")
   train_x_scaled <- sweep(train_x_scaled, 2, scaler$sd, "/")
@@ -548,26 +553,18 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
   # Process in batches with error handling
   pred_vals <- rep(NA, n_cells)
 
+  all_vals <- terra::values(pred_stack)
+
   for (i in seq(1, length(valid_cells), by = batch_size)) {
     batch_idx <- valid_cells[i:min(i + batch_size - 1, length(valid_cells))]
-    batch_xy <- terra::xyFromCell(pred_stack, batch_idx)
-    batch_vals <- tryCatch(
-      {
-        terra::extract(pred_stack, batch_xy)
-      },
-      error = function(e) {
-        stop(paste("DNN-303: Failed to extract raster values for prediction:", conditionMessage(e)), call. = FALSE)
-      }
-    )
+    batch_vals <- all_vals[batch_idx, , drop = FALSE]
 
-    # Track which rows in batch_idx had valid data
     valid_rows <- complete.cases(batch_vals)
     valid_batch_idx <- batch_idx[valid_rows]
     valid_batch_vals <- batch_vals[valid_rows, , drop = FALSE]
 
     if (nrow(valid_batch_vals) > 0) {
-      # Scale
-      batch_scaled <- sweep(as.matrix(valid_batch_vals), 2, scaler$mean, "-")
+      batch_scaled <- sweep(valid_batch_vals, 2, scaler$mean, "-")
       batch_scaled <- sweep(batch_scaled, 2, scaler$sd, "/")
 
       batch_pred <- tryCatch(
@@ -1006,7 +1003,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     dnn_model_type = dnn_model_type,
     use_fused_adam = use_fused_adam,
     mc_samples = as.integer(mc_samples),
-    uncertainty_method = match.arg(uncertainty_method, c("none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"))
+    uncertainty_method = match.arg(tolower(uncertainty_method), c("none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"))
   )
 }
 
@@ -1098,6 +1095,8 @@ predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
     gpu_pred_vals <- torch::torch_zeros(n_cells, device = device)
   }
 
+  pred_vals <- rep(NA_real_, n_cells)
+
   for (chunk_start in seq(1, mc_samples, by = chunk_size)) {
     chunk_end <- min(chunk_start + chunk_size - 1, mc_samples)
     chunk_n <- chunk_end - chunk_start + 1L
@@ -1108,7 +1107,7 @@ predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
         log_message(log_fun, sprintf("  MC sample %d/%d", t_global, mc_samples))
       }
 
-      pred_vals <- rep(NA, n_cells)
+      if (!is_cuda) pred_vals[] <- NA_real_
 
       for (b in seq_len(pre_scaled_rows)) {
         batch_idx <- pre_cell_idx[[b]]

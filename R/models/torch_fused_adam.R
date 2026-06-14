@@ -81,7 +81,7 @@ fused_regularize_weights <- function(parameters, alpha, lambda) {
 # === Fused Adam State Management ===
 
 fused_adam_init <- function(params, lr = 0.01, betas = c(0.9, 0.999),
-                            eps = 1e-8, weight_decay = 0) {
+                            eps = 1e-8, weight_decay = 0, use_adamw = FALSE) {
   dev <- if (length(params) > 0) params[[1]]$device else "cpu"
   list(
     params = params,
@@ -90,10 +90,11 @@ fused_adam_init <- function(params, lr = 0.01, betas = c(0.9, 0.999),
     b2 = betas[2],
     eps = eps,
     weight_decay = weight_decay,
+    use_adamw = use_adamw,
     exp_avgs = lapply(params, function(p) torch::torch_zeros_like(p)),
     exp_avg_sqs = lapply(params, function(p) torch::torch_zeros_like(p)),
     state_steps = lapply(params, function(p) {
-      torch::torch_tensor(0L, dtype = torch::torch_int64(), device = p$device)
+      torch::torch_tensor(0L, dtype = torch::torch_int64(), device = "cpu")
     })
   )
 }
@@ -114,12 +115,13 @@ fused_adam_step <- function(state) {
 
   for (j in seq_along(steps)) steps[[j]]$add_(1L)
 
-  # Custom Adam kernel via ATen ops — works on CPU/CUDA/MPS (no NaN on Blackwell)
+  # Custom Adam/AdamW kernel via ATen ops — works on CPU/CUDA/MPS (no NaN on Blackwell)
   if (is.loaded("adam_step_direct", PACKAGE = "")) {
     .Call("adam_step_direct",
       params, grads,
       state$exp_avgs, state$exp_avg_sqs, steps,
-      state$lr, state$b1, state$b2, state$eps, state$weight_decay
+      state$lr, state$b1, state$b2, state$eps, state$weight_decay,
+      isTRUE(state$use_adamw)
     )
   } else if (is.loaded("fused_adam_step_direct", PACKAGE = "")) {
     .Call("fused_adam_step_direct",
@@ -165,7 +167,8 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   opt_state <- fused_adam_init(
     model$net$parameters,
     lr = model$training_properties$lr,
-    weight_decay = model$training_properties$lambda
+    weight_decay = model$training_properties$lambda,
+    use_adamw = isTRUE(model$training_properties$use_adamw)
   )
 
   scheduler <- NULL
@@ -267,10 +270,9 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
     })
   }
 
-  # CUDA Graphs: skip if model has stochastic elements (embeddings or dropout)
-  has_dropout <- !is.null(model$training_properties$dropout) &&
-    model$training_properties$dropout > 0
-  use_cudagraphs <- use_cudagraphs && use_traced && !has_dropout
+  # CUDA Graphs: needs traced forward pass
+  # Dropout / embeddings are fine — graph is re-captured each epoch with new dropout mask
+  use_cudagraphs <- use_cudagraphs && use_traced
 
   acc_steps <- max(1L, as.integer(accumulation_steps)[1])
   start_epoch <- min(which(is.na(model$losses$train_l)))
@@ -320,13 +322,19 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
         fused_adam_zero_grad(opt_state)
       }
 
-      x_batch <- b[[1]]$to(device = device, non_blocking = TRUE)
-      y_batch <- b[[2]]$to(device = device, non_blocking = TRUE)
+      x_batch <- b[[1]]$to(device = device, non_blocking = use_cudagraphs)
+      y_batch <- b[[2]]$to(device = device, non_blocking = use_cudagraphs)
+
+      # CUDA Graphs: synchronize default stream before graph capture/replay on non-default stream
+      if (use_cudagraphs && cg_captured) {
+        torch::cuda_synchronize()
+      }
 
       # CUDA Graphs: capture after 3 warmup steps
       can_use_graph <- use_cudagraphs && !cg_captured && cg_warmup >= 3L &&
         batch_count %% acc_steps == 1L
       if (can_use_graph) {
+        torch::cuda_synchronize()
         cg_captured <- TRUE
         .Call("cuda_graph_begin", TRUE)
       }
