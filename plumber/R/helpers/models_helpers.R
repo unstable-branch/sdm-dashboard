@@ -72,7 +72,7 @@ handle_model_run <- function(req, app_dir) {
     return(sdm_error_code(req, "INTERNAL_ERROR", paste("Model run script not found at:", script_path)))
   }
 
-  is_gpu_model <- sdm_is_gpu_model(body$model_id, body$dnn_device %||% "auto")
+  is_gpu_model <- sdm_is_gpu_model(body$model_id, body$dnn_device %||% "auto", body$gpu_enabled %||% "auto")
   if (is_gpu_model) {
     active_gpu <- sdm_count_active_gpu_runs()
     if (active_gpu >= SDM_MAX_GPU_CONCURRENT_RUNS) {
@@ -155,7 +155,7 @@ sdm_camel_to_snake <- list(
   maxnetRegmult = "maxnet_regmult", aggregationFactor = "aggregation_factor",
   occurrenceFile = "occurrence_file", cleanedFilePath = "cleaned_file_path",
   pipelineRunId = "pipeline_run_id", extrapolationMask = "extrapolation_mask",
-  messThreshold = "mess_threshold", dnnArchitecture = "dnn_architecture",
+  messThreshold = "mess_threshold", dnnArchitecture = "dnn_model_type",
   dnnNSeeds = "dnn_n_seeds", dnnDevice = "dnn_device",
   brtNTrees = "brt_n_trees", brtInteractionDepth = "brt_interaction_depth",
   brtShrinkage = "brt_shrinkage", brtBagFraction = "brt_bag_fraction",
@@ -203,8 +203,7 @@ sdm_camel_to_snake <- list(
   chelsaExtras = "chelsa_extras", analysisCrs = "analysis_crs",
   generateTiles = "generate_tiles", generateCog = "generate_cog",
   speciesFilter = "species_filter", trainingExtent = "training_extent",
-  dnnModelType = "dnn_model_type", dnnMultispeciesNSeeds = "dnn_multispecies_n_seeds",
-  dnnMultispeciesArchitecture = "dnn_multispecies_architecture",
+  dnnModelType = "dnn_model_type",
   cleanedFileId = "cleaned_file_id",
   tuningMethod = "tuning_method",
   enmevalAlgorithm = "enmeval_algorithm",
@@ -406,7 +405,8 @@ handle_targets_run <- function(req, app_dir) {
   has_gpu_target <- any(vapply(configs, function(c) {
     mid <- c$model_id %||% c[["modelId"]] %||% "glm"
     dev <- c$dnn_device %||% c[["dnnDevice"]] %||% "auto"
-    sdm_is_gpu_model(mid, dev)
+    gpu <- c$gpu_enabled %||% c[["gpuEnabled"]] %||% "auto"
+    sdm_is_gpu_model(mid, dev, gpu)
   }, logical(1)))
   device_tag <- if (has_gpu_target) "cuda" else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
@@ -698,7 +698,8 @@ handle_model_status <- function(res, job_id) {
           hb_ts <- tryCatch(as.POSIXct(sub("\\|.*", "", last_line), format = "%Y-%m-%dT%H:%M:%S"), error = function(e) NULL)
           if (!is.null(hb_ts) && !is.na(hb_ts)) {
             # GPU runs have shorter heartbeat timeout — CUDA crashes are detected faster
-            is_gpu <- identical(meta$config$dnn_device, "cuda") || identical(meta$config$dnn_device, "auto")
+            dnn_device <- as.character(meta$config$dnn_device %||% "")
+            is_gpu <- dnn_device %in% c("auto", "gpu", "cuda", "mps") || startsWith(dnn_device, "cuda")
             hb_timeout <- if (is_gpu) 300 else 1800
             if (difftime(Sys.time(), hb_ts, units = "secs") > hb_timeout) {
               process_alive <- FALSE
