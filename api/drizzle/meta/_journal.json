@@ -169,6 +169,13 @@
       "when": 1755000000000,
       "tag": "0022_add_missing_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783000000000,
+      "tag": "0023_add_refresh_tokens",
+      "breakpoints": true
     }
   ]
 }
