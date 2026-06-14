@@ -191,6 +191,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [dnnDropout, setDnnDropout] = useState(0.3);
   const [dnnL2Lambda, setDnnL2Lambda] = useState(0.001);
   const [dnnNSeeds, setDnnNSeeds] = useState(3);
+  const [gpuEnabled, setGpuEnabled] = useState<"auto" | "off">("auto");
   const [dnnDevice, setDnnDevice] = useState<"auto" | "cpu" | "gpu">("auto");
   const [dnnFusedAdam, setDnnFusedAdam] = useState<"auto" | "always" | "off">("auto");
   const [dnnMcSamples, setDnnMcSamples] = useState(0);
@@ -496,6 +497,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       dnnDropout: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnDropout : undefined,
       dnnL2Lambda: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnL2Lambda : undefined,
       dnnMultispeciesNSeeds: modelId === "dnn_multispecies" ? dnnMultispeciesNSeeds : undefined,
+        gpuEnabled,
         dnnDevice: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnDevice : undefined,
         dnnFusedAdam: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnFusedAdam : undefined,
         dnnMcSamples: (modelId === "dnn" || modelId === "dnn_multispecies") ? dnnMcSamples : undefined,
@@ -811,6 +813,16 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
           <div>
             <label className="block text-sm font-medium text-sdm-text mb-1">CPU cores</label>
             <input type="number" value={nCores} onChange={(e) => setNCores(Number(e.target.value))} min={1} max={64} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-sdm-text mb-1">
+              GPU acceleration
+              <TooltipInfo content="Controls GPU usage across all models. XGBoost can use gpu_hist, DNN networks, and raster operations can run on GPU. Select 'Auto' to use GPU when available, 'CPU only' to disable all GPU acceleration." />
+            </label>
+            <select value={gpuEnabled} onChange={(e) => setGpuEnabled(e.target.value as "auto" | "off")} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
+              <option value="auto">Auto (use if available)</option>
+              <option value="off">CPU only</option>
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-sdm-text mb-1">
