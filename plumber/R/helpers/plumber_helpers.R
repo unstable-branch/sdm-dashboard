@@ -254,6 +254,7 @@ sdm_read_result <- function(path) {
       n_excess <- length(cached_keys) - sdm_result_cache_max + 1L
       to_remove <- names(sort(unlist(access_times)))[seq_len(n_excess)]
       rm(list = to_remove, envir = sdm_result_cache)
+      gc(verbose = FALSE)
     }
 
     attr(res, "accessed") <- Sys.time()

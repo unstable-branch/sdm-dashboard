@@ -16,13 +16,17 @@ async function flushLastUsedBatch() {
   if (lastUsedBatch.size === 0) return;
   const keys = Array.from(lastUsedBatch.keys());
   lastUsedBatch.clear();
+  if (batchTimer) {
+    clearTimeout(batchTimer);
+    batchTimer = null;
+  }
   try {
     await db
       .update(apiKeys)
       .set({ lastUsedAt: new Date() })
       .where(inArray(apiKeys.keyHash, keys));
-  } catch {
-    // Batch update is best-effort
+  } catch (err) {
+    console.warn("[auth] lastUsedBatch flush failed:", err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -138,7 +142,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  const secret = process.env.JWT_SECRET;
+  const secret = process.env.JWT_SECRET?.trim();
   if (!secret) {
     console.warn("[audit] JWT_SECRET not configured");
     return c.json({ error: "Authentication unavailable (server not configured)" }, 401);

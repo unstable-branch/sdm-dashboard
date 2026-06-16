@@ -1,0 +1,27 @@
+# SDM Dashboard Notification Policies
+# Routes alerts to contact points based on labels
+
+apiVersion: 1
+
+policy:
+  groupBy:
+    - alertname
+    - severity
+  groupWait: 30s
+  groupInterval: 5m
+  repeatInterval: 4h
+  routes:
+    - receiver: sdm-all-alerts
+      matchers:
+        - team = infrastructure
+      continue: false
+    - receiver: sdm-all-alerts
+      matchers:
+        - team = backend
+      continue: false
+    - receiver: sdm-all-alerts
+      matchers:
+        - team = database
+      continue: false
+    - receiver: sdm-all-alerts
+      continue: false

@@ -252,6 +252,9 @@ run_fast_sdm <- function(...) {
     log_message(log_fun, "DwC-A GBIF dataset DOI: ", dwca_doi)
   }
   cleaned$raw <- NULL
+  cleaned$source_counts <- NULL
+  cleaned$n_absent_excluded <- NULL
+  cleaned$original_rows <- NULL
   gc(verbose = FALSE)
   if (is.null(training_extent)) training_extent <- make_training_extent(occ, buffer = 2)
   log_message(log_fun, "Training extent: ", paste(training_extent, collapse = ", "))

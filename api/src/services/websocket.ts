@@ -20,8 +20,18 @@ let _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
 const HEARTBEAT_INTERVAL = 30_000;
 const MAX_CLIENTS = 1000;
+const MAX_EVENT_AGE_MS = 3600000; // 1 hour
 const JWT_SECRET = process.env.JWT_SECRET || "";
 const _lastSentEvent = new Map<string, { state: string; progress: number; _receivedAt: number; logsKey: string }>();
+
+function cleanupStaleEvents() {
+  const now = Date.now();
+  for (const [key, val] of _lastSentEvent.entries()) {
+    if (now - val._receivedAt > MAX_EVENT_AGE_MS) {
+      _lastSentEvent.delete(key);
+    }
+  }
+}
 
 function cleanupClient(clientId: string) {
   const client = clients.get(clientId);
@@ -47,6 +57,7 @@ function heartbeat() {
     (client.ws as any)._isAlive = false;
     client.ws.ping();
   }
+  cleanupStaleEvents();
 }
 
 async function verifyWsToken(url: string): Promise<{ userId: string; role: string } | null> {

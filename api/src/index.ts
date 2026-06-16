@@ -14,6 +14,7 @@ import { closeRateLimitRedis } from "./middleware/rate-limit.js";
 import { csrfMiddleware } from "./middleware/csrf.js";
 import { securityHeaders } from "./middleware/security-headers.js";
 import { startMemoryMonitor, stopMemoryMonitor } from "./middleware/memory-monitor.js";
+import { initMetrics, metricsHandler, recordHttpRequest, setActiveRequests, setQueueDepth, collectGpuMetrics } from "./services/metrics.js";
 import { db } from "./db/index.js";
 import { sql } from "drizzle-orm";
 import { sdmRunRoutes } from "./routes/sdm-runs.js";
@@ -65,6 +66,27 @@ app.use("*", bodyLimit({
 }));
 app.use("*", logger());
 app.use("*", securityHeaders);
+// Track HTTP metrics for Prometheus
+app.use("*", async (c, next) => {
+  setActiveRequests(1);
+  const start = Date.now();
+  await next();
+  const ms = Date.now() - start;
+  const route = c.req.routePath || c.req.path;
+  recordHttpRequest(c.req.method, route, c.res.status, ms);
+});
+
+app.get("/metrics", async (c) => {
+  try {
+    await collectGpuMetrics();
+    const metrics = await metricsHandler();
+    return c.newResponse(metrics, 200, { "Content-Type": "text/plain; charset=utf-8" });
+  } catch (err) {
+    console.error("[metrics] Failed to serve metrics:", err);
+    return c.text("# metrics temporarily unavailable", 503);
+  }
+});
+
 app.use("/api/v1/auth/*", csrfMiddleware);
 app.use("/api/v1/admin/*", csrfMiddleware);
 app.use("/api/v1/settings/*", csrfMiddleware);
@@ -185,6 +207,9 @@ app.notFound((c) => {
 
 const port = parseInt(process.env.PORT || "4000", 10);
 
+// Initialize Prometheus metrics registry
+initMetrics();
+
 // Initialize Garage S3 buckets (non-blocking, errors are logged)
 (async () => {
   try {
@@ -209,6 +234,11 @@ const port = parseInt(process.env.PORT || "4000", 10);
     console.warn("[DB] Uploads backfill skipped:", err instanceof Error ? err.message : String(err));
   }
 })();
+
+// Periodic GPU metrics collection (polls Plumber GPU endpoint every 30s)
+setInterval(() => {
+  collectGpuMetrics().catch(() => { /* best-effort */ });
+}, 30000);
 
 // Attempt to start background job worker with retry (will retry until Redis is available)
 async function startWorkerWithRetry(attempt = 0) {
