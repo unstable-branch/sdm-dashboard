@@ -108,6 +108,7 @@ function RunsTab() {
     }
   }, [page, statusFilter, search]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchRuns is memoized via useCallback with correct dependencies
   useEffect(() => { fetchRuns(); }, [fetchRuns]);
 
   async function expandRun(id: string) {
@@ -324,7 +325,9 @@ function UploadsTab() {
     }
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchUploads is memoized via useCallback with correct dependencies
   useEffect(() => { fetchUploads(); }, [fetchUploads]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchFilesystem is memoized via useCallback
   useEffect(() => { fetchFilesystem(); }, [fetchFilesystem]);
 
   if (loading && uploads.length === 0) {
