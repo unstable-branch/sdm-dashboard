@@ -157,6 +157,7 @@ jobs:
     name: Docker build + integration
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    needs: shared
     env:
       DATABASE_URL: postgresql://sdm:dummy@postgres:5432/sdm_platform
       JWT_SECRET: dummy-jwt-secret-at-least-32-characters

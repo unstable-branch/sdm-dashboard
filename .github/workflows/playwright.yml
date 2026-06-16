@@ -13,6 +13,7 @@ jobs:
       JWT_SECRET: ci_test_jwt_secret_change_me
       DATA_ENCRYPTION_KEY: ci_test_enc_key_00000000000000000000000000000000
       PLUMBER_INTERNAL_KEY: ci_test_plumber_key
+      SDM_ENCRYPTION_KEY: ci_test_enc_key_00000000000000000000000000000000
       GARAGE_RPC_SECRET: ci_test_garage_rpc_secret_00000000000000000000
       GARAGE_ADMIN_TOKEN: ci_test_admin_token
       GARAGE_ACCESS_KEY: ci_test_access_key
