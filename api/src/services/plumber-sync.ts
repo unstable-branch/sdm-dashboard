@@ -30,7 +30,7 @@ interface Consecutive404 {
   firstSeen: number;
 }
 
-interface PlumberModelStatus {
+export interface PlumberModelStatus {
   status: string;
   progress_log?: string[];
   progress_json?: unknown;

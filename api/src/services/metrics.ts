@@ -183,8 +183,8 @@ export async function collectGpuMetrics(): Promise<void> {
     if (typeof activeRuns === "number" && isFinite(activeRuns)) {
       gpuModelRunsActive.set(activeRuns);
     }
-  } catch {
-    // GPU metrics collection is best-effort
+  } catch (err) {
+    console.warn("[metrics] GPU metrics collection failed:", err instanceof Error ? err.message : String(err));
   }
 }
 

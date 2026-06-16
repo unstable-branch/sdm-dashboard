@@ -13,13 +13,13 @@ const BATCH_INTERVAL = 30_000;
 const BATCH_MAX = 100;
 
 async function flushLastUsedBatch() {
-  if (lastUsedBatch.size === 0) return;
-  const keys = Array.from(lastUsedBatch.keys());
-  lastUsedBatch.clear();
   if (batchTimer) {
     clearTimeout(batchTimer);
     batchTimer = null;
   }
+  if (lastUsedBatch.size === 0) return;
+  const keys = Array.from(lastUsedBatch.keys());
+  lastUsedBatch.clear();
   try {
     await db
       .update(apiKeys)
