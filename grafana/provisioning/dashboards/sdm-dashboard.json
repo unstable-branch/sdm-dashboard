@@ -1,7 +1,7 @@
 {
   "title": "SDM Dashboard Platform",
   "uid": "sdm-platform",
-  "version": 1,
+  "version": 3,
   "timezone": "browser",
   "schemaVersion": 39,
   "panels": [
@@ -9,44 +9,138 @@
       "title": "API Request Rate",
       "type": "graph",
       "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
-      "targets": [{ "expr": "rate(http_requests_total[5m])", "legendFormat": "{{handler}}" }]
+      "targets": [{ "expr": "rate(sdm_http_requests_total[5m])", "legendFormat": "{{route}}" }]
+    },
+    {
+      "title": "API Error Rate",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "rate(sdm_http_requests_total{status=~\"5..\"}[5m])", "legendFormat": "5xx errors/s" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "orange", "value": 0.05 },
+              { "color": "red", "value": 0.1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Request Latency p95",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "histogram_quantile(0.95, rate(sdm_http_request_duration_ms_bucket[5m]))", "legendFormat": "p95 ms" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "orange", "value": 500 },
+              { "color": "red", "value": 1000 }
+            ]
+          }
+        }
+      }
     },
     {
       "title": "Active Model Runs",
       "type": "gauge",
-      "gridPos": { "h": 8, "w": 3, "x": 6, "y": 0 },
-      "targets": [{ "expr": "count(sdm_active_runs)", "legendFormat": "active" }],
+      "gridPos": { "h": 8, "w": 3, "x": 18, "y": 0 },
+      "targets": [{ "expr": "sdm_active_gpu_runs", "legendFormat": "active" }],
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
     },
     {
-      "title": "Plumber Memory (GB)",
+      "title": "Active API Requests",
       "type": "gauge",
-      "gridPos": { "h": 8, "w": 3, "x": 9, "y": 0 },
-      "targets": [{ "expr": "sdm_plumber_memory_gb", "legendFormat": "memory" }],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+      "gridPos": { "h": 8, "w": 3, "x": 0, "y": 8 },
+      "targets": [{ "expr": "sdm_active_api_requests", "legendFormat": "requests" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "min": 0,
+        "max": 100
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "orange", "value": 50 },
+              { "color": "red", "value": 80 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "GPU VRAM Free",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 3, "x": 3, "y": 8 },
+      "targets": [{ "expr": "sdm_gpu_free_vram_mib", "legendFormat": "free MiB" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "min": 0,
+        "max": 16384
+      }
     },
     {
       "title": "Queue Depth (BullMQ)",
       "type": "stat",
-      "gridPos": { "h": 8, "w": 3, "x": 12, "y": 0 },
+      "gridPos": { "h": 8, "w": 3, "x": 6, "y": 8 },
       "targets": [{ "expr": "sdm_queue_depth", "legendFormat": "jobs" }]
+    },
+    {
+      "title": "GPU Canary Health",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 3, "x": 9, "y": 8 },
+      "targets": [{ "expr": "sdm_gpu_canary_ok", "legendFormat": "ok (1=healthy)" }],
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "title": "GPU Canary Latency",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 3, "x": 12, "y": 8 },
+      "targets": [{ "expr": "sdm_gpu_canary_elapsed_ms", "legendFormat": "ms" }]
+    },
+    {
+      "title": "GPU VRAM Leak",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 3, "x": 15, "y": 8 },
+      "targets": [{ "expr": "sdm_gpu_vram_leak", "legendFormat": "leak (1=suspected)" }],
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "title": "Plumber Memory (GB)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 3, "x": 18, "y": 8 },
+      "targets": [{ "expr": "sdm_plumber_memory_gb", "legendFormat": "R memory" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
     },
     {
       "title": "Postgres Connections",
       "type": "graph",
-      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 16 },
       "targets": [{ "expr": "pg_stat_activity_count", "legendFormat": "{{state}}" }]
     },
     {
       "title": "Redis Memory Usage",
       "type": "graph",
-      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 8 },
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 16 },
       "targets": [{ "expr": "redis_memory_used_bytes", "legendFormat": "used" }]
     },
     {
       "title": "Recent Errors",
-      "type": "log",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "targets": [{ "expr": "{job=\"api\"} |= \"ERROR\"", "legendFormat": "" }]
     }
   ]

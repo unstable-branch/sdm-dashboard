@@ -39,7 +39,7 @@ RUN if [ ! -f packages/shared/dist/index.js ]; then pnpm --filter @sdm/shared bu
 RUN pnpm --filter @sdm/api build
 
 # Clean pnpm store and prune dev dependencies to reduce image size
-RUN pnpm store prune && pnpm prune --prod
+RUN pnpm store prune
 
 FROM node:22-alpine AS runner
 

@@ -232,7 +232,8 @@ authRoutes.post("/login", async (c) => {
     );
     const refreshToken = await issueRefreshToken(user.id);
 
-    const isSecure = process.env.NODE_ENV === "production";
+    const forwardedProto = c.req.header("X-Forwarded-Proto");
+    const isSecure = process.env.NODE_ENV === "production" || forwardedProto === "https";
     const maxAge = ACCESS_TOKEN_EXPIRY_S;
     c.header("Set-Cookie", `sdm_token=${token}; Path=/; HttpOnly; SameSite=Strict${isSecure ? "; Secure" : ""}; Max-Age=${maxAge}`);
 
@@ -440,7 +441,7 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
   return c.json({
     id: apiKey.id,
     name: apiKey.name,
-    key: rawKey,
+    key: `${rawKey.substring(0, 8)}...`,
     createdAt: apiKey.createdAt,
     expiresAt: apiKey.expiresAt,
   });

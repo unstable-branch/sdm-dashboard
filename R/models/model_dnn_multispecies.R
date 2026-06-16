@@ -520,14 +520,19 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
       n_ok <- 0L
       for (e in seq_len(n_ensemble)) {
         p <- tryCatch({
-          pmat <- torch::with_no_grad({
-            logits <- all_models[[e]]$net(torch::torch_tensor(batch_scaled, device = dnn_device))
-            if (inherits(logits, "torch_tensor")) {
-              as.matrix(torch::torch_sigmoid(logits)$cpu())
-            } else {
-              logits
-            }
-          })
+          net <- all_models[[e]]$net
+          if (is.null(net) || !is.function(net)) {
+            pmat <- stats::predict(all_models[[e]], newdata = as.data.frame(batch_scaled), type = "response")
+          } else {
+            pmat <- torch::with_no_grad({
+              logits <- net(torch::torch_tensor(batch_scaled, device = dnn_device))
+              if (inherits(logits, "torch_tensor")) {
+                as.matrix(torch::torch_sigmoid(logits)$cpu())
+              } else {
+                logits
+              }
+            })
+          }
           if (is.matrix(pmat)) pmat else as.matrix(pmat)
         }, error = function(e) {
           log_message(log_fun, "  Seed ", e, " prediction failed for batch: ", conditionMessage(e))

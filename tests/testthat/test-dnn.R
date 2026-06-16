@@ -96,3 +96,38 @@ test_that("torch setup maps RTX 50-series GPUs to the supported cu128 package", 
   expect_equal(arch$torch_kind, "cu128")
   expect_equal(arch$cuda_best, "12.8")
 })
+
+test_that("DNN CPU vs GPU predictions are numerically equivalent", {
+  skip_if_not(requireNamespace("cito", quietly = TRUE))
+  skip_if_not(requireNamespace("torch", quietly = TRUE))
+  skip_if_not(torch::cuda_is_available())
+  skip_if_not("dnn" %in% sdm_model_ids())
+
+  set.seed(42)
+  env <- make_test_raster(nrows = 20, ncols = 20, n_layers = 2,
+    layer_names = c("bio1", "bio12"))
+  occ <- data.frame(
+    species = "Synthetic species",
+    longitude = seq(140.15, 141.85, length.out = 24),
+    latitude = seq(-23.85, -22.15, length.out = 24),
+    source = rep(c("A", "B"), each = 12),
+    stringsAsFactors = FALSE
+  )
+
+  fit_cpu <- fit_sdm_model("dnn", occ, env,
+    background_n = 80, cv_folds = 2, seed = 42, n_cores = 1,
+    dnn_model_type = "DNN_Small", dnn_device = "cpu", n_seeds = 1L)
+  fit_gpu <- fit_sdm_model("dnn", occ, env,
+    background_n = 80, cv_folds = 2, seed = 42, n_cores = 1,
+    dnn_model_type = "DNN_Small", dnn_device = "cuda", n_seeds = 1L)
+
+  cpu_tif <- tempfile(fileext = ".tif")
+  gpu_tif <- tempfile(fileext = ".tif")
+  cpu_pred <- predict_sdm_model(fit_cpu, env, cpu_tif, n_cores = 1)
+  gpu_pred <- predict_sdm_model(fit_gpu, env, gpu_tif, n_cores = 1)
+
+  cpu_vals <- terra::values(cpu_pred)
+  gpu_vals <- terra::values(gpu_pred)
+
+  expect_equal(cpu_vals, gpu_vals, tolerance = 1e-4)
+})

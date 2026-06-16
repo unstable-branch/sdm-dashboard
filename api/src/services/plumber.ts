@@ -25,6 +25,7 @@ async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
       const timeoutId = setTimeout(() => {
         const idx = plumberQueue.indexOf(resolver);
         if (idx >= 0) plumberQueue.splice(idx, 1);
+        plumberActiveRequests--; // Decrement counter on timeout
         reject(new Error("Plumber semaphore timeout: all connections busy"));
       }, 5000);
       // Store timeoutId for cleanup when resolver is dequeued and called

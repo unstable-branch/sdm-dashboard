@@ -1,0 +1,88 @@
+{
+  "title": "SDM API Health",
+  "uid": "sdm-api-health",
+  "version": 1,
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "title": "Event Loop Lag",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "expr": "nodejs_eventloop_lag_seconds", "legendFormat": "lag" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.05 },
+              { "color": "orange", "value": 0.1 },
+              { "color": "red", "value": 0.5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Heap Used",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "nodejs_heap_size_used_bytes", "legendFormat": "used" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
+    },
+    {
+      "title": "GC Major Pauses",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "rate(nodejs_gc_duration_seconds_sum{kind=\"major\"}[5m])", "legendFormat": "GC time/s" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "title": "CPU Usage",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [{ "expr": "rate(process_cpu_seconds_total[5m]) * 100", "legendFormat": "%" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    },
+    {
+      "title": "Active Handles",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "targets": [{ "expr": "nodejs_active_handles_total", "legendFormat": "handles" }],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "title": "Active Requests",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "targets": [{ "expr": "sdm_active_api_requests", "legendFormat": "requests" }],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    }
+  ]
+}
