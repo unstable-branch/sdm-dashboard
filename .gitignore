@@ -80,3 +80,4 @@ frontend/coverage/
 /playwright/.cache/
 /playwright/.auth/
 chromium/
+frontend/next-env.d.ts
