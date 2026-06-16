@@ -25,14 +25,18 @@ export function cleanupDecryptedFiles(): void {
 
 function resolveEncryptedFile(filePath: string | undefined | null): string | null {
   if (!filePath || !filePath.endsWith(".enc")) return filePath ?? null;
+  const resolvedPath = filePath.replace(/\.enc$/, "");
   try {
     const ciphertext = readFileSync(filePath);
     const plaintext = decrypt(ciphertext);
-    const resolvedPath = filePath.replace(/\.enc$/, "");
     writeFileSync(resolvedPath, plaintext);
     _decryptedFiles.add(resolvedPath);
     return resolvedPath;
   } catch {
+    // If decryption failed but file was written, clean it up
+    if (existsSync(resolvedPath)) {
+      try { unlinkSync(resolvedPath); } catch { /* ignore */ }
+    }
     return filePath;
   }
 }

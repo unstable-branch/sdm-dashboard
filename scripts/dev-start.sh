@@ -163,10 +163,16 @@ if printf '%s\n' "${PROFILES[@]}" | grep -qx "computation" || printf '%s\n' "${P
 fi
 if printf '%s\n' "${PROFILES[@]}" | grep -qx "all"; then
     echo -e "  ${BLUE}Garage:${NC}    http://localhost:3900"
+    echo -e "  ${BLUE}Prometheus:${NC} http://localhost:9090"
+    echo -e "  ${BLUE}Grafana:${NC}  http://localhost:3001 (admin / ${GRAFANA_PASSWORD:-dev-grafana-CHANGE-ME})"
 fi
 echo ""
 echo -e "  ${YELLOW}Remote access:${NC} SSH tunnel from your local machine:"
-echo -e "    ssh -L 3000:localhost:3000 -L 4000:localhost:4000 -L 8000:localhost:8000 ${USER}@${IP}"
+if printf '%s\n' "${PROFILES[@]}" | grep -qx "all"; then
+    echo -e "    ssh -L 3000:localhost:3000 -L 3001:localhost:3001 -L 4000:localhost:4000 -L 8000:localhost:8000 -L 9090:localhost:9090 ${USER}@${IP}"
+else
+    echo -e "    ssh -L 3000:localhost:3000 -L 4000:localhost:4000 -L 8000:localhost:8000 ${USER}@${IP}"
+fi
 echo ""
 echo -e "  ${BLUE}tmux sessions:${NC}"
 echo "    API:       TMPDIR=/tmp tmux -L sdm attach -t sdm-api"

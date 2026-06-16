@@ -108,7 +108,7 @@ fused_adam_zero_grad <- function(state) {
   }
 }
 
-fused_adam_step <- function(state) {
+fused_adam_step <- function(state, device = NULL) {
   params <- state$params
   grads <- lapply(params, function(p) p$grad)
   steps <- state$state_steps

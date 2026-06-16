@@ -1,0 +1,155 @@
+{
+  "title": "SDM GPU Monitor",
+  "uid": "sdm-gpu",
+  "version": 1,
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "title": "GPU VRAM Free",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sdm_gpu_free_vram_mib", "legendFormat": "free MiB" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "min": 0,
+        "max": 16384
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "MiB",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 2048 },
+              { "color": "yellow", "value": 4096 },
+              { "color": "green", "value": 8192 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "GPU VRAM Used",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "sdm_gpu_used_vram_mib", "legendFormat": "used MiB" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "min": 0,
+        "max": 16384
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "MiB",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 8192 },
+              { "color": "orange", "value": 12288 },
+              { "color": "red", "value": 14336 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "GPU VRAM Total",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sdm_gpu_total_vram_mib", "legendFormat": "total MiB" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "MiB"
+        }
+      }
+    },
+    {
+      "title": "GPU Utilization",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [{ "expr": "sdm_gpu_utilization_pct", "legendFormat": "%" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "orange", "value": 75 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "GPU Temperature",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "targets": [{ "expr": "sdm_gpu_temperature_c", "legendFormat": "°C" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "min": 0,
+        "max": 100
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "green", "value": 40 },
+              { "color": "yellow", "value": 70 },
+              { "color": "orange", "value": 80 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Active Model Runs",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "targets": [{ "expr": "sdm_active_gpu_runs", "legendFormat": "runs" }],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "min": 0,
+        "max": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 2 },
+              { "color": "orange", "value": 4 },
+              { "color": "red", "value": 6 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "GPU Info",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 16 },
+      "targets": [{ "expr": "sdm_gpu_total_vram_mib", "legendFormat": "RTX 5060 Ti" }],
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none"
+      }
+    }
+  ]
+}

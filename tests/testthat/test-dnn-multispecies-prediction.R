@@ -184,13 +184,8 @@ test_that("predict_dnn_multispecies_suitability full integration with real cito 
     latitude  = c(-23.2, -23.6, -23.9, -23.3, -23.5, -23.8, -23.4, -23.7)
   )
 
-  cm <- build_community_matrix(
-    list(Sp_A = sp1, Sp_B = sp2), env_scaled, background_n = 30, seed = 42
-  )
-  expect_equal(cm$n_species, 2)
-
   fit <- fit_dnn_multispecies_sdm(
-    occ = cm,
+    occ = list(Sp_A = sp1, Sp_B = sp2),
     env_train_scaled = env_scaled,
     background_n = 30,
     cv_folds = 0L,
