@@ -6,7 +6,7 @@ import { Readable } from "stream";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
-import { getErrorHttpStatus } from "@sdm/shared";
+import { getErrorHttpStatus, StatusCode } from "@sdm/shared";
 import { authMiddleware, type AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds } from "../services/access.js";
 import { decrypt } from "../services/encryption.js";
@@ -416,7 +416,7 @@ resultsRoutes.get("/:id", async (c) => {
     output_files: run.outputFiles ?? null,
     provenance: run.provenance ?? null,
     progress_log: [],
-  }, httpStatus as any);
+  }, httpStatus as StatusCode);
 });
 
 resultsRoutes.get("/:id/report.txt", async (c) => {

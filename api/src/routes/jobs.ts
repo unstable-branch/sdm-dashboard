@@ -77,8 +77,9 @@ app.get("/sse", async (c) => {
               progressJson: event.progressJson ?? null,
             }),
           });
-        } catch {
-          console.warn("[jobs] SSE write or auth check failed");
+        } catch (err) {
+          console.error("[jobs] SSE write failed:", err instanceof Error ? err.message : String(err));
+          aborted = true;
         }
       });
     };
@@ -105,10 +106,10 @@ app.get("/sse", async (c) => {
             progress: 0,
             logs: ["Model run in progress..."],
           }),
-        }).catch(() => console.warn("[jobs] SSE write failed for initial active-run event"));
+        }).catch((err) => console.warn("[jobs] SSE write failed for initial active-run event:", err instanceof Error ? err.message : String(err)));
       }
-    } catch {
-      // Best-effort — initial state is non-critical
+    } catch (err) {
+      console.warn("[jobs] Failed to fetch initial active runs:", err instanceof Error ? err.message : String(err));
     }
 
     try {

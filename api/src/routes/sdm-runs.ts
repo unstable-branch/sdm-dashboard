@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { modelConfigSchema } from "@sdm/shared";
 import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob, getJobQueue } from "../services/queue.js";
+import type { PlumberModelStatus } from "../services/plumber-sync.js";
 import { db } from "../db/index.js";
 import { runs, species } from "../db/schema.js";
 import { eq, and, inArray, sql } from "drizzle-orm";
@@ -206,15 +207,17 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
     if (run.status === "running" && run.jobId) {
       try {
         const plumberStatus = await plumberClient.getModelStatus(run.jobId, 8000);
-        const ps = plumberStatus as Record<string, unknown>;
+        const ps = plumberStatus as unknown as PlumberModelStatus;
         plumberProgressJson = ps.progress_json ?? null;
-        plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log as string[] : [];
+        plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log : [];
 
-        if (ps.status === "completed" || ps.status === "failed" || ps.status === "cancelled") {
+        const validStatuses = ["completed", "failed", "cancelled"];
+        if (ps.status && validStatuses.includes(ps.status)) {
+          const status = ps.status as "completed" | "failed" | "cancelled";
           await db.update(runs).set({
-            status: ps.status as "completed" | "failed" | "cancelled",
-            metrics: ps.status === "completed" ? (ps.metrics ?? {}) : {},
-            outputFiles: ps.status === "completed" ? (ps.output_files ?? {}) : {},
+            status,
+            metrics: status === "completed" ? (ps.metrics ?? {}) : {},
+            outputFiles: status === "completed" ? (ps.output_files ?? {}) : {},
             error: ps.error ? String(ps.error) : null,
             errorCode: ps.error_code ? String(ps.error_code) : null,
             errorHint: ps.error_hint ? String(ps.error_hint) : null,
@@ -225,9 +228,9 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
             jobId: run.id,
             state: ps.status as string,
             progress: ps.status === "completed" ? 100 : 0,
-            logs: Array.isArray(ps.progress_log) ? ps.progress_log as string[] : [],
-            result: ps.status === "completed" ? ps : undefined,
-            failedReason: ps.error as string ?? undefined,
+            logs: plumberProgressLog,
+            result: ps.status === "completed" ? plumberStatus : undefined,
+            failedReason: ps.error as string | undefined,
           });
         }
       } catch (err) {

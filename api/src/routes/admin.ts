@@ -148,11 +148,20 @@ adminRoutes.put("/users/:id", async (c) => {
   try {
     const targetId = c.req.param("id");
     const body = await c.req.json();
-    const updates: Record<string, unknown> = {};
+
+    const updates: {
+      email?: string;
+      name?: string;
+      role?: "admin" | "editor" | "viewer";
+      bio?: string;
+      organization?: string;
+    } = {};
 
     if (body.email !== undefined) updates.email = body.email;
     if (body.name !== undefined) updates.name = body.name;
-    if (body.role !== undefined) updates.role = body.role;
+    if (body.role !== undefined && ["admin", "editor", "viewer"].includes(body.role)) {
+      updates.role = body.role;
+    }
     if (body.bio !== undefined) updates.bio = body.bio;
     if (body.organization !== undefined) updates.organization = body.organization;
 
@@ -167,7 +176,7 @@ adminRoutes.put("/users/:id", async (c) => {
 
     const [updated] = await db
       .update(users)
-      .set({ ...updates, updatedAt: new Date() } as any)
+      .set({ ...updates, updatedAt: new Date() })
       .where(eq(users.id, targetId))
       .returning({
         id: users.id, email: users.email, name: users.name, role: users.role,
@@ -240,10 +249,10 @@ adminRoutes.post("/users/:id/reset-password", async (c) => {
     }
 
     const passwordHash = await hash(newPassword, BCRYPT_ROUNDS);
-    await db.update(users).set({ passwordHash, updatedAt: new Date() } as any).where(eq(users.id, targetId));
+    await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, targetId));
 
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_password_reset",

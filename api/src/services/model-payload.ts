@@ -1,5 +1,5 @@
 import { join } from "path";
-import { readFileSync, writeFileSync, unlinkSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { decrypt } from "./encryption.js";
 
 export type ModelConfigRecord = Record<string, unknown> & {
