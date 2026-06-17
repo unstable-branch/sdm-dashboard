@@ -148,6 +148,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - GRAFANA_URL=http://grafana:3000
       - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      - CSRF_SECRET=${CSRF_SECRET:-dev-csrf-secret-change-in-production}
       - API_KEY_HASH=${API_KEY_HASH:-}
     volumes:
       - ./api/src:/app/api/src:ro
