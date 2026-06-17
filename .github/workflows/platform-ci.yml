@@ -243,7 +243,7 @@ jobs:
           YAML
 
           compose() {
-            docker compose -f docker-compose.yml -f /tmp/ci-openapi.compose.yml --profile full "$@"
+            docker compose -f docker-compose.yml -f /tmp/ci-openapi.compose.yml --profile core "$@"
           }
 
           dump_logs() {
@@ -354,4 +354,4 @@ jobs:
 
       - name: Teardown
         if: always()
-        run: docker compose -f docker-compose.yml -f /tmp/ci-openapi.compose.yml --profile full down -v
+        run: docker compose -f docker-compose.yml -f /tmp/ci-openapi.compose.yml --profile core down -v

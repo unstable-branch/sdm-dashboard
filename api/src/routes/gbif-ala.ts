@@ -43,7 +43,15 @@ gbifAlaRoutes.post("/occurrences/gbif/search", gbifRateLimit, async (c) => {
           if (settings.gbifPassword) {
             try {
               const { decryptString, isEncryptionKeyConfigured } = await import("../services/encryption.js");
-              if (isEncryptionKeyConfigured()) body.gbif_pwd = decryptString(settings.gbifPassword);
+              if (isEncryptionKeyConfigured()) {
+                try {
+                  body.gbif_pwd = decryptString(settings.gbifPassword);
+                } catch {
+                  body.gbif_pwd = settings.gbifPassword;
+                }
+              } else {
+                body.gbif_pwd = settings.gbifPassword;
+              }
             } catch { }
           }
           if (settings.gbifEmail) body.gbif_email = settings.gbifEmail;

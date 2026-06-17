@@ -25,7 +25,26 @@ export async function handleModelJob(
       .where(and(eq(runs.id, runId), or(eq(runs.status, "queued"), eq(runs.status, "failed"))));
   }
 
-  const modelRes = await client.runModel(payload);
+  let modelRes: Record<string, unknown>;
+  try {
+    modelRes = await client.runModel(payload);
+  } catch (runErr) {
+    const runErrMsg = runErr instanceof Error ? runErr.message : String(runErr);
+    console.error(`[queue] Model run failed: ${runErrMsg}`);
+    if (runId) {
+      await db
+        .update(runs)
+        .set({ status: "failed", completedAt: new Date(), error: runErrMsg })
+        .where(eq(runs.id, runId));
+    }
+    jobEventBus.emitJobStatus({
+      jobId: runId ?? job.id!,
+      state: "failed",
+      progress: 0,
+      failedReason: runErrMsg,
+    });
+    return { status: "error", error: runErrMsg, error_code: "MODEL_RUN_FAILED" };
+  }
   const plumberJobId = modelRes.job_id as string | undefined;
 
   if (runId) {
