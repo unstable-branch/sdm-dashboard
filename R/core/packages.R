@@ -33,7 +33,7 @@ sdm_app_packages <- c(
   "future", "future.apply",
   "ggplot2", "CAST", "blockCV"
 )
-sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf", "DT", "marginaleffects", "shinyjs", "future", "future.apply", "ggplot2")
+sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf", "DT", "marginaleffects", "shinyjs", "future", "future.apply", "ggplot2", "matrixStats")
 
 sdm_optional_packages <- list(
   maxnet = c("maxnet", "glmnet"),
@@ -49,7 +49,7 @@ sdm_optional_packages <- list(
   dwca = c("finch"),
   esm = c("ecospat", "biomod2"),
   targets = c("targets", "tarchetypes", "geotargets", "crew", "crew.cluster", "crew.aws.batch"),
-  dnn = c("cito", "torch"),
+  dnn = c("cito", "torch", "matrixStats"),
   ala = c("galah"),
   enmeval = c("ENMeval"),
   devtools = c("devtools")
