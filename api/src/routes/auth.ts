@@ -14,6 +14,11 @@ import { refreshTokens } from "../db/schema.js";
 
 export const authRoutes = new Hono<AppEnv>();
 
+authRoutes.onError((err, c) => {
+  console.error("[auth] Unhandled error:", err);
+  return c.json({ error: "Internal server error" }, 500);
+});
+
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_ISSUER = process.env.JWT_ISSUER || "sdm-dashboard";
 const BCRYPT_ROUNDS = 12;
