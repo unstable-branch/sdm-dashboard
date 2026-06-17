@@ -66,7 +66,6 @@ jobs:
           dependencies: '"hard"'
           extra-packages: 'any::testthat'
           cache-version: 1
-          repos: 'https://cloud.r-project.org,https://torch-cdn.mlverse.org/packages/cu128/0.17.0/'
 
       - name: Run module smoke check
         run: Rscript scripts/smoke_test.R --tags=fast
