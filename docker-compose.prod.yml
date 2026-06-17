@@ -135,11 +135,6 @@ services:
         limits:
           cpus: "4"
           memory: 8G
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     volumes:
       - r-data:/app/outputs
       - r-climate:/app/Worldclim

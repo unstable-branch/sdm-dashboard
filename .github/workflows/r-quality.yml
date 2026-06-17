@@ -60,6 +60,9 @@ jobs:
             make \
             proj-data
 
+      - name: Clean renv library to fix broken pak symlinks
+        run: rm -rf renv/library
+
       - name: Install R package dependencies
         env:
           RENV_PROJECT: ""
@@ -67,7 +70,7 @@ jobs:
         with:
           dependencies: '"hard"'
           extra-packages: 'any::testthat'
-          cache-version: 2
+          cache-version: 3
 
       - name: Run module smoke check
         run: Rscript scripts/smoke_test.R --tags=fast

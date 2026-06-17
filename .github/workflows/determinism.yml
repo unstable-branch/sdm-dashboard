@@ -44,6 +44,9 @@ jobs:
             make \
             proj-data
 
+      - name: Clean renv library to fix broken pak symlinks
+        run: rm -rf renv/library
+
       - name: Install R packages (all backends)
         env:
           RENV_PROJECT: ""
@@ -51,7 +54,7 @@ jobs:
         with:
           dependencies: '"hard"'
           extra-packages: 'any::testthat, any::terra, any::gam, any::ranger, any::xgboost, any::randomForest'
-          cache-version: 2
+          cache-version: 3
 
       - name: Run determinism tests
         run: |
