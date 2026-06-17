@@ -134,6 +134,7 @@ services:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=${FRONTEND_API_URL:-}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - CSRF_SECRET=${CSRF_SECRET:?CSRF_SECRET is required}
       - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY:?DATA_ENCRYPTION_KEY is required}
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
