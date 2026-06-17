@@ -146,6 +146,22 @@
       "Maintainer": "Martin Maechler <mmaechler+Matrix@gmail.com>",
       "Repository": "CRAN"
     },
+    "matrixStats": {
+      "Package": "matrixStats",
+      "Version": "1.5.0",
+      "Source": "Repository",
+      "Title": "Functions that Apply to Rows and Columns of Matrices (and to Vectors)",
+      "Description": "High-performing functions operating on rows and columns of matrices, e.g. col / rowMedians(), col / rowRanks(), and col / rowSds().",
+      "Depends": [
+        "R (>= 3.4.0)"
+      ],
+      "License": "Artistic-2.0",
+      "URL": "https://github.com/HenrikBengtsson/matrixStats",
+      "BugReports": "https://github.com/HenrikBengtsson/matrixStats/issues",
+      "NeedsCompilation": "yes",
+      "Repository": "CRAN",
+      "Hash": "matrixStats-1.5.0"
+    },
     "R6": {
       "Package": "R6",
       "Version": "2.6.1",
