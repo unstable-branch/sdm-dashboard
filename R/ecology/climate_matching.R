@@ -117,7 +117,7 @@ compute_climate_match <- function(env_train, env_proj,
         diff <- x_t - centre_t
         d_t <- (diff$matmul(cov_inv_t$t()) * diff)$sum(dim = 2)
       } else if (method == "standardised") {
-        train_sd <- matrixStats::colSds(train_vals, na.rm = TRUE)
+        train_sd <- matrixStats::colSds(as.matrix(train_vals), na.rm = TRUE)
         train_sd[train_sd < 1e-10] <- 1
         sd_t <- torch::torch_tensor(train_sd, device = dev)
         scaled <- (x_t - centre_t) / sd_t
@@ -148,7 +148,7 @@ compute_climate_match <- function(env_train, env_proj,
       if (method == "mahalanobis") {
         d <- stats::mahalanobis(df_valid, train_centre, train_cov)
       } else if (method == "standardised") {
-        train_sd <- matrixStats::colSds(train_vals, na.rm = TRUE)
+        train_sd <- matrixStats::colSds(as.matrix(train_vals), na.rm = TRUE)
         train_sd[train_sd < 1e-10] <- 1
         scaled <- sweep(df_valid, 2, train_centre, "-")
         scaled <- sweep(scaled, 2, train_sd, "/")
