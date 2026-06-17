@@ -61,11 +61,13 @@ jobs:
             proj-data
 
       - name: Install R package dependencies
+        env:
+          RENV_PROJECT: ""
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
           dependencies: '"hard"'
           extra-packages: 'any::testthat'
-          cache-version: 1
+          cache-version: 2
 
       - name: Run module smoke check
         run: Rscript scripts/smoke_test.R --tags=fast

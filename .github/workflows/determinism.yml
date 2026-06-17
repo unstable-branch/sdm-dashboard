@@ -45,6 +45,8 @@ jobs:
             proj-data
 
       - name: Install R packages (all backends)
+        env:
+          RENV_PROJECT: ""
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
           dependencies: '"hard"'
