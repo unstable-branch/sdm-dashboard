@@ -205,6 +205,7 @@ predict_xgboost_suitability <- function(fit, env_project_scaled, output_tif, n_c
   gpu_min_rows <- config$gpu_min_rows %||% 5000L
 
   predict_one_block <- function(rast_block) {
+    if (is.null(dim(rast_block))) rast_block <- matrix(rast_block, nrow = 1)
     df <- as.data.frame(rast_block)
     names(df) <- covariates
     x <- as.matrix(df[, covariates, drop = FALSE])

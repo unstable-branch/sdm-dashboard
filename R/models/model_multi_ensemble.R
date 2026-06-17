@@ -254,7 +254,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
 
     names(ensemble_mean) <- "ensemble_mean"
     names(ensemble_median) <- "ensemble_median"
-    names(disagreement) <- "ensemble_disagreement"
+    names(disagreement) <- "disagreement"
     if (include_uncertainty) {
       names(ensemble_sd) <- "ensemble_sd"
     }
@@ -340,7 +340,7 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     gc(verbose = FALSE)
   }
 
-  disagreement_tif <- multi_ensemble_component_path(output_tif, "ensemble_disagreement")
+  disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
   terra::writeRaster(disagreement, disagreement_tif,
     overwrite = TRUE,
     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
