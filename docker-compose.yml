@@ -114,11 +114,6 @@ services:
         limits:
           cpus: ${PLUMBER_CPU_LIMIT:-8}
           memory: 8G
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     networks:
       - sdm-network
 
