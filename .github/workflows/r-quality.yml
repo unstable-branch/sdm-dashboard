@@ -69,7 +69,7 @@ jobs:
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
           dependencies: '"hard"'
-          extra-packages: 'any::testthat'
+          extra-packages: 'any::testthat, any::matrixStats'
           cache-version: 3
 
       - name: Run module smoke check

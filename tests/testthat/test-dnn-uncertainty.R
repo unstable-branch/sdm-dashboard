@@ -174,6 +174,7 @@ test_that("DNN model registry flags supports_uncertainty", {
 })
 
 test_that("sdm_config accepts dnn_mc_samples and dnn_uncertainty_method", {
+  skip_if_not("dnn" %in% sdm_model_ids(), "DNN not in registry")
   cfg <- sdm_config(
     species = "Test",
     occurrence_file = "test.csv",
