@@ -10,6 +10,7 @@ import { getErrorHttpStatus, StatusCode } from "@sdm/shared";
 import { authMiddleware, type AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds } from "../services/access.js";
 import { decrypt } from "../services/encryption.js";
+import { plumberClient } from "../services/plumber.js";
 
 export const resultsRoutes = new Hono<AppEnv>();
 
@@ -31,6 +32,9 @@ function resolveResultFilePath(filePath: string): { fullPath: string; runId: str
   const fullPath = resolve(requested);
   const rel = relative(resultRoot, fullPath);
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
+    return null;
+  }
+  if (!fullPath.startsWith(resultRoot + "/") && fullPath !== resultRoot) {
     return null;
   }
 
@@ -149,15 +153,9 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
 
   // Fallback: generate tile from COG on-the-fly via Plumber
   if (run.jobId) {
-    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
-    const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
-    const headers: Record<string, string> = { "X-Forwarded-User": user.id };
-    if (internalKey) headers["X-Hono-Internal"] = internalKey;
-
     try {
-      const plumberRes = await fetch(
-        `${plumberUrl}/api/v1/results/tiles/cog/${run.jobId ?? runId}/${z}/${x}/${y}?band=${encodeURIComponent(band)}`,
-        { headers, signal: AbortSignal.timeout(45000) }
+      const plumberRes = await plumberClient.withUser(user.id).getTileCog(
+        run.jobId ?? runId, String(z), String(x), String(y), band
       );
       if (plumberRes.status === 204) {
         return c.body(null, 204);
@@ -435,11 +433,11 @@ resultsRoutes.get("/:id/report.txt", async (c) => {
   let reportPath: string;
   if (run?.outputFiles && typeof run.outputFiles === "object" && "report" in (run.outputFiles as object)) {
     const containerPath = (run.outputFiles as Record<string, string>).report;
-    reportPath = containerPath.startsWith(PROJECT_ROOT + "/")
-      ? join(PROJECT_ROOT, containerPath.slice(PROJECT_ROOT.length + 1))
-      : join(PROJECT_ROOT, containerPath);
+    reportPath = containerPath.startsWith("/app/")
+      ? join(appDir, containerPath.slice(5))
+      : join(appDir, containerPath);
   } else {
-    reportPath = join(PROJECT_ROOT, "outputs", "jobs", id, "report.txt");
+    reportPath = join(resultRoot, id, "report.txt");
   }
 
   try {
@@ -461,21 +459,9 @@ resultsRoutes.get("/:id/script", async (c) => {
 
   const jobId = await plumberJobId(id);
   try {
-    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
-    const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
-    const res = await fetch(`${plumberUrl}/api/v1/output/script/${jobId}`, {
-      headers: {
-        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
-        "X-Forwarded-User": user.id,
-      },
-    });
-    const data = await res.json();
+    const data = await plumberClient.withUser(user.id).getOutputScript(jobId);
 
-    if (!res.ok) {
-      return c.json(data, res.status as any);
-    }
-
-    const scriptPath = (data as any).script_path;
+    const scriptPath = data.script_path;
     if (!scriptPath) {
       return c.json({ error: "Script not generated" }, 500);
     }
@@ -503,20 +489,7 @@ resultsRoutes.get("/:id/manifest", async (c) => {
 
   const jobId = await plumberJobId(id);
   try {
-    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
-    const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
-    const res = await fetch(`${plumberUrl}/api/v1/output/manifest/${jobId}`, {
-      headers: {
-        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
-        "X-Forwarded-User": user.id,
-      },
-    });
-    const data = await res.json();
-
-    if (!res.ok) {
-      return c.json(data, res.status as any);
-    }
-
+    const data = await plumberClient.withUser(user.id).getOutputManifest(jobId);
     return c.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Manifest generation failed";

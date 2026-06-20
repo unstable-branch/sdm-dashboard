@@ -27,6 +27,7 @@ modules <- c(
   # --- core ---
   "bootstrap.R",
   "config.R",
+  "memory_utils.R",
   "gpu_helpers.R",
   "packages.R",
   "logging.R",

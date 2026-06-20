@@ -32,12 +32,8 @@ climateRoutes.get("/check", async (c) => {
     const ssp = c.req.query("ssp") || "";
     const period = c.req.query("period") || "";
 
-    const params = new URLSearchParams({ source, resolution, biovars, gcm, ssp, period });
-    const result = await fetch(`${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/climate/check?${params}`);
-    if (!result.ok) {
-      return c.json({ available: [], missing: [] });
-    }
-    return c.json(await result.json());
+    const result = await plumberClient.getClimateCheck({ source, resolution, biovars, gcm, ssp, period });
+    return c.json(result);
   } catch (e) {
     console.warn("[climate]", e instanceof Error ? e.message : String(e));
     return c.json({ available: [], missing: [] });
@@ -73,27 +69,8 @@ climateRoutes.post("/download", async (c) => {
       return c.json({ error: "Multi-GCM averaging requires at least 2 GCMs in gcm_list" }, 400);
     }
 
-    // Try BullMQ queue first; fall back to calling Plumber directly
-    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
-    const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
-
-    const plumberRes = await fetch(`${plumberUrl}/api/v1/climate/download`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
-        "X-Forwarded-User": user.id,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!plumberRes.ok) {
-      const errBody = await plumberRes.json().catch(() => null);
-      return c.json({ error: errBody?.error || `Plumber returned ${plumberRes.status}` }, 502);
-    }
-
-    const plumberData = await plumberRes.json() as Record<string, unknown>;
-    return c.json({ jobId: plumberData.job_id, status: "queued" });
+    const plumberData = await plumberClient.withUser(user.id).downloadClimate(body as Record<string, unknown>);
+    return c.json({ jobId: (plumberData as Record<string, unknown>).job_id, status: "queued" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Climate download failed";
     return c.json({ error: message }, 502);
@@ -128,12 +105,8 @@ climateRoutes.post("/cancel/:jobId", async (c) => {
 climateRoutes.get("/status/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");
-    const result = await fetch(
-      `${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/climate/status/${jobId}`,
-      { headers: { "X-Hono-Internal": process.env.PLUMBER_INTERNAL_KEY || "" } }
-    );
-    if (!result.ok) return c.json({ status: "unknown" }, 502);
-    return c.json(await result.json());
+    const result = await plumberClient.getClimateStatus(jobId);
+    return c.json(result);
   } catch {
     return c.json({ status: "unknown" }, 502);
   }

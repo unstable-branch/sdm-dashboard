@@ -246,6 +246,7 @@ function(res, run_id) handle_diagnostics_ale(res, run_id)
 function(res, run_id) handle_diagnostics_importance(res, run_id)
 
 #* Compute per-cell SHAP explanation
+#* @parser json
 #* @post /api/v1/diagnostics/shap/cell
 function(res, run_id = "", longitude = NULL, latitude = NULL) handle_diagnostics_shap_cell(res, run_id, longitude, latitude)
 

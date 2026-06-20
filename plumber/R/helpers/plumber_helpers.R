@@ -119,6 +119,21 @@ torch_is_available <- function() {
     tryCatch(torch::torch_is_installed(), error = function(e) FALSE)
 }
 
+# Check if GPU VRAM is sufficient for DNN training.
+# Reads SDM_MIN_GPU_VRAM_MIB (default 1500 MiB) to avoid OOM on shared/contended GPUs.
+sdm_gpu_vram_is_usable <- function(min_vram_mib = NULL) {
+  min_mib <- if (!is.null(min_vram_mib) && is.finite(min_vram_mib)) {
+    as.integer(min_vram_mib)
+  } else {
+    as.integer(Sys.getenv("SDM_MIN_GPU_VRAM_MIB", "1500"))
+  }
+  free_mib <- sdm_gpu_available_vram()
+  if (!is.finite(free_mib) || is.na(free_mib) || free_mib < min_mib) {
+    return(FALSE)
+  }
+  TRUE
+}
+
 # Extract process object from registry entry (handles both list and old direct-proc formats)
 sdm_registry_proc <- function(entry) {
   if (is.list(entry) && !inherits(entry, "process")) entry$proc else entry

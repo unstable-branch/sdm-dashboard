@@ -28,9 +28,11 @@ settingsRoutes.get("/", async (c) => {
       return c.json(created);
     }
 
-    // Return boolean flag instead of plaintext password
+    // Return boolean flags instead of plaintext passwords
     (settings as Record<string, unknown>).hasGbifPassword = !!settings.gbifPassword;
     (settings as Record<string, unknown>).gbifPassword = null;
+    (settings as Record<string, unknown>).hasAlaApiKey = !!settings.alaApiKey;
+    (settings as Record<string, unknown>).alaApiKey = null;
 
     return c.json(settings);
   } catch (err) {
@@ -64,13 +66,13 @@ settingsRoutes.put("/", async (c) => {
     "gbifUsername",
     "gbifPassword",
     "gbifEmail",
+    "alaApiKey",
   ];
 
   const updates: Record<string, unknown> = {};
   for (const key of allowed) {
     if (body[key] !== undefined) {
-      // Encrypt GBIF password at rest
-      if (key === "gbifPassword") {
+      if (key === "gbifPassword" || key === "alaApiKey") {
         if (body[key] === null) {
           updates[key] = null;
         } else if (body[key] !== "") {

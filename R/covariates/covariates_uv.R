@@ -98,7 +98,8 @@ load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
       tmp <- tempfile(fileext = ".asc")
       r <- tryCatch(
         {
-          curl::curl_fetch_disk(remote, tmp)
+          handle <- curl::new_handle(timeout = 300)
+          curl::curl_fetch_disk(remote, tmp, handle = handle)
           if (!file.exists(tmp) || file.info(tmp)$size < 1024) stop("Downloaded file too small", call. = FALSE)
           sdm_safe_rename(tmp, cached_file)
           terra::rast(cached_file)
@@ -151,7 +152,8 @@ load_uv_covariate <- function(selected_uv_vars = names(uv_vars),
       tmp <- tempfile(fileext = ".asc")
       r <- tryCatch(
         {
-          curl::curl_fetch_disk(remote, tmp)
+          handle <- curl::new_handle(timeout = 300)
+          curl::curl_fetch_disk(remote, tmp, handle = handle)
           if (!file.exists(tmp) || file.info(tmp)$size < 1024) stop("Downloaded file too small", call. = FALSE)
           sdm_safe_rename(tmp, cached_file)
           terra::rast(cached_file)

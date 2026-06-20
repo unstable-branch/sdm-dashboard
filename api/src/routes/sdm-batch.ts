@@ -114,13 +114,14 @@ sdmBatchRoutes.post("/cancel-all", async (c) => {
       return c.json({ ok: true, message: "No runs to cancel", cancelled: 0 });
     }
 
+    const cancelConditions: (ReturnType<typeof eq> | ReturnType<typeof inArray>)[] = [
+      inArray(runs.status, statusValues as unknown as ("queued" | "running" | "completed" | "failed" | "cancelled")[]),
+    ];
+    if (projectIds) cancelConditions.push(inArray(runs.projectId, projectIds));
     const allRuns = await db
       .select({ id: runs.id, jobId: runs.jobId, bullmqId: runs.bullmqId, status: runs.status })
       .from(runs)
-      .where(and(
-        inArray(runs.status, statusValues as unknown as ("queued" | "running" | "completed" | "failed" | "cancelled")[]),
-        projectIds ? inArray(runs.projectId, projectIds) : undefined,
-      ));
+      .where(and(...cancelConditions));
 
     if (allRuns.length === 0) {
       return c.json({ ok: true, message: "No runs to cancel", cancelled: 0 });
@@ -184,22 +185,22 @@ sdmBatchRoutes.post("/batch", async (c) => {
       return c.json({ error: "Batch limited to 50 configs per request" }, 400);
     }
 
+    const parsedConfigs = configs.map((config) => {
+      const parsed = modelConfigSchema.safeParse(config);
+      if (!parsed.success) throw new Error(`Invalid config: ${parsed.error.message}`);
+      return parsed;
+    });
+
     const [batch] = await db
       .insert(batches)
       .values({
         projectId,
         userId: user.id,
         name: name || `Batch ${new Date().toLocaleDateString()}`,
-        totalJobs: configs.length,
+        totalJobs: parsedConfigs.length,
         status: "running",
       })
       .returning();
-
-    const parsedConfigs = configs.map((config) => {
-      const parsed = modelConfigSchema.safeParse(config);
-      if (!parsed.success) throw new Error(`Invalid config: ${parsed.error.message}`);
-      return parsed;
-    });
 
     const plumberPayload = await plumberClient.targetsRun({ configs: parsedConfigs.map(p => p.data) });
 
@@ -272,14 +273,18 @@ sdmBatchRoutes.get("/batch/:batchId", async (c) => {
       .from(runs)
       .where(eq(runs.parentRunId, batchId));
 
+    // Compute live completion counts from runs table rows (batches.* columns may be stale)
+    const completedJobs = runRows.filter(r => r.status === "completed").length;
+    const failedJobs = runRows.filter(r => r.status === "failed").length;
+
     return c.json({
       batch: {
         id: batch.id,
         name: batch.name,
         status: batch.status,
         total_jobs: batch.totalJobs,
-        completed_jobs: batch.completedJobs,
-        failed_jobs: batch.failedJobs,
+        completed_jobs: completedJobs,
+        failed_jobs: failedJobs,
         created_at: batch.createdAt,
         completed_at: batch.completedAt,
       },
@@ -360,6 +365,16 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
     const isTargetsBatch = targetsJobId != null && targetsJobId.startsWith("targets-");
 
     if (isTargetsBatch) {
+      // Cancel any still-running old targets job before starting a new one
+      if (targetsJobId && targetsJobId !== "targets-none") {
+        try {
+          await plumberClient.cancelModel(targetsJobId);
+        } catch (e: unknown) {
+          console.warn(`[batch-retry] Cancel old targets job ${targetsJobId}:`,
+            e instanceof Error ? e.message : String(e));
+        }
+      }
+
       // For targets batches, re-submit all failed configs as a new targets run
       const configs = failedRuns.map((r) => (r.config as unknown as ModelConfigRecord));
 
@@ -419,8 +434,6 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
         db.update(runs).set({ bullmqId }).where(eq(runs.id, runId))
       ));
     }
-    cleanupDecryptedFiles();
-
     if (retriedIds.length > 0) {
       await db.update(batches).set({ status: "running", failedJobs: 0 }).where(eq(batches.id, batchId));
     }
@@ -429,6 +442,8 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Batch retry failed";
     return c.json({ error: message }, 500);
+  } finally {
+    cleanupDecryptedFiles();
   }
 });
 
@@ -503,7 +518,7 @@ sdmBatchRoutes.post("/runs/clear-all", async (c) => {
     if (includeCompleted) statusesToDelete.push("completed");
 
     const runsToDelete = await db
-      .select({ id: runs.id, jobId: runs.jobId })
+      .select({ id: runs.id, jobId: runs.jobId, runStorageBytes: runs.runStorageBytes })
       .from(runs)
       .where(projectIds ? and(inArray(runs.status, statusesToDelete as unknown as ("queued" | "running" | "completed" | "failed" | "cancelled")[]), inArray(runs.projectId, projectIds)) : inArray(runs.status, statusesToDelete as unknown as ("queued" | "running" | "completed" | "failed" | "cancelled")[]));
 
@@ -520,6 +535,14 @@ sdmBatchRoutes.post("/runs/clear-all", async (c) => {
         )
       );
       deletedCount = runsToDelete.length;
+
+      const storageFreed = runsToDelete.reduce((sum, r) => sum + (r.runStorageBytes ?? 0), 0);
+      if (storageFreed > 0) {
+        await db
+          .update(users)
+          .set({ storageUsedBytes: sql`GREATEST(${users.storageUsedBytes} - ${storageFreed}, 0)` })
+          .where(eq(users.id, user.id));
+      }
 
       await db.delete(runs).where(inArray(runs.id, runsToDelete.map((r) => r.id)));
     }

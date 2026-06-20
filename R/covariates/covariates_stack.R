@@ -191,7 +191,7 @@ load_extra_covariates <- function(template_train, template_project, training_ext
 
 load_environment <- function(worldclim_dir, selected_biovars, training_extent, projection_extent,
                              aggregation_factor = sdm_default_aggregation_factor, allow_download = TRUE, worldclim_res = sdm_default_worldclim_res,
-                             log_fun = NULL, n_cores = NULL,
+                             log_fun = NULL, progress_fun = NULL, n_cores = NULL,
                              use_elevation = FALSE, elevation_demtype = sdm_default_elevation_demtype, opentopo_api_key = NULL,
                              use_soil = FALSE,
                              selected_soil_vars = sdm_default_soil_vars,
@@ -238,10 +238,14 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
     log_message(log_fun, "Added optional covariates: ", paste(names(extras$train), collapse = ", "))
   }
 
+  progress_step(progress_fun, 0.22, "Loading climate covariates")
+  log_message(log_fun, "Computing covariate means (", terra::nlyr(env_train), " layers, ", format(terra::ncell(env_train), big.mark = ","), " cells each) — this may take a while for large rasters...")
   means <- tryCatch(terra::global(env_train, "mean", na.rm = TRUE)[, 1],
     error = function(e) {
       stop("Failed to compute covariate means: ", conditionMessage(e), call. = FALSE)
     })
+  progress_step(progress_fun, 0.225, "Computing standard deviations")
+  log_message(log_fun, "Computing covariate standard deviations...")
   sds <- tryCatch(terra::global(env_train, "sd", na.rm = TRUE)[, 1],
     error = function(e) {
       stop("Failed to compute covariate standard deviations: ", conditionMessage(e), call. = FALSE)
@@ -257,16 +261,17 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
     sds <- sds[keep]
   }
   if (terra::nlyr(env_train) < 2) stop("Too few usable environmental layers after filtering.", call. = FALSE)
+  progress_step(progress_fun, 0.23, "Scaling covariates")
 
   # Memory guard: reject if climate rasters + scaled copies + overhead would exceed 60% of available RAM
   tryCatch({
-    mem_info <- terra::mem_info()
+    mem_info <- sdm_mem_info()
     if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail) && mem_info$memavail > 0) {
       n_cells_train <- terra::ncell(env_train)
       n_cells_proj <- terra::ncell(env_project)
       n_layers <- terra::nlyr(env_train)
       total_cells <- n_cells_train + n_cells_proj
-      # raw + scaled copy + terra overhead + model fitting ≈ 3x multiplier
+      # raw + scaled copy + terra overhead ≈ 3x
       est_gb <- total_cells * n_layers * 8 * 3.0 / (1024^3)
       threshold_gb <- mem_info$memavail * 0.6
       if (is.finite(est_gb) && est_gb > threshold_gb) {
@@ -283,6 +288,7 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
 
   env_train_scaled <- scale_raster_stack(env_train, means, sds)
   env_project_scaled <- scale_raster_stack(env_project, means, sds)
+  progress_step(progress_fun, 0.24, "Covariate stacking complete")
   log_message(
     log_fun, "Prepared covariates: ", terra::nlyr(env_train_scaled), " layer(s); training cells = ",
     format(terra::ncell(env_train_scaled), big.mark = ","), "; projection cells = ",

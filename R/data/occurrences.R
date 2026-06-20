@@ -167,7 +167,7 @@ pre_check_memory <- function(path, log_fun = NULL) {
 }
 
 clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE,
-                              use_cc = FALSE, cc_tests = "all", log_fun = NULL, min_records = 20,
+                              use_cc = FALSE, cc_tests = "all", log_fun = NULL, progress_fun = NULL, min_records = 20,
                               max_coordinate_uncertainty = NULL, max_records = 200000L) {
   pre_check_memory(path, log_fun = log_fun)
   raw <- read_occurrence_file(path, log_fun = log_fun)
@@ -239,6 +239,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     }
   }
 
+  progress_step(progress_fun, 0.12, "Validating coordinates")
   ok <- complete_ok & finite_ok & bounds_ok & status_ok & uncertainty_ok
   removed_bad <- sum(!ok)
   n_na <- sum(!complete_ok)
@@ -249,6 +250,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   if (n_nonfinite > 0) log_message(log_fun, "  Removed ", n_nonfinite, " records with non-finite coordinates")
   if (n_out_of_bounds > 0) log_message(log_fun, "  Removed ", n_out_of_bounds, " records outside [-180,180] / [-90,90]")
 
+  progress_step(progress_fun, 0.14, "Removing duplicates")
   duplicated_rows <- duplicated(occ[, c("longitude", "latitude", "source")])
   removed_dupes <- sum(duplicated_rows)
   occ <- occ[!duplicated_rows, , drop = FALSE]
@@ -270,6 +272,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   if (nrow(occ) == 0) stop("All occurrence records have invalid coordinates (empty file or all rows removed).", call. = FALSE)
   if (nrow(occ) < min_records) stop("Too few valid occurrence records after cleaning (", nrow(occ), "). Minimum: ", min_records, ".", call. = FALSE)
 
+  progress_step(progress_fun, 0.16, "Cleaning sources")
   if (use_cc && requireNamespace("CoordinateCleaner", quietly = TRUE)) {
     cc_tests_active <- if (identical(cc_tests, "all")) {
       c("sea", "capitals", "institutions", "centroids", "urban", "zeros")
@@ -328,6 +331,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     warning("CoordinateCleaner not installed. Install with: install.packages('CoordinateCleaner')")
   }
 
+  progress_step(progress_fun, 0.18, "Finalising cleaned data")
   log_message(
     log_fun, "Cleaned occurrences: ", format(nrow(occ), big.mark = ","),
     " valid records from ", length(source_counts), " sources; removed ",

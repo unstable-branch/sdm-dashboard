@@ -140,7 +140,7 @@ check_dnn_requirements <- function(n_records, log_fun = NULL) {
         tryCatch(
           {
             cuda_ver <- Sys.getenv("CUDA", NA_character_)
-            if (nzchar(cuda_ver)) {
+            if (!is.na(cuda_ver) && nzchar(cuda_ver)) {
               check_result$cuda_version <- cuda_ver
             }
           },
@@ -281,13 +281,17 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
     all_data <- all_data[, -1, drop = FALSE]
   }
 
-  # DNN-103: Train/test split (80/20)
+  # DNN-103: Stratified train/test split (80/20)
   n_total <- length(labels)
   if (n_total < 10) {
     stop(paste("DNN-103: Insufficient total data points (", n_total, "). Minimum 10 points required for train/test split."), call. = FALSE)
   }
 
-  test_indices <- sample(n_total, size = floor(0.2 * n_total))
+  presence_idx <- which(labels == 1)
+  background_idx <- which(labels == 0)
+  test_pres <- sample(presence_idx, max(1, floor(0.2 * length(presence_idx))))
+  test_bg <- sample(background_idx, max(1, floor(0.2 * length(background_idx))))
+  test_indices <- sort(unique(c(test_pres, test_bg)))
   train_indices <- setdiff(1:n_total, test_indices)
 
   train_x <- as.matrix(all_data[train_indices, ])
@@ -432,6 +436,14 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   # Silence "no visible binding" NOTE from R CMD check
   .old_train_model <- NULL
   if (use_fused) {
+    # Guarantee restoration on any exit path (error in set_train_opts, cito::dnn, etc.)
+    on.exit({
+      if (!is.null(.old_train_model)) {
+        tryCatch(assignInNamespace("train_model", .old_train_model, ns = "cito"),
+          error = function(e) NULL)
+      }
+    }, add = TRUE, after = FALSE)
+
     # Load custom ATen-op Adam kernel (works on CPU/CUDA/MPS)
     # NOTE: The libtorch _fused_adam_ kernel produces NaN on Blackwell GPUs (compute 12.0).
     #       This code only loads the safe ATen-op kernel (train_step_adam.so).
@@ -451,6 +463,7 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
       assignInNamespace("train_model", train_model_fused, ns = "cito")
     }, error = function(e) {
       use_fused <<- FALSE
+      .old_train_model <<- NULL
       if (!is.null(log_fun)) log_fun("Fused Adam not available, falling back to standard Adam")
     })
     set_train_opts(
@@ -482,11 +495,6 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
       )
     },
     error = function(e) {
-      # Restore original train_model if we patched it
-      if (!is.null(.old_train_model)) {
-        tryCatch(assignInNamespace("train_model", .old_train_model, ns = "cito"),
-          error = function(e) NULL)
-      }
       err_msg <- conditionMessage(e)
       if (grepl("cuda|CUDA", err_msg, ignore.case = TRUE)) {
         stop(paste(
@@ -515,12 +523,6 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
       }
     }
   )
-
-  # Restore original train_model if we patched it
-  if (!is.null(.old_train_model)) {
-    tryCatch(assignInNamespace("train_model", .old_train_model, ns = "cito"),
-      error = function(e) NULL)
-  }
 
   model
 }
@@ -862,15 +864,33 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     data.frame(presence = 0L, bg_vals, check.names = FALSE)
   )
 
-  # Build scaler from covariate columns
-  x_mat <- as.matrix(model_data[, covariates, drop = FALSE])
+  n_total <- nrow(model_data)
+  if (n_total < 20) stop("Too few data points for DNN training (minimum 20 required).", call. = FALSE)
+
+  set.seed(seed)
+  presence_indices <- which(model_data$presence == 1)
+  background_indices <- which(model_data$presence == 0)
+  test_pres <- sample(presence_indices, max(1, floor(0.2 * length(presence_indices))))
+  test_bg <- sample(background_indices, max(1, floor(0.2 * length(background_indices))))
+  test_indices <- sort(unique(c(test_pres, test_bg)))
+  train_indices <- setdiff(seq_len(n_total), test_indices)
+
+  train_data <- model_data[train_indices, ]
+  test_data <- model_data[test_indices, ]
+
+  x_train_mat <- as.matrix(train_data[, covariates, drop = FALSE])
   scaler <- list(
-    mean = colMeans(x_mat, na.rm = TRUE),
-    sd = matrixStats::colSds(x_mat, na.rm = TRUE)
+    mean = colMeans(x_train_mat, na.rm = TRUE),
+    sd = matrixStats::colSds(x_train_mat, na.rm = TRUE)
   )
   scaler$sd[scaler$sd == 0 | !is.finite(scaler$sd)] <- 1
-  x_scaled <- sweep(x_mat, 2, scaler$mean, "-")
-  x_scaled <- sweep(x_scaled, 2, scaler$sd, "/")
+
+  train_x_scaled <- sweep(x_train_mat, 2, scaler$mean, "-")
+  train_x_scaled <- sweep(train_x_scaled, 2, scaler$sd, "/")
+
+  x_test_mat <- as.matrix(test_data[, covariates, drop = FALSE])
+  test_x_scaled <- sweep(x_test_mat, 2, scaler$mean, "-")
+  test_x_scaled <- sweep(test_x_scaled, 2, scaler$sd, "/")
 
   n_seeds <- as.integer(n_seeds)[1]
   if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
@@ -878,18 +898,19 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", n_seeds, " seeds, ",
     sum(model_data$presence == 1), " presences")
 
-  # Train multiple seeds
   seed_models <- vector("list", n_seeds)
+  seed_devices <- character(n_seeds)
   for (s in seq_len(n_seeds)) {
     log_message(log_fun, "  Training seed ", s, "/", n_seeds)
     dnn_data <- list(
-      train_x = x_scaled,
-      train_y = model_data$presence,
-      test_x = x_scaled,
-      test_y = model_data$presence,
+      train_x = train_x_scaled,
+      train_y = train_data$presence,
+      test_x = test_x_scaled,
+      test_y = test_data$presence,
       feature_names = covariates
     )
 
+    seed_device <- dnn_device
     model <- tryCatch(
       train_dnn_model(dnn_data, model_type = dnn_model_type, device = dnn_device, log_fun = log_fun,
                        dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
@@ -899,6 +920,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
         # If GPU failed and CPU fallback available, retry on CPU
         if (identical(dnn_device, "cuda") && grepl("CUDA|out of memory|cuda|memory", err_msg, ignore.case = TRUE)) {
           log_message(log_fun, "    Seed ", s, " GPU failed (", err_msg, "). Retrying on CPU...")
+          seed_device <<- "cpu"
           tryCatch(
             train_dnn_model(dnn_data, model_type = dnn_model_type, device = "cpu", log_fun = log_fun,
                              dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
@@ -916,9 +938,11 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     )
     if (is.null(model)) next
     seed_models[[s]] <- model
+    seed_devices[s] <- seed_device
   }
 
   seed_models <- Filter(Negate(is.null), seed_models)
+  seed_devices <- seed_devices[lengths(seed_models) > 0]
   if (length(seed_models) == 0) stop("All DNN seeds failed to train.", call. = FALSE)
 
   n_success <- length(seed_models)
@@ -926,14 +950,16 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
   best_model <- seed_models[[1]]
 
-  # Compute mean AUC across seeds
-  auc_vals <- vapply(seed_models, function(m) {
+  # Compute mean AUC across seeds using the actual device per seed
+  auc_vals <- vapply(seq_along(seed_models), function(i) {
+    m <- seed_models[[i]]
+    dev <- seed_devices[i]
     tryCatch({
       pred <- torch::with_no_grad({
-        predict(m, newdata = as.data.frame(x_scaled), type = "response", device = dnn_device)
+        predict(m, newdata = as.data.frame(test_x_scaled), type = "response", device = dev)
       })
       if (is.matrix(pred)) pred <- pred[, 1]
-      auc_rank(model_data$presence, as.numeric(pred))
+      auc_rank(test_data$presence, as.numeric(pred))
     }, error = function(e) NA_real_)
   }, numeric(1))
   auc_mean <- mean(auc_vals, na.rm = TRUE)
@@ -956,7 +982,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   }
 
   # SHAP on the best model
-  train_df <- as.data.frame(x_scaled)
+  train_df <- as.data.frame(train_x_scaled)
   names(train_df) <- covariates
 
   shap_values <- tryCatch({

@@ -29,8 +29,8 @@ fit_occupancy_sdm <- function(occ, env_train_scaled, background_n = sdm_default_
   covariates_clean <- make.names(covariates)
 
   site_covs <- occ$site_covs
+  extracted <- terra::extract(env_train_scaled, occ$site_xy)[, -1, drop = FALSE]
   for (i in seq_along(covariates)) {
-    extracted <- terra::extract(env_train_scaled, occ$site_xy)[, -1, drop = FALSE]
     site_covs[[covariates_clean[i]]] <- extracted[, i]
   }
   site_covs <- site_covs[stats::complete.cases(site_covs), , drop = FALSE]
