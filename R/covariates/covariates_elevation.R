@@ -95,7 +95,7 @@ download_opentopo_tile <- function(tile_extent, demtype, api_key, destfile, max_
   if (is.na(url)) stop("OpenTopography API key is required to download DEM data.", call. = FALSE)
   last_error <- NULL
   for (attempt in seq_len(max_retries)) {
-    result <- suppressWarnings(try(utils::download.file(url, destfile, mode = "wb", quiet = TRUE), silent = TRUE))
+    result <- suppressWarnings(try(utils::download.file(url, destfile, mode = "wb", quiet = TRUE, timeout = 300), silent = TRUE))
     ok <- !inherits(result, "try-error") && file.exists(destfile) && {
       fi <- file.info(destfile)
       is.finite(fi$size) && fi$size > 1024

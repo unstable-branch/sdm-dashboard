@@ -189,6 +189,15 @@ export async function handleModelJob(
           });
           return { status: "error", error: "Cancelled", error_code: "CANCELLED" };
         } else if (pollState === "failed" || pollState === "error") {
+          // Guard: skip if another process already transitioned this run
+          if (runId) {
+            const [currentRun] = await db
+              .select({ status: runs.status })
+              .from(runs)
+              .where(eq(runs.id, runId))
+              .limit(1);
+            if (currentRun && currentRun.status !== "running") { modelCompleted = true; break; }
+          }
           modelCompleted = true;
           const errMsg = (modelStatus.error as string) || "Model run failed";
           const errCode = modelStatus.error_code as string | undefined;

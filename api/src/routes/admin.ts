@@ -27,15 +27,16 @@ adminRoutes.use("*", rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "admin" }
 
 adminRoutes.get("/overview", async (c) => {
   try {
-    const [userCount] = await db.select({ count: count() }).from(users);
-    const [runCount] = await db.select({ count: count() }).from(runs);
-    const [occurrenceCount] = await db.select({ count: count() }).from(occurrences);
-    const [speciesCount] = await db.select({ count: count() }).from(species);
-    const [projectCount] = await db.select({ count: count() }).from(projects);
-
-    const [activeRuns] = await db.select({ count: count() }).from(runs).where(
-      inArray(runs.status, ["queued", "running"])
-    );
+    const [[userCount], [runCount], [occurrenceCount], [speciesCount], [projectCount], [activeRuns]] = await Promise.all([
+      db.select({ count: count() }).from(users),
+      db.select({ count: count() }).from(runs),
+      db.select({ count: count() }).from(occurrences),
+      db.select({ count: count() }).from(species),
+      db.select({ count: count() }).from(projects),
+      db.select({ count: count() }).from(runs).where(
+        inArray(runs.status, ["queued", "running"])
+      ),
+    ]);
 
     // Recent runs for run activity view
     const recentRuns = await db

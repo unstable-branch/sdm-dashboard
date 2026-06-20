@@ -35,7 +35,7 @@ cross_validate_bart <- function(model_data, covariates, ntree, ndpost, nskip,
     pred_list <- predict(model, newdata = x_test)
     pred <- pnorm(colMeans(pred_list$yhat.test))
     pred <- pmin(pmax(as.numeric(pred), 0), 1)
-    metrics_list_to_row(compute_binary_metrics(y_test, pred, threshold = threshold), fold = i)
+    metrics_list_to_row(compute_binary_metrics(test$presence, pred, threshold = threshold), fold = i)
   }
 
   cross_validate_model(model_data,

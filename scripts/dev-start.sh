@@ -69,6 +69,10 @@ case "$MODE" in
     command -v tmux >/dev/null 2>&1 || { echo -e "${RED}tmux is required for plumber mode (api + frontend in tmux).${NC}"; exit 1; }
     PROFILES=(core email computation)
     DESC="postgres, redis, mailpit, plumber (+ local API + frontend)"
+    # Append GPU compose override if nvidia-docker runtime is available
+    if sg docker -c "docker info 2>/dev/null | grep -q 'nvidia'"; then
+      GPU_OVERRIDE=" -f docker-compose.dev.yml -f scripts/docker-compose.gpu.yml"
+    fi
     ;;
   *)
     command -v tmux >/dev/null 2>&1 || { echo -e "${RED}tmux is required for dev mode (api + frontend in tmux).${NC}"; exit 1; }
@@ -85,7 +89,7 @@ done
 
 # 1. Start Docker backing services
 echo -e "${YELLOW}[1/4]${NC} Starting Docker services: ${DESC}..."
-sg docker -c "docker compose -f docker-compose.dev.yml${PROFILE_FLAGS} up -d --remove-orphans" 2>&1
+sg docker -c "docker compose -f docker-compose.dev.yml${GPU_OVERRIDE:-}${PROFILE_FLAGS} up -d --remove-orphans" 2>&1
 
 # 2. Wait for healthy
 echo -e "${YELLOW}[2/4]${NC} Waiting for services to be healthy..."

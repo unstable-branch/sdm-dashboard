@@ -76,9 +76,12 @@ export function getBucketNames(): { rasters: string; exports: string } {
   };
 }
 
+let cachedS3Client: S3Client | null = null;
+
 function createS3Client(): S3Client {
+  if (cachedS3Client) return cachedS3Client;
   const config = getGarageConfig();
-  return new S3Client({
+  cachedS3Client = new S3Client({
     endpoint: `${config.useSSL ? "https" : "http"}://${config.endPoint}:${config.port}`,
     region: "garage",
     forcePathStyle: true,
@@ -87,6 +90,7 @@ function createS3Client(): S3Client {
       secretAccessKey: config.secretKey,
     },
   });
+  return cachedS3Client;
 }
 
 export async function ensureBuckets(): Promise<void> {
@@ -216,10 +220,26 @@ export async function syncOutputsToS3(
 
     try {
       const data = await readFile(resolvedPath);
-      await uploadFile(bucket, objectName, data, ext);
+      // Retry upload up to 3 times with exponential backoff
+      let lastErr: unknown;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await uploadFile(bucket, objectName, data, ext);
+          lastErr = null;
+          break;
+        } catch (e) {
+          lastErr = e;
+          if (attempt < 3) {
+            const delay = Math.min(5000 * Math.pow(3, attempt - 1), 45000);
+            console.warn(`[S3] Upload ${key} attempt ${attempt} failed, retrying in ${delay}ms:`, e instanceof Error ? e.message : e);
+            await new Promise(r => setTimeout(r, delay));
+          }
+        }
+      }
+      if (lastErr) throw lastErr;
       s3Urls[key] = objectName;
     } catch (err) {
-      console.warn(`[S3] Failed to upload ${key} for run ${runId}:`, err instanceof Error ? err.message : err);
+      console.warn(`[S3] Failed to upload ${key} for run ${runId} after 3 attempts:`, err instanceof Error ? err.message : err);
     }
   }
 

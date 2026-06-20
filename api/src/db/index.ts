@@ -15,11 +15,18 @@ const pool = new Pool({
   max: DB_POOL_SIZE,
   idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT_MS || "10000", 10),
   connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECT_TIMEOUT_MS || "3000", 10),
-  statement_timeout: parseInt(process.env.DB_STATEMENT_TIMEOUT_MS || "10000", 10),
+  statement_timeout: parseInt(process.env.DB_STATEMENT_TIMEOUT_MS || "30000", 10),
 });
 
 pool.on("error", (err) => {
   console.error("[DB] Unexpected pool error:", err.message);
+});
+
+pool.on("acquire", (client) => {
+  const timeout = parseInt(process.env.DB_STATEMENT_TIMEOUT_MS || "30000", 10);
+  if (Number.isFinite(timeout) && timeout > 0) {
+    client.query(`SET statement_timeout = ${timeout}`).catch(() => {});
+  }
 });
 
 export const db = drizzle(pool, { schema });

@@ -362,11 +362,16 @@ All computation endpoints on Plumber (port 8000) require authentication:
 - `GET /ready` — readiness probe
 - `GET /api/v1/models/runs` — list all model runs (read-only)
 - `GET /api/v1/climate/scenarios` — list downloaded scenarios
+- `GET /api/v1/climate/check` — climate data availability check
 - `GET /api/v1/config/defaults` — model config defaults
 - `GET /api/v1/models` — available model list
 - `GET /api/v1/future/scenarios` — future scenario discovery
-- `GET /api/v1/ecology/:runId/*` — ecology data (read-only)
-- `GET /api/v1/diagnostics/*` — diagnostics (read-only)
+- `GET /api/v1/covariates/check` — covariate availability check
+- `GET /api/v1/ecology/:runId` — ecology data (read-only)
+- `GET /api/v1/ecology/:runId/eoo-aoo` — EOO/AOO data (read-only)
+- `GET /api/v1/ecology/:runId/aoa` — area of applicability (read-only)
+- `GET /api/v1/ecology/:runId/report` — conservation report (read-only)
+- `GET /api/v1/diagnostics/vif/:runId` and other GET diagnostics (read-only; POST shap/cell and plots still require auth)
 
 **Protected Plumber endpoints** (auth required):
 - `POST /api/v1/models/run` — run SDM model

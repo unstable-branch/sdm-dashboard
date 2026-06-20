@@ -99,11 +99,6 @@ sdm_redis_cancel_clear <- function(job_id) {
   .redis_cmd(function(conn) conn$DEL(key))
 }
 
-sdm_redis_status_set <- function(job_id, status) {
-  key <- .job_status_key(job_id)
-  .redis_cmd(function(conn) conn$SET(key, status))
-}
-
 sdm_redis_status_get <- function(job_id) {
   key <- .job_status_key(job_id)
   .redis_cmd(function(conn) conn$GET(key))

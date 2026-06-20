@@ -14,6 +14,13 @@ compute_calibration <- function(model_data, fit, n_bins = 10) {
       as.numeric(predict(fit$model, model_data[, covariates, drop = FALSE], clamp = TRUE, type = "response"))
     } else if (inherits(fit$model, "ranger")) {
       predict(fit$model, data = model_data[, covariates, drop = FALSE])$predictions
+    } else if (inherits(fit$model, "list") && inherits(fit$model$xgb_fit, "xgb.Booster")) {
+      stats::predict(fit$model$xgb_fit, as.matrix(model_data[, covariates, drop = FALSE]))
+    } else if (inherits(fit$model, "xgb.Booster")) {
+      stats::predict(fit$model, as.matrix(model_data[, covariates, drop = FALSE]))
+    } else if (inherits(fit$model, "dbarts")) {
+      pred_list <- predict(fit$model, newdata = as.matrix(model_data[, covariates, drop = FALSE]))
+      pnorm(as.numeric(colMeans(pred_list$yhat.test)))
     } else {
       stats::predict(fit$model, newdata = model_data[, covariates, drop = FALSE], type = "response")
     }

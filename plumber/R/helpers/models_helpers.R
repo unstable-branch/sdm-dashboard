@@ -38,7 +38,7 @@ handle_model_run <- function(req, app_dir) {
   }
 
   tryCatch({
-    mem_info <- terra::mem_info()
+    mem_info <- sdm_mem_info()
     if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
       if (mem_info$memavail < 1.0) {
         return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
@@ -80,6 +80,35 @@ handle_model_run <- function(req, app_dir) {
         "GPU busy: ", active_gpu, " GPU model run(s) in progress (max ", SDM_MAX_GPU_CONCURRENT_RUNS,
         "). Queue this run or wait."
       )))
+    }
+    # Layered GPU check: VRAM availability (shared GPU with other users)
+    gpu_vram_ok <- tryCatch(sdm_gpu_vram_is_usable(), error = function(e) FALSE)
+    if (!gpu_vram_ok) {
+      free_mib <- tryCatch(sdm_gpu_available_vram(), error = function(e) NA_real_)
+      if (!is.finite(free_mib) || is.na(free_mib)) {
+        warning("[GPU] sdm_gpu_available_vram() returned NA — nvidia-smi unavailable or torch CUDA stats failed. Ensure GPU passthrough is configured.")
+      }
+      free_gb <- if (is.finite(free_mib) && !is.na(free_mib)) sprintf("%.1f GiB", free_mib / 1024) else "unknown"
+      msg <- paste0("GPU requested but VRAM insufficient (", free_gb, " free, min ~1.5 GiB). Auto-fallback to CPU for this run.")
+      is_gpu_model <- FALSE
+      body$dnn_device <- "cpu"
+      # Write GPU-fallback progress entry so frontend UI displays it
+      progress_json_path <- file.path(job_dir, "progress.json")
+      fb_entry <- list(
+        timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+        percent = 0,
+        detail = msg,
+        stage = "gpu_fallback"
+      )
+      cat(jsonlite::toJSON(fb_entry, auto_unbox = TRUE), "\n",
+          file = progress_json_path, append = TRUE)
+      # Also record in meta.json so status endpoint surfaces it immediately
+      meta_path <- file.path(job_dir, "meta.json")
+      if (file.exists(meta_path)) {
+        m <- tryCatch(jsonlite::fromJSON(meta_path, simplifyVector = FALSE), error = function(e) list())
+        m$gpu_fallback <- msg
+        sdm_write_json(m, meta_path)
+      }
     }
   }
 
@@ -716,6 +745,11 @@ handle_model_status <- function(res, job_id) {
       sdm_process_registry[[job_id]] <- NULL
       sdm_redis_progress_clear(job_id)
       sdm_redis_cancel_clear(job_id)
+      # Clean up orphaned partial outputs (non-targets jobs only)
+      if (!grepl("^targets-", job_id)) {
+        tryCatch(unlink(file.path(Sys.getenv("SDM_PROJECT_ROOT", "/app"), "outputs", "jobs", job_id),
+          recursive = TRUE, force = TRUE), error = function(e) NULL)
+      }
     }
   }
 
@@ -765,6 +799,8 @@ handle_model_status <- function(res, job_id) {
       sdm_process_registry[[job_id]] <- NULL
       sdm_redis_progress_clear(job_id)
       sdm_redis_cancel_clear(job_id)
+      # Clean up orphaned partial outputs
+      tryCatch(unlink(job_dir, recursive = TRUE, force = TRUE), error = function(e) NULL)
     }
   }
 
@@ -800,6 +836,8 @@ handle_model_status <- function(res, job_id) {
       sdm_process_registry[[job_id]] <- NULL
       sdm_redis_progress_clear(job_id)
       sdm_redis_cancel_clear(job_id)
+      # Clean up orphaned partial outputs
+      tryCatch(unlink(job_dir, recursive = TRUE, force = TRUE), error = function(e) NULL)
     }
   }
 
@@ -808,9 +846,17 @@ handle_model_status <- function(res, job_id) {
     meta$error <- "Cancelled by user"
     meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
     sdm_write_json(meta, meta_file)
-    sdm_process_registry[[job_id]] <- NULL
-    sdm_redis_progress_clear(job_id)
-    sdm_redis_cancel_clear(job_id)
+    # Re-read: background process may have written "completed" in the race window
+    Sys.sleep(1)
+    meta2 <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) list())
+    if (identical(meta2$status, "completed")) {
+      meta <- meta2
+      # Preserve the process's authoritative status — don't clear Redis keys
+    } else {
+      sdm_process_registry[[job_id]] <- NULL
+      sdm_redis_progress_clear(job_id)
+      sdm_redis_cancel_clear(job_id)
+    }
   }
 
   if (identical(meta$status, "completed") || identical(meta$status, "failed") || identical(meta$status, "cancelled")) {
@@ -886,6 +932,13 @@ handle_model_cancel <- function(req, job_id) {
     if (proc$is_alive()) {
       proc$kill()
       killed <- TRUE
+      # Wait briefly for process to die, then escalate to SIGKILL if still alive
+      Sys.sleep(3)
+      if (proc$is_alive()) {
+        pid <- proc$get_pid()
+        tryCatch(tools::pskill(pid, signal = 9), error = function(e) NULL)
+        Sys.sleep(2)
+      }
     }
     device_tag <- if (is.list(entry)) entry$device else "cpu"
     # If this was a GPU run, wait briefly for VRAM recovery
@@ -1104,6 +1157,8 @@ handle_async_status <- function(res, job_id, app_dir) {
       sdm_process_registry[[basename(job_id)]] <- NULL
       sdm_redis_progress_clear(basename(job_id))
       sdm_redis_cancel_clear(basename(job_id))
+      # Clean up orphaned partial outputs
+      tryCatch(unlink(job_dir, recursive = TRUE, force = TRUE), error = function(e) NULL)
       return(list(available = TRUE, status = "failed", error = "Process crashed or was killed (OOM, segfault, or external signal)",
                   error_code = "PROCESS_CRASH", error_hint = "The R process was terminated by the OS. Check system memory, reduce raster resolution, or run with fewer covariates."))
     }

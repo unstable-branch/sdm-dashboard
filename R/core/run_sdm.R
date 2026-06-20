@@ -146,6 +146,7 @@ run_fast_sdm <- function(...) {
   xgb_max_depth <- cfg$xgb_max_depth %||% 6L
   xgb_eta <- cfg$xgb_eta %||% 0.3
   xgb_nrounds <- cfg$xgb_nrounds %||% 100L
+  xgb_objective <- cfg$xgb_objective %||% "binary:logistic"
   dnn_model_type <- cfg$dnn_model_type %||% "DNN_Medium"
   dnn_dropout <- cfg$dnn_dropout %||% 0.3
   dnn_lambda <- cfg$dnn_lambda %||% 0.001
@@ -180,15 +181,29 @@ run_fast_sdm <- function(...) {
   # Per-run cancellation token (mutable environment) — preferred over global option
   cancelled_env <- cfg$cancelled_env %||% new.env(parent = emptyenv())
   if (is.null(cancelled_env$cancelled)) cancelled_env$cancelled <- FALSE
+  .last_cancel_ts <- NULL
   check_cancelled <- function(log_fun = NULL) {
     if (isTRUE(cancelled_env$cancelled)) {
       log_message(log_fun, "Run cancelled by user")
       return(TRUE)
     }
-    # Backward compatibility: also check global option
+    # Backward compatibility: also check global option (set by background runner)
     if (isTRUE(getOption("sdm_cancelled"))) {
       log_message(log_fun, "Run cancelled by user (global)")
       return(TRUE)
+    }
+    # Throttled Redis polling: check cancel key every 30s during long compute stages
+    job_id <- cfg$job_id
+    if (!is.null(job_id) && exists("sdm_redis_cancel_check", inherits = TRUE)) {
+      now <- Sys.time()
+      if (is.null(.last_cancel_ts) || difftime(now, .last_cancel_ts, units = "secs") > 30) {
+        .last_cancel_ts <<- now
+        if (tryCatch(isTRUE(sdm_redis_cancel_check(job_id)), error = function(e) FALSE)) {
+          log_message(log_fun, "Run cancelled by user (Redis)")
+          cancelled_env$cancelled <- TRUE
+          return(TRUE)
+        }
+      }
     }
     FALSE
   }
@@ -202,7 +217,7 @@ run_fast_sdm <- function(...) {
   }
 
   tryCatch({
-    mem_info <- terra::mem_info()
+    mem_info <- sdm_mem_info()
     if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
       if (mem_info$memavail < 0.5) {
         stop(sprintf("System memory critically low (%.1f GB available). Aborting run.", mem_info$memavail), call. = FALSE)
@@ -222,7 +237,7 @@ run_fast_sdm <- function(...) {
     cleaned <- list(occ = occ, removed_bad_coordinates = 0, removed_duplicates = 0, original_rows = nrow(occ), columns = colnames(occ))
     if (is.null(occ$cc_flag)) occ$cc_flag <- FALSE
   } else {
-    cleaned <- clean_occurrences(occurrence_file, min_source_records = min_source_records, merge_small_sources = merge_small_sources, use_cc = use_cc, cc_tests = cc_tests, log_fun = log_fun, max_coordinate_uncertainty = max_coordinate_uncertainty)
+    cleaned <- clean_occurrences(occurrence_file, min_source_records = min_source_records, merge_small_sources = merge_small_sources, use_cc = use_cc, cc_tests = cc_tests, log_fun = log_fun, progress_fun = progress_fun, max_coordinate_uncertainty = max_coordinate_uncertainty)
     occ <- cleaned$occ
   }
   if (isTRUE(nzchar(species_filter)) && "species" %in% names(occ)) {
@@ -275,6 +290,7 @@ run_fast_sdm <- function(...) {
     allow_download = allow_download,
     worldclim_res = worldclim_res,
     log_fun = log_fun,
+    progress_fun = progress_fun,
     n_cores = n_cores,
     use_elevation = use_elevation,
     elevation_demtype = elevation_demtype,
@@ -382,6 +398,37 @@ run_fast_sdm <- function(...) {
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
+
+  tryCatch({
+    mem_info <- sdm_mem_info()
+    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail) && mem_info$memavail > 0) {
+      n_cells_proj <- terra::ncell(env$env_project_scaled)
+      n_layers <- terra::nlyr(env$env_train_scaled)
+      raster_gb <- n_cells_proj * n_layers * 8 / (1024^3)
+      model_multiplier <- if (model_id %in% c("brms", "esm_brms")) {
+        10.0
+      } else if (model_id %in% c("dnn", "dnn_multispecies")) {
+        8.0
+      } else {
+        3.0
+      }
+      est_gb <- raster_gb * model_multiplier
+      threshold_gb <- mem_info$memavail * 0.6
+      if (is.finite(est_gb) && est_gb > threshold_gb) {
+        stop(sprintf(
+          "Model '%s' estimated memory %.1f GB exceeds 60%% of available RAM (%.1f GB). Reduce resolution, extent, or switch to a lighter model.",
+          model_id, est_gb, mem_info$memavail
+        ), call. = FALSE)
+      }
+      if (est_gb > mem_info$memavail * 0.3) {
+        log_message(log_fun, sprintf("  Model '%s' estimated memory: %.1f GB of %.1f GB available (multiplier: %.0fx)", model_id, est_gb, mem_info$memavail, model_multiplier))
+      }
+    }
+  }, error = function(e) {
+    if (grepl("^Model .* estimated memory", conditionMessage(e))) stop(e)
+  })
+
+
   progress_step(progress_fun, 0.60, "Fitting model")
   log_message(log_fun, "Model backend: ", model_spec$label)
   extra_args <- if (identical(model_id, "maxnet")) {
@@ -411,7 +458,8 @@ run_fast_sdm <- function(...) {
     list(max_k = gam_k)
   } else if (identical(model_id, "xgboost")) {
     list(
-      max_depth = xgb_max_depth, eta = xgb_eta, nrounds = xgb_nrounds
+      max_depth = xgb_max_depth, eta = xgb_eta, nrounds = xgb_nrounds,
+      objective = xgb_objective
     )
   } else if (identical(model_id, "dnn")) {
     dnn_dev <- if (identical(gpu_enabled, "off")) "cpu" else dnn_device
@@ -532,7 +580,10 @@ run_fast_sdm <- function(...) {
 
   # Restrict background points to boundary polygon if requested
   if (restrict_background && mask_type != "none") {
-    train_res <- tryCatch(terra::res(env$env_train), error = function(e) NULL)
+    train_res <- tryCatch(terra::res(env$env_train), error = function(e) {
+      log_message(log_fun, "Failed to read training raster resolution: ", conditionMessage(e))
+      NULL
+    })
     train_mask_file <- mask_file
     if (!identical(mask_boundary_type, "auto")) {
       resolved <- resolve_mask_file(mask_boundary_type, mask_resolution, mask_country, train_res, train_mask_file)
@@ -614,6 +665,53 @@ run_fast_sdm <- function(...) {
 
   gc(verbose = FALSE)
 
+  # Post-fit threshold optimization: when threshold is "max_tss" (NA), compute
+  # the TSS-maximizing threshold from training predictions and use it for all
+  # downstream binary classification (area calc, PNG, summary stats).
+  if (is.na(threshold) && !is.null(fit$model_data) && "presence" %in% names(fit$model_data)) {
+    threshold <- tryCatch({
+      # Attempt model-agnostic re-prediction on training data
+      train_pred <- NULL
+      if (inherits(fit$model, "xgb.Booster")) {
+        x_mat <- as.matrix(fit$model_data[, fit$covariates, drop = FALSE])
+        train_pred <- stats::predict(fit$model, x_mat)
+      } else if (inherits(fit$model, "maxnet")) {
+        df <- fit$model_data[, fit$covariates, drop = FALSE]
+        train_pred <- as.numeric(predict(fit$model, df, clamp = TRUE, type = "cloglog"))
+      } else if (is.list(fit$model) && !is.null(fit$model$xgb_fit)) {
+        x_mat <- as.matrix(fit$model_data[, fit$covariates, drop = FALSE])
+        train_pred <- stats::predict(fit$model$xgb_fit, x_mat)
+      } else if (inherits(fit$model, "glm")) {
+        train_pred <- stats::predict(fit$model, newdata = fit$model_data, type = "response")
+      } else if (inherits(fit$model, "randomForest")) {
+        train_pred <- stats::predict(fit$model, newdata = fit$model_data, type = "vote")[, "1"]
+      } else {
+        # Generic fallback: attempt predict with common defaults
+        train_pred <- tryCatch(
+          stats::predict(fit$model, newdata = fit$model_data),
+          error = function(e) NULL
+        )
+      }
+      if (!is.null(train_pred)) {
+        pres_suit <- train_pred[fit$model_data$presence == 1]
+        bg_suit <- train_pred[fit$model_data$presence == 0]
+        opt <- select_threshold(pres_suit, bg_suit)
+        if (is.finite(opt$threshold) && opt$threshold >= 0 && opt$threshold <= 1) {
+          log_message(log_fun, "Optimal threshold from max_tss: ", sprintf("%.3f", opt$threshold),
+            " (TSS=", sprintf("%.3f", opt$max_tss), ")")
+          opt$threshold
+        } else {
+          NA_real_
+        }
+      } else {
+        NA_real_
+      }
+    }, error = function(e) {
+      log_message(log_fun, "Could not compute max_tss threshold: ", conditionMessage(e))
+      NA_real_
+    })
+  }
+
   importance_result <- NULL
   if (isTRUE(model_spec$supports_importance) && !is.null(fit$model_data) && !is.null(fit$cv) && is.finite(fit$cv$auc_mean)) {
     importance_result <- tryCatch(
@@ -647,7 +745,7 @@ run_fast_sdm <- function(...) {
 
   # Pre-flight memory check: reject if total memory (existing scaled rasters + prediction) exceeds 60% of available RAM
   tryCatch({
-    mem_info <- terra::mem_info()
+    mem_info <- sdm_mem_info()
     if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
       n_cells_proj <- terra::ncell(env$env_project_scaled)
       n_cells_train <- terra::ncell(env$env_train_scaled)
@@ -672,7 +770,7 @@ run_fast_sdm <- function(...) {
   # bypassing terra's chunked processing. ESM memory multiplier is ~8x.
   if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
     tryCatch({
-      mem_info <- terra::mem_info()
+      mem_info <- sdm_mem_info()
       if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
         n_cells <- terra::ncell(env$env_project_scaled)
         n_layers <- terra::nlyr(env$env_project_scaled)
@@ -705,8 +803,9 @@ run_fast_sdm <- function(...) {
 
   # Pre-flight memory check: warn if raster prediction may exceed available RAM
   tryCatch({
-    if (requireNamespace("terra", quietly = TRUE)) {
-      mem_avail <- terra::mem_info()$memavail
+    mem_info <- sdm_mem_info()
+    mem_avail <- mem_info$memavail
+    if (is.finite(mem_avail) && mem_avail > 0) {
       n_cells <- terra::ncell(env$env_project_scaled)
       est_gb <- n_cells * length(names(env$env_project_scaled)) * 8 / (1024^3) * 2.5
       if (is.finite(est_gb) && is.finite(mem_avail) && est_gb > mem_avail * 0.8) {
@@ -756,7 +855,10 @@ run_fast_sdm <- function(...) {
 
   # Resolve boundary file from new params (override legacy mask_file)
   if (mask_type != "none" && !identical(mask_boundary_type, "auto")) {
-    raster_res <- tryCatch(terra::res(suit), error = function(e) NULL)
+    raster_res <- tryCatch(terra::res(suit), error = function(e) {
+      log_message(log_fun, "Failed to read suitability raster resolution: ", conditionMessage(e))
+      NULL
+    })
     resolved <- resolve_mask_file(mask_boundary_type, mask_resolution, mask_country, raster_res, mask_file)
     if (!is.null(resolved) && nzchar(resolved))
       mask_file <- resolved
@@ -845,7 +947,10 @@ run_fast_sdm <- function(...) {
     suit <- apply_boundary_mask(suit, mask_type, mask_file, mask_buffer_deg, log_fun)
     terra::writeRaster(suit, output_tif, overwrite = TRUE,
       wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
-    mm <- tryCatch(terra::minmax(suit), error = function(e) NULL)
+    mm <- tryCatch(terra::minmax(suit), error = function(e) {
+      log_message(log_fun, "Failed to read suitability minmax: ", conditionMessage(e))
+      NULL
+    })
     if (!is.null(mm) && all(!is.finite(mm))) {
       stop("Boundary mask produced all-NA raster — mask does not overlap projection extent", call. = FALSE)
     }
@@ -1173,9 +1278,11 @@ run_fast_sdm <- function(...) {
   n_pres <- nrow(fit$occurrence_used)
   n_bg <- nrow(fit$background_xy)
   auc_unreliable <- isTRUE(n_pres < 25 || n_bg < 25)
-  tss_unreliable <- auc_unreliable
+  tss_unreliable <- isTRUE(auc_unreliable || n_pres < 10 || (n_bg / max(n_pres, 1)) > 20)
   if (auc_unreliable) {
     log_message(log_fun, "Warning: AUC/TSS may be unreliable — fewer than 25 presence or background observations (n_pres=", n_pres, ", n_bg=", n_bg, ")")
+  } else if (tss_unreliable) {
+    log_message(log_fun, "Warning: TSS may be unreliable — highly imbalanced presence/background ratio (n_pres=", n_pres, ", n_bg=", n_bg, ")")
   }
 
   # ENMeval null model (conditional — only when tuning ran and user requested null test)
@@ -1326,7 +1433,8 @@ build_stage_extra_args <- function(cfg, model_id) {
   } else if (identical(model_id, "rf")) {
     list(num_trees = cfg$rf_num_trees %||% 500L, mtry = cfg$rf_mtry %||% NULL, min_node_size = cfg$rf_min_node_size %||% 10L)
   } else if (identical(model_id, "xgboost")) {
-    list(max_depth = cfg$xgb_max_depth %||% 6L, eta = cfg$xgb_eta %||% 0.3, nrounds = cfg$xgb_nrounds %||% 100L)
+    list(max_depth = cfg$xgb_max_depth %||% 6L, eta = cfg$xgb_eta %||% 0.3, nrounds = cfg$xgb_nrounds %||% 100L,
+         objective = cfg$xgb_objective %||% "binary:logistic")
   } else if (identical(model_id, "bart")) {
     list(ntree = cfg$bart_ntree %||% 200L, ndpost = cfg$bart_ndpost %||% 1000L, nskip = cfg$bart_nskip %||% 500L)
   } else if (identical(model_id, "brms")) {

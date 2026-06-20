@@ -279,7 +279,7 @@ cat("Starting Plumber on port 8000\n")
 
 # Pre-flight OOM check: warn if available RAM is too low for model runs
 tryCatch({
-  mem_info <- terra::mem_info()
+  mem_info <- sdm_mem_info()
   if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
     if (mem_info$memavail < 2.0) {
       cat("WARNING: Available RAM (", sprintf("%.1f GB", mem_info$memavail),

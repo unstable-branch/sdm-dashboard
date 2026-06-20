@@ -131,10 +131,6 @@ server <- function(input, output, session) {
       hideTab("tabs", "Future projection")
     }
   }, ignoreNULL = TRUE)
-  # Hide on startup (runs once after session initialises)
-  observe({
-    if (!isTRUE(input$future_projection)) hideTab("tabs", "Future projection")
-  }, priority = 1000)
 
   # Sync climate source between sidebar and Get Data tab
   observeEvent(input$climate_source, {

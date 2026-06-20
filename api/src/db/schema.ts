@@ -121,6 +121,7 @@ export const runs = pgTable("runs", {
   index("idx_runs_species_name").on(t.speciesName),
   index("idx_runs_created_at").on(t.createdAt),
   index("idx_runs_job_id").on(t.jobId),
+  index("idx_runs_status_created").on(t.status, t.createdAt),
 ]);
 
 export const occurrences = pgTable("occurrences", {
@@ -144,6 +145,7 @@ export const occurrences = pgTable("occurrences", {
   index("idx_occurrences_user_id").on(t.userId),
   index("idx_occurrences_pipeline").on(t.pipelineRunId),
   index("idx_occurrences_species_project").on(t.speciesId, t.projectId),
+  index("idx_occurrences_file_path").on(t.filePath),
 ]);
 
 export const userSettings = pgTable("user_settings", {

@@ -115,10 +115,10 @@ test_that("DNN CPU vs GPU predictions are numerically equivalent", {
   )
 
   fit_cpu <- fit_sdm_model("dnn", occ, env,
-    background_n = 80, cv_folds = 2, seed = 42, n_cores = 1,
+    background_n = 150, cv_folds = 2, seed = 42, n_cores = 1,
     dnn_model_type = "DNN_Small", dnn_device = "cpu", n_seeds = 1L)
   fit_gpu <- fit_sdm_model("dnn", occ, env,
-    background_n = 80, cv_folds = 2, seed = 42, n_cores = 1,
+    background_n = 150, cv_folds = 2, seed = 42, n_cores = 1,
     dnn_model_type = "DNN_Small", dnn_device = "cuda", n_seeds = 1L)
 
   cpu_tif <- tempfile(fileext = ".tif")
