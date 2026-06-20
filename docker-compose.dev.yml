@@ -99,6 +99,11 @@ services:
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-dev-plumber-key}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-true}
       - GDAL_CACHEMAX=512
+      - SDM_CHILD_MAX_VSIZE=6Gb
+      - REDIS_HOST=redis
+      - REDIS_URL=redis://redis:6379
+      - SDM_MIN_GPU_VRAM_MIB=1500
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:512
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
       - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
     init: true

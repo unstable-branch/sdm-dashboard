@@ -277,16 +277,20 @@ predict_esm_suitability <- function(fit, env_project_scaled,
       kept_files <- proj_out$pred.biva[fit$model$esm_ensemble$models.kept]
       pair_stack <- terra::rast(unlist(kept_files))
       pair_sd_values <- terra::app(pair_stack, fun = function(x) {
-        if (length(x) > 1) stats::sd(x, na.rm = TRUE) else NA_real_
+        if (all(is.na(x))) return(NA_real_)
+        vals <- x[is.finite(x)]
+        if (length(vals) < 2) return(NA_real_)
+        if (max(vals, na.rm = TRUE) > 1) vals <- vals / max(vals, na.rm = TRUE)
+        stats::sd(vals, na.rm = TRUE)
       })
-      if (terra::global(pair_sd_values, "max", na.rm = TRUE)[1,1] > 1) pair_sd_values <- pair_sd_values / 1000
       pair_sd <- terra::clamp(pair_sd_values, lower = 0, upper = 1, values = TRUE)
       names(pair_sd) <- "esm_pair_sd"
     } else if (!is.null(proj_out$proj)) {
       pair_preds <- proj_out$proj[fit$model$esm_ensemble$models.kept, , drop = FALSE]
       if (!is.null(pair_preds) && nrow(pair_preds) > 1) {
-        pair_sd_values <- matrixStats::colSds(as.matrix(pair_preds), na.rm = TRUE)
-        if (max(pair_sd_values, na.rm = TRUE) > 1) pair_sd_values <- pair_sd_values / 1000
+        pred_max <- max(pair_preds, na.rm = TRUE)
+        pred_norm <- if (is.finite(pred_max) && pred_max > 1) as.matrix(pair_preds) / pred_max else as.matrix(pair_preds)
+        pair_sd_values <- matrixStats::colSds(pred_norm, na.rm = TRUE)
         pair_sd <- terra::setValues(template, pmin(1, pmax(0, pair_sd_values)))
         names(pair_sd) <- "esm_pair_sd"
       }

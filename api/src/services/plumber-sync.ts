@@ -1,11 +1,11 @@
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
-import { runs, projects, users } from "../db/schema.js";
+import { runs, projects, users, batches } from "../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { extractProgressPercent } from "@sdm/shared";
-import { readFile } from "fs/promises";
-import { readFileSync, writeFileSync, rmSync, existsSync, readdirSync } from "fs";
+import { readFile, readdir, writeFile, rm } from "fs/promises";
+import { existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join, resolve, extname } from "path";
 import { uploadFile, getBucketNames, getDirSize } from "./storage.js";
@@ -144,7 +144,10 @@ async function syncRunningJobs() {
       }
 
       try {
-        const status = await client.getModelStatus(run.jobId) as unknown as PlumberModelStatus;
+        const isTargetsJob = run.jobId?.startsWith("targets-");
+        const status = isTargetsJob
+          ? await client.targetsStatus(run.jobId) as unknown as PlumberModelStatus
+          : await client.getModelStatus(run.jobId) as unknown as PlumberModelStatus;
         const plumberStatus = status.status;
 
         // Guard: re-check DB status in case cancel route changed it since the query above
@@ -202,7 +205,7 @@ async function syncRunningJobs() {
             currentStage: plumberLastStage ?? null,
             progressJson,
           });
-        } else if (plumberStatus === "completed") {
+        } else if (plumberStatus === "completed" && !isTargetsJob) {
           // Guard: skip if queue worker already completed this run
           const [currentRun] = await db
             .select({ status: runs.status })
@@ -287,9 +290,70 @@ async function syncRunningJobs() {
           // Encrypt output files at rest (after event so frontend gets completion before encryption)
           if (run.jobId) {
             const jobDir = join(PROJECT_ROOT, "outputs", "jobs", run.jobId);
-            encryptOutputs(jobDir);
+            await encryptOutputs(jobDir);
           }
-        } else if (plumberStatus === "failed") {
+        } else if (plumberStatus === "completed" && isTargetsJob) {
+          // Targets pipeline completed — update ALL per-species runs + the batch itself
+          const targetsCompleted = (status as unknown as Record<string, unknown>).completed_at;
+          await db
+            .update(runs)
+            .set({
+              status: "completed",
+              completedAt: targetsCompleted ? new Date(targetsCompleted as string) : new Date(),
+            })
+            .where(and(eq(runs.jobId, run.jobId), eq(runs.status, "running")));
+
+          // Update parent batch
+          const [parentRun] = await db
+            .select({ parentRunId: runs.parentRunId })
+            .from(runs)
+            .where(eq(runs.jobId, run.jobId))
+            .limit(1);
+          if (parentRun?.parentRunId) {
+            const speciesRuns = await db
+              .select({ status: runs.status })
+              .from(runs)
+              .where(eq(runs.parentRunId, parentRun.parentRunId));
+            const completed = speciesRuns.filter(r => r.status === "completed").length;
+            const failed = speciesRuns.filter(r => r.status === "failed").length;
+            const batchStatus = failed > 0
+              ? (completed > 0 ? "completed_with_errors" : "failed")
+              : "completed";
+            await db
+              .update(batches)
+              .set({
+                completedJobs: completed,
+                failedJobs: failed,
+                status: batchStatus,
+                completedAt: targetsCompleted ? new Date(targetsCompleted as string) : new Date(),
+              })
+              .where(and(eq(batches.id, parentRun.parentRunId), eq(batches.status, "running")));
+          }
+        } else if (plumberStatus === "completed" && isTargetsJob) {
+          // Already handled in completed + isTargetsJob block above
+        } else if (plumberStatus === "failed" && isTargetsJob) {
+          // Targets pipeline failed — update per-species runs + batch
+          await db
+            .update(runs)
+            .set({
+              status: "failed",
+              error: error ?? "Targets pipeline failed",
+              completedAt: new Date(),
+            })
+            .where(and(eq(runs.jobId, run.jobId), eq(runs.status, "running")));
+
+          const [parentRun] = await db
+            .select({ parentRunId: runs.parentRunId })
+            .from(runs)
+            .where(eq(runs.jobId, run.jobId))
+            .limit(1);
+          if (parentRun?.parentRunId) {
+            await db
+              .update(batches)
+              .set({ status: "failed", completedAt: new Date() })
+              .where(and(eq(batches.id, parentRun.parentRunId), eq(batches.status, "running")));
+          }
+        } else if (plumberStatus === "failed" && !isTargetsJob) {
           const errorCode = status.error_code;
           const errorHint = status.error_hint;
           await db
@@ -501,10 +565,10 @@ const ENCRYPTABLE_EXTENSIONS = new Set([
   ".tif", ".tiff", ".csv", ".png",
 ]);
 
-function encryptOutputs(jobDir: string) {
+async function encryptOutputs(jobDir: string) {
   let files: string[];
   try {
-    files = readdirSync(jobDir);
+    files = await readdir(jobDir);
   } catch {
     return;
   }
@@ -515,15 +579,17 @@ function encryptOutputs(jobDir: string) {
     const encPath = fp + ".enc";
     if (existsSync(encPath)) continue;
     try {
-      const data = readFileSync(fp);
+      const data = await readFile(fp);
       const encrypted = encrypt(data);
-      writeFileSync(encPath, encrypted);
-      rmSync(fp);
+      await writeFile(encPath, encrypted);
+      await rm(fp);
     } catch (err) {
       console.warn(`[encrypt] Failed to encrypt ${fp}:`, err);
     }
   }
 }
+
+export { encryptOutputs };
 
 export function startPlumberSync(intervalMs = 5000) {
   if (_syncInterval) return;

@@ -25,10 +25,8 @@ async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
       const timeoutId = setTimeout(() => {
         const idx = plumberQueue.indexOf(resolver);
         if (idx >= 0) plumberQueue.splice(idx, 1);
-        plumberActiveRequests--; // Decrement counter on timeout
         reject(new Error("Plumber semaphore timeout: all connections busy"));
       }, 5000);
-      // Store timeoutId for cleanup when resolver is dequeued and called
       (resolver as any)._timeoutId = timeoutId;
     });
   }
@@ -533,6 +531,54 @@ export class PlumberClient {
     });
     if (!res.ok) throw new Error(`Failed to get GPU status: ${res.status}`);
     return res.json();
+  }
+
+  // ── Climate check ──────────────────────────────────────────────────
+
+  async getClimateCheck(params: Record<string, string>): Promise<Record<string, unknown>> {
+    const qs = new URLSearchParams(params).toString();
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/check?${qs}`);
+    if (!res.ok) throw new Error(`Failed to check climate: ${res.status}`);
+    return res.json();
+  }
+
+  // ── Output script / manifest ───────────────────────────────────────
+
+  async getOutputScript(jobId: string): Promise<{ script_path?: string } & Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/output/script/${jobId}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get output script: ${res.status}`);
+    return res.json();
+  }
+
+  async getOutputManifest(jobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/output/manifest/${jobId}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get output manifest: ${res.status}`);
+    return res.json();
+  }
+
+  // ── Synthetic occurrences ──────────────────────────────────────────
+
+  async generateSynthetic(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/occurrences/synthetic`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`Failed to generate synthetic data: ${res.status}`);
+    return res.json();
+  }
+
+  // ── Tile COG (returns raw Response for binary PNG data) ────────────
+
+  async getTileCog(runId: string, z: string, x: string, y: string, band: string): Promise<Response> {
+    return this._fetch(
+      `${this.baseUrl}/api/v1/results/tiles/cog/${runId}/${z}/${x}/${y}?band=${encodeURIComponent(band)}`,
+      { headers: this.headers(), signal: AbortSignal.timeout(45000) }
+    );
   }
 }
 

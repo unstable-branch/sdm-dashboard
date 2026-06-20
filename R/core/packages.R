@@ -200,7 +200,7 @@ setup_torch_cuda <- function(force_gpu = FALSE, log_fun = NULL) {
 
       if (has_cuda) {
         cuda_ver <- Sys.getenv("CUDA", NA_character_)
-        if (nzchar(cuda_ver)) result$cuda_version <- cuda_ver
+        if (!is.na(cuda_ver) && nzchar(cuda_ver)) result$cuda_version <- cuda_ver
       }
 
       if (has_cuda) {

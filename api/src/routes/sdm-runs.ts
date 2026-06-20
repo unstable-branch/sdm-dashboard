@@ -71,46 +71,64 @@ sdmRunRoutes.post("/run", async (c) => {
         console.warn("[sdm] Species insert failed (best-effort):", err instanceof Error ? err.message : err);
       }
 
-      const [maxRun] = await db
-        .select({ maxNum: sql<number>`COALESCE(MAX(run_number), 0)` })
-        .from(runs)
-        .where(eq(runs.projectId, projectId));
+      let insertedRun: typeof runs.$inferSelect | null = null;
+      let attempts = 0;
+      const maxAttempts = 5;
 
-      const [run] = await db
-        .insert(runs)
-        .values({
-          speciesId: speciesId ?? null,
-          projectId,
-          speciesName: speciesName ?? null,
-          modelId: config.modelId,
-          status: "queued",
-          startedAt: new Date(),
-          config,
-          jobId: null,
-          pipelineRunId: (config as Record<string, unknown>).pipelineRunId as string || null,
-          runNumber: maxRun.maxNum + 1,
-        })
-        .returning();
+      while (!insertedRun && attempts < maxAttempts) {
+        attempts++;
+        try {
+          const [maxRun] = await db
+            .select({ maxNum: sql<number>`COALESCE(MAX(run_number), 0)` })
+            .from(runs)
+            .where(eq(runs.projectId, projectId));
+
+          insertedRun = (await db
+            .insert(runs)
+            .values({
+              speciesId: speciesId ?? null,
+              projectId,
+              speciesName: speciesName ?? null,
+              modelId: config.modelId,
+              status: "queued",
+              startedAt: new Date(),
+              config,
+              jobId: null,
+              pipelineRunId: (config as Record<string, unknown>).pipelineRunId as string || null,
+              runNumber: maxRun.maxNum + 1,
+            })
+            .returning())[0];
+        } catch (err) {
+          if (attempts < maxAttempts && err instanceof Error && err.message.includes("unique")) {
+            await new Promise(r => setTimeout(r, 50 + Math.random() * 100));
+            continue;
+          }
+          throw err;
+        }
+      }
+
+      if (!insertedRun) {
+        throw new Error("Failed to create run after multiple attempts due to concurrent requests");
+      }
 
       const jobId = await enqueueSdmJob(
-        { type: "model", payload: { ...buildModelPayload(config, run.id), runId: run.id } },
+        { type: "model", payload: { ...buildModelPayload(config, insertedRun.id), runId: insertedRun.id } },
         user.id,
       );
-      cleanupDecryptedFiles();
 
       await db
         .update(runs)
         .set({ bullmqId: jobId, status: "queued" })
-        .where(eq(runs.id, run.id));
+        .where(eq(runs.id, insertedRun.id));
 
       jobEventBus.emitJobStatus({
-        jobId: run.id,
+        jobId: insertedRun.id,
         state: "queued",
         progress: 0,
         logs: ["Model run queued..."],
       });
 
-      return c.json({ jobId: run.id, queuedAt: new Date().toISOString() });
+      return c.json({ jobId: insertedRun.id, queuedAt: new Date().toISOString() });
     }
 
     const [maxRun] = await db
@@ -133,7 +151,6 @@ sdmRunRoutes.post("/run", async (c) => {
       .returning();
 
     const result = await plumberClient.runModel(buildModelPayload(config, run.id));
-    cleanupDecryptedFiles();
 
     const plumberJobId = (result as { job_id?: string }).job_id;
 
@@ -162,6 +179,8 @@ sdmRunRoutes.post("/run", async (c) => {
     console.error(`[sdm] Model run failed: ${message}`);
     const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
     return c.json({ error: message }, isBusy ? 429 : 502);
+  } finally {
+    cleanupDecryptedFiles();
   }
 });
 
@@ -237,7 +256,7 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
         console.warn(`[sdm-status] Plumber poll failed for job ${run.jobId}:`, err instanceof Error ? err.message : String(err));
       }
     } else if (run.status === "running" && !run.jobId && run.startedAt) {
-      const orphanThreshold = 5 * 60 * 1000;
+      const orphanThreshold = 10 * 60 * 1000;
       if (Date.now() - run.startedAt.getTime() > orphanThreshold) {
         await db.update(runs)
           .set({

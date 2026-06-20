@@ -147,12 +147,16 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
       } else {
         await apiDelete(`/api/v1/sdm/runs/delete/${actionRunId}`);
       }
-      queryClient.invalidateQueries({ queryKey: ["sdm-runs"] });
-      fetchRuns();
+      setError(null);
     } catch (err) {
-      console.error("[run-history] Action failed:", err instanceof Error ? err.message : err);
+      const msg = err instanceof Error ? err.message : "";
+      if (!msg.toLowerCase().includes("already cancelled")) {
+        console.error("[run-history] Action failed:", msg || err);
+      }
       setError(actionType === "cancel" ? "Failed to cancel run" : "Failed to delete run");
     } finally {
+      queryClient.invalidateQueries({ queryKey: ["sdm-runs"] });
+      fetchRuns();
       setActionRunId(null);
       setActionType(null);
     }

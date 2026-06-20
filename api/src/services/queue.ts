@@ -19,7 +19,7 @@ let _failCount = 0;
 
 function getReconnectDelay(): number {
   const delays = [10000, 30000, 60000, 120000, 300000];
-  return delays[Math.min(_failCount, delays.length - 1)];
+  return delays[Math.min(Math.max(0, _failCount - 1), delays.length - 1)];
 }
 
 export const CLIMATE_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.CLIMATE_DOWNLOAD_TIMEOUT_MS || "1800000", 10);
@@ -248,7 +248,8 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
         } satisfies SdmJobResult;
       }
     },
-    { connection: conn, concurrency: 3 }
+    // Concurrency=2: R model fitting is memory/CPU intensive; 3 could exhaust RAM with large covariates
+    { connection: conn, concurrency: 2 }
   );
 
   _worker.on("stalled", (jobId: string) => {

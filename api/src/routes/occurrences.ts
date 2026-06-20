@@ -396,24 +396,6 @@ function readCleanResultFromFile(cleanedPath: string): {
   const records: Record<string, unknown>[] = [];
   const sourceCounts: Record<string, number> = {};
 
-  for (let i = 1; i < Math.min(lines.length, 101); i++) {
-    const values = splitCsvLine(lines[i]).map(v => stripQuotes(v));
-    const row: Record<string, unknown> = {};
-    headers.forEach((h, idx) => {
-      const val = values[idx];
-      const num = Number(val);
-      row[h] = isNaN(num) ? (val || null) : num;
-    });
-    records.push(row);
-    const src = String(row.source || row["source"] || "unknown");
-    sourceCounts[src] = (sourceCounts[src] || 0) + 1;
-  }
-
-  const ccLog: string[] = [];
-  const totalRecords = lines.length - 1;
-  ccLog.push("CoordinateCleaner Results:");
-  ccLog.push(`  Total records: ${totalRecords.toLocaleString()}`);
-
   const ccTestNames: Record<string, string> = {
     cc_test_sea: "Sea coordinates",
     cc_test_capitals: "Capital cities",
@@ -422,17 +404,43 @@ function readCleanResultFromFile(cleanedPath: string): {
     cc_test_urban: "Urban areas",
     cc_test_zero: "Zero coordinates",
   };
+  const ccTests = Object.entries(ccTestNames).map(([col, label]) => ({
+    colIdx: headers.indexOf(col),
+    label,
+  })).filter(t => t.colIdx !== -1);
+  const ccCounts: Record<string, number> = {};
+  for (const { label } of ccTests) ccCounts[label] = 0;
+  const maxRecords = Math.min(lines.length - 1, 100);
+
+  for (let i = 1; i < lines.length; i++) {
+    const values = splitCsvLine(lines[i]).map(v => stripQuotes(v));
+
+    for (const { colIdx, label } of ccTests) {
+      const v = values[colIdx] || "";
+      if (v === "true" || v === "TRUE" || v === "1") ccCounts[label]++;
+    }
+
+    if (i - 1 < maxRecords) {
+      const row: Record<string, unknown> = {};
+      headers.forEach((h, idx) => {
+        const val = values[idx];
+        const num = Number(val);
+        row[h] = isNaN(num) ? (val || null) : num;
+      });
+      records.push(row);
+      const src = String(row.source || row["source"] || "unknown");
+      sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+    }
+  }
+
+  const ccLog: string[] = [];
+  const totalRecords = lines.length - 1;
+  ccLog.push("CoordinateCleaner Results:");
+  ccLog.push(`  Total records: ${totalRecords.toLocaleString()}`);
 
   let totalFlagged = 0;
-  for (const [col, label] of Object.entries(ccTestNames)) {
-    const colIdx = headers.indexOf(col);
-    if (colIdx === -1) continue;
-    let count = 0;
-    for (let i = 1; i < lines.length; i++) {
-      const vals = splitCsvLine(lines[i]);
-      const v = stripQuotes(vals[colIdx] || "");
-      if (v === "true" || v === "TRUE" || v === "1") count++;
-    }
+  for (const { label } of ccTests) {
+    const count = ccCounts[label];
     totalFlagged += count;
     ccLog.push(`    ${label}: ${count.toLocaleString()}`);
   }
@@ -566,13 +574,12 @@ dataRoutes.patch("/uploads/:fileId", async (c) => {
     if (typeof body.cleaned === "boolean") updateData.cleaned = body.cleaned;
     if (typeof body.cleaned_file_path === "string") updateData.cleanedFilePath = body.cleaned_file_path;
 
+    const fileConditions: ReturnType<typeof eq>[] = [eq(uploadedFiles.filePath, fileId)];
+    if (projectIds) fileConditions.push(inArray(uploadedFiles.projectId, projectIds));
     await db
       .update(uploadedFiles)
       .set(updateData)
-      .where(and(
-        eq(uploadedFiles.filePath, fileId),
-        projectIds ? inArray(uploadedFiles.projectId, projectIds) : undefined,
-      ));
+      .where(and(...fileConditions));
 
     if (typeof body.cleaned === "boolean" || typeof body.cleaned_file_path === "string") {
       interface UploadUpdate {
@@ -704,17 +711,9 @@ dataRoutes.get("/storage", async (c) => {
 dataRoutes.get("/jobs/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");
-    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
-    const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
     const user = c.get("user");
-    const res = await fetch(`${plumberUrl}/api/v1/jobs/status/${jobId}`, {
-      headers: {
-        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
-        "X-Forwarded-User": user.id,
-      },
-    });
-    const data = await res.json();
-    return c.json(data, res.status as 200 | 400 | 404 | 500 | 502);
+    const data = await plumberClient.withUser(user.id).getJobStatus(jobId);
+    return c.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get job status";
     return c.json({ error: message }, 502);
@@ -726,19 +725,8 @@ dataRoutes.post("/occurrences/synthetic", async (c) => {
   try {
     const body = await c.req.json();
     const user = c.get("user");
-    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
-    const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
-    const res = await fetch(`${plumberUrl}/api/v1/occurrences/synthetic`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
-        "X-Forwarded-User": user.id,
-      },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    return c.json(data, res.status as 200 | 400 | 500 | 502);
+    const data = await plumberClient.withUser(user.id).generateSynthetic(body);
+    return c.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Synthetic data generation failed";
     return c.json({ error: message }, 502);

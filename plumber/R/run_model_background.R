@@ -40,6 +40,9 @@ dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
 source(file.path(app_dir, "plumber", "R", "helpers", "vsize.R"))
 Sys.setenv(R_MAX_VSIZE = sdm_detect_vsize())
 
+# Load Redis cancel check for periodic cancellation polling
+source(file.path(app_dir, "plumber", "R", "redis.R"))
+
 # Bootstrap must load before write_meta (which uses sdm_safe_rename)
 source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
@@ -85,6 +88,12 @@ progress_fun <- function(x) {
     } else "unknown"
   )
   cat(jsonlite::toJSON(entry, auto_unbox = TRUE), "\n", file = progress_json_path, append = TRUE)
+  # Rotate progress.json if it exceeds 5 MB (prevent unbounded growth)
+  if (file.size(progress_json_path) > 5 * 1024 * 1024) {
+    tryCatch({
+      file.rename(progress_json_path, paste0(progress_json_path, ".bak"))
+    }, error = function(e) NULL)
+  }
 }
 
 read_meta <- function() {
@@ -121,6 +130,25 @@ source(file.path(app_dir, "R", "load_compute.R"))
 write_heartbeat("compute_modules_done")
 log_fun("All modules loaded successfully")
 
+# Periodic cancellation check helper
+# Sets the global option so internal check_cancelled() in run_fast_sdm() can detect it,
+# then writes the cancellation to meta.json and quits.
+check_cancel_background <- function(job_id, log_fun) {
+  if (!exists("sdm_redis_cancel_check", inherits = TRUE)) return(FALSE)
+  if (sdm_redis_cancel_check(job_id)) {
+    options(sdm_cancelled = TRUE)
+    m <- read_meta()
+    m$status <- "cancelled"
+    m$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    m$error <- "Cancelled by user"
+    write_meta(m)
+    log_fun("Model run cancelled by user")
+    quit(save = "no", status = 0, runLast = TRUE)
+  }
+  FALSE
+}
+
+job_id <- basename(job_dir)
 meta <- read_meta()
 meta$status <- "running"
 write_meta(meta)
@@ -280,10 +308,17 @@ tryCatch({
     dnn_multispecies_architecture = config$dnn_multispecies_architecture %||% config$dnn_model_type %||% "DNN_Medium",
     dnn_multispecies_n_seeds = as.integer(config$dnn_multispecies_n_seeds %||% 3L),
     dnn_mc_samples = as.integer(config$dnn_mc_samples %||% 0L),
-    dnn_uncertainty_method = config$dnn_uncertainty_method %||% "none"
+    dnn_uncertainty_method = config$dnn_uncertainty_method %||% "none",
+    job_id = job_id
   )
 
+  # Poll Redis for cancellation before starting the run
+  check_cancel_background(job_id, log_fun)
+
   result <- run_fast_sdm(cfg)
+
+  # Poll Redis again in case cancellation was signaled during the run
+  check_cancel_background(job_id, log_fun)
 
   # Handle cancellation: run_fast_sdm returns NULL when cancelled
   if (is.null(result)) {

@@ -372,7 +372,7 @@ mod_results_server <- function(id, rv, input) {
         title = "Confirm exclusion",
         "This will remove all records with GBIF quality flags from the current result. Continue?",
         footer = tagList(
-          actionButton("confirm_exclude_yes", "Yes, exclude flagged records"),
+          actionButton(session$ns("confirm_exclude_yes"), "Yes, exclude flagged records"),
           modalButton("Cancel")
         ),
         easyClose = FALSE

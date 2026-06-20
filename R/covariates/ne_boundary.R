@@ -52,7 +52,7 @@ download_ne_boundary <- function(scale = "110m", type = "admin0", force = FALSE)
   zip_path <- tempfile(fileext = ".zip")
   on.exit(unlink(zip_path), add = TRUE)
   tryCatch({
-    utils::download.file(url, zip_path, mode = "wb", quiet = TRUE)
+    utils::download.file(url, zip_path, mode = "wb", quiet = TRUE, timeout = 300)
     utils::unzip(zip_path, exdir = dirname(boundary_path))
     extracted <- list.files(dirname(boundary_path), pattern = "\\.(geojson|json|shp)$", full.names = TRUE, recursive = TRUE)
     src <- grep("\\.geojson$", extracted, value = TRUE)

@@ -182,7 +182,8 @@ load_gimms_ndvi_period <- function(period, ndvi_year, extent_vec,
     tmp <- tempfile(fileext = ".tif")
     downloaded <- tryCatch(
       {
-        curl::curl_fetch_disk(url, tmp)
+        handle <- curl::new_handle(timeout = 300)
+        curl::curl_fetch_disk(url, tmp, handle = handle)
         file.info(tmp)$size > 1024
       },
       error = function(e) FALSE
@@ -233,7 +234,8 @@ load_gimms_evi <- function(extent_vec, cache_dir, allow_download, log_fun) {
     log_message(log_fun, "Downloading GIMMS AVHRR EVI (~8km, may be large)...")
     downloaded <- tryCatch(
       {
-        curl::curl_fetch_disk(evi_remote, tmp)
+        handle <- curl::new_handle(timeout = 600)
+        curl::curl_fetch_disk(evi_remote, tmp, handle = handle)
         file.info(tmp)$size > 10240
       },
       error = function(e) {
@@ -342,7 +344,8 @@ load_vegetation_covariate <- function(
             tmp <- tempfile(fileext = ".tif")
             downloaded <- tryCatch(
               {
-                curl::curl_fetch_disk(doy_url, tmp)
+                handle <- curl::new_handle(timeout = 300)
+                curl::curl_fetch_disk(doy_url, tmp, handle = handle)
                 file.info(tmp)$size > 1024
               },
               error = function(e) FALSE
@@ -395,7 +398,8 @@ load_vegetation_covariate <- function(
             tmp <- tempfile(fileext = ".tif")
             downloaded <- tryCatch(
               {
-                curl::curl_fetch_disk(url, tmp)
+                handle <- curl::new_handle(timeout = 300)
+                curl::curl_fetch_disk(url, tmp, handle = handle)
                 file.info(tmp)$size > 1024
               },
               error = function(e) FALSE

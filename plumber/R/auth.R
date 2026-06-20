@@ -65,7 +65,7 @@ requires_auth <- function(path) {
     return(TRUE)
   }
 
-  # Open endpoints: infrastructure and discovery only
+  # Open endpoints: read-only infrastructure, discovery, and results
   open_patterns <- c(
     "^/health$",
     "^/ready$",
@@ -74,7 +74,12 @@ requires_auth <- function(path) {
     "^/api/v1/config/defaults$",
     "^/api/v1/models$",
     "^/api/v1/future/scenarios$",
-    "^/api/v1/covariates/check$"
+    "^/api/v1/covariates/check$",
+    # Read-only ecology endpoints (GET only — POST niche-overlap is excluded)
+    "^/api/v1/ecology/[^/]+$",
+    "^/api/v1/ecology/[^/]+/(eoo-aoo|aoa|report)$",
+    # Read-only diagnostics endpoints (GET only — POST shap/cell and plots excluded)
+    "^/api/v1/diagnostics/(vif|response-curves|ale|importance|climate-drivers|cbi|mess|summary|roc|calibration|cv-folds|threshold|density|data)/[^/]+$"
   )
 
   if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {

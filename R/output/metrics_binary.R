@@ -41,7 +41,7 @@ compute_binary_metrics <- function(obs, score, threshold = sdm_default_threshold
   tss <- if (is.finite(sensitivity) && is.finite(specificity)) sensitivity + specificity - 1 else NA_real_
   auc_val <- auc_rank(obs, score)
   auc_unreliable <- isTRUE(attr(auc_val, "unreliable"))
-  tss_unreliable <- length(obs) > 0 && sum(obs == 1) < 25 || sum(obs == 0) < 25
+  tss_unreliable <- length(obs) > 0 && (sum(obs == 1) < 25 || sum(obs == 0) < 25)
   list(
     auc = as.numeric(auc_val),
     tss = as.numeric(tss),

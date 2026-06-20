@@ -106,8 +106,12 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
 
   # Enable cuDNN autotuner + TF32 matmul precision on CUDA
   if (identical(dnn_device, "cuda")) {
-    tryCatch(torch::torch_backends_cudnn_benchmark(TRUE), error = function(e) NULL)
-    tryCatch(torch::set_float32_matmul_precision("high"), error = function(e) NULL)
+    tryCatch(torch::torch_backends_cudnn_benchmark(TRUE), error = function(e) {
+      log_message(log_fun, "cuDNN benchmark enable failed: ", conditionMessage(e))
+    })
+    tryCatch(torch::set_float32_matmul_precision("high"), error = function(e) {
+      log_message(log_fun, "TF32 matmul precision set failed: ", conditionMessage(e))
+    })
   }
 
   seed_models <- vector("list", n_seeds)
@@ -117,20 +121,35 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     # Patch cito's train_model with fused Adam if enabled
     .old_train_model <- NULL
     if (use_fused) {
+      # Guarantee restoration on any exit path
+      on.exit({
+        if (!is.null(.old_train_model)) {
+          tryCatch(assignInNamespace("train_model", .old_train_model, ns = "cito"),
+            error = function(e) NULL)
+        }
+      }, add = TRUE, after = FALSE)
+
       # Load custom ATen-op Adam kernel (works on CPU/CUDA/MPS)
       sdm_root <- if (exists("sdm_project_root", mode = "function")) sdm_project_root() else getwd()
       cpp_so <- file.path(sdm_root, "sdmtorch", "train_step_adam.so")
       if (file.exists(cpp_so) && !is.loaded("adam_step_direct", PACKAGE = "")) {
-        tryCatch(dyn.load(cpp_so, local = FALSE, now = TRUE), error = function(e) NULL)
+        tryCatch(dyn.load(cpp_so, local = FALSE, now = TRUE), error = function(e) {
+          log_message(log_fun, "Failed to load fused Adam .so: ", conditionMessage(e))
+        })
       }
       # Fall back to libtorch _fused_adam_ kernel (CPU only; produces NaN on Blackwell GPU)
       # Only attempt this fallback on CPU — CUDA fallback is unsafe
-      is_cuda <- tryCatch(torch::cuda_is_available(), error = function(e) FALSE)
+      is_cuda <- tryCatch(torch::cuda_is_available(), error = function(e) {
+        log_message(log_fun, "CUDA availability check failed: ", conditionMessage(e))
+        FALSE
+      })
       if (!is_cuda) {
         cpp_so2 <- file.path(sdm_root, "sdmtorch", "train_step_libtorch.so")
         if (!is.loaded("adam_step_direct", PACKAGE = "") &&
             file.exists(cpp_so2) && !is.loaded("fused_adam_step_direct", PACKAGE = "")) {
-          tryCatch(dyn.load(cpp_so2, local = FALSE, now = TRUE), error = function(e) NULL)
+          tryCatch(dyn.load(cpp_so2, local = FALSE, now = TRUE), error = function(e) {
+            log_message(log_fun, "Failed to load libtorch fused Adam .so: ", conditionMessage(e))
+          })
         }
       }
       set_train_opts(
@@ -170,12 +189,6 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
       log_message(log_fun, "    Seed ", s, " failed: ", conditionMessage(e))
       NULL
     })
-
-    # Restore original train_model
-    if (!is.null(.old_train_model)) {
-      tryCatch(assignInNamespace("train_model", .old_train_model, ns = "cito"),
-        error = function(e) NULL)
-    }
 
     if (!is.null(model)) seed_models[[s]] <- model
 

@@ -88,7 +88,8 @@ load_drought_covariate <- function(selected_periods = "annual_mean",
   tmp <- tempfile(fileext = ".nc")
   ok <- tryCatch(
     {
-      curl::curl_fetch_disk(scpdsi_url, tmp)
+      handle <- curl::new_handle(timeout = 300)
+      curl::curl_fetch_disk(scpdsi_url, tmp, handle = handle)
       fi <- file.info(tmp)
       !is.na(fi$size) && fi$size > 10240
     },

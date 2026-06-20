@@ -3,7 +3,7 @@
 # Simple file-based lock for concurrent download protection.
 # timeout_sec MUST be >= stale_sec, otherwise a waiter can never reclaim
 # a stale lock left behind by a crashed process.
-sdm_download_lock <- function(lock_path, timeout_sec = 3600, poll_ms = 500, stale_sec = 1800) {
+sdm_download_lock <- function(lock_path, timeout_sec = 600, poll_ms = 500, stale_sec = 300) {
   lock_dir <- paste0(lock_path, ".lock")
   lock_info <- file.path(lock_dir, ".lock_info")
   deadline <- Sys.time() + timeout_sec

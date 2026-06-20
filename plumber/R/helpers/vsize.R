@@ -6,9 +6,21 @@ sdm_detect_vsize <- local({
     if (!is.null(.cached)) return(.cached)
     .cached <<- Sys.getenv("SDM_CHILD_MAX_VSIZE", {
       vsize_gb <- tryCatch({
-        mem_total <- readLines("/proc/meminfo", n = 1)
-        kb <- as.numeric(gsub(".*:\\s*(\\d+).*", "\\1", mem_total))
-        if (is.finite(kb) && kb > 0) max(4L, floor(kb / (1024 * 1024) * 0.75)) else 16L
+        cgroup_limit <- NA_real_
+        if (file.exists("/sys/fs/cgroup/memory.max")) {
+          val <- readLines("/sys/fs/cgroup/memory.max")
+          if (!identical(val, "max")) {
+            gb <- as.numeric(val) / (1024^3)
+            if (is.finite(gb) && gb > 0) cgroup_limit <- gb
+          }
+        }
+        if (is.finite(cgroup_limit)) {
+          max(4L, floor(cgroup_limit * 0.75))
+        } else {
+          mem_total <- readLines("/proc/meminfo", n = 1)
+          kb <- as.numeric(gsub(".*:\\s*(\\d+).*", "\\1", mem_total))
+          if (is.finite(kb) && kb > 0) max(4L, floor(kb / (1024 * 1024) * 0.75)) else 16L
+        }
       }, error = function(e) 16L)
       paste0(vsize_gb, "Gb")
     })
@@ -34,7 +46,18 @@ sdm_detect_vsize <- local({
 
 sdm_gpu_available_vram <- function() {
   smi <- .sdm_which_nvidia_smi()
-  if (is.na(smi)) return(NA_real_)
+  if (is.na(smi)) {
+    # Docker without --gpus: nvidia-smi absent; try torch-level query as fallback
+    if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
+      return(tryCatch({
+        stats <- torch::cuda_memory_stats()
+        allocated <- stats[["allocated_bytes"]][["current"]] %||% 0
+        total <- stats[["reserved_bytes"]][["all"]] %||% 0
+        if (total > 0) floor((total - allocated) / (1024 * 1024)) else NA_real_
+      }, error = function(e) NA_real_))
+    }
+    return(NA_real_)
+  }
   tryCatch({
     out <- system2(smi, c("--query-gpu=memory.free", "--format=csv,noheader,nounits"),
       stdout = TRUE, stderr = FALSE)
@@ -48,7 +71,17 @@ sdm_gpu_available_vram <- function() {
 # Query total GPU VRAM in MiB
 sdm_gpu_total_vram <- function() {
   smi <- .sdm_which_nvidia_smi()
-  if (is.na(smi)) return(NA_real_)
+  if (is.na(smi)) {
+    # Docker without --gpus: try torch-level query as fallback
+    if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
+      return(tryCatch({
+        stats <- torch::cuda_memory_stats()
+        total <- stats[["reserved_bytes"]][["all"]] %||% 0
+        if (total > 0) floor(total / (1024 * 1024)) else NA_real_
+      }, error = function(e) NA_real_))
+    }
+    return(NA_real_)
+  }
   tryCatch({
     out <- system2(smi, c("--query-gpu=memory.total", "--format=csv,noheader,nounits"),
       stdout = TRUE, stderr = FALSE)

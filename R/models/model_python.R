@@ -7,6 +7,9 @@ fit_python_sdm <- function(occ, env_train_scaled, background_n = sdm_default_bac
                            cv_block_size_km = sdm_default_cv_block_size_km,
                            threshold = sdm_default_threshold,
                            python_model_id = "elapid",
+                           bias_method = "uniform",
+                           target_group_occ = NULL,
+                           thickening_distance_km = NULL,
                            ...) {
   if (!requireNamespace("arrow", quietly = TRUE)) {
     stop("arrow package is required for the Python executor bridge. Install with: install.packages('arrow')", call. = FALSE)
@@ -27,9 +30,9 @@ fit_python_sdm <- function(occ, env_train_scaled, background_n = sdm_default_bac
 
   d <- prepare_sdm_data(occ, env_train_scaled, background_n,
     seed = seed, log_fun = log_fun,
-    bias_method = "uniform",
-    target_group_occ = NULL,
-    thickening_distance_km = NULL
+    bias_method = bias_method,
+    target_group_occ = target_group_occ,
+    thickening_distance_km = thickening_distance_km
   )
   occ_used <- d$occ_used
   bg_xy <- d$bg_xy

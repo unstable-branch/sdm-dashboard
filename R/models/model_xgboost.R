@@ -5,7 +5,8 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
                                    k = sdm_default_cv_folds, seed = sdm_default_seed,
                                    n_cores = 1, cv_strategy = sdm_default_cv_strategy,
                                    cv_block_size_km = sdm_default_cv_block_size_km,
-                                   log_fun = NULL) {
+                                   log_fun = NULL,
+                                    objective = "binary:logistic") {
   fit_fun <- function(i, model_data, fold_id, threshold) {
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
@@ -22,11 +23,11 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
       gpu_xgb_fold <- sdm_use_gpu_xgb(nrow(x_train))
       xgboost::xgb.train(
         params = list(
-          objective = "reg:logistic",
+          objective = objective,
           eval_metric = "auc",
           max_depth = max_depth,
           learning_rate = eta,
-          nthread = if (gpu_xgb_fold) 1L else 1L,
+          nthread = if (gpu_xgb_fold) 1L else n_cores,
           seed = seed,
           tree_method = if (gpu_xgb_fold) "gpu_hist" else "hist",
           predictor  = if (gpu_xgb_fold) "gpu_predictor" else "cpu_predictor"
@@ -74,7 +75,8 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
                             max_depth = 6L, eta = 0.3, nrounds = 100L,
                             bias_method = "uniform",
                             target_group_occ = NULL,
-                            thickening_distance_km = NULL) {
+                            thickening_distance_km = NULL,
+                            objective = "binary:logistic") {
   if (!requireNamespace("xgboost", quietly = TRUE)) {
     stop("The XGBoost backend requires the xgboost package. Install xgboost or choose a different model backend.", call. = FALSE)
   }
@@ -113,7 +115,7 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   gpu_xgb <- sdm_use_gpu_xgb(nrow(x_train))
   model <- tryCatch({
     xgboost::xgb.train(
-      params = list(objective = "binary:logistic", eval_metric = "auc",
+      params = list(objective = objective, eval_metric = "auc",
                     max_depth = max_depth, eta = eta,
                     nthread = if (gpu_xgb) 1L else max(1L, as.integer(n_cores)),
                     tree_method = if (gpu_xgb) "gpu_hist" else "hist",
@@ -136,7 +138,7 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   )
   model <- tryCatch({
     xgboost::xgb.train(
-      params = list(objective = "binary:logistic", eval_metric = "auc",
+      params = list(objective = objective, eval_metric = "auc",
                     max_depth = max_depth, eta = eta,
                     nthread = if (gpu_xgb) 1L else max(1L, as.integer(n_cores)),
                     tree_method = if (gpu_xgb) "gpu_hist" else "hist",
@@ -155,7 +157,8 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
 
   cv <- cross_validate_xgboost(model_data, covariates, max_depth, eta, nrounds,
     k = cv_folds, seed = seed, n_cores = n_cores,
-    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km)
+    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+    objective = objective, threshold = threshold)
   if (is.finite(cv$auc_mean)) {
     log_message(log_fun, "XGBoost cross-validation AUC: ", sprintf("%.3f", cv$auc_mean),
       if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
