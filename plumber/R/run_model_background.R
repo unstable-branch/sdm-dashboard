@@ -188,7 +188,7 @@ tryCatch({
     )
   }
 
-  cfg <- sdm_config(
+  cfg_args <- list(
     species = config$species,
     species_filter = config$species_filter %||% NULL,
     occurrence_file = config$occurrence_file,
@@ -311,6 +311,10 @@ tryCatch({
     dnn_uncertainty_method = config$dnn_uncertainty_method %||% "none",
     job_id = job_id
   )
+  cfg <- do.call(sdm_config, c(
+    cfg_args,
+    python_model_manifest_overrides(config$model_id, config)
+  ))
 
   # Poll Redis for cancellation before starting the run
   check_cancel_background(job_id, log_fun)
