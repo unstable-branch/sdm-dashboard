@@ -27,8 +27,14 @@ def load_artifact(model_path: str) -> dict[str, Any]:
     return artifact
 
 
-def predict_artifact(artifact: dict[str, Any], values: Any, columns: list[str], device_request: str = "auto") -> tuple[np.ndarray, str]:
-    """Return ordered, bounded probabilities using portable CPU-stored model state."""
+def predict_artifact(
+    artifact: dict[str, Any],
+    values: Any,
+    columns: list[str],
+    device_request: str = "auto",
+    batch_size: int = 65536,
+) -> tuple[np.ndarray, str]:
+    """Return ordered, bounded probabilities using bounded device batches."""
     metadata = artifact["metadata"]
     feature_names = list(metadata["feature_names"])
     missing = [name for name in feature_names if name not in columns]
@@ -41,13 +47,33 @@ def predict_artifact(artifact: dict[str, Any], values: Any, columns: list[str], 
     scale = np.asarray(scaling["scale"], dtype=np.float32)
     if mean.shape[0] != X.shape[1] or scale.shape[0] != X.shape[1] or np.any(scale == 0):
         raise ValueError("Torch DNN artifact has invalid scaling metadata.")
+    try:
+        batch_size = int(batch_size)
+    except (TypeError, ValueError) as error:
+        raise ValueError("predict_batch_size must be a positive integer.") from error
+    if batch_size < 1:
+        raise ValueError("predict_batch_size must be a positive integer.")
+
     device, device_kind = select_device(device_request)
     model = build_model_from_metadata(metadata)
     model.load_state_dict(artifact["model_state_dict"])
     model.to(device).eval()
+    probabilities = np.empty(X.shape[0], dtype=np.float32)
     with torch.no_grad():
-        tensor = torch.as_tensor((X - mean) / scale, dtype=torch.float32, device=device)
-        probabilities = torch.sigmoid(model(tensor)).detach().cpu().numpy()
+        for start in range(0, X.shape[0], batch_size):
+            stop = min(start + batch_size, X.shape[0])
+            try:
+                scaled = (X[start:stop] - mean) / scale
+                tensor = torch.as_tensor(scaled, dtype=torch.float32, device=device)
+                probabilities[start:stop] = torch.sigmoid(model(tensor)).detach().cpu().numpy()
+            except torch.OutOfMemoryError as error:
+                if device.type == "cuda":
+                    torch.cuda.empty_cache()
+                raise RuntimeError(
+                    f"{device_kind.upper()} prediction ran out of memory for rows "
+                    f"{start}:{stop} with predict_batch_size={batch_size}. "
+                    "Reduce predict_batch_size and retry."
+                ) from error
     return np.clip(probabilities, 0.0, 1.0), device_kind
 
 
@@ -60,6 +86,7 @@ def main() -> None:
         environment.to_numpy(),
         environment.columns.tolist(),
         str(config.get("device", "auto")),
+        int(config.get("predict_batch_size", 65536)),
     )
     write_results(output_dir=config["output_dir"], predictions=probabilities)
     print("METADATA: " + json.dumps({"device": device_kind, "rows": int(len(probabilities))}))

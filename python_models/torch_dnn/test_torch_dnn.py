@@ -80,6 +80,24 @@ def test_cpu_roundtrip_preserves_order_bounds_and_metadata(tmp_path):
     assert len(importance) == len(names)
 
 
+def test_batched_prediction_preserves_order_and_matches_single_batch():
+    values, targets, names = synthetic_data()
+    artifact, _, _ = train_artifact(values, targets, names, fast_config())
+
+    single_batch, _ = predict_artifact(artifact, values, names, "cpu", batch_size=len(values))
+    many_batches, _ = predict_artifact(artifact, values, names, "cpu", batch_size=7)
+
+    np.testing.assert_allclose(many_batches, single_batch, rtol=0, atol=1e-7)
+
+
+@pytest.mark.parametrize("batch_size", [0, -1, "invalid"])
+def test_prediction_rejects_invalid_batch_size(batch_size):
+    values, targets, names = synthetic_data()
+    artifact, _, _ = train_artifact(values, targets, names, fast_config())
+    with pytest.raises(ValueError, match="positive integer"):
+        predict_artifact(artifact, values, names, "cpu", batch_size=batch_size)
+
+
 def test_cpu_training_is_deterministic_for_fixed_seed():
     values, targets, names = synthetic_data()
     first, _, _ = train_artifact(values, targets, names, fast_config())
@@ -115,7 +133,7 @@ def test_rocm_hardware_training_and_prediction_roundtrip():
     config.update({"device": "rocm", "epochs": 8, "early_stopping_patience": 3})
 
     artifact, metrics, _ = train_artifact(values, targets, names, config)
-    probabilities, device = predict_artifact(artifact, values, names, "rocm")
+    probabilities, device = predict_artifact(artifact, values, names, "rocm", batch_size=7)
 
     assert device == "rocm"
     assert metrics["device"] == "rocm"

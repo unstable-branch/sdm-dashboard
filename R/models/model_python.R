@@ -225,7 +225,8 @@ predict_python_suitability <- function(fit, env_project_scaled, output_tif, n_co
     model_path = normalizePath(model_path),
     output_dir = normalizePath(temp_dir),
     model_id = fit$model$model_id,
-    device = fit$model$model_params$device %||% "auto"
+    device = fit$model$model_params$device %||% "auto",
+    predict_batch_size = fit$model$model_params$predict_batch_size %||% 65536L
   )
   config_path <- file.path(temp_dir, "config.json")
   jsonlite::write_json(config, config_path, auto_unbox = TRUE)
