@@ -20,14 +20,69 @@ python_manifest_param_defaults <- function(model_manifest) {
 
 python_model_config_params <- function(model_manifest, overrides = list()) {
   defaults <- python_manifest_param_defaults(model_manifest)
-  if (length(defaults) == 0) return(defaults)
+  param_names <- names(model_manifest$params %||% list()) %||% character(0)
+  if (length(param_names) == 0) return(defaults)
 
   override_names <- names(overrides) %||% character(0)
-  matching_names <- intersect(names(defaults), override_names)
+  matching_names <- intersect(param_names, override_names)
   if (length(matching_names) > 0) {
     defaults[matching_names] <- overrides[matching_names]
   }
   defaults
+}
+
+python_manifest_param_aliases <- function(param_name) {
+  camel_name <- gsub("_([a-z])", "\\U\\1", param_name, perl = TRUE)
+  if (identical(param_name, "device")) {
+    return(c("python_device", "pythonDevice", "device"))
+  }
+  unique(c(param_name, camel_name))
+}
+
+coerce_python_manifest_param <- function(value, spec) {
+  type <- as.character(spec$type %||% "")
+  if (identical(type, "array")) {
+    if (is.character(value) && length(value) == 1L) {
+      value <- trimws(value)
+      if (grepl("^\\[", value)) {
+        value <- tryCatch(jsonlite::fromJSON(value, simplifyVector = TRUE), error = function(e) value)
+      } else {
+        value <- strsplit(value, "\\s*,\\s*")[[1]]
+      }
+    }
+    value <- unlist(value, use.names = FALSE)
+    numeric_value <- suppressWarnings(as.numeric(value))
+    if (length(value) > 0 && all(is.finite(numeric_value))) {
+      if (all(numeric_value == as.integer(numeric_value))) return(as.integer(numeric_value))
+      return(numeric_value)
+    }
+    return(value)
+  }
+  if (identical(type, "integer")) return(as.integer(value)[1])
+  if (identical(type, "number")) return(as.numeric(value)[1])
+  if (identical(type, "string")) return(as.character(value)[1])
+  value
+}
+
+python_model_manifest_overrides <- function(model_id, config = list()) {
+  python_id <- sub("^python_", "", as.character(model_id %||% "")[1])
+  selected <- find_python_model_manifest(python_id)
+  if (is.null(selected)) return(list())
+
+  params <- selected$manifest$params %||% list()
+  result <- list()
+  for (param_name in names(params) %||% character(0)) {
+    aliases <- python_manifest_param_aliases(param_name)
+    supplied <- aliases[vapply(aliases, function(alias) !is.null(config[[alias]]), logical(1))]
+    if (length(supplied) > 0) {
+      result[[param_name]] <- coerce_python_manifest_param(config[[supplied[1]]], params[[param_name]])
+    }
+  }
+  result
+}
+
+python_model_extra_args <- function(model_id, config = list()) {
+  python_model_manifest_overrides(model_id, config)
 }
 
 parse_python_metadata <- function(output) {

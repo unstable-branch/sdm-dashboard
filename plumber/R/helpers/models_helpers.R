@@ -1,5 +1,18 @@
 sdm_process_registry <- new.env(parent = emptyenv())
 
+sdm_force_cpu_runtime_config <- function(body) {
+  body$gpu_enabled <- "off"
+  model_id <- as.character(body$model_id %||% body$modelId %||% "")[1]
+  if (model_id %in% c("dnn", "dnn_multispecies")) {
+    body$dnn_device <- "cpu"
+  }
+  if (identical(model_id, "python_torch_dnn")) {
+    body$python_device <- "cpu"
+    body$device <- "cpu"
+  }
+  body
+}
+
 handle_model_run <- function(req, app_dir) {
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody),
@@ -72,7 +85,7 @@ handle_model_run <- function(req, app_dir) {
     return(sdm_error_code(req, "INTERNAL_ERROR", paste("Model run script not found at:", script_path)))
   }
 
-  python_device <- body$python_device %||% body$device %||% "auto"
+  python_device <- body$python_device %||% body$pythonDevice %||% body$device %||% "auto"
   gpu_backend <- sdm_model_gpu_backend(
     body$model_id, body$dnn_device %||% "auto", body$gpu_enabled %||% "auto",
     python_device = python_device
@@ -98,7 +111,7 @@ handle_model_run <- function(req, app_dir) {
       free_gb <- if (is.finite(free_mib) && !is.na(free_mib)) sprintf("%.1f GiB", free_mib / 1024) else "unknown"
       msg <- paste0("GPU requested but VRAM insufficient (", free_gb, " free, min ~1.5 GiB). Auto-fallback to CPU for this run.")
       is_gpu_model <- FALSE
-      body$dnn_device <- "cpu"
+      body <- sdm_force_cpu_runtime_config(body)
       # Write GPU-fallback progress entry so frontend UI displays it
       progress_json_path <- file.path(job_dir, "progress.json")
       fb_entry <- list(
@@ -193,6 +206,11 @@ sdm_camel_to_snake <- list(
   pipelineRunId = "pipeline_run_id", extrapolationMask = "extrapolation_mask",
   messThreshold = "mess_threshold", dnnArchitecture = "dnn_model_type",
   dnnNSeeds = "dnn_n_seeds", dnnDevice = "dnn_device",
+  hiddenLayers = "hidden_layers", batchSize = "batch_size",
+  predictBatchSize = "predict_batch_size", learningRate = "learning_rate",
+  pythonDevice = "python_device", earlyStoppingPatience = "early_stopping_patience",
+  validationFraction = "validation_fraction", nEstimators = "n_estimators",
+  maxDepth = "max_depth", maxIterations = "max_iterations",
   brtNTrees = "brt_n_trees", brtInteractionDepth = "brt_interaction_depth",
   brtShrinkage = "brt_shrinkage", brtBagFraction = "brt_bag_fraction",
   ctaCp = "cta_cp", ctaMaxdepth = "cta_maxdepth",
@@ -260,6 +278,8 @@ sdm_targets_config_field_types <- list(
   integer = c("background_n", "cv_folds", "aggregation_factor", "seed",
     "n_cores", "pa_replicates", "min_source_records", "thickening_distance_km",
     "worldclim_res", "dnn_n_seeds", "dnn_multispecies_n_seeds", "dnn_mc_samples",
+    "n_estimators", "max_depth", "max_iterations", "epochs", "batch_size",
+    "predict_batch_size", "early_stopping_patience",
     "brt_n_trees", "brt_interaction_depth", "cta_maxdepth", "cta_minsplit",
     "mars_degree", "mars_nk", "fda_degree", "fda_nprune", "ann_size",
     "ann_maxit", "ann_rang", "rf_num_trees", "rf_mtry", "rf_min_node_size",
@@ -273,10 +293,10 @@ sdm_targets_config_field_types <- list(
     "dnn_lambda", "mess_threshold", "multi_ensemble_min_auc",
     "multi_ensemble_min_tss", "esm_min_auc", "inla_mesh_max_edge",
     "inla_mesh_cutoff", "inla_prior_range", "inla_prior_sigma",
-    "opentopo_api_key"),
+    "opentopo_api_key", "learning_rate", "dropout", "validation_fraction"),
   comma_doubles = c("projection_extent", "training_extent",
     "future_projection_extent"),
-  comma_ints = c("biovars", "esm_biovars"),
+  comma_ints = c("biovars", "esm_biovars", "hidden_layers"),
   comma_strings = c("soil_vars", "soil_depths", "uv_vars", "uv_months",
     "veg_products", "drought_periods", "chelsa_extras",
     "multi_ensemble_models", "biomod2_models"),

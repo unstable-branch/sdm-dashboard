@@ -123,7 +123,7 @@ sdm_python_torch_capabilities <- function(capabilities = NULL, refresh = FALSE) 
     "print(json.dumps({'cuda':bool(torch.cuda.is_available()),'rocm':getattr(torch.version,'hip',None) is not None,'mps':bool(m and m.is_available())}))"
   )
   raw <- tryCatch({
-    output <- system2(python_bin, c("-c", command), stdout = TRUE, stderr = FALSE)
+    output <- system2(python_bin, c("-c", shQuote(command)), stdout = TRUE, stderr = FALSE)
     if (!identical(attr(output, "status") %||% 0L, 0L) || length(output) == 0) list() else jsonlite::fromJSON(tail(output, 1))
   }, error = function(e) list())
   result <- normalize(raw)
