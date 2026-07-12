@@ -74,6 +74,7 @@ modules <- c(
   "model_bart.R",
   "model_unmarked.R",
   "model_brms.R",
+  "python_setup.R",
   "model_python.R",
   "model_gbm.R",
   "model_rpart.R",
@@ -138,7 +139,6 @@ modules <- c(
   "manifest.R",
   "diagnostics_plots.R",
   "batch_runner.R",
-  "python_setup.R",
   "script_export.R",
   "tile_generator.R",
 
