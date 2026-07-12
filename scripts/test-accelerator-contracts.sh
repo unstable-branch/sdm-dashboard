@@ -78,8 +78,17 @@ require plumber/Dockerfile.rocm 'FROM docker.io/rocm/pytorch:rocm7.2.4_ubuntu24.
 require plumber/Dockerfile.rocm 'requirements-rocm.txt'
 require plumber/Dockerfile.rocm 'pip check'
 require plumber/Dockerfile.rocm 'torch.version.hip'
-require plumber/Dockerfile.rocm "'arrow'"
+require plumber/Dockerfile.rocm 'R_CRAN_SNAPSHOT=2026-07-12'
+require plumber/Dockerfile.rocm 'install-runtime-packages.R'
+require plumber/Dockerfile.rocm 'smoke-rocm-model.R'
+require plumber/Dockerfile.rocm 'R_LD_LIBRARY_PATH=/opt/rocm/lib'
 require plumber/Dockerfile.rocm 'SDM_PYTHON=/opt/venv/bin/python3'
+require plumber/install-runtime-packages.R '"arrow"'
+require plumber/install-runtime-packages.R 'HTTPUserAgent'
+require plumber/install-runtime-packages.R 'missing_after'
+forbid plumber/install-runtime-packages.R '"torch"'
+forbid plumber/install-runtime-packages.R '"cito"'
+require docker-compose.dev.yml './python_models:/app/python_models:ro'
 forbid plumber/Dockerfile.rocm 'COPY sdmtorch/'
 forbid plumber/Dockerfile.rocm 'build_sdmtorch.R'
 if grep -Eq '^[[:space:]]*torch([<=>!~ ]|$)' python_models/torch_dnn/requirements-rocm.txt; then
@@ -89,5 +98,15 @@ fi
 require python_models/torch_dnn/requirements-rocm.txt 'numpy=='
 require python_models/torch_dnn/requirements-rocm.txt 'pandas=='
 require python_models/torch_dnn/requirements-rocm.txt 'pyarrow=='
+require scripts/smoke-rocm-model.R 'device = "rocm"'
+require scripts/smoke-rocm-model.R 'predict_batch_size = 37L'
+python_setup_line="$(grep -nF '"python_setup.R"' R/load_compute.R | cut -d: -f1)"
+model_registry_line="$(grep -nF '"model_registry.R"' R/load_compute.R | cut -d: -f1)"
+if (( python_setup_line >= model_registry_line )); then
+  echo 'python_setup.R must load before model_registry.R in compute workers' >&2
+  exit 1
+fi
+
+Rscript --vanilla -e "parse('plumber/install-runtime-packages.R'); parse('scripts/smoke-rocm-model.R')" >/dev/null
 
 echo "accelerator contracts: ok"
