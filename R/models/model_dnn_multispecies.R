@@ -50,26 +50,13 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   arch <- sdm_dnn_arch(dnn_architecture)
   if (is.null(arch)) arch <- sdm_dnn_arch("DNN_Medium")
 
-  # Resolve device: "auto"/"gpu" → "cuda"/"cpu"/"mps"
-  if (dnn_device == "auto" || dnn_device == "gpu") {
-    if (torch::cuda_is_available()) {
-      dnn_device <- "cuda"
-    } else {
-      has_mps <- tryCatch(torch::mps_is_available(), error = function(e) FALSE)
-      if (has_mps) dnn_device <- "mps" else dnn_device <- "cpu"
-    }
-  } else if (dnn_device == "cuda") {
-    if (!torch::cuda_is_available()) {
-      warning("DNN: CUDA requested but not available. Falling back to CPU.")
-      dnn_device <- "cpu"
-    }
-  } else if (dnn_device == "mps") {
-    if (!tryCatch(torch::mps_is_available(), error = function(e) FALSE)) {
-      warning("DNN: MPS requested but not available. Falling back to CPU.")
-      dnn_device <- "cpu"
-    }
-  } else {
-    dnn_device <- "cpu"
+  # ROCm uses R torch's internal device = "cuda". Retain its distinct
+  # backend label so CUDA-only native optimisations are never selected.
+  resolved_backend <- sdm_resolve_backend(dnn_device)
+  backend <- resolved_backend$backend
+  dnn_device <- resolved_backend$device
+  if (!isTRUE(resolved_backend$requested_available) && !identical(resolved_backend$requested, "cpu")) {
+    warning("DNN: requested ", resolved_backend$requested, " backend is unavailable. Falling back to CPU.")
   }
 
   # Resolve fused Adam: "off" → no, "always"/"auto" → yes if torch is available
@@ -81,7 +68,7 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   torch_has_fused <- exists("torch__fused_adam_", envir = asNamespace("torch"))
   use_fused <- if (identical(use_fused_adam, "off")) {
     FALSE
-  } else if (identical(dnn_device, "cuda")) {
+  } else if (identical(backend, "cuda")) {
     log_message(log_fun, "  Fused Adam enabled for multi-species on CUDA (FP32-only, JIT fuser incompatible with FP16 multi-output)")
     dnn_mixed_precision <- "off"
     TRUE
@@ -104,8 +91,8 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
   n_seeds <- as.integer(n_seeds)[1]
   if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
 
-  # Enable cuDNN autotuner + TF32 matmul precision on CUDA
-  if (identical(dnn_device, "cuda")) {
+  # cuDNN and TF32 are NVIDIA CUDA-only, not generic torch "cuda" features.
+  if (identical(backend, "cuda")) {
     tryCatch(torch::torch_backends_cudnn_benchmark(TRUE), error = function(e) {
       log_message(log_fun, "cuDNN benchmark enable failed: ", conditionMessage(e))
     })
@@ -154,7 +141,8 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
       }
       set_train_opts(
         mixed_precision = dnn_mixed_precision,
-        cuda_graphs = dnn_cuda_graphs
+        cuda_graphs = dnn_cuda_graphs,
+        backend = backend
       )
       .old_train_model <- get("train_model", envir = asNamespace("cito"))
       tryCatch({
@@ -266,7 +254,8 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     shap = shap_values,
     scaler = scaler,
     dnn_device = dnn_device,
-    gpu_used = identical(dnn_device, "cuda"),
+    gpu_backend = backend,
+    gpu_used = sdm_backend_is_gpu(backend),
     dnn_model_type = dnn_architecture,
     mc_samples = as.integer(mc_samples),
     uncertainty_method = match.arg(uncertainty_method, c("none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"))

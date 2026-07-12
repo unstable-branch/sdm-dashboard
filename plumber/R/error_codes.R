@@ -160,7 +160,7 @@ sdm_error_code_direct <- function(code_key, detail_msg = NULL) {
 # Helper to categorise a raw R error into a known error code
 sdm_classify_error <- function(err_msg) {
   err_msg <- as.character(err_msg)
-  if (grepl("out of memory|cannot allocate|OOM|CUDA out of memory|CUDA error|cuBLAS error|cuDNN error", err_msg, ignore.case = TRUE)) {
+  if (grepl("out of memory|cannot allocate|OOM|CUDA out of memory|CUDA error|cuBLAS error|cuDNN error|HIP out of memory|HIP error|ROCm error|HSA status|hipError", err_msg, ignore.case = TRUE)) {
     return("OOM_PREDICTION")
   }
   if (grepl("perfect separation|singular|glm\\.fit", err_msg, ignore.case = TRUE)) {

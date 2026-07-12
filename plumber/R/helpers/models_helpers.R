@@ -72,7 +72,12 @@ handle_model_run <- function(req, app_dir) {
     return(sdm_error_code(req, "INTERNAL_ERROR", paste("Model run script not found at:", script_path)))
   }
 
-  is_gpu_model <- sdm_is_gpu_model(body$model_id, body$dnn_device %||% "auto", body$gpu_enabled %||% "auto")
+  python_device <- body$python_device %||% body$device %||% "auto"
+  gpu_backend <- sdm_model_gpu_backend(
+    body$model_id, body$dnn_device %||% "auto", body$gpu_enabled %||% "auto",
+    python_device = python_device
+  )
+  is_gpu_model <- sdm_backend_is_gpu(gpu_backend)
   if (is_gpu_model) {
     active_gpu <- sdm_count_active_gpu_runs()
     if (active_gpu >= SDM_MAX_GPU_CONCURRENT_RUNS) {
@@ -81,12 +86,14 @@ handle_model_run <- function(req, app_dir) {
         "). Queue this run or wait."
       )))
     }
-    # Layered GPU check: VRAM availability (shared GPU with other users)
-    gpu_vram_ok <- tryCatch(sdm_gpu_vram_is_usable(), error = function(e) FALSE)
+    # Layered VRAM check is relevant to discrete CUDA/ROCm GPUs. MPS has no
+    # portable free-VRAM telemetry and should not be rejected for its absence.
+    gpu_vram_ok <- !sdm_backend_is_discrete_gpu(gpu_backend) ||
+      tryCatch(sdm_gpu_vram_is_usable(), error = function(e) FALSE)
     if (!gpu_vram_ok) {
       free_mib <- tryCatch(sdm_gpu_available_vram(), error = function(e) NA_real_)
       if (!is.finite(free_mib) || is.na(free_mib)) {
-        warning("[GPU] sdm_gpu_available_vram() returned NA — nvidia-smi unavailable or torch CUDA stats failed. Ensure GPU passthrough is configured.")
+        warning("[GPU] sdm_gpu_available_vram() returned NA — GPU telemetry unavailable. Ensure the selected accelerator is visible to the worker.")
       }
       free_gb <- if (is.finite(free_mib) && !is.na(free_mib)) sprintf("%.1f GiB", free_mib / 1024) else "unknown"
       msg <- paste0("GPU requested but VRAM insufficient (", free_gb, " free, min ~1.5 GiB). Auto-fallback to CPU for this run.")
@@ -129,7 +136,7 @@ handle_model_run <- function(req, app_dir) {
   stderr = file.path(job_dir, "stderr.log"),
   cmdargs = c("--no-save", "--no-restore"),
   env = env)
-  device_tag <- if (is_gpu_model) "cuda" else "cpu"
+  device_tag <- if (is_gpu_model) gpu_backend else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
   job_meta <- list(
@@ -431,13 +438,15 @@ handle_targets_run <- function(req, app_dir) {
   stderr = file.path(job_dir, "stderr.log"),
   cmdargs = c("--no-save", "--no-restore"),
   env = env_vars)
-  has_gpu_target <- any(vapply(configs, function(c) {
+  target_backends <- vapply(configs, function(c) {
     mid <- c$model_id %||% c[["modelId"]] %||% "glm"
     dev <- c$dnn_device %||% c[["dnnDevice"]] %||% "auto"
     gpu <- c$gpu_enabled %||% c[["gpuEnabled"]] %||% "auto"
-    sdm_is_gpu_model(mid, dev, gpu)
-  }, logical(1)))
-  device_tag <- if (has_gpu_target) "cuda" else "cpu"
+    py_dev <- c$python_device %||% c[["pythonDevice"]] %||% c$device %||% "auto"
+    sdm_model_gpu_backend(mid, dev, gpu, python_device = py_dev)
+  }, character(1))
+  gpu_backends <- target_backends[vapply(target_backends, sdm_backend_is_gpu, logical(1))]
+  device_tag <- if (length(gpu_backends) > 0) gpu_backends[[1]] else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
   job_meta$process_pid <- proc$get_pid()
@@ -726,9 +735,9 @@ handle_model_status <- function(res, job_id) {
         if (!is.null(last_line) && length(last_line) > 0 && nchar(last_line) > 0) {
           hb_ts <- tryCatch(as.POSIXct(sub("\\|.*", "", last_line), format = "%Y-%m-%dT%H:%M:%S"), error = function(e) NULL)
           if (!is.null(hb_ts) && !is.na(hb_ts)) {
-            # GPU runs have shorter heartbeat timeout — CUDA crashes are detected faster
-            dnn_device <- as.character(meta$config$dnn_device %||% "")
-            is_gpu <- dnn_device %in% c("auto", "gpu", "cuda", "mps") || startsWith(dnn_device, "cuda")
+            # Accelerator runs have a shorter heartbeat timeout.
+            dnn_device <- as.character(meta$config$dnn_device %||% meta$config$python_device %||% "")
+            is_gpu <- sdm_backend_is_gpu(sdm_resolve_backend(dnn_device)$backend)
             hb_timeout <- if (is_gpu) 300 else 1800
             if (difftime(Sys.time(), hb_ts, units = "secs") > hb_timeout) {
               process_alive <- FALSE
@@ -941,8 +950,8 @@ handle_model_cancel <- function(req, job_id) {
       }
     }
     device_tag <- if (is.list(entry)) entry$device else "cpu"
-    # If this was a GPU run, wait briefly for VRAM recovery
-    if (killed && identical(device_tag, "cuda")) {
+    # Give any discrete GPU backend time to release VRAM after termination.
+    if (killed && sdm_backend_is_discrete_gpu(device_tag)) {
       Sys.sleep(2)
     }
     rm(list = job_id, envir = sdm_process_registry)
