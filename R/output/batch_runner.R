@@ -83,7 +83,8 @@ build_run_args <- function(row) {
     drought_periods = "selected_drought_periods",
     multi_ensemble_models = "multi_ensemble_models",
     biomod2_models = "biomod2_models",
-    veg_products = "veg_products"
+    veg_products = "veg_products",
+    hidden_layers = "hidden_layers"
   )
   integer_params <- c("background_n", "cv_folds", "aggregation_factor", "seed",
     "worldclim_res", "veg_year", "lulc_year", "hfp_year",
@@ -93,7 +94,8 @@ build_run_args <- function(row) {
     "mars_degree", "mars_nk", "fda_degree", "fda_nprune",
     "ann_size", "ann_maxit", "ann_rang",
     "rf_num_trees", "rf_mtry", "rf_min_node_size",
-    "xgb_max_depth",
+    "xgb_max_depth", "n_estimators", "max_depth", "max_iterations",
+    "epochs", "batch_size", "predict_batch_size", "early_stopping_patience",
     "bart_ntree", "bart_ndpost", "bart_nskip",
     "brms_chains", "brms_iter", "brms_warmup", "gam_k",
     "multi_ensemble_power",
@@ -122,7 +124,7 @@ build_run_args <- function(row) {
     if (p %in% names(list_param_map)) {
       arg_name <- list_param_map[[p]]
       args[[arg_name]] <- parse_comma_strings(val)
-      if (p == "biovars") args[[arg_name]] <- parse_comma_ints(val)
+      if (p %in% c("biovars", "hidden_layers")) args[[arg_name]] <- parse_comma_ints(val)
       next
     }
 
