@@ -9,6 +9,7 @@
     "hidden_layers": {"type": "array", "default": [64, 32], "description": "Positive hidden-layer widths"},
     "epochs": {"type": "integer", "default": 100, "description": "Maximum training epochs"},
     "batch_size": {"type": "integer", "default": 64, "description": "Training batch size"},
+    "predict_batch_size": {"type": "integer", "default": 65536, "description": "Maximum rows transferred to the accelerator per prediction batch"},
     "learning_rate": {"type": "number", "default": 0.001, "description": "Adam learning rate"},
     "dropout": {"type": "number", "default": 0.1, "description": "Hidden-layer dropout in [0, 1)"},
     "device": {"type": "string", "default": "auto", "description": "auto, cuda, rocm, mps, or cpu"},

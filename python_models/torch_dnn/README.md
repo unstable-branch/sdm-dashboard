@@ -12,6 +12,17 @@ This is the first AMD path. Existing native R `torch` CUDA extensions and the cu
 
 ## Parameters
 
-Manifest defaults are `hidden_layers=[64, 32]`, `epochs=100`, `batch_size=64`, `learning_rate=0.001`, `dropout=0.1`, `device="auto"`, `early_stopping_patience=12`, and `validation_fraction=0.2`. The R bridge passes those defaults and only matching named model overrides to the Python JSON config.
+Manifest defaults are `hidden_layers=[64, 32]`, `epochs=100`, `batch_size=64`, `predict_batch_size=65536`, `learning_rate=0.001`, `dropout=0.1`, `device="auto"`, `early_stopping_patience=12`, and `validation_fraction=0.2`. The R bridge passes those defaults and only matching named model overrides to the Python JSON config. Prediction preserves row order while transferring at most `predict_batch_size` rows to the accelerator; reduce it if the backend reports an out-of-memory error.
 
 Install dependencies from `requirements.txt` only after choosing the PyTorch wheel/channel for the target accelerator. Do not treat this experimental backend as a scientific validation claim without hardware- and data-specific evaluation.
+
+## Benchmark
+
+Run the same synthetic fit/predict workload on any backend with:
+
+```bash
+python python_models/torch_dnn/benchmark.py --device rocm
+# or: --device cuda / --device mps / --device cpu
+```
+
+The command emits one JSON record with backend versions, rows/second, dimensions, and batch sizes. Compare identical arguments and multiple runs; results across different GPUs or PyTorch releases are directional rather than hardware-equivalence claims.

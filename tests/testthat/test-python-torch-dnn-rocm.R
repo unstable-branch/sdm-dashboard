@@ -45,6 +45,7 @@ test_that("R bridge fits and predicts with torch_dnn on ROCm", {
     hidden_layers = list(32L, 16L),
     epochs = 20L,
     batch_size = 32L,
+    predict_batch_size = 37L,
     learning_rate = 0.005,
     dropout = 0,
     early_stopping_patience = 5L,
@@ -52,6 +53,7 @@ test_that("R bridge fits and predicts with torch_dnn on ROCm", {
   )
 
   expect_identical(fit$model$runtime_metadata$device, "rocm")
+  expect_identical(fit$model$model_params$predict_batch_size, 37L)
   expect_true(file.exists(fit$model$model_path))
   expect_equal(nrow(fit$variable_importance), 3L)
 
