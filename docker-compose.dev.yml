@@ -89,6 +89,7 @@ services:
     volumes:
       - ./R:/app/R:ro
       - ./plumber:/app/plumber:ro
+      - ./python_models:/app/python_models:ro
       - ./data:/app/data
       - ./outputs:/app/outputs
       - ./covariates:/app/covariates
