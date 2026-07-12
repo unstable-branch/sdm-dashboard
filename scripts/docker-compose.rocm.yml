@@ -1,0 +1,28 @@
+# AMD ROCm overlay. Use with docker-compose.dev.yml (or docker-compose.yml).
+# Required host access is deliberately limited to KFD and DRM render devices.
+services:
+  plumber:
+    image: sdm-dashboard-plumber:rocm
+    build:
+      dockerfile: plumber/Dockerfile.rocm
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - "${AMD_VIDEO_GID:?set to the host video group GID}"
+      - "${AMD_RENDER_GID:?set to the host render group GID}"
+    environment:
+      SDM_ACCELERATOR: rocm
+      SDM_PYTHON: /opt/venv/bin/python3
+      ROCR_VISIBLE_DEVICES: ${ROCR_VISIBLE_DEVICES:-0}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          /opt/venv/bin/python3 -c 'import torch; assert torch.version.hip and torch.cuda.is_available(), (torch.version.hip, torch.cuda.is_available())'
+          && curl -fsS -H "X-Hono-Internal: $$PLUMBER_INTERNAL_KEY" -H "X-Forwarded-User: healthcheck" http://localhost:8000/api/v1/gpu/status
+          | /opt/venv/bin/python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("available") is True and x.get("vendor") == "AMD" and x.get("backend") == "rocm", x'
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 90s
