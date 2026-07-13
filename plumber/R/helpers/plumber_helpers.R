@@ -209,6 +209,7 @@ sdm_safe_job_dir <- function(run_id) {
 # Database connection helper — uses shared pool when available, falls back to direct connection
 db_conn <- function() {
   pool <- tryCatch(get("db_pool", envir = .GlobalEnv), error = function(e) NULL)
+  if (exists("sdm_get_db_pool", mode = "function")) pool <- sdm_get_db_pool(pool)
   if (!is.null(pool)) {
     tryCatch({
       conn <- pool::poolCheckout(pool)
@@ -237,11 +238,7 @@ db_connect <- function() {
   db_url <- Sys.getenv("DATABASE_URL", "")
   if (!nzchar(db_url)) return(NULL)
   tryCatch({
-    parts <- parse_db_url(db_url)
-    DBI::dbConnect(RPostgres::Postgres(),
-      dbname = parts$dbname, host = parts$host,
-      port = parts$port, user = parts$user, password = parts$password
-    )
+    sdm_db_connect(db_url)
   }, error = function(e) {
     message("db_connect failed: ", conditionMessage(e))
     NULL
@@ -249,11 +246,7 @@ db_connect <- function() {
 }
 
 parse_db_url <- function(url) {
-  clean_url <- sub("^postgresql://", "postgres://", url)
-  m <- regexec("postgres://([^:]+):([^@]+)@([^:]+):([0-9]+)/(.+)", clean_url)
-  parts <- regmatches(clean_url, m)[[1]]
-  if (length(parts) < 6) stop("Cannot parse DATABASE_URL")
-  list(user = parts[2], password = parts[3], host = parts[4], port = as.integer(parts[5]), dbname = parts[6])
+  sdm_database_connect_args(url)
 }
 
 db_insert_upload <- function(con, user_id, file_path, filename, file_size, format, n_rows, species, columns) {

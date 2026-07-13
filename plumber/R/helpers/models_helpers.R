@@ -769,16 +769,14 @@ handle_model_status <- function(res, job_id) {
     if (!process_alive) {
       meta$status <- "failed"
       meta$error <- "Process crashed or was killed (OOM, segfault, or external signal)"
+      meta$error_code <- "PROCESS_CRASH"
+      meta$error_hint <- "The R process was terminated by the OS. Check system memory, reduce raster resolution, or run with fewer covariates."
       meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       sdm_write_json(meta, meta_file)
       sdm_process_registry[[job_id]] <- NULL
       sdm_redis_progress_clear(job_id)
       sdm_redis_cancel_clear(job_id)
-      # Clean up orphaned partial outputs (non-targets jobs only)
-      if (!grepl("^targets-", job_id)) {
-        tryCatch(unlink(file.path(Sys.getenv("SDM_PROJECT_ROOT", "/app"), "outputs", "jobs", job_id),
-          recursive = TRUE, force = TRUE), error = function(e) NULL)
-      }
+      # Keep the job directory so subsequent status polls can read diagnostics.
     }
   }
 
@@ -828,8 +826,7 @@ handle_model_status <- function(res, job_id) {
       sdm_process_registry[[job_id]] <- NULL
       sdm_redis_progress_clear(job_id)
       sdm_redis_cancel_clear(job_id)
-      # Clean up orphaned partial outputs
-      tryCatch(unlink(job_dir, recursive = TRUE, force = TRUE), error = function(e) NULL)
+      # Keep the job directory so subsequent status polls can read diagnostics.
     }
   }
 
@@ -865,8 +862,7 @@ handle_model_status <- function(res, job_id) {
       sdm_process_registry[[job_id]] <- NULL
       sdm_redis_progress_clear(job_id)
       sdm_redis_cancel_clear(job_id)
-      # Clean up orphaned partial outputs
-      tryCatch(unlink(job_dir, recursive = TRUE, force = TRUE), error = function(e) NULL)
+      # Keep the job directory so subsequent status polls can read diagnostics.
     }
   }
 
@@ -1125,12 +1121,14 @@ handle_async_status <- function(res, job_id, app_dir) {
   progress_file <- file.path(job_dir, "progress.log")
 
   if (!file.exists(meta_file)) {
+    if (!is.null(res)) tryCatch(res$status <- 404L, error = function(e) NULL)
     return(list(available = FALSE, error = "Job not found"))
   }
 
   meta <- tryCatch(
     jsonlite::fromJSON(meta_file, simplifyVector = FALSE),
     error = function(e) {
+      if (!is.null(res)) tryCatch(res$status <- 503L, error = function(ee) NULL)
       return(list(available = FALSE, error = paste0("Corrupted meta.json: ", conditionMessage(e))))
     }
   )
@@ -1138,8 +1136,15 @@ handle_async_status <- function(res, job_id, app_dir) {
     return(meta)
   }
   result <- NULL
+  result_read_error <- NULL
   if (file.exists(result_file)) {
-    result <- jsonlite::fromJSON(result_file, simplifyVector = FALSE)
+    result <- tryCatch(
+      jsonlite::fromJSON(result_file, simplifyVector = FALSE),
+      error = function(e) {
+        result_read_error <<- conditionMessage(e)
+        NULL
+      }
+    )
   }
 
   if (identical(meta$status, "cancelled")) {
@@ -1165,7 +1170,8 @@ handle_async_status <- function(res, job_id, app_dir) {
   }
 
   if (identical(meta$status, "running") && is.null(result)) {
-    proc <- sdm_process_registry[[basename(job_id)]]
+    entry <- sdm_process_registry[[basename(job_id)]]
+    proc <- sdm_registry_proc(entry)
     process_alive <- FALSE
     if (!is.null(proc)) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
@@ -1181,20 +1187,26 @@ handle_async_status <- function(res, job_id, app_dir) {
     }
     if (!process_alive) {
       meta$status <- "failed"
-      meta$error <- "Process crashed or was killed (OOM, segfault, or external signal)"
+      meta$error <- if (!is.null(result_read_error)) {
+        paste0("Process exited with an unreadable result: ", result_read_error)
+      } else {
+        "Process crashed or was killed (OOM, segfault, or external signal)"
+      }
+      meta$error_code <- "PROCESS_CRASH"
+      meta$error_hint <- "The R process was terminated by the OS. Check system memory, reduce raster resolution, or run with fewer covariates."
+      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       sdm_write_json(meta, meta_file)
       sdm_process_registry[[basename(job_id)]] <- NULL
       sdm_redis_progress_clear(basename(job_id))
       sdm_redis_cancel_clear(basename(job_id))
-      # Clean up orphaned partial outputs
-      tryCatch(unlink(job_dir, recursive = TRUE, force = TRUE), error = function(e) NULL)
-      return(list(available = TRUE, status = "failed", error = "Process crashed or was killed (OOM, segfault, or external signal)",
-                  error_code = "PROCESS_CRASH", error_hint = "The R process was terminated by the OS. Check system memory, reduce raster resolution, or run with fewer covariates."))
+      return(list(available = TRUE, status = "failed", error = meta$error,
+                  error_code = meta$error_code, error_hint = meta$error_hint))
     }
   }
 
   if (identical(meta$status, "loading")) {
-    proc <- sdm_process_registry[[basename(job_id)]]
+    entry <- sdm_process_registry[[basename(job_id)]]
+    proc <- sdm_registry_proc(entry)
     process_alive <- FALSE
     if (!is.null(proc)) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
