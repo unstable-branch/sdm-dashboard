@@ -37,6 +37,8 @@ Open `http://localhost:3000`.
 
 First startup can take several minutes while Docker builds the Plumber image and installs R geospatial packages. The API container applies database migrations before the server starts. Local compose starts Garage in single-node mode with development credentials and a development bucket.
 
+For self-hosting a reviewed release, use `docker-compose.prod.yml` with the exact digests from `image-digests.txt`; production pulls images and must be started with `--no-build`. See [PRODUCTION.md](PRODUCTION.md).
+
 Stop the stack with:
 
 ```bash

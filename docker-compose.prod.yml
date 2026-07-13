@@ -1,5 +1,5 @@
 # Production compose — optimized images, reverse proxy, monitoring
-# Usage: docker compose -f docker-compose.prod.yml up -d
+# Usage: configure image digests, then docker compose -f docker-compose.prod.yml up -d --no-build
 
 services:
   nginx:
@@ -25,12 +25,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-      target: runner
-      args:
-        - API_URL=${FRONTEND_API_URL:-http://api:4000}
+    image: ghcr.io/unstable-branch/sdm-dashboard/sdm-frontend@${SDM_FRONTEND_DIGEST:?SDM_FRONTEND_DIGEST is required}
     environment:
       - NODE_ENV=production
       - API_URL=http://api:4000
@@ -49,10 +44,7 @@ services:
     restart: unless-stopped
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-      target: runner
+    image: ghcr.io/unstable-branch/sdm-dashboard/sdm-api@${SDM_API_DIGEST:?SDM_API_DIGEST is required}
     deploy:
       resources:
         limits:
@@ -128,9 +120,7 @@ services:
     restart: unless-stopped
 
   plumber:
-    build:
-      context: .
-      dockerfile: plumber/Dockerfile
+    image: ghcr.io/unstable-branch/sdm-dashboard/sdm-plumber-${SDM_PLUMBER_VARIANT:-cpu}@${SDM_PLUMBER_DIGEST:?SDM_PLUMBER_DIGEST is required}
     deploy:
       resources:
         limits:

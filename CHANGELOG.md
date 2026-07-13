@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Release engineering**: Tag-validated publication for separate CPU, CUDA, and ROCm Plumber images plus API/frontend images, with SemVer and commit tags, OCI metadata, SBOM/provenance, and a digest manifest.
+- **Release gates**: Static version/image drift audit and a release-candidate checklist covering clean install, migration, rollback, real workflows, accelerator hardware, release notes, and branch-ancestry reconciliation.
+
 - **Provenance manifest**: SHA-256 input hashes (replaced MD5), git commit SHA, R package versions captured in run manifest (`provenance jsonb`). Persisted to DB on run completion. Available via API and results page.
 - **Error taxonomy**: 15 typed error codes (`INSUFFICIENT_RECORDS`, `OOM_PREDICTION`, `PERFECT_SEPARATION`, etc.) with structured remediation hints. Errors classified automatically and propagated through Plumber → API → frontend.
 - **Per-run resource accounting**: CPU time (ms) and peak memory (MB) tracked via BullMQ worker instrumentation. Displayed in admin Recent Runs table.

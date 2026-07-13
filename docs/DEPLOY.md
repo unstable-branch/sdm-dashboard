@@ -139,9 +139,16 @@ Important variables:
 
 ## Production Compose
 
-Use `docker-compose.prod.yml` for self-hosted production-style deployments.
+Use `docker-compose.prod.yml` for self-hosted production-style deployments. Unlike the local source stack, production Compose has no application `build:` blocks. It pulls frontend, API, and the selected CPU/CUDA/ROCm Plumber image by exact digest.
 
-Production compose intentionally fails closed if required secrets are absent. Provide real values for:
+Start with `deploy/images.env.example`, copy the reviewed values from the draft release `image-digests.txt`, and run:
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d --no-build
+```
+
+Production compose intentionally fails closed if required image digests or secrets are absent. Provide real values for:
 
 - `POSTGRES_PASSWORD`
 - `DATABASE_URL`
@@ -154,6 +161,10 @@ Production compose intentionally fails closed if required secrets are absent. Pr
 - `GARAGE_RPC_SECRET`
 - `GARAGE_ADMIN_TOKEN`
 - `GRAFANA_PASSWORD`
+- `SDM_FRONTEND_DIGEST`
+- `SDM_API_DIGEST`
+- `SDM_PLUMBER_DIGEST`
+- `SDM_PLUMBER_VARIANT` (`cpu`, `cuda`, or `rocm`)
 
 Operators are responsible for:
 
@@ -218,7 +229,7 @@ Check Plumber logs:
 docker compose -f docker-compose.yml --profile full logs plumber
 ```
 
-The first build is large because R geospatial packages are installed in the image.
+The first local source build is large because R geospatial packages are installed in the image. Production should pull reviewed digests instead of building.
 
 ### OpenAPI type generation fails
 
