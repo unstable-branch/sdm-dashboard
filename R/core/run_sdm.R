@@ -41,7 +41,7 @@ run_fast_sdm <- function(...) {
 
   species <- cfg$species
   occurrence_file <- cfg$occurrence_file
-  worldclim_dir <- cfg$worldclim_dir
+  worldclim_dir <- sdm_resolve_project_path(cfg$worldclim_dir)
   selected_biovars <- cfg$selected_biovars
   projection_extent <- cfg$projection_extent
   training_extent <- cfg$training_extent
@@ -79,11 +79,11 @@ run_fast_sdm <- function(...) {
   use_drought <- cfg$use_drought
   selected_drought_periods <- cfg$selected_drought_periods
   selected_chelsa_extras <- cfg$selected_chelsa_extras
-  covariate_cache_dir <- cfg$covariate_cache_dir
+  covariate_cache_dir <- sdm_resolve_project_path(cfg$covariate_cache_dir)
   vif_reduction <- cfg$vif_reduction
   vif_threshold <- cfg$vif_threshold
   future_projection <- cfg$future_projection
-  future_worldclim_dir <- cfg$future_worldclim_dir
+  future_worldclim_dir <- sdm_resolve_project_path(cfg$future_worldclim_dir)
   future_label <- cfg$future_label
   maxnet_features <- cfg$maxnet_features
   maxnet_regmult <- cfg$maxnet_regmult
@@ -1067,6 +1067,7 @@ run_fast_sdm <- function(...) {
 
   # Second future scenario (multi-SSP comparison)
   future_worldclim_dir2 <- cfg$future_worldclim_dir2 %||% NULL
+  if (!is.null(future_worldclim_dir2)) future_worldclim_dir2 <- sdm_resolve_project_path(future_worldclim_dir2)
   future_label2 <- cfg$future_label2 %||% "Future climate 2"
   future2 <- NULL
   if (isTRUE(future_projection) && !is.null(future_worldclim_dir2) && nzchar(future_worldclim_dir2) && dir.exists(future_worldclim_dir2)) {
@@ -1116,10 +1117,11 @@ run_fast_sdm <- function(...) {
   if (check_cancelled(log_fun)) {
     return(invisible(NULL))
   }
-  progress_step(progress_fun, 1.0, "Summarising outputs")
+  progress_step(progress_fun, 0.92, "Summarising outputs")
   suitability_summary <- summarise_suitability(suit, threshold)
   if (!is.null(future)) future$summary <- summarise_suitability(future$suitability, threshold)
 
+  progress_step(progress_fun, 0.93, "Writing output graphics")
   future_pngs <- save_future_pngs(future, occ, projection_extent, species, threshold, future_label, output_dir, base_name)
   if (!is.null(future_pngs$future_png)) extra_paths$future_suitability_png <- future_pngs$future_png
   if (!is.null(future_pngs$delta_png)) extra_paths$future_delta_png <- future_pngs$delta_png
@@ -1196,6 +1198,7 @@ run_fast_sdm <- function(...) {
     error = function(e) log_message(log_fun, "  Suitability PNG failed: ", conditionMessage(e))
   )
 
+  progress_step(progress_fun, 0.94, "Preparing web map output")
   # --- EPSG:3857 COG generation (for tile gen + web map) ---
   output_tiles_dir <- file.path(output_dir, "map_tiles")
   tif_3857_path <- NULL
@@ -1220,7 +1223,10 @@ run_fast_sdm <- function(...) {
   }
 
   # --- XYZ tile generation from COG (already in EPSG:3857, has overviews) ---
-  if (isTRUE(cfg$generate_tiles %||% TRUE) && !is.null(tif_3857_path) && file.exists(tif_3857_path)) {
+  if (isTRUE(cfg$generate_tiles %||% sdm_default_generate_tiles)) {
+    progress_step(progress_fun, 0.95, "Generating opt-in XYZ tiles", stage = "tiles")
+  }
+  if (isTRUE(cfg$generate_tiles %||% sdm_default_generate_tiles) && !is.null(tif_3857_path) && file.exists(tif_3857_path)) {
     tile_result <- tryCatch({
       n_bands <- terra::nlyr(suit)
       band_names <- if (n_bands > 1) names(suit) else "suitability"
@@ -1396,6 +1402,7 @@ run_fast_sdm <- function(...) {
     paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)
   )
   result$report_text <- output_report
+  progress_step(progress_fun, 0.96, "Writing manifests and summary report", stage = "output")
   tryCatch(write_manifest(result, output_dir, base_name, cpu_ms = metrics$elapsed_seconds * 1000),
     error = function(e) log_message(log_fun, "Manifest write failed: ", conditionMessage(e)))
   tryCatch(write_summary_report(result, result$report_text),

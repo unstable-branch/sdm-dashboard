@@ -8,6 +8,7 @@ res_label <- function(res) {
 fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period = "2061-2080",
                                   var = "bioc", res = 10, out_dir = "Worldclim_future",
                                   quiet = FALSE, log_fun = NULL, ...) {
+  out_dir <- sdm_resolve_project_path(out_dir)
   if (!requireNamespace("geodata", quietly = TRUE)) {
     stop("geodata package required for CMIP6 download. Install with: install.packages('geodata')", call. = FALSE)
   }
@@ -107,10 +108,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
       list(dir = cache_subdir, cached = FALSE, raster = out)
     },
     error = function(e) {
-      # Cleanup partial download on failure (Fix 10)
-      if (dir.exists(cache_subdir)) {
-        unlink(cache_subdir, recursive = TRUE, force = TRUE)
-      }
+      # Keep incomplete cache files so a retry can reuse/resume provider downloads.
       message("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
       message("Troubleshooting: Check internet connection, try a different GCM/SSP/period")
       stop("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e), call. = FALSE)
@@ -225,6 +223,7 @@ cmip6_period_choices <- c(
 average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
                                out_dir = "Worldclim_future", quiet = FALSE,
                                log_fun = NULL, progress_fun = NULL, ...) {
+  out_dir <- sdm_resolve_project_path(out_dir)
   if (length(gcm_list) < 2) {
     stop("average_cmip6_gcms requires at least 2 GCMs", call. = FALSE)
   }
@@ -304,7 +303,7 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
     }
   }
 
-  baseline_dir <- sdm_default_worldclim_dir
+  baseline_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir)
   if (dir.exists(baseline_dir)) {
     baseline_files <- find_worldclim_files(baseline_dir, 1:19, source = "worldclim")
     names(baseline_files) <- paste0("bio", 1:19)
