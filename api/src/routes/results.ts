@@ -97,6 +97,37 @@ async function plumberJobId(runId: string): Promise<string> {
   return run?.jobId ?? runId;
 }
 
+function discoverOutputFiles(jobId: string): Record<string, string> | null {
+  const jobDir = resolve(resultRoot, jobId);
+  const rel = relative(resultRoot, jobDir);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return null;
+
+  let files: string[];
+  try {
+    files = readdirSync(jobDir);
+  } catch {
+    return null;
+  }
+
+  const outputFiles: Record<string, string> = {};
+  for (const file of files) {
+    const path = join(jobDir, file);
+    if (file.endsWith("_3857.tif")) outputFiles.tif_3857 = path;
+    else if (file.endsWith("_suitability.tif")) outputFiles.tif = path;
+    else if (file.endsWith("_suitability.png")) outputFiles.png = path;
+    else if (file === "report.txt" && !outputFiles.report) outputFiles.report = path;
+    else if (file.endsWith("_report.txt")) outputFiles.report = path;
+    else if (file === "odmap_report.md") outputFiles.odmap_report_md = path;
+    else if (file === "odmap_report.csv") outputFiles.odmap_report_csv = path;
+    else if (file === "result.rds") outputFiles.result_rds = path;
+  }
+  return Object.keys(outputFiles).length > 0 ? outputFiles : null;
+}
+
+function hasOutputFiles(value: unknown): value is Record<string, string> {
+  return Boolean(value && typeof value === "object" && Object.keys(value as object).length > 0);
+}
+
 resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
   const { runId, z, x, y } = c.req.param();
   const band = c.req.query("band") || "suitability";
@@ -381,6 +412,7 @@ resultsRoutes.get("/:id", async (c) => {
       metrics: runs.metrics,
       config: runs.config,
       outputFiles: runs.outputFiles,
+      jobId: runs.jobId,
       provenance: runs.provenance,
     })
     .from(runs)
@@ -399,6 +431,9 @@ resultsRoutes.get("/:id", async (c) => {
     : undefined;
 
   const httpStatus = run.status === "failed" ? getErrorHttpStatus(errCode) : 200;
+  const outputFiles = hasOutputFiles(run.outputFiles)
+    ? run.outputFiles
+    : discoverOutputFiles(run.jobId ?? run.id);
 
   return c.json({
     id: run.id,
@@ -411,7 +446,7 @@ resultsRoutes.get("/:id", async (c) => {
     error_code: errCode ?? null,
     error_hint: errHint ?? null,
     metrics: run.metrics ?? null,
-    output_files: run.outputFiles ?? null,
+    output_files: outputFiles ?? null,
     provenance: run.provenance ?? null,
     progress_log: [],
   }, httpStatus as StatusCode);
@@ -425,19 +460,17 @@ resultsRoutes.get("/:id/report.txt", async (c) => {
   }
 
   const [run] = await db
-    .select({ outputFiles: runs.outputFiles })
+    .select({ outputFiles: runs.outputFiles, jobId: runs.jobId })
     .from(runs)
     .where(eq(runs.id, id))
     .limit(1);
 
-  let reportPath: string;
-  if (run?.outputFiles && typeof run.outputFiles === "object" && "report" in (run.outputFiles as object)) {
-    const containerPath = (run.outputFiles as Record<string, string>).report;
-    reportPath = containerPath.startsWith("/app/")
-      ? join(appDir, containerPath.slice(5))
-      : join(appDir, containerPath);
-  } else {
-    reportPath = join(resultRoot, id, "report.txt");
+  const discovered = discoverOutputFiles(run?.jobId ?? id);
+  const storedReport = hasOutputFiles(run?.outputFiles) ? run.outputFiles.report : undefined;
+  const reportPath = (storedReport ? resolveResultFilePath(storedReport)?.fullPath : undefined)
+    ?? discovered?.report;
+  if (!reportPath) {
+    return c.json({ error: "Report not found" }, 404);
   }
 
   try {

@@ -214,7 +214,8 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
                              selected_chelsa_extras = NULL) {
   climate <- load_climate_covariates(worldclim_dir, selected_biovars, training_extent, projection_extent,
     aggregation_factor, allow_download, worldclim_res, log_fun, n_cores,
-    source = source, selected_chelsa_extras = selected_chelsa_extras
+    source = source, selected_chelsa_extras = selected_chelsa_extras,
+    progress_fun = progress_fun
   )
 
   env_train <- climate$env_train

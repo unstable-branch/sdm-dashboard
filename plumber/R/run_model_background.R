@@ -74,19 +74,22 @@ progress_fun <- function(x) {
   # Format: append-only JSON-lines (one JSON object per line) — the Plumber reader parses
   # each line independently, so no outer array wrapper is needed.
   progress_json_path <- file.path(job_dir, "progress.json")
-  entry <- list(
+  inferred_stage <- if (!is.null(detail) && nchar(detail) > 0) {
+    d <- tolower(detail)
+    if (grepl("climate|worldclim|chelsa", d)) "climate_download"
+    else if (grepl("clean", d)) "clean" else if (grepl("load|scal|covariate", d)) "covariates"
+    else if (grepl("thin", d)) "thinning" else if (grepl("vif", d)) "vif"
+    else if (grepl("fit|model", d)) "fit" else if (grepl("predict|projection", d)) "predict"
+    else if (grepl("tile", d)) "tiles" else if (grepl("output|artifact|report", d)) "output"
+    else if (grepl("future", d)) "future" else if (grepl("summaris", d)) "summarize" else "unknown"
+  } else "unknown"
+  metadata <- if (is.list(x)) x[setdiff(names(x), c("value", "detail"))] else list()
+  entry <- c(list(
     timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
     percent = pct_num,
     detail = detail %||% "",
-    stage = if (!is.null(detail) && nchar(detail) > 0) {
-      d <- tolower(detail)
-      if (grepl("clean", d)) "clean" else if (grepl("load|scal|covariate", d)) "covariates"
-      else if (grepl("thin", d)) "thinning" else if (grepl("vif", d)) "vif"
-      else if (grepl("fit|model", d)) "fit" else if (grepl("predict|projection", d)) "predict"
-      else if (grepl("output", d)) "output" else if (grepl("future", d)) "future"
-      else if (grepl("summaris", d)) "summarize" else "unknown"
-    } else "unknown"
-  )
+    stage = metadata$stage %||% inferred_stage
+  ), metadata[setdiff(names(metadata), "stage")])
   cat(jsonlite::toJSON(entry, auto_unbox = TRUE), "\n", file = progress_json_path, append = TRUE)
   # Rotate progress.json if it exceeds 5 MB (prevent unbounded growth)
   if (file.size(progress_json_path) > 5 * 1024 * 1024) {
@@ -193,7 +196,7 @@ tryCatch({
     species_filter = config$species_filter %||% NULL,
     occurrence_file = config$occurrence_file,
     cleaned_occurrence = cleaned_occurrence,
-    worldclim_dir = config$worldclim_dir %||% sdm_default_worldclim_dir,
+    worldclim_dir = sdm_resolve_project_path(config$worldclim_dir %||% sdm_default_worldclim_dir, app_dir),
     selected_biovars = biovars,
     projection_extent = projection_extent,
     background_n = as.integer(config$background_n %||% sdm_default_background_n),
@@ -229,11 +232,11 @@ tryCatch({
     use_bioclim_season = isTRUE(config$use_bioclim_season),
     use_drought = isTRUE(config$use_drought),
     selected_drought_periods = config$selected_drought_periods %||% "annual_mean",
-    covariate_cache_dir = "covariates",
+    covariate_cache_dir = sdm_resolve_project_path(config$covariate_cache_dir %||% sdm_default_covariate_cache_dir, app_dir),
     vif_reduction = isTRUE(config$vif_reduction),
     vif_threshold = as.numeric(config$vif_threshold %||% 10),
     future_projection = isTRUE(config$future_projection),
-    future_worldclim_dir = config$future_worldclim_dir %||% sdm_default_future_worldclim_dir,
+    future_worldclim_dir = sdm_resolve_project_path(config$future_worldclim_dir %||% sdm_default_future_worldclim_dir, app_dir),
     future_label = config$future_label %||% "Future climate",
     maxnet_features = config$maxnet_features %||% sdm_default_maxnet_features,
     maxnet_regmult = as.numeric(config$maxnet_regmult %||% sdm_default_maxnet_regmult),
@@ -263,12 +266,12 @@ tryCatch({
     esm_power = as.numeric(config$esm_power %||% sdm_esm_default_power),
     esm_biovars = config$esm_biovars,
     selected_chelsa_extras = config$selected_chelsa_extras,
-    future_worldclim_dir2 = config$future_worldclim_dir2,
+    future_worldclim_dir2 = if (!is.null(config$future_worldclim_dir2)) sdm_resolve_project_path(config$future_worldclim_dir2, app_dir) else NULL,
     future_label2 = config$future_label2 %||% "Future climate 2",
     use_cc = isTRUE(config$use_cc),
     cc_tests = config$cc_tests %||% "all",
     analysis_crs = config$analysis_crs %||% sdm_default_analysis_crs,
-    generate_tiles = isTRUE(config$generate_tiles %||% TRUE),
+    generate_tiles = isTRUE(config$generate_tiles %||% sdm_default_generate_tiles),
     mask_type = config$mask_type %||% sdm_default_mask_type,
     mask_file = config$mask_file %||% sdm_default_mask_file,
     mask_buffer_deg = as.numeric(config$mask_buffer_deg %||% sdm_default_mask_buffer_deg),
@@ -334,6 +337,7 @@ tryCatch({
     quit(save = "no", status = 0, runLast = TRUE)
   }
 
+  progress_fun(list(value = 0.97, detail = "Persisting model result artifact", stage = "output"))
   # Save full result object for diagnostic/ecology API endpoints
   # Wrap SpatRasters before serialization to avoid loading full raster data into memory
   result_rds_path <- file.path(job_dir, "result.rds")
@@ -364,6 +368,7 @@ tryCatch({
     log_fun("Failed to save result RDS: ", conditionMessage(e))
   })
 
+  progress_fun(list(value = 0.98, detail = "Generating diagnostic artifacts", stage = "output"))
   # Generate diagnostic PNG plots
   diag_files <- list()
   tryCatch({
@@ -377,6 +382,7 @@ tryCatch({
     cat(conditionMessage(e), "\n", file = progress_file, append = TRUE)
   })
 
+  progress_fun(list(value = 0.99, detail = "Generating ODMAP report", stage = "output"))
   # Generate ODMAP report
   tryCatch({
     source(file.path(app_dir, "R", "output", "report_odmap.R"), local = TRUE)
@@ -447,7 +453,9 @@ tryCatch({
       })
     }
   }
+  progress_fun(list(value = 0.995, detail = "Finalising persisted outputs", stage = "output"))
   write_meta(meta)
+  progress_fun(list(value = 1.0, detail = "All outputs complete", stage = "complete"))
   gc(verbose = FALSE)
 }, error = function(e) {
   meta$status <- "failed"

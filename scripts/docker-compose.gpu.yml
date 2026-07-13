@@ -2,6 +2,9 @@
 # scripts/docker-compose.rocm.yml is the separate AMD ROCm path.
 services:
   plumber:
+    image: sdm-dashboard-plumber:cuda
+    build:
+      dockerfile: plumber/Dockerfile.cuda
     environment:
       # These are NVIDIA/CUDA settings. They must not leak into the base or AMD
       # Compose definitions, where PyTorch's torch.cuda API can mean ROCm.

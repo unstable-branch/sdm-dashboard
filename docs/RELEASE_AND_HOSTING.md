@@ -12,12 +12,12 @@ This matters because SDM workflows often involve sensitive occurrence data, unpu
 |---------|----------|----------|
 | Source release | Developers and reviewers | Git tag plus `sdm-dashboard-<tag>-source.zip` |
 | Windows-ready legacy Shiny | Desktop users | `sdm-dashboard-<tag>-windows-ready.zip`; bundled WorldClim layers are included only when present in the release build tree |
-| Container images | Self-hosted platform users | GHCR images for frontend, API, and Plumber |
-| Docker Compose | Operators | Version-pinned repo checkout or image override files |
+| Container images | Self-hosted platform users | GHCR images for frontend, API, and separate CPU/CUDA/ROCm Plumber runtimes |
+| Docker Compose | Operators | Digest-pinned production compose plus reviewed release digest manifest |
 
-The release workflow creates draft GitHub Releases for `v*` tags and pushes the modern service images to GitHub Container Registry.
+A strict SemVer `v*` tag on `main` triggers validation, publishes API/frontend plus separate CPU/CUDA/ROCm Plumber images, records their immutable digests, and assembles a review-only draft GitHub Release. It publishes no mutable `latest` or `stable` alias.
 
-The normal platform CI gate and release workflow build the modern self-hosting images only: frontend, API, and Plumber. The legacy Shiny app remains available through source, Windows-ready zip artifacts, and the `legacy-shiny` branch; it is not a blocking container-image gate for modern platform tags.
+The normal platform CI gate and release workflow build the modern self-hosting images only: frontend, API, and the three Plumber hardware variants. The legacy Shiny app remains available through source, Windows-ready zip artifacts, and the `legacy-shiny` branch; it is not a blocking container-image gate for modern platform tags.
 
 The historical Shiny-first code line is preserved on the `legacy-shiny` branch. Modern platform releases should still keep the desktop artifacts usable during beta, but the branch exists as the stable reference point for anyone who wants the old Shiny-only shape.
 
@@ -29,10 +29,12 @@ Use semver with prerelease tags until the modern platform is stable:
 - `v1.0.0` is the final legacy Shiny release.
 - `v2.0.0-beta.1` is the first modern-platform beta release.
 - `v2.0.0-beta.2` and later beta tags are for fixes and rebaselines discovered during self-host and release-candidate testing.
-- `v2.0.0-beta.3` is the planned modern-platform rebaseline beta after the 2026 platform reshaping work.
+- `v2.0.0-beta.4` is the current public-version baseline recorded by `VERSION`; later candidates must update all validated metadata together.
 - Reserve stable `v2.0.0` for a stable API/storage contract, migration policy, documented backups, and a tested self-host install path.
 
-Tag releases from `main` after `dev -> main` CI is green.
+The canonical public version is `VERSION`. The release workflow rejects a tag unless it matches `VERSION`, public Node package metadata, `CITATION.cff`, and a release heading in `CHANGELOG.md`. `DESCRIPTION` retains the independent legacy R/Shiny component version.
+
+Tag releases from `main` only after `dev -> main` CI and the release-candidate checklist are green. After tagging, merge `main` back into `dev` by PR so release ancestry is retained.
 
 The detailed `dev -> main` release-candidate plan is in `docs/DEV_MAIN_RELEASE_PLAN.md`.
 
@@ -48,6 +50,8 @@ Before opening or merging the release PR:
 pnpm install --frozen-lockfile
 pnpm run check:node
 pnpm run check:compose
+pnpm run check:accelerators
+pnpm run check:release
 Rscript scripts/smoke_test.R --tags=fast
 Rscript tests/testthat.R
 Rscript scripts/audit_release.R
@@ -58,7 +62,7 @@ If the local machine cannot run the R gate because system libraries are missing,
 
 ## Self-Hosting
 
-Use `docker-compose.prod.yml` for private/team deployments. Production compose requires explicit secrets:
+Use `docker-compose.prod.yml` for private/team deployments. The application services pull the exact digests supplied in `SDM_FRONTEND_DIGEST`, `SDM_API_DIGEST`, and `SDM_PLUMBER_DIGEST`; they never build from source. External production dependencies and Docker build bases are digest-pinned as well; update those digests deliberately and rerun `python3 scripts/audit_release_config.py` rather than substituting mutable tags. Select `SDM_PLUMBER_VARIANT=cpu`, `cuda`, or `rocm`. Start from `deploy/images.env.example` and copy values from the reviewed `image-digests.txt`. Production compose also requires explicit secrets:
 
 - `POSTGRES_PASSWORD`
 - `DATABASE_URL`

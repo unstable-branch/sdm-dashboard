@@ -28,9 +28,11 @@ dry_run <- any(flags %in% c("--dry-run", "--list"))
 version_arg <- grep("^--version=", flags, value = TRUE)
 
 project_version <- function() {
-  desc <- read.dcf(file.path(project_root, "DESCRIPTION"))
-  version <- unname(desc[1, "Version"])
-  if (is.na(version) || !nzchar(version)) "0.0.0" else version
+  version_file <- file.path(project_root, "VERSION")
+  if (!file.exists(version_file)) stop("Missing canonical VERSION file.", call. = FALSE)
+  version <- trimws(readLines(version_file, warn = FALSE, n = 1L))
+  if (!nzchar(version)) stop("Canonical VERSION file is empty.", call. = FALSE)
+  version
 }
 
 release_version <- if (length(version_arg) > 0) {
@@ -74,7 +76,7 @@ source_release_paths <- function() {
     "app.R", "launch_app.R", "run_app_windows.bat",
     "README.md", "README_WINDOWS.md", "install_packages.R", "pipeline.R",
     "optimized_sdm.R", "SDM.Rproj", ".gitignore", ".dockerignore",
-    "DESCRIPTION", "LICENSE", "CITATION.cff", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
+    "DESCRIPTION", "VERSION", "LICENSE", "CITATION.cff", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
     "Dockerfile", "docker-compose.yml", ".github", "R", "scripts", "data", "tests", "www"
   ), include_worldclim = FALSE)
 }
@@ -83,7 +85,7 @@ ready_release_paths <- function(include_worldclim = TRUE) {
   files <- expand_release_paths(c(
     "app.R", "launch_app.R", "run_app_windows.bat",
     "README.md", "README_WINDOWS.md", "install_packages.R", "pipeline.R",
-    "optimized_sdm.R", "DESCRIPTION", "LICENSE", "CITATION.cff", "SECURITY.md",
+    "optimized_sdm.R", "DESCRIPTION", "VERSION", "LICENSE", "CITATION.cff", "SECURITY.md",
     "R", "data", "www", file.path("scripts", "windows_setup.R")
   ), include_worldclim = include_worldclim)
 

@@ -110,7 +110,7 @@ sdm_default_bart_nskip <- 500L
 
 sdm_default_validation_occurrences <- NULL
 sdm_default_pa_replicates <- 1L
-sdm_default_generate_tiles <- TRUE
+sdm_default_generate_tiles <- FALSE
 
 # Complexity tier thresholds for sample-size-based model selection
 # Based on Moudrý et al. (2024) Ecography recommendations:
