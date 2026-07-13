@@ -3,7 +3,6 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/stores/auth-store";
-import { setAuthToken } from "@/services/api";
 import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
@@ -49,8 +48,7 @@ function LoginForm() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Request failed");
 
-      setAuth(data.user, data.token);
-      setAuthToken(data.token, rememberMe);
+      setAuth(data.user, data.token, rememberMe);
       router.push(searchParams.get("redirect") || "/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");

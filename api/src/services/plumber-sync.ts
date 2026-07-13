@@ -329,8 +329,6 @@ async function syncRunningJobs() {
               })
               .where(and(eq(batches.id, parentRun.parentRunId), eq(batches.status, "running")));
           }
-        } else if (plumberStatus === "completed" && isTargetsJob) {
-          // Already handled in completed + isTargetsJob block above
         } else if (plumberStatus === "failed" && isTargetsJob) {
           // Targets pipeline failed — update per-species runs + batch
           await db
