@@ -72,6 +72,7 @@ for common in docker-compose.dev.yml docker-compose.yml docker-compose.prod.yml;
 done
 require scripts/docker-compose.gpu.yml 'NVIDIA compatibility overlay'
 require scripts/docker-compose.gpu.yml 'dockerfile: plumber/Dockerfile.cuda'
+require scripts/docker-compose.gpu.yml 'image: sdm-dashboard-plumber:cuda'
 require scripts/docker-compose.gpu.yml 'NVIDIA_VISIBLE_DEVICES'
 require scripts/docker-compose.gpu.yml 'CUDA_VISIBLE_DEVICES'
 require scripts/docker-compose.gpu.yml 'PYTORCH_CUDA_ALLOC_CONF'
