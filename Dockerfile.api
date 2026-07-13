@@ -51,15 +51,8 @@ RUN apk add --no-cache dumb-init curl
 
 WORKDIR /app
 
-COPY --from=builder /app/deploy/api/dist ./api/dist
-COPY --from=builder /app/deploy/api/drizzle ./api/drizzle
-COPY --from=builder /app/deploy/api/src/db/schema.ts ./api/src/db/schema.ts
-COPY --from=builder /app/deploy/api/package.json ./api/
-COPY --from=builder /app/deploy/api/node_modules ./api/node_modules
-COPY --from=builder /app/deploy/node_modules ./node_modules
-COPY --from=builder /app/deploy/packages/shared/package.json ./packages/shared/
-COPY --from=builder /app/deploy/packages/shared/node_modules ./packages/shared/node_modules
-COPY --from=builder /app/deploy/packages/shared/dist ./packages/shared/dist
+# pnpm legacy deploy emits a self-contained, flat package directory.
+COPY --from=builder /app/deploy ./api
 
 RUN addgroup -g 2000 uploadgroup && \
     adduser node uploadgroup && \
