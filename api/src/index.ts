@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { compress } from "hono/compress";
+import { bodyLimit } from "hono/body-limit";
 import { plumberClient } from "./services/plumber.js";
 import { ensureBuckets } from "./services/storage.js";
 import { getRedisStatus, ensureWorker, getJobStatus, shutdownQueue } from "./services/queue.js";
@@ -11,14 +12,24 @@ import { setupWebSocket, cleanupWebSocket } from "./services/websocket.js";
 import { mediumCache, longCache, closeCache } from "./middleware/cache.js";
 import { closeRateLimitRedis } from "./middleware/rate-limit.js";
 import { csrfMiddleware } from "./middleware/csrf.js";
-import { startMemoryMonitor, stopMemoryMonitor, memoryMonitorMiddleware } from "./middleware/memory-monitor.js";
+import { securityHeaders } from "./middleware/security-headers.js";
+import { startMemoryMonitor, stopMemoryMonitor } from "./middleware/memory-monitor.js";
+import { initMetrics, metricsHandler, recordHttpRequest, setActiveRequests, collectGpuMetrics } from "./services/metrics.js";
 import { db } from "./db/index.js";
-import { sdmRoutes } from "./routes/sdm.js";
+import { sql } from "drizzle-orm";
+import { sdmRunRoutes } from "./routes/sdm-runs.js";
+import { sdmBatchRoutes } from "./routes/sdm-batch.js";
+import { sdmTargetsRoutes } from "./routes/sdm-targets.js";
 import { dataRoutes } from "./routes/occurrences.js";
+import { examplesRoutes } from "./routes/examples.js";
+import { gbifAlaRoutes } from "./routes/gbif-ala.js";
+import { boundaryRoutes } from "./routes/boundary.js";
 import { resultsRoutes } from "./routes/results.js";
 import { climateRoutes } from "./routes/climate.js";
+import { covariatesRoutes } from "./routes/covariates.js";
 import { ecologyRoutes } from "./routes/ecology.js";
 import { authRoutes } from "./routes/auth.js";
+import { publicRoutes } from "./routes/public.js";
 import { projectRoutes } from "./routes/projects.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { adminRoutes } from "./routes/admin.js";
@@ -26,17 +37,17 @@ import { diagnosticsRoutes } from "./routes/diagnostics.js";
 import jobsRoutes from "./routes/jobs.js";
 
 process.on("uncaughtException", (err) => {
+  console.error("[FATAL] Uncaught exception:", err?.stack ?? err?.message ?? err);
   const msg = err?.message ?? "";
   if (
-    msg.includes("ioredis") ||
-    msg.includes("ECONNREFUSED") ||
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("ECONNRESET") ||
-    msg.includes("ENOTFOUND")
+    !msg.includes("ioredis") &&
+    !msg.includes("ECONNREFUSED") &&
+    !msg.includes("ETIMEDOUT") &&
+    !msg.includes("ECONNRESET") &&
+    !msg.includes("ENOTFOUND")
   ) {
-    return;
+    process.exit(1);
   }
-  console.error("[FATAL] Uncaught exception (keeping process alive):", err);
 });
 
 const app = new Hono();
@@ -47,9 +58,38 @@ app.use("*", cors({
   origin: corsOrigins.length > 0 ? corsOrigins : ["http://localhost:3000"],
   credentials: true,
 }));
-app.use("*", compress());
+app.use("*", compress({
+  threshold: 1024,
+}));
+app.use("*", bodyLimit({
+  maxSize: 100 * 1024 * 1024, // 100 MB
+}));
 app.use("*", logger());
-app.use("*", memoryMonitorMiddleware);
+app.use("*", securityHeaders);
+// Track HTTP metrics for Prometheus
+app.use("*", async (c, next) => {
+  setActiveRequests(1);
+  const start = Date.now();
+  await next();
+  const ms = Date.now() - start;
+  const route = c.req.routePath || c.req.path;
+  recordHttpRequest(c.req.method, route, c.res.status, ms);
+});
+
+app.get("/metrics", async (c) => {
+  try {
+    await collectGpuMetrics();
+    const metrics = await metricsHandler();
+    return c.newResponse(metrics, 200, { "Content-Type": "text/plain; charset=utf-8" });
+  } catch (err) {
+    console.error("[metrics] Failed to serve metrics:", err);
+    return c.text("# metrics temporarily unavailable", 503);
+  }
+});
+
+app.use("/api/v1/auth/*", csrfMiddleware);
+app.use("/api/v1/admin/*", csrfMiddleware);
+app.use("/api/v1/settings/*", csrfMiddleware);
 app.use("/api/v1/sdm/*", csrfMiddleware);
 app.use("/api/v1/data/*", csrfMiddleware);
 app.use("/api/v1/climate/*", csrfMiddleware);
@@ -70,14 +110,23 @@ app.get("/health", async (c) => {
   if (rs.available) redisStatus = "connected";
   else if (rs.disabled) redisStatus = "disabled";
 
+  let databaseOk = false;
+  try {
+    await db.execute(sql`SELECT 1`);
+    databaseOk = true;
+  } catch { /* best-effort */ }
+
+  const allHealthy = plumberStatus !== "unreachable" && databaseOk && redisStatus === "connected";
+
   return c.json({
-    status: "ok",
+    status: allHealthy ? "healthy" : "degraded",
     timestamp: new Date().toISOString(),
     services: {
       plumber: plumberStatus,
       redis: redisStatus,
+      database: databaseOk ? "connected" : "unreachable",
     },
-  });
+  }, allHealthy ? 200 : 503);
 });
 
 app.get("/ready", async (c) => {
@@ -94,6 +143,34 @@ app.get("/ready", async (c) => {
     // Plumber is optional for readiness
   }
 
+  try {
+    await db.execute(sql`SELECT 1`);
+    checks.database = true;
+  } catch {
+    // Database check is best-effort
+  }
+
+  // Check Garage S3 storage accessibility
+  try {
+    const { getGarageConfig } = await import("./services/storage.js");
+    const { S3Client, ListBucketsCommand } = await import("@aws-sdk/client-s3");
+    const cfg = getGarageConfig();
+    const endpoint = `${cfg.useSSL ? "https" : "http"}://${cfg.endPoint}:${cfg.port}`;
+    const client = new S3Client({
+      endpoint,
+      region: "garage",
+      credentials: { accessKeyId: cfg.accessKey, secretAccessKey: cfg.secretKey },
+      forcePathStyle: true,
+    });
+    await Promise.race([
+      client.send(new ListBucketsCommand({})),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
+    ]);
+    checks.storage = true;
+  } catch {
+    // Storage is optional for readiness
+  }
+
   const allOk = Object.values(checks).every(Boolean);
   const status = allOk ? "ready" : "degraded";
 
@@ -104,10 +181,17 @@ app.route("/api/v1/auth", authRoutes);
 app.route("/api/v1/projects", projectRoutes);
 app.route("/api/v1/settings", settingsRoutes);
 app.route("/api/v1/admin", adminRoutes);
-app.route("/api/v1/sdm", sdmRoutes);
+app.route("/api/v1/sdm", sdmRunRoutes);
+app.route("/api/v1/sdm", sdmBatchRoutes);
+app.route("/api/v1/sdm", sdmTargetsRoutes);
 app.route("/api/v1/data", dataRoutes);
+app.route("/api/v1/data/examples", examplesRoutes);
+app.route("/api/v1/data", gbifAlaRoutes);
+app.route("/api/v1/data", boundaryRoutes);
 app.route("/api/v1/results", resultsRoutes);
+app.route("/api/v1/public", publicRoutes);
 app.route("/api/v1/climate", climateRoutes);
+app.route("/api/v1/covariates", covariatesRoutes);
 app.route("/api/v1/ecology", ecologyRoutes);
 app.route("/api/v1/diagnostics", diagnosticsRoutes);
 app.route("/api/v1/jobs", jobsRoutes);
@@ -123,6 +207,9 @@ app.notFound((c) => {
 
 const port = parseInt(process.env.PORT || "4000", 10);
 
+// Initialize Prometheus metrics registry
+initMetrics();
+
 // Initialize Garage S3 buckets (non-blocking, errors are logged)
 (async () => {
   try {
@@ -132,16 +219,39 @@ const port = parseInt(process.env.PORT || "4000", 10);
   }
 })();
 
-// Attempt to start background job worker (will no-op if Redis unavailable)
-setTimeout(() => {
-  const w = ensureWorker();
-  if (!w) {
-    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-    console.log(`[Worker] Redis unavailable at ${redisUrl}; job worker deferred. Climate downloads will return 503.`);
-  } else {
-    console.log("[Worker] BullMQ worker started");
+// One-time backfill: mark existing uploads as cleaned if they have a cleaned_file_path
+// This ensures previously-cleaned files show the "Cleaned" badge in the upload history
+(async () => {
+  try {
+    const result = await db.execute(
+      sql`UPDATE uploads SET is_cleaned = TRUE WHERE is_cleaned IS DISTINCT FROM TRUE AND cleaned_file_path IS NOT NULL`
+    );
+    if (result.rowCount && result.rowCount > 0) {
+      console.log(`[DB] Backfilled ${result.rowCount} existing upload(s) as cleaned`);
+    }
+  } catch (err) {
+    // Non-critical — errors only affect the "Cleaned" badge display
+    console.warn("[DB] Uploads backfill skipped:", err instanceof Error ? err.message : String(err));
   }
-}, 1000);
+})();
+
+// Periodic GPU metrics collection (polls Plumber GPU endpoint every 30s)
+setInterval(() => {
+  collectGpuMetrics().catch(() => { /* best-effort */ });
+}, 30000);
+
+// Attempt to start background job worker with retry (will retry until Redis is available)
+async function startWorkerWithRetry(attempt = 0) {
+  const w = ensureWorker();
+  if (w) {
+    console.log("[Worker] BullMQ worker started");
+    return;
+  }
+  const delay = Math.min(5000 * Math.pow(1.5, attempt), 120000);
+  console.log(`[Worker] Redis unavailable; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1}).`);
+  setTimeout(() => startWorkerWithRetry(attempt + 1), delay);
+}
+setTimeout(() => startWorkerWithRetry(), 1000);
 
 // Start Plumber status sync — polls Plumber for running jobs and updates DB + SSE
 setTimeout(() => {
@@ -201,17 +311,6 @@ const server = serve(
 setupWebSocket(server);
 
 process.on("unhandledRejection", (reason) => {
-  const msg = reason instanceof Error ? reason.message : String(reason ?? "");
-  if (
-    msg.includes("ioredis") ||
-    msg.includes("ECONNREFUSED") ||
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("ECONNRESET") ||
-    msg.includes("ENOTFOUND") ||
-    msg.includes("Connection is closed")
-  ) {
-    return;
-  }
-  console.error("[API] Unhandled rejection, shutting down:", reason);
-  shutdown();
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  console.error("[API] Unhandled rejection:", err.stack ?? err.message);
 });

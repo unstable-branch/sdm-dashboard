@@ -5,9 +5,9 @@ replication_factor = 1
 
 rpc_bind_addr = "[::]:3902"
 rpc_public_addr = "garage:3902"
-# WARNING: Override via GARAGE_RPC_SECRET env var in production.
-# This fixed value is for local dev only. Override it in production.
-rpc_secret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+# ⚠️  DEV ONLY: Override via GARAGE_RPC_SECRET env var in production.
+#     Generate a real secret: openssl rand -hex 32
+rpc_secret = "CHANGEME-run-openssl-rand-hex-32-for-garage-rpc"
 
 [s3_api]
 s3_region = "garage"
@@ -21,6 +21,6 @@ index = "index.html"
 
 [admin]
 api_bind_addr = "[::]:3903"
-# WARNING: Override via GARAGE_ADMIN_TOKEN env var in production.
-admin_token = "dev-admin-token"
-metrics_token = "dev-metrics-token"
+# ⚠️  DEV ONLY: Override via GARAGE_ADMIN_TOKEN env var in production.
+admin_token = "CHANGEME-run-openssl-rand-hex-32-for-garage-admin"
+metrics_token = "CHANGEME-run-openssl-rand-hex-32-for-garage-metrics"

@@ -27,8 +27,8 @@ export function AuthGuard({ children, redirectTo = "/login" }: AuthGuardProps) {
 
   if (checking) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" />
+      <div className="flex items-center justify-center h-64" suppressHydrationWarning>
+        <Loader2 className="h-6 w-6 animate-spin text-sdm-accent" suppressHydrationWarning />
         <span className="ml-2 text-sdm-muted">Checking authentication...</span>
       </div>
     );

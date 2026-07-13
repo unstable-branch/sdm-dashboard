@@ -6,19 +6,32 @@ import { authMiddleware, type AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds } from "../services/access.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
-import { eq, and, inArray, or } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 const app = new Hono<AppEnv>();
 
+const MAX_SSE_CLIENTS = 500;
+let activeSseClients = 0;
+
 app.use("/sse", authMiddleware);
 
-app.get("/sse", (c) => {
+app.get("/sse", async (c) => {
   const user = c.get("user");
+
+  if (activeSseClients >= MAX_SSE_CLIENTS) {
+    return c.json({ error: "Too many connections. Try again later." }, 503);
+  }
+  activeSseClients++;
+  const cleanup = () => { activeSseClients = Math.max(0, activeSseClients - 1); };
+
+  // Get user's project IDs once (admin = null = all)
+  const myProjectIds = await getUserProjectIds(user);
 
   return streamSSE(c, async (stream) => {
     let aborted = false;
     stream.onAbort(() => {
       aborted = true;
+      cleanup();
     });
 
     // Get user's project IDs once (admin = null = all)
@@ -35,30 +48,40 @@ app.get("/sse", (c) => {
           .where(and(eq(runs.id, runId), inArray(runs.projectId, myProjectIds)))
           .limit(1);
         return Boolean(run);
-      } catch {
+      } catch (e) {
+        console.warn("[jobs]", e instanceof Error ? e.message : String(e));
         return false;
       }
     };
 
     // Listen to real-time events from plumber-sync and queue worker
-    const handler = async (event: { jobId: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string; error_code?: string | null; error_hint?: string | null }) => {
-      // Check if this event's jobId maps to a run the user can access
-      if (!(await isMyRun(event.jobId))) return;
-
-      stream.writeSSE({
-        event: "job-update",
-        data: JSON.stringify({
-          id: event.jobId,
-          type: "sdm_model",
-          state: event.state,
-          progress: event.progress,
-          logs: event.logs,
-          result: event.result,
-          failedReason: event.failedReason,
-          error_code: event.error_code ?? null,
-          error_hint: event.error_hint ?? null,
-        }),
-      }).catch(() => console.warn("[jobs] SSE write failed for job status event"));
+    // Use a promise chain to process events sequentially (avoids pile-up from async handlers)
+    let eventQueue = Promise.resolve();
+    const handler = (event: { jobId: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string; error_code?: string | null; error_hint?: string | null; currentStage?: string | null; progressJson?: unknown }) => {
+      eventQueue = eventQueue.then(async () => {
+        try {
+          if (!(await isMyRun(event.jobId))) return;
+          await stream.writeSSE({
+            event: "job-update",
+            data: JSON.stringify({
+              id: event.jobId,
+              type: "sdm_model",
+              state: event.state,
+              progress: event.progress,
+              logs: event.logs,
+              result: event.result,
+              failedReason: event.failedReason,
+              error_code: event.error_code ?? null,
+              error_hint: event.error_hint ?? null,
+              currentStage: event.currentStage ?? null,
+              progressJson: event.progressJson ?? null,
+            }),
+          });
+        } catch (err) {
+          console.error("[jobs] SSE write failed:", err instanceof Error ? err.message : String(err));
+          aborted = true;
+        }
+      });
     };
     jobEventBus.on("jobStatus", handler);
 
@@ -83,10 +106,10 @@ app.get("/sse", (c) => {
             progress: 0,
             logs: ["Model run in progress..."],
           }),
-        }).catch(() => console.warn("[jobs] SSE write failed for initial active-run event"));
+        }).catch((err) => console.warn("[jobs] SSE write failed for initial active-run event:", err instanceof Error ? err.message : String(err)));
       }
-    } catch {
-      // Best-effort — initial state is non-critical
+    } catch (err) {
+      console.warn("[jobs] Failed to fetch initial active runs:", err instanceof Error ? err.message : String(err));
     }
 
     try {
@@ -105,75 +128,101 @@ app.use("/:jobId", authMiddleware);
 app.get("/:jobId", async (c) => {
   const jobId = c.req.param("jobId");
   const user = c.get("user");
-  const myProjectIds = await getUserProjectIds(user);
+  let myProjectIds: string[] | null;
+  try {
+    myProjectIds = await getUserProjectIds(user);
+  } catch (err) {
+    console.warn("[jobs] Failed to resolve job access:", err instanceof Error ? err.message : String(err));
+    return c.json({ error: "Job status temporarily unavailable" }, 503);
+  }
+  const isAsyncDataJob = jobId.startsWith("climate_") || jobId.startsWith("data-");
 
-  // Verify the job's run belongs to this user
-  if (myProjectIds !== null) {
+  let persistedRun: {
+    id: string;
+    jobId: string | null;
+    status: string;
+    error: string | null;
+    errorCode: string | null;
+    errorHint: string | null;
+    progressLog: unknown;
+  } | undefined;
+
+  if (!isAsyncDataJob) {
     try {
-      const [run] = await db
-        .select({ id: runs.id })
+      const ownership = myProjectIds === null
+        ? eq(runs.id, jobId)
+        : and(eq(runs.id, jobId), inArray(runs.projectId, myProjectIds));
+      [persistedRun] = await db
+        .select({
+          id: runs.id,
+          jobId: runs.jobId,
+          status: runs.status,
+          error: runs.error,
+          errorCode: runs.errorCode,
+          errorHint: runs.errorHint,
+          progressLog: runs.progressLog,
+        })
         .from(runs)
-        .where(and(
-          eq(runs.id, jobId),
-          inArray(runs.projectId, myProjectIds)
-        ))
+        .where(ownership)
         .limit(1);
-      if (!run) {
-        return c.json({ error: "Job not found" }, 404);
-      }
-    } catch {
-      return c.json({ error: "Internal error" }, 500);
+      if (!persistedRun) return c.json({ error: "Job not found" }, 404);
+    } catch (err) {
+      console.warn("[jobs] Failed to read persisted job status:", err instanceof Error ? err.message : String(err));
+      return c.json({ error: "Job status temporarily unavailable" }, 503);
     }
   }
 
+  // BullMQ has the most detailed live state while its retention window is active.
   const status = await getJobStatus(jobId).catch(() => null);
+  if (status) return c.json(status);
 
-  if (!status) {
-    return c.json({ error: "Job not found or queue unavailable" }, 404);
-  }
-
-  return c.json(status);
-});
-
-app.post("/:jobId/cancel", async (c) => {
-  const jobId = c.req.param("jobId");
-  const user = c.get("user");
-  const myProjectIds = await getUserProjectIds(user);
-
-  // Verify the job's run belongs to this user
-  if (myProjectIds !== null) {
-    try {
-      const [run] = await db
-        .select({ id: runs.id })
-        .from(runs)
-        .where(and(
-          eq(runs.id, jobId),
-          inArray(runs.projectId, myProjectIds)
-        ))
-        .limit(1);
-      if (!run) {
-        return c.json({ error: "Job not found" }, 404);
-      }
-    } catch {
-      return c.json({ error: "Internal error" }, 500);
+  // Plumber uses its own job ID, which differs from the persisted run UUID.
+  const plumberJobId = persistedRun?.jobId || jobId;
+  const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
+  const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
+  try {
+    const plumberStatusPath = persistedRun
+      ? "models/status"
+      : jobId.startsWith("climate_") ? "climate/status" : "jobs/status";
+    const res = await fetch(`${plumberUrl}/api/v1/${plumberStatusPath}/${plumberJobId}`, {
+      headers: {
+        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
+        "X-Forwarded-User": user.id,
+      },
+    });
+    if (res.ok) {
+      const plumberStatus = await res.json() as Record<string, unknown>;
+      return c.json({
+        id: jobId,
+        state: plumberStatus.status || "unknown",
+        progress: plumberStatus.progress ?? 0,
+        type: plumberStatus.type || "data_job",
+        logs: plumberStatus.progress_log || [],
+        result: plumberStatus.result || null,
+        failedReason: plumberStatus.error || null,
+        error_code: plumberStatus.error_code || null,
+        error_hint: plumberStatus.error_hint || null,
+      });
     }
+  } catch {
+    // Fall through to the durable DB status for model runs.
   }
 
-  const q = getJobQueue();
-  if (!q) return c.json({ error: "Queue unavailable" }, 503);
-  const job = await q.getJob(jobId).catch(() => null);
-
-  if (!job) {
-    return c.json({ error: "Job not found" }, 404);
+  if (persistedRun) {
+    return c.json({
+      id: persistedRun.id,
+      state: persistedRun.status,
+      progress: persistedRun.status === "completed" ? 100 : 0,
+      type: "sdm_model",
+      logs: Array.isArray(persistedRun.progressLog) ? persistedRun.progressLog : [],
+      result: null,
+      failedReason: persistedRun.error,
+      error_code: persistedRun.errorCode,
+      error_hint: persistedRun.errorHint,
+    });
   }
 
-  const state = await job.getState();
-  if (state === "active" || state === "waiting") {
-    await job.remove();
-    return c.json({ ok: true, message: `Job ${state} and removed` });
-  }
-
-  return c.json({ ok: false, message: `Cannot cancel job in state: ${state}` }, 400);
+  return c.json({ error: "Job not found" }, 404);
 });
 
 export default app;

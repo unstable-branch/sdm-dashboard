@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import {
   Sidebar,
@@ -13,11 +13,13 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  SidebarContext,
 } from "@/components/ui/sidebar";
 import {
   Leaf,
   Moon,
   Sun,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -29,18 +31,18 @@ import { useJobSSE } from "@/hooks/use-job-sse";
 
 import { AdminSidebarGroup } from "@/components/layout/admin-sidebar-group";
 
+function ActiveJobDot() {
+  const { hasActive } = useJobSSE(true);
+  if (!hasActive) return null;
+  return <span className="ml-auto h-2 w-2 rounded-full bg-green-500 animate-pulse" title="Job active" />;
+}
+
 export function AppSidebar() {
   const { theme, setTheme } = useTheme();
+  const { setOpen } = useContext(SidebarContext);
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.role === "admin";
-  const { jobs } = useJobSSE(true);
-  const hasActiveJobs = useMemo(
-    () => Array.from(jobs.values()).some(
-      (j) => j.state === "active" || j.state === "waiting"
-    ),
-    [jobs]
-  );
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -48,24 +50,6 @@ export function AppSidebar() {
   };
 
   const navLinkClass = "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-sdm-text hover:bg-sdm-surface-soft hover:text-sdm-accent transition-colors";
-
-  const pipelineLinks = useMemo(
-    () =>
-      pipelineItems.map((item) => {
-        const active = isActive(item.href);
-        return (
-          <SidebarMenuItem key={item.href}>
-            <SidebarMenuButton asChild className={active ? "bg-sdm-accent/10" : ""}>
-              <Link href={item.href} className={cn(navLinkClass, active && "text-sdm-accent")} aria-current={active ? "page" : undefined}>
-                <item.icon className="h-4 w-4 shrink-0" />
-                <span>{item.title}</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        );
-      }),
-    [pathname]
-  );
 
   const systemLinks = useMemo(
     () =>
@@ -91,6 +75,14 @@ export function AppSidebar() {
         <div className="flex items-center gap-2 px-4 py-3">
           <Leaf className="h-6 w-6 text-sdm-accent" aria-hidden="true" />
           <span className="text-lg font-bold text-sdm-heading">SDM Platform</span>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="ml-auto rounded-md p-1.5 text-sdm-muted hover:bg-sdm-surface-soft hover:text-sdm-text md:hidden"
+            aria-label="Close navigation menu"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -104,9 +96,7 @@ export function AppSidebar() {
                     <Link href={item.href}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
-                      {item.href === "/model" && hasActiveJobs && (
-                        <span className="ml-auto h-2 w-2 rounded-full bg-green-500 animate-pulse" title="Job active" />
-                      )}
+                      {item.href === "/model" && <ActiveJobDot />}
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

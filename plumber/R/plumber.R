@@ -4,9 +4,10 @@
 
 library(jsonlite)
 
-# Resolve project root: Docker uses /app, local uses tree-walk to find R/core/bootstrap.R
-app_dir <- if (dir.exists("/app/R")) {
-  "/app"
+# Resolve project root: Docker uses SDM_PROJECT_ROOT (default /app), local uses tree-walk
+SDM_PROJECT_ROOT <- Sys.getenv("SDM_PROJECT_ROOT", "/app")
+app_dir <- if (dir.exists(file.path(SDM_PROJECT_ROOT, "R"))) {
+  SDM_PROJECT_ROOT
 } else {
   d <- getwd()
   for (i in 1:10) {
@@ -18,259 +19,50 @@ app_dir <- if (dir.exists("/app/R")) {
   normalizePath(d, winslash = "/")
 }
 
-# Source bootstrap to get sdm_project_root() and source load.R
-source(file.path(app_dir, "R", "core", "bootstrap.R"))
-sdm_set_project_root(app_dir)
+# Guard against double-loading when run_server.R sources plumber.R twice
+if (is.null(.GlobalEnv$.sdm_plumber_initialized)) {
+  source(file.path(app_dir, "R", "core", "bootstrap.R"))
+  sdm_set_project_root(app_dir)
 
-# Source existing R modules
-load_path <- file.path(app_dir, "R", "engine_load.R")
-  if (!file.exists(load_path)) {
-    # Fall back to full load.R for backward compatibility
-    load_path <- file.path(app_dir, "R", "load.R")
+  load_path <- file.path(app_dir, "R", "engine_load.R")
+    if (!file.exists(load_path)) {
+      load_path <- file.path(app_dir, "R", "load.R")
+    }
+    if (!file.exists(load_path)) {
+      stop("Could not find R/load.R at: ", load_path, call. = FALSE)
   }
-  if (!file.exists(load_path)) {
-    stop("Could not find R/load.R at: ", load_path, call. = FALSE)
+  source(load_path)
+
+  source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"))
+  source(file.path(app_dir, "plumber", "R", "helpers", "vsize.R"))
+
+  # Source all domain helper files
+  helper_files <- c(
+    "occurrences_helpers.R", "models_helpers.R", "diagnostics_helpers.R",
+    "ecology_helpers.R", "climate_helpers.R", "config_helpers.R",
+    "output_helpers.R", "covariates_helpers.R", "boundary_helpers.R",
+    "health_helpers.R", "jobs_helpers.R",
+    "ensemble_helpers.R", "synthetic_helpers.R"
+  )
+  for (hf in helper_files) {
+    hf_path <- file.path(app_dir, "plumber", "R", "helpers", hf)
+    if (file.exists(hf_path)) source(hf_path)
+  }
+
+  .GlobalEnv$.sdm_plumber_initialized <- TRUE
 }
-source(load_path)
 
-# Source shared Plumber helpers used by route handlers. run_server.R also
-# sources this file before router setup, but plumber.R must be self-contained
-# for direct Plumber parsing and helper-level tests.
-source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"))
-
-# Maximum concurrent model runs to prevent OOM
 SDM_MAX_CONCURRENT_RUNS <- as.integer(Sys.getenv("SDM_MAX_CONCURRENT_RUNS", "2"))
-# --- Data endpoints ---
+SDM_MAX_GPU_CONCURRENT_RUNS <- as.integer(Sys.getenv("SDM_MAX_GPU_CONCURRENT_RUNS", "1"))
 
 #* Upload occurrence file (CSV/TSV/ZIP)
 #* @param file The occurrence file to upload
 #* @post /api/v1/occurrences/upload
-function(req) {
-  uploaded <- req$args$file
-
-  tryCatch({
-    # Support JSON body with file_path (from Hono file-path forwarding)
-    if (is.null(uploaded)) {
-      post_body <- jsonlite::fromJSON(req$postBody)
-      if (!is.null(post_body$file_path) && nzchar(post_body$file_path)) {
-        safe_path <- sdm_safe_path(post_body$file_path, file.path(app_dir, "data", "uploads"))
-        if (!is.null(safe_path)) {
-          uploaded <- list(
-            datapath = safe_path,
-            filename = post_body$file_id %||% basename(post_body$file_path)
-          )
-        }
-      }
-    }
-
-    if (is.null(uploaded)) {
-      return(sdm_error(req, 400, "No file uploaded. Send multipart/form-data with field 'file' or JSON with 'file_path'."))
-    }
-
-    file_path <- if (is.list(uploaded)) {
-      if (!is.null(uploaded$tempfile) && nzchar(uploaded$tempfile)) {
-        uploaded$tempfile
-      } else if (!is.null(uploaded$datapath) && nzchar(uploaded$datapath)) {
-        uploaded$datapath
-      } else if (!is.null(uploaded$path) && nzchar(uploaded$path)) {
-        uploaded$path
-      } else {
-        # Find raw content field (typically "value" or "content")
-        raw_field <- NULL
-        for (n in names(uploaded)) {
-          if (is.raw(uploaded[[n]])) {
-            raw_field <- n
-            break
-          }
-        }
-        if (!is.null(raw_field)) {
-          tmp <- tempfile(fileext = paste0(".", tolower(tools::file_ext(uploaded$filename %||% "csv"))))
-          con <- file(tmp, "wb")
-          writeBin(uploaded[[raw_field]], con)
-          close(con)
-          tmp
-        } else {
-          # Try datapath as last resort (webutils)
-          dp <- uploaded$datapath %||% uploaded$path %||% uploaded$tempfile
-          if (!is.null(dp) && nzchar(dp[1])) {
-            dp[1]
-          } else {
-            NULL
-          }
-        }
-      }
-    } else if (is.character(uploaded)) {
-      uploaded
-    } else {
-      NULL
-    }
-
-    if (is.null(file_path) || !file.exists(file_path)) {
-      return(sdm_error(req, 400, paste("Uploaded file not found:", file_path %||% "unknown")))
-    }
-
-    max_size <- 100 * 1024 * 1024
-    file_size <- file.info(file_path)$size
-    if (file_size > max_size) {
-      return(sdm_error(req, 413, paste("File too large. Maximum", max_size / 1e6, "MB.")))
-    }
-
-    orig_name <- uploaded$filename[[1]] %||% uploaded$name[[1]] %||% "upload"
-    ext <- tolower(tools::file_ext(orig_name))
-    is_dwca <- ext == "zip"
-
-    upload_dir <- file.path(app_dir, "data", "uploads")
-    dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
-    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", orig_name)
-    dest_path <- file.path(upload_dir, paste0(format(Sys.time(), "%Y%m%d_%H%M%S_"), safe_name))
-    file.copy(file_path, dest_path, overwrite = TRUE)
-    encrypt_file(dest_path, dest_path)
-    rel_path <- file.path("data", "uploads", basename(dest_path))
-
-    con <- db_connect()
-    on.exit(if (!is.null(con)) DBI::dbDisconnect(con), add = TRUE)
-
-    upload_result <- NULL
-
-    if (is_dwca) {
-      result <- read_dwca(file_path, log_fun = message)
-      occ <- result$occurrences
-      n_rows <- nrow(occ)
-      species_detected <- if ("species" %in% names(occ)) {
-        unique(occ$species)[1] %||% NA_character_
-      } else {
-        NA_character_
-      }
-      columns_detected <- list(
-        longitude = if ("x" %in% names(occ)) "x" else NA_character_,
-        latitude = if ("y" %in% names(occ)) "y" else NA_character_
-      )
-      preview <- head(occ, 5)
-      preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
-
-      upload_result <- list(
-        file_id = dest_path,
-        file_path = rel_path,
-        filename = uploaded$filename[[1]] %||% uploaded$name[[1]] %||% basename(dest_path),
-        format = "dwca",
-        n_rows = n_rows,
-        n_returned = result$n_returned,
-        species_detected = species_detected,
-        doi = result$doi,
-        columns_detected = columns_detected,
-        preview = preview,
-        datasets = result$datasets,
-        issues_flagged_count = if (!is.null(result$issues_flagged)) nrow(result$issues_flagged) else 0L
-      )
-    } else {
-      occ <- read_occurrence_file(file_path, log_fun = message)
-      n_rows <- nrow(occ)
-
-      # Normalize column names (detect and rename lon/lat to standard names)
-      occ <- normalize_coord_columns(occ)
-      src_col <- detect_column(names(occ), c("^(source|datasource|institution|institutioncode)$"))
-
-      # Validate required columns exist after normalization
-      has_lon <- "longitude" %in% names(occ)
-      has_lat <- "latitude" %in% names(occ)
-      missing_cols <- character(0)
-      if (!has_lon) missing_cols <- c(missing_cols, "longitude")
-      if (!has_lat) missing_cols <- c(missing_cols, "latitude")
-      if (length(missing_cols) > 0) {
-        found_cols <- names(occ)
-        return(sdm_error(req, 400, paste0(
-          "CSV is missing required coordinate columns: ", paste(missing_cols, collapse = ", "),
-          ". Detected columns: ", paste(found_cols, collapse = ", "),
-          ". Expected column names: longitude/long/lon/x/decimalLongitude for X, ",
-          "and latitude/lat/y/decimalLatitude for Y."
-        )))
-      }
-
-      # Parse coordinates (handle DMS formats like DD°MM'SS")
-      occ <- parse_coordinates(occ)
-
-      # Validate coordinate values (non-fatal — always save the file)
-      coord_warnings <- character(0)
-      if ("longitude" %in% names(occ) && "latitude" %in% names(occ)) {
-        n_total <- length(occ$longitude)
-        n_na_lon <- sum(is.na(suppressWarnings(as.numeric(gsub(",", ".", as.character(occ$longitude))))))
-        n_na_lat <- sum(is.na(suppressWarnings(as.numeric(gsub(",", ".", as.character(occ$latitude))))))
-        n_non_numeric <- max(n_na_lon, n_na_lat)
-
-        if (n_non_numeric > 0) {
-          # Show sample values for debugging
-          raw_lon <- utils::head(occ$longitude, 3)
-          raw_lat <- utils::head(occ$latitude, 3)
-          coord_warnings <- c(coord_warnings, paste0(
-            n_non_numeric, " of ", n_total, " record(s) have unparseable coordinates. ",
-            "Sample longitude values: [", paste(shQuote(raw_lon), collapse = ", "), "]. ",
-            "Sample latitude values: [", paste(shQuote(raw_lat), collapse = ", "), "]."
-          ))
-        } else {
-          # Only check bounds if coords are numeric
-          coord_err <- validate_coords(occ$longitude, occ$latitude)
-          if (nchar(coord_err) > 0) {
-            coord_warnings <- c(coord_warnings, paste0("Coordinate validation: ", coord_err))
-          }
-        }
-      }
-
-      columns_detected <- list(
-        longitude = "longitude",
-        latitude = "latitude",
-        source = src_col
-      )
-      species_detected <- infer_species_label(file_path)
-      preview <- head(occ, 5)
-      preview <- lapply(seq_len(nrow(preview)), function(i) as.list(preview[i, ]))
-
-      upload_result <- list(
-        file_id = dest_path,
-        file_path = rel_path,
-        filename = uploaded$filename[[1]] %||% uploaded$name[[1]] %||% basename(dest_path),
-        format = if (ext %in% c("tsv", "txt")) "tsv" else "csv",
-        n_rows = n_rows,
-        species_detected = species_detected,
-        columns_detected = columns_detected,
-        coord_warnings = if (length(coord_warnings) > 0) coord_warnings else NULL,
-        preview = preview
-      )
-    }
-
-    db_insert_upload(
-      con, req$user_id %||% "unknown",
-      dest_path, upload_result$filename %||% basename(dest_path), file_size,
-      upload_result$format %||% "csv", upload_result$n_rows %||% 0L,
-      if (is.character(upload_result$species_detected)) upload_result$species_detected else NULL,
-      if (is.list(upload_result$columns_detected)) jsonlite::toJSON(upload_result$columns_detected, auto_unbox = TRUE) else NULL
-    )
-
-    upload_result
-  }, error = function(e) {
-    sdm_error(req, 400, conditionMessage(e))
-  })
-}
+function(req) handle_occurrences_upload(req, app_dir)
 
 #* List uploaded files (persisted across sessions)
 #* @get /api/v1/occurrences/uploads
-function(req, limit = 50) {
-  limit <- suppressWarnings(as.integer(limit))
-  if (!is.finite(limit) || limit < 1) limit <- 50L
-  con <- db_connect()
-  if (is.null(con)) return(list(uploads = list()))
-  on.exit(DBI::dbDisconnect(con), add = TRUE)
-  tryCatch({
-    user_filter <- req$user_id %||% "unknown"
-    rows <- DBI::dbGetQuery(con,
-      "SELECT id, filename, file_path, file_size, format, n_rows, species, columns_detected, created_at,
-              is_cleaned, cleaned_file_path, cleaned_valid_records, cleaned_original_rows
-       FROM uploads WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
-      params = list(user_filter, limit)
-    )
-    if (nrow(rows) == 0) return(list(uploads = list()))
-    list(uploads = lapply(seq_len(nrow(rows)), function(i) as.list(rows[i, ])))
-  }, error = function(e) list(uploads = list(), error = conditionMessage(e)))
-}
+function(req, limit = 50) handle_occurrences_uploads(req, app_dir, limit)
 
 #* Clean occurrence data with configurable options
 #* @param file_id The uploaded file path or ID
@@ -278,2628 +70,309 @@ function(req, limit = 50) {
 #* @param merge_small_sources Merge small sources (default: true)
 #* @param use_cc Run CoordinateCleaner (default: false)
 #* @param cc_tests CC tests to run: all, sea, capitals, centroids, institutions, urban, zero (default: all)
+#* @param max_coordinate_uncertainty Max coordinate uncertainty in meters (default: no filter)
+#* @param max_records Maximum records to process (default: 200000)
 #* @post /api/v1/occurrences/clean
-function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_cc = FALSE, cc_tests = "all") {
-  min_source_records <- suppressWarnings(as.integer(min_source_records))
-  if (!is.finite(min_source_records)) min_source_records <- 15L
+function(req, file_id, min_source_records = 15, merge_small_sources = TRUE, use_cc = FALSE, cc_tests = "all", max_coordinate_uncertainty = NULL, max_records = 200000L)
+  handle_occurrences_clean(req, app_dir, file_id, min_source_records, merge_small_sources, use_cc, cc_tests, max_coordinate_uncertainty, max_records)
 
-  safe_path <- sdm_safe_path(file_id, file.path(app_dir, "data", "uploads"))
-  if (is.null(safe_path)) {
-    return(sdm_error(req, 400, "Invalid file_id"))
-  }
-
-  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
-
-  job_id <- sdm_async_submit("clean", list(
-    file_id = file_id,
-    min_source_records = min_source_records,
-    merge_small_sources = merge_small_sources,
-    use_cc = use_cc,
-    cc_tests = cc_tests
-  ), app_dir, user_id)
-
-  list(
-    job_id = job_id,
-    status = "running",
-    message = "Occurrence cleaning started in background"
-  )
-}
-
-#* Search GBIF for occurrence records (async)
+#* Search GBIF for occurrence records
 #* @param taxon Species name (e.g., "Acacia mearnsii")
 #* @param country Country code filter (e.g., "AU")
 #* @param max_records Maximum records to fetch (default: 100)
-sdm_submit_gbif_search <- function(req, taxon, country = NULL, max_records = 100,
-                                   app_dir_override = app_dir,
-                                   submit_fun = sdm_async_submit) {
-  if (is.null(taxon) || !nzchar(taxon)) {
-    return(sdm_error(req, 400, "taxon is required"))
-  }
-
-  max_records <- suppressWarnings(as.integer(max_records))
-  if (!is.finite(max_records) || max_records < 1) max_records <- 100L
-
-  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
-
-  job_id <- submit_fun("gbif", list(
-    taxon = taxon,
-    country = if (!is.null(country) && nzchar(country)) country else NULL,
-    max_records = max_records
-  ), app_dir_override, user_id)
-
-  list(
-    job_id = job_id,
-    status = "running",
-    message = "GBIF search started in background"
-  )
-}
-
+#* @param use_auth If true, use authenticated download (unlimited records)
+#* @param gbif_user GBIF username for authenticated download (DEPRECATED: use X-Gbif-User header)
+#* @param gbif_pwd GBIF password for authenticated download (DEPRECATED: use X-Gbif-Pwd header)
+#* @param gbif_email GBIF email for authenticated download (DEPRECATED: use X-Gbif-Email header)
 #* @post /api/v1/occurrences/gbif/search
-function(req, taxon, country = NULL, max_records = 100) {
-  sdm_submit_gbif_search(req, taxon, country, max_records)
-}
+#* @security GBIF credentials should be passed via X-Gbif-User, X-Gbif-Pwd, X-Gbif-Email headers to avoid exposure in request logs
+function(req, taxon, country = NULL, max_records = 100, use_auth = NULL, gbif_user = NULL, gbif_pwd = NULL, gbif_email = NULL)
+  handle_occurrences_gbif_search(req, app_dir, taxon, country, max_records, use_auth, gbif_user, gbif_pwd, gbif_email)
 
-#* Parse a Darwin Core Archive (.zip file) (async)
+#* Search ALA for occurrence records
+#* @param taxon Species name (e.g., "Acacia mearnsii")
+#* @param country Country filter (e.g., "Australia")
+#* @param max_records Maximum records to fetch (default: 100)
+#* @param api_key ALA API key for authenticated access (optional)
+#* @post /api/v1/occurrences/ala/search
+function(req, taxon, country = NULL, max_records = 100, api_key = NULL)
+  handle_occurrences_ala_search(req, app_dir, taxon, country, max_records, api_key)
+
+#* Parse a Darwin Core Archive (.zip) file
 #* @param file_id Path to the uploaded .zip file
 #* @param species_filter Optional species name filter
 #* @param max_coord_uncertainty_m Max coordinate uncertainty in meters
 #* @param basis_of_record_filter Basis of record values to include (comma-separated)
 #* @post /api/v1/occurrences/dwca
-function(req, file_id, species_filter = NULL, max_coord_uncertainty_m = NULL, basis_of_record_filter = NULL) {
-  if (is.null(file_id) || !nzchar(file_id)) {
-    return(sdm_error(req, 400, "file_id is required"))
-  }
+function(req, file_id, species_filter = NULL, max_coord_uncertainty_m = NULL, basis_of_record_filter = NULL)
+  handle_occurrences_dwca(req, app_dir, file_id, species_filter, max_coord_uncertainty_m, basis_of_record_filter)
 
-  max_unc <- if (!is.null(max_coord_uncertainty_m)) {
-    suppressWarnings(as.numeric(max_coord_uncertainty_m))
-  } else {
-    Inf
-  }
-  if (!is.finite(max_unc)) max_unc <- Inf
-
-  bor_filter <- if (!is.null(basis_of_record_filter) && nzchar(basis_of_record_filter)) {
-    strsplit(basis_of_record_filter, ",")[[1]]
-  } else {
-    NULL
-  }
-
-  safe_path <- sdm_safe_path(file_id, file.path(app_dir, "data", "uploads"))
-  if (is.null(safe_path)) {
-    return(sdm_error(req, 400, "Invalid file_id"))
-  }
-
-  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
-
-  job_id <- sdm_async_submit("dwca", list(
-    file_id = file_id,
-    species_filter = if (!is.null(species_filter) && nzchar(species_filter)) species_filter else NULL,
-    max_coord_uncertainty_m = max_unc,
-    basis_of_record_filter = bor_filter
-  ), app_dir, user_id)
-
-  list(
-    job_id = job_id,
-    status = "running",
-    message = "Darwin Core Archive parsing started in background"
-  )
-}
-
-# --- Model endpoints ---
-
-#* Run SDM model
-# Standalone function for background model runs — callr::r_bg serializes this to a clean R process
-# All dependencies must be passed as explicit args or sourced internally
-run_model_background <- function(body, biovars, projection_extent, job_dir, app_dir, job_id) {
-  # Source required R files in the clean child process
-  source(file.path(app_dir, "R", "core", "bootstrap.R"))
-  sdm_set_project_root(app_dir)
-  source(file.path(app_dir, "R", "engine_load.R"))
-
-  # Load error code taxonomy (for error handler in run_sdm_async)
-  error_codes_path <- file.path(app_dir, "plumber", "R", "error_codes.R")
-  if (file.exists(error_codes_path)) source(error_codes_path)
-  # Load Redis helpers for background progress reporting
-  redis_r <- file.path(app_dir, "plumber", "R", "redis.R")
-  if (file.exists(redis_r)) source(redis_r, local = TRUE)
-
-  # Resolve occurrence_file path: accept both container paths (/app/data/uploads/...)
-  # and host paths (/home/jacob/.../data/uploads/...)
-  if (!is.null(body$occurrence_file) && nzchar(body$occurrence_file) && !file.exists(body$occurrence_file)) {
-    alt_path <- file.path(app_dir, "data", "uploads", basename(body$occurrence_file))
-    if (file.exists(alt_path)) body$occurrence_file <- alt_path
-  }
-
-  `%||%` <- function(a, b) if (is.null(a)) b else a
-
-  # Resource tracking helpers
-  r_get_peak_memory_mb <- function() {
-    if (file.exists("/proc/self/status")) {
-      lines <- readLines("/proc/self/status", warn = FALSE)
-      vmpeak <- grep("^VmPeak:", lines, value = TRUE)
-      if (length(vmpeak) > 0) {
-        kb <- as.numeric(gsub("[^0-9.]", "", vmpeak))
-        if (is.finite(kb)) return(round(kb / 1024, 1))
-      }
-    }
-    gc_info <- tryCatch(gc(verbose = FALSE, reset = FALSE), error = function(e) NULL)
-    if (!is.null(gc_info) && is.matrix(gc_info) && ncol(gc_info) >= 2) {
-      return(round(gc_info[2, 2] / 1024 / 1024, 1))
-    }
-    NA_real_
-  }
-
-  r_get_cpu_time_ms <- function(pt) {
-    round((pt["user.self"] + pt["sys.self"]) * 1000, 0)
-  }
-
-  cpu_start <- proc.time()
-  mem_start <- r_get_peak_memory_mb()
-
-  job_meta_file <- file.path(job_dir, "meta.json")
-  progress_log <- file.path(job_dir, "progress.log")
-  progress_json_path <- file.path(job_dir, "progress.json")
-  progress_json_list <- list()
-
-  detect_stage <- function(detail) {
-    if (is.null(detail)) return("unknown")
-    d <- tolower(detail)
-    if (grepl("clean", d)) return("clean")
-    if (grepl("load|scal|covariate", d)) return("covariates")
-    if (grepl("thin", d)) return("thinning")
-    if (grepl("vif", d)) return("vif")
-    if (grepl("fit|model", d)) return("fit")
-    if (grepl("pa replicate", d)) return("pa_replicates")
-    if (grepl("predict|projection", d)) return("predict")
-    if (grepl("output", d)) return("output")
-    if (grepl("future", d)) return("future")
-    if (grepl("summaris", d)) return("summarize")
-    if (grepl("esm", d)) return("esm")
-    "unknown"
-  }
-
-  log_fun <- function(...) {
-    msg <- paste0(format(Sys.time(), "%H:%M:%S"), " ", ...)
-    cat(msg, "\n")
-    cat(msg, "\n", file = progress_log, append = TRUE)
-  }
-
-  progress_fun <- function(x) {
-    pct <- if (is.list(x)) x$value else x
-    detail <- if (is.list(x)) x$detail else NULL
-    pct_num <- as.numeric(pct)
-    if (!is.finite(pct_num)) pct_num <- 0
-    log_line <- paste0(format(Sys.time(), "%H:%M:%S"), " [", sprintf("%.0f", pct_num * 100), "%] ", detail %||% "")
-    cat(log_line, "\n")
-    cat(log_line, "\n", file = progress_log, append = TRUE)
-    entry <- list(
-      timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-      percent = pct_num,
-      detail = detail %||% "",
-      stage = detect_stage(detail)
-    )
-    progress_json_list[[length(progress_json_list) + 1]] <<- entry
-    writeLines(jsonlite::toJSON(progress_json_list, auto_unbox = TRUE, pretty = TRUE), progress_json_path)
-    entry_json <- jsonlite::toJSON(entry, auto_unbox = TRUE)
-    if (exists("sdm_redis_progress_set", inherits = TRUE)) {
-      tryCatch(sdm_redis_progress_set(job_id, entry_json), error = function(e) NULL)
-    }
-    if (exists("sdm_redis_cancel_check", inherits = TRUE)) {
-      if (sdm_redis_cancel_check(job_id)) {
-        stop("CANCELLED", call. = FALSE)
-      }
-    }
-  }
-
-  job_meta <- list(
-    id = job_id,
-    status = "running",
-    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    config = as.list(body),
-    output_dir = job_dir
-  )
-
-  tryCatch({
-    cleaned_occurrence <- NULL
-    if (!is.null(body$cleaned_file_id) && nzchar(body$cleaned_file_id) && file.exists(body$cleaned_file_id)) {
-      cleaned_df <- utils::read.csv(body$cleaned_file_id, stringsAsFactors = FALSE)
-      cleaned_occurrence <- list(
-        df = cleaned_df,
-        source_counts = list(),
-        n_absent_excluded = 0,
-        original_rows = nrow(cleaned_df)
-      )
-    }
-
-    normalized_body <- sdm_normalize_model_payload(body)
-
-    cfg <- sdm_config(
-      species = body$species,
-      occurrence_file = body$occurrence_file,
-      cleaned_occurrence = cleaned_occurrence,
-      worldclim_dir = body$worldclim_dir %||% sdm_default_worldclim_dir,
-      selected_biovars = biovars,
-      projection_extent = projection_extent,
-      background_n = as.integer(body$background_n %||% sdm_default_background_n),
-      min_source_records = as.integer(body$min_source_records %||% sdm_default_min_source_records),
-      merge_small_sources = isTRUE(body$merge_small_sources %||% TRUE),
-      thin_by_cell = isTRUE(body$thin_by_cell %||% TRUE),
-      model_id = body$model_id,
-      include_quadratic = isTRUE(body$include_quadratic %||% TRUE),
-      threshold = as.numeric(body$threshold %||% sdm_default_threshold),
-      aggregation_factor = as.integer(body$aggregation_factor %||% 1L),
-      cv_folds = as.integer(body$cv_folds %||% sdm_default_cv_folds),
-      n_cores = as.integer(body$n_cores %||% 1L),
-      allow_download = TRUE,
-      worldclim_res = as.integer(body$worldclim_res %||% sdm_default_worldclim_res),
-      cv_strategy = body$cv_strategy %||% sdm_default_cv_strategy,
-      cv_block_size_km = if (!is.null(body$cv_block_size_km)) as.numeric(body$cv_block_size_km) else sdm_default_cv_block_size_km,
-      use_elevation = isTRUE(body$use_elevation),
-      elevation_demtype = body$elevation_demtype %||% sdm_default_elevation_demtype,
-      opentopo_api_key = body$opentopo_api_key,
-      use_soil = isTRUE(body$use_soil),
-      selected_soil_vars = body$soil_vars %||% sdm_default_soil_vars,
-      selected_soil_depths = body$soil_depths %||% sdm_default_soil_depths,
-      use_uv = isTRUE(body$use_uv),
-      selected_uv_vars = body$uv_vars %||% sdm_default_uv_vars,
-      use_vegetation = isTRUE(body$use_vegetation),
-      veg_year = as.integer(body$veg_year %||% sdm_default_veg_year),
-      veg_products = body$veg_products %||% sdm_default_veg_products,
-      use_lulc = isTRUE(body$use_lulc),
-      lulc_year = as.integer(body$lulc_year %||% sdm_default_lulc_year),
-      use_hfp = isTRUE(body$use_hfp),
-      hfp_year = as.integer(body$hfp_year %||% sdm_default_hfp_year),
-      use_bioclim_season = isTRUE(body$use_bioclim_season),
-      use_drought = isTRUE(body$use_drought),
-      covariate_cache_dir = "covariates",
-      vif_reduction = isTRUE(body$vif_reduction),
-      vif_threshold = as.numeric(body$vif_threshold %||% 10),
-      future_projection = isTRUE(body$future_projection),
-      future_worldclim_dir = body$future_worldclim_dir %||% sdm_default_future_worldclim_dir,
-      future_label = body$future_label %||% "Future climate",
-      maxnet_features = body$maxnet_features %||% sdm_default_maxnet_features,
-      maxnet_regmult = as.numeric(body$maxnet_regmult %||% sdm_default_maxnet_regmult),
-      brt_n_trees = as.integer(body$brtNTrees %||% 2000L),
-      brt_interaction_depth = as.integer(body$brtInteractionDepth %||% 3L),
-      brt_shrinkage = as.numeric(body$brtShrinkage %||% 0.01),
-      brt_bag_fraction = as.numeric(body$brtBagFraction %||% 0.75),
-      cta_cp = as.numeric(body$ctaCp %||% 0.01),
-      cta_maxdepth = as.integer(body$ctaMaxdepth %||% 10L),
-      cta_minsplit = as.integer(body$ctaMinsplit %||% 20L),
-      mars_degree = as.integer(body$marsDegree %||% 2L),
-      mars_penalty = as.numeric(body$marsPenalty %||% 3.0),
-      fda_degree = as.integer(body$fdaDegree %||% 2L),
-      ann_size = as.integer(body$annSize %||% 5L),
-      ann_decay = as.numeric(body$annDecay %||% 0.01),
-      ann_maxit = as.integer(body$annMaxit %||% 200L),
-      dnn_model_type = normalized_body$dnn_model_type %||% "DNN_Medium",
-      dnn_n_seeds = as.integer(normalized_body$dnn_n_seeds %||% 5L),
-      dnn_device = normalized_body$dnn_device %||% "auto",
-      dnn_dropout = as.numeric(normalized_body$dnn_dropout %||% 0.3),
-      dnn_lambda = as.numeric(normalized_body$dnn_lambda %||% 0.001),
-      extrapolation_mask = isTRUE(body$extrapolationMask %||% TRUE),
-      mess_threshold = as.numeric(body$messThreshold %||% 0),
-      rf_num_trees = as.integer(body$rfNumTrees %||% 500L),
-      rf_mtry = if (!is.null(body$rfMtry)) as.integer(body$rfMtry) else NULL,
-      rf_min_node_size = as.integer(body$rfMinNodeSize %||% 10L),
-      xgb_max_depth = as.integer(normalized_body$xgb_max_depth %||% 6L),
-      xgb_eta = as.numeric(normalized_body$xgb_eta %||% 0.3),
-      xgb_nrounds = as.integer(normalized_body$xgb_nrounds %||% 100L),
-      mars_nk = if (!is.null(body$marsNk)) as.integer(body$marsNk) else NULL,
-      fda_nprune = if (!is.null(body$fdaNprune)) as.integer(body$fdaNprune) else NULL,
-      ann_rang = as.numeric(body$annRang %||% 0.5),
-      bart_ntree = as.integer(body$bartNtree %||% 200L),
-      bart_ndpost = as.integer(body$bartNdpost %||% 1000L),
-      bart_nskip = as.integer(body$bartNskip %||% 500L),
-      brms_chains = as.integer(body$brmsChains %||% 4L),
-      brms_iter = as.integer(body$brmsIter %||% 2000L),
-      brms_warmup = as.integer(body$brmsWarmup %||% 1000L),
-      inla_mesh_max_edge = if (!is.null(body$inlaMeshMaxEdge)) as.numeric(body$inlaMeshMaxEdge) else NULL,
-      inla_mesh_cutoff = if (!is.null(body$inlaMeshCutoff)) as.numeric(body$inlaMeshCutoff) else NULL,
-      inla_prior_range = if (!is.null(body$inlaPriorRange)) as.numeric(body$inlaPriorRange) else NULL,
-      inla_prior_sigma = if (!is.null(body$inlaPriorSigma)) as.numeric(body$inlaPriorSigma) else NULL,
-      n_bags = as.integer(body$rangebagNBags %||% sdm_default_rangebag_n_bags),
-      bag_fraction = as.numeric(body$rangebagBagFraction %||% sdm_default_rangebag_fraction),
-      vars_per_bag = as.integer(body$rangebagVarsPerBag %||% sdm_default_rangebag_vars_per_bag),
-      detection_formula = body$detectionFormula %||% "~1",
-      occupancy_model_type = body$detectionModelType %||% "occu",
-      dnn_architecture = normalized_body$dnn_architecture %||% normalized_body$dnn_model_type %||% "DNN_Medium",
-      dnn_multispecies_architecture = normalized_body$dnn_multispecies_architecture %||% normalized_body$dnn_model_type %||% "DNN_Medium",
-      dnn_multispecies_n_seeds = as.integer(normalized_body$dnn_multispecies_n_seeds %||% 3L),
-      bias_method = body$bias_method %||% "uniform",
-      thickening_distance_km = as.numeric(body$thickening_distance_km %||% sdm_default_thickening_distance_km),
-      pa_replicates = as.integer(body$pa_replicates %||% sdm_default_pa_replicates),
-      output_dir = job_dir,
-      seed = as.integer(body$seed %||% sdm_default_seed),
-      source = body$source %||% sdm_default_climate_source,
-      log_fun = log_fun,
-      progress_fun = progress_fun,
-      climate_matching = isTRUE(body$climate_matching),
-      climate_matching_method = body$climate_matching_method %||% "mahalanobis",
-      max_coordinate_uncertainty = if (!is.null(body$max_coordinate_uncertainty)) as.numeric(body$max_coordinate_uncertainty) else NULL,
-      multi_ensemble_models = normalized_body$multi_ensemble_models,
-      multi_ensemble_weighting = normalized_body$multi_ensemble_weighting %||% "auc",
-      multi_ensemble_power = as.numeric(normalized_body$multi_ensemble_power %||% sdm_default_ensemble_power),
-      multi_ensemble_min_auc = as.numeric(normalized_body$multi_ensemble_min_auc %||% sdm_default_ensemble_min_auc),
-      multi_ensemble_min_tss = as.numeric(normalized_body$multi_ensemble_min_tss %||% sdm_default_ensemble_min_tss),
-      multi_ensemble_export = isTRUE(normalized_body$multi_ensemble_export %||% TRUE),
-      multi_ensemble_uncertainty = isTRUE(normalized_body$multi_ensemble_uncertainty %||% TRUE),
-      biomod2_models = normalized_body$biomod2_models,
-      selected_uv_months = normalized_body$selected_uv_months,
-      selected_drought_periods = normalized_body$selected_drought_periods %||% "annual_mean",
-      selected_chelsa_extras = normalized_body$selected_chelsa_extras,
-      analysis_crs = normalized_body$analysis_crs %||% sdm_default_analysis_crs,
-      generate_tiles = isTRUE(normalized_body$generate_tiles %||% TRUE),
-      mask_type = normalized_body$mask_type %||% sdm_default_mask_type,
-      mask_file = normalized_body$mask_file %||% sdm_default_mask_file,
-      mask_buffer_deg = as.numeric(normalized_body$mask_buffer_deg %||% sdm_default_mask_buffer_deg),
-      esm_n_runs = as.integer(body$esm_n_runs %||% sdm_esm_default_n_runs),
-      esm_split = body$esm_split %||% sdm_esm_default_split,
-      esm_min_auc = as.numeric(body$esm_min_auc %||% sdm_esm_default_min_auc),
-      esm_weighting_metric = body$esm_weighting_metric %||% "AUC",
-      esm_power = as.numeric(body$esm_power %||% sdm_esm_default_power),
-      esm_biovars = body$esm_biovars,
-      future_worldclim_dir2 = body$future_worldclim_dir2,
-      future_label2 = body$future_label2 %||% "Future climate 2",
-      use_cc = isTRUE(body$use_cc),
-      cc_tests = body$cc_tests %||% "all"
-    )
-
-    result <- run_fast_sdm(cfg)
-
-    diag_files <- list()
-    # Export diagnostic data as lightweight CSV ZIP (replaces old save_diagnostic_plots)
-    tryCatch({
-      source(file.path(app_dir, "R", "output", "export_diagnostics.R"), local = TRUE)
-      zip_path <- export_diagnostics_csv(result, job_dir, log_fun = log_fun)
-      if (!is.null(zip_path)) diag_files$diagnostics_zip <- zip_path
-    }, error = function(e) {
-      cat("Diagnostics CSV export failed:", conditionMessage(e), "\n")
-      cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-    })
-
-    tryCatch({
-      source(file.path(app_dir, "R", "output", "report_odmap.R"), local = TRUE)
-      odmap_csv <- file.path(job_dir, "odmap_report.csv")
-      odmap_md <- file.path(job_dir, "odmap_report.md")
-      write_odmap_report(result, odmap_csv, odmap_md)
-      log_fun("Saved ODMAP report: ", odmap_csv)
-      diag_files$odmap_report_csv <- odmap_csv
-      diag_files$odmap_report_md <- odmap_md
-    }, error = function(e) {
-      cat("ODMAP report failed:", conditionMessage(e), "\n")
-      cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-    })
-
-    job_meta$status <- "completed"
-    job_meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    cpu_ms <- r_get_cpu_time_ms(proc.time() - cpu_start)
-    peak_mb <- r_get_peak_memory_mb()
-    job_meta$r_cpu_time_ms <- cpu_ms
-    job_meta$r_peak_memory_mb <- peak_mb
-    if (!is.null(result)) {
-      job_meta$metrics <- list(
-        auc_mean = result$cv$auc_mean,
-        auc_sd = result$cv$auc_sd,
-        tss_mean = result$cv$tss_mean,
-        tss_sd = result$cv$tss_sd,
-        presence_records = result$metrics$presence_records,
-        background_points = result$metrics$background_points,
-        elapsed_seconds = result$metrics$elapsed_seconds,
-        high_suitability_area_km2 = result$summary$high_risk_area_km2,
-        high_suitability_area_uncertainty_km2 = result$summary$high_risk_area_uncertainty_km2 %||% NULL,
-        high_suitability_area_ci95_lower = result$summary$high_risk_area_ci95_lower %||% NULL,
-        high_suitability_area_ci95_upper = result$summary$high_risk_area_ci95_upper %||% NULL
-      )
-      # Write EPSG:3857 COG for web map display
-      if (!is.null(result$paths$tif) && !is.null(result$suitability)) {
-        tif_3857_path <- sub("_suitability\\.tif$", "_3857.tif", result$paths$tif)
-        tryCatch({
-          src_crs <- terra::crs(result$suitability)
-          if (!grepl("EPSG:4326", src_crs)) {
-            cat("WARNING: Suitability raster CRS is", src_crs, "expected EPSG:4326\n")
-          }
-          r_3857 <- terra::project(result$suitability, "EPSG:3857", method = "near")
-          terra::writeRaster(r_3857, tif_3857_path,
-            filetype = "COG",
-            gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "BLOCKSIZE=512",
-                     "OVERVIEWS=AUTO", "OVERVIEW_RESAMPLING=BILINEAR",
-                     "NODATA=-9999"),
-            NAflag = -9999,
-            datatype = "FLT4S",
-            overwrite = TRUE
-          )
-          result$paths$tif_3857 <- tif_3857_path
-          log_fun("Written EPSG:3857 COG: ", tif_3857_path)
-        }, error = function(e) {
-          cat("EPSG:3857 COG failed:", conditionMessage(e), "\n")
-          cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-        })
-      }
-      # Save full result object for diagnostics endpoints
-      result_rds_path <- file.path(job_dir, "result.rds")
-      tryCatch({
-        saveRDS(result, result_rds_path)
-        result$paths$result_rds <- result_rds_path
-      }, error = function(e) {
-        cat("Failed to save result.rds:", conditionMessage(e), "\n")
-        cat(conditionMessage(e), "\n", file = progress_log, append = TRUE)
-      })
-      job_meta$output_files <- c(result$paths, diag_files)
-      base_name <- paste0(safe_slug(body$species %||% "species"), "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
-      manifest_path <- write_manifest(result, job_dir, base_name, cpu_ms = cpu_ms, peak_mb = peak_mb)
-      job_meta$manifest_path <- manifest_path
-    }
-    gc(verbose = FALSE)
-    sdm_write_json(job_meta, job_meta_file)
-  }, error = function(e) {
-    err_msg <- conditionMessage(e)
-    is_cancelled <- identical(err_msg, "CANCELLED") || sdm_redis_cancel_check(job_id)
-    err_code <- if (is_cancelled) "CANCELLED" else tryCatch(sdm_classify_error(err_msg), error = function(ee) "INTERNAL_ERROR")
-    error_hint <- tryCatch(
-      { h <- SDM_ERR_CODES[[err_code]]$hint; if (is.null(h)) NA_character_ else h },
-      error = function(ee) NA_character_
-    )
-    cpu_ms <- tryCatch(r_get_cpu_time_ms(proc.time() - cpu_start), error = function(ee) NA_real_)
-    peak_mb <- tryCatch(r_get_peak_memory_mb(), error = function(ee) NA_real_)
-    stderr_tail <- tryCatch({
-      stderr_path <- file.path(job_dir, "stderr.log")
-      if (file.exists(stderr_path)) {
-        paste(utils::tail(readLines(stderr_path, warn = FALSE), 20), collapse = "\n")
-      } else ""
-    }, error = function(ee) "")
-
-    err_meta <- list(
-      id = job_id,
-      status = if (is_cancelled) "cancelled" else "failed",
-      started_at = job_meta$started_at %||% format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-      config = as.list(body),
-      output_dir = job_dir,
-      error = if (is_cancelled) "Cancelled by user" else err_msg,
-      error_code = err_code,
-      error_hint = error_hint,
-      error_traceback = paste(utils::tail(traceback(), 10), collapse = "\n"),
-      error_stderr_tail = stderr_tail,
-      completed_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-      r_cpu_time_ms = cpu_ms,
-      r_peak_memory_mb = peak_mb
-    )
-    sdm_write_json(err_meta, job_meta_file)
-    cat("Run", if (is_cancelled) "cancelled" else "failed", "[", err_code, "]:", err_msg, "\n")
-  })
-
-  NULL
-}
-
+#* Run a single-species SDM model in the background
+#* @param species Species name
+#* @param model_id Model identifier (e.g., "glm", "maxnet", "rf")
 #* @post /api/v1/models/run
-#* @param species
-#* @param model_id
-#* @param biovars
-#* @param projection_extent
-#* @param background_n
-#* @param cv_folds
-#* @param cv_strategy
-#* @param threshold
-#* @param include_quadratic
-#* @param n_cores
-#* @param seed
-#* @param occurrence_file
-#* @param worldclim_dir
-#* @param source
-#* @param aggregation_factor
-#* @param min_source_records
-#* @param merge_small_sources
-#* @param thin_by_cell
-#* @param use_elevation
-#* @param use_soil
-#* @param use_uv
-#* @param use_vegetation
-#* @param use_lulc
-#* @param use_hfp
-#* @param future_projection
-#* @param future_label
-#* @param vif_reduction
-#* @param bias_method
-#* @param pa_replicates
-#* @param thickening_distance_km
-#* @param output_dir
-#* @param analysis_crs
-function(req) {
-  body <- tryCatch(
-    jsonlite::fromJSON(req$postBody),
-    error = function(e) {
-      cat("JSON parse error:", conditionMessage(e), "\n")
-      NULL
-    }
-  )
-  if (is.null(body)) return(sdm_error_code(req, "INVALID_INPUT", "Request body is empty or not valid JSON"))
+function(req) handle_model_run(req, app_dir)
 
-  required <- c("species", "model_id", "occurrence_file")
-  missing <- setdiff(required, names(body))
-  if (length(missing) > 0) {
-    return(sdm_error_code(req, "INVALID_INPUT", paste("Missing required fields:", paste(missing, collapse = ", "))))
-  }
+#* Run a multi-species batch via targets pipeline
+#* @post /api/v1/models/targets-run
+function(req) handle_targets_run(req, app_dir)
 
-  biovars <- as.integer(unlist(strsplit(as.character(body$biovars %||% "1,4,6,12,15,18"), ",")))
-  projection_extent <- as.numeric(unlist(strsplit(as.character(body$projection_extent %||% "112,154,-44,-10"), ",")))
-  if (length(projection_extent) != 4 || any(!is.finite(projection_extent))) {
-    return(sdm_error(req, 400, "projection_extent must have 4 numeric values: xmin,xmax,ymin,ymax"))
-  }
-  if (projection_extent[1] >= projection_extent[2] || projection_extent[3] >= projection_extent[4]) {
-    return(sdm_error(req, 400, "projection_extent has invalid ordering: xmin must be < xmax, ymin must be < ymax"))
-  }
-  if (projection_extent[1] < -180 || projection_extent[2] > 180 || projection_extent[3] < -90 || projection_extent[4] > 90) {
-    return(sdm_error(req, 400, "projection_extent is outside valid coordinate bounds (±180, ±90)"))
-  }
+#* Get targets pipeline status
+#* @get /api/v1/models/targets-status/<job_id>
+function(res, job_id) handle_targets_status(res, job_id)
 
-  # Concurrency limit: reject if too many runs in-flight to prevent OOM
-  active <- sdm_count_active_runs()
-  if (active >= SDM_MAX_CONCURRENT_RUNS) {
-    return(sdm_error(req, 429, paste0(
-      "Server busy: ", active, " model run(s) in progress (max ", SDM_MAX_CONCURRENT_RUNS,
-      "). Please wait and retry."
-    )))
-  }
+#* Get targets pipeline results
+#* @get /api/v1/models/targets-results/<job_id>
+function(res, job_id) handle_targets_results(res, job_id)
 
-  job_id <- paste0("run-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
-  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
-  dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
-
-  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
-
-  job_meta <- list(
-    id = job_id,
-    user_id = user_id,
-    status = "running",
-    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    config = as.list(body),
-    output_dir = job_dir
-  )
-  job_meta_file <- file.path(job_dir, "meta.json")
-  sdm_write_json(job_meta, job_meta_file)
-
-  progress_log <- file.path(job_dir, "progress.log")
-
-  # Spawn model run in background via standalone script
-  # (avoids closure serialization issues with callr::r_bg)
-  script_path <- file.path(app_dir, "plumber", "R", "run_model_background.R")
-  if (!file.exists(script_path)) {
-    return(sdm_error(req, 500, paste("Model run script not found at:", script_path)))
-  }
-
-  proc <- callr::r_bg(function(script, job_dir, app_dir) {
-    source(script, local = TRUE)
-  }, args = list(script_path, job_dir, app_dir),
-  stdout = file.path(job_dir, "stdout.log"),
-  stderr = file.path(job_dir, "stderr.log"))
-  sdm_process_registry[[job_id]] <- proc
-
-  job_meta$process_pid <- proc$get_pid()
-  sdm_write_json(job_meta, job_meta_file)
-
-  list(
-    job_id = job_id,
-    status = "running",
-    message = "Model run started in background"
-  )
-}
+#* Get job logs (stderr, stdout, progress)
+#* @get /api/v1/models/logs/<job_id>
+function(res, job_id) handle_model_logs(res, job_id)
 
 #* Get model run status
 #* @get /api/v1/models/status/<job_id>
-function(res, job_id) {
-  job_dir <- sdm_safe_job_dir(job_id)
-  if (is.null(job_dir)) {
-    res$status <- 404L; return(list(error = "Invalid job ID"))
-  }
-  meta_file <- file.path(job_dir, "meta.json")
-  progress_file <- file.path(job_dir, "progress.log")
-  progress_json_file <- file.path(job_dir, "progress.json")
+function(res, job_id) handle_model_status(res, job_id)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-
-  # Detect process crash: if status is "running" but process is dead or missing
-  if (identical(meta$status, "running")) {
-    proc <- sdm_process_registry[[job_id]]
-    process_alive <- FALSE
-    if (!is.null(proc)) {
-      tryCatch({
-        process_alive <- proc$is_alive()
-      }, error = function(e) {
-        process_alive <<- FALSE
-      })
-    }
-    # Also check PID directly if stored (uses signal 0 which tests existence without sending signal)
-    if (!process_alive && !is.null(meta$process_pid)) {
-      pid <- as.integer(meta$process_pid)
-      if (is.finite(pid)) {
-        tryCatch({
-          process_alive <- tools::pskill(pid, signal = 0)
-        }, error = function(e) {
-          process_alive <<- FALSE
-        })
-      }
-    }
-    if (!process_alive) {
-      meta$status <- "failed"
-      meta$error <- "Process crashed or was killed (OOM, segfault, or external signal)"
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      sdm_write_json(meta, meta_file)
-      sdm_process_registry[[job_id]] <- NULL
-      sdm_redis_progress_clear(job_id)
-      sdm_redis_cancel_clear(job_id)
-    }
-  }
-
-  # Check Redis cancellation signal — catches cancel before background process reacts
-  if (identical(meta$status, "running") && sdm_redis_cancel_check(job_id)) {
-    meta$status <- "cancelled"
-    meta$error <- "Cancelled by user"
-    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    sdm_write_json(meta, meta_file)
-    sdm_process_registry[[job_id]] <- NULL
-    sdm_redis_progress_clear(job_id)
-    sdm_redis_cancel_clear(job_id)
-  }
-
-  # Clean up registry for terminal states
-  if (identical(meta$status, "completed") || identical(meta$status, "failed") || identical(meta$status, "cancelled")) {
-    sdm_process_registry[[job_id]] <- NULL
-    sdm_redis_progress_clear(job_id)
-    sdm_redis_cancel_clear(job_id)
-  }
-
-  progress_lines <- character(0)
-  last_stage <- NULL
-  if (file.exists(progress_file)) {
-    progress_lines <- tail(readLines(progress_file, warn = FALSE), 200)
-    for (line in rev(progress_lines)) {
-      stage <- gsub("^\\d{2}:\\d{2}:\\d{2}\\s*(\\[\\d+%\\]\\s*)?", "", line)
-      stage <- trimws(stage)
-      if (nchar(stage) >= 3) {
-        last_stage <- stage
-        break
-      }
-    }
-  }
-
-  list(
-    id = meta$id,
-    status = meta$status,
-    started_at = meta$started_at,
-    completed_at = meta$completed_at %||% NULL,
-    error = meta$error %||% NULL,
-    error_traceback = meta$error_traceback %||% NULL,
-    metrics = meta$metrics %||% NULL,
-    output_files = meta$output_files %||% NULL,
-    progress_log = progress_lines,
-    last_stage = last_stage
-  )
-}
-
-# Global process registry for background model runs
-# Stores callr::r_bg process handles keyed by job_id
-sdm_process_registry <- new.env(parent = emptyenv())
-
-#* Cancel a running model
+#* Cancel a running model run
 #* @post /api/v1/models/cancel/<job_id>
-function(req, job_id) {
-  job_dir <- sdm_safe_job_dir(job_id)
-  if (is.null(job_dir)) {
-    return(list(ok = FALSE, message = "Invalid job ID"))
-  }
-  meta_file <- file.path(job_dir, "meta.json")
+function(req, job_id) handle_model_cancel(req, job_id)
 
-  if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this run"))
-      }
-    }
-  }
-
-  proc <- sdm_process_registry[[job_id]]
-  killed <- FALSE
-
-  if (!is.null(proc) && inherits(proc, "Process")) {
-    if (proc$is_alive()) {
-      proc$kill()
-      killed <- TRUE
-    }
-    rm(list = job_id, envir = sdm_process_registry)
-  }
-
-  progress_log <- file.path(job_dir, "progress.log")
-
-  if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-
-    if (!killed && !is.null(meta$process_pid)) {
-      tryCatch({
-        tools::pskill(meta$process_pid, signal = 9)
-        killed <- TRUE
-      }, error = function(e) NULL)
-    }
-
-    meta$status <- "cancelled"
-    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    meta$error <- "Cancelled by user"
-    sdm_write_json(meta, meta_file)
-    sdm_redis_cancel_set(job_id)
-  }
-
-  if (killed) {
-    log_line <- paste0(format(Sys.time(), "%H:%M:%S"), " [CANCELLED] Process killed for job ", job_id)
-    cat(log_line, "\n")
-    if (file.exists(progress_log)) {
-      cat(log_line, "\n", file = progress_log, append = TRUE)
-    }
-  }
-
-  list(ok = TRUE, message = if (killed) "Run cancelled and process terminated" else "Run cancelled (process not found)")
-}
-
-#* Delete a model run's output files
+#* Delete model run output files
 #* @post /api/v1/models/delete/<job_id>
-function(req, job_id) {
-  job_dir <- sdm_safe_job_dir(job_id)
-  if (is.null(job_dir)) {
-    return(list(ok = TRUE, message = "Invalid job ID", deleted = FALSE))
-  }
-  meta_file <- file.path(job_dir, "meta.json")
+function(req, job_id) handle_model_delete(req, job_id)
 
-  if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to delete this run"))
-      }
-    }
-  }
-
-  if (!dir.exists(job_dir)) {
-    return(list(ok = TRUE, message = "Run directory not found (already deleted)", deleted = FALSE))
-  }
-
-  tryCatch({
-    unlink(job_dir, recursive = TRUE, force = TRUE)
-    list(ok = TRUE, message = "Run output files deleted", deleted = TRUE)
-  }, error = function(e) {
-    list(ok = FALSE, message = paste("Failed to delete:", conditionMessage(e)), deleted = FALSE)
-  })
-}
-
-#* List all model runs (filtered by user if authenticated)
+#* List model runs (optionally filtered by user)
 #* @get /api/v1/models/runs
-function(req) {
-  jobs_dir <- file.path(app_dir, "outputs", "jobs")
-  if (!dir.exists(jobs_dir)) return(list())
+function(req) handle_models_runs(req, app_dir)
 
-  job_dirs <- list.dirs(jobs_dir, recursive = FALSE, full.names = FALSE)
-  runs <- lapply(job_dirs, function(jd) {
-    meta_file <- file.path(jobs_dir, jd, "meta.json")
-    if (file.exists(meta_file)) {
-      meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-
-      # Filter by user if authenticated
-      if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-        if (is.null(meta$user_id) || as.character(meta$user_id) != as.character(req$user_id)) {
-          return(NULL)
-        }
-      }
-
-      list(
-        id = meta$id,
-        species = meta$config$species,
-        model_id = meta$config$model_id,
-        status = meta$status,
-        started_at = meta$started_at,
-        completed_at = meta$completed_at %||% NULL,
-        metrics = meta$metrics %||% NULL,
-        r_cpu_time_ms = meta$r_cpu_time_ms %||% NULL,
-        r_peak_memory_mb = meta$r_peak_memory_mb %||% NULL
-      )
-    } else NULL
-  })
-  Filter(Negate(is.null), runs)
-}
-
-# --- Async data job helpers ---
-
-sdm_async_submit <- function(job_type, params, app_dir, user_id = "anonymous") {
-  job_id <- paste0("data-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
-  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
-  dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
-
-  meta <- list(
-    id = job_id,
-    user_id = user_id,
-    type = job_type,
-    status = "running",
-    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    params = params
-  )
-  sdm_write_json(meta, file.path(job_dir, "meta.json"))
-
-  input <- params
-  input$type <- job_type
-  # Strip NULL entries — jsonlite toJSON with auto_unbox converts NULL to {} not null
-  input <- input[!sapply(input, is.null)]
-  writeLines(jsonlite::toJSON(input, auto_unbox = TRUE, pretty = TRUE), file.path(job_dir, "input.json"))
-
-  dispatcher_path <- file.path(app_dir, "plumber", "R", "async_dispatcher.R")
-  proc <- processx::process$new(
-    "Rscript",
-    c("--no-save", "--no-restore", dispatcher_path, app_dir, job_dir),
-    stdout = file.path(job_dir, "stdout.log"),
-    stderr = file.path(job_dir, "stderr.log")
-  )
-
-  sdm_process_registry[[job_id]] <- proc
-  meta$process_pid <- proc$get_pid()
-  sdm_write_json(meta, file.path(job_dir, "meta.json"))
-
-  job_id
-}
-
-sdm_async_status <- function(job_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
-  meta_file <- file.path(job_dir, "meta.json")
-  result_file <- file.path(job_dir, "result.json")
-  progress_file <- file.path(job_dir, "progress.log")
-
-  if (!file.exists(meta_file)) {
-    return(list(available = FALSE, error = "Job not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  result <- NULL
-  if (file.exists(result_file)) {
-    result <- jsonlite::fromJSON(result_file, simplifyVector = FALSE)
-  }
-
-  # Check for terminal states from meta.json
-  if (identical(meta$status, "cancelled")) {
-    sdm_process_registry[[basename(job_id)]] <- NULL
-    sdm_redis_progress_clear(basename(job_id))
-    sdm_redis_cancel_clear(basename(job_id))
-    return(list(available = TRUE, status = "cancelled", error = meta$error %||% "Cancelled by user",
-                error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
-  }
-  if (identical(meta$status, "completed") && is.null(result)) {
-    sdm_process_registry[[basename(job_id)]] <- NULL
-    sdm_redis_progress_clear(basename(job_id))
-    sdm_redis_cancel_clear(basename(job_id))
-    return(list(available = TRUE, status = "completed",
-                error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
-  }
-  if (identical(meta$status, "failed") && is.null(result)) {
-    sdm_process_registry[[basename(job_id)]] <- NULL
-    sdm_redis_progress_clear(basename(job_id))
-    sdm_redis_cancel_clear(basename(job_id))
-    return(list(available = TRUE, status = "failed", error = meta$error %||% "Unknown error",
-                error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
-  }
-
-  # Crash detection for running jobs
-  if (identical(meta$status, "running") && is.null(result)) {
-    proc <- sdm_process_registry[[basename(job_id)]]
-    process_alive <- FALSE
-    if (!is.null(proc)) {
-      tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
-    }
-    if (!process_alive && !is.null(meta$process_pid)) {
-      pid <- as.integer(meta$process_pid)
-      if (is.finite(pid)) {
-        tryCatch({
-          ps_info <- tools::ps()
-          process_alive <- pid %in% ps_info$PID
-        }, error = function(e) NULL)
-      }
-    }
-    if (!process_alive) {
-      meta$status <- "failed"
-      meta$error <- "Process crashed or was killed (OOM, segfault, or external signal)"
-      sdm_write_json(meta, meta_file)
-      sdm_process_registry[[basename(job_id)]] <- NULL
-      sdm_redis_progress_clear(basename(job_id))
-      sdm_redis_cancel_clear(basename(job_id))
-      return(list(available = TRUE, status = "failed", error = "Process crashed or was killed (OOM, segfault, or external signal)",
-                  error_code = "PROCESS_CRASH", error_hint = "The R process was terminated by the OS. Check system memory, reduce raster resolution, or run with fewer covariates."))
-    }
-  }
-
-  # Check Redis cancellation signal for running jobs
-  if (identical(meta$status, "running") && is.null(result) && sdm_redis_cancel_check(basename(job_id))) {
-    meta$status <- "cancelled"
-    meta$error <- "Cancelled by user"
-    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    sdm_write_json(meta, meta_file)
-    sdm_process_registry[[basename(job_id)]] <- NULL
-    sdm_redis_progress_clear(basename(job_id))
-    sdm_redis_cancel_clear(basename(job_id))
-    return(list(available = TRUE, status = "cancelled", error = "Cancelled by user",
-                error_code = NULL, error_hint = NULL))
-  }
-
-  error_code <- meta$error_code %||% NULL
-  error_hint <- meta$error_hint %||% NULL
-
-  if (!is.null(result)) {
-    if (identical(result$status, "completed")) {
-      sdm_process_registry[[basename(job_id)]] <- NULL
-      meta$status <- "completed"
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      meta$result <- result$result
-      sdm_write_json(meta, meta_file)
-      sdm_redis_progress_clear(basename(job_id))
-      sdm_redis_cancel_clear(basename(job_id))
-      return(list(available = TRUE, status = "completed", result = result$result, error_code = error_code, error_hint = error_hint))
-    } else if (identical(result$status, "failed")) {
-      sdm_process_registry[[basename(job_id)]] <- NULL
-      meta$status <- "failed"
-      meta$error <- result$error
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      sdm_write_json(meta, meta_file)
-      sdm_redis_progress_clear(basename(job_id))
-      sdm_redis_cancel_clear(basename(job_id))
-      return(list(available = TRUE, status = "failed", error = result$error, error_code = error_code, error_hint = error_hint))
-    }
-  }
-
-  # Try Redis progress first, fall back to file progress
-  redis_progress <- sdm_redis_progress_get(basename(job_id), 20)
-  if (!is.null(redis_progress) && length(redis_progress) > 0) {
-    progress_lines <- redis_progress
-  } else {
-    progress_lines <- character(0)
-    if (file.exists(progress_file)) {
-      progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
-    }
-  }
-
-  list(available = TRUE, status = "running", progress_log = progress_lines, error_code = error_code, error_hint = error_hint)
-}
-
-#* Get async job status
+#* Get async job status (data/ecology jobs, not model runs)
 #* @get /api/v1/jobs/status/<job_id>
-function(res, job_id) {
-  status <- sdm_async_status(job_id)
-  if (!status$available) {
-    res$status <- 404L
-    return(list(error = "Job not found"))
-  }
-  status
-}
+function(req, res, job_id) handle_job_status(req, res, job_id, app_dir)
 
 #* Cancel an async data job
 #* @post /api/v1/jobs/cancel/<job_id>
-function(req, job_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
-  meta_file <- file.path(job_dir, "meta.json")
-
-  if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this job"))
-      }
-    }
-  }
-
-  proc <- sdm_process_registry[[basename(job_id)]]
-  killed <- FALSE
-  if (!is.null(proc) && inherits(proc, "Process") && proc$is_alive()) {
-    proc$kill()
-    killed <- TRUE
-    rm(list = basename(job_id), envir = sdm_process_registry)
-  }
-
-  if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-    if (!killed && !is.null(meta$process_pid)) {
-      tryCatch({ tools::pskill(meta$process_pid, signal = 9); killed <- TRUE }, error = function(e) NULL)
-    }
-    meta$status <- "cancelled"
-    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    sdm_write_json(meta, meta_file)
-    sdm_redis_cancel_set(basename(job_id))
-  }
-
-  list(ok = TRUE, message = if (killed) "Job cancelled" else "Job not found")
-}
+function(req, job_id) handle_job_cancel(req, job_id, app_dir)
 
 #* Health check
 #* @get /health
-function() {
-  mem_avail <- tryCatch(terra::mem_info()$memavail, error = function(e) NULL)
-  list(
-    status = "ok",
-    r_version = R.version.string,
-    timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    active_runs = sdm_count_active_runs(),
-    max_concurrent_runs = SDM_MAX_CONCURRENT_RUNS,
-    memory_gb = if (is.numeric(mem_avail)) mem_avail else NULL
-  )
-}
+function(res) handle_health(res, app_dir)
 
-#* Discover available future climate scenarios
+#* GPU status
+#* @get /api/v1/gpu/status
+function(res) handle_gpu_status(res)
+
+#* Readiness probe
+#* @get /ready
+function(res) handle_ready(res)
+
+#* List available future climate scenarios
 #* @get /api/v1/future/scenarios
-function() {
-  base_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
-  if (!dir.exists(base_dir)) {
-    return(list(available_scenarios = list(), message = paste("Directory not found:", base_dir)))
-  }
+function(res) handle_future_scenarios(res, app_dir)
 
-  available <- list()
-  subdirs <- list.dirs(base_dir, recursive = FALSE, full.names = FALSE)
-  for (sd_name in subdirs) {
-    sd <- file.path(base_dir, sd_name)
-    tif_files <- list.files(sd, pattern = "\\.tif$", full.names = TRUE)
-    if (length(tif_files) == 0) next
-
-    is_averaged <- startsWith(sd_name, "averaged_")
-    if (is_averaged) {
-      parts <- strsplit(sub("^averaged_", "", sd_name), "_")[[1]]
-      if (length(parts) < 4) next
-      period <- parts[length(parts)]
-      ssp_raw <- parts[length(parts) - 1]
-      ssp <- if (grepl("-", ssp_raw)) ssp_raw else paste0("SSP", substr(ssp_raw, 1, 1), "-", substr(ssp_raw, 2, 3))
-      gcm <- paste(parts[1:(length(parts) - 2)], collapse = "_")
-      gcm <- paste0("Averaged (", gcm, ")")
-    } else {
-      parts <- strsplit(sd_name, "_")[[1]]
-      if (length(parts) < 3) next
-      period <- parts[length(parts)]
-      ssp_raw <- parts[length(parts) - 1]
-      ssp <- if (grepl("-", ssp_raw)) ssp_raw else paste0("SSP", substr(ssp_raw, 1, 1), "-", substr(ssp_raw, 2, 3))
-      gcm <- paste(parts[1:(length(parts) - 2)], collapse = "_")
-    }
-
-    available <- c(available, list(list(
-      gcm = gcm,
-      ssp = ssp,
-      period = period,
-      path = sd,
-      file_count = length(tif_files),
-      files = tif_files
-    )))
-  }
-
-  list(available_scenarios = available, base_directory = base_dir)
-}
-
-#* Download a climate scenario (current or future)
+#* Download climate data for a scenario
 #* @post /api/v1/climate/download
-function(req) {
-  body <- req$postBody
-  if (is.null(body)) body <- list()
-  if (is.character(body)) body <- jsonlite::fromJSON(body, simplifyVector = FALSE)
-
-  download_type <- body$type %||% "cmip6"
-  job_id <- paste0("climate_", format(Sys.time(), "%Y%m%d_%H%M%S"), "_", paste(sample(letters, 6), collapse = ""))
-  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
-  dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
-
-  job_meta <- list(
-    id = job_id,
-    type = download_type,
-    status = "running",
-    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    completed_at = NULL,
-    error = NULL,
-    config = body
-  )
-  sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
-
-  script_path <- file.path(app_dir, "plumber", "R", "climate_download.R")
-  if (!file.exists(script_path)) {
-    stop("Climate download script not found at: ", script_path, call. = FALSE)
-  }
-
-  proc <- callr::r_bg(function(script, job_dir, app_dir) {
-    source(script, local = TRUE)
-  }, args = list(script_path, job_dir, app_dir), stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"))
-  sdm_process_registry[[job_id]] <- proc
-  job_meta$process_pid <- proc$get_pid()
-  sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
-
-  list(
-    job_id = job_id,
-    status = "running",
-    message = "Climate download started in background"
-  )
-}
+function(req) handle_climate_download(req, app_dir)
 
 #* Get climate download job status
 #* @get /api/v1/climate/status/<job_id>
-function(res, job_id) {
-  job_dir <- sdm_safe_job_dir(job_id)
-  if (is.null(job_dir)) {
-    res$status <- 404L; return(list(error = "Invalid job ID"))
-  }
-  meta_file <- file.path(job_dir, "meta.json")
-  progress_file <- file.path(job_dir, "progress.log")
-
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Download job not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-
-  # Crash detection: if status is "running" but process is dead or missing
-  if (identical(meta$status, "running")) {
-    proc <- sdm_process_registry[[basename(job_id)]]
-    process_alive <- FALSE
-    if (!is.null(proc)) {
-      tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
-    }
-    if (!process_alive && !is.null(meta$process_pid)) {
-      pid <- as.integer(meta$process_pid)
-      if (is.finite(pid)) {
-        tryCatch({ ps_info <- tools::ps(); process_alive <- pid %in% ps_info$PID }, error = function(e) NULL)
-      }
-    }
-    if (!process_alive) {
-      meta$status <- "failed"
-      meta$error <- "Process crashed"
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      sdm_write_json(meta, meta_file)
-      sdm_process_registry[[basename(job_id)]] <- NULL
-    }
-  }
-
-  # Cancel check via Redis — catches cancel before process reacts
-  if (identical(meta$status, "running") && sdm_redis_cancel_check(basename(job_id))) {
-    meta$status <- "cancelled"
-    meta$error <- "Cancelled by user"
-    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    sdm_write_json(meta, meta_file)
-    sdm_process_registry[[basename(job_id)]] <- NULL
-  }
-
-  # jsonlite encodes R NULL/NA as {} — normalize to NULL
-  nullify <- function(x) {
-    if (is.null(x)) return(NULL)
-    if (is.list(x) && length(x) == 0) return(NULL)
-    if (length(x) == 1 && is.na(x)) return(NULL)
-    x
-  }
-
-  # Try Redis progress first, fall back to file progress
-  redis_progress <- sdm_redis_progress_get(basename(job_id), 50)
-  if (!is.null(redis_progress) && length(redis_progress) > 0) {
-    progress_lines <- redis_progress
-  } else {
-    progress_lines <- character(0)
-    if (file.exists(progress_file)) {
-      progress_lines <- tail(readLines(progress_file, warn = FALSE), 50)
-    }
-  }
-
-  list(
-    id = meta$id,
-    type = meta$type,
-    status = meta$status,
-    started_at = meta$started_at,
-    completed_at = nullify(meta$completed_at) %||% NA,
-    error = nullify(meta$error) %||% NA,
-    error_category = nullify(meta$error_category) %||% NA,
-    failed_vars = nullify(meta$failed_vars) %||% NA,
-    config = nullify(meta$config) %||% NA,
-    progress_log = progress_lines
-  )
-}
+function(res, job_id) handle_climate_status(res, job_id, app_dir)
 
 #* List downloaded climate scenarios
 #* @get /api/v1/climate/scenarios
-function() {
-  future_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
-  current_dir <- file.path(app_dir, sdm_default_worldclim_dir)
-  chelsa_dir <- file.path(app_dir, sdm_default_chelsa_dir)
+function(res) handle_climate_scenarios(res, app_dir)
 
-  scenarios <- list()
-
-  if (dir.exists(future_dir)) {
-    subdirs <- list.dirs(future_dir, recursive = FALSE, full.names = FALSE)
-    for (sd_name in subdirs) {
-      sd <- file.path(future_dir, sd_name)
-      tif_files <- list.files(sd, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
-      total_size <- sum(file.info(tif_files)$size, na.rm = TRUE)
-      is_averaged <- startsWith(sd_name, "averaged_")
-
-      gcm <- ""
-      ssp <- ""
-      period <- ""
-      if (is_averaged) {
-        parts <- strsplit(sd_name, "_")[[1]]
-        if (length(parts) >= 4) {
-          gcm <- paste(parts[2:(length(parts) - 2)], collapse = "_")
-          ssp_code <- parts[length(parts) - 1]
-          ssp <- paste0("SSP", substr(ssp_code, 1, 1), "-", substr(ssp_code, 2, 3))
-          period <- parts[length(parts)]
-        }
-      } else {
-        parts <- strsplit(sd_name, "_")[[1]]
-        if (length(parts) >= 3) {
-          period <- parts[length(parts)]
-          ssp_raw <- parts[length(parts) - 1]
-          ssp <- if (grepl("-", ssp_raw)) ssp_raw else paste0("SSP", substr(ssp_raw, 1, 1), "-", substr(ssp_raw, 2, 3))
-          gcm <- paste(parts[1:(length(parts) - 2)], collapse = "_")
-        }
-      }
-
-      scenarios <- c(scenarios, list(list(
-        id = sd_name,
-        type = "future",
-        gcm = gcm,
-        ssp = ssp,
-        period = period,
-        file_count = length(tif_files),
-        size_bytes = total_size,
-        is_averaged = is_averaged
-      )))
-    }
-  }
-
-  if (dir.exists(current_dir)) {
-    tif_files <- list.files(current_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
-    total_size <- sum(file.info(tif_files)$size, na.rm = TRUE)
-    scenarios <- c(scenarios, list(list(
-      id = "worldclim_current",
-      type = "current",
-      source = "worldclim",
-      file_count = length(tif_files),
-      size_bytes = total_size
-    )))
-  }
-
-  if (dir.exists(chelsa_dir)) {
-    tif_files <- list.files(chelsa_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
-    total_size <- sum(file.info(tif_files)$size, na.rm = TRUE)
-    scenarios <- c(scenarios, list(list(
-      id = "chelsa_current",
-      type = "current",
-      source = "chelsa",
-      file_count = length(tif_files),
-      size_bytes = total_size
-    )))
-  }
-
-  list(scenarios = scenarios)
-}
-
-#* Delete a downloaded climate scenario
+#* Delete a climate scenario
 #* @post /api/v1/climate/delete/<scenario_id>
-function(res, scenario_id) {
-  future_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
-  current_dir <- file.path(app_dir, sdm_default_worldclim_dir)
-  chelsa_dir <- file.path(app_dir, sdm_default_chelsa_dir)
-
-  target_dir <- NULL
-  if (scenario_id == "worldclim_current") {
-    target_dir <- current_dir
-  } else if (scenario_id == "chelsa_current") {
-    target_dir <- chelsa_dir
-  } else {
-    target_dir <- file.path(future_dir, scenario_id)
-  }
-
-  if (is.null(target_dir) || !dir.exists(target_dir)) {
-    res$status <- 404L; return(list(error = "Scenario not found"))
-  }
-
-  unlink(target_dir, recursive = TRUE, force = TRUE)
-
-  list(ok = TRUE, message = paste("Scenario deleted:", scenario_id))
-}
+function(res, scenario_id) handle_climate_delete(res, scenario_id, app_dir)
 
 #* Cancel a climate download
 #* @post /api/v1/climate/cancel/<job_id>
-function(req, job_id) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", sdm_basename(job_id))
-  meta_file <- file.path(job_dir, "meta.json")
+function(req, job_id) handle_climate_cancel(req, job_id, app_dir)
 
-  if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this download"))
-      }
-    }
-  }
-
-  sdm_redis_cancel_set(sdm_basename(job_id))
-
-  proc <- sdm_process_registry[[sdm_basename(job_id)]]
-  killed <- FALSE
-  if (!is.null(proc) && inherits(proc, "Process") && proc$is_alive()) {
-    proc$kill()
-    killed <- TRUE
-    rm(list = sdm_basename(job_id), envir = sdm_process_registry)
-  }
-
-  if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-    if (!killed && !is.null(meta$process_pid)) {
-      tryCatch({ tools::pskill(meta$process_pid, signal = 9); killed <- TRUE }, error = function(e) NULL)
-    }
-    meta$status <- "cancelled"
-    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    meta$error <- "Cancelled by user"
-    sdm_write_json(meta, meta_file)
-  }
-
-  list(ok = TRUE, message = if (killed) "Download cancelled and process terminated" else "Download cancelled")
-}
-
-#* Get ecology data for a model run
+#* Get ecology data for a run
 #* @get /api/v1/ecology/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_ecology_run(res, run_id, app_dir)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  output_files <- meta$output_files %||% list()
-  config <- meta$config %||% list()
-
-  result <- list(
-    run_id = run_id,
-    species = config$species,
-    model_id = config$model_id
-  )
-
-  # EOO/AOO
-  eoo_aoo_file <- file.path(job_dir, "eoo_aoo.json")
-  if (file.exists(eoo_aoo_file)) {
-    result$eoo_aoo <- jsonlite::fromJSON(eoo_aoo_file, simplifyVector = FALSE)
-  } else if (!is.null(meta$metrics) && !is.null(meta$metrics$eoo_aoo)) {
-    result$eoo_aoo <- meta$metrics$eoo_aoo
-  } else {
-    result$eoo_aoo <- list(available = FALSE, message = "EOO/AOO not computed for this run")
-  }
-
-  # AOA
-  aoa_png <- output_files$aoa_png
-  if (!is.null(aoa_png) && file.exists(aoa_png)) {
-    result$aoa <- list(available = TRUE, png = aoa_png)
-  } else {
-    result$aoa <- list(available = FALSE, message = "AOA not computed for this run")
-  }
-
-  # Climate matching
-  cm_tif <- output_files$climate_matching_tif
-  if (!is.null(cm_tif) && file.exists(cm_tif)) {
-    result$climate_matching <- list(available = TRUE, tif = cm_tif)
-  } else {
-    result$climate_matching <- list(available = FALSE, message = "Climate matching not enabled for this run")
-  }
-
-  # MESS (from future projection)
-  mess_tif <- output_files$future_mess_tif
-  mod_tif <- output_files$future_mod_tif
-  if (!is.null(mess_tif) && file.exists(mess_tif)) {
-    result$mess <- list(
-      available = TRUE,
-      mess_tif = mess_tif,
-      mod_tif = mod_tif,
-      pct_extrapolation = if (!is.null(meta$metrics)) meta$metrics$mess_pct_extrapolation %||% NULL
-    )
-  } else {
-    result$mess <- list(available = FALSE, message = "No future projection with MESS for this run")
-  }
-
-  # Niche overlap (if available)
-  niche_file <- file.path(job_dir, "niche_overlap.json")
-  if (file.exists(niche_file)) {
-    result$niche_overlap <- jsonlite::fromJSON(niche_file, simplifyVector = FALSE)
-  }
-
-  result
-}
-
-#* Get EOO/AOO data for a model run
+#* Get EOO/AOO data for a run
 #* @get /api/v1/ecology/<run_id>/eoo-aoo
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_ecology_eoo_aoo(res, run_id, app_dir)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-
-  eoo_aoo_file <- file.path(job_dir, "eoo_aoo.json")
-  if (file.exists(eoo_aoo_file)) {
-    return(jsonlite::fromJSON(eoo_aoo_file, simplifyVector = FALSE))
-  }
-
-  if (!is.null(meta$metrics) && !is.null(meta$metrics$eoo_aoo)) {
-    return(meta$metrics$eoo_aoo)
-  }
-
-  list(available = FALSE, message = "EOO/AOO not computed for this run")
-}
-
-#* Get AOA data for a model run
+#* Get Area of Applicability data
 #* @get /api/v1/ecology/<run_id>/aoa
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_ecology_aoa(res, run_id, app_dir)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  output_files <- meta$output_files %||% list()
-
-  aoa_png <- output_files$aoa_png
-  if (!is.null(aoa_png) && file.exists(aoa_png)) {
-    list(available = TRUE, png = aoa_png)
-  } else {
-    list(available = FALSE, message = "AOA not computed for this run")
-  }
-}
-
-#* Generate conservation status report text
+#* Get conservation status report
 #* @get /api/v1/ecology/<run_id>/report
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_ecology_report(res, run_id, app_dir)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  config <- meta$config %||% list()
-  metrics <- meta$metrics %||% list()
-
-  lines <- character(0)
-  lines <- c(lines, paste0("Conservation Status Summary: ", config$species %||% "Unknown species"))
-  lines <- c(lines, paste0("Model: ", config$model_id %||% "Unknown"))
-  lines <- c(lines, "")
-
-  # EOO/AOO
-  eoo_aoo_file <- file.path(job_dir, "eoo_aoo.json")
-  if (file.exists(eoo_aoo_file)) {
-    eoo_aoo <- jsonlite::fromJSON(eoo_aoo_file, simplifyVector = FALSE)
-    eoo_km2 <- eoo_aoo$eoo_km2 %||% NA
-    aoo_km2 <- eoo_aoo$aoo_km2 %||% NA
-    iucn_category <- eoo_aoo$iucn_category %||% "Unknown"
-
-    lines <- c(lines, "Extent and Area of Occurrence:")
-    if (!is.na(eoo_km2)) lines <- c(lines, paste0("  EOO: ", round(eoo_km2, 1), " km²"))
-    if (!is.na(aoo_km2)) lines <- c(lines, paste0("  AOO: ", round(aoo_km2, 1), " km²"))
-    lines <- c(lines, paste0("  IUCN Red List guidance: ", iucn_category))
-    lines <- c(lines, "")
-  }
-
-  # AOA
-  output_files <- meta$output_files %||% list()
-  if (!is.null(output_files$aoa_png) && file.exists(output_files$aoa_png)) {
-    lines <- c(lines, "Area of Applicability: Computed (see AOA map)")
-    lines <- c(lines, "")
-  }
-
-  # Climate matching
-  if (!is.null(output_files$climate_matching_tif) && file.exists(output_files$climate_matching_tif)) {
-    lines <- c(lines, "Climate Matching: Enabled (see similarity map)")
-    lines <- c(lines, "")
-  }
-
-  # MESS
-  if (!is.null(output_files$future_mess_tif) && file.exists(output_files$future_mess_tif)) {
-    lines <- c(lines, "MESS Extrapolation: Future projection computed")
-    if (!is.null(metrics$mess_pct_extrapolation)) {
-      lines <- c(lines, paste0("  % extrapolation: ", round(metrics$mess_pct_extrapolation, 1), "%"))
-    }
-    lines <- c(lines, "")
-  }
-
-  # Model performance
-  if (!is.null(metrics$auc_mean)) {
-    lines <- c(lines, paste0("Model Performance: AUC = ", round(metrics$auc_mean, 3)))
-  }
-  if (!is.null(metrics$tss_mean)) {
-    lines <- c(lines, paste0("  TSS = ", round(metrics$tss_mean, 3)))
-  }
-
-  paste(lines, collapse = "\n")
-}
-
-#* Compute niche overlap between two runs (async)
+#* Compute niche overlap between two runs
 #* @post /api/v1/ecology/niche-overlap
-function(req) {
-  body <- tryCatch(jsonlite::fromJSON(req$postBody), error = function(e) NULL)
-  if (is.null(body)) return(sdm_error(req, 400, "Invalid JSON body"))
-
-  run_id_1 <- body$run_id_1
-  run_id_2 <- body$run_id_2
-  if (is.null(run_id_1) || is.null(run_id_2)) {
-    return(sdm_error(req, 400, "run_id_1 and run_id_2 are required"))
-  }
-
-  job_dir_1 <- sdm_safe_job_dir(run_id_1)
-  job_dir_2 <- sdm_safe_job_dir(run_id_2)
-  if (is.null(job_dir_1) || is.null(job_dir_2)) {
-    return(sdm_error(req, 404, "One or both runs not found"))
-  }
-  meta_file_1 <- file.path(job_dir_1, "meta.json")
-  meta_file_2 <- file.path(job_dir_2, "meta.json")
-
-  if (!file.exists(meta_file_1) || !file.exists(meta_file_2)) {
-    return(sdm_error(req, 404, "One or both runs not found"))
-  }
-
-  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
-
-  job_id <- sdm_async_submit("niche_overlap", list(
-    run_id_1 = run_id_1,
-    run_id_2 = run_id_2,
-    n_boot = body$n_boot %||% 100
-  ), app_dir, user_id)
-
-  list(
-    job_id = job_id,
-    status = "running",
-    message = "Niche overlap computation started in background"
-  )
-}
+function(req) handle_ecology_niche_overlap(req, app_dir)
 
 #* Get model config defaults
 #* @get /api/v1/config/defaults
-function() {
-  list(
-    biovars = sdm_default_biovars,
-    background_n = sdm_default_background_n,
-    cv_folds = sdm_default_cv_folds,
-    cv_strategy = sdm_default_cv_strategy,
-    threshold = sdm_default_threshold,
-    extent_presets = sdm_extent_choices,
-    analysis_crs = sdm_default_analysis_crs,
-    analysis_crs_choices = lapply(seq_along(sdm_analysis_crs_choices), function(i) {
-      list(value = unname(sdm_analysis_crs_choices[i]), label = names(sdm_analysis_crs_choices)[i])
-    })
-  )
-}
+function(res) handle_config_defaults(res, app_dir)
 
-#* List available models
+#* List available model backends
 #* @get /api/v1/models
-function() {
-  ids <- sdm_model_ids()
-  lapply(ids, function(id) {
-    spec <- get_sdm_model(id)
-    list(
-      id = id,
-      label = spec$label,
-      maturity = spec$maturity,
-      min_records = if (!is.na(spec$min_records)) spec$min_records else NULL,
-      packages = spec$packages,
-      notes = if (length(spec$notes) > 0) paste(spec$notes, collapse = " ") else ""
-    )
-  })
-}
+function(res) handle_models_list(res, app_dir)
 
 #* Compare two completed model runs
 #* @get /api/v1/output/compare/<run_id1>/<run_id2>
-function(res, run_id1, run_id2) {
-  load_result <- function(rid) {
-    job_dir <- sdm_safe_job_dir(rid)
-    if (is.null(job_dir)) return(NULL)
-    meta_file <- file.path(job_dir, "meta.json")
-    if (!file.exists(meta_file)) return(NULL)
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-    if (meta$status != "completed") return(NULL)
-    result_rds <- meta$output_files$result_rds
-    if (is.null(result_rds) || !file.exists(result_rds)) return(NULL)
-    tryCatch(readRDS(result_rds), error = function(e) NULL)
-  }
-
-  r1 <- load_result(run_id1)
-  r2 <- load_result(run_id2)
-
-  if (is.null(r1) || is.null(r2)) {
-    res$status <- 404L
-    return(list(error = "One or both runs not found or not completed"))
-  }
-
-  tryCatch({
-    comp <- compare_runs(r1, r2)
-    comp$report_text <- format_comparison_text(comp)
-    comp
-  }, error = function(e) {
-    list(error = paste("Comparison failed:", conditionMessage(e)))
-  })
-}
+function(res, run_id1, run_id2) handle_output_compare(res, run_id1, run_id2, app_dir)
 
 #* Export reproducible R script for a run
 #* @get /api/v1/output/script/<run_id>
-function(res, run_id, output_dir = NULL) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_output_script(res, run_id, app_dir)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") {
-    res$status <- 400L; return(list(error = "Run not completed yet"))
-  }
-
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-
-  if (is.null(result_rds) || !file.exists(result_rds)) {
-    res$status <- 404L; return(list(error = "Result file not found"))
-  }
-
-  tryCatch({
-    result <- readRDS(result_rds)
-    script_path <- file.path(job_dir, "reproducible_run.R")
-    source(sdm_resolve_module("script_export.R"), local = TRUE)
-    export_run_script(result, script_path)
-    list(ok = TRUE, script_path = script_path)
-  }, error = function(e) {
-    list(error = paste("Script export failed:", conditionMessage(e)))
-  })
-}
-
-#* Generate run manifest for reproducibility
+#* Generate JSON manifest for a run
 #* @get /api/v1/output/manifest/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_output_manifest(res, run_id, app_dir)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  config <- meta$config %||% list()
-  metrics <- meta$metrics %||% list()
-  output_files <- meta$output_files %||% list()
-
-  # Git commit SHA
-  git_sha <- tryCatch(
-    system("git rev-parse HEAD", intern = TRUE, ignore.stderr = TRUE),
-    error = function(e) NA_character_
-  )
-  if (length(git_sha) != 1 || !nzchar(git_sha)) git_sha <- NA_character_
-
-  # Package versions from sessionInfo
-  si <- sessionInfo()
-  pkg_versions <- list()
-  if (!is.null(si$otherPkgs)) {
-    for (pkg_name in names(si$otherPkgs)) {
-      pkg_versions[[pkg_name]] <- si$otherPkgs[[pkg_name]]$Version %||% NA_character_
-    }
-  }
-
-  # SHA-256 hash of occurrence file
-  occ_hash <- NA_character_
-  occ_file <- config$occurrence_file
-  if (!is.null(occ_file) && nzchar(occ_file) && file.exists(occ_file)) {
-    occ_hash <- tryCatch(
-      digest::digest(occ_file, algo = "sha256", file = TRUE),
-      error = function(e) NA_character_
-    )
-  }
-
-  manifest <- list(
-    run_id = meta$id,
-    run_timestamp = meta$started_at %||% format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    generated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    app_version = list(
-      git_sha = git_sha,
-      r_version = R.version.string,
-      platform = R.version$platform,
-      package_versions = pkg_versions
-    ),
-    species = config$species,
-    model = list(
-      id = config$model_id,
-      seed = config$seed %||% NA_integer_,
-      parameters = config
-    ),
-    data = list(
-      occurrence_file = occ_file,
-      occurrence_hash_sha256 = occ_hash,
-      record_count = metrics$presence_records %||% NA_integer_
-    ),
-    climate = list(
-      source = config$source %||% "worldclim",
-      worldclim_dir = config$worldclim_dir %||% NA_character_,
-      biovars = config$biovars %||% NA_character_,
-      resolution = config$worldclim_res %||% 10
-    ),
-    validation = list(
-      cv_folds = config$cv_folds %||% NA_integer_,
-      cv_strategy = config$cv_strategy %||% NA_character_,
-      seed = config$seed %||% NA_integer_
-    ),
-    metrics = metrics,
-    output_files = output_files
-  )
-
-  manifest_path <- file.path(job_dir, "manifest.json")
-  writeLines(jsonlite::toJSON(manifest, auto_unbox = TRUE, pretty = TRUE), manifest_path)
-
-  list(ok = TRUE, manifest_path = manifest_path, manifest = manifest)
-}
-
-#* Get VIF collinearity screening results for a run
+#* Get VIF screening results
 #* @get /api/v1/diagnostics/vif/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_diagnostics_vif(res, run_id)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") {
-    res$status <- 400L; return(list(error = "Run not completed yet"))
-  }
-
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-
-  if (is.null(result_rds) || !file.exists(result_rds)) {
-    res$status <- 404L; return(list(error = "Result file not found"))
-  }
-
-  tryCatch({
-    result <- readRDS(result_rds)
-    env_info <- result$environment
-    vif_result <- env_info$vif_result
-
-    if (is.null(vif_result)) {
-      return(list(
-        available = FALSE,
-        message = "VIF reduction was not enabled for this run",
-        selected_vars = env_info$names %||% character(0)
-      ))
-    }
-
-    vif_history <- if (!is.null(vif_result$vif_history) && is.data.frame(vif_result$vif_history)) {
-      lapply(seq_len(nrow(vif_result$vif_history)), function(i) as.list(vif_result$vif_history[i, ]))
-    } else {
-      list()
-    }
-
-    list(
-      available = TRUE,
-      selected = vif_result$selected %||% character(0),
-      dropped = vif_result$dropped %||% character(0),
-      vif_final = vif_result$vif_final,
-      vif_history = vif_history,
-      all_vars = env_info$names %||% character(0),
-      var_means = env_info$means %||% list(),
-      var_sds = env_info$sds %||% list()
-    )
-  }, error = function(e) {
-    list(error = paste("VIF diagnostics failed:", conditionMessage(e)))
-  })
-}
-
-#* Get response curve data for a run
+#* Get response curves data
 #* @get /api/v1/diagnostics/response-curves/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_diagnostics_response_curves(res, run_id)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") {
-    res$status <- 400L; return(list(error = "Run not completed yet"))
-  }
-
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-
-  if (is.null(result_rds) || !file.exists(result_rds)) {
-    res$status <- 404L; return(list(error = "Result file not found"))
-  }
-
-  tryCatch({
-    result <- readRDS(result_rds)
-    rc <- result$response_curves
-
-    if (is.null(rc) || length(rc) == 0) {
-      return(list(available = FALSE, message = "Response curves not computed for this run"))
-    }
-
-    curves <- lapply(names(rc), function(var) {
-      df <- rc[[var]]
-      if (is.null(df) || !is.data.frame(df)) return(NULL)
-      list(
-        covariate = var,
-        points = lapply(seq_len(nrow(df)), function(i) list(
-          value = df$value[i],
-          suitability = df$suitability[i]
-        ))
-      )
-    })
-    curves <- Filter(Negate(is.null), curves)
-
-    list(
-      available = TRUE,
-      n_curves = length(curves),
-      curves = curves
-    )
-  }, error = function(e) {
-    list(error = paste("Response curves failed:", conditionMessage(e)))
-  })
-}
-
-#* Get Accumulated Local Effects data for a run
+#* Get Accumulated Local Effects (ALE) data
 #* @get /api/v1/diagnostics/ale/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_diagnostics_ale(res, run_id)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") {
-    res$status <- 400L; return(list(error = "Run not completed yet"))
-  }
-
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-
-  if (is.null(result_rds) || !file.exists(result_rds)) {
-    res$status <- 404L; return(list(error = "Result file not found"))
-  }
-
-  tryCatch({
-    result <- readRDS(result_rds)
-    fit_obj <- result$fit
-    if (is.null(fit_obj) || is.null(fit_obj$model_data)) {
-      return(list(available = FALSE, message = "Model data not available for ALE"))
-    }
-
-    ale_data <- compute_ale(fit_obj, model_data = fit_obj$model_data, n_points = 50)
-
-    if (is.null(ale_data) || length(ale_data) == 0) {
-      return(list(available = FALSE, message = "ALE computation returned no data"))
-    }
-
-    curves <- lapply(names(ale_data), function(var) {
-      df <- ale_data[[var]]
-      if (is.null(df) || !is.data.frame(df)) return(NULL)
-      list(
-        covariate = var,
-        points = lapply(seq_len(nrow(df)), function(i) list(
-          value = df$value[i],
-          ale = df$ale[i]
-        ))
-      )
-    })
-    curves <- Filter(Negate(is.null), curves)
-
-    list(
-      available = TRUE,
-      n_curves = length(curves),
-      curves = curves
-    )
-  }, error = function(e) {
-    list(error = paste("ALE failed:", conditionMessage(e)))
-  })
-}
-
-#* Get variable importance data for a run
+#* Get variable importance data
 #* @get /api/v1/diagnostics/importance/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_diagnostics_importance(res, run_id)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") {
-    res$status <- 400L; return(list(error = "Run not completed yet"))
-  }
-
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-
-  if (is.null(result_rds) || !file.exists(result_rds)) {
-    res$status <- 404L; return(list(error = "Result file not found"))
-  }
-
-  tryCatch({
-    result <- readRDS(result_rds)
-    imp <- result$variable_importance
-
-    if (is.null(imp) || !is.data.frame(imp) || nrow(imp) == 0) {
-      return(list(available = FALSE, message = "Variable importance not computed for this run"))
-    }
-
-    importance_data <- lapply(seq_len(nrow(imp)), function(i) list(
-      variable = imp$variable[i],
-      importance = imp$importance[i],
-      sd = imp$sd[i],
-      baseline = imp$baseline[i]
-    ))
-
-    list(
-      available = TRUE,
-      n_variables = nrow(imp),
-      importance = importance_data
-    )
-  }, error = function(e) {
-    list(error = paste("Variable importance failed:", conditionMessage(e)))
-  })
-}
-
-#* Get per-cell SHAP explanation
+#* Compute per-cell SHAP explanation
+#* @parser json
 #* @post /api/v1/diagnostics/shap/cell
-function(res, run_id = "", longitude = NULL, latitude = NULL) {
-  if (!nzchar(run_id) || is.null(longitude) || is.null(latitude)) {
-    res$status <- 400L; return(list(error = "run_id, longitude, and latitude required"))
-  }
+function(res, run_id = "", longitude = NULL, latitude = NULL) handle_diagnostics_shap_cell(res, run_id, longitude, latitude)
 
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
-
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") {
-    res$status <- 400L; return(list(error = "Run not completed yet"))
-  }
-
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-
-  if (is.null(result_rds) || !file.exists(result_rds)) {
-    res$status <- 404L; return(list(error = "Result file not found"))
-  }
-
-  tryCatch({
-    result <- readRDS(result_rds)
-    if (is.null(result$fit) || is.null(result$fit$model_data)) {
-      return(list(available = FALSE, message = "Model data not available for SHAP"))
-    }
-
-    model_data <- result$fit$model_data
-    covariates <- result$fit$covariates
-    if (is.null(covariates) || length(covariates) == 0) {
-      return(list(available = FALSE, message = "Covariates not available"))
-    }
-
-    if (!requireNamespace("fastshap", quietly = TRUE)) {
-      return(list(available = FALSE, message = "fastshap package required for SHAP"))
-    }
-
-    coord_df <- data.frame(x = as.numeric(longitude), y = as.numeric(latitude))
-    env_rast <- tryCatch(terra::rast(meta$output_files$env_tif %||% ""), error = function(e) NULL)
-    if (!is.null(env_rast)) {
-      cell_vals <- terra::extract(env_rast, coord_df)
-      if (is.null(cell_vals) || nrow(cell_vals) == 0) {
-        return(list(available = FALSE, message = "Cell coordinates outside raster extent"))
-      }
-      cell_vals <- as.numeric(cell_vals[1, ])
-      names(cell_vals) <- names(env_rast)
-      cell_vals <- cell_vals[!is.na(cell_vals)]
-    } else {
-      return(list(available = FALSE, message = "Environmental raster not available"))
-    }
-
-    shap_vals <- tryCatch(
-      compute_shap_cell(result$fit, cell_vals, background = model_data, n_samples = 200L),
-      error = function(e) NULL
-    )
-
-    if (is.null(shap_vals)) {
-      return(list(available = FALSE, message = "SHAP computation failed"))
-    }
-
-    shap_list <- lapply(names(shap_vals), function(v) list(
-      variable = v, value = cell_vals[v],
-      shap_value = shap_vals[v]
-    ))
-    pred_fun <- build_importance_predict_fun(result$fit)
-    prediction <- if (!is.null(pred_fun)) {
-      as.numeric(pred_fun(result$fit, as.data.frame(t(cell_vals))))
-    } else NA_real_
-
-    list(available = TRUE, prediction = prediction, shap = shap_list)
-  }, error = function(e) {
-    list(error = paste("SHAP cell explanation failed:", conditionMessage(e)))
-  })
-}
-
-#* Get climate-change driver attribution summary
+#* Get climate driver attribution
 #* @get /api/v1/diagnostics/climate-drivers/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_diagnostics_climate_drivers(res, run_id)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") {
-    res$status <- 400L; return(list(error = "Run not completed yet"))
-  }
-
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-
-  if (is.null(result_rds) || !file.exists(result_rds)) {
-    res$status <- 404L; return(list(error = "Result file not found"))
-  }
-
-  tryCatch({
-    result <- readRDS(result_rds)
-    paths <- result$paths %||% list()
-    delta_tif <- paths$delta_tif
-
-    if (is.null(delta_tif) || !file.exists(delta_tif)) {
-      return(list(available = FALSE, message = "Future projection not available for this run"))
-    }
-
-    delta <- terra::rast(delta_tif)
-    delta_vals <- terra::values(delta)
-    delta_vals <- delta_vals[is.finite(delta_vals)]
-
-    if (length(delta_vals) == 0) {
-      return(list(available = FALSE, message = "Delta raster has no valid values"))
-    }
-
-    pct_loss <- mean(delta_vals < 0, na.rm = TRUE) * 100
-    pct_gain <- mean(delta_vals > 0, na.rm = TRUE) * 100
-    pct_stable <- 100 - pct_loss - pct_gain
-    mean_delta <- mean(delta_vals, na.rm = TRUE)
-    sd_delta <- stats::sd(delta_vals, na.rm = TRUE)
-
-    list(
-      available = TRUE,
-      has_future_projection = TRUE,
-      summary = list(
-        mean_delta = mean_delta,
-        sd_delta = sd_delta,
-        min_delta = min(delta_vals, na.rm = TRUE),
-        max_delta = max(delta_vals, na.rm = TRUE),
-        pct_loss = pct_loss,
-        pct_gain = pct_gain,
-        pct_stable = pct_stable,
-        n_cells = length(delta_vals)
-      ),
-      note = "Full per-variable attribution available via SHAP cell click on the suitability map"
-    )
-  }, error = function(e) {
-    list(error = paste("Climate driver analysis failed:", conditionMessage(e)))
-  })
-}
-
-#* Get Continuous Boyce Index data for a run
+#* Get Continuous Boyce Index (CBI) data
 #* @get /api/v1/diagnostics/cbi/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_diagnostics_cbi(res, run_id)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") {
-    res$status <- 400L; return(list(error = "Run not completed yet"))
-  }
-
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-
-  if (is.null(result_rds) || !file.exists(result_rds)) {
-    res$status <- 404L; return(list(error = "Result file not found"))
-  }
-
-  tryCatch({
-    result <- readRDS(result_rds)
-    pres_suit <- result$fit$presence_suit
-    bg_suit <- result$fit$background_suit
-
-    if (is.null(pres_suit) || is.null(bg_suit)) {
-      return(list(available = FALSE, message = "Suitability data not available for CBI computation"))
-    }
-
-    source(sdm_resolve_module("metrics_binary.R"), local = TRUE)
-    cbi_result <- continuous_boyce_index(pres_suit, bg_suit, n_bins = 51, win = 0.1)
-
-    if (is.null(cbi_result) || !is.data.frame(cbi_result$bins)) {
-      return(list(available = FALSE, message = "CBI computation returned no data"))
-    }
-
-    bins_df <- cbi_result$bins
-    bins_data <- lapply(seq_len(nrow(bins_df)), function(i) list(
-      bin_mid = bins_df$bin_mid[i],
-      ratio = bins_df$ratio[i],
-      smoothed = bins_df$smoothed[i]
-    ))
-
-    list(
-      available = TRUE,
-      cbi = cbi_result$cbi,
-      pe_ratio = cbi_result$pe_ratio,
-      n_bins = nrow(bins_df),
-      bins = bins_data,
-      note = if (!is.null(cbi_result$note) && nzchar(cbi_result$note)) cbi_result$note else NULL
-    )
-  }, error = function(e) {
-    list(error = paste("CBI computation failed:", conditionMessage(e)))
-  })
-}
-
-#* Get MESS extrapolation summary for a run
+#* Get MESS extrapolation summary
 #* @get /api/v1/diagnostics/mess/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_diagnostics_mess(res, run_id)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") {
-    res$status <- 400L; return(list(error = "Run not completed yet"))
-  }
-
-  metrics <- meta$metrics %||% list()
-  output_files <- meta$output_files %||% list()
-
-  mess_tif <- output_files$future_mess_tif
-  mod_tif <- output_files$future_mod_tif
-
-  if (is.null(mess_tif) || !file.exists(mess_tif)) {
-    return(list(
-      available = FALSE,
-      message = "No future projection with MESS for this run",
-      has_future_projection = !is.null(output_files$future_suitability_tif)
-    ))
-  }
-
-  list(
-    available = TRUE,
-    mess_tif = mess_tif,
-    mod_tif = mod_tif,
-    pct_extrapolation = metrics$projection$mess_pct_extrapolation %||% NULL,
-    message = "MESS raster available; download TIFF for full spatial analysis"
-  )
-}
-
-#* Get combined diagnostics summary for a run
+#* Get combined diagnostics summary
 #* @get /api/v1/diagnostics/summary/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
+function(res, run_id) handle_diagnostics_summary(res, run_id)
 
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Run not found"))
-  }
-
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") {
-    res$status <- 400L; return(list(error = "Run not completed yet"))
-  }
-
-  output_files <- meta$output_files %||% list()
-  metrics <- meta$metrics %||% list()
-  config <- meta$config %||% list()
-
-  result_rds <- output_files$result_rds
-  has_result_rds <- !is.null(result_rds) && file.exists(result_rds)
-
-  vif_available <- FALSE
-  response_curves_available <- FALSE
-  importance_available <- FALSE
-  cbi_available <- FALSE
-
-  if (has_result_rds) {
-    tryCatch({
-      result <- readRDS(result_rds)
-      vif_available <- !is.null(result$environment$vif_result)
-      response_curves_available <- !is.null(result$response_curves) && length(result$response_curves) > 0
-      importance_available <- !is.null(result$variable_importance) && is.data.frame(result$variable_importance) && nrow(result$variable_importance) > 0
-      cbi_available <- !is.null(result$fit$presence_suit) && !is.null(result$fit$background_suit)
-    }, error = function(e) {})
-  }
-
-  mess_available <- !is.null(output_files$future_mess_tif) && file.exists(output_files$future_mess_tif)
-
-  list(
-    run_id = run_id,
-    species = config$species,
-    model_id = config$model_id,
-    diagnostics = list(
-      vif = list(available = vif_available, enabled = isTRUE(config$vif_reduction)),
-      response_curves = list(available = response_curves_available),
-      variable_importance = list(available = importance_available),
-      cbi = list(available = cbi_available),
-      mess = list(available = mess_available)
-    ),
-    metrics = list(
-      auc_mean = metrics$auc_mean,
-      auc_sd = metrics$auc_sd,
-      tss_mean = metrics$tss_mean,
-      tss_sd = metrics$tss_sd,
-      presence_records = metrics$presence_records,
-      background_points = metrics$background_points
-    ),
-    files = list(
-      variable_importance_png = output_files$variable_importance_png %||% NULL,
-      response_curves_png = output_files$response_curves_png %||% NULL,
-      roc_curve_png = output_files$roc_curve_png %||% NULL,
-      cbi_png = output_files$cbi_png %||% NULL,
-      calibration_png = output_files$calibration_png %||% NULL,
-      cv_folds_png = output_files$cv_folds_png %||% NULL
-    )
-  )
-}
-
-#* Get ROC curve data for a run
+#* Get ROC curve data
 #* @get /api/v1/diagnostics/roc/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
-  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
-  tryCatch({
-    result <- readRDS(result_rds)
-    cv <- result$cv
-    if (is.null(cv) || !is.data.frame(cv$fold_metrics) || nrow(cv$fold_metrics) == 0) {
-      return(list(available = FALSE, message = "CV fold metrics not available"))
-    }
-    fm <- cv$fold_metrics
-    mean_fpr <- seq(0, 1, length.out = 100)
-    tpr_list <- apply(fm[, c("tp", "fp", "tn", "fn")], 1, function(row) {
-      tp <- row["tp"]; fp <- row["fp"]; tn <- row["tn"]; fn <- row["fn"]
-      n_pos <- tp + fn; n_neg <- fp + tn
-      if (n_pos < 2 || n_neg < 2) return(rep(NA_real_, 100))
-      fpr_val <- seq(0, 1, length.out = 100)
-      tpr_val <- sapply(fpr_val, function(f) {
-        threshold <- f * max(c(1, sqrt(n_pos * n_neg))) / sqrt(n_pos * n_neg) + 0.5
-        tp_at_fpr <- tp - f * n_pos
-        max(0, min(1, (tp_at_fpr + tn) / (n_pos + n_neg)))
-      })
-      tpr_val
-    })
-    mean_tpr <- if (is.matrix(tpr_list)) rowMeans(tpr_list, na.rm = TRUE) else rep(0.5, 100)
-    list(
-      available = TRUE,
-      auc = cv$auc_mean %||% NA_real_,
-      auc_sd = cv$auc_sd %||% NA_real_,
-      fpr = as.list(mean_fpr),
-      tpr = as.list(mean_tpr)
-    )
-  }, error = function(e) {
-    list(error = paste("ROC computation failed:", conditionMessage(e)))
-  })
-}
+function(res, run_id) handle_diagnostics_roc(res, run_id)
 
-#* Get calibration curve data for a run
+#* Get calibration curve data
 #* @get /api/v1/diagnostics/calibration/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
-  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
-  tryCatch({
-    result <- readRDS(result_rds)
-    cv <- result$cv
-    if (is.null(cv) || !is.data.frame(cv$predictions) || length(cv$predictions$predicted) == 0) {
-      return(list(available = FALSE, message = "CV predictions not available"))
-    }
-    preds <- cv$predictions
-    n_bins <- 10
-    preds$bin <- cut(preds$predicted, breaks = seq(0, 1, length.out = n_bins + 1), include.lowest = TRUE)
-    cal_df <- aggregate(observed ~ bin, data = preds, FUN = function(x) c(mean = mean(x), count = length(x)))
-    cal_list <- lapply(seq_len(nrow(cal_df)), function(i) {
-      b <- cal_df$bin[i]
-      mid <- mean(as.numeric(gsub("[\\[\\]()]", "", strsplit(as.character(b), ",")[[1]])))
-      list(bin_mid = mid, observed_freq = cal_df$observed[i, "mean"], count = as.integer(cal_df$observed[i, "count"]))
-    })
-    list(available = TRUE, bins = cal_list)
-  }, error = function(e) {
-    list(error = paste("Calibration computation failed:", conditionMessage(e)))
-  })
-}
+function(res, run_id) handle_diagnostics_calibration(res, run_id)
 
-#* Get per-fold cross-validation metrics
+#* Get per-fold CV metrics
 #* @get /api/v1/diagnostics/cv-folds/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
-  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
-  tryCatch({
-    result <- readRDS(result_rds)
-    cv <- result$cv
-    if (is.null(cv) || !is.data.frame(cv$fold_metrics) || nrow(cv$fold_metrics) == 0) {
-      return(list(available = FALSE, message = "CV fold metrics not available"))
-    }
-    fm <- cv$fold_metrics
-    fold_list <- lapply(seq_len(nrow(fm)), function(i) list(
-      fold = as.integer(fm$fold[i]),
-      auc = as.numeric(fm$auc[i]),
-      tss = as.numeric(fm$tss[i])
-    ))
-    list(
-      available = TRUE,
-      auc_mean = cv$auc_mean %||% NA_real_,
-      auc_sd = cv$auc_sd %||% NA_real_,
-      tss_mean = cv$tss_mean %||% NA_real_,
-      tss_sd = cv$tss_sd %||% NA_real_,
-      folds = fold_list
-    )
-  }, error = function(e) {
-    list(error = paste("CV folds computation failed:", conditionMessage(e)))
-  })
-}
+function(res, run_id) handle_diagnostics_cv_folds(res, run_id)
 
 #* Get threshold performance data
 #* @get /api/v1/diagnostics/threshold/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
-  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
-  tryCatch({
-    result <- readRDS(result_rds)
-    pres <- result$fit$presence_suit
-    bg <- result$fit$background_suit
-    if (is.null(pres) || is.null(bg)) {
-      return(list(available = FALSE, message = "Prediction data not available"))
-    }
-    thresholds <- seq(0, 1, length.out = 100)
-    threshold_list <- lapply(thresholds, function(t) {
-      tp <- sum(pres >= t, na.rm = TRUE)
-      fn <- sum(pres < t, na.rm = TRUE)
-      fp <- sum(bg >= t, na.rm = TRUE)
-      tn <- sum(bg < t, na.rm = TRUE)
-      sensitivity <- if ((tp + fn) > 0) tp / (tp + fn) else NA_real_
-      specificity <- if ((tn + fp) > 0) tn / (tn + fp) else NA_real_
-      tss <- if (is.finite(sensitivity) && is.finite(specificity)) sensitivity + specificity - 1 else NA_real_
-      list(threshold = t, sensitivity = sensitivity, specificity = specificity, tss = tss)
-    })
-    list(available = TRUE, thresholds = threshold_list)
-  }, error = function(e) {
-    list(error = paste("Threshold computation failed:", conditionMessage(e)))
-  })
-}
+function(res, run_id) handle_diagnostics_threshold(res, run_id)
 
 #* Get presence vs background density data
 #* @get /api/v1/diagnostics/density/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
-  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
-  tryCatch({
-    result <- readRDS(result_rds)
-    pres <- result$fit$presence_suit
-    bg <- result$fit$background_suit
-    if (is.null(pres) || is.null(bg)) {
-      return(list(available = FALSE, message = "Prediction data not available"))
-    }
-    pres_d <- stats::density(pres, from = 0, to = 1, na.rm = TRUE)
-    bg_d <- stats::density(bg, from = 0, to = 1, na.rm = TRUE)
-    list(
-      available = TRUE,
-      presence = list(x = as.list(pres_d$x), y = as.list(pres_d$y)),
-      background = list(x = as.list(bg_d$x), y = as.list(bg_d$y))
-    )
-  }, error = function(e) {
-    list(error = paste("Density computation failed:", conditionMessage(e)))
-  })
-}
+function(res, run_id) handle_diagnostics_density(res, run_id)
 
-#* Generate diagnostic PNG plots on demand for a completed run
+#* Generate diagnostic PNG plots
 #* @post /api/v1/diagnostics/plots/<run_id>
-function(res, run_id) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
-  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
-  result <- tryCatch(readRDS(result_rds), error = function(e) NULL)
-  if (is.null(result)) {
-    res$status <- 500L; return(list(error = "Failed to load result file"))
-  }
-  source(file.path(app_dir, "R", "output", "diagnostics_plots.R"), local = TRUE)
-  diag_files <- save_diagnostic_plots(result, job_dir, log_fun = function(...) {})
-  # Merge new diagnostic paths into meta.json output_files
-  meta$output_files <- c(meta$output_files %||% list(), diag_files)
-  sdm_write_json(meta, meta_file)
-  list(ok = TRUE, files = diag_files)
-}
+function(res, run_id) handle_diagnostics_plots(res, run_id)
 
-#* Download diagnostic data as CSV for a completed run
-#* @param type diagnostic type: importance, response_curves, cbi, vif
+#* Download diagnostics data as CSV
 #* @get /api/v1/diagnostics/data/<run_id>/<type>
-function(res, run_id, type) {
-  job_dir <- sdm_safe_job_dir(run_id)
-  if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta_file <- file.path(job_dir, "meta.json")
-  if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
-  output_files <- meta$output_files %||% list()
-  result_rds <- output_files$result_rds
-  if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
-  result <- tryCatch(readRDS(result_rds), error = function(e) NULL)
-  if (is.null(result)) { res$status <- 500L; return(list(error = "Failed to load result file")) }
-  csv_data <- switch(type,
-    importance = {
-      imp <- result$variable_importance
-      if (is.null(imp) || !is.data.frame(imp)) return(NULL)
-      imp
-    },
-    response_curves = {
-      rc <- result$response_curves
-      if (is.null(rc) || length(rc) == 0) return(NULL)
-      do.call(rbind, lapply(names(rc), function(nm) { df <- rc[[nm]]; df$covariate <- nm; df }))
-    },
-    cbi = {
-      cbi_result <- tryCatch({
-        pres <- result$fit$presence_suit; bg <- result$fit$background_suit
-        if (is.null(pres) || is.null(bg)) NULL else {
-          source(file.path(app_dir, "R", "output", "diagnostics_plots.R"), local = TRUE)
-          continuous_boyce_index(pres, bg, n_bins = 51, win = 0.1)
-        }
-      }, error = function(e) NULL)
-      if (is.null(cbi_result) || is.null(cbi_result$bins)) return(NULL)
-      cbi_result$bins
-    },
-    vif = {
-      env <- result$environment
-      if (is.null(env) || is.null(env$vif_result)) return(NULL)
-      vif <- env$vif_result
-      combined <- data.frame(
-        variable = c(vif$selected %||% character(0), vif$dropped %||% character(0)),
-        status = c(rep("retained", length(vif$selected %||% character(0))), rep("dropped", length(vif$dropped %||% character(0)))),
-        stringsAsFactors = FALSE
-      )
-      if (!is.null(vif$vif_final)) combined$vif_final <- vif$vif_final
-      combined
-    },
-    mess = {
-      list(pct_extrapolation = meta$metrics$projection$mess_pct_extrapolation %||% NA)
-    },
-    NULL
-  )
-  if (is.null(csv_data)) { res$status <- 404L; return(list(error = paste0("Data not available for type: ", type))) }
-  res$headers[["Content-Type"]] <- "text/csv"
-  res$headers[["Content-Disposition"]] <- paste0("attachment; filename=\"", type, "_", run_id, ".csv\"")
-  write.csv(csv_data, row.names = FALSE)
-}
+function(res, run_id, type) handle_diagnostics_data(res, run_id, type)
 
-#* Check which BIO variables are already downloaded
-#* @param source data source: worldclim, chelsa, cmip6
-#* @param resolution spatial resolution (for worldclim)
-#* @param biovars comma-separated BIO variable IDs
-#* @param gcm GCM name (for cmip6)
-#* @param ssp SSP scenario (for cmip6)
-#* @param period time period (for cmip6)
+#* Check BIO variable availability
+#* @param source Climate data source (worldclim, chelsa)
+#* @param resolution Raster resolution
+#* @param biovars Comma-separated BIO variable numbers
+#* @param gcm GCM name for future scenarios
+#* @param ssp SSP scenario
+#* @param period Time period
 #* @get /api/v1/climate/check
-function(source = "worldclim", resolution = "10", biovars = "", gcm = "", ssp = "", period = "") {
-  tryCatch({
-    if (length(biovars) > 1) biovars <- paste(biovars, collapse = ",")
-    requested <- as.integer(unlist(strsplit(as.character(biovars), ",")))
-    requested <- unique(requested[!is.na(requested)])
+function(res, source = "worldclim", resolution = "10", biovars = "", gcm = "", ssp = "", period = "")
+  handle_climate_check(res, app_dir, source, resolution, biovars, gcm, ssp, period)
 
-    existing_nums <- integer(0)
+#* Check covariate availability
+#* @get /api/v1/covariates/check
+function(res) handle_covariates_check(res, app_dir)
 
-    if (source == "worldclim") {
-      res_esc <- gsub("\\.", "\\\\.", as.character(resolution))
-      pattern <- sprintf("^wc2\\.1_%sm_bio_\\d+\\.tif$", res_esc)
-      files <- list.files(file.path(app_dir, sdm_default_worldclim_dir), pattern = pattern)
-      existing_nums <- as.integer(gsub("^.*_bio_(\\d+)\\.tif$", "\\1", files))
-    } else if (source == "chelsa") {
-      files <- list.files(file.path(app_dir, sdm_default_chelsa_dir), pattern = "^CHELSA_bio\\d+_.*\\.tif$")
-      existing_nums <- as.integer(gsub("^CHELSA_bio0*(\\d+)_.*$", "\\1", files))
-    } else if (source == "cmip6") {
-      if (nzchar(gcm) && nzchar(ssp) && nzchar(period)) {
-        if (grepl("(\\.\\./|\\.\\.\\\\|/)", paste(gcm, ssp, period))) {
-          stop("Invalid climate path parameters", call. = FALSE)
-        }
-        future_dir <- file.path(app_dir, sdm_default_future_worldclim_dir, paste0(gcm, "_", ssp, "_", period))
-        if (dir.exists(future_dir)) {
-          files <- list.files(future_dir, pattern = "^bio\\d+\\.tif$")
-          existing_nums <- as.integer(gsub("^bio(\\d+)\\.tif$", "\\1", files))
-        }
-      }
-    }
+#* Download a non-climate covariate
+#* @parser json
+#* @post /api/v1/covariates/download
+function(req) handle_covariates_download(req, app_dir)
 
-    available <- intersect(requested, existing_nums)
-    missing <- setdiff(requested, existing_nums)
+#* Download a non-climate covariate in background
+#* @post /api/v1/covariates/download_bg
+function(req) handle_covariates_download_bg(req, app_dir)
 
-    list(
-      source = source,
-      res = resolution,
-      available = as.list(available),
-      missing = as.list(missing)
-    )
-  }, error = function(e) {
-    requested_safe <- if (exists("requested", inherits = FALSE)) requested else integer(0)
-    list(
-      source = source,
-      res = resolution,
-      available = as.list(integer(0)),
-      missing = as.list(requested_safe)
-    )
-  })
-}
+#* Serve XYZ tile from COG
+#* @param band Band name or index (optional, defaults to first band)
+#* @get /api/v1/results/tiles/cog/<run_id>/<z>/<x>/<y>
+#* @serializer contentType list(type="image/png")
+function(res, run_id, z, x, y, band = NULL) handle_tile_serve(res, run_id, z, x, y, app_dir, band)
+
+#* Serve default boundary GeoJSON
+#* @param resolution Boundary resolution
+#* @param type Boundary type (admin0, admin1)
+#* @param country Country name or code
+#* @post /api/v1/data/boundary/default
+function(res, resolution = NULL, type = NULL, country = NULL)
+  handle_boundary_default(res, app_dir, resolution, type, country)
+
+#* Upload a custom boundary file
+#* @param file_name Name for the boundary file
+#* @param file_content Base64-encoded file content
+#* @post /api/v1/data/boundary/upload
+function(req, res) handle_boundary_upload(req, res, app_dir)
+
+#* List custom boundaries
+#* @post /api/v1/data/boundary/list
+function(res) handle_boundary_list(res, app_dir)
+
+#* Delete a custom boundary
+#* @param file_path Path to the boundary file to delete
+#* @post /api/v1/data/boundary/delete
+function(req, res) handle_boundary_delete(req, res, app_dir)
+
+#* List country names
+#* @post /api/v1/data/boundary/countries
+function(res) handle_boundary_countries(res, app_dir)
+
+#* Compute bounding box extent
+#* @param file_path Path to boundary file
+#* @param type Boundary type (admin0, admin1)
+#* @param resolution Boundary resolution
+#* @param country Country name
+#* @param buffer_deg Buffer in degrees
+#* @post /api/v1/data/boundary/extent
+function(res, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2)
+  handle_boundary_extent(res, app_dir, file_path, type, resolution, country, buffer_deg)
+
+#* Download Natural Earth boundary
+#* @param type Boundary type (admin0, admin1)
+#* @param resolution Boundary resolution (10m, 50m, 110m)
+#* @param country Country name
+#* @post /api/v1/data/boundary/download
+function(res, type = "admin0", resolution = "110m", country = "all")
+  handle_boundary_download(res, app_dir, type, resolution, country)
+
+#* Generate ensemble summary rasters from component TIFFs
+#* @post /api/v1/models/ensemble-rasters/<job_id>
+function(res, job_id) handle_ensemble_rasters(res, job_id, app_dir)
+
+#* Generate synthetic multi-species occurrence data for stress testing
+#* @post /api/v1/occurrences/synthetic
+function(req, res) handle_synthetic_occurrences(req, res, app_dir)

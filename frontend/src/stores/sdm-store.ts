@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import type { WorkspaceFile } from "@/app/(dashboard)/data/types";
 
 interface SDMState {
   species: string;
@@ -35,13 +37,38 @@ interface SDMState {
   flaggedIndices: number[];
   setFlaggedIndices: (indices: number[]) => void;
 
+  detectedSpecies: string[];
+  setDetectedSpecies: (species: string[]) => void;
+
+  targetsRunId: string | null;
+  setTargetsRunId: (id: string | null) => void;
+
+  targetsProgress: {
+    completed: number;
+    errored: number;
+    running: number;
+    total: number;
+  } | null;
+  setTargetsProgress: (progress: SDMState["targetsProgress"]) => void;
+
+  modelJobId: string | null;
+  setModelJobId: (id: string | null) => void;
+
+  modelJobStartTime: string | null;
+  setModelJobStartTime: (time: string | null) => void;
+
+  workspaceFiles: WorkspaceFile[];
+  setWorkspaceFiles: (files: WorkspaceFile[] | ((prev: WorkspaceFile[]) => WorkspaceFile[])) => void;
+
   error: string | null;
   setError: (error: string | null) => void;
 
   reset: () => void;
 }
 
-export const useSDMStore = create<SDMState>()((set) => ({
+export const useSDMStore = create<SDMState>()(
+  persist(
+    (set) => ({
   species: "Untitled species",
   setSpecies: (species) => set({ species }),
 
@@ -69,10 +96,31 @@ export const useSDMStore = create<SDMState>()((set) => ({
   flaggedIndices: [],
   setFlaggedIndices: (indices) => set({ flaggedIndices: indices }),
 
+  detectedSpecies: [],
+  setDetectedSpecies: (species) => set({ detectedSpecies: species }),
+
+  targetsRunId: null,
+  setTargetsRunId: (id) => set({ targetsRunId: id }),
+
+  targetsProgress: null,
+  setTargetsProgress: (progress) => set({ targetsProgress: progress }),
+
+  modelJobId: null,
+  setModelJobId: (id) => set({ modelJobId: id }),
+
+  modelJobStartTime: null,
+  setModelJobStartTime: (time) => set({ modelJobStartTime: time }),
+
+  workspaceFiles: [],
+  setWorkspaceFiles: (files) => set((state) => ({
+    workspaceFiles: typeof files === "function" ? files(state.workspaceFiles) : files,
+  })),
+
   error: null,
   setError: (error) => set({ error }),
 
-  reset: () =>
+  reset: () => {
+    useSDMStore.persist.clearStorage();
     set({
       species: "Untitled species",
       occurrenceFilePath: null,
@@ -83,6 +131,32 @@ export const useSDMStore = create<SDMState>()((set) => ({
       uploadResult: null,
       cleanResult: null,
       flaggedIndices: [],
+      detectedSpecies: [],
+      targetsRunId: null,
+      targetsProgress: null,
+      modelJobId: null,
+      modelJobStartTime: null,
+      workspaceFiles: [],
       error: null,
+    });
+  },
     }),
-}));
+    {
+      name: "sdm-store",
+      partialize: (state) => ({
+        species: state.species,
+        detectedSpecies: state.detectedSpecies,
+        occurrenceFilePath: state.occurrenceFilePath,
+        recordCount: state.recordCount,
+        uploadResult: state.uploadResult,
+        pipelineRunId: state.pipelineRunId,
+        modelJobId: state.modelJobId,
+        modelJobStartTime: state.modelJobStartTime,
+        workspaceFiles: state.workspaceFiles,
+        cleanedOccurrence: state.cleanedOccurrence
+          ? { ...state.cleanedOccurrence, df: [] }
+          : null,
+      }),
+    }
+  )
+);

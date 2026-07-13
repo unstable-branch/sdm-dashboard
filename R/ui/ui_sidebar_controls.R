@@ -295,11 +295,28 @@ ui_sidebar_controls <- function() {
             selected = "DNN_Medium"
           ),
           numericInput("dnn_n_seeds", "Ensemble seeds (for uncertainty)", value = 5, min = 1, max = 20, step = 1),
+          numericInput("dnn_mc_samples", "MC Dropout samples (0 = off)", value = 0, min = 0, max = 100, step = 5),
+          conditionalPanel(
+            "input.dnn_mc_samples > 0",
+            selectInput("dnn_uncertainty_method", "Uncertainty method",
+              choices = c("MC Dropout (epistemic only)" = "mc_dropout", "Full decomposition (aleatoric + epistemic)" = "aleatoric_epistemic"),
+              selected = "mc_dropout"
+            ),
+            div(class = "small-muted", "MC Dropout: SD across dropout masks (epistemic). Full: also decomposes Bernoulli aleatoric noise.")
+          ),
           selectInput("dnn_device", "Device",
             choices = c("Auto" = "auto", "CPU" = "cpu", "GPU" = "gpu"),
             selected = "auto"
           ),
-          div(class = "small-muted", "Multiple seeds train independent networks with different random initialisations. Prediction SD across seeds measures epistemic uncertainty.")
+          selectInput("dnn_mixed_precision", "Mixed precision (FP16)",
+            choices = c("Auto (GPU only)" = "auto", "Off" = "off"),
+            selected = "auto"
+          ),
+          selectInput("dnn_cuda_graphs", "CUDA Graphs (experimental, NVIDIA CUDA only)",
+            choices = c("Off" = "off", "Auto" = "auto", "On" = "on"),
+            selected = getOption("sdm.dnn_cuda_graphs_default", "auto")
+          ),
+          div(class = "small-muted", "GPU uses an available compatible backend. CUDA Graphs are NVIDIA CUDA-only. Multiple seeds train independent networks with different random initialisations. Prediction SD across seeds measures epistemic uncertainty.")
         ),
         conditionalPanel(
           "input.model_id == 'bioclim'",
@@ -387,6 +404,11 @@ ui_sidebar_controls <- function() {
           ),
           div(class = "small-muted", "Auto-estimated if left at default.")
         ),
+        selectInput("gpu_enabled", "GPU acceleration",
+          choices = c("Auto (use if available)" = "auto", "CPU only" = "off"),
+          selected = "auto"
+        ),
+        div(class = "small-muted", "Controls whether models use GPU. When 'CPU only', all GPU acceleration is disabled."),
         numericInput("n_cores", "CPU cores for compile/predict/CV", value = safe_numeric(default_cores, 1), min = 1, max = safe_numeric(detect_available_cores(TRUE), 4), step = 1),
         div(class = "small-muted", "Also sets MAKEFLAGS=-jN for source package compilation."),
         numericInput("aggregation_factor", "Raster aggregation for speed (1 = native)", value = sdm_default_aggregation_factor, min = 1, max = 8, step = 1)

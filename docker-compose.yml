@@ -4,20 +4,23 @@ services:
     profiles: ["core", "dev", "full"]
     restart: unless-stopped
     image: postgis/postgis:16-3.4
+    shm_size: 256m
     environment:
       POSTGRES_USER: sdm
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: sdm_platform
-    ports:
-      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sdm -d sdm_platform"]
+      test: ["CMD-SHELL", "pg_isready -U sdm -d sdm_platform || exit 1"]
       interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     networks:
       - sdm-network
 
@@ -25,15 +28,18 @@ services:
     profiles: ["core", "dev", "full"]
     restart: unless-stopped
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     volumes:
       - redis-data:/data
+    command: ["redis-server", "--maxmemory", "2gb", "--maxmemory-policy", "noeviction"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     networks:
       - sdm-network
 
@@ -56,6 +62,10 @@ services:
     volumes:
       - garage-data:/var/lib/garage
       - ./garage/config.toml:/etc/garage.toml:ro
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     healthcheck:
       test: ["CMD", "/garage", "status"]
       interval: 5s
@@ -80,23 +90,31 @@ services:
       - plumber-outputs:/app/outputs
       - plumber-covariates:/app/covariates
       - plumber-worldclim:/app/Worldclim
+      - plumber-chelsa:/app/chelsa
+      - plumber-future:/app/Worldclim_future
     environment:
       - SDM_PROJECT_ROOT=/app
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
+      - GDAL_CACHEMAX=512
+      - SDM_CHILD_MAX_VSIZE=6Gb
+      - REDIS_HOST=redis
+      - REDIS_URL=redis://redis:6379
+      - SDM_MIN_GPU_VRAM_MIB=1500
       - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
+      - ALA_API_KEY=${ALA_API_KEY:-}
     init: true
     healthcheck:
       test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]
-      interval: 10s
+      interval: 15s
       timeout: 5s
-      retries: 10
-      start_period: 120s
+      retries: 20
+      start_period: 180s
     deploy:
       resources:
         limits:
-          cpus: "4"
+          cpus: ${PLUMBER_CPU_LIMIT:-8}
           memory: 8G
     networks:
       - sdm-network
@@ -112,12 +130,13 @@ services:
       args:
         - PNPM_REGISTRY=${PNPM_REGISTRY:-https://registry.npmmirror.com}
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     environment:
       - SDM_PROJECT_ROOT=/app
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=${FRONTEND_API_URL:-}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - CSRF_SECRET=${CSRF_SECRET:?CSRF_SECRET is required}
       - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY:?DATA_ENCRYPTION_KEY is required}
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
@@ -138,7 +157,7 @@ services:
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     volumes:
       - upload-data:/app/data/uploads
-      - plumber-outputs:/app/outputs:ro
+      - plumber-outputs:/app/outputs
     depends_on:
       postgres:
         condition: service_healthy
@@ -147,13 +166,17 @@ services:
       garage:
         condition: service_started
       plumber:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:4000/health || exit 1"]
       interval: 5s
       timeout: 3s
-      retries: 5
-      start_period: 30s
+      retries: 30
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     networks:
       - sdm-network
 
@@ -174,12 +197,17 @@ services:
       - API_URL=http://api:4000
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
       interval: 5s
+      start_period: 30s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     networks:
       - sdm-network
 
@@ -191,6 +219,8 @@ volumes:
   plumber-outputs:
   plumber-covariates:
   plumber-worldclim:
+  plumber-chelsa:
+  plumber-future:
   upload-data:
 
 networks:

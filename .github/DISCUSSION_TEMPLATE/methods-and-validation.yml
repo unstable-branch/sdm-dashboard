@@ -1,0 +1,63 @@
+title: "[Methods and Validation] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use Methods and Validation for SDM methods, assumptions, metrics, uncertainty, ecological interpretation, and validation practice.
+  - type: input
+    id: topic
+    attributes:
+      label: Topic
+      description: What method, assumption, metric, or interpretation question should be discussed?
+      placeholder: "How should we present MESS extrapolation alongside future suitability?"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Study design
+        - Occurrence cleaning
+        - Background/pseudo-absence strategy
+        - Cross-validation
+        - Model comparison
+        - Ensemble methods
+        - Future projection
+        - Uncertainty and extrapolation
+        - Ecological interpretation
+        - Reporting standards
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Explain the modelling situation, decision point, or scientific concern.
+      placeholder: "The current workflow reports..., but users may interpret..."
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Optional links to papers, docs, examples, package docs, or prior discussions.
+      placeholder: "- docs/METHODS.md\n- ..."
+    validations:
+      required: false
+  - type: textarea
+    id: desired-outcome
+    attributes:
+      label: Desired outcome
+      description: What would a useful answer, doc change, or implementation decision look like?
+      placeholder: "A clear recommendation for..."
+    validations:
+      required: false
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This is a methods or interpretation discussion, not a reproducible bug report or security issue.
+          required: true

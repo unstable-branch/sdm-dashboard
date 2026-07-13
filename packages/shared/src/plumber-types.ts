@@ -41,6 +41,8 @@ export interface PlumberModelInfo {
   min_records: number | null;
   packages: string[];
   notes: string;
+  complexity_tier: string;
+  supports_uncertainty: boolean;
 }
 
 // ── Occurrences ─────────────────────────────────────────────────────────────
@@ -65,6 +67,7 @@ export interface PlumberCleanResponse {
   removed_duplicates: number;
   n_absent_excluded: number;
   source_counts: Record<string, number>;
+  species_counts?: Record<string, number>;
   cc_flagged: number;
   training_extent: Array<Array<number>>;
   cleaned_records: Array<Record<string, unknown>>;
@@ -165,6 +168,85 @@ export interface PlumberErrorResponse {
   error: string;
   error_code?: string;
   error_hint?: string;
+}
+
+// ── Job logs ─────────────────────────────────────────────────────────────────
+export interface PlumberJobLogs {
+  id: string;
+  stderr: string;
+  stdout: string;
+  progress_log: string;
+}
+
+// ── Targets pipeline ────────────────────────────────────────────────────────
+export interface TargetsRunRequest {
+  configs: Array<{
+    species: string;
+    model_id: string;
+    occurrence_file?: string;
+    cleaned_file_id?: string;
+    biovars?: string;
+    projection_extent?: string;
+    background_n?: number;
+    cv_folds?: number;
+    threshold?: number;
+    species_filter?: string;
+  }>;
+}
+
+export interface TargetsRunResponse {
+  job_id: string;
+  status: string;
+  n_species: number;
+  message: string;
+}
+
+export interface TargetsStatusResponse {
+  id: string;
+  status: string;
+  n_species: number;
+  started_at: string;
+  completed_at: string | null;
+  error: string | null;
+  error_code?: string;
+  error_hint?: string;
+  targets_progress: {
+    total_targets: number;
+    completed: number;
+    errored: number;
+    running: number;
+    targets: Array<{
+      name: string;
+      type: string;
+      status: string;
+      seconds: number | null;
+      error: string | null;
+    }>;
+  } | null;
+  progress_log: string[];
+}
+
+export interface TargetsResultEntry {
+  name: string;
+  status: string;
+  error: string | null;
+  metrics: {
+    auc_mean: number | null;
+    auc_sd: number | null;
+    tss_mean: number | null;
+    tss_sd: number | null;
+    cbi: number | null;
+    presence_records: number | null;
+    elapsed_seconds: number | null;
+  } | null;
+}
+
+export interface TargetsResultsResponse {
+  id: string;
+  status: string;
+  n_species: number;
+  species: string[];
+  results: Record<string, TargetsResultEntry>;
 }
 
 // ── Config defaults ─────────────────────────────────────────────────────────

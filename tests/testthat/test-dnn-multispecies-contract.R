@@ -75,8 +75,13 @@ test_that("dnn multispecies output attrs become result path contract entries", {
     tempfile(pattern = "species-b-", fileext = ".tif")
   )
   richness_tif <- tempfile(pattern = "richness-", fileext = ".tif")
+  unc_tifs <- c(
+    tempfile(pattern = "species-a-uncertainty-", fileext = ".tif"),
+    tempfile(pattern = "species-b-uncertainty-", fileext = ".tif")
+  )
   attr(suit, "species_tifs") <- species_tifs
   attr(suit, "richness_tif") <- richness_tif
+  attr(suit, "uncertainty_tifs") <- unc_tifs
 
   paths <- sdm_multispecies_output_paths(suit)
 
@@ -84,6 +89,18 @@ test_that("dnn multispecies output attrs become result path contract entries", {
   expect_equal(paths$multi_species_tif_1, species_tifs[[1]])
   expect_equal(paths$multi_species_tif_2, species_tifs[[2]])
   expect_equal(paths$multi_species_richness_tif, richness_tif)
+  expect_equal(paths$multi_species_uncertainty_count, "2")
+  expect_equal(paths$multi_species_uncertainty_1, unc_tifs[[1]])
+  expect_equal(paths$multi_species_uncertainty_2, unc_tifs[[2]])
+})
+
+test_that("dnn multispecies output path collector handles uncertainty attrs absent", {
+  suit <- list()
+  attr(suit, "species_tifs") <- c("/tmp/sp1.tif")
+  attr(suit, "richness_tif") <- "/tmp/rich.tif"
+  paths <- sdm_multispecies_output_paths(suit)
+  expect_equal(paths$multi_species_tif_count, "1")
+  expect_null(paths$multi_species_uncertainty_count)
 })
 
 test_that("dnn multispecies output path collector handles absent attrs", {

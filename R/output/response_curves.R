@@ -137,7 +137,7 @@ plot_response_curves <- function(curve_data, out_dir = NULL, ncol = 3) {
   }
 
   if (is.list(curve_data) && is.data.frame(curve_data[[1]])) {
-    combined_df <- do.call(rbind, curve_data)
+    combined_df <- data.table::rbindlist(curve_data)
   } else if (is.data.frame(curve_data) && "covariate" %in% names(curve_data)) {
     combined_df <- curve_data
   } else {

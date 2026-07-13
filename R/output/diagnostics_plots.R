@@ -33,7 +33,7 @@ save_diagnostic_plots <- function(result, job_dir, log_fun = NULL) {
   rc_path <- tryCatch({
     rc <- result$response_curves
     if (!is.null(rc) && length(rc) > 0 && is.list(rc)) {
-      combined_df <- if (is.data.frame(rc)) rc else do.call(rbind, rc)
+      combined_df <- if (is.data.frame(rc)) rc else data.table::rbindlist(rc)
       if (is.data.frame(combined_df) && "covariate" %in% names(combined_df) && nrow(combined_df) > 0) {
         p <- plot_response_curves(rc, out_dir = job_dir, ncol = 3)
         out <- file.path(job_dir, "response_curves_combined.png")

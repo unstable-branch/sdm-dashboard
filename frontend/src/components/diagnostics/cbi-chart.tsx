@@ -30,6 +30,16 @@ export function CbiChart({ data, loading }: CbiChartProps) {
     return <div className="text-sm text-sdm-muted italic">No bin data to display</div>;
   }
 
+  const chartData = bins.map((b) => {
+    const raw = b as unknown as Record<string, unknown>;
+    const binMid = Number(raw.bin_mid ?? raw.binMid ?? NaN);
+    return {
+      bin_mid: Number.isFinite(binMid) ? binMid : 0,
+      ratio: Number.isFinite(raw.ratio as number) ? (raw.ratio as number) : 0,
+      smoothed: Number.isFinite(raw.smoothed as number) ? (raw.smoothed as number) : 0,
+    };
+  }).filter((d) => d.bin_mid >= 0);
+
   const cbiValue: number | undefined = data.cbi;
   const cbiFinite = cbiValue != null && Number.isFinite(cbiValue);
   const cbiVal = cbiFinite ? cbiValue! : 0;
@@ -84,7 +94,7 @@ export function CbiChart({ data, loading }: CbiChartProps) {
       </div>
 
       <ResponsiveContainer width="100%" height={280}>
-        <LineChart data={bins} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+        <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
           <XAxis
             dataKey="bin_mid"

@@ -5,7 +5,9 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
                                    k = sdm_default_cv_folds, seed = sdm_default_seed,
                                    n_cores = 1, cv_strategy = sdm_default_cv_strategy,
                                    cv_block_size_km = sdm_default_cv_block_size_km,
-                                   log_fun = NULL) {
+                                   threshold = sdm_default_threshold,
+                                   log_fun = NULL,
+                                   objective = "binary:logistic") {
   fit_fun <- function(i, model_data, fold_id, threshold) {
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
@@ -19,14 +21,17 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
     model <- tryCatch({
       weights <- class_balance_weights(y_train)
       dtrain <- xgboost::xgb.DMatrix(data = x_train, label = y_train, weight = weights)
+      gpu_xgb_fold <- sdm_use_gpu_xgb(nrow(x_train))
       xgboost::xgb.train(
         params = list(
-          objective = "reg:logistic",
+          objective = objective,
           eval_metric = "auc",
           max_depth = max_depth,
           learning_rate = eta,
-          nthread = 1L,
-          seed = seed
+          nthread = if (gpu_xgb_fold) 1L else n_cores,
+          seed = seed,
+          tree_method = if (gpu_xgb_fold) "gpu_hist" else "hist",
+          predictor  = if (gpu_xgb_fold) "gpu_predictor" else "cpu_predictor"
         ),
         data = dtrain,
         nrounds = nrounds,
@@ -54,9 +59,10 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
   cross_validate_model(model_data,
     k = k, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    threshold = sdm_default_threshold, fit_fun = fit_fun,
+    threshold = threshold, fit_fun = fit_fun,
     cluster_exports = c("covariates", "class_balance_weights",
-                        "compute_binary_metrics", "metrics_list_to_row", "log_message"),
+                        "compute_binary_metrics", "metrics_list_to_row", "log_message",
+                        "sdm_use_gpu_xgb"),
     log_fun = log_fun
   )
 }
@@ -70,7 +76,8 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
                             max_depth = 6L, eta = 0.3, nrounds = 100L,
                             bias_method = "uniform",
                             target_group_occ = NULL,
-                            thickening_distance_km = NULL) {
+                            thickening_distance_km = NULL,
+                            objective = "binary:logistic") {
   if (!requireNamespace("xgboost", quietly = TRUE)) {
     stop("The XGBoost backend requires the xgboost package. Install xgboost or choose a different model backend.", call. = FALSE)
   }
@@ -106,11 +113,14 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   dtrain <- xgboost::xgb.DMatrix(x_train, label = y_train, weight = train_weights)
   dval <- xgboost::xgb.DMatrix(x_val, label = y_val)
 
+  gpu_xgb <- sdm_use_gpu_xgb(nrow(x_train))
   model <- tryCatch({
     xgboost::xgb.train(
-      params = list(objective = "binary:logistic", eval_metric = "auc",
+      params = list(objective = objective, eval_metric = "auc",
                     max_depth = max_depth, eta = eta,
-                    nthread = max(1L, as.integer(n_cores))),
+                    nthread = if (gpu_xgb) 1L else max(1L, as.integer(n_cores)),
+                    tree_method = if (gpu_xgb) "gpu_hist" else "hist",
+                    predictor  = if (gpu_xgb) "gpu_predictor" else "cpu_predictor"),
       data = dtrain,
       nrounds = nrounds,
       evals = list(train = dtrain, val = dval),
@@ -129,9 +139,11 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   )
   model <- tryCatch({
     xgboost::xgb.train(
-      params = list(objective = "binary:logistic", eval_metric = "auc",
+      params = list(objective = objective, eval_metric = "auc",
                     max_depth = max_depth, eta = eta,
-                    nthread = max(1L, as.integer(n_cores))),
+                    nthread = if (gpu_xgb) 1L else max(1L, as.integer(n_cores)),
+                    tree_method = if (gpu_xgb) "gpu_hist" else "hist",
+                    predictor  = if (gpu_xgb) "gpu_predictor" else "cpu_predictor"),
       data = dtrain_full,
       nrounds = model$best_iteration %||% nrounds,
       verbose = 0
@@ -146,7 +158,8 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
 
   cv <- cross_validate_xgboost(model_data, covariates, max_depth, eta, nrounds,
     k = cv_folds, seed = seed, n_cores = n_cores,
-    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km)
+    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+    objective = objective, threshold = threshold)
   if (is.finite(cv$auc_mean)) {
     log_message(log_fun, "XGBoost cross-validation AUC: ", sprintf("%.3f", cv$auc_mean),
       if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
@@ -192,11 +205,29 @@ predict_xgboost_suitability <- function(fit, env_project_scaled, output_tif, n_c
   }
   env_subset <- env_project_scaled[[raster_names[cov_idx]]]
 
+  gpu_avail <- sdm_use_gpu()
+  gpu_min_rows <- config$gpu_min_rows %||% 5000L
+
   predict_one_block <- function(rast_block) {
+    if (is.null(dim(rast_block))) rast_block <- matrix(rast_block, nrow = 1)
     df <- as.data.frame(rast_block)
-    names(df) <- covariates  # match make.names-ified covariate names
+    names(df) <- covariates
     x <- as.matrix(df[, covariates, drop = FALSE])
-    pred <- predict(xgb_fit, x)
+    use_gpu_pred <- gpu_avail && nrow(x) >= gpu_min_rows
+    if (use_gpu_pred) {
+      old_params <- xgboost::xgb.parameters(xgb_fit)
+      xgboost::xgb.parameters(xgb_fit) <- list(predictor = "gpu_predictor")
+      pred <- tryCatch(
+        stats::predict(xgb_fit, x),
+        error = function(e) {
+          xgboost::xgb.parameters(xgb_fit) <- list(predictor = "cpu_predictor")
+          stats::predict(xgb_fit, x)
+        }
+      )
+      xgboost::xgb.parameters(xgb_fit) <- old_params
+    } else {
+      pred <- stats::predict(xgb_fit, x)
+    }
     pred[!is.finite(pred)] <- 0
     pred <- pmin(pmax(pred, 0), 1)
     pred
@@ -204,7 +235,7 @@ predict_xgboost_suitability <- function(fit, env_project_scaled, output_tif, n_c
 
   suit <- terra::app(env_subset, predict_one_block, cores = normalize_core_count(n_cores))
   names(suit) <- "suitability"
-  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
   log_message(log_fun, "XGBoost suitability saved: ", output_tif)
   suit
 }

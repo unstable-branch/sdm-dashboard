@@ -19,7 +19,12 @@ sdm_redis_url <- function() {
 
 sdm_redis_connect <- function() {
   if (!is.null(.redis_conn) && inherits(.redis_conn, "redis_api")) {
-    return(.redis_conn)
+    tryCatch({
+      .redis_conn$PING()
+      return(.redis_conn)
+    }, error = function(e) {
+      .redis_conn <<- NULL
+    })
   }
   if (!requireNamespace("redux", quietly = TRUE)) {
     return(NULL)
@@ -92,11 +97,6 @@ sdm_redis_cancel_check <- function(job_id) {
 sdm_redis_cancel_clear <- function(job_id) {
   key <- .cancel_key(job_id)
   .redis_cmd(function(conn) conn$DEL(key))
-}
-
-sdm_redis_status_set <- function(job_id, status) {
-  key <- .job_status_key(job_id)
-  .redis_cmd(function(conn) conn$SET(key, status))
 }
 
 sdm_redis_status_get <- function(job_id) {

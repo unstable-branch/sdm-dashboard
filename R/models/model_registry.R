@@ -7,9 +7,10 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
                                supports_importance = FALSE, supports_uncertainty = FALSE,
                                supports_future = TRUE, diagnostics = list(), notes = character(),
                                predict_component_fun = NULL, fit_component_fun = NULL,
-                               min_records = NULL,
+                               min_records = NULL, multispecies = FALSE,
                                importance_fun = NULL, pdp_fun = NULL,
-                               ale_fun = NULL, shap_fun = NULL) {
+                               ale_fun = NULL, shap_fun = NULL,
+                               enmeval_compatible = FALSE, enmeval_algorithm = NULL) {
   id <- as.character(id)[1]
   if (is.na(id) || !nzchar(id)) stop("Model id must be a non-empty string.", call. = FALSE)
   if (!is.function(fit_fun)) stop("fit_fun must be a function for model id: ", id, call. = FALSE)
@@ -31,13 +32,25 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
     predict_component_fun = if (!is.null(predict_component_fun)) predict_component_fun else predict_fun,
     fit_component_fun = fit_component_fun,
     min_records = as.integer(min_records)[1] %||% NA_integer_,
+    multispecies = isTRUE(multispecies),
     importance_fun = if (is.function(importance_fun)) importance_fun else NULL,
     pdp_fun = if (is.function(pdp_fun)) pdp_fun else NULL,
     ale_fun = if (is.function(ale_fun)) ale_fun else NULL,
-    shap_fun = if (is.function(shap_fun)) shap_fun else NULL
+    shap_fun = if (is.function(shap_fun)) shap_fun else NULL,
+    enmeval_compatible = isTRUE(enmeval_compatible),
+    enmeval_algorithm = enmeval_algorithm %||% id
   )
   assign(id, spec, envir = sdm_model_registry)
   invisible(spec)
+}
+
+sdm_is_multispecies_model <- function(model_id) {
+  spec <- tryCatch(get_sdm_model(model_id), error = function(e) NULL)
+  isTRUE(spec$multispecies)
+}
+
+sdm_any_multispecies_model <- function(model_ids) {
+  any(vapply(model_ids, sdm_is_multispecies_model, logical(1)))
 }
 
 sdm_model_ids <- function() {
@@ -100,6 +113,8 @@ register_sdm_model(
   },
   supports_importance = FALSE,
   supports_uncertainty = FALSE,
+  enmeval_compatible = TRUE,
+  enmeval_algorithm = "bioclim",
   supports_future = TRUE,
   diagnostics = list(cv_auc = TRUE, cv_tss = TRUE),
   notes = "Simple environmental envelope model. Presence-only — does not use background points. No permutation importance.",
@@ -131,30 +146,38 @@ if (requireNamespace("INLA", quietly = TRUE)) {
 # Occupancy (unmarked) — conditional on unmarked package
 # brms (general Bayesian) — conditional on brms package
 # Python executor bridge — conditional on reticulate + arrow
-if (requireNamespace("arrow", quietly = TRUE)) {
-  python_manifests <- tryCatch(discover_python_models(), error = function(e) character(0))
+register_python_sdm_models <- function(python_manifests = discover_python_models()) {
   for (manifest_path in python_manifests) {
     m <- tryCatch(read_python_model_manifest(manifest_path), error = function(e) NULL)
     if (is.null(m) || is.null(m$id)) next
 
-    register_sdm_model(
-      id = paste0("python_", m$id),
-      label = m$label,
-      method = m$method,
-      packages = c("arrow", "reticulate"),
-      maturity = "experimental",
-      fit_fun = function(..., python_model_id = m$id) fit_python_sdm(..., python_model_id = python_model_id),
-      predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
-        predict_python_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
-      },
-      supports_importance = isTRUE(m$supports_importance),
-      supports_uncertainty = isTRUE(m$supports_uncertainty),
-      supports_future = TRUE,
-      diagnostics = list(cv_auc = TRUE),
-      notes = paste("Python model via", m$id, "bridge. Requires Python + required pip packages."),
-      min_records = m$min_records %||% 10L
-    )
+    local({
+      manifest <- m
+      manifest_id <- manifest$id
+      register_sdm_model(
+        id = paste0("python_", manifest_id),
+        label = manifest$label,
+        method = manifest$method,
+        packages = c("arrow", "reticulate"),
+        maturity = "experimental",
+        fit_fun = function(...) fit_python_sdm(..., python_model_id = manifest_id),
+        predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+          predict_python_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+        },
+        supports_importance = isTRUE(manifest$supports_importance),
+        supports_uncertainty = isTRUE(manifest$supports_uncertainty),
+        supports_future = TRUE,
+        diagnostics = list(cv_auc = TRUE),
+        notes = paste("Python model via", manifest_id, "bridge. Requires Python + required pip packages."),
+        min_records = manifest$min_records %||% 10L
+      )
+    })
   }
+  invisible(NULL)
+}
+
+if (requireNamespace("arrow", quietly = TRUE)) {
+  register_python_sdm_models()
 }
 
 if (requireNamespace("brms", quietly = TRUE)) {
@@ -413,6 +436,8 @@ register_sdm_model(
   },
   supports_importance = TRUE,
   supports_uncertainty = FALSE,
+  enmeval_compatible = TRUE,
+  enmeval_algorithm = "glm",
   supports_future = TRUE,
   diagnostics = list(coefficients = TRUE, cv_auc = TRUE),
   predict_component_fun = function(comp_fit, env_project_scaled, output_tif, n_cores, log_fun) {
@@ -630,6 +655,8 @@ if (requireNamespace("ranger", quietly = TRUE)) {
     },
     supports_importance = TRUE,
     supports_uncertainty = FALSE,
+    enmeval_compatible = TRUE,
+    enmeval_algorithm = "rf",
     supports_future = TRUE,
     diagnostics = list(coefficients = FALSE, cv_auc = TRUE, cv_tss = TRUE, oob_auc = TRUE),
     notes = "Experimental RF backend via ranger. Handles interactions and nonlinear responses natively.",
@@ -701,8 +728,31 @@ if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietl
     supports_importance = FALSE,
     supports_uncertainty = TRUE,
     supports_future = TRUE,
+    multispecies = TRUE,
     diagnostics = list(n_species = TRUE, species_presence = TRUE),
     notes = "Multi-species DNN with shared covariates. Predicts all species simultaneously using a multi-output network. Requires cito and torch.",
+    min_records = 5L
+  )
+}
+
+# gllvm JSDM — conditional
+if (requireNamespace("gllvm", quietly = TRUE)) {
+register_sdm_model(
+  id = "gllvm",
+    label = "gllvm JSDM",
+    method = "Joint Species Distribution Model via gllvm (generalized linear latent variable model)",
+    packages = "gllvm",
+    maturity = "experimental",
+    fit_fun = function(...) fit_gllvm_sdm(...),
+    predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+      predict_gllvm_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+    },
+    supports_importance = FALSE,
+    supports_uncertainty = TRUE,
+    supports_future = TRUE,
+    multispecies = TRUE,
+    diagnostics = list(n_species = TRUE, species_presence = TRUE),
+    notes = "Joint Species Distribution Model using gllvm with latent variables. Predicts all species simultaneously. Requires gllvm package.",
     min_records = 5L
   )
 }
@@ -720,12 +770,12 @@ if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietl
       predict_dnn_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
     },
     supports_importance = TRUE,
-    supports_uncertainty = FALSE,
+    supports_uncertainty = TRUE,
     supports_future = TRUE,
     diagnostics = list(cv_auc = TRUE, cv_tss = TRUE, shap = TRUE, pdp = TRUE),
     importance_fun = function(fit, ...) fit$cito_importance,
     pdp_fun = function(fit, ...) fit$cito_pdp,
     shap_fun = function(fit, ...) fit$shap,
-    notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration if CUDA available. cito::explain() provides SHAP-like feature attribution."
+    notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration supports compatible CUDA, ROCm, and MPS builds. cito::explain() provides SHAP-like feature attribution."
   )
 }

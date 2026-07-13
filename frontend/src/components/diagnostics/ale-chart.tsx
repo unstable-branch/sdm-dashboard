@@ -37,6 +37,11 @@ export function AleChart({ data, loading }: AleChartProps) {
     );
   }
 
+  const sanitizedCurves = data.curves.map((curve) => ({
+    ...curve,
+    points: curve.points.filter((p) => Number.isFinite(p.value) && Number.isFinite(p.ale)),
+  })).filter((c) => c.points.length > 0);
+
   return (
     <div className="space-y-3">
       <p className="text-xs text-sdm-muted">
@@ -44,7 +49,7 @@ export function AleChart({ data, loading }: AleChartProps) {
         Unlike PDPs, ALE averages only over the local distribution of other variables.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {data.curves.map((curve) => (
+        {sanitizedCurves.map((curve) => (
           <div key={curve.covariate} className="rounded-lg border border-sdm-border/50 bg-sdm-surface-soft p-3">
             <h4 className="text-xs font-semibold text-sdm-heading mb-2 truncate">{curve.covariate}</h4>
             <div className="h-32">
@@ -54,8 +59,8 @@ export function AleChart({ data, loading }: AleChartProps) {
                   <XAxis dataKey="value" tick={{ fontSize: 10 }} type="number" domain={["auto", "auto"]} />
                   <YAxis tick={{ fontSize: 10 }} />
                   <Tooltip
-                    formatter={(val: number) => val.toFixed(4)}
-                    labelFormatter={(v: number) => v.toFixed(2)}
+                    formatter={(val: number) => Number.isFinite(val) ? val.toFixed(4) : "—"}
+                    labelFormatter={(v: number) => Number.isFinite(v) ? v.toFixed(2) : "—"}
                   />
                   <Line type="monotone" dataKey="ale" stroke="var(--sdm-accent, #3b82f6)" dot={false} strokeWidth={1.5} />
                 </LineChart>

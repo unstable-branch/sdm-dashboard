@@ -18,7 +18,7 @@ interface ProfileData {
 }
 
 export default function ProfilePage() {
-  const { user, hydrateProfile } = useAuthStore();
+  const { user, updateProfile } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +46,7 @@ export default function ProfilePage() {
         setBio(data.bio || "");
         setOrganization(data.organization || "");
         setAvatarUrl(data.avatarUrl || "");
-        hydrateProfile({
+        updateProfile({
           avatarUrl: data.avatarUrl,
           bio: data.bio,
           organization: data.organization,
@@ -60,7 +60,7 @@ export default function ProfilePage() {
       }
     }
     fetchProfile();
-  }, [hydrateProfile]);
+  }, [updateProfile]);
 
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
@@ -76,7 +76,7 @@ export default function ProfilePage() {
         avatarUrl: avatarUrl || null,
       });
       setProfile(data);
-      hydrateProfile({
+      updateProfile({
         name: data.name,
         avatarUrl: data.avatarUrl,
         bio: data.bio,

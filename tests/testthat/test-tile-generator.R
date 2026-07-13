@@ -130,7 +130,7 @@ test_that("cancellation callback stops generation early", {
 
   result <- generate_xyz_tiles(r, tmp,
     value_range = c(0, 1), band_names = "s", verbose = FALSE,
-    cancel = function() { cancelled <<- TRUE })
+    cancel = function() { cancelled <<- TRUE; TRUE })
 
   expect_true(cancelled)
   unlink(tmp, recursive = TRUE)

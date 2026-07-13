@@ -147,8 +147,8 @@ test_that("parse_batch_config parses valid CSV into list of lists", {
 })
 
 test_that("batch_run_parallel rejects empty species_configs", {
-  expect_error(batch_run_parallel(list(), n_cores = 1), "non-empty list")
-  expect_error(batch_run_parallel(NULL, n_cores = 1), "non-empty list")
+  expect_error(suppressWarnings(batch_run_parallel(list(), n_cores = 1)), "non-empty list")
+  expect_error(suppressWarnings(batch_run_parallel(NULL, n_cores = 1)), "non-empty list")
 })
 
 test_that("batch_run_parallel runs two species with n_cores=1 (sequential)", {
@@ -188,7 +188,7 @@ test_that("batch_run_parallel runs two species with n_cores=1 (sequential)", {
          cv_folds = "3", aggregation_factor = "4")
   )
 
-  results <- batch_run_parallel(configs, n_cores = 1, output_dir = tmp_dir, seed = 42)
+  results <- suppressWarnings(batch_run_parallel(configs, n_cores = 1, output_dir = tmp_dir, seed = 42))
 
   expect_length(results, 2)
   expect_false(is.null(results[[1]]))
@@ -243,7 +243,7 @@ test_that("batch_run_parallel parallel mode (n_cores=2)", {
          cv_folds = "3", aggregation_factor = "4")
   )
 
-  results <- batch_run_parallel(configs, n_cores = 2, output_dir = tmp_dir, seed = 42)
+  results <- suppressWarnings(batch_run_parallel(configs, n_cores = 2, output_dir = tmp_dir, seed = 42))
 
   expect_length(results, 2)
   expect_false(is.null(results[[1]]))
@@ -268,7 +268,7 @@ test_that("batch_run_parallel returns NULL for errored species without crashing 
          model_id = "glm", biovars = "1,4,12")
   )
 
-  results <- batch_run_parallel(bad_configs, n_cores = 1, output_dir = tmp_dir, seed = 42)
+  results <- suppressWarnings(batch_run_parallel(bad_configs, n_cores = 1, output_dir = tmp_dir, seed = 42))
 
   expect_length(results, 1)
   expect_null(results[[1]])
@@ -309,9 +309,57 @@ test_that("batch_run_parallel saves results with AUC in metadata", {
          cv_folds = "3", aggregation_factor = "4")
   )
 
-  results <- batch_run_parallel(configs, n_cores = 1, output_dir = tmp_dir, seed = 99)
+  results <- suppressWarnings(batch_run_parallel(configs, n_cores = 1, output_dir = tmp_dir, seed = 99))
   expect_false(is.null(results[[1]]))
   expect_true(is.numeric(results[[1]]$metrics$auc_mean))
 
   unlink(tmp_dir, recursive = TRUE)
+})
+
+# ── Targets-specific functions ──────────────────────────────────────────────
+
+test_that("build_config_from_row produces valid sdm_config", {
+  row <- list(
+    species = "Test species",
+    occurrences_csv = file.path(project_root, "data", "examples", "synthetic_presence_data.csv"),
+    model_id = "glm",
+    biovars = "1,4,6,12,15,18",
+    projection_extent = "112,154,-44,-10",
+    cv_folds = "3",
+    background_n = "200"
+  )
+  cfg <- build_config_from_row(row, seed = 42L)
+  expect_s3_class(cfg, "sdm_config")
+  expect_equal(cfg$species, "Test species")
+  expect_equal(cfg$model_id, "glm")
+  expect_equal(cfg$selected_biovars, c(1L, 4L, 6L, 12L, 15L, 18L))
+  expect_equal(cfg$projection_extent, c(112, 154, -44, -10))
+  expect_equal(cfg$cv_folds, 3L)
+  expect_equal(cfg$background_n, 200L)
+})
+
+test_that("build_config_from_row handles nullable fields", {
+  row <- list(species = "Minimal", occurrences_csv = "data.csv")
+  cfg <- build_config_from_row(row, seed = 1L)
+  expect_s3_class(cfg, "sdm_config")
+  expect_equal(cfg$species, "Minimal")
+  expect_true(is.numeric(cfg$selected_biovars))
+})
+
+test_that("build_crew_controller returns NULL when crew not available", {
+  ctrl <- build_crew_controller("local", workers = 2)
+  if (requireNamespace("crew", quietly = TRUE)) {
+    expect_true(inherits(ctrl, "crew_controller"))
+  } else {
+    expect_null(ctrl)
+  }
+})
+
+test_that("build_crew_controller handles unknown backend gracefully", {
+  ctrl <- build_crew_controller("nonexistent_backend", workers = 2)
+  if (requireNamespace("crew", quietly = TRUE)) {
+    expect_true(inherits(ctrl, "crew_controller"))
+  } else {
+    expect_null(ctrl)
+  }
 })

@@ -87,3 +87,23 @@ test_that("write_odmap_report includes CBI when available", {
   cbi_line <- lines[grepl("Boyce_index", lines)]
   expect_true(grepl("0.72", cbi_line))
 })
+
+test_that("write_odmap_report reports configured native climate resolution", {
+  result <- list(
+    model = list(),
+    model_id = "glm",
+    occurrence = data.frame(longitude = 1:2, latitude = 1:2),
+    occurrence_used = data.frame(longitude = 1:2, latitude = 1:2),
+    config = list(
+      species = "TestSpecies",
+      worldclim_res = 10,
+      aggregation_factor = 1,
+      projection_extent = c(112, 154, -44, -10)
+    )
+  )
+
+  temp_csv <- tempfile(fileext = ".csv")
+  write_odmap_report(result, temp_csv)
+  resolution_line <- readLines(temp_csv)[grepl("^spatial_resolution,", readLines(temp_csv))]
+  expect_equal(resolution_line, "spatial_resolution,10 arc-min")
+})

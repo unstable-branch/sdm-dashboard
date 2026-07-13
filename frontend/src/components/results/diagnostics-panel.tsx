@@ -1,27 +1,42 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VifTable } from "@/components/diagnostics/vif-table";
-import { ImportanceChart } from "@/components/diagnostics/importance-chart";
-import { ResponseCurvesChart } from "@/components/diagnostics/response-curves-chart";
-import { CbiChart } from "@/components/diagnostics/cbi-chart";
-import { CvFoldsChart } from "@/components/diagnostics/cv-folds-chart";
-import { RocChart } from "@/components/diagnostics/roc-chart";
-import { CalibrationChart } from "@/components/diagnostics/calibration-chart";
-import { ThresholdChart } from "@/components/diagnostics/threshold-chart";
-import { DensityChart } from "@/components/diagnostics/density-chart";
-import { AleChart } from "@/components/diagnostics/ale-chart";
-import { ClimateDriverChart } from "@/components/diagnostics/climate-driver-chart";
 import { MessSummary } from "@/components/diagnostics/mess-summary";
 import { OverfittingPanel } from "@/components/results/overfitting-panel";
 import { apiGet } from "@/services/api";
-import { Download } from "lucide-react";
+import ErrorBoundary from "@/components/ui/error-boundary";
+import { Download, Loader2 } from "lucide-react";
+import dynamic from "next/dynamic";
 import type {
   VifData, ImportanceData, ResponseCurvesData, CbiData, MessData,
   RocData, CalibrationData, CvFoldsData, ThresholdData, DensityData,
   RunDetail,
 } from "@/services/types";
+
+
+function ChartLoading() {
+  return (
+    <div className="flex items-center justify-center h-64 text-sdm-muted">
+      <Loader2 className="h-5 w-5 animate-spin mr-2" />
+      <span className="text-sm">Loading chart...</span>
+    </div>
+  );
+}
+
+type ChartProps = { data: any; loading: boolean };
+
+const DynCvFoldsChart = dynamic(() => import("@/components/diagnostics/cv-folds-chart").then(m => ({ default: m.CvFoldsChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynImportanceChart = dynamic(() => import("@/components/diagnostics/importance-chart").then(m => ({ default: m.ImportanceChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynResponseCurvesChart = dynamic(() => import("@/components/diagnostics/response-curves-chart").then(m => ({ default: m.ResponseCurvesChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynRocChart = dynamic(() => import("@/components/diagnostics/roc-chart").then(m => ({ default: m.RocChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynCbiChart = dynamic(() => import("@/components/diagnostics/cbi-chart").then(m => ({ default: m.CbiChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynCalibrationChart = dynamic(() => import("@/components/diagnostics/calibration-chart").then(m => ({ default: m.CalibrationChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynThresholdChart = dynamic(() => import("@/components/diagnostics/threshold-chart").then(m => ({ default: m.ThresholdChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynDensityChart = dynamic(() => import("@/components/diagnostics/density-chart").then(m => ({ default: m.DensityChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynAleChart = dynamic(() => import("@/components/diagnostics/ale-chart").then(m => ({ default: m.AleChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
+const DynClimateDriverChart = dynamic(() => import("@/components/diagnostics/climate-driver-chart").then(m => ({ default: m.ClimateDriverChart })), { ssr: false, loading: () => <ChartLoading /> }) as React.ComponentType<ChartProps>;
 
 interface DiagnosticsPanelProps {
   run: RunDetail;
@@ -46,45 +61,51 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
   const [aleData, setAleData] = useState<any>(null);
   const [climateDriverData, setClimateDriverData] = useState<any>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(true);
+  const [failedEndpointCount, setFailedEndpointCount] = useState(0);
+  const [activeTab, setActiveTab] = useState("cv");
+  const fetchedTabs = useRef(new Set<string>());
 
+  const TAB_ENDPOINTS: Record<string, string> = {
+    cv: "cv-folds", importance: "importance", curves: "response-curves",
+    roc: "roc", cbi: "cbi", calibration: "calibration",
+    threshold: "threshold", density: "density", vif: "vif",
+    mess: "mess", ale: "ale", "climate-drivers": "climate-drivers",
+  };
+
+  const TAB_SETTERS: Record<string, (data: any) => void> = {
+    cv: setCvFoldsData, importance: setImportanceData, curves: setResponseCurvesData,
+    roc: setRocData, cbi: setCbiData, calibration: setCalibrationData,
+    threshold: setThresholdData, density: setDensityData, vif: setVifData,
+    mess: setMessData, ale: setAleData, "climate-drivers": setClimateDriverData,
+  };
+
+  // Fetch data only when the active tab is clicked for the first time
   useEffect(() => {
     if (run.status !== "completed") {
       setLoadingDiagnostics(false);
       return;
     }
-
-    setLoadingDiagnostics(true);
-    const fetchDiagnostics = async () => {
-      const endpoints = [
-        { url: `/api/v1/diagnostics/vif/${run.id}`, setter: setVifData },
-        { url: `/api/v1/diagnostics/importance/${run.id}`, setter: setImportanceData },
-        { url: `/api/v1/diagnostics/response-curves/${run.id}`, setter: setResponseCurvesData },
-        { url: `/api/v1/diagnostics/cbi/${run.id}`, setter: setCbiData },
-        { url: `/api/v1/diagnostics/mess/${run.id}`, setter: setMessData },
-        { url: `/api/v1/diagnostics/roc/${run.id}`, setter: setRocData },
-        { url: `/api/v1/diagnostics/calibration/${run.id}`, setter: setCalibrationData },
-        { url: `/api/v1/diagnostics/cv-folds/${run.id}`, setter: setCvFoldsData },
-        { url: `/api/v1/diagnostics/threshold/${run.id}`, setter: setThresholdData },
-        { url: `/api/v1/diagnostics/density/${run.id}`, setter: setDensityData },
-        { url: `/api/v1/diagnostics/ale/${run.id}`, setter: setAleData },
-        { url: `/api/v1/diagnostics/climate-drivers/${run.id}`, setter: setClimateDriverData },
-      ];
-
-      await Promise.all(
-        endpoints.map(async ({ url, setter }) => {
-          try {
-            const data = await apiGet<any>(url);
-            setter(data);
-          } catch {
-            // Silently fail — Recharts components handle null state
-          }
-        })
-      );
+    if (fetchedTabs.current.has(activeTab)) {
       setLoadingDiagnostics(false);
-    };
+      return;
+    }
+    fetchedTabs.current.add(activeTab);
+    setLoadingDiagnostics(true);
 
-    fetchDiagnostics();
-  }, [run.id, run.status]);
+    const ep = TAB_ENDPOINTS[activeTab];
+    const setter = TAB_SETTERS[activeTab];
+    if (ep && setter) {
+      apiGet<any>(`/api/v1/diagnostics/${ep}/${run.id}`)
+        .then((data) => { setter(data); setLoadingDiagnostics(false); })
+        .catch((err) => {
+          console.warn(`[diagnostics] Failed to fetch ${ep}:`, err instanceof Error ? err.message : String(err));
+          setFailedEndpointCount((c) => c + 1);
+          setLoadingDiagnostics(false);
+        });
+    } else {
+      setLoadingDiagnostics(false);
+    }
+  }, [activeTab, run.id, run.status]);
 
   return (
     <div className="space-y-4">
@@ -100,52 +121,68 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
         </div>
       )}
 
-      <Tabs defaultValue="cv" className="space-y-4">
-        <TabsList className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 w-full max-w-4xl">
-          <TabsTrigger value="cv" className="text-xs">CV Folds</TabsTrigger>
-          <TabsTrigger value="importance" className="text-xs">Importance</TabsTrigger>
-          <TabsTrigger value="curves" className="text-xs">Response Curves</TabsTrigger>
-          <TabsTrigger value="roc" className="text-xs">ROC</TabsTrigger>
-          <TabsTrigger value="cbi" className="text-xs">CBI</TabsTrigger>
-          <TabsTrigger value="calibration" className="text-xs">Calibration</TabsTrigger>
-          <TabsTrigger value="threshold" className="text-xs">Threshold</TabsTrigger>
-          <TabsTrigger value="density" className="text-xs">Density</TabsTrigger>
-          <TabsTrigger value="vif" className="text-xs">VIF</TabsTrigger>
-          <TabsTrigger value="mess" className="text-xs">MESS</TabsTrigger>
-          <TabsTrigger value="overfitting" className="text-xs text-amber-500">Overfitting</TabsTrigger>
-          <TabsTrigger value="log" className="text-xs">Log</TabsTrigger>
+      {!loadingDiagnostics && failedEndpointCount >= 12 && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-600">
+          The R computation backend is not available — all diagnostic endpoints failed to load.
+          Start it with <code className="bg-amber-500/10 px-1 rounded">docker compose up plumber</code> or <code className="bg-amber-500/10 px-1 rounded">Rscript launch_app.R</code>.
+        </div>
+      )}
+
+      {!loadingDiagnostics && failedEndpointCount > 0 && failedEndpointCount < 12 && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-600">
+          {failedEndpointCount} of 12 diagnostics endpoints could not be loaded. Some charts may show &ldquo;Not available&rdquo;.
+        </div>
+      )}
+
+      <ErrorBoundary>
+      <Tabs defaultValue="cv" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="flex overflow-x-auto gap-1 pb-px scrollbar-thin">
+          <TabsTrigger value="cv" className="text-xs shrink-0">CV Folds</TabsTrigger>
+          <TabsTrigger value="importance" className="text-xs shrink-0">Importance</TabsTrigger>
+          <TabsTrigger value="curves" className="text-xs shrink-0">Response Curves</TabsTrigger>
+          <TabsTrigger value="roc" className="text-xs shrink-0">ROC</TabsTrigger>
+          <TabsTrigger value="cbi" className="text-xs shrink-0">CBI</TabsTrigger>
+          <TabsTrigger value="calibration" className="text-xs shrink-0">Calibration</TabsTrigger>
+          <TabsTrigger value="threshold" className="text-xs shrink-0">Threshold</TabsTrigger>
+          <TabsTrigger value="density" className="text-xs shrink-0">Density</TabsTrigger>
+          <TabsTrigger value="vif" className="text-xs shrink-0">VIF</TabsTrigger>
+          <TabsTrigger value="mess" className="text-xs shrink-0">MESS</TabsTrigger>
+          <TabsTrigger value="ale" className="text-xs shrink-0">ALE</TabsTrigger>
+          <TabsTrigger value="climate-drivers" className="text-xs shrink-0">Climate</TabsTrigger>
+          <TabsTrigger value="overfitting" className="text-xs shrink-0 text-amber-500">Overfitting</TabsTrigger>
+          <TabsTrigger value="log" className="text-xs shrink-0">Log</TabsTrigger>
         </TabsList>
 
         <TabsContent value="cv">
-          <CvFoldsChart data={cvFoldsData} loading={loadingDiagnostics} />
+          <DynCvFoldsChart data={cvFoldsData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="importance">
-          <ImportanceChart data={importanceData} loading={loadingDiagnostics} />
+          <DynImportanceChart data={importanceData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="curves">
-          <ResponseCurvesChart data={responseCurvesData} loading={loadingDiagnostics} />
+          <DynResponseCurvesChart data={responseCurvesData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="roc">
-          <RocChart data={rocData} loading={loadingDiagnostics} />
+          <DynRocChart data={rocData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="cbi">
-          <CbiChart data={cbiData} loading={loadingDiagnostics} />
+          <DynCbiChart data={cbiData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="calibration">
-          <CalibrationChart data={calibrationData} loading={loadingDiagnostics} />
+          <DynCalibrationChart data={calibrationData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="threshold">
-          <ThresholdChart data={thresholdData} loading={loadingDiagnostics} />
+          <DynThresholdChart data={thresholdData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="density">
-          <DensityChart data={densityData} loading={loadingDiagnostics} />
+          <DynDensityChart data={densityData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="vif">
@@ -157,27 +194,11 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
         </TabsContent>
 
         <TabsContent value="ale">
-          <AleChart data={aleData} loading={loadingDiagnostics} />
+          <DynAleChart data={aleData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="climate-drivers">
-          <ClimateDriverChart data={climateDriverData} loading={loadingDiagnostics} />
-        </TabsContent>
-
-        <TabsContent value="overfitting">
-          <OverfittingPanel run={run} />
-        </TabsContent>
-
-        <TabsContent value="shap">
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface-soft p-6 text-center">
-            <p className="text-sm text-sdm-muted">
-              Click a cell on the <strong>suitability map</strong> (Results → Map tab) to get a per-pixel SHAP explanation.
-            </p>
-            <p className="text-xs text-sdm-muted mt-2">
-              SHAP values decompose the model prediction into per-covariate contributions,
-              showing which environmental variables drive suitability at each location.
-            </p>
-          </div>
+          <DynClimateDriverChart data={climateDriverData} loading={loadingDiagnostics} />
         </TabsContent>
 
         <TabsContent value="overfitting">
@@ -201,6 +222,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
           </div>
         </TabsContent>
       </Tabs>
+      </ErrorBoundary>
 
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
         <h3 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">
@@ -219,6 +241,44 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
               <div className="text-sdm-text">{new Date(run.completed_at).toLocaleString()}</div>
             </>
           )}
+          {run.config && (() => {
+            const cfg = run.config as Record<string, any>;
+            const source = cfg.source || cfg.climate_source || "worldclim";
+            const worldclimRes = cfg.worldclimRes ?? cfg.worldclim_res ?? 10;
+            const aggFactor = cfg.aggregationFactor ?? cfg.aggregation_factor ?? 1;
+            const chelsaNativeArcmin = 0.5;
+            const nativeArcmin = source === "chelsa" ? chelsaNativeArcmin : worldclimRes;
+            const targetAgg = source === "chelsa"
+              ? Math.max(1, Math.ceil(worldclimRes / chelsaNativeArcmin))
+              : 1;
+            const effectiveAgg = source === "chelsa"
+              ? Math.max(aggFactor, targetAgg)
+              : aggFactor;
+            const effectiveResArcmin = nativeArcmin * effectiveAgg;
+            const label = source === "chelsa" ? "CHELSA v2.1" : "WorldClim v2.1";
+            const resLabel = source === "chelsa" ? `${worldclimRes} arc-min (worldclimRes)` : `${worldclimRes} arc-min`;
+            const aggLabel = source === "chelsa" && targetAgg > aggFactor
+              ? `${effectiveAgg}× (auto: ${targetAgg}× for worldclimRes)`
+              : source === "chelsa" && aggFactor > 1
+                ? `${aggFactor}× (user-specified)`
+                : `${effectiveAgg}×`;
+            const effKm = (effectiveResArcmin * 1.852).toFixed(1);
+            const effLabel = effectiveResArcmin < 1
+              ? `${(effectiveResArcmin * 60).toFixed(0)} arc-sec (~${effKm} km)`
+              : `~${effectiveResArcmin.toFixed(1)} arc-min (~${effKm} km)`;
+            return (
+              <>
+                <div className="text-sdm-muted">Climate source</div>
+                <div className="text-sdm-text font-medium">{label}</div>
+                <div className="text-sdm-muted">Resolution</div>
+                <div className="text-sdm-text">{resLabel}</div>
+                <div className="text-sdm-muted">Aggregation</div>
+                <div className="text-sdm-text font-mono text-xs">{aggLabel}</div>
+                <div className="text-sdm-muted">Effective resolution</div>
+                <div className="text-sdm-text font-mono text-xs">{effLabel}</div>
+              </>
+            );
+          })()}
         </div>
       </div>
     </div>

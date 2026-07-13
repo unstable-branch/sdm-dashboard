@@ -49,8 +49,7 @@ export function CalibrationChart({ data, loading }: CalibrationChartProps) {
               return [safe, name === "observed" ? "Observed" : "Predicted"];
             }}
           />
-          <ReferenceLine x={0} y={0} stroke="#6b7280" strokeDasharray="4 4" />
-          <ReferenceLine x={1} y={1} stroke="#6b7280" strokeDasharray="4 4" />
+          <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 1, y: 1 }]} stroke="#6b7280" strokeDasharray="4 4" />
           <Line type="monotone" dataKey="observed" stroke="#2C7FB8" strokeWidth={2} dot={{ r: 4 }} name="observed" />
           <Line type="monotone" dataKey="predicted" stroke="#94a3b8" strokeWidth={1} strokeDasharray="4 4" dot={false} name="predicted" />
         </LineChart>

@@ -26,15 +26,15 @@ export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
-  ownerId: uuid("owner_id").references(() => users.id).notNull(),
+  ownerId: uuid("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const projectMembers = pgTable("project_members", {
   id: uuid("id").primaryKey().defaultRandom(),
-  projectId: uuid("project_id").references(() => projects.id).notNull(),
-  userId: uuid("user_id").references(() => users.id).notNull(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   role: roleEnum("role").default("viewer").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
@@ -46,7 +46,7 @@ export const apiKeys = pgTable("api_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
   keyHash: text("key_hash").notNull(),
   name: varchar("name", { length: 255 }).notNull(),
-  userId: uuid("user_id").references(() => users.id).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   lastUsedAt: timestamp("last_used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   expiresAt: timestamp("expires_at"),
@@ -56,8 +56,8 @@ export const apiKeys = pgTable("api_keys", {
 
 export const species = pgTable("species", {
   id: uuid("id").primaryKey().defaultRandom(),
-  projectId: uuid("project_id").references(() => projects.id),
-  userId: uuid("user_id").references(() => users.id),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
   name: varchar("name", { length: 255 }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -65,17 +65,19 @@ export const species = pgTable("species", {
 }, (t) => [
   index("idx_species_project").on(t.projectId),
   index("idx_species_user_id").on(t.userId),
+  index("idx_species_name").on(t.name),
 ]);
 
 export const batches = pgTable("batches", {
   id: uuid("id").primaryKey().defaultRandom(),
-  projectId: uuid("project_id").references(() => projects.id).notNull(),
-  userId: uuid("user_id").references(() => users.id).notNull(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   name: varchar("name", { length: 255 }),
   totalJobs: integer("total_jobs").notNull().default(0),
   completedJobs: integer("completed_jobs").notNull().default(0),
   failedJobs: integer("failed_jobs").notNull().default(0),
   status: varchar("status", { length: 20 }).notNull().default("running"),
+  jobId: varchar("job_id", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
 }, (t) => [
@@ -85,8 +87,8 @@ export const batches = pgTable("batches", {
 
 export const runs = pgTable("runs", {
   id: uuid("id").primaryKey().defaultRandom(),
-  projectId: uuid("project_id").references(() => projects.id),
-  speciesId: uuid("species_id").references(() => species.id),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  speciesId: uuid("species_id").references(() => species.id, { onDelete: "set null" }),
   speciesName: varchar("species_name", { length: 255 }),
   modelId: varchar("model_id", { length: 50 }).notNull(),
   status: statusEnum("status").notNull().default("queued"),
@@ -104,22 +106,29 @@ export const runs = pgTable("runs", {
   peakMemoryMb: integer("peak_memory_mb"),
   rCpuTimeMs: integer("r_cpu_time_ms"),
   rPeakMemoryMb: integer("r_peak_memory_mb"),
+  runStorageBytes: bigint("run_storage_bytes", { mode: "number" }),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
   lastStage: text("last_stage"),
+  errorCode: text("error_code"),
+  errorHint: text("error_hint"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_runs_project").on(t.projectId),
   index("idx_runs_status").on(t.status),
   index("idx_runs_pipeline").on(t.pipelineRunId),
   index("idx_runs_parent").on(t.parentRunId),
+  index("idx_runs_species_name").on(t.speciesName),
+  index("idx_runs_created_at").on(t.createdAt),
+  index("idx_runs_job_id").on(t.jobId),
+  index("idx_runs_status_created").on(t.status, t.createdAt),
 ]);
 
 export const occurrences = pgTable("occurrences", {
   id: uuid("id").primaryKey().defaultRandom(),
-  projectId: uuid("project_id").references(() => projects.id),
-  userId: uuid("user_id").references(() => users.id),
-  speciesId: uuid("species_id").references(() => species.id).notNull(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  speciesId: uuid("species_id").references(() => species.id, { onDelete: "cascade" }).notNull(),
   filePath: text("file_path"),
   pipelineRunId: uuid("pipeline_run_id"),
   longitude: doublePrecision("longitude").notNull(),
@@ -135,6 +144,8 @@ export const occurrences = pgTable("occurrences", {
   index("idx_occurrences_species").on(t.speciesId),
   index("idx_occurrences_user_id").on(t.userId),
   index("idx_occurrences_pipeline").on(t.pipelineRunId),
+  index("idx_occurrences_species_project").on(t.speciesId, t.projectId),
+  index("idx_occurrences_file_path").on(t.filePath),
 ]);
 
 export const userSettings = pgTable("user_settings", {
@@ -152,6 +163,10 @@ export const userSettings = pgTable("user_settings", {
   theme: varchar("theme", { length: 20 }).default("system"),
   tablePageSize: integer("table_page_size").default(50),
   compactMode: boolean("compact_mode").default(false),
+  gbifUsername: text("gbif_username"),
+  gbifPassword: text("gbif_password"),
+  gbifEmail: text("gbif_email"),
+  alaApiKey: text("ala_api_key"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -171,7 +186,7 @@ export const systemSettings = pgTable("system_settings", {
 
 export const uploads = pgTable("uploads", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").references(() => users.id),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
   filename: varchar("filename", { length: 255 }).notNull(),
   filePath: text("file_path").notNull(),
   fileSize: integer("file_size").default(0),
@@ -183,21 +198,12 @@ export const uploads = pgTable("uploads", {
   cleanedFilePath: text("cleaned_file_path"),
   cleanedValidRecords: integer("cleaned_valid_records"),
   cleanedOriginalRows: integer("cleaned_original_rows"),
+  cleaningCcLog: jsonb("cleaning_cc_log"),
+  cleaningSourceCounts: jsonb("cleaning_source_counts"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_uploads_user_id").on(t.userId),
   index("idx_uploads_created").on(t.createdAt),
-]);
-
-export const maintenanceLog = pgTable("maintenance_log", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  type: varchar("type", { length: 50 }).notNull(),
-  status: varchar("status", { length: 20 }).notNull().default("running"),
-  details: jsonb("details"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (t) => [
-  index("idx_maintenance_log_type").on(t.type),
-  index("idx_maintenance_log_created").on(t.createdAt),
 ]);
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -255,4 +261,20 @@ export const uploadedFilesRelations = relations(uploadedFiles, ({ one }) => ({
 
 export const systemSettingsRelations = relations(systemSettings, ({ one }) => ({
   updatedByUser: one(users, { fields: [systemSettings.updatedBy], references: [users.id] }),
+}));
+
+export const refreshTokens = pgTable("refresh_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_refresh_tokens_user").on(t.userId),
+  index("idx_refresh_tokens_hash").on(t.tokenHash),
+]);
+
+export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
+  user: one(users, { fields: [refreshTokens.userId], references: [users.id] }),
 }));

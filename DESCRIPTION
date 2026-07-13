@@ -44,4 +44,7 @@ Suggests:
     tarchetypes,
     geotargets,
     crew,
-    crew.cluster
+    crew.cluster,
+    crew.aws.batch,
+    redux,
+    openssl

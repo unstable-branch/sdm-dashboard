@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../db/index.js";
-import { projects, projectMembers, users } from "../db/schema.js";
+import { projects, projectMembers } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
@@ -93,112 +93,33 @@ projectRoutes.put("/:id", async (c) => {
   }
 });
 
-projectRoutes.get("/:id", async (c) => {
+projectRoutes.delete("/:id", async (c) => {
   try {
     const user = c.get("user");
     const id = c.req.param("id");
 
-    const [project] = await db
+    const [member] = await db
       .select()
-      .from(projects)
-      .innerJoin(projectMembers, eq(projectMembers.projectId, projects.id))
-      .where(and(eq(projects.id, id), eq(projectMembers.userId, user.id)))
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, id), eq(projectMembers.userId, user.id)))
       .limit(1);
 
-    if (!project) {
+    if (!member || member.role !== "admin") {
+      return c.json({ error: "Only project admins can delete projects" }, 403);
+    }
+
+    // Delete project members first, then the project
+    await db.delete(projectMembers).where(eq(projectMembers.projectId, id));
+    const [deleted] = await db
+      .delete(projects)
+      .where(eq(projects.id, id))
+      .returning();
+
+    if (!deleted) {
       return c.json({ error: "Project not found" }, 404);
     }
 
-    return c.json(project.projects);
-  } catch {
-    return c.json({ error: "Internal error" }, 500);
-  }
-});
-
-projectRoutes.get("/:id/members", async (c) => {
-  try {
-    const id = c.req.param("id");
-
-    const members = await db
-      .select({
-        id: users.id,
-        email: users.email,
-        name: users.name,
-        role: projectMembers.role,
-      })
-      .from(projectMembers)
-      .innerJoin(users, eq(users.id, projectMembers.userId))
-      .where(eq(projectMembers.projectId, id));
-
-    return c.json(members);
-  } catch {
-    return c.json({ error: "Internal error" }, 500);
-  }
-});
-
-projectRoutes.post("/:id/members", async (c) => {
-  try {
-    const user = c.get("user");
-    const id = c.req.param("id");
-    const body = await c.req.json();
-    const { email, role } = body;
-
-    if (!email) {
-      return c.json({ error: "Email is required" }, 400);
-    }
-
-    const [member] = await db
-      .select()
-      .from(projectMembers)
-      .where(and(eq(projectMembers.projectId, id), eq(projectMembers.userId, user.id)))
-      .limit(1);
-
-    if (!member || (member.role !== "admin")) {
-      return c.json({ error: "Only project admins can add members" }, 403);
-    }
-
-    const [targetUser] = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
-
-    if (!targetUser) {
-      return c.json({ error: "User not found" }, 404);
-    }
-
-    const [newMember] = await db
-      .insert(projectMembers)
-      .values({ projectId: id, userId: targetUser.id, role: role || "viewer" })
-      .returning();
-
-    return c.json(newMember);
-  } catch {
-    return c.json({ error: "Internal error" }, 500);
-  }
-});
-
-projectRoutes.delete("/:id/members/:userId", async (c) => {
-  try {
-    const user = c.get("user");
-    const id = c.req.param("id");
-    const targetUserId = c.req.param("userId");
-
-    const [member] = await db
-      .select()
-      .from(projectMembers)
-      .where(and(eq(projectMembers.projectId, id), eq(projectMembers.userId, user.id)))
-      .limit(1);
-
-    if (!member || (member.role !== "admin")) {
-      return c.json({ error: "Only project admins can remove members" }, 403);
-    }
-
-    await db
-      .delete(projectMembers)
-      .where(and(eq(projectMembers.projectId, id), eq(projectMembers.userId, targetUserId)));
-
-    return c.json({ ok: true });
+    return c.json({ id, deleted: true });
   } catch {
     return c.json({ error: "Internal error" }, 500);
   }

@@ -14,6 +14,9 @@
 cat("SDM Dashboard Package Installer\n")
 cat("===============================\n\n")
 
+options(timeout = 900)
+cat("Download timeout: 900 seconds (15 min)\n")
+
 n_cores <- tryCatch({
   max(1, as.integer(Sys.getenv("NCPUS", parallel::detectCores()))[1])
 }, error = function(e) 4L)
@@ -52,6 +55,9 @@ core_packages <- c(
 
   # Python bridge
   "arrow", "reticulate",
+
+  # Model tuning
+  "ENMeval",
 
   # XAI / explainability
   "fastshap", "iml",
@@ -95,9 +101,26 @@ if (length(missing_core) > 0) {
 # After running this script, in an interactive R session do:
 #   torch::install_torch()
 
-# cat("\nInstalling torch + cito (optional)...\n")
-# install.packages(c("torch", "reticulate", "cito"), repos = repos, Ncpus = n_cores, lib = .libPaths()[1])
-# In an interactive R session, run: torch::install_torch()
+# Install torch first (explicitly), then cito without re-resolving deps
+cat(sprintf("[%s] [1/4] Installing torch...\n", format(Sys.time(), "%H:%M:%S")))
+t1 <- Sys.time()
+install.packages("torch", repos = repos, Ncpus = n_cores)
+cat(sprintf("  Done (%.1f min)\n", difftime(Sys.time(), t1, units = "mins")))
+
+cat(sprintf("[%s] [2/4] Installing cito (no dependency resolution)...\n", format(Sys.time(), "%H:%M:%S")))
+t2 <- Sys.time()
+install.packages("cito", repos = repos, Ncpus = n_cores, dependencies = FALSE)
+cat(sprintf("  Done (%.1f min)\n", difftime(Sys.time(), t2, units = "mins")))
+
+cat(sprintf("[%s] [3/4] Downloading libtorch binaries (~1 GB)...\n", format(Sys.time(), "%H:%M:%S")))
+cat("  This may take 5-30 minutes.\n")
+options(download.file.method = "libcurl")
+suppressPackageStartupMessages(library(torch))
+t3 <- Sys.time()
+torch::install_torch()
+cat(sprintf("  Done (%.1f min)\n", difftime(Sys.time(), t3, units = "mins")))
+
+cat(sprintf("[%s] [4/4] Verification...\n", format(Sys.time(), "%H:%M:%S")))
 
 # ---------------------------------------------------------------------------
 # Optional: Google Earth Engine (rgee)

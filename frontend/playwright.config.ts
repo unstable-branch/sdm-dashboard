@@ -8,13 +8,15 @@ export default defineConfig({
   forbidOnly: CI,
   retries: CI ? 2 : 0,
   workers: CI ? 1 : undefined,
-  reporter: CI ? [["html"], ["json", { outputFile: "test-results/results.json" }]] : "html",
+  reporter: CI
+    ? [["html"], ["json", { outputFile: "test-results/results.json" }]]
+    : "html",
   timeout: 30000,
   expect: {
     timeout: 10000,
   },
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: process.env.E2E_BASE_URL || "http://127.0.0.1:3000",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: CI ? "on-first-retry" : "off",
@@ -37,12 +39,14 @@ export default defineConfig({
       use: { ...devices["Pixel 5"] },
     },
   ],
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: true,
-    timeout: 60000,
-    stdout: "pipe",
-    stderr: "pipe",
-  },
+  webServer: process.env.E2E_BASE_URL
+    ? undefined
+    : {
+        command: "npm run dev",
+        url: "http://127.0.0.1:3000",
+        reuseExistingServer: true,
+        timeout: 60000,
+        stdout: "pipe",
+        stderr: "pipe",
+      },
 });
