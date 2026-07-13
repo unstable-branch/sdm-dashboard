@@ -1,5 +1,5 @@
 handle_future_scenarios <- function(res, app_dir) {
-  base_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
+  base_dir <- sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir)
   if (!dir.exists(base_dir)) {
     return(list(available_scenarios = list(), message = paste("Directory not found:", base_dir)))
   }
@@ -158,9 +158,9 @@ handle_climate_status <- function(res, job_id, app_dir) {
 }
 
 handle_climate_scenarios <- function(res, app_dir) {
-  future_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
-  current_dir <- file.path(app_dir, sdm_default_worldclim_dir)
-  chelsa_dir <- file.path(app_dir, sdm_default_chelsa_dir)
+  future_dir <- sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir)
+  current_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
+  chelsa_dir <- sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir)
 
   scenarios <- list()
 
@@ -234,9 +234,9 @@ handle_climate_scenarios <- function(res, app_dir) {
 }
 
 handle_climate_delete <- function(res, scenario_id, app_dir) {
-  future_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
-  current_dir <- file.path(app_dir, sdm_default_worldclim_dir)
-  chelsa_dir <- file.path(app_dir, sdm_default_chelsa_dir)
+  future_dir <- sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir)
+  current_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
+  chelsa_dir <- sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir)
 
   target_dir <- NULL
   if (scenario_id == "worldclim_current") {
@@ -303,19 +303,19 @@ handle_climate_check <- function(res, app_dir, source = "worldclim", resolution 
     existing_nums <- integer(0)
 
     if (source == "worldclim") {
-      res_esc <- gsub("\\.", "\\\\.", as.character(resolution))
-      pattern <- sprintf("wc2\\.1_%sm_bio_\\d+\\.tif$", res_esc)
-      files <- list.files(file.path(app_dir, sdm_default_worldclim_dir), pattern = pattern, recursive = TRUE)
+      res_label <- sdm_worldclim_res_label(resolution)
+      pattern <- sprintf("wc2\\.1_%s_bio_\\d+\\.tif$", gsub("\\.", "\\\\.", res_label))
+      files <- list.files(sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir), pattern = pattern, recursive = TRUE)
       existing_nums <- as.integer(gsub("^.*_bio_(\\d+)\\.tif$", "\\1", files))
     } else if (source == "chelsa") {
-      files <- list.files(file.path(app_dir, sdm_default_chelsa_dir), pattern = "CHELSA_bio\\d+_.*\\.tif$", recursive = TRUE)
+      files <- list.files(sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir), pattern = "CHELSA_bio\\d+_.*\\.tif$", recursive = TRUE)
       existing_nums <- as.integer(gsub("^CHELSA_bio0*(\\d+)_.*$", "\\1", files))
     } else if (source == "cmip6") {
       if (nzchar(gcm) && nzchar(ssp) && nzchar(period)) {
         if (grepl("(\\.\\./|\\.\\.\\\\|/)", paste(gcm, ssp, period))) {
           stop("Invalid climate path parameters", call. = FALSE)
         }
-        future_dir <- file.path(app_dir, sdm_default_future_worldclim_dir, paste0(gcm, "_", ssp, "_", period))
+        future_dir <- file.path(sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir), paste0(gcm, "_", ssp, "_", period))
         if (dir.exists(future_dir)) {
           files <- list.files(future_dir, pattern = "^bio\\d+\\.tif$")
           existing_nums <- as.integer(gsub("^bio(\\d+)\\.tif$", "\\1", files))

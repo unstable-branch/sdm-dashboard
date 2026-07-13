@@ -24,6 +24,9 @@ export async function handleClimateJob(
     let status: Record<string, unknown> = {};
     let completed = false;
     let attempts = 0;
+    let pollErrors = 0;
+    let lastPollError: string | undefined;
+    let lastProgress = 20;
 
     while (!completed && attempts < CLIMATE_DOWNLOAD_MAX_ATTEMPTS) {
       await new Promise((resolve) => setTimeout(resolve, CLIMATE_DOWNLOAD_POLL_INTERVAL_MS));
@@ -42,11 +45,12 @@ export async function handleClimateJob(
             }
             return Math.min(90, 10 + Math.round(logs.length * 0.4));
           })();
-          await job.updateProgress(pct);
+          lastProgress = Math.min(99, pct);
+          await job.updateProgress(lastProgress);
           jobEventBus.emitJobStatus({
             jobId: job.id!,
             state: runStatus,
-            progress: pct,
+            progress: lastProgress,
             logs,
           });
         }
@@ -57,11 +61,12 @@ export async function handleClimateJob(
           const failedVars = status.failed_vars as number[] | undefined;
 
           if (runStatus === "partial") {
-            await job.updateProgress(100);
+            const partialProgress = Math.min(99, Math.max(lastProgress, 90));
+            await job.updateProgress(partialProgress);
             jobEventBus.emitJobStatus({
               jobId: job.id!,
               state: "completed",
-              progress: 100,
+              progress: partialProgress,
               logs,
               result: status,
               failedReason: error || undefined,
@@ -71,7 +76,7 @@ export async function handleClimateJob(
               jobEventBus.emitJobStatus({
                 jobId: job.id!,
                 state: "warning",
-                progress: 100,
+                progress: partialProgress,
                 result: { ...status, failed_vars: failedVars },
                 failedReason: `Failed layers: ${failedVars.join(", ")}`,
               });
@@ -79,11 +84,12 @@ export async function handleClimateJob(
 
             return { status: "success", data: status, error: error || "Some layers failed to download" };
           } else {
-            await job.updateProgress(100);
+            const terminalProgress = runStatus === "completed" ? 100 : lastProgress;
+            if (runStatus === "completed") await job.updateProgress(100);
             jobEventBus.emitJobStatus({
               jobId: job.id!,
               state: runStatus,
-              progress: 100,
+              progress: terminalProgress,
               logs,
               result: status,
               failedReason: error,
@@ -93,7 +99,7 @@ export async function handleClimateJob(
               jobEventBus.emitJobStatus({
                 jobId: job.id!,
                 state: "warning",
-                progress: 100,
+                progress: terminalProgress,
                 result: { ...status, failed_vars: failedVars },
                 failedReason: `Failed layers: ${failedVars.join(", ")}`,
               });
@@ -108,7 +114,9 @@ export async function handleClimateJob(
         }
       } catch (pollErr) {
         const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr);
-        console.warn(`[queue] Polling error for climate job ${job.id}: ${pollMsg}`);
+        pollErrors++;
+        lastPollError = pollMsg;
+        console.warn(`[queue] Polling error for climate job ${job.id} (${pollErrors}/${CLIMATE_DOWNLOAD_MAX_ATTEMPTS}): ${pollMsg}`);
       }
     }
 
@@ -116,19 +124,30 @@ export async function handleClimateJob(
       jobEventBus.emitJobStatus({
         jobId: job.id!,
         state: "failed",
-        progress: 0,
-        failedReason: "Polling timeout: download did not complete in time",
+        progress: lastProgress,
+        failedReason: `Polling timeout: climate download did not complete in time${lastPollError ? `; last poll error: ${lastPollError}` : ""}`,
       });
-      return { status: "error", error: "Polling timeout: climate download did not complete in time" };
+      return {
+        status: "error",
+        error: `Polling timeout: climate download did not complete in time${lastPollError ? `; last poll error: ${lastPollError}` : ""}`,
+        error_code: "PLUMBER_TIMEOUT",
+      };
     }
   } else {
-    await job.updateProgress(100);
-    jobEventBus.emitJobStatus({ jobId: job.id!, state: "completed", progress: 100, result: downloadRes });
-    return { status: "success", data: downloadRes };
+    const synchronousComplete = downloadRes.status === "completed";
+    if (synchronousComplete) {
+      await job.updateProgress(100);
+      jobEventBus.emitJobStatus({ jobId: job.id!, state: "completed", progress: 100, result: downloadRes });
+      return { status: "success", data: downloadRes };
+    }
+    const error = "Climate download submission returned no job_id";
+    jobEventBus.emitJobStatus({ jobId: job.id!, state: "failed", progress: 20, failedReason: error, result: downloadRes });
+    return { status: "error", error, error_code: "PLUMBER_SUBMISSION_FAILED" };
   }
 
   return { status: "error", error: "Job processing failed" };
 }
+
 
 export async function handleCovariateJob(
   job: Job<SdmJobData, SdmJobResult>,
@@ -146,59 +165,65 @@ export async function handleCovariateJob(
   await job.updateProgress(20);
   jobEventBus.emitJobStatus({ jobId: job.id!, state: "active", progress: 20 });
 
-  if (covJobId) {
-    let status: Record<string, unknown> = {};
-    let completed = false;
-    let attempts = 0;
-    const MAX_ATTEMPTS = 60;
-    const POLL_INTERVAL_MS = 5000;
+  if (!covJobId) {
+    const synchronousComplete = downloadRes.status === "completed";
+    if (synchronousComplete) {
+      await job.updateProgress(100);
+      jobEventBus.emitJobStatus({ jobId: job.id!, state: "completed", progress: 100, result: downloadRes });
+      return { status: "success", data: downloadRes };
+    }
+    const error = "Covariate download submission returned no job_id";
+    jobEventBus.emitJobStatus({ jobId: job.id!, state: "failed", progress: 20, failedReason: error, result: downloadRes });
+    return { status: "error", error, error_code: "PLUMBER_SUBMISSION_FAILED" };
+  }
 
-    while (!completed && attempts < MAX_ATTEMPTS) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-      attempts++;
+  let lastProgress = 20;
+  let lastPollError: string | undefined;
+  let pollErrors = 0;
 
-      try {
-        status = await client.getJobStatus(covJobId);
-        const runStatus = status.status as string | undefined;
-        const logs = Array.isArray(status.progress_log) ? (status.progress_log as string[]) : [];
+  for (let attempts = 1; attempts <= CLIMATE_DOWNLOAD_MAX_ATTEMPTS; attempts++) {
+    await new Promise((resolve) => setTimeout(resolve, CLIMATE_DOWNLOAD_POLL_INTERVAL_MS));
+    try {
+      const status = await client.getJobStatus(covJobId);
+      const runStatus = status.status as string | undefined;
+      const logs = Array.isArray(status.progress_log) ? (status.progress_log as string[]) : [];
 
-        if (runStatus === "running") {
-          const pct = (() => {
-            for (let i = logs.length - 1; i >= 0; i--) {
-              const m = logs[i].match(/\[(\d+)%\]/);
-              if (m) return Math.min(90, parseInt(m[1]));
-            }
-            return Math.min(90, 10 + Math.round(logs.length * 5));
-          })();
-          await job.updateProgress(pct);
-          jobEventBus.emitJobStatus({ jobId: job.id!, state: "running", progress: pct, logs });
-        }
-
-        if (runStatus === "completed" || runStatus === "failed") {
-          completed = true;
-          const error = status.error as string | undefined;
-          await job.updateProgress(100);
-          jobEventBus.emitJobStatus({
-            jobId: job.id!,
-            state: runStatus,
-            progress: 100,
-            logs,
-            result: status,
-            failedReason: error,
-          });
-          return {
-            status: runStatus === "completed" ? "success" : "error",
-            data: status,
-            error,
-          };
-        }
-      } catch {
-        // Poll failed — continue
+      if (runStatus === "running" || runStatus === "pending") {
+        const reported = (() => {
+          for (let i = logs.length - 1; i >= 0; i--) {
+            const pct = extractProgressPercent(logs[i]);
+            if (pct !== undefined) return pct;
+          }
+          return Math.min(90, 20 + Math.round(attempts * 0.5));
+        })();
+        lastProgress = Math.min(99, Math.max(lastProgress, reported));
+        await job.updateProgress(lastProgress);
+        jobEventBus.emitJobStatus({ jobId: job.id!, state: "running", progress: lastProgress, logs });
+        continue;
       }
+
+      if (runStatus === "completed") {
+        await job.updateProgress(100);
+        jobEventBus.emitJobStatus({ jobId: job.id!, state: "completed", progress: 100, logs, result: status });
+        return { status: "success", data: status };
+      }
+
+      if (runStatus === "failed" || runStatus === "cancelled" || runStatus === "error") {
+        const error = (status.error as string | undefined) || `Covariate download ${runStatus}`;
+        jobEventBus.emitJobStatus({
+          jobId: job.id!, state: runStatus === "cancelled" ? "cancelled" : "failed",
+          progress: lastProgress, logs, result: status, failedReason: error,
+        });
+        return { status: "error", data: status, error };
+      }
+    } catch (pollErr) {
+      pollErrors++;
+      lastPollError = pollErr instanceof Error ? pollErr.message : String(pollErr);
+      console.warn(`[queue] Polling error for covariate job ${job.id} (${pollErrors}/${CLIMATE_DOWNLOAD_MAX_ATTEMPTS}): ${lastPollError}`);
     }
   }
 
-  await job.updateProgress(100);
-  jobEventBus.emitJobStatus({ jobId: job.id!, state: "completed", progress: 100, result: downloadRes });
-  return { status: "success", data: downloadRes };
+  const timeoutError = `Polling timeout: covariate download did not complete in time${lastPollError ? `; last poll error: ${lastPollError}` : ""}`;
+  jobEventBus.emitJobStatus({ jobId: job.id!, state: "failed", progress: lastProgress, failedReason: timeoutError });
+  return { status: "error", error: timeoutError, error_code: "PLUMBER_TIMEOUT" };
 }

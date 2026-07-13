@@ -113,11 +113,12 @@ export async function handleModelJob(
         }
 
         if (pollState === "running") {
-          await job.updateProgress(pollProgress ?? Math.min(90, 35 + Math.round(modelAttempts * 0.5)));
+          const runningProgress = Math.min(99, pollProgress ?? Math.min(90, 35 + Math.round(modelAttempts * 0.5)));
+          await job.updateProgress(runningProgress);
           jobEventBus.emitJobStatus({
             jobId: runId ?? job.id!,
             state: "active",
-            progress: pollProgress ?? Math.min(90, 35 + Math.round(modelAttempts * 0.5)),
+            progress: runningProgress,
             logs,
             currentStage: pollCurrentStage ?? null,
             progressJson: pollProgressJson ?? null,
@@ -135,7 +136,31 @@ export async function handleModelJob(
               .where(eq(runs.id, runId))
               .limit(1);
             if (currentRun && currentRun.status !== "running") { modelCompleted = true; break; }
+          }
 
+          const outputFiles = modelStatus.output_files as Record<string, string> | undefined;
+          let syncWarning: string | undefined;
+          if (outputFiles && runId) {
+            const jobDir = join("outputs", "jobs", runId);
+            await job.updateProgress(99);
+            jobEventBus.emitJobStatus({
+              jobId: runId,
+              state: "active",
+              progress: 99,
+              logs: logs.concat(["Synchronising completed outputs..."]),
+              currentStage: "sync",
+              result: modelStatus,
+              progressJson: pollProgressJson ?? null,
+            });
+            try {
+              await syncOutputsToS3(jobDir, runId, outputFiles);
+            } catch (err) {
+              syncWarning = err instanceof Error ? err.message : String(err);
+              console.warn(`[S3] Output sync failed for run ${runId}:`, err);
+            }
+          }
+
+          if (runId) {
             await db
               .update(runs)
               .set({
@@ -147,20 +172,12 @@ export async function handleModelJob(
               .where(and(eq(runs.id, runId), inArray(runs.status, ["running", "queued"])));
           }
 
-          const outputFiles = modelStatus.output_files as Record<string, string> | undefined;
-          if (outputFiles && runId) {
-            const jobDir = join("outputs", "jobs", runId);
-            syncOutputsToS3(jobDir, runId, outputFiles).catch((err) => {
-              console.warn(`[S3] Background sync failed for run ${runId}:`, err);
-            });
-          }
-
           await job.updateProgress(100);
           jobEventBus.emitJobStatus({
             jobId: runId ?? job.id!,
             state: "completed",
             progress: 100,
-            logs: logs.concat(["Model run completed."]),
+            logs: logs.concat(syncWarning ? [`Output sync warning: ${syncWarning}`, "Model run completed."] : ["Model run completed."]),
             currentStage: null,
             result: modelStatus,
             error_code: modelStatus.error_code as string | null | undefined,
@@ -176,11 +193,12 @@ export async function handleModelJob(
               .set({ status: "cancelled", completedAt: new Date() })
               .where(and(eq(runs.id, runId), inArray(runs.status, ["running", "queued"])));
           }
-          await job.updateProgress(100);
+          const cancelledProgress = Math.min(99, pollProgress ?? 0);
+          await job.updateProgress(cancelledProgress);
           jobEventBus.emitJobStatus({
             jobId: runId ?? job.id!,
             state: "cancelled",
-            progress: 100,
+            progress: cancelledProgress,
             currentStage: null,
             failedReason: "Model run cancelled by user",
             error_code: "CANCELLED",
@@ -213,11 +231,12 @@ export async function handleModelJob(
               })
               .where(and(eq(runs.id, runId), inArray(runs.status, ["running", "queued"])));
           }
-          await job.updateProgress(100);
+          const failedProgress = Math.min(99, pollProgress ?? 0);
+          await job.updateProgress(failedProgress);
           jobEventBus.emitJobStatus({
             jobId: runId ?? job.id!,
             state: "failed",
-            progress: 100,
+            progress: failedProgress,
             currentStage: null,
             failedReason: errMsg,
             error_code: errCode ?? null,
@@ -249,9 +268,26 @@ export async function handleModelJob(
       return { status: "error", error: timeoutMsg, error_code: "PLUMBER_TIMEOUT" };
     }
   } else {
-    await job.updateProgress(100);
     const runIdElse = (job.data.payload as Record<string, unknown>)?.runId as string | undefined;
-    jobEventBus.emitJobStatus({ jobId: runIdElse ?? job.id!, state: "completed", progress: 100, result: modelRes });
+    const outputFiles = modelRes.output_files as Record<string, string> | undefined;
+    let syncWarning: string | undefined;
+    if (outputFiles && runIdElse) {
+      await job.updateProgress(99);
+      try {
+        await syncOutputsToS3(join("outputs", "jobs", runIdElse), runIdElse, outputFiles);
+      } catch (err) {
+        syncWarning = err instanceof Error ? err.message : String(err);
+        console.warn(`[S3] Output sync failed for run ${runIdElse}:`, err);
+      }
+    }
+    await job.updateProgress(100);
+    jobEventBus.emitJobStatus({
+      jobId: runIdElse ?? job.id!,
+      state: "completed",
+      progress: 100,
+      logs: syncWarning ? [`Output sync warning: ${syncWarning}`] : undefined,
+      result: modelRes,
+    });
     return { status: "success", data: modelRes };
   }
 
