@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Bundle size**: Shared JS bundle reduced from ~2 MB to **103 kB** (95% reduction) via dynamic imports, tree-shaking, and lazy loading.
-- **Plumber image**: Base image switched from `rocker/geospatial:4.4.2` (6.9 GB) to `rocker/r-ver:4.4.2` with explicit package installs. Estimated final size: **~1.5 GB** (was 7.9 GB).
+- **Plumber image**: Base image switched from `rocker/geospatial:4.4.2` (6.9 GB) to `rocker/r-ver:4.4.2` with explicit package installs. Verified CPU release image size: **3.32 GB** (was 7.9 GB).
 - **Frontend Dockerfile**: Multi-stage build with `output: "standalone"` mode. Estimated final size: **~200 MB** (was 3.7 GB).
 - **API compression**: All responses gzip-compressed via `hono/compress` middleware (60-80% smaller transfers).
 - **Results page**: 3-second polling replaced with SSE-driven real-time updates. 5s polling fallback only when SSE disconnected.
