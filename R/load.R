@@ -12,7 +12,7 @@ if (!dir.exists(mod_dir)) {
 if (!exists("sdm_resolve_module", mode = "function")) {
   sdm_resolve_module <- function(m) {
     mod_dir <- file.path(sdm_project_root(), "R")
-    subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "output")
+    subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "xai", "output")
     for (sub in subdirs) {
       p <- file.path(mod_dir, sub, m)
       if (file.exists(p)) return(p)
@@ -27,9 +27,11 @@ modules <- c(
   # --- core ---
   "bootstrap.R",
   "config.R",
+  "memory_utils.R",
+  "gpu_helpers.R",
   "packages.R",
-  "model_payload_normalizer.R",
   "logging.R",
+  "model_payload_normalizer.R",
   "crypto.R",
   "validation.R",
   "app_helpers.R",
@@ -50,6 +52,7 @@ modules <- c(
   "covariates_stack.R",
   "predictor_selection.R",
   "boundary.R",
+  "ne_boundary.R",
   "download_helper.R",
   "verify_cache.R",
   "future_projection.R",
@@ -71,6 +74,7 @@ modules <- c(
   "model_bart.R",
   "model_unmarked.R",
   "model_brms.R",
+  "python_setup.R",
   "model_python.R",
   "model_gbm.R",
   "model_rpart.R",
@@ -87,6 +91,7 @@ modules <- c(
   "model_xgboost.R",
   "model_multi_ensemble.R",
   "model_esm.R",
+  "torch_fused_adam.R",
   "model_dnn.R",
   "model_dnn_multispecies.R",
   "model_registry.R",
@@ -101,6 +106,8 @@ modules <- c(
   "calibration.R",
   "ensemble_importance.R",
   "hyperparameter_tuning.R",
+  "enmeval_registry.R",
+  "enmeval.R",
   "prediction.R",
 
   # --- output ---
@@ -125,13 +132,13 @@ modules <- c(
   "ale.R",
   "shap.R",
   "climate_driver.R",
+  "xai_methods.R",
   "plots.R",
   "report.R",
   "report_odmap.R",
   "manifest.R",
   "diagnostics_plots.R",
   "batch_runner.R",
-  "python_setup.R",
   "script_export.R",
   "tile_generator.R",
 

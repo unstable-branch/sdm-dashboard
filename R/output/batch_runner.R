@@ -83,10 +83,24 @@ build_run_args <- function(row) {
     drought_periods = "selected_drought_periods",
     multi_ensemble_models = "multi_ensemble_models",
     biomod2_models = "biomod2_models",
-    veg_products = "veg_products"
+    veg_products = "veg_products",
+    hidden_layers = "hidden_layers"
   )
   integer_params <- c("background_n", "cv_folds", "aggregation_factor", "seed",
-    "worldclim_res", "veg_year", "lulc_year", "hfp_year")
+    "worldclim_res", "veg_year", "lulc_year", "hfp_year",
+    "n_cores", "pa_replicates", "min_source_records", "thickening_distance_km",
+    "dnn_n_seeds", "dnn_multispecies_n_seeds", "dnn_mc_samples",
+    "brt_n_trees", "brt_interaction_depth", "cta_maxdepth", "cta_minsplit",
+    "mars_degree", "mars_nk", "fda_degree", "fda_nprune",
+    "ann_size", "ann_maxit", "ann_rang",
+    "rf_num_trees", "rf_mtry", "rf_min_node_size",
+    "xgb_max_depth", "n_estimators", "max_depth", "max_iterations",
+    "epochs", "batch_size", "predict_batch_size", "early_stopping_patience",
+    "bart_ntree", "bart_ndpost", "bart_nskip",
+    "brms_chains", "brms_iter", "brms_warmup", "gam_k",
+    "multi_ensemble_power",
+    "rangebag_n_bags", "rangebag_vars_per_bag",
+    "esm_n_runs", "esm_split", "esm_power", "vif_threshold")
   scalar_param_map <- c(
     occurrences_csv = "occurrence_file"
   )
@@ -101,11 +115,16 @@ build_run_args <- function(row) {
       next
     }
 
+    if (p == "species_filter") {
+      args$species_filter <- val
+      next
+    }
+
     # Special handling for known comma-separated list columns
     if (p %in% names(list_param_map)) {
       arg_name <- list_param_map[[p]]
       args[[arg_name]] <- parse_comma_strings(val)
-      if (p == "biovars") args[[arg_name]] <- parse_comma_ints(val)
+      if (p %in% c("biovars", "hidden_layers")) args[[arg_name]] <- parse_comma_ints(val)
       next
     }
 
@@ -119,8 +138,19 @@ build_run_args <- function(row) {
     if (p %in% c("include_quadratic", "use_elevation", "use_soil", "use_uv",
                   "use_vegetation", "use_lulc", "use_hfp", "use_bioclim_season",
                   "use_drought", "vif_reduction", "future_projection",
-                  "merge_small_sources", "thin_by_cell", "extrapolation_mask")) {
+                  "merge_small_sources", "thin_by_cell", "extrapolation_mask",
+                  "generate_tiles", "generate_cog",
+                  "climate_matching", "restrict_background",
+                  "multi_ensemble_export", "multi_ensemble_uncertainty",
+                  "maxnet_auto_tune")) {
       args[[p]] <- parse_logical(as.character(val))
+      next
+    }
+
+    # String enum parameters (tuning method, algorithm selection)
+    if (p %in% c("tuning_method", "enmeval_algorithm", "enmeval_partitions",
+                 "enmeval_selection_metric", "enmeval_null_iterations")) {
+      args[[p]] <- as.character(val)
       next
     }
 
@@ -134,11 +164,7 @@ build_run_args <- function(row) {
     args[[p]] <- if (is.na(val_num)) val else val_num
   }
 
-  args$use_cc <- FALSE
-  args$cleaned_occurrence <- NULL
-  args$log_fun <- NULL
-  args$progress_fun <- NULL
-
+  # Let sdm_config() set defaults for any missing params (use_cc, log_fun, etc.)
   args
 }
 
@@ -169,16 +195,18 @@ batch_run_targets <- function(config_csv, output_dir = "batch_results/",
   out_dir <- normalizePath(output_dir, mustWork = FALSE)
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
+  targets_store <- file.path(out_dir, "_targets")
   Sys.setenv(SDM_BATCH_CONFIG = config_csv)
   Sys.setenv(SDM_BATCH_OUTPUT = out_dir)
-  if (!is.null(workers)) Sys.setenv(SDM_TARGETS_WORKERS = as.character(workers))
+  Sys.setenv(SDM_TARGETS_STORE = targets_store)
+  if (!is.null(workers)) Sys.setenv(SDM_CLUSTER_WORKERS = as.character(workers))
   if (!is.na(seed)) Sys.setenv(SDM_BATCH_SEED = as.character(seed))
 
   message("[targets] Running batch pipeline from: ", config_csv)
   message("[targets] Output directory: ", out_dir)
 
   targets::tar_make(
-    store = file.path(out_dir, "_targets")
+    store = targets_store
   )
 }
 
@@ -281,7 +309,7 @@ write_batch_summary_csv <- function(results, output_dir) {
       )
     }
   })
-  df <- do.call(rbind, summary_rows)
+  df <- data.table::rbindlist(summary_rows)
   out_path <- file.path(output_dir, "batch_summary.csv")
   write.csv(df, out_path, row.names = FALSE)
   message("[batch] Wrote summary: ", out_path)
@@ -327,6 +355,8 @@ batch_run_parallel <- function(species_configs,
                                output_dir = "batch_results/",
                                progress_fun = NULL,
                                seed = 42L) {
+  .Deprecated("batch_run_targets",
+    msg = "batch_run_parallel() is legacy Shiny-only. Use batch_run_targets() (targets pipeline) for production multi-species runs — it provides caching, incremental rebuild, HPC/cluster support, and auto-resume on crash.")
   if (!is.list(species_configs) || length(species_configs) == 0) {
     stop("species_configs must be a non-empty list", call. = FALSE)
   }
@@ -335,6 +365,22 @@ batch_run_parallel <- function(species_configs,
   if (n_cores < 1) {
     warning("n_cores < 1; forcing to 1 (serial execution)")
     n_cores <- 1
+  }
+
+  # Memory-aware worker cap: prevent OOM when many cores but limited RAM
+  if (requireNamespace("terra", quietly = TRUE)) {
+    tryCatch({
+      mem_info <- terra::mem_info()
+      if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+        per_worker_gb <- 2.0
+        max_by_mem <- max(1L, floor(mem_info$memavail / per_worker_gb))
+        if (n_cores > max_by_mem) {
+          message(sprintf("[batch] Memory-aware worker cap: reducing from %d to %d (%.1f GB available, ~%.1f GB per worker)",
+            n_cores, max_by_mem, mem_info$memavail, per_worker_gb))
+          n_cores <- max_by_mem
+        }
+      }
+    }, error = function(e) NULL)
   }
 
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)

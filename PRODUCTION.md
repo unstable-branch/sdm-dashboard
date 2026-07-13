@@ -4,36 +4,47 @@ This deployment target is intended for self-hosted or private-team installations
 
 ## Quick Start
 
+Use the exact image digests from the reviewed draft release. Production Compose never builds the application services.
+
 ```bash
-# 1. Clone and configure
+# 1. Configure secrets and immutable release images
 cp .env.example .env
-# Edit .env with production values before starting services
+cat deploy/images.env.example >> .env
+# Replace every CHANGEME and REPLACE_WITH_RELEASE_DIGEST value.
+# Copy digests from image-digests.txt and choose cpu, cuda, or rocm.
 
-# 2. Start all services
-docker compose -f docker-compose.prod.yml up -d
+# 2. Pull and start without a source build
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d --no-build
 
-# 3. Run database migrations
-docker compose -f docker-compose.prod.yml exec api npm run db:migrate
-
-# 4. Verify health
+# 3. Verify health and resolved images
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml images
 curl http://localhost/health
 ```
 
+The API image runs Drizzle migrations before starting the server. Back up the database and object storage before every upgrade; do not run an extra migration command concurrently.
+
 ## Required Environment
 
-Production compose fails closed when required secrets are missing.
+Production compose fails closed when required secrets or application digests are missing.
 
 | Variable | Purpose |
 |----------|---------|
-| `POSTGRES_PASSWORD` | Password for the bundled Postgres service |
-| `DATABASE_URL` | Database connection string used by API and Plumber |
-| `JWT_SECRET` | JWT signing secret for browser/API auth |
-| `PLUMBER_INTERNAL_KEY` | Shared internal token for Hono API to Plumber requests |
-| `GARAGE_ACCESS_KEY` | S3-compatible access key for Garage |
-| `GARAGE_SECRET_KEY` | S3-compatible secret key for Garage |
+| `SDM_FRONTEND_DIGEST` | Reviewed `sha256:...` digest for `sdm-frontend` |
+| `SDM_API_DIGEST` | Reviewed `sha256:...` digest for `sdm-api` |
+| `SDM_PLUMBER_VARIANT` | `cpu`, `cuda`, or `rocm` |
+| `SDM_PLUMBER_DIGEST` | Digest for the matching Plumber variant |
+| `POSTGRES_PASSWORD`, `DATABASE_URL` | Bundled Postgres password and application connection string |
+| `JWT_SECRET`, `CSRF_SECRET` | Browser/API authentication secrets |
+| `DATA_ENCRYPTION_KEY`, `SDM_ENCRYPTION_KEY` | Encryption-at-rest keys |
+| `PLUMBER_INTERNAL_KEY` | Shared Hono-to-Plumber token |
+| `GARAGE_ACCESS_KEY`, `GARAGE_SECRET_KEY` | S3-compatible credentials |
+| `GARAGE_BUCKET_RASTERS`, `GARAGE_BUCKET_EXPORTS` | Explicit object-storage buckets |
+| `GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN` | Garage cluster/admin secrets |
 | `GRAFANA_PASSWORD` | Grafana admin password |
 
-Use different random values for `JWT_SECRET` and `PLUMBER_INTERNAL_KEY`. Keep `.env`, `ssl/`, backups, and volume data out of git.
+Keep `.env`, `ssl/`, backups, and volume data out of git. Use different random values for unrelated secrets.
 
 ## Architecture
 
@@ -84,14 +95,35 @@ For a public hostname, put this stack behind normal HTTPS termination and restri
 
 ## Release Images
 
-The release workflow publishes container images to GitHub Container Registry when a `v*` tag is pushed:
+A validated SemVer tag publishes five GHCR repositories:
 
-- `ghcr.io/unstable-branch/sdm-dashboard/sdm-frontend:<tag>`
-- `ghcr.io/unstable-branch/sdm-dashboard/sdm-api:<tag>`
-- `ghcr.io/unstable-branch/sdm-dashboard/sdm-plumber:<tag>`
-- `ghcr.io/unstable-branch/sdm-dashboard/sdm-shiny:<tag>`
+- `ghcr.io/unstable-branch/sdm-dashboard/sdm-frontend`
+- `ghcr.io/unstable-branch/sdm-dashboard/sdm-api`
+- `ghcr.io/unstable-branch/sdm-dashboard/sdm-plumber-cpu`
+- `ghcr.io/unstable-branch/sdm-dashboard/sdm-plumber-cuda`
+- `ghcr.io/unstable-branch/sdm-dashboard/sdm-plumber-rocm`
 
-The compose files currently build from source by default. For a pinned production deployment, either check out the release tag before running compose or override the service definitions to use the matching GHCR images.
+Each build receives SemVer, exact `v...`, and immutable `sha-<commit>` tags plus OCI source/version/revision metadata, SBOM, and provenance. The workflow deliberately publishes no `latest` alias. `image-digests.txt` in the draft release is the deployment authority; copy the selected `name@sha256:...` values into `.env`.
+
+CPU is the production default. CUDA and ROCm require their documented host device access and real-hardware release-candidate tests. Add the matching no-build runtime overlay:
+
+```bash
+# NVIDIA: set SDM_PLUMBER_VARIANT=cuda and its matching digest
+docker compose -f docker-compose.prod.yml -f deploy/compose.cuda.yml up -d --no-build
+
+# AMD: set SDM_PLUMBER_VARIANT=rocm, its digest, and host video/render GIDs
+docker compose -f docker-compose.prod.yml -f deploy/compose.rocm.yml up -d --no-build
+```
+
+## Upgrade And Rollback
+
+1. Back up PostgreSQL, Garage/object storage, and generated outputs.
+2. Record the current `.env` digest values and migration state.
+3. Replace only the three application digest values, then run `pull` and `up -d --no-build`.
+4. Verify migrations, authentication, historical runs/downloads, and one new real workflow.
+5. To roll back, restore the previous digests. If migrations are not backward-compatible, restore the matching database/object-storage backup before starting old images.
+
+Use `docs/QA_RELEASE_CHECKLIST.md` for the required rehearsal and evidence.
 
 ## Monitoring
 
@@ -122,7 +154,7 @@ cat backup.sql | docker compose -f docker-compose.prod.yml exec -T postgres psql
 
 ### Horizontal scaling (API)
 ```bash
-docker compose -f docker-compose.prod.yml up -d --scale api=3
+docker compose -f docker-compose.prod.yml up -d --no-build --scale api=3
 ```
 
 ### Vertical scaling (Plumber/R)
@@ -149,6 +181,6 @@ docker compose -f docker-compose.prod.yml ps
 # Restart a service
 docker compose -f docker-compose.prod.yml restart api
 
-# Run migrations
-docker compose -f docker-compose.prod.yml exec api npm run db:migrate
+# Migrations run in the API entrypoint; inspect startup logs
+docker compose -f docker-compose.prod.yml logs api
 ```

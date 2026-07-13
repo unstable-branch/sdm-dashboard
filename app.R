@@ -131,10 +131,6 @@ server <- function(input, output, session) {
       hideTab("tabs", "Future projection")
     }
   }, ignoreNULL = TRUE)
-  # Hide on startup (runs once after session initialises)
-  observe({
-    if (!isTRUE(input$future_projection)) hideTab("tabs", "Future projection")
-  }, priority = 1000)
 
   # Sync climate source between sidebar and Get Data tab
   observeEvent(input$climate_source, {
@@ -292,7 +288,7 @@ server <- function(input, output, session) {
         )
       }
     })
-    df <- do.call(rbind, summary_rows)
+    df <- data.table::rbindlist(summary_rows)
     div(
       h4("Batch results"),
       DT::datatable(df, options = list(dom = "t", ordering = TRUE, pageLength = 25),

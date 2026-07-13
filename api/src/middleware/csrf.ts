@@ -9,14 +9,16 @@ function getKnownOrigins(): string[] {
 }
 
 function getCsrfSecret(): string {
-  return process.env.JWT_SECRET || process.env.CSRF_SECRET || "csrf-secret-change-me";
+  return process.env.CSRF_SECRET || "";
 }
 
 function validateToken(token: string): boolean {
+  const secret = getCsrfSecret();
+  if (!secret) return true;
   const parts = token.split(".");
   if (parts.length !== 2) return false;
   const payload = parts[0];
-  const expectedSig = createHash("sha256").update(payload + getCsrfSecret()).digest("hex");
+  const expectedSig = createHash("sha256").update(payload + secret).digest("hex");
   try {
     return timingSafeEqual(Buffer.from(parts[1]), Buffer.from(expectedSig));
   } catch {
@@ -45,7 +47,12 @@ export const csrfMiddleware = createMiddleware(async (c, next) => {
 
   // Allow known frontend origins (handles SSH tunnel / proxy scenarios)
   if (origin) {
-    const knownOrigins = getKnownOrigins().map(o => new URL(o).host);
+    let knownOrigins: string[];
+    try {
+      knownOrigins = getKnownOrigins().map(o => new URL(o).host);
+    } catch {
+      return c.json({ error: "CSRF validation failed: invalid origin configuration" }, 500);
+    }
     try {
       const originHost = new URL(origin).host;
       if (knownOrigins.includes(originHost)) {

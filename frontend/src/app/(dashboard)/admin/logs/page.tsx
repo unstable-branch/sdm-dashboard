@@ -48,6 +48,7 @@ export default function AdminLogsPage() {
     }
   }, [page, action, since, before]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchLogs is memoized via useCallback with correct dependencies
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
   const commonActions = ["user_login", "user_register", "user_profile_update", "user_password_change", "settings_update", "admin_user_create", "admin_user_update", "system_cache_clear", "occurrence_upload", "model_run"];

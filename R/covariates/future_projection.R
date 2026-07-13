@@ -1,7 +1,7 @@
 # Optional future-climate projection helpers.
 
 future_projection_files <- function(future_worldclim_dir, selected_biovars) {
-  find_cmip6_files(future_worldclim_dir, selected_biovars)
+  find_cmip6_files(sdm_resolve_project_path(future_worldclim_dir), selected_biovars)
 }
 
 future_projection_ready <- function(future_worldclim_dir, selected_biovars) {
@@ -14,6 +14,7 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
                                        output_future_tif, output_delta_tif, n_cores = 1,
                                        log_fun = NULL, mask_extrapolation = TRUE,
                                        mess_threshold = 0) {
+  future_worldclim_dir <- sdm_resolve_project_path(future_worldclim_dir)
   if (!dir.exists(future_worldclim_dir)) {
     stop("Future WorldClim/CMIP6 folder does not exist: ", future_worldclim_dir, call. = FALSE)
   }
@@ -62,7 +63,7 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   names(delta) <- "suitability_delta"
   terra::writeRaster(delta, output_delta_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999"))
   )
 
   log_message(log_fun, "Computing MESS extrapolation surface")
@@ -73,7 +74,7 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
 
   terra::writeRaster(mess_result$mess, output_mess_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999"))
   )
 
   mod_raster <- compute_mod(mess_result$per_variable)

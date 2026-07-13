@@ -1,0 +1,339 @@
+# SDM Dashboard Alert Rules
+# Provisioned via Grafana file-based alerting
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: sdm-alerts
+    folder: SDM Alerts
+    interval: 1m
+    rules:
+      - uid: gpu-high-temperature
+        title: GPU High Temperature
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sdm_gpu_temperature_c
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 85
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasourceUid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        for: 1m
+        annotations:
+          summary: GPU temperature exceeds 85°C
+          description: GPU temperature is above safe operating threshold
+        labels:
+          severity: critical
+          team: infrastructure
+        noDataState: NoData
+        execErrState: Error
+
+      - uid: gpu-low-vram
+        title: GPU Low VRAM
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sdm_gpu_free_vram_mib
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 512
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasourceUid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        for: 2m
+        annotations:
+          summary: GPU VRAM free space is low
+          description: GPU has less than 512 MiB of free VRAM available
+        labels:
+          severity: warning
+          team: infrastructure
+        noDataState: NoData
+        execErrState: Error
+
+      - uid: api-high-error-rate
+        title: API High Error Rate
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: rate(sdm_http_requests_total{status=~"5.."}[5m])
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.05
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasourceUid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        for: 1m
+        annotations:
+          summary: API error rate is elevated
+          description: API is returning 5xx errors at a rate > 0.05/s
+        labels:
+          severity: critical
+          team: backend
+        noDataState: NoData
+        execErrState: Error
+
+      - uid: api-slow-latency
+        title: API Slow Latency
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: histogram_quantile(0.95, rate(sdm_http_request_duration_ms_bucket[5m]))
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1000
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasourceUid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        for: 5m
+        annotations:
+          summary: API p95 latency is high
+          description: API request latency at 95th percentile exceeds 1000ms
+        labels:
+          severity: warning
+          team: backend
+        noDataState: NoData
+        execErrState: Error
+
+      - uid: redis-high-memory
+        title: Redis High Memory
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: redis_memory_used_bytes
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1610612736
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasourceUid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        for: 2m
+        annotations:
+          summary: Redis memory usage is high
+          description: Redis is using more than 1.5GB of memory
+        labels:
+          severity: warning
+          team: infrastructure
+        noDataState: NoData
+        execErrState: Error
+
+      - uid: postgres-high-connections
+        title: PostgreSQL High Connections
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: pg_stat_activity_count
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 80
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasourceUid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        for: 2m
+        annotations:
+          summary: PostgreSQL connections are high
+          description: PostgreSQL has more than 80 active connections
+        labels:
+          severity: warning
+          team: database
+        noDataState: NoData
+        execErrState: Error
+
+      - uid: api-event-loop-lag
+        title: API Event Loop Lag
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: nodejs_eventloop_lag_seconds
+              instant: true
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.5
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasourceUid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        for: 1m
+        annotations:
+          summary: API event loop is lagging
+          description: Node.js event loop lag exceeds 500ms - API may be unresponsive
+        labels:
+          severity: critical
+          team: backend
+        noDataState: NoData
+        execErrState: Error

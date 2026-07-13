@@ -127,6 +127,104 @@
       "when": 1780409000000,
       "tag": "0016_add_run_queue_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1780500000000,
+      "tag": "0017_add_performance_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781000000000,
+      "tag": "0018_add_run_storage_bytes",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1782000000000,
+      "tag": "0019_add_ala_api_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1782100000000,
+      "tag": "0020_add_gbif_settings_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1782200000000,
+      "tag": "0021_drop_maintenance_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1755000000000,
+      "tag": "0022_add_missing_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783000000000,
+      "tag": "0023_add_refresh_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783500000000,
+      "tag": "0024_add_run_number_unique_constraint",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784000000000,
+      "tag": "0026_uploads_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1784100000000,
+      "tag": "0027_add_run_stage",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1784200000000,
+      "tag": "0028_add_upload_cleaned",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1784300000000,
+      "tag": "0029_add_user_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1784400000000,
+      "tag": "0030_add_more_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1784441700000,
+      "tag": "0031_add_run_error_diagnostics",
+      "breakpoints": true
     }
   ]
 }

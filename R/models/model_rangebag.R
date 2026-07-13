@@ -4,32 +4,8 @@
 # repeated environmental range bags. It intentionally uses rectangular bags
 # rather than optional convex-hull geometry so the backend is reliable on
 # Windows and release builds.
+# (shared find_optimal_threshold in model_helpers.R used instead of local copy)
 
-find_optimal_threshold <- function(obs, pred) {
-  obs <- as.integer(obs)
-  pred <- as.numeric(pred)
-  ok <- is.finite(obs) & is.finite(pred)
-  obs <- obs[ok]
-  pred <- pred[ok]
-  if (length(pred) < 3 || sum(obs == 1) < 1 || sum(obs == 0) < 1) {
-    return(0.5)
-  }
-  candidates <- sort(unique(pred))
-  best_threshold <- 0.5
-  best_tss <- -Inf
-  n_presence <- sum(obs == 1)
-  n_background <- sum(obs == 0)
-  for (threshold in candidates) {
-    sensitivity <- sum(obs == 1 & pred >= threshold, na.rm = TRUE) / n_presence
-    specificity <- sum(obs == 0 & pred < threshold, na.rm = TRUE) / n_background
-    tss <- sensitivity + specificity - 1
-    if (is.finite(tss) && tss > best_tss) {
-      best_tss <- tss
-      best_threshold <- threshold
-    }
-  }
-  best_threshold
-}
 
 create_rangebag <- function(presence_covariates, bag_fraction = 0.5, vars_per_bag = 1, seed = NULL) {
   presence_covariates <- as.data.frame(presence_covariates, check.names = FALSE)

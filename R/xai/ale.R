@@ -109,7 +109,7 @@ compute_ale_one_var <- function(model_data, var, pred_fun, fit, n_points, y_mean
 plot_ale <- function(ale_data, out_dir = NULL, ncol = 3) {
   if (length(ale_data) == 0) stop("ALE data is empty", call. = FALSE)
 
-  combined <- do.call(rbind, ale_data)
+  combined <- as.data.frame(data.table::rbindlist(ale_data))
   combined <- combined[is.finite(combined$ale), , drop = FALSE]
 
   p <- ggplot2::ggplot(combined, ggplot2::aes(x = value, y = ale)) +

@@ -167,7 +167,7 @@ pre_check_memory <- function(path, log_fun = NULL) {
 }
 
 clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE,
-                              use_cc = FALSE, cc_tests = "all", log_fun = NULL, min_records = 20,
+                              use_cc = FALSE, cc_tests = "all", log_fun = NULL, progress_fun = NULL, min_records = 20,
                               max_coordinate_uncertainty = NULL, max_records = 200000L) {
   pre_check_memory(path, log_fun = log_fun)
   raw <- read_occurrence_file(path, log_fun = log_fun)
@@ -205,6 +205,10 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   }
   n_absent_excluded <- sum(tolower(raw_status) == "absent", na.rm = TRUE)
 
+  # Detect coordinate uncertainty column early so it is available for the output
+  unc_col <- detect_column(names(raw), c("coordinateuncertaintyinmeters", "coordinate_uncertainty", "uncertainty"))
+  unc_values <- if (!is.na(unc_col)) suppressWarnings(as.numeric(raw[[unc_col]])) else rep(NA_real_, nrow(raw))
+
   occ <- data.frame(
     longitude = vapply(raw[[lon_col]], dms_to_decimal, numeric(1)),
     latitude = vapply(raw[[lat_col]], dms_to_decimal, numeric(1)),
@@ -213,6 +217,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   )
   if (!is.na(country_col)) occ$countryCode <- as.character(raw[[country_col]])
   if (!is.na(species_col)) occ$species <- as.character(raw[[species_col]])
+  occ$coord_uncertainty_m <- unc_values
 
   complete_ok <- stats::complete.cases(occ[, c("longitude", "latitude", "source")])
   finite_ok <- is.finite(occ$longitude) & is.finite(occ$latitude)
@@ -223,10 +228,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   uncertainty_ok <- rep(TRUE, nrow(raw))
   n_uncertainty_filtered <- 0L
   if (!is.null(max_coordinate_uncertainty) && is.finite(max_coordinate_uncertainty) && max_coordinate_uncertainty < .Machine$double.xmax) {
-    unc_col <- detect_column(names(raw), c("coordinateuncertaintyinmeters", "coordinate_uncertainty", "uncertainty"))
     if (!is.na(unc_col)) {
-      unc_values <- suppressWarnings(as.numeric(raw[[unc_col]]))
-      # Keep records with no uncertainty info OR uncertainty within threshold
       uncertainty_ok <- is.na(unc_values) | unc_values <= max_coordinate_uncertainty
       n_uncertainty_filtered <- sum(!uncertainty_ok & !is.na(unc_values))
       if (n_uncertainty_filtered > 0) {
@@ -237,6 +239,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     }
   }
 
+  progress_step(progress_fun, 0.12, "Validating coordinates")
   ok <- complete_ok & finite_ok & bounds_ok & status_ok & uncertainty_ok
   removed_bad <- sum(!ok)
   n_na <- sum(!complete_ok)
@@ -247,6 +250,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   if (n_nonfinite > 0) log_message(log_fun, "  Removed ", n_nonfinite, " records with non-finite coordinates")
   if (n_out_of_bounds > 0) log_message(log_fun, "  Removed ", n_out_of_bounds, " records outside [-180,180] / [-90,90]")
 
+  progress_step(progress_fun, 0.14, "Removing duplicates")
   duplicated_rows <- duplicated(occ[, c("longitude", "latitude", "source")])
   removed_dupes <- sum(duplicated_rows)
   occ <- occ[!duplicated_rows, , drop = FALSE]
@@ -268,6 +272,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   if (nrow(occ) == 0) stop("All occurrence records have invalid coordinates (empty file or all rows removed).", call. = FALSE)
   if (nrow(occ) < min_records) stop("Too few valid occurrence records after cleaning (", nrow(occ), "). Minimum: ", min_records, ".", call. = FALSE)
 
+  progress_step(progress_fun, 0.16, "Cleaning sources")
   if (use_cc && requireNamespace("CoordinateCleaner", quietly = TRUE)) {
     cc_tests_active <- if (identical(cc_tests, "all")) {
       c("sea", "capitals", "institutions", "centroids", "urban", "zeros")
@@ -318,22 +323,6 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
         }
       }
     }
-    if (!is.null(cc_result)) {
-      occ$cc_flag <- !cc_result$.summary
-      cc_test_map <- c(
-        .sea = "cc_test_sea", .cap = "cc_test_capitals",
-        .inst = "cc_test_institutions", .cen = "cc_test_centroids",
-        .urb = "cc_test_urban", .zer = "cc_test_zero",
-        .equ = "cc_test_equal", .gbf = "cc_test_gbif"
-      )
-      for (col in names(cc_result)) {
-        if (col %in% names(cc_test_map)) {
-          occ[[cc_test_map[[col]]]] <- !cc_result[[col]]
-        }
-      }
-      n_flagged <- sum(!cc_result$.summary, na.rm = TRUE)
-      log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", nrow(occ), " records")
-    }
     n_flagged <- sum(occ$cc_flag, na.rm = TRUE)
     n_total <- if (cc_run_on_sample) cc_max_for_full else nrow(occ)
     log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", n_total, " records",
@@ -342,6 +331,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     warning("CoordinateCleaner not installed. Install with: install.packages('CoordinateCleaner')")
   }
 
+  progress_step(progress_fun, 0.18, "Finalising cleaned data")
   log_message(
     log_fun, "Cleaned occurrences: ", format(nrow(occ), big.mark = ","),
     " valid records from ", length(source_counts), " sources; removed ",
@@ -349,8 +339,15 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     format(removed_dupes, big.mark = ","), " duplicates"
   )
 
+  species_counts <- if ("species" %in% names(occ)) {
+    sort(table(occ$species), decreasing = TRUE)
+  } else {
+    setNames(integer(0), character(0))
+  }
+
   list(
     raw = raw, occ = occ, df = occ, source_counts = source_counts,
+    species_counts = species_counts,
     removed_bad_coordinates = removed_bad, removed_duplicates = removed_dupes,
     original_rows = original_n,
     n_absent_excluded = n_absent_excluded,
@@ -517,15 +514,25 @@ read_gbif_records <- function(taxon, country = NULL, max_records = 100,
   doi <- result$meta$doi
   if (is.null(doi)) doi <- NA_character_
 
-  data.frame(
+  total_available <- result$meta$count %||% nrow(result$data)
+  if (is.null(total_available)) total_available <- nrow(result$data)
+
+  # Extract coordinate uncertainty if available
+  uncert <- result$data$coordinateUncertaintyInMeters
+  if (is.null(uncert)) uncert <- rep(NA_real_, nrow(result$data))
+
+  out <- data.frame(
     longitude = result$data$decimalLongitude,
     latitude = result$data$decimalLatitude,
     species = if (!is.null(result$data$species)) result$data$species else taxon,
     source = "GBIF",
     gbif_key = as.character(result$data$key),
     gbif_doi = doi,
+    coord_uncertainty_m = as.numeric(uncert),
     stringsAsFactors = FALSE
   )
+  attr(out, "gbif_total_available") <- total_available
+  out
 }
 
 #' Download GBIF occurrence records via authenticated API (occ_download)
@@ -623,4 +630,161 @@ read_gbif_download <- function(taxon, country = NULL, gbif_user = NULL, gbif_pwd
     doi = doi,
     gbif_key = download_key
   )
+}
+
+#' Fetch ALA occurrence records via galah (public API)
+#' @param taxon Species name to search for (e.g., "Acacia mearnsii")
+#' @param country Optional country filter (e.g., "Australia")
+#' @param max_records Maximum number of records to fetch
+#' @param api_key Optional ALA API key for authenticated access
+#' @param log_fun Optional logging function
+#' @return data.frame with columns: longitude, latitude, species, source, ala_key, coord_uncertainty_m
+read_ala_records <- function(taxon, country = NULL, max_records = 100,
+                              api_key = NULL, log_fun = NULL) {
+  if (!requireNamespace("httr", quietly = TRUE)) {
+    stop("httr package required for ALA search. Install with: install.packages('httr')", call. = FALSE)
+  }
+
+  log_message(log_fun, "Fetching ALA records for: ", taxon)
+
+  if ((is.null(api_key) || is.na(api_key) || !nzchar(api_key)) && nzchar(Sys.getenv("ALA_API_KEY", unset = ""))) {
+    api_key <- Sys.getenv("ALA_API_KEY")
+  }
+  has_api_key <- !is.null(api_key) && !is.na(api_key) && nzchar(api_key)
+
+  limit_cap <- if (has_api_key) 100000L else 10000L
+  query_max <- min(max_records, limit_cap)
+
+  total_available <- NA_integer_
+  tryCatch({
+    if (requireNamespace("galah", quietly = TRUE)) {
+      suppressPackageStartupMessages(library(galah))
+      galah::galah_config(email = Sys.getenv("ALA_EMAIL", unset = NA_character_))
+      if (has_api_key) galah::galah_config(api_key = api_key)
+      count_query <- galah::galah_call() |> galah::identify(taxon)
+      if (!is.null(country) && nzchar(country)) {
+        count_query <- count_query |> galah::galah_filter(country == country)
+      }
+      count_result <- count_query |> galah::atlas_counts()
+      total_available <- as.integer(count_result$count[1] %||% NA)
+    }
+  }, error = function(e) {
+    log_message(log_fun, "Could not fetch ALA total count: ", conditionMessage(e))
+  })
+
+  result <- tryCatch({
+    new_url <- "https://api.ala.org.au/common/biocache/occurrences/search"
+    old_url <- "https://biocache-ws.ala.org.au/ws/occurrences/search"
+    params <- list(
+      q = taxon,
+      pageSize = query_max,
+      fl = "decimalLatitude,decimalLongitude,scientificName,occurrenceID,coordinateUncertaintyInMeters"
+    )
+    if (!is.null(country) && nzchar(country)) {
+      params$fq <- paste0("country:", country)
+    }
+
+    try_api_key <- if (has_api_key) api_key else NULL
+    base_url <- new_url
+    headers <- NULL
+    if (!is.null(try_api_key)) {
+      base_url <- new_url
+      headers <- httr::add_headers(`x-api-key` = try_api_key)
+    }
+
+    max_attempts <- 3L
+    for (attempt in seq_len(max_attempts)) {
+      if (is.null(headers)) {
+        resp <- httr::GET(base_url, query = params, httr::user_agent("sdm-dashboard/1.0"),
+                          httr::timeout(120))
+      } else {
+        resp <- httr::GET(base_url, query = params, headers,
+                          httr::user_agent("sdm-dashboard/1.0"), httr::timeout(120))
+      }
+      status <- httr::status_code(resp)
+      if (status >= 200L && status < 300L) break
+      if (status %in% c(429L, 503L) && attempt < max_attempts) {
+        log_message(log_fun, sprintf("ALA API %s returned %d on attempt %d/%d, retrying in 15s...", base_url, status, attempt, max_attempts))
+        Sys.sleep(15)
+        next
+      }
+      if (status == 403L && attempt < max_attempts) {
+        log_message(log_fun, "New ALA API gateway returned 403 (needs API key), falling back to legacy endpoint...")
+        base_url <- old_url
+        headers <- NULL
+        next
+      }
+      httr::stop_for_status(resp)
+    }
+    httr::stop_for_status(resp)
+    parsed <- httr::content(resp, as = "parsed", type = "application/json")
+
+    if (is.null(parsed$occurrences) || length(parsed$occurrences) == 0) {
+      data.frame(
+        decimalLongitude = numeric(),
+        decimalLatitude = numeric(),
+        scientificName = character(),
+        occurrenceID = character(),
+        coordinateUncertaintyInMeters = numeric(),
+        stringsAsFactors = FALSE
+      )
+    } else {
+      data.table::rbindlist(lapply(parsed$occurrences, function(o) {
+        data.frame(
+          decimalLongitude = as.numeric(o$decimalLongitude %||% NA),
+          decimalLatitude = as.numeric(o$decimalLatitude %||% NA),
+          scientificName = o$scientificName %||% taxon,
+          occurrenceID = as.character(o$occurrenceID %||% NA),
+          coordinateUncertaintyInMeters = as.numeric(o$coordinateUncertaintyInMeters %||% NA),
+          stringsAsFactors = FALSE
+        )
+      }))
+    }
+  }, error = function(e) {
+    err_msg <- conditionMessage(e)
+    if (grepl("Timeout|timed out|Connection timed out", err_msg)) {
+      hint <- " The ALA legacy API is slow or unreachable from this network. Try configuring an ALA API key in Settings → ALA API Key (free from https://support.ala.org.au/) to use the faster API gateway."
+    } else {
+      hint <- " Check internet connectivity or ALA API availability."
+    }
+    stop("ALA occurrence search failed for '", taxon, "': ", err_msg, hint, call. = FALSE)
+  })
+
+  if (is.null(result) || nrow(result) == 0) {
+    log_message(log_fun, "No ALA records found for: ", taxon)
+    out <- data.frame(
+      longitude = numeric(),
+      latitude = numeric(),
+      species = character(),
+      source = character(),
+      ala_key = character(),
+      coord_uncertainty_m = numeric(),
+      stringsAsFactors = FALSE
+    )
+    attr(out, "ala_total_available") <- total_available
+    attr(out, "ala_limit_applied") <- query_max
+    return(out)
+  }
+
+  lon_col <- if (!is.null(result$decimalLongitude)) "decimalLongitude" else if (!is.null(result$longitude)) "longitude" else "lon"
+  lat_col <- if (!is.null(result$decimalLatitude)) "decimalLatitude" else if (!is.null(result$latitude)) "lat" else "lat"
+
+  uncert <- if (!is.null(result$coordinateUncertaintyInMeters)) {
+    as.numeric(result$coordinateUncertaintyInMeters)
+  } else {
+    rep(NA_real_, nrow(result))
+  }
+
+  out <- data.frame(
+    longitude = as.numeric(result[[lon_col]]),
+    latitude = as.numeric(result[[lat_col]]),
+    species = result$scientificName %||% result$species %||% taxon,
+    source = "ALA",
+    ala_key = as.character(result$occurrenceID %||% seq_len(nrow(result))),
+    coord_uncertainty_m = uncert,
+    stringsAsFactors = FALSE
+  )
+  attr(out, "ala_total_available") <- total_available
+  attr(out, "ala_limit_applied") <- query_max
+  out
 }

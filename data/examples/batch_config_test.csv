@@ -1,0 +1,3 @@
+species,species_filter,occurrences_csv,model_id,biovars,projection_extent,background_n,cv_folds,threshold,aggregation_factor
+Species_East,Species_East,data/examples/multi_species_test.csv,glm,"1,4,6,12,15,18","112,154,-44,-10",500,3,0.5,3
+Species_West,Species_West,data/examples/multi_species_test.csv,glm,"1,4,6,12,15,18","112,154,-44,-10",500,3,0.5,3

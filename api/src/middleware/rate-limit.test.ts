@@ -5,6 +5,17 @@ import { rateLimit } from "../middleware/rate-limit.js";
 let callCount = 0;
 
 vi.mock("ioredis", () => ({
+  default: class MockRedis {
+    on = vi.fn();
+    connect = vi.fn(() => Promise.resolve());
+    zremrangebyscore = vi.fn(() => Promise.resolve(0));
+    zcard = vi.fn(() => Promise.resolve(callCount));
+    zadd = vi.fn(() => {
+      callCount++;
+      return Promise.resolve(1);
+    });
+    expire = vi.fn(() => Promise.resolve(1));
+  },
   Redis: class MockRedis {
     on = vi.fn();
     connect = vi.fn(() => Promise.resolve());

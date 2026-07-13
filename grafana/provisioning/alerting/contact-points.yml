@@ -1,0 +1,19 @@
+# SDM Dashboard Contact Points
+# Provisioned via Grafana file-based alerting
+
+apiVersion: 1
+
+contactPoints:
+  - name: sdm-critical-alerts
+    type: email
+    settings:
+      addresses: admin@example.com
+      singleEmail: true
+    disableResolveMessage: false
+
+  - name: sdm-all-alerts
+    type: email
+    settings:
+      addresses: admin@example.com
+      singleEmail: true
+    disableResolveMessage: false

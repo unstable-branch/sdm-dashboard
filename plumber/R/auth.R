@@ -1,8 +1,6 @@
 # Plumber API Key Authentication Middleware
 # Validates X-API-Key header against PostgreSQL api_keys table
 
-library(httr)
-
 #' Validate an API key against the database
 #' @param api_key The raw API key from X-API-Key header
 #' @param pool Optional dbPool connection pool
@@ -18,13 +16,15 @@ validate_api_key <- function(api_key, pool = NULL, app_dir = NULL) {
 
   # Use connection pool if available, otherwise create single connection
   tryCatch({
-    parts <- parse_db_url(db_url)
-    con <- DBI::dbConnect(
-      RPostgres::Postgres(),
-      dbname = parts$dbname, host = parts$host,
-      port = parts$port, user = parts$user, password = parts$password
-    )
-    on.exit(DBI::dbDisconnect(con), add = TRUE)
+    if (!is.null(pool) && inherits(pool, "Pool")) {
+      con <- pool::poolCheckout(pool)
+      on.exit(pool::poolReturn(con), add = TRUE)
+    } else {
+      db_url <- Sys.getenv("DATABASE_URL", "")
+      if (!nzchar(db_url)) return(NULL)
+      con <- sdm_db_connect(db_url)
+      on.exit(DBI::dbDisconnect(con), add = TRUE)
+    }
 
     query <- "SELECT u.id, u.email, u.name, u.role, ak.created_at as key_created
               FROM api_keys ak
@@ -60,16 +60,21 @@ requires_auth <- function(path) {
     return(TRUE)
   }
 
-  # Open endpoints: health, ready, list endpoints
+  # Open endpoints: read-only infrastructure, discovery, and results
   open_patterns <- c(
     "^/health$",
     "^/ready$",
-    "^/api/v1/models/runs$",
     "^/api/v1/climate/scenarios$",
     "^/api/v1/climate/check$",
     "^/api/v1/config/defaults$",
     "^/api/v1/models$",
-    "^/api/v1/future/scenarios$"
+    "^/api/v1/future/scenarios$",
+    "^/api/v1/covariates/check$",
+    # Read-only ecology endpoints (GET only — POST niche-overlap is excluded)
+    "^/api/v1/ecology/[^/]+$",
+    "^/api/v1/ecology/[^/]+/(eoo-aoo|aoa|report)$",
+    # Read-only diagnostics endpoints (GET only — POST shap/cell and plots excluded)
+    "^/api/v1/diagnostics/(vif|response-curves|ale|importance|climate-drivers|cbi|mess|summary|roc|calibration|cv-folds|threshold|density|data)/[^/]+$"
   )
 
   if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {
@@ -92,10 +97,27 @@ requires_auth <- function(path) {
 # Simple in-memory rate limiter for Plumber auth filter
 # Tracks request counts per unique key (API key hash or user ID)
 rate_limit_buckets <- new.env(parent = emptyenv())
+rate_limit_check_counter <- 0L
 
 sdm_check_rate_limit <- function(key, max_requests = 60, window_seconds = 60) {
   current <- as.numeric(Sys.time())
   window_start <- current - window_seconds
+
+  # Periodic cleanup (every ~50 calls) to prevent memory leak from stale keys
+  rate_limit_check_counter <<- rate_limit_check_counter + 1L
+  if (rate_limit_check_counter %% 50L == 0L) {
+    threshold <- current - 3600
+    for (k in ls(envir = rate_limit_buckets)) {
+      ts <- rate_limit_buckets[[k]]
+      ts <- ts[ts > threshold]
+      if (length(ts) == 0) {
+        rm(list = k, envir = rate_limit_buckets)
+      } else {
+        rate_limit_buckets[[k]] <- ts
+      }
+    }
+  }
+
   if (exists(key, envir = rate_limit_buckets)) {
     timestamps <- rate_limit_buckets[[key]]
     timestamps <- timestamps[timestamps > window_start]

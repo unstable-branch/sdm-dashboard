@@ -6,7 +6,11 @@
 # Open endpoints (health, reads) bypass auth
 
 # Fatal error handler: dump stack + variables to crash log so OOM/segfault leaves a trail
+# Ignores REQUEST_REJECTED (normal Plumber auth rejection — not a crash)
 options(error = function() {
+  # Plumber preroute hook calls stop("REQUEST_REJECTED") for auth failures.
+  # These are expected and must not trigger crash logging or health-check alarms.
+  if (identical(geterrmessage(), "REQUEST_REJECTED")) return(invisible(NULL))
   crash_file <- file.path(tempdir(), "sdm_crash_dump.rda")
   tryCatch({
     dump.frames("sdm_crash_dump", to.file = TRUE)
@@ -20,8 +24,9 @@ options(error = function() {
   cat("FATAL: Unrecoverable R error — process terminating\n")
 })
 
-app_dir <- if (dir.exists("/app/R")) {
-  "/app"
+SDM_PROJECT_ROOT <- Sys.getenv("SDM_PROJECT_ROOT", "/app")
+app_dir <- if (dir.exists(file.path(SDM_PROJECT_ROOT, "R"))) {
+  SDM_PROJECT_ROOT
 } else if (dir.exists(file.path(getwd(), "R"))) {
   normalizePath(getwd(), winslash = "/")
 } else {
@@ -37,42 +42,10 @@ source(file.path(app_dir, "plumber", "R", "redis.R"), local = FALSE)
 # Source shared plumber helpers used by route handlers
 source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"), local = FALSE)
 
-# Set up DB connection pool for auth and other DB queries
-library(pool)
-db_pool <- tryCatch({
-  db_url <- Sys.getenv("DATABASE_URL", "")
-  if (nzchar(db_url)) {
-    clean_url <- sub("^postgresql://", "postgres://", db_url)
-    parts <- regmatches(clean_url, regexec("postgres://([^:]+):([^@]+)@([^:]+):([^/]+)/(.+)", clean_url))[[1]]
-    if (length(parts) == 6) {
-      dbPool(
-        RPostgres::Postgres(),
-        host = parts[4],
-        port = as.integer(parts[5]),
-        dbname = parts[6],
-        user = parts[2],
-        password = parts[3],
-        minSize = 1,
-        maxSize = 5,
-        idleTimeout = 60000
-      )
-    } else {
-      masked <- sub("://[^:]+:[^@]+@", "://USER:PASSWORD@", db_url)
-      cat("WARNING: Could not parse DATABASE_URL:", masked, "\n")
-      NULL
-    }
-  } else {
-    NULL
-  }
-}, error = function(e) {
-  cat("WARNING: Failed to create DB connection pool:", conditionMessage(e), "\n")
-  NULL
-})
-if (!is.null(db_pool)) {
-  cat("DB connection pool created (min=1, max=5)\n")
-}
+# Source error codes and classification
+source(file.path(app_dir, "plumber", "R", "error_codes.R"), local = FALSE)
 
-# Load .env file for env vars (PLUMBER_INTERNAL_KEY, DATABASE_URL, etc.)
+# Load .env before connecting so local deployments use the same retry path as containers.
 env_file <- file.path(app_dir, ".env")
 if (file.exists(env_file)) {
   lines <- readLines(env_file, warn = FALSE)
@@ -84,6 +57,17 @@ if (file.exists(env_file)) {
       }
     }
   }
+}
+
+# PostgreSQL can lag behind the container process even when Compose is starting
+# normally. Retry pool creation instead of permanently disabling pooled access.
+library(pool)
+source(file.path(app_dir, "plumber", "R", "db_pool.R"), local = FALSE)
+db_pool <- sdm_connect_db_pool()
+if (!is.null(db_pool)) {
+  cat("DB connection pool created (min=1, max=5)\n")
+} else if (nzchar(Sys.getenv("DATABASE_URL", ""))) {
+  cat("WARNING: DB pool unavailable after startup retries; direct DB connections remain enabled.\n")
 }
 
 # Create plumber router (this sets global `pr`)
@@ -108,14 +92,20 @@ internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
 # Auth helper: stop request with error response
 auth_fail <- function(res, status, msg) {
   tryCatch(res$status <- status, error = function(e) NULL)
-  res$body <- charToRaw(msg)
-  # Signal an error to stop Plumber from calling the handler
-  stop(msg, call. = FALSE)
+  stop("REQUEST_REJECTED", call. = FALSE)
 }
 
 # Helper to safely read headers
 get_hdr <- function(req, name) {
-  tryCatch(req$HEADERS[[name]], error = function(e) NULL)
+  tryCatch({
+    hdrs <- req$HEADERS
+    if (is.null(hdrs) || length(hdrs) == 0L) return(NULL)
+    name_lower <- tolower(name)
+    for (h in names(hdrs)) {
+      if (tolower(h) == name_lower) return(hdrs[[h]])
+    }
+    NULL
+  }, error = function(e) NULL)
 }
 
 # Global preroute hook - runs before every endpoint
@@ -126,10 +116,20 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   # Guard against malformed requests
   if (is.null(path) || length(path) == 0L) {
     auth_fail(res, 400L, '{"error":"Malformed request"}')
+    return(NULL)
   }
 
   # Disable auth in dev/test if env var set
   if (identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
+    if (identical(Sys.getenv("NODE_ENV"), "production")) {
+      cat("FATAL: PLUMBER_AUTH_DISABLED is set in production — refusing to start.\n")
+      cat("  Remove PLUMBER_AUTH_DISABLED=true from production environment.\n")
+      quit(status = 1)
+    }
+    fwd_user <- get_hdr(req, "x-forwarded-user")
+    if (!is.null(fwd_user) && nzchar(fwd_user)) {
+      req$user_id <- fwd_user
+    }
     return(NULL)
   }
 
@@ -154,11 +154,14 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   api_key <- get_hdr(req, "x-api-key")
   if (is.null(api_key) || !nzchar(api_key)) {
     auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}')
+    return(NULL)
   }
 
+  db_pool <- sdm_get_db_pool(db_pool)
   user_info <- validate_api_key(api_key, pool = db_pool, app_dir = app_dir)
   if (is.null(user_info)) {
     auth_fail(res, 401L, '{"error":"Invalid or expired API key."}')
+    return(NULL)
   }
 
   req$user_id <- user_info$user_id
@@ -170,6 +173,7 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   if (!is.null(rate_key) && nzchar(rate_key)) {
     if (!sdm_check_rate_limit(rate_key, max_requests = 120, window_seconds = 60)) {
       auth_fail(res, 429L, '{"error":"Rate limit exceeded. Try again in 60 seconds."}')
+      return(NULL)
     }
   }
 
@@ -182,31 +186,38 @@ source(file.path(app_dir, "plumber", "R", "plumber.R"), local = FALSE)
 # Start server with project root as working directory
 setwd(app_dir)
 
-# Orphan job cleanup: remove stale job directories from previous crashed sessions
+# Preserve crash diagnostics for status polling, then prune failed/cancelled
+# scratch jobs after a configurable retention window.
 orphan_cleanup <- function() {
   jobs_base <- file.path(app_dir, "outputs", "jobs")
   if (!dir.exists(jobs_base)) return(NULL)
-  cutoff <- Sys.time() - 86400
-  stale <- list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)
-  for (jd in stale) {
-    mtime <- file.info(jd)$mtime
-    if (!is.na(mtime) && mtime < cutoff) {
-      meta_file <- file.path(jd, "meta.json")
-      if (file.exists(meta_file)) {
-        meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-        if (identical(meta$status, "running")) {
-          # Kill the process if PID is known, then remove directory
-          if (!is.null(meta$process_pid)) {
-            tryCatch(tools::pskill(meta$process_pid, signal = 9), error = function(e) NULL)
-          }
-          unlink(jd, recursive = TRUE, force = TRUE)
-        }
-      }
+  stale_running_cutoff <- Sys.time() - 86400
+  retention_days <- suppressWarnings(as.numeric(Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7")))
+  if (!is.finite(retention_days) || retention_days < 1) retention_days <- 7
+  prune_cutoff <- Sys.time() - retention_days * 86400
+
+  for (job_dir in list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)) {
+    meta_file <- file.path(job_dir, "meta.json")
+    if (!file.exists(meta_file)) next
+    meta <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
+    if (is.null(meta)) next
+    mtime <- file.info(meta_file)$mtime
+
+    if (identical(meta$status, "running") && !is.na(mtime) && mtime < stale_running_cutoff) {
+      meta$status <- "failed"
+      meta$error <- "Job was orphaned by a previous Plumber process"
+      meta$error_code <- "WORKER_ORPHAN"
+      meta$error_hint <- "Restart the job. If this recurs, inspect the retained stdout and stderr logs."
+      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      sdm_write_json(meta, meta_file)
+    } else if (meta$status %in% c("failed", "cancelled") && !is.na(mtime) && mtime < prune_cutoff) {
+      unlink(job_dir, recursive = TRUE, force = TRUE)
     }
   }
 }
 tryCatch({
-  cat("Running orphan cleanup (stale jobs >24h)...\n")
+  cat("Running orphan cleanup (failed-job retention: ",
+      Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7"), " days)...\n", sep = "")
   orphan_cleanup()
 }, error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
 
@@ -252,7 +263,7 @@ cat("Starting Plumber on port 8000\n")
 
 # Pre-flight OOM check: warn if available RAM is too low for model runs
 tryCatch({
-  mem_info <- terra::mem_info()
+  mem_info <- sdm_mem_info()
   if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
     if (mem_info$memavail < 2.0) {
       cat("WARNING: Available RAM (", sprintf("%.1f GB", mem_info$memavail),

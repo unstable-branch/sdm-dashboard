@@ -1,5 +1,5 @@
 import { join } from "path";
-import { readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { decrypt } from "./encryption.js";
 
 export type ModelConfigRecord = Record<string, unknown> & {
@@ -9,19 +9,34 @@ export type ModelConfigRecord = Record<string, unknown> & {
   occurrenceFile?: string;
   biovars?: number[];
   projectionExtent?: number[];
+  trainingExtent?: number[];
   backgroundN?: number;
   cvFolds?: number;
 };
 
+const _decryptedFiles = new Set<string>();
+
+export function cleanupDecryptedFiles(): void {
+  for (const p of _decryptedFiles) {
+    try { unlinkSync(p); } catch { /* ignore */ }
+  }
+  _decryptedFiles.clear();
+}
+
 function resolveEncryptedFile(filePath: string | undefined | null): string | null {
   if (!filePath || !filePath.endsWith(".enc")) return filePath ?? null;
+  const resolvedPath = filePath.replace(/\.enc$/, "");
   try {
     const ciphertext = readFileSync(filePath);
     const plaintext = decrypt(ciphertext);
-    const resolvedPath = filePath.replace(/\.enc$/, "");
     writeFileSync(resolvedPath, plaintext);
+    _decryptedFiles.add(resolvedPath);
     return resolvedPath;
   } catch {
+    // If decryption failed but file was written, clean it up
+    if (existsSync(resolvedPath)) {
+      try { unlinkSync(resolvedPath); } catch { /* ignore */ }
+    }
     return filePath;
   }
 }
@@ -39,6 +54,10 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   maskType: "mask_type",
   maskFile: "mask_file",
   maskBufferDeg: "mask_buffer_deg",
+  maskBoundaryType: "mask_boundary_type",
+  maskResolution: "mask_resolution",
+  maskCountry: "mask_country",
+  restrictBackground: "restrict_background",
   biasMethod: "bias_method",
   thickeningDistanceKm: "thickening_distance_km",
   targetGroupFile: "target_group_file",
@@ -50,6 +69,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   climateMatching: "climate_matching",
   climateMatchingMethod: "climate_matching_method",
   futureProjection: "future_projection",
+  futureProjection2: "future_projection2",
   futureWorldclimDir: "future_worldclim_dir",
   futureLabel: "future_label",
   futureWorldclimDir2: "future_worldclim_dir2",
@@ -86,6 +106,20 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   dnnArchitecture: "dnn_model_type",
   dnnNSeeds: "dnn_n_seeds",
   dnnDevice: "dnn_device",
+  hiddenLayers: "hidden_layers",
+  batchSize: "batch_size",
+  predictBatchSize: "predict_batch_size",
+  learningRate: "learning_rate",
+  pythonDevice: "python_device",
+  earlyStoppingPatience: "early_stopping_patience",
+  validationFraction: "validation_fraction",
+  nEstimators: "n_estimators",
+  maxDepth: "max_depth",
+  maxIterations: "max_iterations",
+  gpuEnabled: "gpu_enabled",
+  dnnFusedAdam: "dnn_fused_adam",
+  dnnMcSamples: "dnn_mc_samples",
+  dnnUncertaintyMethod: "dnn_uncertainty_method",
   brtNTrees: "brt_n_trees",
   brtInteractionDepth: "brt_interaction_depth",
   brtShrinkage: "brt_shrinkage",
@@ -126,6 +160,10 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   detectionModelType: "detection_model_type",
   dnnMultispeciesArchitecture: "dnn_multispecies_architecture",
   dnnMultispeciesNSeeds: "dnn_multispecies_n_seeds",
+  gllvmFamily: "gllvm_family",
+  gllvmNumLv: "gllvm_num_lv",
+  gllvmNumRows: "gllvm_num_rows",
+  gllvmLvCorr: "gllvm_lv_corr",
   multiEnsembleModels: "multi_ensemble_models",
   multiEnsembleBiomod2: "biomod2_models",
   multiEnsembleWeighting: "multi_ensemble_weighting",
@@ -147,10 +185,21 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   multiEnsembleUncertainty: "multi_ensemble_uncertainty",
   chelsaExtras: "chelsa_extras",
   analysisCrs: "analysis_crs",
+  generateTiles: "generate_tiles",
+  generateCog: "generate_cog",
+  speciesFilter: "species_filter",
+  trainingExtent: "training_extent",
+  tuningMethod: "tuning_method",
+  enmevalAlgorithm: "enmeval_algorithm",
+  enmevalPartitions: "enmeval_partitions",
+  enmevalSelectionMetric: "enmeval_selection_metric",
+  enmevalTuneArgs: "enmeval_tune_args",
+  enmevalCategoricals: "enmeval_categoricals",
+  enmevalNullIterations: "enmeval_null_iterations",
 };
 
 export function buildModelPayload(config: ModelConfigRecord, runId: string): Record<string, unknown> {
-  const { biovars, projectionExtent, ...rest } = config;
+  const { biovars, projectionExtent, trainingExtent, ...rest } = config;
   const occurrenceFile = resolveEncryptedFile(config.cleanedFilePath || config.occurrenceFile);
   const cleanedFile = resolveEncryptedFile(config.cleanedFilePath);
   // Convert remaining camelCase keys to snake_case for Plumber API
@@ -158,14 +207,18 @@ export function buildModelPayload(config: ModelConfigRecord, runId: string): Rec
   for (const [key, val] of Object.entries(rest)) {
     restSnake[CAMEL_TO_SNAKE[key] || key] = val;
   }
-  return {
+  const payload: Record<string, unknown> = {
     ...restSnake,
     species: config.species,
     model_id: config.modelId,
     occurrence_file: occurrenceFile,
-    cleaned_file_id: cleanedFile,
     biovars: Array.isArray(config.biovars) ? config.biovars.join(",") : "",
     projection_extent: Array.isArray(config.projectionExtent) ? config.projectionExtent.join(",") : "",
+    training_extent: Array.isArray(config.trainingExtent) ? config.trainingExtent.join(",") : undefined,
     output_dir: join("outputs", "jobs", runId),
   };
+  if (cleanedFile) {
+    payload.cleaned_file_id = cleanedFile;
+  }
+  return payload;
 }

@@ -1,11 +1,13 @@
+import { useMemo } from "react";
+
 interface SourceCountsProps {
   counts: Record<string, number>;
   total?: number;
 }
 
 export function SourceCounts({ counts, total }: SourceCountsProps) {
-  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const totalCount = total || entries.reduce((sum, [, count]) => sum + count, 0);
+  const entries = useMemo(() => Object.entries(counts).sort((a, b) => b[1] - a[1]), [counts]);
+  const totalCount = useMemo(() => total || entries.reduce((sum, [, count]) => sum + count, 0), [entries, total]);
 
   if (entries.length === 0) return null;
 

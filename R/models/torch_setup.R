@@ -24,10 +24,13 @@ gpu_architecture_map <- list(
   list(gpu_pattern = "RTX 30[0-9]", arch = "ampere", sm = "86", cuda_best = "12.8", cuda_fallback = c("12.8"), torch_kind = "cu128"),
   # Ada architecture (sm_89) - RTX 40xx
   list(gpu_pattern = "RTX 40[0-9]|RTX 45[0-9]", arch = "ada", sm = "89", cuda_best = "12.8", cuda_fallback = c("12.8"), torch_kind = "cu128"),
+  # Blackwell GeForce architecture (sm_120) - RTX 50xx. Use cu128 because
+  # it is the current mlverse prebuilt GPU package kind for Linux/Windows.
+  list(gpu_pattern = "RTX 50[0-9]|GeForce RTX 50[0-9]|5060|5070|5080|5090", arch = "blackwell", sm = "120", cuda_best = "12.8", cuda_fallback = c("12.8"), torch_kind = "cu128"),
   # Hopper architecture (sm_90) - H100
   list(gpu_pattern = "H100", arch = "hopper", sm = "90", cuda_best = "12.8", cuda_fallback = c("12.8", "13.0"), torch_kind = "cu128"),
   # Blackwell architecture (sm_100+) - B100, B200
-  list(gpu_pattern = "B100|B200|Blackwell", arch = "blackwell", sm = "100", cuda_best = "13.0", cuda_fallback = c("13.0", "12.8"), torch_kind = "cu130"),
+  list(gpu_pattern = "B100|B200|Blackwell", arch = "blackwell", sm = "100", cuda_best = "12.8", cuda_fallback = c("12.8"), torch_kind = "cu128"),
   # Intel integrated graphics (not supported)
   list(gpu_pattern = "Intel|UHD|Iris", arch = "intel", sm = NA, cuda_best = NA, cuda_fallback = NA, torch_kind = "cpu"),
   # Apple Silicon — Metal/MPS acceleration
@@ -41,21 +44,28 @@ detect_nvidia_gpu <- function() {
   result <- list(
     gpu_name = NULL,
     cuda_driver = NULL,
-    driver_version = NULL
+    driver_version = NULL,
+    compute_capability = NULL
   )
 
   tryCatch(
     {
       # Try nvidia-smi to get GPU info
-      output <- system("nvidia-smi --query-gpu=name,driver_version,compute_version --format=csv,noheader", intern = TRUE, ignore.stderr = TRUE)
+      output <- system("nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv,noheader", intern = TRUE, ignore.stderr = TRUE)
 
       if (length(output) > 0 && nzchar(output)) {
         parts <- strsplit(trimws(output[1]), ",")[[1]]
         if (length(parts) >= 3) {
           result$gpu_name <- trimws(parts[1])
           result$driver_version <- trimws(parts[2])
-          result$cuda_driver <- trimws(parts[3])
+          result$compute_capability <- trimws(parts[3])
         }
+      }
+
+      smi <- system("nvidia-smi 2>/dev/null", intern = TRUE, ignore.stderr = TRUE)
+      cuda_line <- grep("CUDA Version", smi, value = TRUE)
+      if (length(cuda_line) > 0) {
+        result$cuda_driver <- sub(".*CUDA Version: *([0-9.]+).*", "\\1", cuda_line[1])
       }
     },
     error = function(e) {
@@ -407,8 +417,8 @@ install_torch_for_gpu <- function(torch_kind = "cpu", log_fun = NULL) {
   if (torch_kind != "cpu") {
     tryCatch(
       {
-        # Get torch version
-        version <- as.character(packageVersion("torch"))
+        # Get torch version from CRAN before torch is installed.
+        version <- utils::available.packages(repos = "https://cloud.r-project.org")["torch", "Version"]
 
         # Set up repository for specific CUDA version
         options(repos = c(
@@ -419,8 +429,8 @@ install_torch_for_gpu <- function(torch_kind = "cpu", log_fun = NULL) {
         # Try installing
         suppressMessages(install.packages("torch", quiet = TRUE))
 
-        # Verify
-        if (torch::torch_is_installed() && torch::cuda_is_available()) {
+        # Verify with a real CUDA tensor, not just cuda_is_available().
+        if (torch::torch_is_installed() && test_gpu_working()) {
           success <- TRUE
         }
       },
@@ -440,7 +450,7 @@ install_torch_for_gpu <- function(torch_kind = "cpu", log_fun = NULL) {
         tryCatch(
           {
             kind <- paste0("cu", gsub("\\.", "", cuda_ver))
-            version <- as.character(packageVersion("torch"))
+            version <- utils::available.packages(repos = "https://cloud.r-project.org")["torch", "Version"]
 
             options(repos = c(
               torch = sprintf("https://torch-cdn.mlverse.org/packages/%s/%s/", kind, version),
@@ -449,7 +459,7 @@ install_torch_for_gpu <- function(torch_kind = "cpu", log_fun = NULL) {
 
             suppressMessages(install.packages("torch", quiet = TRUE))
 
-            if (torch::cuda_is_available()) {
+            if (test_gpu_working()) {
               log_msg(paste("Success with CUDA:", cuda_ver))
               success <- TRUE
               break

@@ -55,8 +55,7 @@ export function RocChart({ data, loading }: RocChartProps) {
           </defs>
           <Area type="monotone" dataKey="tpr" fill="url(#rocAreaFill)" stroke="none" />
           <Line type="monotone" dataKey="tpr" stroke="#2C7FB8" strokeWidth={2} dot={false} name="ROC" />
-          <ReferenceLine x={0} y={0} stroke="#6b7280" strokeDasharray="4 4" />
-          <ReferenceLine x={1} y={1} stroke="#6b7280" strokeDasharray="4 4" />
+          <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 1, y: 1 }]} stroke="#6b7280" strokeDasharray="4 4" />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

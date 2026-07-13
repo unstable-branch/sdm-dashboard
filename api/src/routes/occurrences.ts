@@ -1,25 +1,25 @@
 import { Hono } from "hono";
-import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, accessSync, constants, promises as fs } from "fs";
-import { isAbsolute, join, resolve, dirname, extname } from "path";
+import { mkdirSync, existsSync, statSync, writeFileSync, readFileSync, rmSync, accessSync, constants, promises as fs } from "fs";
+import { join, resolve, dirname, extname } from "path";
 import { fileURLToPath } from "url";
-import { randomUUID } from "crypto";
+import { randomUUID, createDecipheriv } from "crypto";
 import { plumberClient } from "../services/plumber.js";
-import { enqueueSdmJob } from "../services/queue.js";
 import { db } from "../db/index.js";
-import { species, occurrences, users, uploadedFiles } from "../db/schema.js";
-import { and, count, eq, inArray, desc, sql } from "drizzle-orm";
-import { gbifRateLimit, defaultRateLimit } from "../middleware/rate-limit.js";
+import { species, occurrences, users, uploadedFiles, uploads } from "../db/schema.js";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
+import { defaultRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware } from "../middleware/auth.js";
-import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
-import { logAction, extractClientInfo } from "../services/audit.js";
+import { getUserProjectIds } from "../services/access.js";
 import type { AppEnv } from "../middleware/auth.js";
-import { encrypt, decrypt, isEncrypted } from "../services/encryption.js";
+import { encrypt, decrypt } from "../services/encryption.js";
+import { setUploadDir, saveUploadEncrypted, decryptToUploads, resolveFilePath, pollPlumberJob } from "../services/upload-utils.js";
 import type { PlumberUploadResponse } from "@sdm/shared";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, "../../..");
 const UPLOAD_DIR = join(PROJECT_ROOT, "data", "uploads");
+setUploadDir(UPLOAD_DIR);
 
 async function saveUpload(buffer: Buffer, originalName: string): Promise<string> {
   if (!existsSync(UPLOAD_DIR)) {
@@ -32,76 +32,118 @@ async function saveUpload(buffer: Buffer, originalName: string): Promise<string>
   return destPath;
 }
 
-function saveUploadEncrypted(buffer: Buffer, originalName: string): { encPath: string; pipelineRunId: string } {
-  if (!existsSync(UPLOAD_DIR)) {
-    mkdirSync(UPLOAD_DIR, { recursive: true });
-  }
-  const pipelineRunId = randomUUID();
-  const uuid = randomUUID();
-  const ext = extname(originalName) || ".csv";
-  const encPath = join(UPLOAD_DIR, `${uuid}${ext}.enc`);
-  const encrypted = encrypt(buffer);
-  writeFileSync(encPath, encrypted);
-  return { encPath, pipelineRunId };
-}
-
-function decryptToUploads(encPath: string): string | null {
-  if (!existsSync(encPath)) {
-    console.warn(`[encrypt] File not found: ${encPath}`);
-    return null;
-  }
-  if (!encPath.endsWith(".enc")) return null;
-  const plaintextPath = encPath.replace(/\.enc$/, "");
-  if (existsSync(plaintextPath)) return plaintextPath;
-  try {
-    const ciphertext = readFileSync(encPath);
-    const plaintext = decrypt(ciphertext);
-    writeFileSync(plaintextPath, plaintext);
-    const lineCount = plaintext.toString().split("\n").filter((l) => l.trim().length > 0).length - 1;
-    console.log(`[encrypt] Decrypted ${encPath} → ${plaintextPath} (${lineCount} lines)`);
-    return plaintextPath;
-  } catch (err) {
-    console.error(`[encrypt] Failed to decrypt ${encPath}:`, err instanceof Error ? err.message : String(err));
-    return null;
-  }
-}
-
-function resolveFilePath(fileId: string): { path: string } {
-  if (isAbsolute(fileId) && !fileId.endsWith(".enc")) {
-    return { path: fileId };
-  }
-  const encPath = join(UPLOAD_DIR, fileId);
-  if (encPath.endsWith(".enc")) {
-    const decrypted = decryptToUploads(encPath);
-    return { path: decrypted ?? encPath };
-  }
-  return { path: encPath };
-}
-
-async function pollPlumberJob(jobId: string, timeout?: number): Promise<Record<string, unknown>> {
-  const deadline = timeout ? Date.now() + timeout : Infinity;
-  let lastError: Error | undefined;
-  while (Date.now() < deadline) {
-    try {
-      const status = await plumberClient.getJobStatus(jobId);
-      if (status?.status === "completed" || status?.status === "success") {
-        return status as Record<string, unknown>;
-      }
-      if (status?.status === "failed" || status?.status === "error") {
-        return { error: status.error || "Job failed" };
-      }
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  throw lastError || new Error("Polling timed out");
-}
-
 export const dataRoutes = new Hono<AppEnv>();
 
-dataRoutes.use("*", defaultRateLimit);
 dataRoutes.use("*", authMiddleware);
+dataRoutes.use("*", defaultRateLimit);
+
+dataRoutes.get("/occurrences/uploads", async (c) => {
+  try {
+    const limit = c.req.query("limit") || "50";
+    const user = c.get("user");
+    const result = await plumberClient.withUser(user.id).getUploads(parseInt(limit, 10));
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to list uploads";
+    return c.json({ error: message }, 502);
+  }
+});
+
+dataRoutes.get("/occurrences/job/:jobId", async (c) => {
+  const jobId = c.req.param("jobId");
+  if (!jobId) return c.json({ error: "jobId is required" }, 400);
+  try {
+    const status = await plumberClient.getJobStatus(jobId);
+    if (status.status === "completed") {
+      if (status.result && typeof status.result === "object") {
+        return c.json({ status: "completed", result: status.result });
+      }
+      return c.json({ error: "Job completed but no result data" }, 502);
+    }
+    if (status.status === "failed" || status.status === "error") {
+      return c.json({ error: (status.error as string) || "Job failed" }, 502);
+    }
+    return c.json(status);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to get job status";
+    return c.json({ error: message }, 502);
+  }
+});
+
+dataRoutes.get("/occurrences/clean/result", async (c) => {
+  try {
+    const fileId = c.req.query("file_id");
+    const cleanedFileId = c.req.query("cleaned_file_id");
+    if (!fileId && !cleanedFileId) return c.json({ error: "file_id or cleaned_file_id is required" }, 400);
+
+    if (cleanedFileId) {
+      const resolved = resolveFilePath(cleanedFileId);
+      const result = readCleanResultFromFile(resolved.path);
+      if (result) {
+        return c.json({
+          cleaned_records: result.records,
+          source_counts: result.sourceCounts,
+          cc_log: result.ccLog,
+          valid_records: result.totalRecords,
+          original_rows: result.totalRecords,
+        });
+      }
+    }
+
+    if (fileId) {
+      const resolved = resolveFilePath(fileId);
+      try {
+        const uploadsList = await plumberClient.withUser(c.get("user").id).getUploads(200);
+        const match = uploadsList.uploads.find(u => String(u.file_path || "") === resolved.path || String(u.file_id || "") === resolved.path);
+        if (match) {
+          const cleanedPath = (match.cleaned_file_path as string) || (match.cleaned_file_id as string);
+          if (cleanedPath) {
+            const result = readCleanResultFromFile(cleanedPath);
+            if (result) {
+              return c.json({
+                cleaned_records: result.records,
+                source_counts: result.sourceCounts,
+                cc_log: result.ccLog,
+                valid_records: result.totalRecords,
+                original_rows: (match.cleaned_original_rows as number) || result.totalRecords,
+              });
+            }
+          }
+          return c.json({
+            cleaned_records: [],
+            source_counts: {},
+            cc_log: [],
+            valid_records: (match.cleaned_valid_records as number) || 0,
+            original_rows: (match.cleaned_original_rows as number) || (match.n_rows as number) || 0,
+          });
+        }
+      } catch {
+      }
+
+      const result = readCleanResultFromFile(resolved.path);
+      if (result) {
+        return c.json({
+          cleaned_records: result.records,
+          source_counts: result.sourceCounts,
+          cc_log: result.ccLog,
+          valid_records: result.totalRecords,
+          original_rows: result.totalRecords,
+        });
+      }
+    }
+
+    return c.json({
+      cleaned_records: [],
+      source_counts: {},
+      cc_log: [],
+      valid_records: 0,
+      original_rows: 0,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to get cleaning result";
+    return c.json({ error: message }, 502);
+  }
+});
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB
 
@@ -118,7 +160,6 @@ dataRoutes.post("/occurrences/upload", async (c) => {
 
     const user = c.get("user");
 
-    // Check storage quota before accepting the file
     const [quota] = await db
       .select({ used: users.storageUsedBytes, quota: users.storageQuotaBytes })
       .from(users)
@@ -145,7 +186,7 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
 
     if (result && typeof result === "object" && "error" in result) {
-      const error = String((result as Record<string, unknown>).error || "Upload failed");
+      const error = String(result.error || "Upload failed");
       return c.json({ error }, 400);
     }
 
@@ -156,10 +197,9 @@ dataRoutes.post("/occurrences/upload", async (c) => {
       file_path: result.file_path || fileId,
     };
 
-    // Track storage usage on success
     await db
       .update(users)
-      .set({ storageUsedBytes: (quota?.used ?? 0) + buffer.length })
+      .set({ storageUsedBytes: sql`${users.storageUsedBytes} + ${buffer.length}` })
       .where(eq(users.id, user.id));
 
     return c.json(normalizedResult);
@@ -174,29 +214,20 @@ dataRoutes.post("/occurrences/upload", async (c) => {
   }
 });
 
-dataRoutes.get("/occurrences/uploads", async (c) => {
-  try {
-    const limit = c.req.query("limit") || "50";
-    const user = c.get("user");
-    const result = await plumberClient.withUser(user.id).getUploads(parseInt(limit, 10));
-    return c.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to list uploads";
-    return c.json({ error: message }, 502);
-  }
-});
-
 dataRoutes.post("/occurrences/clean", async (c) => {
   try {
     const body = await c.req.json();
     const user = c.get("user");
 
-    // Resolve encrypted file path to plaintext for Plumber async job
-    // Note: cleanup is NOT called — the async Plumber job reads this file later
-    const fileId = (body.file_id || body.fileId) as string | undefined;
+    const fileId = body.file_id || body.fileId;
     if (fileId) {
       const resolved = resolveFilePath(fileId);
       body.file_id = resolved.path;
+    }
+
+    const maxCoordinateUncertainty = body.max_coordinate_uncertainty ?? body.maxCoordinateUncertainty;
+    if (maxCoordinateUncertainty !== undefined) {
+      body.max_coordinate_uncertainty = maxCoordinateUncertainty;
     }
 
     const initial = await plumberClient.withUser(user.id).cleanOccurrences(body);
@@ -205,16 +236,49 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       return c.json(initial, 502);
     }
 
-    const jobId = (initial?.job_id || (initial as any)?.jobId) as string | undefined;
+    const jobId = (initial?.job_id || initial?.jobId) as string | undefined;
 
-    // When async is requested, return immediately with the job_id for client polling
     if (body.async && jobId) {
       return c.json({ job_id: jobId, status: "running" } as Record<string, unknown>);
     }
 
     if (jobId) {
       const result = await pollPlumberJob(jobId, 600000);
+      const cleanResult = (result && typeof result === "object" ? result.result : null) || result;
+      if (body.file_id && cleanResult && typeof cleanResult === "object" && (cleanResult as Record<string, unknown>).cleaned_file_id) {
+        const fp = body.file_id;
+        const r = cleanResult as Record<string, unknown>;
+        try {
+          await db.update(uploads).set({
+            isCleaned: true,
+            cleanedFilePath: r.cleaned_file_id as string,
+            cleanedValidRecords: (r.valid_records ?? null) as number | null,
+            cleanedOriginalRows: (r.original_rows ?? null) as number | null,
+            cleaningCcLog: (r.cc_log ?? null) as string[] | null,
+            cleaningSourceCounts: (r.source_counts ?? null) as Record<string, number> | null,
+          }).where(eq(uploads.filePath, fp));
+        } catch (e: unknown) {
+          console.warn("[clean] Failed to update uploads table:", e instanceof Error ? e.message : e);
+        }
+      }
       return c.json(result);
+    }
+
+    if (body.file_id && initial && typeof initial === "object" && (initial as Record<string, unknown>).cleaned_file_id) {
+      const fp = body.file_id;
+      const r = initial as Record<string, unknown>;
+      try {
+        await db.update(uploads).set({
+          isCleaned: true,
+          cleanedFilePath: r.cleaned_file_id as string,
+          cleanedValidRecords: (r.valid_records ?? null) as number | null,
+          cleanedOriginalRows: (r.original_rows ?? null) as number | null,
+          cleaningCcLog: (r.cc_log ?? null) as string[] | null,
+          cleaningSourceCounts: (r.source_counts ?? null) as Record<string, number> | null,
+        }).where(eq(uploads.filePath, fp));
+      } catch (e: unknown) {
+        console.warn("[clean] Failed to update uploads table:", e instanceof Error ? e.message : e);
+      }
     }
 
     return c.json(initial);
@@ -224,112 +288,168 @@ dataRoutes.post("/occurrences/clean", async (c) => {
   }
 });
 
-dataRoutes.post("/occurrences/gbif/search", gbifRateLimit, async (c) => {
-  try {
-    const body = await c.req.json();
-    const initial = await plumberClient.searchGbif(body);
+const PLUMBER_MAGIC = Buffer.from([0x53, 0x44, 0x4d, 0x45, 0x4e, 0x43, 0x31, 0x0a]);
 
-    const jobId = initial?.job_id as string | undefined;
-    if (jobId) {
-      const result = await pollPlumberJob(jobId);
-      return c.json(result);
+function splitCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+    } else if (ch === "," && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += ch;
     }
-
-    return c.json(initial);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "GBIF search failed";
-    return c.json({ error: message }, 502);
   }
-});
+  result.push(current);
+  return result;
+}
 
-dataRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
+function decryptPlumberFile(encPath: string): string | null {
+  if (!existsSync(encPath)) return null;
   try {
-    const body = await c.req.json();
-    const taxon = body.taxon as string;
-    const country = body.country as string | undefined;
-    const maxRecords = (body.max_records as number) || 100;
-
-    if (!taxon) {
-      return c.json({ error: "taxon is required" }, 400);
+    const encrypted = readFileSync(encPath);
+    if (encrypted.length < PLUMBER_MAGIC.length + 12 + 1 || !PLUMBER_MAGIC.equals(encrypted.subarray(0, PLUMBER_MAGIC.length))) {
+      return null;
     }
+    const keyHex = process.env.DATA_ENCRYPTION_KEY || process.env.SDM_ENCRYPTION_KEY || "";
+    if (!keyHex) return null;
+    const key = Buffer.from(keyHex, "hex");
+    if (key.length !== 32) return null;
 
-    const initial = await plumberClient.searchGbif({ taxon, country, max_records: maxRecords });
+    const iv = encrypted.subarray(PLUMBER_MAGIC.length, PLUMBER_MAGIC.length + 12);
+    const payload = encrypted.subarray(PLUMBER_MAGIC.length + 12);
+    const tag = payload.subarray(payload.length - 16);
+    const ciphertext = payload.subarray(0, payload.length - 16);
 
-    const jobId = initial?.job_id as string | undefined;
-    const searchResult = jobId ? await pollPlumberJob(jobId) : initial;
-    const filePath = searchResult.file_path as string | undefined;
-    const nRecords = (searchResult.n_records as number) || 0;
-
-    if (!filePath || nRecords === 0) {
-      return c.json({ error: "No GBIF records found" }, 404);
-    }
-
-    const pipelineRunId = randomUUID();
-    const user = c.get("user");
-    const { ipAddress, userAgent } = extractClientInfo(c);
-    logAction({
-      userId: user.id,
-      action: "occurrence_upload",
-      entity: "occurrence",
-      entityId: pipelineRunId,
-      ipAddress,
-      userAgent,
-      details: { source: "gbif", taxon, country, n_rows: nRecords, pipelineRunId },
-    });
-
-    return c.json({
-      file_path: filePath,
-      file_id: filePath,
-      n_rows: nRecords,
-      filename: filePath.split("/").pop() || "gbif_records.csv",
-      pipelineRunId,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to save GBIF records";
-    return c.json({ error: message }, 502);
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const plainPath = encPath + ".decrypted";
+    writeFileSync(plainPath, decrypted);
+    return plainPath;
+  } catch {
+    return null;
   }
-});
+}
 
-dataRoutes.post("/occurrences/dwca", async (c) => {
+function looksLikeCsv(content: string): boolean {
+  const firstNewline = content.indexOf("\n");
+  if (firstNewline < 1) return false;
+  const firstLine = content.slice(0, firstNewline);
+  return firstLine.includes(",") || firstLine.includes("\t");
+}
+
+function tryReadFile(path: string): string | null {
+  if (!existsSync(path)) return null;
   try {
-    const body = await c.req.parseBody();
-    const file = body["file"];
-    if (!file || !(file instanceof File)) {
-      return c.json({ error: "No file uploaded" }, 400);
-    }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      return c.json({ error: `File too large. Maximum ${MAX_UPLOAD_BYTES / 1024 / 1024}MB.` }, 413);
-    }
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const user = c.get("user");
-
-    // Save encrypted at rest
-    const { encPath, pipelineRunId } = saveUploadEncrypted(buffer, file.name);
-
-    // Decrypt to temp for Plumber (no cleanup — async Plumber job reads this later)
-    const resolved = resolveFilePath(encPath);
-    const initial = await plumberClient.withUser(user.id).parseDwca({ file_id: resolved.path });
-
-    const jobId = initial?.job_id as string | undefined;
-    const result = jobId ? await pollPlumberJob(jobId) : initial;
-
-    const { ipAddress, userAgent } = extractClientInfo(c);
-    logAction({
-      userId: user.id,
-      action: "occurrence_upload",
-      entity: "occurrence",
-      entityId: pipelineRunId,
-      ipAddress,
-      userAgent,
-      details: { filename: file.name, fileSize: file.size, source: "dwca", pipelineRunId },
-    });
-    return c.json({ ...result, file_id: encPath, file_path: encPath, pipelineRunId });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "DwCA parse failed";
-    return c.json({ error: message }, 502);
+    return readFileSync(path, "utf-8");
+  } catch {
+    return null;
   }
-});
+}
+
+function readCleanResultFromFile(cleanedPath: string): {
+  records: Record<string, unknown>[];
+  sourceCounts: Record<string, number>;
+  ccLog: string[];
+  totalRecords: number;
+} | null {
+  let dataPath = cleanedPath;
+
+  if (cleanedPath.endsWith(".enc")) {
+    const decrypted = decryptToUploads(cleanedPath);
+    if (decrypted) dataPath = decrypted;
+  }
+
+  if (!existsSync(dataPath) && dataPath.startsWith("/app/")) {
+    const localPath = dataPath.replace(/^\/app\//, join(PROJECT_ROOT, "/"));
+    if (existsSync(localPath)) dataPath = localPath;
+  }
+
+  if (!existsSync(dataPath)) return null;
+
+  let content = tryReadFile(dataPath);
+  if (content !== null && !looksLikeCsv(content)) {
+    content = null;
+  }
+
+  if (content === null) {
+    const plainPath = decryptPlumberFile(dataPath);
+    if (plainPath) {
+      content = tryReadFile(plainPath);
+    }
+  }
+
+  if (content === null || content.trim().length === 0) return null;
+
+  const lines = content.trim().split("\n");
+  if (lines.length < 2) return { records: [], sourceCounts: {}, ccLog: [], totalRecords: 0 };
+
+  const stripQuotes = (s: string) => s.replace(/^"|"$/g, "").trim();
+  const headers = lines[0].split(",").map(h => stripQuotes(h));
+  const records: Record<string, unknown>[] = [];
+  const sourceCounts: Record<string, number> = {};
+
+  const ccTestNames: Record<string, string> = {
+    cc_test_sea: "Sea coordinates",
+    cc_test_capitals: "Capital cities",
+    cc_test_centroids: "Country centroids",
+    cc_test_institutions: "Biodiversity institutions",
+    cc_test_urban: "Urban areas",
+    cc_test_zero: "Zero coordinates",
+  };
+  const ccTests = Object.entries(ccTestNames).map(([col, label]) => ({
+    colIdx: headers.indexOf(col),
+    label,
+  })).filter(t => t.colIdx !== -1);
+  const ccCounts: Record<string, number> = {};
+  for (const { label } of ccTests) ccCounts[label] = 0;
+  const maxRecords = Math.min(lines.length - 1, 100);
+
+  for (let i = 1; i < lines.length; i++) {
+    const values = splitCsvLine(lines[i]).map(v => stripQuotes(v));
+
+    for (const { colIdx, label } of ccTests) {
+      const v = values[colIdx] || "";
+      if (v === "true" || v === "TRUE" || v === "1") ccCounts[label]++;
+    }
+
+    if (i - 1 < maxRecords) {
+      const row: Record<string, unknown> = {};
+      headers.forEach((h, idx) => {
+        const val = values[idx];
+        const num = Number(val);
+        row[h] = isNaN(num) ? (val || null) : num;
+      });
+      records.push(row);
+      const src = String(row.source || row["source"] || "unknown");
+      sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+    }
+  }
+
+  const ccLog: string[] = [];
+  const totalRecords = lines.length - 1;
+  ccLog.push("CoordinateCleaner Results:");
+  ccLog.push(`  Total records: ${totalRecords.toLocaleString()}`);
+
+  let totalFlagged = 0;
+  for (const { label } of ccTests) {
+    const count = ccCounts[label];
+    totalFlagged += count;
+    ccLog.push(`    ${label}: ${count.toLocaleString()}`);
+  }
+
+  if (totalFlagged > 0) {
+    ccLog.splice(1, 0, `  Flagged: ${totalFlagged.toLocaleString()} (${(100 * totalFlagged / totalRecords).toFixed(1)}%)`);
+  }
+
+  return { records, sourceCounts, ccLog, totalRecords };
+}
 
 dataRoutes.get("/species", async (c) => {
   try {
@@ -340,7 +460,13 @@ dataRoutes.get("/species", async (c) => {
       return c.json({ species: [], hasMore: false });
     }
 
-    const speciesQuery = db.select().from(species);
+    const speciesQuery = db.select({
+      id: species.id,
+      name: species.name,
+      occurrenceCount: species.occurrenceCount,
+      createdAt: species.createdAt,
+      updatedAt: species.updatedAt,
+    }).from(species);
     const allSpecies = await (projectIds
       ? speciesQuery.where(inArray(species.projectId, projectIds)).orderBy(species.createdAt).limit(limitVal)
       : speciesQuery.orderBy(species.createdAt).limit(limitVal));
@@ -394,7 +520,16 @@ dataRoutes.get("/species/:id/occurrences", async (c) => {
       : eq(occurrences.speciesId, id);
 
     const recs = await db
-      .select()
+      .select({
+        id: occurrences.id,
+        longitude: occurrences.longitude,
+        latitude: occurrences.latitude,
+        source: occurrences.source,
+        flagged: occurrences.flagged,
+        flagReason: occurrences.flagReason,
+        cleaned: occurrences.cleaned,
+        createdAt: occurrences.createdAt,
+      })
       .from(occurrences)
       .where(occConditions)
       .limit(limit)
@@ -430,17 +565,40 @@ dataRoutes.patch("/uploads/:fileId", async (c) => {
       return c.json({ error: "File not found" }, 404);
     }
 
-    const updateData: Record<string, unknown> = {};
+    interface UploadFileUpdate {
+      cleaned?: boolean;
+      cleanedFilePath?: string;
+    }
+    const updateData: UploadFileUpdate = {};
     if (typeof body.cleaned === "boolean") updateData.cleaned = body.cleaned;
     if (typeof body.cleaned_file_path === "string") updateData.cleanedFilePath = body.cleaned_file_path;
 
+    const fileConditions: ReturnType<typeof eq>[] = [eq(uploadedFiles.filePath, fileId)];
+    if (projectIds) fileConditions.push(inArray(uploadedFiles.projectId, projectIds));
     await db
       .update(uploadedFiles)
-      .set(updateData as any)
-      .where(and(
-        eq(uploadedFiles.filePath, fileId),
-        projectIds ? inArray(uploadedFiles.projectId, projectIds) : undefined,
-      ));
+      .set(updateData)
+      .where(and(...fileConditions));
+
+    if (typeof body.cleaned === "boolean" || typeof body.cleaned_file_path === "string") {
+      interface UploadUpdate {
+        isCleaned?: boolean;
+        cleanedFilePath?: string | null;
+        cleanedValidRecords?: number | null;
+        cleanedOriginalRows?: number | null;
+      }
+      const uploadUpdate: UploadUpdate = {};
+      if (typeof body.cleaned === "boolean") {
+        uploadUpdate.isCleaned = body.cleaned;
+        uploadUpdate.cleanedFilePath = body.cleaned_file_path || null;
+        uploadUpdate.cleanedValidRecords = typeof body.cleaned_valid_records === "number" ? body.cleaned_valid_records : null;
+        uploadUpdate.cleanedOriginalRows = typeof body.cleaned_original_rows === "number" ? body.cleaned_original_rows : null;
+      }
+      await db
+        .update(uploads)
+        .set(uploadUpdate)
+        .where(eq(uploads.filePath, fileId));
+    }
 
     return c.json({ ok: true });
   } catch (err) {
@@ -449,47 +607,26 @@ dataRoutes.patch("/uploads/:fileId", async (c) => {
   }
 });
 
-dataRoutes.get("/uploads", async (c) => {
-  try {
-    const user = c.get("user");
-    const projectIds = await getUserProjectIds(user);
-    if (projectIds && projectIds.length === 0) {
-      return c.json({ uploads: [] });
-    }
-
-    const records = await db
-      .select()
-      .from(uploadedFiles)
-      .where(projectIds ? inArray(uploadedFiles.projectId, projectIds) : undefined)
-      .orderBy(desc(uploadedFiles.createdAt))
-      .limit(100);
-
-    const uploads = records.map((f) => ({
-      file_id: f.filePath,
-      file_name: f.originalName,
-      file_size: f.fileSize,
-      n_rows: f.nRows ?? 0,
-      modified_at: f.createdAt.toISOString(),
-      cleaned: f.cleaned,
-      cleaned_file_id: f.cleanedFilePath,
-    }));
-
-    return c.json({ uploads });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to list uploads";
-    return c.json({ error: message }, 500);
+async function deleteFilesFromDisk(filePath: string | null, cleanedFilePath: string | null) {
+  if (filePath) {
+    if (existsSync(filePath)) rmSync(filePath, { force: true });
+    const plain = filePath.replace(/\.enc$/, "");
+    if (plain !== filePath && existsSync(plain)) rmSync(plain, { force: true });
   }
-});
+  if (cleanedFilePath) {
+    if (existsSync(cleanedFilePath)) rmSync(cleanedFilePath, { force: true });
+    const cleanedPlain = cleanedFilePath.replace(/\.enc$/, "");
+    if (cleanedPlain !== cleanedFilePath && existsSync(cleanedPlain)) rmSync(cleanedPlain, { force: true });
+  }
+}
 
-// Delete an uploaded occurrence file and reclaim storage
 dataRoutes.delete("/uploads/:fileId", async (c) => {
   try {
     const fileId = decodeURIComponent(c.req.param("fileId"));
     const user = c.get("user");
     const projectIds = await getUserProjectIds(user);
 
-    // Find the file record (scoped to user's projects)
-    const [record] = await db
+    const [ufRecord] = await db
       .select({
         id: uploadedFiles.id,
         filePath: uploadedFiles.filePath,
@@ -502,36 +639,32 @@ dataRoutes.delete("/uploads/:fileId", async (c) => {
         : eq(uploadedFiles.filePath, fileId))
       .limit(1);
 
-    if (!record) {
+    if (ufRecord) {
+      await deleteFilesFromDisk(ufRecord.filePath, ufRecord.cleanedFilePath);
+      await db.delete(uploadedFiles).where(eq(uploadedFiles.id, ufRecord.id));
+      await db.delete(uploads).where(eq(uploads.filePath, fileId));
+      await db
+        .update(users)
+        .set({ storageUsedBytes: sql`greatest(0, ${users.storageUsedBytes} - ${ufRecord.fileSize})` })
+        .where(eq(users.id, user.id));
+      return c.json({ ok: true, message: "Upload deleted" });
+    }
+
+    const [upRecord] = await db
+      .select({
+        filePath: uploads.filePath,
+        cleanedFilePath: uploads.cleanedFilePath,
+      })
+      .from(uploads)
+      .where(eq(uploads.filePath, fileId))
+      .limit(1);
+
+    if (!upRecord) {
       return c.json({ error: "Upload not found" }, 404);
     }
 
-    // Remove files from disk
-    const encPath = record.filePath;
-    if (encPath && existsSync(encPath)) {
-      rmSync(encPath, { force: true });
-    }
-    // Remove decrypted version if exists
-    const plainPath = encPath?.replace(/\.enc$/, "");
-    if (plainPath && existsSync(plainPath)) {
-      rmSync(plainPath, { force: true });
-    }
-    // Remove cleaned file if exists
-    if (record.cleanedFilePath) {
-      const cleanedEnc = record.cleanedFilePath;
-      if (existsSync(cleanedEnc)) rmSync(cleanedEnc, { force: true });
-      const cleanedPlain = cleanedEnc.replace(/\.enc$/, "");
-      if (existsSync(cleanedPlain)) rmSync(cleanedPlain, { force: true });
-    }
-
-    // Delete DB record
-    await db.delete(uploadedFiles).where(eq(uploadedFiles.id, record.id));
-
-    // Update storage usage
-    await db
-      .update(users)
-      .set({ storageUsedBytes: sql`greatest(0, ${users.storageUsedBytes} - ${record.fileSize})` })
-      .where(eq(users.id, user.id));
+    await deleteFilesFromDisk(upRecord.filePath, upRecord.cleanedFilePath);
+    await db.delete(uploads).where(eq(uploads.filePath, fileId));
 
     return c.json({ ok: true, message: "Upload deleted" });
   } catch (err) {
@@ -540,7 +673,6 @@ dataRoutes.delete("/uploads/:fileId", async (c) => {
   }
 });
 
-// Get storage usage and quota for the current user
 dataRoutes.get("/storage", async (c) => {
   try {
     const user = c.get("user");
@@ -575,23 +707,27 @@ dataRoutes.get("/storage", async (c) => {
   }
 });
 
-// Proxy route for async data job status (clean/dwca/gbif jobs run by Plumber)
 dataRoutes.get("/jobs/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");
-    const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
-    const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
     const user = c.get("user");
-    const res = await fetch(`${plumberUrl}/api/v1/jobs/status/${jobId}`, {
-      headers: {
-        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
-        "X-Forwarded-User": user.id,
-      },
-    });
-    const data = await res.json();
-    return c.json(data, res.status as any);
+    const data = await plumberClient.withUser(user.id).getJobStatus(jobId);
+    return c.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get job status";
+    return c.json({ error: message }, 502);
+  }
+});
+
+// Generate synthetic multi-species occurrence data for stress testing
+dataRoutes.post("/occurrences/synthetic", async (c) => {
+  try {
+    const body = await c.req.json();
+    const user = c.get("user");
+    const data = await plumberClient.withUser(user.id).generateSynthetic(body);
+    return c.json(data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Synthetic data generation failed";
     return c.json({ error: message }, 502);
   }
 });

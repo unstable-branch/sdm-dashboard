@@ -3,6 +3,12 @@
 # Used consistently across Plumber API, model backends, and frontend.
 
 SDM_ERR_CODES <- list(
+  RUNNER_LOAD_FAILED = list(
+    code = "RUNNER_LOAD_FAILED",
+    http_status = 500L,
+    message = "The R background process died while initialising SDM modules",
+    hint = "The process was killed by the OS, likely due to insufficient memory. Reduce covariates, use coarser resolution, or increase container memory. If this persists, check that all required R packages are installed."
+  ),
   PROCESS_CRASH = list(
     code = "PROCESS_CRASH",
     http_status = 500L,
@@ -93,6 +99,24 @@ SDM_ERR_CODES <- list(
     message = "Invalid input parameters",
     hint = "Check the request parameters against the API schema"
   ),
+  ACCESS_DENIED = list(
+    code = "ACCESS_DENIED",
+    http_status = 403L,
+    message = "Access denied",
+    hint = "You do not have permission to perform this action"
+  ),
+  CANCELLED = list(
+    code = "CANCELLED",
+    http_status = 200L,
+    message = "Run cancelled by user",
+    hint = "The run was cancelled — no further action needed"
+  ),
+  GPU_BUSY = list(
+    code = "GPU_BUSY",
+    http_status = 429L,
+    message = "Too many GPU model runs are currently active",
+    hint = "Wait for a GPU model run to finish before starting another, or increase SDM_MAX_GPU_CONCURRENT_RUNS"
+  ),
   INTERNAL_ERROR = list(
     code = "INTERNAL_ERROR",
     http_status = 500L,
@@ -136,7 +160,7 @@ sdm_error_code_direct <- function(code_key, detail_msg = NULL) {
 # Helper to categorise a raw R error into a known error code
 sdm_classify_error <- function(err_msg) {
   err_msg <- as.character(err_msg)
-  if (grepl("out of memory|cannot allocate|OOM|CUD", err_msg, ignore.case = TRUE)) {
+  if (grepl("out of memory|cannot allocate|OOM|CUDA out of memory|CUDA error|cuBLAS error|cuDNN error|HIP out of memory|HIP error|ROCm error|HSA status|hipError", err_msg, ignore.case = TRUE)) {
     return("OOM_PREDICTION")
   }
   if (grepl("perfect separation|singular|glm\\.fit", err_msg, ignore.case = TRUE)) {

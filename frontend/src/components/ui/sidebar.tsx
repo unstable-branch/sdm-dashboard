@@ -14,7 +14,15 @@ export const SidebarContext = React.createContext<SidebarContextValue>({
 });
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = React.useState(true);
+  const [open, setOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 768px)");
+    const syncWithViewport = () => setOpen(desktop.matches);
+    syncWithViewport();
+    desktop.addEventListener("change", syncWithViewport);
+    return () => desktop.removeEventListener("change", syncWithViewport);
+  }, []);
   return (
     <SidebarContext.Provider value={{ open, setOpen }}>
       <div className="flex min-h-screen w-full min-w-0">{children}</div>

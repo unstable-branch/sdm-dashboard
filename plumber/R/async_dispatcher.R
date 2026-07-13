@@ -31,10 +31,12 @@ input_file <- file.path(job_dir, "input.json")
 result_file <- file.path(job_dir, "result.json")
 progress_file <- file.path(job_dir, "progress.log")
 
+log_lines <- character(0)
 log_msg <- function(...) {
   msg <- paste0(format(Sys.time(), "%H:%M:%S"), " ", ...)
   cat(msg, "\n")
   cat(msg, "\n", file = progress_file, append = TRUE)
+  log_lines <<- c(log_lines, msg)
 }
 
 if (!file.exists(input_file)) {
@@ -70,6 +72,8 @@ result <- tryCatch({
           merge_small_sources = input$merge_small_sources %||% TRUE,
           use_cc = input$use_cc %||% FALSE,
           cc_tests = input$cc_tests %||% "all",
+          max_coordinate_uncertainty = input$max_coordinate_uncertainty %||% NULL,
+          max_records = input$max_records %||% 200000L,
           log_fun = log_msg
         )
 
@@ -78,7 +82,13 @@ result <- tryCatch({
           paste0("cleaned_", format(Sys.time(), "%Y%m%d_%H%M%S_"), basename(file_id))
         )
         utils::write.csv(occ$occ, cleaned_path, row.names = FALSE)
-        encrypt_file(cleaned_path, cleaned_path)
+        encrypt_file(cleaned_path, paste0(cleaned_path, ".enc"))
+        unlink(cleaned_path)
+        cleaned_path <- paste0(cleaned_path, ".enc")
+
+        species_counts <- if ("species" %in% names(occ$occ)) {
+          as.list(sort(table(occ$occ$species), decreasing = TRUE))
+        } else list()
 
         list(
           status = "completed",
@@ -91,8 +101,10 @@ result <- tryCatch({
             removed_duplicates = occ$removed_duplicates,
             n_absent_excluded = occ$n_absent_excluded,
             source_counts = as.list(occ$source_counts),
+            species_counts = species_counts,
             cc_flagged = if ("cc_flag" %in% names(occ$occ)) sum(occ$occ$cc_flag, na.rm = TRUE) else 0L,
-            cleaned_records = head(lapply(seq_len(nrow(occ$occ)), function(i) as.list(occ$occ[i, ])), 100)
+            cc_log = I(log_lines),
+            cleaned_records = lapply(head(seq_len(nrow(occ$occ)), 100), function(i) as.list(occ$occ[i, ]))
           )
         )
       }
@@ -138,12 +150,41 @@ result <- tryCatch({
       if (is.null(taxon) || !nzchar(taxon)) {
         list(status = "failed", error = "taxon is required")
       } else {
-        occ <- read_gbif_records(
-          taxon = taxon,
-          country = input$country %||% NULL,
-          max_records = input$max_records %||% 100L,
-          log_fun = log_msg
-        )
+        # Check for authenticated download credentials
+        use_auth <- isTRUE(input$use_auth)
+        gbif_user <- if (use_auth) {
+          input$gbif_user %||% Sys.getenv("GBIF_USER", unset = NA_character_)
+        } else NA_character_
+        gbif_pwd <- if (use_auth) {
+          input$gbif_pwd %||% Sys.getenv("GBIF_PWD", unset = NA_character_)
+        } else NA_character_
+        gbif_email <- if (use_auth) {
+          input$gbif_email %||% Sys.getenv("GBIF_EMAIL", unset = NA_character_)
+        } else NA_character_
+
+        if (use_auth && !is.na(gbif_user) && !is.na(gbif_pwd) && !is.na(gbif_email)) {
+          dl <- read_gbif_download(
+            taxon = taxon,
+            country = input$country %||% NULL,
+            gbif_user = gbif_user,
+            gbif_pwd = gbif_pwd,
+            email = gbif_email,
+            max_records = input$max_records %||% 200000L,
+            log_fun = log_msg
+          )
+          occ <- dl$occurrences
+          doi <- dl$doi %||% NA_character_
+          total_available <- nrow(occ)
+        } else {
+          occ <- read_gbif_records(
+            taxon = taxon,
+            country = input$country %||% NULL,
+            max_records = input$max_records %||% 100L,
+            log_fun = log_msg
+          )
+          doi <- if (!is.null(occ$gbif_doi[1]) && nzchar(occ$gbif_doi[1])) occ$gbif_doi[1] else NA_character_
+          total_available <- attr(occ, "gbif_total_available", exact = TRUE) %||% nrow(occ)
+        }
 
         upload_dir <- file.path(app_dir, "data", "uploads")
         dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
@@ -159,7 +200,47 @@ result <- tryCatch({
             country = input$country %||% NULL,
             n_records = nrow(occ),
             max_records = input$max_records %||% 100L,
-            doi = if (!is.null(occ$gbif_doi[1]) && nzchar(occ$gbif_doi[1])) occ$gbif_doi[1] else NA_character_,
+            total_available = total_available,
+            doi = doi,
+            file_path = csv_path,
+            preview = head(lapply(seq_len(min(5, nrow(occ))), function(i) as.list(occ[i, ])), 5)
+          )
+        )
+      }
+    },
+
+    ala = {
+      taxon <- input$taxon
+      if (is.null(taxon) || !nzchar(taxon)) {
+        list(status = "failed", error = "taxon is required")
+      } else {
+        api_key <- input$api_key %||% NA_character_
+
+        occ <- read_ala_records(
+          taxon = taxon,
+          country = input$country %||% NULL,
+          max_records = input$max_records %||% 100L,
+          api_key = if (nzchar(api_key %||% "")) api_key else NULL,
+          log_fun = log_msg
+        )
+
+        upload_dir <- file.path(app_dir, "data", "uploads")
+        dir.create(upload_dir, recursive = TRUE, showWarnings = FALSE)
+        safe_name <- gsub("[^a-zA-Z0-9._-]", "_", taxon)
+        ts <- format(Sys.time(), "%Y%m%d_%H%M%S")
+        csv_path <- file.path(upload_dir, paste0(ts, "_ala_", safe_name, ".csv"))
+        utils::write.csv(occ, csv_path, row.names = FALSE)
+
+        list(
+          status = "completed",
+          result = list(
+            taxon = taxon,
+            country = input$country %||% NULL,
+            n_records = nrow(occ),
+            max_records = input$max_records %||% 100L,
+            total_available = attr(occ, "ala_total_available", exact = TRUE) %||% nrow(occ),
+            limit = attr(occ, "ala_limit_applied", exact = TRUE) %||% nrow(occ),
+            doi = NA_character_,
             file_path = csv_path,
             preview = head(lapply(seq_len(min(5, nrow(occ))), function(i) as.list(occ[i, ])), 5)
           )
@@ -189,7 +270,7 @@ result <- tryCatch({
         } else {
           env_dir <- meta_1$config$worldclim_dir %||% sdm_default_worldclim_dir
           biovars <- as.integer(unlist(strsplit(as.character(meta_1$config$biovars %||% "1,4,6,12,15,18"), ",")))
-          tif_pattern <- paste0("bio", biovars, "\\.tif$")
+          tif_pattern <- paste0("(", paste0("bio", biovars, collapse = "|"), ")\\.tif$")
           tif_files <- list.files(env_dir, pattern = tif_pattern, full.names = TRUE, recursive = TRUE)
 
           if (length(tif_files) == 0) {

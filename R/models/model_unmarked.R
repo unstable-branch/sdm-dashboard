@@ -29,8 +29,8 @@ fit_occupancy_sdm <- function(occ, env_train_scaled, background_n = sdm_default_
   covariates_clean <- make.names(covariates)
 
   site_covs <- occ$site_covs
+  extracted <- terra::extract(env_train_scaled, occ$site_xy)[, -1, drop = FALSE]
   for (i in seq_along(covariates)) {
-    extracted <- terra::extract(env_train_scaled, occ$site_xy)[, -1, drop = FALSE]
     site_covs[[covariates_clean[i]]] <- extracted[, i]
   }
   site_covs <- site_covs[stats::complete.cases(site_covs), , drop = FALSE]
@@ -121,7 +121,7 @@ predict_occupancy_suitability <- function(fit, env_project_scaled, output_tif, n
     suit <- terra::rast(env_subset[[1]])
     names(suit) <- "suitability"
     dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     return(suit)
   }
 
@@ -137,7 +137,7 @@ predict_occupancy_suitability <- function(fit, env_project_scaled, output_tif, n
   names(suit) <- "suitability"
 
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
   log_message(log_fun, "Occupancy suitability raster written to: ", output_tif)
 
   attr(suit, "occupancy_SE") <- pred_df$SE

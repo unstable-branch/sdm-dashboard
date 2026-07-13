@@ -1,6 +1,6 @@
 {
   "name": "@sdm/shared",
-  "version": "0.1.0",
+  "version": "2.0.0-beta.4",
   "private": true,
   "type": "module",
   "description": "SDM Dashboard — Shared TypeScript types, constants, and Zod schemas",
@@ -15,12 +15,14 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.7"
   }
 }

@@ -12,7 +12,9 @@
 #' @param output_dir Optional directory path for GeoJSON output files
 #' @param log_fun Optional log function
 #' @return list with EOO (km2), AOO (number of cells), polygon, and details
-compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto", output_dir = NULL, log_fun = NULL) {
+compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto",
+                             output_dir = NULL, log_fun = NULL,
+                             mask_type = "none", mask_file = NULL) {
   if (!requireNamespace("sf", quietly = TRUE)) {
     stop("sf package required for EOO/AOO calculation", call. = FALSE)
   }
@@ -42,11 +44,21 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto", ou
     eoo_result <- tryCatch({
       hull <- sf::st_convex_hull(sf::st_union(pts))
 
-      area_km2 <- as.numeric(sf::st_area(hull)) / 1e6
-
-      log_message(log_fun, "  EOO: ", sprintf("%.1f km2", area_km2), " (MCP, WGS84 geodesic area)")
-
-      list(area = area_km2, polygon = hull)
+      # Validate hull is a polygon with sufficient geometry
+      hull_type <- sf::st_geometry_type(hull, by_geometry = FALSE)
+      if (hull_type != "POLYGON" && hull_type != "MULTIPOLYGON") {
+        stop("Convex hull produced a ", hull_type, " — need at least 3 non-collinear points")
+      }
+      hull_coords <- sf::st_coordinates(hull)
+      n_ring_pts <- nrow(hull_coords)
+      if (n_ring_pts < 4) {
+        log_message(log_fun, "  EOO skipped: degenerate convex hull (", n_ring_pts, " ring points)")
+        list(area = NA_real_, polygon = NULL)
+      } else {
+        area_km2 <- as.numeric(sf::st_area(hull)) / 1e6
+        log_message(log_fun, "  EOO: ", sprintf("%.1f km2", area_km2), " (MCP, WGS84 geodesic area)")
+        list(area = area_km2, polygon = hull)
+      }
     }, error = function(e) {
       log_message(log_fun, "  EOO computation failed: ", conditionMessage(e))
       NULL
@@ -56,6 +68,21 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto", ou
       eoo_km2 <- eoo_result$area
       eoo_polygon <- eoo_result$polygon
       eoo_method_used <- "mcp"
+
+      # Clip EOO polygon to boundary mask for map display (preserve raw area)
+      if (!is.null(eoo_polygon) && mask_type != "none" && !is.null(mask_file) && file.exists(mask_file)) {
+        tryCatch({
+          boundary <- terra::vect(mask_file)
+          boundary_sf <- sf::st_as_sf(boundary)
+          boundary_union <- sf::st_union(boundary_sf)
+          clipped <- sf::st_intersection(eoo_polygon, boundary_union)
+          if (inherits(clipped, c("sf", "sfc")) && length(clipped) > 0) {
+            eoo_polygon <- sf::st_collection_extract(clipped, "POLYGON")
+          }
+        }, error = function(e) {
+          log_message(log_fun, "  Failed to clip EOO to boundary: ", conditionMessage(e))
+        })
+      }
 
       if (!is.null(output_dir)) {
         eoo_polygon_geojson <- file.path(output_dir, "eoo_polygon.geojson")
@@ -80,39 +107,54 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto", ou
     pts_proj <- sf::st_transform(pts_sf, aoo_crs)
 
     bbox <- sf::st_bbox(pts_proj)
+    max_cells <- 1e7
+    attempt_sizes <- unique(sort(c(max(aoo_cell_size_km, 2), 5, 10, 25, 50)))
+    chosen_size <- NA_real_
+    for (try_size in attempt_sizes) {
+      cs <- try_size * 1000
+      x0_t <- floor(bbox["xmin"] / cs) * cs
+      y0_t <- floor(bbox["ymin"] / cs) * cs
+      if (ceiling((bbox["xmax"] - x0_t) / cs) * ceiling((bbox["ymax"] - y0_t) / cs) <= max_cells) {
+        chosen_size <- try_size
+        break
+      }
+    }
+    if (is.na(chosen_size)) {
+      stop("AOO grid too large at all attempted resolutions (", max(attempt_sizes), "km)")
+    }
+    if (chosen_size != aoo_cell_size_km) {
+      log_message(log_fun, "  AOO cell size increased to ", chosen_size,
+                  "km (", aoo_cell_size_km, "km would exceed ", max_cells, " cells)")
+    }
+    aoo_cell_size_km <- chosen_size
     cell_size <- aoo_cell_size_km * 1000
-
     x0 <- floor(bbox["xmin"] / cell_size) * cell_size
     y0 <- floor(bbox["ymin"] / cell_size) * cell_size
     nx <- ceiling((bbox["xmax"] - x0) / cell_size)
     ny <- ceiling((bbox["ymax"] - y0) / cell_size)
 
-    n_cells_total <- nx * ny
-    if (n_cells_total > 1e6) {
-      stop("AOO grid too large (", n_cells_total, " cells) at ", aoo_cell_size_km,
-           "km resolution for this extent; try a larger cell size or smaller extent")
-    }
+    # Compute cell indices for each point, only create polygons for occupied cells
+    coords <- sf::st_coordinates(pts_proj)
+    ix <- floor((coords[, 1] - x0) / cell_size) + 1
+    iy <- floor((coords[, 2] - y0) / cell_size) + 1
+    cell_keys <- paste(ix, iy, sep = ",")
+    unique_keys <- unique(cell_keys)
+    n_occupied <- length(unique_keys)
 
-    grid_cells <- expand.grid(ix = seq_len(nx), iy = seq_len(ny))
-    grid_polys <- lapply(seq_len(nrow(grid_cells)), function(i) {
-      x_min <- x0 + (grid_cells$ix[i] - 1) * cell_size
-      y_min <- y0 + (grid_cells$iy[i] - 1) * cell_size
+    occupied_polys <- lapply(seq_len(n_occupied), function(i) {
+      parts <- as.integer(strsplit(unique_keys[i], ",")[[1]])
+      cx <- x0 + (parts[1] - 1) * cell_size
+      cy <- y0 + (parts[2] - 1) * cell_size
       sf::st_polygon(list(matrix(c(
-        x_min, y_min,
-        x_min + cell_size, y_min,
-        x_min + cell_size, y_min + cell_size,
-        x_min, y_min + cell_size,
-        x_min, y_min
+        cx, cy,
+        cx + cell_size, cy,
+        cx + cell_size, cy + cell_size,
+        cx, cy + cell_size,
+        cx, cy
       ), ncol = 2, byrow = TRUE)))
     })
 
-    grid_sf <- sf::st_sf(geometry = sf::st_sfc(grid_polys, crs = aoo_crs))
-
-    intersects <- sf::st_intersects(pts_proj, grid_sf, sparse = FALSE)
-    occupied <- which(colSums(intersects) > 0)
-    n_occupied <- length(occupied)
-
-    aoo_grid_proj <- if (n_occupied > 0) grid_sf[occupied, ] else NULL
+    aoo_grid_proj <- if (n_occupied > 0) sf::st_sf(geometry = sf::st_sfc(occupied_polys, crs = aoo_crs)) else NULL
 
     aoo_grid_wgs84 <- NULL
     if (!is.null(aoo_grid_proj)) {
@@ -167,11 +209,11 @@ compute_eoo_aoo <- function(occ, aoo_cell_size_km = 2, analysis_crs = "auto", ou
 
   list(
     eoo_km2 = eoo_km2,
-    eoo_method = eoo_method_used,
     aoo_cells = aoo_result$n_cells,
     aoo_km2 = aoo_result$area_km2,
     aoo_cell_size_km = aoo_result$cell_size_km,
     eoo_polygon = eoo_polygon,
+    eoo_method = eoo_method_used,
     aoo_grid = aoo_result$grid,
     eoo_polygon_geojson = eoo_polygon_geojson,
     aoo_grid_geojson = aoo_grid_geojson,

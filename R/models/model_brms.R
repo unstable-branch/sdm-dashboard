@@ -48,8 +48,10 @@ fit_brms_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   log_message(log_fun, "  Note: First fit may take 5-15 min for Stan compilation")
 
+  use_gpu_stan <- sdm_use_gpu() && requireNamespace("cmdstanr", quietly = TRUE)
+
   fit <- tryCatch({
-    brms::brm(
+    brm_args <- list(
       formula = stats::as.formula(formula_str),
       data = model_data,
       family = brms::bernoulli(link = "logit"),
@@ -59,10 +61,15 @@ fit_brms_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
       warmup = warmup,
       cores = min(chains, normalize_core_count(n_cores)),
       seed = seed,
-      refresh = 0,
-      silent = 2,
+      refresh = 100,
+      silent = 1,
       save_pars = brms::save_pars(all = TRUE)
     )
+    if (use_gpu_stan) {
+      brm_args$backend <- "cmdstanr"
+      brm_args$stan_model_args <- list(GPU = TRUE)
+    }
+    do.call(brms::brm, brm_args)
   }, error = function(e) {
     stop("brms model fitting failed: ", conditionMessage(e), call. = FALSE)
   })
@@ -120,53 +127,113 @@ predict_brms_suitability <- function(fit, env_project_scaled, output_tif, n_core
     stop("The following covariates are missing from the projection stack: ", paste(missing, collapse = ", "), call. = FALSE)
   }
   env_subset <- env_project_scaled[[raster_names[cov_idx]]]
+  n_layers <- terra::nlyr(env_subset)
 
-  log_message(log_fun, "Predicting brms suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
+  log_message(log_fun, "Predicting brms suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster (", n_layers, " layers)")
 
-  env_df <- as.data.frame(terra::values(env_subset), stringsAsFactors = FALSE)
-  names(env_df) <- fit$covariates
-  complete_idx <- which(stats::complete.cases(env_df))
+  n_total_cells <- terra::ncell(env_subset)
+  complete_idx <- seq_len(n_total_cells)
+  for (ii in seq_len(n_layers)) {
+    vals <- terra::values(env_subset[[ii]], mat = FALSE)
+    complete_idx <- intersect(complete_idx, which(is.finite(vals)))
+  }
   n_cells <- length(complete_idx)
 
   if (n_cells == 0) {
     suit <- terra::rast(env_subset[[1]])
     names(suit) <- "suitability"
     dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     return(suit)
   }
 
-  log_message(log_fun, "  Computing posterior expected predictions for ", n_cells, " cells")
+  n_samples <- brms::nsamples(fit$model)
+  log_message(log_fun, "  Computing posterior predictions for ", n_cells, " cells (", n_samples, " posterior samples)")
 
-  epred <- tryCatch({
-    brms::posterior_epred(fit$model, newdata = env_df[complete_idx, , drop = FALSE],
-      cores = min(2, normalize_core_count(n_cores)))
-  }, error = function(e) {
-    stop("brms posterior prediction failed: ", conditionMessage(e), call. = FALSE)
-  })
-
-  mean_suit <- colMeans(epred)
-  mean_suit <- pmax(0, pmin(1, mean_suit))
-
-  suit <- terra::rast(env_subset[[1]])
-  terra::values(suit) <- NA_real_
-  suit[complete_idx] <- mean_suit
-  names(suit) <- "suitability"
+  chunk_size <- 50000L
+  tryCatch({
+    mem_info <- terra::mem_info()
+    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail) && mem_info$memavail > 0) {
+      bytes_per_cell <- n_samples * 8
+      cells_per_gb <- (1 * 1024^3) / bytes_per_cell
+      safe_chunk <- floor(cells_per_gb * 0.4)
+      chunk_size <- max(1000L, min(chunk_size, as.integer(safe_chunk)))
+      log_message(log_fun, sprintf("  Chunk size set to %d cells (%.1f GB per chunk)", chunk_size,
+        chunk_size * bytes_per_cell / (1024^3)))
+    }
+  }, error = function(e) NULL)
 
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+
+  # Load all covariate values once into matrix to avoid per-chunk I/O overhead
+  env_vals <- lapply(seq_len(n_layers), function(li) {
+    terra::values(env_subset[[li]], mat = FALSE)[complete_idx]
+  })
+  env_mat <- do.call(cbind, env_vals)
+  colnames(env_mat) <- fit$covariates
+  rm(env_vals)
+
+  # Output rasters
+  suit <- terra::rast(env_subset[[1]])
+  terra::values(suit) <- NA_real_
+  names(suit) <- "suitability"
+
+  has_uncertainty <- n_samples >= 20
+  if (has_uncertainty) {
+    uncertainty_tif <- sub("\\.tif$", "_uncertainty.tif", output_tif)
+    uncert_raster <- terra::rast(env_subset[[1]])
+    terra::values(uncert_raster) <- NA_real_
+    names(uncert_raster) <- "uncertainty_sd"
+  }
+
+  n_chunks <- ceiling(n_cells / chunk_size)
+  for (chunk_i in seq_len(n_chunks)) {
+    r1 <- (chunk_i - 1L) * chunk_size + 1L
+    r2 <- min(chunk_i * chunk_size, n_cells)
+    log_message(log_fun, sprintf("  Chunk %d/%d: cells %d-%d (%d)", chunk_i, n_chunks, r1, r2, r2 - r1 + 1L))
+
+    env_chunk <- env_mat[r1:r2, , drop = FALSE]
+    epred_chunk <- tryCatch({
+      brms::posterior_epred(fit$model, newdata = as.data.frame(env_chunk),
+        cores = min(2, normalize_core_count(n_cores)))
+    }, error = function(e) {
+      stop("brms posterior prediction failed at chunk ", chunk_i, ": ", conditionMessage(e), call. = FALSE)
+    })
+
+    n_elems <- nrow(epred_chunk) * ncol(epred_chunk)
+    if (sdm_use_gpu_for(n_elems)) {
+      dev <- gpu_device()
+      epred_t <- torch::torch_tensor(epred_chunk, device = dev)
+      mean_chunk <- as.numeric(torch::torch_mean(epred_t, dim = 1)$to(device = "cpu"))
+      mean_chunk <- pmax(0, pmin(1, mean_chunk))
+      if (has_uncertainty) {
+        sd_chunk <- as.numeric(torch::torch_std(epred_t, dim = 1)$to(device = "cpu"))
+        sd_chunk[!is.finite(sd_chunk)] <- 0
+      }
+    } else {
+      mean_chunk <- colMeans(epred_chunk)
+      mean_chunk <- pmax(0, pmin(1, mean_chunk))
+      if (has_uncertainty) {
+        sd_chunk <- matrixStats::colSds(epred_chunk, na.rm = TRUE)
+        sd_chunk[!is.finite(sd_chunk)] <- 0
+      }
+    }
+
+    suit[complete_idx[r1:r2]] <- mean_chunk
+    if (has_uncertainty) uncert_raster[complete_idx[r1:r2]] <- sd_chunk
+    rm(env_chunk, epred_chunk, mean_chunk)
+    if (exists("sd_chunk")) rm(sd_chunk)
+  }
+
+  rm(env_mat)
+
+  terra::writeRaster(suit, output_tif, overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
   log_message(log_fun, "Suitability raster written to: ", output_tif)
 
-  if (nrow(epred) >= 20) {
-    uncertainty_tif <- sub("\\.tif$", "_uncertainty.tif", output_tif)
-    sd_suit <- apply(epred, 2, sd, na.rm = TRUE)
-    sd_suit[!is.finite(sd_suit)] <- 0
-    uncertainty_rast <- terra::rast(env_subset[[1]])
-    terra::values(uncertainty_rast) <- NA_real_
-    uncertainty_rast[complete_idx] <- sd_suit
-    names(uncertainty_rast) <- "uncertainty_sd"
-    terra::writeRaster(uncertainty_rast, uncertainty_tif, overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+  if (has_uncertainty) {
+    terra::writeRaster(uncert_raster, uncertainty_tif, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     log_message(log_fun, "Uncertainty raster written to: ", uncertainty_tif)
     attr(suit, "uncertainty_tif") <- uncertainty_tif
   }

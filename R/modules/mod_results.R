@@ -6,7 +6,7 @@ mod_results_server <- function(id, rv, input) {
       past <- rv$past_runs
       if (length(past) == 0) return(NULL)
       if (length(past) == 1) return(p(class = "small-muted", "Run more models to see a comparison table."))
-      df <- do.call(rbind, lapply(past, function(r) {
+      df <- data.table::rbindlist(lapply(past, function(r) {
         data.frame(
           Time = format(r$timestamp, "%H:%M:%S"),
           Species = r$species,
@@ -372,7 +372,7 @@ mod_results_server <- function(id, rv, input) {
         title = "Confirm exclusion",
         "This will remove all records with GBIF quality flags from the current result. Continue?",
         footer = tagList(
-          actionButton("confirm_exclude_yes", "Yes, exclude flagged records"),
+          actionButton(session$ns("confirm_exclude_yes"), "Yes, exclude flagged records"),
           modalButton("Cancel")
         ),
         easyClose = FALSE

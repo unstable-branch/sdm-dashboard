@@ -3,13 +3,14 @@ import { readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { db } from "../db/index.js";
-import { users, runs, systemSettings, occurrences, species, projects } from "../db/schema.js";
-import { eq, desc, sql, and, like, inArray, count } from "drizzle-orm";
+import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles } from "../db/schema.js";
+import { eq, desc, sql, and, ilike, inArray, count } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { hash } from "bcrypt";
 import type { AppEnv } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
+import { encryptString, decryptString, isEncryptionKeyConfigured } from "../services/encryption.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,15 +27,16 @@ adminRoutes.use("*", rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "admin" }
 
 adminRoutes.get("/overview", async (c) => {
   try {
-    const [userCount] = await db.select({ count: count() }).from(users);
-    const [runCount] = await db.select({ count: count() }).from(runs);
-    const [occurrenceCount] = await db.select({ count: count() }).from(occurrences);
-    const [speciesCount] = await db.select({ count: count() }).from(species);
-    const [projectCount] = await db.select({ count: count() }).from(projects);
-
-    const [activeRuns] = await db.select({ count: count() }).from(runs).where(
-      inArray(runs.status, ["queued", "running"])
-    );
+    const [[userCount], [runCount], [occurrenceCount], [speciesCount], [projectCount], [activeRuns]] = await Promise.all([
+      db.select({ count: count() }).from(users),
+      db.select({ count: count() }).from(runs),
+      db.select({ count: count() }).from(occurrences),
+      db.select({ count: count() }).from(species),
+      db.select({ count: count() }).from(projects),
+      db.select({ count: count() }).from(runs).where(
+        inArray(runs.status, ["queued", "running"])
+      ),
+    ]);
 
     // Recent runs for run activity view
     const recentRuns = await db
@@ -93,7 +95,7 @@ adminRoutes.get("/users", async (c) => {
         updatedAt: users.updatedAt,
       })
       .from(users)
-      .where(search ? like(users.email, `%${search}%`) : undefined)
+      .where(search ? ilike(users.email, `${search}%`) : undefined)
       .orderBy(desc(users.createdAt))
       .offset(offset)
       .limit(limit);
@@ -147,11 +149,20 @@ adminRoutes.put("/users/:id", async (c) => {
   try {
     const targetId = c.req.param("id");
     const body = await c.req.json();
-    const updates: Record<string, unknown> = {};
+
+    const updates: {
+      email?: string;
+      name?: string;
+      role?: "admin" | "editor" | "viewer";
+      bio?: string;
+      organization?: string;
+    } = {};
 
     if (body.email !== undefined) updates.email = body.email;
     if (body.name !== undefined) updates.name = body.name;
-    if (body.role !== undefined) updates.role = body.role;
+    if (body.role !== undefined && ["admin", "editor", "viewer"].includes(body.role)) {
+      updates.role = body.role;
+    }
     if (body.bio !== undefined) updates.bio = body.bio;
     if (body.organization !== undefined) updates.organization = body.organization;
 
@@ -166,7 +177,7 @@ adminRoutes.put("/users/:id", async (c) => {
 
     const [updated] = await db
       .update(users)
-      .set({ ...updates, updatedAt: new Date() } as any)
+      .set({ ...updates, updatedAt: new Date() })
       .where(eq(users.id, targetId))
       .returning({
         id: users.id, email: users.email, name: users.name, role: users.role,
@@ -239,10 +250,10 @@ adminRoutes.post("/users/:id/reset-password", async (c) => {
     }
 
     const passwordHash = await hash(newPassword, BCRYPT_ROUNDS);
-    await db.update(users).set({ passwordHash, updatedAt: new Date() } as any).where(eq(users.id, targetId));
+    await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, targetId));
 
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_password_reset",
@@ -391,6 +402,135 @@ adminRoutes.put("/system/settings", async (c) => {
   }
 });
 
+// ── System Secrets (API Keys) ──────────────────────────────────────────────
+
+// Helper: mask a sensitive value for display, preserving last 4 chars
+function maskSecret(value: string): string {
+  if (value.length <= 8) return "****";
+  return value.slice(0, value.length - 4).replace(/./g, "*") + value.slice(-4);
+}
+
+// GET /system/secrets — list all service keys with masked values
+adminRoutes.get("/system/secrets", async (c) => {
+  try {
+    const allSettings = await db.select().from(systemSettings)
+      .where(sql`key LIKE 'secret.%' OR key LIKE 'service.%'`)
+      .orderBy(systemSettings.key);
+
+    const result = allSettings.map((s) => {
+      const isSensitive = s.key.startsWith("secret.");
+      const rawValue = typeof s.value === "string" ? s.value : "";
+      let displayValue = "";
+      if (rawValue) {
+        if (isSensitive && isEncryptionKeyConfigured()) {
+          try {
+            const decrypted = decryptString(rawValue);
+            displayValue = maskSecret(decrypted);
+          } catch {
+            displayValue = "**** (decrypt failed)";
+          }
+        } else {
+          displayValue = maskSecret(rawValue);
+        }
+      }
+      return {
+        key: s.key,
+        configured: !!(rawValue && rawValue !== "" && rawValue !== "\"\""),
+        displayValue,
+        sensitive: isSensitive,
+        updatedAt: s.updatedAt,
+      };
+    });
+
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to get secrets" }, 500);
+  }
+});
+
+// GET /system/secrets/:key — reveal a single secret (always masked)
+adminRoutes.get("/system/secrets/:key", async (c) => {
+  try {
+    const key = c.req.param("key");
+    const [setting] = await db.select().from(systemSettings)
+      .where(eq(systemSettings.key, key)).limit(1);
+    if (!setting) return c.json({ error: "Secret not found" }, 404);
+    if (!setting.value) return c.json({ error: "Secret is empty" }, 404);
+
+    const isSensitive = key.startsWith("secret.");
+    const storedValue = typeof setting.value === "string" ? setting.value : "";
+    let value = storedValue;
+    if (isSensitive && isEncryptionKeyConfigured()) {
+      try {
+        value = decryptString(storedValue);
+      } catch {
+        return c.json({ error: "Failed to decrypt secret" }, 500);
+      }
+    }
+    value = maskSecret(value);
+    return c.json({ key, value, sensitive: isSensitive });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to get secret" }, 500);
+  }
+});
+
+// PUT /system/secrets/:key — upsert a service key
+adminRoutes.put("/system/secrets/:key", async (c) => {
+  try {
+    const key = c.req.param("key");
+    const body = await c.req.json();
+    const adminUser = c.get("user");
+    const plaintext = String(body.value ?? "");
+
+    const isSensitive = key.startsWith("secret.");
+    let storedValue: string = plaintext;
+    if (isSensitive && isEncryptionKeyConfigured()) {
+      storedValue = encryptString(plaintext);
+    } else if (isSensitive && !isEncryptionKeyConfigured()) {
+      return c.json({ error: "Encryption key not configured — cannot store sensitive secrets. Set DATA_ENCRYPTION_KEY." }, 400);
+    }
+
+    const [existing] = await db.select().from(systemSettings)
+      .where(eq(systemSettings.key, key)).limit(1);
+
+    if (existing) {
+      const [updated] = await db.update(systemSettings)
+        .set({ value: storedValue, updatedBy: adminUser.id, updatedAt: new Date() })
+        .where(eq(systemSettings.key, key))
+        .returning();
+      return c.json(updated);
+    } else {
+      const [created] = await db.insert(systemSettings)
+        .values({
+          key,
+          value: storedValue,
+          description: body.description || `Service key: ${key}`,
+          updatedBy: adminUser.id,
+          updatedAt: new Date(),
+        })
+        .returning();
+      return c.json(created);
+    }
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to update secret" }, 500);
+  }
+});
+
+// DELETE /system/secrets/:key — remove a service key
+adminRoutes.delete("/system/secrets/:key", async (c) => {
+  try {
+    const key = c.req.param("key");
+    const [existing] = await db.select().from(systemSettings)
+      .where(eq(systemSettings.key, key)).limit(1);
+    if (!existing) return c.json({ error: "Secret not found" }, 404);
+
+    await db.delete(systemSettings).where(eq(systemSettings.key, key));
+    return c.json({ ok: true });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to delete secret" }, 500);
+  }
+});
+
 adminRoutes.post("/system/cache/clear", async (c) => {
   try {
     const adminUser = c.get("user");
@@ -412,13 +552,24 @@ adminRoutes.post("/system/cache/clear", async (c) => {
 
 adminRoutes.post("/system/jobs/cleanup", async (c) => {
   try {
+    const staleThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const staleRuns = await db
       .select({ id: runs.id })
       .from(runs)
-      .where(inArray(runs.status, ["queued", "running"]))
-      .limit(0);
+      .where(
+        and(
+          inArray(runs.status, ["queued", "running"]),
+          sql`${runs.createdAt} < ${staleThreshold}`
+        )
+      );
 
-    return c.json({ ok: true, message: `Found ${staleRuns.length} stale jobs`, staleJobs: staleRuns.length });
+    if (staleRuns.length > 0) {
+      const staleIds = staleRuns.map(r => r.id);
+      await db.update(runs).set({ status: "failed", error: "Stale job auto-cleaned by admin" })
+        .where(inArray(runs.id, staleIds));
+    }
+
+    return c.json({ ok: true, message: `Cleaned ${staleRuns.length} stale jobs`, cleaned: staleRuns.length });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to clean up jobs" }, 500);
   }
@@ -519,3 +670,43 @@ adminRoutes.get("/diagnostics/runs/:id", async (c) => {
 });
 
 // Maintenance logs endpoint removed (maintenance_log table dropped)
+
+adminRoutes.get("/diagnostics/uploads", async (c) => {
+  try {
+    const page = Math.max(1, parseInt(c.req.query("page") || "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") || "25", 10)));
+    const offset = (page - 1) * limit;
+
+    const records = await db
+      .select({
+        id: uploadedFiles.id,
+        userId: uploadedFiles.userId,
+        createdAt: uploadedFiles.createdAt,
+        recordCount: uploadedFiles.nRows,
+      })
+      .from(uploadedFiles)
+      .orderBy(desc(uploadedFiles.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(uploadedFiles);
+
+    const uploads = records.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      userName: r.userId || "unknown",
+      pipelineRunId: null,
+      details: null,
+      createdAt: r.createdAt?.toISOString() ?? "",
+      recordCount: r.recordCount ?? 0,
+      flaggedCount: 0,
+      runCount: 0,
+    }));
+
+    return c.json({ uploads, total, page, limit });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to get uploads" }, 500);
+  }
+});

@@ -127,18 +127,41 @@ compute_aoa_weighted <- function(model_data, env_proj, covariates, variable_impo
   train_dist <- stats::mahalanobis(train_vals, train_centre, weighted_cov)
   threshold <- max(train_dist, na.rm = TRUE)
 
-  # Distance for projection cells (vectorised via terra::app)
-  compute_aoa_block <- function(vals) {
-    complete <- stats::complete.cases(vals)
-    dist <- rep(NA_real_, nrow(vals))
-    if (sum(complete) > 0) {
-      d <- stats::mahalanobis(vals[complete, , drop = FALSE], train_centre, weighted_cov)
-      dist[complete] <- d
-    }
-    dist
-  }
+  n_proj_cells <- terra::ncell(env_subset)
+  n_vars <- ncol(weighted_cov)
+  if (sdm_use_gpu_for(n_proj_cells * n_vars)) {
+    dev <- gpu_device()
+    cov_inv <- tryCatch(chol2inv(chol(weighted_cov)), error = function(e) MASS::ginv(weighted_cov))
+    cov_inv_t <- torch::torch_tensor(cov_inv, device = dev)
+    centre_t <- torch::torch_tensor(train_centre, device = dev)
 
-  dist_rast <- terra::app(env_subset, compute_aoa_block)
+    proj_vals <- as.matrix(terra::values(env_subset))
+    valid <- stats::complete.cases(proj_vals)
+    if (any(valid)) {
+      x_t <- torch::torch_tensor(proj_vals[valid, , drop = FALSE], device = dev)
+      diff <- x_t - centre_t
+      mahal <- (diff$matmul(cov_inv_t$t()) * diff)$sum(dim = 2)
+      mahal_vals <- as.numeric(mahal$to(device = "cpu"))
+      dist_rast <- terra::rast(env_subset[[1]])
+      terra::values(dist_rast) <- NA_real_
+      dist_rast[which(valid)] <- mahal_vals
+    } else {
+      dist_rast <- terra::rast(env_subset[[1]])
+      terra::values(dist_rast) <- NA_real_
+    }
+    gpu_empty_cache()
+  } else {
+    compute_aoa_block <- function(vals) {
+      complete <- stats::complete.cases(vals)
+      dist <- rep(NA_real_, nrow(vals))
+      if (sum(complete) > 0) {
+        d <- stats::mahalanobis(vals[complete, , drop = FALSE], train_centre, weighted_cov)
+        dist[complete] <- d
+      }
+      dist
+    }
+    dist_rast <- terra::app(env_subset, compute_aoa_block)
+  }
   names(dist_rast) <- "aoa_distance"
 
   # AOA mask: 1 = applicable, 0 = outside

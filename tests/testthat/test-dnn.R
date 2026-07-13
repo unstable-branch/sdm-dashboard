@@ -55,7 +55,7 @@ test_that("DNN backend fits and predicts through the registry", {
   skip_if_not("dnn" %in% sdm_model_ids())
 
   set.seed(42)
-  env <- make_test_raster(n_layers = 2, layer_names = c("bio1", "bio12"))
+  env <- make_test_raster(nrows = 40, ncols = 40, n_layers = 2, layer_names = c("bio1", "bio12"))
   occ <- data.frame(
     species = "Synthetic species",
     longitude = seq(140.15, 141.85, length.out = 30),
@@ -64,7 +64,11 @@ test_that("DNN backend fits and predicts through the registry", {
     stringsAsFactors = FALSE
   )
 
-  fit <- fit_sdm_model("dnn", occ, env, background_n = 60, cv_folds = 2, seed = 99, n_cores = 1)
+  fit <- fit_sdm_model(
+    "dnn", occ, env,
+    background_n = 120, cv_folds = 2, seed = 99, n_cores = 1,
+    dnn_model_type = "DNN_Small", dnn_device = "cpu", n_seeds = 1L
+  )
   expect_equal(fit$model_id, "dnn")
   expect_true(is.list(fit$model))
   expect_true(is.list(fit$cv))
@@ -77,10 +81,53 @@ test_that("DNN backend fits and predicts through the registry", {
   expect_true(file.exists(output_tif))
 })
 
-test_that("DNN torch_setup detects device correctly", {
+test_that("DNN torch basics work", {
   skip_if_not(requireNamespace("torch", quietly = TRUE))
-  result <- detect_torch_device()
-  expect_true(is.list(result))
-  expect_true("device" %in% names(result))
-  expect_true(result$device %in% c("cpu", "cuda", "mps"))
+  skip_if_not(torch::torch_is_installed())
+  expect_true(is.logical(torch::cuda_is_available()))
+  if ("mps_is_available" %in% getNamespaceExports("torch")) {
+    expect_true(is.logical(torch::mps_is_available()))
+  }
+})
+
+test_that("torch setup maps RTX 50-series GPUs to the supported cu128 package", {
+  arch <- map_gpu_to_architecture("NVIDIA GeForce RTX 5060 Ti")
+  expect_equal(arch$arch, "blackwell")
+  expect_equal(arch$torch_kind, "cu128")
+  expect_equal(arch$cuda_best, "12.8")
+})
+
+test_that("DNN CPU vs GPU predictions are numerically equivalent", {
+  skip_if_not(requireNamespace("cito", quietly = TRUE))
+  skip_if_not(requireNamespace("torch", quietly = TRUE))
+  skip_if_not(torch::cuda_is_available())
+  skip_if_not("dnn" %in% sdm_model_ids())
+
+  set.seed(42)
+  env <- make_test_raster(nrows = 20, ncols = 20, n_layers = 2,
+    layer_names = c("bio1", "bio12"))
+  occ <- data.frame(
+    species = "Synthetic species",
+    longitude = seq(140.15, 141.85, length.out = 24),
+    latitude = seq(-23.85, -22.15, length.out = 24),
+    source = rep(c("A", "B"), each = 12),
+    stringsAsFactors = FALSE
+  )
+
+  fit_cpu <- fit_sdm_model("dnn", occ, env,
+    background_n = 150, cv_folds = 2, seed = 42, n_cores = 1,
+    dnn_model_type = "DNN_Small", dnn_device = "cpu", n_seeds = 1L)
+  fit_gpu <- fit_sdm_model("dnn", occ, env,
+    background_n = 150, cv_folds = 2, seed = 42, n_cores = 1,
+    dnn_model_type = "DNN_Small", dnn_device = "cuda", n_seeds = 1L)
+
+  cpu_tif <- tempfile(fileext = ".tif")
+  gpu_tif <- tempfile(fileext = ".tif")
+  cpu_pred <- predict_sdm_model(fit_cpu, env, cpu_tif, n_cores = 1)
+  gpu_pred <- predict_sdm_model(fit_gpu, env, gpu_tif, n_cores = 1)
+
+  cpu_vals <- terra::values(cpu_pred)
+  gpu_vals <- terra::values(gpu_pred)
+
+  expect_equal(cpu_vals, gpu_vals, tolerance = 1e-4)
 })

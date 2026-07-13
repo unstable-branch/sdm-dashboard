@@ -2,7 +2,10 @@
 # scripts/batch_run.R — run multiple species SDM models in parallel via CLI.
 #
 # Usage:
-#   Rscript scripts/batch_run.R --config batch_config.csv [--output batch_results/] [--cores 4] [--seed 42]
+#   Rscript scripts/batch_run.R --config batch_config.csv [--output batch_results/] [--cores 4] [--seed 42] [--no-targets]
+#
+# By default uses targets pipeline for caching, incremental rebuild, and HPC support.
+# Pass --no-targets to use future_lapply instead (legacy Shiny desktop path).
 #
 # Config CSV format (all columns optional except species + occurrences_csv):
 #   species,occurrences_csv,model_id,biovars,use_elevation,use_soil,soil_vars,
@@ -33,8 +36,8 @@ option_list <- list(
               help = "Number of parallel workers [default: detectCores() - 1]"),
   make_option(c("-s", "--seed"), type = "integer", default = 42,
               help = "Random seed for reproducibility [default: %default]"),
-  make_option(c("-t", "--targets"), action = "store_true", default = FALSE,
-              help = "Use targets pipeline instead of future_lapply [default: %default]"),
+  make_option(c("--no-targets"), action = "store_true", default = FALSE,
+              help = "Use future_lapply instead of targets pipeline [default: use targets]"),
   make_option(c("--cluster"), type = "character", default = "local",
               help = "Cluster backend: local, slurm, sge, pbs, aws [default: %default]")
 )
@@ -95,7 +98,7 @@ if (is.null(opts$cores)) {
 
 message("\nStarting batch run...\n")
 
-if (opts$targets) {
+if (!opts$`no-targets`) {
   if (opts$cluster != "local") {
     Sys.setenv(SDM_CLUSTER_BACKEND = opts$cluster)
     if (!is.null(opts$cores)) Sys.setenv(SDM_CLUSTER_WORKERS = as.character(opts$cores))

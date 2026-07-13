@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Loader2, AlertTriangle, CheckCircle2, Info } from "lucide-react";
-import { apiGet } from "@/services/api";
+import { apiGet, ApiError } from "@/services/api";
 
 interface EcologyData {
   run_id: string;
@@ -73,7 +73,8 @@ export function ConservationSummary({ runId }: ConservationSummaryProps) {
         setLoading(false);
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load ecology data");
+        const detail = err instanceof ApiError ? `(${err.status}) ${err.message}` : err instanceof Error ? err.message : "Failed to load ecology data";
+        setError(detail);
         setLoading(false);
       });
   }, [runId]);

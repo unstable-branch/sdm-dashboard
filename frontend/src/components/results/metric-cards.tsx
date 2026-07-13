@@ -42,6 +42,7 @@ export function MetricCards({ metrics, modelId }: MetricCardsProps) {
   const trainingAuc = toNum(metrics.training_auc);
   const cvAuc = toNum(metrics.auc_mean);
   const cvCbi = toNum(metrics.cv_cbi);
+  const enmevalTuned = metrics.enmeval_tuned === true;
 
   const showOverfitting = overfittingLevel && overfittingLevel !== "none" && overfittingLevel !== null;
 
@@ -66,6 +67,25 @@ export function MetricCards({ metrics, modelId }: MetricCardsProps) {
 
   if (cvCbi !== null && cvCbi !== undefined) {
     cards.push({ label: "CV CBI", value: fmtFixed(cvCbi, 3), accent: "text-sdm-muted" });
+  }
+
+  if (enmevalTuned) {
+    const deltaAicc = toNum(metrics.enmeval_delta_aicc);
+    const orMtp = toNum(metrics.enmeval_or_mtp);
+    const or10p = toNum(metrics.enmeval_or_10p);
+    const enmevalAucDiff = toNum(metrics.enmeval_auc_diff);
+    if (deltaAicc !== null) cards.push({ label: "Δ AICc", value: fmtFixed(deltaAicc, 1), accent: "text-sdm-accent-blue" });
+    if (orMtp !== null) cards.push({ label: "Omission rate (MTP)", value: fmtFixed(orMtp, 3), accent: "text-sdm-muted" });
+    if (or10p !== null) cards.push({ label: "Omission rate (10p)", value: fmtFixed(or10p, 3), accent: "text-sdm-muted" });
+    if (enmevalAucDiff !== null) cards.push({ label: "AUC diff (ENMeval)", value: fmtFixed(enmevalAucDiff, 3), accent: enmevalAucDiff > 0.1 ? "text-amber-500" : "text-sdm-accent" });
+    cards.push({ label: "Selection metric", value: (metrics.enmeval_selection_metric as string) || "auc.val.avg", accent: "text-sdm-muted" });
+
+    const nullP = toNum(metrics.enmeval_null_p_value);
+    const nullAuc = toNum(metrics.enmeval_null_auc_mean);
+    if (nullP !== null && nullAuc !== null) {
+      cards.push({ label: "Null model p-value", value: nullP < 0.001 ? "< 0.001" : fmtFixed(nullP, 4), accent: nullP < 0.05 ? "text-green-500" : "text-amber-500" });
+      cards.push({ label: "Null AUC", value: fmtFixed(nullAuc, 3) + " ± " + fmtFixed(toNum(metrics.enmeval_null_auc_sd), 3), accent: "text-sdm-muted" });
+    }
   }
 
   return (

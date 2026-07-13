@@ -95,10 +95,13 @@ download_opentopo_tile <- function(tile_extent, demtype, api_key, destfile, max_
   if (is.na(url)) stop("OpenTopography API key is required to download DEM data.", call. = FALSE)
   last_error <- NULL
   for (attempt in seq_len(max_retries)) {
-    result <- suppressWarnings(try(utils::download.file(url, destfile, mode = "wb", quiet = TRUE), silent = TRUE))
+    result <- suppressWarnings(try(utils::download.file(url, destfile, mode = "wb", quiet = TRUE, timeout = 300), silent = TRUE))
     ok <- !inherits(result, "try-error") && file.exists(destfile) && {
       fi <- file.info(destfile)
       is.finite(fi$size) && fi$size > 1024
+    } && {
+      hdr <- readBin(destfile, "raw", n = 4)
+      length(hdr) >= 2 && (hdr[1] == 0x49 && hdr[2] == 0x49 || hdr[1] == 0x4d && hdr[2] == 0x4d)
     }
     if (ok) {
       return(invisible(destfile))
@@ -114,16 +117,42 @@ download_opentopo_dem <- function(extent_vec, demtype, cache_file, api_key = NUL
   key <- opentopo_api_key(api_key)
   if (!nzchar(key)) stop("Elevation selected but no OpenTopography API key was provided.", call. = FALSE)
   dir.create(dirname(cache_file), recursive = TRUE, showWarnings = FALSE)
+
+  # Validate extent size before attempting download
+  ext_w <- extent_vec[2] - extent_vec[1]
+  ext_h <- extent_vec[4] - extent_vec[3]
+  max_safe_deg <- 50
+  if (ext_w > max_safe_deg || ext_h > max_safe_deg) {
+    log_message(log_fun, sprintf("  WARNING: Large extent (%.1f x %.1f deg) — ", ext_w, ext_h),
+      "DEM download may hit API limits or take very long. Consider a smaller extent or coarser DEM.")
+  }
+
   tiles <- opentopo_tile_extents(extent_vec, demtype)
+  n_tiles <- length(tiles)
+  if (n_tiles > 50) {
+    log_message(log_fun, sprintf("  WARNING: %d DEM tiles required — ", n_tiles),
+      "consider using a coarser DEM type (COP90 or SRTMGL3) for large extents.")
+  }
+
   tile_dir <- tempfile("opentopo_tiles_")
   dir.create(tile_dir, recursive = TRUE, showWarnings = FALSE)
   on.exit(unlink(tile_dir, recursive = TRUE, force = TRUE), add = TRUE)
 
-  log_message(log_fun, "Downloading elevation from OpenTopography as ", length(tiles), " tile(s); DEM = ", demtype)
-  tile_files <- character(length(tiles))
-  for (i in seq_along(tiles)) {
-    tile_files[i] <- file.path(tile_dir, paste0("tile_", i, ".tif"))
-    download_opentopo_tile(tiles[[i]], demtype, key, tile_files[i])
+  log_message(log_fun, "Downloading elevation from OpenTopography as ", n_tiles, " tile(s); DEM = ", demtype)
+  tile_files <- vapply(seq_along(tiles), function(i) file.path(tile_dir, paste0("tile_", i, ".tif")), character(1))
+
+  n_dl_cores <- min(n_tiles, max(1L, parallel::detectCores() - 1L))
+  if (.Platform$OS.type == "unix" && n_tiles > 1L) {
+    dl_results <- parallel::mclapply(seq_along(tiles), function(i) {
+      download_opentopo_tile(tiles[[i]], demtype, key, tile_files[i])
+    }, mc.cores = n_dl_cores, mc.preschedule = FALSE)
+    errs <- vapply(dl_results, function(r) inherits(r, "try-error"), logical(1))
+    if (any(errs)) {
+      log_message(log_fun, "  Parallel: ", sum(errs), "/", n_tiles, " tiles failed — retrying failed tiles sequentially")
+      for (i in which(errs)) download_opentopo_tile(tiles[[i]], demtype, key, tile_files[i])
+    }
+  } else {
+    for (i in seq_along(tiles)) download_opentopo_tile(tiles[[i]], demtype, key, tile_files[i])
   }
 
   rasters <- lapply(tile_files, terra::rast)

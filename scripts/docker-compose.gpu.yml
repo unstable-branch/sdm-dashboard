@@ -1,0 +1,20 @@
+# NVIDIA compatibility overlay. Keep this filename for existing callers;
+# scripts/docker-compose.rocm.yml is the separate AMD ROCm path.
+services:
+  plumber:
+    image: sdm-dashboard-plumber:cuda
+    build:
+      dockerfile: plumber/Dockerfile.cuda
+    environment:
+      # These are NVIDIA/CUDA settings. They must not leak into the base or AMD
+      # Compose definitions, where PyTorch's torch.cuda API can mean ROCm.
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True,max_split_size_mb:512
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

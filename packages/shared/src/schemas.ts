@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const modelConfigSchema = z.object({
   species: z.string().min(1),
+  speciesFilter: z.string().optional(),
   modelId: z.string().min(1),
   biovars: z.array(z.number().int().min(1).max(19)).min(2),
   projectionExtent: z.tuple([
@@ -11,15 +12,29 @@ export const modelConfigSchema = z.object({
     z.number().min(-90).max(90),
   ]).refine(([xmin, xmax, ymin, ymax]) => xmin < xmax && ymin < ymax, {
     message: "Invalid extent: xmin must be < xmax and ymin must be < ymax",
-  }),
+  }).optional(),
+  trainingExtent: z.tuple([
+    z.number().min(-180).max(180),
+    z.number().min(-180).max(180),
+    z.number().min(-90).max(90),
+    z.number().min(-90).max(90),
+  ]).refine(([xmin, xmax, ymin, ymax]) => xmin < xmax && ymin < ymax, {
+    message: "Invalid training extent: xmin must be < xmax and ymin must be < ymax",
+  }).optional(),
   backgroundN: z.number().int().min(500).max(100000).default(10000),
   cvFolds: z.number().int().min(0).max(10).default(3),
   cvStrategy: z.enum(["random", "spatial_blocks"]).default("random"),
   cvBlockSizeKm: z.number().min(1).max(500).optional(),
   threshold: z.number().min(0.05).max(0.95).default(0.5),
+  generateTiles: z.boolean().default(true),
+  generateCog: z.boolean().default(true),
   maskType: z.enum(["none", "landmass", "ocean"]).optional().default("none"),
   maskFile: z.string().optional(),
-  maskBufferDeg: z.number().positive().optional(),
+  maskBufferDeg: z.number().min(0).optional(),
+  maskBoundaryType: z.enum(["admin0", "land", "custom"]).optional().default("admin0"),
+  maskResolution: z.enum(["auto", "10m", "50m", "110m"]).optional().default("auto"),
+  maskCountry: z.string().optional().default("all"),
+  restrictBackground: z.boolean().optional().default(false),
   includeQuadratic: z.boolean().default(true),
   useElevation: z.boolean().default(false),
   elevationDemtype: z.string().default("COP90"),
@@ -59,9 +74,17 @@ export const modelConfigSchema = z.object({
   paReplicates: z.number().int().min(1).max(10).default(1),
   maxnetFeatures: z.enum(["l", "lq", "lqp", "lqh", "lqpht"]).default("lqp"),
   maxnetRegmult: z.number().min(0.1).max(10).default(1.0),
+  tuningMethod: z.enum(["none", "enmeval"]).default("none").optional(),
+  enmevalAlgorithm: z.enum(["maxnet", "bioclim"]).default("maxnet").optional(),
+  enmevalPartitions: z.enum(["block", "checkerboard1", "checkerboard2", "randomkfold"]).default("block").optional(),
+  enmevalSelectionMetric: z.enum(["auc.val.avg", "delta.AICc", "auc.diff.avg"]).default("auc.val.avg").optional(),
+  enmevalTuneArgs: z.record(z.unknown()).default({}).optional(),
+  enmevalCategoricals: z.array(z.string()).optional(),
+  enmevalNullIterations: z.number().int().min(10).max(1000).default(100).optional(),
   dnnArchitecture: z.enum(["DNN_Small", "DNN_Medium", "DNN_Large"]).default("DNN_Medium"),
   dnnNSeeds: z.number().int().min(1).max(20).default(5),
   dnnDevice: z.enum(["auto", "cpu", "gpu"]).default("auto"),
+  dnnFusedAdam: z.enum(["auto", "always", "off"]).default("auto").optional(),
   brtNTrees: z.number().int().min(100).max(10000).default(2000),
   brtInteractionDepth: z.number().int().min(1).max(10).default(3),
   brtShrinkage: z.number().min(0.001).max(0.5).default(0.01),
@@ -111,10 +134,13 @@ export const modelConfigSchema = z.object({
   detectionModelType: z.enum(["occu", "occuRN"]).default("occu"),
   dnnMultispeciesArchitecture: z.enum(["DNN_Small", "DNN_Medium", "DNN_Large"]).default("DNN_Medium"),
   dnnMultispeciesNSeeds: z.number().int().min(1).max(20).default(3),
+  dnnMcSamples: z.number().int().min(0).max(100).default(0),
+  dnnUncertaintyMethod: z.enum(["none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"]).default("none"),
+  gpuEnabled: z.enum(["auto", "off"]).default("auto"),
   aggregationFactor: z.number().int().min(1).max(8).default(1),
   nCores: z.number().int().min(1).max(64).default(1),
   seed: z.number().int().default(42),
-  occurrenceFile: z.string().min(1),
+  occurrenceFile: z.string().min(1).optional(),
   worldclimDir: z.string().default("Worldclim"),
   worldclimRes: z.number().default(10),
   source: z.enum(["worldclim", "chelsa"]).default("worldclim"),
@@ -133,6 +159,10 @@ export const modelConfigSchema = z.object({
   uvMonths: z.array(z.string()).default([]).optional(),
   droughtPeriods: z.array(z.string()).default(["annual_mean"]).optional(),
   xgbNRounds: z.number().int().min(50).max(500).default(100),
+  gllvmFamily: z.enum(["binomial", "poisson", "negative.binomial"]).default("binomial"),
+  gllvmNumLv: z.number().int().min(1).max(20).default(2),
+  gllvmNumRows: z.number().int().min(0).max(2).default(0),
+  gllvmLvCorr: z.boolean().default(false),
 });
 
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
@@ -172,3 +202,49 @@ export const occurrenceUploadSchema = z.object({
   speciesFilter: z.string().optional(),
   maxCoordinateUncertainty: z.number().optional(),
 });
+
+export const targetsConfigSchema = z.object({
+  species: z.string().min(1),
+  speciesFilter: z.string().optional(),
+  modelId: z.string().min(1),
+  occurrenceFile: z.string().optional(),
+  cleanedFilePath: z.string().optional(),
+  biovars: z.array(z.number().int().min(1).max(19)).optional(),
+  projectionExtent: z.array(z.number()).optional(),
+  backgroundN: z.number().int().optional(),
+  cvFolds: z.number().int().optional(),
+  threshold: z.number().optional(),
+});
+
+export const targetsRunRequestSchema = z.object({
+  configs: z.array(targetsConfigSchema).min(1).max(50),
+});
+
+export const targetsStatusResponseSchema = z.object({
+  id: z.string(),
+  status: z.string(),
+  n_species: z.number(),
+  started_at: z.string(),
+  completed_at: z.string().nullable(),
+  error: z.string().nullable(),
+  error_code: z.string().optional(),
+  error_hint: z.string().optional(),
+  targets_progress: z.object({
+    total_targets: z.number(),
+    completed: z.number(),
+    errored: z.number(),
+    running: z.number(),
+    targets: z.array(z.object({
+      name: z.string(),
+      type: z.string(),
+      status: z.string(),
+      seconds: z.number().nullable(),
+      error: z.string().nullable(),
+    })),
+  }).nullable(),
+  progress_log: z.array(z.string()),
+});
+
+export type TargetsConfig = z.infer<typeof targetsConfigSchema>;
+export type TargetsRunRequestSchema = z.infer<typeof targetsRunRequestSchema>;
+export type TargetsStatusResponseSchema = z.infer<typeof targetsStatusResponseSchema>;

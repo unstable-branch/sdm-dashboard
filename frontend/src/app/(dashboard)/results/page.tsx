@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRuns } from "@/hooks/use-runs";
 import { CardSkeleton } from "@/components/ui/skeleton";
-import { BarChart3, ArrowRight, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { fmtFixed, fmtLocale } from "@/lib/utils";
+import { BarChart3, ArrowRight, Ban, Clock, CheckCircle2, XCircle } from "lucide-react";
 
 export default function ResultsIndexPage() {
   const { data, isLoading, error, refetch } = useRuns();
@@ -73,14 +74,16 @@ export default function ResultsIndexPage() {
                   <CheckCircle2 className="h-5 w-5 text-sdm-success shrink-0" />
                 ) : run.status === "failed" ? (
                   <XCircle className="h-5 w-5 text-sdm-danger shrink-0" />
+                ) : run.status === "cancelled" ? (
+                  <Ban className="h-5 w-5 text-sdm-warning shrink-0" />
                 ) : (
                   <Clock className="h-5 w-5 text-sdm-accent shrink-0 animate-pulse" />
                 )}
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-sdm-text truncate">{run.species || "Unnamed run"}</p>
                   <p className="text-xs text-sdm-muted">
-                    {run.model_id} &middot; {new Date(run.started_at).toLocaleString()}
-                    {run.completed_at && ` &middot; ${((new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()) / 1000).toFixed(0)}s`}
+                    {run.model_id} · {run.started_at ? new Date(run.started_at).toLocaleString() : "—"}
+                    {run.completed_at && run.started_at && ` · ${((new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()) / 1000).toFixed(0)}s`}
                   </p>
                 </div>
               </div>
@@ -92,14 +95,25 @@ export default function ResultsIndexPage() {
                 }`}>
                   {run.status}
                 </span>
+                {typeof run.error_code === "string" && run.error_code && (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-sdm-danger/10 text-sdm-danger border border-sdm-danger/30" title={typeof run.error_hint === "string" ? run.error_hint : ""}>
+                    {run.error_code}
+                  </span>
+                )}
                 <ArrowRight className="h-4 w-4 text-sdm-muted" />
               </div>
             </div>
             {run.metrics && (
               <div className="mt-2 flex gap-4 text-xs text-sdm-muted">
-                {run.metrics.auc_mean != null && <span>AUC: {(run.metrics.auc_mean as number).toFixed(3)}</span>}
-                {run.metrics.tss_mean != null && <span>TSS: {(run.metrics.tss_mean as number).toFixed(3)}</span>}
-                {run.metrics.presence_records != null && <span>Records: {run.metrics.presence_records}</span>}
+                {run.metrics.auc_mean != null && <span>AUC: {fmtFixed(run.metrics.auc_mean, 3)}</span>}
+                {run.metrics.tss_mean != null && <span>TSS: {fmtFixed(run.metrics.tss_mean, 3)}</span>}
+                {run.metrics.presence_records != null && <span>Records: {fmtLocale(run.metrics.presence_records)}</span>}
+              </div>
+            )}
+            {run.error && (
+              <div className="mt-2 text-xs text-sdm-muted">
+                <span className="text-sdm-danger">{run.error}</span>
+                {run.error_hint && <span className="ml-2 text-sdm-muted italic">— {run.error_hint}</span>}
               </div>
             )}
           </Link>

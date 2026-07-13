@@ -8,6 +8,7 @@ res_label <- function(res) {
 fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period = "2061-2080",
                                   var = "bioc", res = 10, out_dir = "Worldclim_future",
                                   quiet = FALSE, log_fun = NULL, ...) {
+  out_dir <- sdm_resolve_project_path(out_dir)
   if (!requireNamespace("geodata", quietly = TRUE)) {
     stop("geodata package required for CMIP6 download. Install with: install.packages('geodata')", call. = FALSE)
   }
@@ -40,6 +41,10 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
   if (!quiet) message("Downloading CMIP6 ", gcm, " ", ssp, " ", period, "...")
 
   check_internet_connectivity("https://geodata.ucdavis.edu/climate/cmip6/5m/", log_fun = log_fun)
+
+  old_timeout <- getOption("timeout")
+  on.exit(options(timeout = old_timeout), add = TRUE)
+  options(timeout = 600)
 
   tryCatch(
     {
@@ -76,7 +81,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
           new_bn <- gsub("_ssp", "_SSP", new_bn)
           new_path <- file.path(cache_subdir, new_bn)
           if (file.exists(new_path)) file.remove(new_path)
-          file.rename(tf, new_path)
+          sdm_safe_rename(tf, new_path)
         }
         empty_after_move <- length(list.files(actual_path, pattern = "\\.tif$")) == 0L
         if (empty_after_move && actual_path != cache_subdir) {
@@ -103,10 +108,7 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
       list(dir = cache_subdir, cached = FALSE, raster = out)
     },
     error = function(e) {
-      # Cleanup partial download on failure (Fix 10)
-      if (dir.exists(cache_subdir)) {
-        unlink(cache_subdir, recursive = TRUE, force = TRUE)
-      }
+      # Keep incomplete cache files so a retry can reuse/resume provider downloads.
       message("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e))
       message("Troubleshooting: Check internet connection, try a different GCM/SSP/period")
       stop("CMIP6 download failed for ", gcm, " ", ssp, " ", period, ": ", conditionMessage(e), call. = FALSE)
@@ -219,7 +221,9 @@ cmip6_period_choices <- c(
 )
 
 average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
-                               out_dir = "Worldclim_future", quiet = FALSE, ...) {
+                               out_dir = "Worldclim_future", quiet = FALSE,
+                               log_fun = NULL, progress_fun = NULL, ...) {
+  out_dir <- sdm_resolve_project_path(out_dir)
   if (length(gcm_list) < 2) {
     stop("average_cmip6_gcms requires at least 2 GCMs", call. = FALSE)
   }
@@ -227,14 +231,21 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
   ssp_map <- c("SSP1-2.6" = "126", "SSP2-4.5" = "245", "SSP3-7.0" = "370", "SSP5-8.5" = "585")
   ssp_code <- ssp_map[ssp] %||% gsub("[^0-9]", "", ssp)
   ssp_display <- gsub("-", "_", ssp)
+  n_gcms <- length(gcm_list)
 
   cached_dirs <- list()
-  for (gcm in gcm_list) {
+  for (i in seq_along(gcm_list)) {
+    gcm <- gcm_list[i]
     result <- fetch_cmip6_worldclim(
       gcm = gcm, ssp = ssp, period = period,
-      var = var, res = res, out_dir = out_dir, quiet = quiet, ...
+      var = var, res = res, out_dir = out_dir, quiet = quiet,
+      log_fun = log_fun, ...
     )
     cached_dirs[[gcm]] <- result$dir
+    if (!is.null(progress_fun)) {
+      pct <- 10 + round(40 * i / n_gcms)
+      progress_fun(pct, paste0("Downloading GCM ", gcm, " (", i, "/", n_gcms, ")"))
+    }
   }
 
   out_path <- file.path(out_dir, paste("averaged", paste(gcm_list, collapse = "_"), ssp_display, period, sep = "_"))
@@ -243,7 +254,8 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
   all_bio_vars <- paste0("bio", 1:19)
   first_dir <- cached_dirs[[1]]
 
-  for (bio in all_bio_vars) {
+  for (i in seq_along(all_bio_vars)) {
+    bio <- all_bio_vars[i]
     tryCatch({
       bio_pattern <- paste0("_(", bio, ")[^0-9]|[_]", bio, "\\.tif$")
       bio_files <- character()
@@ -257,15 +269,25 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
 
       if (length(bio_files) == length(gcm_list)) {
         stacked <- terra::rast(bio_files)
+        n_total <- terra::ncell(stacked) * terra::nlyr(stacked)
+        use_gpu <- sdm_use_gpu_for(n_total)
 
-        avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
+        if (use_gpu) {
+          batch <- gpu_raster_app_batch(stacked, list(
+            function(t) torch::torch_mean(t, dim = 2),
+            function(t) torch::torch_std(t, dim = 2)
+          ))
+          avg <- batch[[1]]
+          sd_layer <- batch[[2]]
+        } else {
+          avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
+          sd_layer <- terra::app(stacked, fun = "sd", na.rm = TRUE)
+        }
         out_mean <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, ".tif"))
         terra::writeRaster(avg, out_mean,
           overwrite = TRUE,
           wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
         )
-
-        sd_layer <- terra::app(stacked, fun = "sd", na.rm = TRUE)
         out_sd <- file.path(out_path, paste0("bioc_", paste(gcm_list, collapse = "_"), "_", ssp_display, "_", period, "_", bio, "_sd.tif"))
         terra::writeRaster(sd_layer, out_sd,
           overwrite = TRUE,
@@ -275,9 +297,13 @@ average_cmip6_gcms <- function(gcm_list, ssp, period, var = "bioc", res = 10,
     }, error = function(e) {
       log_message(log_fun, "Failed to process bio", bio, " for GCM averaging: ", conditionMessage(e))
     })
+    if (!is.null(progress_fun)) {
+      pct <- 50 + round(40 * i / length(all_bio_vars))
+      progress_fun(pct, paste0("Averaging bio", bio, " (", i, "/", length(all_bio_vars), ")"))
+    }
   }
 
-  baseline_dir <- sdm_default_worldclim_dir
+  baseline_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir)
   if (dir.exists(baseline_dir)) {
     baseline_files <- find_worldclim_files(baseline_dir, 1:19, source = "worldclim")
     names(baseline_files) <- paste0("bio", 1:19)
@@ -392,7 +418,21 @@ average_gcm_layers <- function(gcm_names, future_worldclim_dir, bio_variables,
 
     if (length(bio_files) >= 2) {
       stacked <- terra::rast(bio_files)
-      avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
+      n_total <- terra::ncell(stacked) * terra::nlyr(stacked)
+      use_gpu <- sdm_use_gpu_for(n_total)
+
+      if (use_gpu && include_sd) {
+        batch <- gpu_raster_app_batch(stacked, list(
+          function(t) torch::torch_mean(t, dim = 2),
+          function(t) torch::torch_std(t, dim = 2)
+        ))
+        avg <- batch[[1]]
+        sd_val <- batch[[2]]
+      } else if (use_gpu) {
+        avg <- gpu_raster_app(stacked, function(t) torch::torch_mean(t, dim = 2))
+      } else {
+        avg <- terra::app(stacked, fun = "mean", na.rm = TRUE)
+      }
       if (is.null(averaged_stack)) {
         averaged_stack <- avg
       } else {
@@ -400,7 +440,9 @@ average_gcm_layers <- function(gcm_names, future_worldclim_dir, bio_variables,
       }
 
       if (include_sd) {
-        sd_val <- terra::app(stacked, fun = "sd", na.rm = TRUE)
+        if (!use_gpu) {
+          sd_val <- terra::app(stacked, fun = "sd", na.rm = TRUE)
+        }
         if (is.null(sd_stack)) {
           sd_stack <- sd_val
         } else {

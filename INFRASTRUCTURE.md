@@ -46,7 +46,7 @@ source ~/.bashrc
 fnm use
 
 # Install dependencies
-cd packages/shared && npm install
+cd packages/shared && pnpm install
 cd ../../frontend && npm install
 cd ../api && npm install
 cd ../..

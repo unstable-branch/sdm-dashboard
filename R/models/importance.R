@@ -71,7 +71,7 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
     ))
   }
 
-  baseline_metric <- metric_fun(obs[ok_both], baseline_pred[ok_both])
+  baseline_metric <- as.numeric(metric_fun(obs[ok_both], baseline_pred[ok_both]))[1]
   if (!is.finite(baseline_metric)) {
     return(data.frame(
       variable = cov_cols, importance = 0, sd = NA, baseline = NA,
@@ -133,7 +133,7 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
     variable = cov_cols,
     importance = vapply(results, function(r) r$importance, numeric(1)),
     sd = vapply(results, function(r) r$sd, numeric(1)),
-    baseline = baseline_metric,
+    baseline = rep(baseline_metric, length(cov_cols)),
     stringsAsFactors = FALSE
   )
 

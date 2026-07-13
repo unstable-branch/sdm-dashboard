@@ -294,6 +294,26 @@ Climate data directories and download behavior are configurable via environment 
 3. The readiness panel confirms which BIO variables are found locally
 4. No web upload for climate rasters — files must be placed directly on the filesystem
 
+### Plumber vs targets pipeline
+
+The project has **two execution engines** for SDM computation, each with a distinct role:
+
+**Plumber** (`plumber/R/`) is the HTTP API gateway. Use it for:
+- Single-species model runs (`POST /api/v1/models/run` → `run_model_background.R`)
+- Interactive/blocking requests (health, config, check endpoints)
+- Short-lived async jobs (occurrence cleaning, GBIF search, DwC-A parsing, climate/covariate download)
+- Read-only post-run data retrieval (diagnostics, ecology, tiles, outputs, manifest)
+
+**Targets** (`_targets.R`) is the pipeline orchestrator. Use it for:
+- Multi-species batch runs (2+ species)
+- Any workflow needing caching, incremental rebuild, or auto-resume after crash
+- HPC/cluster computing via `crew` (SLURM, SGE, PBS, AWS Batch)
+- Research-grade reproducible analyses with provenance tracking
+
+Both engines call the same `sdm_stage_*()` functions in `R/core/run_sdm.R` — the shared computation foundation. `run_fast_sdm()` wraps them monolithically for single runs; `_targets.R` orchestrates them as a DAG for batch runs.
+
+The legacy `batch_run_parallel()` (`R/output/batch_runner.R`) is Shiny-desktop-only for quick ad-hoc use — do not add new modern-platform code paths through it.
+
 ### biomod2 gating
 
 Requires `options(sdm.enable_biomod2 = TRUE)` AND `requireNamespace("biomod2", quietly = TRUE)`. Never add to base packages.
@@ -342,11 +362,16 @@ All computation endpoints on Plumber (port 8000) require authentication:
 - `GET /ready` — readiness probe
 - `GET /api/v1/models/runs` — list all model runs (read-only)
 - `GET /api/v1/climate/scenarios` — list downloaded scenarios
+- `GET /api/v1/climate/check` — climate data availability check
 - `GET /api/v1/config/defaults` — model config defaults
 - `GET /api/v1/models` — available model list
 - `GET /api/v1/future/scenarios` — future scenario discovery
-- `GET /api/v1/ecology/:runId/*` — ecology data (read-only)
-- `GET /api/v1/diagnostics/*` — diagnostics (read-only)
+- `GET /api/v1/covariates/check` — covariate availability check
+- `GET /api/v1/ecology/:runId` — ecology data (read-only)
+- `GET /api/v1/ecology/:runId/eoo-aoo` — EOO/AOO data (read-only)
+- `GET /api/v1/ecology/:runId/aoa` — area of applicability (read-only)
+- `GET /api/v1/ecology/:runId/report` — conservation report (read-only)
+- `GET /api/v1/diagnostics/vif/:runId` and other GET diagnostics (read-only; POST shap/cell and plots still require auth)
 
 **Protected Plumber endpoints** (auth required):
 - `POST /api/v1/models/run` — run SDM model

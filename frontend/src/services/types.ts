@@ -1,7 +1,7 @@
 // ── Frontend Type Definitions ─────────────────────────────────────────────
 // SOURCE OF TRUTH: @sdm/shared (camelCase types in packages/shared/src/types.ts)
 //
-// Re-exports from @sdm/shared for types without naming conflicts.
+// Re-exports from @sdm/shared for types shared across the stack.
 // Frontend retains snake_case versions matching Plumber API responses.
 
 import type {
@@ -14,22 +14,6 @@ import type {
 export type {
   ThresholdData,
   DensityData,
-  PlumberStatusResponse,
-  PlumberRunResponse,
-  PlumberUploadResponse,
-  PlumberCleanResponse,
-  PlumberModelInfo,
-  PlumberConfigDefaults,
-  PlumberClimateScenario,
-  PlumberManifestResponse,
-  PlumberErrorResponse,
-  PlumberHealthResponse,
-  PlumberDiagnosticsVif,
-  PlumberDiagnosticsImportance,
-  PlumberDiagnosticsResponseCurves,
-  PlumberDiagnosticsAle,
-  PlumberDiagnosticsShapCell,
-  PlumberDiagnosticsClimateDrivers,
   BiovarChoice,
   ModelBackend,
   Species,
@@ -45,6 +29,19 @@ export type {
 
 // ── API response types — snake_case to match Plumber API ──────────────────
 
+export interface OutputFiles {
+  tif?: string;
+  tif_4326?: string;
+  tif_3857?: string;
+  tile_zoom_min?: string;
+  tile_zoom_max?: string;
+  eoo_polygon?: string;
+  aoo_grid?: string;
+  odmap_report_md?: string;
+  odmap_report_csv?: string;
+  [key: string]: string | undefined;
+}
+
 export interface RunSummary {
   id: string;
   species: string;
@@ -53,16 +50,29 @@ export interface RunSummary {
   started_at: string;
   completed_at: string | null;
   metrics: Record<string, unknown> | null;
-  output_files: Record<string, string> | null;
+  output_files: OutputFiles | null;
+  error?: string | null;
+  error_code?: string | null;
+  error_hint?: string | null;
+  config?: Record<string, unknown> | null;
+}
+
+export interface ProgressStage {
+  timestamp: string;
+  percent: number;
+  detail: string;
+  stage: string;
 }
 
 export interface RunDetail extends RunSummary {
   progress_log: string[];
+  last_stage?: string | null;
   error: string | null;
   error_code?: string | null;
   error_hint?: string | null;
   config?: Record<string, unknown>;
   provenance?: Record<string, unknown> | null;
+  progress_json?: ProgressStage[];
 }
 
 // Types with matching field names — direct re-exports from @sdm/shared
@@ -213,6 +223,90 @@ export interface SpeciesSummary {
   name: string;
   occurrence_count: number | null;
   created_at: string;
+}
+
+// ── Manifest type matching Plumber's write_manifest() output ───────────────
+
+export interface ManifestData {
+  cleaning_summary?: Record<string, unknown>;
+  covariate_source?: Record<string, unknown>;
+  model_id?: string;
+  model_label?: string;
+  cv_strategy?: string;
+  cv_folds?: number;
+  output_paths?: Record<string, string>;
+  spatial?: {
+    analysis_crs?: string;
+    aoo_crs?: string;
+    projection_extent?: number[];
+    occurrence_bounds?: { lon_min: number; lon_max: number; lat_min: number; lat_max: number } | null;
+    eoo_km2?: number;
+    aoo_km2?: number;
+    aoo_cell_size_km?: number;
+    iucn_category?: string;
+  };
+  mess_path?: string;
+  app_version?: { r_version: string; platform: string; git_sha?: string };
+  data?: { record_count?: number; occurrence_rows?: number; occurrence_hash_sha256?: string };
+  covariates?: { source: string; resolution: number; biovars: number[]; file_count: number };
+  extent?: { xmin: number; xmax: number; ymin: number; ymax: number };
+  validation?: { cv_strategy: string; cv_folds: number; cv_block_size_km?: number; seed: number };
+  resources?: { r_cpu_time_ms?: number; r_peak_memory_mb?: number };
+}
+
+// ── Upload / GBIF / Clean / DwCA response types ────────────────────────────
+
+export interface UploadFile {
+  id?: string;
+  file_id: string;
+  file_name: string;
+  file_size: number;
+  n_rows: number;
+  cleaned: boolean;
+  modified_at: string | null;
+  cleaned_file_id?: string;
+  cleaned_valid_records?: number;
+  species?: string;
+  format?: string;
+}
+
+export interface ClimateScenarioResponse {
+  id: string;
+  type: "future" | "current";
+  gcm?: string;
+  ssp?: string;
+  period?: string;
+  source?: "worldclim" | "chelsa";
+  path?: string;
+  file_count: number;
+  size_bytes: number;
+  is_averaged?: boolean;
+}
+
+export interface CleanResult {
+  status?: string;
+  cleaned_file_id?: string;
+  cleaned_file_path?: string;
+  n_removed?: number;
+  n_kept?: number;
+  valid_records?: number;
+  cleaned_records?: Array<Record<string, unknown>>;
+  source_counts?: Record<string, number>;
+  species_counts?: Record<string, number>;
+  n_absent_excluded?: number;
+  original_rows?: number;
+  pipelineRunId?: string;
+  error?: string;
+  data?: CleanResult;
+}
+
+export interface DwcaResult {
+  datasets?: Array<{ datasetKey?: string; title?: string }>;
+  n_returned?: number;
+  n_raw?: number;
+  doi?: string;
+  file_path?: string;
+  preview?: Array<Record<string, unknown>>;
 }
 
 // ── Frontend-only types (not from Plumber API) ────────────────────────────

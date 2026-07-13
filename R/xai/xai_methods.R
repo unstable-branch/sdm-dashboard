@@ -23,13 +23,14 @@ xai_importance <- function(fit, method = "auto", ...) {
         sd = numeric(), baseline = numeric(), stringsAsFactors = FALSE
       ))
     }
-    permutation_importance(
-      fit = fit, model_data = fit$model_data,
-      predict_fun = pred_fun,
-      metric_fun = auc_rank,
-      n_perm = getOption("sdm.n_perm", sdm_default_n_perm),
-      ...
-    )
+    pi_args <- list(...)
+    pi_args$log_fun <- NULL
+    do.call(permutation_importance, c(
+      list(fit = fit, model_data = fit$model_data,
+           predict_fun = pred_fun, metric_fun = auc_rank,
+           n_perm = getOption("sdm.n_perm", sdm_default_n_perm)),
+      pi_args
+    ))
   }
 }
 
@@ -110,7 +111,24 @@ build_importance_predict_fun <- function(fit) {
     maxnet = function(mod, newdata) {
       df <- as.data.frame(newdata)
       if (nrow(df) == 0) return(numeric(0))
-      as.numeric(maxnet::predict.maxnet(mod$model, df, clamp = TRUE, type = "link"))
+      as.numeric(maxnet::predict.maxnet(mod$model, df, clamp = TRUE, type = "cloglog"))
+    },
+    dnn = function(mod, newdata) {
+      df <- as.data.frame(newdata)
+      if (nrow(df) == 0) return(numeric(0))
+      if (sdm_use_gpu() && nrow(df) >= 100L) {
+        dev <- gpu_device()
+        pred <- torch::with_no_grad({
+          as.numeric(stats::predict(mod$model, newdata = df, type = "response", device = dev))
+        })
+        gpu_empty_cache()
+        pred
+      } else {
+        pred <- torch::with_no_grad({
+          stats::predict(mod$model, newdata = df, type = "response")
+        })
+        if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+      }
     },
     # Default: generic predict()
     function(mod, newdata) {

@@ -52,7 +52,7 @@ export default function AdminOverviewPage() {
     setError(null);
     try {
       const d = await apiGet<OverviewData>("/api/v1/admin/overview");
-      setData(d);
+      setData({ ...d, uploadsByUser: d.uploadsByUser ?? [], recentActivity: d.recentActivity ?? [] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
     } finally {

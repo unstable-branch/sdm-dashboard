@@ -1,5 +1,3 @@
-import { createMiddleware } from "hono/factory";
-
 const WARN_THRESHOLD_MB = 500;
 const CRITICAL_THRESHOLD_MB = 1000;
 const CHECK_INTERVAL_MS = 30_000;
@@ -58,8 +56,3 @@ export function getMemoryStatus() {
     timestamp: new Date().toISOString(),
   };
 }
-
-export const memoryMonitorMiddleware = createMiddleware(async (c, next) => {
-  await next();
-  c.res.headers.set("X-Memory-Usage-MB", String(getMemoryUsageMB()));
-});

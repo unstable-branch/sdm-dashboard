@@ -1,0 +1,48 @@
+groups:
+  - name: gpu
+    interval: 30s
+    rules:
+      - alert: GPUVRAMLow
+        expr: sdm_gpu_free_vram_mib < 2048
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU VRAM below 2048 MiB"
+          description: "Free GPU VRAM is {{ $value }} MiB — below the 2048 MiB safety threshold."
+
+      - alert: GPUCanaryFailing
+        expr: sdm_gpu_canary_ok == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU canary inference failing"
+          description: "GPU canary has been failing for >2 minutes — GPU may be in bad state."
+
+      - alert: GPUVRAMLeak
+        expr: sdm_gpu_vram_leak == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU VRAM leak suspected"
+          description: "5+ consecutive VRAM drops detected — possible memory leak."
+
+      - alert: GPUCanaryHighLatency
+        expr: sdm_gpu_canary_elapsed_ms > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU canary latency high"
+          description: "GPU canary took {{ $value }} ms — may indicate GPU contention."
+
+      - alert: PlumberHighMemory
+        expr: sdm_plumber_memory_gb > 12
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Plumber R process memory high"
+          description: "Plumber using {{ $value }} GB RSS — near limit."

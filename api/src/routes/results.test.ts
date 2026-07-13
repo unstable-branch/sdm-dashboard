@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
+import { Readable } from "stream";
 import { resultsRoutes } from "./results.js";
 
 vi.mock("../db", () => ({
@@ -16,6 +17,7 @@ vi.mock("../db", () => ({
             completedAt: new Date("2024-01-01T01:00:00Z"),
             metrics: { auc_mean: 0.85, tss_mean: 0.7 },
             outputFiles: { suitability_tif: "outputs/jobs/run-123/suitability.tif" },
+            jobId: "plumber-job-123",
             error: null,
             progressLog: ["Run started", "Run completed"],
             config: { threshold: 0.5, biovars: "1,4,6,12" },
@@ -29,6 +31,8 @@ vi.mock("../db", () => ({
 vi.mock("fs", () => ({
   existsSync: vi.fn((path: string) => !path.includes("..") && !path.endsWith(".enc")),
   readFileSync: vi.fn(() => "test content"),
+  createReadStream: vi.fn(() => Readable.from([])),
+  readdirSync: vi.fn(() => ["Test_species_20260713_120000_suitability.tif", "Test_species_20260713_120000_report.txt"]),
 }));
 
 vi.mock("fs/promises", () => ({
@@ -75,6 +79,50 @@ describe("results routes", () => {
     expect(res.status).toBe(404);
     const data = await res.json();
     expect(data.error).toBe("Run not found");
+  });
+
+  it("GET /:id discovers completed artifacts when outputFiles is blank", async () => {
+    const { db } = await import("../db");
+    (db.select as any).mockReturnValueOnce({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(() => [{
+            id: "run-123",
+            status: "completed",
+            speciesName: "Test species",
+            modelId: "dnn",
+            startedAt: new Date("2026-01-01"),
+            completedAt: new Date("2026-01-01T00:01:00Z"),
+            metrics: {},
+            outputFiles: {},
+            jobId: "plumber-job-123",
+            provenance: null,
+            error: null,
+          }]),
+        })),
+      })),
+    });
+
+    const res = await app.request("/api/v1/results/run-123");
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.output_files.report).toContain("plumber-job-123/Test_species_20260713_120000_report.txt");
+    expect(data.output_files.tif).toContain("plumber-job-123/Test_species_20260713_120000_suitability.tif");
+  });
+
+  it("GET /:id/report.txt discovers the suffixed report in the Plumber job directory", async () => {
+    const res = await app.request("/api/v1/results/run-123/report.txt");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("test content");
+  });
+
+  it("GET /:id/report.txt retains compatibility with legacy report.txt artifacts", async () => {
+    const fs = await import("fs");
+    (fs.readdirSync as any).mockReturnValueOnce(["report.txt"]);
+
+    const res = await app.request("/api/v1/results/run-123/report.txt");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("test content");
   });
 
   it("GET /file/:filePath blocks path traversal", async () => {

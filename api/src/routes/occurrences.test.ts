@@ -1,8 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import { dataRoutes } from "./occurrences.js";
+import { gbifAlaRoutes } from "./gbif-ala.js";
+
+const app = new Hono().route("/api/v1/data", dataRoutes).route("/api/v1/data", gbifAlaRoutes);
 
 vi.mock("ioredis", () => ({
+  default: class MockRedis {
+    on = vi.fn();
+    connect = vi.fn(() => Promise.resolve());
+    zremrangebyscore = vi.fn(() => Promise.resolve(0));
+    zcard = vi.fn(() => Promise.resolve(0));
+    zadd = vi.fn(() => Promise.resolve(1));
+    expire = vi.fn(() => Promise.resolve(1));
+  },
   Redis: class MockRedis {
     on = vi.fn();
     connect = vi.fn(() => Promise.resolve());
@@ -19,6 +30,7 @@ vi.mock("../db", () => ({
     insert: vi.fn(() => ({
       values: vi.fn(() => ({
         returning: vi.fn(() => Promise.resolve([{ id: "sp-1", name: "Test species", occurrenceCount: 0 }])),
+        onConflictDoNothing: vi.fn(),
       })),
     })),
     update: vi.fn(() => ({
@@ -29,6 +41,17 @@ vi.mock("../db", () => ({
   },
 }));
 
+vi.mock("../db/schema.js", () => ({
+  uploads: {},
+  userSettings: {},
+  users: {},
+  runs: {},
+  species: {},
+  projects: {},
+  occurrences: {},
+  apiKeys: {},
+}));
+
 vi.mock("../services/plumber", () => ({
   plumberClient: {
     withUser: vi.fn(function(this: any) {
@@ -37,11 +60,13 @@ vi.mock("../services/plumber", () => ({
     uploadOccurrence: vi.fn(() => Promise.resolve({ file_id: "/tmp/test.csv", n_rows: 10 })),
     cleanOccurrences: vi.fn(() => Promise.resolve({ cleaned_id: "/tmp/test.csv", valid_records: 8 })),
     searchGbif: vi.fn(() => Promise.resolve({ n_records: 50 })),
+    searchAla: vi.fn(() => Promise.resolve({ n_records: 30 })),
   },
 }));
 
 vi.mock("../services/queue", () => ({
   enqueueSdmJob: vi.fn(() => Promise.resolve("job-123")),
+  getSharedRedis: vi.fn(() => null),
 }));
 
 vi.mock("fs", () => ({
@@ -49,11 +74,17 @@ vi.mock("fs", () => ({
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
   existsSync: vi.fn(() => true),
+  statSync: vi.fn(() => ({ size: 100 })),
   accessSync: vi.fn(),
   promises: {
     writeFile: vi.fn(() => Promise.resolve()),
   },
   constants: { W_OK: 2 },
+}));
+
+vi.mock("../middleware/rate-limit", () => ({
+  gbifRateLimit: vi.fn(async (_c: any, next: any) => next()),
+  defaultRateLimit: vi.fn(async (_c: any, next: any) => next()),
 }));
 
 vi.mock("../middleware/auth", () => ({
@@ -63,14 +94,35 @@ vi.mock("../middleware/auth", () => ({
   }),
 }));
 
+vi.mock("crypto", () => ({
+  randomUUID: vi.fn(() => "mocked-uuid"),
+  randomBytes: vi.fn((n: number) => Buffer.alloc(n)),
+  createCipheriv: vi.fn(() => ({
+    update: vi.fn(() => Buffer.from("")),
+    final: vi.fn(() => Buffer.from("")),
+    getAuthTag: vi.fn(() => Buffer.alloc(16)),
+  })),
+  createDecipheriv: vi.fn(() => ({
+    setAuthTag: vi.fn(),
+    update: vi.fn(() => Buffer.from("")),
+    final: vi.fn(() => Buffer.from("")),
+  })),
+}));
+
 vi.mock("../services/access", () => ({
   ensureDefaultProject: vi.fn(async () => "proj-1"),
   getUserProjectIds: vi.fn(async () => null),
 }));
 
+vi.mock("../services/audit", () => ({
+  logAction: vi.fn(() => Promise.resolve()),
+  extractClientInfo: vi.fn(() => ({ ipAddress: "127.0.0.1", userAgent: "vitest" })),
+}));
+
 describe("data routes", () => {
   const app = new Hono();
   app.route("/api/v1/data", dataRoutes);
+  app.route("/api/v1/data", gbifAlaRoutes);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -247,6 +299,78 @@ describe("data routes", () => {
       const data = await res.json();
       expect(data.occurrences).toHaveLength(1);
       expect(data.pagination.total).toBe(1);
+    });
+  });
+
+  describe("POST /occurrences/ala/search", () => {
+    it("returns ALA search results", async () => {
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.searchAla as any).mockResolvedValueOnce({ n_records: 30, taxon: "Acacia mearnsii" });
+
+      const res = await app.request("/api/v1/data/occurrences/ala/search", {
+        method: "POST",
+        body: JSON.stringify({ taxon: "Acacia mearnsii", max_records: 100 }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.n_records).toBe(30);
+      expect(data.taxon).toBe("Acacia mearnsii");
+    });
+
+    it("handles Plumber errors gracefully", async () => {
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.searchAla as any).mockRejectedValueOnce(new Error("Plumber error"));
+
+      const res = await app.request("/api/v1/data/occurrences/ala/search", {
+        method: "POST",
+        body: JSON.stringify({ taxon: "Acacia mearnsii" }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(502);
+      const data = await res.json();
+      expect(data.error).toBe("Plumber error");
+    });
+
+    it("injects ALA API key from user settings", async () => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+      (db.select as any).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([{ alaApiKey: "encrypted-key" }])),
+          })),
+        })),
+      });
+      (plumberClient.searchAla as any).mockResolvedValueOnce({ n_records: 30 });
+
+      const res = await app.request("/api/v1/data/occurrences/ala/search", {
+        method: "POST",
+        body: JSON.stringify({ taxon: "Acacia mearnsii" }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("POST /occurrences/ala/save", () => {
+    it("saves ALA search results to workspace", async () => {
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.searchAla as any).mockImplementation(() => Promise.resolve({
+        n_records: 30,
+        file_path: "/app/data/uploads/ala_test.csv",
+        taxon: "Acacia mearnsii",
+      }));
+
+      const res = await app.request("/api/v1/data/occurrences/ala/save", {
+        method: "POST",
+        body: JSON.stringify({ taxon: "Acacia mearnsii", max_records: 100 }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.file_path).toBeTruthy();
+      expect(data.n_rows).toBe(30);
     });
   });
 });

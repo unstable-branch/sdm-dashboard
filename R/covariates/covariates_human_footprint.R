@@ -61,7 +61,8 @@ load_human_footprint_covariate <- function(hfp_year = 2020,
   tmp <- tempfile(fileext = ".tif")
   ok <- tryCatch(
     {
-      curl::curl_fetch_disk(url, tmp)
+      handle <- curl::new_handle(timeout = 300)
+      curl::curl_fetch_disk(url, tmp, handle = handle)
       fi <- file.info(tmp)
       !is.na(fi$size) && fi$size > 1024
     },

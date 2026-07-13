@@ -1,45 +1,97 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Ban, Trash2 } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Ban, Trash2, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 import { apiGet, apiPost, apiDelete } from "@/services/api";
+import { useJobSSE } from "@/hooks/use-job-sse";
 import type { RunSummary } from "@/services/types";
+import type { PlumberJobLogs } from "@sdm/shared";
 
-interface Run extends RunSummary {
-  error: string | null;
-}
+type Run = RunSummary;
 
 interface RunHistoryProps {
   onRunSelect?: (runId: string) => void;
   refreshKey?: number;
+  activeJobId?: string | null;
 }
 
 const statusIcons: Record<string, React.ReactNode> = {
   running: <Loader2 className="h-4 w-4 text-sdm-accent animate-spin" />,
+  loading: <Loader2 className="h-4 w-4 text-sdm-accent animate-spin" />,
   completed: <CheckCircle2 className="h-4 w-4 text-sdm-success" />,
   failed: <XCircle className="h-4 w-4 text-sdm-danger" />,
   queued: <Clock className="h-4 w-4 text-sdm-muted" />,
+  pending: <Clock className="h-4 w-4 text-sdm-muted" />,
   cancelled: <Ban className="h-4 w-4 text-sdm-warning" />,
 };
 
-function hasActiveRuns(runs: Run[]): boolean {
-  return runs.some((r) => r.status === "queued" || r.status === "running");
+function hasActiveRuns(runs: RunSummary[]): boolean {
+  return runs.some((r) => ["queued", "running", "loading", "pending", "active"].includes(r.status));
 }
 
-export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
-  const [runs, setRuns] = useState<Run[]>([]);
+export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryProps) {
+  const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionRunId, setActionRunId] = useState<string | null>(null);
   const [actionType, setActionType] = useState<"cancel" | "delete" | null>(null);
-  const [clearing, setClearing] = useState(false);
+    const [clearing, setClearing] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const [displayLimit, setDisplayLimit] = useState(10);
+  const queryClient = useQueryClient();
+  const [expandedLogRunId, setExpandedLogRunId] = useState<string | null>(null);
+  const [logData, setLogData] = useState<Record<string, PlumberJobLogs>>({});
+  const [logErrors, setLogErrors] = useState<Record<string, string>>({});
+  const [logLoading, setLogLoading] = useState(false);
   const runsRef = useRef(runs);
   runsRef.current = runs;
 
+  // SSE-driven live updates — reduce polling frequency when connected
+  const { jobs: sseJobs, connected: sseConnected, version: sseVersion } = useJobSSE(true);
+  const prevSseVersion = useRef(0);
+  useEffect(() => {
+    if (sseVersion === prevSseVersion.current) return;
+    prevSseVersion.current = sseVersion;
+    if (sseJobs.size === 0) return;
+    setRuns(prev => {
+      let changed = false;
+      const existingIds = new Set(prev.map(r => r.id));
+      const next = prev.map(r => {
+        const event = sseJobs.get(r.id);
+        if (!event || event.state === r.status) return r;
+        const mappedState = event.state === "active" ? "running" : event.state;
+        if (mappedState === r.status) return r;
+        changed = true;
+        return { ...r, status: mappedState, error: event.failedReason ?? r.error };
+      });
+      // Add new runs from SSE that aren't yet in the list
+      for (const [id, event] of sseJobs) {
+        if (!existingIds.has(id) && (event.type === "sdm_model" || event.type === "model")) {
+          next.push({
+            id,
+            species: event.id,
+            model_id: "",
+            status: event.state === "active" ? "running" : event.state as any,
+            started_at: "",
+            completed_at: null,
+            metrics: null,
+            output_files: null,
+            error: event.failedReason ?? null,
+            error_code: null,
+            error_hint: event.error_hint ?? null,
+          });
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [sseVersion, sseJobs]);
+
   const fetchRuns = useCallback(() => {
-    apiGet<{ runs: Run[] }>("/api/v1/sdm/runs")
+    apiGet<{ runs: RunSummary[] }>("/api/v1/sdm/runs")
       .then((data) => {
         setRuns(data.runs || []);
         setError(null);
@@ -56,14 +108,25 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
   }, [fetchRuns, refreshKey]);
 
   useEffect(() => {
-    if (!hasActiveRuns(runsRef.current)) return;
-
-    const interval = setInterval(() => { if (!document.hidden) fetchRuns(); }, 10000);
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      if (hasActiveRuns(runsRef.current)) fetchRuns();
+    }, 10000);
     return () => clearInterval(interval);
   }, [fetchRuns]);
 
-  const activeCount = useMemo(() => runs.filter((r) => r.status === "queued" || r.status === "running").length, [runs]);
+  useEffect(() => {
+    if (!runsRef.current.some((r) => r.status === "queued")) return;
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [runs]);
+
+  const activeCount = useMemo(() => runs.filter((r) => ["queued", "running", "loading", "pending"].includes(r.status)).length, [runs]);
   const clearableCount = useMemo(() => runs.filter((r) => ["completed", "failed", "cancelled"].includes(r.status)).length, [runs]);
+  const queuedRuns = useMemo(() => runs.filter((r) => r.id !== activeJobId && ["queued", "pending", "loading"].includes(r.status)), [runs, activeJobId]);
+  const otherRuns = useMemo(() => runs.filter((r) => r.id !== activeJobId && !["queued", "pending", "loading"].includes(r.status)), [runs, activeJobId]);
 
   const handleCancel = async (runId: string) => {
     setActionRunId(runId);
@@ -84,9 +147,16 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
       } else {
         await apiDelete(`/api/v1/sdm/runs/delete/${actionRunId}`);
       }
-      fetchRuns();
-    } catch {
+      setError(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (!msg.toLowerCase().includes("already cancelled")) {
+        console.error("[run-history] Action failed:", msg || err);
+      }
+      setError(actionType === "cancel" ? "Failed to cancel run" : "Failed to delete run");
     } finally {
+      queryClient.invalidateQueries({ queryKey: ["sdm-runs"] });
+      fetchRuns();
       setActionRunId(null);
       setActionType(null);
     }
@@ -102,10 +172,31 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
     setClearing(true);
     try {
       await apiPost("/api/v1/sdm/runs/clear-all", { includeCompleted: true });
+      queryClient.invalidateQueries({ queryKey: ["sdm-runs"] });
       fetchRuns();
     } catch {
     } finally {
       setClearing(false);
+    }
+  };
+
+  const toggleLogs = async (runId: string) => {
+    if (expandedLogRunId === runId) {
+      setExpandedLogRunId(null);
+      return;
+    }
+    setExpandedLogRunId(runId);
+    if (logData[runId]) return;
+    setLogLoading(true);
+    setLogErrors(prev => { const next = { ...prev }; delete next[runId]; return next; });
+    try {
+      const data = await apiGet<PlumberJobLogs>(`/api/v1/sdm/logs/${runId}`);
+      setLogData(prev => ({ ...prev, [runId]: data }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to fetch logs";
+      setLogErrors(prev => ({ ...prev, [runId]: msg }));
+    } finally {
+      setLogLoading(false);
     }
   };
 
@@ -190,9 +281,59 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
           </div>
         </div>
       )}
+      {queuedRuns.length > 0 && (
+        <div className="space-y-2">
+          {queuedRuns.slice(0, 3).map((run) => {
+            const startedMs = run.started_at ? new Date(run.started_at).getTime() : NaN;
+            const elapsed = Number.isFinite(startedMs) ? Math.floor((now - startedMs) / 1000) : 0;
+            return (
+              <div
+                key={run.id}
+                className="rounded-lg border-2 border-dashed border-sdm-accent/30 bg-sdm-accent/[0.03] p-4 transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="relative mt-0.5 shrink-0">
+                    <Loader2 className="h-5 w-5 text-sdm-accent animate-spin" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-sdm-text">
+                      Model run submitted
+                      <span className="text-sdm-muted font-normal"> — waiting for progress...</span>
+                    </p>
+                    <p className="text-xs text-sdm-muted mt-1">
+                      {run.species} · {run.model_id}
+                      <span className="inline-block ml-2 tabular-nums text-sdm-accent/70">
+                        {elapsed < 60
+                          ? `${elapsed}s`
+                          : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`}
+                      </span>
+                    </p>
+                  </div>
+                  {run.id !== activeJobId && (
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm("Cancel this run?")) return;
+                        try {
+                          await apiPost(`/api/v1/sdm/cancel/${run.id}`);
+                          queryClient.invalidateQueries({ queryKey: ["sdm-runs"] });
+                          fetchRuns();
+                        } catch { /* best-effort */ }
+                      }}
+                      className="shrink-0 rounded-md border border-sdm-border bg-sdm-surface px-3 py-1.5 text-xs text-sdm-muted hover:text-sdm-danger hover:border-sdm-danger/30 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div className="space-y-2">
-        {runs.slice(0, 10).map((run) => {
-          const isCancellable = run.status === "queued" || run.status === "running";
+        {otherRuns.slice(0, displayLimit).map((run) => {
+          const isCancellable = ["queued", "running", "loading", "pending"].includes(run.status);
           const isDeletable = ["completed", "failed", "cancelled"].includes(run.status);
           const isActioning = actionRunId === run.id;
 
@@ -201,7 +342,7 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
               key={run.id}
               className={cn(
                 "rounded-lg border border-sdm-border bg-sdm-surface p-3 transition-colors",
-                run.status === "running" && "border-sdm-accent/30"
+                (run.status === "running" || run.status === "loading") && "border-sdm-accent/30"
               )}
             >
               <div className="flex items-center justify-between">
@@ -218,12 +359,13 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
                     run.status === "completed" ? "bg-sdm-success/10 text-sdm-success" :
                     run.status === "failed" ? "bg-sdm-danger/10 text-sdm-danger" :
                     run.status === "cancelled" ? "bg-sdm-warning/10 text-sdm-warning" :
-                    run.status === "running" ? "bg-sdm-accent/10 text-sdm-accent" :
+                    run.status === "running" || run.status === "loading" ? "bg-sdm-accent/10 text-sdm-accent" :
+                    run.status === "pending" ? "bg-sdm-muted/10 text-sdm-muted" :
                     "bg-sdm-muted/10 text-sdm-muted"
                   )}>
                     {run.status}
                   </span>
-                  {isCancellable && (
+                  {isCancellable && run.id !== activeJobId && (
                     <button
                       onClick={() => handleCancel(run.id)}
                       disabled={isActioning}
@@ -256,8 +398,84 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
                   </>
                 )}
               </div>
-              {run.status === "failed" && run.error && (
-                <div className="mt-2 text-xs text-sdm-danger break-words">{run.error}</div>
+              {run.status === "failed" && (
+                <div className="mt-2">
+                  <div className="flex items-start gap-1">
+                    <div className="flex-1 min-w-0">
+                      {run.error && (
+                        <span className="text-xs text-sdm-danger break-words">{run.error}</span>
+                      )}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        {run.error_code && (
+                          <span className="inline-flex items-center rounded bg-sdm-danger/10 px-1.5 py-0.5 text-[10px] font-medium text-sdm-danger uppercase tracking-wide">
+                            {run.error_code}
+                          </span>
+                        )}
+                        {run.error_hint && (
+                          <span className="text-[10px] text-sdm-muted italic">{run.error_hint}</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => toggleLogs(run.id)}
+                      className="shrink-0 mt-0.5 text-sdm-muted hover:text-sdm-accent transition-colors"
+                    >
+                      {expandedLogRunId === run.id ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
+                  {expandedLogRunId === run.id && (
+                    <div className="mt-2 rounded-md border border-sdm-danger/20 bg-sdm-danger/[0.03] p-3">
+                      {logLoading ? (
+                        <div className="flex items-center gap-2 text-xs text-sdm-muted">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Loading logs...
+                        </div>
+                      ) : logErrors[run.id] ? (
+                        <div className="flex items-center gap-2 text-xs text-sdm-danger">
+                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                          Failed to load logs: {logErrors[run.id]}
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {logData[run.id]?.stderr ? (
+                            <details open>
+                              <summary className="text-xs font-medium text-sdm-muted cursor-pointer hover:text-sdm-text">stderr</summary>
+                              <pre className="mt-1 text-xs text-sdm-text leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">
+                                {logData[run.id].stderr}
+                              </pre>
+                            </details>
+                          ) : null}
+                          {logData[run.id]?.stdout ? (
+                            <details>
+                              <summary className="text-xs font-medium text-sdm-muted cursor-pointer hover:text-sdm-text">stdout</summary>
+                              <pre className="mt-1 text-xs text-sdm-text leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">
+                                {logData[run.id].stdout}
+                              </pre>
+                            </details>
+                          ) : null}
+                          {logData[run.id]?.progress_log ? (
+                            <details>
+                              <summary className="text-xs font-medium text-sdm-muted cursor-pointer hover:text-sdm-text">progress log</summary>
+                              <pre className="mt-1 text-xs text-sdm-text leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">
+                                {logData[run.id].progress_log}
+                              </pre>
+                            </details>
+                          ) : null}
+                          {!logData[run.id]?.stderr && !logData[run.id]?.stdout && !logData[run.id]?.progress_log && (
+                            <div className="flex items-center gap-2 text-xs text-sdm-muted">
+                              <AlertTriangle className="h-3 w-3" />
+                              No log content available
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
 
               {isActioning && actionType === "cancel" && (
@@ -301,7 +519,15 @@ export function RunHistory({ onRunSelect, refreshKey }: RunHistoryProps) {
               )}
             </div>
           );
-        })}
+          })}
+      {otherRuns.length > displayLimit && (
+        <button
+          onClick={() => setDisplayLimit(prev => prev + 10)}
+          className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-xs text-sdm-muted hover:text-sdm-accent hover:border-sdm-accent/30 transition-colors"
+        >
+          Load {Math.min(10, otherRuns.length - displayLimit)} more ({otherRuns.length - displayLimit} remaining)
+        </button>
+      )}
       </div>
     </div>
   );

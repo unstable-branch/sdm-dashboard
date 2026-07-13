@@ -2,7 +2,12 @@
 node_modules/
 __pycache__/
 *.pyc
-python_models/
+python_models/**/__pycache__/
+python_models/**/*.pyc
+python_models/**/.venv/
+python_models/**/venv/
+python_models/**/model.pkl
+python_models/**/*.feather
 .next/
 dist/
 .turbo/
@@ -19,6 +24,13 @@ redis-data/
 
 # Temp files
 api/tmp/
+.trash/
+*.deb
+*.run
+*.bak
+
+# Built artifacts
+sdmtorch/*.so
 
 # Env
 .env
@@ -30,14 +42,20 @@ api/tmp/
 .RData
 .Rproj.user/
 .Renviron
+.r-lib/
+Rplots.pdf
 
 # R data directories
 data/uploads/
+data/examples/saved_*
+data/boundaries/
 outputs/
 /covariates/
 Worldclim/
 Worldclim_future/
-renv/
+renv/library/
+renv/staging/
+renv/python/
 species/
 TestSpp/
 
@@ -55,8 +73,18 @@ Thumbs.db
 # Python
 __pycache__/
 *.pyc
+.venv-rocm/
 .python-version
 
 # Coverage
 api/coverage/
 frontend/coverage/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+chromium/
+frontend/next-env.d.ts

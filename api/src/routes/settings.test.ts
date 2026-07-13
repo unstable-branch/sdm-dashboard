@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 
-vi.mock("ioredis", () => ({
-  Redis: class { on = vi.fn(); connect = vi.fn(() => Promise.resolve()); },
-}));
+vi.mock("ioredis", () => {
+  class MockRedis {
+    on = vi.fn();
+    connect = vi.fn(() => Promise.resolve());
+  }
+  return { default: MockRedis, Redis: MockRedis };
+});
 
 vi.mock("../middleware/auth", () => ({
   authMiddleware: vi.fn(async (c: any, next: any) => {

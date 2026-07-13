@@ -6,7 +6,7 @@ import {
   Download,
   FolderKanban,
   HardDrive,
-  Layers,
+  Key,
   LayoutDashboard,
   Leaf,
   ScrollText,
@@ -26,7 +26,6 @@ export const pipelineItems: DashboardNavItem[] = [
   { title: "Data", href: "/data", icon: Database },
   { title: "Model", href: "/model", icon: Brain },
   { title: "Results", href: "/results", icon: ScrollText },
-  { title: "Batch", href: "/batch", icon: Layers },
   { title: "Evaluate", href: "/evaluate", icon: BarChart3 },
   { title: "Future Projection", href: "/project", icon: Cloud },
   { title: "Ecology", href: "/ecology", icon: Leaf },
@@ -47,6 +46,7 @@ export const adminItems: DashboardNavItem[] = [
   { title: "Database", href: "/admin/database", icon: Database },
   { title: "System", href: "/admin/system", icon: Settings },
   { title: "Diagnostics", href: "/admin/diagnostics", icon: Brain },
+  { title: "API Keys", href: "/admin/keys", icon: Key },
 ];
 
 export const dashboardNavItems = [...pipelineItems, ...systemItems];
