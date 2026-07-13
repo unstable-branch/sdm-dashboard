@@ -56,6 +56,7 @@ test_that("Python config parameters use only matching named manifest overrides",
 })
 
 test_that("Python manifest parameters propagate through config and fit paths", {
+  skip_if_not_installed("arrow")
   cfg <- sdm_config(
     model_id = "python_torch_dnn",
     occurrence_file = "unused.csv",
