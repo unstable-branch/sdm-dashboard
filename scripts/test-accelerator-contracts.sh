@@ -134,6 +134,11 @@ for dockerfile in plumber/Dockerfile plumber/Dockerfile.cuda plumber/Dockerfile.
 done
 require plumber/docker-entrypoint.sh 'prepare_shared_dir /app/data/uploads'
 require plumber/docker-entrypoint.sh 'prepare_shared_dir /app/outputs'
+require plumber/docker-entrypoint.sh 'prepare_runtime_dir /app/covariates'
+require plumber/docker-entrypoint.sh 'prepare_runtime_dir /app/Worldclim'
+require plumber/docker-entrypoint.sh 'prepare_runtime_dir /app/chelsa'
+require plumber/docker-entrypoint.sh 'prepare_runtime_dir /app/Worldclim_future'
+require plumber/docker-entrypoint.sh 'chown -R sdm:sdm "$dir"'
 require plumber/docker-entrypoint.sh 'find "$dir" -xdev -type d -exec chmod g+s {} +'
 require plumber/docker-entrypoint.sh 'exec gosu sdm "$@"'
 if grep -Eq '^[[:space:]]*torch([<=>!~ ]|$)' python_models/torch_dnn/requirements-rocm.txt; then
