@@ -1,8 +1,75 @@
 # GPU Acceleration Integration Plan
 
-## Current State
+## Container runtime paths
 
-Only the **DNN (cito/torch)** backend has GPU support. All other models run CPU-only. The Docker deployment stack has zero GPU provisioning and DNN is not installed in containers at all.
+The project now has two deliberately separate accelerator paths. The normal Compose
+definitions remain CPU-safe: they do not request GPU devices and their `/health`
+check does not require a GPU. Select an accelerator only for the `plumber` or
+`full` development modes.
+
+| Path | Compose overlay | Image/model route | Status |
+| --- | --- | --- | --- |
+| NVIDIA compatibility | `scripts/docker-compose.gpu.yml` | Existing CUDA/R `torch`/`cito` image and native extensions | Existing path; the generic filename is retained for callers |
+| AMD ROCm | `scripts/docker-compose.rocm.yml` | `plumber/Dockerfile.rocm`, then the Python `torch_dnn` bridge | First experimental AMD path |
+| CPU | no overlay | Existing base Plumber image | Default fallback |
+
+`SDM_ACCELERATOR=auto|amd|nvidia|cpu ./scripts/dev-start.sh plumber` is the
+selector. `auto` selects one usable vendor only; it fails if both are usable and
+falls back to CPU when neither is usable. Explicit `amd` and `nvidia` requests
+fail rather than selecting another backend. AMD requires `/dev/kfd`, a DRM
+`renderD*` device, and numeric host `video`/`render` group IDs. The wrapper
+exports those IDs before it invokes the ROCm overlay.
+
+The ROCm image is based on AMD's published tag
+`docker.io/rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.9.1`, pinned to its
+linux/amd64 registry manifest digest
+`sha256:7fe531fa185af260352fe7fbb3fa64ad749abe72adf0600a648c4692801b125a`
+(verified 2026-07-12). The base image owns the ROCm-compatible Python
+PyTorch build. `requirements-rocm.txt` only installs pinned numpy, pandas, and
+pyarrow, so pip never replaces torch with a CPU or different-vendor wheel. The
+AMD image intentionally excludes CUDA, R `torch`, `cito`, libtorch/Lantern, and
+`sdmtorch` native extensions. R remains the API layer; `arrow` enables Python
+model discovery and Feather IPC.
+
+### AMD hardware acceptance
+
+RX 6000/RDNA2 (`gfx1030`, including RX 6900 XT) is **experimental for this
+deployment**. It is not an assertion of current official Radeon support. Do not
+set `HSA_OVERRIDE_GFX_VERSION` by default in an image, Compose file, or shell
+profile. If it is explored as a temporary troubleshooting workaround, first
+record the unmodified hardware probe and keep the override scoped to that one
+experiment.
+
+After a controlled image build on the AMD host, use:
+
+```bash
+SDM_ACCELERATOR=amd ./scripts/dev-start.sh plumber
+
+docker compose -f docker-compose.dev.yml -f scripts/docker-compose.rocm.yml exec -T plumber \
+  python3 -c 'import torch; print({"torch": torch.__version__, "hip": torch.version.hip, "available": torch.cuda.is_available(), "name": torch.cuda.get_device_name(0)})'
+
+curl -fsS -H "X-Hono-Internal: ${PLUMBER_INTERNAL_KEY}" -H "X-Forwarded-User: healthcheck" \
+  http://localhost:8000/api/v1/gpu/status | python3 -m json.tool
+
+docker compose -f docker-compose.dev.yml -f scripts/docker-compose.rocm.yml exec -T plumber \
+  python3 -m pytest python_models/torch_dnn/test_torch_dnn.py
+```
+
+Success requires a nonempty `torch.version.hip`, available PyTorch device, a real
+AMD/ROCm GPU status response, and execution (not skip) of the ROCm round-trip
+test. The overlay's stricter healthcheck enforces the first two API-visible
+conditions while the base healthcheck stays CPU-safe.
+
+ROCm 7.2.4 images may provide `amd-smi` rather than `rocm-smi`. The current
+telemetry parser has only a `rocm-smi --json` fixture/contract, so this change
+does not guess an `amd-smi` schema or overwrite existing vsize telemetry. Image
+build and hardware acceptance must establish the installed utility and capture a
+fixture before a safe adapter is added.
+
+## Historical implementation roadmap
+
+The remaining phases describe earlier R `cito`/CUDA planning and should not be
+read as the AMD implementation contract above.
 
 ---
 

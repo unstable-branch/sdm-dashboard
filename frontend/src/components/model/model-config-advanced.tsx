@@ -524,11 +524,11 @@ export function ModelConfigAdvanced({
             <div>
               <label className="block text-xs font-medium text-sdm-muted mb-1">
                 Device
-                <TooltipInfo content="GPU acceleration requires an NVIDIA GPU with CUDA. 'auto' uses GPU if available, falls back to CPU otherwise." />
+                <TooltipInfo content="GPU acceleration supports compatible NVIDIA CUDA, AMD ROCm, and Apple MPS backends. 'auto' uses an available accelerator, otherwise CPU." />
               </label>
               <select value={dnnDevice} onChange={(e) => onDnnDeviceChange(e.target.value as typeof dnnDevice)} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
                 <option value="auto">Auto (GPU if available)</option>
-                <option value="gpu">GPU (CUDA)</option>
+                <option value="gpu">GPU (if available)</option>
                 <option value="cpu">CPU only</option>
               </select>
             </div>
@@ -609,11 +609,11 @@ export function ModelConfigAdvanced({
             <div>
               <label className="block text-xs font-medium text-sdm-muted mb-1">
                 Device
-                <TooltipInfo content="GPU acceleration requires an NVIDIA GPU with CUDA. 'auto' uses GPU if available, falls back to CPU otherwise." />
+                <TooltipInfo content="GPU acceleration supports compatible NVIDIA CUDA, AMD ROCm, and Apple MPS backends. 'auto' uses an available accelerator, otherwise CPU." />
               </label>
               <select value={dnnDevice} onChange={(e) => onDnnDeviceChange(e.target.value as typeof dnnDevice)} className="w-full rounded border border-sdm-border bg-sdm-surface px-2 py-1.5 text-sm text-sdm-text">
                 <option value="auto">Auto (GPU if available)</option>
-                <option value="gpu">GPU (CUDA)</option>
+                <option value="gpu">GPU (if available)</option>
                 <option value="cpu">CPU only</option>
               </select>
             </div>

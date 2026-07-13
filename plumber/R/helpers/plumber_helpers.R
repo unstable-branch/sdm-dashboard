@@ -30,42 +30,37 @@ sdm_count_active_runs <- function() {
   count
 }
 
-# Count GPU-using model runs
+sdm_registry_device_tag <- function(entry) {
+  tolower(as.character(if (is.list(entry) && !inherits(entry, "process")) entry$device else "cpu")[1] %||% "cpu")
+}
+
+sdm_registry_process_alive <- function(entry) {
+  proc <- if (is.list(entry) && !inherits(entry, "process")) entry$proc else entry
+  inherits(proc, "process") && tryCatch(proc$is_alive(), error = function(e) FALSE)
+}
+
+# Count all accelerator-tagged model runs, including ROCm and MPS. Older "gpu"
+# tags remain supported while workers roll forward.
 sdm_count_active_gpu_runs <- function() {
   if (!exists("sdm_process_registry", envir = .GlobalEnv, inherits = FALSE)) return(0L)
   reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
   if (!is.environment(reg)) return(0L)
-  count <- 0L
-  for (key in ls(reg)) {
+  sum(vapply(ls(reg), function(key) {
     entry <- reg[[key]]
-    device <- if (is.list(entry)) entry$device else "cpu"
-    proc <- if (is.list(entry)) entry$proc else entry
-    if (identical(device, "cuda") && inherits(proc, "process") &&
-        tryCatch(proc$is_alive(), error = function(e) FALSE)) {
-      count <- count + 1L
-    }
-  }
-  count
+    sdm_backend_is_gpu(sdm_registry_device_tag(entry)) && sdm_registry_process_alive(entry)
+  }, logical(1)))
 }
 
-# Count CPU-only model runs
+# CPU-only counts must exclude every accelerator tag, not just CUDA.
 sdm_count_active_cpu_runs <- function() {
   if (!exists("sdm_process_registry", envir = .GlobalEnv, inherits = FALSE)) return(0L)
   reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
   if (!is.environment(reg)) return(0L)
-  count <- 0L
-  for (key in ls(reg)) {
+  sum(vapply(ls(reg), function(key) {
     entry <- reg[[key]]
-    device <- if (is.list(entry)) entry$device else "cpu"
-    proc <- if (is.list(entry)) entry$proc else entry
-    if (!identical(device, "cuda") && inherits(proc, "process") &&
-        tryCatch(proc$is_alive(), error = function(e) FALSE)) {
-      count <- count + 1L
-    }
-  }
-  count
+    !sdm_backend_is_gpu(sdm_registry_device_tag(entry)) && sdm_registry_process_alive(entry)
+  }, logical(1)))
 }
-
 # Check if a background process is still alive by process registry + PID fallback
 sdm_check_process_alive <- function(job_id, meta) {
   entry <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv)[[job_id]], error = function(e) NULL)
@@ -100,20 +95,69 @@ sdm_write_json <- function(value, path, ...) {
   invisible(path)
 }
 
-# Check if a model run is expected to use GPU acceleration
-sdm_is_gpu_model <- function(model_id, dnn_device = "auto", gpu_enabled = "auto") {
-  if (!is.character(model_id) || length(model_id) != 1) return(FALSE)
-  if (identical(gpu_enabled, "off")) return(FALSE)
-  if (!torch_is_available()) return(FALSE)
-  has_cuda <- tryCatch(torch::cuda_is_available(), error = function(e) FALSE)
-  has_mps <- tryCatch(torch::mps_is_available(), error = function(e) FALSE)
-  if (!has_cuda && !has_mps) return(FALSE)
-  gpu_models <- c("dnn", "dnn_multispecies", "xgboost")
-  if (!model_id %in% gpu_models) return(FALSE)
-  if (model_id %in% c("dnn", "dnn_multispecies") && identical(dnn_device, "cpu")) return(FALSE)
-  TRUE
+# Cached probe for the configured Python interpreter. This deliberately runs only
+# for python_torch_dnn scheduling and can be reset/injected in tests.
+.sdm_python_torch_capability_cache <- new.env(parent = emptyenv())
+
+sdm_reset_python_torch_capabilities <- function() {
+  rm(list = ls(.sdm_python_torch_capability_cache), envir = .sdm_python_torch_capability_cache)
+  invisible(NULL)
 }
 
+sdm_python_torch_capabilities <- function(capabilities = NULL, refresh = FALSE) {
+  normalize <- function(raw) {
+    cuda_exec <- isTRUE(raw$cuda)
+    rocm <- cuda_exec && isTRUE(raw$rocm)
+    list(cuda = cuda_exec && !rocm, cuda_compatible = cuda_exec, rocm = rocm, mps = isTRUE(raw$mps), cpu = TRUE)
+  }
+  if (!is.null(capabilities)) return(normalize(capabilities))
+
+  python_bin <- if (exists("sdm_python_path", mode = "function")) sdm_python_path() else Sys.getenv("SDM_PYTHON", "python3")
+  cache_key <- paste0("capabilities_", gsub("[^A-Za-z0-9]", "_", python_bin))
+  if (!isTRUE(refresh) && exists(cache_key, envir = .sdm_python_torch_capability_cache, inherits = FALSE)) {
+    return(get(cache_key, envir = .sdm_python_torch_capability_cache, inherits = FALSE))
+  }
+
+  command <- paste0(
+    "import json, torch; m=getattr(getattr(torch,'backends',None),'mps',None); ",
+    "print(json.dumps({'cuda':bool(torch.cuda.is_available()),'rocm':getattr(torch.version,'hip',None) is not None,'mps':bool(m and m.is_available())}))"
+  )
+  raw <- tryCatch({
+    output <- system2(python_bin, c("-c", shQuote(command)), stdout = TRUE, stderr = FALSE)
+    if (!identical(attr(output, "status") %||% 0L, 0L) || length(output) == 0) list() else jsonlite::fromJSON(tail(output, 1))
+  }, error = function(e) list())
+  result <- normalize(raw)
+  assign(cache_key, result, envir = .sdm_python_torch_capability_cache)
+  result
+}
+
+sdm_model_gpu_backend <- function(model_id, dnn_device = "auto", gpu_enabled = "auto",
+                                  capabilities = NULL, python_capabilities = NULL,
+                                  python_device = "auto") {
+  if (!is.character(model_id) || length(model_id) != 1 || identical(gpu_enabled, "off")) return("cpu")
+  model_id <- as.character(model_id)[1]
+  if (model_id %in% c("dnn", "dnn_multispecies")) {
+    return(sdm_resolve_backend(dnn_device, capabilities = capabilities)$backend)
+  }
+  if (identical(model_id, "xgboost")) {
+    backend <- sdm_resolve_backend("auto", capabilities = capabilities)$backend
+    return(if (identical(backend, "cuda")) "cuda" else "cpu")
+  }
+  if (identical(model_id, "python_torch_dnn")) {
+    caps <- sdm_python_torch_capabilities(python_capabilities)
+    return(sdm_resolve_backend(python_device, capabilities = caps)$backend)
+  }
+  "cpu"
+}
+
+# Check if a model run is expected to use GPU acceleration.
+sdm_is_gpu_model <- function(model_id, dnn_device = "auto", gpu_enabled = "auto",
+                             capabilities = NULL, python_capabilities = NULL,
+                             python_device = "auto") {
+  sdm_backend_is_gpu(sdm_model_gpu_backend(
+    model_id, dnn_device, gpu_enabled, capabilities, python_capabilities, python_device
+  ))
+}
 torch_is_available <- function() {
   requireNamespace("torch", quietly = TRUE) &&
     tryCatch(torch::torch_is_installed(), error = function(e) FALSE)

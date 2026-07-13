@@ -34,6 +34,30 @@ describe("buildModelPayload", () => {
     expect(payload).toHaveProperty("model_id", "multi_ensemble");
   });
 
+  it("normalizes Python manifest camelCase fields", () => {
+    const payload = buildModelPayload({
+      species: "Test species",
+      modelId: "python_torch_dnn",
+      hiddenLayers: [128, 64],
+      batchSize: 32,
+      predictBatchSize: 4096,
+      learningRate: 0.002,
+      pythonDevice: "rocm",
+      earlyStoppingPatience: 8,
+      validationFraction: 0.25,
+    }, "run-python");
+
+    expect(payload).toMatchObject({
+      hidden_layers: [128, 64],
+      batch_size: 32,
+      predict_batch_size: 4096,
+      learning_rate: 0.002,
+      python_device: "rocm",
+      early_stopping_patience: 8,
+      validation_fraction: 0.25,
+    });
+  });
+
   it("keeps unknown keys as-is and preserves output_dir shape", () => {
     const payload = buildModelPayload({
       species: "Test species",

@@ -188,7 +188,7 @@ tryCatch({
     )
   }
 
-  cfg <- sdm_config(
+  cfg_args <- list(
     species = config$species,
     species_filter = config$species_filter %||% NULL,
     occurrence_file = config$occurrence_file,
@@ -311,6 +311,10 @@ tryCatch({
     dnn_uncertainty_method = config$dnn_uncertainty_method %||% "none",
     job_id = job_id
   )
+  cfg <- do.call(sdm_config, c(
+    cfg_args,
+    python_model_manifest_overrides(config$model_id, config)
+  ))
 
   # Poll Redis for cancellation before starting the run
   check_cancel_background(job_id, log_fun)
@@ -453,8 +457,8 @@ tryCatch({
   meta$error_code <- err_code
   meta$error_hint <- tryCatch(SDM_ERR_CODES[[err_code]]$hint, error = function(ee) NA_character_)
   meta$error_traceback <- paste(utils::tail(traceback(), 10), collapse = "\n")
-  # Capture GPU memory snapshot on CUDA-related failures
-  if (grepl("CUDA|cuda|out of memory|OOM", err_msg, ignore.case = TRUE)) {
+  # Capture GPU memory snapshot on CUDA/HIP/ROCm memory and runtime failures.
+  if (grepl("CUDA|cuda|HIP|hip|ROCm|rocm|HSA|out of memory|OOM", err_msg, ignore.case = TRUE)) {
     tryCatch({
       meta$gpu_memory_mb <- list(
         free = sdm_gpu_available_vram(),

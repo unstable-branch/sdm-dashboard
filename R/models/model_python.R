@@ -1,5 +1,104 @@
 # Python executor bridge for SDM model backends.
 
+find_python_model_manifest <- function(model_id, manifests = discover_python_models()) {
+  for (manifest_path in manifests) {
+    manifest <- read_python_model_manifest(manifest_path)
+    if (identical(manifest$id, model_id)) {
+      return(list(path = manifest_path, manifest = manifest))
+    }
+  }
+  NULL
+}
+
+python_manifest_param_defaults <- function(model_manifest) {
+  params <- model_manifest$params %||% list()
+  if (length(params) == 0 || is.null(names(params))) return(list())
+
+  defaults <- lapply(params, function(param) param$default %||% NULL)
+  defaults[!vapply(defaults, is.null, logical(1))]
+}
+
+python_model_config_params <- function(model_manifest, overrides = list()) {
+  defaults <- python_manifest_param_defaults(model_manifest)
+  param_names <- names(model_manifest$params %||% list()) %||% character(0)
+  if (length(param_names) == 0) return(defaults)
+
+  override_names <- names(overrides) %||% character(0)
+  matching_names <- intersect(param_names, override_names)
+  if (length(matching_names) > 0) {
+    defaults[matching_names] <- overrides[matching_names]
+  }
+  defaults
+}
+
+python_manifest_param_aliases <- function(param_name) {
+  camel_name <- gsub("_([a-z])", "\\U\\1", param_name, perl = TRUE)
+  if (identical(param_name, "device")) {
+    return(c("python_device", "pythonDevice", "device"))
+  }
+  unique(c(param_name, camel_name))
+}
+
+coerce_python_manifest_param <- function(value, spec) {
+  type <- as.character(spec$type %||% "")
+  if (identical(type, "array")) {
+    if (is.character(value) && length(value) == 1L) {
+      value <- trimws(value)
+      if (grepl("^\\[", value)) {
+        value <- tryCatch(jsonlite::fromJSON(value, simplifyVector = TRUE), error = function(e) value)
+      } else {
+        value <- strsplit(value, "\\s*,\\s*")[[1]]
+      }
+    }
+    value <- unlist(value, use.names = FALSE)
+    numeric_value <- suppressWarnings(as.numeric(value))
+    if (length(value) > 0 && all(is.finite(numeric_value))) {
+      if (all(numeric_value == as.integer(numeric_value))) return(as.integer(numeric_value))
+      return(numeric_value)
+    }
+    return(value)
+  }
+  if (identical(type, "integer")) return(as.integer(value)[1])
+  if (identical(type, "number")) return(as.numeric(value)[1])
+  if (identical(type, "string")) return(as.character(value)[1])
+  value
+}
+
+python_model_manifest_overrides <- function(model_id, config = list()) {
+  python_id <- sub("^python_", "", as.character(model_id %||% "")[1])
+  selected <- find_python_model_manifest(python_id)
+  if (is.null(selected)) return(list())
+
+  params <- selected$manifest$params %||% list()
+  result <- list()
+  for (param_name in names(params) %||% character(0)) {
+    aliases <- python_manifest_param_aliases(param_name)
+    supplied <- aliases[vapply(aliases, function(alias) !is.null(config[[alias]]), logical(1))]
+    if (length(supplied) > 0) {
+      result[[param_name]] <- coerce_python_manifest_param(config[[supplied[1]]], params[[param_name]])
+    }
+  }
+  result
+}
+
+python_model_extra_args <- function(model_id, config = list()) {
+  python_model_manifest_overrides(model_id, config)
+}
+
+parse_python_metadata <- function(output) {
+  metadata_lines <- output[grepl("^METADATA:", output)]
+  if (length(metadata_lines) == 0) return(list())
+  payload <- sub("^METADATA:\\s*", "", metadata_lines[length(metadata_lines)])
+  tryCatch(jsonlite::fromJSON(payload, simplifyVector = FALSE), error = function(e) list())
+}
+
+log_python_metadata <- function(log_fun, output) {
+  metadata <- output[grepl("^METADATA:|^SUCCESS:", output)]
+  if (length(metadata) > 0) {
+    log_message(log_fun, "  Python: ", paste(metadata, collapse = " | "))
+  }
+}
+
 fit_python_sdm <- function(occ, env_train_scaled, background_n = sdm_default_background_n,
                            include_quadratic = FALSE, cv_folds = sdm_default_cv_folds,
                            seed = sdm_default_seed, n_cores = 1, log_fun = NULL, progress_fun = NULL,
@@ -15,18 +114,12 @@ fit_python_sdm <- function(occ, env_train_scaled, background_n = sdm_default_bac
     stop("arrow package is required for the Python executor bridge. Install with: install.packages('arrow')", call. = FALSE)
   }
 
-  manifest_path <- discover_python_models()
-  model_manifest <- NULL
-  for (mp in manifest_path) {
-    m <- read_python_model_manifest(mp)
-    if (identical(m$id, python_model_id)) {
-      model_manifest <- m
-      break
-    }
-  }
-  if (is.null(model_manifest)) {
+  selected_manifest <- find_python_model_manifest(python_model_id)
+  if (is.null(selected_manifest)) {
     stop("Python model '", python_model_id, "' not found in python_models/ directory.", call. = FALSE)
   }
+  model_manifest <- selected_manifest$manifest
+  model_manifest_path <- selected_manifest$path
 
   d <- prepare_sdm_data(occ, env_train_scaled, background_n,
     seed = seed, log_fun = log_fun,
@@ -52,7 +145,8 @@ fit_python_sdm <- function(occ, env_train_scaled, background_n = sdm_default_bac
   data_for_py$.y <- model_data$.y
   arrow::write_feather(data_for_py, train_data_path)
 
-  model_dir <- dirname(manifest_path)
+  model_dir <- dirname(model_manifest_path)
+  model_params <- python_model_config_params(model_manifest, list(...))
 
   config <- list(
     data_path = normalizePath(train_data_path),
@@ -62,8 +156,9 @@ fit_python_sdm <- function(occ, env_train_scaled, background_n = sdm_default_bac
     threshold = threshold,
     seed = seed
   )
+  config <- c(config, model_params)
   config_path <- file.path(temp_dir, "config.json")
-  jsonlite::writeJSON(config, config_path, auto_unbox = TRUE)
+  jsonlite::write_json(config, config_path, auto_unbox = TRUE)
 
   script_path <- file.path(model_dir, model_manifest$fit_script)
   if (!file.exists(script_path)) {
@@ -75,6 +170,8 @@ fit_python_sdm <- function(occ, env_train_scaled, background_n = sdm_default_bac
 
   result <- system2(python_bin, c(normalizePath(script_path), normalizePath(config_path)),
     stdout = TRUE, stderr = TRUE)
+  log_python_metadata(log_fun, result)
+  runtime_metadata <- parse_python_metadata(result)
 
   if (attr(result, "status") %||% 0 != 0) {
     error_msg <- paste(result[grepl("ERROR|Error|Traceback", result)], collapse = "\n")
@@ -94,7 +191,16 @@ fit_python_sdm <- function(occ, env_train_scaled, background_n = sdm_default_bac
     fold_auc = numeric()
   )
   if (file.exists(cv_results_path)) {
-    cv_results <- jsonlite::readJSON(cv_results_path)
+    cv_results <- jsonlite::read_json(cv_results_path, simplifyVector = FALSE)
+    cv <- list(
+      k = as.integer(cv_results$folds %||% 0L),
+      strategy = cv_results$strategy %||% "none",
+      auc_mean = as.numeric(cv_results$auc %||% NA_real_),
+      auc_sd = as.numeric(cv_results$auc_sd %||% NA_real_),
+      tss_mean = as.numeric(cv_results$tss %||% NA_real_),
+      tss_sd = as.numeric(cv_results$tss_sd %||% NA_real_),
+      fold_auc = as.numeric(cv_results$fold_auc %||% numeric())
+    )
   }
 
   importance_path <- file.path(temp_dir, "importance.feather")
@@ -113,7 +219,9 @@ fit_python_sdm <- function(occ, env_train_scaled, background_n = sdm_default_bac
       temp_dir = temp_dir,
       model_id = python_model_id,
       manifest = model_manifest,
-      covariates = covariates
+      covariates = covariates,
+      model_params = model_params,
+      runtime_metadata = runtime_metadata
     ),
     formula = NULL,
     coefficients = data.frame(Message = paste("Python", python_model_id, "does not produce coefficients.")),
@@ -123,7 +231,7 @@ fit_python_sdm <- function(occ, env_train_scaled, background_n = sdm_default_bac
     cv = cv,
     covariates = covariates,
     variable_importance = importance_df,
-    python_params = list(model_id = python_model_id, temp_dir = temp_dir)
+    python_params = list(model_id = python_model_id, temp_dir = temp_dir, runtime_metadata = runtime_metadata)
   )
 }
 
@@ -171,10 +279,12 @@ predict_python_suitability <- function(fit, env_project_scaled, output_tif, n_co
     data_path = normalizePath(env_data_path),
     model_path = normalizePath(model_path),
     output_dir = normalizePath(temp_dir),
-    model_id = fit$model$model_id
+    model_id = fit$model$model_id,
+    device = fit$model$model_params$device %||% "auto",
+    predict_batch_size = fit$model$model_params$predict_batch_size %||% 65536L
   )
   config_path <- file.path(temp_dir, "config.json")
-  jsonlite::writeJSON(config, config_path, auto_unbox = TRUE)
+  jsonlite::write_json(config, config_path, auto_unbox = TRUE)
 
   model_dir <- dirname(find_python_model_script(fit$model$model_id, "predict"))
   script_path <- file.path(model_dir, fit$model$manifest$predict_script)
@@ -182,6 +292,7 @@ predict_python_suitability <- function(fit, env_project_scaled, output_tif, n_co
   python_bin <- sdm_python_path()
   result <- system2(python_bin, c(normalizePath(script_path), normalizePath(config_path)),
     stdout = TRUE, stderr = TRUE)
+  log_python_metadata(log_fun, result)
 
   if (attr(result, "status") %||% 0 != 0) {
     error_msg <- paste(result[grepl("ERROR|Error|Traceback", result)], collapse = "\n")
@@ -215,14 +326,12 @@ predict_python_suitability <- function(fit, env_project_scaled, output_tif, n_co
 }
 
 find_python_model_script <- function(model_id, script_type) {
-  manifests <- discover_python_models()
-  for (mp in manifests) {
-    m <- read_python_model_manifest(mp)
-    if (identical(m$id, model_id)) {
-      model_dir <- dirname(mp)
-      script <- if (script_type == "fit") m$fit_script else m$predict_script
-      return(file.path(model_dir, script))
-    }
+  selected_manifest <- find_python_model_manifest(model_id)
+  if (is.null(selected_manifest)) return(NULL)
+  script <- if (script_type == "fit") {
+    selected_manifest$manifest$fit_script
+  } else {
+    selected_manifest$manifest$predict_script
   }
-  NULL
+  file.path(dirname(selected_manifest$path), script)
 }
