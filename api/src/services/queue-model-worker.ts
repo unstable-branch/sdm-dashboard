@@ -8,6 +8,7 @@ import { extractProgressPercent } from "@sdm/shared";
 import { syncOutputsToS3 } from "./storage.js";
 import { join } from "path";
 import { MODEL_RUN_POLL_INTERVAL_MS, MODEL_RUN_MAX_ATTEMPTS, SdmJobData, SdmJobResult } from "./queue.js";
+import { completedRunFields } from "./completed-run.js";
 
 export async function handleModelJob(
   job: Job<SdmJobData, SdmJobResult>,
@@ -127,7 +128,7 @@ export async function handleModelJob(
 
         if (pollState === "completed") {
           modelCompleted = true;
-          const metrics = modelStatus.metrics as Record<string, unknown> | undefined;
+          const completed = await completedRunFields(client, plumberJobId, modelStatus);
 
           if (runId) {
             const [currentRun] = await db
@@ -167,11 +168,23 @@ export async function handleModelJob(
                 status: "completed",
                 completedAt: new Date(),
                 error: null,
-                metrics: metrics as Record<string, unknown>,
+                metrics: completed.metrics,
+                outputFiles: completed.outputFiles,
+                provenance: completed.provenance,
               })
               .where(and(eq(runs.id, runId), inArray(runs.status, ["running", "queued"])));
           }
 
+<<<<<<< HEAD
+=======
+          if (completed.outputFiles && runId) {
+            const jobDir = join("outputs", "jobs", plumberJobId);
+            syncOutputsToS3(jobDir, runId, completed.outputFiles).catch((err) => {
+              console.warn(`[S3] Background sync failed for run ${runId}:`, err);
+            });
+          }
+
+>>>>>>> b7fcbe5 (fix(api): persist and discover result artifacts)
           await job.updateProgress(100);
           jobEventBus.emitJobStatus({
             jobId: runId ?? job.id!,
