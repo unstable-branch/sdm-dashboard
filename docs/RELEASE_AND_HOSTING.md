@@ -62,7 +62,7 @@ If the local machine cannot run the R gate because system libraries are missing,
 
 ## Self-Hosting
 
-Use `docker-compose.prod.yml` for private/team deployments. The application services pull the exact digests supplied in `SDM_FRONTEND_DIGEST`, `SDM_API_DIGEST`, and `SDM_PLUMBER_DIGEST`; they never build from source. Select `SDM_PLUMBER_VARIANT=cpu`, `cuda`, or `rocm`. Start from `deploy/images.env.example` and copy values from the reviewed `image-digests.txt`. Production compose also requires explicit secrets:
+Use `docker-compose.prod.yml` for private/team deployments. The application services pull the exact digests supplied in `SDM_FRONTEND_DIGEST`, `SDM_API_DIGEST`, and `SDM_PLUMBER_DIGEST`; they never build from source. External production dependencies and Docker build bases are digest-pinned as well; update those digests deliberately and rerun `python3 scripts/audit_release_config.py` rather than substituting mutable tags. Select `SDM_PLUMBER_VARIANT=cpu`, `cuda`, or `rocm`. Start from `deploy/images.env.example` and copy values from the reviewed `image-digests.txt`. Production compose also requires explicit secrets:
 
 - `POSTGRES_PASSWORD`
 - `DATABASE_URL`

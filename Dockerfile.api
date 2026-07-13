@@ -1,4 +1,4 @@
-FROM node:22-alpine AS builder
+FROM docker.io/library/node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS builder
 
 LABEL org.opencontainers.image.title="SDM Dashboard — API"
 LABEL org.opencontainers.image.description="Hono BFF API server with BullMQ job queue"
@@ -41,7 +41,7 @@ RUN pnpm --filter @sdm/api build
 # Create production deployment with only production dependencies
 RUN pnpm --filter @sdm/api deploy --prod --legacy /app/deploy
 
-FROM node:22-alpine AS runner
+FROM docker.io/library/node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS runner
 
 LABEL org.opencontainers.image.title="SDM Dashboard — API"
 LABEL org.opencontainers.image.description="Hono BFF API server with BullMQ job queue"
