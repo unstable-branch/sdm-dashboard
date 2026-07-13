@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.5] - 2026-07-14
+
+### Fixed
+
+- **Release workflow bootstrap**: Install R before running the accelerator-contract gate, which invokes `Rscript` to parse the CPU/ROCm runtime smoke scripts.
+- **Release gate regression coverage**: The static release audit now rejects workflows that schedule the accelerator-contract gate before R setup.
+- **Pre-tag release validation**: The exact publication-validation job now runs on `dev -> main` pull requests, while image publishing and draft assembly remain tag-only.
+
+`v2.0.0-beta.4` failed during tagged validation before container images or GitHub Release artifacts were published. Beta.5 preserves that tag and republishes the same reviewed application candidate with the corrected workflow ordering.
+
 ## [2.0.0-beta.4] - 2026-07-13
 
 ### Added

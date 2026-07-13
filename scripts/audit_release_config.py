@@ -97,6 +97,12 @@ for dockerfile in ("Dockerfile.api", "Dockerfile.frontend", "plumber/Dockerfile"
             fail(f"{dockerfile} uses a mutable base image: {base}")
 
 workflow = read(".github/workflows/release.yml")
+setup_r_position = workflow.find("uses: r-lib/actions/setup-r@")
+accelerator_gate_position = workflow.find("run: pnpm run check:accelerators")
+if setup_r_position < 0 or accelerator_gate_position < 0:
+    fail("release workflow is missing R setup or the accelerator-contract gate")
+if setup_r_position > accelerator_gate_position:
+    fail("release workflow must set up R before running the accelerator-contract gate")
 for workflow_path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
     workflow_text = workflow_path.read_text(encoding="utf-8")
     for action_ref in re.findall(r"^\s*-?\s*uses:\s*[^@\s]+@([^\s#]+)", workflow_text, re.MULTILINE):
@@ -127,6 +133,10 @@ for path, accelerator in (
     if accelerator not in read(path):
         fail(f"{path} is missing accelerator identity {accelerator}")
 
+changelog = read("CHANGELOG.md")
+if not re.search(rf"^## (?:\[{re.escape(version)}\]|v{re.escape(version)})(?:\s|$)", changelog, re.MULTILINE):
+    fail(f"CHANGELOG.md has no release heading for {version}")
+
 if len(sys.argv) > 2:
     fail("usage: audit_release_config.py [vMAJOR.MINOR.PATCH[-PRERELEASE]]")
 if len(sys.argv) == 2:
@@ -136,9 +146,6 @@ if len(sys.argv) == 2:
     validate_semver(tag[1:], "release tag")
     if tag[1:] != version:
         fail(f"tag {tag!r} does not match VERSION v{version}")
-    changelog = read("CHANGELOG.md")
-    if not re.search(rf"^## (?:\[{re.escape(version)}\]|v{re.escape(version)})(?:\s|$)", changelog, re.MULTILINE):
-        fail(f"CHANGELOG.md has no release heading for {version}")
     if git("rev-parse", "HEAD") != git("rev-list", "-n", "1", tag):
         fail(f"{tag} does not resolve to checked-out HEAD")
 
