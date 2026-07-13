@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   quality-checks:
-    name: R source and release validation
+    name: R source, test, determinism and release validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -69,7 +69,7 @@ jobs:
         uses: r-lib/actions/setup-r-dependencies@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
         with:
           dependencies: '"hard"'
-          extra-packages: 'any::testthat, any::matrixStats'
+          extra-packages: 'any::testthat, any::matrixStats, any::gam, any::ranger, any::xgboost, any::randomForest'
           cache-version: 3
 
       - name: Run module smoke check
@@ -77,6 +77,23 @@ jobs:
 
       - name: Run lightweight test suite
         run: Rscript tests/testthat.R
+
+      - name: Run backend determinism tests
+        run: |
+          Rscript -e '
+            library(testthat)
+            source("R/core/bootstrap.R")
+            source("R/load.R")
+            source("tests/testthat/helper-fixtures.R")
+            source("tests/testthat/helper-load.R")
+            results <- test_file("tests/testthat/test-determinism.R", reporter = "summary", stop_on_failure = FALSE)
+            failed <- sum(as.data.frame(results)$failed)
+            errored <- sum(as.data.frame(results)$error)
+            if (failed > 0 || errored > 0) {
+              stop(sprintf("Determinism validation failed: %d failures, %d errors", failed, errored))
+            }
+            message("All determinism tests passed.")
+          '
 
       - name: Build sdmtorch C++ extensions
         run: |
