@@ -91,6 +91,7 @@ RUN dpkg -i /tmp/cuda-keyring.deb \
     build-essential \
     curl \
     git \
+    gosu \
     libssl-dev \
     cuda-cudart-12-8 \
     cuda-nvrtc-12-8 \
@@ -131,17 +132,17 @@ COPY python_models/ /app/python_models/
 # Copy sdmtorch source + pre-built .so files (or freshly built ones from step above)
 COPY sdmtorch/ /app/sdmtorch/
 
-RUN groupadd -g 2000 uploadgroup && \
-    useradd -m -s /bin/bash -G uploadgroup sdm && \
+RUN groupadd -g 2000 sdm-shared && \
+    useradd -m -s /bin/bash -G sdm-shared sdm && \
     mkdir -p /app/data/uploads /app/outputs /app/covariates /app/Worldclim && \
     chown -R sdm:sdm /app /app/outputs /app/covariates /app/Worldclim && \
-    chown root:uploadgroup /app/data/uploads && \
-    chmod 775 /app/data/uploads
-
-USER sdm
+    chgrp -R sdm-shared /app/data/uploads /app/outputs && \
+    chmod 2775 /app/data/uploads /app/outputs
 
 EXPOSE 8000
 
-COPY plumber/R/entrypoint.R /app/plumber/R/entrypoint.R
+COPY plumber/docker-entrypoint.sh /usr/local/bin/plumber-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/plumber-entrypoint.sh
 
+ENTRYPOINT ["/usr/local/bin/plumber-entrypoint.sh"]
 CMD ["Rscript", "/app/plumber/R/entrypoint.R"]
