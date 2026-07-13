@@ -84,7 +84,24 @@ for service, expected in expected_refs.items():
     if ":latest" in block:
         fail(f"production {service} uses latest")
 
+for image_ref in re.findall(r"^\s+image:\s*(\S+)", compose, re.MULTILINE):
+    if image_ref.startswith("ghcr.io/unstable-branch/sdm-dashboard/"):
+        if "@${SDM_" not in image_ref:
+            fail(f"production application image is not pinned by a required digest variable: {image_ref}")
+    elif "@sha256:" not in image_ref:
+        fail(f"production dependency image is not pinned by an immutable digest: {image_ref}")
+
+for dockerfile in ("Dockerfile.api", "Dockerfile.frontend", "plumber/Dockerfile", "plumber/Dockerfile.cuda", "plumber/Dockerfile.rocm"):
+    for base in re.findall(r"^FROM\s+(\S+)", read(dockerfile), re.MULTILINE):
+        if "@sha256:" not in base:
+            fail(f"{dockerfile} uses a mutable base image: {base}")
+
 workflow = read(".github/workflows/release.yml")
+for workflow_path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+    for action_ref in re.findall(r"^\s*-?\s*uses:\s*[^@\s]+@([^\s#]+)", workflow_text, re.MULTILINE):
+        if not re.fullmatch(r"[0-9a-f]{40}", action_ref):
+            fail(f"{workflow_path.relative_to(ROOT)} action is not pinned by a full commit SHA: {action_ref}")
 for image in ("sdm-plumber-cpu", "sdm-plumber-cuda", "sdm-plumber-rocm", "sdm-api", "sdm-frontend"):
     if image not in workflow:
         fail(f"release workflow does not publish {image}")
