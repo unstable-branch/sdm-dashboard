@@ -21,6 +21,7 @@ endif
 TORCH_HOME := $(TORCH_PKG)
 
 TORCH_INC := -I$(TORCH_HOME)/include -I$(TORCH_HOME)/include/torch/csrc/api/include -I$(TORCH_HOME)/include/torch/csrc
+TORCH_R_INC := -I$(TORCH_PKG)/include
 TORCH_LIB := -L$(TORCH_HOME)/lib
 R_INC := -I/usr/share/R/include
 R_LIB := -L/usr/lib/R/lib -lR
@@ -33,6 +34,9 @@ endif
 
 # Auto-detect CUDA include path for pinned_alloc and cuda_graph builds
 CUDA_INC := $(shell nvcc --print-search-dirs 2>/dev/null | sed -n 's/program: *//p' | xargs dirname 2>/dev/null | xargs -I{} dirname {} 2>/dev/null | xargs -I{} echo "-I{}/include" 2>/dev/null)
+ifeq ($(strip $(CUDA_INC)),)
+  CUDA_INC := $(shell test -n "$(CUDA_HOME)" -a -d "$(CUDA_HOME)/include" && echo "-I$(CUDA_HOME)/include" || echo "")
+endif
 ifeq ($(strip $(CUDA_INC)),)
   CUDA_INC := $(shell test -d /usr/local/cuda/include && echo "-I/usr/local/cuda/include" || echo "")
 endif
@@ -77,10 +81,16 @@ endif
 VERSION_FLAG := -DSDMTORCH_TORCH_VERSION=\"$(TORCH_VERSION)\"
 
 CFLAGS := -std=c++17 -shared -fPIC -O3 -march=native -flto -funroll-loops -DNDEBUG $(VERSION_FLAG)
-INCLUDES := $(TORCH_INC) $(RCPP_INC) $(R_INC)
+INCLUDES := $(TORCH_INC) $(TORCH_R_INC) $(RCPP_INC) $(R_INC)
+
+# pinned_alloc is an optional optimization. Its R/libtorch ABI bridge is not
+# release-safe yet, so CUDA builds use the tested tensor fallback unless a
+# developer explicitly opts in.
+SDMTORCH_ENABLE_PINNED_ALLOC ?= 0
 
 all: $(ADAM_OUT) $(LIBTORCH_OUT) $(TENSORVIEW_OUT)
-	@if [ -n "$(TORCH_CUDA_LIBS)" ]; then $(MAKE) $(CUDAGRAPH_OUT) $(PINNEDALLOC_OUT); fi
+	@if [ -n "$(TORCH_CUDA_LIBS)" ]; then $(MAKE) $(CUDAGRAPH_OUT); fi
+	@if [ "$(SDMTORCH_ENABLE_PINNED_ALLOC)" = "1" ]; then $(MAKE) $(PINNEDALLOC_OUT); fi
 
 adam: $(ADAM_OUT)
 

@@ -77,5 +77,10 @@ writeLines(makefile_lines, "Makefile")
 cat("Building sdmtorch targets...\n")
 ret <- system("make -C . clean 2>/dev/null; make -C . all 2>&1")
 if (ret != 0) {
-  cat("WARNING: sdmtorch build failed, continuing without C++ extensions\n")
+  stop("sdmtorch build failed with exit code ", ret)
 }
+outputs <- list.files(pattern = "[.]so$", full.names = TRUE)
+if (length(outputs) == 0L) {
+  stop("sdmtorch build produced no shared libraries")
+}
+cat("Built sdmtorch libraries:", paste(basename(outputs), collapse = ", "), "\n")
