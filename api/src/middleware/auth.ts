@@ -2,7 +2,7 @@ import { createMiddleware } from "hono/factory";
 import { verify } from "hono/jwt";
 import { createHash } from "crypto";
 import { db } from "../db/index.js";
-import { users, apiKeys, projectMembers } from "../db/schema.js";
+import { users, apiKeys, projectMembers, projects } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { checkRateLimit } from "./rate-limit.js";
 
@@ -13,6 +13,10 @@ const BATCH_INTERVAL = 30_000;
 const BATCH_MAX = 100;
 
 async function flushLastUsedBatch() {
+  if (batchTimer) {
+    clearTimeout(batchTimer);
+    batchTimer = null;
+  }
   if (lastUsedBatch.size === 0) return;
   const keys = Array.from(lastUsedBatch.keys());
   lastUsedBatch.clear();
@@ -21,8 +25,8 @@ async function flushLastUsedBatch() {
       .update(apiKeys)
       .set({ lastUsedAt: new Date() })
       .where(inArray(apiKeys.keyHash, keys));
-  } catch {
-    // Batch update is best-effort
+  } catch (err) {
+    console.warn("[auth] lastUsedBatch flush failed:", err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -72,6 +76,13 @@ function getCookieToken(cookieHeader: string | undefined): string | null {
 }
 
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
+  // If optionalAuth already verified identity, skip re-verification
+  const existingUser = c.get("user");
+  if (existingUser?.id) {
+    await next();
+    return;
+  }
+
   const authHeader = c.req.header("Authorization");
   const apiKeyHeader = c.req.header("X-API-Key");
 
@@ -131,7 +142,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  const secret = process.env.JWT_SECRET;
+  const secret = process.env.JWT_SECRET?.trim();
   if (!secret) {
     console.warn("[audit] JWT_SECRET not configured");
     return c.json({ error: "Authentication unavailable (server not configured)" }, 401);
@@ -240,14 +251,23 @@ export const requireProjectAccess = (role: "owner" | "member" = "member") => {
     }
 
     try {
-      const [member] = await db
-        .select()
-        .from(projectMembers)
-        .where(and(eq(projectMembers.userId, user.id), eq(projectMembers.projectId, projectId)))
+      // Check project membership OR project ownership
+      const [ownerCheck] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.id, projectId), eq(projects.ownerId, user.id)))
         .limit(1);
 
-      if (!member) {
-        return c.json({ error: "Access denied" }, 403);
+      if (!ownerCheck) {
+        const [member] = await db
+          .select()
+          .from(projectMembers)
+          .where(and(eq(projectMembers.userId, user.id), eq(projectMembers.projectId, projectId)))
+          .limit(1);
+
+        if (!member) {
+          return c.json({ error: "Access denied" }, 403);
+        }
       }
     } catch {
       return c.json({ error: "Authorization service unavailable" }, 503);

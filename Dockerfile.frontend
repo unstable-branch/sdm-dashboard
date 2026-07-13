@@ -1,4 +1,4 @@
-FROM node:22-alpine AS builder
+FROM docker.io/library/node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS builder
 
 RUN apk add --no-cache dumb-init curl bash
 
@@ -35,7 +35,11 @@ COPY frontend/ frontend/
 RUN if [ ! -f packages/shared/dist/index.js ]; then pnpm --filter @sdm/shared build; fi
 RUN pnpm --filter @sdm/frontend build
 
-FROM node:22-alpine AS runner
+FROM docker.io/library/node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS runner
+
+LABEL org.opencontainers.image.title="SDM Dashboard — Frontend"
+LABEL org.opencontainers.image.description="Next.js web application"
+LABEL org.opencontainers.image.source="https://github.com/unstable-branch/sdm-dashboard"
 
 RUN apk add --no-cache dumb-init curl
 

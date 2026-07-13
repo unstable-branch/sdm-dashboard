@@ -178,14 +178,123 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
     log_message(log_fun, "Warning: ", length(failed_components), " component(s) failed prediction: ", paste(failed_components, collapse = ", "))
   }
 
+  # Filter to weight-bearing components only (exclude those filtered during fitting)
+  keep_in_ensemble <- intersect(names(preds), names(weights))
+  preds <- preds[keep_in_ensemble]
+
   if (length(preds) == 0) {
     stop("All ensemble components failed; cannot compute ensemble prediction.", call. = FALSE)
   }
 
   pred_stack <- terra::rast(preds)
+  use_gpu <- sdm_use_gpu_for(terra::ncell(pred_stack) * terra::nlyr(pred_stack))
 
-  ensemble_mean <- terra::app(pred_stack, mean, na.rm = TRUE)
-  names(ensemble_mean) <- "ensemble_mean"
+  active_weights <- weights[names(preds)]
+  active_weights <- active_weights / sum(active_weights, na.rm = TRUE)
+  active_weights[!is.finite(active_weights)] <- 0
+
+  if (use_gpu) {
+    dev <- gpu_device()
+    vals <- as.matrix(terra::values(pred_stack))
+    valid <- stats::complete.cases(vals)
+
+    template <- terra::rast(pred_stack[[1]])
+    ensemble_mean <- terra::setValues(template, NA_real_)
+    ensemble_median <- terra::setValues(template, NA_real_)
+    disagreement <- terra::setValues(template, NA_real_)
+    if (include_uncertainty) {
+      ensemble_sd <- terra::setValues(template, NA_real_)
+    }
+    ensemble_weighted <- terra::setValues(template, NA_real_)
+    ensemble_committee <- terra::setValues(template, NA_real_)
+
+    if (any(valid)) {
+      tensor <- torch::torch_tensor(vals[valid, , drop = FALSE], device = dev)
+      valid_idx <- which(valid)
+
+      # Stats
+      mean_vals <- as.numeric(torch::torch_mean(tensor, dim = 2)$to(device = "cpu"))
+      median_vals <- as.numeric(torch::torch_median(tensor, dim = 2)$values$to(device = "cpu"))
+      disagreement_vals <- as.numeric((tensor$max(dim = 2)$values - tensor$min(dim = 2)$values)$to(device = "cpu"))
+      if (include_uncertainty) {
+        sd_vals <- as.numeric(torch::torch_std(tensor, dim = 2)$to(device = "cpu"))
+      }
+
+      # Weighted sum
+      w_t <- torch::torch_tensor(active_weights, device = dev)
+      weighted_vals <- as.numeric(tensor$matmul(w_t)$to(device = "cpu"))
+
+      # Committee -- thresholds per component
+      thresholds <- vapply(names(preds), function(mid) {
+        comp_thresh <- if (!is.null(cv_list[[mid]]) && !is.null(cv_list[[mid]]$threshold)) {
+          cv_list[[mid]]$threshold
+        } else if (!is.null(components[[mid]]) && !is.null(components[[mid]]$threshold)) {
+          components[[mid]]$threshold
+        } else {
+          sdm_default_threshold
+        }
+        normalize_threshold(user_threshold %||% comp_thresh)
+      }, numeric(1))
+      thresholds[!is.finite(thresholds)] <- 0.5
+      thresh_t <- torch::torch_tensor(thresholds, device = dev)
+      committee_vals <- as.numeric(tensor$ge(thresh_t)$to(dtype = torch::torch_float32())$mean(dim = 2)$to(device = "cpu"))
+
+      # Fill results
+      ensemble_mean[valid_idx] <- mean_vals
+      ensemble_median[valid_idx] <- median_vals
+      disagreement[valid_idx] <- disagreement_vals
+      if (include_uncertainty) {
+        ensemble_sd[valid_idx] <- sd_vals
+      }
+      ensemble_weighted[valid_idx] <- weighted_vals
+      ensemble_committee[valid_idx] <- committee_vals
+
+      rm(tensor)
+    }
+
+    names(ensemble_mean) <- "ensemble_mean"
+    names(ensemble_median) <- "ensemble_median"
+    names(disagreement) <- "disagreement"
+    if (include_uncertainty) {
+      names(ensemble_sd) <- "ensemble_sd"
+    }
+    names(ensemble_weighted) <- "suitability"
+    names(ensemble_committee) <- "ensemble_committee"
+    gpu_empty_cache()
+  } else {
+    ensemble_mean <- terra::app(pred_stack, mean, na.rm = TRUE)
+    ensemble_median <- terra::app(pred_stack, median, na.rm = TRUE)
+    if (include_uncertainty) {
+      ensemble_sd <- terra::app(pred_stack, sd, na.rm = TRUE)
+    }
+    disagreement <- terra::app(pred_stack, function(x) {
+      if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
+    })
+    weighted_layers <- mapply(function(pred, wi) pred * wi, preds, active_weights, SIMPLIFY = FALSE)
+    weighted_stack <- terra::rast(weighted_layers)
+    ensemble_weighted <- terra::app(weighted_stack, sum, na.rm = TRUE)
+    names(ensemble_weighted) <- "suitability"
+    rm(weighted_layers, weighted_stack)
+    gc(verbose = FALSE)
+    binary_preds <- lapply(names(preds), function(mid) {
+      comp_thresh <- if (!is.null(cv_list[[mid]]) && !is.null(cv_list[[mid]]$threshold)) {
+        cv_list[[mid]]$threshold
+      } else if (!is.null(components[[mid]]) && !is.null(components[[mid]]$threshold)) {
+        components[[mid]]$threshold
+      } else {
+        sdm_default_threshold
+      }
+      thresh <- normalize_threshold(user_threshold %||% comp_thresh)
+      if (!is.finite(thresh)) thresh <- 0.5
+      preds[[mid]] >= thresh
+    })
+    committee_stack <- do.call(c, binary_preds)
+    ensemble_committee <- terra::app(committee_stack, mean, na.rm = TRUE)
+    names(ensemble_committee) <- "ensemble_committee"
+    rm(committee_stack, binary_preds)
+    gc(verbose = FALSE)
+  }
+
   mean_tif <- sub(".tif$", "_ensemble_mean.tif", output_tif)
   terra::writeRaster(ensemble_mean, mean_tif,
     overwrite = TRUE,
@@ -195,8 +304,6 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   rm(ensemble_mean)
   gc(verbose = FALSE)
 
-  ensemble_median <- terra::app(pred_stack, median, na.rm = TRUE)
-  names(ensemble_median) <- "ensemble_median"
   median_tif <- sub(".tif$", "_ensemble_median.tif", output_tif)
   terra::writeRaster(ensemble_median, median_tif,
     overwrite = TRUE,
@@ -206,62 +313,33 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   rm(ensemble_median)
   gc(verbose = FALSE)
 
-  active_weights <- weights[names(preds)]
-  active_weights <- active_weights / sum(active_weights, na.rm = TRUE)
-  active_weights[!is.finite(active_weights)] <- 0
-  weighted_layers <- mapply(function(pred, wi) pred * wi, preds, active_weights, SIMPLIFY = FALSE)
-  weighted_stack <- terra::rast(weighted_layers)
-  ensemble_weighted <- terra::app(weighted_stack, sum, na.rm = TRUE)
-  names(ensemble_weighted) <- "suitability"
   terra::writeRaster(ensemble_weighted, output_tif,
     overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999"))
   )
   log_message(log_fun, "Ensemble raster written to: ", output_tif)
-  rm(weighted_layers, weighted_stack)
   gc(verbose = FALSE)
 
-  binary_preds <- lapply(names(preds), function(mid) {
-    comp_thresh <- if (!is.null(cv_list[[mid]]) && !is.null(cv_list[[mid]]$threshold)) {
-      cv_list[[mid]]$threshold
-    } else if (!is.null(components[[mid]]) && !is.null(components[[mid]]$threshold)) {
-      components[[mid]]$threshold
-    } else {
-      sdm_default_threshold
-    }
-    thresh <- normalize_threshold(user_threshold %||% comp_thresh)
-    if (!is.finite(thresh)) thresh <- 0.5
-    preds[[mid]] >= thresh
-  })
-  committee_stack <- do.call(c, binary_preds)
-  ensemble_committee <- terra::app(committee_stack, mean, na.rm = TRUE)
-  names(ensemble_committee) <- "ensemble_committee"
   committee_tif <- sub(".tif$", "_ensemble_committee.tif", output_tif)
   terra::writeRaster(ensemble_committee, committee_tif,
     overwrite = TRUE,
     wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES"))
   )
   log_message(log_fun, "Ensemble committee raster written to: ", committee_tif)
-  rm(committee_stack, binary_preds, ensemble_committee)
+  rm(ensemble_committee)
   gc(verbose = FALSE)
 
   if (include_uncertainty) {
-    ensemble_sd <- terra::app(pred_stack, sd, na.rm = TRUE)
-    names(ensemble_sd) <- "ensemble_sd"
     sd_tif <- sub(".tif$", "_ensemble_sd.tif", output_tif)
     terra::writeRaster(ensemble_sd, sd_tif,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999"))
     )
     log_message(log_fun, "Ensemble SD raster written to: ", sd_tif)
     rm(ensemble_sd)
     gc(verbose = FALSE)
   }
 
-  disagreement <- terra::app(pred_stack, function(x) {
-    if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
-  })
-  names(disagreement) <- "ensemble_disagreement"
   disagreement_tif <- multi_ensemble_component_path(output_tif, "disagreement")
   terra::writeRaster(disagreement, disagreement_tif,
     overwrite = TRUE,
@@ -320,7 +398,7 @@ pred_biomod2_component <- function(comp_fit, env_project_scaled, output_tif, n_c
   if (!is.null(output_tif)) {
     terra::writeRaster(r, output_tif,
       overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999"))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999"))
     )
   }
   r
@@ -377,15 +455,31 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
 
   standalone_ids <- c("glm", "gam", "maxnet", "rf", "xgboost", "rangebag", "esm_glm", "esm_maxnet")
   standalone_selected <- intersect(selected_models, standalone_ids)
+
+  switch_known <- c("glm", "gam", "maxnet", "rangebag")
+  resolvable <- vapply(standalone_selected, function(m) {
+    if (m %in% switch_known) return(TRUE)
+    spec <- tryCatch(get_sdm_model(m), error = function(e) NULL)
+    is.function(spec$fit_component_fun %||% NULL)
+  }, logical(1))
+
+  skipped <- standalone_selected[!resolvable]
+  if (length(skipped) > 0) {
+    msg <- sprintf("Ensemble: skipping %d component(s) with no fit handler: %s",
+      length(skipped), paste(skipped, collapse = ", "))
+    log_message(log_fun, msg)
+  }
+  standalone_selected <- standalone_selected[resolvable]
+
   biomod2_selected <- if ("biomod2" %in% selected_models && has_biomod2) biomod2_models else character()
 
   components <- list()
   cv_list <- list()
   methods <- character()
-  component_k <- integer()
-  component_auc <- numeric()
-  component_tss <- numeric()
   n_components <- length(standalone_selected)
+  component_k <- integer(n_components)
+  component_auc <- numeric(n_components)
+  component_tss <- numeric(n_components)
 
   for (i in seq_along(standalone_selected)) {
     m <- standalone_selected[i]
@@ -440,9 +534,14 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     components[[m]] <- comp_fit
     methods[[m]] <- m
     cv_list[[m]] <- comp_fit$cv
-    component_k <- c(component_k, comp_fit$cv$k %||% NA_integer_)
-    component_auc <- c(component_auc, comp_fit$cv$auc_mean %||% NA_real_)
-    component_tss <- c(component_tss, comp_fit$cv$tss_mean %||% NA_real_)
+    component_k[i] <- comp_fit$cv$k %||% NA_integer_
+    component_auc[i] <- comp_fit$cv$auc_mean %||% NA_real_
+    component_tss[i] <- comp_fit$cv$tss_mean %||% NA_real_
+  }
+
+  if (length(components) == 0) {
+    log_message(log_fun, "No valid ensemble components — returning NULL")
+    return(NULL)
   }
 
   biomod2_fit <- NULL
@@ -456,7 +555,13 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     )
     eval_df <- biomod2_fit$cv$per_algorithm
     if (is.data.frame(eval_df) && nrow(eval_df) > 0) {
-      for (i in seq_len(nrow(eval_df))) {
+      n_biomod2 <- nrow(eval_df)
+      total_components <- n_components + n_biomod2
+      component_k <- c(component_k, integer(n_biomod2))
+      component_auc <- c(component_auc, numeric(n_biomod2))
+      component_tss <- c(component_tss, numeric(n_biomod2))
+      for (i in seq_len(n_biomod2)) {
+        idx <- n_components + i
         algo <- eval_df$algorithm[i]
         m <- paste0("biomod2.", algo)
         components[[m]] <- list(
@@ -466,9 +571,9 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
         )
         methods[[m]] <- "biomod2"
         cv_list[[m]] <- list(auc_mean = eval_df$auc[i], tss_mean = eval_df$tss[i], k = cv_folds)
-        component_k <- c(component_k, as.integer(cv_folds))
-        component_auc <- c(component_auc, eval_df$auc[i])
-        component_tss <- c(component_tss, eval_df$tss[i])
+        component_k[idx] <- as.integer(cv_folds)
+        component_auc[idx] <- eval_df$auc[i]
+        component_tss[idx] <- eval_df$tss[i]
       }
     }
   }
@@ -548,12 +653,12 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
     cv = list(
       k = if (length(component_k) > 0) max(component_k, na.rm = TRUE) else NA_integer_,
       auc_mean = auc_weighted,
-      auc_sd = if (!is.null(component_metrics_df) && nrow(component_metrics_df) > 1 && "auc" %in% names(component_metrics_df)) {
-        sd(component_metrics_df$auc, na.rm = TRUE)
+      auc_sd = if (!is.null(component_metrics_df) && nrow(component_metrics_df) > 1 && "auc_mean" %in% names(component_metrics_df)) {
+        sd(component_metrics_df$auc_mean, na.rm = TRUE)
       } else NA_real_,
       tss_mean = tss_weighted,
-      tss_sd = if (!is.null(component_metrics_df) && nrow(component_metrics_df) > 1 && "tss" %in% names(component_metrics_df)) {
-        sd(component_metrics_df$tss, na.rm = TRUE)
+      tss_sd = if (!is.null(component_metrics_df) && nrow(component_metrics_df) > 1 && "tss_mean" %in% names(component_metrics_df)) {
+        sd(component_metrics_df$tss_mean, na.rm = TRUE)
       } else NA_real_,
       component_metrics = component_metrics_df,
       component_cv = cv_list,

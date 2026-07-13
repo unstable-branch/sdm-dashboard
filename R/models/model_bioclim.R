@@ -93,7 +93,7 @@ cross_validate_bioclim <- function(pres_vals, env_train_scaled, covariates,
   set.seed(seed)
   n_pres <- nrow(pres_vals)
   folds <- sample(rep(seq_len(k), length.out = n_pres))
-  fold_metrics <- data.frame()
+  fold_list <- vector("list", k)
 
   for (i in seq_len(k)) {
     train_idx <- which(folds != i)
@@ -119,8 +119,9 @@ cross_validate_bioclim <- function(pres_vals, env_train_scaled, covariates,
     obs <- c(rep(1, length(present_pred)), rep(0, length(bg_pred)))
     score <- c(present_pred, bg_pred)
     metrics <- compute_binary_metrics(obs, score, threshold = threshold)
-    fold_metrics <- rbind(fold_metrics, metrics_list_to_row(metrics, fold = i))
+    fold_list[[i]] <- metrics_list_to_row(metrics, fold = i)
   }
+  fold_metrics <- data.table::rbindlist(fold_list[!vapply(fold_list, is.null, logical(1))])
 
   if (nrow(fold_metrics) == 0) {
     return(list(
@@ -147,15 +148,9 @@ predict_bioclim_suitability <- function(fit, env_project_scaled, output_tif, n_c
 
   log_message(log_fun, "Predicting BIOCLIM suitability over ", terra::ncol(env_project_scaled), "x", terra::nrow(env_project_scaled), " raster")
 
-  values <- terra::values(env_project_scaled, mat = TRUE)
-  colnames(values) <- fit$covariates
-  pred <- bioclim_predict_values(fit$model, values)
-  suit <- env_project_scaled[[1]]
-  terra::values(suit) <- pred
-  names(suit) <- "suitability"
-
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+  suit <- terra::predict(env_project_scaled, fit$model, fun = bioclim_predict_values, na.rm = TRUE, cores = n_cores, filename = output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+  names(suit) <- "suitability"
   log_message(log_fun, "Suitability raster written to: ", output_tif)
   suit
 }

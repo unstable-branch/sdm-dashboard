@@ -65,6 +65,20 @@ sdm_default_rangebag_fraction <- 0.5
 sdm_default_rangebag_vars_per_bag <- 3L
 sdm_default_maxnet_features <- "lqp"
 sdm_default_maxnet_regmult <- 1.0
+sdm_default_tuning_method <- "none"
+sdm_default_enmeval_algorithm <- "maxnet"
+sdm_default_enmeval_partitions <- "block"
+sdm_default_enmeval_selection_metric <- "auc.val.avg"
+sdm_default_enmeval_tune_args <- list(
+  fc = c("L", "LQ", "LQH"),
+  rm = seq(0.5, 4, 0.5)
+)
+sdm_default_enmeval_categoricals <- NULL
+sdm_default_enmeval_other_settings <- list(
+  pred.type = "cloglog",
+  doClamp = TRUE
+)
+sdm_default_enmeval_null_iterations <- 100L
 sdm_default_ensemble_weighting <- "auc"
 sdm_default_multi_ensemble_models <- c("glm", "rangebag")
 sdm_default_multi_ensemble_weighting <- "auc"
@@ -96,7 +110,52 @@ sdm_default_bart_nskip <- 500L
 
 sdm_default_validation_occurrences <- NULL
 sdm_default_pa_replicates <- 1L
-sdm_default_generate_tiles <- TRUE
+sdm_default_generate_tiles <- FALSE
+
+# Complexity tier thresholds for sample-size-based model selection
+# Based on Moudrý et al. (2024) Ecography recommendations:
+#   simple  (n < 50):  BIOCLIM, ESM (bivariate) only
+#   moderate (50-150): GLM, MaxNet, GAM (k <= 5), CTA, Rangebag
+#   complex  (n >= 150): RF, BRT, MARS, ANN, FDA, biomod2
+#   very_complex (n >= 150): XGBoost, DNN, BART, brms, INLA
+# Niche-breadth multiplier adjusts thresholds (wide x2, narrow x0.7)
+COMPLEXITY_TIER_SIMPLE <- 50L
+COMPLEXITY_TIER_MODERATE <- 150L
+
+COMPLEXITY_NICHE_MULTIPLIERS <- c(
+  "wide" = 2.0,
+  "average" = 1.0,
+  "narrow" = 0.7
+)
+
+COMPLEXITY_MODEL_TIERS <- c(
+  "bioclim" = "simple",
+  "esm_glm" = "simple",
+  "esm_maxnet" = "simple",
+  "glm" = "moderate",
+  "maxnet" = "moderate",
+  "gam" = "moderate",
+  "cta" = "moderate",
+  "rangebag" = "moderate",
+  "ensemble_glm_rangebag" = "moderate",
+  "multi_ensemble" = "moderate",
+  "brt" = "complex",
+  "rf" = "complex",
+  "mars" = "complex",
+  "ann" = "complex",
+  "fda" = "complex",
+  "biomod2" = "complex",
+  "xgboost" = "very_complex",
+  "dnn" = "very_complex",
+  "dnn_multispecies" = "very_complex",
+  "gllvm" = "very_complex",
+  "bart" = "very_complex",
+  "brms" = "very_complex",
+  "inla_spde" = "very_complex",
+  "occupancy" = "very_complex"
+)
+
+sdm_default_niche_breadth <- "average"
 
 config$biomod2_default <- c("GLM", "RF", "GBM", "MAXNET")
 config$biomod2_all <- c(
@@ -112,14 +171,14 @@ biomod2_nn_choices <- c("ANN" = "ANN")
 
 config$dnn_default <- c("DNN_Medium")
 config$dnn_arch <- list(
-  "DNN_Small"   = list(hidden = c(64L), epochs = 150L, lr = 0.05, dropout = 0.3),
-  "DNN_Medium"  = list(hidden = c(100L, 100L), epochs = 150L, lr = 0.05, dropout = 0.3),
-  "DNN_Large"   = list(hidden = c(100L, 100L, 100L), epochs = 200L, lr = 0.05, dropout = 0.3)
+  "DNN_Small"   = list(hidden = c(64L), epochs = 100L, lr = 0.01, dropout = 0.4, lambda = 0.01),
+  "DNN_Medium"  = list(hidden = c(100L, 100L), epochs = 150L, lr = 0.05, dropout = 0.3, lambda = 0.001),
+  "DNN_Large"   = list(hidden = c(200L, 200L, 100L), epochs = 200L, lr = 0.05, dropout = 0.2, lambda = 0.0005)
 )
 dnn_choices <- c(
   "DNN Small (64 units, 1 hidden layer)" = "DNN_Small",
   "DNN Medium (100->100 units, 2 hidden layers)" = "DNN_Medium",
-  "DNN Large (100->100->100 units, 3 hidden layers)" = "DNN_Large"
+  "DNN Large (200->200->100 units, 3 layers)" = "DNN_Large"
 )
 config$dnn_hard_block <- 50L
 config$dnn_warning_threshold <- 100L
@@ -131,12 +190,26 @@ dnn_device_choices <- c(
   "GPU if available (faster)" = "gpu"
 )
 config$dnn_weight_default <- 0.3
+config$dnn_n_seeds <- 5L
+config$dnn_fused_adam_default <- "auto"
+# Uses custom ATen-op Adam kernel (sdmtorch/train_step_adam.so) on CPU and GPU
+config$dnn_default_n_seeds <- 5L
 config$dnn_multispecies_default <- "DNN_Medium"
 config$dnn_multispecies_n_seeds <- 3L
+config$dnn_mixed_precision_default <- "auto"
+config$dnn_cuda_graphs_default <- "off"
+config$dnn_mc_samples_default <- 30L
+config$dnn_uncertainty_method_default <- "none"
 config$sdm_default_extrapolation_mask <- TRUE
 config$sdm_default_mess_threshold <- 0
 config$ensemble_method_default <- "weighted_average"
 config$use_rangebag <- FALSE
+
+# GPU acceleration defaults
+config$gpu_enabled <- "auto"
+config$gpu_min_cells <- 100000L
+config$gpu_min_rows <- 5000L
+config$gpu_device <- "auto"
 
 sdm_extent_presets <- list(
   "aus_full"   = c(112, 154, -44, -10),
@@ -148,9 +221,19 @@ sdm_default_extent_preset <- "aus_full"
 sdm_default_projection_extent <- sdm_extent_presets[[sdm_default_extent_preset]]
 if (is.null(sdm_default_projection_extent)) sdm_default_projection_extent <- sdm_extent_presets$aus_full
 
+sdm_suitability_palette <- c(
+  "#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
+  "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"
+)
+sdm_suitability_palette_n <- 180L
+
 sdm_default_mask_type <- "none"
 sdm_default_mask_file <- "data/examples/geo/world_boundary.geojson"
 sdm_default_mask_buffer_deg <- NA_real_
+sdm_default_mask_boundary_type <- "admin0"
+sdm_default_mask_resolution <- "auto"
+sdm_default_mask_country <- "all"
+sdm_default_restrict_background <- FALSE
 
 sdm_default_dirs <- c(
   sdm_default_output_dir,

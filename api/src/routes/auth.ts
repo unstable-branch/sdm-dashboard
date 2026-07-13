@@ -6,16 +6,41 @@ import { users, apiKeys, projects, projectMembers, userSettings } from "../db/sc
 import { eq, and } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
-import { randomBytes, createHash } from "crypto";
+import { randomBytes, createHash, createHmac } from "crypto";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import { sendPasswordResetEmail, generateToken, hashToken } from "../services/email.js";
 import type { AppEnv } from "../middleware/auth.js";
+import { refreshTokens } from "../db/schema.js";
 
 export const authRoutes = new Hono<AppEnv>();
+
+authRoutes.onError((err, c) => {
+  console.error("[auth] Unhandled error:", err);
+  return c.json({ error: "Internal server error" }, 500);
+});
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_ISSUER = process.env.JWT_ISSUER || "sdm-dashboard";
 const BCRYPT_ROUNDS = 12;
+const ACCESS_TOKEN_EXPIRY_S = 900; // 15 minutes
+const REFRESH_TOKEN_EXPIRY_DAYS = 30;
+const REFRESH_TOKEN_BYTES = 32;
+
+function hashRefreshToken(token: string): string {
+  const secret = process.env.JWT_SECRET || "refresh-secret";
+  return createHmac("sha256", secret).update(token).digest("hex");
+}
+
+async function issueRefreshToken(userId: string): Promise<string> {
+  const token = randomBytes(REFRESH_TOKEN_BYTES).toString("hex");
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 86400000);
+  await db.insert(refreshTokens).values({
+    userId,
+    tokenHash: hashRefreshToken(token),
+    expiresAt,
+  });
+  return token;
+}
 
 function validatePassword(password: string): string | null {
   if (password.length < 8) return "Password must be at least 8 characters";
@@ -91,19 +116,64 @@ authRoutes.post("/register", async (c) => {
     });
 
     const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + 86400 },
-      JWT_SECRET
+      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
+      JWT_SECRET as string
     );
+    const refreshToken = await issueRefreshToken(user.id);
 
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       token,
+      refresh_token: refreshToken,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Registration failed";
     return c.json({ error: message }, 500);
   }
 });
+
+const LOGIN_LOCKOUT_MAX_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
+const _loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
+
+function checkLoginLockout(email: string): string | null {
+  const key = email.toLowerCase().trim();
+  const now = Date.now();
+  const record = _loginAttempts.get(key);
+
+  if (record) {
+    if (now < record.lockedUntil) {
+      const remaining = Math.ceil((record.lockedUntil - now) / 1000 / 60);
+      return `Account temporarily locked. Try again in ${remaining} minute(s).`;
+    }
+    if (now >= record.lockedUntil) {
+      _loginAttempts.delete(key);
+    }
+  }
+  return null;
+}
+
+function recordLoginAttempt(email: string, success: boolean) {
+  const key = email.toLowerCase().trim();
+  if (success) {
+    _loginAttempts.delete(key);
+    return;
+  }
+  const now = Date.now();
+  const record = _loginAttempts.get(key) || { count: 0, lockedUntil: now };
+  record.count += 1;
+  if (record.count >= LOGIN_LOCKOUT_MAX_ATTEMPTS) {
+    record.lockedUntil = now + LOGIN_LOCKOUT_WINDOW_MS;
+    record.count = 0;
+  }
+  _loginAttempts.set(key, record);
+
+  if (_loginAttempts.size > 10000) {
+    for (const [k, v] of _loginAttempts) {
+      if (now >= v.lockedUntil && v.count === 0) _loginAttempts.delete(k);
+    }
+  }
+}
 
 authRoutes.post("/login", async (c) => {
   if (!JWT_SECRET) {
@@ -118,6 +188,11 @@ authRoutes.post("/login", async (c) => {
       return c.json({ error: "Email and password are required" }, 400);
     }
 
+    const lockoutMsg = checkLoginLockout(email);
+    if (lockoutMsg) {
+      return c.json({ error: lockoutMsg }, 429);
+    }
+
     const [user] = await db
       .select()
       .from(users)
@@ -125,6 +200,7 @@ authRoutes.post("/login", async (c) => {
       .limit(1);
 
     if (!user) {
+      recordLoginAttempt(email, false);
       const client = extractClientInfo(c as any);
       logAction({ action: "login_failed", entity: "users", details: { email, reason: "not_found" }, ...client }).catch((e) => console.warn("[auth] Failed to log login_failed (not_found):", e));
       return c.json({ error: "Invalid credentials" }, 401);
@@ -132,10 +208,13 @@ authRoutes.post("/login", async (c) => {
 
     const valid = await compare(password, user.passwordHash);
     if (!valid) {
+      recordLoginAttempt(email, false);
       const client = extractClientInfo(c as any);
       logAction({ userId: user.id, action: "login_failed", entity: "users", entityId: user.id, details: { reason: "wrong_password" }, ...client }).catch((e) => console.warn("[auth] Failed to log login_failed (wrong_password):", e));
       return c.json({ error: "Invalid credentials" }, 401);
     }
+
+    recordLoginAttempt(email, true);
 
     await db
       .update(users)
@@ -152,22 +231,79 @@ authRoutes.post("/login", async (c) => {
     });
 
     const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + 86400 },
-      JWT_SECRET
+      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
+      JWT_SECRET as string
     );
+    const refreshToken = await issueRefreshToken(user.id);
 
-    const isSecure = process.env.NODE_ENV === "production";
-    const maxAge = 86400;
+    const forwardedProto = c.req.header("X-Forwarded-Proto");
+    const isSecure = process.env.NODE_ENV === "production" || forwardedProto === "https";
+    const maxAge = ACCESS_TOKEN_EXPIRY_S;
     c.header("Set-Cookie", `sdm_token=${token}; Path=/; HttpOnly; SameSite=Strict${isSecure ? "; Secure" : ""}; Max-Age=${maxAge}`);
 
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       token,
+      refresh_token: refreshToken,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Login failed";
     return c.json({ error: message }, 500);
   }
+});
+
+authRoutes.post("/refresh", rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "refresh" }), async (c) => {
+  try {
+    const body = await c.req.json();
+    const { refresh_token } = body;
+    if (!refresh_token) {
+      return c.json({ error: "refresh_token is required" }, 400);
+    }
+
+    const hashedToken = hashRefreshToken(refresh_token);
+    const [stored] = await db
+      .select({
+        id: refreshTokens.id,
+        userId: refreshTokens.userId,
+        expiresAt: refreshTokens.expiresAt,
+        revokedAt: refreshTokens.revokedAt,
+        userEmail: users.email,
+        userRole: users.role,
+      })
+      .from(refreshTokens)
+      .innerJoin(users, eq(users.id, refreshTokens.userId))
+      .where(eq(refreshTokens.tokenHash, hashedToken))
+      .limit(1);
+
+    if (!stored || stored.revokedAt) {
+      return c.json({ error: "Invalid or revoked refresh token" }, 401);
+    }
+    if (new Date(stored.expiresAt) < new Date()) {
+      return c.json({ error: "Refresh token expired" }, 401);
+    }
+
+    // Rotate: revoke old token, issue new pair
+    await db.update(refreshTokens).set({ revokedAt: new Date() }).where(eq(refreshTokens.id, stored.id));
+
+    const newToken = await sign(
+      { sub: stored.userId, email: stored.userEmail, role: stored.userRole, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
+      JWT_SECRET as string
+    );
+    const newRefreshToken = await issueRefreshToken(stored.userId);
+
+    return c.json({ token: newToken, refresh_token: newRefreshToken });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Refresh failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+authRoutes.post("/revoke-all", authMiddleware, async (c) => {
+  const user = c.get("user");
+  await db.update(refreshTokens).set({ revokedAt: new Date() }).where(
+    and(eq(refreshTokens.userId, user.id), eq(refreshTokens.revokedAt, null as unknown as Date))
+  );
+  return c.json({ ok: true });
 });
 
 authRoutes.get("/me", authMiddleware, async (c) => {
@@ -309,7 +445,7 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
   return c.json({
     id: apiKey.id,
     name: apiKey.name,
-    key: rawKey,
+    key: `${rawKey.substring(0, 8)}...`,
     createdAt: apiKey.createdAt,
     expiresAt: apiKey.expiresAt,
   });
@@ -341,37 +477,6 @@ authRoutes.delete("/api-keys/:id", authMiddleware, async (c) => {
 
   await db.delete(apiKeys).where(eq(apiKeys.id, id));
   return c.json({ ok: true });
-});
-
-authRoutes.post("/api-keys/:id/rotate", authMiddleware, rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "apikey-rotate" }), async (c) => {
-  const user = c.get("user");
-  const id = c.req.param("id");
-
-  const [key] = await db
-    .select()
-    .from(apiKeys)
-    .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, user.id)))
-    .limit(1);
-
-  if (!key) {
-    return c.json({ error: "API key not found" }, 404);
-  }
-
-  const rawKey = `sdm_${randomBytes(32).toString("hex")}`;
-  const keyHash = createHash("sha256").update(rawKey).digest("hex");
-
-  await db
-    .update(apiKeys)
-    .set({ keyHash, lastUsedAt: null })
-    .where(eq(apiKeys.id, id));
-
-  return c.json({
-    id: key.id,
-    name: key.name,
-    key: rawKey,
-    createdAt: key.createdAt,
-    expiresAt: key.expiresAt,
-  });
 });
 
 authRoutes.post("/forgot-password", async (c) => {

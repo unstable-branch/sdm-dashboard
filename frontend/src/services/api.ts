@@ -1,3 +1,5 @@
+import type { z } from "zod";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 let _redirecting = false;
@@ -16,6 +18,19 @@ export class ApiError extends Error {
 interface FetchOptions extends RequestInit {
   retry?: number;
   timeout?: number;
+  schema?: z.ZodType<unknown>;
+}
+
+function validateResponse<T>(data: unknown, schema?: z.ZodType<unknown>): T {
+  if (schema) {
+    const result = schema.safeParse(data);
+    if (!result.success) {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[api] Response validation failed:", result.error.format());
+      }
+    }
+  }
+  return data as T;
 }
 
 export function getToken(): string | null {
@@ -45,7 +60,8 @@ function clearToken() {
 
 function writeTokenCookie(token: string, remember: boolean) {
   const maxAge = remember ? "; Max-Age=86400" : "";
-  document.cookie = `sdm_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${maxAge}`;
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `sdm_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${maxAge}${secure}`;
 }
 
 export async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<Response> {
@@ -70,35 +86,57 @@ export async function fetchWithAuth(url: string, options: FetchOptions = {}): Pr
     fetchOptions.signal = AbortSignal.timeout(timeout);
   }
 
-  const res = await fetch(`${API_BASE}${url}`, fetchOptions);
-
-  if (!res.ok && retry > 0 && res.status === 401) {
-    clearToken();
-    if (typeof window !== "undefined" && !_redirecting) {
-      _redirecting = true;
-      const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-      window.location.href = "/login?redirect=" + redirect;
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= retry; attempt++) {
+    if (attempt > 0) {
+      await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 10000)));
     }
-    throw new ApiError(401, "Unauthorized");
-  }
-
-  if (!res.ok) {
-    let data: Record<string, unknown> | null;
     try {
-      data = await res.json();
-    } catch {
-      data = null;
-    }
-    const message = data?.error as string | undefined || `Request failed with status ${res.status}`;
-    throw new ApiError(res.status, message, data);
-  }
+      const res = await fetch(`${API_BASE}${url}`, fetchOptions);
 
-  return res;
+      if (res.status === 401) {
+        clearToken();
+        if (typeof window !== "undefined" && !_redirecting) {
+          _redirecting = true;
+          const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+          window.location.href = "/login?redirect=" + redirect;
+          setTimeout(() => { _redirecting = false; }, 30000);
+        }
+        throw new ApiError(401, "Unauthorized");
+      }
+
+      if (!res.ok && attempt < retry && res.status >= 500) {
+        lastError = new ApiError(res.status, `Server error ${res.status}`);
+        continue;
+      }
+
+      if (!res.ok) {
+        let data: Record<string, unknown> | null;
+        try {
+          data = await res.json();
+        } catch {
+          data = null;
+        }
+        const message = data?.error as string | undefined || `Request failed with status ${res.status}`;
+        throw new ApiError(res.status, message, data);
+      }
+
+      return res;
+    } catch (err) {
+      if (err instanceof ApiError && err.status < 500) {
+        throw err;
+      }
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt >= retry) break;
+    }
+  }
+  throw lastError || new Error("Request failed");
 }
 
 export async function apiGet<T>(url: string, options?: FetchOptions): Promise<T> {
   const res = await fetchWithAuth(url, { method: "GET", ...options });
-  return res.json();
+  const data = await res.json();
+  return validateResponse<T>(data, options?.schema);
 }
 
 export async function apiPost<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> {
@@ -107,12 +145,14 @@ export async function apiPost<T>(url: string, body?: unknown, options?: FetchOpt
     body: body ? JSON.stringify(body) : undefined,
     ...options,
   });
-  return res.json();
+  const data = await res.json();
+  return validateResponse<T>(data, options?.schema);
 }
 
 export async function apiDelete<T>(url: string, options?: FetchOptions): Promise<T> {
   const res = await fetchWithAuth(url, { method: "DELETE", ...options });
-  return res.json();
+  const data = await res.json();
+  return validateResponse<T>(data, options?.schema);
 }
 
 export async function apiPut<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> {
@@ -121,7 +161,8 @@ export async function apiPut<T>(url: string, body?: unknown, options?: FetchOpti
     body: body ? JSON.stringify(body) : undefined,
     ...options,
   });
-  return res.json();
+  const data = await res.json();
+  return validateResponse<T>(data, options?.schema);
 }
 
 export async function apiPatch<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> {
@@ -130,7 +171,8 @@ export async function apiPatch<T>(url: string, body?: unknown, options?: FetchOp
     body: body ? JSON.stringify(body) : undefined,
     ...options,
   });
-  return res.json();
+  const data = await res.json();
+  return validateResponse<T>(data, options?.schema);
 }
 
 export async function apiUpload<T>(url: string, file: File, extraFields?: Record<string, string>, timeout?: number): Promise<T> {
@@ -154,7 +196,8 @@ export async function apiUpload<T>(url: string, file: File, extraFields?: Record
     headers,
     timeout,
   });
-  return res.json();
+  const data = await res.json();
+  return data as T;
 }
 
 export function setAuthToken(token: string, remember = true) {

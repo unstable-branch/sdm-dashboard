@@ -25,8 +25,8 @@ describe("CbiChart", () => {
       pe_ratio: 2.3,
       n_bins: 51,
       bins: [
-        { bin_mid: 0.1, ratio: 0.5, smoothed: 0.6 },
-        { bin_mid: 0.5, ratio: 1.5, smoothed: 1.8 },
+        { binMid: 0.1, ratio: 0.5, smoothed: 0.6 },
+        { binMid: 0.5, ratio: 1.5, smoothed: 1.8 },
       ],
     };
     render(<CbiChart data={data} loading={false} />);
@@ -41,7 +41,7 @@ describe("CbiChart", () => {
       cbi: 0.3,
       pe_ratio: 1.1,
       n_bins: 51,
-      bins: [{ bin_mid: 0.1, ratio: 0.5, smoothed: 0.6 }],
+      bins: [{ binMid: 0.1, ratio: 0.5, smoothed: 0.6 }],
       note: "Insufficient presence points",
     };
     render(<CbiChart data={data} loading={false} />);

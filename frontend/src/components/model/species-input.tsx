@@ -11,6 +11,7 @@ interface SpeciesInputProps {
   onFocus: (focused: boolean) => void;
   onKeyNav: (dir: "up" | "down" | "enter" | "escape") => void;
   focused: boolean;
+  detectedSpecies?: string[];
 }
 
 export function SpeciesInput({
@@ -22,6 +23,7 @@ export function SpeciesInput({
   onFocus,
   onKeyNav,
   focused,
+  detectedSpecies,
 }: SpeciesInputProps) {
   return (
     <div className="relative">
@@ -57,11 +59,14 @@ export function SpeciesInput({
               aria-selected={idx === speciesSelectedIndex}
               onMouseDown={() => onSelect(s)}
               className={cn(
-                "w-full text-left px-3 py-2 text-sm text-sdm-text hover:bg-sdm-surface-soft",
+                "w-full text-left px-3 py-2 text-sm text-sdm-text hover:bg-sdm-surface-soft flex items-center justify-between",
                 idx === speciesSelectedIndex && "bg-sdm-accent/10"
               )}
             >
-              {s}
+              <span>{s}</span>
+              {detectedSpecies?.includes(s) && (
+                <span className="text-xs text-sdm-accent font-medium shrink-0">Detected</span>
+              )}
             </button>
           ))}
         </div>

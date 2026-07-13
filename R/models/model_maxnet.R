@@ -22,7 +22,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
       names(train_pa) <- c("presence", covariates)
       maxnet_model <- maxnet::maxnet(p = train_pa$presence, data = train_pa[, covariates, drop = FALSE],
         maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
-      pred <- as.numeric(predict(maxnet_model, test_model[, covariates, drop = FALSE], clamp = TRUE, type = "link"))
+      pred <- as.numeric(predict(maxnet_model, test_model[, covariates, drop = FALSE], clamp = TRUE, type = "cloglog"))
       metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
     }
 
@@ -126,7 +126,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
         mod_shuffled <- model_data
         perm_col <- sample(model_data[[var]])
         mod_shuffled[[var]] <- perm_col
-        pred_shuffled <- as.numeric(predict(model, mod_shuffled[, covariates, drop = FALSE], clamp = TRUE, type = "link"))
+        pred_shuffled <- as.numeric(predict(model, mod_shuffled[, covariates, drop = FALSE], clamp = TRUE, type = "cloglog"))
         perm_auc <- compute_binary_metrics(model_data$presence, pred_shuffled, threshold = threshold)$auc
         perm_scores[p] <- baseline_auc - perm_auc
       }
@@ -138,7 +138,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
         stringsAsFactors = FALSE
       )
     })
-    do.call(rbind, imp_results)
+    data.table::rbindlist(imp_results)
   }
 
   predict_maxnet_suitability <- function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
@@ -166,7 +166,7 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
     }, cores = n_cores)
 
     names(suit) <- "suitability"
-    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     log_message(log_fun, "Suitability raster written to: ", output_tif)
     suit
   }

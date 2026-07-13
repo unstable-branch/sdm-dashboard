@@ -1,0 +1,5 @@
+# Install the vendor-specific PyTorch wheel appropriate for the target first.
+torch>=2.2
+numpy>=1.24
+pandas>=2.0
+pyarrow>=12

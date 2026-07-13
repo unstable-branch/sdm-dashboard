@@ -15,7 +15,7 @@ const OVERFITTING_SUGGESTIONS: Record<string, string[]> = {
   rf: ["Increase min_node_size (try 20–50)", "Reduce num_trees", "Reduce mtry for more regularization"],
   xgboost: ["Reduce max_depth (try 3–4)", "Increase learning rate (eta) and nrounds together", "Add early stopping rounds"],
   rangebag: ["Reduce bag_fraction (try 0.3)", "Reduce vars_per_bag (try 1–2)", "Increase n_bags for more stable ensemble"],
-  dnn: ["Increase dropout rate (try 0.4–0.5)", "Reduce L2 lambda", "Switch to smaller architecture"],
+  dnn: ["Increase dropout rate (try 0.4–0.5)", "Increase L2 lambda", "Switch to smaller architecture"],
 };
 
 function getSuggestions(modelId: string | null): string[] {
@@ -29,14 +29,24 @@ function getSuggestions(modelId: string | null): string[] {
 
 export function OverfittingPanel({ run }: OverfittingPanelProps) {
   const m = run.metrics || {};
-  const overfittingLevel = (m.overfitting_level as string) || null;
-  const aucDiff = toNum(m.auc_diff);
-  const trainingAuc = toNum(m.training_auc);
-  const cvAuc = toNum(m.auc_mean);
-  const cvCbi = toNum(m.cv_cbi);
-  const trainingCbiVal = toNum(m.cbi);
-  const cbiDiff = toNum(m.cbi_diff);
-  const messPct = m.mess_pct_extrapolation as number | undefined;
+  const finiteMetric = (value: unknown) => {
+    if (typeof value !== "number" && (typeof value !== "string" || value.trim() === "")) return null;
+    const parsed = toNum(value);
+    return parsed != null && Number.isFinite(parsed) ? parsed : null;
+  };
+  const rawLevel = typeof m.overfitting_level === "string" ? m.overfitting_level : "none";
+  const overfittingLevel = (["low", "medium", "high"] as const).find((level) => level === rawLevel) ?? "none";
+  const trainingAuc = finiteMetric(m.training_auc);
+  const cvAuc = finiteMetric(m.auc_mean);
+  const reportedAucDiff = finiteMetric(m.auc_diff);
+  const aucDiff = trainingAuc !== null && cvAuc !== null ? trainingAuc - cvAuc : reportedAucDiff;
+  const cvCbi = finiteMetric(m.cv_cbi);
+  const trainingCbiVal = finiteMetric(m.cbi);
+  const reportedCbiDiff = finiteMetric(m.cbi_diff);
+  const cbiDiff = trainingCbiVal !== null && cvCbi !== null ? trainingCbiVal - cvCbi : reportedCbiDiff;
+  const messPct = finiteMetric(m.mess_pct_extrapolation);
+  const hasAucComparison = trainingAuc !== null && cvAuc !== null && aucDiff !== null;
+  const hasCbiComparison = trainingCbiVal !== null && cvCbi !== null && cbiDiff !== null;
 
   const indicators: { label: string; value: string; status: "ok" | "warn" | "error" | "neutral" }[] = [];
 
@@ -55,6 +65,26 @@ export function OverfittingPanel({ run }: OverfittingPanelProps) {
     });
   }
 
+  // ENMeval AUC difference (from tuning CV)
+  const enmevalAucDiff = toNum(m.enmeval_auc_diff);
+  if (enmevalAucDiff !== null && m.enmeval_tuned === true) {
+    indicators.push({
+      label: "ENMeval AUC diff (tuning CV)",
+      value: fmtFixed(enmevalAucDiff, 3),
+      status: enmevalAucDiff > 0.1 ? "warn" : "ok",
+    });
+  }
+
+  // ENMeval null model significance
+  const nullP = toNum(m.enmeval_null_p_value);
+  if (nullP !== null && m.enmeval_tuned === true) {
+    indicators.push({
+      label: "Null model p-value",
+      value: nullP < 0.001 ? "< 0.001" : fmtFixed(nullP, 4),
+      status: nullP < 0.05 ? "ok" : nullP < 0.1 ? "warn" : "error",
+    });
+  }
+
   // CBI gap
   if (trainingCbiVal !== null && cvCbi !== null && cbiDiff !== null) {
     indicators.push({
@@ -65,7 +95,7 @@ export function OverfittingPanel({ run }: OverfittingPanelProps) {
   }
 
   // MESS extrapolation
-  if (messPct !== undefined) {
+  if (messPct !== null) {
     indicators.push({
       label: "MESS extrapolation",
       value: `${messPct.toFixed(1)}% of projection area`,
@@ -74,7 +104,8 @@ export function OverfittingPanel({ run }: OverfittingPanelProps) {
   }
 
   const hasData = indicators.length > 0;
-  const showWarning = overfittingLevel && overfittingLevel !== "none";
+  const hasComparableData = hasAucComparison || hasCbiComparison;
+  const showWarning = hasComparableData && overfittingLevel !== "none";
 
   return (
     <div className="space-y-4">
@@ -103,7 +134,7 @@ export function OverfittingPanel({ run }: OverfittingPanelProps) {
         </div>
       )}
 
-      {!hasData && overfittingLevel === "none" && (
+      {hasComparableData && !showWarning && (
         <div className="rounded-md border border-green-500/30 bg-green-500/5 px-4 py-3 flex items-start gap-3">
           <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />
           <div>

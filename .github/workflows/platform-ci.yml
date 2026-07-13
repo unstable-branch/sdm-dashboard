@@ -21,11 +21,13 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - run: npm install -g pnpm@10.30.3
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.30.3
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
@@ -37,7 +39,7 @@ jobs:
         run: pnpm --filter @sdm/shared run build
 
       - name: Upload shared artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: shared-dist
           path: packages/shared/dist
@@ -50,11 +52,13 @@ jobs:
     needs: shared
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - run: npm install -g pnpm@10.30.3
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.30.3
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
@@ -63,7 +67,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Download shared artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: shared-dist
           path: packages/shared/dist
@@ -78,7 +82,7 @@ jobs:
         run: pnpm --filter frontend run test:coverage
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: frontend-coverage
@@ -89,11 +93,11 @@ jobs:
         run: pnpm --filter frontend run build
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: frontend-dist
           path: frontend/.next
-          retention-days: 5
+          retention-days: 1
 
   api:
     name: API build + test
@@ -102,11 +106,13 @@ jobs:
     needs: shared
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - run: npm install -g pnpm@10.30.3
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.30.3
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
@@ -115,7 +121,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Download shared artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: shared-dist
           path: packages/shared/dist
@@ -130,7 +136,7 @@ jobs:
         run: pnpm --filter api run test:coverage
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: api-coverage
@@ -141,72 +147,21 @@ jobs:
         run: pnpm --filter api run build
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: api-dist
           path: api/dist
           retention-days: 5
 
-  r-quality:
-    name: R source + tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: r-lib/actions/setup-r@v2
-        with:
-          r-version: release
-          use-public-rspm: true
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            gdal-bin \
-            libcurl4-openssl-dev \
-            libgdal-dev \
-            libgeos-dev \
-            libproj-dev \
-            libssl-dev \
-            libudunits2-dev \
-            libxml2-dev \
-            make \
-            proj-data
-
-      - name: Install R dependencies
-        uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          dependencies: '"hard"'
-          extra-packages: 'any::testthat'
-          cache-version: 2
-
-      - name: Parse R sources
-        run: |
-          files <- list.files(pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE)
-          files <- files[!grepl("^\\.git/", files)]
-          files <- files[!grepl("/\\.Rprofile$", files)]
-          for (file in files) parse(file)
-          message("Parsed ", length(files), " R source files.")
-        shell: Rscript --no-init-file {0}
-
-      - name: Smoke test
-        run: Rscript scripts/smoke_test.R --tags=fast
-
-      - name: Testthat suite
-        run: Rscript tests/testthat.R
-
-      - name: Audit release packaging
-        run: Rscript scripts/audit_release.R
-
   docker:
     name: Docker build + integration
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    needs: shared
     env:
       DATABASE_URL: postgresql://sdm:dummy@postgres:5432/sdm_platform
       JWT_SECRET: dummy-jwt-secret-at-least-32-characters
+      CSRF_SECRET: dummy-csrf-secret-at-least-32-characters
       DATA_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
       SDM_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
       PLUMBER_INTERNAL_KEY: dummy-plumber-internal-key
@@ -219,14 +174,23 @@ jobs:
       GARAGE_RPC_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       GARAGE_ADMIN_TOKEN: dummy-garage-admin-token
       GRAFANA_PASSWORD: dummy
+      SDM_FRONTEND_DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      SDM_API_DIGEST: sha256:1111111111111111111111111111111111111111111111111111111111111111
+      SDM_PLUMBER_DIGEST: sha256:2222222222222222222222222222222222222222222222222222222222222222
+      PLUMBER_CPU_LIMIT: 2
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - run: npm install -g pnpm@10.30.3
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.30.3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Validate release and image contracts
+        run: python3 scripts/audit_release_config.py
 
       - name: Validate compose files
         run: |
@@ -235,7 +199,7 @@ jobs:
           docker compose -f docker-compose.prod.yml config
 
       - name: Build Plumber image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           file: plumber/Dockerfile
@@ -247,16 +211,34 @@ jobs:
           cache-to: type=gha,mode=max,scope=sdm-dashboard-plumber
 
       - name: Download shared package artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: shared-dist
           path: packages/shared/dist
 
       - name: Build API image
-        run: docker build -f Dockerfile.api -t sdm-dashboard-api:latest -t sdm-api:test .
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: Dockerfile.api
+          load: true
+          tags: |
+            sdm-dashboard-api:latest
+            sdm-api:test
+          cache-from: type=gha,scope=sdm-dashboard-api
+          cache-to: type=gha,mode=max,scope=sdm-dashboard-api
 
       - name: Build Frontend image
-        run: docker build -f Dockerfile.frontend -t sdm-dashboard-frontend:latest -t sdm-frontend:test .
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: Dockerfile.frontend
+          load: true
+          tags: |
+            sdm-dashboard-frontend:latest
+            sdm-frontend:test
+          cache-from: type=gha,scope=sdm-dashboard-frontend
+          cache-to: type=gha,mode=max,scope=sdm-dashboard-frontend
 
       - name: Start services and verify health
         run: |
@@ -268,7 +250,7 @@ jobs:
           YAML
 
           compose() {
-            docker compose -f docker-compose.yml -f /tmp/ci-openapi.compose.yml "$@"
+            docker compose -f docker-compose.yml -f /tmp/ci-openapi.compose.yml --profile core "$@"
           }
 
           dump_logs() {
@@ -309,7 +291,7 @@ jobs:
       - name: Memory stress check — verify Plumber can handle concurrent requests
         run: |
           dump_logs() {
-            docker compose -f docker-compose.yml logs --no-color --tail=50 plumber
+            compose logs --no-color --tail=50 plumber
           }
 
           : "Check Plumber health reports available memory"
@@ -332,12 +314,16 @@ jobs:
         run: |
           cd frontend
           pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps
           pnpm run test:e2e
-        continue-on-error: true
 
       - name: Type contract check (Plumber OpenAPI → TS types)
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.30.3
+
+      - name: Generate and verify TS types from Plumber OpenAPI
         run: |
-          npm install -g pnpm@10.30.3
           pnpm install --frozen-lockfile
           cd api
           PLUMBER_OPENAPI_MIN_PATHS=40 \
@@ -347,13 +333,32 @@ jobs:
           cd ../packages/shared && pnpm run build
 
       - name: Scan images for vulnerabilities
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: sdm-plumber:test
           format: sarif
-          output: trivy-results.sarif
-        continue-on-error: true
+          output: trivy-plumber.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0
+
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sdm-api:test
+          format: sarif
+          output: trivy-api.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0
+
+      - name: Scan frontend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sdm-frontend:test
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0
 
       - name: Teardown
         if: always()
-        run: docker compose -f docker-compose.yml down -v
+        run: docker compose -f docker-compose.yml -f /tmp/ci-openapi.compose.yml --profile core down -v

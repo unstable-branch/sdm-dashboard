@@ -246,12 +246,25 @@ diagnosticsRoutes.post("/ensemble-rasters/:runId", async (c) => {
   }
 });
 
-// On-demand PNG generation for diagnostic plots
+// On-demand diagnostic routes removed — plots are generated
+// automatically during model run and served via file endpoints
+
+// SHAP cell-level explanation for a specific coordinate
 diagnosticsRoutes.post("/shap/cell", async (c) => {
-  const user = c.get("user");
   try {
-    const body = await c.req.json<{ run_id: string; longitude: number; latitude: number }>();
-    const data = await plumberClient.postDiagnosticsShapCell(body.run_id, body.longitude, body.latitude);
+    const body = await c.req.json();
+    const runId = (body.run_id || body.runId || "") as string;
+    const longitude = parseFloat(body.longitude as string);
+    const latitude = parseFloat(body.latitude as string);
+    if (!runId || isNaN(longitude) || isNaN(latitude)) {
+      return c.json({ error: "run_id, longitude, and latitude required" }, 400);
+    }
+    const user = c.get("user");
+    if (!(await canAccessRun(user.id, user.role, runId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
+    const jobId = await plumberJobId(runId);
+    const data = await plumberClient.postDiagnosticsShapCell(jobId, longitude, latitude);
     return c.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "SHAP cell explanation unavailable";
@@ -259,23 +272,7 @@ diagnosticsRoutes.post("/shap/cell", async (c) => {
   }
 });
 
-diagnosticsRoutes.post("/plots/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const result = await plumberClient.generatePlots(jobId);
-    return c.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Plot generation failed";
-    return c.json({ error: message }, 502);
-  }
-});
-
-// Download raw diagnostic data as CSV
+// Diagnostic CSV data download
 diagnosticsRoutes.get("/data/:runId/:type", async (c) => {
   const runId = c.req.param("runId");
   const type = c.req.param("type");
@@ -285,17 +282,17 @@ diagnosticsRoutes.get("/data/:runId/:type", async (c) => {
   }
   try {
     const jobId = await plumberJobId(runId);
-    const res = await plumberClient.getDiagnosticDataCsv(jobId, type);
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      return c.json({ error: (body as any).error || `Data unavailable: ${res.status}` }, res.status as any);
+    const csvRes = await plumberClient.getDiagnosticDataCsv(jobId, type);
+    if (!csvRes.ok) {
+      return c.json({ error: `Plumber returned ${csvRes.status}` }, 502);
     }
-    const csv = await res.text();
-    c.header("Content-Type", "text/csv");
-    c.header("Content-Disposition", `attachment; filename="${type}_${runId}.csv"`);
-    return c.body(csv);
+    const csvText = await csvRes.text();
+    return c.newResponse(csvText, 200, {
+      "Content-Type": "text/csv",
+      "Content-Disposition": `attachment; filename="${type}_${runId}.csv"`,
+    });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Data download failed";
+    const message = err instanceof Error ? err.message : "Diagnostic data unavailable";
     return c.json({ error: message }, 502);
   }
 });

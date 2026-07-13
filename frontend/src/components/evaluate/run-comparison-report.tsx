@@ -36,6 +36,10 @@ interface RunComparisonReportProps {
   run2: RunDetail;
 }
 
+function fmt(v: number | undefined | null, d: number): string {
+  return v != null && Number.isFinite(v) ? v.toFixed(d) : "—";
+}
+
 function DiffIndicator({ diff }: { diff: number; better: string }) {
   if (!isFinite(diff) || diff === 0) return <Minus className="h-4 w-4 text-sdm-muted" />;
   if (diff > 0) return <ArrowUp className="h-4 w-4 text-green-500" />;
@@ -83,19 +87,19 @@ export function RunComparisonReport({ run1, run2 }: RunComparisonReportProps) {
         <div className="grid grid-cols-3 gap-4 text-center mb-4">
           <div className="rounded-md bg-sdm-surface-soft p-3">
             <div className="text-xs text-sdm-muted mb-1">{m1.label}</div>
-            <div className="text-lg font-bold text-sdm-text">{data.metrics.auc.model1.toFixed(3)}</div>
+            <div className="text-lg font-bold text-sdm-text">{fmt(data.metrics.auc.model1, 3)}</div>
             <div className="text-[10px] text-sdm-muted">AUC</div>
           </div>
           <div className="rounded-md bg-sdm-accent/5 border border-sdm-accent/20 p-3">
             <DiffIndicator diff={data.metrics.auc.diff} better={data.summary.better_auc} />
             <div className={`text-lg font-bold ${data.metrics.auc.diff > 0 ? 'text-green-500' : data.metrics.auc.diff < 0 ? 'text-red-500' : 'text-sdm-text'}`}>
-              {data.metrics.auc.diff > 0 ? '+' : ''}{data.metrics.auc.diff.toFixed(3)}
+              {data.metrics.auc.diff > 0 ? '+' : ''}{fmt(data.metrics.auc.diff, 3)}
             </div>
             <div className="text-[10px] text-sdm-muted">AUC difference</div>
           </div>
           <div className="rounded-md bg-sdm-surface-soft p-3">
             <div className="text-xs text-sdm-muted mb-1">{m2.label}</div>
-            <div className="text-lg font-bold text-sdm-text">{data.metrics.auc.model2.toFixed(3)}</div>
+            <div className="text-lg font-bold text-sdm-text">{fmt(data.metrics.auc.model2, 3)}</div>
             <div className="text-[10px] text-sdm-muted">AUC</div>
           </div>
         </div>
@@ -104,7 +108,7 @@ export function RunComparisonReport({ run1, run2 }: RunComparisonReportProps) {
           <div>
             <h3 className="text-xs font-semibold text-sdm-heading mb-2">Metrics</h3>
             <div className="space-y-1">
-              <div className="flex justify-between"><span className="text-sdm-muted">TSS</span><span className="text-sdm-text">{data.metrics.tss.model1.toFixed(3)} vs {data.metrics.tss.model2.toFixed(3)}</span></div>
+              <div className="flex justify-between"><span className="text-sdm-muted">TSS</span><span className="text-sdm-text">{fmt(data.metrics.tss.model1, 3)} vs {fmt(data.metrics.tss.model2, 3)}</span></div>
               <div className="flex justify-between"><span className="text-sdm-muted">CV strategy</span><span className="text-sdm-text">{data.metrics.cv_strategy.model1} vs {data.metrics.cv_strategy.model2}</span></div>
               <div className="flex justify-between"><span className="text-sdm-muted">CV folds</span><span className="text-sdm-text">{data.metrics.cv_k.model1} vs {data.metrics.cv_k.model2}</span></div>
             </div>
@@ -142,10 +146,10 @@ export function RunComparisonReport({ run1, run2 }: RunComparisonReportProps) {
                 {data.importance.slice(0, 10).map((row: any, i) => (
                   <tr key={i} className="border-b border-sdm-border/30">
                     <td className="py-1 pr-4 text-sdm-text">{row.variable}</td>
-                    <td className="py-1 pr-4 text-right text-sdm-text">{row.importance_model1.toFixed(3)}</td>
-                    <td className="py-1 pr-4 text-right text-sdm-text">{row.importance_model2.toFixed(3)}</td>
+                    <td className="py-1 pr-4 text-right text-sdm-text">{fmt(row.importance_model1, 3)}</td>
+                    <td className="py-1 pr-4 text-right text-sdm-text">{fmt(row.importance_model2, 3)}</td>
                     <td className={`py-1 text-right ${row.diff > 0 ? 'text-green-500' : row.diff < 0 ? 'text-red-500' : 'text-sdm-muted'}`}>
-                      {row.diff > 0 ? '+' : ''}{row.diff.toFixed(3)}
+                      {row.diff > 0 ? '+' : ''}{fmt(row.diff, 3)}
                     </td>
                   </tr>
                 ))}

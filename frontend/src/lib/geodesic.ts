@@ -1,7 +1,11 @@
 import { Geodesic } from "geographiclib";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const geo = Geodesic.WGS84 as any;
+type GeoProxy = {
+  Inverse(lat1: number, lon1: number, lat2: number, lon2: number): GeodesicResult;
+  Line(lat: number, lon: number, azi1: number): { Position(s12: number): GeodesicResult };
+  Polygon(init: number): { AddPoint(lat: number, lon: number): void; Compute(reverse: boolean, sign: boolean): PolygonResult };
+};
+const geo = Geodesic.WGS84 as unknown as GeoProxy;
 
 const KM_PER_DEG = 111.32;
 
@@ -81,6 +85,7 @@ export function densifyGeoJSONFeature(
   feature: GeoJSON.Feature,
   maxSegmentKm: number = 10
 ): GeoJSON.Feature {
+  if (!feature.geometry) return feature;
   if (feature.geometry.type === "Polygon") {
     const poly = feature.geometry as GeoJSON.Polygon;
     return {

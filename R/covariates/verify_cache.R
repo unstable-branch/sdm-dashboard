@@ -216,7 +216,7 @@ verify_future_cache <- function(future_dir = "Worldclim_future") {
     }
   }
   scenarios <- if (length(rows) > 0) {
-    do.call(rbind, rows)
+    data.table::rbindlist(rows)
   } else {
     data.frame(
       GCM = character(), SSP = character(), Period = character(),

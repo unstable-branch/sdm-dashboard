@@ -1,20 +1,22 @@
 # Development compose — mounts local code, runs with profiles.
 # Usage:
-#   docker compose -f docker-compose.dev.yml --profile core up -d    # postgres + redis only
-#   docker compose -f docker-compose.dev.yml --profile email up -d   # + mailpit
-#   docker compose -f docker-compose.dev.yml --profile storage up -d # + garage
-#   docker compose -f docker-compose.dev.yml --profile all up -d     # everything
+#   docker compose -f docker-compose.dev.yml --profile core up -d         # postgres + redis only
+#   docker compose -f docker-compose.dev.yml --profile email up -d        # + mailpit
+#   docker compose -f docker-compose.dev.yml --profile storage up -d      # + garage
+#   docker compose -f docker-compose.dev.yml --profile monitoring up -d   # + prometheus + grafana + exporters
+#   docker compose -f docker-compose.dev.yml --profile all up -d          # everything
 
 services:
   postgres:
     profiles: ["core", "all"]
     image: postgis/postgis:16-3.4
+    shm_size: 256m
     environment:
       POSTGRES_USER: sdm
-      POSTGRES_PASSWORD: sdm_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sdm_dev_only_change_me}
       POSTGRES_DB: sdm_platform
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -29,9 +31,10 @@ services:
     profiles: ["core", "all"]
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
+    command: ["redis-server", "--maxmemory", "2gb", "--maxmemory-policy", "noeviction"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -44,8 +47,8 @@ services:
     profiles: ["email", "all"]
     image: axllent/mailpit:latest
     ports:
-      - "5000:8025"
-      - "2525:1025"
+      - "127.0.0.1:5000:8025"
+      - "127.0.0.1:2525:1025"
     networks:
       - sdm-network
 
@@ -54,15 +57,15 @@ services:
     image: dxflrs/garage:v2.3.0
     command: ["/garage", "server", "--single-node", "--default-bucket"]
     ports:
-      - "3900:3900"
-      - "3901:3901"
-      - "3902:3902"
-      - "3903:3903"
+      - "127.0.0.1:3900:3900"
+      - "127.0.0.1:3901:3901"
+      - "127.0.0.1:3902:3902"
+      - "127.0.0.1:3903:3903"
     environment:
-      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
-      - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN:-dev-admin-token}
-      - GARAGE_DEFAULT_ACCESS_KEY=${GARAGE_ACCESS_KEY:-dev-access-key}
-      - GARAGE_DEFAULT_SECRET_KEY=${GARAGE_SECRET_KEY:-dev-secret-key-for-local-only}
+      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef_DEV}
+      - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN:-dev-admin-token-CHANGE-ME}
+      - GARAGE_DEFAULT_ACCESS_KEY=${GARAGE_ACCESS_KEY:-dev-access-key-CHANGE-ME}
+      - GARAGE_DEFAULT_SECRET_KEY=${GARAGE_SECRET_KEY:-dev-secret-key-for-local-only-CHANGE-ME}
       - GARAGE_DEFAULT_BUCKET=${GARAGE_BUCKET:-sdm-artifacts}
     volumes:
       - ./garage.toml:/etc/garage.toml:ro
@@ -82,31 +85,37 @@ services:
       context: .
       dockerfile: plumber/Dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./R:/app/R:ro
       - ./plumber:/app/plumber:ro
+      - ./python_models:/app/python_models:ro
       - ./data:/app/data
       - ./outputs:/app/outputs
       - ./covariates:/app/covariates
       - ./Worldclim:/app/Worldclim
     environment:
       - SDM_PROJECT_ROOT=/app
-      - DATABASE_URL=postgresql://sdm:sdm_password@postgres:5432/sdm_platform
-      - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-6e94feb6699652f8529ed79ee7863a4daab79279286e84f0c4026fe2fb29884e}
-      - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
+      - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD}@postgres:5432/sdm_platform
+      - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-dev-plumber-key}
+      - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-true}
+      - GDAL_CACHEMAX=512
+      - SDM_CHILD_MAX_VSIZE=6Gb
+      - REDIS_HOST=redis
+      - REDIS_URL=redis://redis:6379
+      - SDM_MIN_GPU_VRAM_MIB=1500
     init: true
     deploy:
       resources:
         limits:
-          cpus: "4"
+          cpus: ${PLUMBER_CPU_LIMIT:-8}
           memory: 8G
     healthcheck:
       test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 120s
+      start_period: 30s
     networks:
       - sdm-network
 
@@ -114,7 +123,7 @@ services:
     profiles: ["computation", "all"]
     image: ghcr.io/developmentseed/titiler:latest
     ports:
-      - "9000:8000"
+      - "127.0.0.1:9000:8000"
     volumes:
       - ./outputs:/data/outputs:ro
     command: >
@@ -127,11 +136,94 @@ services:
       - sdm-network
     restart: unless-stopped
 
+  api:
+    profiles: ["monitoring", "all"]
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "127.0.0.1:4000:4000"
+    environment:
+      - NODE_ENV=development
+      - PLUMBER_URL=http://plumber:8000
+      - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-dev-plumber-key}
+      - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:-sdm_dev_only_change_me}@postgres:5432/sdm_platform
+      - REDIS_URL=redis://redis:6379
+      - GRAFANA_URL=http://grafana:3000
+      - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      - CSRF_SECRET=${CSRF_SECRET:-dev-csrf-secret-change-in-production}
+      - API_KEY_HASH=${API_KEY_HASH:-}
+    volumes:
+      - ./api/src:/app/api/src:ro
+      - ./packages/shared:/app/packages/shared:ro
+      - ./data/uploads:/app/data/uploads
+      - ./outputs:/app/outputs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - sdm-network
+
+  postgres-exporter:
+    profiles: ["monitoring", "all"]
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    environment:
+      DATA_SOURCE_NAME: postgresql://sdm:${POSTGRES_PASSWORD:-sdm_dev_only_change_me}@postgres:5432/sdm_platform?sslmode=disable
+    ports:
+      - "127.0.0.1:9187:9187"
+    networks:
+      - sdm-network
+
+  redis-exporter:
+    profiles: ["monitoring", "all"]
+    image: oliver006/redis_exporter:v1.67.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "127.0.0.1:9121:9121"
+    networks:
+      - sdm-network
+
+  prometheus:
+    profiles: ["monitoring", "all"]
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    networks:
+      - sdm-network
+
+  grafana:
+    profiles: ["monitoring", "all"]
+    image: grafana/grafana:11.0.0
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-dev-grafana-CHANGE-ME}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - sdm-network
+
 volumes:
   postgres-data:
   redis-data:
   garage-meta:
   garage-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   sdm-network:

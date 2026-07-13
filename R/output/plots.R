@@ -20,10 +20,7 @@ plot_downsample_raster <- function(x, max_cells = 220000) {
 plot_suitability_map <- function(suitability, occ = NULL, projection_extent = NULL, species = "Species", threshold = sdm_default_threshold, add_points = TRUE) {
   threshold <- normalize_threshold(threshold)
   suitability_plot <- plot_downsample_raster(suitability)
-  cols <- grDevices::colorRampPalette(c(
-    "#0A1624", "#123247", "#15545D", "#1F8A70", "#59C174",
-    "#C6D65B", "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"
-  ))(180)
+  cols <- grDevices::colorRampPalette(sdm_suitability_palette)(sdm_suitability_palette_n)
   old_par <- graphics::par(no.readonly = TRUE)
   on.exit(graphics::par(old_par), add = TRUE)
   graphics::par(
@@ -95,7 +92,7 @@ plot_suitability_map <- function(suitability, occ = NULL, projection_extent = NU
 
 plot_delta_map <- function(delta, scenario_label = "Future climate") {
   delta_plot <- plot_downsample_raster(delta)
-  max_abs <- tryCatch(max(abs(terra::values(delta_plot)), na.rm = TRUE), error = function(e) NA_real_)
+  max_abs <- tryCatch(max(abs(terra::minmax(delta_plot)), na.rm = TRUE), error = function(e) NA_real_)
   if (!is.finite(max_abs) || max_abs <= 0) max_abs <- 1
   cols <- grDevices::colorRampPalette(c("#2C4C9C", "#9FC5E8", "#F7F7F7", "#F6B26B", "#B94E48"))(160)
   old_par <- graphics::par(no.readonly = TRUE)
@@ -205,17 +202,14 @@ render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
       r_wgs84 <- tryCatch(terra::project(suitability_raster, "EPSG:4326"),
         error = function(e) suitability_raster
       )
-      cols <- grDevices::colorRampPalette(c(
-        "#0A1624", "#123247", "#15545D",
-        "#1F8A70", "#59C174", "#C6D65B",
-        "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"
-      ))(180)
+      r_wgs84 <- plot_downsample_raster(r_wgs84)
+      cols <- grDevices::colorRampPalette(sdm_suitability_palette)(sdm_suitability_palette_n)
       map <- map %>%
         leaflet::addProviderTiles("CartoDB.Positron", group = "Light tiles") %>%
         leaflet::addProviderTiles("CartoDB.DarkMatter", group = "Dark tiles") %>%
         leaflet::addRasterImage(r_wgs84,
           opacity = 0.7, layerId = "suitability",
-          colors = cols, project = TRUE
+          colors = cols, project = FALSE
         ) %>%
         leaflet::addLegend(
           position = "bottomright",
@@ -261,15 +255,14 @@ render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
       }
     )
     if (!is.null(r_mess)) {
-      mess_binary <- r_mess
-      terra::values(mess_binary) <- ifelse(terra::values(r_mess) < 0, 1, 0)
+      mess_binary <- terra::classify(r_mess, cbind(-Inf, 0, 1), others = 0)
       map <- map %>%
         leaflet::addRasterImage(mess_binary,
           opacity = 0.5, layerId = "mess",
-          project = FALSE, colors = "red"
+          project = FALSE, colors = c("#00000000", "#FF000088")
         ) %>%
         leaflet::addLegend(
-          position = "bottomright", colors = "red",
+          position = "bottomright", colors = "#FF000088",
           labels = "Extrapolation (MESS<0)", title = "MESS", layerId = "mess_legend"
         )
     }
@@ -300,6 +293,7 @@ add_suitability_layer <- function(map, raster, type = c("continuous", "binary"),
   if (is.null(r_wgs84)) {
     return(map)
   }
+  r_wgs84 <- plot_downsample_raster(r_wgs84)
 
   if (type == "binary") {
     r_bin <- r_wgs84
@@ -311,15 +305,11 @@ add_suitability_layer <- function(map, raster, type = c("continuous", "binary"),
       project = FALSE, colors = colors
     )
   } else {
-    cols <- grDevices::colorRampPalette(c(
-      "#0A1624", "#123247", "#15545D",
-      "#1F8A70", "#59C174", "#C6D65B",
-      "#F3C45A", "#F28A3C", "#E34B35", "#A51E3B"
-    ))(180)
+    cols <- grDevices::colorRampPalette(sdm_suitability_palette)(sdm_suitability_palette_n)
     map <- map %>% leaflet::addRasterImage(r_wgs84,
       opacity = 0.7,
       layerId = "suitability_continuous",
-      colors = cols, project = TRUE
+      colors = cols, project = FALSE
     )
   }
   map

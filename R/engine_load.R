@@ -27,9 +27,11 @@ modules <- c(
   # --- core ---
   "bootstrap.R",
   "config.R",
+  "memory_utils.R",
+  "gpu_helpers.R",
   "packages.R",
-  "model_payload_normalizer.R",
   "logging.R",
+  "model_payload_normalizer.R",
   "crypto.R",
   "validation.R",
   "app_helpers.R",
@@ -53,6 +55,7 @@ modules <- c(
   "covariates_stack.R",
   "predictor_selection.R",
   "boundary.R",
+  "ne_boundary.R",
   "download_helper.R",
   "verify_cache.R",
   "future_projection.R",
@@ -89,8 +92,10 @@ modules <- c(
   "model_xgboost.R",
   "model_multi_ensemble.R",
   "model_esm.R",
+  "torch_fused_adam.R",
   "model_dnn.R",
   "model_dnn_multispecies.R",
+  "model_gllvm.R",
   "model_python.R",
   "model_registry.R",
   "model_biomod2.R",
@@ -103,6 +108,8 @@ modules <- c(
   "calibration.R",
   "ensemble_importance.R",
   "hyperparameter_tuning.R",
+  "enmeval_registry.R",
+  "enmeval.R",
   "prediction.R",
 
   # --- output ---
@@ -118,10 +125,10 @@ modules <- c(
   "climex.R",
 
   # --- xai ---
-  "xai_methods.R",
   "ale.R",
   "shap.R",
   "climate_driver.R",
+  "xai_methods.R",
 
   # --- output ---
   "metrics_binary.R",
@@ -133,7 +140,8 @@ modules <- c(
   "manifest.R",
   "diagnostics_plots.R",
   "batch_runner.R",
-  "script_export.R"
+  "script_export.R",
+  "tile_generator.R"
 )
 
 for (m in modules) {

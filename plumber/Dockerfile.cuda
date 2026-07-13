@@ -1,0 +1,155 @@
+# syntax=docker/dockerfile:1
+# Multi-stage build: stage 1 compiles libtorch + lantern, stage 2 builds the runtime image.
+FROM rocker/r-ver:4.4.2@sha256:df26749182af64d5263bf64149d51a427b476ed28c4e046997143be3f97fdd7c AS torch-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl unzip cmake build-essential git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add the checksum-pinned NVIDIA CUDA repository keyring for build/runtime packages.
+ARG CUDA_KEYRING_SHA256=e7f219eab6fe4819cdb5c15b98233dc3420302d9c00883219cd3d896857cf48d
+RUN curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb -o /cuda-keyring.deb \
+  && echo "${CUDA_KEYRING_SHA256}  /cuda-keyring.deb" | sha256sum -c - \
+  && dpkg -i /cuda-keyring.deb \
+  && apt-get update -qq \
+  && apt-get install -y -qq --no-install-recommends \
+    cuda-nvcc-12-8=12.8.93-1 \
+    cuda-cudart-12-8=12.8.90-1 \
+    cuda-nvrtc-12-8=12.8.93-1 \
+    cuda-nvrtc-dev-12-8=12.8.93-1 \
+  && rm -rf /var/lib/apt/lists/*
+
+# Create versionless CUDA symlink so cmake can find nvcc
+RUN ln -sf /usr/local/cuda-12.8 /usr/local/cuda
+
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=/usr/local/cuda/bin:${PATH}
+
+ARG TORCH_HOME=/opt/torch
+ARG LIBTORCH_CU128_SHA256=a7ae18620b36fa91a4cc83dad0d69287804ba3e5b9f26e5db5cab10c27e84e17
+
+# Download checksum-pinned libtorch 2.8.0+cu128, matching torch R package v0.17.0.
+# mv avoids doubling disk usage during copy (peak: zip+extract < 9 GB)
+RUN curl -fL -o /tmp/libtorch.zip \
+       "https://download.pytorch.org/libtorch/cu128/libtorch-shared-with-deps-2.8.0%2Bcu128.zip" \
+    && echo "${LIBTORCH_CU128_SHA256}  /tmp/libtorch.zip" | sha256sum -c - \
+    && unzip -q /tmp/libtorch.zip -d /tmp/libtorch-extract \
+    && rm /tmp/libtorch.zip \
+    && mv /tmp/libtorch-extract/libtorch ${TORCH_HOME} \
+    && rm -rf /tmp/libtorch-extract
+
+# Build lantern from the exact mlverse/torch v0.17.0 source commit.
+# CUDA support comes from the CUDA-enabled libtorch shared libraries.
+ARG R_TORCH_SOURCE_COMMIT=85f1cb4e7af643a666110cbc9a1251b99b682a91
+ARG R_TORCH_SOURCE_SHA256=404c5fa6b2d37a58512590f5d075fd79be160b0bb88d77841bdc0176045496cb
+RUN curl -fL "https://github.com/mlverse/torch/archive/${R_TORCH_SOURCE_COMMIT}.tar.gz" -o /tmp/torch-src.tar.gz \
+    && echo "${R_TORCH_SOURCE_SHA256}  /tmp/torch-src.tar.gz" | sha256sum -c - \
+    && mkdir -p /tmp/torch-src \
+    && tar -xzf /tmp/torch-src.tar.gz -C /tmp/torch-src --strip-components=1 \
+    && rm /tmp/torch-src.tar.gz \
+    && cd /tmp/torch-src/src/lantern \
+    && mkdir build && cd build \
+    && cmake .. \
+       -DTORCH_PATH=${TORCH_HOME} \
+       -DCMAKE_INSTALL_PREFIX=${TORCH_HOME} \
+    && cmake --build . --parallel $(nproc) --target install --config Release \
+    && rm -rf /tmp/torch-src
+
+# Strip non-runtime build metadata while retaining headers for the verified sdmtorch rebuild.
+RUN rm -rf ${TORCH_HOME}/share ${TORCH_HOME}/bin
+
+# Verify liblantern.so is in the correct location
+RUN ls -la ${TORCH_HOME}/lib/liblantern.so && ls -la ${TORCH_HOME}/lib/libtorch.so
+
+# ─── Stage 2: Runtime image ────────────────────────────────────────
+FROM rocker/r-ver:4.4.2@sha256:df26749182af64d5263bf64149d51a427b476ed28c4e046997143be3f97fdd7c
+
+LABEL org.opencontainers.image.title="SDM Dashboard — Plumber (CUDA)"
+LABEL org.opencontainers.image.description="NVIDIA CUDA R/Plumber computation API for SDM model runs"
+LABEL org.opencontainers.image.source="https://github.com/unstable-branch/sdm-dashboard"
+LABEL org.opencontainers.image.accelerator="nvidia-cuda"
+
+ARG R_CRAN_SNAPSHOT=2026-07-12
+ARG R_CRAN_REPO=https://packagemanager.posit.co/cran/__linux__/noble/${R_CRAN_SNAPSHOT}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV R_CRAN_REPO=${R_CRAN_REPO}
+
+# Copy pre-built libtorch + lantern .so files from builder stage
+# Runtime libraries and build headers are retained so the native sdmtorch extensions can be rebuilt and verified.
+ARG TORCH_HOME=/opt/torch
+COPY --from=torch-builder ${TORCH_HOME}/lib ${TORCH_HOME}/lib
+COPY --from=torch-builder ${TORCH_HOME}/include ${TORCH_HOME}/include
+
+ENV TORCH_HOME=${TORCH_HOME}
+
+# Reuse the verified repository keyring and install pinned CUDA runtime packages.
+# nvcc is intentionally excluded from the runtime stage.
+COPY --from=torch-builder /cuda-keyring.deb /tmp/cuda-keyring.deb
+RUN dpkg -i /tmp/cuda-keyring.deb \
+  && apt-get update && apt-get install -y --no-install-recommends \
+    libgdal-dev \
+    libgeos-dev \
+    libproj-dev \
+    libsqlite3-dev \
+    libudunits2-dev \
+    libjq-dev \
+    libcurl4-openssl-dev \
+    libsodium-dev \
+    libhiredis-dev \
+    cmake \
+    build-essential \
+    curl \
+    git \
+    gosu \
+    libssl-dev \
+    cuda-cudart-12-8=12.8.90-1 \
+    cuda-nvrtc-12-8=12.8.93-1 \
+  && rm -rf /var/lib/apt/lists/* /tmp/cuda-keyring.deb
+
+ENV LD_LIBRARY_PATH=${TORCH_HOME}/lib:/usr/local/cuda-12.8/lib64:/usr/lib/x86_64-linux-gnu
+ENV CUDA_HOME=/usr/local/cuda-12.8
+ENV CUDA_PATH=/usr/local/cuda-12.8
+
+# Install the shared runtime package surface, then CUDA DNN-specific packages.
+COPY plumber/install-runtime-packages.R /tmp/install-runtime-packages.R
+RUN Rscript --vanilla /tmp/install-runtime-packages.R \
+  && rm -f /tmp/install-runtime-packages.R \
+  && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
+RUN R -e "options(timeout = 900, repos = c(CRAN = Sys.getenv('R_CRAN_REPO')), HTTPUserAgent = paste0('R/', getRversion(), ' ', getOption('HTTPUserAgent'))); install.packages(c('cito', 'torch'), Ncpus=4); stopifnot(as.character(packageVersion('torch')) == '0.17.0'); stopifnot(as.character(packageVersion('cito')) == '1.1')" \
+  && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
+
+# Retain the pinned CUDA headers only for the verified native-extension build.
+COPY --from=torch-builder /usr/local/cuda-12.8/targets/x86_64-linux/include/ /usr/local/cuda-12.8/include/
+
+# Build sdmtorch C++ extensions against installed torch
+COPY scripts/build_sdmtorch.R /tmp/sdmtorch-build/build_sdmtorch.R
+COPY sdmtorch/ /tmp/sdmtorch-build/sdmtorch/
+RUN cd /tmp/sdmtorch-build \
+  && Rscript build_sdmtorch.R \
+  && install -m 0755 sdmtorch/*.so /usr/local/lib/ \
+  && rm -rf /tmp/sdmtorch-build
+
+WORKDIR /app
+
+COPY R/ /app/R/
+COPY plumber/ /app/plumber/
+COPY data/ /app/data/
+COPY python_models/ /app/python_models/
+# Copy sdmtorch source + pre-built .so files (or freshly built ones from step above)
+COPY sdmtorch/ /app/sdmtorch/
+
+RUN groupadd -g 2000 sdm-shared && \
+    useradd -m -s /bin/bash -G sdm-shared sdm && \
+    mkdir -p /app/data/uploads /app/outputs /app/covariates /app/Worldclim && \
+    chown -R sdm:sdm /app /app/outputs /app/covariates /app/Worldclim && \
+    chgrp -R sdm-shared /app/data/uploads /app/outputs && \
+    chmod 2775 /app/data/uploads /app/outputs
+
+EXPOSE 8000
+
+COPY plumber/docker-entrypoint.sh /usr/local/bin/plumber-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/plumber-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/plumber-entrypoint.sh"]
+CMD ["Rscript", "/app/plumber/R/entrypoint.R"]

@@ -54,3 +54,87 @@ make_test_fit <- function(occ, env, seed = 42L) {
                   cv_folds = 2, seed = seed, n_cores = 1),
     error = function(e) NULL)
 }
+
+make_multi_species_occurrence <- function(path = NULL, n_per_species = 20, seed = 42L) {
+  set.seed(seed)
+  ranges <- list(
+    Species_North = list(lon = c(145, 153), lat = c(-24, -16)),
+    Species_East  = list(lon = c(145, 153), lat = c(-38, -25)),
+    Species_West  = list(lon = c(113, 120), lat = c(-35, -22))
+  )
+  dfs <- lapply(names(ranges), function(sp) {
+    r <- ranges[[sp]]
+    data.frame(
+      species = sp,
+      longitude = stats::runif(n_per_species, r$lon[1], r$lon[2]),
+      latitude = stats::runif(n_per_species, r$lat[1], r$lat[2]),
+      source = paste0("Synthetic_", sp),
+      countryCode = "AU",
+      stringsAsFactors = FALSE
+    )
+  })
+  occ <- data.table::rbindlist(dfs)
+  rownames(occ) <- NULL
+  if (!is.null(path)) utils::write.csv(occ, path, row.names = FALSE)
+  occ
+}
+
+make_land_occurrence <- function(lon_range, lat_range, n = 25, seed = 42L,
+                                  wc_dir = "Worldclim") {
+  set.seed(seed)
+  bio1_path <- list.files(wc_dir, pattern = "wc2.1_10m_bio_1\\.tif$",
+    full.names = TRUE)
+  if (length(bio1_path) == 0) stop("WorldClim bio1 not found in ", wc_dir)
+  bio1 <- terra::rast(bio1_path[1])
+
+  on_land <- 0
+  attempts <- 0
+  result <- data.frame()
+  while (on_land < n && attempts < 50) {
+    attempts <- attempts + 1
+    pts <- data.frame(
+      longitude = stats::runif(n * 2, lon_range[1], lon_range[2]),
+      latitude  = stats::runif(n * 2, lat_range[1], lat_range[2]),
+      stringsAsFactors = FALSE
+    )
+    vals <- terra::extract(bio1, pts)
+    pts <- pts[!is.na(vals[, 2]), , drop = FALSE]
+    pts <- pts[!duplicated(paste(pts$longitude, pts$latitude)), , drop = FALSE]
+    result <- rbind(result, pts[seq_len(min(nrow(pts), n - on_land)), ])
+    on_land <- nrow(result)
+  }
+  if (nrow(result) < n) {
+    stop("Only found ", nrow(result), " on-land points in [",
+      paste(lon_range, collapse = ","), "] x [", paste(lat_range, collapse = ","),
+      "] after 50 attempts; needed ", n, ". Try a larger or more land-rich extent.",
+      call. = FALSE)
+  }
+  result[seq_len(n), , drop = FALSE]
+}
+
+make_on_land_multi_species_occurrence <- function(path = NULL, n_per_species = 25,
+                                                    wc_dir = "Worldclim",
+                                                    seed = 42L) {
+  set.seed(seed)
+  ranges <- list(
+    Species_East = list(lon = c(144, 151), lat = c(-36, -26)),
+    Species_West = list(lon = c(114, 122), lat = c(-34, -22))
+  )
+  dfs <- lapply(names(ranges), function(sp) {
+    r <- ranges[[sp]]
+    pts <- make_land_occurrence(r$lon, r$lat, n = n_per_species,
+      wc_dir = wc_dir, seed = seed)
+    data.frame(
+      species = sp,
+      longitude = pts$longitude,
+      latitude = pts$latitude,
+      source = paste0("Museum_", sp),
+      countryCode = "AU",
+      stringsAsFactors = FALSE
+    )
+  })
+  occ <- data.table::rbindlist(dfs)
+  rownames(occ) <- NULL
+  if (!is.null(path)) utils::write.csv(occ, path, row.names = FALSE)
+  occ
+}

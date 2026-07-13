@@ -1,3 +1,48 @@
+# VRAM-safe batch size: cap batch to avoid OOM on consumer GPUs
+.vram_safe_batchsize <- function(n_train, hidden_layers, device, max_batch = 512L) {
+  if (!identical(device, "cuda") && !startsWith(device, "cuda")) {
+    return(min(max_batch, max(32L, floor(n_train / 10))))
+  }
+  free_mib <- NA_real_
+  if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
+    free_mib <- tryCatch(sdm_gpu_available_vram(), error = function(e) NA_real_)
+    if (!is.finite(free_mib)) {
+      # nvidia-smi unavailable inside container; attempt torch-level query as fallback
+      tryCatch({
+        stats <- torch::cuda_memory_stats()
+        # Use max_split_size as a proxy: if torch hasn't allocated yet, assume reasonable VRAM
+        allocated <- stats[["allocated_bytes"]][["current"]] %||% 0
+        total <- stats[["reserved_bytes"]][["all"]] %||% 0
+        if (total > 0) free_mib <- floor((total - allocated) / (1024 * 1024))
+      }, error = function(e) NULL)
+    }
+  }
+  if (!is.finite(free_mib) || free_mib < 128) {
+    return(min(max_batch, max(32L, floor(n_train / 10))))
+  }
+  # VRAM-tier max_batch override: larger GPUs handle bigger batches
+  max_batch <- if (free_mib >= 24000) 8192L
+    else if (free_mib >= 16000) 4096L
+    else if (free_mib >= 8000) 2048L
+    else 512L
+  # Rough per-sample cost estimate (MiB): parameters + activations + gradients + optim states
+  # Assumes ~4 bytes per float, ~8x overhead for activations + grads + Adam states + output layer
+  max_hidden <- max(hidden_layers %||% 64L)
+  per_sample_mib <- max_hidden * length(hidden_layers) * 4 * 8 / (1024 * 1024)
+  if (per_sample_mib < 0.001) per_sample_mib <- 0.001
+  vram_cap <- max(32L, floor(free_mib * 0.7 / per_sample_mib))
+  min(max_batch, max(32L, floor(n_train / 10), vram_cap))
+}
+
+# Helper: resolve DNN architecture from option, config env, or fallback
+sdm_dnn_arch <- function(model_type = "DNN_Medium") {
+  arch <- getOption("sdm.dnn_arch")[[model_type]]
+  if (!is.null(arch)) return(arch)
+  arch <- config$dnn_arch[[model_type]]
+  if (!is.null(arch)) return(arch)
+  config$dnn_arch[["DNN_Medium"]]
+}
+
 ## DNN Modelling Wrapper using cito/torch ---------------------------------------
 ## This module provides deep neural network training and prediction using
 ## the cito package (torch backend) for species distribution modelling.
@@ -95,7 +140,7 @@ check_dnn_requirements <- function(n_records, log_fun = NULL) {
         tryCatch(
           {
             cuda_ver <- Sys.getenv("CUDA", NA_character_)
-            if (nzchar(cuda_ver)) {
+            if (!is.na(cuda_ver) && nzchar(cuda_ver)) {
               check_result$cuda_version <- cuda_ver
             }
           },
@@ -103,8 +148,9 @@ check_dnn_requirements <- function(n_records, log_fun = NULL) {
         )
 
         if (!is.null(log_fun)) {
+          backend <- sdm_backend_for_device("auto")
           log_fun(paste(
-            "DNN GPU: CUDA available | Device: cuda |",
+            "DNN GPU:", toupper(backend), "available |",
             "Records:", n_records,
             "| Expected time: ~2 min"
           ))
@@ -231,13 +277,22 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
   all_data <- rbind(pres_vals, bg_vals)
   labels <- c(rep(1, n_pres), rep(0, n_bg))
 
-  # DNN-103: Train/test split (80/20)
+  # Strip ID column inserted by terra::extract
+  if (ncol(all_data) > 1 && tolower(names(all_data)[1]) == "id") {
+    all_data <- all_data[, -1, drop = FALSE]
+  }
+
+  # DNN-103: Stratified train/test split (80/20)
   n_total <- length(labels)
   if (n_total < 10) {
     stop(paste("DNN-103: Insufficient total data points (", n_total, "). Minimum 10 points required for train/test split."), call. = FALSE)
   }
 
-  test_indices <- sample(n_total, size = floor(0.2 * n_total))
+  presence_idx <- which(labels == 1)
+  background_idx <- which(labels == 0)
+  test_pres <- sample(presence_idx, max(1, floor(0.2 * length(presence_idx))))
+  test_bg <- sample(background_idx, max(1, floor(0.2 * length(background_idx))))
+  test_indices <- sort(unique(c(test_pres, test_bg)))
   train_indices <- setdiff(1:n_total, test_indices)
 
   train_x <- as.matrix(all_data[train_indices, ])
@@ -247,10 +302,10 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
 
   # Scale features (z-score normalization)
   scaler <- list(
-    mean = colMeans(train_x),
-    sd = apply(train_x, 2, sd)
+    mean = colMeans(train_x, na.rm = TRUE),
+    sd = matrixStats::colSds(train_x, na.rm = TRUE)
   )
-  scaler$sd[scaler$sd == 0] <- 1
+  scaler$sd[!is.finite(scaler$sd) | scaler$sd == 0] <- 1
 
   train_x_scaled <- sweep(train_x, 2, scaler$mean, "-")
   train_x_scaled <- sweep(train_x_scaled, 2, scaler$sd, "/")
@@ -278,7 +333,8 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
 #' @return Trained cito model object
 #' @export
 train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu", log_fun = NULL,
-                            dropout = NULL, lambda = NULL) {
+                            dropout = NULL, lambda = NULL, use_fused_adam = "auto",
+                            dnn_mixed_precision = "auto", dnn_cuda_graphs = "auto") {
   # DNN-201: Check cito package is installed
   if (!requireNamespace("cito", quietly = TRUE)) {
     stop("DNN-201: cito package not installed. Install with: install.packages('cito')", call. = FALSE)
@@ -293,14 +349,35 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
     stop(paste(
       "DNN-201b: LibTorch not installed.",
       "\n  Fix: Run in R: library(torch); torch::install_torch()",
-      "\n  For GPU: Ensure CUDA Toolkit 12.8 + cuDNN installed, then: torch::install_torch(reinstall = TRUE)"
+      "\n  For GPU: Ensure CUDA Toolkit 12.6 + cuDNN installed, then: torch::install_torch(reinstall = TRUE)"
     ), call. = FALSE)
   }
 
   # DNN-202: Validate architecture
-  arch <- config$dnn_arch[[model_type]]
+  arch <- sdm_dnn_arch(model_type)
   if (is.null(arch)) {
     stop(paste("DNN-202: Unknown DNN architecture:", model_type, ". Valid options: DNN_Small, DNN_Medium, DNN_Large"), call. = FALSE)
+  }
+
+  # Resolve the user-facing backend separately from R torch's device string:
+  # ROCm executes through device = "cuda", but must not enable CUDA extensions.
+  resolved_backend <- sdm_resolve_backend(device)
+  backend <- resolved_backend$backend
+  device <- resolved_backend$device
+
+  # DNN-202b: GPU guard — skip GPU for models too small to benefit
+  n_input_feats <- length(train_data$feature_names)
+  param_estimate <- arch$hidden[1] * n_input_feats + arch$hidden[1]
+  for (i in seq_len(max(0, length(arch$hidden) - 1))) {
+    param_estimate <- param_estimate + arch$hidden[i] * arch$hidden[i + 1] + arch$hidden[i + 1]
+  }
+  param_estimate <- param_estimate + arch$hidden[length(arch$hidden)] * 1 + 1
+  if (sdm_backend_is_gpu(backend) && param_estimate < 100000) {
+    if (!is.null(log_fun)) {
+      log_fun(paste("DNN:", model_type, "~", param_estimate, "params — GPU not beneficial below 100K params. Forcing CPU."))
+    }
+    backend <- "cpu"
+    device <- "cpu"
   }
 
   # DNN-203: Check training data size
@@ -319,20 +396,74 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   formula_str <- paste("y ~", paste(train_data$feature_names, collapse = " + "))
   df <- as.data.frame(cbind(y = train_data$train_y, train_data$train_x))
 
-  # Check device availability if GPU requested
-  if (device == "cuda") {
-    if (!torch::cuda_is_available()) {
-      warning("DNN: CUDA requested but not available. Falling back to CPU.")
-      device <- "cpu"
-    }
-  } else if (device == "mps") {
-    if (!torch::mps_is_available()) {
-      warning("DNN: MPS requested but not available. Falling back to CPU.")
-      device <- "cpu"
+  if (!isTRUE(resolved_backend$requested_available) && !identical(resolved_backend$requested, "cpu")) {
+    warning("DNN: requested ", resolved_backend$requested, " backend is unavailable. Falling back to CPU.")
+  }
+
+  # NVIDIA-only native features. ROCm keeps its internal torch device = "cuda"
+  # but must not be treated as an NVIDIA CUDA backend here.
+  if (identical(backend, "cuda")) {
+    tryCatch(torch::set_float32_matmul_precision("high"), error = function(e) NULL)
+    # Log cuDNN version for debugging GPU acceleration
+    if (!is.null(log_fun)) {
+      tryCatch({
+        cudnn_avail <- torch::torch_backends_cudnn_is_available()
+        cudnn_ver <- torch::torch_backends_cudnn_version()
+        log_fun(paste("cuDNN available:", cudnn_avail, "| version:", cudnn_ver))
+      }, error = function(e) NULL)
     }
   }
 
   # DNN-204: Train model with error handling
+  # Resolve fused Adam: "off" → no, "always"/"auto" → yes if torch is available
+  # Uses custom ATen-op Adam kernel (train_step_adam.so) — works on CPU/CUDA/MPS
+  torch_has_fused <- exists("torch__fused_adam_", envir = asNamespace("torch"))
+  use_fused <- if (identical(use_fused_adam, "off")) {
+    FALSE
+  } else {
+    torch_has_fused
+  }
+
+  # Silence "no visible binding" NOTE from R CMD check
+  .old_train_model <- NULL
+  if (use_fused) {
+    # Guarantee restoration on any exit path (error in set_train_opts, cito::dnn, etc.)
+    on.exit({
+      if (!is.null(.old_train_model)) {
+        tryCatch(assignInNamespace("train_model", .old_train_model, ns = "cito"),
+          error = function(e) NULL)
+      }
+    }, add = TRUE, after = FALSE)
+
+    # Load custom ATen-op Adam kernel (works on CPU/CUDA/MPS)
+    # NOTE: The libtorch _fused_adam_ kernel produces NaN on Blackwell GPUs (compute 12.0).
+    #       This code only loads the safe ATen-op kernel (train_step_adam.so).
+    sdm_root <- if (exists("sdm_project_root", mode = "function")) sdm_project_root() else getwd()
+    cpp_so <- file.path(sdm_root, "sdmtorch", "train_step_adam.so")
+    if (file.exists(cpp_so) && !is.loaded("adam_step_direct", PACKAGE = "")) {
+      tryCatch({
+        dyn.load(cpp_so, local = FALSE, now = TRUE)
+        # Verify ABI compatibility
+        sdm_check_so_abi(cpp_so, "train_step_adam.so")
+      }, error = function(e) {
+        if (!is.null(log_fun)) log_fun("Fused Adam .so not loaded (", conditionMessage(e), ")")
+      })
+    }
+    .old_train_model <- get("train_model", envir = asNamespace("cito"))
+    tryCatch({
+      assignInNamespace("train_model", train_model_fused, ns = "cito")
+    }, error = function(e) {
+      use_fused <<- FALSE
+      .old_train_model <<- NULL
+      if (!is.null(log_fun)) log_fun("Fused Adam not available, falling back to standard Adam")
+    })
+    set_train_opts(
+      mixed_precision = dnn_mixed_precision,
+      cuda_graphs = dnn_cuda_graphs,
+      backend = backend
+    )
+  }
+
   model <- tryCatch(
     {
       cito::dnn(
@@ -344,9 +475,9 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
         optimizer = "adam",
         lr = arch$lr,
         epochs = arch$epochs,
-        batchsize = min(100L, max(32L, floor(n_train / 10))),
+        batchsize = .vram_safe_batchsize(n_train, arch$hidden, device, max_batch = 512L),
         dropout = dropout %||% arch$dropout,
-        lambda = lambda %||% 0.001,
+        lambda = lambda %||% arch$lambda %||% 0.001,
         alpha = 1.0,
         validation = 0.3,
         lr_scheduler = cito::config_lr_scheduler("reduce_on_plateau", patience = 7),
@@ -357,14 +488,12 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
     },
     error = function(e) {
       err_msg <- conditionMessage(e)
-
-      # Provide specific suggestions based on error type
-      if (grepl("cuda|CUDA", err_msg, ignore.case = TRUE)) {
+      if (grepl("cuda|hip|rocm|hsa|CUDA", err_msg, ignore.case = TRUE)) {
         stop(paste(
-          "DNN-204: CUDA error:", err_msg,
+          "DNN-204: GPU runtime error:", err_msg,
           "\n  Suggestions:",
-          "\n  1. Verify CUDA Toolkit 12.8 is installed: nvidia-smi",
-          "\n  2. Reinstall torch with GPU: torch::install_torch(reinstall = TRUE)",
+          "\n  1. Verify the selected GPU runtime and PyTorch build are compatible",
+          "\n  2. Reinstall the matching torch build for CUDA or ROCm",
           "\n  3. Try CPU device instead: device = 'cpu'"
         ), call. = FALSE)
       } else if (grepl("memory|Memory", err_msg, ignore.case = TRUE)) {
@@ -416,33 +545,28 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
   # Process in batches with error handling
   pred_vals <- rep(NA, n_cells)
 
+  all_vals <- terra::values(pred_stack)
+
   for (i in seq(1, length(valid_cells), by = batch_size)) {
     batch_idx <- valid_cells[i:min(i + batch_size - 1, length(valid_cells))]
-    batch_xy <- terra::xyFromCell(pred_stack, batch_idx)
-    batch_vals <- tryCatch(
-      {
-        terra::extract(pred_stack, batch_xy)
-      },
-      error = function(e) {
-        stop(paste("DNN-303: Failed to extract raster values for prediction:", conditionMessage(e)), call. = FALSE)
-      }
-    )
+    batch_vals <- all_vals[batch_idx, , drop = FALSE]
 
-    # Track which rows in batch_idx had valid data
     valid_rows <- complete.cases(batch_vals)
     valid_batch_idx <- batch_idx[valid_rows]
     valid_batch_vals <- batch_vals[valid_rows, , drop = FALSE]
 
     if (nrow(valid_batch_vals) > 0) {
-      # Scale
-      batch_scaled <- sweep(as.matrix(valid_batch_vals), 2, scaler$mean, "-")
+      batch_scaled <- sweep(valid_batch_vals, 2, scaler$mean, "-")
       batch_scaled <- sweep(batch_scaled, 2, scaler$sd, "/")
 
-      # DNN-303: Predict with error handling
       batch_pred <- tryCatch(
         {
-          pred <- predict(model, newdata = as.data.frame(batch_scaled), type = "response")
-          if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
+          x_tensor <- torch::torch_tensor(batch_scaled, device = device)
+          pred <- torch::with_no_grad({
+            logits <- model$net(x_tensor)
+            torch::torch_sigmoid(logits)
+          })
+          as.numeric(pred$cpu())
         },
         error = function(e) {
           stop(paste("DNN-303: Prediction failed for batch:", conditionMessage(e)), call. = FALSE)
@@ -457,6 +581,7 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
   # Create raster
   pred_raster <- pred_stack[[1]]
   terra::values(pred_raster) <- pred_vals
+  names(pred_raster) <- "suitability"
   pred_raster
 }
 
@@ -479,7 +604,9 @@ get_dnn_metrics <- function(model, test_data) {
   # DNN-402: Get predictions with error handling
   pred_probs <- tryCatch(
     {
-      pred <- predict(model, newdata = as.data.frame(test_data$test_x), type = "response")
+      pred <- torch::with_no_grad({
+        stats::predict(model, newdata = as.data.frame(test_data$test_x), type = "response")
+      })
       if (is.matrix(pred)) pred[, 1] else as.numeric(pred)
     },
     error = function(e) {
@@ -686,25 +813,32 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
                         dnn_device = "auto",
                         dropout = NULL,
                         lambda = NULL,
+                        n_seeds = 5L,
+                        use_fused_adam = "auto",
+                        dnn_mixed_precision = "auto",
+                        dnn_cuda_graphs = "auto",
+                        mc_samples = 0L,
+                        uncertainty_method = "none",
                         ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages. Install them or choose a different backend.", call. = FALSE)
   }
 
-  # Extract presence values and filter for complete cases (consistent with prepare_dnn_data)
+  # Extract presence values and filter for complete cases
   coords <- occ[, c("longitude", "latitude"), drop = FALSE]
   pres_vals <- tryCatch(terra::extract(env_train_scaled, coords), error = function(e) NULL)
   if (is.null(pres_vals) || nrow(pres_vals) == 0) stop("No valid presence points found after raster extraction.", call. = FALSE)
   pres_vals <- pres_vals[complete.cases(pres_vals), , drop = FALSE]
+  if ("ID" %in% names(pres_vals)) pres_vals <- pres_vals[, setdiff(names(pres_vals), "ID"), drop = FALSE]
   if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data.", call. = FALSE)
   occurrence_used <- occ[complete.cases(pres_vals), , drop = FALSE]
 
-  # Sample background points using shared function (supports bias methods)
+  # Sample background points using shared function
   bg_xy <- sample_background_points(env_train_scaled, background_n,
     seed = seed, bias_method = bias_method,
     target_group_occ = target_group_occ,
     thickening_distance_km = thickening_distance_km,
-    pres_xy = occurrence_used[, c("longitude", "latitude"), drop = FALSE])
+    presence_xy = occurrence_used[, c("longitude", "latitude"), drop = FALSE])
   bg_vals <- extract_covariates(env_train_scaled, bg_xy)
   bg_keep <- stats::complete.cases(bg_vals)
   bg_vals <- bg_vals[bg_keep, , drop = FALSE]
@@ -719,27 +853,34 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     data.frame(presence = 1L, pres_vals, check.names = FALSE),
     data.frame(presence = 0L, bg_vals, check.names = FALSE)
   )
-  occ_used <- d$occ_used
-  bg_xy <- d$bg_xy
-  model_data <- d$model_data
-  covariates <- d$covariates
 
-  log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", sum(model_data$presence == 1), " presences")
+  n_total <- nrow(model_data)
+  if (n_total < 20) stop("Too few data points for DNN training (minimum 20 required).", call. = FALSE)
 
-  # Run DNN
-  dnn_result <- run_dnn(
-    occ_df = occ,
-    pred_stack = env_train_scaled,
-    selected_dnn_models = dnn_model_type,
-    background_n = background_n,
-    device = dnn_device,
-    dropout = dropout,
-    lambda = lambda,
-    log_fun = log_fun
+  set.seed(seed)
+  presence_indices <- which(model_data$presence == 1)
+  background_indices <- which(model_data$presence == 0)
+  test_pres <- sample(presence_indices, max(1, floor(0.2 * length(presence_indices))))
+  test_bg <- sample(background_indices, max(1, floor(0.2 * length(background_indices))))
+  test_indices <- sort(unique(c(test_pres, test_bg)))
+  train_indices <- setdiff(seq_len(n_total), test_indices)
+
+  train_data <- model_data[train_indices, ]
+  test_data <- model_data[test_indices, ]
+
+  x_train_mat <- as.matrix(train_data[, covariates, drop = FALSE])
+  scaler <- list(
+    mean = colMeans(x_train_mat, na.rm = TRUE),
+    sd = matrixStats::colSds(x_train_mat, na.rm = TRUE)
   )
   scaler$sd[scaler$sd == 0 | !is.finite(scaler$sd)] <- 1
-  x_train_scaled <- sweep(x_train, 2, scaler$mean, "-")
-  x_train_scaled <- sweep(x_train_scaled, 2, scaler$sd, "/")
+
+  train_x_scaled <- sweep(x_train_mat, 2, scaler$mean, "-")
+  train_x_scaled <- sweep(train_x_scaled, 2, scaler$sd, "/")
+
+  x_test_mat <- as.matrix(test_data[, covariates, drop = FALSE])
+  test_x_scaled <- sweep(x_test_mat, 2, scaler$mean, "-")
+  test_x_scaled <- sweep(test_x_scaled, 2, scaler$sd, "/")
 
   n_seeds <- as.integer(n_seeds)[1]
   if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
@@ -747,51 +888,70 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", n_seeds, " seeds, ",
     sum(model_data$presence == 1), " presences")
 
-  # Train multiple seeds
   seed_models <- vector("list", n_seeds)
-  seed_metrics <- vector("list", n_seeds)
-  train_df <- as.data.frame(x_train_scaled)
-  names(train_df) <- covariates
-
+  seed_devices <- character(n_seeds)
   for (s in seq_len(n_seeds)) {
     log_message(log_fun, "  Training seed ", s, "/", n_seeds)
     dnn_data <- list(
-      train_x = x_train_scaled,
-      train_y = model_data$presence,
-      test_x = x_train_scaled,
-      test_y = model_data$presence,
+      train_x = train_x_scaled,
+      train_y = train_data$presence,
+      test_x = test_x_scaled,
+      test_y = test_data$presence,
       feature_names = covariates
     )
 
+    seed_device <- dnn_device
     model <- tryCatch(
       train_dnn_model(dnn_data, model_type = dnn_model_type, device = dnn_device, log_fun = log_fun,
-                       dropout = dropout, lambda = lambda),
+                       dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
+                       dnn_mixed_precision = dnn_mixed_precision, dnn_cuda_graphs = dnn_cuda_graphs),
       error = function(e) {
-        log_message(log_fun, "    Seed ", s, " failed: ", conditionMessage(e))
-        NULL
+        err_msg <- conditionMessage(e)
+        # If any selected accelerator failed, retry on CPU. HIP/ROCm errors are
+        # intentionally treated alongside CUDA OOM/runtime failures.
+        if (sdm_backend_is_gpu(sdm_resolve_backend(dnn_device)$backend) &&
+            grepl("CUDA|HIP|ROCm|HSA|out of memory|cuda|memory", err_msg, ignore.case = TRUE)) {
+          log_message(log_fun, "    Seed ", s, " GPU failed (", err_msg, "). Retrying on CPU...")
+          seed_device <<- "cpu"
+          tryCatch(
+            train_dnn_model(dnn_data, model_type = dnn_model_type, device = "cpu", log_fun = log_fun,
+                             dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
+                             dnn_mixed_precision = "off", dnn_cuda_graphs = "off"),
+            error = function(e2) {
+              log_message(log_fun, "    Seed ", s, " CPU fallback also failed: ", conditionMessage(e2))
+              NULL
+            }
+          )
+        } else {
+          log_message(log_fun, "    Seed ", s, " failed: ", err_msg)
+          NULL
+        }
       }
     )
     if (is.null(model)) next
-
     seed_models[[s]] <- model
+    seed_devices[s] <- seed_device
   }
 
   seed_models <- Filter(Negate(is.null), seed_models)
+  seed_devices <- seed_devices[lengths(seed_models) > 0]
   if (length(seed_models) == 0) stop("All DNN seeds failed to train.", call. = FALSE)
 
   n_success <- length(seed_models)
   log_message(log_fun, "  ", n_success, "/", n_seeds, " seeds trained successfully")
 
-  # Ensemble: average predictions across seeds
   best_model <- seed_models[[1]]
-  ensemble_models <- seed_models
 
-  # Compute mean AUC across seeds
-  auc_vals <- vapply(seed_models, function(m) {
+  # Compute mean AUC across seeds using the actual device per seed
+  auc_vals <- vapply(seq_along(seed_models), function(i) {
+    m <- seed_models[[i]]
+    dev <- seed_devices[i]
     tryCatch({
-      pred <- predict(m, newdata = as.data.frame(dnn_data$train_x), type = "response")
+      pred <- torch::with_no_grad({
+        predict(m, newdata = as.data.frame(test_x_scaled), type = "response", device = dev)
+      })
       if (is.matrix(pred)) pred <- pred[, 1]
-      auc_rank(dnn_data$train_y, as.numeric(pred))
+      auc_rank(test_data$presence, as.numeric(pred))
     }, error = function(e) NA_real_)
   }, numeric(1))
   auc_mean <- mean(auc_vals, na.rm = TRUE)
@@ -813,7 +973,10 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
   }
 
-  # Compute SHAP and native importance/PDP on the first model
+  # SHAP on the best model
+  train_df <- as.data.frame(train_x_scaled)
+  names(train_df) <- covariates
+
   shap_values <- tryCatch({
     cito::explain(best_model, data = train_df)
   }, error = function(e) {
@@ -840,7 +1003,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
   list(
     model = best_model,
-    ensemble_models = ensemble_models,
+    ensemble_models = seed_models,
     formula = NULL,
     coefficients = NULL,
     model_data = model_data,
@@ -855,46 +1018,326 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     scaler = scaler,
     n_seeds = n_success,
     dnn_device = dnn_device,
-    dnn_model_type = dnn_model_type
+    dnn_model_type = dnn_model_type,
+    use_fused_adam = use_fused_adam,
+    mc_samples = as.integer(mc_samples),
+    uncertainty_method = match.arg(tolower(uncertainty_method), c("none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"))
   )
+}
+
+#' MC Dropout prediction with uncertainty decomposition
+#'
+#' Runs forward passes with dropout active (model in train mode) to estimate
+#' predictive uncertainty via Monte Carlo dropout.
+#'
+#' Uses law of total variance decomposition for Bernoulli models:
+#'   total = aleatoric + epistemic
+#'   aleatoric = mean(p_t * (1 - p_t))   — inherent Bernoulli noise
+#'   epistemic = Var(p_t) = mean(p^2) - mean(p)^2  — model uncertainty
+#'
+#' @param model Trained cito DNN model
+#' @param pred_stack SpatRaster stack of scaled environmental covariates
+#' @param scaler Scaling parameters (mean, sd) from training
+#' @param device Device string ("cpu", "cuda", "mps")
+#' @param batch_size Cells per prediction batch
+#' @param mc_samples Number of MC dropout forward passes (default 30)
+#' @param log_fun Optional logging function
+#' @param decompose If TRUE, also compute aleatoric/epistemic decomposition
+#' @return List with rasters: mean, sd, cv. If decompose=TRUE, also aleatoric, epistemic, total
+predict_dnn_mc <- function(model, pred_stack, scaler, device = "cpu",
+                           batch_size = 1000L, mc_samples = 30L,
+                           log_fun = NULL, decompose = FALSE) {
+  is_cuda <- startsWith(as.character(device), "cuda")
+  use_fp16 <- is_cuda && requireNamespace("torch", quietly = TRUE) && torch::cuda_is_available()
+  label <- if (use_fp16) "MC Dropout (FP16)" else "MC Dropout"
+  log_message(log_fun, label, ": ", mc_samples, " forward passes with dropout active")
+
+  # Enable dropout for MC sampling
+  model$net$train()
+  on.exit(model$net$eval(), add = TRUE)
+
+  n_cells <- terra::ncell(pred_stack)
+  valid_cells <- which(!is.na(terra::values(pred_stack[[1]])))
+  if (length(valid_cells) == 0) {
+    stop("DNN-302: No valid cells for MC Dropout prediction", call. = FALSE)
+  }
+
+  # Pre-flight memory check — mc_matrix is n_valid_cells x mc_samples doubles (8 bytes each)
+  mc_matrix_bytes <- length(valid_cells) * mc_samples * 8
+  mc_matrix_gb <- mc_matrix_bytes / (1024^3)
+  if (mc_matrix_gb > 4) {
+    chunk_size <- max(1L, floor(4 * 1024^3 / (length(valid_cells) * 8)))
+    log_message(log_fun, sprintf(
+      "MC matrix would be %.1f GB — chunking to %d-sample blocks", mc_matrix_gb, chunk_size
+    ))
+  } else {
+    chunk_size <- mc_samples
+  }
+
+  mean_vec <- numeric(length(valid_cells))
+  m2_vec <- numeric(length(valid_cells))
+  alea_sum_vec <- numeric(length(valid_cells))
+
+  # Pre-extract and scale raster values once — shared across all MC samples.
+  # Each batch produces a matrix [batch_size x n_covariates] of scaled env data.
+  n_covariates <- terra::nlyr(pred_stack)
+  pre_scaled <- vector("list", length = ceiling(length(valid_cells) / batch_size))
+  pre_cell_idx <- vector("list", length = length(pre_scaled))
+  pre_scaled_rows <- 0L
+  for (i in seq(1, length(valid_cells), by = batch_size)) {
+    pre_scaled_rows <- pre_scaled_rows + 1L
+    batch_idx <- valid_cells[i:min(i + batch_size - 1, length(valid_cells))]
+    batch_xy <- terra::xyFromCell(pred_stack, batch_idx)
+    batch_vals <- tryCatch(
+      terra::extract(pred_stack, batch_xy),
+      error = function(e) {
+        stop(paste("DNN-303: Failed to extract raster values:", conditionMessage(e)), call. = FALSE)
+      }
+    )
+    valid_rows <- complete.cases(batch_vals)
+    pre_cell_idx[[pre_scaled_rows]] <- batch_idx[valid_rows]
+    if (nrow(batch_vals[valid_rows, , drop = FALSE]) > 0) {
+      scaled <- sweep(as.matrix(batch_vals[valid_rows, , drop = FALSE]), 2, scaler$mean, "-")
+      scaled <- sweep(scaled, 2, scaler$sd, "/")
+      pre_scaled[[pre_scaled_rows]] <- scaled
+    } else {
+      pre_scaled[[pre_scaled_rows]] <- matrix(0, nrow = 0, ncol = n_covariates)
+    }
+  }
+
+  # Initialize Welford accumulators on GPU
+  if (is_cuda) {
+    gpu_mean_vec <- torch::torch_zeros(length(valid_cells), device = device)
+    gpu_m2_vec <- torch::torch_zeros(length(valid_cells), device = device)
+    gpu_alea_sum_vec <- torch::torch_zeros(length(valid_cells), device = device)
+    gpu_pred_vals <- torch::torch_zeros(n_cells, device = device)
+  }
+
+  pred_vals <- rep(NA_real_, n_cells)
+
+  for (chunk_start in seq(1, mc_samples, by = chunk_size)) {
+    chunk_end <- min(chunk_start + chunk_size - 1, mc_samples)
+    chunk_n <- chunk_end - chunk_start + 1L
+
+    for (t_local in seq_len(chunk_n)) {
+      t_global <- chunk_start + t_local - 1L
+      if (!is.null(log_fun) && mc_samples > 5 && (t_global %% 5 == 0 || t_global == 1)) {
+        log_message(log_fun, sprintf("  MC sample %d/%d", t_global, mc_samples))
+      }
+
+      if (!is_cuda) pred_vals[] <- NA_real_
+
+      for (b in seq_len(pre_scaled_rows)) {
+        batch_idx <- pre_cell_idx[[b]]
+        batch_scaled <- pre_scaled[[b]]
+        if (length(batch_idx) == 0) next
+
+        x_tensor <- torch::torch_tensor(batch_scaled, device = device)
+        with_no_grad_ctx <- torch::with_no_grad({
+          pred <- model$net(x_tensor)
+          if (inherits(pred, "torch_tensor")) {
+            pred <- torch::torch_sigmoid(pred)
+          }
+          # Keep on GPU or transfer to CPU for Welford
+          if (is_cuda) {
+            gpu_pred_vals <- gpu_pred_vals$index_copy(0,
+              torch::torch_tensor(batch_idx - 1L, device = device, dtype = torch::kLong),
+              pred$reshape(-1))
+          } else {
+            batch_pred <- as.numeric(pred$cpu())
+            pred_vals[batch_idx] <- batch_pred
+          }
+        })
+      }
+
+      # Welford: on GPU or CPU
+      if (is_cuda) {
+        col <- gpu_pred_vals[valid_cells - 1L]
+        delta <- col - gpu_mean_vec
+        gpu_mean_vec <- gpu_mean_vec + delta / t_global
+        delta2 <- col - gpu_mean_vec
+        gpu_m2_vec <- gpu_m2_vec + delta * delta2
+        if (decompose) {
+          gpu_alea_sum_vec <- gpu_alea_sum_vec + col * (1 - col)
+        }
+      } else {
+        col <- pred_vals[valid_cells]
+        delta <- col - mean_vec
+        mean_vec <- mean_vec + delta / t_global
+        delta2 <- col - mean_vec
+        m2_vec <- m2_vec + delta * delta2
+        if (decompose) {
+          alea_sum_vec <- alea_sum_vec + col * (1 - col)
+        }
+      }
+    }
+  }
+
+  # Transfer GPU results to CPU
+  if (is_cuda) {
+    mean_vec <- as.numeric(gpu_mean_vec$cpu())
+    m2_vec <- as.numeric(gpu_m2_vec$cpu())
+    if (decompose) alea_sum_vec <- as.numeric(gpu_alea_sum_vec$cpu())
+    rm(gpu_mean_vec, gpu_m2_vec, gpu_alea_sum_vec, gpu_pred_vals)
+  }
+
+  # Compute final statistics
+  if (mc_samples >= 2) {
+    var_vec <- m2_vec / mc_samples
+  } else {
+    var_vec <- rep(0, length(valid_cells))
+  }
+
+  if (decompose && mc_samples >= 2) {
+    aleatoric_vec <- alea_sum_vec / mc_samples
+    epistemic_vec <- pmax(var_vec - aleatoric_vec, 0)
+    total_vec <- aleatoric_vec + epistemic_vec
+    sd_vec <- sqrt(total_vec)
+    cv_vec <- sd_vec / pmax(mean_vec, 1e-10)
+  } else {
+    sd_vec <- sqrt(var_vec)
+    cv_vec <- sd_vec / pmax(mean_vec, 1e-10)
+    aleatoric_vec <- NULL
+    epistemic_vec <- NULL
+    total_vec <- NULL
+  }
+
+  # Map back to full raster
+  mean_raster <- pred_stack[[1]]
+  terra::values(mean_raster) <- NA_real_
+  terra::values(mean_raster)[valid_cells] <- mean_vec
+  names(mean_raster) <- "suitability"
+
+  sd_raster <- pred_stack[[1]]
+  terra::values(sd_raster) <- NA_real_
+  terra::values(sd_raster)[valid_cells] <- sd_vec
+  names(sd_raster) <- "uncertainty_sd"
+
+  cv_raster <- pred_stack[[1]]
+  terra::values(cv_raster) <- NA_real_
+  terra::values(cv_raster)[valid_cells] <- cv_vec
+  names(cv_raster) <- "uncertainty_cv"
+
+  result <- list(mean = mean_raster, sd = sd_raster, cv = cv_raster)
+
+  if (decompose && !is.null(aleatoric_vec)) {
+    alea_raster <- pred_stack[[1]]
+    terra::values(alea_raster) <- NA_real_
+    terra::values(alea_raster)[valid_cells] <- aleatoric_vec
+    names(alea_raster) <- "aleatoric"
+
+    epi_raster <- pred_stack[[1]]
+    terra::values(epi_raster) <- NA_real_
+    terra::values(epi_raster)[valid_cells] <- epistemic_vec
+    names(epi_raster) <- "epistemic"
+
+    total_raster <- pred_stack[[1]]
+    terra::values(total_raster) <- NA_real_
+    terra::values(total_raster)[valid_cells] <- total_vec
+    names(total_raster) <- "total"
+
+    result$aleatoric <- alea_raster
+    result$epistemic <- epi_raster
+    result$total <- total_raster
+  }
+
+  result
 }
 
 #' Predict DNN suitability (registry pattern)
 predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
-  n_seeds <- length(fit$ensemble_models %||% list())
-  if (n_seeds > 1) {
-    log_message(log_fun, "Predicting suitability raster with DNN ensemble (", n_seeds, " seeds, ", fit$dnn_model_type, ")")
+  mc_samples <- fit$mc_samples %||% 0L
+  uncertainty_method <- fit$uncertainty_method %||% "none"
 
-    seed_preds <- vector("list", n_seeds)
-    for (s in seq_len(n_seeds)) {
-      seed_preds[[s]] <- predict_dnn_raster(fit$ensemble_models[[s]], env_project_scaled,
-        fit$scaler, device = fit$dnn_device)
+  # MC Dropout / heteroscedastic path — uses trained model with dropout active
+  if (isTRUE(mc_samples > 0L)) {
+    decompose <- identical(uncertainty_method, "aleatoric_epistemic") || identical(uncertainty_method, "heteroscedastic")
+    if (decompose && mc_samples < 2L) {
+      log_message(log_fun, "Warning: uncertainty decomposition requires mc_samples >= 2, falling back to mc_dropout")
+      decompose <- FALSE
+    }
+    label <- if (decompose) "Heteroscedastic MC" else "MC Dropout"
+    log_message(log_fun, "Predicting suitability with ", label, " (", mc_samples, " samples, ", fit$dnn_model_type, ")")
+
+    mc_result <- predict_dnn_mc(fit$model, env_project_scaled, fit$scaler,
+      device = fit$dnn_device, mc_samples = mc_samples, log_fun = log_fun,
+      decompose = decompose)
+
+    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+    terra::writeRaster(mc_result$mean, output_tif, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+    log_message(log_fun, "DNN ", label, " suitability saved: ", output_tif)
+
+    uncertainty_tif <- sub("\\.tif$", "_uncertainty_epistemic.tif", output_tif)
+    terra::writeRaster(mc_result$sd, uncertainty_tif, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+    log_message(log_fun, "DNN ", label, " uncertainty (SD) saved: ", uncertainty_tif)
+
+    cv_tif <- sub("\\.tif$", "_uncertainty_cv.tif", output_tif)
+    terra::writeRaster(mc_result$cv, cv_tif, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+    log_message(log_fun, "DNN ", label, " CV saved: ", cv_tif)
+
+    attr(mc_result$mean, "uncertainty_tif") <- uncertainty_tif
+    attr(mc_result$mean, "uncertainty_cv_tif") <- cv_tif
+
+    # Write decomposition rasters for heteroscedastic method
+    if (decompose && !is.null(mc_result$aleatoric)) {
+      alea_tif <- sub("\\.tif$", "_aleatoric.tif", output_tif)
+      terra::writeRaster(mc_result$aleatoric, alea_tif, overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN aleatoric uncertainty saved: ", alea_tif)
+
+      epi_tif <- sub("\\.tif$", "_epistemic.tif", output_tif)
+      terra::writeRaster(mc_result$epistemic, epi_tif, overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN epistemic uncertainty saved: ", epi_tif)
+
+      total_tif <- sub("\\.tif$", "_total_uncertainty.tif", output_tif)
+      terra::writeRaster(mc_result$total, total_tif, overwrite = TRUE,
+        wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN total uncertainty saved: ", total_tif)
     }
 
-    pred_stack <- terra::rast(seed_preds)
-    mean_pred <- mean(pred_stack, na.rm = TRUE)
-    sd_pred <- terra::stdev(pred_stack, na.rm = TRUE)
+    mc_result$mean
 
-    terra::values(mean_pred)[is.nan(terra::values(mean_pred))] <- NA
-    terra::values(sd_pred)[is.nan(terra::values(sd_pred))] <- NA
-    names(mean_pred) <- "suitability"
-
-    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(mean_pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
-    log_message(log_fun, "DNN ensemble suitability saved: ", output_tif)
-
-    uncertainty_tif <- sub("\\.tif$", "_uncertainty.tif", output_tif)
-    terra::writeRaster(sd_pred, uncertainty_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
-    log_message(log_fun, "DNN ensemble uncertainty (SD) saved: ", uncertainty_tif, " +/- ", sprintf("%.3f", mean(terra::values(sd_pred), na.rm = TRUE)))
-
-    attr(mean_pred, "uncertainty_tif") <- uncertainty_tif
-    mean_pred
   } else {
-    log_message(log_fun, "Predicting suitability raster with DNN (", fit$dnn_model_type, ")")
-    pred <- predict_dnn_raster(fit$model, env_project_scaled, fit$scaler, device = fit$dnn_device)
-    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
-    log_message(log_fun, "DNN suitability saved: ", output_tif)
-    pred
+    # Standard (non-MC) prediction path
+    n_seeds <- length(fit$ensemble_models %||% list())
+    if (n_seeds > 1) {
+      log_message(log_fun, "Predicting suitability raster with DNN ensemble (", n_seeds, " seeds, ", fit$dnn_model_type, ")")
+
+      seed_preds <- vector("list", n_seeds)
+      for (s in seq_len(n_seeds)) {
+        seed_preds[[s]] <- predict_dnn_raster(fit$ensemble_models[[s]], env_project_scaled,
+          fit$scaler, device = fit$dnn_device)
+      }
+
+      pred_stack <- terra::rast(seed_preds)
+      mean_pred <- mean(pred_stack, na.rm = TRUE)
+      sd_pred <- terra::stdev(pred_stack, na.rm = TRUE)
+
+      terra::values(mean_pred)[is.nan(terra::values(mean_pred))] <- NA
+      terra::values(sd_pred)[is.nan(terra::values(sd_pred))] <- NA
+      names(mean_pred) <- "suitability"
+
+      dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+      terra::writeRaster(mean_pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN ensemble suitability saved: ", output_tif)
+
+      uncertainty_tif <- sub("\\.tif$", "_uncertainty.tif", output_tif)
+      terra::writeRaster(sd_pred, uncertainty_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN ensemble uncertainty (SD) saved: ", uncertainty_tif, " +/- ", sprintf("%.3f", mean(terra::values(sd_pred), na.rm = TRUE)))
+
+      attr(mean_pred, "uncertainty_tif") <- uncertainty_tif
+      mean_pred
+    } else {
+      log_message(log_fun, "Predicting suitability raster with DNN (", fit$dnn_model_type, ")")
+      pred <- predict_dnn_raster(fit$model, env_project_scaled, fit$scaler, device = fit$dnn_device)
+      dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+      terra::writeRaster(pred, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      log_message(log_fun, "DNN suitability saved: ", output_tif)
+      pred
+    }
   }
 }

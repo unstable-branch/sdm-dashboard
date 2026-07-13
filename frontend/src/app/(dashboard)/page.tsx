@@ -6,7 +6,7 @@ import { WelcomePanel } from "@/components/ecology/welcome-panel";
 import dynamic from "next/dynamic";
 import { useCompletedRuns, useRuns } from "@/hooks/use-runs";
 import { toNum, fmtFixed, fmtLocale } from "@/lib/utils";
-import { Loader2, ArrowRight, Database, Brain, BarChart3, Map, Upload, CheckCircle2, Circle, Clock, CheckCircle, XCircle } from "lucide-react";
+import { Loader2, ArrowRight, Ban, Database, Brain, BarChart3, Map, Upload, CheckCircle2, Circle, Clock, CheckCircle, XCircle } from "lucide-react";
 
 const SuitabilityMap = dynamic(
   () => import("@/components/results/suitability-map"),
@@ -65,7 +65,6 @@ export default function DashboardPage() {
   const { data: runsData } = useRuns();
   const latestRun = completedRuns.length > 0 ? completedRuns[0] : null;
   const recentRuns = (runsData?.runs ?? [])
-    .filter((r) => r.status !== "running")
     .slice(0, 5);
 
   if (isLoading) {
@@ -147,7 +146,8 @@ export default function DashboardPage() {
                       }>
                         {run.status === "completed" ? <CheckCircle className="h-3.5 w-3.5 inline mr-1" /> :
                          run.status === "failed" ? <XCircle className="h-3.5 w-3.5 inline mr-1" /> :
-                         run.status === "cancelled" ? <XCircle className="h-3.5 w-3.5 inline mr-1" /> :
+                         run.status === "cancelled" ? <Ban className="h-3.5 w-3.5 inline mr-1" /> :
+                         run.status === "running" || run.status === "loading" ? <Loader2 className="h-3.5 w-3.5 inline mr-1 animate-spin" /> :
                          <Clock className="h-3.5 w-3.5 inline mr-1" />}
                         {run.status}
                       </span>

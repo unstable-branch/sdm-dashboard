@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from "react";
 
+import type { OutputFiles } from "@/services/types";
+
 interface FutureProjectionPanelProps {
-  outputFiles: Record<string, string> | null;
+  outputFiles: OutputFiles | null;
   config?: Record<string, unknown>;
 }
 
@@ -20,6 +22,9 @@ interface ScenarioData {
 export function FutureProjectionPanel({ outputFiles, config }: FutureProjectionPanelProps) {
   const [scenarios, setScenarios] = useState<ScenarioData[]>([]);
   const [activeScenario, setActiveScenario] = useState(0);
+  useEffect(() => {
+    setActiveScenario((prev) => Math.min(prev, Math.max(scenarios.length - 1, 0)));
+  }, [scenarios.length]);
 
   useEffect(() => {
     if (!outputFiles) return;

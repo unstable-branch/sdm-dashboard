@@ -57,6 +57,7 @@ export function useDiagnostics(runId: string | null): UseDiagnosticsResult {
     }
   }, [runId]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchDiagnostics is memoized via useCallback and only changes when runId changes
   useEffect(() => {
     if (runId) fetchDiagnostics();
   }, [fetchDiagnostics, runId]);

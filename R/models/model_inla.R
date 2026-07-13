@@ -167,7 +167,7 @@ predict_inla_suitability <- function(fit, env_project_scaled, output_tif, n_core
     suit <- terra::rast(env_subset[[1]])
     names(suit) <- "suitability"
     dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+    terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     return(suit)
   }
 
@@ -210,7 +210,7 @@ predict_inla_suitability <- function(fit, env_project_scaled, output_tif, n_core
   names(suit) <- "suitability"
 
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
   log_message(log_fun, "INLA suitability raster written to: ", output_tif)
 
   attr(suit, "n_posterior_samples") <- n_samples
@@ -226,7 +226,7 @@ predict_inla_suitability <- function(fit, env_project_scaled, output_tif, n_core
     uncertainty_rast[complete_idx] <- uncertainty
     names(uncertainty_rast) <- "uncertainty_ci95"
     terra::writeRaster(uncertainty_rast, uncertainty_tif, overwrite = TRUE,
-      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     log_message(log_fun, "INLA uncertainty raster written to: ", uncertainty_tif)
     attr(suit, "uncertainty_tif") <- uncertainty_tif
   }

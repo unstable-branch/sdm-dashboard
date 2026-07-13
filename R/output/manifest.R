@@ -2,6 +2,7 @@ write_manifest <- function(result, output_dir, base_name, cpu_ms = NA_real_, pea
                            occurrence_hash = NA_character_) {
   tryCatch(
     {
+      manifest <- list()
       cfg <- result$config %||% list()
 
       git_sha <- tryCatch(

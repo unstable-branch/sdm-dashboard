@@ -18,7 +18,7 @@ export_diagnostics_csv <- function(result, job_dir, log_fun = NULL) {
   # 2. Response curves
   rc <- result$response_curves
   if (!is.null(rc) && length(rc) > 0 && is.list(rc)) {
-    combined <- do.call(rbind, lapply(names(rc), function(nm) {
+    combined <- data.table::rbindlist(lapply(names(rc), function(nm) {
       df <- rc[[nm]]
       if (!is.null(df) && is.data.frame(df) && nrow(df) > 0) {
         df$covariate <- nm

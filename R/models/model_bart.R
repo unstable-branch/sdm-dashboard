@@ -35,7 +35,7 @@ cross_validate_bart <- function(model_data, covariates, ntree, ndpost, nskip,
     pred_list <- predict(model, newdata = x_test)
     pred <- pnorm(colMeans(pred_list$yhat.test))
     pred <- pmin(pmax(as.numeric(pred), 0), 1)
-    metrics_list_to_row(compute_binary_metrics(y_test, pred, threshold = threshold), fold = i)
+    metrics_list_to_row(compute_binary_metrics(test$presence, pred, threshold = threshold), fold = i)
   }
 
   cross_validate_model(model_data,
@@ -169,7 +169,7 @@ predict_bart_suitability <- function(fit, env_project_scaled, output_tif, n_core
 
   names(suit) <- "suitability"
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NAflag=-9999")))
+  terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
   log_message(log_fun, "Suitability raster written to: ", output_tif)
   suit
 }

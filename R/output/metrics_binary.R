@@ -10,7 +10,11 @@ auc_rank <- function(obs, score) {
     return(NA_real_)
   }
   r <- rank(score, ties.method = "average")
-  as.numeric((sum(r[obs == 1]) - n1 * (n1 + 1) / 2) / (n1 * n0))
+  result <- as.numeric((sum(r[obs == 1]) - n1 * (n1 + 1) / 2) / (n1 * n0))
+  if (n1 < 25 || n0 < 25) {
+    attr(result, "unreliable") <- TRUE
+  }
+  result
 }
 
 compute_binary_metrics <- function(obs, score, threshold = sdm_default_threshold) {
@@ -35,14 +39,19 @@ compute_binary_metrics <- function(obs, score, threshold = sdm_default_threshold
   sensitivity <- if ((tp + fn) > 0) tp / (tp + fn) else NA_real_
   specificity <- if ((tn + fp) > 0) tn / (tn + fp) else NA_real_
   tss <- if (is.finite(sensitivity) && is.finite(specificity)) sensitivity + specificity - 1 else NA_real_
+  auc_val <- auc_rank(obs, score)
+  auc_unreliable <- isTRUE(attr(auc_val, "unreliable"))
+  tss_unreliable <- length(obs) > 0 && (sum(obs == 1) < 25 || sum(obs == 0) < 25)
   list(
-    auc = auc_rank(obs, score),
+    auc = as.numeric(auc_val),
     tss = as.numeric(tss),
     sensitivity = as.numeric(sensitivity),
     specificity = as.numeric(specificity),
     threshold = threshold,
     tp = as.integer(tp), fp = as.integer(fp), tn = as.integer(tn), fn = as.integer(fn),
-    n = as.integer(length(obs))
+    n = as.integer(length(obs)),
+    auc_unreliable = auc_unreliable,
+    tss_unreliable = tss_unreliable
   )
 }
 
@@ -199,7 +208,9 @@ compute_projection_metrics <- function(suit_raster, train_presence_suit,
     y = runif(n_bg_samples, bb$ymin, bb$ymax)
   )
   extracted <- terra::extract(suit_raster, bg_xy)
-  bg_suit <- if (ncol(extracted) > 0) extracted[[1]] else numeric(0)
+  # terra::extract() prepends an ID column by default; suitability is the
+  # raster value column, not the 1..n sample identifier.
+  bg_suit <- if (ncol(extracted) > 1) extracted[[2]] else numeric(0)
 
   pCBI <- continuous_boyce_index(pres_suit = train_presence_suit, bg_suit = bg_suit)$cbi
 
@@ -214,7 +225,7 @@ compute_projection_metrics <- function(suit_raster, train_presence_suit,
     pts <- validation_occ[valid, c("decimalLongitude", "decimalLatitude"), drop = FALSE]
     if (nrow(pts) > 0) {
       extracted_val <- terra::extract(suit_raster, pts)
-      incursion_suit <- if (ncol(extracted_val) > 0) extracted_val[[1]] else numeric(0)
+      incursion_suit <- if (ncol(extracted_val) > 1) extracted_val[[2]] else numeric(0)
       n_valid <- sum(valid)
       n_exceed <- sum(incursion_suit >= threshold, na.rm = TRUE)
       validation_result <- list(

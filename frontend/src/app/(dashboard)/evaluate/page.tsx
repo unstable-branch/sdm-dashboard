@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import dynamic from "next/dynamic";
 import { RunComparison } from "@/components/evaluate/run-comparison";
@@ -20,6 +20,11 @@ const SuitabilityMap = dynamic(
   { ssr: false, loading: () => <div className="h-[60vh] rounded-lg border border-sdm-border bg-sdm-surface flex items-center justify-center text-sdm-muted">Loading map...</div> }
 );
 
+function fmtMetric(v: unknown): string {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n.toFixed(3) : "—";
+}
+
 export default function EvaluatePage() {
   const { data: runs, isLoading, error, refetch } = useRuns();
   const [selectedRun, setSelectedRun] = useState<ApiRunDetail | null>(null);
@@ -30,21 +35,26 @@ export default function EvaluatePage() {
   const [responseCurvesData, setResponseCurvesData] = useState<ResponseCurvesData | null>(null);
   const [cbiData, setCbiData] = useState<CbiData | null>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
+  const latestRequestRef = useRef(0);
 
   useEffect(() => {
     if (!runs) return;
     const allRuns = runs.runs || [];
     const completed = allRuns.filter((r) => r.status === "completed");
     if (completed.length > 0) {
-      const first = completed[0];
+      const first = completed.reduce((latest, r) =>
+        (r.completed_at ?? "") > (latest.completed_at ?? "") ? r : latest
+      );
+      const requestId = ++latestRequestRef.current;
       setSelectedId(first.id);
       apiGet<ApiRunDetail>(`/api/v1/sdm/status/${first.id}`)
-        .then((detail) => setSelectedRun(detail))
+        .then((detail) => { if (requestId === latestRequestRef.current) setSelectedRun(detail); })
         .catch(() => console.warn("[evaluate] Failed to fetch initial run details"));
     }
   }, [runs]);
 
   const selectRun = (id: string) => {
+    const requestId = ++latestRequestRef.current;
     setSelectedId(id);
     setVifData(null);
     setImportanceData(null);
@@ -53,6 +63,7 @@ export default function EvaluatePage() {
     setLoadingDiagnostics(true);
     apiGet<ApiRunDetail>(`/api/v1/sdm/status/${id}`)
       .then((detail) => {
+        if (requestId !== latestRequestRef.current) return;
         setSelectedRun(detail);
         const fetchDiagnostics = async () => {
           const endpoints = [
@@ -65,15 +76,15 @@ export default function EvaluatePage() {
             endpoints.map(async ({ url, setter }) => {
               try {
                 const data = await apiGet<VifData | ImportanceData | ResponseCurvesData | CbiData>(url);
-                setter(data);
+                if (requestId === latestRequestRef.current) setter(data);
               } catch {}
             })
           );
-          setLoadingDiagnostics(false);
+          if (requestId === latestRequestRef.current) setLoadingDiagnostics(false);
         };
         fetchDiagnostics();
       })
-      .catch(() => setLoadingDiagnostics(false));
+      .catch(() => { if (requestId === latestRequestRef.current) setLoadingDiagnostics(false); });
   };
 
   if (isLoading) {
@@ -222,8 +233,9 @@ export default function EvaluatePage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Variable Importance</h4>
-                      <ImportanceChart data={importanceData} loading={loadingDiagnostics} />
-                      {!importanceData && outputFiles.variable_importance_png && (
+                      {importanceData || loadingDiagnostics ? (
+                        <ImportanceChart data={importanceData} loading={loadingDiagnostics} />
+                      ) : outputFiles.variable_importance_png ? (
                         <div className="mt-3 aspect-video relative">
                           <img
                             src={`/api/v1/results/file/${encodeURIComponent(outputFiles.variable_importance_png)}`}
@@ -232,12 +244,15 @@ export default function EvaluatePage() {
                             className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain"
                           />
                         </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-48 text-sm text-sdm-muted italic">Not available</div>
                       )}
                     </div>
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">Response Curves</h4>
-                      <ResponseCurvesChart data={responseCurvesData} loading={loadingDiagnostics} />
-                      {!responseCurvesData && outputFiles.response_curves_png && (
+                      {responseCurvesData || loadingDiagnostics ? (
+                        <ResponseCurvesChart data={responseCurvesData} loading={loadingDiagnostics} />
+                      ) : outputFiles.response_curves_png ? (
                         <div className="mt-3 aspect-video relative">
                           <img
                             src={`/api/v1/results/file/${encodeURIComponent(outputFiles.response_curves_png)}`}
@@ -246,6 +261,8 @@ export default function EvaluatePage() {
                             className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain"
                           />
                         </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-48 text-sm text-sdm-muted italic">Not available</div>
                       )}
                     </div>
                   </div>
@@ -253,8 +270,9 @@ export default function EvaluatePage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
                       <h4 className="text-xs font-semibold text-sdm-heading mb-3 uppercase tracking-wide">CBI</h4>
-                      <CbiChart data={cbiData} loading={loadingDiagnostics} />
-                      {!cbiData && outputFiles.cbi_png && (
+                      {cbiData || loadingDiagnostics ? (
+                        <CbiChart data={cbiData} loading={loadingDiagnostics} />
+                      ) : outputFiles.cbi_png ? (
                         <div className="mt-3 aspect-video relative">
                           <img
                             src={`/api/v1/results/file/${encodeURIComponent(outputFiles.cbi_png)}`}
@@ -263,6 +281,8 @@ export default function EvaluatePage() {
                             className="absolute inset-0 w-full h-full rounded border border-sdm-border/50 object-contain"
                           />
                         </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-48 text-sm text-sdm-muted italic">Not available</div>
                       )}
                     </div>
                     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
@@ -305,10 +325,10 @@ export default function EvaluatePage() {
                       )}
                       {selectedRun.metrics && (
                         <div className="mt-3 grid grid-cols-4 gap-3 text-xs">
-                          <div><span className="text-sdm-muted">AUC</span><p className="font-semibold text-sdm-text">{(selectedRun.metrics.auc_mean as number)?.toFixed(3)}</p></div>
-                          <div><span className="text-sdm-muted">TSS</span><p className="font-semibold text-sdm-text">{(selectedRun.metrics.tss_mean as number)?.toFixed(3)}</p></div>
-                          <div><span className="text-sdm-muted">AUC SD</span><p className="font-semibold text-sdm-text">{(selectedRun.metrics.auc_sd as number)?.toFixed(3)}</p></div>
-                          <div><span className="text-sdm-muted">TSS SD</span><p className="font-semibold text-sdm-text">{(selectedRun.metrics.tss_sd as number)?.toFixed(3)}</p></div>
+                          <div><span className="text-sdm-muted">AUC</span><p className="font-semibold text-sdm-text">{fmtMetric(selectedRun.metrics.auc_mean)}</p></div>
+                          <div><span className="text-sdm-muted">TSS</span><p className="font-semibold text-sdm-text">{fmtMetric(selectedRun.metrics.tss_mean)}</p></div>
+                          <div><span className="text-sdm-muted">AUC SD</span><p className="font-semibold text-sdm-text">{fmtMetric(selectedRun.metrics.auc_sd)}</p></div>
+                          <div><span className="text-sdm-muted">TSS SD</span><p className="font-semibold text-sdm-text">{fmtMetric(selectedRun.metrics.tss_sd)}</p></div>
                         </div>
                       )}
                     </div>

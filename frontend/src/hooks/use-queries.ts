@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/services/api";
-import type { RunDetail } from "@/services/types";
+import type { RunDetail, UploadFile, ClimateScenarioResponse } from "@/services/types";
 
 export function useRunDetail(runId: string | undefined) {
   return useQuery<RunDetail>({
@@ -14,18 +14,18 @@ export function useRunDetail(runId: string | undefined) {
 }
 
 export function usePreviousUploads() {
-  return useQuery<{ uploads: Array<Record<string, unknown>> }>({
+  return useQuery<{ uploads: UploadFile[] }>({
     queryKey: ["previous-uploads"],
-    queryFn: () => apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/uploads"),
+    queryFn: () => apiGet<{ uploads: UploadFile[] }>("/api/v1/data/occurrences/uploads"),
     staleTime: 60 * 1000,
     retry: 2,
   });
 }
 
 export function useClimateScenarios() {
-  return useQuery<{ scenarios: Array<Record<string, unknown>> }>({
+  return useQuery<{ scenarios: ClimateScenarioResponse[] }>({
     queryKey: ["climate-scenarios"],
-    queryFn: () => apiGet<{ scenarios: Array<Record<string, unknown>> }>("/api/v1/climate/scenarios"),
+    queryFn: () => apiGet<{ scenarios: ClimateScenarioResponse[] }>("/api/v1/climate/scenarios"),
     staleTime: 60 * 1000,
     retry: 2,
   });

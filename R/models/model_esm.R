@@ -229,33 +229,71 @@ predict_esm_suitability <- function(fit, env_project_scaled,
                                     log_fun = NULL) {
   log_message(log_fun, "ESM: projecting suitability...")
 
-  # Note: ecospat's ESM functions require a data.frame, not a SpatRaster.
-  # This loads all raster values into memory — for large extents this may OOM.
-  # terra::predict (chunked) cannot be used here due to ecospat's API design.
-  env_df <- as.data.frame(terra::values(env_project_scaled))
-  env_df <- env_df[, fit$covariates, drop = FALSE]
+  template <- env_project_scaled[[1]]
+  env_proj <- env_project_scaled[[fit$covariates]]
 
-  proj_out <- ecospat::ecospat.ESM.Projection(
-    ESM.modeling.output = fit$model$esm_models,
-    new.env             = env_df
-  )
+  # ecospat >= 5.0 supports SpatRaster input natively, which uses terra's
+  # chunked processing. Older versions require a data.frame (full memory load).
+  # Try SpatRaster path first, fall back to data.frame if it fails.
+  use_spatraster <- FALSE
+  if (requireNamespace("ecospat", quietly = TRUE)) {
+    pkg_ver <- tryCatch(as.character(packageVersion("ecospat")), error = function(e) "0.0.0")
+    use_spatraster <- utils::compareVersion(pkg_ver, "5.0") >= 0
+  }
+
+  if (use_spatraster) {
+    log_message(log_fun, "ESM: using SpatRaster input (chunked processing)")
+    proj_out <- tryCatch(
+      ecospat::ecospat.ESM.Projection(
+        ESM.modeling.output = fit$model$esm_models,
+        new.env             = env_proj
+      ),
+      error = function(e) {
+        log_message(log_fun, "ESM SpatRaster path failed (", conditionMessage(e), "), falling back to data.frame")
+        NULL
+      }
+    )
+  }
+
+  if (!use_spatraster || is.null(proj_out)) {
+    log_message(log_fun, "ESM: using data.frame input (memory-intensive)")
+    env_df <- as.data.frame(terra::values(env_proj))
+    proj_out <- ecospat::ecospat.ESM.Projection(
+      ESM.modeling.output = fit$model$esm_models,
+      new.env             = env_df
+    )
+  }
 
   ens_proj <- ecospat::ecospat.ESM.EnsembleProjection(
     ESM.prediction.output = proj_out,
     ESM.EnsembleModeling.output = fit$model$esm_ensemble
   )
 
-  template <- env_project_scaled[[1]]
-
   # Compute between-pair uncertainty (SD across bivariate predictions)
   pair_sd <- NULL
   tryCatch({
-    pair_preds <- proj_out$proj[fit$model$esm_ensemble$models.kept, , drop = FALSE]
-    if (!is.null(pair_preds) && nrow(pair_preds) > 1) {
-      pair_sd_values <- matrixStats::colSds(as.matrix(pair_preds), na.rm = TRUE)
-      if (max(pair_sd_values, na.rm = TRUE) > 1) pair_sd_values <- pair_sd_values / 1000
-      pair_sd <- terra::setValues(template, pmin(1, pmax(0, pair_sd_values)))
+    if (use_spatraster && is.list(proj_out$pred.biva)) {
+      # SpatRaster path: read component predictions from .tif files
+      kept_files <- proj_out$pred.biva[fit$model$esm_ensemble$models.kept]
+      pair_stack <- terra::rast(unlist(kept_files))
+      pair_sd_values <- terra::app(pair_stack, fun = function(x) {
+        if (all(is.na(x))) return(NA_real_)
+        vals <- x[is.finite(x)]
+        if (length(vals) < 2) return(NA_real_)
+        if (max(vals, na.rm = TRUE) > 1) vals <- vals / max(vals, na.rm = TRUE)
+        stats::sd(vals, na.rm = TRUE)
+      })
+      pair_sd <- terra::clamp(pair_sd_values, lower = 0, upper = 1, values = TRUE)
       names(pair_sd) <- "esm_pair_sd"
+    } else if (!is.null(proj_out$proj)) {
+      pair_preds <- proj_out$proj[fit$model$esm_ensemble$models.kept, , drop = FALSE]
+      if (!is.null(pair_preds) && nrow(pair_preds) > 1) {
+        pred_max <- max(pair_preds, na.rm = TRUE)
+        pred_norm <- if (is.finite(pred_max) && pred_max > 1) as.matrix(pair_preds) / pred_max else as.matrix(pair_preds)
+        pair_sd_values <- matrixStats::colSds(pred_norm, na.rm = TRUE)
+        pair_sd <- terra::setValues(template, pmin(1, pmax(0, pair_sd_values)))
+        names(pair_sd) <- "esm_pair_sd"
+      }
     }
   }, error = function(e) {
     log_message(log_fun, "ESM: between-pair SD computation skipped: ", conditionMessage(e))
@@ -272,26 +310,35 @@ predict_esm_suitability <- function(fit, env_project_scaled,
     log_message(log_fun, "ESM between-pair uncertainty written to: ", pair_sd_tif)
   }
 
-  # ecospat outputs suitability values in 0-1000 range (v3) or 0-1 range (v4)
-  suit_values <- unname(ens_proj)
-  if (max(suit_values, na.rm = TRUE) > 1) {
-    suit_values <- suit_values / 1000
+  # Handle both SpatRaster (ecospat >= 5.0) and vector (older) output
+  if (inherits(ens_proj, "SpatRaster")) {
+    suit_raster <- ens_proj
+    names(suit_raster) <- "suitability"
+    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+    terra::writeRaster(suit_raster, output_tif,
+      overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
+    )
+  } else {
+    suit_values <- unname(ens_proj)
+    if (max(suit_values, na.rm = TRUE) > 1) {
+      suit_values <- suit_values / 1000
+    }
+    suit_values <- pmin(1, pmax(0, suit_values))
+    suit_raster <- terra::setValues(template, suit_values)
+    names(suit_raster) <- "suitability"
+    dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
+    terra::writeRaster(suit_raster, output_tif,
+      overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
+    )
   }
-  suit_values <- pmin(1, pmax(0, suit_values))
-  suit_raster <- terra::setValues(template, suit_values)
-  names(suit_raster) <- "suitability"
-
-  dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(suit_raster, output_tif,
-    overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"))
-  )
   log_message(log_fun, "ESM suitability written to: ", output_tif)
 
   if (!is.null(pair_sd_tif)) {
     attr(suit_raster, "esm_pair_sd_tif") <- pair_sd_tif
   }
-  rm(env_df, proj_out, ens_proj, pair_preds, suit_values)
+  rm(proj_out, ens_proj)
   gc(verbose = FALSE)
   suit_raster
 }

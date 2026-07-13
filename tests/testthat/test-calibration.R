@@ -59,3 +59,55 @@ test_that("plot_calibration handles empty data gracefully", {
   p <- plot_calibration(cal_data)
   expect_true(inherits(p, "ggplot") || is.null(p))
 })
+
+test_that("compute_calibration returns valid data frame with XGBoost fit", {
+  skip_if_not_installed("terra")
+  skip_if_not_installed("xgboost")
+  skip_if_not("xgboost" %in% sdm_model_ids())
+
+  set.seed(42)
+  env <- make_test_raster(n_layers = 2, layer_names = c("bio1", "bio12"))
+  occ <- data.frame(
+    species = "Synthetic species",
+    longitude = seq(140.15, 141.85, length.out = 40),
+    latitude = seq(-23.85, -22.15, length.out = 40),
+    stringsAsFactors = FALSE
+  )
+
+  fit <- fit_sdm_model("xgboost", occ, env, background_n = 150, cv_folds = 2,
+                        seed = 42, n_cores = 1, max_depth = 3, eta = 0.1, nrounds = 20)
+  skip_if(is.null(fit), "XGBoost fit failed")
+  skip_if(!is.finite(fit$cv$auc_mean), "XGBoost CV AUC is not finite")
+
+  model_data <- fit$model_data
+  cal <- compute_calibration(model_data, fit, n_bins = 5)
+  expect_true(is.data.frame(cal))
+  expect_true(all(c("bin_mid", "observed", "predicted", "n") %in% names(cal)))
+  expect_true(nrow(cal) > 0)
+})
+
+test_that("compute_calibration returns valid data frame with BART fit", {
+  skip_if_not_installed("terra")
+  skip_if_not_installed("dbarts")
+  skip_if_not("bart" %in% sdm_model_ids())
+
+  set.seed(42)
+  env <- make_test_raster(n_layers = 2, layer_names = c("bio1", "bio12"))
+  occ <- data.frame(
+    species = "Synthetic species",
+    longitude = seq(140.15, 141.85, length.out = 40),
+    latitude = seq(-23.85, -22.15, length.out = 40),
+    stringsAsFactors = FALSE
+  )
+
+  fit <- fit_sdm_model("bart", occ, env, background_n = 150, cv_folds = 2,
+                        seed = 42, n_cores = 1, ntree = 20, ndpost = 100, nskip = 50)
+  skip_if(is.null(fit), "BART fit failed")
+  skip_if(!is.finite(fit$cv$auc_mean), "BART CV AUC is not finite")
+
+  model_data <- fit$model_data
+  cal <- compute_calibration(model_data, fit, n_bins = 5)
+  expect_true(is.data.frame(cal))
+  expect_true(all(c("bin_mid", "observed", "predicted", "n") %in% names(cal)))
+  expect_true(nrow(cal) > 0)
+})

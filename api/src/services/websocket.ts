@@ -3,6 +3,7 @@ import { verify } from "hono/jwt";
 import type { ServerType } from "@hono/node-server";
 import { jobEventBus } from "./job-events.js";
 import { canAccessRun } from "./access.js";
+import { getJobStatus } from "./queue.js";
 
 interface Client {
   ws: WebSocket;
@@ -15,8 +16,49 @@ const clients = new Map<string, Client>();
 const subscriptions = new Map<string, Set<string>>();
 let _jobStatusHandler: ((event: any) => void) | null = null;
 let _wss: WebSocketServer | null = null;
+let _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
+const HEARTBEAT_INTERVAL = 30_000;
+const MAX_CLIENTS = 1000;
+const MAX_EVENT_AGE_MS = 3600000; // 1 hour
 const JWT_SECRET = process.env.JWT_SECRET || "";
+const _lastSentEvent = new Map<string, { state: string; progress: number; _receivedAt: number; logsKey: string }>();
+
+function cleanupStaleEvents() {
+  const now = Date.now();
+  for (const [key, val] of _lastSentEvent.entries()) {
+    if (now - val._receivedAt > MAX_EVENT_AGE_MS) {
+      _lastSentEvent.delete(key);
+    }
+  }
+}
+
+function cleanupClient(clientId: string) {
+  const client = clients.get(clientId);
+  if (client) {
+    for (const jobId of client.subscriptions) {
+      subscriptions.get(jobId)?.delete(clientId);
+      if (subscriptions.get(jobId)?.size === 0) {
+        subscriptions.delete(jobId);
+      }
+    }
+    clients.delete(clientId);
+  }
+}
+
+function heartbeat() {
+  for (const [id, client] of clients) {
+    if ((client.ws as any)._isAlive === false) {
+      console.warn("[ws] Terminating zombie connection:", id);
+      client.ws.terminate();
+      cleanupClient(id);
+      continue;
+    }
+    (client.ws as any)._isAlive = false;
+    client.ws.ping();
+  }
+  cleanupStaleEvents();
+}
 
 async function verifyWsToken(url: string): Promise<{ userId: string; role: string } | null> {
   try {
@@ -37,12 +79,24 @@ export function setupWebSocket(server: ServerType) {
 
   _wss = new WebSocketServer({ server: server as any, path: "/ws" });
 
+  // Heartbeat: ping all clients every 30s, terminate unresponsive ones
+  _heartbeatTimer = setInterval(heartbeat, HEARTBEAT_INTERVAL);
+  _heartbeatTimer.unref();
+
   _wss.on("connection", async (ws, req) => {
+    if (clients.size >= MAX_CLIENTS) {
+      ws.close(4003, "Too many connections");
+      return;
+    }
+
     const userInfo = await verifyWsToken(req.url || "");
     if (!userInfo) {
       ws.close(4001, "Unauthorized: invalid or missing token");
       return;
     }
+
+    (ws as any)._isAlive = true;
+    ws.on("pong", () => { (ws as any)._isAlive = true; });
 
     const clientId = crypto.randomUUID();
     clients.set(clientId, { ws, userId: userInfo.userId, userRole: userInfo.role, subscriptions: new Set() });
@@ -67,6 +121,25 @@ export function setupWebSocket(server: ServerType) {
             subscriptions.set(jobId, new Set());
           }
           subscriptions.get(jobId)?.add(clientId);
+
+          // Send current job status immediately to prevent race where
+          // the job completed before the WebSocket subscribed
+          getJobStatus(jobId).then((status) => {
+            if (!status || !ws || ws.readyState !== WebSocket.OPEN) return;
+            if (status.state === "completed" || status.state === "failed") {
+              ws.send(JSON.stringify({
+                type: "status",
+                jobId,
+                status: status.state,
+                progress: status.progress ?? 100,
+                result: status.result,
+                failedReason: status.failedReason,
+                logs: [],
+              }));
+            }
+          }).catch((e: unknown) => {
+            console.warn("[ws] Failed to send:", e instanceof Error ? e.message : String(e));
+          });
         } else if (msg.type === "unsubscribe") {
           const jobId = msg.jobId;
           clients.get(clientId)?.subscriptions.delete(jobId);
@@ -87,22 +160,20 @@ export function setupWebSocket(server: ServerType) {
     });
   });
 
-  function cleanupClient(clientId: string) {
-    const client = clients.get(clientId);
-    if (client) {
-      for (const jobId of client.subscriptions) {
-        subscriptions.get(jobId)?.delete(clientId);
-        if (subscriptions.get(jobId)?.size === 0) {
-          subscriptions.delete(jobId);
-        }
-      }
-      clients.delete(clientId);
-    }
-  }
-
   _jobStatusHandler = (event) => {
     const subscribers = subscriptions.get(event.jobId);
     if (subscribers) {
+      // Deduplicate: skip if the same event was already sent (compare state, progress, and logs)
+      const _lastSent = _lastSentEvent.get(event.jobId);
+      const logsKey = JSON.stringify(event.logs ?? []);
+      if (_lastSent && _lastSent.state === event.state && _lastSent.progress === event.progress && _lastSent.logsKey === logsKey) return;
+      _lastSentEvent.set(event.jobId, { state: event.state, progress: event.progress, _receivedAt: event._receivedAt, logsKey });
+
+      // Evict from dedup map once job reaches terminal state
+      if (event.state === "completed" || event.state === "failed" || event.state === "cancelled") {
+        _lastSentEvent.delete(event.jobId);
+      }
+
       const payload = JSON.stringify({
         type: "status",
         jobId: event.jobId,
@@ -111,6 +182,8 @@ export function setupWebSocket(server: ServerType) {
         logs: event.logs,
         result: event.result,
         failedReason: event.failedReason,
+        currentStage: event.currentStage ?? null,
+        progressJson: event.progressJson ?? null,
       });
       for (const clientId of subscribers) {
         const client = clients.get(clientId);
@@ -151,6 +224,10 @@ export function setupWebSocket(server: ServerType) {
 }
 
 export function cleanupWebSocket() {
+  if (_heartbeatTimer) {
+    clearInterval(_heartbeatTimer);
+    _heartbeatTimer = null;
+  }
   if (_jobStatusHandler) {
     jobEventBus.off("jobStatus", _jobStatusHandler);
     _jobStatusHandler = null;
@@ -164,4 +241,5 @@ export function cleanupWebSocket() {
   }
   clients.clear();
   subscriptions.clear();
+  _lastSentEvent.clear();
 }

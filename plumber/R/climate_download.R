@@ -28,23 +28,33 @@ log_fun <- function(...) {
   cat(msg, "\n", file = progress_file, append = TRUE)
 }
 
-progress_fun <- function(pct, msg) {
-  line <- sprintf("[%d%%] %s", as.integer(pct), msg)
+progress_fun <- function(pct, msg = NULL) {
+  event <- if (is.list(pct)) pct else list(value = pct, detail = msg, stage = "download")
+  raw_value <- suppressWarnings(as.numeric(event$value %||% 0))
+  if (!is.finite(raw_value)) raw_value <- 0
+  # Download helpers report a 0..1 fraction; endpoint lifecycle events use 0..100.
+  display_pct <- if (is.list(pct)) 10 + 80 * max(0, min(1, raw_value)) else raw_value
+  detail <- event$detail %||% msg %||% ""
+  line <- sprintf("[%d%%] %s", as.integer(round(display_pct)), detail)
   cat(line, "\n")
   cat(line, "\n", file = progress_file, append = TRUE)
   if (job_id %||% "" != "") {
-    entry <- list(timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"), percent = pct, detail = msg, stage = "download")
-    entry_json <- jsonlite::toJSON(entry, auto_unbox = TRUE)
+    entry <- c(list(
+      timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+      percent = display_pct,
+      detail = detail,
+      stage = event$stage %||% "download"
+    ), event[setdiff(names(event), c("value", "detail", "stage"))])
+    entry_json <- jsonlite::toJSON(entry, auto_unbox = TRUE, null = "null")
     if (exists("sdm_redis_progress_set", inherits = TRUE)) {
       tryCatch(sdm_redis_progress_set(job_id, entry_json), error = function(e) NULL)
     }
-    if (exists("sdm_redis_cancel_check", inherits = TRUE)) {
-      if (sdm_redis_cancel_check(job_id)) {
-        stop("CANCELLED", call. = FALSE)
-      }
+    if (exists("sdm_redis_cancel_check", inherits = TRUE) && sdm_redis_cancel_check(job_id)) {
+      stop("CANCELLED", call. = FALSE)
     }
   }
 }
+
 
 read_meta <- function() {
   jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
@@ -54,7 +64,7 @@ write_meta <- function(meta) {
   tmp_path <- tempfile(pattern = "meta", tmpdir = dirname(meta_file))
   on.exit(unlink(tmp_path))
   writeLines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE), tmp_path)
-  file.rename(tmp_path, meta_file)
+  sdm_safe_rename(tmp_path, meta_file)
 }
 
 meta <- read_meta()
@@ -64,23 +74,20 @@ job_id <- meta$id %||% basename(job_dir)
 created_files <- character()
 
 cleanup_on_failure <- function() {
-  if (length(created_files) > 0) {
-    log_fun("Cleaning up ", length(created_files), " partially downloaded files...")
-    unlink(created_files)
+  partials <- character()
+  roots <- c(
+    sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir),
+    sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir),
+    sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir)
+  )
+  for (root in roots[dir.exists(roots)]) {
+    partials <- c(partials, list.files(root, pattern = "[.]part$", recursive = TRUE, full.names = TRUE))
   }
-  if (download_type %in% c("cmip6", "cmip6_average")) {
-    out_dir <- file.path(app_dir, sdm_default_future_worldclim_dir)
-    if (download_type == "cmip6_average") {
-      scenario_dir <- file.path(out_dir, paste0("averaged_", config$gcm_list %||% "unknown", "_", config$ssp %||% "SSP", "_", config$period %||% "period"))
-    } else {
-      scenario_dir <- file.path(out_dir, paste0(config$gcm %||% "GCM", "_", config$ssp %||% "SSP", "_", config$period %||% "period"))
-    }
-    if (dir.exists(scenario_dir)) {
-      unlink(scenario_dir, recursive = TRUE)
-      log_fun("Removed incomplete scenario directory: ", scenario_dir)
-    }
+  if (length(partials) > 0) {
+    log_fun("Retained ", length(partials), " partial download(s) for the next retry")
   }
 }
+
 
 tryCatch({
   progress_fun(5, "Initializing download")
@@ -96,14 +103,14 @@ tryCatch({
     gcm <- config$gcm %||% "UKESM1-0-LL"
     ssp <- config$ssp %||% "SSP2-4.5"
     period <- config$period %||% "2041-2060"
-    res <- as.integer(config$res %||% 10)
+    res <- as.numeric(config$res %||% 10)
 
     if (download_type == "cmip6") {
       progress_fun(10, "Downloading CMIP6")
       log_fun("Scenario: ", gcm, " / ", ssp, " / ", period, " (", res, "m)")
       source(file.path(app_dir, "R", "covariates", "covariates_climate_future.R"), local = TRUE)
       fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res,
-                            out_dir = file.path(app_dir, sdm_default_future_worldclim_dir),
+                            out_dir = sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir),
                             quiet = FALSE, log_fun = log_fun)
       progress_fun(90, "CMIP6 download complete")
     } else {
@@ -112,21 +119,21 @@ tryCatch({
       log_fun("GCMs: ", paste(gcm_list, collapse = ", "), " / ", ssp, " / ", period)
       source(file.path(app_dir, "R", "covariates", "covariates_climate_future.R"), local = TRUE)
       average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res,
-                         out_dir = file.path(app_dir, sdm_default_future_worldclim_dir),
-                         quiet = FALSE, log_fun = log_fun)
+                         out_dir = sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir),
+                         quiet = FALSE, log_fun = log_fun, progress_fun = progress_fun)
       progress_fun(90, "GCM averaging complete")
     }
   } else if (download_type == "worldclim") {
-    climate_res <- as.integer(config$res %||% 10)
+    climate_res <- as.numeric(config$res %||% 10)
     biovars <- config$biovars
     if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
-    worldclim_dir <- file.path(app_dir, sdm_default_worldclim_dir)
+    worldclim_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
     progress_fun(10, paste0("Downloading WorldClim v2.1 BIO layers (", climate_res, "m)"))
     log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
     source(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
     result <- download_worldclim_bio(worldclim_dir = worldclim_dir, selected_biovars = biovars,
-      res = climate_res, log_fun = log_fun)
-    created_files <- result$files %||% character()
+      res = climate_res, log_fun = log_fun, progress_fun = progress_fun)
+    created_files <- result$downloaded %||% character()
     if (length(result$failed) > 0) {
       meta$failed_vars <- result$failed
       meta$status <- "partial"
@@ -139,12 +146,12 @@ tryCatch({
   } else if (download_type == "chelsa") {
     biovars <- config$biovars
     if (is.character(biovars)) biovars <- as.integer(unlist(strsplit(biovars, ",")))
-    chelsa_dir <- file.path(app_dir, sdm_default_chelsa_dir)
+    chelsa_dir <- sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir)
     progress_fun(10, "Downloading CHELSA v2.1 BIO layers")
     log_fun("Requested BIO variables: ", paste(biovars, collapse = ", "))
     source(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
-    result <- download_chelsa_bio(chelsa_dir = chelsa_dir, selected_biovars = biovars, log_fun = log_fun)
-    created_files <- result$files %||% character()
+    result <- download_chelsa_bio(chelsa_dir = chelsa_dir, selected_biovars = biovars, log_fun = log_fun, progress_fun = progress_fun)
+    created_files <- result$downloaded %||% character()
     if (length(result$failed) > 0) {
       meta$failed_vars <- result$failed
       meta$status <- "partial"
@@ -158,13 +165,17 @@ tryCatch({
     stop("Unknown download type: ", download_type, call. = FALSE)
   }
 
-  progress_fun(95, "Finalizing")
+  progress_fun(95, "Finalizing persisted climate cache")
   if (is.null(meta$status) || meta$status == "running") {
     meta$status <- "completed"
   }
   meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-  progress_fun(100, "Complete")
   write_meta(meta)
+  if (identical(meta$status, "partial")) {
+    progress_fun(99, "Download finished with missing layers")
+  } else {
+    progress_fun(100, "Complete")
+  }
 }, error = function(e) {
   msg <- conditionMessage(e)
   if (identical(msg, "CANCELLED")) {
@@ -187,4 +198,5 @@ tryCatch({
   meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
   progress_fun(0, paste0("Failed: ", msg))
   write_meta(meta)
+  quit(save = "no", status = 1)
 })

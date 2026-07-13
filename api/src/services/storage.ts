@@ -7,6 +7,7 @@ import {
   DeleteObjectCommand,
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
+import { readdirSync, statSync } from "fs";
 import { stat, readFile } from "fs/promises";
 import { join, isAbsolute, normalize, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -14,6 +15,24 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 export const PROJECT_ROOT = resolve(__dirname, "../..");
+
+export function getDirSize(dirPath: string): number {
+  let total = 0;
+  try {
+    const entries = readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        total += getDirSize(fullPath);
+      } else if (entry.isFile()) {
+        total += statSync(fullPath).size;
+      }
+    }
+  } catch {
+    // Directory doesn't exist or can't be read — return 0
+  }
+  return total;
+}
 
 function envOrDevDefault(name: string, devDefault: string): string {
   const value = process.env[name];
@@ -57,10 +76,13 @@ export function getBucketNames(): { rasters: string; exports: string } {
   };
 }
 
+let cachedS3Client: S3Client | null = null;
+
 function createS3Client(): S3Client {
+  if (cachedS3Client) return cachedS3Client;
   const config = getGarageConfig();
-  return new S3Client({
-    endpoint: `http://${config.endPoint}:${config.port}`,
+  cachedS3Client = new S3Client({
+    endpoint: `${config.useSSL ? "https" : "http"}://${config.endPoint}:${config.port}`,
     region: "garage",
     forcePathStyle: true,
     credentials: {
@@ -68,6 +90,7 @@ function createS3Client(): S3Client {
       secretAccessKey: config.secretKey,
     },
   });
+  return cachedS3Client;
 }
 
 export async function ensureBuckets(): Promise<void> {
@@ -197,10 +220,26 @@ export async function syncOutputsToS3(
 
     try {
       const data = await readFile(resolvedPath);
-      await uploadFile(bucket, objectName, data, ext);
+      // Retry upload up to 3 times with exponential backoff
+      let lastErr: unknown;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await uploadFile(bucket, objectName, data, ext);
+          lastErr = null;
+          break;
+        } catch (e) {
+          lastErr = e;
+          if (attempt < 3) {
+            const delay = Math.min(5000 * Math.pow(3, attempt - 1), 45000);
+            console.warn(`[S3] Upload ${key} attempt ${attempt} failed, retrying in ${delay}ms:`, e instanceof Error ? e.message : e);
+            await new Promise(r => setTimeout(r, delay));
+          }
+        }
+      }
+      if (lastErr) throw lastErr;
       s3Urls[key] = objectName;
     } catch (err) {
-      console.warn(`[S3] Failed to upload ${key} for run ${runId}:`, err instanceof Error ? err.message : err);
+      console.warn(`[S3] Failed to upload ${key} for run ${runId} after 3 attempts:`, err instanceof Error ? err.message : err);
     }
   }
 

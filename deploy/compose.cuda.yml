@@ -1,0 +1,16 @@
+# Production NVIDIA runtime overlay. The base production compose supplies the
+# digest-pinned sdm-plumber-cuda image when SDM_PLUMBER_VARIANT=cuda.
+services:
+  plumber:
+    environment:
+      SDM_ACCELERATOR: cuda
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True,max_split_size_mb:512
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

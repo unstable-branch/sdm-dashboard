@@ -1,17 +1,7 @@
 import type {
-  PlumberRunResponse,
-  PlumberStatusResponse,
   PlumberUploadResponse,
-  PlumberCleanResponse,
-  PlumberModelInfo,
-  PlumberConfigDefaults,
   PlumberDiagnosticsShapCell,
-  PlumberDiagnosticsImportance,
-  PlumberDiagnosticsResponseCurves,
-  PlumberDiagnosticsAle,
-  PlumberDiagnosticsVif,
-  PlumberDiagnosticsClimateDrivers,
-  PlumberClimateStatus,
+  PlumberJobLogs,
 } from "@sdm/shared";
 
 const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
@@ -22,18 +12,64 @@ const TIMEOUT_UPLOAD = parseInt(process.env.PLUMBER_UPLOAD_TIMEOUT_MS || "120000
 const TIMEOUT_MODEL_RUN = parseInt(process.env.PLUMBER_MODEL_RUN_TIMEOUT_MS || "300000", 10);
 const TIMEOUT_CLIMATE = parseInt(process.env.PLUMBER_CLIMATE_TIMEOUT_MS || "300000", 10);
 const TIMEOUT_NORMAL = PLUMBER_DEFAULT_TIMEOUT_MS;
+
+// Promise-based semaphore: resolves when a slot is available
+let plumberQueue: Array<() => void> = [];
 let plumberActiveRequests = 0;
 
 async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
-  while (plumberActiveRequests >= PLUMBER_MAX_CONCURRENT) {
-    await new Promise(resolve => setTimeout(resolve, 100));
+  if (plumberActiveRequests >= PLUMBER_MAX_CONCURRENT) {
+    await new Promise<void>((resolve, reject) => {
+      const resolver: () => void = resolve;
+      plumberQueue.push(resolver);
+      const timeoutId = setTimeout(() => {
+        const idx = plumberQueue.indexOf(resolver);
+        if (idx >= 0) plumberQueue.splice(idx, 1);
+        reject(new Error("Plumber semaphore timeout: all connections busy"));
+      }, 5000);
+      (resolver as any)._timeoutId = timeoutId;
+    });
   }
   plumberActiveRequests++;
   try {
     return await fn();
   } finally {
     plumberActiveRequests--;
+    if (plumberQueue.length > 0) {
+      const next = plumberQueue.shift()!;
+      const tid = (next as any)._timeoutId;
+      if (tid) clearTimeout(tid);
+      next();
+    }
   }
+}
+
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 2, timeoutMs?: number): Promise<Response> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const attemptOptions = { ...options };
+    if (timeoutMs && timeoutMs > 0) {
+      attemptOptions.signal = AbortSignal.timeout(timeoutMs);
+    }
+    try {
+      const res = await fetch(url, attemptOptions);
+      if (attempt < retries && RETRYABLE_STATUSES.has(res.status)) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw err;
+      }
+      if (attempt >= retries) throw err;
+      const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error("Request failed after retries");
 }
 
 export class PlumberClient {
@@ -60,10 +96,7 @@ export class PlumberClient {
   private async _fetch(url: string, options?: RequestInit, timeoutMs?: number): Promise<Response> {
     const ms = timeoutMs ?? PLUMBER_DEFAULT_TIMEOUT_MS;
     const opts = options ?? {};
-    if (!opts.signal) {
-      opts.signal = AbortSignal.timeout(ms);
-    }
-    return plumberSemaphore(() => fetch(url, opts));
+    return plumberSemaphore(() => fetchWithRetry(url, opts, 2, ms));
   }
 
   async healthCheck(): Promise<{ status: string; r_version: string; timestamp: string }> {
@@ -121,7 +154,11 @@ export class PlumberClient {
       headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error(`Failed to clean occurrences: ${res.status}`);
+    if (!res.ok) {
+      let errorMsg = `Failed to clean occurrences: ${res.status}`;
+      try { const body = await res.json(); if (body.error) errorMsg = body.error; } catch {}
+      throw new Error(errorMsg);
+    }
     return res.json();
   }
 
@@ -132,6 +169,16 @@ export class PlumberClient {
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`Failed to search GBIF: ${res.status}`);
+    return res.json();
+  }
+
+  async searchAla(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/occurrences/ala/search`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`Failed to search ALA: ${res.status}`);
     return res.json();
   }
 
@@ -174,18 +221,19 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getJobStatus(jobId: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
+  async downloadCovariateBg(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/covariates/download_bg`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`Failed to start covariate download: ${res.status}`);
     return res.json();
   }
 
-  async cancelJob(jobId: string): Promise<{ ok: boolean }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/${jobId}`, {
-      method: "DELETE",
-      headers: this.headers(),
-    });
-    if (!res.ok) throw new Error(`Failed to cancel job: ${res.status}`);
+  async getJobStatus(jobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/status/${jobId}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
     return res.json();
   }
 
@@ -383,15 +431,6 @@ export class PlumberClient {
     return res.json();
   }
 
-  async generatePlots(runId: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/plots/${runId}`, {
-      method: "POST",
-      headers: this.headers(),
-    });
-    if (!res.ok) throw new Error(`Failed to generate plots: ${res.status}`);
-    return res.json();
-  }
-
   async getDiagnosticDataCsv(runId: string, type: string): Promise<Response> {
     return this._fetch(`${this.baseUrl}/api/v1/diagnostics/data/${runId}/${type}`, { headers: this.headers() });
   }
@@ -407,9 +446,139 @@ export class PlumberClient {
   }
 
   async getRunComparison(runId1: string, runId2: string): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models/compare/${runId1}/${runId2}`, { headers: this.headers() });
+    const res = await this._fetch(`${this.baseUrl}/api/v1/output/compare/${runId1}/${runId2}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to compare runs: ${res.status}`);
     return res.json();
+  }
+
+  async get(path: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}${path}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
+    return res.json();
+  }
+
+  async post(path: string, body: unknown): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+    return res.json();
+  }
+
+  async postRaw(path: string, body: unknown): Promise<[number, Record<string, unknown>]> {
+    const res = await this._fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json() as Record<string, unknown>;
+    return [res.status, data];
+  }
+
+  async postForm(path: string, formData: FormData): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: this.headers(),
+      body: formData,
+    });
+    if (!res.ok) throw new Error(`POST ${path} (form) failed: ${res.status}`);
+    return res.json();
+  }
+
+  // ── Targets pipeline ───────────────────────────────────────────────────
+
+  async targetsRun(data: { configs: Record<string, unknown>[] }): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/targets-run`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }, TIMEOUT_MODEL_RUN);
+    if (!res.ok) throw new Error(`Failed to start targets run: ${res.status}`);
+    return res.json();
+  }
+
+  async targetsStatus(jobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/targets-status/${jobId}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get targets status: ${res.status}`);
+    return res.json();
+  }
+
+  async targetsResults(jobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/targets-results/${jobId}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get targets results: ${res.status}`);
+    return res.json();
+  }
+
+  async getModelLogs(jobId: string): Promise<PlumberJobLogs> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models/logs/${jobId}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get model logs: ${res.status}`);
+    return res.json();
+  }
+
+  async getGpuStatus(): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/gpu/status`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get GPU status: ${res.status}`);
+    return res.json();
+  }
+
+  // ── Climate check ──────────────────────────────────────────────────
+
+  async getClimateCheck(params: Record<string, string>): Promise<Record<string, unknown>> {
+    const qs = new URLSearchParams(params).toString();
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/check?${qs}`);
+    if (!res.ok) throw new Error(`Failed to check climate: ${res.status}`);
+    return res.json();
+  }
+
+  // ── Output script / manifest ───────────────────────────────────────
+
+  async getOutputScript(jobId: string): Promise<{ script_path?: string } & Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/output/script/${jobId}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get output script: ${res.status}`);
+    return res.json();
+  }
+
+  async getOutputManifest(jobId: string): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/output/manifest/${jobId}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`Failed to get output manifest: ${res.status}`);
+    return res.json();
+  }
+
+  // ── Synthetic occurrences ──────────────────────────────────────────
+
+  async generateSynthetic(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/occurrences/synthetic`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`Failed to generate synthetic data: ${res.status}`);
+    return res.json();
+  }
+
+  // ── Tile COG (returns raw Response for binary PNG data) ────────────
+
+  async getTileCog(runId: string, z: string, x: string, y: string, band: string): Promise<Response> {
+    return this._fetch(
+      `${this.baseUrl}/api/v1/results/tiles/cog/${runId}/${z}/${x}/${y}?band=${encodeURIComponent(band)}`,
+      { headers: this.headers(), signal: AbortSignal.timeout(45000) }
+    );
   }
 }
 
