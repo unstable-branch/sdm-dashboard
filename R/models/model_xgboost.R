@@ -5,8 +5,9 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
                                    k = sdm_default_cv_folds, seed = sdm_default_seed,
                                    n_cores = 1, cv_strategy = sdm_default_cv_strategy,
                                    cv_block_size_km = sdm_default_cv_block_size_km,
+                                   threshold = sdm_default_threshold,
                                    log_fun = NULL,
-                                    objective = "binary:logistic") {
+                                   objective = "binary:logistic") {
   fit_fun <- function(i, model_data, fold_id, threshold) {
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
@@ -58,7 +59,7 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
   cross_validate_model(model_data,
     k = k, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    threshold = sdm_default_threshold, fit_fun = fit_fun,
+    threshold = threshold, fit_fun = fit_fun,
     cluster_exports = c("covariates", "class_balance_weights",
                         "compute_binary_metrics", "metrics_list_to_row", "log_message",
                         "sdm_use_gpu_xgb"),
