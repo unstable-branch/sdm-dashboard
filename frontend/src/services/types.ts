@@ -247,7 +247,7 @@ export interface ManifestData {
   };
   mess_path?: string;
   app_version?: { r_version: string; platform: string; git_sha?: string };
-  data?: { occurrence_rows?: number; occurrence_hash_sha256?: string };
+  data?: { record_count?: number; occurrence_rows?: number; occurrence_hash_sha256?: string };
   covariates?: { source: string; resolution: number; biovars: number[]; file_count: number };
   extent?: { xmin: number; xmax: number; ymin: number; ymax: number };
   validation?: { cv_strategy: string; cv_folds: number; cv_block_size_km?: number; seed: number };
