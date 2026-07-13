@@ -1,0 +1,14 @@
+# Production AMD runtime overlay. The base production compose supplies the
+# digest-pinned sdm-plumber-rocm image when SDM_PLUMBER_VARIANT=rocm.
+services:
+  plumber:
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - "${AMD_VIDEO_GID:?set to the host video group GID}"
+      - "${AMD_RENDER_GID:?set to the host render group GID}"
+    environment:
+      SDM_ACCELERATOR: rocm
+      SDM_PYTHON: /opt/venv/bin/python3
+      ROCR_VISIBLE_DEVICES: ${ROCR_VISIBLE_DEVICES:-0}
