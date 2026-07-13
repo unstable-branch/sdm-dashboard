@@ -382,7 +382,6 @@ function readCleanResultFromFile(cleanedPath: string): {
     const plainPath = decryptPlumberFile(dataPath);
     if (plainPath) {
       content = tryReadFile(plainPath);
-      if (content) dataPath = plainPath;
     }
   }
 
