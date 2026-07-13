@@ -114,7 +114,7 @@ test_that("different seeds produce different output", {
 
   suit1 <- terra::values(result1$suitability, na.rm = TRUE)
   suit2 <- terra::values(result2$suitability, na.rm = TRUE)
-  expect_equal(suit1, suit2, tolerance = 1e-10)
+  expect_false(isTRUE(all.equal(suit1, suit2, tolerance = 1e-10)))
 
   unlink(tmp_out1, recursive = TRUE)
   unlink(tmp_out2, recursive = TRUE)
