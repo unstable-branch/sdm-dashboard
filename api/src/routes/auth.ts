@@ -169,7 +169,6 @@ function recordLoginAttempt(email: string, success: boolean) {
   _loginAttempts.set(key, record);
 
   if (_loginAttempts.size > 10000) {
-    const cutoff = now - LOGIN_LOCKOUT_WINDOW_MS;
     for (const [k, v] of _loginAttempts) {
       if (now >= v.lockedUntil && v.count === 0) _loginAttempts.delete(k);
     }
