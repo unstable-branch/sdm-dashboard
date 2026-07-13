@@ -124,7 +124,7 @@ examplesRoutes.get("/details", async (c) => {
     }
   }
   const savedMeta = loadSavedMeta();
-  for (const [name, meta] of Object.entries(savedMeta)) {
+  for (const [, meta] of Object.entries(savedMeta)) {
     const filePath = join(EXAMPLES_DIR, meta.fileName);
     if (existsSync(filePath)) {
       available.push(meta);
