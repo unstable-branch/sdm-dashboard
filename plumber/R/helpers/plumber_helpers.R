@@ -238,7 +238,7 @@ db_connect <- function() {
   db_url <- Sys.getenv("DATABASE_URL", "")
   if (!nzchar(db_url)) return(NULL)
   tryCatch({
-    DBI::dbConnect(RPostgres::Postgres(), dbname = db_url)
+    sdm_db_connect(db_url)
   }, error = function(e) {
     message("db_connect failed: ", conditionMessage(e))
     NULL
@@ -246,11 +246,7 @@ db_connect <- function() {
 }
 
 parse_db_url <- function(url) {
-  clean_url <- sub("^postgresql://", "postgres://", url)
-  m <- regexec("postgres://([^:]+):([^@]+)@([^:]+):([0-9]+)/(.+)", clean_url)
-  parts <- regmatches(clean_url, m)[[1]]
-  if (length(parts) < 6) stop("Cannot parse DATABASE_URL")
-  list(user = parts[2], password = parts[3], host = parts[4], port = as.integer(parts[5]), dbname = parts[6])
+  sdm_database_connect_args(url)
 }
 
 db_insert_upload <- function(con, user_id, file_path, filename, file_size, format, n_rows, species, columns) {

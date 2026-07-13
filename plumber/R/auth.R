@@ -22,7 +22,7 @@ validate_api_key <- function(api_key, pool = NULL, app_dir = NULL) {
     } else {
       db_url <- Sys.getenv("DATABASE_URL", "")
       if (!nzchar(db_url)) return(NULL)
-      con <- DBI::dbConnect(RPostgres::Postgres(), dbname = db_url)
+      con <- sdm_db_connect(db_url)
       on.exit(DBI::dbDisconnect(con), add = TRUE)
     }
 

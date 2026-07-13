@@ -71,3 +71,31 @@ testthat::test_that("crashed async job diagnostics remain pollable", {
   testthat::expect_match(second$error, "Process crashed")
   unlink(app_dir, recursive = TRUE)
 })
+
+testthat::test_that("DATABASE_URL is converted to explicit RPostgres connection arguments", {
+  pool_env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "db_pool.R"), envir = pool_env)
+
+  args <- pool_env$sdm_database_connect_args(
+    "postgresql://sdm%2Bworker:p%40ss%3Aword@[2001:db8::1]:5544/sdm%2Dplatform?sslmode=require&application_name=plumber"
+  )
+
+  testthat::expect_identical(args$user, "sdm+worker")
+  testthat::expect_identical(args$password, "p@ss:word")
+  testthat::expect_identical(args$host, "2001:db8::1")
+  testthat::expect_identical(args$port, 5544L)
+  testthat::expect_identical(args$dbname, "sdm-platform")
+  testthat::expect_identical(args$sslmode, "require")
+  testthat::expect_identical(args$application_name, "plumber")
+})
+
+testthat::test_that("DATABASE_URL parser defaults PostgreSQL port and rejects malformed URLs", {
+  pool_env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "db_pool.R"), envir = pool_env)
+
+  args <- pool_env$sdm_database_connect_args("postgres://user:pass@postgres/database")
+  testthat::expect_identical(args$host, "postgres")
+  testthat::expect_identical(args$port, 5432L)
+  testthat::expect_identical(args$dbname, "database")
+  testthat::expect_error(pool_env$sdm_database_connect_args("postgres://missing-host"), "Cannot parse")
+})
