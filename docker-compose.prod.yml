@@ -72,7 +72,7 @@ services:
       - GARAGE_BUCKET_RASTERS=${GARAGE_BUCKET_RASTERS:?GARAGE_BUCKET_RASTERS is required}
       - GARAGE_BUCKET_EXPORTS=${GARAGE_BUCKET_EXPORTS:?GARAGE_BUCKET_EXPORTS is required}
     volumes:
-      - r-data:/app/outputs:ro
+      - r-data:/app/outputs
     depends_on:
       postgres:
         condition: service_healthy
@@ -148,6 +148,7 @@ services:
       - PLUMBER_AUTH_DISABLED=false
       - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
       - ALA_API_KEY=${ALA_API_KEY:-}
+      - REDIS_URL=redis://redis:6379
     init: true
     healthcheck:
       test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]

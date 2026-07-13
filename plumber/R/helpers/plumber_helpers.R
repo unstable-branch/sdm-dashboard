@@ -209,6 +209,7 @@ sdm_safe_job_dir <- function(run_id) {
 # Database connection helper — uses shared pool when available, falls back to direct connection
 db_conn <- function() {
   pool <- tryCatch(get("db_pool", envir = .GlobalEnv), error = function(e) NULL)
+  if (exists("sdm_get_db_pool", mode = "function")) pool <- sdm_get_db_pool(pool)
   if (!is.null(pool)) {
     tryCatch({
       conn <- pool::poolCheckout(pool)
@@ -237,11 +238,7 @@ db_connect <- function() {
   db_url <- Sys.getenv("DATABASE_URL", "")
   if (!nzchar(db_url)) return(NULL)
   tryCatch({
-    parts <- parse_db_url(db_url)
-    DBI::dbConnect(RPostgres::Postgres(),
-      dbname = parts$dbname, host = parts$host,
-      port = parts$port, user = parts$user, password = parts$password
-    )
+    DBI::dbConnect(RPostgres::Postgres(), dbname = db_url)
   }, error = function(e) {
     message("db_connect failed: ", conditionMessage(e))
     NULL

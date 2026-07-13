@@ -6,7 +6,7 @@ import { authMiddleware, type AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds } from "../services/access.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
-import { eq, and, inArray, or } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 const app = new Hono<AppEnv>();
 
@@ -128,61 +128,101 @@ app.use("/:jobId", authMiddleware);
 app.get("/:jobId", async (c) => {
   const jobId = c.req.param("jobId");
   const user = c.get("user");
-  const myProjectIds = await getUserProjectIds(user);
+  let myProjectIds: string[] | null;
+  try {
+    myProjectIds = await getUserProjectIds(user);
+  } catch (err) {
+    console.warn("[jobs] Failed to resolve job access:", err instanceof Error ? err.message : String(err));
+    return c.json({ error: "Job status temporarily unavailable" }, 503);
+  }
+  const isAsyncDataJob = jobId.startsWith("climate_") || jobId.startsWith("data-");
 
-  // Verify the job's run belongs to this user
-  const isClimateJob = jobId.startsWith("climate_");
-  if (myProjectIds !== null && !isClimateJob) {
+  let persistedRun: {
+    id: string;
+    jobId: string | null;
+    status: string;
+    error: string | null;
+    errorCode: string | null;
+    errorHint: string | null;
+    progressLog: unknown;
+  } | undefined;
+
+  if (!isAsyncDataJob) {
     try {
-      const [run] = await db
-        .select({ id: runs.id })
+      const ownership = myProjectIds === null
+        ? eq(runs.id, jobId)
+        : and(eq(runs.id, jobId), inArray(runs.projectId, myProjectIds));
+      [persistedRun] = await db
+        .select({
+          id: runs.id,
+          jobId: runs.jobId,
+          status: runs.status,
+          error: runs.error,
+          errorCode: runs.errorCode,
+          errorHint: runs.errorHint,
+          progressLog: runs.progressLog,
+        })
         .from(runs)
-        .where(and(
-          eq(runs.id, jobId),
-          inArray(runs.projectId, myProjectIds)
-        ))
+        .where(ownership)
         .limit(1);
-      if (!run) {
-        return c.json({ error: "Job not found" }, 404);
-      }
-    } catch {
-      return c.json({ error: "Internal error" }, 500);
+      if (!persistedRun) return c.json({ error: "Job not found" }, 404);
+    } catch (err) {
+      console.warn("[jobs] Failed to read persisted job status:", err instanceof Error ? err.message : String(err));
+      return c.json({ error: "Job status temporarily unavailable" }, 503);
     }
   }
 
-  // Try BullMQ queue first
+  // BullMQ has the most detailed live state while its retention window is active.
   const status = await getJobStatus(jobId).catch(() => null);
-  if (status) {
-    return c.json(status);
-  }
+  if (status) return c.json(status);
 
-  // Fallback: check Plumber's climate/download job status
+  // Plumber uses its own job ID, which differs from the persisted run UUID.
+  const plumberJobId = persistedRun?.jobId || jobId;
   const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
   const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
   try {
-    const res = await fetch(`${plumberUrl}/api/v1/jobs/status/${jobId}`, {
+    const plumberStatusPath = persistedRun
+      ? "models/status"
+      : jobId.startsWith("climate_") ? "climate/status" : "jobs/status";
+    const res = await fetch(`${plumberUrl}/api/v1/${plumberStatusPath}/${plumberJobId}`, {
       headers: {
         ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
         "X-Forwarded-User": user.id,
       },
     });
     if (res.ok) {
-      const plumberStatus = await res.json();
+      const plumberStatus = await res.json() as Record<string, unknown>;
       return c.json({
         id: jobId,
         state: plumberStatus.status || "unknown",
         progress: plumberStatus.progress ?? 0,
-        type: plumberStatus.type || "climate_download",
+        type: plumberStatus.type || "data_job",
         logs: plumberStatus.progress_log || [],
         result: plumberStatus.result || null,
         failedReason: plumberStatus.error || null,
+        error_code: plumberStatus.error_code || null,
+        error_hint: plumberStatus.error_hint || null,
       });
     }
   } catch {
-    // Plumber unavailable — return queue-unavailable error below
+    // Fall through to the durable DB status for model runs.
   }
 
-  return c.json({ error: "Job not found or queue unavailable" }, 404);
+  if (persistedRun) {
+    return c.json({
+      id: persistedRun.id,
+      state: persistedRun.status,
+      progress: persistedRun.status === "completed" ? 100 : 0,
+      type: "sdm_model",
+      logs: Array.isArray(persistedRun.progressLog) ? persistedRun.progressLog : [],
+      result: null,
+      failedReason: persistedRun.error,
+      error_code: persistedRun.errorCode,
+      error_hint: persistedRun.errorHint,
+    });
+  }
+
+  return c.json({ error: "Job not found" }, 404);
 });
 
 export default app;
