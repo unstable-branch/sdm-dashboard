@@ -1350,7 +1350,7 @@ run_fast_sdm <- function(...) {
   result <- list(
     config = list(
       species = species, occurrence_file = occurrence_file, occurrence_source = occurrence_source, worldclim_dir = worldclim_dir,
-      selected_biovars = selected_biovars, training_extent = training_extent, projection_extent = projection_extent,
+      worldclim_res = worldclim_res, selected_biovars = selected_biovars, training_extent = training_extent, projection_extent = projection_extent,
       background_n = background_n, min_source_records = min_source_records, merge_small_sources = merge_small_sources,
       thin_by_cell = thin_by_cell, model_id = model_id, model_label = model_spec$label,
       include_quadratic = include_quadratic, threshold = threshold,
