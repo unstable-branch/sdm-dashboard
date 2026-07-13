@@ -3,7 +3,7 @@ import { verify } from "hono/jwt";
 import { createHash } from "crypto";
 import { db } from "../db/index.js";
 import { users, apiKeys, projectMembers, projects } from "../db/schema.js";
-import { eq, and, or, inArray } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { checkRateLimit } from "./rate-limit.js";
 
 // Batch lastUsedAt updates — flush every 30s or after 100 queued writes
