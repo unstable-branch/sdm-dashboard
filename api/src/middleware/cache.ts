@@ -51,7 +51,6 @@ export function cacheResponse(options: CacheOptions) {
   });
 }
 
-const shortCache = cacheResponse({ ttl: 60, keyPrefix: "short" });
 export const mediumCache = cacheResponse({ ttl: 300, keyPrefix: "medium" });
 export const longCache = cacheResponse({ ttl: 3600, keyPrefix: "long" });
 
