@@ -49,13 +49,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check:node
       - run: pnpm run check:compose
-      - run: pnpm run check:accelerators
       - run: pnpm run check:release
 
       - uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
         with:
           r-version: release
           use-public-rspm: true
+
+      - run: pnpm run check:accelerators
 
       - name: Install system dependencies
         run: |
