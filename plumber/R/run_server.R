@@ -45,42 +45,7 @@ source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"), local
 # Source error codes and classification
 source(file.path(app_dir, "plumber", "R", "error_codes.R"), local = FALSE)
 
-# Set up DB connection pool for auth and other DB queries
-library(pool)
-db_pool <- tryCatch({
-  db_url <- Sys.getenv("DATABASE_URL", "")
-  if (nzchar(db_url)) {
-    clean_url <- sub("^postgresql://", "postgres://", db_url)
-    parts <- regmatches(clean_url, regexec("postgres://([^:]+):([^@]+)@([^:]+):([^/]+)/(.+)", clean_url))[[1]]
-    if (length(parts) == 6) {
-      dbPool(
-        RPostgres::Postgres(),
-        host = parts[4],
-        port = as.integer(parts[5]),
-        dbname = parts[6],
-        user = parts[2],
-        password = parts[3],
-        minSize = 1,
-        maxSize = 5,
-        idleTimeout = 60000
-      )
-    } else {
-      masked <- sub("://[^:]+:[^@]+@", "://USER:PASSWORD@", db_url)
-      cat("WARNING: Could not parse DATABASE_URL:", masked, "\n")
-      NULL
-    }
-  } else {
-    NULL
-  }
-}, error = function(e) {
-  cat("WARNING: Failed to create DB connection pool:", conditionMessage(e), "\n")
-  NULL
-})
-if (!is.null(db_pool)) {
-  cat("DB connection pool created (min=1, max=5)\n")
-}
-
-# Load .env file for env vars (PLUMBER_INTERNAL_KEY, DATABASE_URL, etc.)
+# Load .env before connecting so local deployments use the same retry path as containers.
 env_file <- file.path(app_dir, ".env")
 if (file.exists(env_file)) {
   lines <- readLines(env_file, warn = FALSE)
@@ -92,6 +57,17 @@ if (file.exists(env_file)) {
       }
     }
   }
+}
+
+# PostgreSQL can lag behind the container process even when Compose is starting
+# normally. Retry pool creation instead of permanently disabling pooled access.
+library(pool)
+source(file.path(app_dir, "plumber", "R", "db_pool.R"), local = FALSE)
+db_pool <- sdm_connect_db_pool()
+if (!is.null(db_pool)) {
+  cat("DB connection pool created (min=1, max=5)\n")
+} else if (nzchar(Sys.getenv("DATABASE_URL", ""))) {
+  cat("WARNING: DB pool unavailable after startup retries; direct DB connections remain enabled.\n")
 }
 
 # Create plumber router (this sets global `pr`)
@@ -181,6 +157,7 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     return(NULL)
   }
 
+  db_pool <- sdm_get_db_pool(db_pool)
   user_info <- validate_api_key(api_key, pool = db_pool, app_dir = app_dir)
   if (is.null(user_info)) {
     auth_fail(res, 401L, '{"error":"Invalid or expired API key."}')
@@ -209,31 +186,38 @@ source(file.path(app_dir, "plumber", "R", "plumber.R"), local = FALSE)
 # Start server with project root as working directory
 setwd(app_dir)
 
-# Orphan job cleanup: remove stale job directories from previous crashed sessions
+# Preserve crash diagnostics for status polling, then prune failed/cancelled
+# scratch jobs after a configurable retention window.
 orphan_cleanup <- function() {
   jobs_base <- file.path(app_dir, "outputs", "jobs")
   if (!dir.exists(jobs_base)) return(NULL)
-  cutoff <- Sys.time() - 86400
-  stale <- list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)
-  for (jd in stale) {
-    mtime <- file.info(jd)$mtime
-    if (!is.na(mtime) && mtime < cutoff) {
-      meta_file <- file.path(jd, "meta.json")
-      if (file.exists(meta_file)) {
-        meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-        if (identical(meta$status, "running")) {
-          # Kill the process if PID is known, then remove directory
-          if (!is.null(meta$process_pid)) {
-            tryCatch(tools::pskill(meta$process_pid, signal = 9), error = function(e) NULL)
-          }
-          unlink(jd, recursive = TRUE, force = TRUE)
-        }
-      }
+  stale_running_cutoff <- Sys.time() - 86400
+  retention_days <- suppressWarnings(as.numeric(Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7")))
+  if (!is.finite(retention_days) || retention_days < 1) retention_days <- 7
+  prune_cutoff <- Sys.time() - retention_days * 86400
+
+  for (job_dir in list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)) {
+    meta_file <- file.path(job_dir, "meta.json")
+    if (!file.exists(meta_file)) next
+    meta <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
+    if (is.null(meta)) next
+    mtime <- file.info(meta_file)$mtime
+
+    if (identical(meta$status, "running") && !is.na(mtime) && mtime < stale_running_cutoff) {
+      meta$status <- "failed"
+      meta$error <- "Job was orphaned by a previous Plumber process"
+      meta$error_code <- "WORKER_ORPHAN"
+      meta$error_hint <- "Restart the job. If this recurs, inspect the retained stdout and stderr logs."
+      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      sdm_write_json(meta, meta_file)
+    } else if (meta$status %in% c("failed", "cancelled") && !is.na(mtime) && mtime < prune_cutoff) {
+      unlink(job_dir, recursive = TRUE, force = TRUE)
     }
   }
 }
 tryCatch({
-  cat("Running orphan cleanup (stale jobs >24h)...\n")
+  cat("Running orphan cleanup (failed-job retention: ",
+      Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7"), " days)...\n", sep = "")
   orphan_cleanup()
 }, error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
 
