@@ -619,7 +619,7 @@ export default function ResultsPage() {
                 })()}
                 outputFiles={(() => {
                   const of = run?.output_files ?? null;
-                  if (!isMultiSpecies || selectedMultiSpeciesIdx < 0 || !of) return of;
+                  if (!isMultiSpecies || selectedMultiSpeciesIdx === -1 || !of) return of;
                   const override = { ...of };
                   if (selectedMultiSpeciesIdx === -2 && richnessTif) {
                     override.tif = richnessTif;
