@@ -332,7 +332,7 @@ export default function MaplibreMap({
       {tileErrors > 5 && (
         <div className="absolute bottom-16 left-3 z-10 flex items-center gap-1.5 rounded-md bg-sdm-warning/10 px-2.5 py-1.5 text-[11px] text-sdm-warning border border-sdm-warning/30">
           <AlertTriangle className="h-3 w-3" />
-          <span>{tileErrors} tile error{tileErrors !== 1 ? "s" : ""}</span>
+          <span>{tileErrors} tile errors</span>
           <button onClick={() => setTileErrors(0)} className="ml-1 text-sdm-warning/70 hover:text-sdm-warning transition-colors" aria-label="Dismiss tile errors">
             ×
           </button>

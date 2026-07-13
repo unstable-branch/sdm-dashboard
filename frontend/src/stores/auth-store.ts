@@ -19,7 +19,7 @@ interface AuthState {
   project: { id: string; name: string; role: string } | null;
   projects: Array<{ id: string; name: string; role: string }>;
   error: string | null;
-  setAuth: (user: User, token: string) => void;
+  setAuth: (user: User, token: string, remember?: boolean) => void;
   clearAuth: () => void;
   setProject: (project: { id: string; name: string; role: string }) => void;
   setProjects: (projects: Array<{ id: string; name: string; role: string }>) => void;
@@ -28,6 +28,7 @@ interface AuthState {
 }
 
 function writeStorageToken(token: string, remember = true) {
+  clearStorageToken();
   const storage = remember ? localStorage : sessionStorage;
   storage.setItem("sdm_token", token);
   if (typeof document !== "undefined") {
@@ -53,8 +54,8 @@ export const useAuthStore = create<AuthState>()(
       project: null,
       projects: [],
       error: null,
-      setAuth: (user, token) => {
-        writeStorageToken(token, true);
+      setAuth: (user, token, remember = true) => {
+        writeStorageToken(token, remember);
         set({ user, token, error: null });
       },
       clearAuth: () => {
@@ -73,7 +74,6 @@ export const useAuthStore = create<AuthState>()(
       name: "sdm-auth",
       partialize: (state) => ({
         user: state.user,
-        token: state.token,
         project: state.project,
         projects: state.projects,
       }),
