@@ -34,7 +34,7 @@ Use semver with prerelease tags until the modern platform is stable:
 
 The canonical public version is `VERSION`. The release workflow rejects a tag unless it matches `VERSION`, public Node package metadata, `CITATION.cff`, and a release heading in `CHANGELOG.md`. `DESCRIPTION` retains the independent legacy R/Shiny component version.
 
-Tag releases from `main` only after `dev -> main` CI and the release-candidate checklist are green. After tagging, merge `main` back into `dev` by PR so release ancestry is retained.
+Tag releases from `main` only after `dev -> main` CI, including the pre-tag publication-validation job, and the release-candidate checklist are green. Image publication and draft release assembly remain tag-only. After tagging, merge `main` back into `dev` by PR so release ancestry is retained.
 
 The detailed `dev -> main` release-candidate plan is in `docs/DEV_MAIN_RELEASE_PLAN.md`.
 
