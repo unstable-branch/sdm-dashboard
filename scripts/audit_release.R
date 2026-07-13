@@ -18,7 +18,7 @@ fail <- function(...) stop(paste0(...), call. = FALSE)
 expected <- c(
   "app.R", "launch_app.R", "run_app_windows.bat", "R/load.R", "R/core/optimized_sdm.R",
   "scripts/make_release_zip.R", "scripts/smoke_test.R", "scripts/windows_setup.R",
-  "README.md", "README_WINDOWS.md", "LICENSE", "CONTRIBUTING.md", "CITATION.cff",
+  "README.md", "README_WINDOWS.md", "LICENSE", "CONTRIBUTING.md", "CITATION.cff", "VERSION",
   "CODE_OF_CONDUCT.md", "SECURITY.md", "Dockerfile", ".dockerignore",
   ".github/workflows/r-quality.yml", "data/examples/synthetic_presence_data.csv",
   "www/sdm-theme.css"
