@@ -2,18 +2,18 @@ handle_job_status <- function(req, res, job_id, app_dir) {
   job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
   meta_file <- file.path(job_dir, "meta.json")
   if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
+    meta <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
+    if (!is.null(meta) && !is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
       if (as.character(meta$user_id) != as.character(req$user_id)) {
         res$status <- 403L
         return(list(error = "Access denied"))
       }
     }
   }
-  status <- handle_async_status(NULL, job_id, app_dir)
+  status <- handle_async_status(res, job_id, app_dir)
   if (!isTRUE(status$available)) {
-    res$status <- 404L
-    return(list(error = "Job not found"))
+    if (!is.null(res) && is.null(res$status)) res$status <- 404L
+    return(list(error = status$error %||% "Job not found"))
   }
   status
 }

@@ -40,6 +40,8 @@ Run the normal gates locally and in GitHub Actions:
 pnpm install --frozen-lockfile
 pnpm run check:node
 pnpm run check:compose
+pnpm run check:accelerators
+pnpm run check:release
 Rscript scripts/smoke_test.R --tags=fast
 Rscript tests/testthat.R
 Rscript scripts/audit_release.R
@@ -98,9 +100,17 @@ Before the release PR is merged:
 - No public docs should instruct users to expose Postgres, Redis, Garage admin, Prometheus, or Grafana without access control.
 - Release workflow must build draft releases and GHCR images from tags only.
 
-## Phase 5 - PR And Merge
+## Phase 5 - Reconcile, Promote, And Reconcile Back
 
-Open a fresh `dev` to `main` PR only after Phases 1-4 are satisfied.
+Before opening the release PR, fetch both shared branches and verify that `main` is an ancestor of `dev`:
+
+```bash
+git fetch origin main dev --tags
+git merge-base --is-ancestor origin/main origin/dev
+git rev-list --left-right --count origin/main...origin/dev
+```
+
+If the left count is nonzero, open a `main -> dev` reconciliation PR and merge it first. Do not rebase or force-push either shared branch. Only then open a fresh `dev -> main` PR after Phases 1-4 and `docs/QA_RELEASE_CHECKLIST.md` are satisfied.
 
 The PR body should include:
 
@@ -114,11 +124,20 @@ The PR body should include:
 
 Do not squash in unrelated cleanup after PR review starts. If substantial follow-up is needed, fix it on `dev`, rerun gates, and let the PR update normally.
 
+After the release merge and tag, immediately open a `main -> dev` reconciliation PR. This carries the release merge commit and tag ancestry back to the integration line. Before any new feature work lands, verify:
+
+```bash
+git fetch origin main dev
+git merge-base --is-ancestor origin/main origin/dev
+```
+
+This post-release reconciliation is mandatory even when the trees look identical. Tree equality does not repair divergent commit ancestry.
+
 ## Stop Conditions
 
 Do not merge if any of these are true:
 
-- `main` gains unique commits that have not been reconciled.
+- `main` has any unique commits that have not been reconciled into `dev` by PR.
 - CI is red without a documented and accepted reason.
 - The app cannot be started from the documented compose path.
 - Empty-volume bootstrap fails.

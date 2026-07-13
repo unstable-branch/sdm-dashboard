@@ -1,4 +1,4 @@
-FROM node:22-alpine AS builder
+FROM docker.io/library/node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS builder
 
 LABEL org.opencontainers.image.title="SDM Dashboard — API"
 LABEL org.opencontainers.image.description="Hono BFF API server with BullMQ job queue"
@@ -41,29 +41,31 @@ RUN pnpm --filter @sdm/api build
 # Create production deployment with only production dependencies
 RUN pnpm --filter @sdm/api deploy --prod --legacy /app/deploy
 
-FROM node:22-alpine AS runner
+FROM docker.io/library/node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS runner
 
 LABEL org.opencontainers.image.title="SDM Dashboard — API"
 LABEL org.opencontainers.image.description="Hono BFF API server with BullMQ job queue"
 LABEL org.opencontainers.image.source="https://github.com/unstable-branch/sdm-dashboard"
 
-RUN apk add --no-cache dumb-init curl
+RUN apk add --no-cache dumb-init curl su-exec
 
 WORKDIR /app
 
 # pnpm legacy deploy emits a self-contained, flat package directory.
 COPY --from=builder /app/deploy ./api
 
-RUN addgroup -g 2000 uploadgroup && \
-    adduser node uploadgroup && \
-    mkdir -p /app/data/uploads && \
-    chown root:uploadgroup /app/data/uploads && \
-    chmod 775 /app/data/uploads
+RUN addgroup -g 2000 sdm-shared && \
+    addgroup node sdm-shared && \
+    mkdir -p /app/data/uploads /app/outputs && \
+    chgrp -R sdm-shared /app/data/uploads /app/outputs && \
+    chmod 2775 /app/data/uploads /app/outputs
+
+COPY api/docker-entrypoint.sh /usr/local/bin/api-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/api-entrypoint.sh
 
 ENV NODE_OPTIONS="--max-old-space-size=2048"
 
-USER node
-
 EXPOSE 4000
 
-CMD ["dumb-init", "sh", "-c", "npm --prefix api run db:migrate && node api/dist/index.js"]
+ENTRYPOINT ["dumb-init", "--", "/usr/local/bin/api-entrypoint.sh"]
+CMD ["sh", "-c", "npm --prefix api run db:migrate && node api/dist/index.js"]

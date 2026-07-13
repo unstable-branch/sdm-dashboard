@@ -117,7 +117,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [useHfp, setUseHfp] = useState(false);
   const [useBioclimSeason, setUseBioclimSeason] = useState(false);
   const [useDrought, setUseDrought] = useState(false);
-  const [generateTiles, setGenerateTiles] = useState(true);
+  const [generateTiles, setGenerateTiles] = useState(false);
   const [generateCog, setGenerateCog] = useState(true);
   const [futureProjection, setFutureProjection] = useState(false);
   const [futureLabel, setFutureLabel] = useState("Future climate");

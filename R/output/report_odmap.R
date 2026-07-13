@@ -113,7 +113,8 @@ write_odmap_report <- function(result, path_csv, path_md = NULL) {
   extent <- .get_config("projection_extent")
   spatial_extent <- if (!is.null(extent)) .fmt_aggr(extent) else "Not available"
   aggregation_factor <- .get_config("aggregation_factor", 1)
-  spatial_resolution <- paste0(aggregation_factor, " arc-min")
+  native_resolution <- .get_config("worldclim_res", 10)
+  spatial_resolution <- paste0(native_resolution * aggregation_factor, " arc-min")
 
   covariates_used <- if (!is.null(result$covariates)) {
     result$covariates

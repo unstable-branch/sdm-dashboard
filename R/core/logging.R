@@ -8,9 +8,10 @@ log_message <- function(log_fun = NULL, ...) {
   invisible(msg)
 }
 
-progress_step <- function(progress_fun = NULL, amount = 0, detail = NULL) {
+progress_step <- function(progress_fun = NULL, amount = 0, detail = NULL, ...) {
   if (is.function(progress_fun)) {
-    progress_fun(list(value = amount, detail = detail))
+    event <- if (is.list(amount)) amount else c(list(value = amount, detail = detail), list(...))
+    progress_fun(event)
   }
   invisible(NULL)
 }

@@ -67,6 +67,19 @@ sdm_project_path <- function(...) {
   file.path(sdm_project_root(), ...)
 }
 
+# Resolve configurable data paths consistently. Absolute environment values are
+# preserved; relative values are always anchored at the project root rather
+# than the caller's working directory (for example /app/plumber/R in callr).
+sdm_resolve_project_path <- function(path, root = sdm_project_root()) {
+  if (is.null(path) || length(path) == 0L || is.na(path[1L]) || !nzchar(trimws(path[1L]))) {
+    return(path)
+  }
+  path <- path.expand(trimws(as.character(path[1L])))
+  is_absolute <- grepl("^(/|[A-Za-z]:[/\\]|\\\\)", path)
+  resolved <- if (is_absolute) path else file.path(root, path)
+  sdm_normalize_path(resolved, mustWork = FALSE)
+}
+
 sdm_ensure_project_dirs <- function(dirs = NULL) {
   if (is.null(dirs)) {
     dirs <- if (exists("sdm_default_dirs", inherits = TRUE)) get("sdm_default_dirs", inherits = TRUE) else c("outputs", "covariates")
