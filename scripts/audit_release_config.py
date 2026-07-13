@@ -133,6 +133,10 @@ for path, accelerator in (
     if accelerator not in read(path):
         fail(f"{path} is missing accelerator identity {accelerator}")
 
+changelog = read("CHANGELOG.md")
+if not re.search(rf"^## (?:\[{re.escape(version)}\]|v{re.escape(version)})(?:\s|$)", changelog, re.MULTILINE):
+    fail(f"CHANGELOG.md has no release heading for {version}")
+
 if len(sys.argv) > 2:
     fail("usage: audit_release_config.py [vMAJOR.MINOR.PATCH[-PRERELEASE]]")
 if len(sys.argv) == 2:
@@ -142,9 +146,6 @@ if len(sys.argv) == 2:
     validate_semver(tag[1:], "release tag")
     if tag[1:] != version:
         fail(f"tag {tag!r} does not match VERSION v{version}")
-    changelog = read("CHANGELOG.md")
-    if not re.search(rf"^## (?:\[{re.escape(version)}\]|v{re.escape(version)})(?:\s|$)", changelog, re.MULTILINE):
-        fail(f"CHANGELOG.md has no release heading for {version}")
     if git("rev-parse", "HEAD") != git("rev-list", "-n", "1", tag):
         fail(f"{tag} does not resolve to checked-out HEAD")
 
