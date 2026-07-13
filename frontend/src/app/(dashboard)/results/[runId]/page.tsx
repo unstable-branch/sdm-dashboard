@@ -10,6 +10,7 @@ import { FutureProjectionPanel } from "@/components/results/future-projection-pa
 import { OdmapViewer } from "@/components/results/odmap-viewer";
 import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { manifestRecordCount } from "@/lib/manifest";
 import { apiGet, apiPost, fetchWithAuth } from "@/services/api";
 import { useRunDetail } from "@/hooks/use-queries";
 import { useJobSSE } from "@/hooks/use-job-sse";
@@ -733,7 +734,7 @@ export default function ResultsPage() {
                       <div>
                         <h4 className="text-xs font-medium text-sdm-muted uppercase mb-1">Input Data</h4>
                         <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                          <span className="text-sdm-muted">Records:</span><span className="text-sdm-text">{manifest.data.occurrence_rows ?? "-"}</span>
+                          <span className="text-sdm-muted">Records:</span><span className="text-sdm-text">{manifestRecordCount(manifest)?.toLocaleString() ?? "-"}</span>
                           <span className="text-sdm-muted">SHA-256:</span><span className="text-sdm-text truncate">{manifest.data.occurrence_hash_sha256?.slice(0, 16) ?? "-"}</span>
                         </div>
                       </div>
