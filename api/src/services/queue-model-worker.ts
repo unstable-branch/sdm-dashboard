@@ -139,10 +139,9 @@ export async function handleModelJob(
             if (currentRun && currentRun.status !== "running") { modelCompleted = true; break; }
           }
 
-          const outputFiles = modelStatus.output_files as Record<string, string> | undefined;
           let syncWarning: string | undefined;
-          if (outputFiles && runId) {
-            const jobDir = join("outputs", "jobs", runId);
+          if (completed.outputFiles && runId) {
+            const jobDir = join("outputs", "jobs", plumberJobId);
             await job.updateProgress(99);
             jobEventBus.emitJobStatus({
               jobId: runId,
@@ -154,7 +153,7 @@ export async function handleModelJob(
               progressJson: pollProgressJson ?? null,
             });
             try {
-              await syncOutputsToS3(jobDir, runId, outputFiles);
+              await syncOutputsToS3(jobDir, runId, completed.outputFiles);
             } catch (err) {
               syncWarning = err instanceof Error ? err.message : String(err);
               console.warn(`[S3] Output sync failed for run ${runId}:`, err);
@@ -175,16 +174,6 @@ export async function handleModelJob(
               .where(and(eq(runs.id, runId), inArray(runs.status, ["running", "queued"])));
           }
 
-<<<<<<< HEAD
-=======
-          if (completed.outputFiles && runId) {
-            const jobDir = join("outputs", "jobs", plumberJobId);
-            syncOutputsToS3(jobDir, runId, completed.outputFiles).catch((err) => {
-              console.warn(`[S3] Background sync failed for run ${runId}:`, err);
-            });
-          }
-
->>>>>>> b7fcbe5 (fix(api): persist and discover result artifacts)
           await job.updateProgress(100);
           jobEventBus.emitJobStatus({
             jobId: runId ?? job.id!,
