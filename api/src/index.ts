@@ -14,7 +14,7 @@ import { closeRateLimitRedis } from "./middleware/rate-limit.js";
 import { csrfMiddleware } from "./middleware/csrf.js";
 import { securityHeaders } from "./middleware/security-headers.js";
 import { startMemoryMonitor, stopMemoryMonitor } from "./middleware/memory-monitor.js";
-import { initMetrics, metricsHandler, recordHttpRequest, setActiveRequests, setQueueDepth, collectGpuMetrics } from "./services/metrics.js";
+import { initMetrics, metricsHandler, recordHttpRequest, setActiveRequests, collectGpuMetrics } from "./services/metrics.js";
 import { db } from "./db/index.js";
 import { sql } from "drizzle-orm";
 import { sdmRunRoutes } from "./routes/sdm-runs.js";
