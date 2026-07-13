@@ -44,9 +44,69 @@ sdm_detect_vsize <- local({
   }
 })
 
+.sdm_which_rocm_smi <- local({
+  .cached <- NULL
+  function() {
+    if (!is.null(.cached)) return(.cached)
+    candidates <- c(Sys.which("rocm-smi"), "/opt/rocm/bin/rocm-smi")
+    candidates <- candidates[nzchar(candidates) & file.exists(candidates)]
+    .cached <<- if (length(candidates) > 0) candidates[1] else NA_character_
+    .cached
+  }
+})
+
+.sdm_parse_rocm_smi_json <- function(json_text) {
+  payload <- jsonlite::fromJSON(json_text, simplifyVector = FALSE)
+  cards <- payload[grepl("^card[0-9]+$", names(payload))]
+  if (length(cards) == 0) return(NULL)
+
+  card <- cards[[1]]
+  as_number <- function(key) {
+    value <- suppressWarnings(as.numeric(card[[key]]))
+    if (length(value) == 1 && is.finite(value)) value else NA_real_
+  }
+  total_bytes <- as_number("VRAM Total Memory (B)")
+  used_bytes <- as_number("VRAM Total Used Memory (B)")
+  total_mib <- total_bytes / (1024^2)
+  used_mib <- used_bytes / (1024^2)
+  free_mib <- total_mib - used_mib
+
+  list(
+    name = card[["Card Series"]] %||% NA_character_,
+    vendor = "AMD",
+    backend = "rocm",
+    architecture = card[["GFX Version"]] %||% NA_character_,
+    driver_version = NA_character_,
+    cuda_version = NA_character_,
+    rocm_version = if (file.exists("/opt/rocm/.info/version")) {
+      tryCatch(readLines("/opt/rocm/.info/version", n = 1), error = function(e) NA_character_)
+    } else {
+      NA_character_
+    },
+    vram_total_mib = if (is.finite(total_mib)) floor(total_mib) else NA_real_,
+    vram_free_mib = if (is.finite(free_mib)) floor(free_mib) else NA_real_,
+    vram_used_mib = if (is.finite(used_mib)) floor(used_mib) else NA_real_,
+    gpu_utilization_pct = as_number("GPU use (%)"),
+    temperature_c = as_number("Temperature (Sensor edge) (C)")
+  )
+}
+
+.sdm_rocm_gpu_info <- function() {
+  smi <- .sdm_which_rocm_smi()
+  if (is.na(smi)) return(NULL)
+  tryCatch({
+    out <- system2(smi, c("--showproductname", "--showmeminfo", "vram", "--showuse", "--showtemp", "--json"),
+      stdout = TRUE, stderr = FALSE)
+    if (length(out) == 0) return(NULL)
+    .sdm_parse_rocm_smi_json(paste(out, collapse = "\n"))
+  }, error = function(e) NULL, warning = function(w) NULL)
+}
+
 sdm_gpu_available_vram <- function() {
   smi <- .sdm_which_nvidia_smi()
   if (is.na(smi)) {
+    rocm <- .sdm_rocm_gpu_info()
+    if (!is.null(rocm) && is.finite(rocm$vram_free_mib)) return(rocm$vram_free_mib)
     # Docker without --gpus: nvidia-smi absent; try torch-level query as fallback
     if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
       return(tryCatch({
@@ -72,6 +132,8 @@ sdm_gpu_available_vram <- function() {
 sdm_gpu_total_vram <- function() {
   smi <- .sdm_which_nvidia_smi()
   if (is.na(smi)) {
+    rocm <- .sdm_rocm_gpu_info()
+    if (!is.null(rocm) && is.finite(rocm$vram_total_mib)) return(rocm$vram_total_mib)
     # Docker without --gpus: try torch-level query as fallback
     if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
       return(tryCatch({
@@ -95,7 +157,7 @@ sdm_gpu_total_vram <- function() {
 # Get full GPU info as a list for the health endpoint
 sdm_gpu_info <- function() {
   smi_path <- .sdm_which_nvidia_smi()
-  if (is.na(smi_path)) return(NULL)
+  if (is.na(smi_path)) return(.sdm_rocm_gpu_info())
   tryCatch({
     name_out <- system2(smi_path, c("--query-gpu=name", "--format=csv,noheader"),
       stdout = TRUE, stderr = FALSE)
@@ -123,6 +185,8 @@ sdm_gpu_info <- function() {
 
     list(
       name = gpu_name,
+      vendor = "NVIDIA",
+      backend = "cuda",
       driver_version = driver,
       cuda_version = cuda_ver,
       vram_total_mib = if (is.finite(total_mib)) total_mib else NA_real_,

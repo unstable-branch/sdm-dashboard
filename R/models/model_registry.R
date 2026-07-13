@@ -146,30 +146,38 @@ if (requireNamespace("INLA", quietly = TRUE)) {
 # Occupancy (unmarked) — conditional on unmarked package
 # brms (general Bayesian) — conditional on brms package
 # Python executor bridge — conditional on reticulate + arrow
-if (requireNamespace("arrow", quietly = TRUE)) {
-  python_manifests <- tryCatch(discover_python_models(), error = function(e) character(0))
+register_python_sdm_models <- function(python_manifests = discover_python_models()) {
   for (manifest_path in python_manifests) {
     m <- tryCatch(read_python_model_manifest(manifest_path), error = function(e) NULL)
     if (is.null(m) || is.null(m$id)) next
 
-    register_sdm_model(
-      id = paste0("python_", m$id),
-      label = m$label,
-      method = m$method,
-      packages = c("arrow", "reticulate"),
-      maturity = "experimental",
-      fit_fun = function(..., python_model_id = m$id) fit_python_sdm(..., python_model_id = python_model_id),
-      predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
-        predict_python_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
-      },
-      supports_importance = isTRUE(m$supports_importance),
-      supports_uncertainty = isTRUE(m$supports_uncertainty),
-      supports_future = TRUE,
-      diagnostics = list(cv_auc = TRUE),
-      notes = paste("Python model via", m$id, "bridge. Requires Python + required pip packages."),
-      min_records = m$min_records %||% 10L
-    )
+    local({
+      manifest <- m
+      manifest_id <- manifest$id
+      register_sdm_model(
+        id = paste0("python_", manifest_id),
+        label = manifest$label,
+        method = manifest$method,
+        packages = c("arrow", "reticulate"),
+        maturity = "experimental",
+        fit_fun = function(...) fit_python_sdm(..., python_model_id = manifest_id),
+        predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
+          predict_python_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
+        },
+        supports_importance = isTRUE(manifest$supports_importance),
+        supports_uncertainty = isTRUE(manifest$supports_uncertainty),
+        supports_future = TRUE,
+        diagnostics = list(cv_auc = TRUE),
+        notes = paste("Python model via", manifest_id, "bridge. Requires Python + required pip packages."),
+        min_records = manifest$min_records %||% 10L
+      )
+    })
   }
+  invisible(NULL)
+}
+
+if (requireNamespace("arrow", quietly = TRUE)) {
+  register_python_sdm_models()
 }
 
 if (requireNamespace("brms", quietly = TRUE)) {
@@ -768,6 +776,6 @@ if (requireNamespace("cito", quietly = TRUE) && requireNamespace("torch", quietl
     importance_fun = function(fit, ...) fit$cito_importance,
     pdp_fun = function(fit, ...) fit$cito_pdp,
     shap_fun = function(fit, ...) fit$shap,
-    notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration if CUDA available. cito::explain() provides SHAP-like feature attribution."
+    notes = "Experimental DNN backend. Requires cito and torch. GPU acceleration supports compatible CUDA, ROCm, and MPS builds. cito::explain() provides SHAP-like feature attribution."
   )
 }

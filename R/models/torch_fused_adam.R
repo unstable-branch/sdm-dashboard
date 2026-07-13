@@ -5,9 +5,10 @@
 
 .train_opts <- new.env(parent = emptyenv())
 
-set_train_opts <- function(mixed_precision = "auto", cuda_graphs = "auto") {
+set_train_opts <- function(mixed_precision = "auto", cuda_graphs = "auto", backend = "cpu") {
   .train_opts$mixed_precision <- mixed_precision
   .train_opts$cuda_graphs <- cuda_graphs
+  .train_opts$backend <- backend
 }
 
 # Optional GPU memory profiler — records allocation traceback history.
@@ -17,7 +18,7 @@ set_train_opts <- function(mixed_precision = "auto", cuda_graphs = "auto") {
 gpu_profile_start <- function(enabled = FALSE) {
   if (!enabled) return(FALSE)
   if (!requireNamespace("torch", quietly = TRUE)) return(FALSE)
-  if (!torch::cuda_is_available()) return(FALSE)
+  if (!identical(.train_opts$backend %||% "cpu", "cuda")) return(FALSE)
   tryCatch({
     torch::cuda_record_memory_history()
     TRUE
@@ -205,10 +206,13 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   counter <- 0L
 
   device_str <- if (inherits(device, "torch_device")) device$type else as.character(device)
-  is_cuda <- startsWith(device_str, "cuda")
+  # ROCm uses the internal torch device name "cuda", so never infer vendor
+  # identity from device_str. Native CUDA extensions remain NVIDIA-only.
+  backend <- .train_opts$backend %||% sdm_backend_for_device(device_str)
+  is_cuda_native <- identical(backend, "cuda")
 
   gc(full = TRUE)
-  if (is_cuda) {
+  if (is_cuda_native) {
     cuda_idx <- as.integer(sub("cuda:?", "", device_str))
     if (is.na(cuda_idx)) cuda_idx <- 0L
     tryCatch(.Call("_torch_cpp_cuda_synchronize", cuda_idx), error = function(e) NULL)
@@ -217,8 +221,8 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   # Resolve mixed precision & CUDA Graphs settings
   mp_setting <- .train_opts$mixed_precision %||% "auto"
   cg_setting <- .train_opts$cuda_graphs %||% "auto"
-  use_amp <- is_cuda && (identical(mp_setting, "auto") || isTRUE(mp_setting) || identical(mp_setting, "on"))
-  use_cudagraphs <- is_cuda && (identical(cg_setting, "auto") || isTRUE(cg_setting) || identical(cg_setting, "on"))
+  use_amp <- is_cuda_native && (identical(mp_setting, "auto") || isTRUE(mp_setting) || identical(mp_setting, "on"))
+  use_cudagraphs <- is_cuda_native && (identical(cg_setting, "auto") || isTRUE(cg_setting) || identical(cg_setting, "on"))
 
   # Load CUDA Graphs .so if needed
   if (use_cudagraphs) {
@@ -278,7 +282,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   start_epoch <- min(which(is.na(model$losses$train_l)))
 
   # Enable cuDNN autotuner for optimal kernel selection on cuDNN >= 7.6
-  if (is_cuda) {
+  if (is_cuda_native) {
     tryCatch(torch::torch_backends_cudnn_benchmark(TRUE), error = function(e) NULL)
     tryCatch(torch::set_float32_matmul_precision("high"), error = function(e) NULL)
   }
@@ -288,7 +292,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
 
   # CUDA Graphs: setup non-default stream before epoch loop (required for graph capture)
   cg_stream_setup <- FALSE
-  if (use_cudagraphs && is_cuda) {
+  if (use_cudagraphs && is_cuda_native) {
     tryCatch({
       .Call("cuda_setup_graph_stream")
       cg_stream_setup <- TRUE
@@ -300,7 +304,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
 
   for (epoch in start_epoch:(start_epoch + epochs - 1)) {
     epoch_start <- Sys.time()
-    epoch_start_mem <- if (is_cuda) tryCatch(torch::cuda_memory_stats()$allocated_bytes$all$current %/% (1024L * 1024L), error = function(e) NA_integer_) else NA_integer_
+    epoch_start_mem <- if (is_cuda_native) tryCatch(torch::cuda_memory_stats()$allocated_bytes$all$current %/% (1024L * 1024L), error = function(e) NA_integer_) else NA_integer_
     model$training_properties$epoch <- epoch
 
     # Materialize all batches once (avoids coro::loop overhead)
@@ -339,7 +343,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
         .Call("cuda_graph_begin", TRUE)
       }
 
-      if (use_amp && is_cuda) {
+      if (use_amp && is_cuda_native) {
         torch::with_autocast(device_type = "cuda", {
           if (use_traced) {
             output <- traced_forward(x_batch)
@@ -444,7 +448,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
     if (train_batch_idx > 0) {
       last_loss_val <- train_l_vec[train_batch_idx]
     } else {
-      if (is_cuda) torch::cuda_synchronize()
+      if (is_cuda_native) torch::cuda_synchronize()
       last_loss_val <- as.numeric(loss$item())
     }
 
@@ -475,7 +479,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
           x_batch <- b[[1]]$to(device = device, non_blocking = TRUE)
           y_batch <- b[[2]]$to(device = device, non_blocking = TRUE)
 
-          if (use_amp && is_cuda) {
+          if (use_amp && is_cuda_native) {
             torch::with_autocast(device_type = "cuda", {
               if (use_traced) {
                 output <- traced_forward(x_batch)
@@ -554,7 +558,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
     }
 
     # Record per-epoch GPU metrics
-    if (is_cuda) {
+    if (is_cuda_native) {
       epoch_end_mem <- tryCatch(torch::cuda_memory_stats()$allocated_bytes$all$current %/% (1024L * 1024L), error = function(e) NA_integer_)
       epoch_reserved <- tryCatch(torch::cuda_memory_stats()$reserved_bytes$all$current %/% (1024L * 1024L), error = function(e) NA_integer_)
       epoch_time_s <- as.numeric(difftime(Sys.time(), epoch_start, units = "secs"))

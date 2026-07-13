@@ -486,6 +486,8 @@ run_fast_sdm <- function(...) {
       mc_samples = dnn_mc_samples,
       uncertainty_method = dnn_uncertainty_method
     )
+  } else if (startsWith(model_id, "python_")) {
+    python_model_extra_args(model_id, cfg)
   } else {
     character(0)
   }
@@ -1460,6 +1462,8 @@ build_stage_extra_args <- function(cfg, model_id) {
       gllvm_num_lv = cfg$gllvm_num_lv %||% 2L,
       gllvm_num_rows = cfg$gllvm_num_rows %||% 1L,
       gllvm_lv_corr = isTRUE(cfg$gllvm_lv_corr %||% FALSE))
+  } else if (startsWith(model_id, "python_")) {
+    python_model_extra_args(model_id, cfg)
   } else if (identical(model_id, "biomod2")) {
     list(models = cfg$biomod2_models %||% config$biomod2_default %||% c("GLM", "MAXNET", "RF"))
   } else if (identical(model_id, "multi_ensemble")) {

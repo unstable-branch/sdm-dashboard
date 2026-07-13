@@ -1,0 +1,76 @@
+# syntax=docker/dockerfile:1
+# Registry manifest verified 2026-07-12 (linux/amd64). Keep the readable tag
+# alongside its immutable digest so ROCm/PyTorch changes are always explicit.
+FROM docker.io/rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.9.1@sha256:7fe531fa185af260352fe7fbb3fa64ad749abe72adf0600a648c4692801b125a
+
+LABEL org.opencontainers.image.title="SDM Dashboard — Plumber (ROCm)"
+LABEL org.opencontainers.image.description="AMD ROCm Python-PyTorch Plumber computation API"
+LABEL org.opencontainers.image.source="https://github.com/unstable-branch/sdm-dashboard"
+LABEL org.opencontainers.image.accelerator="amd-rocm"
+
+ARG R_CRAN_SNAPSHOT=2026-07-12
+ARG R_CRAN_REPO=https://packagemanager.posit.co/cran/__linux__/noble/${R_CRAN_SNAPSHOT}
+ARG R_VERSION=4.6.1
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    R_CRAN_REPO=${R_CRAN_REPO} \
+    SDM_PYTHON=/opt/venv/bin/python3
+
+# The ROCm/PyTorch base owns Python, ROCm, and torch. Do not add CUDA, R torch,
+# cito, libtorch/Lantern, or sdmtorch native extensions to this image.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates curl gnupg \
+    build-essential cmake gfortran git pkg-config \
+    libcurl4-openssl-dev libssl-dev libxml2-dev libsodium-dev libhiredis-dev \
+    libgdal-dev libgeos-dev libproj-dev libsqlite3-dev libudunits2-dev libjq-dev \
+    libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev \
+    libpng-dev libtiff-dev libjpeg-dev libuv1-dev \
+  && curl -fsSL https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc \
+       | gpg --dearmor -o /usr/share/keyrings/cran.gpg \
+  && echo "deb [signed-by=/usr/share/keyrings/cran.gpg] https://cloud.r-project.org/bin/linux/ubuntu noble-cran40/" \
+       > /etc/apt/sources.list.d/cran.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends r-base r-base-dev \
+  && Rscript -e "stopifnot(getRversion() == '${R_VERSION}')" \
+  && rm -rf /var/lib/apt/lists/*
+
+# Keep the Python dependency layer independent of application source. The ROCm
+# torch wheel is already in the AMD base and must never be upgraded by pip.
+COPY python_models/torch_dnn/requirements-rocm.txt /tmp/requirements-rocm.txt
+RUN ${SDM_PYTHON} -m pip install --no-cache-dir -r /tmp/requirements-rocm.txt \
+  && ${SDM_PYTHON} -m pip check \
+  && ${SDM_PYTHON} -c "import torch; assert torch.version.hip, torch.version.hip; print(torch.__version__, torch.version.hip)"
+
+# This deliberately mirrors the existing Plumber package contract but omits R
+# torch/cito. A dated PPM snapshot plus a Linux-binary user agent makes this
+# layer both reproducible and much faster than compiling the package graph.
+COPY plumber/install-runtime-packages.R /tmp/install-runtime-packages.R
+RUN Rscript --vanilla /tmp/install-runtime-packages.R \
+  && rm -f /tmp/install-runtime-packages.R \
+  && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
+
+# R prepends Ubuntu's system library directory when it starts. Keep the ROCm
+# runtime first so Python subprocesses do not load Ubuntu's older HSA library.
+ENV R_LD_LIBRARY_PATH=/opt/rocm/lib
+
+WORKDIR /app
+
+COPY R/ /app/R/
+COPY plumber/ /app/plumber/
+COPY data/ /app/data/
+COPY python_models/ /app/python_models/
+COPY scripts/smoke-rocm-model.R /app/scripts/smoke-rocm-model.R
+
+RUN groupadd -g 2000 uploadgroup \
+  && useradd -m -s /bin/bash -G uploadgroup sdm \
+  && mkdir -p /app/data/uploads /app/outputs /app/covariates /app/Worldclim \
+  && chown -R sdm:sdm /app /app/outputs /app/covariates /app/Worldclim \
+  && chown root:uploadgroup /app/data/uploads \
+  && chmod 775 /app/data/uploads
+
+USER sdm
+
+EXPOSE 8000
+
+CMD ["Rscript", "/app/plumber/R/entrypoint.R"]

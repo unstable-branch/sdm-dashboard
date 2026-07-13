@@ -16,6 +16,7 @@ jobs:
     env:
       POSTGRES_PASSWORD: ci_test_password
       JWT_SECRET: ci_test_jwt_secret_change_me
+      CSRF_SECRET: ci_test_csrf_secret_change_me
       DATA_ENCRYPTION_KEY: ci_test_enc_key_00000000000000000000000000000000
       PLUMBER_INTERNAL_KEY: ci_test_plumber_key
       SDM_ENCRYPTION_KEY: ci_test_enc_key_00000000000000000000000000000000

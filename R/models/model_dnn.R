@@ -148,8 +148,9 @@ check_dnn_requirements <- function(n_records, log_fun = NULL) {
         )
 
         if (!is.null(log_fun)) {
+          backend <- sdm_backend_for_device("auto")
           log_fun(paste(
-            "DNN GPU: CUDA available | Device: cuda |",
+            "DNN GPU:", toupper(backend), "available |",
             "Records:", n_records,
             "| Expected time: ~2 min"
           ))
@@ -358,17 +359,24 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
     stop(paste("DNN-202: Unknown DNN architecture:", model_type, ". Valid options: DNN_Small, DNN_Medium, DNN_Large"), call. = FALSE)
   }
 
+  # Resolve the user-facing backend separately from R torch's device string:
+  # ROCm executes through device = "cuda", but must not enable CUDA extensions.
+  resolved_backend <- sdm_resolve_backend(device)
+  backend <- resolved_backend$backend
+  device <- resolved_backend$device
+
   # DNN-202b: GPU guard — skip GPU for models too small to benefit
   n_input_feats <- length(train_data$feature_names)
-  param_estimate <- arch$hidden[1] * n_input_feats + arch$hidden[1]  # input layer
+  param_estimate <- arch$hidden[1] * n_input_feats + arch$hidden[1]
   for (i in seq_len(max(0, length(arch$hidden) - 1))) {
     param_estimate <- param_estimate + arch$hidden[i] * arch$hidden[i + 1] + arch$hidden[i + 1]
   }
-  param_estimate <- param_estimate + arch$hidden[length(arch$hidden)] * 1 + 1  # output layer
-  if (identical(device, "cuda") && param_estimate < 100000) {
+  param_estimate <- param_estimate + arch$hidden[length(arch$hidden)] * 1 + 1
+  if (sdm_backend_is_gpu(backend) && param_estimate < 100000) {
     if (!is.null(log_fun)) {
       log_fun(paste("DNN:", model_type, "~", param_estimate, "params — GPU not beneficial below 100K params. Forcing CPU."))
     }
+    backend <- "cpu"
     device <- "cpu"
   }
 
@@ -388,30 +396,13 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   formula_str <- paste("y ~", paste(train_data$feature_names, collapse = " + "))
   df <- as.data.frame(cbind(y = train_data$train_y, train_data$train_x))
 
-  # Resolve device: "auto" → detect, fall back to CPU
-  if (device == "auto" || device == "gpu") {
-    if (torch::cuda_is_available()) {
-      device <- "cuda"
-    } else {
-      has_mps <- tryCatch(torch::mps_is_available(), error = function(e) FALSE)
-      if (has_mps) device <- "mps" else device <- "cpu"
-    }
-  } else if (device == "cuda") {
-    if (!torch::cuda_is_available()) {
-      warning("DNN: CUDA requested but not available. Falling back to CPU.")
-      device <- "cpu"
-    }
-  } else if (device == "mps") {
-    if (!torch::mps_is_available()) {
-      warning("DNN: MPS requested but not available. Falling back to CPU.")
-      device <- "cpu"
-    }
-  } else {
-    device <- "cpu"
+  if (!isTRUE(resolved_backend$requested_available) && !identical(resolved_backend$requested, "cpu")) {
+    warning("DNN: requested ", resolved_backend$requested, " backend is unavailable. Falling back to CPU.")
   }
 
-  # Enable TF32 matmul precision on Ampere+ GPUs (up to 8x faster matmuls)
-  if (identical(device, "cuda")) {
+  # NVIDIA-only native features. ROCm keeps its internal torch device = "cuda"
+  # but must not be treated as an NVIDIA CUDA backend here.
+  if (identical(backend, "cuda")) {
     tryCatch(torch::set_float32_matmul_precision("high"), error = function(e) NULL)
     # Log cuDNN version for debugging GPU acceleration
     if (!is.null(log_fun)) {
@@ -468,7 +459,8 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
     })
     set_train_opts(
       mixed_precision = dnn_mixed_precision,
-      cuda_graphs = dnn_cuda_graphs
+      cuda_graphs = dnn_cuda_graphs,
+      backend = backend
     )
   }
 
@@ -496,12 +488,12 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
     },
     error = function(e) {
       err_msg <- conditionMessage(e)
-      if (grepl("cuda|CUDA", err_msg, ignore.case = TRUE)) {
+      if (grepl("cuda|hip|rocm|hsa|CUDA", err_msg, ignore.case = TRUE)) {
         stop(paste(
-          "DNN-204: CUDA error:", err_msg,
+          "DNN-204: GPU runtime error:", err_msg,
           "\n  Suggestions:",
-          "\n  1. Verify CUDA Toolkit 12.6 is installed: nvidia-smi",
-          "\n  2. Reinstall torch with GPU: torch::install_torch(reinstall = TRUE)",
+          "\n  1. Verify the selected GPU runtime and PyTorch build are compatible",
+          "\n  2. Reinstall the matching torch build for CUDA or ROCm",
           "\n  3. Try CPU device instead: device = 'cpu'"
         ), call. = FALSE)
       } else if (grepl("memory|Memory", err_msg, ignore.case = TRUE)) {
@@ -549,8 +541,6 @@ predict_dnn_raster <- function(model, pred_stack, scaler, device = "cpu", batch_
   if (length(valid_cells) == 0) {
     stop("DNN-302: Raster stack has no valid cells to predict. Check that the projection extent overlaps with covariate rasters.", call. = FALSE)
   }
-
-  is_cuda_pred <- identical(device, "cuda") || startsWith(device, "cuda")
 
   # Process in batches with error handling
   pred_vals <- rep(NA, n_cells)
@@ -917,8 +907,10 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
                        dnn_mixed_precision = dnn_mixed_precision, dnn_cuda_graphs = dnn_cuda_graphs),
       error = function(e) {
         err_msg <- conditionMessage(e)
-        # If GPU failed and CPU fallback available, retry on CPU
-        if (identical(dnn_device, "cuda") && grepl("CUDA|out of memory|cuda|memory", err_msg, ignore.case = TRUE)) {
+        # If any selected accelerator failed, retry on CPU. HIP/ROCm errors are
+        # intentionally treated alongside CUDA OOM/runtime failures.
+        if (sdm_backend_is_gpu(sdm_resolve_backend(dnn_device)$backend) &&
+            grepl("CUDA|HIP|ROCm|HSA|out of memory|cuda|memory", err_msg, ignore.case = TRUE)) {
           log_message(log_fun, "    Seed ", s, " GPU failed (", err_msg, "). Retrying on CPU...")
           seed_device <<- "cpu"
           tryCatch(

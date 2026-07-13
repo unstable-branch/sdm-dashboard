@@ -1,5 +1,18 @@
 sdm_process_registry <- new.env(parent = emptyenv())
 
+sdm_force_cpu_runtime_config <- function(body) {
+  body$gpu_enabled <- "off"
+  model_id <- as.character(body$model_id %||% body$modelId %||% "")[1]
+  if (model_id %in% c("dnn", "dnn_multispecies")) {
+    body$dnn_device <- "cpu"
+  }
+  if (identical(model_id, "python_torch_dnn")) {
+    body$python_device <- "cpu"
+    body$device <- "cpu"
+  }
+  body
+}
+
 handle_model_run <- function(req, app_dir) {
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody),
@@ -72,7 +85,12 @@ handle_model_run <- function(req, app_dir) {
     return(sdm_error_code(req, "INTERNAL_ERROR", paste("Model run script not found at:", script_path)))
   }
 
-  is_gpu_model <- sdm_is_gpu_model(body$model_id, body$dnn_device %||% "auto", body$gpu_enabled %||% "auto")
+  python_device <- body$python_device %||% body$pythonDevice %||% body$device %||% "auto"
+  gpu_backend <- sdm_model_gpu_backend(
+    body$model_id, body$dnn_device %||% "auto", body$gpu_enabled %||% "auto",
+    python_device = python_device
+  )
+  is_gpu_model <- sdm_backend_is_gpu(gpu_backend)
   if (is_gpu_model) {
     active_gpu <- sdm_count_active_gpu_runs()
     if (active_gpu >= SDM_MAX_GPU_CONCURRENT_RUNS) {
@@ -81,17 +99,19 @@ handle_model_run <- function(req, app_dir) {
         "). Queue this run or wait."
       )))
     }
-    # Layered GPU check: VRAM availability (shared GPU with other users)
-    gpu_vram_ok <- tryCatch(sdm_gpu_vram_is_usable(), error = function(e) FALSE)
+    # Layered VRAM check is relevant to discrete CUDA/ROCm GPUs. MPS has no
+    # portable free-VRAM telemetry and should not be rejected for its absence.
+    gpu_vram_ok <- !sdm_backend_is_discrete_gpu(gpu_backend) ||
+      tryCatch(sdm_gpu_vram_is_usable(), error = function(e) FALSE)
     if (!gpu_vram_ok) {
       free_mib <- tryCatch(sdm_gpu_available_vram(), error = function(e) NA_real_)
       if (!is.finite(free_mib) || is.na(free_mib)) {
-        warning("[GPU] sdm_gpu_available_vram() returned NA — nvidia-smi unavailable or torch CUDA stats failed. Ensure GPU passthrough is configured.")
+        warning("[GPU] sdm_gpu_available_vram() returned NA — GPU telemetry unavailable. Ensure the selected accelerator is visible to the worker.")
       }
       free_gb <- if (is.finite(free_mib) && !is.na(free_mib)) sprintf("%.1f GiB", free_mib / 1024) else "unknown"
       msg <- paste0("GPU requested but VRAM insufficient (", free_gb, " free, min ~1.5 GiB). Auto-fallback to CPU for this run.")
       is_gpu_model <- FALSE
-      body$dnn_device <- "cpu"
+      body <- sdm_force_cpu_runtime_config(body)
       # Write GPU-fallback progress entry so frontend UI displays it
       progress_json_path <- file.path(job_dir, "progress.json")
       fb_entry <- list(
@@ -129,7 +149,7 @@ handle_model_run <- function(req, app_dir) {
   stderr = file.path(job_dir, "stderr.log"),
   cmdargs = c("--no-save", "--no-restore"),
   env = env)
-  device_tag <- if (is_gpu_model) "cuda" else "cpu"
+  device_tag <- if (is_gpu_model) gpu_backend else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
   job_meta <- list(
@@ -186,6 +206,11 @@ sdm_camel_to_snake <- list(
   pipelineRunId = "pipeline_run_id", extrapolationMask = "extrapolation_mask",
   messThreshold = "mess_threshold", dnnArchitecture = "dnn_model_type",
   dnnNSeeds = "dnn_n_seeds", dnnDevice = "dnn_device",
+  hiddenLayers = "hidden_layers", batchSize = "batch_size",
+  predictBatchSize = "predict_batch_size", learningRate = "learning_rate",
+  pythonDevice = "python_device", earlyStoppingPatience = "early_stopping_patience",
+  validationFraction = "validation_fraction", nEstimators = "n_estimators",
+  maxDepth = "max_depth", maxIterations = "max_iterations",
   brtNTrees = "brt_n_trees", brtInteractionDepth = "brt_interaction_depth",
   brtShrinkage = "brt_shrinkage", brtBagFraction = "brt_bag_fraction",
   ctaCp = "cta_cp", ctaMaxdepth = "cta_maxdepth",
@@ -253,6 +278,8 @@ sdm_targets_config_field_types <- list(
   integer = c("background_n", "cv_folds", "aggregation_factor", "seed",
     "n_cores", "pa_replicates", "min_source_records", "thickening_distance_km",
     "worldclim_res", "dnn_n_seeds", "dnn_multispecies_n_seeds", "dnn_mc_samples",
+    "n_estimators", "max_depth", "max_iterations", "epochs", "batch_size",
+    "predict_batch_size", "early_stopping_patience",
     "brt_n_trees", "brt_interaction_depth", "cta_maxdepth", "cta_minsplit",
     "mars_degree", "mars_nk", "fda_degree", "fda_nprune", "ann_size",
     "ann_maxit", "ann_rang", "rf_num_trees", "rf_mtry", "rf_min_node_size",
@@ -266,10 +293,10 @@ sdm_targets_config_field_types <- list(
     "dnn_lambda", "mess_threshold", "multi_ensemble_min_auc",
     "multi_ensemble_min_tss", "esm_min_auc", "inla_mesh_max_edge",
     "inla_mesh_cutoff", "inla_prior_range", "inla_prior_sigma",
-    "opentopo_api_key"),
+    "opentopo_api_key", "learning_rate", "dropout", "validation_fraction"),
   comma_doubles = c("projection_extent", "training_extent",
     "future_projection_extent"),
-  comma_ints = c("biovars", "esm_biovars"),
+  comma_ints = c("biovars", "esm_biovars", "hidden_layers"),
   comma_strings = c("soil_vars", "soil_depths", "uv_vars", "uv_months",
     "veg_products", "drought_periods", "chelsa_extras",
     "multi_ensemble_models", "biomod2_models"),
@@ -431,13 +458,15 @@ handle_targets_run <- function(req, app_dir) {
   stderr = file.path(job_dir, "stderr.log"),
   cmdargs = c("--no-save", "--no-restore"),
   env = env_vars)
-  has_gpu_target <- any(vapply(configs, function(c) {
+  target_backends <- vapply(configs, function(c) {
     mid <- c$model_id %||% c[["modelId"]] %||% "glm"
     dev <- c$dnn_device %||% c[["dnnDevice"]] %||% "auto"
     gpu <- c$gpu_enabled %||% c[["gpuEnabled"]] %||% "auto"
-    sdm_is_gpu_model(mid, dev, gpu)
-  }, logical(1)))
-  device_tag <- if (has_gpu_target) "cuda" else "cpu"
+    py_dev <- c$python_device %||% c[["pythonDevice"]] %||% c$device %||% "auto"
+    sdm_model_gpu_backend(mid, dev, gpu, python_device = py_dev)
+  }, character(1))
+  gpu_backends <- target_backends[vapply(target_backends, sdm_backend_is_gpu, logical(1))]
+  device_tag <- if (length(gpu_backends) > 0) gpu_backends[[1]] else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
   job_meta$process_pid <- proc$get_pid()
@@ -726,9 +755,9 @@ handle_model_status <- function(res, job_id) {
         if (!is.null(last_line) && length(last_line) > 0 && nchar(last_line) > 0) {
           hb_ts <- tryCatch(as.POSIXct(sub("\\|.*", "", last_line), format = "%Y-%m-%dT%H:%M:%S"), error = function(e) NULL)
           if (!is.null(hb_ts) && !is.na(hb_ts)) {
-            # GPU runs have shorter heartbeat timeout — CUDA crashes are detected faster
-            dnn_device <- as.character(meta$config$dnn_device %||% "")
-            is_gpu <- dnn_device %in% c("auto", "gpu", "cuda", "mps") || startsWith(dnn_device, "cuda")
+            # Accelerator runs have a shorter heartbeat timeout.
+            dnn_device <- as.character(meta$config$dnn_device %||% meta$config$python_device %||% "")
+            is_gpu <- sdm_backend_is_gpu(sdm_resolve_backend(dnn_device)$backend)
             hb_timeout <- if (is_gpu) 300 else 1800
             if (difftime(Sys.time(), hb_ts, units = "secs") > hb_timeout) {
               process_alive <- FALSE
@@ -941,8 +970,8 @@ handle_model_cancel <- function(req, job_id) {
       }
     }
     device_tag <- if (is.list(entry)) entry$device else "cpu"
-    # If this was a GPU run, wait briefly for VRAM recovery
-    if (killed && identical(device_tag, "cuda")) {
+    # Give any discrete GPU backend time to release VRAM after termination.
+    if (killed && sdm_backend_is_discrete_gpu(device_tag)) {
       Sys.sleep(2)
     }
     rm(list = job_id, envir = sdm_process_registry)

@@ -36,6 +36,7 @@ modules <- c(
   "optimized_sdm.R",
   "sdm_config.R",
   "run_sdm.R",
+  "python_setup.R",
 
   # --- data ---
   "occurrences.R",
@@ -135,7 +136,6 @@ modules <- c(
   "manifest.R",
   "diagnostics_plots.R",
   "batch_runner.R",
-  "python_setup.R",
   "script_export.R",
   "tile_generator.R"
 )

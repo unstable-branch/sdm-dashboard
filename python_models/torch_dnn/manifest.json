@@ -1,0 +1,22 @@
+{
+  "id": "torch_dnn",
+  "label": "PyTorch DNN (cross-vendor experimental)",
+  "method": "Binary feed-forward neural network via vendor-neutral Python PyTorch",
+  "min_records": 8,
+  "supports_importance": true,
+  "supports_uncertainty": false,
+  "params": {
+    "hidden_layers": {"type": "array", "default": [64, 32], "description": "Positive hidden-layer widths"},
+    "epochs": {"type": "integer", "default": 100, "description": "Maximum training epochs"},
+    "batch_size": {"type": "integer", "default": 64, "description": "Training batch size"},
+    "predict_batch_size": {"type": "integer", "default": 65536, "description": "Maximum rows transferred to the accelerator per prediction batch"},
+    "learning_rate": {"type": "number", "default": 0.001, "description": "Adam learning rate"},
+    "dropout": {"type": "number", "default": 0.1, "description": "Hidden-layer dropout in [0, 1)"},
+    "device": {"type": "string", "default": "auto", "description": "auto, cuda, rocm, mps, or cpu"},
+    "early_stopping_patience": {"type": "integer", "default": 12, "description": "Validation epochs without improvement"},
+    "validation_fraction": {"type": "number", "default": 0.2, "description": "Stratified validation fraction"}
+  },
+  "requirements": ["torch>=2.2", "numpy>=1.24", "pandas>=2.0", "pyarrow>=12"],
+  "fit_script": "fit.py",
+  "predict_script": "predict.py"
+}

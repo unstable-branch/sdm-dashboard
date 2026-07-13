@@ -22,7 +22,7 @@ handle_gpu_status <- function(res) {
   if (is.null(gpu)) {
     list(
       available = FALSE,
-      message = "No NVIDIA GPU detected or nvidia-smi not found",
+      message = "No supported GPU telemetry detected (NVIDIA nvidia-smi or AMD rocm-smi)",
       timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
     )
   } else {

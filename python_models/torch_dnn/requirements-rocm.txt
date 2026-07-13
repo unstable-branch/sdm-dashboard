@@ -1,0 +1,5 @@
+# ROCm image non-torch dependencies. The AMD ROCm/PyTorch base owns torch.
+# Do not add torch or use an unbounded pip upgrade in this file.
+numpy==2.2.3
+pandas==2.2.3
+pyarrow==19.0.1

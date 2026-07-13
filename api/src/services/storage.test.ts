@@ -268,16 +268,24 @@ describe("syncOutputsToS3", () => {
   });
 
   it("continues after individual upload failure", async () => {
+    vi.useFakeTimers();
     vi.mocked(stat).mockResolvedValue(undefined as any);
     vi.mocked(readFile).mockResolvedValue(Buffer.from("data"));
     mockS3Send
       .mockRejectedValueOnce(new Error("Upload failed"))
+      .mockRejectedValueOnce(new Error("Upload failed"))
+      .mockRejectedValueOnce(new Error("Upload failed"))
       .mockResolvedValueOnce(undefined);
-    const result = await syncOutputsToS3("/jobs/run-1", "run-1", {
+
+    const sync = syncOutputsToS3("/jobs/run-1", "run-1", {
       bad: "/app/outputs/bad.tif",
       good: "/app/outputs/good.csv",
     });
-    expect(result).toEqual({ good: "runs/run-1/good" });
+    await vi.runAllTimersAsync();
+
+    await expect(sync).resolves.toEqual({ good: "runs/run-1/good" });
+    expect(mockS3Send).toHaveBeenCalledTimes(4);
+    vi.useRealTimers();
   });
 
   it("resolves relative paths relative to jobDir", async () => {
