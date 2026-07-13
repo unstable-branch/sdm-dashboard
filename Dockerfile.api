@@ -39,7 +39,7 @@ RUN if [ ! -f packages/shared/dist/index.js ]; then pnpm --filter @sdm/shared bu
 RUN pnpm --filter @sdm/api build
 
 # Create production deployment with only production dependencies
-RUN pnpm --filter @sdm/api deploy --prod /app/deploy
+RUN pnpm --filter @sdm/api deploy --prod --legacy /app/deploy
 
 FROM node:22-alpine AS runner
 
