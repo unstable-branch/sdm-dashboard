@@ -1,13 +1,54 @@
 # Resilient PostgreSQL pool bootstrap for Plumber.
 
+sdm_database_connect_args <- function(db_url = Sys.getenv("DATABASE_URL", "")) {
+  if (!nzchar(db_url)) return(list())
+  if (!grepl("^postgres(?:ql)?://", db_url)) return(list(dbname = db_url))
+
+  matched <- regexec(
+    "^postgres(?:ql)?://([^:@/]+)(?::([^@]*))?@(?:\\[([^]]+)\\]|([^:/?#]+))(?::([0-9]+))?/([^?]+)(?:\\?(.*))?$",
+    db_url,
+    perl = TRUE
+  )
+  parts <- regmatches(db_url, matched)[[1]]
+  if (length(parts) != 8L) stop("Cannot parse DATABASE_URL")
+
+  decode <- function(value) utils::URLdecode(value)
+  args <- list(
+    user = decode(parts[2]),
+    password = decode(parts[3]),
+    host = if (nzchar(parts[4])) parts[4] else parts[5],
+    port = if (nzchar(parts[6])) as.integer(parts[6]) else 5432L,
+    dbname = decode(parts[7])
+  )
+
+  if (nzchar(parts[8])) {
+    allowed <- c("sslmode", "connect_timeout", "application_name", "options")
+    for (item in strsplit(parts[8], "&", fixed = TRUE)[[1]]) {
+      pair <- strsplit(item, "=", fixed = TRUE)[[1]]
+      key <- decode(pair[1])
+      if (key %in% allowed && length(pair) >= 2L) args[[key]] <- decode(paste(pair[-1], collapse = "="))
+    }
+  }
+  args
+}
+
+sdm_db_connect <- function(db_url = Sys.getenv("DATABASE_URL", "")) {
+  if (!nzchar(db_url)) return(NULL)
+  do.call(
+    DBI::dbConnect,
+    c(list(drv = RPostgres::Postgres()), sdm_database_connect_args(db_url))
+  )
+}
+
 sdm_create_db_pool <- function(db_url = Sys.getenv("DATABASE_URL", "")) {
   if (!nzchar(db_url)) return(NULL)
-  candidate <- pool::dbPool(
-    RPostgres::Postgres(),
-    dbname = db_url,
-    minSize = 1,
-    maxSize = 5,
-    idleTimeout = 60000
+  candidate <- do.call(
+    pool::dbPool,
+    c(
+      list(drv = RPostgres::Postgres()),
+      sdm_database_connect_args(db_url),
+      list(minSize = 1, maxSize = 5, idleTimeout = 60000)
+    )
   )
   con <- NULL
   tryCatch({
