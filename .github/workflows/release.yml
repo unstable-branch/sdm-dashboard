@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+  pull_request:
+    branches:
+      - main
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -15,7 +18,7 @@ env:
 
 jobs:
   validate:
-    name: Validate tagged release candidate
+    name: Validate release candidate
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -25,15 +28,18 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-          ref: ${{ env.RELEASE_TAG }}
 
-      - name: Validate tag, version, changelog, and main ancestry
+      - name: Validate version, changelog, and release ancestry
         run: |
-          python3 scripts/audit_release_config.py "${RELEASE_TAG}"
-          git fetch --no-tags origin main
-          if ! git merge-base --is-ancestor HEAD origin/main; then
-            echo "Release tag must point to a commit contained in main." >&2
-            exit 1
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            python3 scripts/audit_release_config.py "${RELEASE_TAG}"
+            git fetch --no-tags origin main
+            if ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "Release tag must point to a commit contained in main." >&2
+              exit 1
+            fi
+          else
+            python3 scripts/audit_release_config.py
           fi
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -85,6 +91,7 @@ jobs:
 
   build-images:
     name: Publish ${{ matrix.image }}
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: validate
     runs-on: ubuntu-latest
     environment: release
@@ -182,6 +189,7 @@ jobs:
 
   draft-release:
     name: Assemble draft release
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: [validate, build-images]
     runs-on: ubuntu-latest
     timeout-minutes: 15
