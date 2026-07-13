@@ -36,7 +36,7 @@ actionlint
 git diff --check
 ```
 
-- [ ] Platform CI, R Quality Checks, Backend determinism, and Playwright are green for the exact candidate commit.
+- [ ] Platform CI (including product Playwright smoke), R Quality Checks, and Backend determinism are green for the exact candidate commit.
 - [ ] `python3 scripts/audit_release_config.py vX.Y.Z-prerelease` passes after the local candidate tag is created.
 - [ ] Production Compose renders with reviewed image digests and contains no app-service `build:` blocks.
 - [ ] Source and Windows-ready zip dry-runs contain no secrets, data, caches, generated outputs, or maintainer-only files.
@@ -91,7 +91,7 @@ Run with synthetic or redistributable data only.
 
 Each Plumber image is a distinct release artifact. Do not substitute one tag for all hardware paths.
 
-- [ ] CPU: `sdm-plumber-cpu`, health/readiness, GLM workflow, and graceful DNN unavailability where optional dependencies are absent.
+- [ ] CPU: `sdm-plumber-cpu`, health/readiness, GLM workflow, CPU tensor smoke, and a real CPU DNN workflow.
 - [ ] CUDA: `sdm-plumber-cuda` plus `deploy/compose.cuda.yml` on a supported NVIDIA host, GPU status, a real accelerated model, and CPU fallback behavior.
 - [ ] ROCm: `sdm-plumber-rocm` plus `deploy/compose.rocm.yml` on a supported AMD host, `torch.version.hip`, GPU status, and `scripts/smoke-rocm-model.R` or an equivalent real model workflow.
 - [ ] Image names, SemVer tags, `sha-<commit>` tags, OCI labels, SBOM/provenance, and recorded digests all identify the same candidate commit.

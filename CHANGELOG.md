@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.4] - 2026-07-13
+
 ### Added
 
 - **Release engineering**: Tag-validated publication for separate CPU, CUDA, and ROCm Plumber images plus API/frontend images, with SemVer and commit tags, OCI metadata, SBOM/provenance, and a digest manifest.
@@ -34,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fresh deployment runtime**: PostgreSQL URL parsing, empty-volume ownership, shared artifact permissions, and climate-cache directory initialization now work without manual repair.
+- **Climate persistence and progress**: WorldClim and CHELSA downloads use persistent volumes, retain resumable partial files, and report per-file byte progress instead of appearing stuck at 20%.
+- **Result correctness**: DNN diagnostics no longer invent overfitting arithmetic when metrics are absent; reports, provenance counts, projection means, threshold area, and ODMAP resolution use the actual run data.
+- **Artifact discovery**: Completed Plumber artifacts, reports, diagnostics, and output metadata are persisted and synchronized into API-visible run records.
+- **Mobile/navigation correctness**: Mobile navigation has an explicit close control, the results separator renders correctly, and unavailable batch navigation is no longer presented as functional.
+- **Release reproducibility**: Application and external production images use immutable digests; Docker build bases and GitHub Actions are pinned; CPU/CUDA/ROCm runtime contracts are audited.
 - **SSE double connection**: Model page no longer opens a redundant EventSource (only `JobProgress` child connects).
 - **AuthGuard double-render**: Eliminated unnecessary `mounted` state cycle in auth guard.
 - **Species reactivity**: Model config form no longer takes a snapshot of the store at render time; debounces store writes to blur instead of per-keystroke.
