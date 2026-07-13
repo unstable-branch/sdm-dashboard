@@ -157,6 +157,7 @@ services:
       - ./api/src:/app/api/src:ro
       - ./packages/shared:/app/packages/shared:ro
       - ./data/uploads:/app/data/uploads
+      - ./outputs:/app/outputs
     depends_on:
       postgres:
         condition: service_healthy

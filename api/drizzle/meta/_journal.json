@@ -218,6 +218,13 @@
       "when": 1784400000000,
       "tag": "0030_add_more_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1784441700000,
+      "tag": "0031_add_run_error_diagnostics",
+      "breakpoints": true
     }
   ]
 }
