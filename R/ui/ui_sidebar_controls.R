@@ -312,11 +312,11 @@ ui_sidebar_controls <- function() {
             choices = c("Auto (GPU only)" = "auto", "Off" = "off"),
             selected = "auto"
           ),
-          selectInput("dnn_cuda_graphs", "CUDA Graphs (experimental)",
+          selectInput("dnn_cuda_graphs", "CUDA Graphs (experimental, NVIDIA CUDA only)",
             choices = c("Off" = "off", "Auto" = "auto", "On" = "on"),
             selected = getOption("sdm.dnn_cuda_graphs_default", "auto")
           ),
-          div(class = "small-muted", "Multiple seeds train independent networks with different random initialisations. Prediction SD across seeds measures epistemic uncertainty.")
+          div(class = "small-muted", "GPU uses an available compatible backend. CUDA Graphs are NVIDIA CUDA-only. Multiple seeds train independent networks with different random initialisations. Prediction SD across seeds measures epistemic uncertainty.")
         ),
         conditionalPanel(
           "input.model_id == 'bioclim'",

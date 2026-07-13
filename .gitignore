@@ -2,7 +2,12 @@
 node_modules/
 __pycache__/
 *.pyc
-python_models/
+python_models/**/__pycache__/
+python_models/**/*.pyc
+python_models/**/.venv/
+python_models/**/venv/
+python_models/**/model.pkl
+python_models/**/*.feather
 .next/
 dist/
 .turbo/
@@ -37,6 +42,7 @@ sdmtorch/*.so
 .RData
 .Rproj.user/
 .Renviron
+.r-lib/
 Rplots.pdf
 
 # R data directories
@@ -67,6 +73,7 @@ Thumbs.db
 # Python
 __pycache__/
 *.pyc
+.venv-rocm/
 .python-version
 
 # Coverage
