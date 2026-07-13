@@ -97,6 +97,12 @@ for dockerfile in ("Dockerfile.api", "Dockerfile.frontend", "plumber/Dockerfile"
             fail(f"{dockerfile} uses a mutable base image: {base}")
 
 workflow = read(".github/workflows/release.yml")
+setup_r_position = workflow.find("uses: r-lib/actions/setup-r@")
+accelerator_gate_position = workflow.find("run: pnpm run check:accelerators")
+if setup_r_position < 0 or accelerator_gate_position < 0:
+    fail("release workflow is missing R setup or the accelerator-contract gate")
+if setup_r_position > accelerator_gate_position:
+    fail("release workflow must set up R before running the accelerator-contract gate")
 for workflow_path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
     workflow_text = workflow_path.read_text(encoding="utf-8")
     for action_ref in re.findall(r"^\s*-?\s*uses:\s*[^@\s]+@([^\s#]+)", workflow_text, re.MULTILINE):
