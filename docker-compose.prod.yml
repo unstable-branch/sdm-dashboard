@@ -3,7 +3,7 @@
 
 services:
   nginx:
-    image: nginx:1.25-alpine
+    image: docker.io/library/nginx:1.25-alpine@sha256:516475cc129da42866742567714ddc681e5eed7b9ee0b9e9c015e464b4221a00
     ports:
       - "80:80"
       - "443:443"
@@ -85,7 +85,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgis/postgis:16-3.4
+    image: docker.io/postgis/postgis:16-3.4@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5
     deploy:
       resources:
         limits:
@@ -106,7 +106,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: docker.io/library/redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis-data:/data
@@ -151,7 +151,7 @@ services:
     restart: unless-stopped
 
   garage:
-    image: dxflrs/garage:v2.3.0
+    image: docker.io/dxflrs/garage:v2.3.0@sha256:866bd13ed2038ba7e7190e840482bc27234c4afaf77be8cfa439ae088c1e4690
     command: ["/garage", "server"]
     ports:
       - "3900:3900"
@@ -172,7 +172,7 @@ services:
     restart: unless-stopped
 
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.16.0
+    image: docker.io/prometheuscommunity/postgres-exporter:v0.16.0@sha256:6999a7657e2f2fb0ca6ebf417213eebf6dc7d21b30708c622f6fcb11183a2bb0
     environment:
       DATA_SOURCE_NAME: postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform?sslmode=disable
     ports:
@@ -182,7 +182,7 @@ services:
     restart: unless-stopped
 
   redis-exporter:
-    image: oliver006/redis_exporter:v1.67.0
+    image: docker.io/oliver006/redis_exporter:v1.67.0@sha256:120f7ec77293459ccfdad66bb1db75ab72e8bfeab99f58b1cc2564cadcd7a9e7
     environment:
       REDIS_ADDR: redis://redis:6379
     ports:
@@ -192,7 +192,7 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:v2.53.0
+    image: docker.io/prom/prometheus:v2.53.0@sha256:075b1ba2c4ebb04bc3a6ab86c06ec8d8099f8fda1c96ef6d104d9bb1def1d8bc
     ports:
       - "9090:9090"
     volumes:
@@ -207,7 +207,7 @@ services:
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:11.0.0
+    image: docker.io/grafana/grafana:11.0.0@sha256:0dc5a246ab16bb2c38a349fb588174e832b4c6c2db0981d0c3e6cd774ba66a54
     ports:
       - "3001:3000"
     environment:
