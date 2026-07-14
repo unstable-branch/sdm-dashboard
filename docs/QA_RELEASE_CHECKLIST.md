@@ -51,7 +51,7 @@ Use a disposable host or VM with empty volumes and no local application images.
 - [ ] Configure production secrets and TLS without committing them.
 - [ ] Run `docker compose -f docker-compose.prod.yml pull` and then `docker compose -f docker-compose.prod.yml up -d --no-build`.
 - [ ] Confirm PostgreSQL, Redis, Garage, Plumber, API, frontend, and nginx become healthy.
-- [ ] Confirm the API entrypoint applies migrations on the empty database before serving.
+- [ ] Confirm the dedicated one-shot `migrate` service applies migrations on the empty database before API startup; API startup itself must not migrate.
 - [ ] Register/login, create a project, and verify object-storage bootstrap and download paths.
 - [ ] Confirm no service attempts a source build and `docker compose images` resolves the reviewed digests.
 

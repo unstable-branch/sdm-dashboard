@@ -82,7 +82,7 @@ Use `docker-compose.prod.yml` for private/team deployments. The application serv
 
 Operators are responsible for TLS, backups, retention, user access, and firewalling admin surfaces. Do not expose Postgres, Redis, Garage admin ports, Prometheus, or Grafana publicly without access controls.
 
-The local compose file starts Garage in single-node mode with a dev-only bucket so a fresh checkout can boot without manual object-storage setup. Production operators should provision Garage layout, keys, buckets, and backups deliberately before exposing the API. The API container applies Drizzle migrations at startup so empty self-hosted database volumes can bootstrap before workers and Plumber sync begin. Operators should still back up the database before upgrades.
+The local compose file starts Garage in single-node mode with a dev-only bucket so a fresh checkout can boot without manual object-storage setup. Production operators should provision Garage layout, keys, buckets, and backups deliberately before exposing the API. The dedicated one-shot `migrate` service applies Drizzle migrations before API startup; the API container itself never applies migrations. Operators should still back up the database before upgrades.
 
 ## Hosted Demo Guidance
 

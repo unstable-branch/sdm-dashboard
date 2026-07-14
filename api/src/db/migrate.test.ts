@@ -26,6 +26,19 @@ describe("runMigrationsWithClient", () => {
     expect(db.query).toHaveBeenLastCalledWith("SELECT pg_advisory_unlock(hashtext($1))", ["sdm-dashboard-schema-migration"]);
   });
 
+  it("preserves a migration failure if advisory unlock also fails", async () => {
+    const failure = new Error("migration failed");
+    const unlockFailure = new Error("unlock failed");
+    const db = { query: vi.fn()
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(unlockFailure) } as unknown as PoolClient;
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(runMigrationsWithClient(db, vi.fn().mockRejectedValue(failure))).rejects.toBe(failure);
+    expect(error).toHaveBeenCalledWith("[Migration] advisory unlock failed after migration failure:", unlockFailure);
+    error.mockRestore();
+  });
+
   it("does not let a concurrent runner enter before the current writer releases its lock", async () => {
     let locked = false;
     let releaseFirst!: () => void;
