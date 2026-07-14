@@ -1,0 +1,3 @@
+# Generated deployment state; keep reviewed image metadata outside the checkout.
+.env
+images.env
