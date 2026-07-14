@@ -37,7 +37,7 @@ Open `http://localhost:3000`.
 
 First startup can take several minutes while Docker builds the Plumber image and installs R geospatial packages. The API container applies database migrations before the server starts. Local compose starts Garage in single-node mode with development credentials and a development bucket.
 
-For self-hosting a reviewed release, use `docker-compose.prod.yml` with the exact GHCR digests from the release's `image-digests.txt`; production pulls images and must be started with `--no-build`. The five modern-platform images live under [`ghcr.io/unstable-branch/sdm-dashboard`](https://github.com/orgs/unstable-branch/packages?repo_name=sdm-dashboard), separate from the smaller source/Windows zip attachments. See [PRODUCTION.md](PRODUCTION.md) and the [release policy](docs/RELEASE_AND_HOSTING.md).
+For self-hosting a reviewed release, download its generated `release-images.env` and use it with `docker-compose.prod.yml`; Docker pulls the exact reviewed GHCR images and starts them with `--no-build`. The file defaults to CPU, while CUDA and ROCm alternatives are included as comments. The five modern-platform images live under [`ghcr.io/unstable-branch/sdm-dashboard`](https://github.com/orgs/unstable-branch/packages?repo_name=sdm-dashboard), separate from the smaller legacy source/Windows zip attachments. See [PRODUCTION.md](PRODUCTION.md) and the [release policy](docs/RELEASE_AND_HOSTING.md).
 
 Stop the stack with:
 
