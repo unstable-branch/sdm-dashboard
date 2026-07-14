@@ -47,7 +47,7 @@ If a tool is unavailable locally, record that limitation and link the authoritat
 
 Use a disposable host or VM with empty volumes and no local application images.
 
-- [ ] Copy `deploy/images.env.example`, then replace all three digests from the workflow-produced `image-digests.txt`.
+- [ ] Verify the workflow-produced `release-images.env` contains frontend/API plus dedicated CPU, CUDA, and ROCm Plumber digests matching `image-digests.txt`, with a coherent CPU-default active pair.
 - [ ] Configure production secrets and TLS without committing them.
 - [ ] Run `docker compose -f docker-compose.prod.yml pull` and then `docker compose -f docker-compose.prod.yml up -d --no-build`.
 - [ ] Confirm PostgreSQL, Redis, Garage, Plumber, API, frontend, and nginx become healthy.

@@ -14,7 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-BUNDLE_VERSION = "2.0.0-beta.6"
+BUNDLE_VERSION = (Path(__file__).resolve().parents[1] / "VERSION").read_text(encoding="utf-8").strip()
 PLUMBER_VARIANTS = ("cpu", "cuda", "rocm")
 PLUMBER_DIGEST_KEYS = {variant: f"SDM_PLUMBER_{variant.upper()}_DIGEST" for variant in PLUMBER_VARIANTS}
 REQUIRED_IMAGES = ("SDM_FRONTEND_DIGEST", "SDM_API_DIGEST", *PLUMBER_DIGEST_KEYS.values())
@@ -48,6 +48,10 @@ def parse_env(path: Path) -> dict[str, str]:
 def validate_images(images: dict[str, str]) -> None:
     if not SEMVER_RE.fullmatch(images.get("SDM_RELEASE_VERSION", "")):
         raise SetupError("SDM_RELEASE_VERSION must be strict SemVer release metadata")
+    if images["SDM_RELEASE_VERSION"] != BUNDLE_VERSION:
+        raise SetupError(
+            f"image metadata is for {images['SDM_RELEASE_VERSION']}; this setup bundle is {BUNDLE_VERSION}"
+        )
     missing = [key for key in REQUIRED_IMAGES if not re.fullmatch(r"sha256:[a-fA-F0-9]{64}", images.get(key, ""))]
     if missing:
         raise SetupError("image metadata must contain immutable sha256 digests for: " + ", ".join(missing))
@@ -94,7 +98,7 @@ def accelerator_image(images: dict[str, str], accelerator: str) -> str:
 def runtime_probe_command(accelerator: str, image: str) -> list[str]:
     command = ["docker", "run", "--rm"]
     if accelerator == "nvidia":
-        command += ["--gpus", "all", "--entrypoint", "Rscript", image, "-e", "stopifnot(torch::cuda_is_available()); x <- torch::torch_tensor(c(1), device = 'cuda'); stopifnot(x$device$type == 'cuda'); print(x$item())"]
+        command += ["--gpus", "all", "--entrypoint", "Rscript", image, "-e", "stopifnot(torch::cuda_is_available()); x <- torch::torch_tensor(c(1), device = 'cuda'); stopifnot(x$sum()$cpu()$item() == 1); print(x$sum()$cpu()$item())"]
     else:
         command += ["--device", "/dev/kfd", "--device", "/dev/dri", "--entrypoint", "/opt/venv/bin/python3", image, "-c", "import torch; assert torch.version.hip and torch.cuda.is_available(), (torch.version.hip, torch.cuda.is_available()); x = torch.tensor([1], device='cuda'); assert x.device.type == 'cuda'; print(x.item())"]
     return command
@@ -128,8 +132,8 @@ def preflight(deployment: Path, images: dict[str, str] | None = None, requested:
     errors, warnings = [], []
     if platform.system() != "Linux":
         errors.append("Linux host required")
-    if platform.machine().lower() not in ("x86_64", "amd64", "aarch64", "arm64"):
-        errors.append("unsupported Linux architecture: " + platform.machine())
+    if platform.machine().lower() not in ("x86_64", "amd64"):
+        errors.append("release images currently require Linux x86_64; detected: " + platform.machine())
     if shutil.which("docker") is None:
         errors.append("Docker CLI not found")
     else:

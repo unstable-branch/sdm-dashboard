@@ -9,7 +9,7 @@ setup = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(setup)
 DIGESTS = {name: "sha256:" + char * 64 for name, char in zip(("frontend", "api", "cpu", "cuda", "rocm"), "abcde")}
 IMAGES = {
-    "SDM_RELEASE_VERSION": "2.0.0-beta.6",
+    "SDM_RELEASE_VERSION": setup.BUNDLE_VERSION,
     "SDM_FRONTEND_DIGEST": DIGESTS["frontend"],
     "SDM_API_DIGEST": DIGESTS["api"],
     "SDM_PLUMBER_CPU_DIGEST": DIGESTS["cpu"],
@@ -30,6 +30,10 @@ class ImageMetadataTests(unittest.TestCase):
     def test_requires_strict_release_version_metadata(self):
         with self.assertRaisesRegex(setup.SetupError, "SDM_RELEASE_VERSION"):
             setup.validate_images(IMAGES | {"SDM_RELEASE_VERSION": "beta-six"})
+
+    def test_rejects_metadata_from_another_release(self):
+        with self.assertRaisesRegex(setup.SetupError, "this setup bundle"):
+            setup.validate_images(IMAGES | {"SDM_RELEASE_VERSION": "2.0.0-beta.4"})
 
     def test_rejects_active_digest_that_does_not_match_selected_variant(self):
         broken = IMAGES | {"SDM_PLUMBER_VARIANT": "cuda", "SDM_PLUMBER_DIGEST": DIGESTS["cpu"]}
@@ -65,7 +69,7 @@ class AcceleratorTests(unittest.TestCase):
         command = setup.runtime_probe_command("nvidia", "cuda-image")
         self.assertEqual(command, [
             "docker", "run", "--rm", "--gpus", "all", "--entrypoint", "Rscript", "cuda-image", "-e",
-            "stopifnot(torch::cuda_is_available()); x <- torch::torch_tensor(c(1), device = 'cuda'); stopifnot(x$device$type == 'cuda'); print(x$item())",
+            "stopifnot(torch::cuda_is_available()); x <- torch::torch_tensor(c(1), device = 'cuda'); stopifnot(x$sum()$cpu()$item() == 1); print(x$sum()$cpu()$item())",
         ])
         result = type("Result", (), {"returncode": 1, "stdout": "", "stderr": "tensor failed"})()
         ok, detail = setup.runtime_probe("nvidia", IMAGES, lambda *_args, **_kwargs: result)
@@ -128,6 +132,12 @@ class PreflightTests(unittest.TestCase):
                 report = setup.preflight(Path(directory), IMAGES)
         self.assertFalse(report["ok"])
         self.assertIn("Docker CLI not found", report["errors"])
+
+    def test_rejects_arm_until_release_images_are_multiarch(self):
+        with patch.object(setup.platform, "machine", return_value="aarch64"), patch.object(setup.shutil, "which", return_value=None), patch.object(setup, "host_memory", return_value=setup.MIN_MEMORY_BYTES), patch.object(setup.shutil, "disk_usage", return_value=type("Disk", (), {"free": setup.MIN_DISK_BYTES})()), patch.object(setup, "port_free", return_value=True):
+            with tempfile.TemporaryDirectory() as directory:
+                report = setup.preflight(Path(directory), IMAGES)
+        self.assertIn("release images currently require Linux x86_64; detected: aarch64", report["errors"])
 
 
 if __name__ == "__main__":
