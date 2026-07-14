@@ -7,19 +7,19 @@ This deployment target is intended for self-hosted or private-team installations
 Use the exact image digests from the reviewed draft release. Production Compose never builds the application services.
 
 ```bash
-# 1. Configure secrets and immutable release images
+# 1. Configure deployment secrets. Replace every CHANGEME value.
 cp .env.example .env
-cat deploy/images.env.example >> .env
-# Replace every CHANGEME and REPLACE_WITH_RELEASE_DIGEST value.
-# Copy digests from image-digests.txt and choose cpu, cuda, or rocm.
 
-# 2. Pull and start without a source build
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d --no-build
+# 2. Download release-images.env from the matching GitHub Release.
+# It is CPU-ready by default and already contains the reviewed immutable digests.
 
-# 3. Verify health and resolved images
-docker compose -f docker-compose.prod.yml ps
-docker compose -f docker-compose.prod.yml images
+# 3. Pull and start without a source build.
+docker compose --env-file .env --env-file release-images.env -f docker-compose.prod.yml pull
+docker compose --env-file .env --env-file release-images.env -f docker-compose.prod.yml up -d --no-build
+
+# 4. Verify health and resolved images.
+docker compose --env-file .env --env-file release-images.env -f docker-compose.prod.yml ps
+docker compose --env-file .env --env-file release-images.env -f docker-compose.prod.yml images
 curl http://localhost/health
 ```
 
@@ -103,7 +103,7 @@ A validated SemVer tag publishes five GHCR repositories:
 - `ghcr.io/unstable-branch/sdm-dashboard/sdm-plumber-cuda`
 - `ghcr.io/unstable-branch/sdm-dashboard/sdm-plumber-rocm`
 
-Each build receives SemVer, exact `v...`, and immutable `sha-<commit>` tags plus OCI source/version/revision metadata, SBOM, and provenance. The workflow deliberately publishes no `latest` alias. `image-digests.txt` in the draft release is the deployment authority; copy the selected `name@sha256:...` values into `.env`.
+Each build receives SemVer, exact `v...`, and immutable `sha-<commit>` tags plus OCI source/version/revision metadata, SBOM, and provenance. The workflow deliberately publishes no `latest` alias. `image-digests.txt` remains the deployment authority. The release also includes `release-images.env`, generated directly from that manifest, so CPU users do not need to translate digest values by hand; CUDA and ROCm alternatives are included as commented pairs.
 
 CPU is the production default. CUDA and ROCm require their documented host device access and real-hardware release-candidate tests. Add the matching no-build runtime overlay:
 
