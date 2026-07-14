@@ -269,3 +269,49 @@ http://localhost:8000/openapi.json
 ### Playwright says port 3000 is already used
 
 The Docker stack may already be serving the frontend. The test config is expected to reuse an existing server when one is present.
+
+## Beta.6 deployment preparation
+
+The beta.6 setup bundle validates the Linux host and writes only missing deployment
+configuration. It consumes release-reviewed, immutable image digests and never
+builds images locally.
+
+```bash
+# In the release checkout, preserve the reviewed image-digests values.
+cp deploy/images.env.example /secure/path/sdm/images.env
+# Replace each placeholder with the matching digest from image-digests.txt.
+
+./deploy/sdm-setup prepare \
+  --deployment-dir /secure/path/sdm \
+  --images-file /secure/path/sdm/images.env \
+  --accelerator auto
+```
+
+`prepare` checks Docker and Compose v2, host architecture, required host ports,
+12 GiB memory, 30 GiB free disk, writable deployment paths, and selected Docker
+GPU runtime. It generates missing secrets with mode `0600` and preserves existing
+values, so repeated runs are safe. Use `--dry-run` to see proposed config changes
+without writing them, or `diagnose` for the same checks without generating config.
+
+Accelerator choice can be `auto` (the default), `cpu`, `nvidia`, or `amd`. The
+reviewed image metadata must name the corresponding `cpu`, `cuda`, or `rocm`
+Plumber variant. Auto runs a real Docker container probe for compatible detected
+NVIDIA/AMD hardware and clearly falls back to CPU if no compatible runtime
+succeeds. A manual GPU selection fails instead of silently falling back. Live GPU
+acceptance requires the reviewed plumber digest to be pullable by Docker:
+
+```bash
+./deploy/sdm-setup diagnose --deployment-dir /secure/path/sdm \
+  --images-file /secure/path/sdm/images.env --accelerator nvidia
+```
+
+After review, start production Compose from the repository with both generated
+environment files, keeping `.env` last so its selected accelerator is authoritative:
+
+```bash
+docker compose --env-file /secure/path/sdm/images.env --env-file /secure/path/sdm/.env \
+  -f docker-compose.prod.yml up -d --no-build
+```
+
+Select the matching accelerator overlay only after a successful probe
+(`deploy/compose.cuda.yml` for NVIDIA or `deploy/compose.rocm.yml` for AMD).
