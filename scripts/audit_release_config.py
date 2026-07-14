@@ -114,7 +114,7 @@ for image in ("sdm-plumber-cpu", "sdm-plumber-cuda", "sdm-plumber-rocm", "sdm-ap
 for dockerfile in ("plumber/Dockerfile", "plumber/Dockerfile.cuda", "plumber/Dockerfile.rocm", "Dockerfile.api", "Dockerfile.frontend"):
     if dockerfile not in workflow:
         fail(f"release workflow does not build {dockerfile}")
-for contract in ("environment: release", "type=semver,pattern={{version}}", "type=sha,format=long,prefix=sha-", "flavor: latest=false", "provenance: mode=max", "sbom: true", "steps.build.outputs.digest", "image-digests"):
+for contract in ("environment: release", "type=semver,pattern={{version}}", "type=sha,format=long,prefix=sha-", "flavor: latest=false", "provenance: mode=max", "sbom: true", "steps.build.outputs.digest", "image-digests", "Verify images are publicly pullable", "scripts/verify_public_ghcr_images.py image-digests.txt"):
     if contract not in workflow:
         fail(f"release workflow is missing contract: {contract}")
 if re.search(r"type=raw,value=latest|type=raw,value=stable", workflow):
