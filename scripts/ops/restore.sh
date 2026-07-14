@@ -28,7 +28,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$input" && -n "$data_volume" && -n "$meta_volume" && "$force" == true && "$really" == true ]] || { usage >&2; lifecycle_die "restore requires explicit destructive confirmation"; }
+[[ -d "$input" ]] || lifecycle_die "backup input directory does not exist: $input"
 [[ -f "$compose_file" ]] || lifecycle_die "compose file does not exist: $compose_file"
+input="$(realpath "$input")"
+compose_file="$(realpath "$compose_file")"
 [[ "$data_volume" != "$meta_volume" ]] || lifecycle_die "Garage data and metadata volumes must be different"
 lifecycle_validate_docker_volume "$data_volume"
 lifecycle_validate_docker_volume "$meta_volume"
