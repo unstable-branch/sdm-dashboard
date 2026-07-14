@@ -221,6 +221,9 @@ jobs:
       - name: Verify images are publicly pullable
         run: python3 scripts/verify_public_ghcr_images.py image-digests.txt
 
+      - name: Generate ready-to-use release image environment
+        run: python3 scripts/make_release_images_env.py image-digests.txt release-images.env
+
       - name: Build and checksum release artifacts
         run: |
           Rscript scripts/make_release_zip.R source --version="${RELEASE_TAG}"
@@ -243,6 +246,7 @@ jobs:
             sdm-dashboard-${{ env.RELEASE_TAG }}-windows-ready.zip
             SHA256SUMS
             image-digests.txt
+            release-images.env
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
