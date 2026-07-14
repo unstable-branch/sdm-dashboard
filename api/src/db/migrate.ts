@@ -19,10 +19,21 @@ export async function runMigrationsWithClient(
   executeMigrations: MigrationExecutor,
 ): Promise<void> {
   await client.query("SELECT pg_advisory_lock(hashtext($1))", [MIGRATION_LOCK_NAME]);
+  let migrationError: unknown;
   try {
     await executeMigrations(client);
+  } catch (error) {
+    migrationError = error;
+    throw error;
   } finally {
-    await client.query("SELECT pg_advisory_unlock(hashtext($1))", [MIGRATION_LOCK_NAME]);
+    try {
+      await client.query("SELECT pg_advisory_unlock(hashtext($1))", [MIGRATION_LOCK_NAME]);
+    } catch (unlockError) {
+      if (migrationError === undefined) throw unlockError;
+      // The session is released by runMigrations() even if this explicit unlock
+      // fails. Preserve the migration error, which is the actionable failure.
+      console.error("[Migration] advisory unlock failed after migration failure:", unlockError);
+    }
   }
 }
 

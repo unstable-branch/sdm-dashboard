@@ -11,13 +11,13 @@ Usage: scripts/ops/backup.sh --output DIR --garage-data-volume NAME --garage-met
 Options:
   --compose-file FILE     Compose file (default: docker-compose.prod.yml)
   --config FILE           Config metadata to include (repeatable; defaults to compose file and garage.toml if present)
-  --app-version VERSION   Recorded compatibility version (default: git describe)
+  --app-version VERSION   Recorded compatibility version (default: VERSION file)
 
 The script stops API, Plumber, and Garage while taking the backup, then starts only
 services that were running before the operation. Archive output must not already exist.
 USAGE
 }
-output=""; compose_file="$ROOT/docker-compose.prod.yml"; data_volume=""; meta_volume=""; app_version="$(git -C "$ROOT" describe --always --dirty 2>/dev/null || echo unknown)"; configs=()
+output=""; compose_file="$ROOT/docker-compose.prod.yml"; data_volume=""; meta_volume=""; app_version="$(tr -d '\r\n' < "$ROOT/VERSION")"; configs=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output) output="$2"; shift 2;; --compose-file) compose_file="$2"; shift 2;;
@@ -28,6 +28,9 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$output" && -n "$data_volume" && -n "$meta_volume" ]] || { usage >&2; exit 2; }
 [[ -f "$compose_file" ]] || lifecycle_die "compose file does not exist: $compose_file"
+[[ "$data_volume" != "$meta_volume" ]] || lifecycle_die "Garage data and metadata volumes must be different"
+lifecycle_validate_docker_volume "$data_volume"
+lifecycle_validate_docker_volume "$meta_volume"
 lifecycle_require_empty_dir "$output"
 mkdir -p "$output/postgresql" "$output/garage" "$output/config"
 [[ ${#configs[@]} -gt 0 ]] || configs=("$compose_file")
