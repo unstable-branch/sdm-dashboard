@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a ready-to-use CPU-default Compose image environment file."""
+"""Generate reviewed multi-variant Compose image metadata."""
 
 from __future__ import annotations
 
@@ -58,21 +58,16 @@ def main() -> None:
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     content = f"""# Generated from the reviewed immutable image digests for v{version}.
 # Use after your secret-bearing .env file: docker compose --env-file .env --env-file release-images.env ...
-# CPU is the default. For NVIDIA or AMD, replace the two active Plumber values
-# with the commented CUDA or ROCm pair and use the matching Compose overlay.
+# Dedicated reviewed digests let sdm-setup select CPU, CUDA, or ROCm safely.
+# The active pair remains Compose-compatible and defaults to CPU.
 SDM_RELEASE_VERSION={version}
 SDM_FRONTEND_DIGEST={images['sdm-frontend']}
 SDM_API_DIGEST={images['sdm-api']}
+SDM_PLUMBER_CPU_DIGEST={images['sdm-plumber-cpu']}
+SDM_PLUMBER_CUDA_DIGEST={images['sdm-plumber-cuda']}
+SDM_PLUMBER_ROCM_DIGEST={images['sdm-plumber-rocm']}
 SDM_PLUMBER_VARIANT=cpu
 SDM_PLUMBER_DIGEST={images['sdm-plumber-cpu']}
-
-# NVIDIA CUDA alternative:
-# SDM_PLUMBER_VARIANT=cuda
-# SDM_PLUMBER_DIGEST={images['sdm-plumber-cuda']}
-
-# AMD ROCm alternative:
-# SDM_PLUMBER_VARIANT=rocm
-# SDM_PLUMBER_DIGEST={images['sdm-plumber-rocm']}
 """
     output.write_text(content, encoding="utf-8")
     print(f"Generated release image environment: {output}")

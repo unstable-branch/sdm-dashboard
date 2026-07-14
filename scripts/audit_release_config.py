@@ -68,6 +68,13 @@ except ValueError as error:
 images_env = read("deploy/images.env.example")
 if f"SDM_RELEASE_VERSION={version}" not in images_env:
     fail("deploy/images.env.example does not match VERSION")
+for key in ("SDM_PLUMBER_CPU_DIGEST", "SDM_PLUMBER_CUDA_DIGEST", "SDM_PLUMBER_ROCM_DIGEST", "SDM_PLUMBER_VARIANT", "SDM_PLUMBER_DIGEST"):
+    if f"{key}=" not in images_env:
+        fail(f"deploy/images.env.example is missing {key}")
+release_images_generator = read("scripts/make_release_images_env.py")
+for key in ("SDM_PLUMBER_CPU_DIGEST", "SDM_PLUMBER_CUDA_DIGEST", "SDM_PLUMBER_ROCM_DIGEST"):
+    if key not in release_images_generator:
+        fail(f"release image metadata generator is missing {key}")
 
 compose = read("docker-compose.prod.yml")
 expected_refs = {

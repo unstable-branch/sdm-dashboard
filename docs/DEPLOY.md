@@ -147,11 +147,11 @@ Important variables:
 
 Use `docker-compose.prod.yml` for self-hosted production-style deployments. Unlike the local source stack, production Compose has no application `build:` blocks. It pulls frontend, API, and the selected CPU/CUDA/ROCm Plumber image by exact digest.
 
-Start with `deploy/images.env.example`, copy the reviewed values from the draft release `image-digests.txt`, and run:
+Download the generated `release-images.env` from the matching reviewed draft release. It carries dedicated immutable CPU, CUDA, and ROCm Plumber digests plus a CPU-default active pair. Use it with your secret-bearing `.env`:
 
 ```bash
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d --no-build
+docker compose --env-file .env --env-file release-images.env -f docker-compose.prod.yml pull
+docker compose --env-file .env --env-file release-images.env -f docker-compose.prod.yml up -d --no-build
 ```
 
 Production compose intentionally fails closed if required image digests or secrets are absent. Provide real values for:
@@ -169,8 +169,10 @@ Production compose intentionally fails closed if required image digests or secre
 - `GRAFANA_PASSWORD`
 - `SDM_FRONTEND_DIGEST`
 - `SDM_API_DIGEST`
-- `SDM_PLUMBER_DIGEST`
-- `SDM_PLUMBER_VARIANT` (`cpu`, `cuda`, or `rocm`)
+- `SDM_PLUMBER_CPU_DIGEST`
+- `SDM_PLUMBER_CUDA_DIGEST`
+- `SDM_PLUMBER_ROCM_DIGEST`
+- the active `SDM_PLUMBER_DIGEST` and `SDM_PLUMBER_VARIANT` (`cpu`, `cuda`, or `rocm`)
 
 Operators are responsible for:
 
@@ -277,28 +279,26 @@ configuration. It consumes release-reviewed, immutable image digests and never
 builds images locally.
 
 ```bash
-# In the release checkout, preserve the reviewed image-digests values.
-cp deploy/images.env.example /secure/path/sdm/images.env
-# Replace each placeholder with the matching digest from image-digests.txt.
-
+# Download the reviewed release-images.env without editing its dedicated digests.
 ./deploy/sdm-setup prepare \
   --deployment-dir /secure/path/sdm \
-  --images-file /secure/path/sdm/images.env \
+  --images-file /secure/path/sdm/release-images.env \
   --accelerator auto
 ```
 
-`prepare` checks Docker and Compose v2, host architecture, required host ports,
-12 GiB memory, 30 GiB free disk, writable deployment paths, and selected Docker
-GPU runtime. It generates missing secrets with mode `0600` and preserves existing
+`prepare` checks Docker and Compose v2, host architecture, the default public
+host entry points (80/443), 12 GiB memory, 30 GiB free disk, writable deployment
+paths, and selected Docker GPU runtime. It generates missing secrets with mode `0600` and preserves existing
 values, so repeated runs are safe. Use `--dry-run` to see proposed config changes
 without writing them, or `diagnose` for the same checks without generating config.
 
 Accelerator choice can be `auto` (the default), `cpu`, `nvidia`, or `amd`. The
-reviewed image metadata must name the corresponding `cpu`, `cuda`, or `rocm`
-Plumber variant. Auto runs a real Docker container probe for compatible detected
-NVIDIA/AMD hardware and clearly falls back to CPU if no compatible runtime
-succeeds. A manual GPU selection fails instead of silently falling back. Live GPU
-acceptance requires the reviewed plumber digest to be pullable by Docker:
+reviewed image metadata carries dedicated `cpu`, `cuda`, and `rocm` Plumber
+digests. Auto runs a real CUDA R-torch or ROCm Python-torch tensor probe for
+compatible detected hardware and clearly falls back to the dedicated CPU digest
+if no compatible runtime succeeds. A manual GPU selection fails instead of
+silently falling back. Live GPU acceptance requires the reviewed plumber digest
+to be pullable by Docker:
 
 ```bash
 ./deploy/sdm-setup diagnose --deployment-dir /secure/path/sdm \
@@ -306,10 +306,11 @@ acceptance requires the reviewed plumber digest to be pullable by Docker:
 ```
 
 After review, start production Compose from the repository with both generated
-environment files, keeping `.env` last so its selected accelerator is authoritative:
+environment files. `sdm-setup` writes `/secure/path/sdm/images.env` with exactly
+one selected active Plumber pair, so keep it last:
 
 ```bash
-docker compose --env-file /secure/path/sdm/images.env --env-file /secure/path/sdm/.env \
+docker compose --env-file /secure/path/sdm/.env --env-file /secure/path/sdm/images.env \
   -f docker-compose.prod.yml up -d --no-build
 ```
 
