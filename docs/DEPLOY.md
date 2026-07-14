@@ -29,7 +29,7 @@ Open:
 - Plumber health: `http://localhost:8000/health`
 - Garage S3 API: `http://localhost:3900`
 
-The first boot may take several minutes while the Plumber image installs R geospatial dependencies. The API container applies Drizzle migrations before starting, so an empty local database volume should bootstrap automatically.
+The first boot may take several minutes while the Plumber image installs R geospatial dependencies. A dedicated `migrate` service applies Drizzle migrations before the API is allowed to start, so an empty local database volume should bootstrap automatically.
 
 Stop the stack:
 
@@ -100,10 +100,16 @@ pnpm dev
 
 The frontend serves on `http://localhost:3000`; the API serves on `http://localhost:4000`.
 
-If you start PostgreSQL manually or change database state outside the API container, run migrations from `api/`:
+API startup never runs migrations. For a host-local development database, use the explicit developer command from `api/`:
 
 ```bash
-pnpm db:migrate
+pnpm db:migrate:dev
+```
+
+For a Compose environment, run the controlled stage directly:
+
+```bash
+docker compose -f docker-compose.yml --profile dev run --rm migrate
 ```
 
 ## Environment
@@ -177,16 +183,37 @@ Operators are responsible for:
 
 Do not expose Postgres, Redis, Garage admin, Prometheus, or Grafana publicly without access controls.
 
-## Backups
+## Backups and restore
 
-Example database backup:
+The beta lifecycle scripts create a checksummed archive containing a PostgreSQL custom-format dump, Garage data and metadata volume snapshots, and selected configuration metadata. They stop API, Plumber, and Garage while the archive is taken, then restart only services that were running before the command.
+
+Find the actual Compose volume names with `docker volume ls` first. Store the resulting archive outside all application volumes and protect it as sensitive data.
 
 ```bash
-docker compose -f docker-compose.yml --profile full exec postgres \
-  pg_dump -U sdm sdm_platform > sdm-platform.sql
+scripts/ops/backup.sh \
+  --output /secure/backups/sdm-$(date +%F) \
+  --garage-data-volume <compose>_garage-data \
+  --garage-meta-volume <compose>_garage-meta
 ```
 
-Back up object storage and generated outputs according to the storage backend used for the deployment. Local development volumes are not a substitute for a production backup plan.
+Restore verifies the archive format, application compatibility, and every SHA-256 checksum before it stops services. It intentionally refuses to replace data unless both destructive flags are supplied:
+
+```bash
+scripts/ops/restore.sh \
+  --input /secure/backups/sdm-2026-07-14 \
+  --garage-data-volume <compose>_garage-data \
+  --garage-meta-volume <compose>_garage-meta \
+  --force --yes-really-restore
+```
+
+### Upgrade and rollback runbook
+
+1. Take and verify a backup with the currently running release.
+2. Pull the target images, run the one-shot `migrate` service, and only then start the API.
+3. If the target does not pass smoke checks, stop it, restore the matching backup with the previous release checked out, and run that release's migration stage only if its documented rollback path permits it.
+4. Cross-version restores are refused by default. `--allow-version-mismatch` is an escape hatch for an operator who has reviewed the release-specific migration and rollback notes; it is not an automatic downgrade mechanism.
+
+This foundation snapshots Garage's Docker volumes for the single-node Compose deployment. It is not a replacement for Garage's native multi-node replication/backup procedure.
 
 ## Offline Data
 

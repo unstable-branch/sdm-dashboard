@@ -43,6 +43,20 @@ services:
       - sdm-network
     restart: unless-stopped
 
+  migrate:
+    image: ghcr.io/unstable-branch/sdm-dashboard/sdm-api@${SDM_API_DIGEST:?SDM_API_DIGEST is required}
+    command: ["node", "api/dist/db/migrate.js"]
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL:?Database connection string is required}
+      - DRIZZLE_MIGRATIONS_DIR=/app/api/drizzle
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sdm-network
+    restart: "no"
+
   api:
     image: ghcr.io/unstable-branch/sdm-dashboard/sdm-api@${SDM_API_DIGEST:?SDM_API_DIGEST is required}
     deploy:
@@ -68,6 +82,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       garage:

@@ -136,6 +136,22 @@ services:
       - sdm-network
     restart: unless-stopped
 
+  migrate:
+    profiles: ["monitoring", "all"]
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: ["node", "api/dist/db/migrate.js"]
+    environment:
+      - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:-sdm_dev_only_change_me}@postgres:5432/sdm_platform
+      - DRIZZLE_MIGRATIONS_DIR=/app/api/drizzle
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sdm-network
+    restart: "no"
+
   api:
     profiles: ["monitoring", "all"]
     build:
@@ -161,6 +177,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     networks:

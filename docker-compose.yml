@@ -119,6 +119,27 @@ services:
     networks:
       - sdm-network
 
+  # ── Schema migration gate ──
+  migrate:
+    profiles: ["proxy", "dev", "full"]
+    restart: "no"
+    image: sdm-dashboard-api:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      args:
+        - PNPM_REGISTRY=${PNPM_REGISTRY:-https://registry.npmmirror.com}
+    command: ["node", "api/dist/db/migrate.js"]
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
+      - DRIZZLE_MIGRATIONS_DIR=/app/api/drizzle
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sdm-network
+
   # ── Web proxy ──
   api:
     profiles: ["proxy", "dev", "full"]
@@ -161,6 +182,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       garage:
