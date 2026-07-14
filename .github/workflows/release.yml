@@ -213,18 +213,24 @@ jobs:
           path: image-digests
           merge-multiple: true
 
+      - name: Assemble image digest manifest
+        run: |
+          sort image-digests/*.txt > image-digests.txt
+          test "$(wc -l < image-digests.txt)" -eq 5
+
+      - name: Verify images are publicly pullable
+        run: python3 scripts/verify_public_ghcr_images.py image-digests.txt
+
       - name: Build and checksum release artifacts
         run: |
           Rscript scripts/make_release_zip.R source --version="${RELEASE_TAG}"
           Rscript scripts/make_release_zip.R windows-ready --version="${RELEASE_TAG}"
           mv "../sdm-dashboard-${RELEASE_TAG}-source.zip" .
           mv "../sdm-dashboard-${RELEASE_TAG}-windows-ready.zip" .
-          sort image-digests/*.txt > image-digests.txt
           sha256sum \
             "sdm-dashboard-${RELEASE_TAG}-source.zip" \
             "sdm-dashboard-${RELEASE_TAG}-windows-ready.zip" \
             > SHA256SUMS
-          test "$(wc -l < image-digests.txt)" -eq 5
 
       - name: Create review-only draft release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
