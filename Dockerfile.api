@@ -53,6 +53,8 @@ WORKDIR /app
 
 # pnpm legacy deploy emits a self-contained, flat package directory.
 COPY --from=builder /app/deploy ./api
+# Drizzle migrations are runtime inputs for the dedicated migration service.
+COPY --from=builder /app/api/drizzle ./api/drizzle
 
 RUN addgroup -g 2000 sdm-shared && \
     addgroup node sdm-shared && \
@@ -68,4 +70,4 @@ ENV NODE_OPTIONS="--max-old-space-size=2048"
 EXPOSE 4000
 
 ENTRYPOINT ["dumb-init", "--", "/usr/local/bin/api-entrypoint.sh"]
-CMD ["sh", "-c", "npm --prefix api run db:migrate && node api/dist/index.js"]
+CMD ["node", "api/dist/index.js"]
