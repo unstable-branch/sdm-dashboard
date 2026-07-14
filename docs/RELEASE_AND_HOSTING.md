@@ -15,7 +15,11 @@ This matters because SDM workflows often involve sensitive occurrence data, unpu
 | Container images | Self-hosted platform users | GHCR images for frontend, API, and separate CPU/CUDA/ROCm Plumber runtimes |
 | Docker Compose | Operators | Digest-pinned production compose plus reviewed release digest manifest |
 
-A strict SemVer `v*` tag on `main` triggers validation, publishes API/frontend plus separate CPU/CUDA/ROCm Plumber images, records their immutable digests, and assembles a review-only draft GitHub Release. It publishes no mutable `latest` or `stable` alias.
+A strict SemVer `v*` tag on `main` triggers validation, publishes API/frontend plus separate CPU/CUDA/ROCm Plumber images, records their immutable digests, verifies every image is anonymously pullable, and assembles a review-only draft GitHub Release. It publishes no mutable `latest` or `stable` alias.
+
+The five container packages are published under `ghcr.io/unstable-branch/sdm-dashboard/` as `sdm-frontend`, `sdm-api`, `sdm-plumber-cpu`, `sdm-plumber-cuda`, and `sdm-plumber-rocm`. GitHub Container Registry packages are separate from the smaller source/Windows files attached to a GitHub Release. Operators should use the immutable references in the release's `image-digests.txt`; version tags are provided for discovery, not production pinning.
+
+GHCR creates a new package as private even when its source repository is public. A maintainer must change each newly introduced package name to public in GitHub's package settings after its first push. The release workflow deliberately fails before assembling a draft if an anonymous registry client cannot resolve every recorded digest. Once a package is public, later versions retain that visibility.
 
 The normal platform CI gate and release workflow build the modern self-hosting images only: frontend, API, and the three Plumber hardware variants. The legacy Shiny app remains available through source, Windows-ready zip artifacts, and the `legacy-shiny` branch; it is not a blocking container-image gate for modern platform tags.
 
@@ -62,7 +66,7 @@ If the local machine cannot run the R gate because system libraries are missing,
 
 ## Self-Hosting
 
-Use `docker-compose.prod.yml` for private/team deployments. The application services pull the exact digests supplied in `SDM_FRONTEND_DIGEST`, `SDM_API_DIGEST`, and `SDM_PLUMBER_DIGEST`; they never build from source. External production dependencies and Docker build bases are digest-pinned as well; update those digests deliberately and rerun `python3 scripts/audit_release_config.py` rather than substituting mutable tags. Select `SDM_PLUMBER_VARIANT=cpu`, `cuda`, or `rocm`. Start from `deploy/images.env.example` and copy values from the reviewed `image-digests.txt`. Production compose also requires explicit secrets:
+Use `docker-compose.prod.yml` for private/team deployments. The application services pull the exact digests supplied in `SDM_FRONTEND_DIGEST`, `SDM_API_DIGEST`, and `SDM_PLUMBER_DIGEST`; they never build from source. External production dependencies and Docker build bases are digest-pinned as well; update those digests deliberately and rerun `python3 scripts/audit_release_config.py` rather than substituting mutable tags. Download the generated `release-images.env` from the matching GitHub Release and pass it after your secret-bearing `.env`; it defaults to CPU and includes commented CUDA/ROCm alternatives. The reviewed `image-digests.txt` remains the source manifest. Production compose also requires explicit secrets:
 
 - `POSTGRES_PASSWORD`
 - `DATABASE_URL`
