@@ -28,6 +28,8 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$output" && -n "$data_volume" && -n "$meta_volume" ]] || { usage >&2; exit 2; }
 [[ -f "$compose_file" ]] || lifecycle_die "compose file does not exist: $compose_file"
+output="$(realpath -m "$output")"
+compose_file="$(realpath "$compose_file")"
 [[ "$data_volume" != "$meta_volume" ]] || lifecycle_die "Garage data and metadata volumes must be different"
 lifecycle_validate_docker_volume "$data_volume"
 lifecycle_validate_docker_volume "$meta_volume"
