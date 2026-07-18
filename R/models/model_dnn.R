@@ -910,7 +910,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
         # If any selected accelerator failed, retry on CPU. HIP/ROCm errors are
         # intentionally treated alongside CUDA OOM/runtime failures.
         if (sdm_backend_is_gpu(sdm_resolve_backend(dnn_device)$backend) &&
-            grepl("CUDA|HIP|ROCm|HSA|out of memory|cuda|memory", err_msg, ignore.case = TRUE)) {
+            grepl("CUDA out of memory|HIP out of memory|ROCm out of memory|out of memory|cannot allocate", err_msg, ignore.case = TRUE)) {
           log_message(log_fun, "    Seed ", s, " GPU failed (", err_msg, "). Retrying on CPU...")
           seed_device <<- "cpu"
           tryCatch(

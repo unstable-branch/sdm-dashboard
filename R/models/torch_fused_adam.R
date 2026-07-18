@@ -213,9 +213,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
 
   gc(full = TRUE)
   if (is_cuda_native) {
-    cuda_idx <- as.integer(sub("cuda:?", "", device_str))
-    if (is.na(cuda_idx)) cuda_idx <- 0L
-    tryCatch(.Call("_torch_cpp_cuda_synchronize", cuda_idx), error = function(e) NULL)
+    tryCatch(torch::cuda_synchronize(), error = function(e) NULL)
   }
 
   # Resolve mixed precision & CUDA Graphs settings
