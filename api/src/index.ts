@@ -306,7 +306,7 @@ async function shutdown() {
   cleanupWebSocket();
   closeCache();
   closeRateLimitRedis();
-  shutdownQueue();
+  await shutdownQueue();
   try {
     await db.$client.end();
     console.log("[Shutdown] PostgreSQL pool closed");
@@ -314,7 +314,7 @@ async function shutdown() {
     // Pool shutdown is best-effort
   }
   server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 3000).unref();
+  setTimeout(() => process.exit(1), 5000).unref();
 }
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
