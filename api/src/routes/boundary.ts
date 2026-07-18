@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { plumberClient } from "../services/plumber.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
+import { logAction, extractClientInfo } from "../services/audit.js";
+import { resolveFilePath } from "../services/upload-utils.js";
 
 export const boundaryRoutes = new Hono<AppEnv>();
 
@@ -39,6 +41,17 @@ boundaryRoutes.post("/boundary/upload", async (c) => {
       file_name: file.name,
       file_content: base64,
     });
+
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "boundary_uploaded",
+      entity: "boundary",
+      entityId: (res as Record<string, unknown>)?.file_path as string | null ?? null,
+      ...client,
+      details: { fileName: file.name, fileSize: file.size },
+    });
+
     return c.json(res);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Boundary upload failed";
@@ -61,7 +74,20 @@ boundaryRoutes.delete("/boundary/delete/:id", async (c) => {
   try {
     const user = c.get("user");
     const filePath = c.req.param("id");
+    if (!filePath || typeof filePath !== "string" || filePath.includes("..") || filePath.startsWith("/")) {
+      return c.json({ error: "Invalid file path" }, 400);
+    }
     const res = await plumberClient.withUser(user.id).post("/api/v1/data/boundary/delete", { file_path: filePath });
+
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "boundary_deleted",
+      entity: "boundary",
+      entityId: filePath,
+      ...client,
+    });
+
     return c.json(res);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to delete boundary";

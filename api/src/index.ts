@@ -52,6 +52,28 @@ process.on("uncaughtException", (err) => {
 
 const app = new Hono();
 
+function assertProductionEnv(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  const required: Array<[string, number]> = [
+    ["JWT_SECRET", 32],
+    ["PLUMBER_INTERNAL_KEY", 32],
+    ["CSRF_SECRET", 32],
+    ["DATA_ENCRYPTION_KEY", 32],
+  ];
+  const missing: string[] = [];
+  for (const [name, minLen] of required) {
+    const v = process.env[name];
+    if (!v || v.length < minLen) missing.push(`${name} (>=${minLen} chars)`);
+  }
+  if (missing.length > 0) {
+    const msg = `[FATAL] Missing or weak required secrets in production: ${missing.join(", ")}. Refusing to start.`;
+    console.error(msg);
+    throw new Error(msg);
+  }
+}
+
+assertProductionEnv();
+
 const frontendOrigin = process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:3000";
 const corsOrigins = frontendOrigin.split(",").map(s => s.trim()).filter(Boolean);
 app.use("*", cors({
@@ -247,7 +269,7 @@ async function startWorkerWithRetry(attempt = 0) {
     console.log("[Worker] BullMQ worker started");
     return;
   }
-  const delay = Math.min(5000 * Math.pow(1.5, attempt), 120000);
+  const delay = Math.min(5000 * Math.pow(1.5, attempt), 120000) + Math.random() * 1000;
   console.log(`[Worker] Redis unavailable; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1}).`);
   setTimeout(() => startWorkerWithRetry(attempt + 1), delay);
 }

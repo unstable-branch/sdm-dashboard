@@ -14,7 +14,9 @@ function getCsrfSecret(): string {
 
 function validateToken(token: string): boolean {
   const secret = getCsrfSecret();
-  if (!secret) return true;
+  // If a token is supplied but the server has no secret configured, the
+  // token cannot be valid. Reject rather than silently accept.
+  if (!secret) return false;
   const parts = token.split(".");
   if (parts.length !== 2) return false;
   const payload = parts[0];

@@ -88,6 +88,23 @@ if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {
 
 # Internal auth key set by Hono when proxying authenticated requests
 internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
+data_encryption_key <- Sys.getenv("DATA_ENCRYPTION_KEY", "")
+
+# In production, refuse to start if required secrets are missing or weak.
+if (identical(Sys.getenv("NODE_ENV"), "production")) {
+  issues <- character(0)
+  if (!nzchar(internal_key) || nchar(internal_key) < 32L) {
+    issues <- c(issues, "PLUMBER_INTERNAL_KEY (>=32 chars)")
+  }
+  if (!nzchar(data_encryption_key) || nchar(data_encryption_key) < 32L) {
+    issues <- c(issues, "DATA_ENCRYPTION_KEY (>=32 chars)")
+  }
+  if (length(issues) > 0L) {
+    cat("FATAL: missing or weak required secrets in production:", paste(issues, collapse = ", "), "\n")
+    cat("  Set these environment variables before starting Plumber.\n")
+    quit(status = 1)
+  }
+}
 
 # Auth helper: stop request with error response
 auth_fail <- function(res, status, msg) {
@@ -125,6 +142,16 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
       cat("FATAL: PLUMBER_AUTH_DISABLED is set in production — refusing to start.\n")
       cat("  Remove PLUMBER_AUTH_DISABLED=true from production environment.\n")
       quit(status = 1)
+    }
+    if (!nzchar(internal_key)) {
+      cat("FATAL: PLUMBER_AUTH_DISABLED=true but PLUMBER_INTERNAL_KEY is not set.\n")
+      cat("  Set PLUMBER_INTERNAL_KEY in non-production environments to guard the internal proxy.\n")
+      quit(status = 1)
+    }
+    hono_internal <- get_hdr(req, "x-hono-internal")
+    if (is.null(hono_internal) || !identical(hono_internal, internal_key)) {
+      auth_fail(res, 401L, '{"error":"Internal system token required. Direct access not allowed."}')
+      return(NULL)
     }
     fwd_user <- get_hdr(req, "x-forwarded-user")
     if (!is.null(fwd_user) && nzchar(fwd_user)) {
