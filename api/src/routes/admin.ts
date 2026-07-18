@@ -300,6 +300,12 @@ adminRoutes.get("/database/:table", async (c) => {
       return c.json({ error: "Table not allowed" }, 403);
     }
 
+    const REDACTED_COLUMNS: Record<string, string[]> = {
+      users: ["password_hash", "reset_token", "reset_token_expiry"],
+      api_keys: ["key_hash"],
+      user_settings: ["gbif_password", "ala_api_key"],
+    };
+
     const columnsResult = await db.execute(sql`
       SELECT column_name, data_type, is_nullable, column_default
       FROM information_schema.columns
@@ -307,10 +313,17 @@ adminRoutes.get("/database/:table", async (c) => {
       ORDER BY ordinal_position
     `);
 
+    const allColNames: string[] = ((columnsResult as any).rows as Array<{ column_name: string }>).map(r => r.column_name);
+    const redacted = new Set(REDACTED_COLUMNS[tableName] ?? []);
+    const selectedCols = allColNames.filter(c => !redacted.has(c));
+    if (selectedCols.length === 0) {
+      return c.json({ error: "All columns for this table are redacted" }, 403);
+    }
+
+    const selectList = sql.join(selectedCols.map(c => sql.identifier(c)), sql`, `);
     const data = await db.execute(sql`
-      SELECT * FROM ${sql.identifier(tableName)}
-      ORDER BY created_at DESC NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}
+      SELECT ${selectList} FROM ${sql.identifier(tableName)}
+      ${sql.raw(`ORDER BY created_at DESC NULLS LAST LIMIT ${limit} OFFSET ${offset}`)}
     `);
 
     const countResult = await db.execute(sql`
@@ -318,9 +331,22 @@ adminRoutes.get("/database/:table", async (c) => {
     `);
     const total = Number((countResult as any).rows?.[0]?.total || 0);
 
+    const user = c.get("user") as { id?: string } | undefined;
+    const { ipAddress, userAgent } = extractClientInfo(c as any);
+    await logAction({
+      userId: user?.id ?? "unknown",
+      action: "admin_database_query",
+      entity: "admin",
+      entityId: tableName,
+      ipAddress,
+      userAgent,
+      details: { table: tableName, page, limit, columns: selectedCols },
+    });
+
     return c.json({
       table: tableName,
-      columns: columnsResult.rows,
+      columns: (columnsResult as any).rows,
+      redactedColumns: Array.from(redacted),
       rows: (data as any).rows,
       total,
       page,

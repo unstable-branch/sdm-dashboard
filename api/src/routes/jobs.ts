@@ -170,6 +170,22 @@ app.get("/:jobId", async (c) => {
       console.warn("[jobs] Failed to read persisted job status:", err instanceof Error ? err.message : String(err));
       return c.json({ error: "Job status temporarily unavailable" }, 503);
     }
+  } else {
+    if (myProjectIds !== null && myProjectIds.length === 0) {
+      return c.json({ error: "Job not found" }, 404);
+    }
+    if (user.role !== "admin") {
+      const ownedProjectIds = myProjectIds ?? [];
+      const [projectRun] = await db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(and(
+          eq(runs.jobId, jobId),
+          inArray(runs.projectId, ownedProjectIds)
+        ))
+        .limit(1);
+      if (!projectRun) return c.json({ error: "Job not found" }, 404);
+    }
   }
 
   // BullMQ has the most detailed live state while its retention window is active.

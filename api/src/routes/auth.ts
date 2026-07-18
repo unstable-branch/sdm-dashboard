@@ -27,8 +27,8 @@ const REFRESH_TOKEN_EXPIRY_DAYS = 30;
 const REFRESH_TOKEN_BYTES = 32;
 
 function hashRefreshToken(token: string): string {
-  const secret = process.env.JWT_SECRET || "refresh-secret";
-  return createHmac("sha256", secret).update(token).digest("hex");
+  if (!JWT_SECRET) throw new Error("JWT_SECRET environment variable is required");
+  return createHmac("sha256", JWT_SECRET).update(token).digest("hex");
 }
 
 async function issueRefreshToken(userId: string): Promise<string> {
@@ -436,16 +436,29 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
     .insert(apiKeys)
     .values({
       keyHash,
+      keyPreview: rawKey.substring(0, 8),
       name,
       userId: user.id,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
     })
     .returning();
 
+  const client = extractClientInfo(c as any);
+  await logAction({
+    userId: user.id,
+    action: "api_key_created",
+    entity: "api_keys",
+    entityId: apiKey.id,
+    ...client,
+    details: { name, expiresAt: apiKey.expiresAt ?? null },
+  });
+
   return c.json({
     id: apiKey.id,
     name: apiKey.name,
-    key: `${rawKey.substring(0, 8)}...`,
+    key: rawKey,
+    keyPreview: rawKey.substring(0, 8),
+    showOnce: true,
     createdAt: apiKey.createdAt,
     expiresAt: apiKey.expiresAt,
   });
@@ -454,7 +467,14 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
 authRoutes.get("/api-keys", authMiddleware, async (c) => {
   const user = c.get("user");
   const userKeys = await db
-    .select({ id: apiKeys.id, name: apiKeys.name, createdAt: apiKeys.createdAt, lastUsedAt: apiKeys.lastUsedAt, expiresAt: apiKeys.expiresAt })
+    .select({
+      id: apiKeys.id,
+      name: apiKeys.name,
+      keyPreview: apiKeys.keyPreview,
+      createdAt: apiKeys.createdAt,
+      lastUsedAt: apiKeys.lastUsedAt,
+      expiresAt: apiKeys.expiresAt,
+    })
     .from(apiKeys)
     .where(eq(apiKeys.userId, user.id));
 
@@ -476,6 +496,17 @@ authRoutes.delete("/api-keys/:id", authMiddleware, async (c) => {
   }
 
   await db.delete(apiKeys).where(eq(apiKeys.id, id));
+
+  const client = extractClientInfo(c as any);
+  await logAction({
+    userId: user.id,
+    action: "api_key_deleted",
+    entity: "api_keys",
+    entityId: id,
+    ...client,
+    details: { name: key.name },
+  });
+
   return c.json({ ok: true });
 });
 

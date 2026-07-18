@@ -63,7 +63,7 @@ function parseRangeHeader(rangeHeader: string, fileSize: number): { start: numbe
   return { start, end: Math.min(end, fileSize - 1) };
 }
 
-async function canAccessRun(userId: string, role: string, runId: string): Promise<boolean> {
+export async function canAccessRun(userId: string, role: string, runId: string): Promise<boolean> {
   const idMatch = isUuid(runId) ? eq(runs.id, runId) : eq(runs.jobId, runId);
 
   if (role === "admin") {
@@ -273,15 +273,37 @@ async function serveFileFromPath(c: any, filePath: string) {
   if (!resolved) return c.json({ error: "Invalid file path" }, 400);
 
   const user = c.get("user");
+  let runRecord: { id: string; jobId: string | null; outputFiles: unknown } | null = null;
   try {
     if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
       return c.json({ error: "File not found" }, 404);
     }
+    const idMatch = isUuid(resolved.runId)
+      ? eq(runs.id, resolved.runId)
+      : eq(runs.jobId, resolved.runId);
+    [runRecord] = await db
+      .select({ id: runs.id, jobId: runs.jobId, outputFiles: runs.outputFiles })
+      .from(runs)
+      .where(idMatch)
+      .limit(1);
+    if (!runRecord) return c.json({ error: "File not found" }, 404);
   } catch {
     return c.json({ error: "File not found" }, 404);
   }
 
   const { fullPath } = resolved;
+
+  const storedOutputFiles = hasOutputFiles(runRecord.outputFiles)
+    ? runRecord.outputFiles
+    : discoverOutputFiles(runRecord.jobId ?? runRecord.id);
+  const allowedPaths = storedOutputFiles ? Object.values(storedOutputFiles) : [];
+  const isAllowed = allowedPaths.some((allowed) => {
+    const ar = resolve(allowed);
+    return fullPath === ar || fullPath.startsWith(ar + "/");
+  });
+  if (!isAllowed && allowedPaths.length > 0) {
+    return c.json({ error: "File not found" }, 404);
+  }
 
   // Check for encrypted (.enc) sibling file
   const encPath = fullPath + ".enc";

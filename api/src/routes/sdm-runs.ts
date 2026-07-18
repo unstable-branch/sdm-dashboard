@@ -13,6 +13,8 @@ import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
 import { buildModelPayload, cleanupDecryptedFiles } from "../services/model-payload.js";
+import { canAccessRun } from "./results.js";
+import { logAction, extractClientInfo } from "../services/audit.js";
 
 async function plumberJobId(runId: string): Promise<string> {
   const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
@@ -128,6 +130,16 @@ sdmRunRoutes.post("/run", async (c) => {
         logs: ["Model run queued..."],
       });
 
+      const client = extractClientInfo(c as any);
+      await logAction({
+        userId: user.id,
+        action: "model_run_created",
+        entity: "runs",
+        entityId: insertedRun.id,
+        ...client,
+        details: { modelId: config.modelId, species: config.species, async: true },
+      });
+
       return c.json({ jobId: insertedRun.id, queuedAt: new Date().toISOString() });
     }
 
@@ -166,6 +178,16 @@ sdmRunRoutes.post("/run", async (c) => {
       state: "running",
       progress: 0,
       logs: ["Model run started (sync)..."],
+    });
+
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "model_run_created",
+      entity: "runs",
+      entityId: run.id,
+      ...client,
+      details: { modelId: config.modelId, species: config.species, async: false },
     });
 
     return c.json({
@@ -372,6 +394,14 @@ sdmRunRoutes.get("/compare/:runId1/:runId2", async (c) => {
   try {
     const runId1 = c.req.param("runId1");
     const runId2 = c.req.param("runId2");
+    const user = c.get("user");
+    const [canAccess1, canAccess2] = await Promise.all([
+      canAccessRun(user.id, user.role, runId1),
+      canAccessRun(user.id, user.role, runId2),
+    ]);
+    if (!canAccess1 || !canAccess2) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const jobId1 = await plumberJobId(runId1);
     const jobId2 = await plumberJobId(runId2);
     const data = await plumberClient.getRunComparison(jobId1, jobId2);

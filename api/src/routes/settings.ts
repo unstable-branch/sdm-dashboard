@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth.js";
 import { encryptString, decryptString, isEncryptionKeyConfigured } from "../services/encryption.js";
 import type { AppEnv } from "../middleware/auth.js";
+import { logAction, extractClientInfo } from "../services/audit.js";
 
 export const settingsRoutes = new Hono<AppEnv>();
 
@@ -113,6 +114,16 @@ settingsRoutes.put("/", async (c) => {
         .returning();
     }
 
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "setting_updated",
+      entity: "user_settings",
+      entityId: result?.id ?? null,
+      ...client,
+      details: { updatedKeys: Object.keys(updates) },
+    });
+
     return c.json(result);
   } catch (err) {
     console.warn("[settings] Failed to update settings:", err instanceof Error ? err.message : String(err));
@@ -132,6 +143,15 @@ settingsRoutes.delete("/", async (c) => {
       .insert(userSettings)
       .values({ userId: user.id })
       .returning();
+
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "setting_reset",
+      entity: "user_settings",
+      entityId: reset?.id ?? null,
+      ...client,
+    });
 
     return c.json(reset);
   } catch (err) {

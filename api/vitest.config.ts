@@ -12,5 +12,6 @@ export default defineConfig({
       reporter: ["text", "lcov"],
       exclude: ["src/db/migrations/**"],
     },
+    setupFiles: ["./vitest.setup.ts"],
   },
 });

@@ -55,7 +55,7 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
     try {
       const res = await fetch(url, attemptOptions);
       if (attempt < retries && RETRYABLE_STATUSES.has(res.status)) {
-        const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+        const delay = Math.min(1000 * Math.pow(2, attempt), 8000) + Math.random() * 1000;
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
@@ -65,7 +65,7 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
         throw err;
       }
       if (attempt >= retries) throw err;
-      const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+      const delay = Math.min(1000 * Math.pow(2, attempt), 8000) + Math.random() * 1000;
       await new Promise(r => setTimeout(r, delay));
     }
   }

@@ -9,7 +9,7 @@ vi.mock("../db", () => ({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
           limit: vi.fn(() => [{
-            id: "run-123",
+            id: "550e8400-e29b-41d4-a716-446655440000",
             status: "completed",
             speciesName: "Test species",
             modelId: "glm",
@@ -17,7 +17,7 @@ vi.mock("../db", () => ({
             completedAt: new Date("2024-01-01T01:00:00Z"),
             metrics: { auc_mean: 0.85, tss_mean: 0.7 },
             outputFiles: { suitability_tif: "outputs/jobs/run-123/suitability.tif" },
-            jobId: "plumber-job-123",
+            jobId: "run-123",
             error: null,
             progressLog: ["Run started", "Run completed"],
             config: { threshold: 0.5, biovars: "1,4,6,12" },
@@ -56,10 +56,11 @@ describe("results routes", () => {
   });
 
   it("GET /:id returns run data", async () => {
-    const res = await app.request("/api/v1/results/run-123");
+    const runUuid = "550e8400-e29b-41d4-a716-446655440000";
+    const res = await app.request(`/api/v1/results/${runUuid}`);
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.id).toBe("run-123");
+    expect(data.id).toBe(runUuid);
     expect(data.species).toBe("Test species");
     expect(data.status).toBe("completed");
     expect(data.metrics).toEqual({ auc_mean: 0.85, tss_mean: 0.7 });

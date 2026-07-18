@@ -153,6 +153,8 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
       })
     }
 
+    torch::torch_manual_seed(seed + s - 1L)
+    set.seed(seed + s - 1L)
     model <- tryCatch({
       cito::dnn(
         formula = model_formula,

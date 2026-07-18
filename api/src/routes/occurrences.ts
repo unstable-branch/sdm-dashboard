@@ -14,6 +14,7 @@ import type { AppEnv } from "../middleware/auth.js";
 import { encrypt, decrypt } from "../services/encryption.js";
 import { setUploadDir, saveUploadEncrypted, decryptToUploads, resolveFilePath, pollPlumberJob } from "../services/upload-utils.js";
 import type { PlumberUploadResponse } from "@sdm/shared";
+import { logAction, extractClientInfo } from "../services/audit.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -78,6 +79,7 @@ dataRoutes.get("/occurrences/clean/result", async (c) => {
 
     if (cleanedFileId) {
       const resolved = resolveFilePath(cleanedFileId);
+      if (!resolved.path) return c.json({ error: "Invalid cleaned_file_id" }, 400);
       const result = readCleanResultFromFile(resolved.path);
       if (result) {
         return c.json({
@@ -92,6 +94,7 @@ dataRoutes.get("/occurrences/clean/result", async (c) => {
 
     if (fileId) {
       const resolved = resolveFilePath(fileId);
+      if (!resolved.path) return c.json({ error: "Invalid file_id" }, 400);
       try {
         const uploadsList = await plumberClient.withUser(c.get("user").id).getUploads(200);
         const match = uploadsList.uploads.find(u => String(u.file_path || "") === resolved.path || String(u.file_id || "") === resolved.path);
@@ -222,6 +225,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     const fileId = body.file_id || body.fileId;
     if (fileId) {
       const resolved = resolveFilePath(fileId);
+      if (!resolved.path) return c.json({ error: "Invalid file_id" }, 400);
       body.file_id = resolved.path;
     }
 
@@ -231,6 +235,17 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     }
 
     const initial = await plumberClient.withUser(user.id).cleanOccurrences(body);
+
+    const { ipAddress, userAgent } = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "occurrence_cleaned",
+      entity: "occurrences",
+      entityId: null,
+      ipAddress,
+      userAgent,
+      details: { fileId: body.file_id ?? null, async: !!body.async },
+    });
 
     if (initial && typeof initial === "object" && "error" in initial) {
       return c.json(initial, 502);

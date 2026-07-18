@@ -45,6 +45,7 @@ export const projectMembers = pgTable("project_members", {
 export const apiKeys = pgTable("api_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
   keyHash: text("key_hash").notNull(),
+  keyPreview: varchar("key_preview", { length: 16 }),
   name: varchar("name", { length: 255 }).notNull(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   lastUsedAt: timestamp("last_used_at"),

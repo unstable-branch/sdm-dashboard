@@ -11,6 +11,7 @@ cross_validate_fda <- function(model_data, covariates, degree, nprune,
     test_data <- model_data[fold_id == i, , drop = FALSE]
     train_sub <- train_data[, c("presence", covariates), drop = FALSE]
     train_sub$presence <- factor(train_sub$presence, levels = c("0", "1"))
+    set.seed(seed)
 
     model <- tryCatch({
       mda::fda(
@@ -85,6 +86,7 @@ fit_fda_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   fda_data <- model_data[, c("presence", covariates), drop = FALSE]
   fda_data$presence <- factor(fda_data$presence, levels = c("0", "1"))
 
+  set.seed(seed)
   model <- tryCatch({
     mda::fda(
       formula = presence ~ .,

@@ -230,7 +230,7 @@ export async function syncOutputsToS3(
         } catch (e) {
           lastErr = e;
           if (attempt < 3) {
-            const delay = Math.min(5000 * Math.pow(3, attempt - 1), 45000);
+            const delay = Math.min(5000 * Math.pow(3, attempt - 1), 45000) + Math.random() * 1000;
             console.warn(`[S3] Upload ${key} attempt ${attempt} failed, retrying in ${delay}ms:`, e instanceof Error ? e.message : e);
             await new Promise(r => setTimeout(r, delay));
           }

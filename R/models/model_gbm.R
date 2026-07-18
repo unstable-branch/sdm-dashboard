@@ -11,6 +11,7 @@ cross_validate_brt <- function(model_data, covariates, n_trees, interaction_dept
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
     train_sub <- train_data[, c("presence", covariates), drop = FALSE]
+    set.seed(seed)
 
     model <- tryCatch({
       gbm::gbm(
@@ -89,6 +90,7 @@ fit_brt_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
   brt_data <- model_data[, c("presence", covariates), drop = FALSE]
 
+  set.seed(seed)
   model <- tryCatch({
     gbm::gbm(
       formula = presence ~ .,
