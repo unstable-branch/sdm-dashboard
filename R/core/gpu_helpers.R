@@ -208,3 +208,25 @@ gpu_raster_app_batch <- function(rast, fun_list, batch_download = TRUE) {
   }
   results
 }
+
+sdm_gpu_available_vram <- function() {
+  if (!requireNamespace("torch", quietly = TRUE)) return(NA_real_)
+  if (!tryCatch(torch::cuda_is_available(), error = function(e) FALSE)) return(NA_real_)
+  tryCatch({
+    stats <- torch::cuda_memory_stats()
+    free_bytes <- stats$reserved_bytes$all$current
+    if (is.finite(free_bytes) && free_bytes > 0) return(free_bytes / (1024 * 1024))
+    NA_real_
+  }, error = function(e) NA_real_)
+}
+
+sdm_gpu_total_vram <- function() {
+  if (!requireNamespace("torch", quietly = TRUE)) return(NA_real_)
+  if (!tryCatch(torch::cuda_is_available(), error = function(e) FALSE)) return(NA_real_)
+  tryCatch({
+    stats <- torch::cuda_memory_stats()
+    total_bytes <- stats$reserved_bytes$all$total
+    if (is.finite(total_bytes) && total_bytes > 0) return(total_bytes / (1024 * 1024))
+    NA_real_
+  }, error = function(e) NA_real_)
+}
