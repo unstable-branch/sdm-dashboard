@@ -99,3 +99,19 @@ sdm_safe_rename <- function(from, to) {
   }
   invisible(TRUE)
 }
+
+# Atomic write: write to tmp file in the same directory, then rename.
+# Prevents readers from seeing partial content if the process crashes mid-write.
+sdm_atomic_write_lines <- function(text, path) {
+  tmp <- paste0(path, ".tmp.", Sys.getpid(), ".", as.integer(Sys.time()))
+  writeLines(text, tmp)
+  sdm_safe_rename(tmp, path)
+  invisible(NULL)
+}
+
+sdm_atomic_saveRDS <- function(object, path) {
+  tmp <- paste0(path, ".tmp.", Sys.getpid(), ".", as.integer(Sys.time()))
+  saveRDS(object, tmp)
+  sdm_safe_rename(tmp, path)
+  invisible(NULL)
+}

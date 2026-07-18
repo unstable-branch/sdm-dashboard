@@ -50,21 +50,49 @@ handle_model_run <- function(req, app_dir) {
     }
   }
 
-  tryCatch({
-    mem_info <- sdm_mem_info()
-    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
-      if (mem_info$memavail < 1.0) {
-        return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
-          "Server memory critically low (", sprintf("%.1f", mem_info$memavail),
-          " GB available). Wait for other runs to complete or restart the container."
-        )))
-      }
-    }
-  }, error = function(e) {
-    sdm_log_error("Memory check failed: %s", conditionMessage(e))
-  })
+  model_id <- as.character(body$model_id %||% "glm")
 
+  if (identical(model_id, "dnn") || identical(model_id, "dnn_multispecies")) {
+    cuda_avail <- FALSE
+    tryCatch({
+      if (requireNamespace("torch", quietly = TRUE)) {
+        cuda_avail <- torch::cuda_is_available()
+      }
+    }, error = function(e) NULL)
+    if (!cuda_avail) {
+      sdm_log_warn("DNN model requested but CUDA GPU not available")
+    }
+  }
+
+  mem_info <- sdm_mem_info()
   active <- sdm_count_active_runs()
+  if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+    if (mem_info$memavail < 1.0) {
+      return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
+        "Server memory critically low (", sprintf("%.1f", mem_info$memavail),
+        " GB available). Wait for other runs to complete or restart the container."
+      )))
+    }
+    per_job_share <- mem_info$memavail * 0.6 / max(1, active + 1)
+    multiplier <- if (model_id %in% c("brms", "esm_brms")) {
+      10.0
+    } else if (model_id %in% c("dnn", "dnn_multispecies")) {
+      8.0
+    } else {
+      3.0
+    }
+    est_gb <- multiplier * 0.5
+    if (est_gb > per_job_share) {
+      return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
+        "Insufficient memory for model '", model_id, "': estimated ", sprintf("%.1f", est_gb),
+        " GB needed but only ", sprintf("%.1f", per_job_share),
+        " GB available per slot (", active, " active). Reduce resolution or wait for other runs."
+      )))
+    }
+  } else {
+    sdm_log_error("Memory check failed: mem_info unavailable")
+  }
+
   if (active >= SDM_MAX_CONCURRENT_RUNS) {
     return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
       "Server busy: ", active, " model run(s) in progress (max ", SDM_MAX_CONCURRENT_RUNS,
