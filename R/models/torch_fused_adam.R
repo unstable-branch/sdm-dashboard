@@ -3,6 +3,10 @@
 # Supports: fused Adam (libtorch direct + R fallback), mixed-precision (AMP),
 # CUDA Graphs, gradient accumulation, jit-traced forward pass.
 
+# Local cito compatibility shims — avoid private ::: access
+sdm_root <- if (exists("sdm_project_root", mode = "function")) sdm_project_root() else getwd()
+source(file.path(sdm_root, "R", "core", "cito_compat.R"), local = TRUE, chdir = FALSE)
+
 .train_opts <- new.env(parent = emptyenv())
 
 set_train_opts <- function(mixed_precision = "auto", cuda_graphs = "auto", backend = "cpu") {
@@ -174,7 +178,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
 
   scheduler <- NULL
   if (!is.null(model$training_properties$lr_scheduler)) {
-    scheduler <- cito:::get_lr_scheduler(
+    scheduler <- sdm_get_lr_scheduler(
       lr_scheduler = model$training_properties$lr_scheduler,
       optimizer = torch::optim_adam(model$net$parameters, lr = model$training_properties$lr)
     )
@@ -589,7 +593,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   model$weights[[2]] <- lapply(model$net$parameters,
     function(x) torch::as_array(x$to(device = "cpu")))
   if (!is.null(model$loss$parameter)) {
-    model$parameter <- lapply(model$loss$parameter, cito:::cast_to_r_keep_dim)
+    model$parameter <- lapply(model$loss$parameter, sdm_cast_to_r_keep_dim)
   }
   model$use_model_epoch <- 1L
   model$loaded_model_epoch <- 1L
