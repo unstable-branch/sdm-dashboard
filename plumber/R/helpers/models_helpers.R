@@ -957,16 +957,20 @@ handle_model_cancel <- function(req, job_id) {
     if (proc$is_alive()) {
       proc$kill()
       killed <- TRUE
-      # Wait briefly for process to die, then escalate to SIGKILL if still alive
       Sys.sleep(3)
       if (proc$is_alive()) {
         pid <- proc$get_pid()
-        tryCatch(tools::pskill(pid, signal = 9), error = function(e) NULL)
+        tryCatch({
+          if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
+            cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
+            if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
+          }
+          tools::pskill(pid, signal = 9)
+        }, error = function(e) NULL)
         Sys.sleep(2)
       }
     }
     device_tag <- if (is.list(entry)) entry$device else "cpu"
-    # Give any discrete GPU backend time to release VRAM after termination.
     if (killed && sdm_backend_is_discrete_gpu(device_tag)) {
       Sys.sleep(2)
     }
@@ -976,11 +980,24 @@ handle_model_cancel <- function(req, job_id) {
   progress_log <- file.path(job_dir, "progress.log")
 
   if (file.exists(meta_file)) {
+    # Set Redis cancel flag BEFORE writing meta.json so the child process
+    # exits gracefully on its next poll rather than writing a "completed" status.
+    sdm_redis_cancel_set(job_id)
+
+    # Re-read meta to detect if child already wrote a terminal status.
     meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    if (!is.null(meta$status) && meta$status %in% c("completed", "failed", "cancelled")) {
+      return(list(ok = TRUE, message = "Run already terminated"))
+    }
 
     if (!killed && !is.null(meta$process_pid)) {
+      pid <- meta$process_pid
       tryCatch({
-        tools::pskill(meta$process_pid, signal = 9)
+        if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
+          cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
+          if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
+        }
+        tools::pskill(pid, signal = 9)
         killed <- TRUE
       }, error = function(e) NULL)
     }
@@ -989,7 +1006,6 @@ handle_model_cancel <- function(req, job_id) {
     meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
     meta$error <- "Cancelled by user"
     sdm_write_json(meta, meta_file)
-    sdm_redis_cancel_set(job_id)
   }
 
   if (killed) {
