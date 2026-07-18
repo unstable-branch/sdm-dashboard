@@ -429,8 +429,8 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   if (use_fused) {
     # Guarantee restoration on any exit path (error in set_train_opts, cito::dnn, etc.)
     on.exit({
-      if (!is.null(.old_train_model)) {
-        tryCatch(assignInNamespace("train_model", .old_train_model, ns = "cito"),
+      if (!is.null(.old_train_model) && !is.null(cito_train_name)) {
+        tryCatch(assignInNamespace(cito_train_name, .old_train_model, ns = "cito"),
           error = function(e) NULL)
       }
     }, add = TRUE, after = FALSE)
@@ -449,9 +449,14 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
         if (!is.null(log_fun)) log_fun("Fused Adam .so not loaded (", conditionMessage(e), ")")
       })
     }
-    .old_train_model <- get("train_model", envir = asNamespace("cito"))
+    cito_train_name <- sdm_cito_train_model_name()
+    if (is.null(cito_train_name)) {
+      use_fused <<- FALSE
+      if (!is.null(log_fun)) log_fun("cito version not supported (no train_model/train_dnn/fit_model found)")
+    }
+    .old_train_model <- get(cito_train_name, envir = asNamespace("cito"))
     tryCatch({
-      assignInNamespace("train_model", train_model_fused, ns = "cito")
+      assignInNamespace(cito_train_name, train_model_fused, ns = "cito")
     }, error = function(e) {
       use_fused <<- FALSE
       .old_train_model <<- NULL
