@@ -87,6 +87,9 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
       nrow(bg_vals), " background points (", num_trees, " trees)")
 
     rf_data <- model_data[, c("presence", covariates), drop = FALSE]
+    if (!all(is.finite(as.matrix(rf_data[, covariates, drop = FALSE])))) {
+      stop("Random Forest input matrix contains Inf or NaN values. Ensure all covariates are finite.", call. = FALSE)
+    }
 
     # Auto mtry if not specified
     effective_mtry <- mtry %||% max(1, floor(sqrt(length(covariates))))

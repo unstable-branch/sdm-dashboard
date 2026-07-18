@@ -1,6 +1,7 @@
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { decrypt } from "./encryption.js";
+import { writeAtomicSync } from "./storage.js";
 
 export type ModelConfigRecord = Record<string, unknown> & {
   species?: string;
@@ -29,7 +30,7 @@ function resolveEncryptedFile(filePath: string | undefined | null): string | nul
   try {
     const ciphertext = readFileSync(filePath);
     const plaintext = decrypt(ciphertext);
-    writeFileSync(resolvedPath, plaintext);
+    writeAtomicSync(resolvedPath, plaintext);
     _decryptedFiles.add(resolvedPath);
     return resolvedPath;
   } catch {

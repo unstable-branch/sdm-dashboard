@@ -317,4 +317,4 @@ result <- tryCatch({
 })
 
 log_msg("Async job ", job_type, " completed with status: ", result$status)
-writeLines(jsonlite::toJSON(result, auto_unbox = TRUE, pretty = TRUE), result_file)
+sdm_atomic_write_lines(jsonlite::toJSON(result, auto_unbox = TRUE, pretty = TRUE), result_file)

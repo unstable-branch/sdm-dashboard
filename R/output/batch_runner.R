@@ -18,6 +18,24 @@
 #
 # Comma-separated list columns (biovars, soil_vars, etc.) are parsed automatically.
 
+# Atomic write helper (available if bootstrap.R was sourced; otherwise define inline)
+if (!exists("sdm_atomic_saveRDS", mode = "function")) {
+  sdm_safe_rename <- function(from, to) {
+    if (file.exists(to)) unlink(to, force = TRUE)
+    if (!file.rename(from, to)) {
+      file.copy(from, to, overwrite = TRUE)
+      unlink(from, force = TRUE)
+    }
+    invisible(TRUE)
+  }
+  sdm_atomic_saveRDS <- function(object, path) {
+    tmp <- paste0(path, ".tmp.", Sys.getpid(), ".", as.integer(Sys.time()))
+    saveRDS(object, tmp)
+    sdm_safe_rename(tmp, path)
+    invisible(NULL)
+  }
+}
+
 #' Parse a comma-separated string of integers.
 #' @param x character vector, possibly with whitespace around values.
 #' @return integer vector, or integer(0) if empty/NA.
@@ -417,7 +435,7 @@ batch_run_parallel <- function(species_configs,
           result <- do.call(run_fast_sdm, call_args)
 
           output_path <- file.path(output_dir, paste0(slug, "_result.rds"))
-          saveRDS(result, output_path)
+          sdm_atomic_saveRDS(result, output_path)
           message(
             "[", i, "/", length(species_configs), "] Done: ", sp_name,
             " -> ", basename(output_path)
