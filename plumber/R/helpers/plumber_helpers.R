@@ -114,8 +114,14 @@ sdm_python_torch_capabilities <- function(capabilities = NULL, refresh = FALSE) 
 
   python_bin <- if (exists("sdm_python_path", mode = "function")) sdm_python_path() else Sys.getenv("SDM_PYTHON", "python3")
   cache_key <- paste0("capabilities_", gsub("[^A-Za-z0-9]", "_", python_bin))
+  ts_key <- paste0(cache_key, "_ts")
   if (!isTRUE(refresh) && exists(cache_key, envir = .sdm_python_torch_capability_cache, inherits = FALSE)) {
-    return(get(cache_key, envir = .sdm_python_torch_capability_cache, inherits = FALSE))
+    if (exists(ts_key, envir = .sdm_python_torch_capability_cache, inherits = FALSE)) {
+      age <- difftime(Sys.time(), get(ts_key, envir = .sdm_python_torch_capability_cache), units = "secs")
+      if (as.numeric(age) < 3600) {
+        return(get(cache_key, envir = .sdm_python_torch_capability_cache, inherits = FALSE))
+      }
+    }
   }
 
   command <- paste0(
@@ -128,6 +134,7 @@ sdm_python_torch_capabilities <- function(capabilities = NULL, refresh = FALSE) 
   }, error = function(e) list())
   result <- normalize(raw)
   assign(cache_key, result, envir = .sdm_python_torch_capability_cache)
+  assign(ts_key, Sys.time(), envir = .sdm_python_torch_capability_cache)
   result
 }
 
@@ -262,17 +269,25 @@ db_insert_upload <- function(con, user_id, file_path, filename, file_size, forma
 
 # LRU cache for deserialized result.rds — avoids re-reading the same
 # multi-MB RDS file on every diagnostic endpoint call.
+# Keyed by path+mtime so a re-run that overwrites the file is detected.
 sdm_result_cache <- new.env(parent = emptyenv())
 sdm_result_cache_max <- 10L
 
-# Read saved result RDS and unwrap SpatRasters (cached by file path)
+sdm_result_cache_key <- function(path) {
+  if (!file.exists(path)) return(paste0("missing:", path))
+  paste0(path, "|", as.numeric(file.info(path)$mtime))
+}
+
+# Read saved result RDS and unwrap SpatRasters (cached by file path + mtime)
 sdm_read_result <- function(path) {
   if (is.null(path) || !file.exists(path)) return(NULL)
 
+  cache_key <- sdm_result_cache_key(path)
+
   # Check cache
-  cached <- sdm_result_cache[[path]]
+  cached <- sdm_result_cache[[cache_key]]
   if (!is.null(cached)) {
-    attr(sdm_result_cache[[path]], "accessed") <- Sys.time()
+    attr(sdm_result_cache[[cache_key]], "accessed") <- Sys.time()
     return(cached)
   }
 
@@ -310,7 +325,7 @@ sdm_read_result <- function(path) {
     }
 
     attr(res, "accessed") <- Sys.time()
-    sdm_result_cache[[path]] <- res
+    sdm_result_cache[[cache_key]] <- res
     res
   }, error = function(e) {
     sdm_log_error("Failed to read result RDS: %s", conditionMessage(e))

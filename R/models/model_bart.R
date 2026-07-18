@@ -84,6 +84,9 @@ fit_bart_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   x_train <- as.matrix(model_data[, covariates, drop = FALSE])
   y_train <- model_data$presence
+  if (!all(is.finite(x_train))) {
+    stop("BART input matrix contains Inf or NaN values. Ensure all covariates are finite.", call. = FALSE)
+  }
 
   model <- tryCatch({
     dbarts::bart(

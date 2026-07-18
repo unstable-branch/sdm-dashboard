@@ -1,10 +1,16 @@
-import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
+import { mkdirSync, existsSync, writeFileSync, readFileSync, renameSync } from "fs";
 import { join, extname, resolve, sep, basename } from "path";
 import { randomUUID } from "crypto";
 import { encrypt, decrypt } from "./encryption.js";
 import { plumberClient } from "./plumber.js";
 
 export let UPLOAD_DIR = "";
+
+function writeAtomicSync(path: string, data: Buffer): void {
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, path);
+}
 
 export function setUploadDir(dir: string): void {
   UPLOAD_DIR = dir;
@@ -19,7 +25,7 @@ export function saveUploadEncrypted(buffer: Buffer, originalName: string): { enc
   const ext = extname(originalName) || ".csv";
   const encPath = join(UPLOAD_DIR, `${uuid}${ext}.enc`);
   const encrypted = encrypt(buffer);
-  writeFileSync(encPath, encrypted);
+  writeAtomicSync(encPath, encrypted);
   return { encPath, pipelineRunId };
 }
 
@@ -34,7 +40,7 @@ export function decryptToUploads(encPath: string): string | null {
   try {
     const ciphertext = readFileSync(encPath);
     const plaintext = decrypt(ciphertext);
-    writeFileSync(plaintextPath, plaintext);
+    writeAtomicSync(plaintextPath, plaintext);
     const lineCount = plaintext.toString().split("\n").filter((l) => l.trim().length > 0).length - 1;
     console.log(`[encrypt] Decrypted ${encPath} → ${plaintextPath} (${lineCount} lines)`);
     return plaintextPath;

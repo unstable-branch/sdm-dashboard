@@ -361,7 +361,7 @@ tryCatch({
     if (!is.null(rds_result$aoa) && inherits(rds_result$aoa, "SpatRaster")) {
       rds_result$aoa <- terra::wrap(rds_result$aoa)
     }
-    saveRDS(rds_result, result_rds_path)
+    sdm_atomic_saveRDS(rds_result, result_rds_path)
     rm(rds_result)
     log_fun("Saved result RDS to: ", result_rds_path)
   }, error = function(e) {

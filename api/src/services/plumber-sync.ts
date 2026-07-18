@@ -8,7 +8,7 @@ import { readFile, readdir, writeFile, rm } from "fs/promises";
 import { existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join, resolve, extname } from "path";
-import { uploadFile, getBucketNames, getDirSize } from "./storage.js";
+import { uploadFile, getBucketNames, getDirSize, writeAtomic } from "./storage.js";
 import { encrypt } from "./encryption.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -263,6 +263,14 @@ async function syncRunningJobs() {
                 .where(eq(projects.id, run.projectId))
                 .limit(1);
               if (project) {
+                const [user] = await db
+                  .select({ storageUsedBytes: users.storageUsedBytes, storageQuotaBytes: users.storageQuotaBytes })
+                  .from(users)
+                  .where(eq(users.id, project.ownerId))
+                  .limit(1);
+                if (user && user.storageQuotaBytes && user.storageUsedBytes != null && user.storageUsedBytes + runSize > user.storageQuotaBytes) {
+                  console.warn(`[plumber-sync] Run ${run.id} exceeded storage quota: ${user.storageUsedBytes + runSize} > ${user.storageQuotaBytes} bytes`);
+                }
                 await db
                   .update(users)
                   .set({ storageUsedBytes: sql`${users.storageUsedBytes} + ${runSize}` })
@@ -582,7 +590,7 @@ async function encryptOutputs(jobDir: string) {
     try {
       const data = await readFile(fp);
       const encrypted = encrypt(data);
-      await writeFile(encPath, encrypted);
+      await writeAtomic(encPath, encrypted);
       await rm(fp);
     } catch (err) {
       console.warn(`[encrypt] Failed to encrypt ${fp}:`, err);

@@ -4,6 +4,7 @@ import { join, resolve, dirname, extname } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID, createDecipheriv } from "crypto";
 import { plumberClient } from "../services/plumber.js";
+import { writeAtomic } from "../services/storage.js";
 import { db } from "../db/index.js";
 import { species, occurrences, users, uploadedFiles, uploads } from "../db/schema.js";
 import { and, count, eq, inArray, sql } from "drizzle-orm";
@@ -29,7 +30,7 @@ async function saveUpload(buffer: Buffer, originalName: string): Promise<string>
   const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
   const ts = new Date().toISOString().replace(/[:.]/g, "").replace("T", "_").slice(0, 15);
   const destPath = join(UPLOAD_DIR, `${ts}_${safeName}`);
-  await fs.writeFile(destPath, buffer);
+  await writeAtomic(destPath, buffer);
   return destPath;
 }
 

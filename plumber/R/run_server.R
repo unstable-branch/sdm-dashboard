@@ -219,9 +219,12 @@ orphan_cleanup <- function() {
   jobs_base <- file.path(app_dir, "outputs", "jobs")
   if (!dir.exists(jobs_base)) return(NULL)
   stale_running_cutoff <- Sys.time() - 86400
-  retention_days <- suppressWarnings(as.numeric(Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7")))
-  if (!is.finite(retention_days) || retention_days < 1) retention_days <- 7
-  prune_cutoff <- Sys.time() - retention_days * 86400
+  failed_retention_days <- suppressWarnings(as.numeric(Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7")))
+  if (!is.finite(failed_retention_days) || failed_retention_days < 1) failed_retention_days <- 7
+  failed_prune_cutoff <- Sys.time() - failed_retention_days * 86400
+  completed_retention_days <- suppressWarnings(as.numeric(Sys.getenv("SDM_COMPLETED_JOB_RETENTION_DAYS", "30")))
+  if (!is.finite(completed_retention_days) || completed_retention_days < 1) completed_retention_days <- 30
+  completed_prune_cutoff <- Sys.time() - completed_retention_days * 86400
 
   for (job_dir in list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)) {
     meta_file <- file.path(job_dir, "meta.json")
@@ -237,14 +240,17 @@ orphan_cleanup <- function() {
       meta$error_hint <- "Restart the job. If this recurs, inspect the retained stdout and stderr logs."
       meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       sdm_write_json(meta, meta_file)
-    } else if (meta$status %in% c("failed", "cancelled") && !is.na(mtime) && mtime < prune_cutoff) {
+    } else if (meta$status %in% c("failed", "cancelled") && !is.na(mtime) && mtime < failed_prune_cutoff) {
+      unlink(job_dir, recursive = TRUE, force = TRUE)
+    } else if (identical(meta$status, "completed") && !is.na(mtime) && mtime < completed_prune_cutoff) {
       unlink(job_dir, recursive = TRUE, force = TRUE)
     }
   }
 }
 tryCatch({
-  cat("Running orphan cleanup (failed-job retention: ",
-      Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7"), " days)...\n", sep = "")
+  cat("Running orphan cleanup (failed retention: ",
+      Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7"), "d, completed retention: ",
+      Sys.getenv("SDM_COMPLETED_JOB_RETENTION_DAYS", "30"), "d)...\n", sep = "")
   orphan_cleanup()
 }, error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
 

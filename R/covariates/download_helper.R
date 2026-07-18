@@ -60,7 +60,7 @@ start_model_bg <- function(cfg, result_file, log_file) {
       }
     )
     if (!is.null(result)) {
-      saveRDS(result, result_file)
+      sdm_atomic_saveRDS(result, result_file)
     }
   }
 

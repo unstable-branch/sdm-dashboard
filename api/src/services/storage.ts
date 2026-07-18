@@ -262,3 +262,17 @@ async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
   }
   return Buffer.concat(chunks);
 }
+
+export async function writeAtomic(path: string, data: Buffer | string): Promise<void> {
+  const { writeFile, rename } = await import("fs/promises");
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  await writeFile(tmp, data);
+  await rename(tmp, path);
+}
+
+export function writeAtomicSync(path: string, data: Buffer | string): void {
+  const { writeFileSync, renameSync } = require("fs");
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, path);
+}
