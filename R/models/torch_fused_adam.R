@@ -165,7 +165,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   # Optional GPU memory profiling — activated by SDM_GPU_PROFILE=true env var
   gpu_profile <- isTRUE(as.logical(Sys.getenv("SDM_GPU_PROFILE", "false")))
   if (gpu_profile && gpu_profile_start(TRUE)) {
-    cat("[GPU Profile] Memory history recording started\n")
+    if (verbose) cat("[GPU Profile] Memory history recording started\n")
     on.exit(gpu_profile_stop(TRUE), add = TRUE)
   }
 
