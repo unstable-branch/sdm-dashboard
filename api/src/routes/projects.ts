@@ -4,6 +4,7 @@ import { projects, projectMembers } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
+import { logAction, extractClientInfo } from "../services/audit.js";
 
 export const projectRoutes = new Hono<AppEnv>();
 
@@ -50,6 +51,16 @@ projectRoutes.post("/", async (c) => {
       .insert(projectMembers)
       .values({ projectId: project.id, userId: user.id, role: "admin" });
 
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "project_created",
+      entity: "projects",
+      entityId: project.id,
+      ...client,
+      details: { name, description },
+    });
+
     return c.json(project);
   } catch {
     return c.json({ error: "Internal error" }, 500);
@@ -87,6 +98,16 @@ projectRoutes.put("/:id", async (c) => {
       return c.json({ error: "Project not found" }, 404);
     }
 
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "project_updated",
+      entity: "projects",
+      entityId: id,
+      ...client,
+      details: { name, description },
+    });
+
     return c.json(updated);
   } catch {
     return c.json({ error: "Internal error" }, 500);
@@ -118,6 +139,16 @@ projectRoutes.delete("/:id", async (c) => {
     if (!deleted) {
       return c.json({ error: "Project not found" }, 404);
     }
+
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "project_deleted",
+      entity: "projects",
+      entityId: id,
+      ...client,
+      details: { name: deleted.name ?? null },
+    });
 
     return c.json({ id, deleted: true });
   } catch {

@@ -87,6 +87,7 @@ fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   model_data$case_weight_sdm <- class_balance_weights(model_data$presence)
 
   log_message(log_fun, "Fitting GAM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
+  set.seed(seed)
   model <- tryCatch({
     mgcv::gam(formula, data = model_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML")
   }, error = function(e) {

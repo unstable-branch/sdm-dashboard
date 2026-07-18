@@ -10,6 +10,7 @@ cross_validate_ann <- function(model_data, covariates, size, decay, maxit, rang,
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
     train_sub <- train_data[, c("presence", covariates), drop = FALSE]
+    set.seed(seed)
 
     model <- tryCatch({
       nnet::nnet(
@@ -88,6 +89,7 @@ fit_ann_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
   ann_data <- model_data[, c("presence", covariates), drop = FALSE]
 
+  set.seed(seed)
   model <- tryCatch({
     nnet::nnet(
       presence ~ .,

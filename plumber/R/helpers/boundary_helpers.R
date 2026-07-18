@@ -65,6 +65,18 @@ handle_boundary_upload <- function(req, res, app_dir) {
       zip_dir <- tempfile()
       dir.create(zip_dir, showWarnings = FALSE)
       on.exit(unlink(zip_dir, recursive = TRUE), add = TRUE)
+      zip_entries <- tryCatch(utils::unzip(src, list = TRUE)$Name,
+                              error = function(e) character(0))
+      for (entry in zip_entries) {
+        normalized <- gsub("\\\\", "/", entry)
+        if (grepl("^/|^[A-Za-z]:", normalized) ||
+            grepl("\\.\\./", normalized) ||
+            grepl("/\\.\\.", normalized) ||
+            substr(normalized, nchar(normalized) - 1L, nchar(normalized)) == "..") {
+          res$status <- 400L
+          return(list(error = "ZIP archive contains unsafe paths; refusing to extract"))
+        }
+      }
       utils::unzip(src, exdir = zip_dir)
       src <- list.files(zip_dir, pattern = "\\.(shp|kml|gpkg|geojson|json)$", full.names = TRUE, recursive = TRUE)[1]
       if (is.na(src) || !file.exists(src)) {

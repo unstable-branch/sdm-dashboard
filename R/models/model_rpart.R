@@ -85,6 +85,7 @@ fit_cta_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
   tree_data <- model_data[, c("presence", covariates), drop = FALSE]
 
+  set.seed(seed)
   model <- tryCatch({
     rpart::rpart(
       formula = presence ~ .,

@@ -10,6 +10,7 @@ cross_validate_mars <- function(model_data, covariates, degree, nk, penalty,
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
     train_sub <- train_data[, c("presence", covariates), drop = FALSE]
+    set.seed(seed)
 
     model <- tryCatch({
       earth::earth(
@@ -87,6 +88,7 @@ fit_mars_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   mars_data <- model_data[, c("presence", covariates), drop = FALSE]
 
+  set.seed(seed)
   model <- tryCatch({
     earth::earth(
       x = mars_data[, covariates, drop = FALSE],

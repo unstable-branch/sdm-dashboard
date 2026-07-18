@@ -70,6 +70,7 @@ fit_inla_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   log_message(log_fun, "Fitting INLA spatial SDM (", length(covariates), " covariates, ", nrow(model_data), " training points)")
 
+  set.seed(seed)
   inla_result <- tryCatch({
     INLA::inla(
       formula,

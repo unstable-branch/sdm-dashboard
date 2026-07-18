@@ -12,6 +12,7 @@ import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
 import { buildModelPayload, cleanupDecryptedFiles, type ModelConfigRecord } from "../services/model-payload.js";
 import { enqueueSdmJob } from "../services/queue.js";
+import { logAction, extractClientInfo } from "../services/audit.js";
 
 export const sdmBatchRoutes = new Hono<AppEnv>();
 
@@ -162,6 +163,16 @@ sdmBatchRoutes.post("/cancel-all", async (c) => {
     });
     await Promise.allSettled(cancelPromises);
 
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "batch_cancelled",
+      entity: "batches",
+      entityId: null,
+      ...client,
+      details: { statusFilter, cancelled, total: allRuns.length },
+    });
+
     return c.json({ ok: true, message: `Cancelled ${cancelled}/${allRuns.length} runs`, cancelled, total: allRuns.length });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to cancel runs";
@@ -230,6 +241,16 @@ sdmBatchRoutes.post("/batch", async (c) => {
       .set({ jobId: targetsJobId })
       .where(eq(batches.id, batch.id));
 
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "batch_created",
+      entity: "batches",
+      entityId: batch.id,
+      ...client,
+      details: { name: name || `Batch ${new Date().toLocaleDateString()}`, totalJobs: configs.length },
+    });
+
     return c.json({
       batch_id: batch.id,
       job_id: targetsJobId,
@@ -264,7 +285,7 @@ sdmBatchRoutes.get("/batch/:batchId", async (c) => {
     if (!batch) return c.json({ error: "Batch not found" }, 404);
 
     const projectIds = await getUserProjectIds(user);
-    if (!projectIds?.includes(batch.projectId)) {
+    if (projectIds !== null && !projectIds.includes(batch.projectId)) {
       return c.json({ error: "Batch not found" }, 404);
     }
 
@@ -305,7 +326,7 @@ sdmBatchRoutes.post("/batch/:batchId/cancel", async (c) => {
     if (!batch) return c.json({ error: "Batch not found" }, 404);
 
     const projectIds = await getUserProjectIds(user);
-    if (!projectIds?.includes(batch.projectId)) return c.json({ error: "Batch not found" }, 404);
+    if (projectIds !== null && !projectIds.includes(batch.projectId)) return c.json({ error: "Batch not found" }, 404);
 
     const runRows = await db.select().from(runs).where(eq(runs.parentRunId, batchId));
     const cancellable = runRows.filter(r => r.status === "queued" || r.status === "running");
@@ -333,6 +354,16 @@ sdmBatchRoutes.post("/batch/:batchId/cancel", async (c) => {
 
     await db.update(batches).set({ status: "cancelled", completedAt: new Date() }).where(eq(batches.id, batchId));
 
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "batch_cancelled",
+      entity: "batches",
+      entityId: batchId,
+      ...client,
+      details: { batchId, cancelled: cancellable.length },
+    });
+
     return c.json({ ok: true, cancelled: cancellable.length, total: runRows.length });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Batch cancel failed";
@@ -349,7 +380,7 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
     if (!batch) return c.json({ error: "Batch not found" }, 404);
 
     const projectIds = await getUserProjectIds(user);
-    if (!projectIds?.includes(batch.projectId)) return c.json({ error: "Batch not found" }, 404);
+    if (projectIds !== null && !projectIds.includes(batch.projectId)) return c.json({ error: "Batch not found" }, 404);
 
     const failedRuns = await db
       .select()
@@ -497,6 +528,16 @@ sdmBatchRoutes.delete("/runs/delete/:runId", async (c) => {
       } catch { /* best-effort */ }
     }
 
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "run_deleted",
+      entity: "runs",
+      entityId: runId,
+      ...client,
+      details: { status: run.status, storageBytes: run.runStorageBytes ?? 0 },
+    });
+
     return c.json({ ok: true, message: "Run deleted" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to delete run";
@@ -523,6 +564,7 @@ sdmBatchRoutes.post("/runs/clear-all", async (c) => {
       .where(projectIds ? and(inArray(runs.status, statusesToDelete as unknown as ("queued" | "running" | "completed" | "failed" | "cancelled")[]), inArray(runs.projectId, projectIds)) : inArray(runs.status, statusesToDelete as unknown as ("queued" | "running" | "completed" | "failed" | "cancelled")[]));
 
     let deletedCount = 0;
+    let storageFreed = 0;
 
     // Parallelize Plumber output deletions
     if (runsToDelete.length > 0) {
@@ -536,7 +578,7 @@ sdmBatchRoutes.post("/runs/clear-all", async (c) => {
       );
       deletedCount = runsToDelete.length;
 
-      const storageFreed = runsToDelete.reduce((sum, r) => sum + (r.runStorageBytes ?? 0), 0);
+      storageFreed = runsToDelete.reduce((sum, r) => sum + (r.runStorageBytes ?? 0), 0);
       if (storageFreed > 0) {
         await db
           .update(users)
@@ -546,6 +588,16 @@ sdmBatchRoutes.post("/runs/clear-all", async (c) => {
 
       await db.delete(runs).where(inArray(runs.id, runsToDelete.map((r) => r.id)));
     }
+
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "runs_cleared",
+      entity: "runs",
+      entityId: null,
+      ...client,
+      details: { cleared: runsToDelete.length, includeCompleted, storageFreed },
+    });
 
     return c.json({
       ok: true,

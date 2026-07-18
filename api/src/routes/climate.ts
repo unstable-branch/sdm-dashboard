@@ -5,6 +5,11 @@ import { climateRateLimit } from "../middleware/rate-limit.js";
 import { longCache } from "../middleware/cache.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
+import { logAction, extractClientInfo } from "../services/audit.js";
+import { getUserProjectIds } from "../services/access.js";
+import { db } from "../db/index.js";
+import { runs } from "../db/schema.js";
+import { eq, and, inArray } from "drizzle-orm";
 
 export const climateRoutes = new Hono<AppEnv>();
 
@@ -70,6 +75,17 @@ climateRoutes.post("/download", async (c) => {
     }
 
     const plumberData = await plumberClient.withUser(user.id).downloadClimate(body as Record<string, unknown>);
+
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "climate_download_started",
+      entity: "climate",
+      entityId: (plumberData as Record<string, unknown>).job_id as string ?? null,
+      ...client,
+      details: { type: body.type, resolution: body.res, source: body.source },
+    });
+
     return c.json({ jobId: (plumberData as Record<string, unknown>).job_id, status: "queued" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Climate download failed";
@@ -80,7 +96,38 @@ climateRoutes.post("/download", async (c) => {
 climateRoutes.post("/delete/:scenarioId", async (c) => {
   try {
     const scenarioId = c.req.param("scenarioId");
+    const user = c.get("user");
+
+    if (user.role !== "admin") {
+      const projectIds = await getUserProjectIds(user);
+      const ownedRun = await db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(
+          projectIds && projectIds.length > 0
+            ? and(
+                eq(runs.jobId, scenarioId),
+                inArray(runs.projectId, projectIds)
+              )
+            : eq(runs.id, "__never_match__")
+        )
+        .limit(1);
+      if (!ownedRun) {
+        return c.json({ error: "Scenario not found" }, 404);
+      }
+    }
+
     const result = await plumberClient.deleteClimateScenario(scenarioId);
+
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "climate_scenario_deleted",
+      entity: "climate",
+      entityId: scenarioId,
+      ...client,
+    });
+
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Delete failed";
@@ -91,7 +138,38 @@ climateRoutes.post("/delete/:scenarioId", async (c) => {
 climateRoutes.post("/cancel/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");
+    const user = c.get("user");
+
+    if (user.role !== "admin") {
+      const projectIds = await getUserProjectIds(user);
+      const [ownedRun] = await db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(
+          projectIds && projectIds.length > 0
+            ? and(
+                eq(runs.jobId, jobId),
+                inArray(runs.projectId, projectIds)
+              )
+            : eq(runs.id, "__never_match__")
+        )
+        .limit(1);
+      if (!ownedRun) {
+        return c.json({ error: "Job not found" }, 404);
+      }
+    }
+
     const result = await plumberClient.post(`/api/v1/climate/cancel/${jobId}`, {});
+
+    const client = extractClientInfo(c as any);
+    await logAction({
+      userId: user.id,
+      action: "climate_download_cancelled",
+      entity: "climate",
+      entityId: jobId,
+      ...client,
+    });
+
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Cancel failed";

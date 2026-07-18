@@ -439,12 +439,12 @@ async function syncRunningJobs() {
           let plumberErrorDetail = "";
           let finalPlumberStatus: string | undefined;
           const MAX_500_RETRIES = 2;
-          const RETRY_DELAY_MS = 5000;
           for (let attempt = 0; attempt <= MAX_500_RETRIES; attempt++) {
             try {
               if (attempt > 0) {
                 console.warn(`[plumber-sync] Retry #${attempt} for run ${run.id} after 500...`);
-                await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+                const delay = Math.min(5000 * Math.pow(2, attempt), 8000) + Math.random() * 1000;
+                await new Promise((r) => setTimeout(r, delay));
               }
               const probeRes = await fetch(
                 `${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/models/status/${run.jobId}`,
