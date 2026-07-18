@@ -193,6 +193,8 @@ config$dnn_weight_default <- 0.3
 config$dnn_n_seeds <- 5L
 config$dnn_fused_adam_default <- "auto"
 # Uses custom ATen-op Adam kernel (sdmtorch/train_step_adam.so) on CPU and GPU
+# NOTE: setup_torch_cuda() in R/core/packages.R is defined but never called — superseded
+# by setup_torch_auto() in R/models/torch_setup.R. Kept to avoid breaking external callers.
 config$dnn_default_n_seeds <- 5L
 config$dnn_multispecies_default <- "DNN_Medium"
 config$dnn_multispecies_n_seeds <- 3L
@@ -210,6 +212,11 @@ config$gpu_enabled <- "auto"
 config$gpu_min_cells <- 100000L
 config$gpu_min_rows <- 5000L
 config$gpu_device <- "auto"
+config$gpu_safety_margin <- 0.8
+config$gpu_oom_fallback <- TRUE
+config$gpu_pinned_alloc <- TRUE
+config$gpu_blackwell_check <- TRUE
+config$dnn_deterministic <- FALSE
 
 sdm_extent_presets <- list(
   "aus_full"   = c(112, 154, -44, -10),
