@@ -1,4 +1,5 @@
 import { Queue, Worker, Job } from "bullmq";
+import { createHash } from "crypto";
 import IORedis from "ioredis";
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
@@ -84,14 +85,20 @@ export function resetRedis() {
   console.log("[Redis] Connection state reset by admin request.");
 }
 
-export function shutdownQueue() {
+export async function shutdownQueue() {
   if (_reconnectTimer) {
     clearTimeout(_reconnectTimer);
     _reconnectTimer = null;
   }
-  _worker?.close();
-  _queue?.close();
-  _bullmqConnection?.disconnect(false);
+  try {
+    await _worker?.close();
+  } catch { /* best-effort */ }
+  try {
+    await _queue?.close();
+  } catch { /* best-effort */ }
+  try {
+    _bullmqConnection?.disconnect(false);
+  } catch { /* best-effort */ }
   _connection = null;
   _bullmqConnection = null;
   _queue = null;
@@ -310,21 +317,46 @@ export async function enqueueSdmJob(data: SdmJobData, userId?: string): Promise<
   const q = getQueue();
   if (!q) throw new Error("Redis unavailable — cannot enqueue job");
   const jobData: SdmJobData = userId ? { ...data, userId } : data;
+
+  const jobId = computeJobId(jobData);
   try {
     const job = await q.add("sdm-task", jobData, {
+      jobId,
       attempts: 2,
       backoff: { type: "exponential", delay: 1000 },
       removeOnComplete: { age: 3600 },
       removeOnFail: { age: 86400 },
     });
-    return job.id ?? "";
+    return job.id ?? jobId;
   } catch (err) {
     if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
       disableRedis();
       throw new Error("Redis unavailable — cannot enqueue job");
     }
+    if (isDuplicateJobError(err)) {
+      const existing = await q.getJob(jobId);
+      if (existing) return existing.id ?? jobId;
+    }
     throw err;
   }
+}
+
+function computeJobId(data: SdmJobData): string {
+  const payload = data.payload ?? {};
+  const species = typeof payload.species === "string" ? payload.species : "";
+  const modelId = typeof payload.modelId === "string" ? payload.modelId : "";
+  const occurrenceFileId = typeof payload.occurrenceFileId === "string" ? payload.occurrenceFileId : "";
+  const configHash = typeof payload.configHash === "string" ? payload.configHash : JSON.stringify(payload);
+  const raw = [species, modelId, occurrenceFileId, configHash, data.type].join("|");
+  return createHash("sha256").update(raw).digest("hex").slice(0, 32);
+}
+
+function isDuplicateJobError(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    return msg.includes("duplicate") || msg.includes("already exists") || msg.includes("e11000");
+  }
+  return false;
 }
 
 export async function getJobStatus(jobId: string) {

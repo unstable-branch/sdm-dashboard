@@ -277,13 +277,35 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
   if (!is.null(proc) && inherits(proc, "Process") && proc$is_alive()) {
     proc$kill()
     killed <- TRUE
+    Sys.sleep(3)
+    if (proc$is_alive()) {
+      pid <- proc$get_pid()
+      tryCatch({
+        if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
+          cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
+          if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
+        }
+        tools::pskill(pid, signal = 9)
+      }, error = function(e) NULL)
+    }
     rm(list = basename(job_id), envir = sdm_process_registry)
   }
 
   if (file.exists(meta_file)) {
     meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    if (!is.null(meta$status) && meta$status %in% c("completed", "failed", "cancelled")) {
+      return(list(ok = TRUE, message = "Download already terminated"))
+    }
     if (!killed && !is.null(meta$process_pid)) {
-      tryCatch({ tools::pskill(meta$process_pid, signal = 9); killed <- TRUE }, error = function(e) NULL)
+      pid <- meta$process_pid
+      tryCatch({
+        if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
+          cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
+          if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
+        }
+        tools::pskill(pid, signal = 9)
+        killed <- TRUE
+      }, error = function(e) NULL)
     }
     meta$status <- "cancelled"
     meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")

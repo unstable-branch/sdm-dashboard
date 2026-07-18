@@ -18,6 +18,7 @@ const PROJECT_ROOT = resolve(__dirname, "../../..");
 const client = new PlumberClient();
 let _syncInterval: ReturnType<typeof setInterval> | null = null;
 let _running = false;
+const _cogUploadLocks = new Set<string>();
 
 const STALLED_RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours — mark as failed if no progress
 const GRACE_PERIOD_MS = parseInt(process.env.SDM_STARTUP_GRACE_PERIOD_MS || "60000", 10);
@@ -130,7 +131,7 @@ async function syncRunningJobs() {
               errorHint: "The R computation exceeded the timeout. Simplify the model or increase the timeout limit.",
               completedAt: new Date(),
             })
-            .where(eq(runs.id, run.id));
+            .where(and(eq(runs.id, run.id), eq(runs.status, "running")));
 
           jobEventBus.emitJobStatus({
             jobId: run.id,
@@ -251,7 +252,7 @@ async function syncRunningJobs() {
               provenance,
               runStorageBytes: runSize,
             })
-            .where(eq(runs.id, run.id));
+            .where(and(eq(runs.id, run.id), eq(runs.status, "running")));
 
           // Add run output size to user's total storage
           if (runSize > 0 && run.projectId) {
@@ -270,12 +271,15 @@ async function syncRunningJobs() {
             } catch { /* best-effort */ }
           }
 
-          // Upload the 3857 COG to Garage S3 for TiTiler serving
+          // Upload the 3857 COG to Garage S3 for TiTiler serving (single-flight per run)
           const tif3857Path = status.output_files?.tif_3857;
-          if (tif3857Path) {
-            uploadCogToGarage(tif3857Path, run.id).catch((err) => {
-              console.warn(`[Garage] Failed to upload COG for run ${run.id}:`, err instanceof Error ? err.message : err);
-            });
+          if (tif3857Path && !_cogUploadLocks.has(run.id)) {
+            _cogUploadLocks.add(run.id);
+            uploadCogToGarage(tif3857Path, run.id)
+              .finally(() => _cogUploadLocks.delete(run.id))
+              .catch((err) => {
+                console.warn(`[Garage] Failed to upload COG for run ${run.id}:`, err instanceof Error ? err.message : err);
+              });
           }
 
           jobEventBus.emitJobStatus({
@@ -365,13 +369,12 @@ async function syncRunningJobs() {
               progressLog: logs.length > 0 ? logs : undefined,
               provenance: errorCode ? { error_code: errorCode, error_hint: errorHint } : undefined,
             })
-            .where(eq(runs.id, run.id));
+            .where(and(eq(runs.id, run.id), eq(runs.status, "running")));
 
           jobEventBus.emitJobStatus({
             jobId: run.id,
             state: "failed",
             progress: 0,
-            logs,
             failedReason: error ?? "Model run failed",
             error_code: status.error_code as string | undefined,
             error_hint: (status as any).error_hint as string | undefined,

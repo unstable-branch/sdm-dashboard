@@ -260,17 +260,25 @@ plumber::pr_hook(pr, "exit", function() {
   reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
   if (!is.null(reg) && is.environment(reg)) {
     for (job_id in ls(reg)) {
-      proc <- reg[[job_id]]
-      if (inherits(proc, "process") && proc$is_alive()) {
+      entry <- reg[[job_id]]
+      proc <- sdm_registry_proc(entry)
+      if (!is.null(proc) && (inherits(proc, "process") || inherits(proc, "Process")) && proc$is_alive()) {
         cat("Killing background job:", job_id, "\n")
         tryCatch(proc$kill(), error = function(e) NULL)
+        tryCatch(proc$wait(timeout = 5000), error = function(e) NULL)
+        if (proc$is_alive()) {
+          pid <- tryCatch(proc$get_pid(), error = function(e) NULL)
+          if (!is.null(pid)) {
+            tryCatch(tools::pskill(pid, signal = 9L), error = function(e) NULL)
+          }
+        }
       }
     }
   }
   # Close Redis connection
   sdm_redis_close()
 
-  # Also kill any leftover processes from meta.json files
+  # Also kill any leftover processes from meta.json files (SIGTERM + 5s grace)
   jobs_base <- file.path(app_dir, "outputs", "jobs")
   if (dir.exists(jobs_base)) {
     for (jd in list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)) {
@@ -278,7 +286,10 @@ plumber::pr_hook(pr, "exit", function() {
       if (file.exists(meta_file)) {
         meta <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
         if (!is.null(meta) && identical(meta$status, "running") && !is.null(meta$process_pid)) {
-          tryCatch(tools::pskill(meta$process_pid, signal = 9), error = function(e) NULL)
+          pid <- meta$process_pid
+          tryCatch(tools::pskill(pid, signal = 15L), error = function(e) NULL)  # SIGTERM
+          Sys.sleep(5)
+          tryCatch(tools::pskill(pid, signal = 9L), error = function(e) NULL)   # SIGKILL if still alive
         }
       }
     }

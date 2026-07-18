@@ -128,7 +128,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  queue.shutdownQueue();
+  await queue.shutdownQueue();
 });
 
 describe("isRedisUnavailableError", () => {
@@ -201,8 +201,8 @@ describe("getJobQueue", () => {
     expect(q).not.toBeNull();
   });
 
-  it("returns null when redis is disabled", () => {
-    queue.shutdownQueue();
+  it("returns null when redis is disabled", async () => {
+    await queue.shutdownQueue();
     const q = queue.getJobQueue();
     expect(q).toBeNull();
   });
@@ -228,7 +228,7 @@ describe("enqueueSdmJob", () => {
   });
 
   it("throws when redis is unavailable", async () => {
-    queue.shutdownQueue();
+    await queue.shutdownQueue();
     await expect(queue.enqueueSdmJob({
       type: "model",
       payload: { runId: "run-1" },
@@ -383,7 +383,7 @@ describe("getJobStatus", () => {
   });
 
   it("returns null when redis is disabled", async () => {
-    queue.shutdownQueue();
+    await queue.shutdownQueue();
     const status = await queue.getJobStatus("job-1");
     expect(status).toBeNull();
   });
@@ -401,11 +401,11 @@ describe("getJobStatus", () => {
 });
 
 describe("shutdownQueue", () => {
-  it("closes all connections", () => {
+  it("closes all connections", async () => {
     queue.ensureWorker();
     queue.getJobQueue();
 
-    queue.shutdownQueue();
+    await queue.shutdownQueue();
 
     expect(td.mockWorkerClose).toHaveBeenCalled();
     expect(td.mockQueueClose).toHaveBeenCalled();
@@ -416,8 +416,8 @@ describe("shutdownQueue", () => {
 });
 
 describe("resetRedis", () => {
-  it("resets state and reconnects", () => {
-    queue.shutdownQueue();
+  it("resets state and reconnects", async () => {
+    await queue.shutdownQueue();
     expect(queue.getRedisStatus().disabled).toBe(true);
 
     queue.resetRedis();
@@ -432,8 +432,8 @@ describe("resetRedis", () => {
 });
 
 describe("Redis unavailable degradation", () => {
-  it("shutdown marks redis as disabled", () => {
-    queue.shutdownQueue();
+  it("shutdown marks redis as disabled", async () => {
+    await queue.shutdownQueue();
     expect(queue.getRedisStatus().disabled).toBe(true);
   });
 });
