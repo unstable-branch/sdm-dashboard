@@ -320,10 +320,17 @@ tryCatch({
 }, error = function(e) cat("WARNING: Could not check available RAM:", conditionMessage(e), "\n"))
 
 # Warn if encryption key is not set (dev mode with unencrypted files)
-enc_key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+enc_key <- Sys.getenv("DATA_ENCRYPTION_KEY", unset = NA_character_)
 if (is.na(enc_key) || !nzchar(enc_key)) {
-  cat("NOTE: SDM_ENCRYPTION_KEY not set — occurrence files stored unencrypted.\n",
-      "  Set SDM_ENCRYPTION_KEY to a 32+ character secret to enable AES-256-GCM encryption.\n",
+  enc_key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+  if (!is.na(enc_key) && nzchar(enc_key)) {
+    warning("SDM_ENCRYPTION_KEY is deprecated — use DATA_ENCRYPTION_KEY instead",
+      call. = FALSE, immediate. = TRUE)
+  }
+}
+if (is.na(enc_key) || !nzchar(enc_key)) {
+  cat("NOTE: No encryption key set — occurrence files stored unencrypted.\n",
+      "  Set DATA_ENCRYPTION_KEY (or SDM_ENCRYPTION_KEY) to a 32+ character secret to enable AES-256-GCM encryption.\n",
       sep = "")
 }
 
