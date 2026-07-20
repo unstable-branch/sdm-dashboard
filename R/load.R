@@ -132,7 +132,6 @@ modules <- c(
   "ale.R",
   "shap.R",
   "climate_driver.R",
-  "xai_methods.R",
   "plots.R",
   "report.R",
   "report_odmap.R",
