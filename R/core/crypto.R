@@ -1,6 +1,6 @@
 # Encryption helpers for occurrence data at rest.
 # Uses AES-256-GCM via the openssl package.
-# Key is read from the SDM_ENCRYPTION_KEY environment variable.
+# Key is read from DATA_ENCRYPTION_KEY (preferred) or SDM_ENCRYPTION_KEY (deprecated).
 # If the key is unset (local dev), files pass through unencrypted.
 
 SDM_ENCRYPTION_MAGIC <- charToRaw("SDMENC1\n")
@@ -18,7 +18,16 @@ sdm_encryption_key_raw <- function(key) {
 }
 
 encrypt_file <- function(input_path, output_path, key = NULL) {
-  if (is.null(key)) key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+  if (is.null(key)) {
+    key <- Sys.getenv("DATA_ENCRYPTION_KEY", unset = NA_character_)
+    if (is.na(key) || !nzchar(key)) {
+      key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+      if (!is.na(key) && nzchar(key)) {
+        warning("SDM_ENCRYPTION_KEY is deprecated — use DATA_ENCRYPTION_KEY instead",
+          call. = FALSE, immediate. = TRUE)
+      }
+    }
+  }
   if (is.na(key) || !nzchar(key)) {
     if (input_path != output_path) file.copy(input_path, output_path, overwrite = TRUE)
     return(invisible(TRUE))
@@ -34,7 +43,16 @@ encrypt_file <- function(input_path, output_path, key = NULL) {
 }
 
 decrypt_file <- function(input_path, output_path, key = NULL) {
-  if (is.null(key)) key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+  if (is.null(key)) {
+    key <- Sys.getenv("DATA_ENCRYPTION_KEY", unset = NA_character_)
+    if (is.na(key) || !nzchar(key)) {
+      key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+      if (!is.na(key) && nzchar(key)) {
+        warning("SDM_ENCRYPTION_KEY is deprecated — use DATA_ENCRYPTION_KEY instead",
+          call. = FALSE, immediate. = TRUE)
+      }
+    }
+  }
   if (is.na(key) || !nzchar(key)) {
     if (input_path != output_path) file.copy(input_path, output_path, overwrite = TRUE)
     return(invisible(TRUE))
