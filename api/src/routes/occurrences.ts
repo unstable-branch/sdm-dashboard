@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { mkdirSync, existsSync, statSync, writeFileSync, readFileSync, rmSync, accessSync, constants, promises as fs } from "fs";
 import { join, resolve, dirname, extname } from "path";
 import { fileURLToPath } from "url";
-import { randomUUID, createDecipheriv } from "crypto";
+import { randomUUID } from "crypto";
 import { plumberClient } from "../services/plumber.js";
 import { writeAtomic } from "../services/storage.js";
 import { db } from "../db/index.js";
@@ -304,7 +304,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
   }
 });
 
-const PLUMBER_MAGIC = Buffer.from([0x53, 0x44, 0x4d, 0x45, 0x4e, 0x43, 0x31, 0x0a]);
+const PLUMBER_MAGIC = Buffer.from("SDMENC1\n", "utf-8");
 
 function splitCsvLine(line: string): string[] {
   const result: string[] = [];
@@ -329,22 +329,11 @@ function decryptPlumberFile(encPath: string): string | null {
   if (!existsSync(encPath)) return null;
   try {
     const encrypted = readFileSync(encPath);
-    if (encrypted.length < PLUMBER_MAGIC.length + 12 + 1 || !PLUMBER_MAGIC.equals(encrypted.subarray(0, PLUMBER_MAGIC.length))) {
+    if (encrypted.length < PLUMBER_MAGIC.length + 12 + 16 ||
+        !PLUMBER_MAGIC.equals(encrypted.subarray(0, PLUMBER_MAGIC.length))) {
       return null;
     }
-    const keyHex = process.env.DATA_ENCRYPTION_KEY || process.env.SDM_ENCRYPTION_KEY || "";
-    if (!keyHex) return null;
-    const key = Buffer.from(keyHex, "hex");
-    if (key.length !== 32) return null;
-
-    const iv = encrypted.subarray(PLUMBER_MAGIC.length, PLUMBER_MAGIC.length + 12);
-    const payload = encrypted.subarray(PLUMBER_MAGIC.length + 12);
-    const tag = payload.subarray(payload.length - 16);
-    const ciphertext = payload.subarray(0, payload.length - 16);
-
-    const decipher = createDecipheriv("aes-256-gcm", key, iv);
-    decipher.setAuthTag(tag);
-    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const decrypted = decrypt(encrypted);
     const plainPath = encPath + ".decrypted";
     writeFileSync(plainPath, decrypted);
     return plainPath;
