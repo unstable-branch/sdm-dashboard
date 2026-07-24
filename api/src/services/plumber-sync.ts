@@ -18,7 +18,21 @@ const PROJECT_ROOT = resolve(__dirname, "../../..");
 const client = new PlumberClient();
 let _syncInterval: ReturnType<typeof setInterval> | null = null;
 let _running = false;
+let _lastSyncTimestamp = 0;
+let _lastSyncError: string | null = null;
 const _cogUploadLocks = new Set<string>();
+
+export function getLastSyncTimestamp(): number {
+  return _lastSyncTimestamp;
+}
+
+export function getLastSyncError(): string | null {
+  return _lastSyncError;
+}
+
+export function getLastSyncAge(): number {
+  return _lastSyncTimestamp === 0 ? Infinity : Date.now() - _lastSyncTimestamp;
+}
 
 const STALLED_RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours — mark as failed if no progress
 const GRACE_PERIOD_MS = parseInt(process.env.SDM_STARTUP_GRACE_PERIOD_MS || "60000", 10);
@@ -84,6 +98,7 @@ async function syncRunningJobs() {
 
   try {
     cleanupOld404Entries();
+    _lastSyncError = null;
 
     // Detect runs stuck in "queued" status — if a job hasn't been picked up by the worker
     // within 5 minutes of creation, mark it as failed (worker may be offline or crashed)
@@ -550,7 +565,9 @@ async function syncRunningJobs() {
     }
   } catch (err) {
     console.error("[plumber-sync] Sync error:", err instanceof Error ? err.message : err);
+    _lastSyncError = err instanceof Error ? err.message : String(err);
   } finally {
+    _lastSyncTimestamp = Date.now();
     _running = false;
   }
 }
