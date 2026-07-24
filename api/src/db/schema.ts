@@ -185,6 +185,34 @@ export const systemSettings = pgTable("system_settings", {
   index("idx_system_settings_key").on(t.key),
 ]);
 
+export const auditLogs = pgTable("audit_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  action: varchar("action", { length: 100 }).notNull(),
+  entity: varchar("entity", { length: 100 }),
+  entityId: uuid("entity_id"),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  requestId: uuid("request_id"),
+  method: varchar("method", { length: 10 }),
+  path: varchar("path", { length: 500 }),
+  statusCode: integer("status_code"),
+  retentionDays: integer("retention_days").default(90),
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_audit_logs_user").on(t.userId),
+  index("idx_audit_logs_action").on(t.action),
+  index("idx_audit_logs_created").on(t.createdAt),
+  index("idx_audit_logs_entity").on(t.entity, t.entityId),
+  index("idx_audit_logs_request").on(t.requestId),
+  index("idx_audit_logs_status").on(t.statusCode),
+]);
+
+export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
+  user: one(users, { fields: [auditLogs.userId], references: [users.id] }),
+}));
+
 export const uploads = pgTable("uploads", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
