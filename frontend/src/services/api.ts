@@ -36,16 +36,10 @@ function validateResponse<T>(data: unknown, schema?: z.ZodType<unknown>): T {
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   const localToken = localStorage.getItem("sdm_token");
-  if (localToken) {
-    writeTokenCookie(localToken, true);
-    return localToken;
-  }
+  if (localToken) return localToken;
 
   const sessionToken = sessionStorage.getItem("sdm_token");
-  if (sessionToken) {
-    writeTokenCookie(sessionToken, false);
-    return sessionToken;
-  }
+  if (sessionToken) return sessionToken;
 
   return null;
 }
@@ -54,14 +48,7 @@ function clearToken() {
   if (typeof window !== "undefined") {
     localStorage.removeItem("sdm_token");
     sessionStorage.removeItem("sdm_token");
-    document.cookie = "sdm_token=; Path=/; SameSite=Lax; Max-Age=0";
   }
-}
-
-function writeTokenCookie(token: string, remember: boolean) {
-  const maxAge = remember ? "; Max-Age=86400" : "";
-  const secure = window.location.protocol === "https:" ? "; Secure" : "";
-  document.cookie = `sdm_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${maxAge}${secure}`;
 }
 
 export async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<Response> {
@@ -205,7 +192,6 @@ export function setAuthToken(token: string, remember = true) {
     clearToken();
     const storage = remember ? localStorage : sessionStorage;
     storage.setItem("sdm_token", token);
-    writeTokenCookie(token, remember);
   }
 }
 

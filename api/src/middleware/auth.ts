@@ -66,10 +66,13 @@ function getCookieToken(cookieHeader: string | undefined): string | null {
   const match = cookieHeader
     .split(";")
     .map((part) => part.trim())
-    .find((part) => part.startsWith("sdm_token="));
+    .find((part) => part.startsWith("sdm_token=") || part.startsWith("__Host-sdm_token="));
   if (!match) return null;
+  const value = match.startsWith("__Host-sdm_token=")
+    ? match.slice("__Host-sdm_token=".length)
+    : match.slice("sdm_token=".length);
   try {
-    return decodeURIComponent(match.slice("sdm_token=".length));
+    return decodeURIComponent(value);
   } catch {
     return null;
   }
