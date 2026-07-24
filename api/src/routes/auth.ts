@@ -239,7 +239,11 @@ authRoutes.post("/login", async (c) => {
     const forwardedProto = c.req.header("X-Forwarded-Proto");
     const isSecure = process.env.NODE_ENV === "production" || forwardedProto === "https";
     const maxAge = ACCESS_TOKEN_EXPIRY_S;
-    c.header("Set-Cookie", `sdm_token=${token}; Path=/; HttpOnly; SameSite=Strict${isSecure ? "; Secure" : ""}; Max-Age=${maxAge}`);
+    if (isSecure) {
+      c.header("Set-Cookie", `__Host-sdm_token=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`);
+    } else {
+      c.header("Set-Cookie", `sdm_token=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`);
+    }
 
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
