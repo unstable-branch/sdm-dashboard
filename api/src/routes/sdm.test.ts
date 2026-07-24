@@ -124,11 +124,19 @@ vi.mock("../db", () => ({
 }));
 
 vi.mock("../services/plumber", () => ({
+  PlumberClient: class { },
   plumberClient: {
     getModelStatus: vi.fn(),
     runModel: vi.fn(async () => ({ job_id: "plumber-job-1" })),
     targetsRun: vi.fn(async () => ({ job_id: "targets-job-1" })),
   },
+}));
+
+vi.mock("../services/plumber-sync", () => ({
+  encryptOutputs: vi.fn(),
+  getLastSyncTimestamp: vi.fn(() => 0),
+  getLastSyncError: vi.fn(() => null),
+  getLastSyncAge: vi.fn(() => 0),
 }));
 
 vi.mock("../middleware/rate-limit", () => ({

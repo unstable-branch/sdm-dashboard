@@ -245,37 +245,46 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
     let plumberProgressJson: unknown = null;
     let plumberProgressLog: string[] = [];
     let effectiveStatus = run.status;
-    if (run.status === "running" && run.jobId) {
-      try {
-        const plumberStatus = await plumberClient.getModelStatus(run.jobId, 8000);
-        const ps = plumberStatus as unknown as PlumberModelStatus;
-        plumberProgressJson = ps.progress_json ?? null;
-        plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log : [];
+    let isSyncing = false;
+    const SYNC_STALENESS_MS = 10_000;
+    const { getLastSyncAge, getLastSyncError } = await import("../services/plumber-sync.js");
+    const lastSyncAge = getLastSyncAge();
+    const shouldLivePoll = lastSyncAge > SYNC_STALENESS_MS || getLastSyncError() !== null;
 
-        const validStatuses = ["completed", "failed", "cancelled"];
-        if (ps.status && validStatuses.includes(ps.status)) {
-          const status = ps.status as "completed" | "failed" | "cancelled";
-          await db.update(runs).set({
-            status,
-            metrics: status === "completed" ? (ps.metrics ?? {}) : {},
-            outputFiles: status === "completed" ? (ps.output_files ?? {}) : {},
-            error: ps.error ? String(ps.error) : null,
-            errorCode: ps.error_code ? String(ps.error_code) : null,
-            errorHint: ps.error_hint ? String(ps.error_hint) : null,
-            progressLog: plumberProgressLog.length > 0 ? plumberProgressLog : undefined,
-            completedAt: new Date(),
-          }).where(and(eq(runs.id, jobId), inArray(runs.status, ["running", "queued"])));
-          jobEventBus.emitJobStatus({
-            jobId: run.id,
-            state: ps.status as string,
-            progress: ps.status === "completed" ? 100 : 0,
-            logs: plumberProgressLog,
-            result: ps.status === "completed" ? plumberStatus : undefined,
-            failedReason: ps.error as string | undefined,
-          });
+    if (run.status === "running" && run.jobId) {
+      if (shouldLivePoll) {
+        isSyncing = true;
+        try {
+          const plumberStatus = await plumberClient.getModelStatus(run.jobId, 8000);
+          const ps = plumberStatus as unknown as PlumberModelStatus;
+          plumberProgressJson = ps.progress_json ?? null;
+          plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log : [];
+
+          const validStatuses = ["completed", "failed", "cancelled"];
+          if (ps.status && validStatuses.includes(ps.status)) {
+            const status = ps.status as "completed" | "failed" | "cancelled";
+            await db.update(runs).set({
+              status,
+              metrics: status === "completed" ? (ps.metrics ?? {}) : {},
+              outputFiles: status === "completed" ? (ps.output_files ?? {}) : {},
+              error: ps.error ? String(ps.error) : null,
+              errorCode: ps.error_code ? String(ps.error_code) : null,
+              errorHint: ps.error_hint ? String(ps.error_hint) : null,
+              progressLog: plumberProgressLog.length > 0 ? plumberProgressLog : undefined,
+              completedAt: new Date(),
+            }).where(and(eq(runs.id, jobId), inArray(runs.status, ["running", "queued"])));
+            jobEventBus.emitJobStatus({
+              jobId: run.id,
+              state: ps.status as string,
+              progress: ps.status === "completed" ? 100 : 0,
+              logs: plumberProgressLog,
+              result: ps.status === "completed" ? plumberStatus : undefined,
+              failedReason: ps.error as string | undefined,
+            });
+          }
+        } catch (err) {
+          console.warn(`[sdm-status] Plumber poll failed for job ${run.jobId}:`, err instanceof Error ? err.message : String(err));
         }
-      } catch (err) {
-        console.warn(`[sdm-status] Plumber poll failed for job ${run.jobId}:`, err instanceof Error ? err.message : String(err));
       }
     } else if (run.status === "running" && !run.jobId && run.startedAt) {
       const orphanThreshold = 10 * 60 * 1000;
@@ -316,6 +325,7 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
       output_files: run.outputFiles ?? null,
       progress_log: plumberProgressLog.length > 0 ? plumberProgressLog : dbProgressLog,
       progress_json: plumberProgressJson ?? null,
+      syncing: isSyncing,
       config: normalizeConfig(run.config),
     });
   } catch (err) {
