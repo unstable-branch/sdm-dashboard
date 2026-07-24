@@ -3,7 +3,7 @@ import { readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { db } from "../db/index.js";
-import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles } from "../db/schema.js";
+import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles, auditLogs } from "../db/schema.js";
 import { eq, desc, sql, and, ilike, inArray, count } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
@@ -285,6 +285,71 @@ adminRoutes.get("/database/tables", async (c) => {
     return c.json(result.rows);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to list tables" }, 500);
+  }
+});
+
+adminRoutes.get("/audit-logs", async (c) => {
+  try {
+    const page = Math.max(1, parseInt(c.req.query("page") || "1") || 1);
+    const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") || "50") || 50), 200);
+    const offset = (page - 1) * limit;
+
+    const action = c.req.query("action");
+    const entity = c.req.query("entity");
+    const userId = c.req.query("userId");
+    const since = c.req.query("since");
+    const until = c.req.query("until");
+
+    const conditions = [];
+    if (action) conditions.push(eq(auditLogs.action, action));
+    if (entity) conditions.push(eq(auditLogs.entity, entity));
+    if (userId) conditions.push(eq(auditLogs.userId, userId));
+    if (since) conditions.push(sql`${auditLogs.createdAt} >= ${new Date(since)}`);
+    if (until) conditions.push(sql`${auditLogs.createdAt} <= ${new Date(until)}`);
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [rows, [{ total }]] = await Promise.all([
+      db
+        .select()
+        .from(auditLogs)
+        .where(whereClause)
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db.select({ total: count() }).from(auditLogs).where(whereClause),
+    ]);
+
+    return c.json({
+      page,
+      limit,
+      total: Number(total),
+      hasMore: offset + rows.length < Number(total),
+      entries: rows,
+    });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to list audit logs" }, 500);
+  }
+});
+
+adminRoutes.get("/audit-logs/export.json", async (c) => {
+  try {
+    const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") || "1000") || 1000), 10000);
+    const rows = await db
+      .select()
+      .from(auditLogs)
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(limit);
+
+    c.header("Content-Type", "application/json");
+    c.header("Content-Disposition", `attachment; filename="audit-logs-${Date.now()}.json"`);
+    return c.body(JSON.stringify({
+      exportedAt: new Date().toISOString(),
+      count: rows.length,
+      entries: rows,
+    }, null, 2));
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to export audit logs" }, 500);
   }
 });
 
