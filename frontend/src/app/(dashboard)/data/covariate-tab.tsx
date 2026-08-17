@@ -112,7 +112,13 @@ export function CovariateTab() {
   const handleComplete = useCallback(async () => { setActiveJob(null); }, []);
   const handleFailed = useCallback(async () => { setActiveJob(null); }, []);
   const handleCancel = useCallback(async () => {
-    if (activeJob) { try { await apiPost(`/api/v1/climate/cancel/${activeJob}`); } catch { } }
+    if (activeJob) {
+      try {
+        await apiPost(`/api/v1/downloads/cancel/${encodeURIComponent(activeJob)}`);
+      } catch {
+        // Cancel may fail; widget keeps polling until Redis cancel flag is honored.
+      }
+    }
     setActiveJob(null);
   }, [activeJob]);
 

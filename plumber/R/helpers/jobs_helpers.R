@@ -39,7 +39,10 @@ handle_job_cancel <- function(req, job_id, app_dir) {
   if (!is.null(proc) && inherits(proc, "Process") && proc$is_alive()) {
     proc$kill()
     killed <- TRUE
-    Sys.sleep(3)
+    for (i in seq_len(30)) {
+      if (!proc$is_alive()) break
+      Sys.sleep(0.1)
+    }
     if (proc$is_alive()) {
       pid <- proc$get_pid()
       tryCatch({

@@ -82,7 +82,11 @@ export async function handleClimateJob(
               });
             }
 
-            return { status: "success", data: status, error: error || "Some layers failed to download" };
+            return {
+              status: failedVars && failedVars.length > 0 ? "partial_success" : "success",
+              data: { ...status, failed_vars: failedVars ?? [] },
+              error: error || (failedVars && failedVars.length > 0 ? `Failed layers: ${failedVars.join(", ")}` : undefined),
+            };
           } else {
             const terminalProgress = runStatus === "completed" ? 100 : lastProgress;
             if (runStatus === "completed") await job.updateProgress(100);

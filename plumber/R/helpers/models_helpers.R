@@ -985,7 +985,10 @@ handle_model_cancel <- function(req, job_id) {
     if (proc$is_alive()) {
       proc$kill()
       killed <- TRUE
-      Sys.sleep(3)
+      for (i in seq_len(30)) {
+        if (!proc$is_alive()) break
+        Sys.sleep(0.1)
+      }
       if (proc$is_alive()) {
         pid <- proc$get_pid()
         tryCatch({
@@ -995,12 +998,18 @@ handle_model_cancel <- function(req, job_id) {
           }
           tools::pskill(pid, signal = 9)
         }, error = function(e) NULL)
-        Sys.sleep(2)
+        for (i in seq_len(20)) {
+          if (!proc$is_alive()) break
+          Sys.sleep(0.1)
+        }
       }
     }
     device_tag <- if (is.list(entry)) entry$device else "cpu"
     if (killed && sdm_backend_is_discrete_gpu(device_tag)) {
-      Sys.sleep(2)
+      for (i in seq_len(20)) {
+        if (!proc$is_alive()) break
+        Sys.sleep(0.1)
+      }
     }
     rm(list = job_id, envir = sdm_process_registry)
   }
