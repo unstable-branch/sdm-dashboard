@@ -135,51 +135,14 @@ climateRoutes.post("/delete/:scenarioId", async (c) => {
   }
 });
 
-climateRoutes.post("/cancel/:jobId", async (c) => {
-  try {
-    const jobId = c.req.param("jobId");
-    const user = c.get("user");
+// Climate cancel is handled by the /api/v1/downloads/cancel/:jobId dispatch route,
+// which routes climate_ ids to Plumber /api/v1/climate/cancel/<id> and other prefixes
+// (cov_, data-) to /api/v1/jobs/cancel/<id>. The legacy /api/v1/climate/cancel/:jobId
+// route has been removed because its ownership check queried the `runs` table, which
+// never holds climate jobs, leaving any authenticated user able to cancel any job.
 
-    if (user.role !== "admin") {
-      const projectIds = await getUserProjectIds(user);
-      const [ownedRun] = await db
-        .select({ id: runs.id })
-        .from(runs)
-        .where(
-          projectIds && projectIds.length > 0
-            ? and(
-                eq(runs.jobId, jobId),
-                inArray(runs.projectId, projectIds)
-              )
-            : eq(runs.id, "__never_match__")
-        )
-        .limit(1);
-      if (!ownedRun) {
-        return c.json({ error: "Job not found" }, 404);
-      }
-    }
-
-    const result = await plumberClient.post(`/api/v1/climate/cancel/${jobId}`, {});
-
-    const client = extractClientInfo(c as any);
-    await logAction({
-      userId: user.id,
-      action: "climate_download_cancelled",
-      entity: "climate",
-      entityId: jobId,
-      ...client,
-    });
-
-    return c.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Cancel failed";
-    return c.json({ error: message }, 502);
-  }
-});
-
-// Climate progress is tracked via SSE (/api/v1/jobs/sse) and BullMQ job status
-// The dedicated status endpoint exists on Plumber but is not proxied through Hono:
-//   GET /api/v1/climate/status/:jobId  →  plumber GET /api/v1/climate/status/{job_id}
+// Climate status remains here for backward compatibility but new code should use
+// /api/v1/downloads/status/:jobId for prefix-aware dispatch.
 climateRoutes.get("/status/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");

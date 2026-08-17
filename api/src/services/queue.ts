@@ -305,7 +305,7 @@ export interface SdmJobData {
 }
 
 export interface SdmJobResult {
-  status: "success" | "error";
+  status: "success" | "partial_success" | "error";
   data?: Record<string, unknown>;
   error?: string;
   error_code?: string | null;

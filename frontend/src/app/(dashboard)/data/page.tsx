@@ -159,7 +159,12 @@ function DataPageContent() {
   const handleCancelDownload = useCallback(async () => {
     const active = climateDownloadJob || cmip6DownloadJob || avgDownloadJob;
     if (active) {
-      try { await apiPost(`/api/v1/climate/cancel/${active}`); } catch { }
+      try {
+        await apiPost(`/api/v1/downloads/cancel/${encodeURIComponent(active)}`);
+      } catch {
+        // Cancel may fail (Plumber unreachable, semaphore exhaustion). The widget will
+        // continue to poll until the child process exits via Redis cancel flag.
+      }
     }
     setClimateDownloadJob(null);
     setCmip6DownloadJob(null);

@@ -52,6 +52,7 @@ handle_climate_download <- function(req, app_dir) {
   job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
 
+  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
   job_meta <- list(
     id = job_id,
     type = download_type,
@@ -59,6 +60,7 @@ handle_climate_download <- function(req, app_dir) {
     started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
     completed_at = NULL,
     error = NULL,
+    user_id = user_id,
     config = body
   )
   sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
@@ -277,7 +279,10 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
   if (!is.null(proc) && inherits(proc, "Process") && proc$is_alive()) {
     proc$kill()
     killed <- TRUE
-    Sys.sleep(3)
+    for (i in seq_len(30)) {
+      if (!proc$is_alive()) break
+      Sys.sleep(0.1)
+    }
     if (proc$is_alive()) {
       pid <- proc$get_pid()
       tryCatch({

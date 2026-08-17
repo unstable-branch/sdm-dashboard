@@ -68,4 +68,42 @@ describe("climate/covariate worker terminal progress", () => {
     expect((job as { updateProgress: ReturnType<typeof vi.fn> }).updateProgress).toHaveBeenLastCalledWith(100);
     expect(emitJobStatus).toHaveBeenLastCalledWith(expect.objectContaining({ state: "completed", progress: 100 }));
   });
+
+  it("reports partial_success with failed_vars rather than success when biovars fail", async () => {
+    const job = fakeJob("climate_download");
+    const client = {
+      downloadClimate: vi.fn().mockResolvedValue({ job_id: "plumber-climate" }),
+      getClimateStatus: vi.fn().mockResolvedValue({
+        status: "partial",
+        error: "Some layers failed",
+        failed_vars: [3, 7],
+        progress_log: ["[80%] partial"],
+      }),
+    } as never;
+
+    const result = await handleClimateJob(job, client, undefined);
+
+    expect(result.status).toBe("partial_success");
+    expect(result.error).toBe("Some layers failed");
+    expect((result.data as { failed_vars?: number[] })?.failed_vars).toEqual([3, 7]);
+    expect(emitJobStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ state: "warning", failedReason: expect.stringContaining("3, 7") })
+    );
+  });
+
+  it("reports success (not partial_success) when partial status has no failed_vars", async () => {
+    const job = fakeJob("climate_download");
+    const client = {
+      downloadClimate: vi.fn().mockResolvedValue({ job_id: "plumber-climate" }),
+      getClimateStatus: vi.fn().mockResolvedValue({
+        status: "partial",
+        failed_vars: [],
+        progress_log: ["[99%] finishing"],
+      }),
+    } as never;
+
+    const result = await handleClimateJob(job, client, undefined);
+
+    expect(result.status).toBe("success");
+  });
 });
