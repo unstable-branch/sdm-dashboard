@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Cloud, Layers, Map, LayoutDashboard } from "lucide-react";
+import { Upload, Cloud, Layers, Map, LayoutDashboard, AlertTriangle } from "lucide-react";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { apiUpload, apiPost, apiGet, apiDelete } from "@/services/api";
@@ -155,6 +155,7 @@ function DataPageContent() {
   const [climateError, setClimateError] = useState<string | null>(null);
   const [scenarios, setScenarios] = useState<ClimateScenarioResponse[]>([]);
   const [scenariosLoading, setScenariosLoading] = useState(false);
+  const [plumberDown, setPlumberDown] = useState(false);
 
   const handleCancelDownload = useCallback(async () => {
     const active = climateDownloadJob || cmip6DownloadJob || avgDownloadJob;
@@ -202,8 +203,17 @@ function DataPageContent() {
 
   const fetchScenarios = useCallback(async () => {
     setScenariosLoading(true);
-    try { const data = await apiGet<{ scenarios: ClimateScenarioResponse[] }>("/api/v1/climate/scenarios"); setScenarios(data.scenarios || []); }
-    catch { } finally { setScenariosLoading(false); }
+    try {
+      const data = await apiGet<{ scenarios: ClimateScenarioResponse[] }>("/api/v1/climate/scenarios");
+      setScenarios(data.scenarios || []);
+      setPlumberDown(false);
+    } catch (err) {
+      if (err && typeof err === "object" && "status" in err && (err as { status: number }).status === 502) {
+        setPlumberDown(true);
+      }
+    } finally {
+      setScenariosLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchScenarios(); }, [fetchScenarios]);
@@ -332,6 +342,13 @@ function DataPageContent() {
         <h1 className="text-2xl font-bold text-sdm-heading">Occurrence Data</h1>
         <p className="text-sdm-muted mt-1">Upload occurrence records, fetch from GBIF, or manage multiple occurrence files for model runs.</p>
       </div>
+
+      {plumberDown && (
+        <div className="flex items-center gap-2 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>Plumber service is unreachable. Climate and covariate availability checks may show outdated or empty data.</span>
+        </div>
+      )}
 
       <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
         <TabsList className="flex w-full overflow-x-auto [&::-webkit-scrollbar]:hidden border-b border-sdm-border rounded-none bg-transparent p-0 gap-0">
