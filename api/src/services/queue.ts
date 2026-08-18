@@ -26,15 +26,35 @@ function getReconnectDelay(): number {
 export const CLIMATE_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.CLIMATE_DOWNLOAD_TIMEOUT_MS || "1800000", 10);
 export const CLIMATE_DOWNLOAD_POLL_INTERVAL_MS = parseInt(process.env.CLIMATE_DOWNLOAD_POLL_INTERVAL_MS || "3000", 10);
 export const CLIMATE_DOWNLOAD_MAX_ATTEMPTS = Math.floor(CLIMATE_DOWNLOAD_TIMEOUT_MS / CLIMATE_DOWNLOAD_POLL_INTERVAL_MS);
+export const CLIMATE_DOWNLOAD_MAX_CONSECUTIVE_POLL_ERRORS = parseInt(process.env.CLIMATE_DOWNLOAD_MAX_CONSECUTIVE_POLL_ERRORS || "5", 10);
 
 export const MODEL_RUN_TIMEOUT_MS = parseInt(process.env.MODEL_RUN_TIMEOUT_MS || "7200000", 10);
 export const MODEL_RUN_POLL_INTERVAL_MS = parseInt(process.env.MODEL_RUN_POLL_INTERVAL_MS || "5000", 10);
 export const MODEL_RUN_MAX_ATTEMPTS = Math.floor(MODEL_RUN_TIMEOUT_MS / MODEL_RUN_POLL_INTERVAL_MS);
 
-export const REDIS_UNAVAILABLE_CODES = new Set([
-  "ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET",
-  "ENETUNREACH", "EHOSTUNREACH", "EPIPE",
+// Codes that imply Redis itself is genuinely down (port closed, DNS gone, host unreachable).
+// Only these trigger `disableRedis()` and the 5-minute cooldown. Transient socket errors
+// (ECONNRESET, EPIPE, ETIMEDOUT) are now treated as recoverable by the next operation.
+export const REDIS_DOWN_CODES = new Set([
+  "ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH",
 ]);
+
+// Codes we still recognise as "Redis had a problem" but do NOT disable on.
+export const REDIS_TRANSIENT_CODES = new Set([
+  "ETIMEDOUT", "ECONNRESET", "EPIPE",
+]);
+
+export const REDIS_UNAVAILABLE_CODES = new Set([
+  ...REDIS_DOWN_CODES,
+  ...REDIS_TRANSIENT_CODES,
+]);
+
+export function isRedisDownError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const msg = (err as { message?: string }).message ?? "";
+  if (REDIS_DOWN_CODES.has(msg)) return true;
+  return msg.includes("connect ECONNREFUSED");
+}
 
 export function isRedisUnavailableError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -134,8 +154,12 @@ function getBullMqConnection(): IORedis | null {
     _failCount = 0;
   });
   _bullmqConnection.on("error", (err) => {
-    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+    if (isRedisDownError(err)) {
       disableRedis();
+      return;
+    }
+    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+      console.warn("[ioredis] transient redis error (not disabling):", err instanceof Error ? err.message : err);
       return;
     }
     console.error("[ioredis] unexpected error:", err);
@@ -161,8 +185,12 @@ function getQueue(): Queue | null {
       },
     });
     _queue.on("error", (err) => {
-      if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+      if (isRedisDownError(err)) {
         disableRedis();
+        return;
+      }
+      if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+        console.warn("[queue] transient redis error (not disabling):", err instanceof Error ? err.message : err);
         return;
       }
       console.error("[queue] error:", err);
@@ -329,9 +357,17 @@ export async function enqueueSdmJob(data: SdmJobData, userId?: string): Promise<
     });
     return job.id ?? jobId;
   } catch (err) {
-    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+    if (isRedisDownError(err)) {
       disableRedis();
       throw new Error("Redis unavailable — cannot enqueue job");
+    }
+    if (isMaxRetriesError(err)) {
+      disableRedis();
+      throw new Error("Redis unavailable — cannot enqueue job");
+    }
+    if (isRedisUnavailableError(err)) {
+      console.warn("[queue] transient redis error during enqueue (not disabling):", err instanceof Error ? err.message : err);
+      throw new Error("Redis enqueue failed (transient) — please retry");
     }
     if (isDuplicateJobError(err)) {
       const existing = await q.getJob(jobId);
@@ -378,8 +414,16 @@ export async function getJobStatus(jobId: string) {
       failedReason: job.failedReason,
     };
   } catch (err) {
-    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+    if (isRedisDownError(err)) {
       disableRedis();
+      return null;
+    }
+    if (isMaxRetriesError(err)) {
+      disableRedis();
+      return null;
+    }
+    if (isRedisUnavailableError(err)) {
+      console.warn("[queue] transient redis error during getJobStatus (not disabling):", err instanceof Error ? err.message : err);
       return null;
     }
     throw err;

@@ -2,7 +2,13 @@ import { Job } from "bullmq";
 import { PlumberClient } from "./plumber.js";
 import { jobEventBus } from "./job-events.js";
 import { extractProgressPercent } from "@sdm/shared";
-import { CLIMATE_DOWNLOAD_POLL_INTERVAL_MS, CLIMATE_DOWNLOAD_MAX_ATTEMPTS, SdmJobData, SdmJobResult } from "./queue.js";
+import {
+  CLIMATE_DOWNLOAD_POLL_INTERVAL_MS,
+  CLIMATE_DOWNLOAD_MAX_ATTEMPTS,
+  CLIMATE_DOWNLOAD_MAX_CONSECUTIVE_POLL_ERRORS,
+  SdmJobData,
+  SdmJobResult,
+} from "./queue.js";
 
 export async function handleClimateJob(
   job: Job<SdmJobData, SdmJobResult>,
@@ -121,6 +127,20 @@ export async function handleClimateJob(
         pollErrors++;
         lastPollError = pollMsg;
         console.warn(`[queue] Polling error for climate job ${job.id} (${pollErrors}/${CLIMATE_DOWNLOAD_MAX_ATTEMPTS}): ${pollMsg}`);
+        if (pollErrors >= CLIMATE_DOWNLOAD_MAX_CONSECUTIVE_POLL_ERRORS) {
+          const failMsg = `Polling failed ${pollErrors} times in a row: ${lastPollError}`;
+          jobEventBus.emitJobStatus({
+            jobId: job.id!,
+            state: "failed",
+            progress: lastProgress,
+            failedReason: failMsg,
+          });
+          return {
+            status: "error",
+            error: failMsg,
+            error_code: "PLUMBER_UNREACHABLE",
+          };
+        }
       }
     }
 
@@ -224,6 +244,16 @@ export async function handleCovariateJob(
       pollErrors++;
       lastPollError = pollErr instanceof Error ? pollErr.message : String(pollErr);
       console.warn(`[queue] Polling error for covariate job ${job.id} (${pollErrors}/${CLIMATE_DOWNLOAD_MAX_ATTEMPTS}): ${lastPollError}`);
+      if (pollErrors >= CLIMATE_DOWNLOAD_MAX_CONSECUTIVE_POLL_ERRORS) {
+        const failMsg = `Polling failed ${pollErrors} times in a row: ${lastPollError}`;
+        jobEventBus.emitJobStatus({
+          jobId: job.id!,
+          state: "failed",
+          progress: lastProgress,
+          failedReason: failMsg,
+        });
+        return { status: "error", error: failMsg, error_code: "PLUMBER_UNREACHABLE" };
+      }
     }
   }
 

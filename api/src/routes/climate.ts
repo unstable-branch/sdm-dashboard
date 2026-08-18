@@ -24,7 +24,11 @@ climateRoutes.get("/scenarios", longCache, async (c) => {
     return c.json(scenarios);
   } catch (e) {
     console.warn("[climate]", e instanceof Error ? e.message : String(e));
-    return c.json({ scenarios: [], message: "Plumber unavailable" });
+    return c.json({
+      error: "Plumber unavailable",
+      code: "PLUMBER_UNAVAILABLE",
+      message: e instanceof Error ? e.message : String(e),
+    }, 502);
   }
 });
 
@@ -41,7 +45,11 @@ climateRoutes.get("/check", async (c) => {
     return c.json(result);
   } catch (e) {
     console.warn("[climate]", e instanceof Error ? e.message : String(e));
-    return c.json({ available: [], missing: [] });
+    return c.json({
+      error: "Plumber unavailable",
+      code: "PLUMBER_UNAVAILABLE",
+      message: e instanceof Error ? e.message : String(e),
+    }, 502);
   }
 });
 

@@ -426,12 +426,14 @@ sdmRunRoutes.get("/future/scenarios", async (c) => {
   try {
     const scenarios = await plumberClient.getFutureScenarios();
     return c.json(scenarios);
-  } catch {
+  } catch (err) {
+    console.warn("[sdm/future/scenarios]", err instanceof Error ? err.message : String(err));
     return c.json({
       available_scenarios: [],
       gcm_choices: GCM_CHOICES,
       ssp_choices: SSP_CHOICES,
       period_choices: TIME_PERIOD_CHOICES,
+      code: "PLUMBER_UNAVAILABLE",
       message: "Plumber unavailable; returning static constants",
     });
   }

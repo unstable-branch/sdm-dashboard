@@ -2,7 +2,7 @@
 
 import { CHELSA_EXTRA_CHOICES } from "@sdm/shared";
 import { cn } from "@/lib/utils";
-import { CloudOff, Cloud } from "lucide-react";
+import { CloudOff, Cloud, AlertTriangle } from "lucide-react";
 import { ClimateBiovarGrid } from "./climate-biovar-grid";
 
 interface ModelConfigBiovarsProps {
@@ -13,6 +13,7 @@ interface ModelConfigBiovarsProps {
   biovars: number[];
   missingBiovars: number[];
   climateCheckLoading: boolean;
+  climateCheckError?: string | null;
   toggleBiovar: (id: number) => void;
   aggregationFactor: number;
   chelsaExtras: string[];
@@ -27,6 +28,7 @@ export function ModelConfigBiovars({
   biovars,
   missingBiovars,
   climateCheckLoading,
+  climateCheckError,
   toggleBiovar,
   aggregationFactor,
   chelsaExtras,
@@ -84,6 +86,17 @@ export function ModelConfigBiovars({
         <div className="flex items-center gap-2 text-xs text-sdm-muted">
           <span className="animate-pulse">Checking climate data availability...</span>
         </div>
+      ) : climateCheckError ? (
+        <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 px-4 py-3 flex items-start gap-3">
+          <AlertTriangle className="h-4 w-4 text-sdm-danger shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-sdm-text">Climate availability check failed</p>
+            <p className="text-xs text-sdm-muted mt-0.5">
+              Using last known state. If the run fails to find local climate layers, download them from the
+              Data → Climate tab.
+            </p>
+          </div>
+        </div>
       ) : missingBiovars.length > 0 && biovars.length >= 2 ? (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
           <CloudOff className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
@@ -94,7 +107,7 @@ export function ModelConfigBiovars({
               {missingBiovars.join(", BIO")}
             </p>
             <p className="text-xs text-sdm-muted mt-0.5">
-              Download missing layers from the Data → Climate tab, or enable auto-download.
+              Download missing layers from the Data → Climate tab.
             </p>
           </div>
         </div>
