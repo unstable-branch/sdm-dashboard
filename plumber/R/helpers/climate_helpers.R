@@ -276,7 +276,7 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
   entry <- sdm_process_registry[[basename(job_id)]]
   proc <- sdm_registry_proc(entry)
   killed <- FALSE
-  if (!is.null(proc) && inherits(proc, "Process") && proc$is_alive()) {
+  if (!is.null(proc) && inherits(proc, "process") && proc$is_alive()) {
     proc$kill()
     killed <- TRUE
     for (i in seq_len(30)) {

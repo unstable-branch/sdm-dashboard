@@ -1,4 +1,9 @@
-handle_ecology_run <- function(res, run_id, app_dir) {
+handle_ecology_run <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Run not found"))
@@ -63,7 +68,12 @@ handle_ecology_run <- function(res, run_id, app_dir) {
   result
 }
 
-handle_ecology_eoo_aoo <- function(res, run_id, app_dir) {
+handle_ecology_eoo_aoo <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Run not found"))
@@ -88,7 +98,12 @@ handle_ecology_eoo_aoo <- function(res, run_id, app_dir) {
   list(available = FALSE, message = "EOO/AOO not computed for this run")
 }
 
-handle_ecology_aoa <- function(res, run_id, app_dir) {
+handle_ecology_aoa <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -108,7 +123,12 @@ handle_ecology_aoa <- function(res, run_id, app_dir) {
   }
 }
 
-handle_ecology_report <- function(res, run_id, app_dir) {
+handle_ecology_report <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")

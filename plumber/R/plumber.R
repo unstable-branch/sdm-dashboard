@@ -191,19 +191,19 @@ function(req, job_id) handle_climate_cancel(req, job_id, app_dir)
 
 #* Get ecology data for a run
 #* @get /api/v1/ecology/<run_id>
-function(res, run_id) handle_ecology_run(res, run_id, app_dir)
+function(req, res, run_id) handle_ecology_run(req, res, run_id, app_dir)
 
 #* Get EOO/AOO data for a run
 #* @get /api/v1/ecology/<run_id>/eoo-aoo
-function(res, run_id) handle_ecology_eoo_aoo(res, run_id, app_dir)
+function(req, res, run_id) handle_ecology_eoo_aoo(req, res, run_id, app_dir)
 
 #* Get Area of Applicability data
 #* @get /api/v1/ecology/<run_id>/aoa
-function(res, run_id) handle_ecology_aoa(res, run_id, app_dir)
+function(req, res, run_id) handle_ecology_aoa(req, res, run_id, app_dir)
 
 #* Get conservation status report
 #* @get /api/v1/ecology/<run_id>/report
-function(res, run_id) handle_ecology_report(res, run_id, app_dir)
+function(req, res, run_id) handle_ecology_report(req, res, run_id, app_dir)
 
 #* Compute niche overlap between two runs
 #* @post /api/v1/ecology/niche-overlap
@@ -231,68 +231,68 @@ function(res, run_id) handle_output_manifest(res, run_id, app_dir)
 
 #* Get VIF screening results
 #* @get /api/v1/diagnostics/vif/<run_id>
-function(res, run_id) handle_diagnostics_vif(res, run_id)
+function(req, res, run_id) handle_diagnostics_vif(req, res, run_id, app_dir)
 
 #* Get response curves data
 #* @get /api/v1/diagnostics/response-curves/<run_id>
-function(res, run_id) handle_diagnostics_response_curves(res, run_id)
+function(req, res, run_id) handle_diagnostics_response_curves(req, res, run_id, app_dir)
 
 #* Get Accumulated Local Effects (ALE) data
 #* @get /api/v1/diagnostics/ale/<run_id>
-function(res, run_id) handle_diagnostics_ale(res, run_id)
+function(req, res, run_id) handle_diagnostics_ale(req, res, run_id, app_dir)
 
 #* Get variable importance data
 #* @get /api/v1/diagnostics/importance/<run_id>
-function(res, run_id) handle_diagnostics_importance(res, run_id)
+function(req, res, run_id) handle_diagnostics_importance(req, res, run_id, app_dir)
 
 #* Compute per-cell SHAP explanation
 #* @parser json
 #* @post /api/v1/diagnostics/shap/cell
-function(res, run_id = "", longitude = NULL, latitude = NULL) handle_diagnostics_shap_cell(res, run_id, longitude, latitude)
+function(req, res, run_id = "", longitude = NULL, latitude = NULL) handle_diagnostics_shap_cell(req, res, run_id, longitude, latitude, app_dir)
 
 #* Get climate driver attribution
 #* @get /api/v1/diagnostics/climate-drivers/<run_id>
-function(res, run_id) handle_diagnostics_climate_drivers(res, run_id)
+function(req, res, run_id) handle_diagnostics_climate_drivers(req, res, run_id, app_dir)
 
 #* Get Continuous Boyce Index (CBI) data
 #* @get /api/v1/diagnostics/cbi/<run_id>
-function(res, run_id) handle_diagnostics_cbi(res, run_id)
+function(req, res, run_id) handle_diagnostics_cbi(req, res, run_id, app_dir)
 
 #* Get MESS extrapolation summary
 #* @get /api/v1/diagnostics/mess/<run_id>
-function(res, run_id) handle_diagnostics_mess(res, run_id)
+function(req, res, run_id) handle_diagnostics_mess(req, res, run_id, app_dir)
 
 #* Get combined diagnostics summary
 #* @get /api/v1/diagnostics/summary/<run_id>
-function(res, run_id) handle_diagnostics_summary(res, run_id)
+function(req, res, run_id) handle_diagnostics_summary(req, res, run_id, app_dir)
 
 #* Get ROC curve data
 #* @get /api/v1/diagnostics/roc/<run_id>
-function(res, run_id) handle_diagnostics_roc(res, run_id)
+function(req, res, run_id) handle_diagnostics_roc(req, res, run_id, app_dir)
 
 #* Get calibration curve data
 #* @get /api/v1/diagnostics/calibration/<run_id>
-function(res, run_id) handle_diagnostics_calibration(res, run_id)
+function(req, res, run_id) handle_diagnostics_calibration(req, res, run_id, app_dir)
 
 #* Get per-fold CV metrics
 #* @get /api/v1/diagnostics/cv-folds/<run_id>
-function(res, run_id) handle_diagnostics_cv_folds(res, run_id)
+function(req, res, run_id) handle_diagnostics_cv_folds(req, res, run_id, app_dir)
 
 #* Get threshold performance data
 #* @get /api/v1/diagnostics/threshold/<run_id>
-function(res, run_id) handle_diagnostics_threshold(res, run_id)
+function(req, res, run_id) handle_diagnostics_threshold(req, res, run_id, app_dir)
 
 #* Get presence vs background density data
 #* @get /api/v1/diagnostics/density/<run_id>
-function(res, run_id) handle_diagnostics_density(res, run_id)
+function(req, res, run_id) handle_diagnostics_density(req, res, run_id, app_dir)
 
 #* Generate diagnostic PNG plots
 #* @post /api/v1/diagnostics/plots/<run_id>
-function(res, run_id) handle_diagnostics_plots(res, run_id)
+function(req, res, run_id) handle_diagnostics_plots(req, res, run_id, app_dir)
 
 #* Download diagnostics data as CSV
 #* @get /api/v1/diagnostics/data/<run_id>/<type>
-function(res, run_id, type) handle_diagnostics_data(res, run_id, type)
+function(req, res, run_id, type) handle_diagnostics_data(req, res, run_id, type, app_dir)
 
 #* Check BIO variable availability
 #* @param source Climate data source (worldclim, chelsa)
