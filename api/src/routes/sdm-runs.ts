@@ -13,7 +13,7 @@ import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
 import { buildModelPayload, cleanupDecryptedFiles } from "../services/model-payload.js";
-import { canAccessRun } from "./results.js";
+import { canAccessRun } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 
 async function plumberJobId(runId: string): Promise<string> {
