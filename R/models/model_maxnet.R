@@ -157,12 +157,9 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
     log_message(log_fun, "Predicting MaxEnt suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
     suit <- terra::app(env_subset, fun = function(vals) {
-      if (!all(is.finite(vals))) {
-        return(rep(NA_real_, nrow(vals)))
-      }
-      df <- as.data.frame(vals, stringsAsFactors = FALSE)
-      names(df) <- fit$covariates
-      as.numeric(predict(fit$model, df, clamp = TRUE, type = "cloglog"))
+      sdm_apply_predict(vals, fit$covariates, function(df) {
+        as.numeric(predict(fit$model, df, clamp = TRUE, type = "cloglog"))
+      })
     }, cores = n_cores)
 
     names(suit) <- "suitability"

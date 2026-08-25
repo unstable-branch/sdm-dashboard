@@ -266,6 +266,12 @@ run_fast_sdm <- function(...) {
   if (!is.null(dwca_doi) && !is.na(dwca_doi) && nzchar(dwca_doi)) {
     log_message(log_fun, "DwC-A GBIF dataset DOI: ", dwca_doi)
   }
+  # Preserve DwC-A provenance metadata on cleaned itself before we NULL out
+  # cleaned$raw (which is ~200MB of raw occurrence data). The manifest reads
+  # these back from cleaned$raw at ~line 1381, but by then attr() is gone.
+  cleaned$dwca_datasets <- attr(cleaned$raw, "dwca_datasets")
+  cleaned$dwca_issues <- attr(cleaned$raw, "dwca_issues")
+  cleaned$gbif_doi <- attr(cleaned$raw, "gbif_doi")
   cleaned$raw <- NULL
   cleaned$source_counts <- NULL
   cleaned$n_absent_excluded <- NULL
@@ -392,6 +398,10 @@ run_fast_sdm <- function(...) {
       log_message(log_fun, "  MESS: ", sprintf("%.1f%%", mess_result$pct_extrapolation * 100), " of projection area outside training range")
     }
   }
+
+  # Snapshot the training data before NULL-ing it; future_projection later
+  # needs it for MESS computation.
+  env_train_for_mess <- env$env_train
   env$env_train <- NULL
   env$env_project <- NULL
 
@@ -671,41 +681,69 @@ run_fast_sdm <- function(...) {
   # the TSS-maximizing threshold from training predictions and use it for all
   # downstream binary classification (area calc, PNG, summary stats).
   if (is.na(threshold) && !is.null(fit$model_data) && "presence" %in% names(fit$model_data)) {
-    threshold <- tryCatch({
+threshold <- tryCatch({
       # Attempt model-agnostic re-prediction on training data
       train_pred <- NULL
+      backend_used <- "unknown"
       if (inherits(fit$model, "xgb.Booster")) {
         x_mat <- as.matrix(fit$model_data[, fit$covariates, drop = FALSE])
         train_pred <- stats::predict(fit$model, x_mat)
+        backend_used <- "xgb.Booster"
       } else if (inherits(fit$model, "maxnet")) {
         df <- fit$model_data[, fit$covariates, drop = FALSE]
         train_pred <- as.numeric(predict(fit$model, df, clamp = TRUE, type = "cloglog"))
+        backend_used <- "maxnet"
       } else if (is.list(fit$model) && !is.null(fit$model$xgb_fit)) {
         x_mat <- as.matrix(fit$model_data[, fit$covariates, drop = FALSE])
         train_pred <- stats::predict(fit$model$xgb_fit, x_mat)
+        backend_used <- "multi-ensemble:xgb"
       } else if (inherits(fit$model, "glm")) {
         train_pred <- stats::predict(fit$model, newdata = fit$model_data, type = "response")
+        backend_used <- "glm"
+      } else if (inherits(fit$model, "nnet") || inherits(fit$model, "nnet.formula")) {
+        train_pred <- suppressWarnings(as.numeric(stats::predict(fit$model, newdata = fit$model_data, type = "raw")))
+        backend_used <- "nnet"
       } else if (inherits(fit$model, "randomForest")) {
         train_pred <- stats::predict(fit$model, newdata = fit$model_data, type = "vote")[, "1"]
+        backend_used <- "randomForest"
+      } else if (inherits(fit$model, "ranger")) {
+        pr <- stats::predict(fit$model, data = fit$model_data)
+        if (is.matrix(pr)) {
+          train_pred <- pr[, ncol(pr)]
+        } else {
+          train_pred <- suppressWarnings(as.numeric(as.character(pr)))
+        }
+        backend_used <- "ranger"
       } else {
-        # Generic fallback: attempt predict with common defaults
+        # Generic fallback: many backends (BRT, GAM, MARS, BIOCLIM, MaxNet-ME,
+        # ESM, rangebag multi-ensemble) expose predict() with the same signature.
         train_pred <- tryCatch(
           stats::predict(fit$model, newdata = fit$model_data),
           error = function(e) NULL
         )
+        if (!is.null(train_pred)) backend_used <- "generic"
       }
       if (!is.null(train_pred)) {
+        train_pred <- suppressWarnings(as.numeric(train_pred))
         pres_suit <- train_pred[fit$model_data$presence == 1]
         bg_suit <- train_pred[fit$model_data$presence == 0]
         opt <- select_threshold(pres_suit, bg_suit)
         if (is.finite(opt$threshold) && opt$threshold >= 0 && opt$threshold <= 1) {
-          log_message(log_fun, "Optimal threshold from max_tss: ", sprintf("%.3f", opt$threshold),
-            " (TSS=", sprintf("%.3f", opt$max_tss), ")")
+          log_message(log_fun, "Optimal threshold from max_tss [", backend_used, "]: ",
+            sprintf("%.3f", opt$threshold),
+            " (TSS=", sprintf("%.3f", opt$max_tss), ")"
+          )
           opt$threshold
         } else {
+          log_message(log_fun,
+            "WARN: max_tss could not be computed for backend '", backend_used,
+            "' — leaving threshold as NA. Downstream area/PNG stats will be omitted.")
           NA_real_
         }
       } else {
+        log_message(log_fun,
+          "WARN: max_tss could not be computed for backend '", backend_used,
+          "' (predict returned NULL) — leaving threshold as NA.")
         NA_real_
       }
     }, error = function(e) {
@@ -1046,7 +1084,8 @@ run_fast_sdm <- function(...) {
         n_cores = n_cores,
         log_fun = log_fun,
         mask_extrapolation = mask_extrapolation,
-        mess_threshold = mess_threshold
+        mess_threshold = mess_threshold,
+        mess_train_data = env_train_for_mess
       ),
       error = function(e) {
         log_message(log_fun, "Future projection failed: ", conditionMessage(e))
@@ -1086,7 +1125,8 @@ run_fast_sdm <- function(...) {
         n_cores = n_cores,
         log_fun = log_fun,
         mask_extrapolation = isTRUE(cfg$extrapolation_mask %||% TRUE),
-        mess_threshold = cfg$mess_threshold %||% 0
+        mess_threshold = cfg$mess_threshold %||% 0,
+        mess_train_data = env_train_for_mess
       ),
       error = function(e) {
         log_message(log_fun, "2nd scenario failed: ", conditionMessage(e))
@@ -1378,8 +1418,8 @@ run_fast_sdm <- function(...) {
     ),
     occurrence = occ, occurrence_used = fit$occurrence_used, source_counts = sort(table(occ$source), decreasing = TRUE),
     cleaning = cleaned[c("removed_bad_coordinates", "removed_duplicates", "original_rows", "columns")],
-    dwca_datasets = attr(cleaned$raw, "dwca_datasets"),
-    dwca_issues = attr(cleaned$raw, "dwca_issues"),
+    dwca_datasets = cleaned$dwca_datasets,
+    dwca_issues = cleaned$dwca_issues,
     environment = list(
       names = names(env$env_train_scaled), means = env$means, sds = env$sds,
       files = env$files, extra_covariates = env$extra_covariates,
@@ -1626,7 +1666,8 @@ sdm_stage_future <- function(cfg, fit, suit, env, output_dir, base_name, log_fun
     output_delta_tif = file.path(output_dir, paste0(base_name, "_future_delta.tif")),
     n_cores = cfg$n_cores %||% 8L, log_fun = log_fun,
     mask_extrapolation = isTRUE(cfg$extrapolation_mask %||% TRUE),
-    mess_threshold = cfg$mess_threshold %||% 0
+    mess_threshold = cfg$mess_threshold %||% 0,
+    mess_train_data = env$env_train
   ), error = function(e) {
     stop("Stage 4b (future) failed: ", conditionMessage(e), call. = FALSE)
   })

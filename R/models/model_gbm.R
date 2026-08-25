@@ -170,13 +170,10 @@ predict_brt_suitability <- function(fit, env_project_scaled, output_tif, n_cores
   log_message(log_fun, "Predicting BRT suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
   suit <- terra::app(env_subset, fun = function(vals) {
-    if (!all(is.finite(vals))) {
-      return(rep(NA_real_, nrow(vals)))
-    }
-    df <- as.data.frame(vals, stringsAsFactors = FALSE)
-    names(df) <- fit$covariates
-    pred <- gbm::predict.gbm(fit$model, newdata = df, n.trees = n_trees, type = "response")
-    pmin(pmax(as.numeric(pred), 0), 1)
+    sdm_apply_predict(vals, fit$covariates, function(df) {
+      pred <- gbm::predict.gbm(fit$model, newdata = df, n.trees = n_trees, type = "response")
+      pmin(pmax(as.numeric(pred), 0), 1)
+    })
   }, cores = normalize_core_count(n_cores))
 
   names(suit) <- "suitability"

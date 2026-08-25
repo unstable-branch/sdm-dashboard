@@ -60,7 +60,10 @@ select_threshold <- function(presence_suit, background_suit,
   presence_suit <- as.numeric(presence_suit)[is.finite(as.numeric(presence_suit))]
   background_suit <- as.numeric(background_suit)[is.finite(as.numeric(background_suit))]
   if (length(presence_suit) < 3 || length(background_suit) < 3) {
-    return(list(threshold = 0.5, max_tss = NA_real_, method = "fallback"))
+    # Honest label: too few samples to fit a threshold — return NA instead of
+    # silently falling back to 0.5 (which would write "0% above threshold" to
+    # the manifest). Downstream is.na() checks will omit area stats.
+    return(list(threshold = NA_real_, max_tss = NA_real_, method = "fallback"))
   }
   best_tss <- -Inf
   best_threshold <- 0.5

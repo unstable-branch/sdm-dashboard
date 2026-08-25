@@ -79,6 +79,10 @@ find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("wo
         hit <- files[grepl(pattern1, basename(files), ignore.case = TRUE)]
       }
     }
+    # Drop any "matches" that aren't actually valid GeoTIFFs (e.g. an old HTML
+    # 404 page saved with a .tif extension). The model would otherwise
+    # silently read NaN from a corrupt raster.
+    if (length(hit) > 0) hit <- hit[vapply(hit, is_valid_geotiff, logical(1))]
     if (length(hit) == 0) {
       NA_character_
     } else if (length(hit) > 1) {

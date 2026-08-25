@@ -118,3 +118,22 @@ find_optimal_threshold <- function(obs, pred) {
   }
   best
 }
+
+# Apply a per-row "predict_fn(rows_df) -> numeric vector" to a terra::app-style
+# matrix chunk. Rows with any non-finite covariate get NA_real_ instead of
+# poisoning the whole chunk. `covariates` are the original cov names to assign
+# to the rows data.frame passed to predict_fn (so `fit$covariates` lookups work).
+sdm_apply_predict <- function(vals, covariates, predict_fn) {
+  out <- rep(NA_real_, nrow(vals))
+  if (nrow(vals) == 0L) return(out)
+  ok <- apply(vals, 1, function(row) all(is.finite(row)))
+  if (!any(ok)) return(out)
+  rows_ok <- which(ok)
+  tryCatch({
+    df <- as.data.frame(vals[rows_ok, , drop = FALSE], stringsAsFactors = FALSE)
+    names(df) <- covariates
+    preds <- suppressWarnings(as.numeric(predict_fn(df)))
+    if (length(preds) == length(rows_ok)) out[rows_ok] <- preds
+  }, error = function(e) NULL)
+  out
+}
