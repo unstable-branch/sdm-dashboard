@@ -1,4 +1,9 @@
-handle_diagnostics_vif <- function(res, run_id) {
+handle_diagnostics_vif <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -53,7 +58,12 @@ handle_diagnostics_vif <- function(res, run_id) {
   })
 }
 
-handle_diagnostics_response_curves <- function(res, run_id) {
+handle_diagnostics_response_curves <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -105,7 +115,12 @@ handle_diagnostics_response_curves <- function(res, run_id) {
   })
 }
 
-handle_diagnostics_ale <- function(res, run_id) {
+handle_diagnostics_ale <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -162,7 +177,12 @@ handle_diagnostics_ale <- function(res, run_id) {
   })
 }
 
-handle_diagnostics_importance <- function(res, run_id) {
+handle_diagnostics_importance <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -208,7 +228,12 @@ handle_diagnostics_importance <- function(res, run_id) {
   })
 }
 
-handle_diagnostics_shap_cell <- function(res, run_id = "", longitude = NULL, latitude = NULL) {
+handle_diagnostics_shap_cell <- function(req, res, run_id = "", longitude = NULL, latitude = NULL, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   if (!nzchar(run_id) || is.null(longitude) || is.null(latitude)) {
     res$status <- 400L; return(list(error = "run_id, longitude, and latitude required"))
   }
@@ -287,7 +312,12 @@ handle_diagnostics_shap_cell <- function(res, run_id = "", longitude = NULL, lat
   })
 }
 
-handle_diagnostics_climate_drivers <- function(res, run_id) {
+handle_diagnostics_climate_drivers <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -351,7 +381,12 @@ handle_diagnostics_climate_drivers <- function(res, run_id) {
   })
 }
 
-handle_diagnostics_cbi <- function(res, run_id) {
+handle_diagnostics_cbi <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -408,7 +443,12 @@ handle_diagnostics_cbi <- function(res, run_id) {
   })
 }
 
-handle_diagnostics_mess <- function(res, run_id) {
+handle_diagnostics_mess <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -445,7 +485,12 @@ handle_diagnostics_mess <- function(res, run_id) {
   )
 }
 
-handle_diagnostics_summary <- function(res, run_id) {
+handle_diagnostics_summary <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -513,7 +558,12 @@ handle_diagnostics_summary <- function(res, run_id) {
   )
 }
 
-handle_diagnostics_roc <- function(res, run_id) {
+handle_diagnostics_roc <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -556,7 +606,12 @@ handle_diagnostics_roc <- function(res, run_id) {
   })
 }
 
-handle_diagnostics_calibration <- function(res, run_id) {
+handle_diagnostics_calibration <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -587,7 +642,12 @@ handle_diagnostics_calibration <- function(res, run_id) {
   })
 }
 
-handle_diagnostics_cv_folds <- function(res, run_id) {
+handle_diagnostics_cv_folds <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -622,7 +682,12 @@ handle_diagnostics_cv_folds <- function(res, run_id) {
   })
 }
 
-handle_diagnostics_threshold <- function(res, run_id) {
+handle_diagnostics_threshold <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -656,7 +721,12 @@ handle_diagnostics_threshold <- function(res, run_id) {
   })
 }
 
-handle_diagnostics_density <- function(res, run_id) {
+handle_diagnostics_density <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -685,7 +755,12 @@ handle_diagnostics_density <- function(res, run_id) {
   })
 }
 
-handle_diagnostics_plots <- function(res, run_id) {
+handle_diagnostics_plots <- function(req, res, run_id, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -706,7 +781,12 @@ handle_diagnostics_plots <- function(res, run_id) {
   list(ok = TRUE, files = diag_files)
 }
 
-handle_diagnostics_data <- function(res, run_id, type) {
+handle_diagnostics_data <- function(req, res, run_id, type, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")

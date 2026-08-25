@@ -3,14 +3,15 @@ import { readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { db } from "../db/index.js";
-import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles, auditLogs } from "../db/schema.js";
-import { eq, desc, sql, and, ilike, inArray, count } from "drizzle-orm";
+import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles, auditLogs, refreshTokens } from "../db/schema.js";
+import { eq, desc, sql, and, ilike, inArray, count, isNull } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { hash } from "bcrypt";
 import type { AppEnv } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import { encryptString, decryptString, isEncryptionKeyConfigured } from "../services/encryption.js";
+import { validatePassword } from "./auth.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -240,8 +241,9 @@ adminRoutes.post("/users/:id/reset-password", async (c) => {
     const body = await c.req.json();
     const newPassword = body.password;
 
-    if (!newPassword || newPassword.length < 8) {
-      return c.json({ error: "Password must be at least 8 characters" }, 400);
+    const pwErr = validatePassword(newPassword ?? "");
+    if (pwErr) {
+      return c.json({ error: pwErr }, 400);
     }
 
     const [target] = await db.select().from(users).where(eq(users.id, targetId)).limit(1);
@@ -251,6 +253,11 @@ adminRoutes.post("/users/:id/reset-password", async (c) => {
 
     const passwordHash = await hash(newPassword, BCRYPT_ROUNDS);
     await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, targetId));
+
+    await db
+      .update(refreshTokens)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(refreshTokens.userId, targetId), isNull(refreshTokens.revokedAt)));
 
     const adminUser = c.get("user");
     const client = extractClientInfo(c);

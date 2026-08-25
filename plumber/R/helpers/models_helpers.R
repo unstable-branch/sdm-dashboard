@@ -981,7 +981,7 @@ handle_model_cancel <- function(req, job_id) {
   proc <- sdm_registry_proc(entry)
   killed <- FALSE
 
-  if (!is.null(proc) && inherits(proc, "Process")) {
+  if (!is.null(proc) && inherits(proc, "process")) {
     if (proc$is_alive()) {
       proc$kill()
       killed <- TRUE

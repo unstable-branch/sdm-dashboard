@@ -8,7 +8,7 @@ import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { getErrorHttpStatus, StatusCode } from "@sdm/shared";
 import { authMiddleware, type AppEnv } from "../middleware/auth.js";
-import { getUserProjectIds } from "../services/access.js";
+import { getUserProjectIds, canAccessRun, isUuid } from "../services/access.js";
 import { decrypt } from "../services/encryption.js";
 import { plumberClient } from "../services/plumber.js";
 
@@ -46,12 +46,6 @@ function resolveResultFilePath(filePath: string): { fullPath: string; runId: str
   return { fullPath, runId };
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isUuid(value: string): boolean {
-  return UUID_RE.test(value);
-}
-
 const PROJECT_ROOT = process.env.PROJECT_ROOT || process.cwd();
 
 function parseRangeHeader(rangeHeader: string, fileSize: number): { start: number; end: number } | null {
@@ -61,27 +55,6 @@ function parseRangeHeader(rangeHeader: string, fileSize: number): { start: numbe
   const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
   if (start >= fileSize || start > end) return null;
   return { start, end: Math.min(end, fileSize - 1) };
-}
-
-export async function canAccessRun(userId: string, role: string, runId: string): Promise<boolean> {
-  const idMatch = isUuid(runId) ? eq(runs.id, runId) : eq(runs.jobId, runId);
-
-  if (role === "admin") {
-    const [run] = await db.select({ id: runs.id }).from(runs).where(idMatch).limit(1);
-    return Boolean(run);
-  }
-
-  const projectIds = await getUserProjectIds({ id: userId, email: "", role });
-  if (!projectIds || projectIds.length === 0) {
-    return false;
-  }
-
-  const [run] = await db
-    .select({ id: runs.id })
-    .from(runs)
-    .where(and(idMatch, inArray(runs.projectId, projectIds)))
-    .limit(1);
-  return Boolean(run);
 }
 
 /**

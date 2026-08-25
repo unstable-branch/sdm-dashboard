@@ -72,15 +72,35 @@ dataRoutes.get("/occurrences/job/:jobId", async (c) => {
   }
 });
 
+async function assertUserOwnsUploadPath(userId: string, filePath: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: uploads.id })
+    .from(uploads)
+    .where(and(eq(uploads.filePath, filePath), eq(uploads.userId, userId)))
+    .limit(1);
+  if (row) return true;
+  const [uf] = await db
+    .select({ id: uploadedFiles.id })
+    .from(uploadedFiles)
+    .where(and(eq(uploadedFiles.filePath, filePath), eq(uploadedFiles.userId, userId)))
+    .limit(1);
+  return Boolean(uf);
+}
+
 dataRoutes.get("/occurrences/clean/result", async (c) => {
   try {
     const fileId = c.req.query("file_id");
     const cleanedFileId = c.req.query("cleaned_file_id");
     if (!fileId && !cleanedFileId) return c.json({ error: "file_id or cleaned_file_id is required" }, 400);
 
+    const user = c.get("user");
+
     if (cleanedFileId) {
       const resolved = resolveFilePath(cleanedFileId);
       if (!resolved.path) return c.json({ error: "Invalid cleaned_file_id" }, 400);
+      if (!(await assertUserOwnsUploadPath(user.id, cleanedFileId))) {
+        return c.json({ error: "Cleaned file not found" }, 404);
+      }
       const result = readCleanResultFromFile(resolved.path);
       if (result) {
         return c.json({
@@ -96,6 +116,9 @@ dataRoutes.get("/occurrences/clean/result", async (c) => {
     if (fileId) {
       const resolved = resolveFilePath(fileId);
       if (!resolved.path) return c.json({ error: "Invalid file_id" }, 400);
+      if (!(await assertUserOwnsUploadPath(user.id, fileId))) {
+        return c.json({ error: "File not found" }, 404);
+      }
       try {
         const uploadsList = await plumberClient.withUser(c.get("user").id).getUploads(200);
         const match = uploadsList.uploads.find(u => String(u.file_path || "") === resolved.path || String(u.file_id || "") === resolved.path);
@@ -602,7 +625,7 @@ dataRoutes.patch("/uploads/:fileId", async (c) => {
       await db
         .update(uploads)
         .set(uploadUpdate)
-        .where(eq(uploads.filePath, fileId));
+        .where(and(eq(uploads.filePath, fileId), eq(uploads.userId, user.id)));
     }
 
     return c.json({ ok: true });
@@ -661,7 +684,7 @@ dataRoutes.delete("/uploads/:fileId", async (c) => {
         cleanedFilePath: uploads.cleanedFilePath,
       })
       .from(uploads)
-      .where(eq(uploads.filePath, fileId))
+      .where(and(eq(uploads.filePath, fileId), eq(uploads.userId, user.id)))
       .limit(1);
 
     if (!upRecord) {
@@ -669,7 +692,7 @@ dataRoutes.delete("/uploads/:fileId", async (c) => {
     }
 
     await deleteFilesFromDisk(upRecord.filePath, upRecord.cleanedFilePath);
-    await db.delete(uploads).where(eq(uploads.filePath, fileId));
+    await db.delete(uploads).where(and(eq(uploads.filePath, fileId), eq(uploads.userId, user.id)));
 
     return c.json({ ok: true, message: "Upload deleted" });
   } catch (err) {
