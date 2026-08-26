@@ -61,7 +61,13 @@ async function seed() {
 
   console.log("Seed complete");
   console.log(`  Email: ${ADMIN_EMAIL}`);
-  console.log(`  Password: ${ADMIN_PASSWORD} ${process.env.NODE_ENV === "production" ? "" : "(generated, store this somewhere safe)"}`);
+  if (process.stdout.isTTY) {
+    // Only print the password to a real TTY (i.e. interactive shell) — in CI or
+    // pipe-to-log scenarios, the password is never printed.
+    console.log(`  Password: ${ADMIN_PASSWORD}${process.env.ADMIN_PASSWORD ? "" : " (generated; store this somewhere safe)"}`);
+  } else {
+    console.log("  Password: <hidden — set ADMIN_PASSWORD before running, or run interactively for a generated one>");
+  }
   process.exit(0);
 }
 

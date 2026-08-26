@@ -1,6 +1,7 @@
 import { createMiddleware } from "hono/factory";
 import type { Redis } from "ioredis";
 import { getSharedRedis } from "../services/queue.js";
+import { getClientIp } from "./client-ip.js";
 
 let redisAvailable = false;
 
@@ -79,7 +80,7 @@ export interface RateLimitOptions {
 
 export function rateLimit(options: RateLimitOptions) {
   return createMiddleware(async (c, next) => {
-    const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || c.req.header("cf-connecting-ip") || "unknown";
+    const ip = getClientIp(c);
     const key = `${options.keyPrefix || "rl"}:${ip}`;
     const r = getRedis();
 
