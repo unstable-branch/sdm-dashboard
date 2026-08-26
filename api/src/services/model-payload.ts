@@ -75,6 +75,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   futureLabel: "future_label",
   futureWorldclimDir2: "future_worldclim_dir2",
   futureLabel2: "future_label2",
+  autoDownloadClimate: "auto_download_climate",
   worldclimDir: "worldclim_dir",
   worldclimRes: "worldclim_res",
   useElevation: "use_elevation",

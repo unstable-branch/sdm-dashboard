@@ -1,10 +1,34 @@
 # Detect available RAM to set R_MAX_VSIZE as 75% of total (cgroup-aware),
 # overridable via SDM_CHILD_MAX_VSIZE env var.
+#
+# Caching behaviour:
+# - If SDM_CHILD_MAX_VSIZE is set, that exact value is used, no probing.
+# - Otherwise we probe /sys/fs/cgroup/memory.max (cgroup v2) then /proc/meminfo.
+#   The result is cached in a module-level variable to avoid hitting the
+#   filesystem on every R worker spawn, but the cache TTL is governed by
+#   SDM_CHILD_MAX_VSIZE_REFRESH_MS:
+#     - 0 (default) = cache forever; first read wins, no refresh.
+#     - N > 0      = re-probe every N milliseconds.
+#   In container environments with resizable cgroup limits (k8s vertical pod
+#   autoscaling), set SDM_CHILD_MAX_VSIZE_REFRESH_MS to a value like 60000
+#   so a resized limit is detected within a minute without restarting Plumber.
 sdm_detect_vsize <- local({
   .cached <- NULL
+  .cached_at <- 0
+  .refresh_ms <- NULL
   function() {
-    if (!is.null(.cached)) return(.cached)
-    .cached <<- Sys.getenv("SDM_CHILD_MAX_VSIZE", {
+    refresh_ms <- .refresh_ms
+    if (is.null(refresh_ms)) {
+      raw <- Sys.getenv("SDM_CHILD_MAX_VSIZE_REFRESH_MS", "0")
+      refresh_ms <- suppressWarnings(as.integer(raw))
+      if (is.na(refresh_ms) || refresh_ms < 0) refresh_ms <- 0L
+      .refresh_ms <<- refresh_ms
+    }
+    if (!is.null(.cached) && (refresh_ms == 0L ||
+        (as.numeric(Sys.time()) * 1000 - .cached_at) < refresh_ms)) {
+      return(.cached)
+    }
+    detected <- Sys.getenv("SDM_CHILD_MAX_VSIZE", {
       vsize_gb <- tryCatch({
         cgroup_limit <- NA_real_
         if (file.exists("/sys/fs/cgroup/memory.max")) {
@@ -24,6 +48,8 @@ sdm_detect_vsize <- local({
       }, error = function(e) 16L)
       paste0(vsize_gb, "Gb")
     })
+    .cached <<- detected
+    .cached_at <<- as.numeric(Sys.time()) * 1000
     .cached
   }
 })

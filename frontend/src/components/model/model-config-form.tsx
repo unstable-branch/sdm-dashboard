@@ -232,6 +232,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
+  const [autoDownloadClimate, setAutoDownloadClimate] = useState(true);
   const [missingBiovars, setMissingBiovars] = useState<number[]>([]);
   const [climateCheckLoading, setClimateCheckLoading] = useState(false);
   const [climateCheckError, setClimateCheckError] = useState<string | null>(null);
@@ -476,6 +477,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       cleanedFilePath: useCleaned ? cleanedOccurrence!.filePath : undefined,
       source: climateSource,
       worldclimRes: climateRes,
+      autoDownloadClimate,
       multiEnsembleModels: modelId === "multi_ensemble" ? multiEnsembleModels : undefined,
       multiEnsembleWeighting: modelId === "multi_ensemble" ? multiEnsembleWeighting : undefined,
       multiEnsemblePower: modelId === "multi_ensemble" ? multiEnsemblePower : undefined,
@@ -735,6 +737,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         aggregationFactor={aggregationFactor}
         chelsaExtras={chelsaExtras}
         onChelsaExtrasChange={setChelsaExtras}
+        autoDownloadClimate={autoDownloadClimate}
+        onAutoDownloadClimateChange={setAutoDownloadClimate}
       />
 
       <ModelConfigExtent
