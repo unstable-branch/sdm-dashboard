@@ -59,6 +59,7 @@ export type AppEnv = {
       email: string;
       role: string;
     };
+    requestId: string;
   };
 };
 

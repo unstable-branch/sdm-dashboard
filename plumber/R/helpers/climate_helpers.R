@@ -96,7 +96,8 @@ handle_climate_status <- function(res, job_id, app_dir) {
     res$status <- 404L; return(list(error = "Download job not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
 
   if (identical(meta$status, "running")) {
     entry <- sdm_process_registry[[basename(job_id)]]
@@ -263,7 +264,8 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
   meta_file <- file.path(job_dir, "meta.json")
 
   if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
       if (as.character(meta$user_id) != as.character(req$user_id)) {
         return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this download"))
@@ -297,7 +299,8 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
   }
 
   if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$status) && meta$status %in% c("completed", "failed", "cancelled")) {
       return(list(ok = TRUE, message = "Download already terminated"))
     }

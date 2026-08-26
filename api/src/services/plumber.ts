@@ -1,6 +1,5 @@
 import type {
   PlumberUploadResponse,
-  PlumberDiagnosticsShapCell,
   PlumberJobLogs,
 } from "@sdm/shared";
 
@@ -435,14 +434,14 @@ export class PlumberClient {
     return this._fetch(`${this.baseUrl}/api/v1/diagnostics/data/${runId}/${type}`, { headers: this.headers() });
   }
 
-  async postDiagnosticsShapCell(runId: string, longitude: number, latitude: number): Promise<PlumberDiagnosticsShapCell> {
+  async postDiagnosticsShapCell(runId: string, longitude: number, latitude: number): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/shap/cell`, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify({ run_id: runId, longitude, latitude }),
     });
     if (!res.ok) throw new Error(`Failed to get SHAP cell explanation: ${res.status}`);
-    return res.json();
+    return res.json() as Promise<Record<string, unknown>>;
   }
 
   async getRunComparison(runId1: string, runId2: string): Promise<Record<string, unknown>> {

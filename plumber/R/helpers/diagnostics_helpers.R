@@ -12,7 +12,8 @@ handle_diagnostics_vif <- function(req, res, run_id, app_dir) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") {
     res$status <- 400L; return(list(error = "Run not completed yet"))
   }
@@ -72,7 +73,8 @@ handle_diagnostics_response_curves <- function(req, res, run_id, app_dir) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") {
     res$status <- 400L; return(list(error = "Run not completed yet"))
   }
@@ -129,7 +131,8 @@ handle_diagnostics_ale <- function(req, res, run_id, app_dir) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") {
     res$status <- 400L; return(list(error = "Run not completed yet"))
   }
@@ -191,7 +194,8 @@ handle_diagnostics_importance <- function(req, res, run_id, app_dir) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") {
     res$status <- 400L; return(list(error = "Run not completed yet"))
   }
@@ -246,7 +250,8 @@ handle_diagnostics_shap_cell <- function(req, res, run_id = "", longitude = NULL
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") {
     res$status <- 400L; return(list(error = "Run not completed yet"))
   }
@@ -326,7 +331,8 @@ handle_diagnostics_climate_drivers <- function(req, res, run_id, app_dir) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") {
     res$status <- 400L; return(list(error = "Run not completed yet"))
   }
@@ -395,7 +401,8 @@ handle_diagnostics_cbi <- function(req, res, run_id, app_dir) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") {
     res$status <- 400L; return(list(error = "Run not completed yet"))
   }
@@ -457,7 +464,8 @@ handle_diagnostics_mess <- function(req, res, run_id, app_dir) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") {
     res$status <- 400L; return(list(error = "Run not completed yet"))
   }
@@ -499,7 +507,8 @@ handle_diagnostics_summary <- function(req, res, run_id, app_dir) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") {
     res$status <- 400L; return(list(error = "Run not completed yet"))
   }
@@ -568,7 +577,8 @@ handle_diagnostics_roc <- function(req, res, run_id, app_dir) {
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
   if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
@@ -616,7 +626,8 @@ handle_diagnostics_calibration <- function(req, res, run_id, app_dir) {
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
   if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
@@ -652,7 +663,8 @@ handle_diagnostics_cv_folds <- function(req, res, run_id, app_dir) {
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
   if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
@@ -692,7 +704,8 @@ handle_diagnostics_threshold <- function(req, res, run_id, app_dir) {
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
   if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
@@ -731,7 +744,8 @@ handle_diagnostics_density <- function(req, res, run_id, app_dir) {
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
   if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
@@ -765,7 +779,8 @@ handle_diagnostics_plots <- function(req, res, run_id, app_dir) {
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
   if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds
@@ -791,7 +806,8 @@ handle_diagnostics_data <- function(req, res, run_id, type, app_dir) {
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
   if (!file.exists(meta_file)) { res$status <- 404L; return(list(error = "Run not found")) }
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   if (meta$status != "completed") { res$status <- 400L; return(list(error = "Run not completed yet")) }
   output_files <- meta$output_files %||% list()
   result_rds <- output_files$result_rds

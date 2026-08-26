@@ -67,16 +67,24 @@ export function ConservationSummary({ runId }: ConservationSummaryProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Cancel in-flight requests when runId changes. Without this, rapidly
+    // selecting different runs can race older responses over newer ones.
+    const latestRequestRef = { current: true };
     apiGet<EcologyData>(`/api/v1/ecology/${runId}`)
       .then((d) => {
+        if (!latestRequestRef.current) return;
         setData(d);
         setLoading(false);
       })
       .catch((err) => {
+        if (!latestRequestRef.current) return;
         const detail = err instanceof ApiError ? `(${err.status}) ${err.message}` : err instanceof Error ? err.message : "Failed to load ecology data";
         setError(detail);
         setLoading(false);
       });
+    return () => {
+      latestRequestRef.current = false;
+    };
   }, [runId]);
 
   if (loading) {

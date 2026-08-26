@@ -10,6 +10,7 @@
 // - On shutdown, the buffer is flushed synchronously
 
 import type { Context } from "hono";
+import { randomUUID } from "crypto";
 import { db } from "../db/index.js";
 import { auditLogs } from "../db/schema.js";
 import { getClientIp } from "../middleware/client-ip.js";
@@ -123,9 +124,19 @@ export function extractClientInfo(c: Context | any) {
     ? rawUserAgent.slice(0, 500)
     : null;
 
+  // Request ID is set by the request-id middleware (api/src/middleware/request-id.ts).
+  // Falls back to a freshly generated UUID v4 when the middleware hasn't run,
+  // which can happen during tests where the Hono app is constructed without
+  // the full middleware stack.
+  const stored = c?.get?.("requestId");
+  const requestId = typeof stored === "string" && stored.length > 0
+    ? stored
+    : randomUUID();
+
   return {
     ipAddress,
     userAgent,
+    requestId,
   };
 }
 
