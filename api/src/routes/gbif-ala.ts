@@ -81,7 +81,7 @@ gbifAlaRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
       const user = c.get("user");
       const nRows = (body.n_rows as number) || 0;
       const { ipAddress, userAgent } = extractClientInfo(c);
-      logAction({
+      void logAction({
         userId: user.id,
         action: "occurrence_upload",
         entity: "occurrence",
@@ -140,7 +140,7 @@ gbifAlaRoutes.post("/occurrences/gbif/save", authMiddleware, async (c) => {
     const pipelineRunId = randomUUID();
     const user = c.get("user");
     const { ipAddress, userAgent } = extractClientInfo(c);
-    logAction({
+    void logAction({
       userId: user.id,
       action: "occurrence_upload",
       entity: "occurrence",
@@ -219,7 +219,7 @@ gbifAlaRoutes.post("/occurrences/ala/save", authMiddleware, async (c) => {
       const user = c.get("user");
       const nRows = (body.n_rows as number) || 0;
       const { ipAddress, userAgent } = extractClientInfo(c);
-      logAction({
+      void logAction({
         userId: user.id,
         action: "occurrence_upload",
         entity: "occurrence",
@@ -278,7 +278,7 @@ gbifAlaRoutes.post("/occurrences/ala/save", authMiddleware, async (c) => {
     const pipelineRunId = randomUUID();
     const user = c.get("user");
     const { ipAddress, userAgent } = extractClientInfo(c);
-    logAction({
+    void logAction({
       userId: user.id,
       action: "occurrence_upload",
       entity: "occurrence",
@@ -337,7 +337,7 @@ gbifAlaRoutes.post("/occurrences/dwca", async (c) => {
     const result = jobId ? await pollPlumberJob(jobId) : initial;
 
     const { ipAddress, userAgent } = extractClientInfo(c);
-    logAction({
+    void logAction({
       userId: user.id,
       action: "occurrence_upload",
       entity: "occurrence",
