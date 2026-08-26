@@ -6,12 +6,17 @@ sdm_available_ram_gb <- function() {
     num <- as.numeric(gsub("[^0-9.]", "", override))
     if (is.finite(num) && num > 0) return(num)
   }
-  cgroup_path <- "/sys/fs/cgroup/memory.max"
-  if (file.exists(cgroup_path)) {
-    val <- tryCatch(readLines(cgroup_path), error = function(e) character(0))
-    if (length(val) > 0 && !identical(val, "max")) {
-      gb <- as.numeric(val) / (1024^3)
-      if (is.finite(gb) && gb > 0) return(gb)
+  # Try cgroup v2 first.
+  cgroup_v2_path <- "/sys/fs/cgroup/memory.max"
+  # Then cgroup v1 (legacy hosts).
+  cgroup_v1_path <- "/sys/fs/cgroup/memory/memory.limit_in_bytes"
+  for (path in c(cgroup_v2_path, cgroup_v1_path)) {
+    if (file.exists(path)) {
+      val <- tryCatch(readLines(path), error = function(e) character(0))
+      if (length(val) > 0 && !identical(val, "max")) {
+        gb <- as.numeric(val) / (1024^3)
+        if (is.finite(gb) && gb > 0) return(gb)
+      }
     }
   }
   tryCatch({

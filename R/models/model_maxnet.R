@@ -120,12 +120,17 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
 
   compute_permutation_importance <- function(model, model_data, covariates, baseline_auc, n_perm = 5, seed = 42, threshold = sdm_default_threshold) {
     set.seed(seed)
+    n_rows <- nrow(model_data)
     imp_results <- lapply(covariates, function(var) {
       perm_scores <- numeric(n_perm)
       for (p in seq_len(n_perm)) {
         mod_shuffled <- model_data
-        perm_col <- sample(model_data[[var]])
-        mod_shuffled[[var]] <- perm_col
+        # Replace = TRUE so the permuted column always has exactly n_rows
+        # entries, even if model_data[[var]] is shorter (e.g. NA-filtered
+        # upstream). Without replace=TRUE, a shorter source would recycle
+        # the vector with a warning and pad with NA — silently zeroing
+        # that variable's importance score.
+        mod_shuffled[[var]] <- sample(model_data[[var]], n_rows, replace = TRUE)
         pred_shuffled <- as.numeric(predict(model, mod_shuffled[, covariates, drop = FALSE], clamp = TRUE, type = "cloglog"))
         perm_auc <- compute_binary_metrics(model_data$presence, pred_shuffled, threshold = threshold)$auc
         perm_scores[p] <- baseline_auc - perm_auc

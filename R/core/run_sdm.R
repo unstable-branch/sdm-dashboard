@@ -171,6 +171,48 @@ run_fast_sdm <- function(...) {
   if (!is.null(training_extent)) training_extent <- validate_extent(as.numeric(training_extent), "training_extent")
   selected_biovars <- validate_biovars(selected_biovars)
   model_id <- validate_sdm_model_id(model_id)
+
+  # Early model-fit memory guard. The post-fit guard (further down) only
+  # protects against NEW allocations during fit; this one also accounts for
+  # the env_train_scaled raster that's about to be loaded by load_environment.
+  tryCatch({
+    mem_info <- sdm_mem_info()
+    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+      # Estimate raster footprint from requested extent + selected biovars
+      # when available; fall back to coarse heuristic.
+      est_raster_gb <- NA_real_
+      if (!is.null(selected_biovars) && length(selected_biovars) >= 2 &&
+          !is.null(projection_extent) && length(projection_extent) == 4) {
+        # Coarse estimate: assume one float64 cell per biovar at 30-arcsec res.
+        cell_count <- abs(diff(projection_extent[c(1, 2)])) * abs(diff(projection_extent[c(3, 4)])) /
+          ((1/120)^2)
+        est_raster_gb <- cell_count * length(selected_biovars) * 8 / (1024^3)
+      }
+      model_multiplier <- if (model_id %in% c("brms", "esm_brms")) 10.0
+                          else if (model_id %in% c("dnn", "dnn_multispecies")) 8.0
+                          else 3.0
+      # If we have a raster estimate, gate against total (raster + overhead).
+      # Otherwise fall back to legacy "overhead only" behaviour.
+      if (is.finite(est_raster_gb) && est_raster_gb > 0) {
+        est_total_gb <- est_raster_gb * model_multiplier
+        if (est_total_gb > mem_info$memavail * 0.6) {
+          stop(sprintf(
+            paste("Model '%s' estimated total memory %.1f GB (raster %.1f GB x %.0fx)",
+                  "exceeds 60%% of available RAM (%.1f GB).",
+                  "Reduce resolution, extent, or switch to a lighter model."),
+            model_id, est_total_gb, est_raster_gb, model_multiplier, mem_info$memavail
+          ), call. = FALSE)
+        }
+        if (est_total_gb > mem_info$memavail * 0.3) {
+          log_message(log_fun, sprintf("  Model '%s' estimated total memory: %.1f GB of %.1f GB available (multiplier: %.0fx)",
+                                      model_id, est_total_gb, mem_info$memavail, model_multiplier))
+        }
+      }
+    }
+  }, error = function(e) {
+    # Only re-throw our explicit "exceeds 60%%" guard; let other errors pass.
+    if (grepl("estimated total memory.*exceeds 60%%", conditionMessage(e))) stop(e)
+  })
   model_spec <- get_sdm_model(model_id)
   threshold <- normalize_threshold(threshold)
   aggregation_factor <- aggregation_factor %||% 1L
@@ -369,7 +411,13 @@ run_fast_sdm <- function(...) {
         keep_vars <- setdiff(names(env$env_train_scaled), dropped_vars)
         if (length(keep_vars) >= 2) {
           env$env_train_scaled <- env$env_train_scaled[[keep_vars]]
-          env$env_project_scaled <- env$env_project_scaled[[keep_vars]]
+          # Projection layers keep raw names (e.g. "bio1") but training
+          # layers were renamed to make.names-ified names (e.g. "bio1" or
+          # "bio.1"). Subset by the union of both renamings so we never
+          # silently end up with a partial / empty raster.
+          keep_proj <- unique(c(keep_vars, make.names(keep_vars), chartr(".", "_", keep_vars)))
+          env$env_project_scaled <- env$env_project_scaled[[keep_proj]]
+          names(env$env_project_scaled) <- keep_vars
           safe_keep <- intersect(keep_vars, names(env$means))
           env$means <- env$means[safe_keep]
           env$sds <- env$sds[safe_keep]
