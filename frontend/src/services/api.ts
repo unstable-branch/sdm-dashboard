@@ -87,7 +87,12 @@ export async function fetchWithAuth(url: string, options: FetchOptions = {}): Pr
           _redirecting = true;
           const redirect = encodeURIComponent(window.location.pathname + window.location.search);
           window.location.href = "/login?redirect=" + redirect;
-          setTimeout(() => { _redirecting = false; }, 30000);
+          // Short window (5 s) instead of 30 s. The original 30 s window
+          // suppressed 401 redirects across all other tabs for half a minute
+          // after the first one fired. 5 s is enough for the active tab to
+          // navigate away while allowing other tabs to redirect promptly if
+          // they hit their own 401.
+          setTimeout(() => { _redirecting = false; }, 5000);
         }
         throw new ApiError(401, "Unauthorized");
       }

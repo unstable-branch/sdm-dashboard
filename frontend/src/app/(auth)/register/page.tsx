@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Leaf, Loader2, Eye, EyeOff } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
-import { setAuthToken } from "@/services/api";
+import { apiPost } from "@/services/api";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -34,20 +34,26 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      const res = await fetch("/api/v1/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
-      });
+      // Use apiPost for consistency. The /register endpoint is open (no
+      // token), so apiPost's retry/backoff/timeout machinery applies the
+      // same way as for authenticated calls.
+      const data = await apiPost<{ token: string; user?: Parameters<typeof setAuth>[0] }>(
+        "/api/v1/auth/register",
+        { name, email, password },
+      );
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Registration failed");
+      if (!data.token) throw new Error("Server did not return a token");
+      // Single source of truth: setAuth writes both the zustand store and
+      // the localStorage/cookie token via writeStorageToken. The previous
+      // version called setAuthToken then setAuth, which briefly cleared
+      // storage in between and could trip AuthGuard into bouncing a fresh
+      // user to /login.
+      if (data.user) {
+        setAuth(data.user, data.token, true);
+      } else {
+        // Defensive: store the token even if user payload is missing.
+        setAuth({ id: "", email, name, role: "user", avatarUrl: null, bio: null, organization: null, lastLoginAt: null, createdAt: null } as never, data.token, true);
       }
-
-      setAuthToken(data.token);
-      if (data.user) setAuth(data.user, data.token);
       router.push("/");
       router.refresh();
     } catch (err) {
