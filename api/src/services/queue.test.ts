@@ -25,7 +25,6 @@ const td = vi.hoisted(() => {
     mockRedisDisconnect: vi.fn(),
     mockHandleModelJob: vi.fn(),
     mockHandleCleanJob: vi.fn(),
-    mockHandleClimateJob: vi.fn(),
     mockHandleCovariateJob: vi.fn(),
     mockJobEventBusEmit: vi.fn(),
     mockDbUpdate: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn() })) })),
@@ -93,7 +92,6 @@ vi.mock("./queue-clean-worker.js", () => ({
 }));
 
 vi.mock("./queue-climate-worker.js", () => ({
-  handleClimateJob: td.mockHandleClimateJob,
   handleCovariateJob: td.mockHandleCovariateJob,
 }));
 
@@ -334,17 +332,6 @@ describe("ensureWorker", () => {
     await td.processorRef.current!(job);
 
     expect(td.mockHandleCleanJob).toHaveBeenCalledWith(job, expect.anything(), "user-2");
-  });
-
-  it("creates a Worker that dispatches climate_download jobs", async () => {
-    queue.ensureWorker();
-
-    const job = mockJob({ data: { type: "climate_download", payload: {} } });
-    td.mockHandleClimateJob.mockResolvedValue({ status: "success", data: {} });
-
-    await td.processorRef.current!(job);
-
-    expect(td.mockHandleClimateJob).toHaveBeenCalledWith(job, expect.anything(), undefined);
   });
 
   it("creates a Worker that dispatches covariate_download jobs", async () => {

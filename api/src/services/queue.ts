@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { handleModelJob } from "./queue-model-worker.js";
 import { handleCleanJob } from "./queue-clean-worker.js";
-import { handleClimateJob, handleCovariateJob } from "./queue-climate-worker.js";
+import { handleCovariateJob } from "./queue-climate-worker.js";
 
 let _connection: IORedis | null = null;
 let _bullmqConnection: IORedis | null = null;
@@ -230,9 +230,6 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
           case "model":
             result = await handleModelJob(job, client, userId, cpuStart);
             break;
-          case "climate_download":
-            result = await handleClimateJob(job, client, userId);
-            break;
           case "covariate_download":
             result = await handleCovariateJob(job, client, userId);
             break;
@@ -327,7 +324,7 @@ export function getRedisStatus(): {
 }
 
 export interface SdmJobData {
-  type: "clean" | "model" | "climate_download" | "covariate_download";
+  type: "clean" | "model" | "covariate_download";
   payload: Record<string, unknown>;
   userId?: string;
 }
