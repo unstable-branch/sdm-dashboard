@@ -7,6 +7,17 @@
 //   npx tsx scripts/generate-plumber-types.ts --url=http://localhost:8000
 //
 // Output: packages/shared/src/plumber-types.ts
+//
+// The generator is the source of truth for the typed shape of every Plumber
+// response. `PlumberSchemas` is the auto-generated JSON-schema-derived map of
+// every component schema Plumber exposes. Each endpoint also gets a
+// `${operationId}Response` discriminated-union type keyed by HTTP status. We
+// deliberately do NOT hand-write the typed shape of each endpoint response
+// here — every prior hand-written interface drifted from runtime and was the
+// source of Sev-1 type-contract bugs (PlumberHealthResponse declared 3 fields,
+// runtime returned 6; PlumberClimateStatus declared job_id, runtime returned
+// id). If a field needs a hand-typed name, it belongs on the Plumber R side
+// in an `@response` OpenAPI annotation.
 
 import { writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
@@ -95,14 +106,19 @@ async function fetchOpenAPISpec(): Promise<Record<string, unknown>> {
 }
 
 function generateTypes(spec: Record<string, unknown>): string {
-  const paths = (spec.paths as Record<string, Record<string, unknown>>) || {};
+  const paths = (spec.paths as Record<string, Record<string, Record<string, unknown>>>) || {};
   const components = (spec.components as Record<string, unknown>) || {};
   const schemas = (components.schemas as Record<string, unknown>) || {};
 
   const lines: string[] = [
-    "// Auto-generated from Plumber OpenAPI spec — do not edit manually",
+    "// Auto-generated from Plumber OpenAPI spec — do not edit manually.",
     "// Regenerate: npx tsx api/scripts/generate-plumber-types.ts",
     "",
+    "// Per-component JSON schema map. Each key is the schema name returned",
+    "// by Plumber, each value is the raw schema object. Client code narrows",
+    "// by indexing `PlumberSchemas['SomeResponse']` rather than declaring",
+    "// hand-written interfaces — that way schema drift is caught at",
+    "// generation time, not at runtime.",
     "export interface PlumberSchemas {",
   ];
 
@@ -112,6 +128,12 @@ function generateTypes(spec: Record<string, unknown>): string {
 
   lines.push("}", "");
 
+  // Per-endpoint discriminated-union response types: an endpoint can have
+  // multiple status codes (200, 4xx, 5xx). Each gets its own type alias
+  // keyed by `${operationId}Response` and the field name is the literal HTTP
+  // status code. This lets callers do
+  //   `if (status === 200) data[200] else data[404]`
+  // and have TypeScript narrow correctly.
   const endpointTypes: string[] = [];
 
   for (const [path, methods] of Object.entries(paths)) {
@@ -119,22 +141,31 @@ function generateTypes(spec: Record<string, unknown>): string {
       const op = operation as Record<string, unknown>;
       const operationId = (op.operationId as string) || `${method.toUpperCase()} ${path}`;
       const summary = (op.summary as string) || "";
-      const responses = (op.responses as Record<string, unknown>) || {};
+      const responses = (op.responses as Record<string, Record<string, unknown>>) || {};
 
       const responseTypes: string[] = [];
+      const statusCodes: string[] = [];
       for (const [status, response] of Object.entries(responses)) {
         const resp = response as Record<string, unknown>;
-        const content = (resp.content as Record<string, unknown>) || {};
+        const content = (resp.content as Record<string, Record<string, unknown>>) || {};
         const jsonSchema = (content["application/json"] as Record<string, unknown>)?.schema;
         if (jsonSchema) {
           responseTypes.push(`    ${status}: ${JSON.stringify(jsonSchema)};`);
+          statusCodes.push(status);
         }
       }
 
       if (responseTypes.length > 0) {
+        const typeName = operationId
+          .replace(/[^a-zA-Z0-9]/g, "_")
+          .replace(/_+/g, "_")
+          .replace(/^_|_$/g, "");
+        const comment = statusCodes.length === 1
+          ? `// ${summary || operationId} — HTTP ${statusCodes[0]}`
+          : `// ${summary || operationId} — discriminated by HTTP status: ${statusCodes.join(", ")}`;
         endpointTypes.push(
-          `// ${summary || operationId}`,
-          `export type ${operationId.replace(/[^a-zA-Z0-9]/g, "_")}Response = {`,
+          comment,
+          `export type ${typeName}Response = {`,
           ...responseTypes,
           `};`,
           ""
@@ -144,99 +175,8 @@ function generateTypes(spec: Record<string, unknown>): string {
   }
 
   lines.push(
-    "// Endpoint response types",
+    "// Per-endpoint response types (one alias per Plumber operationId).",
     ...endpointTypes,
-    "// Plumber health check response",
-    "export interface PlumberHealthResponse {",
-    "  status: string;",
-    "  r_version: string;",
-    "  timestamp: string;",
-    "}",
-    "",
-    "// Plumber model run response",
-    "export interface PlumberRunResponse {",
-    "  job_id: string;",
-    "  status: string;",
-    "  message: string;",
-    "}",
-    "",
-    "// Plumber model status response",
-    "export interface PlumberStatusResponse {",
-    "  id: string;",
-    "  status: string;",
-    "  started_at: string;",
-    "  completed_at: string | null;",
-    "  error: string | null;",
-    "  error_traceback: string | null;",
-    "  metrics: Record<string, unknown> | null;",
-    "  output_files: Record<string, string> | null;",
-    "  r_cpu_time_ms: number | null;",
-    "  r_peak_memory_mb: number | null;",
-    "  progress_log: string[];",
-    "  progress_json: Array<{ timestamp: string; percent: number; detail: string; stage: string }> | null;",
-    "}",
-    "",
-    "// Plumber model listing response",
-    "export interface PlumberModelInfo {",
-    "  id: string;",
-    "  label: string;",
-    "  maturity: string;",
-    "  min_records: number | null;",
-    "  packages: string[];",
-    "  notes: string;",
-    "}",
-    "",
-    "// Plumber occurrence upload response",
-    "export interface PlumberUploadResponse {",
-    "  file_id: string;",
-    "  file_path: string;",
-    "  filename: string;",
-    "  format: string;",
-    "  n_rows: number;",
-    "  species_detected: string | null;",
-    "  columns_detected: Record<string, string | null>;",
-    "  preview: Array<Record<string, unknown>>;",
-    "}",
-    "",
-    "// Plumber occurrence clean response",
-    "export interface PlumberCleanResponse {",
-    "  cleaned_id: string;",
-    "  cleaned_file_id: string;",
-    "  valid_records: number;",
-    "  original_rows: number;",
-    "  removed_bad_coordinates: number;",
-    "  removed_duplicates: number;",
-    "  n_absent_excluded: number;",
-    "  source_counts: Record<string, number>;",
-    "  cc_flagged: number;",
-    "  training_extent: Array<Array<number>>;",
-    "  cleaned_records: Array<Record<string, unknown>>;",
-    "}",
-    "",
-    "// Plumber climate scenario response",
-    "export interface PlumberClimateScenario {",
-    "  id: string;",
-    "  type: string;",
-    "  gcm?: string;",
-    "  ssp?: string;",
-    "  period?: string;",
-    "  file_count: number;",
-    "  size_bytes: number;",
-    "  is_averaged?: boolean;",
-    "  source?: string;",
-    "}",
-    "",
-    "// Plumber manifest response",
-    "export interface PlumberManifestResponse {",
-    "  ok: boolean;",
-    "  manifest_path: string;",
-    "  manifest: Record<string, unknown>;",
-    "}",
-    "",
-    "// Plumber error response",
-    "export interface PlumberErrorResponse {",
-    "  error: string;",
-    "}",
     ""
   );
 
@@ -253,7 +193,7 @@ async function main() {
     writeFileSync(OUTPUT_PATH, types, "utf-8");
 
     console.log(`[plumber-types] Generated types at ${OUTPUT_PATH}`);
-    console.log(`[plumber-types] Import from '@sdm/shared' as PlumberStatusResponse, PlumberRunResponse, etc.`);
+    console.log(`[plumber-types] PlumberSchemas is the source of truth — narrow via data['SomeResponse'].`);
   } catch (err) {
     console.error("[plumber-types] Error:", err instanceof Error ? err.message : err);
     process.exit(1);
