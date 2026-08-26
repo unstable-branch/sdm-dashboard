@@ -121,6 +121,32 @@ export function MapToolbar({
     return () => window.removeEventListener("resize", handleResize);
   }, [clamp]);
 
+  // Track active drag listeners so we can remove them on unmount (or when
+  // a route change unmounts the component mid-drag). Without this, the
+  // mousemove/mouseup/touchmove/touchend listeners stay attached after
+  // unmount, leak memory, and continue firing on a phantom React state.
+  const dragListenersRef = useRef<{
+    move?: EventListener;
+    up?: EventListener;
+    kind?: "mouse" | "touch";
+  }>({});
+
+  useEffect(() => {
+    return () => {
+      const { move, up, kind } = dragListenersRef.current;
+      if (move && up) {
+        if (kind === "mouse") {
+          window.removeEventListener("mousemove", move);
+          window.removeEventListener("mouseup", up);
+        } else if (kind === "touch") {
+          window.removeEventListener("touchmove", move);
+          window.removeEventListener("touchend", up);
+        }
+        dragListenersRef.current = {};
+      }
+    };
+  }, []);
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const toolbar = toolbarRef.current;
@@ -139,8 +165,10 @@ export function MapToolbar({
     const handleMouseUp = () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
+      dragListenersRef.current = {};
       setPosition((prev) => { savePosition(prev); return prev; });
     };
+    dragListenersRef.current = { move: handleMouseMove as EventListener, up: handleMouseUp as EventListener, kind: "mouse" };
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
   }, [clamp]);
@@ -164,8 +192,10 @@ export function MapToolbar({
     const handleTouchEnd = () => {
       window.removeEventListener("touchmove", handleTouchMove);
       window.removeEventListener("touchend", handleTouchEnd);
+      dragListenersRef.current = {};
       setPosition((prev) => { savePosition(prev); return prev; });
     };
+    dragListenersRef.current = { move: handleTouchMove as EventListener, up: handleTouchEnd as EventListener, kind: "touch" };
     window.addEventListener("touchmove", handleTouchMove, { passive: true });
     window.addEventListener("touchend", handleTouchEnd);
   }, [clamp]);

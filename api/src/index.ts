@@ -13,8 +13,9 @@ import { mediumCache, longCache, closeCache } from "./middleware/cache.js";
 import { closeRateLimitRedis } from "./middleware/rate-limit.js";
 import { csrfMiddleware } from "./middleware/csrf.js";
 import { securityHeaders } from "./middleware/security-headers.js";
+import { requestIdMiddleware } from "./middleware/request-id.js";
 import { startMemoryMonitor, stopMemoryMonitor } from "./middleware/memory-monitor.js";
-import { initMetrics, metricsHandler, recordHttpRequest, setActiveRequests, collectGpuMetrics } from "./services/metrics.js";
+import { initMetrics, metricsHandler, recordHttpRequest, incActiveRequests, decActiveRequests, collectGpuMetrics } from "./services/metrics.js";
 import { db } from "./db/index.js";
 import { sql } from "drizzle-orm";
 import { sdmRunRoutes } from "./routes/sdm-runs.js";
@@ -89,14 +90,22 @@ app.use("*", bodyLimit({
 }));
 app.use("*", logger());
 app.use("*", securityHeaders);
-// Track HTTP metrics for Prometheus
+app.use("*", requestIdMiddleware);
+// Track HTTP metrics for Prometheus. inc/dec pair ensures the active-requests
+// gauge reflects the true number of in-flight requests under load, not a
+// fixed "1" (the prior setActiveRequests(1) call never decremented and
+// always reported the same value regardless of actual concurrency).
 app.use("*", async (c, next) => {
-  setActiveRequests(1);
+  incActiveRequests();
   const start = Date.now();
-  await next();
-  const ms = Date.now() - start;
-  const route = c.req.routePath || c.req.path;
-  recordHttpRequest(c.req.method, route, c.res.status, ms);
+  try {
+    await next();
+  } finally {
+    const ms = Date.now() - start;
+    const route = c.req.routePath || c.req.path;
+    recordHttpRequest(c.req.method, route, c.res.status, ms);
+    decActiveRequests();
+  }
 });
 
 app.get("/metrics", async (c) => {

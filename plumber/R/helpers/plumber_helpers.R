@@ -95,6 +95,27 @@ sdm_write_json <- function(value, path, ...) {
   invisible(path)
 }
 
+# Safe JSON reader: returns NULL on parse failure or missing file instead of
+# throwing. Background processes rewrite meta.json concurrently; a partial
+# read used to surface as 500 to the client. Use this in any handler that
+# reads meta.json or progress.log so a transient I/O error produces a clean
+# 503 instead.
+sdm_read_meta_json <- function(path, default = NULL) {
+  if (!file.exists(path)) return(default)
+  tryCatch(
+    jsonlite::fromJSON(path, simplifyVector = FALSE),
+    error = function(e) default
+  )
+}
+
+sdm_read_progress_lines <- function(path, n = 50, default = character()) {
+  if (!file.exists(path)) return(default)
+  tryCatch(
+    tail(readLines(path, warn = FALSE), n),
+    error = function(e) default
+  )
+}
+
 # Cached probe for the configured Python interpreter. This deliberately runs only
 # for python_torch_dnn scheduling and can be reset/injected in tests.
 .sdm_python_torch_capability_cache <- new.env(parent = emptyenv())
