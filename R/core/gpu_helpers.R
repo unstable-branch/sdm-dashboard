@@ -214,8 +214,16 @@ sdm_gpu_available_vram <- function() {
   if (!tryCatch(torch::cuda_is_available(), error = function(e) FALSE)) return(NA_real_)
   tryCatch({
     stats <- torch::cuda_memory_stats()
-    free_bytes <- stats$reserved_bytes$all$current
-    if (is.finite(free_bytes) && free_bytes > 0) return(free_bytes / (1024 * 1024))
+    # Free VRAM = reserved_bytes$all$peak − allocated_bytes$all$current.
+    # reserved_bytes$all$current is what torch has reserved (allocated),
+    # not what's free. vram_safe_batchsize downstream sizes GPU batches
+    # based on this; using reserved directly causes OOM under load.
+    allocated <- stats$allocated_bytes$all$current
+    reserved_peak <- stats$reserved_bytes$all$peak
+    if (is.finite(allocated) && is.finite(reserved_peak) && reserved_peak > 0) {
+      free_bytes <- max(0, reserved_peak - allocated)
+      return(free_bytes / (1024 * 1024))
+    }
     NA_real_
   }, error = function(e) NA_real_)
 }
