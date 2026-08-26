@@ -12,6 +12,7 @@
 import type { Context } from "hono";
 import { db } from "../db/index.js";
 import { auditLogs } from "../db/schema.js";
+import { getClientIp } from "../middleware/client-ip.js";
 
 export interface AuditEntry {
   userId?: string | null;
@@ -108,10 +109,14 @@ export async function logAction(entry: AuditEntry): Promise<void> {
 }
 
 export function extractClientInfo(c: Context | any) {
-  const forwardedFor = c.req?.header?.("x-forwarded-for");
-  const ipAddress = typeof forwardedFor === "string" && forwardedFor.trim()
-    ? forwardedFor.split(",")[0]?.trim() || null
-    : null;
+  // Use the trusted-proxy-aware IP resolution. When TRUSTED_PROXY_CIDRS is not
+  // configured, client-supplied X-Forwarded-For / X-Real-IP / CF-Connecting-IP
+  // headers are ignored to prevent spoofed IPs in audit logs.
+  const ipAddress = (() => {
+    if (!c || typeof getClientIp !== "function") return null;
+    const ip = getClientIp(c as Context);
+    return ip === "unknown" ? null : ip;
+  })();
 
   const rawUserAgent = c.req?.header?.("user-agent");
   const userAgent = typeof rawUserAgent === "string" && rawUserAgent.length > 0

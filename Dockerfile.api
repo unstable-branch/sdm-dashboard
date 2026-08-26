@@ -65,7 +65,17 @@ RUN chmod 0755 /usr/local/bin/api-entrypoint.sh
 
 ENV NODE_OPTIONS="--max-old-space-size=2048"
 
-EXPOSE 4000
+# Container-level liveness probe. Matches the compose-level healthcheck at
+# docker-compose*.yml and ensures Kubernetes / standalone runtimes can detect
+# a hung API process.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+    CMD curl -fsS http://localhost:4000/health || exit 1
+
+# Note: USER is intentionally NOT set here. The api-entrypoint.sh uses
+# su-exec to briefly run as root to chgrp/chmod shared volumes, then exec
+# the CMD as the unprivileged `node` user. CONTRACT: any future change to
+# ENTRYPOINT / CMD must preserve the su-exec wrapper. See
+# scripts/test-accelerator-contracts.sh for the enforcement.
 
 ENTRYPOINT ["dumb-init", "--", "/usr/local/bin/api-entrypoint.sh"]
 CMD ["sh", "-c", "npm --prefix api run db:migrate && node api/dist/index.js"]
