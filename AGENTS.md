@@ -503,6 +503,28 @@ What changes in the app or outputs?
 ## Screenshots / outputs
 Attach if UI or report changed.
 
+## Project state (last refreshed after Group I — Sev-3 drift cleanup)
+
+- `dev` branch tip: `2d3f1cad` (Group I, drift cleanup)
+- `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
+- Test counts (post-campaign): 293 api tests + 65 frontend tests passing; 3 pre-existing R test failures (`test-determinism`, `test-dnn`, `test-utils-sdm-atomic-writes`) — these are unrelated to the audit campaign and have been failing since before it started.
+- All Groups A through I are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
+- The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
+
+## Group summary (for context when reading CHANGELOG)
+
+| Group | Branch | Commit | What it fixed |
+|---|---|---|---|
+| A | `fix/climate-covariate-download-bugs` | `f966c2e1` | Climate/covariate download dispatch by job-id prefix; partial-success reporting |
+| B | `fix/group-b-visibility-robustness` | `3e66778e` | Plumber outage surfacing; false-positive missing layer; Redis transient vs down |
+| C | `fix/group-c-authz-ownership` | `8571ec69` | 12 ownership / authz holes (PATCH/DELETE uploads, /clean/result, /boundary/delete, admin reset-password, Plumber canAccessRun, etc.) |
+| D | `fix/group-d-scientific-output-corruption` | `8f51a61c` | Silent scientific corruption: env_train NULL'd before future-projection, max_tss stays NA, dwca_datasets always NULL, predict_*_suitability NA-outs whole chunks, find_worldclim_files accepts HTML |
+| E | `fix/group-e-secrets-infra` | `97be8f13` | Secrets (email resetUrl leak, seed-admin password to stdout, rate_limit key hashed); encryption key composed; HEALTHCHECK on all 6 Dockerfiles |
+| F | `fix/group-f-type-contract` | `caa73cb1` | PlumberSchemas as source of truth; killed 13 hand-written interface drift sources |
+| G | `fix/group-g-frontend-auth-rehydration` | `cff52e65` | Auth hydration race; raw fetch on protected endpoints; register double-write; _redirecting 30s window |
+| H | `fix/group-h-observability-polish` | `4bdfe3ed` | Request-id middleware; real active-requests counter; drag-listener cleanup; conservation-summary race; Plumber readLines/fromJSON tryCatch wrap |
+| I | `fix/group-i-drift-cleanup` | `2d3f1cad` | Dead code removed (handleClimateJob, mediumCache); CHANGELOG populated; admin diagnostics error displayed |
+
 ## Known limitations
 What should reviewers know?
 ```

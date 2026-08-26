@@ -209,7 +209,7 @@ tryCatch({
     aggregation_factor = as.integer(config$aggregation_factor %||% 1L),
     cv_folds = as.integer(config$cv_folds %||% sdm_default_cv_folds),
     n_cores = as.integer(config$n_cores %||% 8L),
-    allow_download = TRUE,
+    allow_download = isTRUE(config$auto_download_climate %||% TRUE),
     worldclim_res = as.numeric(config$worldclim_res %||% sdm_default_worldclim_res),
     cv_strategy = config$cv_strategy %||% sdm_default_cv_strategy,
     cv_block_size_km = if (!is.null(config$cv_block_size_km)) as.numeric(config$cv_block_size_km) else sdm_default_cv_block_size_km,
