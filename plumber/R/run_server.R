@@ -195,9 +195,16 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   req$user_email <- user_info$email
   req$user_role <- user_info$role
 
-  # Rate limit: use hashed API key or user ID as bucket key
-  rate_key <- api_key %||% user_info$user_id %||% fwd_user
-  if (!is.null(rate_key) && nzchar(rate_key)) {
+  # Rate limit: hash the raw API key before using it as a bucket identifier
+  # so it never appears in process memory as an environment name. User IDs and
+  # forwarded-user strings are passed through (they are not credentials).
+  raw_rate_id <- api_key %||% user_info$user_id %||% fwd_user
+  if (!is.null(raw_rate_id) && nzchar(raw_rate_id)) {
+    rate_key <- if (!is.null(api_key) && nzchar(api_key)) {
+      substr(digest::digest(paste0("apikey:", api_key), algo = "sha256", serialize = FALSE), 1, 32)
+    } else {
+      raw_rate_id
+    }
     if (!sdm_check_rate_limit(rate_key, max_requests = 120, window_seconds = 60)) {
       auth_fail(res, 429L, '{"error":"Rate limit exceeded. Try again in 60 seconds."}')
       return(NULL)

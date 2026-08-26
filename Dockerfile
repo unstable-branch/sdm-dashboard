@@ -67,4 +67,10 @@ USER shiny
 
 EXPOSE 3838
 
+# Container-level liveness probe. Matches the compose-level healthcheck at
+# docker-compose*.yml and ensures Kubernetes / standalone runtimes can detect
+# a hung R Shiny process.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -fsS http://localhost:3838/ || exit 1
+
 CMD ["Rscript", "app.R"]

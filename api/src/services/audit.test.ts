@@ -59,7 +59,8 @@ describe("Audit Service", () => {
   });
 
   describe("extractClientInfo", () => {
-    it("extracts IP from x-forwarded-for", () => {
+    it("ignores x-forwarded-for when TRUSTED_PROXY_CIDRS is not configured", () => {
+      delete process.env.TRUSTED_PROXY_CIDRS;
       const c = {
         env: {},
         req: {
@@ -70,8 +71,28 @@ describe("Audit Service", () => {
       };
 
       const info = extractClientInfo(c as any);
-      expect(info.ipAddress).toBe("203.0.113.1");
+      // GE-08: do not trust client-supplied X-Forwarded-For without proxy allow-list.
+      expect(info.ipAddress).toBeNull();
       expect(info.userAgent).toBe("TestAgent/1.0");
+    });
+
+    it("honours x-forwarded-for from a configured trusted proxy", () => {
+      process.env.TRUSTED_PROXY_CIDRS = "10.0.0.0/8";
+      try {
+        const c = {
+          env: { "x-hono-request-remote-addr": "10.0.0.5:54321" },
+          req: {
+            header: (name: string) => name === "x-forwarded-for"
+              ? "203.0.113.1, 10.0.0.1"
+              : undefined,
+          },
+        };
+
+        const info = extractClientInfo(c as any);
+        expect(info.ipAddress).toBe("203.0.113.1");
+      } finally {
+        delete process.env.TRUSTED_PROXY_CIDRS;
+      }
     });
 
     it("truncates user-agent to 500 chars", () => {
