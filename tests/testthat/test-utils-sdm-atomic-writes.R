@@ -32,7 +32,10 @@ test_that("sdm_atomic_write_lines removes tmp file after rename", {
   on.exit(unlink(tmp, force = TRUE))
 
   sdm_atomic_write_lines("content", tmp)
-  tmpfiles <- list.files(dirname(tmp), pattern = basename(tmp), full.names = TRUE)
+  # Look for the .tmp.PID.TIME suffix that sdm_atomic_write_lines uses for
+  # its staging file; the original basename(tmp) will still match itself
+  # (it exists now as the renamed final file), so we exclude it.
+  tmpfiles <- list.files(dirname(tmp), pattern = paste0("^", basename(tmp), "\\.tmp\\."), full.names = TRUE)
   expect_equal(tmpfiles, character(0))
 })
 
