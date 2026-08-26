@@ -6,6 +6,32 @@ predict_suitability <- function(model, env_project_scaled, output_tif = NULL, n_
   }
   n_cores <- normalize_core_count(n_cores)
   log_message(log_fun, "Predicting suitability raster with ", n_cores, " core(s)")
+
+  # Defensive: the trained model's formula references covariate names that
+  # may have been make.names()-ified at training time, while the
+  # projection raster keeps raw layer names. Rename the raster layers to
+  # match the model's formula terms so terra::predict doesn't silently
+  # produce all-NA predictions. We try make.names() and chartr(".", "_")
+  # because model_helpers.R applies make.names() and biovar names like
+  # "bio 1" become "bio.1" then "bio_1" in some legacy training data.
+  if (inherits(model, "glm") && !is.null(model$terms)) {
+    wanted <- attr(model$terms, "term.labels")
+    wanted <- wanted[!grepl("^presence$", wanted)]
+    raw_names <- names(env_project_scaled)
+    rename_map <- setNames(raw_names, make.names(raw_names))
+    keep <- rename_map[wanted]
+    keep <- keep[!is.na(keep)]
+    missing <- setdiff(wanted, names(rename_map))
+    # also try chartr(".", "_", make.names(raw_names)) for legacy names
+    rename_map_alt <- setNames(raw_names, chartr(".", "_", make.names(raw_names)))
+    keep_alt <- rename_map_alt[missing]
+    keep <- unique(c(keep, keep_alt[!is.na(keep_alt)]))
+    if (length(keep) >= length(wanted)) {
+      env_project_scaled <- env_project_scaled[[keep]]
+      names(env_project_scaled) <- wanted
+    }
+  }
+
   predict_args <- list(
     object = env_project_scaled, model = model, type = "response", na.rm = TRUE,
     wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999"))

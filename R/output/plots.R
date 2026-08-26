@@ -184,9 +184,12 @@ plotVariableImportance <- function(importance_df) {
 
 n_perm_default <- function(df) {
   if (!"sd" %in% names(df) || !("importance" %in% names(df))) {
-    return(5)
+    return(sdm_default_n_perm)
   }
-  5
+  # When the manifest reports sd (permutation SD) the actual n_perm is
+  # sd^2 / se^2; we approximate by the global default which the
+  # upstream perm-importance code honours (sdm_default_n_perm).
+  sdm_default_n_perm
 }
 
 render_suitability_leaflet <- function(suitability_raster, presence_df = NULL,
