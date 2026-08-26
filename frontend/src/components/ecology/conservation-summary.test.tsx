@@ -86,4 +86,35 @@ describe("ConservationSummary", () => {
       expect(screen.getByText(/Run not found/i)).toBeInTheDocument();
     });
   });
+
+  it("ignores stale responses when runId changes mid-flight (GG-05 race fix)", async () => {
+    // First response: data for run-1 (slow). Second: data for run-2 (fast).
+    // Without the latestRequestRef guard, the slow first response would
+    // overwrite the fast second response.
+    let resolveFirst!: (value: Response) => void;
+    const firstResponsePromise = new Promise<Response>((r) => { resolveFirst = r; });
+    vi.mocked(fetch)
+      .mockReturnValueOnce(firstResponsePromise as unknown as Promise<Response>)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ ...mockEcologyData, run_id: "run-2", species: "Newer species" }),
+      } as Response);
+
+    const { rerender } = render(<ConservationSummary runId="run-1" />);
+
+    // Switch to run-2 before the first response resolves.
+    rerender(<ConservationSummary runId="run-2" />);
+
+    // Resolve the first (now stale) response.
+    resolveFirst({
+      ok: true,
+      json: () => Promise.resolve({ ...mockEcologyData, run_id: "run-1", species: "Stale species" }),
+    } as Response);
+
+    // The newer run-2 data should win; the stale run-1 data should be ignored.
+    await waitFor(() => {
+      expect(screen.getByText("Newer species")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Stale species")).not.toBeInTheDocument();
+  });
 });

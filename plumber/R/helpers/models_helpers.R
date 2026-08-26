@@ -607,7 +607,8 @@ handle_targets_results <- function(res, job_id) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   store_path <- file.path(job_dir, "_targets")
 
   config_csv <- file.path(job_dir, "config.csv")
@@ -969,7 +970,8 @@ handle_model_cancel <- function(req, job_id) {
   meta_file <- file.path(job_dir, "meta.json")
 
   if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
       if (as.character(meta$user_id) != as.character(req$user_id)) {
         return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this run"))
@@ -1022,7 +1024,8 @@ handle_model_cancel <- function(req, job_id) {
     sdm_redis_cancel_set(job_id)
 
     # Re-read meta to detect if child already wrote a terminal status.
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$status) && meta$status %in% c("completed", "failed", "cancelled")) {
       return(list(ok = TRUE, message = "Run already terminated"))
     }
@@ -1064,7 +1067,8 @@ handle_model_delete <- function(req, job_id) {
   meta_file <- file.path(job_dir, "meta.json")
 
   if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
       if (as.character(meta$user_id) != as.character(req$user_id)) {
         return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to delete this run"))
@@ -1092,7 +1096,8 @@ handle_models_runs <- function(req, app_dir) {
   runs <- lapply(job_dirs, function(jd) {
     meta_file <- file.path(jobs_dir, jd, "meta.json")
     if (file.exists(meta_file)) {
-      meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+      meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
 
       if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) {
         if (is.null(meta$user_id) || as.character(meta$user_id) != as.character(req$user_id)) {

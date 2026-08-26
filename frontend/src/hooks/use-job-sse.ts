@@ -7,7 +7,12 @@ const MAX_JOBS_IN_MAP = 50;
 const TERMINAL_STATES: Set<JobEvent["state"]> = new Set(["completed", "failed", "cancelled"]);
 const TERMINAL_CLEANUP_MS = 5 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 30_000;
+// After MAX_RECONNECT_ATTEMPTS failed attempts with exponential backoff, we
+// surface a "give up" state via `connectionGaveUp` so the UI can render a
+// reconnect button. We still attempt one more connection every 2 minutes
+// so a long-running backend outage eventually recovers.
 const MAX_RECONNECT_ATTEMPTS = 20;
+const GAVE_UP_RETRY_INTERVAL_MS = 2 * 60 * 1000;
 
 export interface ProgressStage {
   timestamp: string;
@@ -66,6 +71,7 @@ const sharedJobs = new Map<string, JobEvent>();
 let sharedConnected = false;
 let sharedReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let sharedReconnectAttempts = 0;
+let sharedGaveUp = false;
 let lastCleanup = 0;
 let subscriberCount = 0;
 let sharedHasActive = false;
@@ -122,6 +128,7 @@ function openSharedConnection(): void {
   es.onopen = () => {
     sharedConnected = true;
     sharedReconnectAttempts = 0;
+    sharedGaveUp = false;
     notifyListeners();
     fetchWithAuth(`${API_BASE}/api/v1/sdm/runs?status=running&limit=10`)
       .then((r) => r.ok ? r.json() : null)
@@ -159,8 +166,21 @@ function openSharedConnection(): void {
     sharedEventSource = null;
     sharedReconnectAttempts++;
     if (sharedReconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
-      sharedReconnectAttempts = 0;
-      notifyListeners();
+      // Surface the give-up state so the UI can render a reconnect button.
+      // We still attempt one more connection every GAVE_UP_RETRY_INTERVAL_MS
+      // so a long-running backend outage eventually recovers without the
+      // user needing to refresh.
+      if (!sharedGaveUp) {
+        sharedGaveUp = true;
+        notifyListeners();
+      }
+      if (sharedReconnectTimer) clearTimeout(sharedReconnectTimer);
+      sharedReconnectTimer = setTimeout(() => {
+        sharedReconnectTimer = null;
+        sharedReconnectAttempts = 0;
+        sharedGaveUp = false;
+        openSharedConnection();
+      }, GAVE_UP_RETRY_INTERVAL_MS);
       return;
     }
     notifyListeners();
@@ -179,6 +199,7 @@ function closeSharedConnection(): void {
     sharedReconnectTimer = null;
   }
   sharedReconnectAttempts = 0;
+  sharedGaveUp = false;
   if (sharedEventSource) {
     sharedEventSource.close();
     sharedEventSource = null;
@@ -239,6 +260,15 @@ export function useJobSSE(enabled = true) {
     connected: sharedConnected,
     hasActive: sharedHasActive,
     version: sharedVersion,
+    connectionGaveUp: sharedGaveUp,
+    reconnectAttempts: sharedReconnectAttempts,
+    reconnectNow: () => {
+      sharedReconnectAttempts = 0;
+      sharedGaveUp = false;
+      if (sharedReconnectTimer) clearTimeout(sharedReconnectTimer);
+      sharedReconnectTimer = null;
+      openSharedConnection();
+    },
     getJob,
     getJobsByType,
   };

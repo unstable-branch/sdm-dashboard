@@ -126,9 +126,20 @@ export function recordHttpRequest(method: string, route: string, status: number,
   httpRequestDuration.labels(method, route, String(status)).observe(durationMs);
 }
 
-export function setActiveRequests(n: number): void {
-  if (!_registry) return;
-  activeApiRequests.set(n);
+// Manually-tracked counter because prom-client Gauge has no inc/dec; we
+// use a module-local counter and emit to a Gauge.
+let _activeApiRequestsCount = 0;
+
+export function incActiveRequests(): number {
+  _activeApiRequestsCount += 1;
+  if (_registry) activeApiRequests.set(_activeApiRequestsCount);
+  return _activeApiRequestsCount;
+}
+
+export function decActiveRequests(): number {
+  _activeApiRequestsCount = Math.max(0, _activeApiRequestsCount - 1);
+  if (_registry) activeApiRequests.set(_activeApiRequestsCount);
+  return _activeApiRequestsCount;
 }
 
 export function setQueueDepth(n: number): void {
