@@ -59,8 +59,14 @@ export default function MaplibreMap({
     setTileErrors(prev => Math.min(prev + 1, 99));
   }, []);
 
-  // Reset controls ref when component re-mounts (key prop change)
-  useEffect(() => { controlsAdded.current = false; }, []);
+  // Reset controls ref when the runId changes. Without this, the maplibre
+  // instance is reused across run switches and onLoad() is not called again,
+  // so the controlsAdded.current guard stays true and new controls (nav,
+  // scale) are never re-added to the new map. The caller is expected to
+  // pass `key={runId}` on the parent MaplibreMap component to force a
+  // full remount, but defensive reset on runId change here makes the
+  // component robust to that contract being missed.
+  useEffect(() => { controlsAdded.current = false; }, [runId]);
 
   const mapStyle = basemap === "dark" ? DARK_STYLE : LIGHT_STYLE;
   const coords = coordinates;

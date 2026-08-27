@@ -30,6 +30,16 @@ export function SearchableSelect({
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // Track the blur-setTimeout so we can clear it on unmount — otherwise a
+  // 200ms-delayed setFocused(false) on an unmounted component raises
+  // the classic "Can't perform a React state update on an unmounted
+  // component" warning.
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+    };
+  }, []);
 
   const displayValue = !focused
     ? (value === "all" && allLabel ? allLabel : value || "")
@@ -105,13 +115,15 @@ export function SearchableSelect({
           setFocused(true);
           setSearch("");
         }}
-        onBlur={() =>
-          setTimeout(() => {
+        onBlur={() => {
+          if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+          blurTimerRef.current = setTimeout(() => {
             setFocused(false);
             setSearch("");
             setSelectedIndex(-1);
-          }, 200)
-        }
+            blurTimerRef.current = null;
+          }, 200);
+        }}
         onKeyDown={handleKeyDown}
         disabled={disabled}
         placeholder={placeholder}
