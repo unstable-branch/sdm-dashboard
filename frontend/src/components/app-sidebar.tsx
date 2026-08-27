@@ -32,9 +32,38 @@ import { useJobSSE } from "@/hooks/use-job-sse";
 import { AdminSidebarGroup } from "@/components/layout/admin-sidebar-group";
 
 function ActiveJobDot() {
-  const { hasActive } = useJobSSE(true);
+  const { hasActive, connected, connectionGaveUp, reconnectAttempts, reconnectNow } = useJobSSE(true);
+  // When the SSE connection has given up reconnecting (e.g. backend has
+  // been unreachable for ~minutes) surface a reconnect button. The job
+  // status dot is suppressed in this state to avoid implying jobs are
+  // healthy when the channel itself is dead.
   if (!hasActive) return null;
-  return <span className="ml-auto h-2 w-2 rounded-full bg-green-500 animate-pulse" title="Job active" />;
+  if (connectionGaveUp) {
+    return (
+      <button
+        type="button"
+        onClick={reconnectNow}
+        className="ml-auto rounded bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400 hover:bg-amber-500/20"
+        title={`Realtime channel offline (${reconnectAttempts} reconnect attempts). Click to retry now.`}
+      >
+        Reconnect
+      </button>
+    );
+  }
+  if (!connected) {
+    return (
+      <span
+        className="ml-auto h-2 w-2 rounded-full bg-amber-500 animate-pulse"
+        title="Realtime channel reconnecting"
+      />
+    );
+  }
+  return (
+    <span
+      className="ml-auto h-2 w-2 rounded-full bg-green-500 animate-pulse"
+      title="Job active"
+    />
+  );
 }
 
 export function AppSidebar() {

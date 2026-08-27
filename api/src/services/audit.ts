@@ -8,9 +8,18 @@
 // - If the buffer overflows before flush, additional entries are dropped to
 //   stdout (with a warning) rather than blocking the call site
 // - On shutdown, the buffer is flushed synchronously
+//
+// Resource hygiene:
+// - Each `details` payload is capped at 4 KB to prevent any single audit
+//   row from blowing up (e.g. a caller dumping a large response body).
+// - A retention prune runs every 24 hours (configurable via
+//   SDM_AUDIT_RETENTION_INTERVAL_MS) and deletes rows whose
+//   `created_at` is older than `retentionDays`. Test runs set the interval
+//   to 0 to disable the prune (so a test row is never deleted mid-run).
 
 import type { Context } from "hono";
 import { randomUUID } from "crypto";
+import { sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { auditLogs } from "../db/schema.js";
 import { getClientIp } from "../middleware/client-ip.js";
@@ -32,6 +41,11 @@ export interface AuditEntry {
 const FLUSH_INTERVAL_MS = 5000;
 const FLUSH_BATCH_SIZE = 50;
 const MAX_BUFFER_SIZE = 500;
+const MAX_DETAILS_BYTES = 4 * 1024;
+const RETENTION_PRUNE_INTERVAL_MS = parseInt(
+  process.env.SDM_AUDIT_RETENTION_INTERVAL_MS ?? "86400000",
+  10,
+);
 
 let buffer: AuditEntry[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -89,9 +103,23 @@ async function flushBuffer(): Promise<void> {
 }
 
 export async function logAction(entry: AuditEntry): Promise<void> {
+  // Cap details to prevent a single audit row from carrying arbitrarily
+  // large payloads. Convert to JSON once and check the byte length; if it
+  // exceeds MAX_DETAILS_BYTES, drop it on the floor (replacing with a
+  // sentinel so the rest of the row is still useful) and emit a warning.
+  let safeEntry = entry;
+  if (entry.details) {
+    const details_json = JSON.stringify(entry.details);
+    if (typeof details_json === "string" && details_json.length > MAX_DETAILS_BYTES) {
+      console.warn(
+        `[audit] Dropping oversized details (${details_json.length} bytes > ${MAX_DETAILS_BYTES}) on action '${entry.action}'`
+      );
+      safeEntry = { ...entry, details: { _truncated: true, original_bytes: details_json.length } };
+    }
+  }
   const logLine = JSON.stringify({
     timestamp: new Date().toISOString(),
-    ...entry,
+    ...safeEntry,
   });
   console.log(`[audit] ${logLine}`);
 
@@ -100,7 +128,7 @@ export async function logAction(entry: AuditEntry): Promise<void> {
     return;
   }
 
-  buffer.push(entry);
+  buffer.push(safeEntry);
 
   if (buffer.length >= FLUSH_BATCH_SIZE) {
     void flushBuffer();
@@ -145,5 +173,76 @@ export async function shutdownAudit(): Promise<void> {
     clearTimeout(flushTimer);
     flushTimer = null;
   }
+  if (retentionTimer) {
+    clearTimeout(retentionTimer);
+    retentionTimer = null;
+  }
+  try {
+    await pruneAuditRetention();
+  } catch (err) {
+    console.warn("[audit] Retention prune failed during shutdown:", (err as Error).message);
+  }
   await flushBuffer();
+}
+
+// --- Retention prune ------------------------------------------------------
+// Each row carries a `retention_days` column (default 90). We delete rows
+// whose `created_at` is older than that threshold. The interval is
+// configurable via SDM_AUDIT_RETENTION_INTERVAL_MS (default 1 day); set to
+// 0 to disable the prune entirely (used in tests so a fixture row is
+// never deleted mid-run).
+let retentionTimer: ReturnType<typeof setTimeout> | null = null;
+let retentionLastRunMs = 0;
+
+async function pruneAuditRetention(): Promise<void> {
+  if (RETENTION_PRUNE_INTERVAL_MS <= 0) return;
+  const deleted = await db.execute(sql`
+    DELETE FROM audit_logs
+    WHERE created_at < NOW() - (retention_days || ' days')::interval
+  `);
+  const rows = Number((deleted as unknown as { count?: number }).count ?? 0);
+  if (rows > 0) {
+    console.log(`[audit] Retention prune removed ${rows} old row(s)`);
+  }
+}
+
+function scheduleRetentionPrune(): void {
+  if (RETENTION_PRUNE_INTERVAL_MS <= 0) return;
+  if (retentionTimer) return;
+  retentionTimer = setTimeout(async () => {
+    retentionTimer = null;
+    retentionLastRunMs = Date.now();
+    try {
+      await pruneAuditRetention();
+    } catch (err) {
+      console.warn("[audit] Retention prune failed:", (err as Error).message);
+    }
+    scheduleRetentionPrune();
+  }, RETENTION_PRUNE_INTERVAL_MS);
+}
+
+export function startRetentionPrune(): void {
+  scheduleRetentionPrune();
+}
+
+export function getRetentionStatus(): { enabled: boolean; intervalMs: number; lastRunMs: number } {
+  return {
+    enabled: RETENTION_PRUNE_INTERVAL_MS > 0,
+    intervalMs: RETENTION_PRUNE_INTERVAL_MS,
+    lastRunMs: retentionLastRunMs,
+  };
+}
+
+export async function runRetentionPruneNow(): Promise<number> {
+  const before = Date.now();
+  try {
+    await pruneAuditRetention();
+  } finally {
+    retentionLastRunMs = before;
+  }
+  return Number(
+    ((await db.execute(sql`SELECT COUNT(*)::int AS n FROM audit_logs`)) as unknown as {
+      rows?: Array<{ n: number }>;
+    }).rows?.[0]?.n ?? 0,
+  );
 }

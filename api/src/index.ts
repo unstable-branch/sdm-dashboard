@@ -16,6 +16,7 @@ import { securityHeaders } from "./middleware/security-headers.js";
 import { requestIdMiddleware } from "./middleware/request-id.js";
 import { startMemoryMonitor, stopMemoryMonitor } from "./middleware/memory-monitor.js";
 import { initMetrics, metricsHandler, recordHttpRequest, incActiveRequests, decActiveRequests, collectGpuMetrics } from "./services/metrics.js";
+import { startRetentionPrune, shutdownAudit } from "./services/audit.js";
 import { db } from "./db/index.js";
 import { sql } from "drizzle-orm";
 import { sdmRunRoutes } from "./routes/sdm-runs.js";
@@ -297,6 +298,12 @@ setTimeout(() => {
   startMemoryMonitor(30000);
 }, 3000);
 
+// Start audit-logs retention prune — runs in background; interval
+// configurable via SDM_AUDIT_RETENTION_INTERVAL_MS.
+setTimeout(() => {
+  startRetentionPrune();
+}, 5000);
+
 // Flush stale cache after restart so old data from previous Plumber sessions
 // (e.g. broken endpoints returning empty results) is not served to users
 setTimeout(async () => {
@@ -319,6 +326,7 @@ async function shutdown() {
   closeCache();
   closeRateLimitRedis();
   await shutdownQueue();
+  await shutdownAudit();
   try {
     await db.$client.end();
     console.log("[Shutdown] PostgreSQL pool closed");

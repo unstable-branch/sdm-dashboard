@@ -119,7 +119,14 @@ export default function EvaluatePage() {
 
   const allRuns = runs?.runs || [];
   const completedRuns = allRuns.filter((r) => r.status === "completed");
-  const latestRun = completedRuns[0];
+  // completedRuns[0] is whichever the server returned first — not
+  // necessarily the most recent. Sort by completed_at descending so the
+  // auto-selected default is the actual latest completed run.
+  const latestRun = completedRuns
+    .filter((r) => typeof r.completed_at === "string" && r.completed_at.length > 0)
+    .slice()
+    .sort((a, b) => (a.completed_at! < b.completed_at! ? 1 : -1))[0]
+    ?? completedRuns[0];
 
   const outputFiles = selectedRun?.output_files || {};
   const rocCurvePng = outputFiles.roc_curve_png

@@ -13,12 +13,19 @@ interface SearchInputProps {
 export function SearchInput({ value, onChange, placeholder = "Search...", className = "" }: SearchInputProps) {
   const [localValue, setLocalValue] = useState(value);
 
+  // Sync local state when the parent-driven value changes externally (e.g.
+  // a parent component invokes a "clear" handler). Without this, localValue
+  // and value diverge and the parent's state never reflects the cleared input.
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
-      onChange(localValue);
+      if (localValue !== value) onChange(localValue);
     }, 200);
     return () => clearTimeout(timer);
-  }, [localValue, onChange]);
+  }, [localValue, onChange, value]);
 
   return (
     <div className={`relative ${className}`} role="search">
