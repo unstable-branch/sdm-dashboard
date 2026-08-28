@@ -66,6 +66,25 @@ export const csrfMiddleware = createMiddleware(async (c, next) => {
     }
   }
 
+  // Allow known frontend origins via Referer (Next.js proxy strips Origin header)
+  if (referer && !origin) {
+    let knownOrigins: string[];
+    try {
+      knownOrigins = getKnownOrigins().map(o => new URL(o).host);
+    } catch {
+      return c.json({ error: "CSRF validation failed: invalid origin configuration" }, 500);
+    }
+    try {
+      const refererHost = new URL(referer).host;
+      if (knownOrigins.includes(refererHost)) {
+        await next();
+        return;
+      }
+    } catch {
+      return c.json({ error: "CSRF validation failed: invalid Referer" }, 403);
+    }
+  }
+
   if (origin) {
     try {
       const originHost = new URL(origin).host;
