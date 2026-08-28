@@ -272,7 +272,7 @@ main() {
 
   echo -e "${YELLOW}[5/5]${NC} Starting Frontend (Next.js/${FRONTEND_BUNDLER}) on port 3000..."
   eval "$TMUX_CMD kill-session -t sdm-frontend" 2>/dev/null || true
-  eval "$TMUX_CMD new-session -d -s sdm-frontend \"cd '${SCRIPT_DIR}/frontend' && NODE_OPTIONS='--max-old-space-size=4096' npx --yes next dev ${NEXT_DEV_BUNDLER_FLAG} --port 3000 -H 127.0.0.1\""
+  eval "$TMUX_CMD new-session -d -s sdm-frontend \"cd '${SCRIPT_DIR}/frontend' && NODE_OPTIONS='--max-old-space-size=2048' npx --yes next dev ${NEXT_DEV_BUNDLER_FLAG} --port 3000 -H 127.0.0.1\""
   sleep 12
   if curl -s -o /dev/null http://localhost:3000; then
     echo -e "${GREEN}Frontend started (tmux: sdm-frontend)${NC}"

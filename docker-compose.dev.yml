@@ -24,6 +24,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     networks:
       - sdm-network
 
@@ -40,6 +44,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     networks:
       - sdm-network
 
@@ -49,6 +57,10 @@ services:
     ports:
       - "127.0.0.1:5000:8025"
       - "127.0.0.1:2525:1025"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     networks:
       - sdm-network
 
@@ -76,6 +88,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     networks:
       - sdm-network
 
