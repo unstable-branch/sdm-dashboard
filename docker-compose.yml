@@ -114,7 +114,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: ${PLUMBER_CPU_LIMIT:-8}
+          cpus: ${PLUMBER_CPU_LIMIT:-4}
           memory: 8G
     networks:
       - sdm-network
