@@ -8,14 +8,15 @@
 # Fatal error handler: dump stack + variables to crash log so OOM/segfault leaves a trail
 # Ignores REQUEST_REJECTED (normal Plumber auth rejection — not a crash)
 options(error = function() {
-  # Plumber preroute hook calls stop("REQUEST_REJECTED") for auth failures.
-  # These are expected and must not trigger crash logging or health-check alarms.
-  if (identical(geterrmessage(), "REQUEST_REJECTED")) return(invisible(NULL))
+  # Use condition class instead of geterrmessage() — the latter is overwritten
+  # by cascading errors (e.g. type mismatch during REQUEST_REJECTED cleanup).
+  cond <- get("condition", envir = .GlobalEnv, inherits = FALSE)
+  if (inherits(cond, "request_rejected")) return(invisible(NULL))
   crash_file <- file.path(tempdir(), "sdm_crash_dump.rda")
   tryCatch({
     dump.frames("sdm_crash_dump", to.file = TRUE)
     cat("FATAL: R process crashed at", format(Sys.time()), "\n",
-      "  Error:", geterrmessage(), "\n",
+      "  Error:", conditionMessage(cond), "\n",
       "  Dump written to:", crash_file, "\n",
       file = file.path(Sys.getenv("SDM_CRASH_LOG", tempdir()), "sdm_crash.log"),
       append = TRUE)
@@ -107,9 +108,15 @@ if (identical(Sys.getenv("NODE_ENV"), "production")) {
 }
 
 # Auth helper: stop request with error response
+# Uses a custom condition class so the global error handler can reliably
+# distinguish auth rejections from real crashes (geterrmessage() is fragile).
 auth_fail <- function(res, status, msg) {
-  tryCatch(res$status <- status, error = function(e) NULL)
-  stop("REQUEST_REJECTED", call. = FALSE)
+  tryCatch({
+    res$status <- status
+    res$body <- msg
+  }, error = function(e) NULL)
+  cond <- structure(list(message = msg), class = c("request_rejected", "error", "condition"))
+  stop(cond)
 }
 
 # Helper to safely read headers

@@ -230,15 +230,25 @@ main() {
   local max_wait=${has_plumber:+150}
   max_wait=${max_wait:-30}
 
+  # Track services that are definitively unhealthy (crashed, not just slow)
+  local -a skip_services=()
   local elapsed=0
   while [[ "$elapsed" -lt "$max_wait" ]]; do
     local all_healthy=true
     for svc in "${check_services[@]}"; do
+      # Skip services already known to be unhealthy
+      if printf '%s\n' "${skip_services[@]}" | grep -qx "$svc" 2>/dev/null; then
+        continue
+      fi
       local health
       health="$(compose ps --format json "$svc" 2>/dev/null | grep -o '"Health":"[^"]*"' | head -1)"
+      if [[ "$health" == *'"Health":"unhealthy"'* ]]; then
+        echo -e "${RED}Warning: ${svc} is unhealthy (crashed?). Skipping...${NC}"
+        skip_services+=("$svc")
+        continue
+      fi
       if [[ "$health" != *'"Health":"healthy"'* ]]; then
         all_healthy=false
-        break
       fi
     done
     if $all_healthy; then
