@@ -11,6 +11,9 @@
 # SDM_ACCELERATOR applies to plumber/full: auto (default), amd, nvidia, cpu.
 
 set -euo pipefail
+LOCK_FILE="/tmp/sdm-dev-start.lock"
+exec 200>"$LOCK_FILE"
+flock -n 200 || { echo "ERROR: Another dev-start.sh is already running. Use dev-stop.sh first." >&2; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 RED='\033[0;31m'
@@ -211,15 +214,39 @@ main() {
   compose "${profile_flags[@]}" up -d --remove-orphans
 
   echo -e "${YELLOW}[2/5]${NC} Waiting for services to be healthy..."
-  local max_wait=60 elapsed=0 unhealthy
+
+  # Determine which services to check based on active profiles
+  local -a check_services=(postgres redis)
+  if printf '%s\n' "${profiles[@]}" | grep -qxE 'computation|all'; then
+    check_services+=(plumber)
+  fi
+  if printf '%s\n' "${profiles[@]}" | grep -qxE 'storage|all'; then
+    check_services+=(garage)
+  fi
+
+  # Plumber R startup is slow (60-120s); other services are fast
+  local has_plumber=false
+  for svc in "${check_services[@]}"; do [[ "$svc" == "plumber" ]] && has_plumber=true; done
+  local max_wait=${has_plumber:+150}
+  max_wait=${max_wait:-30}
+
+  local elapsed=0
   while [[ "$elapsed" -lt "$max_wait" ]]; do
-    unhealthy="$(compose ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | grep -c -i 'unhealthy\|starting' || true)"
-    if [[ "$unhealthy" -eq 0 ]]; then
+    local all_healthy=true
+    for svc in "${check_services[@]}"; do
+      local health
+      health="$(compose ps --format json "$svc" 2>/dev/null | grep -o '"Health":"[^"]*"' | head -1)"
+      if [[ "$health" != *'"Health":"healthy"'* ]]; then
+        all_healthy=false
+        break
+      fi
+    done
+    if $all_healthy; then
       echo -e "${GREEN}All services healthy.${NC}"
       break
     fi
-    sleep 3
-    elapsed=$((elapsed + 3))
+    sleep 2
+    elapsed=$((elapsed + 2))
   done
   if [[ "$elapsed" -ge "$max_wait" ]]; then
     echo -e "${RED}Warning: Some services may not be healthy yet. Continuing anyway...${NC}"
