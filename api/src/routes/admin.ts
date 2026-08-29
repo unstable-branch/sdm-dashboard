@@ -260,7 +260,7 @@ adminRoutes.post("/users/:id/reset-password", async (c) => {
       .where(and(eq(refreshTokens.userId, targetId), isNull(refreshTokens.revokedAt)));
 
     const adminUser = c.get("user");
-    const client = extractClientInfo(c);
+    const client = extractClientInfo(c as any);
     await logAction({
       userId: adminUser.id,
       action: "admin_password_reset",
