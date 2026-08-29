@@ -438,12 +438,14 @@ run_fast_sdm <- function(...) {
     mess_result <- tryCatch(
       compute_mess(env$env_train, env$env_project),
       error = function(e) {
-        log_message(log_fun, "MESS computation failed: ", conditionMessage(e))
+        log_message(log_fun, "WARNING: MESS computation failed: ", conditionMessage(e))
         NULL
       }
     )
     if (!is.null(mess_result)) {
       log_message(log_fun, "  MESS: ", sprintf("%.1f%%", mess_result$pct_extrapolation * 100), " of projection area outside training range")
+    } else {
+      log_message(log_fun, "WARNING: MESS computation was skipped due to error")
     }
   }
 
@@ -825,10 +827,13 @@ threshold <- tryCatch({
       compute_aoa(fit$model_data, env$env_project_scaled, fit$covariates,
         variable_importance = importance_result, method = "cast", log_fun = log_fun),
       error = function(e) {
-        log_message(log_fun, "AOA computation failed: ", conditionMessage(e))
+        log_message(log_fun, "WARNING: AOA computation failed: ", conditionMessage(e))
         NULL
       }
     )
+    if (is.null(aoa_result)) {
+      log_message(log_fun, "WARNING: AOA computation was skipped due to error")
+    }
   }
 
   # Pre-flight memory check: reject if total memory (existing scaled rasters + prediction) exceeds 60% of available RAM
@@ -1019,6 +1024,8 @@ threshold <- tryCatch({
           suit_sum <- suit_sum + rep_suit
           valid_reps <- valid_reps + 1L
           unlink(rep_tif)
+        } else {
+          unlink(rep_tif)
         }
       }
     }
@@ -1071,7 +1078,7 @@ threshold <- tryCatch({
         log_fun = log_fun
       )
     }, error = function(e) {
-      log_message(log_fun, "Climate matching failed: ", conditionMessage(e))
+      log_message(log_fun, "WARNING: Climate matching failed: ", conditionMessage(e))
       NULL
     })
     if (!is.null(climate_match_result)) {
@@ -1079,6 +1086,8 @@ threshold <- tryCatch({
       terra::writeRaster(climate_match_result$similarity, cm_tif,
         overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
       extra_paths[["climate_matching_tif"]] <- cm_tif
+    } else {
+      log_message(log_fun, "WARNING: Climate matching was skipped due to error")
     }
   }
 
@@ -1136,7 +1145,7 @@ threshold <- tryCatch({
         mess_train_data = env_train_for_mess
       ),
       error = function(e) {
-        log_message(log_fun, "Future projection failed: ", conditionMessage(e))
+        log_message(log_fun, "WARNING: Future projection failed: ", conditionMessage(e))
         NULL
       }
     )
@@ -1149,6 +1158,8 @@ threshold <- tryCatch({
             wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
         }
       }
+    } else {
+      log_message(log_fun, "WARNING: Future climate projection was skipped due to error")
     }
   }
 
@@ -1177,7 +1188,7 @@ threshold <- tryCatch({
         mess_train_data = env_train_for_mess
       ),
       error = function(e) {
-        log_message(log_fun, "2nd scenario failed: ", conditionMessage(e))
+        log_message(log_fun, "WARNING: 2nd scenario (future climate) failed: ", conditionMessage(e))
         NULL
       }
     )
@@ -1191,7 +1202,11 @@ threshold <- tryCatch({
         }
       }
       future2$summary <- summarise_suitability(future2$suitability, threshold)
+    } else {
+      log_message(log_fun, "WARNING: 2nd future scenario was skipped due to error")
+    }
 
+    if (!is.null(future) && !is.null(future2)) {
       # Comparison summary
       area1 <- future$summary$high_risk_area_km2 %||% NA_real_
       area2 <- future2$summary$high_risk_area_km2 %||% NA_real_
