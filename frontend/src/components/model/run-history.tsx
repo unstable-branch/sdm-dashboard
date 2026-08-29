@@ -112,12 +112,13 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
   }, [fetchRuns, refreshKey]);
 
   useEffect(() => {
+    if (sseConnected) return;
     const interval = setInterval(() => {
       if (document.hidden) return;
       if (hasActiveRuns(runsRef.current)) fetchRuns();
     }, 10000);
     return () => clearInterval(interval);
-  }, [fetchRuns]);
+  }, [fetchRuns, sseConnected]);
 
   useEffect(() => {
     // Run this interval only when at least one run is queued; dep is a
