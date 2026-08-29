@@ -5,7 +5,7 @@ import {
   getCoreRowModel,
   flexRender,
 } from "@tanstack/react-table";
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 
@@ -44,14 +44,14 @@ function cellStyle(colId: string): React.CSSProperties {
 }
 
 function useToggleFlag(flaggedRows: Set<number>, setFlaggedRows: (s: Set<number>) => void, onFlagToggle?: (index: number, flagged: boolean) => void) {
-  return (idx: number) => {
+  return useCallback((idx: number) => {
     const isFlagged = flaggedRows.has(idx);
     const next = new Set(flaggedRows);
     if (isFlagged) next.delete(idx);
     else next.add(idx);
     setFlaggedRows(next);
     onFlagToggle?.(idx, !isFlagged);
-  };
+  }, [flaggedRows, setFlaggedRows, onFlagToggle]);
 }
 
 export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps) {

@@ -154,15 +154,21 @@ export function MapToolbar({
     const tr = toolbar.getBoundingClientRect();
     const startX = e.clientX, startY = e.clientY;
     const posX = tr.left, posY = tr.top;
+    let rafId: number | null = null;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const next = clamp({
-        x: posX + e.clientX - startX,
-        y: posY + e.clientY - startY,
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const next = clamp({
+          x: posX + e.clientX - startX,
+          y: posY + e.clientY - startY,
+        });
+        setPosition(next);
       });
-      setPosition(next);
     };
     const handleMouseUp = () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
       dragListenersRef.current = {};
@@ -180,16 +186,21 @@ export function MapToolbar({
     const t = e.touches[0];
     const startX = t.clientX, startY = t.clientY;
     const posX = tr.left, posY = tr.top;
+    let rafId: number | null = null;
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (!e.touches[0]) return;
-      const next = clamp({
-        x: posX + e.touches[0].clientX - startX,
-        y: posY + e.touches[0].clientY - startY,
+      if (!e.touches[0] || rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const next = clamp({
+          x: posX + e.touches[0].clientX - startX,
+          y: posY + e.touches[0].clientY - startY,
+        });
+        setPosition(next);
       });
-      setPosition(next);
     };
     const handleTouchEnd = () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
       window.removeEventListener("touchmove", handleTouchMove);
       window.removeEventListener("touchend", handleTouchEnd);
       dragListenersRef.current = {};
