@@ -46,7 +46,6 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-dropzone": "^15.0.0",
-    "react-hook-form": "^7.53.0",
     "react-map-gl": "^8.1.1",
     "recharts": "^2.13.0",
     "tailwind-merge": "^2.5.0",
