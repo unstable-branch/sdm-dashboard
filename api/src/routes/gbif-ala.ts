@@ -46,17 +46,22 @@ gbifAlaRoutes.post("/occurrences/gbif/search", gbifRateLimit, async (c) => {
               if (isEncryptionKeyConfigured()) {
                 try {
                   body.gbif_pwd = decryptString(settings.gbifPassword);
-                } catch {
+                } catch (err) {
+                  console.warn("[gbif-ala] Password decryption failed, using plaintext:", err);
                   body.gbif_pwd = settings.gbifPassword;
                 }
               } else {
                 body.gbif_pwd = settings.gbifPassword;
               }
-            } catch { }
+            } catch (err) {
+              console.warn("[gbif-ala] Failed to load GBIF credentials:", err);
+            }
           }
           if (settings.gbifEmail) body.gbif_email = settings.gbifEmail;
         }
-      } catch { }
+      } catch (err) {
+        console.warn("[gbif-ala] Failed to query user settings:", err);
+      }
     }
 
     const initial = await plumberClient.searchGbif(body);
@@ -192,9 +197,13 @@ gbifAlaRoutes.post("/occurrences/ala/search", defaultRateLimit, async (c) => {
           try {
             const { decryptString, isEncryptionKeyConfigured } = await import("../services/encryption.js");
             if (isEncryptionKeyConfigured()) body.api_key = decryptString(settings.alaApiKey);
-          } catch { }
+          } catch (err) {
+            console.warn("[gbif-ala] ALA API key decryption failed:", err);
+          }
         }
-      } catch { }
+      } catch (err) {
+        console.warn("[gbif-ala] Failed to query ALA user settings:", err);
+      }
     }
 
     const initial = await plumberClient.searchAla(body);

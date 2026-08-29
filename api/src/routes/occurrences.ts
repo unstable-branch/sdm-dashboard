@@ -144,7 +144,8 @@ dataRoutes.get("/occurrences/clean/result", async (c) => {
             original_rows: (match.cleaned_original_rows as number) || (match.n_rows as number) || 0,
           });
         }
-      } catch {
+      } catch (err) {
+        console.error("[occurrences] Failed to get upload metadata:", err);
       }
 
       const result = readCleanResultFromFile(resolved.path);
@@ -232,7 +233,7 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     return c.json(normalizedResult);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
-    const isPlumberDown = message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("connect");
+    const isPlumberDown = message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("connect") || message.includes("ENOTFOUND") || message.includes("ETIMEDOUT") || message.includes("ECONNRESET");
     return c.json({
       error: isPlumberDown
         ? "Upload failed: Plumber backend is not running. Start it with: docker compose -f docker-compose.dev.yml --profile computation up -d"
