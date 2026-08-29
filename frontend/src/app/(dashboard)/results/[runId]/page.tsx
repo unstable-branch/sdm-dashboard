@@ -281,36 +281,36 @@ export default function ResultsPage() {
     fetchWithAuth(`/api/v1/results/${runId}/report.txt`, { signal: abort.signal })
       .then((res) => res.ok ? res.text() : null)
       .then((text) => setReportText(text))
-      .catch(() => {});
+      .catch((e) => console.warn("[results] Failed to fetch report:", e));
     const odmapMdPath = run.output_files?.odmap_report_md;
     const odmapCsvPath = run.output_files?.odmap_report_csv;
     if (odmapMdPath) {
       fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`, { signal: abort.signal })
         .then((res) => res.ok ? res.text() : null)
         .then((text) => setOdmapMd(text))
-        .catch(() => {});
+        .catch((e) => console.warn("[results] Failed to fetch odmap md:", e));
     }
     if (odmapCsvPath) {
       fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`, { signal: abort.signal })
         .then((res) => res.ok ? res.text() : null)
         .then((text) => setOdmapCsv(text))
-        .catch(() => {});
+        .catch((e) => console.warn("[results] Failed to fetch odmap csv:", e));
     }
     const eooPath = run.output_files?.eoo_polygon;
     const aooPath = run.output_files?.aoo_grid;
     if (eooPath) {
       fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(eooPath)}`)
         .then((geo) => setEooGeoJSON(geo))
-        .catch(() => {});
+        .catch((e) => console.warn("[results] Failed to fetch EOO GeoJSON:", e));
     }
     if (aooPath) {
       fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(aooPath)}`)
         .then((geo) => setAooGeoJSON(geo))
-        .catch(() => {});
+        .catch((e) => console.warn("[results] Failed to fetch AOO GeoJSON:", e));
     }
     fetchGeoJSON("/api/v1/data/boundary/default")
       .then((geo) => setBoundaryGeoJSON(geo))
-      .catch(() => {});
+      .catch((e) => console.warn("[results] Failed to fetch boundary GeoJSON:", e));
     return () => abort.abort();
   }, [runId, run?.id, run?.status, run?.output_files]);
 

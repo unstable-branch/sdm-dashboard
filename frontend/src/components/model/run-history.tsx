@@ -213,17 +213,19 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
     return <div className="text-sm text-sdm-muted">Loading run history...</div>;
   }
 
-  if (error && runs.length === 0) {
+  if (error) {
     return (
       <div className="space-y-3">
         <div className="text-sm text-sdm-danger">{error}</div>
-        <button
-          onClick={fetchRuns}
-          className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface"
-        >
-          <RefreshCw className="h-3 w-3" />
-          Retry
-        </button>
+        {runs.length === 0 && (
+          <button
+            onClick={fetchRuns}
+            className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Retry
+          </button>
+        )}
       </div>
     );
   }
