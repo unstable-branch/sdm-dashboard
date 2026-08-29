@@ -70,7 +70,7 @@ boundaryRoutes.get("/boundary/list", async (c) => {
   }
 });
 
-boundaryRoutes.delete("/boundary/delete/:id", async (c) => {
+boundaryRoutes.post("/boundary/delete/:id", async (c) => {
   try {
     const user = c.get("user");
     const filePath = c.req.param("id");

@@ -35,7 +35,7 @@ downloadsRoutes.get("/status/:jobId", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get status";
     const status = (err as { status?: number }).status ?? 502;
-    return c.json({ error: message, status: "unknown" }, status as 502 | 404 | 500);
+    return c.json({ error: message, status: "unknown" }, status as 400 | 401 | 403 | 404 | 500 | 502 | 503);
   }
 });
 
