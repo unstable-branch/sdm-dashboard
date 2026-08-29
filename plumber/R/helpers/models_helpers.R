@@ -777,7 +777,7 @@ handle_model_status <- function(res, job_id) {
         })
       }
     }
-    if (process_alive || is.null(proc)) {
+    if (!process_alive || is.null(proc)) {
       heartbeat_file <- file.path(job_dir, "heartbeat.log")
       if (file.exists(heartbeat_file)) {
         last_line <- tryCatch(tail(readLines(heartbeat_file, warn = FALSE), 1), error = function(e) NULL)
@@ -962,7 +962,7 @@ handle_model_status <- function(res, job_id) {
   result
 }
 
-handle_model_cancel <- function(req, job_id) {
+handle_model_cancel <- function(req, res, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     return(list(ok = FALSE, message = "Invalid job ID"))
@@ -971,7 +971,7 @@ handle_model_cancel <- function(req, job_id) {
 
   if (file.exists(meta_file)) {
     meta <- sdm_read_meta_json(meta_file)
-  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
+    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
       if (as.character(meta$user_id) != as.character(req$user_id)) {
         return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this run"))
@@ -1025,7 +1025,7 @@ handle_model_cancel <- function(req, job_id) {
 
     # Re-read meta to detect if child already wrote a terminal status.
     meta <- sdm_read_meta_json(meta_file)
-  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
+    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$status) && meta$status %in% c("completed", "failed", "cancelled")) {
       return(list(ok = TRUE, message = "Run already terminated"))
     }
@@ -1059,7 +1059,7 @@ handle_model_cancel <- function(req, job_id) {
   list(ok = TRUE, message = if (killed) "Run cancelled and process terminated" else "Run cancelled (process not found)")
 }
 
-handle_model_delete <- function(req, job_id) {
+handle_model_delete <- function(req, res, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     return(list(ok = TRUE, message = "Invalid job ID", deleted = FALSE))
@@ -1068,7 +1068,7 @@ handle_model_delete <- function(req, job_id) {
 
   if (file.exists(meta_file)) {
     meta <- sdm_read_meta_json(meta_file)
-  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
+    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
       if (as.character(meta$user_id) != as.character(req$user_id)) {
         return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to delete this run"))
