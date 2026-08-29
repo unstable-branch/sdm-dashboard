@@ -45,7 +45,8 @@ export function useDiagnostics(runId: string | null): UseDiagnosticsResult {
           const data = await apiGet(url);
 
           (setter as (value: unknown) => void)(data);
-        } catch {
+        } catch (err) {
+          console.warn(`[use-diagnostics] Endpoint failed: ${url}`, err);
           setter(null);
         }
       })

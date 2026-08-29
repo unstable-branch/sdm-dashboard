@@ -36,8 +36,9 @@ export function ApiKeyManager() {
     try {
       const data = await apiGet<unknown[]>("/api/v1/auth/api-keys");
       setKeys(data as ApiKey[]);
-    } catch {
-      // Silently fail
+    } catch (err) {
+      console.error("[api-key-manager] Failed to load API keys:", err);
+      setError("Failed to load API keys");
     } finally {
       setLoading(false);
     }
