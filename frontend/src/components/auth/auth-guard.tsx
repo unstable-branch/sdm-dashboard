@@ -13,7 +13,7 @@ interface AuthGuardProps {
 
 export function AuthGuard({ children, redirectTo = "/login" }: AuthGuardProps) {
   const router = useRouter();
-  const { token } = useAuthStore();
+  const token = useAuthStore((s) => s.token);
   // Wait for Zustand persist hydration before deciding. On first paint the
   // store reads from the SSR snapshot (token=null), which would otherwise
   // bounce a returning user to /login. `hasHydrated` flips true after the

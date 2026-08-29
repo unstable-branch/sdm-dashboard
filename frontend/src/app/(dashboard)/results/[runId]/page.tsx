@@ -278,39 +278,42 @@ export default function ResultsPage() {
   useEffect(() => {
     if (!runId || !run || run.status !== "completed") return;
     const abort = new AbortController();
-    fetchWithAuth(`/api/v1/results/${runId}/report.txt`, { signal: abort.signal })
-      .then((res) => res.ok ? res.text() : null)
-      .then((text) => setReportText(text))
-      .catch((e) => console.warn("[results] Failed to fetch report:", e));
     const odmapMdPath = run.output_files?.odmap_report_md;
     const odmapCsvPath = run.output_files?.odmap_report_csv;
-    if (odmapMdPath) {
-      fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`, { signal: abort.signal })
-        .then((res) => res.ok ? res.text() : null)
-        .then((text) => setOdmapMd(text))
-        .catch((e) => console.warn("[results] Failed to fetch odmap md:", e));
-    }
-    if (odmapCsvPath) {
-      fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`, { signal: abort.signal })
-        .then((res) => res.ok ? res.text() : null)
-        .then((text) => setOdmapCsv(text))
-        .catch((e) => console.warn("[results] Failed to fetch odmap csv:", e));
-    }
     const eooPath = run.output_files?.eoo_polygon;
     const aooPath = run.output_files?.aoo_grid;
-    if (eooPath) {
-      fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(eooPath)}`)
-        .then((geo) => setEooGeoJSON(geo))
-        .catch((e) => console.warn("[results] Failed to fetch EOO GeoJSON:", e));
-    }
-    if (aooPath) {
-      fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(aooPath)}`)
-        .then((geo) => setAooGeoJSON(geo))
-        .catch((e) => console.warn("[results] Failed to fetch AOO GeoJSON:", e));
-    }
-    fetchGeoJSON("/api/v1/data/boundary/default")
-      .then((geo) => setBoundaryGeoJSON(geo))
-      .catch((e) => console.warn("[results] Failed to fetch boundary GeoJSON:", e));
+
+    Promise.all([
+      fetchWithAuth(`/api/v1/results/${runId}/report.txt`, { signal: abort.signal })
+        .then((res) => res.ok ? res.text() : null)
+        .catch(() => null),
+      odmapMdPath
+        ? fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`, { signal: abort.signal })
+            .then((res) => res.ok ? res.text() : null)
+            .catch(() => null)
+        : Promise.resolve(null),
+      odmapCsvPath
+        ? fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`, { signal: abort.signal })
+            .then((res) => res.ok ? res.text() : null)
+            .catch(() => null)
+        : Promise.resolve(null),
+      eooPath
+        ? fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(eooPath)}`)
+        : Promise.resolve(null),
+      aooPath
+        ? fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(aooPath)}`)
+        : Promise.resolve(null),
+      fetchGeoJSON("/api/v1/data/boundary/default"),
+    ])
+      .then(([reportText, odmapMd, odmapCsv, eooGeoJSON, aooGeoJSON, boundaryGeoJSON]) => {
+        setReportText(reportText);
+        setOdmapMd(odmapMd);
+        setOdmapCsv(odmapCsv);
+        setEooGeoJSON(eooGeoJSON);
+        setAooGeoJSON(aooGeoJSON);
+        setBoundaryGeoJSON(boundaryGeoJSON);
+      })
+      .catch((e) => console.warn("[results] Failed to fetch report data:", e));
     return () => abort.abort();
   }, [runId, run?.id, run?.status, run?.output_files]);
 
