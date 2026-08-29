@@ -97,13 +97,14 @@ export function TabsContent({
   className?: string;
 }) {
   const { value: selectedValue } = React.useContext(TabsContext);
-  if (value !== selectedValue) return null;
+  const isActive = value === selectedValue;
 
   return (
     <div
       role="tabpanel"
-      data-state={value === selectedValue ? "active" : "inactive"}
+      data-state={isActive ? "active" : "inactive"}
       className={cn("mt-2 focus-visible:outline-none", className)}
+      hidden={!isActive}
     >
       {children}
     </div>
