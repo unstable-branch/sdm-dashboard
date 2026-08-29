@@ -40,7 +40,7 @@ sdm_dnn_arch <- function(model_type = "DNN_Medium") {
   if (!is.null(arch)) return(arch)
   arch <- config$dnn_arch[[model_type]]
   if (!is.null(arch)) return(arch)
-  config$dnn_arch[["DNN_Medium"]]
+  stop("sdm_dnn_arch: unknown model_type '", model_type, "'. Available: ", paste(names(config$dnn_arch), collapse = ", "))
 }
 
 ## DNN Modelling Wrapper using cito/torch ---------------------------------------

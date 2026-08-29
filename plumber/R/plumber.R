@@ -135,11 +135,11 @@ function(res, job_id) handle_model_status(res, job_id)
 
 #* Cancel a running model run
 #* @post /api/v1/models/cancel/<job_id>
-function(req, job_id) handle_model_cancel(req, job_id)
+function(req, res, job_id) handle_model_cancel(req, res, job_id)
 
 #* Delete model run output files
 #* @post /api/v1/models/delete/<job_id>
-function(req, job_id) handle_model_delete(req, job_id)
+function(req, res, job_id) handle_model_delete(req, res, job_id)
 
 #* List model runs (optionally filtered by user)
 #* @get /api/v1/models/runs
@@ -151,7 +151,7 @@ function(req, res, job_id) handle_job_status(req, res, job_id, app_dir)
 
 #* Cancel an async data job
 #* @post /api/v1/jobs/cancel/<job_id>
-function(req, job_id) handle_job_cancel(req, job_id, app_dir)
+function(req, res, job_id) handle_job_cancel(req, res, job_id, app_dir)
 
 #* Health check
 #* @get /health

@@ -130,9 +130,9 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
     )
     if (inherits(parallel_result, "error")) {
       log_message(log_fun, "Parallel CV failed; falling back to single-core: ", conditionMessage(parallel_result))
-      run_single_core_cv()
+      return(run_single_core_cv())
     } else {
-      parallel_result
+      return(parallel_result)
     }
   } else {
     run_single_core_cv()

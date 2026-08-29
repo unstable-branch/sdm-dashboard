@@ -94,7 +94,10 @@ sdm_ensure_project_dirs <- function(dirs = NULL) {
 sdm_safe_rename <- function(from, to) {
   if (file.exists(to)) unlink(to, force = TRUE)
   if (!file.rename(from, to)) {
-    file.copy(from, to, overwrite = TRUE)
+    if (!file.copy(from, to, overwrite = TRUE)) {
+      warning("sdm_safe_rename: copy failed from ", from, " to ", to)
+      return(invisible(FALSE))
+    }
     unlink(from, force = TRUE)
   }
   invisible(TRUE)
