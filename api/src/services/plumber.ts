@@ -3,6 +3,47 @@ import type {
   PlumberJobLogs,
 } from "@sdm/shared";
 
+export interface PlumberJobStatus {
+  [key: string]: unknown;
+  available?: boolean;
+  status: string;
+  progress_log?: string[];
+  error_code?: string | null;
+  error_hint?: string | null;
+  error?: string | null;
+  result?: Record<string, unknown>;
+  completed_at?: string;
+}
+
+export interface PlumberModelStatus {
+  [key: string]: unknown;
+  status: string;
+  progress_log?: string[];
+  progress_json?: unknown;
+  error?: string | null;
+  last_stage?: string | null;
+  error_code?: string | null;
+  error_hint?: string | null;
+  metrics?: Record<string, unknown> | null;
+  output_files?: { tif_3857?: string } | null;
+  result?: Record<string, unknown>;
+  completed_at?: string;
+}
+
+export interface PlumberModelStatus {
+  status: string;
+  progress_log?: string[];
+  progress_json?: unknown;
+  error?: string | null;
+  last_stage?: string | null;
+  error_code?: string | null;
+  error_hint?: string | null;
+  metrics?: Record<string, unknown> | null;
+  output_files?: { tif_3857?: string } | null;
+  result?: Record<string, unknown>;
+  completed_at?: string;
+}
+
 const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
 const PLUMBER_INTERNAL_KEY = process.env.PLUMBER_INTERNAL_KEY || "";
 const PLUMBER_MAX_CONCURRENT = parseInt(process.env.PLUMBER_MAX_CONCURRENT || "8", 10);
@@ -16,17 +57,18 @@ const TIMEOUT_NORMAL = PLUMBER_DEFAULT_TIMEOUT_MS;
 let plumberQueue: Array<() => void> = [];
 let plumberActiveRequests = 0;
 
+const _resolverTimeouts = new Map<() => void, ReturnType<typeof setTimeout>>();
+
 async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
   if (plumberActiveRequests >= PLUMBER_MAX_CONCURRENT) {
     await new Promise<void>((resolve, reject) => {
-      const resolver: () => void = resolve;
-      plumberQueue.push(resolver);
+      plumberQueue.push(resolve);
       const timeoutId = setTimeout(() => {
-        const idx = plumberQueue.indexOf(resolver);
+        const idx = plumberQueue.indexOf(resolve);
         if (idx >= 0) plumberQueue.splice(idx, 1);
         reject(new Error("Plumber semaphore timeout: all connections busy"));
       }, 5000);
-      (resolver as any)._timeoutId = timeoutId;
+      _resolverTimeouts.set(resolve, timeoutId);
     });
   }
   plumberActiveRequests++;
@@ -36,8 +78,11 @@ async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
     plumberActiveRequests--;
     if (plumberQueue.length > 0) {
       const next = plumberQueue.shift()!;
-      const tid = (next as any)._timeoutId;
-      if (tid) clearTimeout(tid);
+      const tid = _resolverTimeouts.get(next);
+      if (tid !== undefined) {
+        clearTimeout(tid);
+        _resolverTimeouts.delete(next);
+      }
       next();
     }
   }
@@ -230,13 +275,13 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getJobStatus(jobId: string): Promise<Record<string, unknown>> {
+  async getJobStatus(jobId: string): Promise<PlumberJobStatus> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/status/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
     return res.json();
   }
 
-  async getModelStatus(jobId: string, timeoutMs: number = 10_000): Promise<Record<string, unknown>> {
+  async getModelStatus(jobId: string, timeoutMs: number = 10_000): Promise<PlumberModelStatus> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`, {
       headers: this.headers(),
       signal: AbortSignal.timeout(timeoutMs),
@@ -484,7 +529,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async targetsStatus(jobId: string): Promise<Record<string, unknown>> {
+  async targetsStatus(jobId: string): Promise<PlumberModelStatus> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/targets-status/${jobId}`, {
       headers: this.headers(),
     });
