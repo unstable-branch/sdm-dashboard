@@ -9,7 +9,7 @@ import { ensureBuckets } from "./services/storage.js";
 import { getRedisStatus, ensureWorker, shutdownQueue } from "./services/queue.js";
 import { startPlumberSync, stopPlumberSync } from "./services/plumber-sync.js";
 import { setupWebSocket, cleanupWebSocket } from "./services/websocket.js";
-import { closeRateLimitRedis } from "./middleware/rate-limit.js";
+
 import { csrfMiddleware } from "./middleware/csrf.js";
 import { securityHeaders } from "./middleware/security-headers.js";
 import { requestIdMiddleware } from "./middleware/request-id.js";
@@ -324,7 +324,6 @@ async function shutdown() {
   stopPlumberSync();
   stopMemoryMonitor();
   cleanupWebSocket();
-  closeRateLimitRedis();
   await shutdownQueue();
   await shutdownAudit();
   try {

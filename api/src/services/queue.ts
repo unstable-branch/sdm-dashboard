@@ -10,7 +10,6 @@ import { handleModelJob } from "./queue-model-worker.js";
 import { handleCleanJob } from "./queue-clean-worker.js";
 import { handleCovariateJob } from "./queue-climate-worker.js";
 
-let _connection: IORedis | null = null;
 let _bullmqConnection: IORedis | null = null;
 let _queue: Queue | null = null;
 let _worker: Worker<SdmJobData, SdmJobResult> | null = null;
@@ -74,7 +73,6 @@ function disableRedis() {
   _redisDisabled = true;
   _worker?.close();
   _worker = null;
-  _connection = null;
   _bullmqConnection = null;
   _queue = null;
 
@@ -98,7 +96,6 @@ export function resetRedis() {
     clearTimeout(_reconnectTimer);
     _reconnectTimer = null;
   }
-  _connection = null;
   _bullmqConnection = null;
   _queue = null;
   _worker = null;
@@ -119,7 +116,6 @@ export async function shutdownQueue() {
   try {
     _bullmqConnection?.disconnect(false);
   } catch { /* best-effort */ }
-  _connection = null;
   _bullmqConnection = null;
   _queue = null;
   _worker = null;
