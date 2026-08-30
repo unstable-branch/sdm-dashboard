@@ -84,7 +84,7 @@ climateRoutes.post("/download", async (c) => {
 
     const plumberData = await plumberClient.withUser(user.id).downloadClimate(body as Record<string, unknown>);
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "climate_download_started",
@@ -127,7 +127,7 @@ climateRoutes.post("/delete/:scenarioId", async (c) => {
 
     const result = await plumberClient.deleteClimateScenario(scenarioId);
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "climate_scenario_deleted",

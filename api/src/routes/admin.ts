@@ -130,7 +130,7 @@ adminRoutes.post("/users", async (c) => {
     }).returning();
 
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_user_create",
@@ -187,7 +187,7 @@ adminRoutes.put("/users/:id", async (c) => {
       });
 
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_user_update",
@@ -219,7 +219,7 @@ adminRoutes.delete("/users/:id", async (c) => {
 
     await db.delete(users).where(eq(users.id, targetId));
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_user_delete",
@@ -260,7 +260,7 @@ adminRoutes.post("/users/:id/reset-password", async (c) => {
       .where(and(eq(refreshTokens.userId, targetId), isNull(refreshTokens.revokedAt)));
 
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_password_reset",
@@ -404,7 +404,7 @@ adminRoutes.get("/database/:table", async (c) => {
     const total = Number((countResult as any).rows?.[0]?.total || 0);
 
     const user = c.get("user") as { id?: string } | undefined;
-    const { ipAddress, userAgent } = extractClientInfo(c as any);
+    const { ipAddress, userAgent } = extractClientInfo(c);
     await logAction({
       userId: user?.id ?? "unknown",
       action: "admin_database_query",
@@ -632,7 +632,7 @@ adminRoutes.delete("/system/secrets/:key", async (c) => {
 adminRoutes.post("/system/cache/clear", async (c) => {
   try {
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
 
     try {
       const { invalidateCache } = await import("../middleware/cache.js");

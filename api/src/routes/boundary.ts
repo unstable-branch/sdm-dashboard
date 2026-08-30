@@ -42,7 +42,7 @@ boundaryRoutes.post("/boundary/upload", async (c) => {
       file_content: base64,
     });
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "boundary_uploaded",
@@ -79,7 +79,7 @@ boundaryRoutes.post("/boundary/delete/:id", async (c) => {
     }
     const res = await plumberClient.withUser(user.id).post("/api/v1/data/boundary/delete", { file_path: filePath });
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "boundary_deleted",

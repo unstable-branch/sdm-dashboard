@@ -137,17 +137,16 @@ export async function logAction(entry: AuditEntry): Promise<void> {
   }
 }
 
-export function extractClientInfo(c: Context | any) {
+export function extractClientInfo(c: Context) {
   // Use the trusted-proxy-aware IP resolution. When TRUSTED_PROXY_CIDRS is not
   // configured, client-supplied X-Forwarded-For / X-Real-IP / CF-Connecting-IP
   // headers are ignored to prevent spoofed IPs in audit logs.
   const ipAddress = (() => {
-    if (!c || typeof getClientIp !== "function") return null;
-    const ip = getClientIp(c as Context);
+    const ip = getClientIp(c);
     return ip === "unknown" ? null : ip;
   })();
 
-  const rawUserAgent = c.req?.header?.("user-agent");
+  const rawUserAgent = c.req.header("user-agent");
   const userAgent = typeof rawUserAgent === "string" && rawUserAgent.length > 0
     ? rawUserAgent.slice(0, 500)
     : null;
@@ -156,7 +155,7 @@ export function extractClientInfo(c: Context | any) {
   // Falls back to a freshly generated UUID v4 when the middleware hasn't run,
   // which can happen during tests where the Hono app is constructed without
   // the full middleware stack.
-  const stored = c?.get?.("requestId");
+  const stored = c.get("requestId");
   const requestId = typeof stored === "string" && stored.length > 0
     ? stored
     : randomUUID();

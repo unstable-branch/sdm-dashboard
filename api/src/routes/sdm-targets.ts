@@ -23,7 +23,7 @@ sdmTargetsRoutes.post("/targets/run", async (c) => {
     const user = c.get("user");
     const result = await plumberClient.targetsRun(body);
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "targets_run_started",
