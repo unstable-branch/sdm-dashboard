@@ -297,11 +297,6 @@ export function getJobQueue(): Queue | null {
   return getQueue();
 }
 
-export function getQueueClient(): IORedis | null {
-  if (_redisDisabled) return null;
-  return getConnection();
-}
-
 export function getSharedRedis(): IORedis | null {
   return getConnection();
 }

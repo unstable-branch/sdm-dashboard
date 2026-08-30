@@ -225,24 +225,4 @@ export function startRetentionPrune(): void {
   scheduleRetentionPrune();
 }
 
-export function getRetentionStatus(): { enabled: boolean; intervalMs: number; lastRunMs: number } {
-  return {
-    enabled: RETENTION_PRUNE_INTERVAL_MS > 0,
-    intervalMs: RETENTION_PRUNE_INTERVAL_MS,
-    lastRunMs: retentionLastRunMs,
-  };
-}
 
-export async function runRetentionPruneNow(): Promise<number> {
-  const before = Date.now();
-  try {
-    await pruneAuditRetention();
-  } finally {
-    retentionLastRunMs = before;
-  }
-  return Number(
-    ((await db.execute(sql`SELECT COUNT(*)::int AS n FROM audit_logs`)) as unknown as {
-      rows?: Array<{ n: number }>;
-    }).rows?.[0]?.n ?? 0,
-  );
-}

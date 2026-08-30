@@ -108,7 +108,7 @@ export const gbifRateLimit = rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "
 export const climateRateLimit = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "climate" });
 export const modelRateLimit = rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "model" });
 export const defaultRateLimit = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "default" });
-export const authRateLimit = rateLimit({ windowMs: 60_000, max: 20, keyPrefix: "auth" });
+
 
 /**
  * Check rate limit for a given key (e.g., IP address for auth failures).

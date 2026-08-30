@@ -22,10 +22,6 @@ let _lastSyncTimestamp = 0;
 let _lastSyncError: string | null = null;
 const _cogUploadLocks = new Set<string>();
 
-export function getLastSyncTimestamp(): number {
-  return _lastSyncTimestamp;
-}
-
 export function getLastSyncError(): string | null {
   return _lastSyncError;
 }
@@ -614,8 +610,6 @@ async function encryptOutputs(jobDir: string) {
     }
   }
 }
-
-export { encryptOutputs };
 
 export function startPlumberSync(intervalMs = 5000) {
   if (_syncInterval) return;

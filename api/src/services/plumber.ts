@@ -266,12 +266,6 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getModelRuns(): Promise<Array<Record<string, unknown>>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models/runs`);
-    if (!res.ok) throw new Error(`Failed to get model runs: ${res.status}`);
-    return res.json();
-  }
-
   async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; base_directory: string; message?: string }> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`);
     if (!res.ok) throw new Error(`Failed to get future scenarios: ${res.status}`);
@@ -476,16 +470,6 @@ export class PlumberClient {
     });
     const data = await res.json() as Record<string, unknown>;
     return [res.status, data];
-  }
-
-  async postForm(path: string, formData: FormData): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}${path}`, {
-      method: "POST",
-      headers: this.headers(),
-      body: formData,
-    });
-    if (!res.ok) throw new Error(`POST ${path} (form) failed: ${res.status}`);
-    return res.json();
   }
 
   // ── Targets pipeline ───────────────────────────────────────────────────
