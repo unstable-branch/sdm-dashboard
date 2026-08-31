@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `R/models/model_helpers.R` adds `sdm_step(label, expr)` — labelled tryCatch wrapper. All 13 SDM backends (`model_glm`, `model_gam`, `model_maxnet`, `model_rf`, `model_xgboost`, `model_bart`, `model_gbm`, `model_rpart`, `model_earth`, `model_mda`, `model_nnet`, `model_dnn`, `model_brms`, `model_inla`) now wrap their post-fit stages (`predict-train`, `train-metrics`, `cross-validate`, `in-sample-cbi`, `cv-cbi`, `extract-coefficients`, `aggregate-cv`, etc.) with `sdm_step()`. Failures now surface as `SDM stage '<name>' failed: <error>` instead of bare R errors like `argument is of length zero`. `R/core/run_sdm.R` prediction wrapper at line 917 refactored to use `sdm_step("predict", …)` for consistency.
+- `R/models/blockcv.R` opens a `grDevices::pdf(file = tempfile(fileext = ".pdf"))` device before `blockCV::cv_spatial()` and closes it in `on.exit`. In headless Docker containers the previous behaviour was `cannot open file 'Rplots.pdf'` written to stderr only — the fold assignment was lost and the user got no explanation. Now the device always succeeds. Also unifies the inner fallback (`blockCV failed:` branch and the `blockCV not available` branches) so the user's `cv_block_size_km` is honoured rather than silently widened to 100 km.
 
 ### Security (Group C: 12 ownership/authz holes closed)
 
