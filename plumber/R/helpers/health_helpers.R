@@ -11,8 +11,26 @@ handle_health <- function(res, app_dir) {
 }
 
 handle_ready <- function(res) {
+  active_runs <- sdm_count_active_runs()
+  mem_avail <- tryCatch(terra::mem_info()$memavail, error = function(e) NULL)
+  mem_ok <- is.numeric(mem_avail) && is.finite(mem_avail) && mem_avail > 1
+  runs_ok <- active_runs < SDM_MAX_CONCURRENT_RUNS
+  if (!runs_ok || !mem_ok) {
+    res$status <- 503L
+    return(list(
+      status = "busy",
+      active_runs = active_runs,
+      max_concurrent_runs = SDM_MAX_CONCURRENT_RUNS,
+      memory_gb = if (is.numeric(mem_avail)) mem_avail else NULL,
+      reason = if (!runs_ok) "at_max_capacity" else "low_memory",
+      timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    ))
+  }
   list(
-    status = "ok",
+    status = "ready",
+    active_runs = active_runs,
+    max_concurrent_runs = SDM_MAX_CONCURRENT_RUNS,
+    memory_gb = mem_avail,
     timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
   )
 }

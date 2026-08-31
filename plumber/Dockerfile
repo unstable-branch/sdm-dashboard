@@ -80,7 +80,7 @@ EXPOSE 8000
 # docker-compose*.yml and ensures Kubernetes / standalone runtimes can detect
 # a hung Plumber R process.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD curl -fsS http://localhost:8000/health || exit 1
+    CMD curl -fsS http://localhost:8000/ready || exit 1
 
 COPY plumber/docker-entrypoint.sh /usr/local/bin/plumber-entrypoint.sh
 RUN chmod 0755 /usr/local/bin/plumber-entrypoint.sh

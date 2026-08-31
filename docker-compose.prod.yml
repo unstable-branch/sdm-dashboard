@@ -146,11 +146,11 @@ services:
       - REDIS_URL=redis://redis:6379
     init: true
     healthcheck:
-      test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/ready || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 180s
     networks:
       - sdm-network
     restart: unless-stopped
