@@ -183,7 +183,8 @@ handle_covariates_download_bg <- function(req, app_dir) {
   env = c(
     HOME = "/app",
     R_MAX_VSIZE = sdm_detect_vsize()
-  ))
+  ),
+  r_limit_memory = sdm_vsize_to_bytes())
 
   sdm_process_registry[[job_id]] <- list(proc = proc, device = "cpu")
   job_meta$process_pid <- proc$get_pid()

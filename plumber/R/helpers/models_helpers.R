@@ -176,7 +176,8 @@ handle_model_run <- function(req, app_dir) {
   stdout = file.path(job_dir, "stdout.log"),
   stderr = file.path(job_dir, "stderr.log"),
   cmdargs = c("--no-save", "--no-restore"),
-  env = env)
+  env = env,
+  r_limit_memory = sdm_vsize_to_bytes())
   device_tag <- if (is_gpu_model) gpu_backend else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
@@ -485,7 +486,8 @@ handle_targets_run <- function(req, app_dir) {
   stdout = file.path(job_dir, "stdout.log"),
   stderr = file.path(job_dir, "stderr.log"),
   cmdargs = c("--no-save", "--no-restore"),
-  env = env_vars)
+  env = env_vars,
+  r_limit_memory = sdm_vsize_to_bytes())
   target_backends <- vapply(configs, function(c) {
     mid <- c$model_id %||% c[["modelId"]] %||% "glm"
     dev <- c$dnn_device %||% c[["dnnDevice"]] %||% "auto"
