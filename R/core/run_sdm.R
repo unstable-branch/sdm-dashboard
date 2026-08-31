@@ -914,7 +914,7 @@ threshold <- tryCatch({
   output_tif <- file.path(output_dir, paste0(base_name, "_suitability.tif"))
   output_png <- file.path(output_dir, paste0(base_name, "_suitability.png"))
   output_report <- file.path(output_dir, paste0(base_name, "_report.txt"))
-  suit <- tryCatch({
+  suit <- sdm_step("predict", {
     if (identical(model_id, "multi_ensemble")) {
       predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
         export_components = isTRUE(multi_ensemble_export),
@@ -931,10 +931,6 @@ threshold <- tryCatch({
     } else {
       predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
     }
-  }, error = function(e) {
-    log_message(log_fun, "Prediction failed: ", conditionMessage(e))
-    log_message(log_fun, "Traceback: ", paste(utils::tail(traceback(), 5), collapse = " <- "))
-    stop("Prediction failed: ", conditionMessage(e), call. = FALSE)
   })
 
   # Crop to projection extent and apply boundary mask

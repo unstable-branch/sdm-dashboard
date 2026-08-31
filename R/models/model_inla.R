@@ -71,7 +71,7 @@ fit_inla_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   log_message(log_fun, "Fitting INLA spatial SDM (", length(covariates), " covariates, ", nrow(model_data), " training points)")
 
   set.seed(seed)
-  inla_result <- tryCatch({
+  inla_result <- sdm_step("inla-fit", {
     INLA::inla(
       formula,
       family = "binomial",
@@ -91,32 +91,30 @@ fit_inla_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
       verbose = FALSE,
       safe = TRUE
     )
-  }, error = function(e) {
-    stop("INLA model fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
   if (is.finite(inla_result$waic$waic)) {
     log_message(log_fun, "  WAIC: ", sprintf("%.1f", inla_result$waic$waic))
   }
 
-  cv <- list(
+  cv <- sdm_step("aggregate-cv", list(
     k = 0L, strategy = "none",
     auc_mean = NA_real_, auc_sd = NA_real_,
     tss_mean = NA_real_, tss_sd = NA_real_,
     fold_auc = numeric(),
     waic = if (is.finite(inla_result$waic$waic)) inla_result$waic$waic else NA_real_,
     dic = if (is.finite(inla_result$dic$dic)) inla_result$dic$dic else NA_real_
-  )
+  ))
 
-  fixed_effects <- inla_result$summary.fixed
-  fixed_effects_df <- data.frame(
+  fixed_effects <- sdm_step("extract-coefficients", inla_result$summary.fixed)
+  fixed_effects_df <- sdm_step("coefficients-dataframe", data.frame(
     variable = rownames(fixed_effects),
     mean = fixed_effects$mean,
     sd = fixed_effects$sd,
     q0.025 = fixed_effects$`0.025quant`,
     q0.975 = fixed_effects$`0.975quant`,
     stringsAsFactors = FALSE
-  )
+  ))
 
   if (cv_folds >= 2L) {
     log_message(log_fun, "INLA CV not yet implemented; skipping cross-validation")

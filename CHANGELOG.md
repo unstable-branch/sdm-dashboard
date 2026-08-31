@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `R/models/model_helpers.R` adds `sdm_step(label, expr)` — labelled tryCatch wrapper. All 13 SDM backends (`model_glm`, `model_gam`, `model_maxnet`, `model_rf`, `model_xgboost`, `model_bart`, `model_gbm`, `model_rpart`, `model_earth`, `model_mda`, `model_nnet`, `model_dnn`, `model_brms`, `model_inla`) now wrap their post-fit stages (`predict-train`, `train-metrics`, `cross-validate`, `in-sample-cbi`, `cv-cbi`, `extract-coefficients`, `aggregate-cv`, etc.) with `sdm_step()`. Failures now surface as `SDM stage '<name>' failed: <error>` instead of bare R errors like `argument is of length zero`. `R/core/run_sdm.R` prediction wrapper at line 917 refactored to use `sdm_step("predict", …)` for consistency.
+
 ### Security (Group C: 12 ownership/authz holes closed)
 
 - `PATCH /uploads/:fileId` now requires `eq(uploads.userId, user.id)` — was rewriting other users' `is_cleaned` flag and `cleaned_file_path` by guessed `fileId`.

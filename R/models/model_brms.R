@@ -50,7 +50,7 @@ fit_brms_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   use_gpu_stan <- sdm_use_gpu() && requireNamespace("cmdstanr", quietly = TRUE)
 
-  fit <- tryCatch({
+  fit <- sdm_step("brms-fit", {
     brm_args <- list(
       formula = stats::as.formula(formula_str),
       data = model_data,
@@ -70,15 +70,13 @@ fit_brms_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
       brm_args$stan_model_args <- list(GPU = TRUE)
     }
     do.call(brms::brm, brm_args)
-  }, error = function(e) {
-    stop("brms model fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
   waic_val <- tryCatch(brms::waic(fit), error = function(e) NULL)
   loo_val <- tryCatch(brms::loo(fit), error = function(e) NULL)
 
-  coef_summary <- brms::summary(fit)$fixed
-  coef_df <- data.frame(
+  coef_summary <- sdm_step("extract-coefficients", brms::summary(fit)$fixed)
+  coef_df <- sdm_step("coefficients-dataframe", data.frame(
     variable = rownames(coef_summary),
     estimate = coef_summary$Estimate,
     est_error = coef_summary$Est.Error,
@@ -86,7 +84,7 @@ fit_brms_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
     q97.5 = coef_summary$Q97.5,
     rhat = coef_summary$Rhat,
     stringsAsFactors = FALSE
-  )
+  ))
 
   cv <- list(
     k = 0L, strategy = "none",

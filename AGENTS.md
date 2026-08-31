@@ -233,6 +233,7 @@ Push a semver tag (`git tag v1.2.3 && git push --tags`) to trigger:
 - **`rv$undo_stack` is a list** — capped at 10 states, used by Observation Records tab.
 - **Numeric inputs can receive `Inf`/`NA`** — use `safe_numeric()` in `R/ui/ui_sidebar_controls.R`.
 - **`sdm_default_cv_block_size_km` is `NA_real_`** — UI defaults to 50 when NA.
+- **`sdm_step(label, expr)` is the standard wrapper** for post-fit operations in any `fit_*_sdm()` backend. Returns `value` on success; on error throws `SDM stage '<label>' failed: <error>` so failures name the failing stage instead of leaking bare R strings like `argument is of length zero` into `meta.json$error`. Defined in `R/models/model_helpers.R`.
 
 ## Key conventions
 

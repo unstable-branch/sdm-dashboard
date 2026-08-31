@@ -137,3 +137,15 @@ sdm_apply_predict <- function(vals, covariates, predict_fn) {
   }, error = function(e) NULL)
   out
 }
+
+# Wrap an expression in a labelled tryCatch so failures point at the calling stage.
+# Used by fit_*_sdm() backends to surface a named stage label (e.g. "cross-validate")
+# instead of a bare R error. Centralised here so all backends share one implementation.
+sdm_step <- function(label, expr) {
+  tryCatch(
+    expr,
+    error = function(e) {
+      stop("SDM stage '", label, "' failed: ", conditionMessage(e), call. = FALSE)
+    }
+  )
+}
