@@ -1,5 +1,5 @@
 handle_health <- function(res, app_dir) {
-  mem_avail <- tryCatch(terra::mem_info()$memavail, error = function(e) NULL)
+  mem_avail <- tryCatch(sdm_mem_info()$memavail, error = function(e) NULL)
   list(
     status = "ok",
     r_version = R.version.string,
@@ -12,7 +12,7 @@ handle_health <- function(res, app_dir) {
 
 handle_ready <- function(res) {
   active_runs <- sdm_count_active_runs()
-  mem_avail <- tryCatch(terra::mem_info()$memavail, error = function(e) NULL)
+  mem_avail <- tryCatch(sdm_mem_info()$memavail, error = function(e) NULL)
   mem_ok <- is.numeric(mem_avail) && is.finite(mem_avail) && mem_avail > 1
   runs_ok <- active_runs < SDM_MAX_CONCURRENT_RUNS
   if (!runs_ok || !mem_ok) {
