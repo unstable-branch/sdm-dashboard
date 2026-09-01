@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 const statusEnum = pgEnum("run_status", ["queued", "running", "completed", "failed", "cancelled"]);
@@ -67,6 +67,7 @@ export const species = pgTable("species", {
   index("idx_species_project").on(t.projectId),
   index("idx_species_user_id").on(t.userId),
   index("idx_species_name").on(t.name),
+  uniqueIndex("species_project_name_unique").on(t.projectId, t.name),
 ]);
 
 export const batches = pgTable("batches", {
