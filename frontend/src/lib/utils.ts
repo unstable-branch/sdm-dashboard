@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 export function toNum(v: unknown): number | null {
   if (v == null) return null;
   const n = typeof v === "number" ? v : Number(v);
-  return isNaN(n) ? null : n;
+  return Number.isFinite(n) ? n : null;
 }
 
 export function fmtFixed(v: unknown, d: number): string {

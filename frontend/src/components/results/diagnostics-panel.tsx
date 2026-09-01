@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VifTable } from "@/components/diagnostics/vif-table";
 import { MessSummary } from "@/components/diagnostics/mess-summary";
 import { OverfittingPanel } from "@/components/results/overfitting-panel";
-import { apiGet } from "@/services/api";
+import { apiGet, apiDownload } from "@/services/api";
 import ErrorBoundary from "@/components/ui/error-boundary";
 import { Download, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -111,13 +111,13 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
     <div className="space-y-4">
       {diagnosticsZip && (
         <div className="flex justify-end">
-          <a
-            href={diagnosticsZip}
+          <button
+            onClick={() => apiDownload(diagnosticsZip, outputFiles.diagnostics_zip!.split("/").pop())}
             className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface transition-colors"
           >
             <Download className="h-3.5 w-3.5" />
             Download all data (ZIP)
-          </a>
+          </button>
         </div>
       )}
 
