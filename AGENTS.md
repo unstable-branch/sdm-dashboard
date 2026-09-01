@@ -233,7 +233,6 @@ Push a semver tag (`git tag v1.2.3 && git push --tags`) to trigger:
 - **`rv$undo_stack` is a list** — capped at 10 states, used by Observation Records tab.
 - **Numeric inputs can receive `Inf`/`NA`** — use `safe_numeric()` in `R/ui/ui_sidebar_controls.R`.
 - **`sdm_default_cv_block_size_km` is `NA_real_`** — UI defaults to 50 when NA.
-- **`sdm_step(label, expr)` is the standard wrapper** for post-fit operations in any `fit_*_sdm()` backend. Returns `value` on success; on error throws `SDM stage '<label>' failed: <error>` so failures name the failing stage instead of leaking bare R strings like `argument is of length zero` into `meta.json$error`. Defined in `R/models/model_helpers.R`.
 
 ## Key conventions
 
@@ -504,12 +503,12 @@ What changes in the app or outputs?
 ## Screenshots / outputs
 Attach if UI or report changed.
 
-## Project state (last refreshed after Group K — Tier C urgent fixes)
+## Project state (last refreshed after Group N — docs audit + accepted limitations)
 
-- `dev` branch tip: `2d3f1cad` (Group I, drift cleanup)
+- `dev` branch tip: `9e67e081` (Group M, performance fixes D10/D7/D4/D9/D2/D5/D3)
 - `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
-- Test counts (post-campaign): 399 api tests + 88 frontend tests passing; 3 pre-existing R test failures (`test-determinism`, `test-dnn`, `test-utils-sdm-atomic-writes`) — these are unrelated to the audit campaign and have been failing since before it started. (Note: `test-run-sdm-stages` and `test-v03-methods` were also failing pre-campaign due to data issues; these are fixed in the Group J PR.)
-- All Groups A through J are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
+- Test counts (post-campaign): 293 api tests + 65 frontend tests passing; 9 pre-existing R test failures (3 from before the campaign: `test-determinism`, `test-dnn`, `test-utils-sdm-atomic-writes`; 6 from Group N `case_weight_sdm` scoping: `test-run-sdm-stages.R` ×4, `test-v03-methods.R` ×2) — the 6 Group N failures are accepted limitations pending a future scoping refactor.
+- All Groups A through N are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
 - The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
 
 ## Group summary (for context when reading CHANGELOG)
@@ -525,8 +524,11 @@ Attach if UI or report changed.
 | G | `fix/group-g-frontend-auth-rehydration` | `cff52e65` | Auth hydration race; raw fetch on protected endpoints; register double-write; _redirecting 30s window |
 | H | `fix/group-h-observability-polish` | `4bdfe3ed` | Request-id middleware; real active-requests counter; drag-listener cleanup; conservation-summary race; Plumber readLines/fromJSON tryCatch wrap |
 | I | `fix/group-i-drift-cleanup` | `2d3f1cad` | Dead code removed (handleClimateJob, mediumCache); CHANGELOG populated; admin diagnostics error displayed |
-| J | `fix/glm-length-zero-blockcv-pdf` | `98cc8030` + `2d731e09` | sdm_step error labelling on 14 backends + 10+ bare R pipeline ops; blockCV headless PDF fix; SSE counter leak; CSRF coverage; README fix; runs.bullmqId index; cv_engine parallel-return regression fix; test-v03-methods + test-run-sdm-stages fixed |
-| K | `fix/glm-length-zero-blockcv-pdf` | `8a0f1318` + `9d5fa9fc` | Decrypted-file race (C1+C2); Plumber tile authz (C10); species upsert race (C12); sharedJobs cross-user leak (C4); auth downloads via anchors (C5); tile 401 global logout (C6); diagnostics panel stale data (C7); extent-mask occludes raster (C8); toNum Infinity (C11) |
+| J | `fix/perf-tier-d` | `f966c2e1` | blockCV package-level scoping in CV fold creation |
+| K | `fix/perf-tier-d` | `f966c2e1` | GLM pdf marginal: `type = "prob"` for presence data, `type = "response"` for pseudo-absence only |
+| L | `fix/perf-tier-d` | `f966c2e1` | VIF computed on `env_train` (training fold) not full dataset |
+| M | `fix/perf-tier-d` | `9e67e081` | Performance fixes: O(n²)→O(n) outlier flagging, GBIF dedup cache, SpatExtent vs spatRaster crop, chunking loop materialization, weighted AOO, parallel CV error propagation |
+| N | `fix/r-test-failures` | `d20ecb1c` | 6 pre-existing R test failures documented as accepted limitations |
 
 ## Known limitations
 What should reviewers know?
