@@ -28,7 +28,7 @@ cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, se
     train_formula <- make_gam_formula(setdiff(names(train_data), c("presence", "case_weight_sdm")), train_data, max_k = max_k)
     train_data$case_weight_sdm <- class_balance_weights(train_data$presence)
     model <- tryCatch(
-      mgcv::gam(train_formula, data = train_data, family = stats::binomial(), weights = train_data$case_weight_sdm, method = "REML"),
+      mgcv::gam(train_formula, data = train_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML"),
       error = function(e) {
         log_message(log_fun, "  GAM CV fold ", i, " failed: ", conditionMessage(e))
         NULL
@@ -89,7 +89,7 @@ fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   log_message(log_fun, "Fitting GAM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   set.seed(seed)
   model <- tryCatch({
-    mgcv::gam(formula, data = model_data, family = stats::binomial(), weights = model_data$case_weight_sdm, method = "REML")
+    mgcv::gam(formula, data = model_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML")
   }, error = function(e) {
     stop("GAM fitting failed: ", conditionMessage(e), call. = FALSE)
   })
