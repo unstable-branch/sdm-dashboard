@@ -504,12 +504,12 @@ What changes in the app or outputs?
 ## Screenshots / outputs
 Attach if UI or report changed.
 
-## Project state (last refreshed after Group J — pipeline observability + API bugs)
+## Project state (last refreshed after Group K — Tier C urgent fixes)
 
 - `dev` branch tip: `2d3f1cad` (Group I, drift cleanup)
 - `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
-- Test counts (post-campaign): 397 api tests + 86 frontend tests passing; 3 pre-existing R test failures (`test-determinism`, `test-dnn`, `test-utils-sdm-atomic-writes`) — these are unrelated to the audit campaign and have been failing since before it started. (Note: `test-run-sdm-stages` and `test-v03-methods` were also failing pre-campaign due to data issues; these are fixed in the Group J PR.)
-- All Groups A through I are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
+- Test counts (post-campaign): 399 api tests + 88 frontend tests passing; 3 pre-existing R test failures (`test-determinism`, `test-dnn`, `test-utils-sdm-atomic-writes`) — these are unrelated to the audit campaign and have been failing since before it started. (Note: `test-run-sdm-stages` and `test-v03-methods` were also failing pre-campaign due to data issues; these are fixed in the Group J PR.)
+- All Groups A through J are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
 - The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
 
 ## Group summary (for context when reading CHANGELOG)
@@ -526,6 +526,7 @@ Attach if UI or report changed.
 | H | `fix/group-h-observability-polish` | `4bdfe3ed` | Request-id middleware; real active-requests counter; drag-listener cleanup; conservation-summary race; Plumber readLines/fromJSON tryCatch wrap |
 | I | `fix/group-i-drift-cleanup` | `2d3f1cad` | Dead code removed (handleClimateJob, mediumCache); CHANGELOG populated; admin diagnostics error displayed |
 | J | `fix/glm-length-zero-blockcv-pdf` | `98cc8030` + `2d731e09` | sdm_step error labelling on 14 backends + 10+ bare R pipeline ops; blockCV headless PDF fix; SSE counter leak; CSRF coverage; README fix; runs.bullmqId index; cv_engine parallel-return regression fix; test-v03-methods + test-run-sdm-stages fixed |
+| K | `fix/glm-length-zero-blockcv-pdf` | `8a0f1318` + `9d5fa9fc` | Decrypted-file race (C1+C2); Plumber tile authz (C10); species upsert race (C12); sharedJobs cross-user leak (C4); auth downloads via anchors (C5); tile 401 global logout (C6); diagnostics panel stale data (C7); extent-mask occludes raster (C8); toNum Infinity (C11) |
 
 ## Known limitations
 What should reviewers know?

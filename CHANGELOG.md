@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tier C urgent fixes (Group K)
+
+**Backend security/correctness:**
+- `api/src/services/model-payload.ts`: removed `_decryptedFiles` set, `cleanupDecryptedFiles()`, and `resolveEncryptedFile()`. Raw `.enc` paths are now passed through to Plumber; R's existing `decrypt_file()` handles them. `cleanupDecryptedFiles()` removed from `sdm-runs.ts` and `sdm-batch.ts` finally blocks — the old code deleted decrypted files before R could read them.
+- `plumber/R/helpers/output_helpers.R` `handle_tile_serve()`: added `req` parameter and calls `sdm_verify_run_owner()` before serving tiles. Prevents a user from requesting tiles for a run they do not own (only reachable when `PLUMBER_AUTH_DISABLED=true` with a valid internal key).
+- `api/src/routes/sdm-runs.ts`: replaced SELECT-then-INSERT for species upsert with `INSERT ... ON CONFLICT (project_id, name) DO NOTHING RETURNING *` + fallback SELECT. `api/drizzle/0035_add_species_unique_constraint.sql` adds the unique constraint. Concurrent requests for the same species no longer race.
+
+**Frontend correctness:**
+- `frontend/src/hooks/use-job-sse.ts`: added `clearSharedJobs()` export that wipes the module-level singleton (EventSource, Map, reconnect state, version). `auth-store.ts` `clearAuth()` now calls `clearSharedJobs()` — a logged-out user no longer sees another user's SSE job progress.
+- `frontend/src/app/(dashboard)/results/[runId]/page.tsx`, `suitability-map.tsx`, `diagnostics-panel.tsx`: replaced raw `<a href>` anchor-tag downloads with `apiDownload()` (uses `fetchWithAuth` with correct Bearer token attachment). Downloads now work for authenticated users.
+- `frontend/src/components/results/maplibre-map.tsx`: removed `clearAuthToken()` from tile-401 `onError` handler. Transient "Tile access denied" banner shown instead; user stays logged in.
+- `frontend/src/app/(dashboard)/results/[runId]/page.tsx`: added `key={run.id}` to `<DiagnosticsPanel>` so React remounts it on run switch, resetting the `fetchedTabs` ref.
+- `frontend/src/components/results/maplibre-map.tsx`: extent-mask `fill-opacity` lowered from `1` to `0.0001` so the suitability raster is visible through the extent clip.
+- `frontend/src/lib/utils.ts` `toNum()`: changed `isNaN(n)` guard to `Number.isFinite(n)` so `Infinity`/`-Infinity` return `null` instead of being passed through.
+
 ### Fixed
 
 - `R/models/model_helpers.R` adds `sdm_step(label, expr)` — labelled tryCatch wrapper. All 13 SDM backends (`model_glm`, `model_gam`, `model_maxnet`, `model_rf`, `model_xgboost`, `model_bart`, `model_gbm`, `model_rpart`, `model_earth`, `model_mda`, `model_nnet`, `model_dnn`, `model_brms`, `model_inla`) now wrap their post-fit stages (`predict-train`, `train-metrics`, `cross-validate`, `in-sample-cbi`, `cv-cbi`, `extract-coefficients`, `aggregate-cv`, etc.) with `sdm_step()`. Failures now surface as `SDM stage '<name>' failed: <error>` instead of bare R errors like `argument is of length zero`. `R/core/run_sdm.R` prediction wrapper at line 917 refactored to use `sdm_step("predict", …)` for consistency.
