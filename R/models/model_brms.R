@@ -72,8 +72,8 @@ fit_brms_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
     do.call(brms::brm, brm_args)
   })
 
-  waic_val <- tryCatch(brms::waic(fit), error = function(e) NULL)
-  loo_val <- tryCatch(brms::loo(fit), error = function(e) NULL)
+  waic_val <- sdm_step("brms-waic", tryCatch(brms::waic(fit), error = function(e) NULL))
+  loo_val <- sdm_step("brms-loo", tryCatch(brms::loo(fit), error = function(e) NULL))
 
   coef_summary <- sdm_step("extract-coefficients", brms::summary(fit)$fixed)
   coef_df <- sdm_step("coefficients-dataframe", data.frame(
