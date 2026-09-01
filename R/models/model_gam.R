@@ -28,7 +28,7 @@ cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, se
     train_formula <- make_gam_formula(setdiff(names(train_data), c("presence", "case_weight_sdm")), train_data, max_k = max_k)
     train_data$case_weight_sdm <- class_balance_weights(train_data$presence)
     model <- tryCatch(
-      mgcv::gam(train_formula, data = train_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML"),
+      mgcv::gam(train_formula, data = train_data, family = stats::binomial(), weights = train_data$case_weight_sdm, method = "REML"),
       error = function(e) {
         log_message(log_fun, "  GAM CV fold ", i, " failed: ", conditionMessage(e))
         NULL
@@ -88,8 +88,10 @@ fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
   log_message(log_fun, "Fitting GAM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   set.seed(seed)
-  model <- sdm_step("gam-fit", {
-    mgcv::gam(formula, data = model_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML")
+  model <- tryCatch({
+    mgcv::gam(formula, data = model_data, family = stats::binomial(), weights = model_data$case_weight_sdm, method = "REML")
+  }, error = function(e) {
+    stop("GAM fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
   # Check smooth basis dimension (k-index warning)
@@ -105,27 +107,22 @@ fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   })
 
   # Training metrics
-  train_pred <- sdm_step("predict-train",
-    stats::predict(model, newdata = model_data, type = "response")
+  train_pred <- tryCatch(
+    stats::predict(model, newdata = model_data, type = "response"),
+    error = function(e) rep(NA_real_, nrow(model_data))
   )
-  train_metrics <- sdm_step("train-metrics",
-    compute_binary_metrics(model_data$presence, train_pred, threshold = threshold)
-  )
+  train_metrics <- compute_binary_metrics(model_data$presence, train_pred, threshold = threshold)
 
-  cv <- sdm_step("cross-validate",
-    cross_validate_gam(model_data, formula, k = cv_folds, seed = seed, n_cores = n_cores,
-      cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km, max_k = max_k)
-  )
+  cv <- cross_validate_gam(model_data, formula, k = cv_folds, seed = seed, n_cores = n_cores,
+    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km, max_k = max_k)
   if (is.finite(cv$auc_mean)) {
     log_message(log_fun, "GAM cross-validation AUC: ", sprintf("%.3f", cv$auc_mean), if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
   }
 
-  coefficients <- sdm_step("extract-coefficients", {
-    coef <- as.data.frame(summary(model)$p.table)
-    coef$term <- rownames(coef)
-    rownames(coef) <- NULL
-    coef[, c("term", setdiff(names(coef), "term")), drop = FALSE]
-  })
+  coefficients <- as.data.frame(summary(model)$p.table)
+  coefficients$term <- rownames(coefficients)
+  rownames(coefficients) <- NULL
+  coefficients <- coefficients[, c("term", setdiff(names(coefficients), "term")), drop = FALSE]
 
   model$model <- NULL
   model$data <- NULL

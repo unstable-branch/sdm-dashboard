@@ -164,12 +164,12 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
     fit <- tryCatch(
       suppressWarnings(stats::glm(formula,
         data = train_model, family = stats::binomial(),
-        weights = case_weight_sdm, control = stats::glm.control(maxit = 60)
+        weights = train_model$case_weight_sdm, control = stats::glm.control(maxit = 60)
       )),
       error = function(e) NULL
     )
     if (is.null(fit)) {
-      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold), fold = i)
+      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i)
       if (collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
     }
     pred <- tryCatch(
@@ -177,7 +177,7 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
       error = function(e) rep(NA_real_, nrow(test_model))
     )
     if (all(is.na(pred))) {
-      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold), fold = i)
+      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i)
       if (collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
     }
     row <- metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
@@ -225,26 +225,27 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   model_data <- d$model_data
   covariates <- d$covariates
   formula <- make_sdm_formula(covariates, include_quadratic = include_quadratic)
-  environment(formula) <- baseenv()
 
   log_message(log_fun, "Fitting fast GLM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   model_fit_data <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
   model_fit_data$case_weight_sdm <- class_balance_weights(model_fit_data$presence)
-  model <- sdm_step("glm-fit", suppressWarnings(stats::glm(formula,
-    data = model_fit_data, family = stats::binomial(),
-    weights = case_weight_sdm, control = stats::glm.control(maxit = 80)
-  )))
+  model <- tryCatch({
+    suppressWarnings(stats::glm(formula,
+      data = model_fit_data, family = stats::binomial(),
+        weights = model_fit_data$case_weight_sdm, control = stats::glm.control(maxit = 80)
+    ))
+  }, error = function(e) {
+    stop("GLM fitting failed: ", conditionMessage(e), call. = FALSE)
+  })
 
-  train_pred <- sdm_step("predict-train", stats::predict(model, newdata = model_fit_data, type = "response"))
-  train_metrics <- sdm_step("train-metrics",
-    compute_binary_metrics(model_fit_data$presence, train_pred, threshold = threshold)
-  )
+  train_pred <- stats::predict(model, newdata = model_fit_data, type = "response")
+  train_metrics <- compute_binary_metrics(model_fit_data$presence, train_pred, threshold = threshold)
 
-  cv <- sdm_step("cross-validate", cross_validate_glm(model_data, formula,
+  cv <- cross_validate_glm(model_data, formula,
     k = cv_folds, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km, threshold = threshold,
     collect_predictions = TRUE
-  ))
+  )
   if (is.finite(cv$auc_mean)) {
     log_message(
       log_fun, "Cross-validation (", cv$strategy, ") AUC: ", sprintf("%.3f", cv$auc_mean),
@@ -253,10 +254,10 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   }
 
   # In-sample CBI (optimistic)
-  cbi_result <- sdm_step("in-sample-cbi", continuous_boyce_index(
+  cbi_result <- continuous_boyce_index(
     pres_suit = train_pred[model_fit_data$presence == 1],
     bg_suit = train_pred[model_fit_data$presence == 0]
-  ))
+  )
   if (is.finite(cbi_result$cbi)) {
     log_message(log_fun, "In-sample CBI: ", sprintf("%.3f", cbi_result$cbi))
   }
@@ -265,21 +266,19 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   cv_cbi <- NULL
   if (!is.null(cv$predictions) && nrow(cv$predictions) > 0) {
     preds <- cv$predictions
-    cv_cbi <- sdm_step("cv-cbi", continuous_boyce_index(
+    cv_cbi <- continuous_boyce_index(
       pres_suit = preds$predicted[preds$observed == 1],
       bg_suit = preds$predicted[preds$observed == 0]
-    ))
+    )
     if (!is.null(cv_cbi) && is.finite(cv_cbi$cbi)) {
       log_message(log_fun, "Cross-validated CBI: ", sprintf("%.3f", cv_cbi$cbi))
     }
   }
 
-  coefficients <- sdm_step("extract-coefficients", {
-    coef <- as.data.frame(summary(model)$coefficients)
-    coef$term <- rownames(coef)
-    rownames(coef) <- NULL
-    coef[, c("term", setdiff(names(coef), "term")), drop = FALSE]
-  })
+  coefficients <- as.data.frame(summary(model)$coefficients)
+  coefficients$term <- rownames(coefficients)
+  rownames(coefficients) <- NULL
+  coefficients <- coefficients[, c("term", setdiff(names(coefficients), "term")), drop = FALSE]
 
   model$model <- NULL
   model$data <- NULL
