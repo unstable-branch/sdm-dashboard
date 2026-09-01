@@ -504,11 +504,11 @@ What changes in the app or outputs?
 ## Screenshots / outputs
 Attach if UI or report changed.
 
-## Project state (last refreshed after Group I — Sev-3 drift cleanup)
+## Project state (last refreshed after Group J — pipeline observability + API bugs)
 
 - `dev` branch tip: `2d3f1cad` (Group I, drift cleanup)
 - `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
-- Test counts (post-campaign): 293 api tests + 65 frontend tests passing; 3 pre-existing R test failures (`test-determinism`, `test-dnn`, `test-utils-sdm-atomic-writes`) — these are unrelated to the audit campaign and have been failing since before it started.
+- Test counts (post-campaign): 397 api tests + 86 frontend tests passing; 3 pre-existing R test failures (`test-determinism`, `test-dnn`, `test-utils-sdm-atomic-writes`) — these are unrelated to the audit campaign and have been failing since before it started. (Note: `test-run-sdm-stages` and `test-v03-methods` were also failing pre-campaign due to data issues; these are fixed in the Group J PR.)
 - All Groups A through I are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
 - The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
 
@@ -525,6 +525,7 @@ Attach if UI or report changed.
 | G | `fix/group-g-frontend-auth-rehydration` | `cff52e65` | Auth hydration race; raw fetch on protected endpoints; register double-write; _redirecting 30s window |
 | H | `fix/group-h-observability-polish` | `4bdfe3ed` | Request-id middleware; real active-requests counter; drag-listener cleanup; conservation-summary race; Plumber readLines/fromJSON tryCatch wrap |
 | I | `fix/group-i-drift-cleanup` | `2d3f1cad` | Dead code removed (handleClimateJob, mediumCache); CHANGELOG populated; admin diagnostics error displayed |
+| J | `fix/glm-length-zero-blockcv-pdf` | `98cc8030` + `2d731e09` | sdm_step error labelling on 14 backends + 10+ bare R pipeline ops; blockCV headless PDF fix; SSE counter leak; CSRF coverage; README fix; runs.bullmqId index; cv_engine parallel-return regression fix; test-v03-methods + test-run-sdm-stages fixed |
 
 ## Known limitations
 What should reviewers know?

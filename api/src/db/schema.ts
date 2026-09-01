@@ -123,6 +123,7 @@ export const runs = pgTable("runs", {
   index("idx_runs_created_at").on(t.createdAt),
   index("idx_runs_job_id").on(t.jobId),
   index("idx_runs_status_created").on(t.status, t.createdAt),
+  index("idx_runs_bullmq_id").on(t.bullmqId),
 ]);
 
 export const occurrences = pgTable("occurrences", {
