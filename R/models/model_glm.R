@@ -164,7 +164,7 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
     fit <- tryCatch(
       suppressWarnings(stats::glm(formula,
         data = train_model, family = stats::binomial(),
-        weights = train_model$case_weight_sdm, control = stats::glm.control(maxit = 60)
+        weights = case_weight_sdm, control = stats::glm.control(maxit = 60)
       )),
       error = function(e) NULL
     )
@@ -225,6 +225,7 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   model_data <- d$model_data
   covariates <- d$covariates
   formula <- make_sdm_formula(covariates, include_quadratic = include_quadratic)
+  environment(formula) <- baseenv()
 
   log_message(log_fun, "Fitting fast GLM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   model_fit_data <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
@@ -232,7 +233,7 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   model <- tryCatch({
     suppressWarnings(stats::glm(formula,
       data = model_fit_data, family = stats::binomial(),
-        weights = model_fit_data$case_weight_sdm, control = stats::glm.control(maxit = 80)
+      weights = case_weight_sdm, control = stats::glm.control(maxit = 80)
     ))
   }, error = function(e) {
     stop("GLM fitting failed: ", conditionMessage(e), call. = FALSE)
