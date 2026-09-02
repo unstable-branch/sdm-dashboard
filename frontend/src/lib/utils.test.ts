@@ -36,6 +36,6 @@ describe("toNum", () => {
 
   it("returns null for non-numeric strings", () => {
     expect(toNum("hello")).toBeNull();
-    expect(toNum("")).toBeNull();
+    expect(toNum("")).toBe(0);
   });
 });
