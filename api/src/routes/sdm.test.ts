@@ -118,7 +118,7 @@ const buildRunPayloadConfig = {
 vi.mock("../db", () => ({
   db: {
     select: vi.fn(),
-    insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn(async () => [{}]) })) })),
+    insert: vi.fn(() => ({ values: vi.fn(() => ({ onConflictDoNothing: vi.fn(() => ({ returning: vi.fn(async () => [{}]) })), returning: vi.fn(async () => [{}]) })) })),
     update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => [{}]) })) })),
   },
 }));
@@ -330,6 +330,9 @@ describe("SDM routes", () => {
 
       (db.insert as any).mockImplementation(() => ({
         values: vi.fn(() => ({
+          onConflictDoNothing: vi.fn(() => ({
+            returning: vi.fn(async () => [{}]),
+          })),
           returning: vi.fn(async () => [{ id: "run-1" }]),
         })),
       }));
