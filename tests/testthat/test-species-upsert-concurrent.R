@@ -16,9 +16,11 @@
 # easily callable from a unit test without a running Plumber server.
 
 test_that("INSERT ON CONFLICT DO NOTHING is used for species upsert", {
-  # Confirm the source file contains the expected pattern
+  # test_dir() changes the working directory to tests/testthat, so we need to
+  # go up two levels to reach the project root where api/ lives.
+  project_root <- normalizePath(file.path(getwd(), "..", ".."))
   api_route <- readLines(file.path(
-    getwd(), "api", "src", "routes", "sdm-runs.ts"
+    project_root, "api", "src", "routes", "sdm-runs.ts"
   ), warn = FALSE)
   has_on_conflict <- any(grepl("onConflictDoNothing", api_route, fixed = TRUE))
   has_returning    <- any(grepl("RETURNING", api_route))
