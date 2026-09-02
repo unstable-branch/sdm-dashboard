@@ -331,7 +331,7 @@ describe("SDM routes", () => {
       (db.insert as any).mockImplementation(() => ({
         values: vi.fn(() => ({
           onConflictDoNothing: vi.fn(() => ({
-            returning: vi.fn(async () => [{}]),
+            returning: vi.fn(async () => []),
           })),
           returning: vi.fn(async () => [{ id: "run-1" }]),
         })),
