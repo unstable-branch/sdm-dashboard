@@ -23,9 +23,9 @@ test_that("INSERT ON CONFLICT DO NOTHING is used for species upsert", {
     project_root, "api", "src", "routes", "sdm-runs.ts"
   ), warn = FALSE)
   has_on_conflict <- any(grepl("onConflictDoNothing", api_route, fixed = TRUE))
-  has_returning    <- any(grepl("RETURNING", api_route))
+  has_returning    <- any(grepl("returning\\(\\)", api_route, perl = TRUE))
   has_fallback_select <- any(grepl(
-    "db\\$select\\(\\).*species.*where.*speciesName",
+    "db\\.select\\(\\).*species.*where.*speciesName",
     paste(api_route, collapse = "\n"),
     perl = TRUE
   ))
