@@ -154,7 +154,7 @@ sdm_transparent_tile_png <- function() {
 }
 
 tile_cog_cache <- new.env(parent = emptyenv())
-tile_cog_cache_max <- 20L
+tile_cog_cache_max <- 3L
 
 handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
   if (!is.null(req$user_id)) {
@@ -225,8 +225,15 @@ handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
       rm(list = to_remove, envir = tile_cog_cache)
     }
     r_cog <- terra::rast(cog_path)
+    lock_dir <- file.path(tempdir(), "sdm_tile_cache_lock")
+    if (!dir.exists(lock_dir)) dir.create(lock_dir, showWarnings = FALSE)
+    lock_file <- file.path(lock_dir, "cache.lock")
+    lock_wait <- 0
+    while (file.exists(lock_file) && lock_wait < 1000) { Sys.sleep(0.01); lock_wait <- lock_wait + 1 }
+    writeLines(Sys.time(), lock_file)
     attr(r_cog, "accessed") <- Sys.time()
     tile_cog_cache[[cog_key]] <- r_cog
+    unlink(lock_file)
   } else {
     attr(r_cog, "accessed") <- Sys.time()
     tile_cog_cache[[cog_key]] <- r_cog
@@ -316,6 +323,7 @@ handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
   terra::writeRaster(tile_out, tmp_png, datatype = "INT1U", gdal = "ZLEVEL=6", overwrite = TRUE)
   raw_bytes <- readBin(tmp_png, "raw", n = file.info(tmp_png)$size)
   unlink(tmp_png)
-  res$setHeader("Cache-Control", "public, max-age=3600")
+  res$setHeader("Cache-Control", "private, max-age=3600")
+  res$setHeader("ETag", sprintf('"%d"', as.integer(cog_mtime)))
   raw_bytes
 }
