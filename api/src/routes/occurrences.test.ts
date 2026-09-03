@@ -128,7 +128,7 @@ describe("data routes", () => {
   beforeAll(() => {
     const fs = require("fs") as typeof import("fs");
     const path = require("path") as typeof import("path");
-    const uploadsDir = path.join(process.cwd(), "data", "uploads");
+    const uploadsDir = path.join(process.cwd(), "..", "data", "uploads");
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
