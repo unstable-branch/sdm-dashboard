@@ -31,6 +31,10 @@ function normalizeConfig(config: unknown): Record<string, unknown> | null {
   if (typeof rawExtent === "string") {
     normalized.projectionExtent = rawExtent.split(",").map(Number);
   }
+  const rawTrainingExtent = normalized.trainingExtent ?? normalized.training_extent;
+  if (typeof rawTrainingExtent === "string") {
+    normalized.trainingExtent = rawTrainingExtent.split(",").map(Number);
+  }
   return normalized;
 }
 

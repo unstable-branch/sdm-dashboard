@@ -52,6 +52,8 @@ export default function MaplibreMap({
   const mapRef = useRef<MapRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsAdded = useRef(false);
+  const webglContextLostRef = useRef<((e: Event) => void) | null>(null);
+  const webglContextRestoredRef = useRef<(() => void) | null>(null);
   const [tileErrors, setTileErrors] = useState(0);
   const [tileAuthWarning, setTileAuthWarning] = useState(false);
   const [contextLost, setContextLost] = useState(false);
@@ -70,6 +72,22 @@ export default function MaplibreMap({
   // component robust to that contract being missed.
   useEffect(() => { controlsAdded.current = false; }, [runId]);
 
+  useEffect(() => {
+    return () => {
+      const map = mapRef.current?.getMap();
+      if (!map) return;
+      const canvas = map.getCanvas();
+      if (webglContextLostRef.current) {
+        canvas.removeEventListener("webglcontextlost", webglContextLostRef.current);
+        webglContextLostRef.current = null;
+      }
+      if (webglContextRestoredRef.current) {
+        canvas.removeEventListener("webglcontextrestored", webglContextRestoredRef.current);
+        webglContextRestoredRef.current = null;
+      }
+    };
+  }, []);
+
   const mapStyle = basemap === "dark" ? DARK_STYLE : LIGHT_STYLE;
   const coords = coordinates;
 
@@ -81,12 +99,7 @@ export default function MaplibreMap({
     if (!densified) return null;
     // Clip EOO polygon to projection extent to prevent red overlay outside target area
     try {
-      const extentPoly = bboxPolygon([
-        Math.min(...coordinates.map(c => c[0])),
-        Math.min(...coordinates.map(c => c[1])),
-        Math.max(...coordinates.map(c => c[0])),
-        Math.max(...coordinates.map(c => c[1])),
-      ]);
+      const extentPoly = bboxPolygon([...extentBounds(coordinates)[0], ...extentBounds(coordinates)[1]]);
       const clipped = intersect({ type: "FeatureCollection", features: [densified as any, extentPoly] });
       return clipped || null;
     } catch {
@@ -191,6 +204,15 @@ export default function MaplibreMap({
           controlsAdded.current = true;
           map.addControl(new maplibregl.NavigationControl(), "bottom-right");
           map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
+          webglContextLostRef.current = (e: Event) => {
+            e.preventDefault();
+            setContextLost(true);
+          };
+          webglContextRestoredRef.current = () => {
+            setContextLost(false);
+          };
+          map.getCanvas().addEventListener("webglcontextlost", webglContextLostRef.current);
+          map.getCanvas().addEventListener("webglcontextrestored", webglContextRestoredRef.current);
         }}
         transformRequest={(url: string, resourceType?: string) => {
           if (resourceType === "Tile" && url.includes("/api/v1/results/tiles/")) {

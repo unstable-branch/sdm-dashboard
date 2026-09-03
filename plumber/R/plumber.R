@@ -219,15 +219,15 @@ function(res) handle_models_list(res, app_dir)
 
 #* Compare two completed model runs
 #* @get /api/v1/output/compare/<run_id1>/<run_id2>
-function(res, run_id1, run_id2) handle_output_compare(res, run_id1, run_id2, app_dir)
+function(req, res, run_id1, run_id2) handle_output_compare(req, res, run_id1, run_id2, app_dir)
 
 #* Export reproducible R script for a run
 #* @get /api/v1/output/script/<run_id>
-function(res, run_id) handle_output_script(res, run_id, app_dir)
+function(req, res, run_id) handle_output_script(req, res, run_id, app_dir)
 
 #* Generate JSON manifest for a run
 #* @get /api/v1/output/manifest/<run_id>
-function(res, run_id) handle_output_manifest(res, run_id, app_dir)
+function(req, res, run_id) handle_output_manifest(req, res, run_id, app_dir)
 
 #* Get VIF screening results
 #* @get /api/v1/diagnostics/vif/<run_id>
@@ -371,7 +371,7 @@ function(res, type = "admin0", resolution = "110m", country = "all")
 
 #* Generate ensemble summary rasters from component TIFFs
 #* @post /api/v1/models/ensemble-rasters/<job_id>
-function(res, job_id) handle_ensemble_rasters(res, job_id, app_dir)
+function(req, res, job_id) handle_ensemble_rasters(req, res, job_id, app_dir)
 
 #* Generate synthetic multi-species occurrence data for stress testing
 #* @post /api/v1/occurrences/synthetic

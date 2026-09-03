@@ -76,6 +76,12 @@ load_soil_covariate <- function(soil_path = NULL,
   cache_dir <- file.path(covariate_cache_dir, "soilgrids")
   if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
 
+  if (isTRUE(allow_download) && !requireNamespace("geodata", quietly = TRUE)) {
+    log_message(log_fun, "SoilGrids download requires the 'geodata' package, which is not installed. ",
+      "Run install.packages('geodata') or rebuild the Plumber Docker image to enable SoilGrids downloads.")
+    allow_download <- FALSE
+  }
+
   layers <- list()
   files <- character(0)
   loaded_vars <- character(0)
