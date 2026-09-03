@@ -69,18 +69,22 @@ vi.mock("../services/queue", () => ({
   getSharedRedis: vi.fn(() => null),
 }));
 
-vi.mock("fs", () => ({
-  readFileSync: vi.fn(() => "longitude,latitude\n1,2\n3,4"),
-  writeFileSync: vi.fn(),
-  mkdirSync: vi.fn(),
-  existsSync: vi.fn(() => true),
-  statSync: vi.fn(() => ({ size: 100 })),
-  accessSync: vi.fn(),
-  promises: {
-    writeFile: vi.fn(() => Promise.resolve()),
-  },
-  constants: { W_OK: 2 },
-}));
+vi.mock("fs", () => {
+  const createdDirs = new Set<string>();
+  return {
+    readFileSync: vi.fn(() => "longitude,latitude\n1,2\n3,4"),
+    writeFileSync: vi.fn(),
+    mkdirSync: vi.fn((path: string) => { createdDirs.add(String(path)); }),
+    existsSync: vi.fn((path: string) => createdDirs.has(String(path))),
+    statSync: vi.fn(() => ({ size: 100 })),
+    accessSync: vi.fn(),
+    promises: {
+      writeFile: vi.fn(() => Promise.resolve()),
+      rename: vi.fn(() => Promise.resolve()),
+    },
+    constants: { W_OK: 2 },
+  };
+});
 
 vi.mock("../middleware/rate-limit", () => ({
   gbifRateLimit: vi.fn(async (_c: any, next: any) => next()),
