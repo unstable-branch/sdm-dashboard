@@ -88,7 +88,7 @@ fit_bart_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
     stop("BART input matrix contains Inf or NaN values. Ensure all covariates are finite.", call. = FALSE)
   }
 
-  model <- tryCatch({
+  model <- sdm_step("bart-fit", {
     dbarts::bart(
       x.train = x_train, y.train = y_train,
       ntree = ntree, ndpost = ndpost, nskip = nskip,
@@ -96,17 +96,19 @@ fit_bart_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
       nthread = 1L,
       seed = seed
     )
-  }, error = function(e) {
-    stop("BART fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  train_pred <- pnorm(colMeans(model$yhat.train))
-  train_metrics <- compute_binary_metrics(y_train, train_pred, threshold = threshold)
+  train_pred <- sdm_step("predict-train", pnorm(colMeans(model$yhat.train)))
+  train_metrics <- sdm_step("train-metrics",
+    compute_binary_metrics(y_train, train_pred, threshold = threshold)
+  )
 
-  cv <- cross_validate_bart(model_data, covariates, ntree, ndpost, nskip,
-    k = cv_folds, seed = seed,
-    n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    threshold = threshold, log_fun = log_fun
+  cv <- sdm_step("cross-validate",
+    cross_validate_bart(model_data, covariates, ntree, ndpost, nskip,
+      k = cv_folds, seed = seed,
+      n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+      threshold = threshold, log_fun = log_fun
+    )
   )
   if (is.finite(cv$auc_mean)) {
     log_message(
@@ -123,10 +125,12 @@ fit_bart_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
     if (is.finite(imp_max) && imp_max > 0) {
       imp <- imp / imp_max
     }
-    importance_df <- data.frame(
-      variable = names(imp) %||% covariates,
-      importance = as.numeric(imp),
-      stringsAsFactors = FALSE
+    importance_df <- sdm_step("variable-importance",
+      data.frame(
+        variable = names(imp) %||% covariates,
+        importance = as.numeric(imp),
+        stringsAsFactors = FALSE
+      )
     )
   }
 

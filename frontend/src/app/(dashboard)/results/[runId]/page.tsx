@@ -11,7 +11,7 @@ import { OdmapViewer } from "@/components/results/odmap-viewer";
 import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { manifestRecordCount } from "@/lib/manifest";
-import { apiGet, apiPost, fetchWithAuth } from "@/services/api";
+import { apiGet, apiPost, apiDownload, fetchWithAuth } from "@/services/api";
 import { useRunDetail } from "@/hooks/use-queries";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import { SuitabilityMap } from "@/components/results/suitability-map";
@@ -27,17 +27,6 @@ function makeNames(name: string): string {
 import type { FeatureCollection } from "geojson";
 import { extentToViewState, extentToCoordinates } from "@/lib/map-utils";
 
-
-
-async function downloadFile(filePath: string) {
-  const filename = filePath.split("/").pop() || "download";
-  const a = document.createElement("a");
-  a.href = `/api/v1/results/file/download?path=${encodeURIComponent(filePath)}`;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-}
 
 async function fetchGeoJSON(url: string): Promise<FeatureCollection | null> {
   try {
@@ -517,7 +506,7 @@ export default function ResultsPage() {
                     {multiSpeciesTifs.map((sp, i) => (
                       <button
                         key={i}
-                        onClick={() => downloadFile(sp.tif)}
+                        onClick={() => apiDownload(`/api/v1/results/file/download?path=${encodeURIComponent(sp.tif)}`, sp.tif.split("/").pop())}
                         className="text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         Download {sp.name}
@@ -525,7 +514,7 @@ export default function ResultsPage() {
                     ))}
                     {richnessTif && (
                       <button
-                        onClick={() => downloadFile(richnessTif!)}
+                        onClick={() => apiDownload(`/api/v1/results/file/download?path=${encodeURIComponent(richnessTif!)}`, richnessTif!.split("/").pop())}
                         className="text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         Download richness
@@ -642,7 +631,7 @@ export default function ResultsPage() {
             </TabsContent>
 
             <TabsContent value="diagnostics">
-              <DiagnosticsPanel run={run} />
+              <DiagnosticsPanel key={run.id} run={run} />
             </TabsContent>
 
             <TabsContent value="overfitting">
@@ -660,7 +649,7 @@ export default function ResultsPage() {
                   <div className="flex gap-3">
                     {outputFiles?.odmap_report_csv && (
                       <button
-                        onClick={() => downloadFile(outputFiles!.odmap_report_csv!)}
+                        onClick={() => apiDownload(`/api/v1/results/file/download?path=${encodeURIComponent(outputFiles!.odmap_report_csv!)}`, outputFiles!.odmap_report_csv!.split("/").pop())}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP CSV
@@ -668,7 +657,7 @@ export default function ResultsPage() {
                     )}
                     {outputFiles?.odmap_report_md && (
                       <button
-                        onClick={() => downloadFile(outputFiles!.odmap_report_md!)}
+                        onClick={() => apiDownload(`/api/v1/results/file/download?path=${encodeURIComponent(outputFiles!.odmap_report_md!)}`, outputFiles!.odmap_report_md!.split("/").pop())}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> ODMAP Markdown
@@ -676,7 +665,7 @@ export default function ResultsPage() {
                     )}
                     {outputFiles?.report && (
                       <button
-                        onClick={() => downloadFile(outputFiles!.report!)}
+                        onClick={() => apiDownload(`/api/v1/results/file/download?path=${encodeURIComponent(outputFiles!.report!)}`, outputFiles!.report!.split("/").pop())}
                         className="inline-flex items-center gap-1.5 text-xs text-sdm-accent hover:underline bg-transparent border-none cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" /> Download report

@@ -87,7 +87,7 @@ fit_fda_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   fda_data$presence <- factor(fda_data$presence, levels = c("0", "1"))
 
   set.seed(seed)
-  model <- tryCatch({
+  model <- sdm_step("fda-fit", {
     mda::fda(
       formula = presence ~ .,
       data = fda_data,
@@ -95,14 +95,14 @@ fit_fda_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       degree = degree,
       nprune = nprune
     )
-  }, error = function(e) {
-    stop("FDA fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  cv <- cross_validate_fda(model_data, covariates, degree, nprune,
-    k = cv_folds, seed = seed,
-    n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    threshold = threshold, log_fun = log_fun
+  cv <- sdm_step("cross-validate",
+    cross_validate_fda(model_data, covariates, degree, nprune,
+      k = cv_folds, seed = seed,
+      n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+      threshold = threshold, log_fun = log_fun
+    )
   )
   if (is.finite(cv$auc_mean)) {
     log_message(

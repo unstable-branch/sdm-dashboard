@@ -94,7 +94,7 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
     # Auto mtry if not specified
     effective_mtry <- mtry %||% max(1, floor(sqrt(length(covariates))))
 
-    model <- tryCatch({
+    model <- sdm_step("rf-fit", {
       ranger::ranger(
         formula = presence ~ .,
         data = rf_data,
@@ -107,19 +107,21 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
         num.threads = 1,
         verbose = FALSE
       )
-    }, error = function(e) {
-      stop("Random Forest fitting failed: ", conditionMessage(e), call. = FALSE)
     })
 
     # Training metrics
     train_pred <- pmax(0, pmin(1, model$predictions))
-    train_metrics <- compute_binary_metrics(rf_data$presence, train_pred, threshold = threshold)
+    train_metrics <- sdm_step("train-metrics",
+      compute_binary_metrics(rf_data$presence, train_pred, threshold = threshold)
+    )
 
     # Cross-validation
-    cv <- cross_validate_rf(model_data, covariates, num_trees, mtry, min_node_size,
-      k = cv_folds, seed = seed,
-      n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-      threshold = threshold
+    cv <- sdm_step("cross-validate",
+      cross_validate_rf(model_data, covariates, num_trees, mtry, min_node_size,
+        k = cv_folds, seed = seed,
+        n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+        threshold = threshold
+      )
     )
     if (is.finite(cv$auc_mean)) {
       log_message(
@@ -130,10 +132,12 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
 
     # Variable importance from ranger
     importance_raw <- model$variable.importance
-    importance_df <- data.frame(
-      variable = names(importance_raw),
-      importance = as.numeric(importance_raw),
-      stringsAsFactors = FALSE
+    importance_df <- sdm_step("variable-importance",
+      data.frame(
+        variable = names(importance_raw),
+        importance = as.numeric(importance_raw),
+        stringsAsFactors = FALSE
+      )
     )
     # Normalise to 0-1
     imp_max <- max(importance_df$importance, na.rm = TRUE)

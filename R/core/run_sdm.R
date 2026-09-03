@@ -765,11 +765,11 @@ threshold <- tryCatch({
         }
         backend_used <- "ranger"
       } else {
-        # Generic fallback: many backends (BRT, GAM, MARS, BIOCLIM, MaxNet-ME,
-        # ESM, rangebag multi-ensemble) expose predict() with the same signature.
-        train_pred <- tryCatch(
-          stats::predict(fit$model, newdata = fit$model_data),
-          error = function(e) NULL
+        train_pred <- sdm_step("max_tss-predict-train",
+          tryCatch(
+            stats::predict(fit$model, newdata = fit$model_data),
+            error = function(e) NULL
+          )
         )
         if (!is.null(train_pred)) backend_used <- "generic"
       }
@@ -914,7 +914,7 @@ threshold <- tryCatch({
   output_tif <- file.path(output_dir, paste0(base_name, "_suitability.tif"))
   output_png <- file.path(output_dir, paste0(base_name, "_suitability.png"))
   output_report <- file.path(output_dir, paste0(base_name, "_report.txt"))
-  suit <- tryCatch({
+  suit <- sdm_step("predict", {
     if (identical(model_id, "multi_ensemble")) {
       predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
         export_components = isTRUE(multi_ensemble_export),
@@ -931,16 +931,12 @@ threshold <- tryCatch({
     } else {
       predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
     }
-  }, error = function(e) {
-    log_message(log_fun, "Prediction failed: ", conditionMessage(e))
-    log_message(log_fun, "Traceback: ", paste(utils::tail(traceback(), 5), collapse = " <- "))
-    stop("Prediction failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  # Crop to projection extent and apply boundary mask
   if (!is.null(projection_extent) && inherits(suit, "SpatRaster")) {
-    suit <- terra::crop(suit,
-      terra::ext(projection_extent[1], projection_extent[2], projection_extent[3], projection_extent[4]))
+    suit <- sdm_step("crop-extent",
+      terra::crop(suit, terra::ext(projection_extent[1], projection_extent[2], projection_extent[3], projection_extent[4]))
+    )
     log_message(log_fun, "  Clipped suitability raster to projection extent")
   }
 
@@ -957,12 +953,13 @@ threshold <- tryCatch({
       mask_file <- resolved
   }
 
-  # Write initial suitability raster to avoid source=target conflicts
   tmp_out <- tempfile(fileext = ".tif")
-  terra::writeRaster(suit, tmp_out, overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
-  sdm_safe_rename(tmp_out, output_tif)
-  suit <- terra::rast(output_tif)
+  suit <- sdm_step("write-initial-suitability", {
+    terra::writeRaster(suit, tmp_out, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+    sdm_safe_rename(tmp_out, output_tif)
+    terra::rast(output_tif)
+  })
 
   # Ensemble variable importance (multi-model) — must come after suit is assigned
   if (identical(model_id, "multi_ensemble") && !is.null(attr(suit, "ensemble_importance"))) {
@@ -1032,14 +1029,18 @@ threshold <- tryCatch({
 
     if (valid_reps > 1) {
       suit <- suit_sum / valid_reps
-      terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      sdm_step("write-pa-averaged-suitability",
+        terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      )
       log_message(log_fun, "PA-averaged suitability from ", valid_reps, " replicates written to ", output_tif)
     }
   }
 
   # Apply boundary mask after PA averaging so all replicates are equally masked
   if (mask_type != "none") {
-    suit <- apply_boundary_mask(suit, mask_type, mask_file, mask_buffer_deg, log_fun)
+    suit <- sdm_step("apply-boundary-mask",
+      apply_boundary_mask(suit, mask_type, mask_file, mask_buffer_deg, log_fun)
+    )
     terra::writeRaster(suit, output_tif, overwrite = TRUE,
       wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     mm <- tryCatch(terra::minmax(suit), error = function(e) {
@@ -1201,7 +1202,7 @@ threshold <- tryCatch({
             wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
         }
       }
-      future2$summary <- summarise_suitability(future2$suitability, threshold)
+      future2$summary <- sdm_step("summarise-future2", summarise_suitability(future2$suitability, threshold, log_fun = log_fun))
     } else {
       log_message(log_fun, "WARNING: 2nd future scenario was skipped due to error")
     }
@@ -1221,15 +1222,15 @@ threshold <- tryCatch({
     return(invisible(NULL))
   }
   progress_step(progress_fun, 0.92, "Summarising outputs")
-  suitability_summary <- summarise_suitability(suit, threshold)
-  if (!is.null(future)) future$summary <- summarise_suitability(future$suitability, threshold)
+  suitability_summary <- sdm_step("summarise-suitability", summarise_suitability(suit, threshold))
+  if (!is.null(future)) future$summary <- sdm_step("summarise-future", summarise_suitability(future$suitability, threshold))
 
   progress_step(progress_fun, 0.93, "Writing output graphics")
-  future_pngs <- save_future_pngs(future, occ, projection_extent, species, threshold, future_label, output_dir, base_name)
+  future_pngs <- sdm_step("save-future-pngs", save_future_pngs(future, occ, projection_extent, species, threshold, future_label, output_dir, base_name))
   if (!is.null(future_pngs$future_png)) extra_paths$future_suitability_png <- future_pngs$future_png
   if (!is.null(future_pngs$delta_png)) extra_paths$future_delta_png <- future_pngs$delta_png
 
-  future2_pngs <- save_future_pngs(future2, occ, projection_extent, species, threshold, future_label2, output_dir, base_name, suffix = "2")
+  future2_pngs <- sdm_step("save-future2-pngs", save_future_pngs(future2, occ, projection_extent, species, threshold, future_label2, output_dir, base_name, suffix = "2"))
   if (!is.null(future2_pngs$future_png)) extra_paths$future2_suitability_png <- future2_pngs$future_png
   if (!is.null(future2_pngs$delta_png)) extra_paths$future2_delta_png <- future2_pngs$delta_png
 
@@ -1251,14 +1252,15 @@ threshold <- tryCatch({
     if (!is.null(eoo_aoo_result$aoo_grid_geojson)) extra_paths$aoo_grid <- eoo_aoo_result$aoo_grid_geojson
   }
 
-  # Save MESS raster for current predictions
   if (!is.null(mess_result)) {
     mess_tif <- file.path(output_dir, paste0(base_name, "_mess.tif"))
     tryCatch({
-      terra::writeRaster(mess_result$mess, mess_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      sdm_step("write-mess-tif",
+        terra::writeRaster(mess_result$mess, mess_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      )
       extra_paths[["mess_tif"]] <- mess_tif
     }, error = function(e) {
-      log_message(log_fun, "  Failed to write MESS raster: ", conditionMessage(e))
+      log_message(log_fun, "WARNING: Failed to write MESS raster: ", conditionMessage(e))
     })
   }
 
@@ -1771,7 +1773,7 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   }
 
   # Variable importance
-  model_spec <- tryCatch(get_sdm_model(cfg$model_id %||% "glm"), error = function(e) NULL)
+  model_spec <- sdm_step("get-model-spec", tryCatch(get_sdm_model(cfg$model_id %||% "glm"), error = function(e) NULL))
   if (!is.null(model_spec) && isTRUE(model_spec$supports_importance) && !is.null(fit$model_data)) {
     result$importance <- tryCatch(
       xai_importance(fit, seed = cfg$seed %||% 42, n_cores = cfg$n_cores %||% 8L),
