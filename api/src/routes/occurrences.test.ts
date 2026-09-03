@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { Hono } from "hono";
 import { dataRoutes } from "./occurrences.js";
 import { gbifAlaRoutes } from "./gbif-ala.js";
