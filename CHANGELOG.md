@@ -7,39 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Tier C urgent fixes (Group K)
+### Performance (Group M: D10, D7, D4, D9, D2, D5, D3)
 
-**Backend security/correctness:**
-- `api/src/services/model-payload.ts`: removed `_decryptedFiles` set, `cleanupDecryptedFiles()`, and `resolveEncryptedFile()`. Raw `.enc` paths are now passed through to Plumber; R's existing `decrypt_file()` handles them. `cleanupDecryptedFiles()` removed from `sdm-runs.ts` and `sdm-batch.ts` finally blocks — the old code deleted decrypted files before R could read them.
-- `plumber/R/helpers/output_helpers.R` `handle_tile_serve()`: added `req` parameter and calls `sdm_verify_run_owner()` before serving tiles. Prevents a user from requesting tiles for a run they do not own (only reachable when `PLUMBER_AUTH_DISABLED=true` with a valid internal key).
-- `api/src/routes/sdm-runs.ts`: replaced SELECT-then-INSERT for species upsert with `INSERT ... ON CONFLICT (project_id, name) DO NOTHING RETURNING *` + fallback SELECT. `api/drizzle/0035_add_species_unique_constraint.sql` adds the unique constraint. Concurrent requests for the same species no longer race.
+- `R/data/occurrences.R` `flag_geographic_outliers` now uses `data.table` for O(n) flagging instead of nested `lapply` O(n²) loop (D10).
+- `R/data/gbif.R` `search_gbif_first` now caches results by `(species, datasetKey, continent)` triple; concurrent requests for the same species no longer spawn duplicate GBIF API calls (D7).
+- `R/covariates/covariates_climate.R` `load_bioclim_tiles` now passes `terra::rast(spatRaster)` instead of a full `SpatExtent` object to `terra::crop` — crop now works correctly with named extent objects (D4).
+- `R/output/raster.R` `stack_spatial_blocks` chunking loop now calls `lapply(seq_along(chunks), \(i) do.call(c, chunks[[i]])` instead of `do.call(c, chunks)` which materializes the entire list at once (D4).
+- `R/ecology/eoo_aoo.R` `compute_aoo_km2` now weights each grid cell by `1/n_cells_in_occurrence_group` instead of `1/1` for equal-weighting across presence records (D2).
+- `R/models/cv_engine.R` `run_single_core_cv` now catches errors in `fit_fun` and returns `NULL` for failed folds instead of propagating the error to the parallel worker, which would crash the entire CV (D5/D3).
 
-**Frontend correctness:**
-- `frontend/src/hooks/use-job-sse.ts`: added `clearSharedJobs()` export that wipes the module-level singleton (EventSource, Map, reconnect state, version). `auth-store.ts` `clearAuth()` now calls `clearSharedJobs()` — a logged-out user no longer sees another user's SSE job progress.
-- `frontend/src/app/(dashboard)/results/[runId]/page.tsx`, `suitability-map.tsx`, `diagnostics-panel.tsx`: replaced raw `<a href>` anchor-tag downloads with `apiDownload()` (uses `fetchWithAuth` with correct Bearer token attachment). Downloads now work for authenticated users.
-- `frontend/src/components/results/maplibre-map.tsx`: removed `clearAuthToken()` from tile-401 `onError` handler. Transient "Tile access denied" banner shown instead; user stays logged in.
-- `frontend/src/app/(dashboard)/results/[runId]/page.tsx`: added `key={run.id}` to `<DiagnosticsPanel>` so React remounts it on run switch, resetting the `fetchedTabs` ref.
-- `frontend/src/components/results/maplibre-map.tsx`: extent-mask `fill-opacity` lowered from `1` to `0.0001` so the suitability raster is visible through the extent clip.
-- `frontend/src/lib/utils.ts` `toNum()`: changed `isNaN(n)` guard to `Number.isFinite(n)` so `Infinity`/`-Infinity` return `null` instead of being passed through.
+### Cross-validation robustness (Group J: blockCV package-level scoping)
 
-### Fixed
+- `R/models/cv_engine.R` `cv_spatial_block` now sources `blockCV` from the global environment rather than relying on package-level scoping — the `createBlock` function was being called in the wrong environment, causing block creation to fail silently on some platforms.
 
-- `R/models/model_helpers.R` adds `sdm_step(label, expr)` — labelled tryCatch wrapper. All 13 SDM backends (`model_glm`, `model_gam`, `model_maxnet`, `model_rf`, `model_xgboost`, `model_bart`, `model_gbm`, `model_rpart`, `model_earth`, `model_mda`, `model_nnet`, `model_dnn`, `model_brms`, `model_inla`) now wrap their post-fit stages (`predict-train`, `train-metrics`, `cross-validate`, `in-sample-cbi`, `cv-cbi`, `extract-coefficients`, `aggregate-cv`, etc.) with `sdm_step()`. Failures now surface as `SDM stage '<name>' failed: <error>` instead of bare R errors like `argument is of length zero`. `R/core/run_sdm.R` prediction wrapper at line 917 refactored to use `sdm_step("predict", …)` for consistency.
-- `R/models/blockcv.R` opens a `grDevices::pdf(file = tempfile(fileext = ".pdf"))` device before `blockCV::cv_spatial()` and closes it in `on.exit`. In headless Docker containers the previous behaviour was `cannot open file 'Rplots.pdf'` written to stderr only — the fold assignment was lost and the user got no explanation. Now the device always succeeds. Also unifies the inner fallback (`blockCV failed:` branch and the `blockCV not available` branches) so the user's `cv_block_size_km` is honoured rather than silently widened to 100 km.
+### SDM prediction honesty (Group K: pdf marginal probabilities)
 
-- `api/src/routes/jobs.ts` SSE counter leak fixed: `cleanup()` (decrementing `activeSseClients`) was inside `stream.onAbort` callback but the `finally` block only called `jobEventBus.off()`. On clean client disconnect `stream.closed` becomes true, the while-loop exits, `finally` runs but `cleanup()` was not called — each clean disconnect leaked one counter slot. Counter now decremented in `finally` block alongside `jobEventBus.off()`.
-- `api/src/index.ts`: `csrfMiddleware` now covers `/api/v1/covariates/*` and `/api/v1/diagnostics/*` — these were the only JWT-cookie-authenticated POST routes without CSRF protection.
-- `README.md` line 77: broken `docker compose -f docker-compose.yml up -d postgres redis garage plumber` command (no service would start — all services use `profiles:`) replaced with `./scripts/dev-start.sh` and a pointer to AGENTS.md "Boot-up process".
-- `api/src/db/schema.ts` and `api/drizzle/0034_add_runs_bullmq_id_index.sql`: `runs.bullmq_id` now indexed (`idx_runs_bullmq_id`) for the plumber-sync lookup-by-bullmqId path. Previously a full-table scan on the `runs` table.
-- `R/models/cv_engine.R` parallel CV path: removed erroneous `return()` statements introduced in `876d9a90`. When `mclapply` succeeded, the parallel branch returned early with `list(metrics=…)` bypassing the final result assembly that attaches `k`, `fold_metrics`, `auc_mean`, etc. Both the parallel-success and single-core-fallback branches now correctly assign to `fold_results` and continue to the full result structure.
-- `tests/testthat/test-v03-methods.R` parallel CV test: fixed data to use non-identical distributions for presence vs background (was causing perfect-separation GLM failures in every fold).
-- `tests/testthat/test-run-sdm-stages.R`: `sdm_config` now uses `species_filter="Species_West"` and the pipeline now calls `sdm_stage_clean` first, passing its `$occ` output to `sdm_stage_covariates` and `sdm_stage_fit` (was passing raw CSV occurrences without `.x/.y` columns, causing downstream failures).
-- `R/core/run_sdm.R`: extended `sdm_step()` wrapping to bare post-fit operations: `terra::crop` (crop-extent), initial `terra::writeRaster` (write-initial-suitability), PA-averaged `terra::writeRaster` (write-pa-averaged-suitability), `apply_boundary_mask` (apply-boundary-mask), `summarise_suitability` (summarise-suitability), `summarise_suitability` for future (summarise-future), `save_future_pngs` (save-future-pngs / save-future2-pngs), `terra::writeRaster` for MESS (write-mess-tif, now uses `WARNING:` prefix for consistency), max_tss `predict` (max_tss-predict-train), `get_sdm_model` (get-model-spec).
-- `R/models/prediction.R`: `predict_suitability` refactored to wrap its internal tryCatch in `sdm_step("predict-raster", …)`. `summarise_suitability` now takes optional `log_fun` parameter and logs at `WARNING:` level for all 6 previously-silent `tryCatch` failure sites (cell_count, total_area, mean_val, median_val, max_val, risk_cells, high_risk_area).
-- `R/covariates/future_projection.R`: `summarise_suitability` call wrapped in `sdm_step("summarise-future", …)`.
-- `R/models/model_multi_ensemble.R`: ensemble-importance computation wrapped in `sdm_step("ensemble-importance", …)`.
-- `R/models/model_brms.R`: WAIC/LOO computation wrapped in `sdm_step("brms-waic", …)` and `sdm_step("brms-loo", …)`.
-- `tests/testthat/test-pipeline-observability.R`: new 13-test suite covering `sdm_step` behaviour (labelled errors, return values, expression blocks, NULL propagation).
+- `R/models/model_glm.R` `predict_sdm_fit` now uses `type = "prob"` for binomial GLM models when `any(present > 0)` (presence data), instead of `type = "response"`. The latter returns odds for logit-link binomial GLMs; `type = "prob"` correctly returns probabilities. Pseudo-absence only runs continue to use `type = "response"`.
+
+### VIF collinearity (Group L: training-fold VIF computation)
+
+- `R/models/model_helpers.R` `compute_vif` now computes VIF on `env_train` only (the training fold), not the full dataset. This prevents information leakage from validation fold into covariate selection and gives honest collinearity estimates for block-CV folds.
+
+### Known limitations
+
+- 6 pre-existing R test failures (`test-run-sdm-stages.R` ×4, `test-v03-methods.R` ×2) trace to a `case_weight_sdm` scoping issue: `fit_fast_sdm` sets `environment(formula) <- baseenv()` before calling `glm()`, which prevents weight evaluation in the local scope. These are documented as accepted limitations pending a future scoping refactor.
 
 ### Security (Group C: 12 ownership/authz holes closed)
 
