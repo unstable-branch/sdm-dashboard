@@ -106,11 +106,24 @@ download_opentopo_tile <- function(tile_extent, demtype, api_key, destfile, max_
     if (ok) {
       return(invisible(destfile))
     }
-    if (file.exists(destfile)) unlink(destfile)
-    last_error <- "download failed or file too small"
+    if (file.exists(destfile)) {
+      # Check if the response is an HTML error page (invalid key, rate limit, etc.)
+      html_check <- suppressWarnings(readLines(destfile, n = 5, warn = FALSE))
+      is_html <- any(grepl("<!DOCTYPE|<html|<head|<body|</html>", html_check, ignore.case = TRUE))
+      if (is_html) {
+        last_error <- "OpenTopography API returned an HTML error page — check your API key, quota, and registered email. See https://portal.opentopography.org"
+      } else if (file.info(destfile)$size <= 1024) {
+        last_error <- "received a small/empty file (possible rate limit or API outage)"
+      } else {
+        last_error <- "file is not a valid GeoTIFF"
+      }
+      unlink(destfile)
+    } else {
+      last_error <- "download failed"
+    }
     if (attempt < max_retries) Sys.sleep(2^attempt)
   }
-  stop("OpenTopography download failed after ", max_retries, " attempts: ", last_error, call. = FALSE)
+  stop("OpenTopography download failed after ", max_retries, " attempts: ", last_error, ". Verify your API key at https://portal.opentopography.org and check your quota.", call. = FALSE)
 }
 
 download_opentopo_dem <- function(extent_vec, demtype, cache_file, api_key = NULL, log_fun = NULL) {

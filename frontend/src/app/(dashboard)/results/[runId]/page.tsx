@@ -292,7 +292,25 @@ export default function ResultsPage() {
       aooPath
         ? fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(aooPath)}`)
         : Promise.resolve(null),
-      fetchGeoJSON("/api/v1/data/boundary/default"),
+      (() => {
+        const cfg = run?.config as Record<string, unknown> | undefined;
+        const bt = cfg?.maskBoundaryType as string | undefined;
+        if (bt === "custom") {
+          const customFile = cfg?.maskFile as string | undefined;
+          const params = new URLSearchParams();
+          params.set("type", "custom");
+          if (customFile) params.set("country", customFile);
+          return fetchGeoJSON(`/api/v1/data/boundary/default?${params.toString()}`);
+        }
+        if (!bt) return fetchGeoJSON("/api/v1/data/boundary/default");
+        const cc = cfg?.maskCountry as string | undefined;
+        const res = cfg?.maskResolution as string | undefined;
+        const params = new URLSearchParams();
+        if (cc && cc !== "all") params.set("country", cc);
+        if (res && res !== "auto") params.set("resolution", res);
+        params.set("type", bt);
+        return fetchGeoJSON(`/api/v1/data/boundary/default?${params.toString()}`);
+      })(),
     ])
       .then(([reportText, odmapMd, odmapCsv, eooGeoJSON, aooGeoJSON, boundaryGeoJSON]) => {
         setReportText(reportText);
@@ -304,7 +322,7 @@ export default function ResultsPage() {
       })
       .catch((e) => console.warn("[results] Failed to fetch report data:", e));
     return () => abort.abort();
-  }, [runId, run?.id, run?.status, run?.output_files]);
+  }, [runId, run?.id, run?.status, run?.output_files, run?.config]);
 
   if (loading) {
     return (
@@ -621,9 +639,9 @@ export default function ResultsPage() {
                   return override;
                 })()}
                 runId={runId}
-                projectionExtent={(run.config?.projection_extent as [number, number, number, number] | undefined) ?? null}
-                initialViewState={extentToViewState((run.config?.projection_extent ?? undefined) as [number, number, number, number] | undefined)}
-                coordinates={extentToCoordinates((run.config?.projection_extent ?? undefined) as [number, number, number, number] | undefined)}
+                projectionExtent={(run.config?.projectionExtent as [number, number, number, number] | undefined) ?? null}
+                initialViewState={extentToViewState((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
+                coordinates={extentToCoordinates((run.config?.projectionExtent ?? undefined) as [number, number, number, number] | undefined)}
                 eooGeoJSON={eooGeoJSON}
                 aooGeoJSON={aooGeoJSON}
                 boundaryGeoJSON={boundaryGeoJSON}

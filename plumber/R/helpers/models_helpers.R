@@ -1097,7 +1097,7 @@ handle_models_runs <- function(req, app_dir) {
     meta_file <- file.path(jobs_dir, jd, "meta.json")
     if (file.exists(meta_file)) {
       meta <- sdm_read_meta_json(meta_file)
-  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
+      if (is.null(meta)) { return(NULL) }
 
       if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) {
         if (is.null(meta$user_id) || as.character(meta$user_id) != as.character(req$user_id)) {

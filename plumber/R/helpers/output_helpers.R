@@ -1,4 +1,9 @@
-handle_output_compare <- function(res, run_id1, run_id2, app_dir) {
+handle_output_compare <- function(req, res, run_id1, run_id2, app_dir) {
+  own_err <- sdm_verify_run_owner(req, res, run_id1, app_dir)
+  if (!is.null(own_err)) return(own_err)
+  own_err <- sdm_verify_run_owner(req, res, run_id2, app_dir)
+  if (!is.null(own_err)) return(own_err)
+
   load_result <- function(rid) {
     job_dir <- sdm_safe_job_dir(rid)
     if (is.null(job_dir)) return(NULL)
@@ -28,7 +33,10 @@ handle_output_compare <- function(res, run_id1, run_id2, app_dir) {
   })
 }
 
-handle_output_script <- function(res, run_id, app_dir, output_dir = NULL) {
+handle_output_script <- function(req, res, run_id, app_dir, output_dir = NULL) {
+  own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -60,7 +68,10 @@ handle_output_script <- function(res, run_id, app_dir, output_dir = NULL) {
   })
 }
 
-handle_output_manifest <- function(res, run_id, app_dir) {
+handle_output_manifest <- function(req, res, run_id, app_dir) {
+  own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -154,12 +165,14 @@ sdm_transparent_tile_png <- function() {
 }
 
 tile_cog_cache <- new.env(parent = emptyenv())
-tile_cog_cache_max <- 3L
+tile_cog_cache_max <- 8L
 
 handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
   if (!is.null(req$user_id)) {
     own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
     if (!is.null(own_err)) return(own_err)
+  } else if (!identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
+    res$status <- 401L; stop("Authentication required")
   }
   z <- as.integer(z); x <- as.integer(x); y <- as.integer(y)
   if (is.na(z) || is.na(x) || is.na(y) || z < 0L || z > 20L) {
@@ -256,7 +269,6 @@ handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
 
   cog_range <- terra::minmax(r_cog)
   vr_min <- max(0, cog_range[1, 1])
-  vr_min <- max(0, cog_range[1, 1])
   vr_max <- min(1, cog_range[2, 1])
   if (!is.finite(vr_min) || !is.finite(vr_max) || vr_max <= vr_min) {
     vr_min <- 0; vr_max <- 1
@@ -287,7 +299,10 @@ handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
     cy <- (ymin + ymax) / 2
     pt <- terra::vect(data.frame(x = cx, y = cy), geom = c("x", "y"), crs = "EPSG:3857")
     center_val <- terra::extract(r_full %||% r_cog, pt)[1, 1]
-    if (is.na(center_val) || !is.finite(center_val)) { res$status <- 204L; return(sdm_transparent_tile_png()) }
+    if (is.na(center_val) || !is.finite(center_val)) {
+      message(paste("[tile]", run_id, "z=", z, "x=", x, "y=", y, "— raster does not cover tile, returning 204"))
+      res$status <- 204L; return(sdm_transparent_tile_png())
+    }
     vals <- rep(as.numeric(center_val), 65536)
     is_na <- rep(FALSE, 65536)
   } else {
@@ -296,10 +311,10 @@ handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
     resample_method <- if (has_na_edge) "near" else "bilinear"
     tile_256 <- tryCatch(terra::resample(tile_crop, template, method = resample_method),
       error = function(e) NULL)
-    if (is.null(tile_256)) { res$status <- 204L; return(sdm_transparent_tile_png()) }
+    if (is.null(tile_256)) { message(paste("[tile]", run_id, "z=", z, "x=", x, "y=", y, "— resample failed, returning 204")); res$status <- 204L; return(sdm_transparent_tile_png()) }
     vals <- terra::values(tile_256)
     is_na <- is.na(vals) | !is.finite(vals) | (vals <= -9998)
-    if (all(is_na)) { res$status <- 204L; return(sdm_transparent_tile_png()) }
+    if (all(is_na)) { message(paste("[tile]", run_id, "z=", z, "x=", x, "y=", y, "— all NA values, returning 204")); res$status <- 204L; return(sdm_transparent_tile_png()) }
   }
 
   palette <- sdm_suitability_palette

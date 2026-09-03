@@ -1504,7 +1504,8 @@ threshold <- tryCatch({
     eoo_aoo = eoo_aoo_result,
     aoa = aoa_result,
     summary = suitability_summary, metrics = metrics,
-    paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)
+    paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths,
+              mask_file = if (mask_type != "none" && nzchar(mask_file %||% "")) mask_file else NULL)
   )
   result$report_text <- output_report
   progress_step(progress_fun, 0.96, "Writing manifests and summary report", stage = "output")
