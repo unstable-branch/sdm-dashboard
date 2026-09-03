@@ -64,6 +64,9 @@ export default function MaplibreMap({
   const [cursorCoords, setCursorCoords] = useState<{ lng: number; lat: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; lng: number; lat: number } | null>(null);
   const [coordsCopied, setCoordsCopied] = useState(false);
+  const [pitch, setPitch] = useState(0);
+  const [hoveredFeatureId, setHoveredFeatureId] = useState<string | null>(null);
+  const [suitabilityPopup, setSuitabilityPopup] = useState<{ x: number; y: number; value: number } | null>(null);
 
   const safeTheme = (theme === "dark" || theme === "light") ? theme : "dark";
   const colors = useMemo(() => getMapColors(safeTheme), [safeTheme]);
@@ -224,7 +227,64 @@ export default function MaplibreMap({
   const handleZoomEnd = useCallback((e: ViewStateChangeEvent) => {
     const zoom = e.viewState.zoom;
     if (typeof zoom === "number") setCurrentZoom(zoom);
+    setPitch(e.viewState.pitch ?? 0);
   }, []);
+
+  const handlePitchToggle = useCallback(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const newPitch = pitch === 0 ? 60 : 0;
+    map.setPitch(newPitch);
+    setPitch(newPitch);
+  }, [pitch]);
+
+  const handleMapMouseMove = useCallback(
+    (e: maplibregl.MapMouseEvent) => {
+      const map = mapRef.current?.getMap();
+      if (!map) return;
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const lngLat = map.unproject([e.point.x, e.point.y]);
+      setCursorCoords({ lng: lngLat.lng, lat: lngLat.lat });
+
+      const interactiveLayers = ["aoo-grid-fill", "eoo-polygon-fill", "boundary-fill"];
+      const features = map.queryRenderedFeatures(e.point, { layers: interactiveLayers });
+      if (features.length > 0) {
+        const id = features[0].id;
+        if (id !== hoveredFeatureId) {
+          if (hoveredFeatureId) map.setFeatureState({ source: features[0].source!, id: hoveredFeatureId }, { hover: false });
+          map.setFeatureState({ source: features[0].source!, id: id as string }, { hover: true });
+          setHoveredFeatureId(id as string);
+        }
+        map.getCanvas().style.cursor = "pointer";
+      } else {
+        if (hoveredFeatureId) {
+          map.queryRenderedFeatures({ layers: interactiveLayers }).forEach((f) => {
+            if (f.id === hoveredFeatureId) {
+              map.setFeatureState({ source: f.source!, id: hoveredFeatureId }, { hover: false });
+            }
+          });
+          setHoveredFeatureId(null);
+        }
+        map.getCanvas().style.cursor = "";
+      }
+    },
+    [hoveredFeatureId]
+  );
+
+  const handleMapClick = useCallback(
+    (e: maplibregl.MapMouseEvent) => {
+      const map = mapRef.current?.getMap();
+      if (!map) return;
+      const features = map.queryRenderedFeatures(e.point, { layers: ["suitability-overlay"] });
+      if (features.length > 0) {
+        setSuitabilityPopup({ x: e.point.x, y: e.point.y, value: e.lngLat.lng });
+      } else {
+        setSuitabilityPopup(null);
+      }
+    },
+    []
+  );
 
   const tileUrl = `/api/v1/results/tiles/${runId}/{z}/{x}/{y}?band=${encodeURIComponent(band)}`;
 
@@ -244,14 +304,6 @@ export default function MaplibreMap({
       ref={containerRef}
       className="relative w-full h-full"
       aria-label="Suitability map"
-      onMouseMove={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const map = mapRef.current?.getMap();
-        if (!map) return;
-        const lngLat = map.unproject([e.clientX - rect.left, e.clientY - rect.top]);
-        setCursorCoords({ lng: lngLat.lng, lat: lngLat.lat });
-      }}
-      onMouseLeave={() => setCursorCoords(null)}
       onContextMenu={(e) => {
         e.preventDefault();
         const rect = e.currentTarget.getBoundingClientRect();
@@ -270,6 +322,22 @@ export default function MaplibreMap({
         maxZoom={18}
         onError={handleMapError}
         onZoomEnd={handleZoomEnd}
+        onMouseMove={handleMapMouseMove}
+        onMouseLeave={() => {
+          setCursorCoords(null);
+          const map = mapRef.current?.getMap();
+          if (map && hoveredFeatureId) {
+            const interactiveLayers = ["aoo-grid-fill", "eoo-polygon-fill", "boundary-fill"];
+            map.queryRenderedFeatures({ layers: interactiveLayers }).forEach((f) => {
+              if (f.id === hoveredFeatureId) {
+                map.setFeatureState({ source: f.source!, id: hoveredFeatureId }, { hover: false });
+              }
+            });
+            setHoveredFeatureId(null);
+          }
+          map?.getCanvas().style.removeProperty("cursor");
+        }}
+        onClick={handleMapClick}
         onLoad={() => {
           const map = mapRef.current?.getMap();
           if (!map) return;
@@ -288,6 +356,7 @@ export default function MaplibreMap({
           const canvas = map.getCanvas();
           canvas.addEventListener("webglcontextlost", webglContextLostRef.current);
           canvas.addEventListener("webglcontextrestored", webglContextRestoredRef.current);
+          if (pitch > 0) map.setPitch(pitch);
         }}
         transformRequest={transformRequest}
       >
@@ -321,14 +390,59 @@ export default function MaplibreMap({
         )}
 
         {hasAoo && densifiedAoo && (
-          <Source id="aoo-grid" type="geojson" data={densifiedAoo}>
+          <Source
+            id="aoo-grid"
+            type="geojson"
+            data={densifiedAoo}
+            cluster={true}
+            clusterMaxZoom={14}
+            clusterRadius={50}
+          >
+            <Layer
+              id="aoo-cluster-circles"
+              type="circle"
+              filter={["has", "point_count"]}
+              layout={{ visibility: aooVisibility }}
+              paint={{
+                "circle-color": [
+                  "step",
+                  ["get", "point_count"],
+                  colors.aooFill,
+                  10, colors.aooFill,
+                  50, colors.aooFill,
+                ],
+                "circle-radius": ["step", ["get", "point_count"], 12, 10, 18, 50, 24],
+                "circle-opacity": 0.7,
+                "circle-stroke-width": 1,
+                "circle-stroke-color": colors.aooOutline,
+                "circle-stroke-opacity": 0.5,
+              }}
+            />
+            <Layer
+              id="aoo-cluster-count"
+              type="symbol"
+              filter={["has", "point_count"]}
+              layout={{
+                visibility: aooVisibility,
+                "text-field": "{point_count_abbreviated}",
+                "text-font": ["Open Sans Bold"],
+                "text-size": 11,
+              }}
+              paint={{ "text-color": "#ffffff" }}
+            />
             <Layer
               id="aoo-grid-fill"
               type="fill"
+              filter={["!", ["has", "point_count"]]}
               layout={{ visibility: aooVisibility }}
               paint={{
                 "fill-color": colors.aooFill,
-                "fill-opacity": colors.aooFillOpacity,
+                "fill-opacity": [
+                  "case",
+                  ["==", ["feature-state", "hover"], true],
+                  0.6,
+                  colors.aooFillOpacity,
+                ],
                 "fill-outline-color": colors.aooOutline,
               }}
             />
@@ -343,7 +457,12 @@ export default function MaplibreMap({
               layout={{ visibility: boundaryVisibility }}
               paint={{
                 "fill-color": colors.boundaryFill,
-                "fill-opacity": colors.boundaryFillOpacity,
+                "fill-opacity": [
+                  "case",
+                  ["==", ["feature-state", "hover"], true],
+                  0.25,
+                  colors.boundaryFillOpacity,
+                ],
               }}
             />
             <Layer
@@ -352,7 +471,12 @@ export default function MaplibreMap({
               layout={{ visibility: boundaryVisibility }}
               paint={{
                 "line-color": colors.boundaryOutline,
-                "line-width": 2,
+                "line-width": [
+                  "case",
+                  ["==", ["feature-state", "hover"], true],
+                  3,
+                  2,
+                ],
                 "line-opacity": colors.boundaryOutlineOpacity,
               }}
             />
@@ -399,7 +523,12 @@ export default function MaplibreMap({
               layout={{ visibility: eooVisibility }}
               paint={{
                 "fill-color": colors.eooFill,
-                "fill-opacity": colors.eooFillOpacity,
+                "fill-opacity": [
+                  "case",
+                  ["==", ["feature-state", "hover"], true],
+                  0.3,
+                  colors.eooFillOpacity,
+                ],
               }}
             />
             <Layer
@@ -408,7 +537,12 @@ export default function MaplibreMap({
               layout={{ visibility: eooVisibility }}
               paint={{
                 "line-color": colors.eooOutline,
-                "line-width": 2,
+                "line-width": [
+                  "case",
+                  ["==", ["feature-state", "hover"], true],
+                  3,
+                  2,
+                ],
                 "line-opacity": colors.eooOutlineOpacity,
                 "line-dasharray": [4, 3],
               }}
@@ -513,7 +647,23 @@ export default function MaplibreMap({
             All
           </button>
         )}
+        <button
+          onClick={handlePitchToggle}
+          className="rounded-md px-2 py-1 text-[11px] transition-colors border cursor-pointer bg-sdm-surface/90 text-sdm-muted border-sdm-border/50 hover:bg-sdm-surface-soft"
+          title={pitch === 0 ? "Enable 3D tilt" : "Reset to flat view"}
+        >
+          {pitch === 0 ? "3D" : "2D"}
+        </button>
       </div>
+
+      {suitabilityPopup && (
+        <div
+          className="absolute z-20 rounded-md bg-sdm-surface border border-sdm-border shadow-md px-2 py-1 text-[11px] text-sdm-text pointer-events-none"
+          style={{ left: suitabilityPopup.x + 10, top: suitabilityPopup.y - 30 }}
+        >
+          {isNaN(suitabilityPopup.value) ? "—" : suitabilityPopup.value.toFixed(3)}
+        </div>
+      )}
 
       <MapToolbar
         layers={layerVisibility}
