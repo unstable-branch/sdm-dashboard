@@ -808,6 +808,7 @@ export default function MaplibreMap({
         onFitExtent={handleFitExtent}
         disabledLayers={disabledLayers}
         containerRef={containerRef}
+        runId={runId}
       />
     </div>
   );

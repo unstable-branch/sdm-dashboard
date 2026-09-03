@@ -1,32 +1,51 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import {
-  GripVertical, Layers, MapPin, Grid3x3, Globe,
+  GripVertical, Map, Hexagon, Grid3x3, Pentagon,
   Crop, Navigation, Maximize2, Sun, Moon,
 } from "lucide-react";
 import { TooltipRoot, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-const STORAGE_KEY = "sdm-map-toolbar-pos";
+const STORAGE_KEY_PREFIX = "sdm-map-toolbar-pos";
+const LEGACY_STORAGE_KEY = "sdm-map-toolbar-pos";
+const DEFAULT_POSITION: { x: number; y: number } = { x: 12, y: 12 };
+const KEYBOARD_STEP = 10;
+const SAVE_DEBOUNCE_MS = 200;
+const BUTTON_SIZE_CLASS = "w-7 h-7";
+const DRAG_HANDLE_CLASS = "w-7 h-5";
 
-function loadPosition(): { x: number; y: number } {
-  if (typeof window === "undefined") return { x: 12, y: 12 };
+function loadPosition(runId?: string): { x: number; y: number } {
+  if (typeof window === "undefined") return { ...DEFAULT_POSITION };
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const perRun = runId ? `${STORAGE_KEY_PREFIX}:${runId}` : null;
+    const legacy = LEGACY_STORAGE_KEY;
+    const key = perRun ?? legacy;
+    const saved = localStorage.getItem(key);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (typeof parsed.x === "number" && typeof parsed.y === "number") {
         return parsed;
       }
     }
+    if (perRun) {
+      const fallback = localStorage.getItem(legacy);
+      if (fallback) {
+        const parsed = JSON.parse(fallback);
+        if (typeof parsed.x === "number" && typeof parsed.y === "number") {
+          return parsed;
+        }
+      }
+    }
   } catch { /* ignore */ }
-  return { x: 12, y: 12 };
+  return { ...DEFAULT_POSITION };
 }
 
-function savePosition(pos: { x: number; y: number }) {
+function savePosition(pos: { x: number; y: number }, runId?: string) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(pos));
+    const key = runId ? `${STORAGE_KEY_PREFIX}:${runId}` : STORAGE_KEY_PREFIX;
+    localStorage.setItem(key, JSON.stringify(pos));
   } catch { /* ignore */ }
 }
 
@@ -37,28 +56,49 @@ interface ToolButtonProps {
   active?: boolean;
   onClick?: () => void;
   disabled?: boolean;
+  disabledReason?: string;
 }
 
-function ToolButton({ icon: Icon, labelActive, labelInactive, active, onClick, disabled }: ToolButtonProps) {
+function ToolButton({ icon: Icon, labelActive, labelInactive, active, onClick, disabled, disabledReason }: ToolButtonProps) {
+  const trigger = (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      aria-disabled={disabled}
+      aria-label={active ? labelActive : labelInactive}
+      title={disabled ? disabledReason : undefined}
+      className={cn(
+        BUTTON_SIZE_CLASS,
+        "rounded-md flex items-center justify-center transition-colors shrink-0 relative",
+        active
+          ? "text-sdm-accent before:absolute before:left-0 before:top-1 before:bottom-1 before:w-0.5 before:rounded-full before:bg-sdm-accent"
+          : "text-sdm-muted hover:text-sdm-text hover:bg-sdm-surface-soft",
+        disabled && "opacity-30 cursor-not-allowed"
+      )}
+    >
+      <Icon className="h-4 w-4" />
+    </button>
+  );
+
+  if (disabled) {
+    return (
+      <TooltipRoot>
+        <TooltipTrigger asChild>
+          <span tabIndex={-1}>{trigger}</span>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="text-xs">
+          {disabledReason ?? labelInactive}
+        </TooltipContent>
+      </TooltipRoot>
+    );
+  }
+
   return (
     <TooltipRoot>
       <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={onClick}
-          disabled={disabled}
-          aria-pressed={active}
-          aria-label={active ? labelActive : labelInactive}
-          className={cn(
-            "w-7 h-7 rounded-md flex items-center justify-center transition-colors shrink-0 relative",
-            active
-              ? "text-sdm-accent before:absolute before:left-0 before:top-1 before:bottom-1 before:w-0.5 before:rounded-full before:bg-sdm-accent"
-              : "text-sdm-muted hover:text-sdm-text hover:bg-sdm-surface-soft",
-            disabled && "opacity-30 cursor-not-allowed"
-          )}
-        >
-          <Icon className="h-4 w-4" />
-        </button>
+        {trigger}
       </TooltipTrigger>
       <TooltipContent side="left" className="text-xs">
         {active ? labelActive : labelInactive}
@@ -76,6 +116,7 @@ interface MapToolbarProps {
   onFitExtent: () => void;
   disabledLayers?: string[];
   containerRef?: React.RefObject<HTMLDivElement | null>;
+  runId?: string;
 }
 
 export function MapToolbar({
@@ -87,9 +128,13 @@ export function MapToolbar({
   onFitExtent,
   disabledLayers,
   containerRef,
+  runId,
 }: MapToolbarProps) {
-  const [position, setPosition] = useState(loadPosition);
+  const [position, setPosition] = useState({ ...DEFAULT_POSITION });
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const positionRef = useRef({ ...DEFAULT_POSITION });
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDraggingRef = useRef(false);
 
   const clamp = useCallback((pos: { x: number; y: number }) => {
     const container = containerRef?.current;
@@ -103,167 +148,173 @@ export function MapToolbar({
     };
   }, [containerRef]);
 
-  // Clamp toolbar position on mount and container resize
-  useEffect(() => {
-    setPosition((prev) => {
-      const clamped = clamp(prev);
-      savePosition(clamped);
-      return clamped;
-    });
-    const handleResize = () => {
-      setPosition((prev) => {
-        const clamped = clamp(prev);
-        savePosition(clamped);
-        return clamped;
-      });
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [clamp]);
+  const debouncedSave = useCallback((pos: { x: number; y: number }) => {
+    if (saveTimeoutRef.current !== null) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      savePosition(pos, runId);
+      saveTimeoutRef.current = null;
+    }, SAVE_DEBOUNCE_MS);
+  }, [runId]);
 
-  // Track active drag listeners so we can remove them on unmount (or when
-  // a route change unmounts the component mid-drag). Without this, the
-  // mousemove/mouseup/touchmove/touchend listeners stay attached after
-  // unmount, leak memory, and continue firing on a phantom React state.
-  const dragListenersRef = useRef<{
-    move?: EventListener;
-    up?: EventListener;
-    kind?: "mouse" | "touch";
-  }>({});
+  useEffect(() => {
+    const loaded = loadPosition(runId);
+    setPosition(loaded);
+    positionRef.current = loaded;
+  }, [runId]);
 
   useEffect(() => {
     return () => {
-      const { move, up, kind } = dragListenersRef.current;
-      if (move && up) {
-        if (kind === "mouse") {
-          window.removeEventListener("mousemove", move);
-          window.removeEventListener("mouseup", up);
-        } else if (kind === "touch") {
-          window.removeEventListener("touchmove", move);
-          window.removeEventListener("touchend", up);
-        }
-        dragListenersRef.current = {};
-      }
+      if (saveTimeoutRef.current !== null) clearTimeout(saveTimeoutRef.current);
     };
   }, []);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  useEffect(() => {
+    const container = containerRef?.current;
+    if (!container) return;
+
+    const ro = new ResizeObserver(() => {
+      setPosition((prev) => {
+        const clamped = clamp(prev);
+        debouncedSave(clamped);
+        return clamped;
+      });
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [containerRef, clamp, debouncedSave]);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return;
     e.preventDefault();
     const toolbar = toolbarRef.current;
     if (!toolbar) return;
+    toolbar.setPointerCapture(e.pointerId);
+
+    const container = containerRef?.current;
+    const containerRect = container?.getBoundingClientRect();
+    if (!containerRect) return;
+
     const tr = toolbar.getBoundingClientRect();
     const startX = e.clientX, startY = e.clientY;
-    const posX = tr.left, posY = tr.top;
+    const posX = tr.left - containerRect.left;
+    const posY = tr.top - containerRect.top;
     let rafId: number | null = null;
+    isDraggingRef.current = true;
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       if (rafId !== null) return;
       rafId = requestAnimationFrame(() => {
         rafId = null;
+        if (!isDraggingRef.current) return;
         const next = clamp({
           x: posX + e.clientX - startX,
           y: posY + e.clientY - startY,
         });
+        positionRef.current = next;
         setPosition(next);
       });
     };
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-      dragListenersRef.current = {};
-      setPosition((prev) => { savePosition(prev); return prev; });
+      isDraggingRef.current = false;
+      toolbar.removeEventListener("pointermove", handlePointerMove);
+      toolbar.removeEventListener("pointerup", handlePointerUp);
+      toolbar.removeEventListener("pointercancel", handlePointerUp);
+      debouncedSave(positionRef.current);
     };
-    dragListenersRef.current = { move: handleMouseMove as EventListener, up: handleMouseUp as EventListener, kind: "mouse" };
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-  }, [clamp]);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    const toolbar = toolbarRef.current;
-    if (!toolbar || !e.touches[0]) return;
-    const tr = toolbar.getBoundingClientRect();
-    const t = e.touches[0];
-    const startX = t.clientX, startY = t.clientY;
-    const posX = tr.left, posY = tr.top;
-    let rafId: number | null = null;
+    toolbar.addEventListener("pointermove", handlePointerMove);
+    toolbar.addEventListener("pointerup", handlePointerUp);
+    toolbar.addEventListener("pointercancel", handlePointerUp);
+  }, [clamp, containerRef, debouncedSave]);
 
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!e.touches[0] || rafId !== null) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        const next = clamp({
-          x: posX + e.touches[0].clientX - startX,
-          y: posY + e.touches[0].clientY - startY,
-        });
-        setPosition(next);
-      });
+  const handleDragKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const handled = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", "Escape"];
+    if (!handled.includes(e.key)) return;
+    e.preventDefault();
+
+    if (e.key === "Escape" && isDraggingRef.current) {
+      isDraggingRef.current = false;
+      return;
+    }
+
+    if (e.key === "Enter") {
+      const next = { ...DEFAULT_POSITION };
+      const clamped = clamp(next);
+      positionRef.current = clamped;
+      setPosition(clamped);
+      debouncedSave(clamped);
+      return;
+    }
+
+    setPosition((prev) => {
+      const next = { x: prev.x, y: prev.y };
+      if (e.key === "ArrowLeft") next.x -= KEYBOARD_STEP;
+      if (e.key === "ArrowRight") next.x += KEYBOARD_STEP;
+      if (e.key === "ArrowUp") next.y -= KEYBOARD_STEP;
+      if (e.key === "ArrowDown") next.y += KEYBOARD_STEP;
+      const clamped = clamp(next);
+      positionRef.current = clamped;
+      debouncedSave(clamped);
+      return clamped;
+    });
+  }, [clamp, debouncedSave]);
+
+  const disabledSet = useMemo(() => new Set(disabledLayers ?? []), [disabledLayers]);
+
+  const disabledReason = (layer: string) => {
+    const reasons: Record<string, string> = {
+      suitability: "Suitability layer unavailable",
+      eoo: "EOO polygon unavailable — no EOO GeoJSON",
+      aoo: "AOO grid unavailable — no AOO GeoJSON",
+      boundary: "Boundary polygon unavailable — no boundary GeoJSON",
+      extent: "Projection extent unavailable",
     };
-    const handleTouchEnd = () => {
-      if (rafId !== null) cancelAnimationFrame(rafId);
-      window.removeEventListener("touchmove", handleTouchMove);
-      window.removeEventListener("touchend", handleTouchEnd);
-      dragListenersRef.current = {};
-      setPosition((prev) => { savePosition(prev); return prev; });
-    };
-    dragListenersRef.current = { move: handleTouchMove as EventListener, up: handleTouchEnd as EventListener, kind: "touch" };
-    window.addEventListener("touchmove", handleTouchMove, { passive: true });
-    window.addEventListener("touchend", handleTouchEnd);
-  }, [clamp]);
-
-  const disabledSet = new Set(disabledLayers ?? []);
+    return reasons[layer] ?? "Layer unavailable";
+  };
 
   return (
     <div
       ref={toolbarRef}
       role="toolbar"
+      aria-orientation="vertical"
       aria-label="Map controls"
       className="absolute z-10 flex flex-col items-center gap-0.5 rounded-lg border border-sdm-border/50 bg-sdm-surface/90 backdrop-blur-sm shadow-lg px-1 py-1.5 select-none"
       style={{ top: position.y, left: position.x }}
     >
-      {/* Drag handle */}
       <div
-        onMouseDown={handleMouseDown}
-        onTouchStart={handleTouchStart}
+        onPointerDown={handlePointerDown}
         role="button"
         tabIndex={0}
-        aria-label="Drag to reposition toolbar"
-        onKeyDown={(e) => {
-          e.preventDefault();
-          const step = 10;
-          setPosition((prev) => {
-            const next = { x: prev.x, y: prev.y };
-            if (e.key === "ArrowLeft") next.x -= step;
-            if (e.key === "ArrowRight") next.x += step;
-            if (e.key === "ArrowUp") next.y -= step;
-            if (e.key === "ArrowDown") next.y += step;
-            const clamped = clamp(next);
-            savePosition(clamped);
-            return clamped;
-          });
-        }}
-        className="w-7 h-5 rounded-md flex items-center justify-center cursor-grab active:cursor-grabbing text-sdm-muted hover:text-sdm-text transition-colors"
+        aria-label="Drag to reposition toolbar. Press Enter to reset position."
+        onKeyDown={handleDragKeyDown}
+        className={cn(
+          DRAG_HANDLE_CLASS,
+          "rounded-md flex items-center justify-center cursor-grab active:cursor-grabbing text-sdm-muted hover:text-sdm-text transition-colors",
+          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sdm-accent focus-visible:ring-offset-1 focus-visible:ring-offset-sdm-surface"
+        )}
       >
         <GripVertical className="h-3.5 w-3.5" />
       </div>
 
       <div className="w-6 h-px bg-sdm-border/30 my-0.5" />
 
-      {/* Layer toggles */}
       <ToolButton
-        icon={Layers}
+        icon={Map}
         labelActive="Hide suitability raster"
         labelInactive="Show suitability raster"
         active={layers.suitability}
         disabled={disabledSet.has("suitability")}
+        disabledReason={disabledReason("suitability")}
         onClick={() => onToggleLayer("suitability")}
       />
       <ToolButton
-        icon={MapPin}
+        icon={Hexagon}
         labelActive="Hide EOO polygon"
         labelInactive="Show EOO polygon"
         active={layers.eoo}
         disabled={disabledSet.has("eoo")}
+        disabledReason={disabledReason("eoo")}
         onClick={() => onToggleLayer("eoo")}
       />
       <ToolButton
@@ -272,14 +323,16 @@ export function MapToolbar({
         labelInactive="Show AOO grid"
         active={layers.aoo}
         disabled={disabledSet.has("aoo")}
+        disabledReason={disabledReason("aoo")}
         onClick={() => onToggleLayer("aoo")}
       />
       <ToolButton
-        icon={Globe}
+        icon={Pentagon}
         labelActive="Hide boundary polygon"
         labelInactive="Show boundary polygon"
         active={layers.boundary}
         disabled={disabledSet.has("boundary")}
+        disabledReason={disabledReason("boundary")}
         onClick={() => onToggleLayer("boundary")}
       />
       <ToolButton
@@ -288,12 +341,12 @@ export function MapToolbar({
         labelInactive="Show projection extent"
         active={layers.extent}
         disabled={disabledSet.has("extent")}
+        disabledReason={disabledReason("extent")}
         onClick={() => onToggleLayer("extent")}
       />
 
       <div className="w-6 h-px bg-sdm-border/30 my-0.5" />
 
-      {/* View controls */}
       <ToolButton
         icon={Navigation}
         labelActive="Reset compass north"
@@ -309,7 +362,6 @@ export function MapToolbar({
 
       <div className="w-6 h-px bg-sdm-border/30 my-0.5" />
 
-      {/* Basemap toggle */}
       <ToolButton
         icon={basemap === "light" ? Moon : Sun}
         labelActive={basemap === "light" ? "Switch to dark basemap" : "Switch to light basemap"}
