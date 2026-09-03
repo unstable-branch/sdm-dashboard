@@ -5,7 +5,10 @@
 
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
-handle_ensemble_rasters <- function(res, job_id, app_dir) {
+handle_ensemble_rasters <- function(req, res, job_id, app_dir) {
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
+
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Invalid job ID"))
