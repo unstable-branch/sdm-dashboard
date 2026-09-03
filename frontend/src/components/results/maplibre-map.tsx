@@ -2,13 +2,14 @@
 
 import { useMemo, useRef, useCallback, useState, useEffect } from "react";
 import { Map, Source, Layer } from "react-map-gl/maplibre";
-import type { ViewState, MapRef, ErrorEvent } from "react-map-gl/maplibre";
+import type { ViewState, MapRef, ErrorEvent, ViewStateChangeEvent } from "react-map-gl/maplibre";
 import { AlertTriangle } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { densifyGeoJSONFeature } from "@/lib/geodesic";
 import { LIGHT_STYLE, DARK_STYLE } from "@/lib/map-styles";
 import { LAYER_IDS, DEFAULT_TILE_ZOOM_MAX } from "@/lib/map-utils";
+import { getMapColors } from "@/lib/map-theme";
 import type { FeatureCollection } from "geojson";
 import { getToken } from "@/services/api";
 import { MapToolbar } from "./map-toolbar";
@@ -59,18 +60,25 @@ export default function MaplibreMap({
   const [contextLost, setContextLost] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number | null>(null);
 
+  const safeTheme = (theme === "dark" || theme === "light") ? theme : "dark";
+  const colors = useMemo(() => getMapColors(safeTheme), [safeTheme]);
+
+  const isVisible = useCallback(
+    (layer: string) => (layerVisibility[layer] !== false ? "visible" : "none"),
+    [layerVisibility]
+  );
+
   const handleTileError = useCallback(() => {
-    setTileErrors(prev => Math.min(prev + 1, 99));
+    setTileErrors((prev) => Math.min(prev + 1, 99));
   }, []);
 
-  // Reset controls ref when the runId changes. Without this, the maplibre
-  // instance is reused across run switches and onLoad() is not called again,
-  // so the controlsAdded.current guard stays true and new controls (nav,
-  // scale) are never re-added to the new map. The caller is expected to
-  // pass `key={runId}` on the parent MaplibreMap component to force a
-  // full remount, but defensive reset on runId change here makes the
-  // component robust to that contract being missed.
-  useEffect(() => { controlsAdded.current = false; }, [runId]);
+  const handleTileAuthWarning = useCallback(() => {
+    setTileAuthWarning(true);
+  }, []);
+
+  useEffect(() => {
+    controlsAdded.current = false;
+  }, [runId]);
 
   useEffect(() => {
     return () => {
@@ -88,79 +96,68 @@ export default function MaplibreMap({
     };
   }, []);
 
-  const mapStyle = basemap === "dark" ? DARK_STYLE : LIGHT_STYLE;
-  const coords = coordinates;
-
   const densifiedEoo = useMemo(() => {
     if (!eooGeoJSON || !coordinates) return null;
     const feat = eooGeoJSON.features[0];
     if (!feat) return null;
     const densified = densifyGeoJSONFeature(feat, 20);
     if (!densified) return null;
-    // Clip EOO polygon to projection extent to prevent red overlay outside target area
     try {
-      const extentPoly = bboxPolygon([...extentBounds(coordinates)[0], ...extentBounds(coordinates)[1]]);
+      const extentPoly = bboxPolygon([
+        ...extentBounds(coordinates)[0],
+        ...extentBounds(coordinates)[1],
+      ]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const clipped = intersect({ type: "FeatureCollection", features: [densified as any, extentPoly] });
-      return clipped || null;
+      return clipped as FeatureCollection | null;
     } catch {
       return null;
     }
   }, [eooGeoJSON, coordinates]);
 
-  const densifiedAoo = useMemo(() => {
+  const densifiedAoo = useMemo<FeatureCollection | null>(() => {
     if (!aooGeoJSON) return null;
     return {
       ...aooGeoJSON,
       features: aooGeoJSON.features.map((f) => densifyGeoJSONFeature(f, 5)),
-    } as FeatureCollection;
+    };
   }, [aooGeoJSON]);
 
-  const densifiedBoundary = useMemo(() => {
+  const densifiedBoundary = useMemo<FeatureCollection | null>(() => {
     if (!boundaryGeoJSON) return null;
     return {
       ...boundaryGeoJSON,
       features: boundaryGeoJSON.features.map((f) => densifyGeoJSONFeature(f, 10)),
-    } as FeatureCollection;
+    };
   }, [boundaryGeoJSON]);
 
-  const handleResetNorth = useCallback(() => {
-    mapRef.current?.getMap()?.resetNorth();
-  }, []);
-
-  const handleFitExtent = useCallback(() => {
-    if (!coords) return;
-    const bounds = extentBounds(coords);
-    mapRef.current?.getMap()?.fitBounds(bounds, { padding: 40, maxZoom: 16 });
-  }, [coords]);
-
-  const visibility = (layer: string) =>
-    layerVisibility[layer] !== false ? "visible" : "none";
-
-  const maskFillGeoJSON = useMemo(() => {
-    if (!coords) return null;
+  const maskGeoJSON = useMemo<FeatureCollection | null>(() => {
+    if (!coordinates) return null;
     const outerRing: [number, number][] = [
       [-180, -85.0511], [180, -85.0511], [180, 85.0511], [-180, 85.0511], [-180, -85.0511],
     ];
     const holeRing: [number, number][] = [
-      coords[0], coords[1], coords[2], coords[3], coords[0],
+      coordinates[0], coordinates[1], coordinates[2], coordinates[3], coordinates[0],
     ];
     return {
       type: "FeatureCollection" as const,
-      features: [{
-        type: "Feature" as const,
-        properties: {},
-        geometry: {
-          type: "Polygon" as const,
-          coordinates: [outerRing, holeRing],
+      features: [
+        {
+          type: "Feature" as const,
+          properties: {},
+          geometry: {
+            type: "Polygon" as const,
+            coordinates: [outerRing, holeRing],
+          },
         },
-      }],
+      ],
     };
-  }, [coords]);
+  }, [coordinates]);
 
   const hasEoo = !!densifiedEoo;
   const hasAoo = !!densifiedAoo;
   const hasBoundary = !!densifiedBoundary;
-  const hasExtent = !!coords;
+  const hasExtent = !!coordinates;
 
   const disabledLayers = useMemo(() => {
     const d: string[] = [];
@@ -170,6 +167,56 @@ export default function MaplibreMap({
     if (!hasExtent) d.push(LAYER_IDS.EXTENT);
     return d;
   }, [hasEoo, hasAoo, hasBoundary, hasExtent]);
+
+  const suitabilityVisibility = isVisible(LAYER_IDS.SUITABILITY);
+  const aooVisibility = isVisible(LAYER_IDS.AOO);
+  const boundaryVisibility = isVisible(LAYER_IDS.BOUNDARY);
+  const extentVisibility = isVisible(LAYER_IDS.EXTENT);
+  const eooVisibility = isVisible(LAYER_IDS.EOO);
+
+  const handleResetNorth = useCallback(() => {
+    mapRef.current?.getMap()?.resetNorth();
+  }, []);
+
+  const handleFitExtent = useCallback(() => {
+    if (!coordinates) return;
+    const bounds = extentBounds(coordinates);
+    mapRef.current?.getMap()?.fitBounds(bounds, { padding: 40, maxZoom: 16 });
+  }, [coordinates]);
+
+  const handleMapError = useCallback(
+    (e: ErrorEvent) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mapError = e.error as unknown as { status?: number };
+      const status = mapError.status;
+      if (status === 401) {
+        handleTileAuthWarning();
+        return;
+      }
+      if (!status || (status >= 400 && status < 600)) {
+        handleTileError();
+      }
+    },
+    [handleTileAuthWarning, handleTileError]
+  );
+
+  const handleZoomEnd = useCallback((e: ViewStateChangeEvent) => {
+    const zoom = e.viewState.zoom;
+    if (typeof zoom === "number") setCurrentZoom(zoom);
+  }, []);
+
+  const tileUrl = `/api/v1/results/tiles/${runId}/{z}/{x}/{y}?band=${encodeURIComponent(band)}`;
+
+  const transformRequest = useCallback(
+    (url: string, resourceType?: string) => {
+      if (resourceType === "Tile" && url.includes("/api/v1/results/tiles/")) {
+        const token = typeof window !== "undefined" ? getToken() : null;
+        return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      }
+      return { url };
+    },
+    []
+  );
 
   return (
     <div
@@ -182,21 +229,10 @@ export default function MaplibreMap({
         key={runId}
         initialViewState={initialViewState}
         style={{ width: "100%", height: "100%" }}
-        mapStyle={mapStyle}
+        mapStyle={basemap === "dark" ? DARK_STYLE : LIGHT_STYLE}
         maxZoom={18}
-        onError={(e: ErrorEvent) => {
-          const status = (e.error as any)?.status;
-          if (status === 401) {
-            setTileAuthWarning(true);
-          }
-          if (status >= 400 && status < 600 || !status) {
-            handleTileError();
-          }
-        }}
-        onZoomEnd={(e) => {
-          const zoom = (e.target as any)?.getZoom();
-          if (typeof zoom === "number") setCurrentZoom(zoom);
-        }}
+        onError={handleMapError}
+        onZoomEnd={handleZoomEnd}
         onLoad={() => {
           const map = mapRef.current?.getMap();
           if (!map) return;
@@ -210,142 +246,133 @@ export default function MaplibreMap({
           };
           webglContextRestoredRef.current = () => {
             setContextLost(false);
+            map.triggerRepaint();
           };
-          map.getCanvas().addEventListener("webglcontextlost", webglContextLostRef.current);
-          map.getCanvas().addEventListener("webglcontextrestored", webglContextRestoredRef.current);
+          const canvas = map.getCanvas();
+          canvas.addEventListener("webglcontextlost", webglContextLostRef.current);
+          canvas.addEventListener("webglcontextrestored", webglContextRestoredRef.current);
         }}
-        transformRequest={(url: string, resourceType?: string) => {
-          if (resourceType === "Tile" && url.includes("/api/v1/results/tiles/")) {
-            const token = typeof window !== "undefined" ? getToken() : null;
-            return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} };
-          }
-          return { url };
-        }}
+        transformRequest={transformRequest}
       >
-      <Source
-        id="suitability"
-        type="raster"
-        tiles={[`/api/v1/results/tiles/${runId}/{z}/{x}/{y}?band=${encodeURIComponent(band)}`]}
-        tileSize={256}
-        minzoom={tileZoomMin && tileZoomMin > 0 ? tileZoomMin : 0}
-        maxzoom={tileZoomMax && tileZoomMax > 0 ? tileZoomMax : 18}
-        bounds={tileBounds}
-      >
+        <Source
+          id="suitability"
+          type="raster"
+          tiles={[tileUrl]}
+          tileSize={256}
+          minzoom={tileZoomMin && tileZoomMin > 0 ? tileZoomMin : 0}
+          maxzoom={tileZoomMax && tileZoomMax > 0 ? tileZoomMax : 18}
+          bounds={tileBounds}
+          attribution="© SDM Platform"
+        >
           <Layer
             id="suitability-overlay"
             type="raster"
-            layout={{ visibility: visibility(LAYER_IDS.SUITABILITY) }}
+            layout={{ visibility: suitabilityVisibility }}
             paint={{ "raster-opacity": 0.9999, "raster-fade-duration": 0, "raster-resampling": "nearest" }}
           />
         </Source>
 
-        {maskFillGeoJSON && (
-          <Source id="extent-mask" type="geojson" data={maskFillGeoJSON}>
+        {maskGeoJSON && (
+          <Source id="extent-mask" type="geojson" data={maskGeoJSON}>
             <Layer
               id="extent-mask-fill"
               type="fill"
-              layout={{ visibility: visibility(LAYER_IDS.SUITABILITY) }}
-              paint={{
-                "fill-color": theme === "dark" ? "#1b2030" : "#f2efe9",
-                "fill-opacity": 0.0001,
-              }}
+              layout={{ visibility: suitabilityVisibility }}
+              paint={{ "fill-opacity": 0 }}
             />
           </Source>
         )}
 
-        {hasAoo && (
-          <Source id="aoo-grid" type="geojson" data={densifiedAoo!}>
+        {hasAoo && densifiedAoo && (
+          <Source id="aoo-grid" type="geojson" data={densifiedAoo}>
             <Layer
               id="aoo-grid-fill"
               type="fill"
-              layout={{ visibility: visibility(LAYER_IDS.AOO) }}
+              layout={{ visibility: aooVisibility }}
               paint={{
-                "fill-color": theme === "dark" ? "#fbbf24" : "#f59e0b",
-                "fill-opacity": 0.25,
-                "fill-outline-color": theme === "dark" ? "#fbbf24" : "#d97706",
+                "fill-color": colors.aooFill,
+                "fill-opacity": colors.aooFillOpacity,
+                "fill-outline-color": colors.aooOutline,
               }}
             />
           </Source>
         )}
 
-        {hasBoundary && (
-          <Source id="boundary-polygon" type="geojson" data={densifiedBoundary!}>
+        {hasBoundary && densifiedBoundary && (
+          <Source id="boundary-polygon" type="geojson" data={densifiedBoundary}>
             <Layer
               id="boundary-fill"
               type="fill"
-              layout={{ visibility: visibility(LAYER_IDS.BOUNDARY) }}
+              layout={{ visibility: boundaryVisibility }}
               paint={{
-                "fill-color": "#06b6d4",
-                "fill-opacity": 0.08,
+                "fill-color": colors.boundaryFill,
+                "fill-opacity": colors.boundaryFillOpacity,
               }}
             />
             <Layer
               id="boundary-outline"
               type="line"
-              layout={{ visibility: visibility(LAYER_IDS.BOUNDARY) }}
+              layout={{ visibility: boundaryVisibility }}
               paint={{
-                "line-color": "#06b6d4",
+                "line-color": colors.boundaryOutline,
                 "line-width": 2,
-                "line-opacity": 0.6,
+                "line-opacity": colors.boundaryOutlineOpacity,
               }}
             />
           </Source>
         )}
 
-        {hasExtent && (
+        {hasExtent && coordinates && (
           <Source
             id="extent-boundary"
             type="geojson"
             data={{
               type: "FeatureCollection",
-              features: [{
-                type: "Feature",
-                properties: {},
-                geometry: {
-                  type: "Polygon",
-                  coordinates: [[
-                    coords[0], coords[1], coords[2], coords[3], coords[0],
-                  ]],
+              features: [
+                {
+                  type: "Feature",
+                  properties: {},
+                  geometry: {
+                    type: "Polygon",
+                    coordinates: [[coordinates[0], coordinates[1], coordinates[2], coordinates[3], coordinates[0]]],
+                  },
                 },
-              }],
+              ],
             }}
           >
             <Layer
               id="extent-boundary-outline"
               type="line"
-              layout={{ visibility: visibility(LAYER_IDS.EXTENT) }}
+              layout={{ visibility: extentVisibility }}
               paint={{
-                "line-color": theme === "dark" ? "#60a5fa" : "#2563eb",
+                "line-color": colors.extentOutline,
                 "line-width": 1.5,
-                "line-opacity": 0.5,
-                "line-dasharray": [6, 3],
+                "line-opacity": colors.extentOutlineOpacity,
+                "line-dasharray": colors.extentDashArray,
               }}
             />
           </Source>
         )}
 
-        {hasEoo && (
-          <Source id="eoo-polygon" type="geojson" data={{
-            type: "FeatureCollection",
-            features: [densifiedEoo as GeoJSON.Feature],
-          }}>
+        {hasEoo && densifiedEoo && (
+          <Source id="eoo-polygon" type="geojson" data={densifiedEoo}>
             <Layer
               id="eoo-polygon-fill"
               type="fill"
-              layout={{ visibility: visibility(LAYER_IDS.EOO) }}
-            paint={{
-              "fill-color": theme === "dark" ? "#818cf8" : "#6366f1",
-              "fill-opacity": 0.08,
-            }}
-          />
-          <Layer
-            id="eoo-polygon-outline"
-            type="line"
-            layout={{ visibility: visibility(LAYER_IDS.EOO) }}
-            paint={{
-              "line-color": theme === "dark" ? "#818cf8" : "#6366f1",
+              layout={{ visibility: eooVisibility }}
+              paint={{
+                "fill-color": colors.eooFill,
+                "fill-opacity": colors.eooFillOpacity,
+              }}
+            />
+            <Layer
+              id="eoo-polygon-outline"
+              type="line"
+              layout={{ visibility: eooVisibility }}
+              paint={{
+                "line-color": colors.eooOutline,
                 "line-width": 2,
-                "line-opacity": 0.8,
+                "line-opacity": colors.eooOutlineOpacity,
                 "line-dasharray": [4, 3],
               }}
             />
@@ -363,7 +390,11 @@ export default function MaplibreMap({
         <div className="absolute bottom-16 left-3 z-10 flex items-center gap-1.5 rounded-md bg-sdm-warning/10 px-2.5 py-1.5 text-[11px] text-sdm-warning border border-sdm-warning/30">
           <AlertTriangle className="h-3 w-3" />
           <span>{tileErrors} tile errors</span>
-          <button onClick={() => setTileErrors(0)} className="ml-1 text-sdm-warning/70 hover:text-sdm-warning transition-colors" aria-label="Dismiss tile errors">
+          <button
+            onClick={() => setTileErrors(0)}
+            className="ml-1 text-sdm-warning/70 hover:text-sdm-warning transition-colors bg-transparent border-none cursor-pointer text-[11px]"
+            aria-label="Dismiss tile errors"
+          >
             ×
           </button>
         </div>
@@ -373,7 +404,11 @@ export default function MaplibreMap({
         <div className="absolute bottom-16 right-3 z-10 flex items-center gap-1.5 rounded-md bg-sdm-error/10 px-2.5 py-1.5 text-[11px] text-sdm-error border border-sdm-error/30">
           <AlertTriangle className="h-3 w-3" />
           <span>Tile access denied — log in again to refresh credentials</span>
-          <button onClick={() => setTileAuthWarning(false)} className="ml-1 text-sdm-error/70 hover:text-sdm-error transition-colors" aria-label="Dismiss tile auth warning">
+          <button
+            onClick={() => setTileAuthWarning(false)}
+            className="ml-1 text-sdm-error/70 hover:text-sdm-error transition-colors bg-transparent border-none cursor-pointer text-[11px]"
+            aria-label="Dismiss tile auth warning"
+          >
             ×
           </button>
         </div>
