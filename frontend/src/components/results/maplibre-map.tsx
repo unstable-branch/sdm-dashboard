@@ -200,14 +200,6 @@ export default function MaplibreMap({
     mapRef.current?.getMap()?.fitBounds(bounds, { padding: 40, maxZoom: 16 });
   }, [coordinates]);
 
-  useKeyboardShortcuts({
-    onResetNorth: handleResetNorth,
-    onFitExtent: handleFitExtent,
-    onToggleBasemap: onToggleBasemap,
-    onZoomIn: handleZoomIn,
-    onZoomOut: handleZoomOut,
-  });
-
   const handleMapError = useCallback(
     (e: ErrorEvent) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -237,6 +229,15 @@ export default function MaplibreMap({
     map.setPitch(newPitch);
     setPitch(newPitch);
   }, [pitch]);
+
+  useKeyboardShortcuts({
+    onResetNorth: handleResetNorth,
+    onFitExtent: handleFitExtent,
+    onToggleBasemap: onToggleBasemap,
+    onZoomIn: handleZoomIn,
+    onZoomOut: handleZoomOut,
+    onPitchToggle: handlePitchToggle,
+  });
 
   const handleMapMouseMove = useCallback(
     (e: maplibregl.MapMouseEvent) => {

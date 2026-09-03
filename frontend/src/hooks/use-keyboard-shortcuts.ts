@@ -6,6 +6,7 @@ interface KeyboardShortcutHandlers {
   onToggleBasemap: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  onPitchToggle: () => void;
 }
 
 export function useKeyboardShortcuts({
@@ -14,9 +15,10 @@ export function useKeyboardShortcuts({
   onToggleBasemap,
   onZoomIn,
   onZoomOut,
+  onPitchToggle,
 }: KeyboardShortcutHandlers) {
-  const handlersRef = useRef({ onResetNorth, onFitExtent, onToggleBasemap, onZoomIn, onZoomOut });
-  handlersRef.current = { onResetNorth, onFitExtent, onToggleBasemap, onZoomIn, onZoomOut };
+  const handlersRef = useRef({ onResetNorth, onFitExtent, onToggleBasemap, onZoomIn, onZoomOut, onPitchToggle });
+  handlersRef.current = { onResetNorth, onFitExtent, onToggleBasemap, onZoomIn, onZoomOut, onPitchToggle };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -54,6 +56,11 @@ export function useKeyboardShortcuts({
         case "_":
           e.preventDefault();
           handlersRef.current.onZoomOut();
+          break;
+        case "p":
+        case "P":
+          e.preventDefault();
+          handlersRef.current.onPitchToggle();
           break;
       }
     };
