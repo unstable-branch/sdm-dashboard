@@ -10,7 +10,7 @@ import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
-import { buildModelPayload, cleanupDecryptedFiles, type ModelConfigRecord } from "../services/model-payload.js";
+import { buildModelPayload, type ModelConfigRecord } from "../services/model-payload.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 
@@ -473,8 +473,6 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Batch retry failed";
     return c.json({ error: message }, 500);
-  } finally {
-    cleanupDecryptedFiles();
   }
 });
 

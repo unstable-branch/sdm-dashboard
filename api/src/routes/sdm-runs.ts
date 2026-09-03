@@ -12,7 +12,7 @@ import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
-import { buildModelPayload, cleanupDecryptedFiles } from "../services/model-payload.js";
+import { buildModelPayload } from "../services/model-payload.js";
 import { canAccessRun } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 
@@ -61,16 +61,17 @@ sdmRunRoutes.post("/run", async (c) => {
       const speciesName = config.species;
 
       try {
-        let [sp] = await db.select().from(species).where(and(eq(species.name, speciesName), eq(species.projectId, projectId))).limit(1);
+        let [sp] = await db
+          .insert(species)
+          .values({ name: speciesName, projectId, occurrenceCount: 0 })
+          .onConflictDoNothing()
+          .returning();
         if (!sp) {
-          [sp] = await db
-            .insert(species)
-            .values({ name: speciesName, projectId, occurrenceCount: 0 })
-            .returning();
+          [sp] = await db.select().from(species).where(and(eq(species.name, speciesName), eq(species.projectId, projectId))).limit(1);
         }
-        speciesId = sp.id;
+        speciesId = sp?.id;
       } catch (err) {
-        console.warn("[sdm] Species insert failed (best-effort):", err instanceof Error ? err.message : err);
+        console.warn("[sdm] Species upsert failed (best-effort):", err instanceof Error ? err.message : err);
       }
 
       let insertedRun: typeof runs.$inferSelect | null = null;
@@ -202,7 +203,7 @@ sdmRunRoutes.post("/run", async (c) => {
     const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
     return c.json({ error: message }, isBusy ? 429 : 502);
   } finally {
-    cleanupDecryptedFiles();
+    // cleaned file paths are passed raw to Plumber; R handles decryption
   }
 });
 

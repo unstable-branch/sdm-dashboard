@@ -230,23 +230,21 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   log_message(log_fun, "Fitting fast GLM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   model_fit_data <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
   model_fit_data$case_weight_sdm <- class_balance_weights(model_fit_data$presence)
-  model <- tryCatch({
-    suppressWarnings(stats::glm(formula,
-      data = model_fit_data, family = stats::binomial(),
-      weights = case_weight_sdm, control = stats::glm.control(maxit = 80)
-    ))
-  }, error = function(e) {
-    stop("GLM fitting failed: ", conditionMessage(e), call. = FALSE)
-  })
+  model <- sdm_step("glm-fit", suppressWarnings(stats::glm(formula,
+    data = model_fit_data, family = stats::binomial(),
+    weights = case_weight_sdm, control = stats::glm.control(maxit = 80)
+  )))
 
-  train_pred <- stats::predict(model, newdata = model_fit_data, type = "response")
-  train_metrics <- compute_binary_metrics(model_fit_data$presence, train_pred, threshold = threshold)
+  train_pred <- sdm_step("predict-train", stats::predict(model, newdata = model_fit_data, type = "response"))
+  train_metrics <- sdm_step("train-metrics",
+    compute_binary_metrics(model_fit_data$presence, train_pred, threshold = threshold)
+  )
 
-  cv <- cross_validate_glm(model_data, formula,
+  cv <- sdm_step("cross-validate", cross_validate_glm(model_data, formula,
     k = cv_folds, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km, threshold = threshold,
     collect_predictions = TRUE
-  )
+  ))
   if (is.finite(cv$auc_mean)) {
     log_message(
       log_fun, "Cross-validation (", cv$strategy, ") AUC: ", sprintf("%.3f", cv$auc_mean),
@@ -255,10 +253,10 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   }
 
   # In-sample CBI (optimistic)
-  cbi_result <- continuous_boyce_index(
+  cbi_result <- sdm_step("in-sample-cbi", continuous_boyce_index(
     pres_suit = train_pred[model_fit_data$presence == 1],
     bg_suit = train_pred[model_fit_data$presence == 0]
-  )
+  ))
   if (is.finite(cbi_result$cbi)) {
     log_message(log_fun, "In-sample CBI: ", sprintf("%.3f", cbi_result$cbi))
   }
@@ -267,19 +265,21 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   cv_cbi <- NULL
   if (!is.null(cv$predictions) && nrow(cv$predictions) > 0) {
     preds <- cv$predictions
-    cv_cbi <- continuous_boyce_index(
+    cv_cbi <- sdm_step("cv-cbi", continuous_boyce_index(
       pres_suit = preds$predicted[preds$observed == 1],
       bg_suit = preds$predicted[preds$observed == 0]
-    )
+    ))
     if (!is.null(cv_cbi) && is.finite(cv_cbi$cbi)) {
       log_message(log_fun, "Cross-validated CBI: ", sprintf("%.3f", cv_cbi$cbi))
     }
   }
 
-  coefficients <- as.data.frame(summary(model)$coefficients)
-  coefficients$term <- rownames(coefficients)
-  rownames(coefficients) <- NULL
-  coefficients <- coefficients[, c("term", setdiff(names(coefficients), "term")), drop = FALSE]
+  coefficients <- sdm_step("extract-coefficients", {
+    coef <- as.data.frame(summary(model)$coefficients)
+    coef$term <- rownames(coef)
+    rownames(coef) <- NULL
+    coef[, c("term", setdiff(names(coef), "term")), drop = FALSE]
+  })
 
   model$model <- NULL
   model$data <- NULL

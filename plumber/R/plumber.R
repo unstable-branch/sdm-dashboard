@@ -322,7 +322,7 @@ function(req) handle_covariates_download_bg(req, app_dir)
 #* @param band Band name or index (optional, defaults to first band)
 #* @get /api/v1/results/tiles/cog/<run_id>/<z>/<x>/<y>
 #* @serializer contentType list(type="image/png")
-function(res, run_id, z, x, y, band = NULL) handle_tile_serve(res, run_id, z, x, y, app_dir, band)
+function(req, res, run_id, z, x, y, band = NULL) handle_tile_serve(req, res, run_id, z, x, y, app_dir, band)
 
 #* Serve default boundary GeoJSON
 #* @param resolution Boundary resolution
