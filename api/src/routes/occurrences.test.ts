@@ -69,22 +69,19 @@ vi.mock("../services/queue", () => ({
   getSharedRedis: vi.fn(() => null),
 }));
 
-vi.mock("fs", () => {
-  const createdDirs = new Set<string>();
-  return {
-    readFileSync: vi.fn(() => "longitude,latitude\n1,2\n3,4"),
-    writeFileSync: vi.fn(),
-    mkdirSync: vi.fn((path: string) => { createdDirs.add(String(path)); }),
-    existsSync: vi.fn((path: string) => createdDirs.has(String(path))),
-    statSync: vi.fn(() => ({ size: 100 })),
-    accessSync: vi.fn(),
-    promises: {
-      writeFile: vi.fn(() => Promise.resolve()),
-      rename: vi.fn(() => Promise.resolve()),
-    },
-    constants: { W_OK: 2 },
-  };
-});
+vi.mock("fs", () => ({
+  readFileSync: vi.fn(() => "longitude,latitude\n1,2\n3,4"),
+  writeFileSync: vi.fn(),
+  mkdirSync: vi.fn(),
+  existsSync: vi.fn(() => true),
+  statSync: vi.fn(() => ({ size: 100 })),
+  accessSync: vi.fn(),
+  promises: {
+    writeFile: vi.fn(() => Promise.resolve()),
+    rename: vi.fn(() => Promise.resolve()),
+  },
+  constants: { W_OK: 2 },
+}));
 
 vi.mock("../middleware/rate-limit", () => ({
   gbifRateLimit: vi.fn(async (_c: any, next: any) => next()),
@@ -127,6 +124,15 @@ describe("data routes", () => {
   const app = new Hono();
   app.route("/api/v1/data", dataRoutes);
   app.route("/api/v1/data", gbifAlaRoutes);
+
+  beforeAll(() => {
+    const fs = require("fs") as typeof import("fs");
+    const path = require("path") as typeof import("path");
+    const uploadsDir = path.join(process.cwd(), "data", "uploads");
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
