@@ -1,14 +1,41 @@
 import { useEffect, useCallback, useRef } from "react";
 
+/**
+ * Maps keyboard shortcuts to map action handlers.
+ * Shortcuts are ignored when the target element is an input, textarea,
+ * or contentEditable element to avoid interfering with form fields.
+ */
 interface KeyboardShortcutHandlers {
+  /** Reset the map compass to north (bearing = 0) */
   onResetNorth: () => void;
+  /** Fit the map view to the current extent bounds */
   onFitExtent: () => void;
+  /** Toggle between light and dark basemap */
   onToggleBasemap: () => void;
+  /** Zoom the map in one level */
   onZoomIn: () => void;
+  /** Zoom the map out one level */
   onZoomOut: () => void;
+  /** Toggle map pitch between 0° (flat) and 60° (tilted 3D) */
   onPitchToggle: () => void;
 }
 
+/**
+ * Registers keyboard shortcuts for map navigation.
+ *
+ * Shortcuts:
+ * - `n` / `N` — Reset compass north
+ * - `f` / `F` — Fit map to extent
+ * - `b` / `B` — Toggle basemap
+ * - `+` / `=` — Zoom in
+ * - `-` / `_` — Zoom out
+ * - `p` / `P` — Toggle map pitch (0° / 60°)
+ *
+ * Shortcuts are suppressed when focus is inside an input, textarea, or
+ * contentEditable element.
+ *
+ * @param handlers - Map action callbacks for each shortcut
+ */
 export function useKeyboardShortcuts({
   onResetNorth,
   onFitExtent,

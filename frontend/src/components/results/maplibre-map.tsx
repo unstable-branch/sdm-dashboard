@@ -12,11 +12,16 @@ import { LAYER_IDS, DEFAULT_TILE_ZOOM_MAX } from "@/lib/map-utils";
 import { getMapColors } from "@/lib/map-theme";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import type { FeatureCollection } from "geojson";
-import { getToken } from "@/services/api";
+import { getToken, apiGetSuitabilityValue } from "@/services/api";
 import { MapToolbar } from "./map-toolbar";
 import intersect from "@turf/intersect";
 import bboxPolygon from "@turf/bbox-polygon";
 
+/**
+ * Converts 4-corner coordinate array to [sw, ne] bounds for MapLibre fitBounds.
+ * @param coords - 4 corner coordinates as [[lng, lat], ...]
+ * @returns [[minLng, minLat], [maxLng, maxLat]]
+ */
 function extentBounds(
   coords: [[number, number], [number, number], [number, number], [number, number]]
 ): [[number, number], [number, number]] {
@@ -28,11 +33,26 @@ function extentBounds(
   ];
 }
 
+/**
+ * Props for the MaplibreMap component.
+ *
+ * Layers:
+ * - `suitability` — Raster tile overlay from /api/v1/results/tiles/{runId}
+ * - `eoo` — Extent of Occurrence polygon (geodesic-densified, clipped to extent)
+ * - `aoo` — Area of Occupancy point grid (clustered via MapLibre built-in clustering)
+ * - `boundary` — Custom boundary polygon (geodesic-densified)
+ * - `extent` — Projection extent rectangle (dashed outline)
+ */
 interface MaplibreMapProps {
+  /** Unique run identifier, used as cache key for the map instance */
   runId: string;
+  /** Band name passed to the tile endpoint */
   band: string;
+  /** "dark" | "light" — determines which color palette is used */
   theme: string | undefined;
+  /** Initial view state (longitude, latitude, zoom) for the map on mount */
   initialViewState?: Partial<ViewState>;
+  /** 4-corner coordinates of the projection extent [[sw], [se], [ne], [nw]] */
   coordinates?: [[number, number], [number, number], [number, number], [number, number]];
   tileZoomMin?: number;
   tileZoomMax?: number;
@@ -56,6 +76,9 @@ export default function MaplibreMap({
   const controlsAdded = useRef(false);
   const webglContextLostRef = useRef<((e: Event) => void) | null>(null);
   const webglContextRestoredRef = useRef<(() => void) | null>(null);
+  const mousemoveRafRef = useRef<number | null>(null);
+  const latestMousePointRef = useRef<{ x: number; y: number } | null>(null);
+  const cursorRafRef = useRef<number | null>(null);
   const [tileErrors, setTileErrors] = useState(0);
   const [tileAuthWarning, setTileAuthWarning] = useState(false);
   const [contextLost, setContextLost] = useState(false);
@@ -66,10 +89,38 @@ export default function MaplibreMap({
   const [coordsCopied, setCoordsCopied] = useState(false);
   const [pitch, setPitch] = useState(0);
   const [hoveredFeatureId, setHoveredFeatureId] = useState<string | null>(null);
-  const [suitabilityPopup, setSuitabilityPopup] = useState<{ x: number; y: number; value: number } | null>(null);
+  const [suitabilityPopup, setSuitabilityPopup] = useState<{
+    x: number;
+    y: number;
+    lng: number;
+    lat: number;
+    value: number | null;
+  } | null>(null);
 
   const safeTheme = (theme === "dark" || theme === "light") ? theme : "dark";
   const colors = useMemo(() => getMapColors(safeTheme), [safeTheme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const urlLat = params.get("lat");
+    const urlLng = params.get("lng");
+    const urlZ = params.get("z");
+    const urlPitch = params.get("pitch");
+    const hasUrlState = urlLat && urlLng && urlZ;
+    if (!hasUrlState) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const lat = parseFloat(urlLat);
+    const lng = parseFloat(urlLng);
+    const z = parseFloat(urlZ);
+    if (isNaN(lat) || isNaN(lng) || isNaN(z)) return;
+    map.jumpTo({
+      center: [lng, lat],
+      zoom: z,
+      pitch: urlPitch ? parseFloat(urlPitch) : 0,
+    });
+  }, []);
 
   const isVisible = useCallback(
     (layer: string) => (layerVisibility[layer] !== false ? "visible" : "none"),
@@ -101,6 +152,14 @@ export default function MaplibreMap({
         canvas.removeEventListener("webglcontextrestored", webglContextRestoredRef.current);
         webglContextRestoredRef.current = null;
       }
+      if (mousemoveRafRef.current !== null) {
+        cancelAnimationFrame(mousemoveRafRef.current);
+        mousemoveRafRef.current = null;
+      }
+      if (cursorRafRef.current !== null) {
+        clearTimeout(cursorRafRef.current);
+        cursorRafRef.current = null;
+      }
     };
   }, []);
 
@@ -116,20 +175,36 @@ export default function MaplibreMap({
     if (!eooGeoJSON || !coordinates) return null;
     const feat = eooGeoJSON.features[0];
     if (!feat) return null;
-    const densified = densifyGeoJSONFeature(feat, 20);
-    if (!densified) return null;
-    try {
-      const extentPoly = bboxPolygon([
-        ...extentBounds(coordinates)[0],
-        ...extentBounds(coordinates)[1],
-      ]);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const clipped = intersect({ type: "FeatureCollection", features: [densified as any, extentPoly] });
-      return clipped as FeatureCollection | null;
-    } catch {
-      return null;
-    }
+    return densifyGeoJSONFeature(feat, 20);
   }, [eooGeoJSON, coordinates]);
+
+  const [densifiedEooClipped, setDensifiedEooClipped] = useState<FeatureCollection | null>(null);
+
+  useEffect(() => {
+    if (!densifiedEoo || !coordinates) {
+      setDensifiedEooClipped(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const extentPoly = bboxPolygon([
+          ...extentBounds(coordinates)[0],
+          ...extentBounds(coordinates)[1],
+        ]);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const clipped = intersect({ type: "FeatureCollection", features: [densifiedEoo as any, extentPoly] });
+        if (!cancelled) {
+          setDensifiedEooClipped(clipped as FeatureCollection | null);
+        }
+      } catch {
+        if (!cancelled) setDensifiedEooClipped(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [densifiedEoo, coordinates]);
 
   const densifiedAoo = useMemo<FeatureCollection | null>(() => {
     if (!aooGeoJSON) return null;
@@ -170,7 +245,7 @@ export default function MaplibreMap({
     };
   }, [coordinates]);
 
-  const hasEoo = !!densifiedEoo;
+  const hasEoo = !!densifiedEooClipped;
   const hasAoo = !!densifiedAoo;
   const hasBoundary = !!densifiedBoundary;
   const hasExtent = !!coordinates;
@@ -222,13 +297,30 @@ export default function MaplibreMap({
     setPitch(e.viewState.pitch ?? 0);
   }, []);
 
+  const handleMoveEnd = useCallback(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const { lat, lng } = map.getCenter();
+    const z = map.getZoom();
+    const p = map.getPitch();
+    const params = new URLSearchParams({
+      lat: lat.toFixed(5),
+      lng: lng.toFixed(5),
+      z: z.toFixed(2),
+      ...(p > 0 ? { pitch: p.toFixed(0) } : {}),
+    });
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState(null, "", newUrl);
+  }, []);
+
   const handlePitchToggle = useCallback(() => {
     const map = mapRef.current?.getMap();
     if (!map) return;
     const newPitch = pitch === 0 ? 60 : 0;
     map.setPitch(newPitch);
     setPitch(newPitch);
-  }, [pitch]);
+    handleMoveEnd();
+  }, [pitch, handleMoveEnd]);
 
   useKeyboardShortcuts({
     onResetNorth: handleResetNorth,
@@ -241,50 +333,80 @@ export default function MaplibreMap({
 
   const handleMapMouseMove = useCallback(
     (e: maplibregl.MapMouseEvent) => {
-      const map = mapRef.current?.getMap();
-      if (!map) return;
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const lngLat = map.unproject([e.point.x, e.point.y]);
-      setCursorCoords({ lng: lngLat.lng, lat: lngLat.lat });
+      latestMousePointRef.current = { x: e.point.x, y: e.point.y };
 
-      const interactiveLayers = ["aoo-grid-fill", "eoo-polygon-fill", "boundary-fill"];
-      const features = map.queryRenderedFeatures(e.point, { layers: interactiveLayers });
-      if (features.length > 0) {
-        const id = features[0].id;
-        if (id !== hoveredFeatureId) {
-          if (hoveredFeatureId) map.setFeatureState({ source: features[0].source!, id: hoveredFeatureId }, { hover: false });
-          map.setFeatureState({ source: features[0].source!, id: id as string }, { hover: true });
-          setHoveredFeatureId(id as string);
-        }
-        map.getCanvas().style.cursor = "pointer";
-      } else {
-        if (hoveredFeatureId) {
-          map.queryRenderedFeatures({ layers: interactiveLayers }).forEach((f) => {
-            if (f.id === hoveredFeatureId) {
-              map.setFeatureState({ source: f.source!, id: hoveredFeatureId }, { hover: false });
-            }
-          });
-          setHoveredFeatureId(null);
-        }
-        map.getCanvas().style.cursor = "";
+      if (cursorRafRef.current === null) {
+        cursorRafRef.current = window.setTimeout(() => {
+          cursorRafRef.current = null;
+          const map = mapRef.current?.getMap();
+          const pt = latestMousePointRef.current;
+          if (!map || !pt) return;
+          const lngLat = map.unproject([pt.x, pt.y]);
+          setCursorCoords({ lng: lngLat.lng, lat: lngLat.lat });
+        }, 100) as unknown as number;
       }
+
+      if (mousemoveRafRef.current !== null) return;
+      mousemoveRafRef.current = requestAnimationFrame(() => {
+        mousemoveRafRef.current = null;
+        const map = mapRef.current?.getMap();
+        const point = latestMousePointRef.current;
+        if (!map || !point) return;
+
+        const interactiveLayers = ["aoo-cluster-circles", "aoo-grid-fill", "eoo-polygon-fill", "boundary-fill"];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const features = map.queryRenderedFeatures(point as any, { layers: interactiveLayers });
+        if (features.length > 0) {
+          const id = features[0].id;
+          if (id !== hoveredFeatureId) {
+            if (hoveredFeatureId) map.setFeatureState({ source: features[0].source!, id: hoveredFeatureId }, { hover: false });
+            map.setFeatureState({ source: features[0].source!, id: id as string }, { hover: true });
+            setHoveredFeatureId(id as string);
+          }
+          map.getCanvas().style.cursor = "pointer";
+        } else {
+          if (hoveredFeatureId) {
+            map.queryRenderedFeatures({ layers: interactiveLayers }).forEach((f) => {
+              if (f.id === hoveredFeatureId) {
+                map.setFeatureState({ source: f.source!, id: hoveredFeatureId }, { hover: false });
+              }
+            });
+            setHoveredFeatureId(null);
+          }
+          map.getCanvas().style.cursor = "";
+        }
+      });
     },
     [hoveredFeatureId]
   );
 
   const handleMapClick = useCallback(
-    (e: maplibregl.MapMouseEvent) => {
+    async (e: maplibregl.MapMouseEvent) => {
       const map = mapRef.current?.getMap();
       if (!map) return;
       const features = map.queryRenderedFeatures(e.point, { layers: ["suitability-overlay"] });
       if (features.length > 0) {
-        setSuitabilityPopup({ x: e.point.x, y: e.point.y, value: e.lngLat.lng });
+        const popupState = { x: e.point.x, y: e.point.y, lng: e.lngLat.lng, lat: e.lngLat.lat, value: null };
+        setSuitabilityPopup(popupState);
+        try {
+          const result = await apiGetSuitabilityValue(runId, e.lngLat.lat, e.lngLat.lng, band);
+          setSuitabilityPopup((prev) =>
+            prev && prev.x === e.point.x && prev.y === e.point.y
+              ? { ...prev, value: result.value }
+              : prev
+          );
+        } catch {
+          setSuitabilityPopup((prev) =>
+            prev && prev.x === e.point.x && prev.y === e.point.y
+              ? { ...prev, value: null }
+              : prev
+          );
+        }
       } else {
         setSuitabilityPopup(null);
       }
     },
-    []
+    [runId, band]
   );
 
   const tileUrl = `/api/v1/results/tiles/${runId}/{z}/{x}/{y}?band=${encodeURIComponent(band)}`;
@@ -323,12 +445,18 @@ export default function MaplibreMap({
         maxZoom={18}
         onError={handleMapError}
         onZoomEnd={handleZoomEnd}
+        onMoveEnd={handleMoveEnd}
         onMouseMove={handleMapMouseMove}
         onMouseLeave={() => {
+          if (cursorRafRef.current !== null) {
+            clearTimeout(cursorRafRef.current);
+            cursorRafRef.current = null;
+          }
+          latestMousePointRef.current = null;
           setCursorCoords(null);
           const map = mapRef.current?.getMap();
           if (map && hoveredFeatureId) {
-            const interactiveLayers = ["aoo-grid-fill", "eoo-polygon-fill", "boundary-fill"];
+            const interactiveLayers = ["aoo-cluster-circles", "aoo-grid-fill", "eoo-polygon-fill", "boundary-fill"];
             map.queryRenderedFeatures({ layers: interactiveLayers }).forEach((f) => {
               if (f.id === hoveredFeatureId) {
                 map.setFeatureState({ source: f.source!, id: hoveredFeatureId }, { hover: false });
@@ -516,8 +644,8 @@ export default function MaplibreMap({
           </Source>
         )}
 
-        {hasEoo && densifiedEoo && (
-          <Source id="eoo-polygon" type="geojson" data={densifiedEoo}>
+        {hasEoo && densifiedEooClipped && (
+          <Source id="eoo-polygon" type="geojson" data={densifiedEooClipped}>
             <Layer
               id="eoo-polygon-fill"
               type="fill"
@@ -659,10 +787,15 @@ export default function MaplibreMap({
 
       {suitabilityPopup && (
         <div
-          className="absolute z-20 rounded-md bg-sdm-surface border border-sdm-border shadow-md px-2 py-1 text-[11px] text-sdm-text pointer-events-none"
+          className="absolute z-20 rounded-md bg-sdm-surface border border-sdm-border shadow-md px-2 py-1 text-[11px] text-sdm-text pointer-events-none min-w-[120px]"
           style={{ left: suitabilityPopup.x + 10, top: suitabilityPopup.y - 30 }}
         >
-          {isNaN(suitabilityPopup.value) ? "—" : suitabilityPopup.value.toFixed(3)}
+          <div className="font-mono text-sdm-muted mb-0.5">
+            {suitabilityPopup.lat.toFixed(4)}, {suitabilityPopup.lng.toFixed(4)}
+          </div>
+          <div className="text-sdm-accent font-medium">
+            {suitabilityPopup.value === null ? "—" : suitabilityPopup.value.toFixed(3)}
+          </div>
         </div>
       )}
 

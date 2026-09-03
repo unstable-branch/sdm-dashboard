@@ -1,3 +1,8 @@
+/**
+ * Color palette for MapLibre map layers.
+ * Used to style EOO polygons, AOO grids, boundary polygons, and extent outlines
+ * in both dark and light basemap themes.
+ */
 export interface MapThemeColors {
   suitabilityMask: string;
   eooFill: string;
@@ -17,6 +22,12 @@ export interface MapThemeColors {
   boundaryOutlineOpacity: number;
 }
 
+/**
+ * Returns the color palette for map overlay layers.
+ * @param theme - The active map theme: "dark" or "light"
+ * @returns An object containing fill colors, outline colors, and opacity values
+ *          for each overlay layer type (EOO, AOO, boundary, extent).
+ */
 export function getMapColors(theme: "dark" | "light"): MapThemeColors {
   if (theme === "dark") {
     return {
