@@ -70,8 +70,8 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
 
   useEffect(() => {
     if (!jobId) return;
-    // Always poll for active/running jobs — SSE may lack progressJson or currentStage
-    if (job && !isSyntheticPlaceholder) {
+    // Skip polling when SSE is connected and job is tracked by SSE
+    if (connected && job && !isSyntheticPlaceholder) {
       if (job.state === "completed" || job.state === "failed" || job.state === "cancelled") {
         setPolledJob(null); // SSE is authoritative for terminal states — clear polling
         return;
