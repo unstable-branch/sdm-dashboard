@@ -54,6 +54,7 @@ export default function MaplibreMap({
   const controlsAdded = useRef(false);
   const [tileErrors, setTileErrors] = useState(0);
   const [tileAuthWarning, setTileAuthWarning] = useState(false);
+  const [contextLost, setContextLost] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number | null>(null);
 
   const handleTileError = useCallback(() => {
@@ -353,6 +354,13 @@ export default function MaplibreMap({
           <button onClick={() => setTileAuthWarning(false)} className="ml-1 text-sdm-error/70 hover:text-sdm-error transition-colors" aria-label="Dismiss tile auth warning">
             ×
           </button>
+        </div>
+      )}
+
+      {contextLost && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-md bg-sdm-error/10 px-3 py-2 text-xs text-sdm-error border border-sdm-error/30">
+          <AlertTriangle className="h-3 w-3" />
+          <span>WebGL context lost — map may need refresh</span>
         </div>
       )}
 
