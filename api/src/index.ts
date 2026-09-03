@@ -129,6 +129,8 @@ app.use("/api/v1/climate/*", csrfMiddleware);
 app.use("/api/v1/downloads/*", csrfMiddleware);
 app.use("/api/v1/ecology/*", csrfMiddleware);
 app.use("/api/v1/projects/*", csrfMiddleware);
+app.use("/api/v1/covariates/*", csrfMiddleware);
+app.use("/api/v1/diagnostics/*", csrfMiddleware);
 
 app.get("/health", async (c) => {
   let plumberStatus = "unknown";

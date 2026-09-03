@@ -84,6 +84,24 @@ function notifyListeners(): void {
   }
 }
 
+export function clearSharedJobs(): void {
+  if (sharedEventSource) {
+    sharedEventSource.close();
+    sharedEventSource = null;
+  }
+  if (sharedReconnectTimer) {
+    clearTimeout(sharedReconnectTimer);
+    sharedReconnectTimer = null;
+  }
+  sharedJobs.clear();
+  sharedConnected = false;
+  sharedReconnectAttempts = 0;
+  sharedGaveUp = false;
+  sharedHasActive = false;
+  sharedVersion++;
+  notifyListeners();
+}
+
 function openSharedConnection(): void {
   if (sharedEventSource) return;
 

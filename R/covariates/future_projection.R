@@ -94,7 +94,9 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   list(
     suitability = future_suitability,
     delta = delta,
-    summary = summarise_suitability(future_suitability),
+    summary = sdm_step("summarise-future",
+      summarise_suitability(future_suitability, log_fun = log_fun)
+    ),
     files = future_files,
     paths = list(
       future_tif = output_future_tif, delta_tif = output_delta_tif,

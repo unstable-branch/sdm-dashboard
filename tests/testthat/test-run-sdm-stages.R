@@ -18,12 +18,12 @@ test_that("sdm_stage_covariates returns environment rasters", {
   skip_if(!file.exists(demo_csv), "Demo CSV not found")
   wc_dir <- file.path(project_root, "Worldclim")
   skip_if(!dir.exists(wc_dir), "Worldclim dir not found")
-  cfg <- sdm_config(species = "Test", occurrence_file = demo_csv,
+  cfg <- sdm_config(species_filter = "Species_West", occurrence_file = demo_csv,
     worldclim_dir = wc_dir, selected_biovars = c(1, 4, 12),
     projection_extent = c(112, 154, -44, -10), allow_download = FALSE, seed = 42L)
-  occ <- clean_occurrence_preview(demo_csv)
-  skip_if(!is.null(occ$error), "Occurrence cleaning failed")
-  result <- tryCatch(sdm_stage_covariates(cfg, occ$occ, log_fun = NULL), error = function(e) NULL)
+  clean_result <- tryCatch(sdm_stage_clean(cfg, log_fun = NULL), error = function(e) NULL)
+  skip_if(is.null(clean_result), "Stage 1 (clean) failed")
+  result <- tryCatch(sdm_stage_covariates(cfg, clean_result$occ, log_fun = NULL), error = function(e) NULL)
   expect_true(!is.null(result), "sdm_stage_covariates should return data")
   expect_true(inherits(result$env_train, "SpatRaster"), "Should have env_train raster")
   expect_true(inherits(result$env_project, "SpatRaster"), "Should have env_project raster")
@@ -34,15 +34,15 @@ test_that("sdm_stage_fit returns model fit", {
   skip_if(!file.exists(demo_csv), "Demo CSV not found")
   wc_dir <- file.path(project_root, "Worldclim")
   skip_if(!dir.exists(wc_dir), "Worldclim dir not found")
-  cfg <- sdm_config(species = "Test", occurrence_file = demo_csv,
+  cfg <- sdm_config(species_filter = "Species_West", occurrence_file = demo_csv,
     worldclim_dir = wc_dir, selected_biovars = c(1, 4, 12),
     projection_extent = c(112, 154, -44, -10), allow_download = FALSE,
     model_id = "glm", cv_folds = 3, background_n = 200, seed = 42L)
-  occ <- clean_occurrence_preview(demo_csv)
-  skip_if(!is.null(occ$error), "Occurrence cleaning failed")
-  env <- tryCatch(sdm_stage_covariates(cfg, occ$occ, log_fun = NULL), error = function(e) NULL)
+  clean_result <- tryCatch(sdm_stage_clean(cfg, log_fun = NULL), error = function(e) NULL)
+  skip_if(is.null(clean_result), "Stage 1 (clean) failed")
+  env <- tryCatch(sdm_stage_covariates(cfg, clean_result$occ, log_fun = NULL), error = function(e) NULL)
   skip_if(is.null(env), "Covariates stage failed")
-  result <- tryCatch(sdm_stage_fit(cfg, occ$occ, env, log_fun = NULL), error = function(e) NULL)
+  result <- tryCatch(sdm_stage_fit(cfg, clean_result$occ, env, log_fun = NULL), error = function(e) NULL)
   expect_true(!is.null(result), "sdm_stage_fit should return data")
   expect_true(!is.null(result$fit$model), "Should have model object")
   expect_true(!is.null(result$fit$cv), "Should have CV results")

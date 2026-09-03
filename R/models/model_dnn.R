@@ -948,7 +948,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   best_model <- seed_models[[1]]
 
   # Compute mean AUC across seeds using the actual device per seed
-  auc_vals <- vapply(seq_along(seed_models), function(i) {
+  auc_vals <- sdm_step("multi-seed-auc", vapply(seq_along(seed_models), function(i) {
     m <- seed_models[[i]]
     dev <- seed_devices[i]
     tryCatch({
@@ -958,11 +958,11 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       if (is.matrix(pred)) pred <- pred[, 1]
       auc_rank(test_data$presence, as.numeric(pred))
     }, error = function(e) NA_real_)
-  }, numeric(1))
+  }, numeric(1)))
   auc_mean <- mean(auc_vals, na.rm = TRUE)
   auc_sd <- stats::sd(auc_vals, na.rm = TRUE)
 
-  cv <- list(
+  cv <- sdm_step("aggregate-cv", list(
     k = n_success,
     strategy = "dnn_multi_seed",
     auc_mean = if (is.finite(auc_mean)) auc_mean else NA_real_,
@@ -971,7 +971,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     tss_sd = NA_real_,
     fold_auc = auc_vals,
     n_seeds = n_success
-  )
+  ))
 
   if (is.finite(cv$auc_mean)) {
     log_message(log_fun, "DNN multi-seed AUC: ", sprintf("%.3f", cv$auc_mean),
@@ -1026,7 +1026,9 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     dnn_model_type = dnn_model_type,
     use_fused_adam = use_fused_adam,
     mc_samples = as.integer(mc_samples),
-    uncertainty_method = match.arg(tolower(uncertainty_method), c("none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"))
+    uncertainty_method = sdm_step("validate-uncertainty-method",
+      match.arg(tolower(uncertainty_method), c("none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"))
+    )
   )
 }
 

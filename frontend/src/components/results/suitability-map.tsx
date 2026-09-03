@@ -7,6 +7,7 @@ import type { FeatureCollection } from "geojson";
 import dynamic from "next/dynamic";
 import type { OutputFiles } from "@/services/types";
 import { extentToCoordinates, extentToViewState, parseTileZoom, DEFAULT_TILE_ZOOM_MIN, DEFAULT_TILE_ZOOM_MAX, LAYER_IDS } from "@/lib/map-utils";
+import { apiDownload } from "@/services/api";
 
 interface SuitabilityMapProps {
   outputFiles: OutputFiles | null;
@@ -119,12 +120,7 @@ export function SuitabilityMap({ outputFiles, runId, bandName, initialViewState,
           <button
             onClick={() => {
               const tifPath = outputFiles.tif!;
-              const a = document.createElement("a");
-              a.href = `/api/v1/results/file/download?path=${encodeURIComponent(tifPath)}`;
-              a.download = tifPath.split("/").pop() || "suitability.tif";
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
+              apiDownload(`/api/v1/results/file/download?path=${encodeURIComponent(tifPath)}`, tifPath.split("/").pop() || "suitability.tif");
             }}
             className="text-sdm-accent hover:underline cursor-pointer bg-transparent border-none text-xs"
           >

@@ -70,4 +70,44 @@ describe("buildModelPayload", () => {
     expect(payload.biovars).toBe("3,6");
     expect(payload.output_dir).toBe("outputs/jobs/run-2");
   });
+
+  it("passes raw .enc cleaned file path through to occurrence_file and cleaned_file_id", () => {
+    const payload = buildModelPayload({
+      species: "Bison bison",
+      modelId: "glm",
+      cleanedFilePath: "/data/occurrences/abc123.enc",
+    }, "run-001");
+    expect(payload.occurrence_file).toBe("/data/occurrences/abc123.enc");
+    expect(payload.cleaned_file_id).toBe("/data/occurrences/abc123.enc");
+  });
+
+  it("prefers cleanedFilePath over occurrenceFile for the raw path", () => {
+    const payload = buildModelPayload({
+      species: "Bison bison",
+      modelId: "glm",
+      cleanedFilePath: "/data/cleaned/xyz789.enc",
+      occurrenceFile: "/data/raw/raw456.csv",
+    }, "run-002");
+    expect(payload.cleaned_file_id).toBe("/data/cleaned/xyz789.enc");
+    expect(payload.occurrence_file).toBe("/data/cleaned/xyz789.enc");
+  });
+
+  it("falls back to occurrenceFile when no cleanedFilePath", () => {
+    const payload = buildModelPayload({
+      species: "Bison bison",
+      modelId: "glm",
+      occurrenceFile: "/data/raw/raw456.enc",
+    }, "run-003");
+    expect(payload.occurrence_file).toBe("/data/raw/raw456.enc");
+    expect(payload.cleaned_file_id).toBe("/data/raw/raw456.enc");
+  });
+
+  it("sets occurrence_file and cleaned_file_id only when a rawPath is available", () => {
+    const payload = buildModelPayload({
+      species: "Bison bison",
+      modelId: "glm",
+    }, "run-004");
+    expect(payload.occurrence_file).toBeNull();
+    expect(payload.cleaned_file_id).toBeUndefined();
+  });
 });

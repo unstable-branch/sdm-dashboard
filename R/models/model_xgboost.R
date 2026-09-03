@@ -114,7 +114,7 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
   dval <- xgboost::xgb.DMatrix(x_val, label = y_val)
 
   gpu_xgb <- sdm_use_gpu_xgb(nrow(x_train))
-  model <- tryCatch({
+  model <- sdm_step("xgb-fit", {
     xgboost::xgb.train(
       params = list(objective = objective, eval_metric = "auc",
                     max_depth = max_depth, eta = eta,
@@ -127,8 +127,6 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
       early_stopping_rounds = 10,
       verbose = 0
     )
-  }, error = function(e) {
-    stop("XGBoost fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
   # Re-fit on full data without early stopping for the final model
@@ -137,7 +135,7 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
     label = c(y_train, y_val),
     weight = class_balance_weights(c(y_train, y_val))
   )
-  model <- tryCatch({
+  model <- sdm_step("xgb-final-fit", {
     xgboost::xgb.train(
       params = list(objective = objective, eval_metric = "auc",
                     max_depth = max_depth, eta = eta,
@@ -148,18 +146,22 @@ fit_xgboost_sdm <- function(occ, env_train_scaled, background_n = sdm_default_ba
       nrounds = model$best_iteration %||% nrounds,
       verbose = 0
     )
-  }, error = function(e) {
-    stop("XGBoost final fit failed: ", conditionMessage(e), call. = FALSE)
   })
 
   # Training metrics
-  x_pred <- predict(model, xgboost::xgb.DMatrix(rbind(x_train, x_val)))
-  train_metrics <- compute_binary_metrics(c(y_train, y_val), x_pred, threshold = threshold)
+  x_pred <- sdm_step("predict-train",
+    predict(model, xgboost::xgb.DMatrix(rbind(x_train, x_val)))
+  )
+  train_metrics <- sdm_step("train-metrics",
+    compute_binary_metrics(c(y_train, y_val), x_pred, threshold = threshold)
+  )
 
-  cv <- cross_validate_xgboost(model_data, covariates, max_depth, eta, nrounds,
-    k = cv_folds, seed = seed, n_cores = n_cores,
-    cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    objective = objective, threshold = threshold)
+  cv <- sdm_step("cross-validate",
+    cross_validate_xgboost(model_data, covariates, max_depth, eta, nrounds,
+      k = cv_folds, seed = seed, n_cores = n_cores,
+      cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+      objective = objective, threshold = threshold)
+  )
   if (is.finite(cv$auc_mean)) {
     log_message(log_fun, "XGBoost cross-validation AUC: ", sprintf("%.3f", cv$auc_mean),
       if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")

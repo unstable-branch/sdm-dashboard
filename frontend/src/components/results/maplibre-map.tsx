@@ -53,6 +53,7 @@ export default function MaplibreMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsAdded = useRef(false);
   const [tileErrors, setTileErrors] = useState(0);
+  const [tileAuthWarning, setTileAuthWarning] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number | null>(null);
 
   const handleTileError = useCallback(() => {
@@ -172,7 +173,7 @@ export default function MaplibreMap({
         onError={(e: ErrorEvent) => {
           const status = (e.error as any)?.status;
           if (status === 401) {
-            import("@/services/api").then((m) => m.clearAuthToken());
+            setTileAuthWarning(true);
           }
           if (status >= 400 && status < 600 || !status) {
             handleTileError();
@@ -223,7 +224,7 @@ export default function MaplibreMap({
               layout={{ visibility: visibility(LAYER_IDS.SUITABILITY) }}
               paint={{
                 "fill-color": theme === "dark" ? "#1b2030" : "#f2efe9",
-                "fill-opacity": 1,
+                "fill-opacity": 0.0001,
               }}
             />
           </Source>
@@ -340,6 +341,16 @@ export default function MaplibreMap({
           <AlertTriangle className="h-3 w-3" />
           <span>{tileErrors} tile errors</span>
           <button onClick={() => setTileErrors(0)} className="ml-1 text-sdm-warning/70 hover:text-sdm-warning transition-colors" aria-label="Dismiss tile errors">
+            ×
+          </button>
+        </div>
+      )}
+
+      {tileAuthWarning && (
+        <div className="absolute bottom-16 right-3 z-10 flex items-center gap-1.5 rounded-md bg-sdm-error/10 px-2.5 py-1.5 text-[11px] text-sdm-error border border-sdm-error/30">
+          <AlertTriangle className="h-3 w-3" />
+          <span>Tile access denied — log in again to refresh credentials</span>
+          <button onClick={() => setTileAuthWarning(false)} className="ml-1 text-sdm-error/70 hover:text-sdm-error transition-colors" aria-label="Dismiss tile auth warning">
             ×
           </button>
         </div>

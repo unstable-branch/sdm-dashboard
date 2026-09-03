@@ -41,7 +41,7 @@ predict_suitability <- function(model, env_project_scaled, output_tif = NULL, n_
     predict_args$overwrite <- TRUE
   }
   if (n_cores > 1) predict_args$cores <- n_cores
-  suit <- tryCatch(do.call(terra::predict, predict_args), error = function(e) {
+  suit <- sdm_step("predict-raster", tryCatch(do.call(terra::predict, predict_args), error = function(e) {
     err_msg <- conditionMessage(e)
     log_message(log_fun, "Prediction error: ", err_msg)
     if (n_cores > 1) {
@@ -51,13 +51,13 @@ predict_suitability <- function(model, env_project_scaled, output_tif = NULL, n_
     } else {
       stop(err_msg, call. = FALSE)
     }
-  })
+  }))
   names(suit) <- "suitability"
   suit
 }
 
 summarise_suitability <- function(suitability, threshold = sdm_default_threshold,
-                                  uncertainty_raster = NULL) {
+                                  uncertainty_raster = NULL, log_fun = NULL) {
   threshold <- normalize_threshold(threshold)
 
   cell_count <- tryCatch(
@@ -65,7 +65,10 @@ summarise_suitability <- function(suitability, threshold = sdm_default_threshold
       valid <- !is.na(suitability)
       as.numeric(terra::global(valid, "sum", na.rm = TRUE)[1, 1])
     },
-    error = function(e) NA_real_
+    error = function(e) {
+      log_message(log_fun, "WARNING: summarise_suitability cell_count failed: ", conditionMessage(e))
+      NA_real_
+    }
   )
 
   if (!is.finite(cell_count) || cell_count == 0) {
@@ -80,17 +83,32 @@ summarise_suitability <- function(suitability, threshold = sdm_default_threshold
   }
 
   cell_size <- terra::cellSize(suitability, unit = "km")
-  total_area <- tryCatch(as.numeric(terra::global(cell_size, "sum", na.rm = TRUE)[1, 1]), error = function(e) NA_real_)
+  total_area <- tryCatch(as.numeric(terra::global(cell_size, "sum", na.rm = TRUE)[1, 1]), error = function(e) {
+    log_message(log_fun, "WARNING: summarise_suitability total_area failed: ", conditionMessage(e))
+    NA_real_
+  })
 
-  mean_val <- tryCatch(as.numeric(terra::global(suitability, "mean", na.rm = TRUE)[1, 1]), error = function(e) NA_real_)
-  median_val <- tryCatch(as.numeric(terra::global(suitability, "median", na.rm = TRUE)[1, 1]), error = function(e) NA_real_)
-  max_val <- tryCatch(as.numeric(terra::global(suitability, "max", na.rm = TRUE)[1, 1]), error = function(e) NA_real_)
+  mean_val <- tryCatch(as.numeric(terra::global(suitability, "mean", na.rm = TRUE)[1, 1]), error = function(e) {
+    log_message(log_fun, "WARNING: summarise_suitability mean_val failed: ", conditionMessage(e))
+    NA_real_
+  })
+  median_val <- tryCatch(as.numeric(terra::global(suitability, "median", na.rm = TRUE)[1, 1]), error = function(e) {
+    log_message(log_fun, "WARNING: summarise_suitability median_val failed: ", conditionMessage(e))
+    NA_real_
+  })
+  max_val <- tryCatch(as.numeric(terra::global(suitability, "max", na.rm = TRUE)[1, 1]), error = function(e) {
+    log_message(log_fun, "WARNING: summarise_suitability max_val failed: ", conditionMessage(e))
+    NA_real_
+  })
   risk_cells <- tryCatch(
     {
       risk <- suitability >= threshold
       as.numeric(terra::global(risk, "sum", na.rm = TRUE)[1, 1])
     },
-    error = function(e) NA_real_
+    error = function(e) {
+      log_message(log_fun, "WARNING: summarise_suitability risk_cells failed: ", conditionMessage(e))
+      NA_real_
+    }
   )
   if (!is.finite(risk_cells)) risk_cells <- 0
 
@@ -99,7 +117,10 @@ summarise_suitability <- function(suitability, threshold = sdm_default_threshold
       area_risk <- terra::ifel(suitability >= threshold, cell_size, NA)
       as.numeric(terra::global(area_risk, "sum", na.rm = TRUE)[1, 1])
     },
-    error = function(e) NA_real_
+    error = function(e) {
+      log_message(log_fun, "WARNING: summarise_suitability high_risk_area failed: ", conditionMessage(e))
+      NA_real_
+    }
   )
 
   area_uncertainty <- NA_real_

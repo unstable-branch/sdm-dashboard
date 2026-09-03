@@ -86,7 +86,7 @@ fit_cta_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   tree_data <- model_data[, c("presence", covariates), drop = FALSE]
 
   set.seed(seed)
-  model <- tryCatch({
+  model <- sdm_step("cta-fit", {
     rpart::rpart(
       formula = presence ~ .,
       data = tree_data,
@@ -96,14 +96,14 @@ fit_cta_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       minsplit = minsplit,
       xval = 0
     )
-  }, error = function(e) {
-    stop("CTA fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  cv <- cross_validate_cta(model_data, covariates, cp, maxdepth, minsplit,
-    k = cv_folds, seed = seed,
-    n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    threshold = threshold, log_fun = log_fun
+  cv <- sdm_step("cross-validate",
+    cross_validate_cta(model_data, covariates, cp, maxdepth, minsplit,
+      k = cv_folds, seed = seed,
+      n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+      threshold = threshold, log_fun = log_fun
+    )
   )
   if (is.finite(cv$auc_mean)) {
     log_message(

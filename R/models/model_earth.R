@@ -89,7 +89,7 @@ fit_mars_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   mars_data <- model_data[, c("presence", covariates), drop = FALSE]
 
   set.seed(seed)
-  model <- tryCatch({
+  model <- sdm_step("mars-fit", {
     earth::earth(
       x = mars_data[, covariates, drop = FALSE],
       y = mars_data$presence,
@@ -101,14 +101,14 @@ fit_mars_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
       keepxy = FALSE,
       trace = 0
     )
-  }, error = function(e) {
-    stop("MARS fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  cv <- cross_validate_mars(model_data, covariates, degree, nk, penalty,
-    k = cv_folds, seed = seed,
-    n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    threshold = threshold, log_fun = log_fun
+  cv <- sdm_step("cross-validate",
+    cross_validate_mars(model_data, covariates, degree, nk, penalty,
+      k = cv_folds, seed = seed,
+      n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+      threshold = threshold, log_fun = log_fun
+    )
   )
   if (is.finite(cv$auc_mean)) {
     log_message(

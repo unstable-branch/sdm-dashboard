@@ -29,10 +29,9 @@ app.get("/sse", async (c) => {
 
   return streamSSE(c, async (stream) => {
     let aborted = false;
-    stream.onAbort(() => {
-      aborted = true;
-      cleanup();
-    });
+  stream.onAbort(() => {
+    aborted = true;
+  });
 
     // Get user's project IDs once (admin = null = all)
     const myProjectIds = await getUserProjectIds(user);
@@ -119,6 +118,7 @@ app.get("/sse", async (c) => {
       }
     } finally {
       jobEventBus.off("jobStatus", handler);
+      cleanup();
     }
   });
 });

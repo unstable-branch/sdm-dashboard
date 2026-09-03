@@ -71,21 +71,25 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
 
     maxnet_pa <- cbind(data.frame(presence = model_data$presence), model_data[, covariates, drop = FALSE])
     names(maxnet_pa)[-1] <- covariates
-    model <- tryCatch({
+    model <- sdm_step("maxnet-fit", {
       maxnet::maxnet(p = maxnet_pa$presence, data = maxnet_pa[, covariates, drop = FALSE],
         maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
-    }, error = function(e) {
-      stop("MaxEnt fitting failed: ", conditionMessage(e), call. = FALSE)
     })
 
     model_for_auc <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
-    train_pred <- as.numeric(predict(model, model_for_auc[, covariates, drop = FALSE], clamp = TRUE, type = "cloglog"))
-    train_metrics <- compute_binary_metrics(model_for_auc$presence, train_pred, threshold = threshold)
+    train_pred <- sdm_step("predict-train",
+      as.numeric(predict(model, model_for_auc[, covariates, drop = FALSE], clamp = TRUE, type = "cloglog"))
+    )
+    train_metrics <- sdm_step("train-metrics",
+      compute_binary_metrics(model_for_auc$presence, train_pred, threshold = threshold)
+    )
 
-    cv <- cross_validate_maxnet(model_data, covariates, maxnet_features, maxnet_regmult,
-      k = cv_folds, seed = seed,
-      n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-      threshold = threshold
+    cv <- sdm_step("cross-validate",
+      cross_validate_maxnet(model_data, covariates, maxnet_features, maxnet_regmult,
+        k = cv_folds, seed = seed,
+        n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+        threshold = threshold
+      )
     )
     if (is.finite(cv$auc_mean)) {
       log_message(
@@ -94,15 +98,19 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
       )
     }
 
-    coefficients <- data.frame(
-      term = names(model$betas),
-      estimate = as.numeric(model$betas),
-      row.names = NULL,
-      stringsAsFactors = FALSE
+    coefficients <- sdm_step("extract-coefficients",
+      data.frame(
+        term = names(model$betas),
+        estimate = as.numeric(model$betas),
+        row.names = NULL,
+        stringsAsFactors = FALSE
+      )
     )
 
-    perm_importance <- compute_permutation_importance(model, model_for_auc, covariates, train_metrics$auc,
-      n_perm = 5, seed = seed, threshold = threshold
+    perm_importance <- sdm_step("permutation-importance",
+      compute_permutation_importance(model, model_for_auc, covariates, train_metrics$auc,
+        n_perm = 5, seed = seed, threshold = threshold
+      )
     )
 
     list(

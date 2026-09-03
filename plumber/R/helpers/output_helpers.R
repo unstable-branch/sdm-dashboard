@@ -156,7 +156,11 @@ sdm_transparent_tile_png <- function() {
 tile_cog_cache <- new.env(parent = emptyenv())
 tile_cog_cache_max <- 20L
 
-handle_tile_serve <- function(res, run_id, z, x, y, app_dir, band = NULL) {
+handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  }
   z <- as.integer(z); x <- as.integer(x); y <- as.integer(y)
   if (is.na(z) || is.na(x) || is.na(y) || z < 0L || z > 20L) {
     res$status <- 400L; stop("Invalid tile coordinates")
