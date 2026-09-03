@@ -18,6 +18,15 @@ import intersect from "@turf/intersect";
 import bboxPolygon from "@turf/bbox-polygon";
 
 /**
+ * A GeoJSON feature rendered as a MapLibre cluster carries a `point_count`
+ * property on `properties`. Clusters are derived visualizations, not real
+ * source features, so `setFeatureState` is not supported on them.
+ */
+function isClusterFeature(feature: { properties?: Record<string, unknown> | null } | null | undefined): boolean {
+  return typeof feature?.properties?.point_count === "number";
+}
+
+/**
  * Converts 4-corner coordinate array to [sw, ne] bounds for MapLibre fitBounds.
  * @param coords - 4 corner coordinates as [[lng, lat], ...]
  * @returns [[minLng, minLat], [maxLng, maxLat]]
@@ -277,16 +286,21 @@ export default function MaplibreMap({
 
   const handleMapError = useCallback(
     (e: ErrorEvent) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mapError = e.error as unknown as { status?: number };
-      const status = mapError.status;
+      const err = e.error as { status?: number; name?: string; message?: string };
+      const status = err.status;
       if (status === 401) {
         handleTileAuthWarning();
         return;
       }
-      if (!status || (status >= 400 && status < 600)) {
+      // Only HTTP-status-bearing errors count as tile errors. Plain Error
+      // objects (e.g. from setFeatureState misuse, source parse failures,
+      // style load errors) lack a `.status` and must not pollute the counter.
+      if (typeof status === "number" && status >= 400 && status < 600) {
         handleTileError();
+        return;
       }
+      // eslint-disable-next-line no-console
+      console.warn("[map error]", err.name ?? "Error", err.message ?? String(err));
     },
     [handleTileAuthWarning, handleTileError]
   );
@@ -354,21 +368,22 @@ export default function MaplibreMap({
         if (!map || !point) return;
 
         const interactiveLayers = ["aoo-cluster-circles", "aoo-grid-fill", "eoo-polygon-fill", "boundary-fill"];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicitany
         const features = map.queryRenderedFeatures(point as any, { layers: interactiveLayers });
         if (features.length > 0) {
-          const id = features[0].id;
-          if (id !== hoveredFeatureId) {
-            if (hoveredFeatureId) map.setFeatureState({ source: features[0].source!, id: hoveredFeatureId }, { hover: false });
-            map.setFeatureState({ source: features[0].source!, id: id as string }, { hover: true });
-            setHoveredFeatureId(id as string);
+          const top = features[0];
+          const id = top.id;
+          if (id !== undefined && id !== hoveredFeatureId && !isClusterFeature(top) && top.source) {
+            if (hoveredFeatureId) map.setFeatureState({ source: top.source, id: hoveredFeatureId }, { hover: false });
+            map.setFeatureState({ source: top.source, id: String(id) }, { hover: true });
+            setHoveredFeatureId(String(id));
           }
           map.getCanvas().style.cursor = "pointer";
         } else {
           if (hoveredFeatureId) {
             map.queryRenderedFeatures({ layers: interactiveLayers }).forEach((f) => {
-              if (f.id === hoveredFeatureId) {
-                map.setFeatureState({ source: f.source!, id: hoveredFeatureId }, { hover: false });
+              if (f.id === hoveredFeatureId && !isClusterFeature(f) && f.source) {
+                map.setFeatureState({ source: f.source, id: String(hoveredFeatureId) }, { hover: false });
               }
             });
             setHoveredFeatureId(null);
@@ -458,8 +473,8 @@ export default function MaplibreMap({
           if (map && hoveredFeatureId) {
             const interactiveLayers = ["aoo-cluster-circles", "aoo-grid-fill", "eoo-polygon-fill", "boundary-fill"];
             map.queryRenderedFeatures({ layers: interactiveLayers }).forEach((f) => {
-              if (f.id === hoveredFeatureId) {
-                map.setFeatureState({ source: f.source!, id: hoveredFeatureId }, { hover: false });
+              if (f.id === hoveredFeatureId && !isClusterFeature(f) && f.source) {
+                map.setFeatureState({ source: f.source, id: String(hoveredFeatureId) }, { hover: false });
               }
             });
             setHoveredFeatureId(null);
