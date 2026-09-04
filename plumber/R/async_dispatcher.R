@@ -163,23 +163,27 @@ result <- tryCatch({
         } else NA_character_
 
         if (use_auth && !is.na(gbif_user) && !is.na(gbif_pwd) && !is.na(gbif_email)) {
+          requested <- suppressWarnings(as.integer(input$max_records %||% 200000L))
+          max_records <- min(max(1L, requested), 100000L)
           dl <- read_gbif_download(
             taxon = taxon,
             country = input$country %||% NULL,
             gbif_user = gbif_user,
             gbif_pwd = gbif_pwd,
             email = gbif_email,
-            max_records = input$max_records %||% 200000L,
+            max_records = max_records,
             log_fun = log_msg
           )
           occ <- dl$occurrences
           doi <- dl$doi %||% NA_character_
           total_available <- nrow(occ)
         } else {
+          requested <- suppressWarnings(as.integer(input$max_records %||% 100L))
+          max_records <- min(max(1L, requested), 10000L)
           occ <- read_gbif_records(
             taxon = taxon,
             country = input$country %||% NULL,
-            max_records = input$max_records %||% 100L,
+            max_records = max_records,
             log_fun = log_msg
           )
           doi <- if (!is.null(occ$gbif_doi[1]) && nzchar(occ$gbif_doi[1])) occ$gbif_doi[1] else NA_character_
@@ -199,7 +203,7 @@ result <- tryCatch({
             taxon = taxon,
             country = input$country %||% NULL,
             n_records = nrow(occ),
-            max_records = input$max_records %||% 100L,
+            max_records = max_records,
             total_available = total_available,
             doi = doi,
             file_path = csv_path,
