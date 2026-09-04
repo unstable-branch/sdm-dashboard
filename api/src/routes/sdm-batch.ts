@@ -163,7 +163,7 @@ sdmBatchRoutes.post("/cancel-all", async (c) => {
     });
     await Promise.allSettled(cancelPromises);
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "batch_cancelled",
@@ -241,7 +241,7 @@ sdmBatchRoutes.post("/batch", async (c) => {
       .set({ jobId: targetsJobId })
       .where(eq(batches.id, batch.id));
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "batch_created",
@@ -354,7 +354,7 @@ sdmBatchRoutes.post("/batch/:batchId/cancel", async (c) => {
 
     await db.update(batches).set({ status: "cancelled", completedAt: new Date() }).where(eq(batches.id, batchId));
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "batch_cancelled",
@@ -526,7 +526,7 @@ sdmBatchRoutes.delete("/runs/delete/:runId", async (c) => {
       } catch { /* best-effort */ }
     }
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "run_deleted",
@@ -587,7 +587,7 @@ sdmBatchRoutes.post("/runs/clear-all", async (c) => {
       await db.delete(runs).where(inArray(runs.id, runsToDelete.map((r) => r.id)));
     }
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "runs_cleared",

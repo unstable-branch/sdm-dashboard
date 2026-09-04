@@ -116,10 +116,6 @@ function ensureRegistry(): prom.Registry {
   return _registry;
 }
 
-export function getRegistry(): prom.Registry | null {
-  return _registry;
-}
-
 export function recordHttpRequest(method: string, route: string, status: number, durationMs: number): void {
   if (!_registry) return;
   httpRequestsTotal.labels(method, route, String(status)).inc();
@@ -142,10 +138,7 @@ export function decActiveRequests(): number {
   return _activeApiRequestsCount;
 }
 
-export function setQueueDepth(n: number): void {
-  if (!_registry) return;
-  activeQueueDepth.set(n);
-}
+
 
 export async function collectGpuMetrics(): Promise<void> {
   if (!_registry) return;

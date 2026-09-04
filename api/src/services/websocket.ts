@@ -1,4 +1,11 @@
 import { WebSocketServer, WebSocket } from "ws";
+
+// Augment ws WebSocket to track _isAlive for heartbeat management
+declare module "ws" {
+  interface WebSocket {
+    _isAlive?: boolean;
+  }
+}
 import { verify } from "hono/jwt";
 import type { ServerType } from "@hono/node-server";
 import { jobEventBus } from "./job-events.js";
@@ -48,13 +55,13 @@ function cleanupClient(clientId: string) {
 
 function heartbeat() {
   for (const [id, client] of clients) {
-    if ((client.ws as any)._isAlive === false) {
+    if (client.ws._isAlive === false) {
       console.warn("[ws] Terminating zombie connection:", id);
       client.ws.terminate();
       cleanupClient(id);
       continue;
     }
-    (client.ws as any)._isAlive = false;
+    client.ws._isAlive = false;
     client.ws.ping();
   }
   cleanupStaleEvents();
@@ -77,6 +84,7 @@ export function setupWebSocket(server: ServerType) {
     cleanupWebSocket();
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   _wss = new WebSocketServer({ server: server as any, path: "/ws" });
 
   // Heartbeat: ping all clients every 30s, terminate unresponsive ones
@@ -95,8 +103,8 @@ export function setupWebSocket(server: ServerType) {
       return;
     }
 
-    (ws as any)._isAlive = true;
-    ws.on("pong", () => { (ws as any)._isAlive = true; });
+    ws._isAlive = true;
+    ws.on("pong", () => { ws._isAlive = true; });
 
     const clientId = crypto.randomUUID();
     clients.set(clientId, { ws, userId: userInfo.userId, userRole: userInfo.role, subscriptions: new Set() });

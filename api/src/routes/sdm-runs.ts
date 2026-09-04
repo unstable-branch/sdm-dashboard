@@ -135,7 +135,7 @@ sdmRunRoutes.post("/run", async (c) => {
         logs: ["Model run queued..."],
       });
 
-      const client = extractClientInfo(c as any);
+      const client = extractClientInfo(c);
       await logAction({
         userId: user.id,
         action: "model_run_created",
@@ -185,7 +185,7 @@ sdmRunRoutes.post("/run", async (c) => {
       logs: ["Model run started (sync)..."],
     });
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "model_run_created",

@@ -45,7 +45,6 @@ import {
   deleteFile,
   listFiles,
   syncOutputsToS3,
-  getFileUrl,
 } from "./storage.js";
 
 describe("getDirSize", () => {
@@ -319,9 +318,3 @@ describe("syncOutputsToS3", () => {
   });
 });
 
-describe("getFileUrl", () => {
-  it("returns constructed URL without SSL", async () => {
-    const url = await getFileUrl("test-rasters", "runs/abc/model.tif");
-    expect(url).toBe("http://s3.example.com:3900/test-rasters/runs/abc/model.tif");
-  });
-});

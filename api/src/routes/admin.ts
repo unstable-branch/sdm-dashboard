@@ -8,6 +8,21 @@ import { eq, desc, sql, and, ilike, inArray, count, isNull } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { hash } from "bcrypt";
+
+interface ColumnInfoRow {
+  column_name: string;
+  data_type: string;
+  is_nullable: string;
+  column_default: string | null;
+}
+
+interface CountRow {
+  total: string;
+}
+
+interface SizeRow {
+  total_size: string;
+}
 import type { AppEnv } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import { encryptString, decryptString, isEncryptionKeyConfigured } from "../services/encryption.js";
@@ -130,7 +145,7 @@ adminRoutes.post("/users", async (c) => {
     }).returning();
 
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_user_create",
@@ -187,7 +202,7 @@ adminRoutes.put("/users/:id", async (c) => {
       });
 
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_user_update",
@@ -219,7 +234,7 @@ adminRoutes.delete("/users/:id", async (c) => {
 
     await db.delete(users).where(eq(users.id, targetId));
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_user_delete",
@@ -260,7 +275,7 @@ adminRoutes.post("/users/:id/reset-password", async (c) => {
       .where(and(eq(refreshTokens.userId, targetId), isNull(refreshTokens.revokedAt)));
 
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_password_reset",
@@ -385,7 +400,7 @@ adminRoutes.get("/database/:table", async (c) => {
       ORDER BY ordinal_position
     `);
 
-    const allColNames: string[] = ((columnsResult as any).rows as Array<{ column_name: string }>).map(r => r.column_name);
+    const allColNames: string[] = (columnsResult.rows as unknown as ColumnInfoRow[]).map(r => r.column_name);
     const redacted = new Set(REDACTED_COLUMNS[tableName] ?? []);
     const selectedCols = allColNames.filter(c => !redacted.has(c));
     if (selectedCols.length === 0) {
@@ -401,10 +416,10 @@ adminRoutes.get("/database/:table", async (c) => {
     const countResult = await db.execute(sql`
       SELECT COUNT(*) as total FROM ${sql.identifier(tableName)}
     `);
-    const total = Number((countResult as any).rows?.[0]?.total || 0);
+    const total = Number((countResult.rows[0] as unknown as CountRow | undefined)?.total || 0);
 
     const user = c.get("user") as { id?: string } | undefined;
-    const { ipAddress, userAgent } = extractClientInfo(c as any);
+    const { ipAddress, userAgent } = extractClientInfo(c);
     await logAction({
       userId: user?.id ?? "unknown",
       action: "admin_database_query",
@@ -417,9 +432,9 @@ adminRoutes.get("/database/:table", async (c) => {
 
     return c.json({
       table: tableName,
-      columns: (columnsResult as any).rows,
+      columns: columnsResult.rows as unknown as ColumnInfoRow[],
       redactedColumns: Array.from(redacted),
-      rows: (data as any).rows,
+      rows: data.rows,
       total,
       page,
       limit,
@@ -458,7 +473,7 @@ adminRoutes.get("/database/:table/stats", async (c) => {
       table: tableName,
       indexes: indexes.rows,
       constraints: constraints.rows,
-      size: (size.rows as any)?.[0]?.total_size || "unknown",
+      size: (size.rows[0] as unknown as SizeRow | undefined)?.total_size || "unknown",
     });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to get table stats" }, 500);
@@ -632,7 +647,7 @@ adminRoutes.delete("/system/secrets/:key", async (c) => {
 adminRoutes.post("/system/cache/clear", async (c) => {
   try {
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
 
     try {
       const { invalidateCache } = await import("../middleware/cache.js");

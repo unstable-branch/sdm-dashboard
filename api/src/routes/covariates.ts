@@ -70,7 +70,7 @@ covariatesRoutes.post("/download_bg", async (c) => {
       }, 503);
     }
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "covariate_download_started",

@@ -261,7 +261,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
 
     const initial = await plumberClient.withUser(user.id).cleanOccurrences(body);
 
-    const { ipAddress, userAgent } = extractClientInfo(c as any);
+    const { ipAddress, userAgent } = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "occurrence_cleaned",

@@ -114,7 +114,7 @@ settingsRoutes.put("/", async (c) => {
         .returning();
     }
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "setting_updated",
@@ -144,7 +144,7 @@ settingsRoutes.delete("/", async (c) => {
       .values({ userId: user.id })
       .returning();
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "setting_reset",
