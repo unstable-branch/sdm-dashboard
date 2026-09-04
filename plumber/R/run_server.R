@@ -5,13 +5,12 @@
 #   - X-Hono-Internal header + X-Forwarded-User (Hono-proxied requests with valid JWT)
 # Open endpoints (health, reads) bypass auth
 
-# Fatal error handler: dump stack + variables to crash log so OOM/segfault leaves a trail
-# Ignores REQUEST_REJECTED (normal Plumber auth rejection — not a crash)
+# Fatal error handler: dump stack + variables to crash log so OOM/segfault leaves a trail.
+# Auth rejections from the preroute filter set res directly and return FALSE — these
+# do NOT trigger this handler. This only fires for genuine crashes.
 options(error = function() {
-  # Use condition class instead of geterrmessage() — the latter is overwritten
-  # by cascading errors (e.g. type mismatch during REQUEST_REJECTED cleanup).
   cond <- tryCatch(get("condition", envir = .GlobalEnv, inherits = FALSE), error = function(e) NULL)
-  if (is.null(cond) || inherits(cond, "request_rejected")) return(invisible(NULL))
+  if (is.null(cond)) return(invisible(NULL))
   crash_file <- file.path(tempdir(), "sdm_crash_dump.rda")
   tryCatch({
     dump.frames("sdm_crash_dump", to.file = TRUE)
@@ -106,109 +105,6 @@ if (identical(Sys.getenv("NODE_ENV"), "production")) {
     quit(status = 1)
   }
 }
-
-auth_fail <- function(res, status, msg) {
-  res$status <- status
-  res$body <- msg
-  FALSE
-}
-
-# Helper to safely read headers
-get_hdr <- function(req, name) {
-  tryCatch({
-    hdrs <- req$HEADERS
-    if (is.null(hdrs) || length(hdrs) == 0L) return(NULL)
-    name_lower <- tolower(name)
-    for (h in names(hdrs)) {
-      if (tolower(h) == name_lower) return(hdrs[[h]])
-    }
-    NULL
-  }, error = function(e) NULL)
-}
-
-# Global preroute hook - runs before every endpoint
-# Returns FALSE to halt filter chain with a response when auth fails
-plumber::pr_hook(pr, "preroute", function(data, req, res) {
-  path <- req$PATH_INFO %||% req$PATH
-
-  # Guard against malformed requests
-    if (is.null(path) || length(path) == 0L) {
-    return(auth_fail(res, 400L, '{"error":"Malformed request"}'))
-  }
-
-  # Disable auth in dev/test if env var set
-  if (identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
-    if (identical(Sys.getenv("NODE_ENV"), "production")) {
-      cat("FATAL: PLUMBER_AUTH_DISABLED is set in production — refusing to start.\n")
-      cat("  Remove PLUMBER_AUTH_DISABLED=true from production environment.\n")
-      quit(status = 1)
-    }
-    if (!nzchar(internal_key)) {
-      cat("FATAL: PLUMBER_AUTH_DISABLED=true but PLUMBER_INTERNAL_KEY is not set.\n")
-      cat("  Set PLUMBER_INTERNAL_KEY in non-production environments to guard the internal proxy.\n")
-      quit(status = 1)
-    }
-    hono_internal <- get_hdr(req, "x-hono-internal")
-    if (is.null(hono_internal) || !identical(hono_internal, internal_key)) {
-      return(auth_fail(res, 401L, '{"error":"Internal system token required. Direct access not allowed."}'))
-    }
-    fwd_user <- get_hdr(req, "x-forwarded-user")
-    if (!is.null(fwd_user) && nzchar(fwd_user)) {
-      req$user_id <- fwd_user
-    }
-    return(NULL)
-  }
-
-  # Open endpoints: read-only, no state change
-  if (!requires_auth(path)) {
-    return(NULL)
-  }
-
-  # Hono internal proxy: Hono has already validated JWT, forward user ID
-  if (nzchar(internal_key)) {
-    hono_internal <- get_hdr(req, "x-hono-internal")
-    if (!is.null(hono_internal) && identical(hono_internal, internal_key)) {
-      fwd_user <- get_hdr(req, "x-forwarded-user")
-      if (!is.null(fwd_user) && nzchar(fwd_user)) {
-        req$user_id <- fwd_user
-      }
-      return(NULL)
-    }
-  }
-
-  # Direct API key auth
-  api_key <- get_hdr(req, "x-api-key")
-  if (is.null(api_key) || !nzchar(api_key)) {
-    return(auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}'))
-  }
-
-  db_pool <- sdm_get_db_pool(db_pool)
-  user_info <- validate_api_key(api_key, pool = db_pool, app_dir = app_dir)
-  if (is.null(user_info)) {
-    return(auth_fail(res, 401L, '{"error":"Invalid or expired API key."}'))
-  }
-
-  req$user_id <- user_info$user_id
-  req$user_email <- user_info$email
-  req$user_role <- user_info$role
-
-  # Rate limit: hash the raw API key before using it as a bucket identifier
-  # so it never appears in process memory as an environment name. User IDs and
-  # forwarded-user strings are passed through (they are not credentials).
-  raw_rate_id <- api_key %||% user_info$user_id %||% fwd_user
-  if (!is.null(raw_rate_id) && nzchar(raw_rate_id)) {
-    rate_key <- if (!is.null(api_key) && nzchar(api_key)) {
-      substr(digest::digest(paste0("apikey:", api_key), algo = "sha256", serialize = FALSE), 1, 32)
-    } else {
-      raw_rate_id
-    }
-    if (!sdm_check_rate_limit(rate_key, max_requests = 120, window_seconds = 60)) {
-      return(auth_fail(res, 429L, '{"error":"Rate limit exceeded. Try again in 60 seconds."}'))
-    }
-  }
-
-  NULL
-})
 
 # Now source the plumber routes - they register with global `pr`
 source(file.path(app_dir, "plumber", "R", "plumber.R"), local = FALSE)
