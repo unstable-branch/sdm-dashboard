@@ -8,6 +8,8 @@ import type { AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 
+const MAX_RUNS_LIMIT = 500;
+
 export const sdmTargetsRoutes = new Hono<AppEnv>();
 
 sdmTargetsRoutes.use("/targets/run", authMiddleware);
@@ -65,7 +67,7 @@ sdmTargetsRoutes.get("/targets/results/:jobId", async (c) => {
 sdmTargetsRoutes.get("/runs", async (c) => {
   try {
     const page = parseInt(c.req.query("page") || "1", 10);
-    const limitVal = parseInt(c.req.query("limit") || "20", 10);
+    const limitVal = Math.min(parseInt(c.req.query("limit") || "20", 10), MAX_RUNS_LIMIT);
     const statusFilter = c.req.query("status");
     const fields = c.req.query("fields");
     const offset = (page - 1) * limitVal;
