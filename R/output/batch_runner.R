@@ -410,6 +410,7 @@ batch_run_parallel <- function(species_configs,
     future::plan(future::multisession, workers = n_cores)
     message("[batch] Using parallel execution with ", n_cores, " workers")
   }
+  on.exit(future::plan(future::sequential, .skip = TRUE), add = TRUE)
 
   p <- function(...) {
     msg <- paste(..., collapse = "")
