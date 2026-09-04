@@ -80,6 +80,14 @@ server <- function(input, output, session) {
     })
   })
 
+  # Periodic garbage collection to free terra C++ heap memory.
+  # Runs every 5 minutes; gc(verbose=FALSE) is silent and non-blocking.
+  gc_timer <- shiny::reactiveTimer(intervalMs = 5 * 60 * 1000, session = NULL)
+  shiny::observe({
+    gc_timer()
+    gc(verbose = FALSE)
+  })
+
   mod_get_data_server("get_data", rv, input)
 
   append_log <- function(message) rv$log <- paste0(rv$log, format(Sys.time(), "%H:%M:%S"), "  ", message, "\n")
