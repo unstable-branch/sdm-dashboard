@@ -112,9 +112,17 @@ app.get("/sse", async (c) => {
     }
 
     try {
+      let lastPingAt = Date.now();
       // Keep connection open — jobEventBus handles all updates
+      // Send SSE comment ping every 25s to prevent nginx/AWS ALB idle timeout (default 60s)
       while (!aborted && !stream.closed) {
         await stream.sleep(5000);
+        if (Date.now() - lastPingAt >= 25_000) {
+          try {
+            await stream.writeSSE({ event: "ping", data: "" });
+            lastPingAt = Date.now();
+          } catch { /* stream closed, loop will exit next iteration */ }
+        }
       }
     } finally {
       jobEventBus.off("jobStatus", handler);
