@@ -292,8 +292,16 @@ plumber::pr_hook(pr, "exit", function() {
             tryCatch(tools::pskill(pid, signal = 9L), error = function(e) NULL)
           }
         }
+        # Close process file handles before removing entry
+        tryCatch(proc$close_output(), error = function(e) NULL)
+        tryCatch(proc$close_input(), error = function(e) NULL)
+        tryCatch(proc$close(), error = function(e) NULL)
       }
     }
+    # Remove all registry entries so sdm_process_registry is empty on exit
+    rm(list = ls(reg, all.names = TRUE), envir = reg)
+    gc(verbose = FALSE)
+    cat("sdm_process_registry cleared.\n")
   }
   # Close Redis connection
   sdm_redis_close()

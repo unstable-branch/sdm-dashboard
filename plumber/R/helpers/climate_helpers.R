@@ -72,7 +72,8 @@ handle_climate_download <- function(req, app_dir) {
 
   proc <- callr::r_bg(function(script, job_dir, app_dir) {
     source(script, local = TRUE)
-  }, args = list(script_path, job_dir, app_dir), stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"))
+  }, args = list(script_path, job_dir, app_dir), stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"),
+  r_limit_memory = sdm_vsize_to_bytes())
   sdm_process_registry[[job_id]] <- list(proc = proc, device = "cpu")
   job_meta$process_pid <- proc$get_pid()
   sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
