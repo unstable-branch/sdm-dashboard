@@ -579,6 +579,27 @@ export class PlumberClient {
       { headers: this.headers(), signal: AbortSignal.timeout(45000) }
     );
   }
+
+  async getSuitabilityValue(
+    runId: string,
+    lat: number,
+    lng: number,
+    band?: string
+  ): Promise<{ value: number | null }> {
+    const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
+    if (band) params.set("band", band);
+    const res = await this._fetch(
+      `${this.baseUrl}/api/v1/results/suitability-value?${params.toString()}&run_id=${runId}`,
+      {
+        headers: this.headers(),
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+    if (!res.ok) {
+      throw new Error(`Suitability value lookup failed: ${res.status}`);
+    }
+    return res.json() as Promise<{ value: number | null }>;
+  }
 }
 
 export const plumberClient = new PlumberClient();

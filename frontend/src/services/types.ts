@@ -311,6 +311,10 @@ export interface DwcaResult {
 
 // ── Frontend-only types (not from Plumber API) ────────────────────────────
 
+export interface SuitabilityValue {
+  value: number | null;
+}
+
 export interface BatchJob {
   id: string;
   species: string;

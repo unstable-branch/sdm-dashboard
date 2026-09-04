@@ -342,3 +342,64 @@ handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
   res$setHeader("ETag", sprintf('"%d"', as.integer(cog_mtime)))
   raw_bytes
 }
+
+sdm_get_raster_path <- function(run_id, app_dir) {
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) return(NULL)
+
+  cog_files <- list.files(job_dir, pattern = "_3857\\.tif$", full.names = TRUE)
+  if (length(cog_files) > 0L) return(cog_files[1L])
+
+  suit_files <- list.files(job_dir, pattern = "_suitability\\.tif$", full.names = TRUE)
+  if (length(suit_files) > 0L) {
+    fallback_path <- sub("_suitability\\.tif$", "_3857_fallback.tif", suit_files[1L])
+    if (file.exists(fallback_path)) return(fallback_path)
+  }
+  NULL
+}
+
+handle_suitability_value <- function(req, res, run_id, lat, lng, band = NULL, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  } else if (!identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
+    res$status <- 401L; stop("Authentication required")
+  }
+
+  lat <- suppressWarnings(as.numeric(lat))
+  lng <- suppressWarnings(as.numeric(lng))
+  if (is.na(lat) || is.na(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    res$status <- 400L; stop("Invalid lat/lng coordinates")
+  }
+
+  raster_path <- sdm_get_raster_path(run_id, app_dir)
+  if (is.null(raster_path)) {
+    res$status <- 404L; stop("Raster not found for run")
+  }
+
+  tryCatch({
+    r <- terra::rast(raster_path)
+
+    if (!is.null(band) && nzchar(band) && terra::nlyr(r) > 1) {
+      band_idx <- suppressWarnings(as.integer(band))
+      if (is.na(band_idx) || band_idx < 1) {
+        band_idx <- which(names(r) == band)
+        if (length(band_idx) == 0) band_idx <- 1L
+      }
+      r <- r[[band_idx[1]]]
+    } else if (terra::nlyr(r) > 1) {
+      r <- r[[1L]]
+    }
+
+    pt <- terra::vect(data.frame(x = lng, y = lat), geom = c("x", "y"), crs = "EPSG:4326")
+    val <- terra::extract(r, pt)
+
+    if (is.null(val) || nrow(val) == 0 || is.na(val[1, 2]) || !is.finite(val[1, 2])) {
+      return(list(value = NA_real_))
+    }
+    list(value = as.numeric(val[1, 2]))
+  }, error = function(e) {
+    res$status <- 500L
+    stop(paste("Failed to extract suitability value:", e$message))
+  })
+}
