@@ -233,6 +233,12 @@ function handleVisibilityChange(): void {
   }
 }
 
+function handleBeforeUnload(): void {
+  // Synchronously close EventSource on tab close / browser quit.
+  // The useEffect cleanup handles navigation; beforeunload handles browser exit.
+  closeSharedConnection();
+}
+
 // --- Hook ---
 export function useJobSSE(enabled = true) {
   const [, forceUpdate] = useState(0);
@@ -244,6 +250,7 @@ export function useJobSSE(enabled = true) {
     if (subscriberCount === 1) {
       openSharedConnection();
       document.addEventListener("visibilitychange", handleVisibilityChange);
+      window.addEventListener("beforeunload", handleBeforeUnload);
     }
 
     const listener = () => forceUpdate((n) => n + 1);
@@ -254,6 +261,7 @@ export function useJobSSE(enabled = true) {
       subscriberCount--;
       if (subscriberCount === 0) {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
+        window.removeEventListener("beforeunload", handleBeforeUnload);
         closeSharedConnection();
         // Preserve sharedJobs across navigation — data survives page transitions so
         // components remounting (e.g., ModelPage → ResultsPage) retain progress data.
