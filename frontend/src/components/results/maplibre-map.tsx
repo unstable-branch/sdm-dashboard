@@ -368,7 +368,7 @@ export default function MaplibreMap({
         if (!map || !point) return;
 
         const interactiveLayers = ["aoo-cluster-circles", "aoo-grid-fill", "eoo-polygon-fill", "boundary-fill"];
-        // eslint-disable-next-line @typescript-eslint/no-explicitany
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const features = map.queryRenderedFeatures(point as any, { layers: interactiveLayers });
         if (features.length > 0) {
           const top = features[0];
