@@ -170,14 +170,29 @@ handle_model_run <- function(req, app_dir) {
     CUBLAS_WORKSPACE_CONFIG = ":4096:8"
   )
 
-  proc <- callr::r_bg(function(script, job_dir, app_dir) {
-    source(script, local = TRUE)
-  }, args = list(script_path, job_dir, app_dir),
-  stdout = file.path(job_dir, "stdout.log"),
-  stderr = file.path(job_dir, "stderr.log"),
-  cmdargs = c("--no-save", "--no-restore"),
-  env = env,
-  r_limit_memory = sdm_vsize_to_bytes())
+  proc <- tryCatch({
+    callr::r_bg(function(script, job_dir, app_dir) {
+      source(script, local = TRUE)
+    }, args = list(script_path, job_dir, app_dir),
+    stdout = file.path(job_dir, "stdout.log"),
+    stderr = file.path(job_dir, "stderr.log"),
+    cmdargs = c("--no-save", "--no-restore"),
+    env = env,
+    r_limit_memory = sdm_vsize_to_bytes())
+  }, error = function(e) {
+    sdm_write_json(list(
+      id = job_id,
+      user_id = user_id,
+      status = "failed",
+      started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+      config = as.list(body),
+      output_dir = job_dir,
+      error = conditionMessage(e)
+    ), file.path(job_dir, "meta.json"))
+    return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
+      "Failed to start model run: ", conditionMessage(e)
+    )))
+  })
   device_tag <- if (is_gpu_model) gpu_backend else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
