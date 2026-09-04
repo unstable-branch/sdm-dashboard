@@ -12,6 +12,18 @@
 #   In container environments with resizable cgroup limits (k8s vertical pod
 #   autoscaling), set SDM_CHILD_MAX_VSIZE_REFRESH_MS to a value like 60000
 #   so a resized limit is detected within a minute without restarting Plumber.
+# Convert sdm_detect_vsize() output ("16Gb") to bytes for callr r_limit_memory.
+# Returns NA_integer_ if conversion fails.
+sdm_vsize_to_bytes <- function(vsize_str = sdm_detect_vsize()) {
+  if (is.null(vsize_str) || !nzchar(vsize_str)) return(NA_integer_)
+  num_gb <- suppressWarnings(as.numeric(sub("[^0-9.]+", "", vsize_str, ignore.case = TRUE)))
+  if (is.finite(num_gb) && num_gb > 0) {
+    as.integer(num_gb * 1024^3)
+  } else {
+    NA_integer_
+  }
+}
+
 sdm_detect_vsize <- local({
   .cached <- NULL
   .cached_at <- 0
