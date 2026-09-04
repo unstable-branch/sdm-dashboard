@@ -193,7 +193,6 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = threshold, fit_fun = fit_fun,
     collect_predictions = collect_predictions,
-    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "normalize_threshold", "class_balance_weights"),
     log_fun = log_fun
   )
 }
