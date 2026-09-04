@@ -44,7 +44,6 @@ if (!requireNamespace("ranger", quietly = TRUE)) {
       k = k, seed = seed, n_cores = n_cores,
       cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
       threshold = threshold, fit_fun = fit_fun,
-      cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
       log_fun = log_fun
     )
   }

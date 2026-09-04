@@ -512,9 +512,9 @@ Attach if UI or report changed.
 
 ## Project state (last refreshed after Group N — docs audit + accepted limitations)
 
-- `dev` branch tip: `9e67e081` (Group M, performance fixes D10/D7/D4/D9/D2/D5/D3)
+- `dev` branch tip: `6a067689` (Group N, case_weight_sdm scoping fix + dead cluster_exports cleanup)
 - `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
-- Test counts (post-campaign): 293 api tests + 65 frontend tests passing; 3 pre-existing R test failures (from before the campaign: `test-determinism`, `test-dnn`, `test-utils-sdm-atomic-writes`).
+- Test counts (post-campaign): 293 api tests + 65 frontend tests passing; R test suites (test-run-sdm-stages, test-v03-methods, test-gam-contract, test-model-registry, test-multi-ensemble, test-determinism, test-dnn, test-utils-sdm-atomic-writes) all pass with warnings/skips only.
 - All Groups A through N are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
 - The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
 
@@ -535,7 +535,7 @@ Attach if UI or report changed.
 | K | `fix/perf-tier-d` | `f966c2e1` | GLM pdf marginal: `type = "prob"` for presence data, `type = "response"` for pseudo-absence only |
 | L | `fix/perf-tier-d` | `f966c2e1` | VIF computed on `env_train` (training fold) not full dataset |
 | M | `fix/perf-tier-d` | `9e67e081` | Performance fixes: O(n²)→O(n) outlier flagging, GBIF dedup cache, SpatExtent vs spatRaster crop, chunking loop materialization, weighted AOO, parallel CV error propagation |
-| N | `fix/r-case-weight-sdm-scope` | _(pending)_ | 6 pre-existing R test failures from `case_weight_sdm` scoping in GLM/GAM fixed — `test-run-sdm-stages.R` ×3, `test-v03-methods.R` ×1 now pass |
+| N | `fix/r-case-weight-sdm-scope` | `6a067689` | 6 pre-existing R test failures from `case_weight_sdm` scoping in GLM/GAM fixed — `test-run-sdm-stages.R` ×3, `test-v03-methods.R` ×1 now pass |
 
 ## Known limitations
 What should reviewers know?
