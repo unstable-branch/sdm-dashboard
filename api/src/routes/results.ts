@@ -240,6 +240,31 @@ resultsRoutes.get("/tiles/:runId/info", async (c) => {
   }
 });
 
+resultsRoutes.get("/suitability-value/:runId", async (c) => {
+  const { runId } = c.req.param();
+  const lat = c.req.query("lat");
+  const lng = c.req.query("lng");
+  const band = c.req.query("band") || undefined;
+
+  if (!lat || !lng) {
+    return c.json({ error: "lat and lng query params required" }, 400);
+  }
+
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+
+  try {
+    const result = await plumberClient.withUser(user.id).getSuitabilityValue(runId, parseFloat(lat), parseFloat(lng), band);
+    return c.json(result);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Suitability value lookup failed";
+    console.warn(`[/suitability-value] ${msg}`);
+    return c.json({ error: msg }, 500);
+  }
+});
+
 // Shared file serving logic used by both /file/* and /file/download routes
 async function serveFileFromPath(c: any, filePath: string) {
   const resolved = resolveResultFilePath(filePath);

@@ -38,6 +38,79 @@ soil_output_name <- function(var, depth) {
   paste0("soil_", var, "_", names(soilgrids_depths)[soilgrids_depths == depth])
 }
 
+# Internal: download a single SoilGrids layer with retry + exponential backoff.
+# Tries geodata::soil_world up to max_retries times; on exhaustion falls back to
+# direct ISRIC WCS download via download.file with an explicit timeout.
+# Returns a SpatRaster or NULL on final failure.
+.download_soilgrids_layer <- function(var, depth, stat, cache_dir,
+                                        max_retries = 3L, base_delay_s = 10,
+                                        timeout_s = 300, log_fun = NULL) {
+  depth_label <- names(soilgrids_depths)[soilgrids_depths == depth]
+  layer_name <- paste0("soil_", var, "_", depth_label)
+  out_file <- file.path(cache_dir, paste0("sg_", var, "_d", depth, ".tif"))
+
+  for (attempt in 1:max_retries) {
+    log_message(log_fun, "[SoilGrids attempt ", attempt, "/", max_retries,
+                "] ", layer_name)
+    r <- tryCatch(
+      geodata::soil_world(var = var, depth = depth, stat = stat, path = cache_dir),
+      error = function(e) {
+        log_message(log_fun, "[SoilGrids attempt ", attempt, " failed] ", var,
+                    " depth ", depth_label, ": ", conditionMessage(e))
+        NULL
+      }
+    )
+    if (!is.null(r) && inherits(r, "SpatRaster")) {
+      terra::writeRaster(r, out_file, overwrite = TRUE)
+      log_message(log_fun, "[SoilGrids success] ", layer_name, " (attempt ", attempt, ")")
+      return(r)
+    }
+    if (attempt < max_retries) {
+      delay_s <- base_delay_s * (2 ^ (attempt - 1))
+      log_message(log_fun, "[SoilGrids retry ", attempt, "/", max_retries,
+                  "] sleeping ", delay_s, "s before next attempt for ", layer_name)
+      Sys.sleep(delay_s)
+    }
+  }
+
+  log_message(log_fun, "[SoilGrids exhausted retries] falling back to WCS for ",
+              layer_name)
+  wcs_url <- sprintf(
+    paste0(
+      "https://maps.isric.org/mapserv?map=/map/%s.map",
+      "&SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage",
+      "&COVERAGEID=%s_%dcm_%s&FORMAT=GeoTIFF",
+      "&SUBSAMPLING=1,1&"
+    ),
+    var, var, depth, stat
+  )
+  tmp_file <- tempfile(fileext = ".tif")
+  download_succeeded <- tryCatch({
+    old_timeout <- getOption("timeout")
+    options(timeout = timeout_s)
+    on.exit(options(timeout = old_timeout), add = TRUE)
+    download.file(wcs_url, tmp_file, quiet = TRUE, mode = "wb")
+    TRUE
+  }, error = function(e) {
+    log_message(log_fun, "[SoilGrids WCS fallback failed] ", layer_name, ": ",
+                conditionMessage(e))
+    if (file.exists(tmp_file)) unlink(tmp_file)
+    FALSE
+  })
+  if (download_succeeded && file.exists(tmp_file)) {
+    r <- tryCatch(terra::rast(tmp_file), error = function(e) NULL)
+    if (!is.null(r) && inherits(r, "SpatRaster")) {
+      terra::writeRaster(r, out_file, overwrite = TRUE)
+      unlink(tmp_file)
+      log_message(log_fun, "[SoilGrids WCS fallback success] ", layer_name)
+      return(r)
+    }
+    unlink(tmp_file)
+  }
+  log_message(log_fun, "[SoilGrids all methods failed] ", layer_name)
+  NULL
+}
+
 load_soil_covariate <- function(soil_path = NULL,
                                 selected_soil_vars = sdm_default_soil_vars,
                                 selected_soil_depths = sdm_default_soil_depths,
@@ -96,16 +169,11 @@ load_soil_covariate <- function(soil_path = NULL,
         log_message(log_fun, "Using cached SoilGrids layer: ", layer_name)
         r <- terra::rast(cached_file)
       } else if (isTRUE(allow_download)) {
-        log_message(log_fun, "Downloading SoilGrids ", var, " at depth ", depth_label)
-        r <- tryCatch(
-          geodata::soil_world(var = var, depth = depth, stat = soilgrids_stat, path = cache_dir),
-          error = function(e) {
-            log_message(log_fun, "Failed to download SoilGrids ", var, " depth ", depth_label, ": ", conditionMessage(e))
-            NULL
-          }
+        r <- .download_soilgrids_layer(
+          var = var, depth = depth, stat = soilgrids_stat,
+          cache_dir = cache_dir, log_fun = log_fun
         )
         if (!is.null(r) && inherits(r, "SpatRaster")) {
-          terra::writeRaster(r, cached_file, overwrite = TRUE)
           files <- c(files, cached_file)
         }
       } else {

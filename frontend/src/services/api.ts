@@ -222,3 +222,17 @@ export async function apiDownload(url: string, filename?: string): Promise<void>
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
 }
+
+const API_BASE_URL = typeof process !== "undefined" ? (process.env.NEXT_PUBLIC_API_URL ?? "") : "";
+
+export async function apiGetSuitabilityValue(
+  runId: string,
+  lat: number,
+  lng: number,
+  band?: string
+): Promise<{ value: number | null }> {
+  const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
+  if (band) params.set("band", band);
+  const url = `${API_BASE_URL}/api/v1/results/suitability-value/${encodeURIComponent(runId)}?${params.toString()}`;
+  return apiGet<{ value: number | null }>(url);
+}

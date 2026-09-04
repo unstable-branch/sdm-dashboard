@@ -39,7 +39,14 @@ PR targets:
 - Feature/fix PRs target `dev`.
 - Release/stabilization PRs target `main` from `dev`.
 - If two people need the same files, split the work first or agree who owns that file slice.
-- Keep PRs reviewable. Prefer several focused PRs over one giant mixed UI/model/docs/test change.
+- Keep working on the same branch across related work — open one PR per logical
+  work batch rather than splitting every sub-topic into its own branch. A PR
+  should bundle whatever changes belong to one story (e.g. a bug plus the tests
+  and docs that go with it).
+
+- Cut a new branch only for **massive significant changes**: rewrites of the
+  modeling pipeline in `R/core/run_sdm.R`, auth/security work, release-path CI
+  or compose, or any change that spans 4+ subsystems with no shared theme.
 
 Before opening a PR:
 
