@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 const statusEnum = pgEnum("run_status", ["queued", "running", "completed", "failed", "cancelled"]);
@@ -45,6 +45,7 @@ export const projectMembers = pgTable("project_members", {
 export const apiKeys = pgTable("api_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
   keyHash: text("key_hash").notNull(),
+  keyPreview: varchar("key_preview", { length: 16 }),
   name: varchar("name", { length: 255 }).notNull(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   lastUsedAt: timestamp("last_used_at"),
@@ -66,6 +67,7 @@ export const species = pgTable("species", {
   index("idx_species_project").on(t.projectId),
   index("idx_species_user_id").on(t.userId),
   index("idx_species_name").on(t.name),
+  uniqueIndex("species_project_name_unique").on(t.projectId, t.name),
 ]);
 
 export const batches = pgTable("batches", {
@@ -122,6 +124,7 @@ export const runs = pgTable("runs", {
   index("idx_runs_created_at").on(t.createdAt),
   index("idx_runs_job_id").on(t.jobId),
   index("idx_runs_status_created").on(t.status, t.createdAt),
+  index("idx_runs_bullmq_id").on(t.bullmqId),
 ]);
 
 export const occurrences = pgTable("occurrences", {
@@ -183,6 +186,34 @@ export const systemSettings = pgTable("system_settings", {
 }, (t) => [
   index("idx_system_settings_key").on(t.key),
 ]);
+
+export const auditLogs = pgTable("audit_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  action: varchar("action", { length: 100 }).notNull(),
+  entity: varchar("entity", { length: 100 }),
+  entityId: uuid("entity_id"),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  requestId: uuid("request_id"),
+  method: varchar("method", { length: 10 }),
+  path: varchar("path", { length: 500 }),
+  statusCode: integer("status_code"),
+  retentionDays: integer("retention_days").default(90),
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_audit_logs_user").on(t.userId),
+  index("idx_audit_logs_action").on(t.action),
+  index("idx_audit_logs_created").on(t.createdAt),
+  index("idx_audit_logs_entity").on(t.entity, t.entityId),
+  index("idx_audit_logs_request").on(t.requestId),
+  index("idx_audit_logs_status").on(t.statusCode),
+]);
+
+export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
+  user: one(users, { fields: [auditLogs.userId], references: [users.id] }),
+}));
 
 export const uploads = pgTable("uploads", {
   id: uuid("id").primaryKey().defaultRandom(),

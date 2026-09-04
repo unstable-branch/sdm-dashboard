@@ -3,6 +3,7 @@ import { plumberClient } from "../services/plumber.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
+import { logAction, extractClientInfo } from "../services/audit.js";
 
 export const covariatesRoutes = new Hono<AppEnv>();
 
@@ -45,19 +46,38 @@ covariatesRoutes.post("/download_bg", async (c) => {
     ).catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Redis unavailable")) {
-        return null;
+        return { kind: "down" as const, message: msg };
+      }
+      if (msg.includes("Redis enqueue failed")) {
+        return { kind: "transient" as const, message: msg };
       }
       throw err;
     });
 
-    if (jobId === null) {
-      const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    if (jobId && typeof jobId === "object") {
+      if (jobId.kind === "down") {
+        const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+        return c.json({
+          error: "Covariate download queuing requires Redis.",
+          detail: `Cannot connect to ${redisUrl}. Check that Redis is running, or set REDIS_URL to the correct address.`,
+          tip: "Run 'docker compose up -d redis' to start Redis.",
+        }, 503);
+      }
       return c.json({
-        error: "Covariate download queuing requires Redis.",
-        detail: `Cannot connect to ${redisUrl}. Check that Redis is running, or set REDIS_URL to the correct address.`,
-        tip: "Run 'docker compose up -d redis' to start Redis.",
+        error: "Redis enqueue failed (transient).",
+        detail: jobId.message,
+        tip: "Please retry in a few seconds.",
       }, 503);
     }
+
+    const client = extractClientInfo(c);
+    await logAction({
+      userId: user.id,
+      action: "covariate_download_started",
+      entity: "covariates",
+      entityId: jobId,
+      ...client,
+    });
 
     return c.json({ jobId, status: "queued" });
   } catch (err) {

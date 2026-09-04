@@ -42,7 +42,6 @@ cross_validate_bart <- function(model_data, covariates, ntree, ndpost, nskip,
     k = k, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = threshold, fit_fun = fit_fun,
-    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
     log_fun = log_fun
   )
 }
@@ -84,8 +83,11 @@ fit_bart_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   x_train <- as.matrix(model_data[, covariates, drop = FALSE])
   y_train <- model_data$presence
+  if (!all(is.finite(x_train))) {
+    stop("BART input matrix contains Inf or NaN values. Ensure all covariates are finite.", call. = FALSE)
+  }
 
-  model <- tryCatch({
+  model <- sdm_step("bart-fit", {
     dbarts::bart(
       x.train = x_train, y.train = y_train,
       ntree = ntree, ndpost = ndpost, nskip = nskip,
@@ -93,17 +95,19 @@ fit_bart_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
       nthread = 1L,
       seed = seed
     )
-  }, error = function(e) {
-    stop("BART fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  train_pred <- pnorm(colMeans(model$yhat.train))
-  train_metrics <- compute_binary_metrics(y_train, train_pred, threshold = threshold)
+  train_pred <- sdm_step("predict-train", pnorm(colMeans(model$yhat.train)))
+  train_metrics <- sdm_step("train-metrics",
+    compute_binary_metrics(y_train, train_pred, threshold = threshold)
+  )
 
-  cv <- cross_validate_bart(model_data, covariates, ntree, ndpost, nskip,
-    k = cv_folds, seed = seed,
-    n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    threshold = threshold, log_fun = log_fun
+  cv <- sdm_step("cross-validate",
+    cross_validate_bart(model_data, covariates, ntree, ndpost, nskip,
+      k = cv_folds, seed = seed,
+      n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+      threshold = threshold, log_fun = log_fun
+    )
   )
   if (is.finite(cv$auc_mean)) {
     log_message(
@@ -120,10 +124,12 @@ fit_bart_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
     if (is.finite(imp_max) && imp_max > 0) {
       imp <- imp / imp_max
     }
-    importance_df <- data.frame(
-      variable = names(imp) %||% covariates,
-      importance = as.numeric(imp),
-      stringsAsFactors = FALSE
+    importance_df <- sdm_step("variable-importance",
+      data.frame(
+        variable = names(imp) %||% covariates,
+        importance = as.numeric(imp),
+        stringsAsFactors = FALSE
+      )
     )
   }
 
@@ -157,14 +163,11 @@ predict_bart_suitability <- function(fit, env_project_scaled, output_tif, n_core
   log_message(log_fun, "Predicting BART suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
   suit <- terra::app(env_subset, fun = function(vals) {
-    if (!all(is.finite(vals))) {
-      return(rep(NA_real_, nrow(vals)))
-    }
-    df <- as.data.frame(vals, stringsAsFactors = FALSE)
-    names(df) <- fit$covariates
-    x <- as.matrix(df[, fit$covariates, drop = FALSE])
-    pred_list <- predict(fit$model, newdata = x)
-    pmin(pmax(as.numeric(pnorm(colMeans(pred_list$yhat.test))), 0), 1)
+    sdm_apply_predict(vals, fit$covariates, function(df) {
+      x <- as.matrix(df[, fit$covariates, drop = FALSE])
+      pred_list <- predict(fit$model, newdata = x)
+      pmin(pmax(as.numeric(pnorm(colMeans(pred_list$yhat.test))), 0), 1)
+    })
   }, cores = normalize_core_count(n_cores))
 
   names(suit) <- "suitability"

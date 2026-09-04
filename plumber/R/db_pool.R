@@ -81,7 +81,7 @@ sdm_connect_db_pool <- function(
       NULL
     })
     if (!is.null(candidate)) return(candidate)
-    if (attempt < attempts) sleep(min(delay_seconds * attempt, 5))
+    if (attempt < attempts) sleep(min(delay_seconds * attempt, 5) + runif(1, 0, 0.5))
   }
   NULL
 }

@@ -1,4 +1,5 @@
-import { PlumberClient } from "./plumber.js";
+import { PlumberClient, type PlumberJobStatus, type PlumberModelStatus } from "./plumber.js";
+export type { PlumberModelStatus } from "./plumber.js";
 import { db } from "../db/index.js";
 import { runs, projects, users, batches } from "../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
@@ -8,7 +9,7 @@ import { readFile, readdir, writeFile, rm } from "fs/promises";
 import { existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join, resolve, extname } from "path";
-import { uploadFile, getBucketNames, getDirSize } from "./storage.js";
+import { uploadFile, getBucketNames, getDirSize, writeAtomic } from "./storage.js";
 import { encrypt } from "./encryption.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +19,17 @@ const PROJECT_ROOT = resolve(__dirname, "../../..");
 const client = new PlumberClient();
 let _syncInterval: ReturnType<typeof setInterval> | null = null;
 let _running = false;
+let _lastSyncTimestamp = 0;
+let _lastSyncError: string | null = null;
+const _cogUploadLocks = new Set<string>();
+
+export function getLastSyncError(): string | null {
+  return _lastSyncError;
+}
+
+export function getLastSyncAge(): number {
+  return _lastSyncTimestamp === 0 ? Infinity : Date.now() - _lastSyncTimestamp;
+}
 
 const STALLED_RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours — mark as failed if no progress
 const GRACE_PERIOD_MS = parseInt(process.env.SDM_STARTUP_GRACE_PERIOD_MS || "60000", 10);
@@ -28,18 +40,6 @@ const MAX_404_ENTRIES = 200; // cap map size to prevent memory leak
 interface Consecutive404 {
   count: number;
   firstSeen: number;
-}
-
-export interface PlumberModelStatus {
-  status: string;
-  progress_log?: string[];
-  progress_json?: unknown;
-  error?: string | null;
-  last_stage?: string | null;
-  error_code?: string | null;
-  error_hint?: string | null;
-  metrics?: Record<string, unknown> | null;
-  output_files?: { tif_3857?: string } | null;
 }
 
 const consecutive404s = new Map<string, Consecutive404>();
@@ -83,6 +83,7 @@ async function syncRunningJobs() {
 
   try {
     cleanupOld404Entries();
+    _lastSyncError = null;
 
     // Detect runs stuck in "queued" status — if a job hasn't been picked up by the worker
     // within 5 minutes of creation, mark it as failed (worker may be offline or crashed)
@@ -130,7 +131,7 @@ async function syncRunningJobs() {
               errorHint: "The R computation exceeded the timeout. Simplify the model or increase the timeout limit.",
               completedAt: new Date(),
             })
-            .where(eq(runs.id, run.id));
+            .where(and(eq(runs.id, run.id), eq(runs.status, "running")));
 
           jobEventBus.emitJobStatus({
             jobId: run.id,
@@ -146,8 +147,8 @@ async function syncRunningJobs() {
       try {
         const isTargetsJob = run.jobId?.startsWith("targets-");
         const status = isTargetsJob
-          ? await client.targetsStatus(run.jobId) as unknown as PlumberModelStatus
-          : await client.getModelStatus(run.jobId) as unknown as PlumberModelStatus;
+          ? await client.targetsStatus(run.jobId)
+          : await client.getModelStatus(run.jobId);
         const plumberStatus = status.status;
 
         // Guard: re-check DB status in case cancel route changed it since the query above
@@ -251,7 +252,7 @@ async function syncRunningJobs() {
               provenance,
               runStorageBytes: runSize,
             })
-            .where(eq(runs.id, run.id));
+            .where(and(eq(runs.id, run.id), eq(runs.status, "running")));
 
           // Add run output size to user's total storage
           if (runSize > 0 && run.projectId) {
@@ -262,6 +263,14 @@ async function syncRunningJobs() {
                 .where(eq(projects.id, run.projectId))
                 .limit(1);
               if (project) {
+                const [user] = await db
+                  .select({ storageUsedBytes: users.storageUsedBytes, storageQuotaBytes: users.storageQuotaBytes })
+                  .from(users)
+                  .where(eq(users.id, project.ownerId))
+                  .limit(1);
+                if (user && user.storageQuotaBytes && user.storageUsedBytes != null && user.storageUsedBytes + runSize > user.storageQuotaBytes) {
+                  console.warn(`[plumber-sync] Run ${run.id} exceeded storage quota: ${user.storageUsedBytes + runSize} > ${user.storageQuotaBytes} bytes`);
+                }
                 await db
                   .update(users)
                   .set({ storageUsedBytes: sql`${users.storageUsedBytes} + ${runSize}` })
@@ -270,12 +279,15 @@ async function syncRunningJobs() {
             } catch { /* best-effort */ }
           }
 
-          // Upload the 3857 COG to Garage S3 for TiTiler serving
+          // Upload the 3857 COG to Garage S3 for TiTiler serving (single-flight per run)
           const tif3857Path = status.output_files?.tif_3857;
-          if (tif3857Path) {
-            uploadCogToGarage(tif3857Path, run.id).catch((err) => {
-              console.warn(`[Garage] Failed to upload COG for run ${run.id}:`, err instanceof Error ? err.message : err);
-            });
+          if (tif3857Path && !_cogUploadLocks.has(run.id)) {
+            _cogUploadLocks.add(run.id);
+            uploadCogToGarage(tif3857Path, run.id)
+              .finally(() => _cogUploadLocks.delete(run.id))
+              .catch((err) => {
+                console.warn(`[Garage] Failed to upload COG for run ${run.id}:`, err instanceof Error ? err.message : err);
+              });
           }
 
           jobEventBus.emitJobStatus({
@@ -283,7 +295,7 @@ async function syncRunningJobs() {
             state: "completed",
             progress: 100,
             logs,
-            result: status as unknown as Record<string, unknown>,
+            result: status.result,
             progressJson,
           });
 
@@ -294,7 +306,7 @@ async function syncRunningJobs() {
           }
         } else if (plumberStatus === "completed" && isTargetsJob) {
           // Targets pipeline completed — update ALL per-species runs + the batch itself
-          const targetsCompleted = (status as unknown as Record<string, unknown>).completed_at;
+          const targetsCompleted = status.completed_at;
           await db
             .update(runs)
             .set({
@@ -365,16 +377,15 @@ async function syncRunningJobs() {
               progressLog: logs.length > 0 ? logs : undefined,
               provenance: errorCode ? { error_code: errorCode, error_hint: errorHint } : undefined,
             })
-            .where(eq(runs.id, run.id));
+            .where(and(eq(runs.id, run.id), eq(runs.status, "running")));
 
           jobEventBus.emitJobStatus({
             jobId: run.id,
             state: "failed",
             progress: 0,
-            logs,
             failedReason: error ?? "Model run failed",
             error_code: status.error_code as string | undefined,
-            error_hint: (status as any).error_hint as string | undefined,
+            error_hint: status.error_hint ?? undefined,
             progressJson,
           });
         } else if (plumberStatus === "cancelled") {
@@ -439,12 +450,12 @@ async function syncRunningJobs() {
           let plumberErrorDetail = "";
           let finalPlumberStatus: string | undefined;
           const MAX_500_RETRIES = 2;
-          const RETRY_DELAY_MS = 5000;
           for (let attempt = 0; attempt <= MAX_500_RETRIES; attempt++) {
             try {
               if (attempt > 0) {
                 console.warn(`[plumber-sync] Retry #${attempt} for run ${run.id} after 500...`);
-                await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+                const delay = Math.min(5000 * Math.pow(2, attempt), 8000) + Math.random() * 1000;
+                await new Promise((r) => setTimeout(r, delay));
               }
               const probeRes = await fetch(
                 `${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/models/status/${run.jobId}`,
@@ -539,7 +550,9 @@ async function syncRunningJobs() {
     }
   } catch (err) {
     console.error("[plumber-sync] Sync error:", err instanceof Error ? err.message : err);
+    _lastSyncError = err instanceof Error ? err.message : String(err);
   } finally {
+    _lastSyncTimestamp = Date.now();
     _running = false;
   }
 }
@@ -579,15 +592,13 @@ async function encryptOutputs(jobDir: string) {
     try {
       const data = await readFile(fp);
       const encrypted = encrypt(data);
-      await writeFile(encPath, encrypted);
+      await writeAtomic(encPath, encrypted);
       await rm(fp);
     } catch (err) {
       console.warn(`[encrypt] Failed to encrypt ${fp}:`, err);
     }
   }
 }
-
-export { encryptOutputs };
 
 export function startPlumberSync(intervalMs = 5000) {
   if (_syncInterval) return;

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { clearSharedJobs } from "@/hooks/use-job-sse";
 
 interface User {
   id: string;
@@ -60,6 +61,7 @@ export const useAuthStore = create<AuthState>()(
       },
       clearAuth: () => {
         clearStorageToken();
+        clearSharedJobs();
         set({ user: null, token: null, project: null, projects: [], error: null });
       },
       setProject: (project) => set({ project }),

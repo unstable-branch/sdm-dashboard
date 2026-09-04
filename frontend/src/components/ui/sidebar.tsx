@@ -23,8 +23,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     desktop.addEventListener("change", syncWithViewport);
     return () => desktop.removeEventListener("change", syncWithViewport);
   }, []);
+  const contextValue = React.useMemo(() => ({ open, setOpen }), [open]);
   return (
-    <SidebarContext.Provider value={{ open, setOpen }}>
+    <SidebarContext.Provider value={contextValue}>
       <div className="flex min-h-screen w-full min-w-0">{children}</div>
     </SidebarContext.Provider>
   );

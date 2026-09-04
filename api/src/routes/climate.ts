@@ -5,6 +5,11 @@ import { climateRateLimit } from "../middleware/rate-limit.js";
 import { longCache } from "../middleware/cache.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
+import { logAction, extractClientInfo } from "../services/audit.js";
+import { getUserProjectIds } from "../services/access.js";
+import { db } from "../db/index.js";
+import { runs } from "../db/schema.js";
+import { eq, and, inArray } from "drizzle-orm";
 
 export const climateRoutes = new Hono<AppEnv>();
 
@@ -19,7 +24,11 @@ climateRoutes.get("/scenarios", longCache, async (c) => {
     return c.json(scenarios);
   } catch (e) {
     console.warn("[climate]", e instanceof Error ? e.message : String(e));
-    return c.json({ scenarios: [], message: "Plumber unavailable" });
+    return c.json({
+      error: "Plumber unavailable",
+      code: "PLUMBER_UNAVAILABLE",
+      message: e instanceof Error ? e.message : String(e),
+    }, 502);
   }
 });
 
@@ -36,7 +45,11 @@ climateRoutes.get("/check", async (c) => {
     return c.json(result);
   } catch (e) {
     console.warn("[climate]", e instanceof Error ? e.message : String(e));
-    return c.json({ available: [], missing: [] });
+    return c.json({
+      error: "Plumber unavailable",
+      code: "PLUMBER_UNAVAILABLE",
+      message: e instanceof Error ? e.message : String(e),
+    }, 502);
   }
 });
 
@@ -70,6 +83,17 @@ climateRoutes.post("/download", async (c) => {
     }
 
     const plumberData = await plumberClient.withUser(user.id).downloadClimate(body as Record<string, unknown>);
+
+    const client = extractClientInfo(c);
+    await logAction({
+      userId: user.id,
+      action: "climate_download_started",
+      entity: "climate",
+      entityId: (plumberData as Record<string, unknown>).job_id as string ?? null,
+      ...client,
+      details: { type: body.type, resolution: body.res, source: body.source },
+    });
+
     return c.json({ jobId: (plumberData as Record<string, unknown>).job_id, status: "queued" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Climate download failed";
@@ -80,7 +104,38 @@ climateRoutes.post("/download", async (c) => {
 climateRoutes.post("/delete/:scenarioId", async (c) => {
   try {
     const scenarioId = c.req.param("scenarioId");
+    const user = c.get("user");
+
+    if (user.role !== "admin") {
+      const projectIds = await getUserProjectIds(user);
+      const ownedRun = await db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(
+          projectIds && projectIds.length > 0
+            ? and(
+                eq(runs.jobId, scenarioId),
+                inArray(runs.projectId, projectIds)
+              )
+            : eq(runs.id, "__never_match__")
+        )
+        .limit(1);
+      if (!ownedRun) {
+        return c.json({ error: "Scenario not found" }, 404);
+      }
+    }
+
     const result = await plumberClient.deleteClimateScenario(scenarioId);
+
+    const client = extractClientInfo(c);
+    await logAction({
+      userId: user.id,
+      action: "climate_scenario_deleted",
+      entity: "climate",
+      entityId: scenarioId,
+      ...client,
+    });
+
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Delete failed";
@@ -88,20 +143,14 @@ climateRoutes.post("/delete/:scenarioId", async (c) => {
   }
 });
 
-climateRoutes.post("/cancel/:jobId", async (c) => {
-  try {
-    const jobId = c.req.param("jobId");
-    const result = await plumberClient.post(`/api/v1/climate/cancel/${jobId}`, {});
-    return c.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Cancel failed";
-    return c.json({ error: message }, 502);
-  }
-});
+// Climate cancel is handled by the /api/v1/downloads/cancel/:jobId dispatch route,
+// which routes climate_ ids to Plumber /api/v1/climate/cancel/<id> and other prefixes
+// (cov_, data-) to /api/v1/jobs/cancel/<id>. The legacy /api/v1/climate/cancel/:jobId
+// route has been removed because its ownership check queried the `runs` table, which
+// never holds climate jobs, leaving any authenticated user able to cancel any job.
 
-// Climate progress is tracked via SSE (/api/v1/jobs/sse) and BullMQ job status
-// The dedicated status endpoint exists on Plumber but is not proxied through Hono:
-//   GET /api/v1/climate/status/:jobId  →  plumber GET /api/v1/climate/status/{job_id}
+// Climate status remains here for backward compatibility but new code should use
+// /api/v1/downloads/status/:jobId for prefix-aware dispatch.
 climateRoutes.get("/status/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");

@@ -75,17 +75,21 @@ compute_niche_overlap <- function(occ_native, occ_introduced, env,
     log_message(log_fun, "  Niche overlap — Schoener's D: ", sprintf("%.3f", D),
       " | Hellinger's I: ", sprintf("%.3f", I))
 
-    # Niche unfilling, expansion, stability (Guisan et al. 2014)
-    stability <- sum(pmin(native_z, intro_z))
-    unfilling <- sum(native_z - pmin(native_z, intro_z))
-    expansion <- sum(intro_z - pmin(native_z, intro_z))
-
-    # Normalise
-    total <- stability + unfilling + expansion
-    if (total > 0) {
-      stability <- stability / total
-      unfilling <- unfilling / total
-      expansion <- expansion / total
+    # Niche unfilling, expansion, stability (Guisan et al. 2014).
+    # Normalise each component by sum(native_z), the original native niche
+    # volume. The previous code divided by the sum of all three components
+    # which was always 2 * sum(native_z) (because unfilling + expansion both
+    # equal sum(native_z) - D in their own derivations), forcing
+    # unfilling == expansion == (1 - D) / 2 regardless of their true ratio.
+    native_total <- sum(native_z)
+    if (native_total > 0) {
+      stability <- sum(pmin(native_z, intro_z)) / native_total
+      unfilling <- sum(native_z - pmin(native_z, intro_z)) / native_total
+      expansion <- sum(intro_z - pmin(native_z, intro_z)) / native_total
+    } else {
+      stability <- NA_real_
+      unfilling <- NA_real_
+      expansion <- NA_real_
     }
 
     list(

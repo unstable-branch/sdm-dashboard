@@ -60,7 +60,9 @@ requires_auth <- function(path) {
     return(TRUE)
   }
 
-  # Open endpoints: read-only infrastructure, discovery, and results
+  # Open endpoints: read-only infrastructure, discovery, and climate availability checks.
+  # Ecology and diagnostics endpoints return per-run scientific outputs and now require
+  # authentication (api key or forwarded user) — see GC-09.
   open_patterns <- c(
     "^/health$",
     "^/ready$",
@@ -69,12 +71,7 @@ requires_auth <- function(path) {
     "^/api/v1/config/defaults$",
     "^/api/v1/models$",
     "^/api/v1/future/scenarios$",
-    "^/api/v1/covariates/check$",
-    # Read-only ecology endpoints (GET only — POST niche-overlap is excluded)
-    "^/api/v1/ecology/[^/]+$",
-    "^/api/v1/ecology/[^/]+/(eoo-aoo|aoa|report)$",
-    # Read-only diagnostics endpoints (GET only — POST shap/cell and plots excluded)
-    "^/api/v1/diagnostics/(vif|response-curves|ale|importance|climate-drivers|cbi|mess|summary|roc|calibration|cv-folds|threshold|density|data)/[^/]+$"
+    "^/api/v1/covariates/check$"
   )
 
   if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {
@@ -133,3 +130,32 @@ sdm_check_rate_limit <- function(key, max_requests = 60, window_seconds = 60) {
 
 # validate_api_key now accepts an optional pool argument for connection pooling
 # (pool is set up in run_server.R and passed as an option)
+
+# Verify that the requesting user owns the run referenced by `run_id`.
+# Returns NULL on success, or an error list (with `status` already set on `res`)
+# on ownership failure / missing run.
+# Admin role bypasses the ownership check (consistent with runs-table admin bypass).
+sdm_verify_run_owner <- function(req, res, run_id, app_dir) {
+  if (is.null(req$user_role) || req$user_role != "admin") {
+    job_dir <- tryCatch(sdm_safe_job_dir(run_id), error = function(e) NULL)
+    if (is.null(job_dir)) {
+      res$status <- 404L
+      return(list(error = "Run not found"))
+    }
+    meta_file <- file.path(job_dir, "meta.json")
+    if (!file.exists(meta_file)) {
+      res$status <- 404L
+      return(list(error = "Run not found"))
+    }
+    meta <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
+    if (!is.null(meta) && !is.null(meta$user_id) && nzchar(meta$user_id %||% "") &&
+        !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
+      if (as.character(meta$user_id) != as.character(req$user_id)) {
+        res$status <- 403L
+        return(list(error = sdm_error_code_direct("ACCESS_DENIED", "You do not have permission to view this run")))
+      }
+    }
+  }
+  NULL
+}
+

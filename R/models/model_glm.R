@@ -169,7 +169,7 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
       error = function(e) NULL
     )
     if (is.null(fit)) {
-      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold), fold = i)
+      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i)
       if (collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
     }
     pred <- tryCatch(
@@ -177,7 +177,7 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
       error = function(e) rep(NA_real_, nrow(test_model))
     )
     if (all(is.na(pred))) {
-      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold), fold = i)
+      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i)
       if (collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
     }
     row <- metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
@@ -193,7 +193,6 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = threshold, fit_fun = fit_fun,
     collect_predictions = collect_predictions,
-    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row", "normalize_threshold", "class_balance_weights"),
     log_fun = log_fun
   )
 }
@@ -233,7 +232,9 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   model <- tryCatch({
     suppressWarnings(stats::glm(formula,
       data = model_fit_data, family = stats::binomial(),
-      weights = case_weight_sdm, control = stats::glm.control(maxit = 80)
+      weights = case_weight_sdm,
+      control = stats::glm.control(maxit = 80),
+      x = FALSE, y = FALSE, model = FALSE
     ))
   }, error = function(e) {
     stop("GLM fitting failed: ", conditionMessage(e), call. = FALSE)

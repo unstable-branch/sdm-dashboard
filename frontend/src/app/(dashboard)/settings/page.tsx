@@ -49,8 +49,8 @@ export default function SettingsPage() {
   useEffect(() => {
     const signal = AbortSignal.timeout(15000);
     Promise.all([
-      fetch("/health", { signal }).then((res) => res.json()).catch(() => null),
-      fetch("/api/v1/sdm/config/defaults", { signal }).then((res) => res.json()).catch(() => null),
+      fetch("/health", { signal }).then((res) => res.json()).catch((e) => { console.warn("[settings] Health check failed:", e); return null; }),
+      fetch("/api/v1/sdm/config/defaults", { signal }).then((res) => res.json()).catch((e) => { console.warn("[settings] Config defaults fetch failed:", e); return null; }),
     ]).then(([h, d]) => {
       setHealth(h);
       setDefaults(d);

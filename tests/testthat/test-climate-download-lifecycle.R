@@ -18,7 +18,9 @@ test_that("WorldClim resolution labels and cached archives are reusable", {
   source_dir <- tempfile("zip-source-")
   dir.create(source_dir)
   tif <- file.path(source_dir, "wc2.1_10m_bio_1.tif")
-  writeBin(as.raw(rep(1, 32)), tif)
+  # Real little-endian TIFF magic bytes (cached validator accepts these)
+  tif_magic <- as.raw(c(0x49, 0x49, 0x2A, 0x00))
+  writeBin(c(tif_magic, as.raw(rep(1, 28))), tif)
   archive <- file.path(cache, "wc2.1_10m_bio.zip")
   old <- setwd(source_dir)
   on.exit(setwd(old), add = TRUE)
@@ -39,8 +41,11 @@ test_that("WorldClim cache reuse emits structured per-file byte progress", {
   cache <- tempfile("worldclim-cache-")
   dir.create(cache)
   files <- file.path(cache, sprintf("wc2.1_10m_bio_%d.tif", c(1, 12)))
-  writeBin(as.raw(rep(1, 32)), files[1])
-  writeBin(as.raw(rep(2, 64)), files[2])
+  # Use real little-endian TIFF magic bytes so the cache validator accepts
+  # these as valid GeoTIFFs (would otherwise trigger re-download).
+  tif_magic <- as.raw(c(0x49, 0x49, 0x2A, 0x00))
+  writeBin(c(tif_magic, as.raw(rep(1, 28))), files[1])
+  writeBin(c(tif_magic, as.raw(rep(2, 60))), files[2])
 
   events <- list()
   result <- download_worldclim_bio(

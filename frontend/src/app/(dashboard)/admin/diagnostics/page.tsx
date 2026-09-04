@@ -293,7 +293,7 @@ function UploadsTab() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [_error, _setError_2] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [expandedUpload, setExpandedUpload] = useState<string | null>(null);
   const [filesystem, setFilesystem] = useState<FilesystemResponse | null>(null);
   const [fsLoading, setFsLoading] = useState(true);
@@ -301,13 +301,14 @@ function UploadsTab() {
 
   const fetchUploads = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       const data = await apiGet<UploadsResponse>(`/api/v1/admin/diagnostics/uploads?${params}`);
       setUploads(data.uploads);
       setTotal(data.total);
     } catch (err) {
-      _setError_2(err instanceof Error ? err.message : "Failed to load uploads");
+      setError(err instanceof Error ? err.message : "Failed to load uploads");
     } finally {
       setLoading(false);
     }
@@ -336,6 +337,7 @@ function UploadsTab() {
 
   return (
     <div className="space-y-4">
+      {error && <div className="rounded-md bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-400">{error}</div>}
       {/* Filesystem summary card */}
       {!fsLoading && filesystem && (
         <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">

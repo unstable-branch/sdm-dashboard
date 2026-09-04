@@ -171,6 +171,48 @@ run_fast_sdm <- function(...) {
   if (!is.null(training_extent)) training_extent <- validate_extent(as.numeric(training_extent), "training_extent")
   selected_biovars <- validate_biovars(selected_biovars)
   model_id <- validate_sdm_model_id(model_id)
+
+  # Early model-fit memory guard. The post-fit guard (further down) only
+  # protects against NEW allocations during fit; this one also accounts for
+  # the env_train_scaled raster that's about to be loaded by load_environment.
+  tryCatch({
+    mem_info <- sdm_mem_info()
+    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+      # Estimate raster footprint from requested extent + selected biovars
+      # when available; fall back to coarse heuristic.
+      est_raster_gb <- NA_real_
+      if (!is.null(selected_biovars) && length(selected_biovars) >= 2 &&
+          !is.null(projection_extent) && length(projection_extent) == 4) {
+        # Coarse estimate: assume one float64 cell per biovar at 30-arcsec res.
+        cell_count <- abs(diff(projection_extent[c(1, 2)])) * abs(diff(projection_extent[c(3, 4)])) /
+          ((1/120)^2)
+        est_raster_gb <- cell_count * length(selected_biovars) * 8 / (1024^3)
+      }
+      model_multiplier <- if (model_id %in% c("brms", "esm_brms")) 10.0
+                          else if (model_id %in% c("dnn", "dnn_multispecies")) 8.0
+                          else 3.0
+      # If we have a raster estimate, gate against total (raster + overhead).
+      # Otherwise fall back to legacy "overhead only" behaviour.
+      if (is.finite(est_raster_gb) && est_raster_gb > 0) {
+        est_total_gb <- est_raster_gb * model_multiplier
+        if (est_total_gb > mem_info$memavail * 0.6) {
+          stop(sprintf(
+            paste("Model '%s' estimated total memory %.1f GB (raster %.1f GB x %.0fx)",
+                  "exceeds 60%% of available RAM (%.1f GB).",
+                  "Reduce resolution, extent, or switch to a lighter model."),
+            model_id, est_total_gb, est_raster_gb, model_multiplier, mem_info$memavail
+          ), call. = FALSE)
+        }
+        if (est_total_gb > mem_info$memavail * 0.3) {
+          log_message(log_fun, sprintf("  Model '%s' estimated total memory: %.1f GB of %.1f GB available (multiplier: %.0fx)",
+                                      model_id, est_total_gb, mem_info$memavail, model_multiplier))
+        }
+      }
+    }
+  }, error = function(e) {
+    # Only re-throw our explicit "exceeds 60%%" guard; let other errors pass.
+    if (grepl("estimated total memory.*exceeds 60%%", conditionMessage(e))) stop(e)
+  })
   model_spec <- get_sdm_model(model_id)
   threshold <- normalize_threshold(threshold)
   aggregation_factor <- aggregation_factor %||% 1L
@@ -266,6 +308,12 @@ run_fast_sdm <- function(...) {
   if (!is.null(dwca_doi) && !is.na(dwca_doi) && nzchar(dwca_doi)) {
     log_message(log_fun, "DwC-A GBIF dataset DOI: ", dwca_doi)
   }
+  # Preserve DwC-A provenance metadata on cleaned itself before we NULL out
+  # cleaned$raw (which is ~200MB of raw occurrence data). The manifest reads
+  # these back from cleaned$raw at ~line 1381, but by then attr() is gone.
+  cleaned$dwca_datasets <- attr(cleaned$raw, "dwca_datasets")
+  cleaned$dwca_issues <- attr(cleaned$raw, "dwca_issues")
+  cleaned$gbif_doi <- attr(cleaned$raw, "gbif_doi")
   cleaned$raw <- NULL
   cleaned$source_counts <- NULL
   cleaned$n_absent_excluded <- NULL
@@ -363,7 +411,13 @@ run_fast_sdm <- function(...) {
         keep_vars <- setdiff(names(env$env_train_scaled), dropped_vars)
         if (length(keep_vars) >= 2) {
           env$env_train_scaled <- env$env_train_scaled[[keep_vars]]
-          env$env_project_scaled <- env$env_project_scaled[[keep_vars]]
+          # Projection layers keep raw names (e.g. "bio1") but training
+          # layers were renamed to make.names-ified names (e.g. "bio1" or
+          # "bio.1"). Subset by the union of both renamings so we never
+          # silently end up with a partial / empty raster.
+          keep_proj <- unique(c(keep_vars, make.names(keep_vars), chartr(".", "_", keep_vars)))
+          env$env_project_scaled <- env$env_project_scaled[[keep_proj]]
+          names(env$env_project_scaled) <- keep_vars
           safe_keep <- intersect(keep_vars, names(env$means))
           env$means <- env$means[safe_keep]
           env$sds <- env$sds[safe_keep]
@@ -384,14 +438,20 @@ run_fast_sdm <- function(...) {
     mess_result <- tryCatch(
       compute_mess(env$env_train, env$env_project),
       error = function(e) {
-        log_message(log_fun, "MESS computation failed: ", conditionMessage(e))
+        log_message(log_fun, "WARNING: MESS computation failed: ", conditionMessage(e))
         NULL
       }
     )
     if (!is.null(mess_result)) {
       log_message(log_fun, "  MESS: ", sprintf("%.1f%%", mess_result$pct_extrapolation * 100), " of projection area outside training range")
+    } else {
+      log_message(log_fun, "WARNING: MESS computation was skipped due to error")
     }
   }
+
+  # Snapshot the training data before NULL-ing it; future_projection later
+  # needs it for MESS computation.
+  env_train_for_mess <- env$env_train
   env$env_train <- NULL
   env$env_project <- NULL
 
@@ -671,41 +731,69 @@ run_fast_sdm <- function(...) {
   # the TSS-maximizing threshold from training predictions and use it for all
   # downstream binary classification (area calc, PNG, summary stats).
   if (is.na(threshold) && !is.null(fit$model_data) && "presence" %in% names(fit$model_data)) {
-    threshold <- tryCatch({
+threshold <- tryCatch({
       # Attempt model-agnostic re-prediction on training data
       train_pred <- NULL
+      backend_used <- "unknown"
       if (inherits(fit$model, "xgb.Booster")) {
         x_mat <- as.matrix(fit$model_data[, fit$covariates, drop = FALSE])
         train_pred <- stats::predict(fit$model, x_mat)
+        backend_used <- "xgb.Booster"
       } else if (inherits(fit$model, "maxnet")) {
         df <- fit$model_data[, fit$covariates, drop = FALSE]
         train_pred <- as.numeric(predict(fit$model, df, clamp = TRUE, type = "cloglog"))
+        backend_used <- "maxnet"
       } else if (is.list(fit$model) && !is.null(fit$model$xgb_fit)) {
         x_mat <- as.matrix(fit$model_data[, fit$covariates, drop = FALSE])
         train_pred <- stats::predict(fit$model$xgb_fit, x_mat)
+        backend_used <- "multi-ensemble:xgb"
       } else if (inherits(fit$model, "glm")) {
         train_pred <- stats::predict(fit$model, newdata = fit$model_data, type = "response")
+        backend_used <- "glm"
+      } else if (inherits(fit$model, "nnet") || inherits(fit$model, "nnet.formula")) {
+        train_pred <- suppressWarnings(as.numeric(stats::predict(fit$model, newdata = fit$model_data, type = "raw")))
+        backend_used <- "nnet"
       } else if (inherits(fit$model, "randomForest")) {
         train_pred <- stats::predict(fit$model, newdata = fit$model_data, type = "vote")[, "1"]
+        backend_used <- "randomForest"
+      } else if (inherits(fit$model, "ranger")) {
+        pr <- stats::predict(fit$model, data = fit$model_data)
+        if (is.matrix(pr)) {
+          train_pred <- pr[, ncol(pr)]
+        } else {
+          train_pred <- suppressWarnings(as.numeric(as.character(pr)))
+        }
+        backend_used <- "ranger"
       } else {
-        # Generic fallback: attempt predict with common defaults
-        train_pred <- tryCatch(
-          stats::predict(fit$model, newdata = fit$model_data),
-          error = function(e) NULL
+        train_pred <- sdm_step("max_tss-predict-train",
+          tryCatch(
+            stats::predict(fit$model, newdata = fit$model_data),
+            error = function(e) NULL
+          )
         )
+        if (!is.null(train_pred)) backend_used <- "generic"
       }
       if (!is.null(train_pred)) {
+        train_pred <- suppressWarnings(as.numeric(train_pred))
         pres_suit <- train_pred[fit$model_data$presence == 1]
         bg_suit <- train_pred[fit$model_data$presence == 0]
         opt <- select_threshold(pres_suit, bg_suit)
         if (is.finite(opt$threshold) && opt$threshold >= 0 && opt$threshold <= 1) {
-          log_message(log_fun, "Optimal threshold from max_tss: ", sprintf("%.3f", opt$threshold),
-            " (TSS=", sprintf("%.3f", opt$max_tss), ")")
+          log_message(log_fun, "Optimal threshold from max_tss [", backend_used, "]: ",
+            sprintf("%.3f", opt$threshold),
+            " (TSS=", sprintf("%.3f", opt$max_tss), ")"
+          )
           opt$threshold
         } else {
+          log_message(log_fun,
+            "WARN: max_tss could not be computed for backend '", backend_used,
+            "' — leaving threshold as NA. Downstream area/PNG stats will be omitted.")
           NA_real_
         }
       } else {
+        log_message(log_fun,
+          "WARN: max_tss could not be computed for backend '", backend_used,
+          "' (predict returned NULL) — leaving threshold as NA.")
         NA_real_
       }
     }, error = function(e) {
@@ -739,10 +827,13 @@ run_fast_sdm <- function(...) {
       compute_aoa(fit$model_data, env$env_project_scaled, fit$covariates,
         variable_importance = importance_result, method = "cast", log_fun = log_fun),
       error = function(e) {
-        log_message(log_fun, "AOA computation failed: ", conditionMessage(e))
+        log_message(log_fun, "WARNING: AOA computation failed: ", conditionMessage(e))
         NULL
       }
     )
+    if (is.null(aoa_result)) {
+      log_message(log_fun, "WARNING: AOA computation was skipped due to error")
+    }
   }
 
   # Pre-flight memory check: reject if total memory (existing scaled rasters + prediction) exceeds 60% of available RAM
@@ -823,7 +914,7 @@ run_fast_sdm <- function(...) {
   output_tif <- file.path(output_dir, paste0(base_name, "_suitability.tif"))
   output_png <- file.path(output_dir, paste0(base_name, "_suitability.png"))
   output_report <- file.path(output_dir, paste0(base_name, "_report.txt"))
-  suit <- tryCatch({
+  suit <- sdm_step("predict", {
     if (identical(model_id, "multi_ensemble")) {
       predict_multi_model_ensemble(fit, env$env_project_scaled, output_tif, n_cores, log_fun,
         export_components = isTRUE(multi_ensemble_export),
@@ -840,16 +931,12 @@ run_fast_sdm <- function(...) {
     } else {
       predict_sdm_model(fit, env$env_project_scaled, output_tif, n_cores, log_fun)
     }
-  }, error = function(e) {
-    log_message(log_fun, "Prediction failed: ", conditionMessage(e))
-    log_message(log_fun, "Traceback: ", paste(utils::tail(traceback(), 5), collapse = " <- "))
-    stop("Prediction failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  # Crop to projection extent and apply boundary mask
   if (!is.null(projection_extent) && inherits(suit, "SpatRaster")) {
-    suit <- terra::crop(suit,
-      terra::ext(projection_extent[1], projection_extent[2], projection_extent[3], projection_extent[4]))
+    suit <- sdm_step("crop-extent",
+      terra::crop(suit, terra::ext(projection_extent[1], projection_extent[2], projection_extent[3], projection_extent[4]))
+    )
     log_message(log_fun, "  Clipped suitability raster to projection extent")
   }
 
@@ -866,12 +953,13 @@ run_fast_sdm <- function(...) {
       mask_file <- resolved
   }
 
-  # Write initial suitability raster to avoid source=target conflicts
   tmp_out <- tempfile(fileext = ".tif")
-  terra::writeRaster(suit, tmp_out, overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
-  sdm_safe_rename(tmp_out, output_tif)
-  suit <- terra::rast(output_tif)
+  suit <- sdm_step("write-initial-suitability", {
+    terra::writeRaster(suit, tmp_out, overwrite = TRUE,
+      wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+    sdm_safe_rename(tmp_out, output_tif)
+    terra::rast(output_tif)
+  })
 
   # Ensemble variable importance (multi-model) — must come after suit is assigned
   if (identical(model_id, "multi_ensemble") && !is.null(attr(suit, "ensemble_importance"))) {
@@ -933,20 +1021,26 @@ run_fast_sdm <- function(...) {
           suit_sum <- suit_sum + rep_suit
           valid_reps <- valid_reps + 1L
           unlink(rep_tif)
+        } else {
+          unlink(rep_tif)
         }
       }
     }
 
     if (valid_reps > 1) {
       suit <- suit_sum / valid_reps
-      terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      sdm_step("write-pa-averaged-suitability",
+        terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+      )
       log_message(log_fun, "PA-averaged suitability from ", valid_reps, " replicates written to ", output_tif)
     }
   }
 
   # Apply boundary mask after PA averaging so all replicates are equally masked
   if (mask_type != "none") {
-    suit <- apply_boundary_mask(suit, mask_type, mask_file, mask_buffer_deg, log_fun)
+    suit <- sdm_step("apply-boundary-mask",
+      apply_boundary_mask(suit, mask_type, mask_file, mask_buffer_deg, log_fun)
+    )
     terra::writeRaster(suit, output_tif, overwrite = TRUE,
       wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
     mm <- tryCatch(terra::minmax(suit), error = function(e) {
@@ -985,7 +1079,7 @@ run_fast_sdm <- function(...) {
         log_fun = log_fun
       )
     }, error = function(e) {
-      log_message(log_fun, "Climate matching failed: ", conditionMessage(e))
+      log_message(log_fun, "WARNING: Climate matching failed: ", conditionMessage(e))
       NULL
     })
     if (!is.null(climate_match_result)) {
@@ -993,6 +1087,8 @@ run_fast_sdm <- function(...) {
       terra::writeRaster(climate_match_result$similarity, cm_tif,
         overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
       extra_paths[["climate_matching_tif"]] <- cm_tif
+    } else {
+      log_message(log_fun, "WARNING: Climate matching was skipped due to error")
     }
   }
 
@@ -1046,10 +1142,11 @@ run_fast_sdm <- function(...) {
         n_cores = n_cores,
         log_fun = log_fun,
         mask_extrapolation = mask_extrapolation,
-        mess_threshold = mess_threshold
+        mess_threshold = mess_threshold,
+        mess_train_data = env_train_for_mess
       ),
       error = function(e) {
-        log_message(log_fun, "Future projection failed: ", conditionMessage(e))
+        log_message(log_fun, "WARNING: Future projection failed: ", conditionMessage(e))
         NULL
       }
     )
@@ -1062,6 +1159,8 @@ run_fast_sdm <- function(...) {
             wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
         }
       }
+    } else {
+      log_message(log_fun, "WARNING: Future climate projection was skipped due to error")
     }
   }
 
@@ -1086,10 +1185,11 @@ run_fast_sdm <- function(...) {
         n_cores = n_cores,
         log_fun = log_fun,
         mask_extrapolation = isTRUE(cfg$extrapolation_mask %||% TRUE),
-        mess_threshold = cfg$mess_threshold %||% 0
+        mess_threshold = cfg$mess_threshold %||% 0,
+        mess_train_data = env_train_for_mess
       ),
       error = function(e) {
-        log_message(log_fun, "2nd scenario failed: ", conditionMessage(e))
+        log_message(log_fun, "WARNING: 2nd scenario (future climate) failed: ", conditionMessage(e))
         NULL
       }
     )
@@ -1102,8 +1202,12 @@ run_fast_sdm <- function(...) {
             wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
         }
       }
-      future2$summary <- summarise_suitability(future2$suitability, threshold)
+      future2$summary <- sdm_step("summarise-future2", summarise_suitability(future2$suitability, threshold, log_fun = log_fun))
+    } else {
+      log_message(log_fun, "WARNING: 2nd future scenario was skipped due to error")
+    }
 
+    if (!is.null(future) && !is.null(future2)) {
       # Comparison summary
       area1 <- future$summary$high_risk_area_km2 %||% NA_real_
       area2 <- future2$summary$high_risk_area_km2 %||% NA_real_
@@ -1118,15 +1222,15 @@ run_fast_sdm <- function(...) {
     return(invisible(NULL))
   }
   progress_step(progress_fun, 0.92, "Summarising outputs")
-  suitability_summary <- summarise_suitability(suit, threshold)
-  if (!is.null(future)) future$summary <- summarise_suitability(future$suitability, threshold)
+  suitability_summary <- sdm_step("summarise-suitability", summarise_suitability(suit, threshold))
+  if (!is.null(future)) future$summary <- sdm_step("summarise-future", summarise_suitability(future$suitability, threshold))
 
   progress_step(progress_fun, 0.93, "Writing output graphics")
-  future_pngs <- save_future_pngs(future, occ, projection_extent, species, threshold, future_label, output_dir, base_name)
+  future_pngs <- sdm_step("save-future-pngs", save_future_pngs(future, occ, projection_extent, species, threshold, future_label, output_dir, base_name))
   if (!is.null(future_pngs$future_png)) extra_paths$future_suitability_png <- future_pngs$future_png
   if (!is.null(future_pngs$delta_png)) extra_paths$future_delta_png <- future_pngs$delta_png
 
-  future2_pngs <- save_future_pngs(future2, occ, projection_extent, species, threshold, future_label2, output_dir, base_name, suffix = "2")
+  future2_pngs <- sdm_step("save-future2-pngs", save_future_pngs(future2, occ, projection_extent, species, threshold, future_label2, output_dir, base_name, suffix = "2"))
   if (!is.null(future2_pngs$future_png)) extra_paths$future2_suitability_png <- future2_pngs$future_png
   if (!is.null(future2_pngs$delta_png)) extra_paths$future2_delta_png <- future2_pngs$delta_png
 
@@ -1148,14 +1252,15 @@ run_fast_sdm <- function(...) {
     if (!is.null(eoo_aoo_result$aoo_grid_geojson)) extra_paths$aoo_grid <- eoo_aoo_result$aoo_grid_geojson
   }
 
-  # Save MESS raster for current predictions
   if (!is.null(mess_result)) {
     mess_tif <- file.path(output_dir, paste0(base_name, "_mess.tif"))
     tryCatch({
-      terra::writeRaster(mess_result$mess, mess_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      sdm_step("write-mess-tif",
+        terra::writeRaster(mess_result$mess, mess_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=LZW", "TILED=YES")))
+      )
       extra_paths[["mess_tif"]] <- mess_tif
     }, error = function(e) {
-      log_message(log_fun, "  Failed to write MESS raster: ", conditionMessage(e))
+      log_message(log_fun, "WARNING: Failed to write MESS raster: ", conditionMessage(e))
     })
   }
 
@@ -1378,8 +1483,8 @@ run_fast_sdm <- function(...) {
     ),
     occurrence = occ, occurrence_used = fit$occurrence_used, source_counts = sort(table(occ$source), decreasing = TRUE),
     cleaning = cleaned[c("removed_bad_coordinates", "removed_duplicates", "original_rows", "columns")],
-    dwca_datasets = attr(cleaned$raw, "dwca_datasets"),
-    dwca_issues = attr(cleaned$raw, "dwca_issues"),
+    dwca_datasets = cleaned$dwca_datasets,
+    dwca_issues = cleaned$dwca_issues,
     environment = list(
       names = names(env$env_train_scaled), means = env$means, sds = env$sds,
       files = env$files, extra_covariates = env$extra_covariates,
@@ -1399,7 +1504,8 @@ run_fast_sdm <- function(...) {
     eoo_aoo = eoo_aoo_result,
     aoa = aoa_result,
     summary = suitability_summary, metrics = metrics,
-    paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths)
+    paths = c(list(tif = output_tif, png = output_png, report = output_report), extra_paths,
+              mask_file = if (mask_type != "none" && nzchar(mask_file %||% "")) mask_file else NULL)
   )
   result$report_text <- output_report
   progress_step(progress_fun, 0.96, "Writing manifests and summary report", stage = "output")
@@ -1626,7 +1732,8 @@ sdm_stage_future <- function(cfg, fit, suit, env, output_dir, base_name, log_fun
     output_delta_tif = file.path(output_dir, paste0(base_name, "_future_delta.tif")),
     n_cores = cfg$n_cores %||% 8L, log_fun = log_fun,
     mask_extrapolation = isTRUE(cfg$extrapolation_mask %||% TRUE),
-    mess_threshold = cfg$mess_threshold %||% 0
+    mess_threshold = cfg$mess_threshold %||% 0,
+    mess_train_data = env$env_train
   ), error = function(e) {
     stop("Stage 4b (future) failed: ", conditionMessage(e), call. = FALSE)
   })
@@ -1667,7 +1774,7 @@ sdm_stage_postprocess <- function(cfg, fit, suit, env, log_fun = NULL) {
   }
 
   # Variable importance
-  model_spec <- tryCatch(get_sdm_model(cfg$model_id %||% "glm"), error = function(e) NULL)
+  model_spec <- sdm_step("get-model-spec", tryCatch(get_sdm_model(cfg$model_id %||% "glm"), error = function(e) NULL))
   if (!is.null(model_spec) && isTRUE(model_spec$supports_importance) && !is.null(fit$model_data)) {
     result$importance <- tryCatch(
       xai_importance(fit, seed = cfg$seed %||% 42, n_cores = cfg$n_cores %||% 8L),

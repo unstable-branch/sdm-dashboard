@@ -36,16 +36,10 @@ function validateResponse<T>(data: unknown, schema?: z.ZodType<unknown>): T {
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   const localToken = localStorage.getItem("sdm_token");
-  if (localToken) {
-    writeTokenCookie(localToken, true);
-    return localToken;
-  }
+  if (localToken) return localToken;
 
   const sessionToken = sessionStorage.getItem("sdm_token");
-  if (sessionToken) {
-    writeTokenCookie(sessionToken, false);
-    return sessionToken;
-  }
+  if (sessionToken) return sessionToken;
 
   return null;
 }
@@ -54,14 +48,7 @@ function clearToken() {
   if (typeof window !== "undefined") {
     localStorage.removeItem("sdm_token");
     sessionStorage.removeItem("sdm_token");
-    document.cookie = "sdm_token=; Path=/; SameSite=Lax; Max-Age=0";
   }
-}
-
-function writeTokenCookie(token: string, remember: boolean) {
-  const maxAge = remember ? "; Max-Age=86400" : "";
-  const secure = window.location.protocol === "https:" ? "; Secure" : "";
-  document.cookie = `sdm_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${maxAge}${secure}`;
 }
 
 export async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<Response> {
@@ -100,7 +87,12 @@ export async function fetchWithAuth(url: string, options: FetchOptions = {}): Pr
           _redirecting = true;
           const redirect = encodeURIComponent(window.location.pathname + window.location.search);
           window.location.href = "/login?redirect=" + redirect;
-          setTimeout(() => { _redirecting = false; }, 30000);
+          // Short window (5 s) instead of 30 s. The original 30 s window
+          // suppressed 401 redirects across all other tabs for half a minute
+          // after the first one fired. 5 s is enough for the active tab to
+          // navigate away while allowing other tabs to redirect promptly if
+          // they hit their own 401.
+          setTimeout(() => { _redirecting = false; }, 5000);
         }
         throw new ApiError(401, "Unauthorized");
       }
@@ -205,7 +197,6 @@ export function setAuthToken(token: string, remember = true) {
     clearToken();
     const storage = remember ? localStorage : sessionStorage;
     storage.setItem("sdm_token", token);
-    writeTokenCookie(token, remember);
   }
 }
 
@@ -230,4 +221,18 @@ export async function apiDownload(url: string, filename?: string): Promise<void>
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+}
+
+const API_BASE_URL = typeof process !== "undefined" ? (process.env.NEXT_PUBLIC_API_URL ?? "") : "";
+
+export async function apiGetSuitabilityValue(
+  runId: string,
+  lat: number,
+  lng: number,
+  band?: string
+): Promise<{ value: number | null }> {
+  const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
+  if (band) params.set("band", band);
+  const url = `${API_BASE_URL}/api/v1/results/suitability-value/${encodeURIComponent(runId)}?${params.toString()}`;
+  return apiGet<{ value: number | null }>(url);
 }

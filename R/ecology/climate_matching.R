@@ -51,19 +51,25 @@ compute_climate_match <- function(env_train, env_proj,
   proj_vars <- names(env_proj)
   common_vars <- intersect(train_vars, proj_vars)
 
-  # Handle make.names mismatch
+  # Handle make.names mismatch. Training data columns may have been renamed
+  # via make.names() during model fitting (e.g. "bio.1"), while projection
+  # SpatRaster layers keep their raw names (e.g. "bio1"). Pick the union
+  # of the two renamings and rename BOTH sides so the downstream
+  # colMeans / cov / distance math compares like-named columns.
   if (length(common_vars) == 0) {
     common_vars_clean <- intersect(make.names(train_vars), make.names(proj_vars))
     if (length(common_vars_clean) > 0) {
-      # Remap
       train_map <- setNames(train_vars, make.names(train_vars))
       proj_map <- setNames(proj_vars, make.names(proj_vars))
       train_cols <- train_map[common_vars_clean]
       proj_cols <- proj_map[common_vars_clean]
       train_vals <- train_vals[, train_cols, drop = FALSE]
+      # Rename train_vals columns to match proj_cols so colMeans/cov use the
+      # same names as terra::values(env_proj_subset).
+      colnames(train_vals) <- proj_cols
       env_proj_subset <- env_proj[[proj_cols]]
-      names(env_proj_subset) <- common_vars_clean
-      common_vars <- common_vars_clean
+      names(env_proj_subset) <- proj_cols
+      common_vars <- proj_cols
     } else {
       stop("No common variables between training and projection environments", call. = FALSE)
     }

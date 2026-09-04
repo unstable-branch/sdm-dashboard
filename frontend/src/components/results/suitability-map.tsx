@@ -7,6 +7,8 @@ import type { FeatureCollection } from "geojson";
 import dynamic from "next/dynamic";
 import type { OutputFiles } from "@/services/types";
 import { extentToCoordinates, extentToViewState, parseTileZoom, DEFAULT_TILE_ZOOM_MIN, DEFAULT_TILE_ZOOM_MAX, LAYER_IDS } from "@/lib/map-utils";
+import { apiDownload } from "@/services/api";
+import { Info } from "lucide-react";
 
 interface SuitabilityMapProps {
   outputFiles: OutputFiles | null;
@@ -91,10 +93,17 @@ export function SuitabilityMap({ outputFiles, runId, bandName, initialViewState,
 
   const safeTileZoomMin = parseTileZoom(outputFiles?.tile_zoom_min, DEFAULT_TILE_ZOOM_MIN);
   const safeTileZoomMax = parseTileZoom(outputFiles?.tile_zoom_max, DEFAULT_TILE_ZOOM_MAX);
+  const tilesNotPreGenerated = outputFiles?.tile_zoom_max == null;
 
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
       <div className="relative h-[60vh]">
+        {tilesNotPreGenerated && (
+          <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-md bg-sdm-info/10 px-2.5 py-1.5 text-[11px] text-sdm-info border border-sdm-info/30">
+            <Info className="h-3 w-3" />
+            <span>Tiles not pre-generated — served on-demand</span>
+          </div>
+        )}
         <DynamicMap
           runId={runId}
           band={bandName || "suitability"}
@@ -119,12 +128,7 @@ export function SuitabilityMap({ outputFiles, runId, bandName, initialViewState,
           <button
             onClick={() => {
               const tifPath = outputFiles.tif!;
-              const a = document.createElement("a");
-              a.href = `/api/v1/results/file/download?path=${encodeURIComponent(tifPath)}`;
-              a.download = tifPath.split("/").pop() || "suitability.tif";
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
+              apiDownload(`/api/v1/results/file/download?path=${encodeURIComponent(tifPath)}`, tifPath.split("/").pop() || "suitability.tif");
             }}
             className="text-sdm-accent hover:underline cursor-pointer bg-transparent border-none text-xs"
           >

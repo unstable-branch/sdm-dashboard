@@ -17,8 +17,12 @@ has_enmdetails <- function(name) {
 
 # Built-in ENMeval algorithms
 if (requireNamespace("ENMeval", quietly = TRUE)) {
-  register_enmdetails("maxnet", ENMeval:::enm.maxnet)
-  register_enmdetails("bioclim", ENMeval:::enm.bioclim)
+  register_enmdetails("maxnet",
+    tryCatch(utils::getFromNamespace("enm.maxnet", "ENMeval"), error = function(e) NULL)
+  )
+  register_enmdetails("bioclim",
+    tryCatch(utils::getFromNamespace("enm.bioclim", "ENMeval"), error = function(e) NULL)
+  )
 
   # Custom: dashboard-adapted GLM via glmnet
   glm.errors <- function(occs, envs, bg, tune.args, partitions, algorithm,

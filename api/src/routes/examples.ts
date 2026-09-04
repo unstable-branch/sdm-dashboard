@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { readFileSync, existsSync, writeFileSync, mkdirSync, copyFileSync } from "fs";
+import { writeAtomicSync } from "../services/storage.js";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { plumberClient } from "../services/plumber.js";
@@ -91,7 +92,7 @@ function loadSavedMeta(): Record<string, SavedExampleMeta> {
 function saveSavedMeta(meta: Record<string, SavedExampleMeta>): void {
   try {
     mkdirSync(EXAMPLES_DIR, { recursive: true });
-    writeFileSync(SAVED_META_PATH, JSON.stringify(meta, null, 2), "utf-8");
+    writeAtomicSync(SAVED_META_PATH, JSON.stringify(meta, null, 2));
   } catch {}
 }
 

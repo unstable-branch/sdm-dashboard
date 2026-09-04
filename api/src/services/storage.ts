@@ -230,7 +230,7 @@ export async function syncOutputsToS3(
         } catch (e) {
           lastErr = e;
           if (attempt < 3) {
-            const delay = Math.min(5000 * Math.pow(3, attempt - 1), 45000);
+            const delay = Math.min(5000 * Math.pow(3, attempt - 1), 45000) + Math.random() * 1000;
             console.warn(`[S3] Upload ${key} attempt ${attempt} failed, retrying in ${delay}ms:`, e instanceof Error ? e.message : e);
             await new Promise(r => setTimeout(r, delay));
           }
@@ -246,19 +246,24 @@ export async function syncOutputsToS3(
   return s3Urls;
 }
 
-export async function getFileUrl(
-  bucket: string,
-  objectName: string,
-  _expirySeconds = 3600
-): Promise<string> {
-  const protocol = USE_SSL ? "https" : "http";
-  return `${protocol}://${GARAGE_ENDPOINT}/${bucket}/${objectName}`;
-}
-
 async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) {
     chunks.push(Buffer.from(chunk));
   }
   return Buffer.concat(chunks);
+}
+
+export async function writeAtomic(path: string, data: Buffer | string): Promise<void> {
+  const { writeFile, rename } = await import("fs/promises");
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  await writeFile(tmp, data);
+  await rename(tmp, path);
+}
+
+export function writeAtomicSync(path: string, data: Buffer | string): void {
+  const { writeFileSync, renameSync } = require("fs");
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, path);
 }

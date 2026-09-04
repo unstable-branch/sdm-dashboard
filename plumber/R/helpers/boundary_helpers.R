@@ -65,6 +65,18 @@ handle_boundary_upload <- function(req, res, app_dir) {
       zip_dir <- tempfile()
       dir.create(zip_dir, showWarnings = FALSE)
       on.exit(unlink(zip_dir, recursive = TRUE), add = TRUE)
+      zip_entries <- tryCatch(utils::unzip(src, list = TRUE)$Name,
+                              error = function(e) character(0))
+      for (entry in zip_entries) {
+        normalized <- gsub("\\\\", "/", entry)
+        if (grepl("^/|^[A-Za-z]:", normalized) ||
+            grepl("\\.\\./", normalized) ||
+            grepl("/\\.\\.", normalized) ||
+            substr(normalized, nchar(normalized) - 1L, nchar(normalized)) == "..") {
+          res$status <- 400L
+          return(list(error = "ZIP archive contains unsafe paths; refusing to extract"))
+        }
+      }
       utils::unzip(src, exdir = zip_dir)
       src <- list.files(zip_dir, pattern = "\\.(shp|kml|gpkg|geojson|json)$", full.names = TRUE, recursive = TRUE)[1]
       if (is.na(src) || !file.exists(src)) {
@@ -84,6 +96,7 @@ handle_boundary_upload <- function(req, res, app_dir) {
     dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
     file.copy(src, dest, overwrite = TRUE)
   }
+  sdm_write_boundary_owner(dest, req$user_id %||% "anonymous")
   list(
     file_path = normalizePath(dest, winslash = "/"),
     file_name = file_name,
@@ -96,8 +109,11 @@ handle_boundary_list <- function(res, app_dir) {
   if (!dir.exists(custom_dir)) {
     return(list(boundaries = list()))
   }
+  user_id <- res$user_id %||% NULL
+  is_admin <- isTRUE(res$user_role == "admin")
   files <- list.files(custom_dir, pattern = "\\.geojson$", full.names = TRUE)
   boundaries <- lapply(files, function(f) {
+    if (!is.null(user_id) && !is_admin && !sdm_boundary_owned_by(f, user_id)) return(NULL)
     list(
       file_path = normalizePath(f, winslash = "/"),
       file_name = basename(f),
@@ -105,6 +121,7 @@ handle_boundary_list <- function(res, app_dir) {
       modified_at = format(file.mtime(f), "%Y-%m-%dT%H:%M:%SZ")
     )
   })
+  boundaries <- Filter(Negate(is.null), boundaries)
   list(boundaries = boundaries)
 }
 
@@ -124,8 +141,28 @@ handle_boundary_delete <- function(req, res, app_dir) {
     res$status <- 404L
     return(list(error = "File not found"))
   }
+  user_id <- req$user_id %||% NULL
+  is_admin <- isTRUE(req$user_role == "admin")
+  if (!is.null(user_id) && !is_admin && !sdm_boundary_owned_by(resolved_path, user_id)) {
+    res$status <- 403L
+    return(list(error = sdm_error_code_direct("ACCESS_DENIED", "You do not have permission to delete this boundary")))
+  }
   file.remove(resolved_path)
+  sidecar <- paste0(resolved_path, ".owner")
+  if (file.exists(sidecar)) file.remove(sidecar)
   list(ok = TRUE)
+}
+
+sdm_write_boundary_owner <- function(boundary_path, user_id) {
+  sidecar <- paste0(boundary_path, ".owner")
+  tryCatch(writeLines(user_id, sidecar), error = function(e) NULL)
+}
+
+sdm_boundary_owned_by <- function(boundary_path, user_id) {
+  sidecar <- paste0(boundary_path, ".owner")
+  if (!file.exists(sidecar)) return(TRUE)
+  owner <- tryCatch(readLines(sidecar, warn = FALSE)[1], error = function(e) NULL)
+  !is.null(owner) && nzchar(owner) && owner == user_id
 }
 
 handle_boundary_countries <- function(res, app_dir) {

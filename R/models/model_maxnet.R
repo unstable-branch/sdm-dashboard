@@ -35,8 +35,6 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
       k = k, seed = seed, n_cores = n_cores,
       cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
       threshold = threshold, fit_fun = fit_fun,
-      cluster_setup_fn = cluster_setup,
-      cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
       log_fun = log_fun
     )
   }
@@ -71,21 +69,25 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
 
     maxnet_pa <- cbind(data.frame(presence = model_data$presence), model_data[, covariates, drop = FALSE])
     names(maxnet_pa)[-1] <- covariates
-    model <- tryCatch({
+    model <- sdm_step("maxnet-fit", {
       maxnet::maxnet(p = maxnet_pa$presence, data = maxnet_pa[, covariates, drop = FALSE],
         maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
-    }, error = function(e) {
-      stop("MaxEnt fitting failed: ", conditionMessage(e), call. = FALSE)
     })
 
     model_for_auc <- model_data[, !names(model_data) %in% c(".x", ".y"), drop = FALSE]
-    train_pred <- as.numeric(predict(model, model_for_auc[, covariates, drop = FALSE], clamp = TRUE, type = "cloglog"))
-    train_metrics <- compute_binary_metrics(model_for_auc$presence, train_pred, threshold = threshold)
+    train_pred <- sdm_step("predict-train",
+      as.numeric(predict(model, model_for_auc[, covariates, drop = FALSE], clamp = TRUE, type = "cloglog"))
+    )
+    train_metrics <- sdm_step("train-metrics",
+      compute_binary_metrics(model_for_auc$presence, train_pred, threshold = threshold)
+    )
 
-    cv <- cross_validate_maxnet(model_data, covariates, maxnet_features, maxnet_regmult,
-      k = cv_folds, seed = seed,
-      n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-      threshold = threshold
+    cv <- sdm_step("cross-validate",
+      cross_validate_maxnet(model_data, covariates, maxnet_features, maxnet_regmult,
+        k = cv_folds, seed = seed,
+        n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+        threshold = threshold
+      )
     )
     if (is.finite(cv$auc_mean)) {
       log_message(
@@ -94,15 +96,19 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
       )
     }
 
-    coefficients <- data.frame(
-      term = names(model$betas),
-      estimate = as.numeric(model$betas),
-      row.names = NULL,
-      stringsAsFactors = FALSE
+    coefficients <- sdm_step("extract-coefficients",
+      data.frame(
+        term = names(model$betas),
+        estimate = as.numeric(model$betas),
+        row.names = NULL,
+        stringsAsFactors = FALSE
+      )
     )
 
-    perm_importance <- compute_permutation_importance(model, model_for_auc, covariates, train_metrics$auc,
-      n_perm = 5, seed = seed, threshold = threshold
+    perm_importance <- sdm_step("permutation-importance",
+      compute_permutation_importance(model, model_for_auc, covariates, train_metrics$auc,
+        n_perm = 5, seed = seed, threshold = threshold
+      )
     )
 
     list(
@@ -120,12 +126,17 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
 
   compute_permutation_importance <- function(model, model_data, covariates, baseline_auc, n_perm = 5, seed = 42, threshold = sdm_default_threshold) {
     set.seed(seed)
+    n_rows <- nrow(model_data)
     imp_results <- lapply(covariates, function(var) {
       perm_scores <- numeric(n_perm)
       for (p in seq_len(n_perm)) {
         mod_shuffled <- model_data
-        perm_col <- sample(model_data[[var]])
-        mod_shuffled[[var]] <- perm_col
+        # Replace = TRUE so the permuted column always has exactly n_rows
+        # entries, even if model_data[[var]] is shorter (e.g. NA-filtered
+        # upstream). Without replace=TRUE, a shorter source would recycle
+        # the vector with a warning and pad with NA — silently zeroing
+        # that variable's importance score.
+        mod_shuffled[[var]] <- sample(model_data[[var]], n_rows, replace = TRUE)
         pred_shuffled <- as.numeric(predict(model, mod_shuffled[, covariates, drop = FALSE], clamp = TRUE, type = "cloglog"))
         perm_auc <- compute_binary_metrics(model_data$presence, pred_shuffled, threshold = threshold)$auc
         perm_scores[p] <- baseline_auc - perm_auc
@@ -157,12 +168,9 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
     log_message(log_fun, "Predicting MaxEnt suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
     suit <- terra::app(env_subset, fun = function(vals) {
-      if (!all(is.finite(vals))) {
-        return(rep(NA_real_, nrow(vals)))
-      }
-      df <- as.data.frame(vals, stringsAsFactors = FALSE)
-      names(df) <- fit$covariates
-      as.numeric(predict(fit$model, df, clamp = TRUE, type = "cloglog"))
+      sdm_apply_predict(vals, fit$covariates, function(df) {
+        as.numeric(predict(fit$model, df, clamp = TRUE, type = "cloglog"))
+      })
     }, cores = n_cores)
 
     names(suit) <- "suitability"

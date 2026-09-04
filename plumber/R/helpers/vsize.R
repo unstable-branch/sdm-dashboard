@@ -1,10 +1,46 @@
 # Detect available RAM to set R_MAX_VSIZE as 75% of total (cgroup-aware),
 # overridable via SDM_CHILD_MAX_VSIZE env var.
+#
+# Caching behaviour:
+# - If SDM_CHILD_MAX_VSIZE is set, that exact value is used, no probing.
+# - Otherwise we probe /sys/fs/cgroup/memory.max (cgroup v2) then /proc/meminfo.
+#   The result is cached in a module-level variable to avoid hitting the
+#   filesystem on every R worker spawn, but the cache TTL is governed by
+#   SDM_CHILD_MAX_VSIZE_REFRESH_MS:
+#     - 0 (default) = cache forever; first read wins, no refresh.
+#     - N > 0      = re-probe every N milliseconds.
+#   In container environments with resizable cgroup limits (k8s vertical pod
+#   autoscaling), set SDM_CHILD_MAX_VSIZE_REFRESH_MS to a value like 60000
+#   so a resized limit is detected within a minute without restarting Plumber.
+# Convert sdm_detect_vsize() output ("16Gb") to bytes for callr r_limit_memory.
+# Returns NA_integer_ if conversion fails.
+sdm_vsize_to_bytes <- function(vsize_str = sdm_detect_vsize()) {
+  if (is.null(vsize_str) || !nzchar(vsize_str)) return(NA_integer_)
+  num_gb <- suppressWarnings(as.numeric(sub("[^0-9.]+", "", vsize_str, ignore.case = TRUE)))
+  if (is.finite(num_gb) && num_gb > 0) {
+    as.integer(num_gb * 1024^3)
+  } else {
+    NA_integer_
+  }
+}
+
 sdm_detect_vsize <- local({
   .cached <- NULL
+  .cached_at <- 0
+  .refresh_ms <- NULL
   function() {
-    if (!is.null(.cached)) return(.cached)
-    .cached <<- Sys.getenv("SDM_CHILD_MAX_VSIZE", {
+    refresh_ms <- .refresh_ms
+    if (is.null(refresh_ms)) {
+      raw <- Sys.getenv("SDM_CHILD_MAX_VSIZE_REFRESH_MS", "0")
+      refresh_ms <- suppressWarnings(as.integer(raw))
+      if (is.na(refresh_ms) || refresh_ms < 0) refresh_ms <- 0L
+      .refresh_ms <<- refresh_ms
+    }
+    if (!is.null(.cached) && (refresh_ms == 0L ||
+        (as.numeric(Sys.time()) * 1000 - .cached_at) < refresh_ms)) {
+      return(.cached)
+    }
+    detected <- Sys.getenv("SDM_CHILD_MAX_VSIZE", {
       vsize_gb <- tryCatch({
         cgroup_limit <- NA_real_
         if (file.exists("/sys/fs/cgroup/memory.max")) {
@@ -24,6 +60,8 @@ sdm_detect_vsize <- local({
       }, error = function(e) 16L)
       paste0(vsize_gb, "Gb")
     })
+    .cached <<- detected
+    .cached_at <<- as.numeric(Sys.time()) * 1000
     .cached
   }
 })
@@ -154,7 +192,25 @@ sdm_gpu_total_vram <- function() {
   }, error = function(e) NA_real_, warning = function(w) NA_real_)
 }
 
-# Get full GPU info as a list for the health endpoint
+# Get current process RSS in MB from /proc/self/status (Linux).
+# Falls back to gc()["used"] / 1e6 when /proc is unavailable (e.g. Windows).
+# Returns a single numeric value in MiB, or NA_real_ if unavailable.
+sdm_get_rss_mb <- function() {
+  if (.Platform$OS.type != "unix" || !file.exists("/proc/self/status")) {
+    gc_info <- gc(verbose = FALSE, full = FALSE)
+    if (is.matrix(gc_info) && nrow(gc_info) >= 2) {
+      return(sum(gc_info[2, "Used (Mb)"]) %||% NA_real_)
+    }
+    return(NA_real_)
+  }
+  tryCatch({
+    status <- readLines("/proc/self/status", warn = FALSE)
+    rss_line <- grep("^VmRSS:", status, value = TRUE)
+    if (length(rss_line) == 0) return(NA_real_)
+    rss_kb <- as.numeric(gsub(".*:\\s*(\\d+).*", "\\1", rss_line[1]))
+    if (is.finite(rss_kb)) rss_kb / 1024 else NA_real_
+  }, error = function(e) NA_real_)
+}
 sdm_gpu_info <- function() {
   smi_path <- .sdm_which_nvidia_smi()
   if (is.na(smi_path)) return(.sdm_rocm_gpu_info())

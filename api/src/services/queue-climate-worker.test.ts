@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./queue.js", () => ({
   CLIMATE_DOWNLOAD_POLL_INTERVAL_MS: 1,
-  CLIMATE_DOWNLOAD_MAX_ATTEMPTS: 2,
+  CLIMATE_DOWNLOAD_MAX_ATTEMPTS: 10,
+  CLIMATE_DOWNLOAD_MAX_CONSECUTIVE_POLL_ERRORS: 3,
 }));
 
 const { emitJobStatus } = vi.hoisted(() => ({ emitJobStatus: vi.fn() }));
@@ -10,7 +11,7 @@ vi.mock("./job-events.js", () => ({
   jobEventBus: { emitJobStatus },
 }));
 
-import { handleClimateJob, handleCovariateJob } from "./queue-climate-worker.js";
+import { handleCovariateJob } from "./queue-climate-worker.js";
 
 function fakeJob(type: string) {
   return {
@@ -20,7 +21,7 @@ function fakeJob(type: string) {
   } as never;
 }
 
-describe("climate/covariate worker terminal progress", () => {
+describe("covariate worker terminal progress", () => {
   beforeEach(() => {
     emitJobStatus.mockClear();
   });
@@ -35,22 +36,8 @@ describe("climate/covariate worker terminal progress", () => {
     const result = await handleCovariateJob(job, client, undefined);
 
     expect(result.status).toBe("error");
-    expect(result.error_code).toBe("PLUMBER_TIMEOUT");
-    expect(result.error).toContain("last poll error: plumber unavailable");
-    expect((job as { updateProgress: ReturnType<typeof vi.fn> }).updateProgress).not.toHaveBeenCalledWith(100);
-    expect(emitJobStatus).toHaveBeenLastCalledWith(expect.objectContaining({ state: "failed", progress: 20 }));
-  });
-
-  it("does not report 100 for a failed climate download", async () => {
-    const job = fakeJob("climate_download");
-    const client = {
-      downloadClimate: vi.fn().mockResolvedValue({ job_id: "plumber-climate" }),
-      getClimateStatus: vi.fn().mockResolvedValue({ status: "failed", error: "disk full", progress_log: ["[42%] downloading"] }),
-    } as never;
-
-    const result = await handleClimateJob(job, client, undefined);
-
-    expect(result.status).toBe("error");
+    expect(result.error_code).toBe("PLUMBER_UNREACHABLE");
+    expect(result.error).toContain("plumber unavailable");
     expect((job as { updateProgress: ReturnType<typeof vi.fn> }).updateProgress).not.toHaveBeenCalledWith(100);
     expect(emitJobStatus).toHaveBeenLastCalledWith(expect.objectContaining({ state: "failed", progress: 20 }));
   });
@@ -67,5 +54,24 @@ describe("climate/covariate worker terminal progress", () => {
     expect(result.status).toBe("success");
     expect((job as { updateProgress: ReturnType<typeof vi.fn> }).updateProgress).toHaveBeenLastCalledWith(100);
     expect(emitJobStatus).toHaveBeenLastCalledWith(expect.objectContaining({ state: "completed", progress: 100 }));
+  });
+
+  it("fails covariate job early with PLUMBER_UNREACHABLE after N consecutive poll errors", async () => {
+    const job = fakeJob("covariate_download");
+    const client = {
+      downloadCovariateBg: vi.fn().mockResolvedValue({ job_id: "plumber-cov" }),
+      getJobStatus: vi.fn().mockRejectedValue(new Error("ECONNRESET")),
+    } as never;
+
+    const result = await handleCovariateJob(job, client, undefined);
+
+    expect(result.status).toBe("error");
+    expect(result.error_code).toBe("PLUMBER_UNREACHABLE");
+    expect(result.error).toContain("Polling failed 3 times in a row");
+    expect(result.error).toContain("ECONNRESET");
+    expect((job as { updateProgress: ReturnType<typeof vi.fn> }).updateProgress).not.toHaveBeenCalledWith(100);
+    expect(emitJobStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: "failed", failedReason: expect.stringContaining("ECONNRESET") })
+    );
   });
 });

@@ -5,6 +5,7 @@ import { db } from "../db/index.js";
 import { users, apiKeys, projectMembers, projects } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { checkRateLimit } from "./rate-limit.js";
+import { getClientIp } from "./client-ip.js";
 
 // Batch lastUsedAt updates — flush every 30s or after 100 queued writes
 const lastUsedBatch = new Map<string, number>();
@@ -42,15 +43,6 @@ function queueLastUsedUpdate(keyHash: string) {
   }
 }
 
-export interface JwtPayload {
-  sub: string;
-  email: string;
-  role: string;
-  iat: number;
-  exp: number;
-  iss: string;
-}
-
 export type AppEnv = {
   Variables: {
     user: {
@@ -58,6 +50,7 @@ export type AppEnv = {
       email: string;
       role: string;
     };
+    requestId: string;
   };
 };
 
@@ -66,10 +59,13 @@ function getCookieToken(cookieHeader: string | undefined): string | null {
   const match = cookieHeader
     .split(";")
     .map((part) => part.trim())
-    .find((part) => part.startsWith("sdm_token="));
+    .find((part) => part.startsWith("sdm_token=") || part.startsWith("__Host-sdm_token="));
   if (!match) return null;
+  const value = match.startsWith("__Host-sdm_token=")
+    ? match.slice("__Host-sdm_token=".length)
+    : match.slice("sdm_token=".length);
   try {
-    return decodeURIComponent(match.slice("sdm_token=".length));
+    return decodeURIComponent(value);
   } catch {
     return null;
   }
@@ -88,7 +84,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 
   if (apiKeyHeader) {
     try {
-      const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown";
+const ip = getClientIp(c);
 
       if (apiKeyHeader.length < 8) {
         console.warn(`[auth] Rejected short API key (len=${apiKeyHeader.length}) from ${ip}`);
@@ -155,7 +151,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
       console.warn(`[audit] JWT issuer mismatch: expected ${expectedIss}, got ${payload.iss} for sub=${payload.sub}`);
       return c.json({ error: "Invalid token issuer" }, 401);
     }
-    const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown";
+    const ip = getClientIp(c);
     console.info(`[audit] JWT auth OK: user=${payload.sub} role=${payload.role} from ${ip}`);
     c.set("user", {
       id: payload.sub as string,
@@ -164,7 +160,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
     });
     await next();
   } catch (err) {
-    const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown";
+    const ip = getClientIp(c);
     console.warn(`[audit] JWT auth FAILED from ${ip}: ${err instanceof Error ? err.message : "token verification error"}`);
     return c.json({ error: "Invalid token" }, 401);
   }

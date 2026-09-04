@@ -50,21 +50,49 @@ handle_model_run <- function(req, app_dir) {
     }
   }
 
-  tryCatch({
-    mem_info <- sdm_mem_info()
-    if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
-      if (mem_info$memavail < 1.0) {
-        return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
-          "Server memory critically low (", sprintf("%.1f", mem_info$memavail),
-          " GB available). Wait for other runs to complete or restart the container."
-        )))
-      }
-    }
-  }, error = function(e) {
-    sdm_log_error("Memory check failed: %s", conditionMessage(e))
-  })
+  model_id <- as.character(body$model_id %||% "glm")
 
+  if (identical(model_id, "dnn") || identical(model_id, "dnn_multispecies")) {
+    cuda_avail <- FALSE
+    tryCatch({
+      if (requireNamespace("torch", quietly = TRUE)) {
+        cuda_avail <- torch::cuda_is_available()
+      }
+    }, error = function(e) NULL)
+    if (!cuda_avail) {
+      sdm_log_warn("DNN model requested but CUDA GPU not available")
+    }
+  }
+
+  mem_info <- sdm_mem_info()
   active <- sdm_count_active_runs()
+  if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
+    if (mem_info$memavail < 1.0) {
+      return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
+        "Server memory critically low (", sprintf("%.1f", mem_info$memavail),
+        " GB available). Wait for other runs to complete or restart the container."
+      )))
+    }
+    per_job_share <- mem_info$memavail * 0.6 / max(1, active + 1)
+    multiplier <- if (model_id %in% c("brms", "esm_brms")) {
+      10.0
+    } else if (model_id %in% c("dnn", "dnn_multispecies")) {
+      8.0
+    } else {
+      3.0
+    }
+    est_gb <- multiplier * 0.5
+    if (est_gb > per_job_share) {
+      return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
+        "Insufficient memory for model '", model_id, "': estimated ", sprintf("%.1f", est_gb),
+        " GB needed but only ", sprintf("%.1f", per_job_share),
+        " GB available per slot (", active, " active). Reduce resolution or wait for other runs."
+      )))
+    }
+  } else {
+    sdm_log_error("Memory check failed: mem_info unavailable")
+  }
+
   if (active >= SDM_MAX_CONCURRENT_RUNS) {
     return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
       "Server busy: ", active, " model run(s) in progress (max ", SDM_MAX_CONCURRENT_RUNS,
@@ -142,13 +170,29 @@ handle_model_run <- function(req, app_dir) {
     CUBLAS_WORKSPACE_CONFIG = ":4096:8"
   )
 
-  proc <- callr::r_bg(function(script, job_dir, app_dir) {
-    source(script, local = TRUE)
-  }, args = list(script_path, job_dir, app_dir),
-  stdout = file.path(job_dir, "stdout.log"),
-  stderr = file.path(job_dir, "stderr.log"),
-  cmdargs = c("--no-save", "--no-restore"),
-  env = env)
+  proc <- tryCatch({
+    callr::r_bg(function(script, job_dir, app_dir) {
+      source(script, local = TRUE)
+    }, args = list(script_path, job_dir, app_dir),
+    stdout = file.path(job_dir, "stdout.log"),
+    stderr = file.path(job_dir, "stderr.log"),
+    cmdargs = c("--no-save", "--no-restore"),
+    env = env,
+    r_limit_memory = sdm_vsize_to_bytes())
+  }, error = function(e) {
+    sdm_write_json(list(
+      id = job_id,
+      user_id = user_id,
+      status = "failed",
+      started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+      config = as.list(body),
+      output_dir = job_dir,
+      error = conditionMessage(e)
+    ), file.path(job_dir, "meta.json"))
+    return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
+      "Failed to start model run: ", conditionMessage(e)
+    )))
+  })
   device_tag <- if (is_gpu_model) gpu_backend else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
@@ -457,7 +501,8 @@ handle_targets_run <- function(req, app_dir) {
   stdout = file.path(job_dir, "stdout.log"),
   stderr = file.path(job_dir, "stderr.log"),
   cmdargs = c("--no-save", "--no-restore"),
-  env = env_vars)
+  env = env_vars,
+  r_limit_memory = sdm_vsize_to_bytes())
   target_backends <- vapply(configs, function(c) {
     mid <- c$model_id %||% c[["modelId"]] %||% "glm"
     dev <- c$dnn_device %||% c[["dnnDevice"]] %||% "auto"
@@ -514,10 +559,64 @@ handle_targets_status <- function(res, job_id) {
       }
     }
     if (!process_alive) {
+      exit_code <- NULL
+      exit_signal_name <- NULL
+      if (!is.null(proc)) {
+        tryCatch({
+          status_val <- proc$get_status()
+          if (is.character(status_val) && length(status_val) == 1 && !nzchar(status_val) == FALSE) {
+            if (status_val %in% c("running", "sleeping")) {
+              # Process still technically alive but is_alive() returned FALSE — edge case
+            } else {
+              # Try to parse as numeric exit code
+              exit_code <- suppressWarnings(as.integer(status_val))
+              if (is.na(exit_code)) exit_code <- NULL
+              # Also check if it's a signal name
+              sig_map <- c("SIGKILL" = 9L, "SIGSEGV" = 11L, "SIGTERM" = 15L,
+                            "SIGINT" = 2L, "SIGHUP" = 1L, "SIGABRT" = 6L,
+                            "SIGPIPE" = 13L)
+              if (!is.null(exit_code) && exit_code > 128) {
+                sig_num <- exit_code - 128
+                sig_names <- c(`1` = "SIGHUP", `2` = "SIGINT", `6` = "SIGABRT",
+                               `9` = "SIGKILL", `11` = "SIGSEGV", `13` = "SIGPIPE",
+                               `15` = "SIGTERM")
+                exit_signal_name <- sig_names[as.character(sig_num)] %||% paste0("signal ", sig_num)
+              } else if (!is.null(exit_code) && exit_code > 0) {
+                exit_signal_name <- paste0("exit code ", exit_code)
+              }
+            }
+          }
+        }, error = function(e) NULL)
+      }
+      hint <- if (!is.null(exit_code)) {
+        if (exit_code == 137) {
+          "Process received SIGKILL (exit 137) — likely OOMKilled by the container/kernel. Reduce raster resolution, reduce number of covariates, or increase container memory limit."
+        } else if (exit_code == 139) {
+          "Process received SIGSEGV (exit 139) — segfault in native code. This may indicate a bug in an R package (terra, raster, etc.). Try reducing resolution or using a different model."
+        } else if (exit_code == 143) {
+          "Process received SIGTERM (exit 143) — terminated by user or orchestrator. If not intentional, check the cancel flag and Redis state."
+        } else if (exit_code == 124) {
+          "Process timed out (exit 124 from GNU timeout). Increase the timeout limit or simplify the model."
+        } else if (exit_code == 0) {
+          "Process exited cleanly but was misidentified as dead — no action needed."
+        } else if (exit_code > 128) {
+          paste0("Process exited with code ", exit_code, " (", exit_signal_name %||% "", "). ", SDM_ERR_CODES$PROCESS_CRASH$hint)
+        } else {
+          SDM_ERR_CODES$PROCESS_CRASH$hint
+        }
+      } else {
+        SDM_ERR_CODES$PROCESS_CRASH$hint
+      }
       meta$status <- "failed"
-      meta$error <- "Process crashed or was killed"
+      meta$error <- if (!is.null(exit_code) && exit_code > 0) {
+        paste0("Process crashed or was killed (exit ", exit_code,
+               if (!is.null(exit_signal_name)) paste0(" — ", exit_signal_name) else "", ")")
+      } else {
+        "Process crashed or was killed"
+      }
       meta$error_code <- "PROCESS_CRASH"
-      meta$error_hint <- "The process was terminated by the OS, likely due to insufficient memory. Reduce covariates, use coarser resolution, or increase available memory."
+      meta$error_hint <- hint
+      if (!is.null(exit_code) && is.finite(exit_code)) meta$exit_code <- exit_code
       meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       sdm_write_json(meta, meta_file)
       sdm_process_registry[[job_id]] <- NULL
@@ -579,7 +678,8 @@ handle_targets_results <- function(res, job_id) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
   store_path <- file.path(job_dir, "_targets")
 
   config_csv <- file.path(job_dir, "config.csv")
@@ -748,7 +848,7 @@ handle_model_status <- function(res, job_id) {
         })
       }
     }
-    if (process_alive || is.null(proc)) {
+    if (!process_alive || is.null(proc)) {
       heartbeat_file <- file.path(job_dir, "heartbeat.log")
       if (file.exists(heartbeat_file)) {
         last_line <- tryCatch(tail(readLines(heartbeat_file, warn = FALSE), 1), error = function(e) NULL)
@@ -933,7 +1033,7 @@ handle_model_status <- function(res, job_id) {
   result
 }
 
-handle_model_cancel <- function(req, job_id) {
+handle_model_cancel <- function(req, res, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     return(list(ok = FALSE, message = "Invalid job ID"))
@@ -941,7 +1041,8 @@ handle_model_cancel <- function(req, job_id) {
   meta_file <- file.path(job_dir, "meta.json")
 
   if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    meta <- sdm_read_meta_json(meta_file)
+    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
       if (as.character(meta$user_id) != as.character(req$user_id)) {
         return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this run"))
@@ -953,22 +1054,35 @@ handle_model_cancel <- function(req, job_id) {
   proc <- sdm_registry_proc(entry)
   killed <- FALSE
 
-  if (!is.null(proc) && inherits(proc, "Process")) {
+  if (!is.null(proc) && inherits(proc, "process")) {
     if (proc$is_alive()) {
       proc$kill()
       killed <- TRUE
-      # Wait briefly for process to die, then escalate to SIGKILL if still alive
-      Sys.sleep(3)
+      for (i in seq_len(30)) {
+        if (!proc$is_alive()) break
+        Sys.sleep(0.1)
+      }
       if (proc$is_alive()) {
         pid <- proc$get_pid()
-        tryCatch(tools::pskill(pid, signal = 9), error = function(e) NULL)
-        Sys.sleep(2)
+        tryCatch({
+          if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
+            cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
+            if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
+          }
+          tools::pskill(pid, signal = 9)
+        }, error = function(e) NULL)
+        for (i in seq_len(20)) {
+          if (!proc$is_alive()) break
+          Sys.sleep(0.1)
+        }
       }
     }
     device_tag <- if (is.list(entry)) entry$device else "cpu"
-    # Give any discrete GPU backend time to release VRAM after termination.
     if (killed && sdm_backend_is_discrete_gpu(device_tag)) {
-      Sys.sleep(2)
+      for (i in seq_len(20)) {
+        if (!proc$is_alive()) break
+        Sys.sleep(0.1)
+      }
     }
     rm(list = job_id, envir = sdm_process_registry)
   }
@@ -976,11 +1090,25 @@ handle_model_cancel <- function(req, job_id) {
   progress_log <- file.path(job_dir, "progress.log")
 
   if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    # Set Redis cancel flag BEFORE writing meta.json so the child process
+    # exits gracefully on its next poll rather than writing a "completed" status.
+    sdm_redis_cancel_set(job_id)
+
+    # Re-read meta to detect if child already wrote a terminal status.
+    meta <- sdm_read_meta_json(meta_file)
+    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
+    if (!is.null(meta$status) && meta$status %in% c("completed", "failed", "cancelled")) {
+      return(list(ok = TRUE, message = "Run already terminated"))
+    }
 
     if (!killed && !is.null(meta$process_pid)) {
+      pid <- meta$process_pid
       tryCatch({
-        tools::pskill(meta$process_pid, signal = 9)
+        if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
+          cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
+          if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
+        }
+        tools::pskill(pid, signal = 9)
         killed <- TRUE
       }, error = function(e) NULL)
     }
@@ -989,7 +1117,6 @@ handle_model_cancel <- function(req, job_id) {
     meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
     meta$error <- "Cancelled by user"
     sdm_write_json(meta, meta_file)
-    sdm_redis_cancel_set(job_id)
   }
 
   if (killed) {
@@ -1003,7 +1130,7 @@ handle_model_cancel <- function(req, job_id) {
   list(ok = TRUE, message = if (killed) "Run cancelled and process terminated" else "Run cancelled (process not found)")
 }
 
-handle_model_delete <- function(req, job_id) {
+handle_model_delete <- function(req, res, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     return(list(ok = TRUE, message = "Invalid job ID", deleted = FALSE))
@@ -1011,7 +1138,8 @@ handle_model_delete <- function(req, job_id) {
   meta_file <- file.path(job_dir, "meta.json")
 
   if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    meta <- sdm_read_meta_json(meta_file)
+    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
       if (as.character(meta$user_id) != as.character(req$user_id)) {
         return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to delete this run"))
@@ -1039,7 +1167,8 @@ handle_models_runs <- function(req, app_dir) {
   runs <- lapply(job_dirs, function(jd) {
     meta_file <- file.path(jobs_dir, jd, "meta.json")
     if (file.exists(meta_file)) {
-      meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+      meta <- sdm_read_meta_json(meta_file)
+      if (is.null(meta)) { return(NULL) }
 
       if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) {
         if (is.null(meta$user_id) || as.character(meta$user_id) != as.character(req$user_id)) {

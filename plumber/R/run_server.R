@@ -5,17 +5,17 @@
 #   - X-Hono-Internal header + X-Forwarded-User (Hono-proxied requests with valid JWT)
 # Open endpoints (health, reads) bypass auth
 
-# Fatal error handler: dump stack + variables to crash log so OOM/segfault leaves a trail
-# Ignores REQUEST_REJECTED (normal Plumber auth rejection — not a crash)
+# Fatal error handler: dump stack + variables to crash log so OOM/segfault leaves a trail.
+# Auth rejections from the preroute filter set res directly and return FALSE — these
+# do NOT trigger this handler. This only fires for genuine crashes.
 options(error = function() {
-  # Plumber preroute hook calls stop("REQUEST_REJECTED") for auth failures.
-  # These are expected and must not trigger crash logging or health-check alarms.
-  if (identical(geterrmessage(), "REQUEST_REJECTED")) return(invisible(NULL))
+  cond <- tryCatch(get("condition", envir = .GlobalEnv, inherits = FALSE), error = function(e) NULL)
+  if (is.null(cond)) return(invisible(NULL))
   crash_file <- file.path(tempdir(), "sdm_crash_dump.rda")
   tryCatch({
     dump.frames("sdm_crash_dump", to.file = TRUE)
     cat("FATAL: R process crashed at", format(Sys.time()), "\n",
-      "  Error:", geterrmessage(), "\n",
+      "  Error:", conditionMessage(cond), "\n",
       "  Dump written to:", crash_file, "\n",
       file = file.path(Sys.getenv("SDM_CRASH_LOG", tempdir()), "sdm_crash.log"),
       append = TRUE)
@@ -88,97 +88,23 @@ if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {
 
 # Internal auth key set by Hono when proxying authenticated requests
 internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
+data_encryption_key <- Sys.getenv("DATA_ENCRYPTION_KEY", "")
 
-# Auth helper: stop request with error response
-auth_fail <- function(res, status, msg) {
-  tryCatch(res$status <- status, error = function(e) NULL)
-  stop("REQUEST_REJECTED", call. = FALSE)
+# In production, refuse to start if required secrets are missing or weak.
+if (identical(Sys.getenv("NODE_ENV"), "production")) {
+  issues <- character(0)
+  if (!nzchar(internal_key) || nchar(internal_key) < 32L) {
+    issues <- c(issues, "PLUMBER_INTERNAL_KEY (>=32 chars)")
+  }
+  if (!nzchar(data_encryption_key) || nchar(data_encryption_key) < 32L) {
+    issues <- c(issues, "DATA_ENCRYPTION_KEY (>=32 chars)")
+  }
+  if (length(issues) > 0L) {
+    cat("FATAL: missing or weak required secrets in production:", paste(issues, collapse = ", "), "\n")
+    cat("  Set these environment variables before starting Plumber.\n")
+    quit(status = 1)
+  }
 }
-
-# Helper to safely read headers
-get_hdr <- function(req, name) {
-  tryCatch({
-    hdrs <- req$HEADERS
-    if (is.null(hdrs) || length(hdrs) == 0L) return(NULL)
-    name_lower <- tolower(name)
-    for (h in names(hdrs)) {
-      if (tolower(h) == name_lower) return(hdrs[[h]])
-    }
-    NULL
-  }, error = function(e) NULL)
-}
-
-# Global preroute hook - runs before every endpoint
-# Throws an error to stop processing when auth fails
-plumber::pr_hook(pr, "preroute", function(data, req, res) {
-  path <- req$PATH_INFO %||% req$PATH
-
-  # Guard against malformed requests
-  if (is.null(path) || length(path) == 0L) {
-    auth_fail(res, 400L, '{"error":"Malformed request"}')
-    return(NULL)
-  }
-
-  # Disable auth in dev/test if env var set
-  if (identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
-    if (identical(Sys.getenv("NODE_ENV"), "production")) {
-      cat("FATAL: PLUMBER_AUTH_DISABLED is set in production — refusing to start.\n")
-      cat("  Remove PLUMBER_AUTH_DISABLED=true from production environment.\n")
-      quit(status = 1)
-    }
-    fwd_user <- get_hdr(req, "x-forwarded-user")
-    if (!is.null(fwd_user) && nzchar(fwd_user)) {
-      req$user_id <- fwd_user
-    }
-    return(NULL)
-  }
-
-  # Open endpoints: read-only, no state change
-  if (!requires_auth(path)) {
-    return(NULL)
-  }
-
-  # Hono internal proxy: Hono has already validated JWT, forward user ID
-  if (nzchar(internal_key)) {
-    hono_internal <- get_hdr(req, "x-hono-internal")
-    if (!is.null(hono_internal) && identical(hono_internal, internal_key)) {
-      fwd_user <- get_hdr(req, "x-forwarded-user")
-      if (!is.null(fwd_user) && nzchar(fwd_user)) {
-        req$user_id <- fwd_user
-      }
-      return(NULL)
-    }
-  }
-
-  # Direct API key auth
-  api_key <- get_hdr(req, "x-api-key")
-  if (is.null(api_key) || !nzchar(api_key)) {
-    auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}')
-    return(NULL)
-  }
-
-  db_pool <- sdm_get_db_pool(db_pool)
-  user_info <- validate_api_key(api_key, pool = db_pool, app_dir = app_dir)
-  if (is.null(user_info)) {
-    auth_fail(res, 401L, '{"error":"Invalid or expired API key."}')
-    return(NULL)
-  }
-
-  req$user_id <- user_info$user_id
-  req$user_email <- user_info$email
-  req$user_role <- user_info$role
-
-  # Rate limit: use hashed API key or user ID as bucket key
-  rate_key <- api_key %||% user_info$user_id %||% fwd_user
-  if (!is.null(rate_key) && nzchar(rate_key)) {
-    if (!sdm_check_rate_limit(rate_key, max_requests = 120, window_seconds = 60)) {
-      auth_fail(res, 429L, '{"error":"Rate limit exceeded. Try again in 60 seconds."}')
-      return(NULL)
-    }
-  }
-
-  NULL
-})
 
 # Now source the plumber routes - they register with global `pr`
 source(file.path(app_dir, "plumber", "R", "plumber.R"), local = FALSE)
@@ -192,9 +118,12 @@ orphan_cleanup <- function() {
   jobs_base <- file.path(app_dir, "outputs", "jobs")
   if (!dir.exists(jobs_base)) return(NULL)
   stale_running_cutoff <- Sys.time() - 86400
-  retention_days <- suppressWarnings(as.numeric(Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7")))
-  if (!is.finite(retention_days) || retention_days < 1) retention_days <- 7
-  prune_cutoff <- Sys.time() - retention_days * 86400
+  failed_retention_days <- suppressWarnings(as.numeric(Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7")))
+  if (!is.finite(failed_retention_days) || failed_retention_days < 1) failed_retention_days <- 7
+  failed_prune_cutoff <- Sys.time() - failed_retention_days * 86400
+  completed_retention_days <- suppressWarnings(as.numeric(Sys.getenv("SDM_COMPLETED_JOB_RETENTION_DAYS", "30")))
+  if (!is.finite(completed_retention_days) || completed_retention_days < 1) completed_retention_days <- 30
+  completed_prune_cutoff <- Sys.time() - completed_retention_days * 86400
 
   for (job_dir in list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)) {
     meta_file <- file.path(job_dir, "meta.json")
@@ -210,14 +139,17 @@ orphan_cleanup <- function() {
       meta$error_hint <- "Restart the job. If this recurs, inspect the retained stdout and stderr logs."
       meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       sdm_write_json(meta, meta_file)
-    } else if (meta$status %in% c("failed", "cancelled") && !is.na(mtime) && mtime < prune_cutoff) {
+    } else if (meta$status %in% c("failed", "cancelled") && !is.na(mtime) && mtime < failed_prune_cutoff) {
+      unlink(job_dir, recursive = TRUE, force = TRUE)
+    } else if (identical(meta$status, "completed") && !is.na(mtime) && mtime < completed_prune_cutoff) {
       unlink(job_dir, recursive = TRUE, force = TRUE)
     }
   }
 }
 tryCatch({
-  cat("Running orphan cleanup (failed-job retention: ",
-      Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7"), " days)...\n", sep = "")
+  cat("Running orphan cleanup (failed retention: ",
+      Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7"), "d, completed retention: ",
+      Sys.getenv("SDM_COMPLETED_JOB_RETENTION_DAYS", "30"), "d)...\n", sep = "")
   orphan_cleanup()
 }, error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
 
@@ -233,17 +165,33 @@ plumber::pr_hook(pr, "exit", function() {
   reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
   if (!is.null(reg) && is.environment(reg)) {
     for (job_id in ls(reg)) {
-      proc <- reg[[job_id]]
-      if (inherits(proc, "process") && proc$is_alive()) {
+      entry <- reg[[job_id]]
+      proc <- sdm_registry_proc(entry)
+      if (!is.null(proc) && (inherits(proc, "process") || inherits(proc, "Process")) && proc$is_alive()) {
         cat("Killing background job:", job_id, "\n")
         tryCatch(proc$kill(), error = function(e) NULL)
+        tryCatch(proc$wait(timeout = 5000), error = function(e) NULL)
+        if (proc$is_alive()) {
+          pid <- tryCatch(proc$get_pid(), error = function(e) NULL)
+          if (!is.null(pid)) {
+            tryCatch(tools::pskill(pid, signal = 9L), error = function(e) NULL)
+          }
+        }
+        # Close process file handles before removing entry
+        tryCatch(proc$close_output(), error = function(e) NULL)
+        tryCatch(proc$close_input(), error = function(e) NULL)
+        tryCatch(proc$close(), error = function(e) NULL)
       }
     }
+    # Remove all registry entries so sdm_process_registry is empty on exit
+    rm(list = ls(reg, all.names = TRUE), envir = reg)
+    gc(verbose = FALSE)
+    cat("sdm_process_registry cleared.\n")
   }
   # Close Redis connection
   sdm_redis_close()
 
-  # Also kill any leftover processes from meta.json files
+  # Also kill any leftover processes from meta.json files (SIGTERM + 5s grace)
   jobs_base <- file.path(app_dir, "outputs", "jobs")
   if (dir.exists(jobs_base)) {
     for (jd in list.dirs(jobs_base, full.names = TRUE, recursive = FALSE)) {
@@ -251,7 +199,10 @@ plumber::pr_hook(pr, "exit", function() {
       if (file.exists(meta_file)) {
         meta <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
         if (!is.null(meta) && identical(meta$status, "running") && !is.null(meta$process_pid)) {
-          tryCatch(tools::pskill(meta$process_pid, signal = 9), error = function(e) NULL)
+          pid <- meta$process_pid
+          tryCatch(tools::pskill(pid, signal = 15L), error = function(e) NULL)  # SIGTERM
+          Sys.sleep(5)
+          tryCatch(tools::pskill(pid, signal = 9L), error = function(e) NULL)   # SIGKILL if still alive
         }
       }
     }
@@ -276,10 +227,17 @@ tryCatch({
 }, error = function(e) cat("WARNING: Could not check available RAM:", conditionMessage(e), "\n"))
 
 # Warn if encryption key is not set (dev mode with unencrypted files)
-enc_key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+enc_key <- Sys.getenv("DATA_ENCRYPTION_KEY", unset = NA_character_)
 if (is.na(enc_key) || !nzchar(enc_key)) {
-  cat("NOTE: SDM_ENCRYPTION_KEY not set — occurrence files stored unencrypted.\n",
-      "  Set SDM_ENCRYPTION_KEY to a 32+ character secret to enable AES-256-GCM encryption.\n",
+  enc_key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+  if (!is.na(enc_key) && nzchar(enc_key)) {
+    warning("SDM_ENCRYPTION_KEY is deprecated — use DATA_ENCRYPTION_KEY instead",
+      call. = FALSE, immediate. = TRUE)
+  }
+}
+if (is.na(enc_key) || !nzchar(enc_key)) {
+  cat("NOTE: No encryption key set — occurrence files stored unencrypted.\n",
+      "  Set DATA_ENCRYPTION_KEY (or SDM_ENCRYPTION_KEY) to a 32+ character secret to enable AES-256-GCM encryption.\n",
       sep = "")
 }
 

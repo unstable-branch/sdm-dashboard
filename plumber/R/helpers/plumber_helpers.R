@@ -95,6 +95,27 @@ sdm_write_json <- function(value, path, ...) {
   invisible(path)
 }
 
+# Safe JSON reader: returns NULL on parse failure or missing file instead of
+# throwing. Background processes rewrite meta.json concurrently; a partial
+# read used to surface as 500 to the client. Use this in any handler that
+# reads meta.json or progress.log so a transient I/O error produces a clean
+# 503 instead.
+sdm_read_meta_json <- function(path, default = NULL) {
+  if (!file.exists(path)) return(default)
+  tryCatch(
+    jsonlite::fromJSON(path, simplifyVector = FALSE),
+    error = function(e) default
+  )
+}
+
+sdm_read_progress_lines <- function(path, n = 50, default = character()) {
+  if (!file.exists(path)) return(default)
+  tryCatch(
+    tail(readLines(path, warn = FALSE), n),
+    error = function(e) default
+  )
+}
+
 # Cached probe for the configured Python interpreter. This deliberately runs only
 # for python_torch_dnn scheduling and can be reset/injected in tests.
 .sdm_python_torch_capability_cache <- new.env(parent = emptyenv())
@@ -114,8 +135,14 @@ sdm_python_torch_capabilities <- function(capabilities = NULL, refresh = FALSE) 
 
   python_bin <- if (exists("sdm_python_path", mode = "function")) sdm_python_path() else Sys.getenv("SDM_PYTHON", "python3")
   cache_key <- paste0("capabilities_", gsub("[^A-Za-z0-9]", "_", python_bin))
+  ts_key <- paste0(cache_key, "_ts")
   if (!isTRUE(refresh) && exists(cache_key, envir = .sdm_python_torch_capability_cache, inherits = FALSE)) {
-    return(get(cache_key, envir = .sdm_python_torch_capability_cache, inherits = FALSE))
+    if (exists(ts_key, envir = .sdm_python_torch_capability_cache, inherits = FALSE)) {
+      age <- difftime(Sys.time(), get(ts_key, envir = .sdm_python_torch_capability_cache), units = "secs")
+      if (as.numeric(age) < 3600) {
+        return(get(cache_key, envir = .sdm_python_torch_capability_cache, inherits = FALSE))
+      }
+    }
   }
 
   command <- paste0(
@@ -128,6 +155,7 @@ sdm_python_torch_capabilities <- function(capabilities = NULL, refresh = FALSE) 
   }, error = function(e) list())
   result <- normalize(raw)
   assign(cache_key, result, envir = .sdm_python_torch_capability_cache)
+  assign(ts_key, Sys.time(), envir = .sdm_python_torch_capability_cache)
   result
 }
 
@@ -260,20 +288,58 @@ db_insert_upload <- function(con, user_id, file_path, filename, file_size, forma
   }, error = function(e) message("Failed to record upload: ", conditionMessage(e)))
 }
 
-# LRU cache for deserialized result.rds — avoids re-reading the same
-# multi-MB RDS file on every diagnostic endpoint call.
+# Single-entry cache for deserialized result.rds.
+# Only one result is ever held unwrapped in memory at a time.
+# Keyed by path+mtime so a re-run that overwrites the file is detected.
 sdm_result_cache <- new.env(parent = emptyenv())
-sdm_result_cache_max <- 10L
+sdm_result_cache_mtime <- NA
 
-# Read saved result RDS and unwrap SpatRasters (cached by file path)
+sdm_result_cache_key <- function(path) {
+  if (!file.exists(path)) return(paste0("missing:", path))
+  as.numeric(file.info(path)$mtime)
+}
+
+# Read saved result RDS and unwrap SpatRasters (single-entry cache by file path).
+# Always reads fresh; only the last-opened result is retained.
+# Callers MUST call sdm_cleanup_result() after use to free SpatRaster memory.
 sdm_read_result <- function(path) {
   if (is.null(path) || !file.exists(path)) return(NULL)
 
-  # Check cache
-  cached <- sdm_result_cache[[path]]
-  if (!is.null(cached)) {
-    attr(sdm_result_cache[[path]], "accessed") <- Sys.time()
-    return(cached)
+  cache_mtime <- sdm_result_cache_key(path)
+
+  # Single-entry cache hit (same file, same mtime)
+  if (!identical(cache_mtime, NA) && identical(cache_mtime, sdm_result_cache_mtime)) {
+    return(sdm_result_cache[["result"]])
+  }
+
+  # Evict previous entry before reading new one
+  if (exists("result", envir = sdm_result_cache, inherits = FALSE)) {
+    old <- sdm_result_cache[["result"]]
+    rm(list = "result", envir = sdm_result_cache)
+    # Explicitly clean up unwrapped SpatRasters from previous result
+    if (!is.null(old$suitability) && inherits(old$suitability, "SpatRaster")) {
+      suppressWarnings(rm(list = "suitability", envir = old))
+    }
+    if (!is.null(old$future) && is.list(old$future) && !is.null(old$future$suitability) &&
+        inherits(old$future$suitability, "SpatRaster")) {
+      suppressWarnings(rm(list = "suitability", envir = old$future))
+    }
+    if (!is.null(old$future2) && is.list(old$future2) && !is.null(old$future2$suitability) &&
+        inherits(old$future2$suitability, "SpatRaster")) {
+      suppressWarnings(rm(list = "suitability", envir = old$future2))
+    }
+    if (!is.null(old$climate_match) && is.list(old$climate_match) && !is.null(old$climate_match$similarity) &&
+        inherits(old$climate_match$similarity, "SpatRaster")) {
+      suppressWarnings(rm(list = "similarity", envir = old$climate_match))
+    }
+    if (!is.null(old$mess) && is.list(old$mess) && !is.null(old$mess$mess) &&
+        inherits(old$mess$mess, "SpatRaster")) {
+      suppressWarnings(rm(list = "mess", envir = old$mess))
+    }
+    if (!is.null(old$aoa) && inherits(old$aoa, "SpatRaster")) {
+      suppressWarnings(rm(list = "aoa", envir = old))
+    }
+    gc(verbose = FALSE)
   }
 
   tryCatch({
@@ -297,23 +363,32 @@ sdm_read_result <- function(path) {
       res$aoa <- terra::unwrap(res$aoa)
     }
 
-    # Evict LRU if cache is full
-    cached_keys <- ls(sdm_result_cache)
-    if (length(cached_keys) >= sdm_result_cache_max) {
-      access_times <- sapply(cached_keys, function(k) {
-        attr(sdm_result_cache[[k]], "accessed") %||% 0
-      })
-      n_excess <- length(cached_keys) - sdm_result_cache_max + 1L
-      to_remove <- names(sort(unlist(access_times)))[seq_len(n_excess)]
-      rm(list = to_remove, envir = sdm_result_cache)
-      gc(verbose = FALSE)
-    }
-
-    attr(res, "accessed") <- Sys.time()
-    sdm_result_cache[[path]] <- res
+    sdm_result_cache[["result"]] <- res
+    sdm_result_cache_mtime <- cache_mtime
     res
   }, error = function(e) {
     sdm_log_error("Failed to read result RDS: %s", conditionMessage(e))
     NULL
   })
+}
+
+# Clean up all SpatRaster fields in a result object returned by sdm_read_result().
+# MUST be called by every caller after using the result to free memory.
+sdm_cleanup_result <- function(res) {
+  if (is.null(res) || !is.list(res)) return()
+  for (field in c("suitability", "aoa")) {
+    if (!is.null(res[[field]]) && inherits(res[[field]], "SpatRaster")) {
+      suppressWarnings(rm(list = field, envir = res))
+    }
+  }
+  for (sub_field in c("future", "future2")) {
+    if (!is.null(res[[sub_field]]) && is.list(res[[sub_field]])) {
+      for (inner in c("suitability", "similarity", "mess")) {
+        if (!is.null(res[[sub_field]][[inner]]) && inherits(res[[sub_field]][[inner]], "SpatRaster")) {
+          suppressWarnings(rm(list = inner, envir = res[[sub_field]]))
+        }
+      }
+    }
+  }
+  gc(verbose = FALSE)
 }

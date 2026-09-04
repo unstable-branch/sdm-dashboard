@@ -115,7 +115,7 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
     if (k_rb >= 2) {
       set.seed(seed)
       pres_fold_id <- sample(rep(seq_len(k_rb), length.out = nrow(pres_vals)))
-      bg_fold_id <- rep(0L, nrow(bg_vals))
+      bg_fold_id <- sample(rep(seq_len(k_rb), length.out = nrow(bg_vals)))
       fold_id <- c(pres_fold_id, bg_fold_id)
       model_data_rb <- rbind(
         data.frame(presence = 1L, pres_vals, check.names = FALSE),
@@ -152,7 +152,6 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
         k = k_rb, seed = seed, n_cores = normalize_core_count(n_cores),
         cv_strategy = "presence_only_stratified", cv_block_size_km = NA_real_,
         threshold = threshold, fit_fun = fit_fun_rb,
-        cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
         fold_id = fold_id,
         log_fun = log_fun
       )

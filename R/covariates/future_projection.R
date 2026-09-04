@@ -13,7 +13,7 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
                                        selected_biovars, projection_extent, aggregation_factor = 1,
                                        output_future_tif, output_delta_tif, n_cores = 1,
                                        log_fun = NULL, mask_extrapolation = TRUE,
-                                       mess_threshold = 0) {
+                                       mess_threshold = 0, mess_train_data = NULL) {
   future_worldclim_dir <- sdm_resolve_project_path(future_worldclim_dir)
   if (!dir.exists(future_worldclim_dir)) {
     stop("Future WorldClim/CMIP6 folder does not exist: ", future_worldclim_dir, call. = FALSE)
@@ -67,7 +67,11 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   )
 
   log_message(log_fun, "Computing MESS extrapolation surface")
-  mess_result <- compute_mess(env$env_train, future_project)
+  # Use the explicitly-passed mess_train_data snapshot when available; fall back
+  # to env$env_train for backwards compatibility. Caller is responsible for taking
+  # the snapshot before NULL-ing env$env_train downstream.
+  mess_input <- if (!is.null(mess_train_data)) mess_train_data else env$env_train
+  mess_result <- compute_mess(mess_input, future_project)
 
   output_mess_tif <- sub("_future_suitability\\.tif$", "_future_mess.tif", output_future_tif)
   output_mod_tif <- sub("_future_suitability\\.tif$", "_future_mod.tif", output_future_tif)
@@ -90,7 +94,9 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   list(
     suitability = future_suitability,
     delta = delta,
-    summary = summarise_suitability(future_suitability),
+    summary = sdm_step("summarise-future",
+      summarise_suitability(future_suitability, log_fun = log_fun)
+    ),
     files = future_files,
     paths = list(
       future_tif = output_future_tif, delta_tif = output_delta_tif,

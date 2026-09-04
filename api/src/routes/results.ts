@@ -8,7 +8,7 @@ import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { getErrorHttpStatus, StatusCode } from "@sdm/shared";
 import { authMiddleware, type AppEnv } from "../middleware/auth.js";
-import { getUserProjectIds } from "../services/access.js";
+import { getUserProjectIds, canAccessRun, isUuid } from "../services/access.js";
 import { decrypt } from "../services/encryption.js";
 import { plumberClient } from "../services/plumber.js";
 
@@ -46,12 +46,6 @@ function resolveResultFilePath(filePath: string): { fullPath: string; runId: str
   return { fullPath, runId };
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isUuid(value: string): boolean {
-  return UUID_RE.test(value);
-}
-
 const PROJECT_ROOT = process.env.PROJECT_ROOT || process.cwd();
 
 function parseRangeHeader(rangeHeader: string, fileSize: number): { start: number; end: number } | null {
@@ -61,27 +55,6 @@ function parseRangeHeader(rangeHeader: string, fileSize: number): { start: numbe
   const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
   if (start >= fileSize || start > end) return null;
   return { start, end: Math.min(end, fileSize - 1) };
-}
-
-async function canAccessRun(userId: string, role: string, runId: string): Promise<boolean> {
-  const idMatch = isUuid(runId) ? eq(runs.id, runId) : eq(runs.jobId, runId);
-
-  if (role === "admin") {
-    const [run] = await db.select({ id: runs.id }).from(runs).where(idMatch).limit(1);
-    return Boolean(run);
-  }
-
-  const projectIds = await getUserProjectIds({ id: userId, email: "", role });
-  if (!projectIds || projectIds.length === 0) {
-    return false;
-  }
-
-  const [run] = await db
-    .select({ id: runs.id })
-    .from(runs)
-    .where(and(idMatch, inArray(runs.projectId, projectIds)))
-    .limit(1);
-  return Boolean(run);
 }
 
 /**
@@ -267,21 +240,68 @@ resultsRoutes.get("/tiles/:runId/info", async (c) => {
   }
 });
 
+resultsRoutes.get("/suitability-value/:runId", async (c) => {
+  const { runId } = c.req.param();
+  const lat = c.req.query("lat");
+  const lng = c.req.query("lng");
+  const band = c.req.query("band") || undefined;
+
+  if (!lat || !lng) {
+    return c.json({ error: "lat and lng query params required" }, 400);
+  }
+
+  const user = c.get("user");
+  if (!(await canAccessRun(user.id, user.role, runId))) {
+    return c.json({ error: "Run not found" }, 404);
+  }
+
+  try {
+    const result = await plumberClient.withUser(user.id).getSuitabilityValue(runId, parseFloat(lat), parseFloat(lng), band);
+    return c.json(result);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Suitability value lookup failed";
+    console.warn(`[/suitability-value] ${msg}`);
+    return c.json({ error: msg }, 500);
+  }
+});
+
 // Shared file serving logic used by both /file/* and /file/download routes
 async function serveFileFromPath(c: any, filePath: string) {
   const resolved = resolveResultFilePath(filePath);
   if (!resolved) return c.json({ error: "Invalid file path" }, 400);
 
   const user = c.get("user");
+  let runRecord: { id: string; jobId: string | null; outputFiles: unknown } | null = null;
   try {
     if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
       return c.json({ error: "File not found" }, 404);
     }
+    const idMatch = isUuid(resolved.runId)
+      ? eq(runs.id, resolved.runId)
+      : eq(runs.jobId, resolved.runId);
+    [runRecord] = await db
+      .select({ id: runs.id, jobId: runs.jobId, outputFiles: runs.outputFiles })
+      .from(runs)
+      .where(idMatch)
+      .limit(1);
+    if (!runRecord) return c.json({ error: "File not found" }, 404);
   } catch {
     return c.json({ error: "File not found" }, 404);
   }
 
   const { fullPath } = resolved;
+
+  const storedOutputFiles = hasOutputFiles(runRecord.outputFiles)
+    ? runRecord.outputFiles
+    : discoverOutputFiles(runRecord.jobId ?? runRecord.id);
+  const allowedPaths = storedOutputFiles ? Object.values(storedOutputFiles) : [];
+  const isAllowed = allowedPaths.some((allowed) => {
+    const ar = resolve(allowed);
+    return fullPath === ar || fullPath.startsWith(ar + "/");
+  });
+  if (!isAllowed && allowedPaths.length > 0) {
+    return c.json({ error: "File not found" }, 404);
+  }
 
   // Check for encrypted (.enc) sibling file
   const encPath = fullPath + ".enc";

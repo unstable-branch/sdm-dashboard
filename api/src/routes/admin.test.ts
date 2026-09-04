@@ -159,6 +159,30 @@ describe("Admin Routes", () => {
       expect(res.status).toBe(400);
     });
 
+    it("reset-password returns 400 for weak password (no uppercase)", async () => {
+      mockSelectResults = [[{ id: "u1" }]];
+      const { app } = await setupApp();
+      const res = await app.request("/api/v1/admin/users/u1/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "weakpass1" }),
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toMatch(/uppercase/);
+    });
+
+    it("reset-password returns 400 for weak password (no digit)", async () => {
+      mockSelectResults = [[{ id: "u1" }]];
+      const { app } = await setupApp();
+      const res = await app.request("/api/v1/admin/users/u1/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "WeakPassword" }),
+      });
+      expect(res.status).toBe(400);
+    });
+
     it("reset-password returns 400 for missing password", async () => {
       const { app } = await setupApp();
       const res = await app.request("/api/v1/admin/users/u1/reset-password", {

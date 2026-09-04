@@ -11,6 +11,7 @@ cross_validate_fda <- function(model_data, covariates, degree, nprune,
     test_data <- model_data[fold_id == i, , drop = FALSE]
     train_sub <- train_data[, c("presence", covariates), drop = FALSE]
     train_sub$presence <- factor(train_sub$presence, levels = c("0", "1"))
+    set.seed(seed)
 
     model <- tryCatch({
       mda::fda(
@@ -42,7 +43,6 @@ cross_validate_fda <- function(model_data, covariates, degree, nprune,
     k = k, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = threshold, fit_fun = fit_fun,
-    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
     log_fun = log_fun
   )
 }
@@ -85,7 +85,8 @@ fit_fda_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   fda_data <- model_data[, c("presence", covariates), drop = FALSE]
   fda_data$presence <- factor(fda_data$presence, levels = c("0", "1"))
 
-  model <- tryCatch({
+  set.seed(seed)
+  model <- sdm_step("fda-fit", {
     mda::fda(
       formula = presence ~ .,
       data = fda_data,
@@ -93,14 +94,14 @@ fit_fda_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       degree = degree,
       nprune = nprune
     )
-  }, error = function(e) {
-    stop("FDA fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  cv <- cross_validate_fda(model_data, covariates, degree, nprune,
-    k = cv_folds, seed = seed,
-    n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    threshold = threshold, log_fun = log_fun
+  cv <- sdm_step("cross-validate",
+    cross_validate_fda(model_data, covariates, degree, nprune,
+      k = cv_folds, seed = seed,
+      n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+      threshold = threshold, log_fun = log_fun
+    )
   )
   if (is.finite(cv$auc_mean)) {
     log_message(
@@ -139,13 +140,10 @@ predict_fda_suitability <- function(fit, env_project_scaled, output_tif, n_cores
   log_message(log_fun, "Predicting FDA suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
   suit <- terra::app(env_subset, fun = function(vals) {
-    if (!all(is.finite(vals))) {
-      return(rep(NA_real_, nrow(vals)))
-    }
-    df <- as.data.frame(vals, stringsAsFactors = FALSE)
-    names(df) <- fit$covariates
-    pred <- stats::predict(fit$model, newdata = df, type = "posterior")[, "1"]
-    pmin(pmax(as.numeric(pred), 0), 1)
+    sdm_apply_predict(vals, fit$covariates, function(df) {
+      pred <- stats::predict(fit$model, newdata = df, type = "posterior")[, "1"]
+      pmin(pmax(as.numeric(pred), 0), 1)
+    })
   }, cores = normalize_core_count(n_cores))
 
   names(suit) <- "suitability"

@@ -230,7 +230,16 @@ predict_esm_suitability <- function(fit, env_project_scaled,
   log_message(log_fun, "ESM: projecting suitability...")
 
   template <- env_project_scaled[[1]]
-  env_proj <- env_project_scaled[[fit$covariates]]
+  # Subset by the union of make.names-ified / dot-stripped / raw covariate
+  # names so a make.names-vs-raw mismatch in the training/projection stack
+  # never returns a partial / empty subset.
+  cov_keep <- unique(c(
+    fit$covariates,
+    make.names(fit$covariates),
+    chartr(".", "_", fit$covariates)
+  ))
+  env_proj <- env_project_scaled[[cov_keep]]
+  names(env_proj) <- fit$covariates
 
   # ecospat >= 5.0 supports SpatRaster input natively, which uses terra's
   # chunked processing. Older versions require a data.frame (full memory load).

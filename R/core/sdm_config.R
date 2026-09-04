@@ -144,7 +144,7 @@ sdm_config <- function(...) {
   }
 
   if (is.null(cfg$cv_folds) || is.na(cfg$cv_folds) || cfg$cv_folds < 2) {
-    cfg$cv_folds <- 0L
+    cfg$cv_folds <- 5L
   }
 
   structure(cfg, class = "sdm_config")

@@ -232,8 +232,10 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
+  const [autoDownloadClimate, setAutoDownloadClimate] = useState(true);
   const [missingBiovars, setMissingBiovars] = useState<number[]>([]);
   const [climateCheckLoading, setClimateCheckLoading] = useState(false);
+  const [climateCheckError, setClimateCheckError] = useState<string | null>(null);
   const detectedSpecies = useSDMStore((s) => s.detectedSpecies);
   const deferredSpecies = useDeferredValue(species);
   const speciesFiltered = useMemo(() => {
@@ -329,7 +331,18 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     if (biovars.length < 2) return;
     const timer = setTimeout(() => {
       setClimateCheckLoading(true);
-      fetchWithAuth(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovarKey}`).then((res) => res.ok ? res.json() : null).then((data) => { if (data && Array.isArray(data.available)) setMissingBiovars(biovars.filter((b) => !(data.available as number[]).includes(b))); }).catch(() => setMissingBiovars(biovars)).finally(() => setClimateCheckLoading(false));
+      setClimateCheckError(null);
+      fetchWithAuth(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovarKey}`)
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+        .then((data) => {
+          if (data && Array.isArray(data.available)) {
+            setMissingBiovars(biovars.filter((b) => !(data.available as number[]).includes(b)));
+          }
+        })
+        .catch((err) => {
+          setClimateCheckError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => setClimateCheckLoading(false));
     }, 300);
     return () => clearTimeout(timer);
   }, [biovarKey, climateSource, climateRes]);
@@ -464,6 +477,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       cleanedFilePath: useCleaned ? cleanedOccurrence!.filePath : undefined,
       source: climateSource,
       worldclimRes: climateRes,
+      autoDownloadClimate,
       multiEnsembleModels: modelId === "multi_ensemble" ? multiEnsembleModels : undefined,
       multiEnsembleWeighting: modelId === "multi_ensemble" ? multiEnsembleWeighting : undefined,
       multiEnsemblePower: modelId === "multi_ensemble" ? multiEnsemblePower : undefined,
@@ -483,7 +497,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       rangebagVarsPerBag: isRangebag ? rangebagVarsPerBag : undefined,
       analysisCrs,
       chelsaExtras: climateSource === "chelsa" ? chelsaExtras : undefined,
-      opentopoApiKey: useElevation ? opentopoApiKey : undefined,
+      opentopoApiKey: opentopoApiKey ? opentopoApiKey : undefined,
       maxnetAutoTune: modelId === "maxnet" ? maxnetAutoTune : undefined,
       rfNumTrees: modelId === "rf" ? rfNumTrees : undefined,
       rfMtry: modelId === "rf" ? rfMtry : undefined,
@@ -718,10 +732,13 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         biovars={biovars}
         missingBiovars={missingBiovars}
         climateCheckLoading={climateCheckLoading}
+        climateCheckError={climateCheckError}
         toggleBiovar={toggleBiovar}
         aggregationFactor={aggregationFactor}
         chelsaExtras={chelsaExtras}
         onChelsaExtrasChange={setChelsaExtras}
+        autoDownloadClimate={autoDownloadClimate}
+        onAutoDownloadClimateChange={setAutoDownloadClimate}
       />
 
       <ModelConfigExtent
@@ -1038,7 +1055,13 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         disabled={loading || !(occurrenceFile || cleanedOccurrence?.filePath) || biovars.length < 2}
         className="w-full rounded-md bg-sdm-accent px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {loading ? "Running..." : missingBiovars.length > 0 ? "Run SDM (may download climate data)" : "Run SDM"}
+        {loading
+          ? "Running..."
+          : climateCheckError
+            ? "Run SDM (climate check unavailable)"
+            : missingBiovars.length > 0
+              ? "Run SDM (may download climate data)"
+              : "Run SDM"}
       </button>
     </div>
   );

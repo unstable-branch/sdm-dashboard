@@ -65,7 +65,13 @@ sdm_redis_close <- function() {
 
 sdm_redis_progress_set <- function(job_id, entry_json) {
   key <- .progress_key(job_id)
-  .redis_cmd(function(conn) conn$RPUSH(key, entry_json))
+  .redis_cmd(function(conn) {
+    pipe <- conn$pipeline()
+    pipe$RPUSH(key, entry_json)
+    pipe$LTRIM(key, -200, -1)   # keep last 200 entries
+    pipe$EXPIRE(key, 86400)       # TTL 24h
+    pipe$exec()
+  })
 }
 
 sdm_redis_progress_get <- function(job_id, n = 20) {
@@ -85,7 +91,12 @@ sdm_redis_progress_clear <- function(job_id) {
 
 sdm_redis_cancel_set <- function(job_id) {
   key <- .cancel_key(job_id)
-  .redis_cmd(function(conn) conn$SET(key, "1"))
+  .redis_cmd(function(conn) {
+    pipe <- conn$pipeline()
+    pipe$SET(key, "1")
+    pipe$EXPIRE(key, 3600)   # TTL 1h — safety net if cancel_clear is never called
+    pipe$exec()
+  })
 }
 
 sdm_redis_cancel_check <- function(job_id) {

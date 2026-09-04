@@ -88,7 +88,14 @@ read_occurrence_file <- function(path, log_fun = NULL) {
     stop("Occurrence file not found. Upload a CSV or restore presence_data.csv.", call. = FALSE)
   }
   # Decrypt if encryption is enabled
-  key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+  key <- Sys.getenv("DATA_ENCRYPTION_KEY", unset = NA_character_)
+  if (is.na(key) || !nzchar(key)) {
+    key <- Sys.getenv("SDM_ENCRYPTION_KEY", unset = NA_character_)
+    if (!is.na(key) && nzchar(key)) {
+      warning("SDM_ENCRYPTION_KEY is deprecated — use DATA_ENCRYPTION_KEY instead",
+        call. = FALSE, immediate. = TRUE)
+    }
+  }
   if (!is.na(key) && nzchar(key)) {
     tmp <- tempfile(fileext = paste0(".", tolower(tools::file_ext(path))))
     decrypted <- tryCatch({

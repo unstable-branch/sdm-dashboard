@@ -27,8 +27,8 @@ const REFRESH_TOKEN_EXPIRY_DAYS = 30;
 const REFRESH_TOKEN_BYTES = 32;
 
 function hashRefreshToken(token: string): string {
-  const secret = process.env.JWT_SECRET || "refresh-secret";
-  return createHmac("sha256", secret).update(token).digest("hex");
+  if (!JWT_SECRET) throw new Error("JWT_SECRET environment variable is required");
+  return createHmac("sha256", JWT_SECRET).update(token).digest("hex");
 }
 
 async function issueRefreshToken(userId: string): Promise<string> {
@@ -42,7 +42,7 @@ async function issueRefreshToken(userId: string): Promise<string> {
   return token;
 }
 
-function validatePassword(password: string): string | null {
+export function validatePassword(password: string): string | null {
   if (password.length < 8) return "Password must be at least 8 characters";
   if (!/[A-Z]/.test(password)) return "Password must contain an uppercase letter";
   if (!/[a-z]/.test(password)) return "Password must contain a lowercase letter";
@@ -106,7 +106,7 @@ authRoutes.post("/register", async (c) => {
       .values({ userId: user.id })
       .onConflictDoNothing();
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "user_register",
@@ -201,7 +201,7 @@ authRoutes.post("/login", async (c) => {
 
     if (!user) {
       recordLoginAttempt(email, false);
-      const client = extractClientInfo(c as any);
+      const client = extractClientInfo(c);
       logAction({ action: "login_failed", entity: "users", details: { email, reason: "not_found" }, ...client }).catch((e) => console.warn("[auth] Failed to log login_failed (not_found):", e));
       return c.json({ error: "Invalid credentials" }, 401);
     }
@@ -209,7 +209,7 @@ authRoutes.post("/login", async (c) => {
     const valid = await compare(password, user.passwordHash);
     if (!valid) {
       recordLoginAttempt(email, false);
-      const client = extractClientInfo(c as any);
+      const client = extractClientInfo(c);
       logAction({ userId: user.id, action: "login_failed", entity: "users", entityId: user.id, details: { reason: "wrong_password" }, ...client }).catch((e) => console.warn("[auth] Failed to log login_failed (wrong_password):", e));
       return c.json({ error: "Invalid credentials" }, 401);
     }
@@ -221,7 +221,7 @@ authRoutes.post("/login", async (c) => {
       .set({ lastLoginAt: new Date() })
       .where(eq(users.id, user.id));
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     logAction({
       userId: user.id,
       action: "user_login",
@@ -239,7 +239,11 @@ authRoutes.post("/login", async (c) => {
     const forwardedProto = c.req.header("X-Forwarded-Proto");
     const isSecure = process.env.NODE_ENV === "production" || forwardedProto === "https";
     const maxAge = ACCESS_TOKEN_EXPIRY_S;
-    c.header("Set-Cookie", `sdm_token=${token}; Path=/; HttpOnly; SameSite=Strict${isSecure ? "; Secure" : ""}; Max-Age=${maxAge}`);
+    if (isSecure) {
+      c.header("Set-Cookie", `__Host-sdm_token=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`);
+    } else {
+      c.header("Set-Cookie", `sdm_token=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`);
+    }
 
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
@@ -353,7 +357,7 @@ authRoutes.put("/me", authMiddleware, rateLimit({ windowMs: 60_000, max: 10, key
     .where(eq(users.id, user.id))
     .returning();
 
-  const client = extractClientInfo(c as any);
+  const client = extractClientInfo(c);
   logAction({
     userId: user.id,
     action: "user_profile_update",
@@ -408,7 +412,7 @@ authRoutes.post("/change-password", authMiddleware, rateLimit({ windowMs: 60_000
     .set({ passwordHash: newHash, updatedAt: new Date() })
     .where(eq(users.id, user.id));
 
-  const client = extractClientInfo(c as any);
+  const client = extractClientInfo(c);
   await logAction({
     userId: user.id,
     action: "user_password_change",
@@ -436,16 +440,29 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
     .insert(apiKeys)
     .values({
       keyHash,
+      keyPreview: rawKey.substring(0, 8),
       name,
       userId: user.id,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
     })
     .returning();
 
+  const client = extractClientInfo(c);
+  await logAction({
+    userId: user.id,
+    action: "api_key_created",
+    entity: "api_keys",
+    entityId: apiKey.id,
+    ...client,
+    details: { name, expiresAt: apiKey.expiresAt ?? null },
+  });
+
   return c.json({
     id: apiKey.id,
     name: apiKey.name,
-    key: `${rawKey.substring(0, 8)}...`,
+    key: rawKey,
+    keyPreview: rawKey.substring(0, 8),
+    showOnce: true,
     createdAt: apiKey.createdAt,
     expiresAt: apiKey.expiresAt,
   });
@@ -454,7 +471,14 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
 authRoutes.get("/api-keys", authMiddleware, async (c) => {
   const user = c.get("user");
   const userKeys = await db
-    .select({ id: apiKeys.id, name: apiKeys.name, createdAt: apiKeys.createdAt, lastUsedAt: apiKeys.lastUsedAt, expiresAt: apiKeys.expiresAt })
+    .select({
+      id: apiKeys.id,
+      name: apiKeys.name,
+      keyPreview: apiKeys.keyPreview,
+      createdAt: apiKeys.createdAt,
+      lastUsedAt: apiKeys.lastUsedAt,
+      expiresAt: apiKeys.expiresAt,
+    })
     .from(apiKeys)
     .where(eq(apiKeys.userId, user.id));
 
@@ -476,6 +500,17 @@ authRoutes.delete("/api-keys/:id", authMiddleware, async (c) => {
   }
 
   await db.delete(apiKeys).where(eq(apiKeys.id, id));
+
+  const client = extractClientInfo(c);
+  await logAction({
+    userId: user.id,
+    action: "api_key_deleted",
+    entity: "api_keys",
+    entityId: id,
+    ...client,
+    details: { name: key.name },
+  });
+
   return c.json({ ok: true });
 });
 
@@ -493,7 +528,7 @@ authRoutes.post("/forgot-password", async (c) => {
     .where(eq(users.email, email.toLowerCase().trim()))
     .limit(1);
 
-  const client = extractClientInfo(c as any);
+  const client = extractClientInfo(c);
 
   if (user) {
     const token = generateToken();
@@ -556,7 +591,7 @@ authRoutes.post("/reset-password", async (c) => {
     .set({ passwordHash: newHash, resetToken: null, resetTokenExpiry: null, updatedAt: new Date() })
     .where(eq(users.id, user.id));
 
-  const client = extractClientInfo(c as any);
+  const client = extractClientInfo(c);
   await logAction({
     userId: user.id,
     action: "password_reset_completed",

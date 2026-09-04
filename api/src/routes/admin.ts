@@ -3,14 +3,30 @@ import { readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { db } from "../db/index.js";
-import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles } from "../db/schema.js";
-import { eq, desc, sql, and, ilike, inArray, count } from "drizzle-orm";
+import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles, auditLogs, refreshTokens } from "../db/schema.js";
+import { eq, desc, sql, and, ilike, inArray, count, isNull } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { hash } from "bcrypt";
+
+interface ColumnInfoRow {
+  column_name: string;
+  data_type: string;
+  is_nullable: string;
+  column_default: string | null;
+}
+
+interface CountRow {
+  total: string;
+}
+
+interface SizeRow {
+  total_size: string;
+}
 import type { AppEnv } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import { encryptString, decryptString, isEncryptionKeyConfigured } from "../services/encryption.js";
+import { validatePassword } from "./auth.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -129,7 +145,7 @@ adminRoutes.post("/users", async (c) => {
     }).returning();
 
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_user_create",
@@ -186,7 +202,7 @@ adminRoutes.put("/users/:id", async (c) => {
       });
 
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_user_update",
@@ -218,7 +234,7 @@ adminRoutes.delete("/users/:id", async (c) => {
 
     await db.delete(users).where(eq(users.id, targetId));
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
       action: "admin_user_delete",
@@ -240,8 +256,9 @@ adminRoutes.post("/users/:id/reset-password", async (c) => {
     const body = await c.req.json();
     const newPassword = body.password;
 
-    if (!newPassword || newPassword.length < 8) {
-      return c.json({ error: "Password must be at least 8 characters" }, 400);
+    const pwErr = validatePassword(newPassword ?? "");
+    if (pwErr) {
+      return c.json({ error: pwErr }, 400);
     }
 
     const [target] = await db.select().from(users).where(eq(users.id, targetId)).limit(1);
@@ -251,6 +268,11 @@ adminRoutes.post("/users/:id/reset-password", async (c) => {
 
     const passwordHash = await hash(newPassword, BCRYPT_ROUNDS);
     await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, targetId));
+
+    await db
+      .update(refreshTokens)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(refreshTokens.userId, targetId), isNull(refreshTokens.revokedAt)));
 
     const adminUser = c.get("user");
     const client = extractClientInfo(c);
@@ -288,6 +310,71 @@ adminRoutes.get("/database/tables", async (c) => {
   }
 });
 
+adminRoutes.get("/audit-logs", async (c) => {
+  try {
+    const page = Math.max(1, parseInt(c.req.query("page") || "1") || 1);
+    const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") || "50") || 50), 200);
+    const offset = (page - 1) * limit;
+
+    const action = c.req.query("action");
+    const entity = c.req.query("entity");
+    const userId = c.req.query("userId");
+    const since = c.req.query("since");
+    const until = c.req.query("until");
+
+    const conditions = [];
+    if (action) conditions.push(eq(auditLogs.action, action));
+    if (entity) conditions.push(eq(auditLogs.entity, entity));
+    if (userId) conditions.push(eq(auditLogs.userId, userId));
+    if (since) conditions.push(sql`${auditLogs.createdAt} >= ${new Date(since)}`);
+    if (until) conditions.push(sql`${auditLogs.createdAt} <= ${new Date(until)}`);
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [rows, [{ total }]] = await Promise.all([
+      db
+        .select()
+        .from(auditLogs)
+        .where(whereClause)
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db.select({ total: count() }).from(auditLogs).where(whereClause),
+    ]);
+
+    return c.json({
+      page,
+      limit,
+      total: Number(total),
+      hasMore: offset + rows.length < Number(total),
+      entries: rows,
+    });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to list audit logs" }, 500);
+  }
+});
+
+adminRoutes.get("/audit-logs/export.json", async (c) => {
+  try {
+    const limit = Math.min(Math.max(1, parseInt(c.req.query("limit") || "1000") || 1000), 10000);
+    const rows = await db
+      .select()
+      .from(auditLogs)
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(limit);
+
+    c.header("Content-Type", "application/json");
+    c.header("Content-Disposition", `attachment; filename="audit-logs-${Date.now()}.json"`);
+    return c.body(JSON.stringify({
+      exportedAt: new Date().toISOString(),
+      count: rows.length,
+      entries: rows,
+    }, null, 2));
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed to export audit logs" }, 500);
+  }
+});
+
 adminRoutes.get("/database/:table", async (c) => {
   try {
     const tableName = c.req.param("table");
@@ -300,6 +387,12 @@ adminRoutes.get("/database/:table", async (c) => {
       return c.json({ error: "Table not allowed" }, 403);
     }
 
+    const REDACTED_COLUMNS: Record<string, string[]> = {
+      users: ["password_hash", "reset_token", "reset_token_expiry"],
+      api_keys: ["key_hash"],
+      user_settings: ["gbif_password", "ala_api_key"],
+    };
+
     const columnsResult = await db.execute(sql`
       SELECT column_name, data_type, is_nullable, column_default
       FROM information_schema.columns
@@ -307,21 +400,41 @@ adminRoutes.get("/database/:table", async (c) => {
       ORDER BY ordinal_position
     `);
 
+    const allColNames: string[] = (columnsResult.rows as unknown as ColumnInfoRow[]).map(r => r.column_name);
+    const redacted = new Set(REDACTED_COLUMNS[tableName] ?? []);
+    const selectedCols = allColNames.filter(c => !redacted.has(c));
+    if (selectedCols.length === 0) {
+      return c.json({ error: "All columns for this table are redacted" }, 403);
+    }
+
+    const selectList = sql.join(selectedCols.map(c => sql.identifier(c)), sql`, `);
     const data = await db.execute(sql`
-      SELECT * FROM ${sql.identifier(tableName)}
-      ORDER BY created_at DESC NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}
+      SELECT ${selectList} FROM ${sql.identifier(tableName)}
+      ${sql.raw(`ORDER BY created_at DESC NULLS LAST LIMIT ${limit} OFFSET ${offset}`)}
     `);
 
     const countResult = await db.execute(sql`
       SELECT COUNT(*) as total FROM ${sql.identifier(tableName)}
     `);
-    const total = Number((countResult as any).rows?.[0]?.total || 0);
+    const total = Number((countResult.rows[0] as unknown as CountRow | undefined)?.total || 0);
+
+    const user = c.get("user") as { id?: string } | undefined;
+    const { ipAddress, userAgent } = extractClientInfo(c);
+    await logAction({
+      userId: user?.id ?? "unknown",
+      action: "admin_database_query",
+      entity: "admin",
+      entityId: tableName,
+      ipAddress,
+      userAgent,
+      details: { table: tableName, page, limit, columns: selectedCols },
+    });
 
     return c.json({
       table: tableName,
-      columns: columnsResult.rows,
-      rows: (data as any).rows,
+      columns: columnsResult.rows as unknown as ColumnInfoRow[],
+      redactedColumns: Array.from(redacted),
+      rows: data.rows,
       total,
       page,
       limit,
@@ -360,7 +473,7 @@ adminRoutes.get("/database/:table/stats", async (c) => {
       table: tableName,
       indexes: indexes.rows,
       constraints: constraints.rows,
-      size: (size.rows as any)?.[0]?.total_size || "unknown",
+      size: (size.rows[0] as unknown as SizeRow | undefined)?.total_size || "unknown",
     });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Failed to get table stats" }, 500);
@@ -534,7 +647,7 @@ adminRoutes.delete("/system/secrets/:key", async (c) => {
 adminRoutes.post("/system/cache/clear", async (c) => {
   try {
     const adminUser = c.get("user");
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
 
     try {
       const { invalidateCache } = await import("../middleware/cache.js");

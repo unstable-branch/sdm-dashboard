@@ -67,14 +67,18 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
         changed = true;
         return { ...r, status: mappedState, error: event.failedReason ?? r.error };
       });
-      // Add new runs from SSE that aren't yet in the list
+      // Add new runs from SSE that aren't yet in the list. Use safe
+      // defaults for missing fields instead of leaking the event.id into
+      // species; that placeholder shows up in the UI as a phantom "ghost"
+      // run with no model or species name and confuses the cancel button
+      // (which would otherwise target a job the user does not own).
       for (const [id, event] of sseJobs) {
         if (!existingIds.has(id) && (event.type === "sdm_model" || event.type === "model")) {
           next.push({
             id,
-            species: event.id,
+            species: "",
             model_id: "",
-            status: event.state === "active" ? "running" : event.state as any,
+            status: event.state === "active" ? "running" : (event.state as RunSummary["status"]),
             started_at: "",
             completed_at: null,
             metrics: null,
@@ -108,20 +112,26 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
   }, [fetchRuns, refreshKey]);
 
   useEffect(() => {
+    if (sseConnected) return;
     const interval = setInterval(() => {
       if (document.hidden) return;
       if (hasActiveRuns(runsRef.current)) fetchRuns();
     }, 10000);
     return () => clearInterval(interval);
-  }, [fetchRuns]);
+  }, [fetchRuns, sseConnected]);
 
   useEffect(() => {
-    if (!runsRef.current.some((r) => r.status === "queued")) return;
+    // Run this interval only when at least one run is queued; dep is a
+    // stable boolean derived from runs so the interval is not re-created
+    // on every render (which would happen if we depended on `runs`
+    // directly because the prop reference changes on every refetch).
+    const hasQueued = runs.some((r) => r.status === "queued");
+    if (!hasQueued) return;
     const interval = setInterval(() => {
       setNow(Date.now());
     }, 1000);
     return () => clearInterval(interval);
-  }, [runs]);
+  }, [runs.some((r) => r.status === "queued")]);
 
   const activeCount = useMemo(() => runs.filter((r) => ["queued", "running", "loading", "pending"].includes(r.status)).length, [runs]);
   const clearableCount = useMemo(() => runs.filter((r) => ["completed", "failed", "cancelled"].includes(r.status)).length, [runs]);
@@ -204,17 +214,19 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
     return <div className="text-sm text-sdm-muted">Loading run history...</div>;
   }
 
-  if (error && runs.length === 0) {
+  if (error) {
     return (
       <div className="space-y-3">
         <div className="text-sm text-sdm-danger">{error}</div>
-        <button
-          onClick={fetchRuns}
-          className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface"
-        >
-          <RefreshCw className="h-3 w-3" />
-          Retry
-        </button>
+        {runs.length === 0 && (
+          <button
+            onClick={fetchRuns}
+            className="inline-flex items-center gap-1.5 rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-1.5 text-xs text-sdm-text hover:bg-sdm-surface"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Retry
+          </button>
+        )}
       </div>
     );
   }

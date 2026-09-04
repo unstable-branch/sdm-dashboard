@@ -29,10 +29,9 @@ app.get("/sse", async (c) => {
 
   return streamSSE(c, async (stream) => {
     let aborted = false;
-    stream.onAbort(() => {
-      aborted = true;
-      cleanup();
-    });
+  stream.onAbort(() => {
+    aborted = true;
+  });
 
     // Get user's project IDs once (admin = null = all)
     const myProjectIds = await getUserProjectIds(user);
@@ -113,12 +112,21 @@ app.get("/sse", async (c) => {
     }
 
     try {
+      let lastPingAt = Date.now();
       // Keep connection open — jobEventBus handles all updates
+      // Send SSE comment ping every 25s to prevent nginx/AWS ALB idle timeout (default 60s)
       while (!aborted && !stream.closed) {
         await stream.sleep(5000);
+        if (Date.now() - lastPingAt >= 25_000) {
+          try {
+            await stream.writeSSE({ event: "ping", data: "" });
+            lastPingAt = Date.now();
+          } catch { /* stream closed, loop will exit next iteration */ }
+        }
       }
     } finally {
       jobEventBus.off("jobStatus", handler);
+      cleanup();
     }
   });
 });
@@ -169,6 +177,22 @@ app.get("/:jobId", async (c) => {
     } catch (err) {
       console.warn("[jobs] Failed to read persisted job status:", err instanceof Error ? err.message : String(err));
       return c.json({ error: "Job status temporarily unavailable" }, 503);
+    }
+  } else {
+    if (myProjectIds !== null && myProjectIds.length === 0) {
+      return c.json({ error: "Job not found" }, 404);
+    }
+    if (user.role !== "admin") {
+      const ownedProjectIds = myProjectIds ?? [];
+      const [projectRun] = await db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(and(
+          eq(runs.jobId, jobId),
+          inArray(runs.projectId, ownedProjectIds)
+        ))
+        .limit(1);
+      if (!projectRun) return c.json({ error: "Job not found" }, 404);
     }
   }
 

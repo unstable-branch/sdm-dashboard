@@ -55,6 +55,99 @@ if (is.null(.GlobalEnv$.sdm_plumber_initialized)) {
 SDM_MAX_CONCURRENT_RUNS <- as.integer(Sys.getenv("SDM_MAX_CONCURRENT_RUNS", "2"))
 SDM_MAX_GPU_CONCURRENT_RUNS <- as.integer(Sys.getenv("SDM_MAX_GPU_CONCURRENT_RUNS", "1"))
 
+#* Authentication filter — @filter Auth means this runs on every request.
+#* Setting res$status/res$body + plumber::forward() preempts cleanly.
+#* Returning NULL continues the filter chain.
+#* @filter Auth
+function(req, res) {
+  path <- req$PATH_INFO %||% req$PATH
+
+  h <- function(req, name) {
+    tryCatch({
+      hdrs <- req$HEADERS
+      if (is.null(hdrs) || length(hdrs) == 0L) return(NULL)
+      name_lower <- tolower(name)
+      for (hdr_name in names(hdrs)) {
+        if (tolower(hdr_name) == name_lower) return(hdrs[[hdr_name]])
+      }
+      NULL
+    }, error = function(e) NULL)
+  }
+
+  if (is.null(path) || length(path) == 0L) {
+    res$status <- 400L
+    res$body <- '{"error":"Malformed request"}'
+    return(res)
+  }
+
+  if (!requires_auth(path)) {
+    return(NULL)
+  }
+
+  if (identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
+    if (identical(Sys.getenv("NODE_ENV"), "production")) {
+      res$status <- 500L
+      res$body <- '{"error":"FATAL: PLUMBER_AUTH_DISABLED is set in production"}'
+      return(res)
+    }
+    if (!nzchar(internal_key)) {
+      res$status <- 500L
+      res$body <- '{"error":"FATAL: PLUMBER_AUTH_DISABLED=true but PLUMBER_INTERNAL_KEY is not set"}'
+      return(res)
+    }
+    hdr_hono <- h(req, "x-hono-internal")
+    if (is.null(hdr_hono) || !identical(hdr_hono, internal_key)) {
+      res$status <- 401L
+      res$body <- '{"error":"Internal system token required. Direct access not allowed."}'
+      return(res)
+    }
+    hdr_user <- h(req, "x-forwarded-user")
+    if (!is.null(hdr_user) && nzchar(hdr_user)) {
+      req$user_id <- hdr_user
+    }
+    return(NULL)
+  }
+
+  if (nzchar(internal_key)) {
+    hdr_hono <- h(req, "x-hono-internal")
+    if (!is.null(hdr_hono) && identical(hdr_hono, internal_key)) {
+      hdr_user <- h(req, "x-forwarded-user")
+      if (!is.null(hdr_user) && nzchar(hdr_user)) {
+        req$user_id <- hdr_user
+      }
+      return(NULL)
+    }
+  }
+
+  hdr_apikey <- h(req, "x-api-key")
+  if (is.null(hdr_apikey) || !nzchar(hdr_apikey)) {
+    res$status <- 401L
+    res$body <- '{"error":"API key required. Provide X-API-Key header."}'
+    return(res)
+  }
+
+  pool <- sdm_get_db_pool(db_pool)
+  user_info <- validate_api_key(hdr_apikey, pool = pool, app_dir = app_dir)
+  if (is.null(user_info)) {
+    res$status <- 401L
+    res$body <- '{"error":"Invalid or expired API key."}'
+    return(res)
+  }
+
+  req$user_id <- user_info$user_id
+  req$user_email <- user_info$email
+  req$user_role <- user_info$role
+
+  rate_key <- hdr_apikey
+  if (!sdm_check_rate_limit(rate_key, max_requests = 120, window_seconds = 60)) {
+    res$status <- 429L
+    res$body <- '{"error":"Rate limit exceeded. Try again in 60 seconds."}'
+    return(res)
+  }
+
+  NULL
+}
+
 #* Upload occurrence file (CSV/TSV/ZIP)
 #* @param file The occurrence file to upload
 #* @post /api/v1/occurrences/upload
@@ -135,11 +228,11 @@ function(res, job_id) handle_model_status(res, job_id)
 
 #* Cancel a running model run
 #* @post /api/v1/models/cancel/<job_id>
-function(req, job_id) handle_model_cancel(req, job_id)
+function(req, res, job_id) handle_model_cancel(req, res, job_id)
 
 #* Delete model run output files
 #* @post /api/v1/models/delete/<job_id>
-function(req, job_id) handle_model_delete(req, job_id)
+function(req, res, job_id) handle_model_delete(req, res, job_id)
 
 #* List model runs (optionally filtered by user)
 #* @get /api/v1/models/runs
@@ -151,7 +244,7 @@ function(req, res, job_id) handle_job_status(req, res, job_id, app_dir)
 
 #* Cancel an async data job
 #* @post /api/v1/jobs/cancel/<job_id>
-function(req, job_id) handle_job_cancel(req, job_id, app_dir)
+function(req, res, job_id) handle_job_cancel(req, res, job_id, app_dir)
 
 #* Health check
 #* @get /health
@@ -191,19 +284,19 @@ function(req, job_id) handle_climate_cancel(req, job_id, app_dir)
 
 #* Get ecology data for a run
 #* @get /api/v1/ecology/<run_id>
-function(res, run_id) handle_ecology_run(res, run_id, app_dir)
+function(req, res, run_id) handle_ecology_run(req, res, run_id, app_dir)
 
 #* Get EOO/AOO data for a run
 #* @get /api/v1/ecology/<run_id>/eoo-aoo
-function(res, run_id) handle_ecology_eoo_aoo(res, run_id, app_dir)
+function(req, res, run_id) handle_ecology_eoo_aoo(req, res, run_id, app_dir)
 
 #* Get Area of Applicability data
 #* @get /api/v1/ecology/<run_id>/aoa
-function(res, run_id) handle_ecology_aoa(res, run_id, app_dir)
+function(req, res, run_id) handle_ecology_aoa(req, res, run_id, app_dir)
 
 #* Get conservation status report
 #* @get /api/v1/ecology/<run_id>/report
-function(res, run_id) handle_ecology_report(res, run_id, app_dir)
+function(req, res, run_id) handle_ecology_report(req, res, run_id, app_dir)
 
 #* Compute niche overlap between two runs
 #* @post /api/v1/ecology/niche-overlap
@@ -219,80 +312,80 @@ function(res) handle_models_list(res, app_dir)
 
 #* Compare two completed model runs
 #* @get /api/v1/output/compare/<run_id1>/<run_id2>
-function(res, run_id1, run_id2) handle_output_compare(res, run_id1, run_id2, app_dir)
+function(req, res, run_id1, run_id2) handle_output_compare(req, res, run_id1, run_id2, app_dir)
 
 #* Export reproducible R script for a run
 #* @get /api/v1/output/script/<run_id>
-function(res, run_id) handle_output_script(res, run_id, app_dir)
+function(req, res, run_id) handle_output_script(req, res, run_id, app_dir)
 
 #* Generate JSON manifest for a run
 #* @get /api/v1/output/manifest/<run_id>
-function(res, run_id) handle_output_manifest(res, run_id, app_dir)
+function(req, res, run_id) handle_output_manifest(req, res, run_id, app_dir)
 
 #* Get VIF screening results
 #* @get /api/v1/diagnostics/vif/<run_id>
-function(res, run_id) handle_diagnostics_vif(res, run_id)
+function(req, res, run_id) handle_diagnostics_vif(req, res, run_id, app_dir)
 
 #* Get response curves data
 #* @get /api/v1/diagnostics/response-curves/<run_id>
-function(res, run_id) handle_diagnostics_response_curves(res, run_id)
+function(req, res, run_id) handle_diagnostics_response_curves(req, res, run_id, app_dir)
 
 #* Get Accumulated Local Effects (ALE) data
 #* @get /api/v1/diagnostics/ale/<run_id>
-function(res, run_id) handle_diagnostics_ale(res, run_id)
+function(req, res, run_id) handle_diagnostics_ale(req, res, run_id, app_dir)
 
 #* Get variable importance data
 #* @get /api/v1/diagnostics/importance/<run_id>
-function(res, run_id) handle_diagnostics_importance(res, run_id)
+function(req, res, run_id) handle_diagnostics_importance(req, res, run_id, app_dir)
 
 #* Compute per-cell SHAP explanation
 #* @parser json
 #* @post /api/v1/diagnostics/shap/cell
-function(res, run_id = "", longitude = NULL, latitude = NULL) handle_diagnostics_shap_cell(res, run_id, longitude, latitude)
+function(req, res, run_id = "", longitude = NULL, latitude = NULL) handle_diagnostics_shap_cell(req, res, run_id, longitude, latitude, app_dir)
 
 #* Get climate driver attribution
 #* @get /api/v1/diagnostics/climate-drivers/<run_id>
-function(res, run_id) handle_diagnostics_climate_drivers(res, run_id)
+function(req, res, run_id) handle_diagnostics_climate_drivers(req, res, run_id, app_dir)
 
 #* Get Continuous Boyce Index (CBI) data
 #* @get /api/v1/diagnostics/cbi/<run_id>
-function(res, run_id) handle_diagnostics_cbi(res, run_id)
+function(req, res, run_id) handle_diagnostics_cbi(req, res, run_id, app_dir)
 
 #* Get MESS extrapolation summary
 #* @get /api/v1/diagnostics/mess/<run_id>
-function(res, run_id) handle_diagnostics_mess(res, run_id)
+function(req, res, run_id) handle_diagnostics_mess(req, res, run_id, app_dir)
 
 #* Get combined diagnostics summary
 #* @get /api/v1/diagnostics/summary/<run_id>
-function(res, run_id) handle_diagnostics_summary(res, run_id)
+function(req, res, run_id) handle_diagnostics_summary(req, res, run_id, app_dir)
 
 #* Get ROC curve data
 #* @get /api/v1/diagnostics/roc/<run_id>
-function(res, run_id) handle_diagnostics_roc(res, run_id)
+function(req, res, run_id) handle_diagnostics_roc(req, res, run_id, app_dir)
 
 #* Get calibration curve data
 #* @get /api/v1/diagnostics/calibration/<run_id>
-function(res, run_id) handle_diagnostics_calibration(res, run_id)
+function(req, res, run_id) handle_diagnostics_calibration(req, res, run_id, app_dir)
 
 #* Get per-fold CV metrics
 #* @get /api/v1/diagnostics/cv-folds/<run_id>
-function(res, run_id) handle_diagnostics_cv_folds(res, run_id)
+function(req, res, run_id) handle_diagnostics_cv_folds(req, res, run_id, app_dir)
 
 #* Get threshold performance data
 #* @get /api/v1/diagnostics/threshold/<run_id>
-function(res, run_id) handle_diagnostics_threshold(res, run_id)
+function(req, res, run_id) handle_diagnostics_threshold(req, res, run_id, app_dir)
 
 #* Get presence vs background density data
 #* @get /api/v1/diagnostics/density/<run_id>
-function(res, run_id) handle_diagnostics_density(res, run_id)
+function(req, res, run_id) handle_diagnostics_density(req, res, run_id, app_dir)
 
 #* Generate diagnostic PNG plots
 #* @post /api/v1/diagnostics/plots/<run_id>
-function(res, run_id) handle_diagnostics_plots(res, run_id)
+function(req, res, run_id) handle_diagnostics_plots(req, res, run_id, app_dir)
 
 #* Download diagnostics data as CSV
 #* @get /api/v1/diagnostics/data/<run_id>/<type>
-function(res, run_id, type) handle_diagnostics_data(res, run_id, type)
+function(req, res, run_id, type) handle_diagnostics_data(req, res, run_id, type, app_dir)
 
 #* Check BIO variable availability
 #* @param source Climate data source (worldclim, chelsa)
@@ -322,7 +415,17 @@ function(req) handle_covariates_download_bg(req, app_dir)
 #* @param band Band name or index (optional, defaults to first band)
 #* @get /api/v1/results/tiles/cog/<run_id>/<z>/<x>/<y>
 #* @serializer contentType list(type="image/png")
-function(res, run_id, z, x, y, band = NULL) handle_tile_serve(res, run_id, z, x, y, app_dir, band)
+function(req, res, run_id, z, x, y, band = NULL) handle_tile_serve(req, res, run_id, z, x, y, app_dir, band)
+
+#* Extract suitability value at a given lat/lng point
+#* @param run_id Run identifier
+#* @param lat Latitude (-90 to 90)
+#* @param lng Longitude (-180 to 180)
+#* @param band Band name or index (optional)
+#* @get /api/v1/results/suitability-value
+#* @serializer contentType list(type="application/json")
+function(req, res, run_id, lat, lng, band = NULL)
+  handle_suitability_value(req, res, run_id, lat, lng, band, app_dir)
 
 #* Serve default boundary GeoJSON
 #* @param resolution Boundary resolution
@@ -371,7 +474,7 @@ function(res, type = "admin0", resolution = "110m", country = "all")
 
 #* Generate ensemble summary rasters from component TIFFs
 #* @post /api/v1/models/ensemble-rasters/<job_id>
-function(res, job_id) handle_ensemble_rasters(res, job_id, app_dir)
+function(req, res, job_id) handle_ensemble_rasters(req, res, job_id, app_dir)
 
 #* Generate synthetic multi-species occurrence data for stress testing
 #* @post /api/v1/occurrences/synthetic

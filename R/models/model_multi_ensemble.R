@@ -355,10 +355,10 @@ predict_multi_model_ensemble <- function(fit, env_project_scaled, output_tif,
   attr(ensemble_weighted, "component_paths") <- component_paths
 
   # Ensemble variable importance
-  ens_imp <- tryCatch(
+  ens_imp <- sdm_step("ensemble-importance", tryCatch(
     compute_ensemble_importance(components, weights, methods, log_fun = log_fun),
     error = function(e) NULL
-  )
+  ))
   attr(ensemble_weighted, "ensemble_importance") <- ens_imp
 
   ensemble_weighted

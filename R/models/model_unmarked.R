@@ -61,6 +61,7 @@ fit_occupancy_sdm <- function(occ, env_train_scaled, background_n = sdm_default_
   log_message(log_fun, "Fitting occupancy model (", model_type, ") with ", nrow(occ$y), " sites, ",
     ncol(occ$y), " surveys, ", length(covariates_clean), " occupancy covariates")
 
+  set.seed(seed)
   model <- tryCatch({
     switch(model_type,
       occu = unmarked::occu(full_formula, data = umf),

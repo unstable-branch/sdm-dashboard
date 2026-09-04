@@ -40,7 +40,7 @@ sdm_dnn_arch <- function(model_type = "DNN_Medium") {
   if (!is.null(arch)) return(arch)
   arch <- config$dnn_arch[[model_type]]
   if (!is.null(arch)) return(arch)
-  config$dnn_arch[["DNN_Medium"]]
+  stop("sdm_dnn_arch: unknown model_type '", model_type, "'. Available: ", paste(names(config$dnn_arch), collapse = ", "))
 }
 
 ## DNN Modelling Wrapper using cito/torch ---------------------------------------
@@ -429,8 +429,8 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   if (use_fused) {
     # Guarantee restoration on any exit path (error in set_train_opts, cito::dnn, etc.)
     on.exit({
-      if (!is.null(.old_train_model)) {
-        tryCatch(assignInNamespace("train_model", .old_train_model, ns = "cito"),
+      if (!is.null(.old_train_model) && !is.null(cito_train_name)) {
+        tryCatch(assignInNamespace(cito_train_name, .old_train_model, ns = "cito"),
           error = function(e) NULL)
       }
     }, add = TRUE, after = FALSE)
@@ -449,9 +449,14 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
         if (!is.null(log_fun)) log_fun("Fused Adam .so not loaded (", conditionMessage(e), ")")
       })
     }
-    .old_train_model <- get("train_model", envir = asNamespace("cito"))
+    cito_train_name <- sdm_cito_train_model_name()
+    if (is.null(cito_train_name)) {
+      use_fused <<- FALSE
+      if (!is.null(log_fun)) log_fun("cito version not supported (no train_model/train_dnn/fit_model found)")
+    }
+    .old_train_model <- get(cito_train_name, envir = asNamespace("cito"))
     tryCatch({
-      assignInNamespace("train_model", train_model_fused, ns = "cito")
+      assignInNamespace(cito_train_name, train_model_fused, ns = "cito")
     }, error = function(e) {
       use_fused <<- FALSE
       .old_train_model <<- NULL
@@ -910,7 +915,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
         # If any selected accelerator failed, retry on CPU. HIP/ROCm errors are
         # intentionally treated alongside CUDA OOM/runtime failures.
         if (sdm_backend_is_gpu(sdm_resolve_backend(dnn_device)$backend) &&
-            grepl("CUDA|HIP|ROCm|HSA|out of memory|cuda|memory", err_msg, ignore.case = TRUE)) {
+            grepl("CUDA out of memory|HIP out of memory|ROCm out of memory|out of memory|cannot allocate", err_msg, ignore.case = TRUE)) {
           log_message(log_fun, "    Seed ", s, " GPU failed (", err_msg, "). Retrying on CPU...")
           seed_device <<- "cpu"
           tryCatch(
@@ -943,7 +948,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   best_model <- seed_models[[1]]
 
   # Compute mean AUC across seeds using the actual device per seed
-  auc_vals <- vapply(seq_along(seed_models), function(i) {
+  auc_vals <- sdm_step("multi-seed-auc", vapply(seq_along(seed_models), function(i) {
     m <- seed_models[[i]]
     dev <- seed_devices[i]
     tryCatch({
@@ -953,11 +958,11 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       if (is.matrix(pred)) pred <- pred[, 1]
       auc_rank(test_data$presence, as.numeric(pred))
     }, error = function(e) NA_real_)
-  }, numeric(1))
+  }, numeric(1)))
   auc_mean <- mean(auc_vals, na.rm = TRUE)
   auc_sd <- stats::sd(auc_vals, na.rm = TRUE)
 
-  cv <- list(
+  cv <- sdm_step("aggregate-cv", list(
     k = n_success,
     strategy = "dnn_multi_seed",
     auc_mean = if (is.finite(auc_mean)) auc_mean else NA_real_,
@@ -966,7 +971,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     tss_sd = NA_real_,
     fold_auc = auc_vals,
     n_seeds = n_success
-  )
+  ))
 
   if (is.finite(cv$auc_mean)) {
     log_message(log_fun, "DNN multi-seed AUC: ", sprintf("%.3f", cv$auc_mean),
@@ -1021,7 +1026,9 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     dnn_model_type = dnn_model_type,
     use_fused_adam = use_fused_adam,
     mc_samples = as.integer(mc_samples),
-    uncertainty_method = match.arg(tolower(uncertainty_method), c("none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"))
+    uncertainty_method = sdm_step("validate-uncertainty-method",
+      match.arg(tolower(uncertainty_method), c("none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"))
+    )
   )
 }
 

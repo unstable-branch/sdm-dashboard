@@ -10,6 +10,7 @@ cross_validate_mars <- function(model_data, covariates, degree, nk, penalty,
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
     train_sub <- train_data[, c("presence", covariates), drop = FALSE]
+    set.seed(seed)
 
     model <- tryCatch({
       earth::earth(
@@ -45,7 +46,6 @@ cross_validate_mars <- function(model_data, covariates, degree, nk, penalty,
     k = k, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = threshold, fit_fun = fit_fun,
-    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
     log_fun = log_fun
   )
 }
@@ -87,7 +87,8 @@ fit_mars_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   mars_data <- model_data[, c("presence", covariates), drop = FALSE]
 
-  model <- tryCatch({
+  set.seed(seed)
+  model <- sdm_step("mars-fit", {
     earth::earth(
       x = mars_data[, covariates, drop = FALSE],
       y = mars_data$presence,
@@ -99,14 +100,14 @@ fit_mars_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
       keepxy = FALSE,
       trace = 0
     )
-  }, error = function(e) {
-    stop("MARS fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  cv <- cross_validate_mars(model_data, covariates, degree, nk, penalty,
-    k = cv_folds, seed = seed,
-    n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    threshold = threshold, log_fun = log_fun
+  cv <- sdm_step("cross-validate",
+    cross_validate_mars(model_data, covariates, degree, nk, penalty,
+      k = cv_folds, seed = seed,
+      n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+      threshold = threshold, log_fun = log_fun
+    )
   )
   if (is.finite(cv$auc_mean)) {
     log_message(
@@ -160,13 +161,10 @@ predict_mars_suitability <- function(fit, env_project_scaled, output_tif, n_core
   log_message(log_fun, "Predicting MARS suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
   suit <- terra::app(env_subset, fun = function(vals) {
-    if (!all(is.finite(vals))) {
-      return(rep(NA_real_, nrow(vals)))
-    }
-    df <- as.data.frame(vals, stringsAsFactors = FALSE)
-    names(df) <- fit$covariates
-    pred <- earth::predict(fit$model, newdata = df, type = "response")
-    pmin(pmax(as.numeric(pred), 0), 1)
+    sdm_apply_predict(vals, fit$covariates, function(df) {
+      pred <- earth::predict(fit$model, newdata = df, type = "response")
+      pmin(pmax(as.numeric(pred), 0), 1)
+    })
   }, cores = normalize_core_count(n_cores))
 
   names(suit) <- "suitability"

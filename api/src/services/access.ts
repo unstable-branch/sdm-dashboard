@@ -96,9 +96,15 @@ export async function ensureDefaultProject(user: AuthUser): Promise<string> {
   return project.id;
 }
 
+export function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
 export async function canAccessRun(userId: string, role: string, runId: string): Promise<boolean> {
+  const idMatch = isUuid(runId) ? eq(runs.id, runId) : eq(runs.jobId, runId);
+
   if (role === "admin") {
-    const [run] = await db.select({ id: runs.id }).from(runs).where(eq(runs.id, runId)).limit(1);
+    const [run] = await db.select({ id: runs.id }).from(runs).where(idMatch).limit(1);
     return Boolean(run);
   }
 
@@ -110,7 +116,7 @@ export async function canAccessRun(userId: string, role: string, runId: string):
   const [run] = await db
     .select({ id: runs.id })
     .from(runs)
-    .where(and(eq(runs.id, runId), inArray(runs.projectId, projectIds)))
+    .where(and(idMatch, inArray(runs.projectId, projectIds)))
     .limit(1);
 
   return Boolean(run);

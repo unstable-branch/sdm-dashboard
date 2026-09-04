@@ -48,8 +48,16 @@ export async function sendPasswordResetEmail(
   const from = process.env.SMTP_FROM || "noreply@sdm-dashboard.local";
 
   if (!tp) {
-    console.log(`\n[Email] No SMTP configured — would send password reset to: ${to}`);
-    console.log(`[Email] Reset link: ${resetUrl}\n`);
+    // DEV-ONLY fallback: print a non-secret summary line + the email recipient,
+    // but NOT the reset URL itself. The token grants password-reset access; it
+    // must never reach log sinks / stdout in a real deployment. The devUrl is
+    // returned to the caller (only trusted in-memory) for the dev-only path.
+    const isProd = process.env.NODE_ENV === "production";
+    if (!isProd) {
+      console.log(`[Email] No SMTP configured — would send password reset to: ${to}`);
+    } else {
+      console.error("[Email] SMTP_HOST is not configured; production password-reset will fail to deliver");
+    }
     return { success: true, devUrl: resetUrl };
   }
 
