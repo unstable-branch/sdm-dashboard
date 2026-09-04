@@ -29,6 +29,8 @@ interface CovariateStatus {
   detail: string;
   file_count?: number;
   size_bytes?: number;
+  missing?: string[];
+  status?: "ok" | "warn" | "error";
 }
 
 interface CovariateCheckResponse {
@@ -326,7 +328,11 @@ export function OverviewTab({
                 <span className={`shrink-0 ${isAvailable ? "text-sdm-success" : "text-sdm-muted"}`}>{ct.icon}</span>
                 <span className="flex-1 truncate">{ct.label}</span>
                 {isAvailable ? (
-                  <span className="shrink-0 text-xs text-sdm-muted">{status?.file_count ?? ""}</span>
+                  <span className="shrink-0 text-xs text-sdm-muted">
+                    {status?.missing && status.missing.length > 0
+                      ? `${status.file_count}/${(status.file_count ?? 0) + status.missing.length}`
+                      : status?.file_count ?? ""}
+                  </span>
                 ) : (
                   <span className="text-xs text-sdm-muted/50">—</span>
                 )}

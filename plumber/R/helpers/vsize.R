@@ -180,7 +180,25 @@ sdm_gpu_total_vram <- function() {
   }, error = function(e) NA_real_, warning = function(w) NA_real_)
 }
 
-# Get full GPU info as a list for the health endpoint
+# Get current process RSS in MB from /proc/self/status (Linux).
+# Falls back to gc()["used"] / 1e6 when /proc is unavailable (e.g. Windows).
+# Returns a single numeric value in MiB, or NA_real_ if unavailable.
+sdm_get_rss_mb <- function() {
+  if (.Platform$OS.type != "unix" || !file.exists("/proc/self/status")) {
+    gc_info <- gc(verbose = FALSE, full = FALSE)
+    if (is.matrix(gc_info) && nrow(gc_info) >= 2) {
+      return(sum(gc_info[2, "Used (Mb)"]) %||% NA_real_)
+    }
+    return(NA_real_)
+  }
+  tryCatch({
+    status <- readLines("/proc/self/status", warn = FALSE)
+    rss_line <- grep("^VmRSS:", status, value = TRUE)
+    if (length(rss_line) == 0) return(NA_real_)
+    rss_kb <- as.numeric(gsub(".*:\\s*(\\d+).*", "\\1", rss_line[1]))
+    if (is.finite(rss_kb)) rss_kb / 1024 else NA_real_
+  }, error = function(e) NA_real_)
+}
 sdm_gpu_info <- function() {
   smi_path <- .sdm_which_nvidia_smi()
   if (is.na(smi_path)) return(.sdm_rocm_gpu_info())

@@ -497,7 +497,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       rangebagVarsPerBag: isRangebag ? rangebagVarsPerBag : undefined,
       analysisCrs,
       chelsaExtras: climateSource === "chelsa" ? chelsaExtras : undefined,
-      opentopoApiKey: useElevation ? opentopoApiKey : undefined,
+      opentopoApiKey: opentopoApiKey ? opentopoApiKey : undefined,
       maxnetAutoTune: modelId === "maxnet" ? maxnetAutoTune : undefined,
       rfNumTrees: modelId === "rf" ? rfNumTrees : undefined,
       rfMtry: modelId === "rf" ? rfMtry : undefined,
