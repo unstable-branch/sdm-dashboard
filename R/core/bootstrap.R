@@ -67,6 +67,13 @@ sdm_project_path <- function(...) {
   file.path(sdm_project_root(), ...)
 }
 
+# Set GDAL in-memory block cache to 512 MB to prevent unbounded raster caching.
+# The docker-compose files set GDAL_CACHEMAX=512 for container Plumber processes;
+# this sets it for local R sessions (app.R, scripts) where the env var is absent.
+if (!nzchar(Sys.getenv("GDAL_CACHEMAX", ""))) {
+  Sys.setenv(GDAL_CACHEMAX = "512")
+}
+
 # Resolve configurable data paths consistently. Absolute environment values are
 # preserved; relative values are always anchored at the project root rather
 # than the caller's working directory (for example /app/plumber/R in callr).
