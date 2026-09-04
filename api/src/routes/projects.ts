@@ -51,7 +51,7 @@ projectRoutes.post("/", async (c) => {
       .insert(projectMembers)
       .values({ projectId: project.id, userId: user.id, role: "admin" });
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "project_created",
@@ -98,7 +98,7 @@ projectRoutes.put("/:id", async (c) => {
       return c.json({ error: "Project not found" }, 404);
     }
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "project_updated",
@@ -140,7 +140,7 @@ projectRoutes.delete("/:id", async (c) => {
       return c.json({ error: "Project not found" }, 404);
     }
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "project_deleted",

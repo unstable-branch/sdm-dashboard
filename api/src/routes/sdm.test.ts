@@ -134,7 +134,6 @@ vi.mock("../services/plumber", () => ({
 
 vi.mock("../services/plumber-sync", () => ({
   encryptOutputs: vi.fn(),
-  getLastSyncTimestamp: vi.fn(() => 0),
   getLastSyncError: vi.fn(() => null),
   getLastSyncAge: vi.fn(() => 0),
 }));
@@ -145,7 +144,6 @@ vi.mock("../middleware/rate-limit", () => ({
   gbifRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
   climateRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
   defaultRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
-  authRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
 }));
 
 vi.mock("ioredis", () => {

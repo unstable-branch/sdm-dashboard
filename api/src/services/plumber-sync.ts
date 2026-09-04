@@ -1,4 +1,5 @@
-import { PlumberClient } from "./plumber.js";
+import { PlumberClient, type PlumberJobStatus, type PlumberModelStatus } from "./plumber.js";
+export type { PlumberModelStatus } from "./plumber.js";
 import { db } from "../db/index.js";
 import { runs, projects, users, batches } from "../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
@@ -22,10 +23,6 @@ let _lastSyncTimestamp = 0;
 let _lastSyncError: string | null = null;
 const _cogUploadLocks = new Set<string>();
 
-export function getLastSyncTimestamp(): number {
-  return _lastSyncTimestamp;
-}
-
 export function getLastSyncError(): string | null {
   return _lastSyncError;
 }
@@ -43,18 +40,6 @@ const MAX_404_ENTRIES = 200; // cap map size to prevent memory leak
 interface Consecutive404 {
   count: number;
   firstSeen: number;
-}
-
-export interface PlumberModelStatus {
-  status: string;
-  progress_log?: string[];
-  progress_json?: unknown;
-  error?: string | null;
-  last_stage?: string | null;
-  error_code?: string | null;
-  error_hint?: string | null;
-  metrics?: Record<string, unknown> | null;
-  output_files?: { tif_3857?: string } | null;
 }
 
 const consecutive404s = new Map<string, Consecutive404>();
@@ -162,8 +147,8 @@ async function syncRunningJobs() {
       try {
         const isTargetsJob = run.jobId?.startsWith("targets-");
         const status = isTargetsJob
-          ? await client.targetsStatus(run.jobId) as unknown as PlumberModelStatus
-          : await client.getModelStatus(run.jobId) as unknown as PlumberModelStatus;
+          ? await client.targetsStatus(run.jobId)
+          : await client.getModelStatus(run.jobId);
         const plumberStatus = status.status;
 
         // Guard: re-check DB status in case cancel route changed it since the query above
@@ -310,7 +295,7 @@ async function syncRunningJobs() {
             state: "completed",
             progress: 100,
             logs,
-            result: status as unknown as Record<string, unknown>,
+            result: status.result,
             progressJson,
           });
 
@@ -321,7 +306,7 @@ async function syncRunningJobs() {
           }
         } else if (plumberStatus === "completed" && isTargetsJob) {
           // Targets pipeline completed — update ALL per-species runs + the batch itself
-          const targetsCompleted = (status as unknown as Record<string, unknown>).completed_at;
+          const targetsCompleted = status.completed_at;
           await db
             .update(runs)
             .set({
@@ -400,7 +385,7 @@ async function syncRunningJobs() {
             progress: 0,
             failedReason: error ?? "Model run failed",
             error_code: status.error_code as string | undefined,
-            error_hint: (status as any).error_hint as string | undefined,
+            error_hint: status.error_hint ?? undefined,
             progressJson,
           });
         } else if (plumberStatus === "cancelled") {
@@ -614,8 +599,6 @@ async function encryptOutputs(jobDir: string) {
     }
   }
 }
-
-export { encryptOutputs };
 
 export function startPlumberSync(intervalMs = 5000) {
   if (_syncInterval) return;

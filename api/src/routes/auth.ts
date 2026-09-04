@@ -106,7 +106,7 @@ authRoutes.post("/register", async (c) => {
       .values({ userId: user.id })
       .onConflictDoNothing();
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: "user_register",
@@ -201,7 +201,7 @@ authRoutes.post("/login", async (c) => {
 
     if (!user) {
       recordLoginAttempt(email, false);
-      const client = extractClientInfo(c as any);
+      const client = extractClientInfo(c);
       logAction({ action: "login_failed", entity: "users", details: { email, reason: "not_found" }, ...client }).catch((e) => console.warn("[auth] Failed to log login_failed (not_found):", e));
       return c.json({ error: "Invalid credentials" }, 401);
     }
@@ -209,7 +209,7 @@ authRoutes.post("/login", async (c) => {
     const valid = await compare(password, user.passwordHash);
     if (!valid) {
       recordLoginAttempt(email, false);
-      const client = extractClientInfo(c as any);
+      const client = extractClientInfo(c);
       logAction({ userId: user.id, action: "login_failed", entity: "users", entityId: user.id, details: { reason: "wrong_password" }, ...client }).catch((e) => console.warn("[auth] Failed to log login_failed (wrong_password):", e));
       return c.json({ error: "Invalid credentials" }, 401);
     }
@@ -221,7 +221,7 @@ authRoutes.post("/login", async (c) => {
       .set({ lastLoginAt: new Date() })
       .where(eq(users.id, user.id));
 
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     logAction({
       userId: user.id,
       action: "user_login",
@@ -357,7 +357,7 @@ authRoutes.put("/me", authMiddleware, rateLimit({ windowMs: 60_000, max: 10, key
     .where(eq(users.id, user.id))
     .returning();
 
-  const client = extractClientInfo(c as any);
+  const client = extractClientInfo(c);
   logAction({
     userId: user.id,
     action: "user_profile_update",
@@ -412,7 +412,7 @@ authRoutes.post("/change-password", authMiddleware, rateLimit({ windowMs: 60_000
     .set({ passwordHash: newHash, updatedAt: new Date() })
     .where(eq(users.id, user.id));
 
-  const client = extractClientInfo(c as any);
+  const client = extractClientInfo(c);
   await logAction({
     userId: user.id,
     action: "user_password_change",
@@ -447,7 +447,7 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
     })
     .returning();
 
-  const client = extractClientInfo(c as any);
+  const client = extractClientInfo(c);
   await logAction({
     userId: user.id,
     action: "api_key_created",
@@ -501,7 +501,7 @@ authRoutes.delete("/api-keys/:id", authMiddleware, async (c) => {
 
   await db.delete(apiKeys).where(eq(apiKeys.id, id));
 
-  const client = extractClientInfo(c as any);
+  const client = extractClientInfo(c);
   await logAction({
     userId: user.id,
     action: "api_key_deleted",
@@ -528,7 +528,7 @@ authRoutes.post("/forgot-password", async (c) => {
     .where(eq(users.email, email.toLowerCase().trim()))
     .limit(1);
 
-  const client = extractClientInfo(c as any);
+  const client = extractClientInfo(c);
 
   if (user) {
     const token = generateToken();
@@ -591,7 +591,7 @@ authRoutes.post("/reset-password", async (c) => {
     .set({ passwordHash: newHash, resetToken: null, resetTokenExpiry: null, updatedAt: new Date() })
     .where(eq(users.id, user.id));
 
-  const client = extractClientInfo(c as any);
+  const client = extractClientInfo(c);
   await logAction({
     userId: user.id,
     action: "password_reset_completed",

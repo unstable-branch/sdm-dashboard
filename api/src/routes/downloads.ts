@@ -51,7 +51,7 @@ downloadsRoutes.post("/cancel/:jobId", async (c) => {
 
   try {
     const result = await plumberClient.withUser(user.id).post(path, {});
-    const client = extractClientInfo(c as any);
+    const client = extractClientInfo(c);
     await logAction({
       userId: user.id,
       action: isClimateJobId(jobId) ? "climate_download_cancelled" : "covariate_download_cancelled",
