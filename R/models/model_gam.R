@@ -22,13 +22,15 @@ make_gam_formula <- function(covariates, data = NULL, max_k = 5) {
 cross_validate_gam <- function(model_data, formula, k = sdm_default_cv_folds, seed = sdm_default_seed, n_cores = 1,
                                 cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
                                 log_fun = NULL, max_k = 5L) {
+  environment(formula) <- environment()
   fit_fun <- function(i, model_data, fold_id, threshold) {
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
     train_formula <- make_gam_formula(setdiff(names(train_data), c("presence", "case_weight_sdm")), train_data, max_k = max_k)
-    train_data$case_weight_sdm <- class_balance_weights(train_data$presence)
+    cw <- class_balance_weights(train_data$presence)
+    train_data$case_weight_sdm <- cw
     model <- tryCatch(
-      mgcv::gam(train_formula, data = train_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML"),
+      mgcv::gam(train_formula, data = train_data, family = stats::binomial(), weights = cw, method = "REML"),
       error = function(e) {
         log_message(log_fun, "  GAM CV fold ", i, " failed: ", conditionMessage(e))
         NULL
@@ -84,12 +86,14 @@ fit_gam_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   covariates <- d$covariates
   model_data <- d$model_data
   formula <- make_gam_formula(covariates, model_data, max_k = max_k)
-  model_data$case_weight_sdm <- class_balance_weights(model_data$presence)
+  environment(formula) <- environment()
+  cw <- class_balance_weights(model_data$presence)
+  model_data$case_weight_sdm <- cw
 
   log_message(log_fun, "Fitting GAM SDM with ", nrow(pres_vals), " presences and ", nrow(bg_vals), " background points")
   set.seed(seed)
   model <- tryCatch({
-    mgcv::gam(formula, data = model_data, family = stats::binomial(), weights = case_weight_sdm, method = "REML")
+    mgcv::gam(formula, data = model_data, family = stats::binomial(), weights = cw, method = "REML")
   }, error = function(e) {
     stop("GAM fitting failed: ", conditionMessage(e), call. = FALSE)
   })

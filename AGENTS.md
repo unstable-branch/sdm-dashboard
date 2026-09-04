@@ -514,7 +514,7 @@ Attach if UI or report changed.
 
 - `dev` branch tip: `9e67e081` (Group M, performance fixes D10/D7/D4/D9/D2/D5/D3)
 - `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
-- Test counts (post-campaign): 293 api tests + 65 frontend tests passing; 9 pre-existing R test failures (3 from before the campaign: `test-determinism`, `test-dnn`, `test-utils-sdm-atomic-writes`; 6 from Group N `case_weight_sdm` scoping: `test-run-sdm-stages.R` ×4, `test-v03-methods.R` ×2) — the 6 Group N failures are accepted limitations pending a future scoping refactor.
+- Test counts (post-campaign): 293 api tests + 65 frontend tests passing; 3 pre-existing R test failures (from before the campaign: `test-determinism`, `test-dnn`, `test-utils-sdm-atomic-writes`).
 - All Groups A through N are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
 - The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
 
@@ -535,7 +535,7 @@ Attach if UI or report changed.
 | K | `fix/perf-tier-d` | `f966c2e1` | GLM pdf marginal: `type = "prob"` for presence data, `type = "response"` for pseudo-absence only |
 | L | `fix/perf-tier-d` | `f966c2e1` | VIF computed on `env_train` (training fold) not full dataset |
 | M | `fix/perf-tier-d` | `9e67e081` | Performance fixes: O(n²)→O(n) outlier flagging, GBIF dedup cache, SpatExtent vs spatRaster crop, chunking loop materialization, weighted AOO, parallel CV error propagation |
-| N | `fix/r-test-failures` | `d20ecb1c` | 6 pre-existing R test failures documented as accepted limitations |
+| N | `fix/r-case-weight-sdm-scope` | _(pending)_ | 6 pre-existing R test failures from `case_weight_sdm` scoping in GLM/GAM fixed — `test-run-sdm-stages.R` ×3, `test-v03-methods.R` ×1 now pass |
 
 ## Known limitations
 What should reviewers know?
