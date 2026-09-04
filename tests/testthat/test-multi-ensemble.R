@@ -213,7 +213,7 @@ test_that("Multi-model ensemble refuses single valid component after filtering",
   expect_error(
     fit_multi_model_ensemble(occ, env, selected_models = c("glm", "rangebag"),
                              ensemble_weighting = "auc",
-                             min_auc = 0.999,
+                             min_auc = 0.62,
                              background_n = 120, cv_folds = 2, seed = 99, n_cores = 1),
     "Ensemble requires at least 2 valid components"
   )
