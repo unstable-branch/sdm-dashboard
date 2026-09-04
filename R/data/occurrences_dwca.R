@@ -48,6 +48,11 @@ read_dwca <- function(dwca_path,
   if (!grepl("\\.zip$", dwca_path, ignore.case = TRUE)) {
     stop("Expected a .zip file. Got: ", basename(dwca_path), call. = FALSE)
   }
+  DWCA_MAX_SIZE_BYTES <- 500L * 1024^2L
+  file_size <- file.info(dwca_path)$size
+  if (is.finite(file_size) && file_size > DWCA_MAX_SIZE_BYTES) {
+    stop(sprintf("DwC-A file too large (%.1f MB). Maximum accepted size is 500 MB. ", file_size / 1024^2, DWCA_MAX_SIZE_BYTES / 1024^2), "Upload a smaller file or use the GBIF search endpoint to fetch a subset.", call. = FALSE)
+  }
 
   log_msg_dwca(log_fun, "Reading Darwin Core Archive: ", basename(dwca_path))
 

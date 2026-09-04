@@ -279,6 +279,7 @@ download_chelsa_file <- function(url, dest, log_fun = NULL, progress_fun = NULL,
   retries <- get_chelsa_retries()
   timeout <- get_chelsa_timeout()
   partial_path <- paste0(dest, ".part")
+  on.exit(if (!file.exists(dest) && file.exists(partial_path)) unlink(partial_path, force = TRUE), add = TRUE)
 
   check_internet_connectivity("https://os.unil.cloud.switch.ch/", log_fun = log_fun)
   expected_size <- get_content_length(url, timeout = min(timeout, 30))
@@ -401,6 +402,7 @@ download_worldclim_archive <- function(res, worldclim_dir, progress_fun = NULL,
   url <- paste0("https://geodata.ucdavis.edu/climate/worldclim/2_1/base/", archive_name)
   archive <- file.path(worldclim_dir, archive_name)
   partial <- paste0(archive, ".part")
+  on.exit(if (!file.exists(archive) && file.exists(partial)) unlink(partial, force = TRUE), add = TRUE)
   if (file.exists(archive)) {
     valid_archive <- tryCatch(nrow(utils::unzip(archive, list = TRUE)) > 0L, error = function(e) FALSE)
     if (isTRUE(valid_archive)) {
