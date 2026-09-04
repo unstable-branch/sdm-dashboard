@@ -115,7 +115,7 @@ fit_rangebag_sdm <- function(occ, env_train_scaled, background_n = sdm_default_b
     if (k_rb >= 2) {
       set.seed(seed)
       pres_fold_id <- sample(rep(seq_len(k_rb), length.out = nrow(pres_vals)))
-      bg_fold_id <- rep(0L, nrow(bg_vals))
+      bg_fold_id <- sample(rep(seq_len(k_rb), length.out = nrow(bg_vals)))
       fold_id <- c(pres_fold_id, bg_fold_id)
       model_data_rb <- rbind(
         data.frame(presence = 1L, pres_vals, check.names = FALSE),

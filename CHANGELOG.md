@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `R/models/cv_engine.R`: removed dead `cluster_exports` and `cluster_setup_fn` parameters. These were declared in `cross_validate_model()` but never read — `mclapply` (fork-based) inherits the full environment, so no explicit cluster export is needed on Linux/macOS. Removed from 13 call sites across `model_glm.R`, `model_gam.R`, `model_maxnet.R`, `model_nnet.R`, `model_earth.R`, `model_mda.R`, `model_rpart.R`, `model_gbm.R`, `model_rf.R`, `model_bart.R`, `model_xgboost.R`, `model_rangebag.R`. Windows silently falls back to serial CV regardless (pre-existing behavior, documented).
 
+### Rangebag CV correctness (Group O)
+
+- `R/models/model_rangebag.R`: fixed CV fold assignment for background points. Previously `bg_fold_id <- rep(0L, nrow(bg_vals))` assigned all background points to fold 0 (no fold), so background was never included in test folds. AUC was always `NA` because no background points appeared in test sets. Fixed to `bg_fold_id <- sample(rep(seq_len(k_rb), length.out = nrow(bg_vals)))`, matching the presence-point fold assignment.
+- `R/output/response_curves.R`: added rangebag branch (`else if (!is.null(model$bags))`) to `compute_response_curves` prediction switch — previously rangebag model list had no `predict` method, causing response curves to silently fail with a warning for rangebag fits.
+- `tests/testthat/test-multi-ensemble.R`: updated `min_auc` threshold from `0.999` to `0.62` to match actual GLM CV AUC (~0.57) after the rangebag CV fix began producing real AUC values instead of `NA`.
+
 ### Frontend
 
 - `frontend/src/lib/map-styles.ts`: basemap switched from CARTO raster PNG tiles to CARTO Streets v1 vector tiles (MVT) — sharper at all zoom levels, no API key required, same free CDN.
