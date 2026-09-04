@@ -233,7 +233,9 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   model <- tryCatch({
     suppressWarnings(stats::glm(formula,
       data = model_fit_data, family = stats::binomial(),
-      weights = case_weight_sdm, control = stats::glm.control(maxit = 80)
+      weights = case_weight_sdm,
+      control = stats::glm.control(maxit = 80),
+      x = FALSE, y = FALSE, model = FALSE
     ))
   }, error = function(e) {
     stop("GLM fitting failed: ", conditionMessage(e), call. = FALSE)
