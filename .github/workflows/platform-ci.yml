@@ -290,8 +290,12 @@ jobs:
 
       - name: Memory stress check — verify Plumber can handle concurrent requests
         run: |
+          compose() {
+            docker compose -f docker-compose.yml -f /tmp/ci-openapi.compose.yml --profile core "$@"
+          }
           dump_logs() {
-            compose logs --no-color --tail=50 plumber
+            compose ps
+            compose logs --no-color --tail=200 plumber api frontend
           }
 
           : "Check Plumber health reports available memory"
