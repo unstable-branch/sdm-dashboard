@@ -60,9 +60,6 @@ cross_validate_xgboost <- function(model_data, covariates, max_depth, eta, nroun
     k = k, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = threshold, fit_fun = fit_fun,
-    cluster_exports = c("covariates", "class_balance_weights",
-                        "compute_binary_metrics", "metrics_list_to_row", "log_message",
-                        "sdm_use_gpu_xgb"),
     log_fun = log_fun
   )
 }

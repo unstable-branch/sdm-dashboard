@@ -4,8 +4,7 @@
 
 cross_validate_model <- function(model_data, k, seed, n_cores,
                                  cv_strategy, cv_block_size_km, threshold,
-                                 fit_fun, cluster_setup_fn = NULL,
-                                 cluster_exports = NULL,
+                                 fit_fun,
                                  fold_id = NULL,
                                  collect_predictions = FALSE,
                                  log_fun = NULL) {

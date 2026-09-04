@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `R/models/model_glm.R` `fit_fast_sdm`: `weights` argument now passed as local variable `cw` (computed via `class_balance_weights(model_fit_data$presence)`) instead of bare `case_weight_sdm` symbol. `environment(formula) <- environment()` is set after `make_sdm_formula()` to restore the formula's evaluation environment to `fit_fast_sdm`'s frame, so `glm()`'s internal `model.frame.default` evaluation finds `cw`. Same fix applied to `cross_validate_glm` fold fitting.
 - `R/models/model_gam.R` `fit_gam_sdm` and `cross_validate_gam`: same pattern — `weights = cw` (local variable) with `environment(formula) <- environment()` after `make_gam_formula()` to override the `asNamespace("mgcv")` assignment.
+- `R/models/model_registry.R` `fit_sdm_model`: `fit_fun`'s enclosing environment is now rebound to `fit_sdm_model()`'s call frame before invocation — ensures model backends called through the registry have the correct lexical scope for local variable resolution.
+
+### Cleanup (Group N follow-up)
+
+- `R/models/cv_engine.R`: removed dead `cluster_exports` and `cluster_setup_fn` parameters. These were declared in `cross_validate_model()` but never read — `mclapply` (fork-based) inherits the full environment, so no explicit cluster export is needed on Linux/macOS. Removed from 13 call sites across `model_glm.R`, `model_gam.R`, `model_maxnet.R`, `model_nnet.R`, `model_earth.R`, `model_mda.R`, `model_rpart.R`, `model_gbm.R`, `model_rf.R`, `model_bart.R`, `model_xgboost.R`, `model_rangebag.R`. Windows silently falls back to serial CV regardless (pre-existing behavior, documented).
 
 ### Frontend
 
