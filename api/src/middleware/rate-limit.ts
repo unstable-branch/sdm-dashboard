@@ -3,8 +3,6 @@ import type { Redis } from "ioredis";
 import { getSharedRedis } from "../services/queue.js";
 import { getClientIp } from "./client-ip.js";
 
-let redisAvailable = false;
-
 // In-memory fallback rate limiter for when Redis is unavailable
 const memoryStore = new Map<string, { timestamps: number[] }>();
 const MEMORY_CLEANUP_INTERVAL = 60_000;
@@ -39,13 +37,7 @@ function checkMemoryRateLimit(key: string, windowMs: number, max: number): boole
 }
 
 function getRedis(): Redis | null {
-  const shared = getSharedRedis();
-  if (shared) {
-    redisAvailable = shared.status === "ready";
-    return shared;
-  }
-  redisAvailable = false;
-  return null;
+  return getSharedRedis();
 }
 
 async function redisZremrangebyscore(key: string, min: number, max: number): Promise<void> {
@@ -108,7 +100,7 @@ export const gbifRateLimit = rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "
 export const climateRateLimit = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "climate" });
 export const modelRateLimit = rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "model" });
 export const defaultRateLimit = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "default" });
-export const authRateLimit = rateLimit({ windowMs: 60_000, max: 20, keyPrefix: "auth" });
+
 
 /**
  * Check rate limit for a given key (e.g., IP address for auth failures).
@@ -133,7 +125,4 @@ export async function checkRateLimit(key: string, windowMs: number, max: number)
   }
 }
 
-export function closeRateLimitRedis(): void {
-  redisAvailable = false;
-  // Redis connection is shared via queue.ts — shutdownQueue handles closure
-}
+

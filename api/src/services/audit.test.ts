@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { Context } from "hono";
 import { extractClientInfo, logAction, shutdownAudit } from "../services/audit.js";
 
 vi.mock("../db/index.js", () => ({
@@ -68,9 +69,10 @@ describe("Audit Service", () => {
             ? "203.0.113.1, 10.0.0.1"
             : name === "user-agent" ? "TestAgent/1.0" : undefined,
         },
+        get: () => undefined as string | undefined,
       };
 
-      const info = extractClientInfo(c as any);
+      const info = extractClientInfo(c as unknown as Context);
       // GE-08: do not trust client-supplied X-Forwarded-For without proxy allow-list.
       expect(info.ipAddress).toBeNull();
       expect(info.userAgent).toBe("TestAgent/1.0");
@@ -86,9 +88,10 @@ describe("Audit Service", () => {
               ? "203.0.113.1, 10.0.0.1"
               : undefined,
           },
+          get: () => undefined as string | undefined,
         };
 
-        const info = extractClientInfo(c as any);
+        const info = extractClientInfo(c as unknown as Context);
         expect(info.ipAddress).toBe("203.0.113.1");
       } finally {
         delete process.env.TRUSTED_PROXY_CIDRS;
@@ -102,15 +105,16 @@ describe("Audit Service", () => {
         req: {
           header: (name: string) => name === "user-agent" ? longUA : undefined,
         },
+        get: () => undefined as string | undefined,
       };
 
-      const info = extractClientInfo(c as any);
+      const info = extractClientInfo(c as unknown as Context);
       expect(info.userAgent!.length).toBe(500);
     });
 
     it("returns null for missing headers", () => {
-      const c = { env: {}, req: { header: () => undefined } };
-      const info = extractClientInfo(c as any);
+      const c = { env: {}, req: { header: () => undefined }, get: () => undefined as string | undefined };
+      const info = extractClientInfo(c as unknown as Context);
       expect(info.ipAddress).toBeNull();
       expect(info.userAgent).toBeNull();
     });

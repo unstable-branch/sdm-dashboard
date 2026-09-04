@@ -246,15 +246,6 @@ export async function syncOutputsToS3(
   return s3Urls;
 }
 
-export async function getFileUrl(
-  bucket: string,
-  objectName: string,
-  _expirySeconds = 3600
-): Promise<string> {
-  const protocol = USE_SSL ? "https" : "http";
-  return `${protocol}://${GARAGE_ENDPOINT}/${bucket}/${objectName}`;
-}
-
 async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) {
