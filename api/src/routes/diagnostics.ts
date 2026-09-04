@@ -21,213 +21,42 @@ async function plumberJobId(runId: string): Promise<string> {
   return run?.jobId ?? runId;
 }
 
-diagnosticsRoutes.get("/vif/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsVif(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "VIF diagnostics unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
+interface DiagEndpoint {
+  errorMsg: string;
+  fetch: (jobId: string) => Promise<unknown>;
+}
 
-diagnosticsRoutes.get("/ale/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsAle(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "ALE data unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
+const DIAG_ENDPOINTS: Record<string, DiagEndpoint> = {
+  vif:               { errorMsg: "VIF diagnostics unavailable",           fetch: (j) => plumberClient.getDiagnosticsVif(j) },
+  ale:               { errorMsg: "ALE data unavailable",                 fetch: (j) => plumberClient.getDiagnosticsAle(j) },
+  "climate-drivers": { errorMsg: "Climate driver data unavailable",       fetch: (j) => plumberClient.getDiagnosticsClimateDrivers(j) },
+  "response-curves":  { errorMsg: "Response curves unavailable",           fetch: (j) => plumberClient.getDiagnosticsResponseCurves(j) },
+  importance:         { errorMsg: "Variable importance unavailable",        fetch: (j) => plumberClient.getDiagnosticsImportance(j) },
+  cbi:               { errorMsg: "CBI diagnostics unavailable",             fetch: (j) => plumberClient.getDiagnosticsCbi(j) },
+  mess:              { errorMsg: "MESS diagnostics unavailable",             fetch: (j) => plumberClient.getDiagnosticsMess(j) },
+  roc:               { errorMsg: "ROC data unavailable",                    fetch: (j) => plumberClient.getDiagnosticsRoc(j) },
+  calibration:        { errorMsg: "Calibration data unavailable",            fetch: (j) => plumberClient.getDiagnosticsCalibration(j) },
+  "cv-folds":        { errorMsg: "CV folds data unavailable",             fetch: (j) => plumberClient.getDiagnosticsCvFolds(j) },
+  threshold:         { errorMsg: "Threshold data unavailable",             fetch: (j) => plumberClient.getDiagnosticsThreshold(j) },
+  density:           { errorMsg: "Density data unavailable",               fetch: (j) => plumberClient.getDiagnosticsDensity(j) },
+  summary:           { errorMsg: "Diagnostics summary unavailable",       fetch: (j) => plumberClient.getDiagnosticsSummary(j) },
+};
 
-diagnosticsRoutes.get("/climate-drivers/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsClimateDrivers(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Climate driver data unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
-
-diagnosticsRoutes.get("/response-curves/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsResponseCurves(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Response curves unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
-
-diagnosticsRoutes.get("/importance/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsImportance(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Variable importance unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
-
-diagnosticsRoutes.get("/cbi/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsCbi(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "CBI diagnostics unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
-
-diagnosticsRoutes.get("/mess/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsMess(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "MESS diagnostics unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
-
-diagnosticsRoutes.get("/roc/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsRoc(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "ROC data unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
-
-diagnosticsRoutes.get("/calibration/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsCalibration(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Calibration data unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
-
-diagnosticsRoutes.get("/cv-folds/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsCvFolds(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "CV folds data unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
-
-diagnosticsRoutes.get("/threshold/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsThreshold(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Threshold data unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
-
-diagnosticsRoutes.get("/density/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsDensity(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Density data unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
-
-diagnosticsRoutes.get("/summary/:runId", async (c) => {
-  const runId = c.req.param("runId");
-  const user = c.get("user");
-  if (!(await canAccessRun(user.id, user.role, runId))) {
-    return c.json({ error: "Run not found" }, 404);
-  }
-  try {
-    const jobId = await plumberJobId(runId);
-    const data = await plumberClient.getDiagnosticsSummary(jobId);
-    return c.json(data);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Diagnostics summary unavailable";
-    return c.json({ error: message }, 502);
-  }
-});
+for (const [path, { errorMsg, fetch }] of Object.entries(DIAG_ENDPOINTS)) {
+  diagnosticsRoutes.get(`/${path}/:runId`, async (c) => {
+    const runId = c.req.param("runId");
+    const user = c.get("user");
+    if (!(await canAccessRun(user.id, user.role, runId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
+    try {
+      const jobId = await plumberJobId(runId);
+      return c.json(await fetch(jobId));
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : errorMsg }, 502);
+    }
+  });
+}
 
 // On-demand ensemble statistics raster generation (multi-ensemble only)
 diagnosticsRoutes.post("/ensemble-rasters/:runId", async (c) => {

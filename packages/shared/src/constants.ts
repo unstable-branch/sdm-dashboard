@@ -21,7 +21,7 @@ export const BIOVAR_CHOICES = [
 ];
 
 export const EXTENT_PRESETS: Record<string, { label: string; extent: [number, number, number, number] }> = {
-  aus_full: { label: "Australia - full", extent: [112, 154, -44, -10] },
+  aus_full: { label: "Australia", extent: [112, 154, -44, -10] },
   aus_north: { label: "Northern Australia", extent: [112, 154, -26, -10] },
   aus_east: { label: "Eastern Australia", extent: [138, 154, -44, -10] },
   australia_sw: { label: "SW Australia", extent: [113, 125, -35, -21] },

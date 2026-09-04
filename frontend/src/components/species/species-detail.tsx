@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { SearchInput } from "@/components/ui/search-input";
+import { apiGet } from "@/services/api";
 
 interface OccurrenceRecord {
   id: string;
@@ -40,8 +41,10 @@ export function SpeciesDetail({ speciesId, speciesName, onBack }: SpeciesDetailP
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      fetch(`/api/v1/data/species/${speciesId}/occurrences?page=${occPage}&limit=${occLimit}`).then((r) => r.json()),
-      fetch("/api/v1/sdm/runs").then((r) => r.json()),
+      apiGet<{ occurrences: OccurrenceRecord[]; pagination?: { total: number } }>(
+        `/api/v1/data/species/${speciesId}/occurrences?page=${occPage}&limit=${occLimit}`,
+      ),
+      apiGet<{ runs: RunSummary[] }>("/api/v1/sdm/runs"),
     ]).then(([occData, runsData]) => {
       setOccurrences(occData.occurrences || []);
       setOccTotal(occData.pagination?.total || 0);

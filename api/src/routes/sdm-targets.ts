@@ -6,6 +6,9 @@ import { eq, desc, count, and, inArray, sql } from "drizzle-orm";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds } from "../services/access.js";
+import { logAction, extractClientInfo } from "../services/audit.js";
+
+const MAX_RUNS_LIMIT = 500;
 
 export const sdmTargetsRoutes = new Hono<AppEnv>();
 
@@ -19,7 +22,19 @@ sdmTargetsRoutes.post("/targets/run", async (c) => {
   try {
     const body = await c.req.json().catch(() => null);
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
+    const user = c.get("user");
     const result = await plumberClient.targetsRun(body);
+
+    const client = extractClientInfo(c);
+    await logAction({
+      userId: user.id,
+      action: "targets_run_started",
+      entity: "runs",
+      entityId: (result as Record<string, unknown>)?.job_id as string | null ?? null,
+      ...client,
+      details: { configsCount: Array.isArray(body.configs) ? body.configs.length : 0 },
+    });
+
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Targets run failed";
@@ -52,7 +67,7 @@ sdmTargetsRoutes.get("/targets/results/:jobId", async (c) => {
 sdmTargetsRoutes.get("/runs", async (c) => {
   try {
     const page = parseInt(c.req.query("page") || "1", 10);
-    const limitVal = parseInt(c.req.query("limit") || "20", 10);
+    const limitVal = Math.min(parseInt(c.req.query("limit") || "20", 10), MAX_RUNS_LIMIT);
     const statusFilter = c.req.query("status");
     const fields = c.req.query("fields");
     const offset = (page - 1) * limitVal;

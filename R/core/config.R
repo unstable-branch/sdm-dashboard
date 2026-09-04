@@ -193,6 +193,8 @@ config$dnn_weight_default <- 0.3
 config$dnn_n_seeds <- 5L
 config$dnn_fused_adam_default <- "auto"
 # Uses custom ATen-op Adam kernel (sdmtorch/train_step_adam.so) on CPU and GPU
+# NOTE: setup_torch_cuda() in R/core/packages.R is defined but never called — superseded
+# by setup_torch_auto() in R/models/torch_setup.R. Kept to avoid breaking external callers.
 config$dnn_default_n_seeds <- 5L
 config$dnn_multispecies_default <- "DNN_Medium"
 config$dnn_multispecies_n_seeds <- 3L
@@ -210,12 +212,24 @@ config$gpu_enabled <- "auto"
 config$gpu_min_cells <- 100000L
 config$gpu_min_rows <- 5000L
 config$gpu_device <- "auto"
+config$gpu_safety_margin <- 0.8
+config$gpu_oom_fallback <- TRUE
+config$gpu_pinned_alloc <- TRUE
+config$gpu_blackwell_check <- TRUE
+config$dnn_deterministic <- FALSE
 
 sdm_extent_presets <- list(
-  "aus_full"   = c(112, 154, -44, -10),
-  "aus_north"  = c(112, 154, -26, -10),
-  "aus_east"   = c(138, 154, -44, -10),
-  "world"      = c(-180, 180, -90, 90)
+  "aus_full"        = c(112, 154, -44, -10),
+  "aus_north"       = c(112, 154, -26, -10),
+  "aus_east"        = c(138, 154, -44, -10),
+  "australia_sw"    = c(113, 125, -35, -21),
+  "oceania"         = c(100, 180, -48, -6),
+  "southeast_asia"  = c(92, 142, -12, 22),
+  "south_america"   = c(-82, -34, -56, 13),
+  "africa"          = c(-18, 52, -35, 38),
+  "europe"          = c(-10, 40, 35, 60),
+  "north_america"   = c(-130, -60, 20, 52),
+  "world"           = c(-180, 180, -90, 90)
 )
 sdm_default_extent_preset <- "aus_full"
 sdm_default_projection_extent <- sdm_extent_presets[[sdm_default_extent_preset]]
@@ -267,9 +281,16 @@ sdm_biovar_choices <- c(
 sdm_extent_choices <- c(
   "Occurrence extent" = "occurrence",
   "Full world" = "world",
-  "Australia - full" = "aus_full",
+  "Australia" = "aus_full",
   "Northern Australia" = "aus_north",
   "Eastern Australia" = "aus_east",
+  "SW Australia" = "australia_sw",
+  "Oceania" = "oceania",
+  "Southeast Asia" = "southeast_asia",
+  "South America" = "south_america",
+  "Africa" = "africa",
+  "Europe" = "europe",
+  "North America" = "north_america",
   "Custom extent" = "custom",
   "Custom boundary file" = "boundary_file"
 )

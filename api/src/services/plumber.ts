@@ -1,8 +1,48 @@
 import type {
   PlumberUploadResponse,
-  PlumberDiagnosticsShapCell,
   PlumberJobLogs,
 } from "@sdm/shared";
+
+export interface PlumberJobStatus {
+  [key: string]: unknown;
+  available?: boolean;
+  status: string;
+  progress_log?: string[];
+  error_code?: string | null;
+  error_hint?: string | null;
+  error?: string | null;
+  result?: Record<string, unknown>;
+  completed_at?: string;
+}
+
+export interface PlumberModelStatus {
+  [key: string]: unknown;
+  status: string;
+  progress_log?: string[];
+  progress_json?: unknown;
+  error?: string | null;
+  last_stage?: string | null;
+  error_code?: string | null;
+  error_hint?: string | null;
+  metrics?: Record<string, unknown> | null;
+  output_files?: { tif_3857?: string } | null;
+  result?: Record<string, unknown>;
+  completed_at?: string;
+}
+
+export interface PlumberModelStatus {
+  status: string;
+  progress_log?: string[];
+  progress_json?: unknown;
+  error?: string | null;
+  last_stage?: string | null;
+  error_code?: string | null;
+  error_hint?: string | null;
+  metrics?: Record<string, unknown> | null;
+  output_files?: { tif_3857?: string } | null;
+  result?: Record<string, unknown>;
+  completed_at?: string;
+}
 
 const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
 const PLUMBER_INTERNAL_KEY = process.env.PLUMBER_INTERNAL_KEY || "";
@@ -17,17 +57,18 @@ const TIMEOUT_NORMAL = PLUMBER_DEFAULT_TIMEOUT_MS;
 let plumberQueue: Array<() => void> = [];
 let plumberActiveRequests = 0;
 
+const _resolverTimeouts = new Map<() => void, ReturnType<typeof setTimeout>>();
+
 async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
   if (plumberActiveRequests >= PLUMBER_MAX_CONCURRENT) {
     await new Promise<void>((resolve, reject) => {
-      const resolver: () => void = resolve;
-      plumberQueue.push(resolver);
+      plumberQueue.push(resolve);
       const timeoutId = setTimeout(() => {
-        const idx = plumberQueue.indexOf(resolver);
+        const idx = plumberQueue.indexOf(resolve);
         if (idx >= 0) plumberQueue.splice(idx, 1);
         reject(new Error("Plumber semaphore timeout: all connections busy"));
       }, 5000);
-      (resolver as any)._timeoutId = timeoutId;
+      _resolverTimeouts.set(resolve, timeoutId);
     });
   }
   plumberActiveRequests++;
@@ -37,8 +78,11 @@ async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
     plumberActiveRequests--;
     if (plumberQueue.length > 0) {
       const next = plumberQueue.shift()!;
-      const tid = (next as any)._timeoutId;
-      if (tid) clearTimeout(tid);
+      const tid = _resolverTimeouts.get(next);
+      if (tid !== undefined) {
+        clearTimeout(tid);
+        _resolverTimeouts.delete(next);
+      }
       next();
     }
   }
@@ -55,7 +99,7 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
     try {
       const res = await fetch(url, attemptOptions);
       if (attempt < retries && RETRYABLE_STATUSES.has(res.status)) {
-        const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+        const delay = Math.min(1000 * Math.pow(2, attempt), 8000) + Math.random() * 1000;
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
@@ -65,7 +109,7 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
         throw err;
       }
       if (attempt >= retries) throw err;
-      const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+      const delay = Math.min(1000 * Math.pow(2, attempt), 8000) + Math.random() * 1000;
       await new Promise(r => setTimeout(r, delay));
     }
   }
@@ -231,13 +275,13 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getJobStatus(jobId: string): Promise<Record<string, unknown>> {
+  async getJobStatus(jobId: string): Promise<PlumberJobStatus> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/jobs/status/${jobId}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`Failed to get job status: ${res.status}`);
     return res.json();
   }
 
-  async getModelStatus(jobId: string, timeoutMs: number = 10_000): Promise<Record<string, unknown>> {
+  async getModelStatus(jobId: string, timeoutMs: number = 10_000): Promise<PlumberModelStatus> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/status/${jobId}`, {
       headers: this.headers(),
       signal: AbortSignal.timeout(timeoutMs),
@@ -264,12 +308,6 @@ export class PlumberClient {
       headers: this.headers(),
     });
     if (!res.ok) throw new Error(`Failed to delete model outputs: ${res.status}`);
-    return res.json();
-  }
-
-  async getModelRuns(): Promise<Array<Record<string, unknown>>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models/runs`);
-    if (!res.ok) throw new Error(`Failed to get model runs: ${res.status}`);
     return res.json();
   }
 
@@ -435,14 +473,14 @@ export class PlumberClient {
     return this._fetch(`${this.baseUrl}/api/v1/diagnostics/data/${runId}/${type}`, { headers: this.headers() });
   }
 
-  async postDiagnosticsShapCell(runId: string, longitude: number, latitude: number): Promise<PlumberDiagnosticsShapCell> {
+  async postDiagnosticsShapCell(runId: string, longitude: number, latitude: number): Promise<Record<string, unknown>> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/diagnostics/shap/cell`, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify({ run_id: runId, longitude, latitude }),
     });
     if (!res.ok) throw new Error(`Failed to get SHAP cell explanation: ${res.status}`);
-    return res.json();
+    return res.json() as Promise<Record<string, unknown>>;
   }
 
   async getRunComparison(runId1: string, runId2: string): Promise<Record<string, unknown>> {
@@ -479,16 +517,6 @@ export class PlumberClient {
     return [res.status, data];
   }
 
-  async postForm(path: string, formData: FormData): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}${path}`, {
-      method: "POST",
-      headers: this.headers(),
-      body: formData,
-    });
-    if (!res.ok) throw new Error(`POST ${path} (form) failed: ${res.status}`);
-    return res.json();
-  }
-
   // ── Targets pipeline ───────────────────────────────────────────────────
 
   async targetsRun(data: { configs: Record<string, unknown>[] }): Promise<Record<string, unknown>> {
@@ -501,7 +529,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async targetsStatus(jobId: string): Promise<Record<string, unknown>> {
+  async targetsStatus(jobId: string): Promise<PlumberModelStatus> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/targets-status/${jobId}`, {
       headers: this.headers(),
     });
@@ -579,6 +607,27 @@ export class PlumberClient {
       `${this.baseUrl}/api/v1/results/tiles/cog/${runId}/${z}/${x}/${y}?band=${encodeURIComponent(band)}`,
       { headers: this.headers(), signal: AbortSignal.timeout(45000) }
     );
+  }
+
+  async getSuitabilityValue(
+    runId: string,
+    lat: number,
+    lng: number,
+    band?: string
+  ): Promise<{ value: number | null }> {
+    const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
+    if (band) params.set("band", band);
+    const res = await this._fetch(
+      `${this.baseUrl}/api/v1/results/suitability-value?${params.toString()}&run_id=${runId}`,
+      {
+        headers: this.headers(),
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+    if (!res.ok) {
+      throw new Error(`Suitability value lookup failed: ${res.status}`);
+    }
+    return res.json() as Promise<{ value: number | null }>;
   }
 }
 

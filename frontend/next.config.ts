@@ -19,6 +19,7 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ['100.84.70.113', '*.tailscale.com', '*.tailscale.net'],
   experimental: {
     proxyClientMaxBodySize: "50mb",
+    optimizePackageImports: ["lucide-react", "@turf", "@radix-ui", "@dnd-kit"],
   },
   async rewrites() {
     return [

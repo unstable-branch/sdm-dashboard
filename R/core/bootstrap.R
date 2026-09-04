@@ -67,6 +67,13 @@ sdm_project_path <- function(...) {
   file.path(sdm_project_root(), ...)
 }
 
+# Set GDAL in-memory block cache to 512 MB to prevent unbounded raster caching.
+# The docker-compose files set GDAL_CACHEMAX=512 for container Plumber processes;
+# this sets it for local R sessions (app.R, scripts) where the env var is absent.
+if (!nzchar(Sys.getenv("GDAL_CACHEMAX", ""))) {
+  Sys.setenv(GDAL_CACHEMAX = "512")
+}
+
 # Resolve configurable data paths consistently. Absolute environment values are
 # preserved; relative values are always anchored at the project root rather
 # than the caller's working directory (for example /app/plumber/R in callr).
@@ -94,8 +101,27 @@ sdm_ensure_project_dirs <- function(dirs = NULL) {
 sdm_safe_rename <- function(from, to) {
   if (file.exists(to)) unlink(to, force = TRUE)
   if (!file.rename(from, to)) {
-    file.copy(from, to, overwrite = TRUE)
+    if (!file.copy(from, to, overwrite = TRUE)) {
+      warning("sdm_safe_rename: copy failed from ", from, " to ", to)
+      return(invisible(FALSE))
+    }
     unlink(from, force = TRUE)
   }
   invisible(TRUE)
+}
+
+# Atomic write: write to tmp file in the same directory, then rename.
+# Prevents readers from seeing partial content if the process crashes mid-write.
+sdm_atomic_write_lines <- function(text, path) {
+  tmp <- paste0(path, ".tmp.", Sys.getpid(), ".", as.integer(Sys.time()))
+  writeLines(text, tmp)
+  sdm_safe_rename(tmp, path)
+  invisible(NULL)
+}
+
+sdm_atomic_saveRDS <- function(object, path) {
+  tmp <- paste0(path, ".tmp.", Sys.getpid(), ".", as.integer(Sys.time()))
+  saveRDS(object, tmp)
+  sdm_safe_rename(tmp, path)
+  invisible(NULL)
 }

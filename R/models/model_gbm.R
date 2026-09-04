@@ -11,6 +11,7 @@ cross_validate_brt <- function(model_data, covariates, n_trees, interaction_dept
     train_data <- model_data[fold_id != i, , drop = FALSE]
     test_data <- model_data[fold_id == i, , drop = FALSE]
     train_sub <- train_data[, c("presence", covariates), drop = FALSE]
+    set.seed(seed)
 
     model <- tryCatch({
       gbm::gbm(
@@ -47,7 +48,6 @@ cross_validate_brt <- function(model_data, covariates, n_trees, interaction_dept
     k = k, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = threshold, fit_fun = fit_fun,
-    cluster_exports = c("auc_rank", "compute_binary_metrics", "metrics_list_to_row"),
     log_fun = log_fun
   )
 }
@@ -89,7 +89,8 @@ fit_brt_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
   brt_data <- model_data[, c("presence", covariates), drop = FALSE]
 
-  model <- tryCatch({
+  set.seed(seed)
+  model <- sdm_step("brt-fit", {
     gbm::gbm(
       formula = presence ~ .,
       data = brt_data,
@@ -102,17 +103,21 @@ fit_brt_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       n.cores = 1,
       verbose = FALSE
     )
-  }, error = function(e) {
-    stop("BRT fitting failed: ", conditionMessage(e), call. = FALSE)
   })
 
-  train_pred <- gbm::predict.gbm(model, newdata = brt_data, n.trees = n_trees, type = "response")
-  train_metrics <- compute_binary_metrics(brt_data$presence, train_pred, threshold = threshold)
+  train_pred <- sdm_step("predict-train",
+    gbm::predict.gbm(model, newdata = brt_data, n.trees = n_trees, type = "response")
+  )
+  train_metrics <- sdm_step("train-metrics",
+    compute_binary_metrics(brt_data$presence, train_pred, threshold = threshold)
+  )
 
-  cv <- cross_validate_brt(model_data, covariates, n_trees, interaction_depth,
-    shrinkage, bag_fraction, k = cv_folds, seed = seed,
-    n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
-    threshold = threshold, log_fun = log_fun
+  cv <- sdm_step("cross-validate",
+    cross_validate_brt(model_data, covariates, n_trees, interaction_depth,
+      shrinkage, bag_fraction, k = cv_folds, seed = seed,
+      n_cores = n_cores, cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
+      threshold = threshold, log_fun = log_fun
+    )
   )
   if (is.finite(cv$auc_mean)) {
     log_message(
@@ -168,13 +173,10 @@ predict_brt_suitability <- function(fit, env_project_scaled, output_tif, n_cores
   log_message(log_fun, "Predicting BRT suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
   suit <- terra::app(env_subset, fun = function(vals) {
-    if (!all(is.finite(vals))) {
-      return(rep(NA_real_, nrow(vals)))
-    }
-    df <- as.data.frame(vals, stringsAsFactors = FALSE)
-    names(df) <- fit$covariates
-    pred <- gbm::predict.gbm(fit$model, newdata = df, n.trees = n_trees, type = "response")
-    pmin(pmax(as.numeric(pred), 0), 1)
+    sdm_apply_predict(vals, fit$covariates, function(df) {
+      pred <- gbm::predict.gbm(fit$model, newdata = df, n.trees = n_trees, type = "response")
+      pmin(pmax(as.numeric(pred), 0), 1)
+    })
   }, cores = normalize_core_count(n_cores))
 
   names(suit) <- "suitability"

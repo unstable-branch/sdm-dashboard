@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { Hono } from "hono";
 import { dataRoutes } from "./occurrences.js";
 import { gbifAlaRoutes } from "./gbif-ala.js";
@@ -78,6 +78,7 @@ vi.mock("fs", () => ({
   accessSync: vi.fn(),
   promises: {
     writeFile: vi.fn(() => Promise.resolve()),
+    rename: vi.fn(() => Promise.resolve()),
   },
   constants: { W_OK: 2 },
 }));
@@ -123,6 +124,15 @@ describe("data routes", () => {
   const app = new Hono();
   app.route("/api/v1/data", dataRoutes);
   app.route("/api/v1/data", gbifAlaRoutes);
+
+  beforeAll(() => {
+    const fs = require("fs") as typeof import("fs");
+    const path = require("path") as typeof import("path");
+    const uploadsDir = path.join(process.cwd(), "..", "data", "uploads");
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();

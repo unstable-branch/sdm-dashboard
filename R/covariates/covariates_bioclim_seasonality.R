@@ -115,8 +115,13 @@ load_bioclim_seasonality <- function(extent_vec,
     return(NULL)
   }
 
+  if (!requireNamespace("geodata", quietly = TRUE)) {
+    log_message(log_fun, "WorldClim monthly download requires the 'geodata' package, which is not installed. ",
+      "Run install.packages('geodata') or rebuild the Plumber Docker image to enable bioclimatic seasonality computation.")
+    return(NULL)
+  }
+
   log_message(log_fun, "Downloading WorldClim monthly data for seasonality computation...")
-  ensure_sdm_packages("geodata")
   monthly_cache <- file.path(cache_dir, "monthly_wc")
   if (!dir.exists(monthly_cache)) dir.create(monthly_cache, recursive = TRUE, showWarnings = FALSE)
   suppressMessages({
@@ -158,38 +163,51 @@ load_bioclim_seasonality <- function(extent_vec,
   }
 
   log_message(log_fun, "Computing GDD5, GDD10, MI, and Precipitation Seasonality from monthly climate data...")
-  
+
+  # Extract matrices for batch computation
+  tmin_mat <- terra::as.matrix(tmin_rast, wide = TRUE)
+  tmax_mat <- terra::as.matrix(tmax_rast, wide = TRUE)
+  prec_mat <- terra::as.matrix(prec_rast, wide = TRUE)
+  n_cells <- nrow(tmin_mat)
+  y_center <- terra::yFromRow(tmin_rast[[1]], seq_len(n_cells))
+
   # Batch-optimized computation (100x faster than sapply per-cell)
   tmean_mat <- (tmin_mat + tmax_mat) / 2
   days_vec <- c(31, 28.25, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
-  
+
   # GDD5
   gdd5_vec <- rowSums(pmax(tmean_mat - 5, 0) * days_vec)
-  
+
   # GDD10
   gdd10_vec <- rowSums(pmax(tmean_mat - 10, 0) * days_vec)
-  
-  # MI
-  lat_rad <- lat_centroid * pi / 180
+
+  # MI — expand monthly values to daily (n_cells × 365) for proper radiation calculation
   doy <- cumsum(c(0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30)) + 15
+  days_in_month <- c(31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+  tmin_daily <- t(apply(tmin_mat, 1, function(row) rep(row, days_in_month)))
+  tmax_daily <- t(apply(tmax_mat, 1, function(row) rep(row, days_in_month)))
+  tmean_daily <- (tmin_daily + tmax_daily) / 2
+  lat_mat <- outer(y_center, doy, function(lat, d) lat)
+  lat_rad <- lat_mat * pi / 180
   delta <- 0.409 * sin(2 * pi / 365 * doy)
-  ws <- pmax(-1, acos(-tan(lat_rad) * tan(delta)))
+  ws_mat <- pmax(-1, acos(-tan(lat_rad) * tan(delta)))
   dr <- 1 + 0.033 * cos(2 * pi / 365 * doy)
-  Ra <- (24 * 60 / pi) * 0.082 * dr * (
-    ws * sin(lat_rad) * sin(delta) + cos(lat_rad) * cos(delta) * sin(ws)
+  Ra_mat <- (24 * 60 / pi) * 0.082 * dr * (
+    ws_mat * sin(lat_rad) * sin(delta) + cos(lat_rad) * cos(delta) * sin(ws_mat)
   )
-  Ra[Ra <= 0] <- 0.1
-  tdiff <- pmax(0, tmax_mat - tmin_mat)
-  pet_mat <- 0.0023 * Ra * (tmean_mat + 17.8) * sqrt(tdiff)
-  pet_mat[pet_mat < 0] <- 0
-  annual_pet <- rowSums(pet_mat)
-  annual_p <- rowSums(prec_mat)
+  Ra_mat[Ra_mat <= 0] <- 0.1
+  tdiff_daily <- pmax(0, tmax_daily - tmin_daily)
+  pet_daily <- 0.0023 * Ra_mat * (tmean_daily + 17.8) * sqrt(tdiff_daily)
+  pet_daily[pet_daily < 0] <- 0
+  annual_pet <- rowSums(pet_daily)
+  prec_monthly <- prec_mat * days_in_month
+  annual_p <- rowSums(prec_monthly)
   mi_vec <- annual_p / pmax(annual_pet, 1e-8)
-  
-  # P_seasonality
+
+  # P_seasonality — find 4 warmest months from monthly means
   warm_idx <- apply(tmean_mat, 1, function(x) order(x, decreasing = TRUE)[1:4], drop = FALSE)
-  warm_p <- sapply(seq_len(n_cells), function(i) sum(prec_mat[i, warm_idx[, i]]))
-  total_p <- rowSums(prec_mat)
+  warm_p <- sapply(seq_len(n_cells), function(i) sum(prec_mat[i, warm_idx[, i]] * days_in_month[warm_idx[, i]]))
+  total_p <- rowSums(prec_monthly)
   psev_vec <- warm_p / pmax(total_p, 1e-8)
 
   # Build SpatRaster from computed vectors

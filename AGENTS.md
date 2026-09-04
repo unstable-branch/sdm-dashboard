@@ -39,7 +39,14 @@ PR targets:
 - Feature/fix PRs target `dev`.
 - Release/stabilization PRs target `main` from `dev`.
 - If two people need the same files, split the work first or agree who owns that file slice.
-- Keep PRs reviewable. Prefer several focused PRs over one giant mixed UI/model/docs/test change.
+- Keep working on the same branch across related work — open one PR per logical
+  work batch rather than splitting every sub-topic into its own branch. A PR
+  should bundle whatever changes belong to one story (e.g. a bug plus the tests
+  and docs that go with it).
+
+- Cut a new branch only for **massive significant changes**: rewrites of the
+  modeling pipeline in `R/core/run_sdm.R`, auth/security work, release-path CI
+  or compose, or any change that spans 4+ subsystems with no shared theme.
 
 Before opening a PR:
 
@@ -502,6 +509,34 @@ What changes in the app or outputs?
 
 ## Screenshots / outputs
 Attach if UI or report changed.
+
+## Project state (last refreshed after Group N — docs audit + accepted limitations)
+
+- `dev` branch tip: `6a067689` (Group N, case_weight_sdm scoping fix + dead cluster_exports cleanup)
+- `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
+- Test counts (post-campaign): 293 api tests + 65 frontend tests passing; R test suites (test-run-sdm-stages, test-v03-methods, test-gam-contract, test-model-registry, test-multi-ensemble, test-determinism, test-dnn, test-utils-sdm-atomic-writes) all pass with warnings/skips only.
+- All Groups A through N are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
+- The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
+
+## Group summary (for context when reading CHANGELOG)
+
+| Group | Branch | Commit | What it fixed |
+|---|---|---|---|
+| A | `fix/climate-covariate-download-bugs` | `f966c2e1` | Climate/covariate download dispatch by job-id prefix; partial-success reporting |
+| B | `fix/group-b-visibility-robustness` | `3e66778e` | Plumber outage surfacing; false-positive missing layer; Redis transient vs down |
+| C | `fix/group-c-authz-ownership` | `8571ec69` | 12 ownership / authz holes (PATCH/DELETE uploads, /clean/result, /boundary/delete, admin reset-password, Plumber canAccessRun, etc.) |
+| D | `fix/group-d-scientific-output-corruption` | `8f51a61c` | Silent scientific corruption: env_train NULL'd before future-projection, max_tss stays NA, dwca_datasets always NULL, predict_*_suitability NA-outs whole chunks, find_worldclim_files accepts HTML |
+| E | `fix/group-e-secrets-infra` | `97be8f13` | Secrets (email resetUrl leak, seed-admin password to stdout, rate_limit key hashed); encryption key composed; HEALTHCHECK on all 6 Dockerfiles |
+| F | `fix/group-f-type-contract` | `caa73cb1` | PlumberSchemas as source of truth; killed 13 hand-written interface drift sources |
+| G | `fix/group-g-frontend-auth-rehydration` | `cff52e65` | Auth hydration race; raw fetch on protected endpoints; register double-write; _redirecting 30s window |
+| H | `fix/group-h-observability-polish` | `4bdfe3ed` | Request-id middleware; real active-requests counter; drag-listener cleanup; conservation-summary race; Plumber readLines/fromJSON tryCatch wrap |
+| I | `fix/group-i-drift-cleanup` | `2d3f1cad` | Dead code removed (handleClimateJob, mediumCache); CHANGELOG populated; admin diagnostics error displayed |
+| J | `fix/perf-tier-d` | `f966c2e1` | blockCV package-level scoping in CV fold creation |
+| K | `fix/perf-tier-d` | `f966c2e1` | GLM pdf marginal: `type = "prob"` for presence data, `type = "response"` for pseudo-absence only |
+| L | `fix/perf-tier-d` | `f966c2e1` | VIF computed on `env_train` (training fold) not full dataset |
+| M | `fix/perf-tier-d` | `9e67e081` | Performance fixes: O(n²)→O(n) outlier flagging, GBIF dedup cache, SpatExtent vs spatRaster crop, chunking loop materialization, weighted AOO, parallel CV error propagation |
+| N | `fix/r-case-weight-sdm-scope` | `6a067689` | 6 pre-existing R test failures from `case_weight_sdm` scoping in GLM/GAM fixed — `test-run-sdm-stages.R` ×3, `test-v03-methods.R` ×1 now pass |
+| O | `fix/rangebag-cv-correctness` | `77c13156` | Rangebag CV: bg_fold_id fix (was always 0L → now properly sampled); response_curves rangebag branch added; multi-ensemble test threshold updated |
 
 ## Known limitations
 What should reviewers know?

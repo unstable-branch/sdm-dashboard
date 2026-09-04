@@ -6,15 +6,16 @@ import { compress } from "hono/compress";
 import { bodyLimit } from "hono/body-limit";
 import { plumberClient } from "./services/plumber.js";
 import { ensureBuckets } from "./services/storage.js";
-import { getRedisStatus, ensureWorker, getJobStatus, shutdownQueue } from "./services/queue.js";
+import { getRedisStatus, ensureWorker, shutdownQueue } from "./services/queue.js";
 import { startPlumberSync, stopPlumberSync } from "./services/plumber-sync.js";
 import { setupWebSocket, cleanupWebSocket } from "./services/websocket.js";
-import { mediumCache, longCache, closeCache } from "./middleware/cache.js";
-import { closeRateLimitRedis } from "./middleware/rate-limit.js";
+
 import { csrfMiddleware } from "./middleware/csrf.js";
 import { securityHeaders } from "./middleware/security-headers.js";
+import { requestIdMiddleware } from "./middleware/request-id.js";
 import { startMemoryMonitor, stopMemoryMonitor } from "./middleware/memory-monitor.js";
-import { initMetrics, metricsHandler, recordHttpRequest, setActiveRequests, collectGpuMetrics } from "./services/metrics.js";
+import { initMetrics, metricsHandler, recordHttpRequest, incActiveRequests, decActiveRequests, collectGpuMetrics } from "./services/metrics.js";
+import { startRetentionPrune, shutdownAudit } from "./services/audit.js";
 import { db } from "./db/index.js";
 import { sql } from "drizzle-orm";
 import { sdmRunRoutes } from "./routes/sdm-runs.js";
@@ -27,6 +28,7 @@ import { boundaryRoutes } from "./routes/boundary.js";
 import { resultsRoutes } from "./routes/results.js";
 import { climateRoutes } from "./routes/climate.js";
 import { covariatesRoutes } from "./routes/covariates.js";
+import { downloadsRoutes } from "./routes/downloads.js";
 import { ecologyRoutes } from "./routes/ecology.js";
 import { authRoutes } from "./routes/auth.js";
 import { publicRoutes } from "./routes/public.js";
@@ -52,6 +54,28 @@ process.on("uncaughtException", (err) => {
 
 const app = new Hono();
 
+function assertProductionEnv(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  const required: Array<[string, number]> = [
+    ["JWT_SECRET", 32],
+    ["PLUMBER_INTERNAL_KEY", 32],
+    ["CSRF_SECRET", 32],
+    ["DATA_ENCRYPTION_KEY", 32],
+  ];
+  const missing: string[] = [];
+  for (const [name, minLen] of required) {
+    const v = process.env[name];
+    if (!v || v.length < minLen) missing.push(`${name} (>=${minLen} chars)`);
+  }
+  if (missing.length > 0) {
+    const msg = `[FATAL] Missing or weak required secrets in production: ${missing.join(", ")}. Refusing to start.`;
+    console.error(msg);
+    throw new Error(msg);
+  }
+}
+
+assertProductionEnv();
+
 const frontendOrigin = process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:3000";
 const corsOrigins = frontendOrigin.split(",").map(s => s.trim()).filter(Boolean);
 app.use("*", cors({
@@ -66,14 +90,22 @@ app.use("*", bodyLimit({
 }));
 app.use("*", logger());
 app.use("*", securityHeaders);
-// Track HTTP metrics for Prometheus
+app.use("*", requestIdMiddleware);
+// Track HTTP metrics for Prometheus. inc/dec pair ensures the active-requests
+// gauge reflects the true number of in-flight requests under load, not a
+// fixed "1" (the prior setActiveRequests(1) call never decremented and
+// always reported the same value regardless of actual concurrency).
 app.use("*", async (c, next) => {
-  setActiveRequests(1);
+  incActiveRequests();
   const start = Date.now();
-  await next();
-  const ms = Date.now() - start;
-  const route = c.req.routePath || c.req.path;
-  recordHttpRequest(c.req.method, route, c.res.status, ms);
+  try {
+    await next();
+  } finally {
+    const ms = Date.now() - start;
+    const route = c.req.routePath || c.req.path;
+    recordHttpRequest(c.req.method, route, c.res.status, ms);
+    decActiveRequests();
+  }
 });
 
 app.get("/metrics", async (c) => {
@@ -93,8 +125,11 @@ app.use("/api/v1/settings/*", csrfMiddleware);
 app.use("/api/v1/sdm/*", csrfMiddleware);
 app.use("/api/v1/data/*", csrfMiddleware);
 app.use("/api/v1/climate/*", csrfMiddleware);
+app.use("/api/v1/downloads/*", csrfMiddleware);
 app.use("/api/v1/ecology/*", csrfMiddleware);
 app.use("/api/v1/projects/*", csrfMiddleware);
+app.use("/api/v1/covariates/*", csrfMiddleware);
+app.use("/api/v1/diagnostics/*", csrfMiddleware);
 
 app.get("/health", async (c) => {
   let plumberStatus = "unknown";
@@ -192,6 +227,7 @@ app.route("/api/v1/results", resultsRoutes);
 app.route("/api/v1/public", publicRoutes);
 app.route("/api/v1/climate", climateRoutes);
 app.route("/api/v1/covariates", covariatesRoutes);
+app.route("/api/v1/downloads", downloadsRoutes);
 app.route("/api/v1/ecology", ecologyRoutes);
 app.route("/api/v1/diagnostics", diagnosticsRoutes);
 app.route("/api/v1/jobs", jobsRoutes);
@@ -247,7 +283,7 @@ async function startWorkerWithRetry(attempt = 0) {
     console.log("[Worker] BullMQ worker started");
     return;
   }
-  const delay = Math.min(5000 * Math.pow(1.5, attempt), 120000);
+  const delay = Math.min(5000 * Math.pow(1.5, attempt), 120000) + Math.random() * 1000;
   console.log(`[Worker] Redis unavailable; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1}).`);
   setTimeout(() => startWorkerWithRetry(attempt + 1), delay);
 }
@@ -262,6 +298,12 @@ setTimeout(() => {
 setTimeout(() => {
   startMemoryMonitor(30000);
 }, 3000);
+
+// Start audit-logs retention prune — runs in background; interval
+// configurable via SDM_AUDIT_RETENTION_INTERVAL_MS.
+setTimeout(() => {
+  startRetentionPrune();
+}, 5000);
 
 // Flush stale cache after restart so old data from previous Plumber sessions
 // (e.g. broken endpoints returning empty results) is not served to users
@@ -282,9 +324,8 @@ async function shutdown() {
   stopPlumberSync();
   stopMemoryMonitor();
   cleanupWebSocket();
-  closeCache();
-  closeRateLimitRedis();
-  shutdownQueue();
+  await shutdownQueue();
+  await shutdownAudit();
   try {
     await db.$client.end();
     console.log("[Shutdown] PostgreSQL pool closed");
@@ -292,7 +333,7 @@ async function shutdown() {
     // Pool shutdown is best-effort
   }
   server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 3000).unref();
+  setTimeout(() => process.exit(1), 5000).unref();
 }
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);

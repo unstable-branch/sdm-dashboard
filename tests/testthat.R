@@ -36,7 +36,19 @@ if (requireNamespace("testthat", quietly = TRUE)) {
     if (length(w) == 0) stop("Expected a warning.", call. = FALSE)
     if (!is.null(regexp) && !any(grepl(regexp, w))) stop("Warning did not match: ", regexp, call. = FALSE)
   }
-  skip_if_not_installed <- function(pkg) if (!requireNamespace(pkg, quietly = TRUE)) stop("Skipped: ", pkg, " not installed.", call. = FALSE)
+  skip_if_not_installed <- function(pkg) {
+    if (!requireNamespace(pkg, quietly = TRUE)) stop("Skipped: ", pkg, " not installed.", call. = FALSE)
+    # If the package exposes a function that has moved to a different namespace
+    # (e.g. cito's nobars → reformulas::nobars), prefer the modern location
+    # so the test file doesn't fail with "could not find function".
+    if (identical(pkg, "cito") && requireNamespace("reformulas", quietly = TRUE)) {
+      tryCatch({
+        reformulas::nobars(stats::as.formula("y ~ x"))
+      }, error = function(e) {
+        stop("Skipped: cito API drift — nobars moved and reformulas does not provide it.", call. = FALSE)
+      })
+    }
+  }
   skip_if_not <- function(cond, msg = "") if (!isTRUE(cond)) stop("Skipped: ", msg, call. = FALSE)
 
   source(file.path("tests", "testthat", "helper-load.R"))

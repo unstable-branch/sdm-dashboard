@@ -12,16 +12,19 @@
 #' @return list with fold_id, block_id, block_size_km, block_size_mode
 make_cv_folds_blockcv <- function(model_data, k = 5, seed = 42,
                                    cv_block_size_km = NULL, log_fun = NULL) {
+  fallback_block_size_km <- function() {
+    if (is.null(cv_block_size_km) || !is.finite(cv_block_size_km)) 100 else cv_block_size_km
+  }
   if (!requireNamespace("blockCV", quietly = TRUE)) {
     log_message(log_fun, "blockCV not available; falling back to custom spatial blocks")
     return(make_cv_folds_spatial_blocks(model_data$.x, model_data$.y, model_data$presence,
-      k = k, block_size_km = cv_block_size_km %||% 100, seed = seed))
+      k = k, block_size_km = fallback_block_size_km(), seed = seed))
   }
 
   if (!requireNamespace("sf", quietly = TRUE)) {
     log_message(log_fun, "sf not available; falling back to custom spatial blocks")
     return(make_cv_folds_spatial_blocks(model_data$.x, model_data$.y, model_data$presence,
-      k = k, block_size_km = cv_block_size_km %||% 100, seed = seed))
+      k = k, block_size_km = fallback_block_size_km(), seed = seed))
   }
 
   log_message(log_fun, "Creating spatial CV folds via blockCV::cv_spatial()")
@@ -31,6 +34,19 @@ make_cv_folds_blockcv <- function(model_data, k = 5, seed = 42,
 
   # Presence/absence response
   r <- model_data$presence
+
+  # Pre-open a tempfile PDF device so blockCV::cv_spatial's internal plot call
+  # has somewhere to write. In headless Docker containers, the default
+  # Rplots.pdf in the cwd fails to open with "cannot open file 'Rplots.pdf'".
+  # tempdir() is set to <job_dir>/.tmp by run_model_background.R so cross-
+  # device rename is safe. The device is closed in on.exit regardless of
+  # success or failure of cv_spatial().
+  cv_pdf <- tempfile(fileext = ".pdf")
+  grDevices::pdf(file = cv_pdf, onefile = TRUE)
+  on.exit({
+    try(grDevices::dev.off(), silent = TRUE)
+    try(unlink(cv_pdf), silent = TRUE)
+  }, add = TRUE)
 
   tryCatch({
     # Auto-detect block size from variogram if not specified
@@ -64,6 +80,6 @@ make_cv_folds_blockcv <- function(model_data, k = 5, seed = 42,
   }, error = function(e) {
     log_message(log_fun, "  blockCV failed: ", conditionMessage(e), "; falling back to custom blocks")
     make_cv_folds_spatial_blocks(model_data$.x, model_data$.y, model_data$presence,
-      k = k, block_size_km = cv_block_size_km %||% 100, seed = seed)
+      k = k, block_size_km = fallback_block_size_km(), seed = seed)
   })
 }

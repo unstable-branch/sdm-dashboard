@@ -118,17 +118,24 @@ const buildRunPayloadConfig = {
 vi.mock("../db", () => ({
   db: {
     select: vi.fn(),
-    insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn(async () => [{}]) })) })),
+    insert: vi.fn(() => ({ values: vi.fn(() => ({ onConflictDoNothing: vi.fn(() => ({ returning: vi.fn(async () => [{}]) })), returning: vi.fn(async () => [{}]) })) })),
     update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => [{}]) })) })),
   },
 }));
 
 vi.mock("../services/plumber", () => ({
+  PlumberClient: class { },
   plumberClient: {
     getModelStatus: vi.fn(),
     runModel: vi.fn(async () => ({ job_id: "plumber-job-1" })),
     targetsRun: vi.fn(async () => ({ job_id: "targets-job-1" })),
   },
+}));
+
+vi.mock("../services/plumber-sync", () => ({
+  encryptOutputs: vi.fn(),
+  getLastSyncError: vi.fn(() => null),
+  getLastSyncAge: vi.fn(() => 0),
 }));
 
 vi.mock("../middleware/rate-limit", () => ({
@@ -137,7 +144,6 @@ vi.mock("../middleware/rate-limit", () => ({
   gbifRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
   climateRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
   defaultRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
-  authRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
 }));
 
 vi.mock("ioredis", () => {
@@ -322,6 +328,9 @@ describe("SDM routes", () => {
 
       (db.insert as any).mockImplementation(() => ({
         values: vi.fn(() => ({
+          onConflictDoNothing: vi.fn(() => ({
+            returning: vi.fn(async () => []),
+          })),
           returning: vi.fn(async () => [{ id: "run-1" }]),
         })),
       }));

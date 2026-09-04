@@ -50,9 +50,3 @@ export function stopMemoryMonitor() {
   }
 }
 
-export function getMemoryStatus() {
-  return {
-    ...getMemorySnapshot(),
-    timestamp: new Date().toISOString(),
-  };
-}

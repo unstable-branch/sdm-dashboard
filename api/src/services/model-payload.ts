@@ -1,6 +1,4 @@
 import { join } from "path";
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
-import { decrypt } from "./encryption.js";
 
 export type ModelConfigRecord = Record<string, unknown> & {
   species?: string;
@@ -13,33 +11,6 @@ export type ModelConfigRecord = Record<string, unknown> & {
   backgroundN?: number;
   cvFolds?: number;
 };
-
-const _decryptedFiles = new Set<string>();
-
-export function cleanupDecryptedFiles(): void {
-  for (const p of _decryptedFiles) {
-    try { unlinkSync(p); } catch { /* ignore */ }
-  }
-  _decryptedFiles.clear();
-}
-
-function resolveEncryptedFile(filePath: string | undefined | null): string | null {
-  if (!filePath || !filePath.endsWith(".enc")) return filePath ?? null;
-  const resolvedPath = filePath.replace(/\.enc$/, "");
-  try {
-    const ciphertext = readFileSync(filePath);
-    const plaintext = decrypt(ciphertext);
-    writeFileSync(resolvedPath, plaintext);
-    _decryptedFiles.add(resolvedPath);
-    return resolvedPath;
-  } catch {
-    // If decryption failed but file was written, clean it up
-    if (existsSync(resolvedPath)) {
-      try { unlinkSync(resolvedPath); } catch { /* ignore */ }
-    }
-    return filePath;
-  }
-}
 
 // Map of camelCase config keys to snake_case keys expected by Plumber
 export const CAMEL_TO_SNAKE: Record<string, string> = {
@@ -74,6 +45,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   futureLabel: "future_label",
   futureWorldclimDir2: "future_worldclim_dir2",
   futureLabel2: "future_label2",
+  autoDownloadClimate: "auto_download_climate",
   worldclimDir: "worldclim_dir",
   worldclimRes: "worldclim_res",
   useElevation: "use_elevation",
@@ -200,8 +172,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
 
 export function buildModelPayload(config: ModelConfigRecord, runId: string): Record<string, unknown> {
   const { biovars, projectionExtent, trainingExtent, ...rest } = config;
-  const occurrenceFile = resolveEncryptedFile(config.cleanedFilePath || config.occurrenceFile);
-  const cleanedFile = resolveEncryptedFile(config.cleanedFilePath);
+  const rawPath = config.cleanedFilePath || config.occurrenceFile || null;
   // Convert remaining camelCase keys to snake_case for Plumber API
   const restSnake: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(rest)) {
@@ -211,14 +182,14 @@ export function buildModelPayload(config: ModelConfigRecord, runId: string): Rec
     ...restSnake,
     species: config.species,
     model_id: config.modelId,
-    occurrence_file: occurrenceFile,
+    occurrence_file: rawPath,
     biovars: Array.isArray(config.biovars) ? config.biovars.join(",") : "",
     projection_extent: Array.isArray(config.projectionExtent) ? config.projectionExtent.join(",") : "",
     training_extent: Array.isArray(config.trainingExtent) ? config.trainingExtent.join(",") : undefined,
     output_dir: join("outputs", "jobs", runId),
   };
-  if (cleanedFile) {
-    payload.cleaned_file_id = cleanedFile;
+  if (rawPath) {
+    payload.cleaned_file_id = rawPath;
   }
   return payload;
 }

@@ -116,25 +116,29 @@ function ensureRegistry(): prom.Registry {
   return _registry;
 }
 
-export function getRegistry(): prom.Registry | null {
-  return _registry;
-}
-
 export function recordHttpRequest(method: string, route: string, status: number, durationMs: number): void {
   if (!_registry) return;
   httpRequestsTotal.labels(method, route, String(status)).inc();
   httpRequestDuration.labels(method, route, String(status)).observe(durationMs);
 }
 
-export function setActiveRequests(n: number): void {
-  if (!_registry) return;
-  activeApiRequests.set(n);
+// Manually-tracked counter because prom-client Gauge has no inc/dec; we
+// use a module-local counter and emit to a Gauge.
+let _activeApiRequestsCount = 0;
+
+export function incActiveRequests(): number {
+  _activeApiRequestsCount += 1;
+  if (_registry) activeApiRequests.set(_activeApiRequestsCount);
+  return _activeApiRequestsCount;
 }
 
-export function setQueueDepth(n: number): void {
-  if (!_registry) return;
-  activeQueueDepth.set(n);
+export function decActiveRequests(): number {
+  _activeApiRequestsCount = Math.max(0, _activeApiRequestsCount - 1);
+  if (_registry) activeApiRequests.set(_activeApiRequestsCount);
+  return _activeApiRequestsCount;
 }
+
+
 
 export async function collectGpuMetrics(): Promise<void> {
   if (!_registry) return;

@@ -10,12 +10,12 @@ prepare_sdm_data <- function(occ, env_train_scaled, background_n,
   pres_xy <- occ[, c("longitude", "latitude"), drop = FALSE]
   names(pres_xy) <- c("x", "y")
   pres_vals <- extract_covariates(env_train_scaled, pres_xy)
-  pres_keep <- stats::complete.cases(pres_vals)
-  if (sum(!pres_keep) > 0) log_message(log_fun, "Dropped ", sum(!pres_keep), " occurrence records with missing covariates")
+  pres_keep <- apply(pres_vals, 1, function(row) all(is.finite(row)))
+  if (sum(!pres_keep) > 0) log_message(log_fun, "Dropped ", sum(!pres_keep), " occurrence records with missing or non-finite (Inf/NaN) covariates")
   pres_vals <- pres_vals[pres_keep, , drop = FALSE]
   pres_xy_used <- pres_xy[pres_keep, , drop = FALSE]
   occ_used <- occ[pres_keep, , drop = FALSE]
-  if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data after removing ", sum(!pres_keep), " records with missing covariate values (", nrow(pres_vals), " remaining, minimum 20).", call. = FALSE)
+  if (nrow(pres_vals) < 20) stop("Too few presence records with complete environmental data after removing ", sum(!pres_keep), " records with non-finite covariate values (", nrow(pres_vals), " remaining, minimum 20).", call. = FALSE)
 
   bg_xy <- sample_background_points(env_train_scaled, background_n,
     seed = seed, presence_xy = pres_xy_used,
@@ -24,7 +24,7 @@ prepare_sdm_data <- function(occ, env_train_scaled, background_n,
     thickening_distance_km = thickening_distance_km
   )
   bg_vals <- extract_covariates(env_train_scaled, bg_xy)
-  bg_keep <- stats::complete.cases(bg_vals)
+  bg_keep <- apply(bg_vals, 1, function(row) all(is.finite(row)))
   bg_vals <- bg_vals[bg_keep, , drop = FALSE]
   bg_xy <- bg_xy[bg_keep, , drop = FALSE]
   if (nrow(bg_vals) < 100) stop("Too few background points could be sampled.", call. = FALSE)
@@ -117,4 +117,35 @@ find_optimal_threshold <- function(obs, pred) {
     if (is.finite(tss) && tss > best_tss) { best_tss <- tss; best <- t }
   }
   best
+}
+
+# Apply a per-row "predict_fn(rows_df) -> numeric vector" to a terra::app-style
+# matrix chunk. Rows with any non-finite covariate get NA_real_ instead of
+# poisoning the whole chunk. `covariates` are the original cov names to assign
+# to the rows data.frame passed to predict_fn (so `fit$covariates` lookups work).
+sdm_apply_predict <- function(vals, covariates, predict_fn) {
+  out <- rep(NA_real_, nrow(vals))
+  if (nrow(vals) == 0L) return(out)
+  ok <- apply(vals, 1, function(row) all(is.finite(row)))
+  if (!any(ok)) return(out)
+  rows_ok <- which(ok)
+  tryCatch({
+    df <- as.data.frame(vals[rows_ok, , drop = FALSE], stringsAsFactors = FALSE)
+    names(df) <- covariates
+    preds <- suppressWarnings(as.numeric(predict_fn(df)))
+    if (length(preds) == length(rows_ok)) out[rows_ok] <- preds
+  }, error = function(e) NULL)
+  out
+}
+
+# Wrap an expression in a labelled tryCatch so failures point at the calling stage.
+# Used by fit_*_sdm() backends to surface a named stage label (e.g. "cross-validate")
+# instead of a bare R error. Centralised here so all backends share one implementation.
+sdm_step <- function(label, expr) {
+  tryCatch(
+    expr,
+    error = function(e) {
+      stop("SDM stage '", label, "' failed: ", conditionMessage(e), call. = FALSE)
+    }
+  )
 }

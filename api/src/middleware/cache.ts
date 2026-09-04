@@ -51,12 +51,7 @@ export function cacheResponse(options: CacheOptions) {
   });
 }
 
-export const mediumCache = cacheResponse({ ttl: 300, keyPrefix: "medium" });
 export const longCache = cacheResponse({ ttl: 3600, keyPrefix: "long" });
-
-export function closeCache() {
-  // Redis connection is shared via queue.ts — shutdownQueue handles closure
-}
 
 export async function invalidateCache(prefix: string) {
   const r = getCacheRedis();

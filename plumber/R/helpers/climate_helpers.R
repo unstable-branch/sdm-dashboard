@@ -52,6 +52,7 @@ handle_climate_download <- function(req, app_dir) {
   job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
   dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
 
+  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
   job_meta <- list(
     id = job_id,
     type = download_type,
@@ -59,6 +60,7 @@ handle_climate_download <- function(req, app_dir) {
     started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
     completed_at = NULL,
     error = NULL,
+    user_id = user_id,
     config = body
   )
   sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
@@ -70,7 +72,8 @@ handle_climate_download <- function(req, app_dir) {
 
   proc <- callr::r_bg(function(script, job_dir, app_dir) {
     source(script, local = TRUE)
-  }, args = list(script_path, job_dir, app_dir), stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"))
+  }, args = list(script_path, job_dir, app_dir), stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"),
+  r_limit_memory = sdm_vsize_to_bytes())
   sdm_process_registry[[job_id]] <- list(proc = proc, device = "cpu")
   job_meta$process_pid <- proc$get_pid()
   sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
@@ -94,7 +97,8 @@ handle_climate_status <- function(res, job_id, app_dir) {
     res$status <- 404L; return(list(error = "Download job not found"))
   }
 
-  meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
 
   if (identical(meta$status, "running")) {
     entry <- sdm_process_registry[[basename(job_id)]]
@@ -261,7 +265,8 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
   meta_file <- file.path(job_dir, "meta.json")
 
   if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
       if (as.character(meta$user_id) != as.character(req$user_id)) {
         return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this download"))
@@ -274,16 +279,42 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
   entry <- sdm_process_registry[[basename(job_id)]]
   proc <- sdm_registry_proc(entry)
   killed <- FALSE
-  if (!is.null(proc) && inherits(proc, "Process") && proc$is_alive()) {
+  if (!is.null(proc) && inherits(proc, "process") && proc$is_alive()) {
     proc$kill()
     killed <- TRUE
+    for (i in seq_len(30)) {
+      if (!proc$is_alive()) break
+      Sys.sleep(0.1)
+    }
+    if (proc$is_alive()) {
+      pid <- proc$get_pid()
+      tryCatch({
+        if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
+          cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
+          if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
+        }
+        tools::pskill(pid, signal = 9)
+      }, error = function(e) NULL)
+    }
     rm(list = basename(job_id), envir = sdm_process_registry)
   }
 
   if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+    meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
+    if (!is.null(meta$status) && meta$status %in% c("completed", "failed", "cancelled")) {
+      return(list(ok = TRUE, message = "Download already terminated"))
+    }
     if (!killed && !is.null(meta$process_pid)) {
-      tryCatch({ tools::pskill(meta$process_pid, signal = 9); killed <- TRUE }, error = function(e) NULL)
+      pid <- meta$process_pid
+      tryCatch({
+        if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
+          cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
+          if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
+        }
+        tools::pskill(pid, signal = 9)
+        killed <- TRUE
+      }, error = function(e) NULL)
     }
     meta$status <- "cancelled"
     meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
