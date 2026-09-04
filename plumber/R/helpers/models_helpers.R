@@ -542,10 +542,64 @@ handle_targets_status <- function(res, job_id) {
       }
     }
     if (!process_alive) {
+      exit_code <- NULL
+      exit_signal_name <- NULL
+      if (!is.null(proc)) {
+        tryCatch({
+          status_val <- proc$get_status()
+          if (is.character(status_val) && length(status_val) == 1 && !nzchar(status_val) == FALSE) {
+            if (status_val %in% c("running", "sleeping")) {
+              # Process still technically alive but is_alive() returned FALSE — edge case
+            } else {
+              # Try to parse as numeric exit code
+              exit_code <- suppressWarnings(as.integer(status_val))
+              if (is.na(exit_code)) exit_code <- NULL
+              # Also check if it's a signal name
+              sig_map <- c("SIGKILL" = 9L, "SIGSEGV" = 11L, "SIGTERM" = 15L,
+                            "SIGINT" = 2L, "SIGHUP" = 1L, "SIGABRT" = 6L,
+                            "SIGPIPE" = 13L)
+              if (!is.null(exit_code) && exit_code > 128) {
+                sig_num <- exit_code - 128
+                sig_names <- c(`1` = "SIGHUP", `2` = "SIGINT", `6` = "SIGABRT",
+                               `9` = "SIGKILL", `11` = "SIGSEGV", `13` = "SIGPIPE",
+                               `15` = "SIGTERM")
+                exit_signal_name <- sig_names[as.character(sig_num)] %||% paste0("signal ", sig_num)
+              } else if (!is.null(exit_code) && exit_code > 0) {
+                exit_signal_name <- paste0("exit code ", exit_code)
+              }
+            }
+          }
+        }, error = function(e) NULL)
+      }
+      hint <- if (!is.null(exit_code)) {
+        if (exit_code == 137) {
+          "Process received SIGKILL (exit 137) — likely OOMKilled by the container/kernel. Reduce raster resolution, reduce number of covariates, or increase container memory limit."
+        } else if (exit_code == 139) {
+          "Process received SIGSEGV (exit 139) — segfault in native code. This may indicate a bug in an R package (terra, raster, etc.). Try reducing resolution or using a different model."
+        } else if (exit_code == 143) {
+          "Process received SIGTERM (exit 143) — terminated by user or orchestrator. If not intentional, check the cancel flag and Redis state."
+        } else if (exit_code == 124) {
+          "Process timed out (exit 124 from GNU timeout). Increase the timeout limit or simplify the model."
+        } else if (exit_code == 0) {
+          "Process exited cleanly but was misidentified as dead — no action needed."
+        } else if (exit_code > 128) {
+          paste0("Process exited with code ", exit_code, " (", exit_signal_name %||% "", "). ", SDM_ERR_CODES$PROCESS_CRASH$hint)
+        } else {
+          SDM_ERR_CODES$PROCESS_CRASH$hint
+        }
+      } else {
+        SDM_ERR_CODES$PROCESS_CRASH$hint
+      }
       meta$status <- "failed"
-      meta$error <- "Process crashed or was killed"
+      meta$error <- if (!is.null(exit_code) && exit_code > 0) {
+        paste0("Process crashed or was killed (exit ", exit_code,
+               if (!is.null(exit_signal_name)) paste0(" — ", exit_signal_name) else "", ")")
+      } else {
+        "Process crashed or was killed"
+      }
       meta$error_code <- "PROCESS_CRASH"
-      meta$error_hint <- "The process was terminated by the OS, likely due to insufficient memory. Reduce covariates, use coarser resolution, or increase available memory."
+      meta$error_hint <- hint
+      if (!is.null(exit_code) && is.finite(exit_code)) meta$exit_code <- exit_code
       meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
       sdm_write_json(meta, meta_file)
       sdm_process_registry[[job_id]] <- NULL

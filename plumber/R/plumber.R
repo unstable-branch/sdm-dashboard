@@ -324,6 +324,16 @@ function(req) handle_covariates_download_bg(req, app_dir)
 #* @serializer contentType list(type="image/png")
 function(req, res, run_id, z, x, y, band = NULL) handle_tile_serve(req, res, run_id, z, x, y, app_dir, band)
 
+#* Extract suitability value at a given lat/lng point
+#* @param run_id Run identifier
+#* @param lat Latitude (-90 to 90)
+#* @param lng Longitude (-180 to 180)
+#* @param band Band name or index (optional)
+#* @get /api/v1/results/suitability-value
+#* @serializer contentType list(type="application/json")
+function(req, res, run_id, lat, lng, band = NULL)
+  handle_suitability_value(req, res, run_id, lat, lng, band, app_dir)
+
 #* Serve default boundary GeoJSON
 #* @param resolution Boundary resolution
 #* @param type Boundary type (admin0, admin1)
