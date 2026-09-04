@@ -10,8 +10,8 @@
 options(error = function() {
   # Use condition class instead of geterrmessage() — the latter is overwritten
   # by cascading errors (e.g. type mismatch during REQUEST_REJECTED cleanup).
-  cond <- get("condition", envir = .GlobalEnv, inherits = FALSE)
-  if (inherits(cond, "request_rejected")) return(invisible(NULL))
+  cond <- tryCatch(get("condition", envir = .GlobalEnv, inherits = FALSE), error = function(e) NULL)
+  if (is.null(cond) || inherits(cond, "request_rejected")) return(invisible(NULL))
   crash_file <- file.path(tempdir(), "sdm_crash_dump.rda")
   tryCatch({
     dump.frames("sdm_crash_dump", to.file = TRUE)
@@ -107,16 +107,10 @@ if (identical(Sys.getenv("NODE_ENV"), "production")) {
   }
 }
 
-# Auth helper: stop request with error response
-# Uses a custom condition class so the global error handler can reliably
-# distinguish auth rejections from real crashes (geterrmessage() is fragile).
 auth_fail <- function(res, status, msg) {
-  tryCatch({
-    res$status <- status
-    res$body <- msg
-  }, error = function(e) NULL)
-  cond <- structure(list(message = msg), class = c("request_rejected", "error", "condition"))
-  stop(cond)
+  res$status <- status
+  res$body <- msg
+  FALSE
 }
 
 # Helper to safely read headers
@@ -133,14 +127,13 @@ get_hdr <- function(req, name) {
 }
 
 # Global preroute hook - runs before every endpoint
-# Throws an error to stop processing when auth fails
+# Returns FALSE to halt filter chain with a response when auth fails
 plumber::pr_hook(pr, "preroute", function(data, req, res) {
   path <- req$PATH_INFO %||% req$PATH
 
   # Guard against malformed requests
-  if (is.null(path) || length(path) == 0L) {
-    auth_fail(res, 400L, '{"error":"Malformed request"}')
-    return(NULL)
+    if (is.null(path) || length(path) == 0L) {
+    return(auth_fail(res, 400L, '{"error":"Malformed request"}'))
   }
 
   # Disable auth in dev/test if env var set
@@ -157,8 +150,7 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     }
     hono_internal <- get_hdr(req, "x-hono-internal")
     if (is.null(hono_internal) || !identical(hono_internal, internal_key)) {
-      auth_fail(res, 401L, '{"error":"Internal system token required. Direct access not allowed."}')
-      return(NULL)
+      return(auth_fail(res, 401L, '{"error":"Internal system token required. Direct access not allowed."}'))
     }
     fwd_user <- get_hdr(req, "x-forwarded-user")
     if (!is.null(fwd_user) && nzchar(fwd_user)) {
@@ -187,15 +179,13 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   # Direct API key auth
   api_key <- get_hdr(req, "x-api-key")
   if (is.null(api_key) || !nzchar(api_key)) {
-    auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}')
-    return(NULL)
+    return(auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}'))
   }
 
   db_pool <- sdm_get_db_pool(db_pool)
   user_info <- validate_api_key(api_key, pool = db_pool, app_dir = app_dir)
   if (is.null(user_info)) {
-    auth_fail(res, 401L, '{"error":"Invalid or expired API key."}')
-    return(NULL)
+    return(auth_fail(res, 401L, '{"error":"Invalid or expired API key."}'))
   }
 
   req$user_id <- user_info$user_id
@@ -213,8 +203,7 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
       raw_rate_id
     }
     if (!sdm_check_rate_limit(rate_key, max_requests = 120, window_seconds = 60)) {
-      auth_fail(res, 429L, '{"error":"Rate limit exceeded. Try again in 60 seconds."}')
-      return(NULL)
+      return(auth_fail(res, 429L, '{"error":"Rate limit exceeded. Try again in 60 seconds."}'))
     }
   }
 
