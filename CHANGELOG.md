@@ -48,6 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `frontend/src/lib/map-styles.ts`: basemap switched from CARTO raster PNG tiles to CARTO Streets v1 vector tiles (MVT) — sharper at all zoom levels, no API key required, same free CDN.
 
+### Plumber auth (revert d3b96e49)
+
+- `plumber/R/plumber.R`: removed `@filter Auth` block that was causing `/health` to return empty `{}` body in Plumber 1.3.3.
+- `plumber/R/run_server.R`: restored `preroute` hook with `auth_fail()` and `get_hdr()` helpers from `abcd2432`. The `return(FALSE)` pattern for auth rejections avoids triggering a C++ serializer bug in Plumber 1.3.3's `invokeCppCallback`.
+
 ### Security (Group C: 12 ownership/authz holes closed)
 
 - `PATCH /uploads/:fileId` now requires `eq(uploads.userId, user.id)` — was rewriting other users' `is_cleaned` flag and `cleaned_file_path` by guessed `fileId`.
