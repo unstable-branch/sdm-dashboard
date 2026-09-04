@@ -61,4 +61,10 @@ USER node
 
 EXPOSE 3000
 
+# Container-level liveness probe. Matches the compose-level healthcheck at
+# docker-compose*.yml and ensures Kubernetes / standalone runtimes can detect
+# a hung Next.js server.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -fsS http://localhost:3000/ || exit 1
+
 CMD ["dumb-init", "node", "frontend/server.js"]

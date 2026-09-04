@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import { cn } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, Clock, X, Ban } from "lucide-react";
@@ -70,8 +70,8 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
 
   useEffect(() => {
     if (!jobId) return;
-    // Always poll for active/running jobs — SSE may lack progressJson or currentStage
-    if (job && !isSyntheticPlaceholder) {
+    // Skip polling when SSE is connected and job is tracked by SSE
+    if (connected && job && !isSyntheticPlaceholder) {
       if (job.state === "completed" || job.state === "failed" || job.state === "cancelled") {
         setPolledJob(null); // SSE is authoritative for terminal states — clear polling
         return;
@@ -123,18 +123,22 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
   // Merge progressJson, currentStage, logs from polling when SSE lacks them
   // (queue worker emits without currentStage; plumber-sync includes it)
   // Ensure progress never regresses (handles R backend emitting backward progress values)
-  const rawJob = (job && !isSyntheticPlaceholder)
-    ? { ...job, progressJson: job.progressJson ?? (polledJob?.progressJson ?? undefined) }
-    : polledJob;
-  const effectiveJob = rawJob && polledJob
-    ? {
+  const effectiveJob = useMemo(() => {
+    const rawJob = (job && !isSyntheticPlaceholder)
+      ? { ...job, progressJson: job.progressJson ?? (polledJob?.progressJson ?? undefined) }
+      : polledJob;
+    if (!rawJob) return null;
+    if (polledJob) {
+      return {
         ...rawJob,
-        progress: Math.max(rawJob.progress, polledJob.progress),
+        progress: Math.max(rawJob.progress ?? 0, polledJob.progress ?? 0),
         currentStage: rawJob.currentStage ?? polledJob.currentStage,
         progressJson: rawJob.progressJson ?? polledJob.progressJson,
         logs: rawJob.logs?.length ? rawJob.logs : polledJob.logs,
-      }
-    : rawJob;
+      };
+    }
+    return rawJob;
+  }, [job, polledJob, isSyntheticPlaceholder]);
 
   useEffect(() => {
     if (!startTime && !effectiveJob) return;

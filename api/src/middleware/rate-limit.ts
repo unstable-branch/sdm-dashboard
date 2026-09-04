@@ -1,8 +1,7 @@
 import { createMiddleware } from "hono/factory";
 import type { Redis } from "ioredis";
 import { getSharedRedis } from "../services/queue.js";
-
-let redisAvailable = false;
+import { getClientIp } from "./client-ip.js";
 
 // In-memory fallback rate limiter for when Redis is unavailable
 const memoryStore = new Map<string, { timestamps: number[] }>();
@@ -38,13 +37,7 @@ function checkMemoryRateLimit(key: string, windowMs: number, max: number): boole
 }
 
 function getRedis(): Redis | null {
-  const shared = getSharedRedis();
-  if (shared) {
-    redisAvailable = shared.status === "ready";
-    return shared;
-  }
-  redisAvailable = false;
-  return null;
+  return getSharedRedis();
 }
 
 async function redisZremrangebyscore(key: string, min: number, max: number): Promise<void> {
@@ -79,7 +72,7 @@ export interface RateLimitOptions {
 
 export function rateLimit(options: RateLimitOptions) {
   return createMiddleware(async (c, next) => {
-    const ip = c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || c.req.header("cf-connecting-ip") || "unknown";
+    const ip = getClientIp(c);
     const key = `${options.keyPrefix || "rl"}:${ip}`;
     const r = getRedis();
 
@@ -107,7 +100,7 @@ export const gbifRateLimit = rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "
 export const climateRateLimit = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "climate" });
 export const modelRateLimit = rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "model" });
 export const defaultRateLimit = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: "default" });
-export const authRateLimit = rateLimit({ windowMs: 60_000, max: 20, keyPrefix: "auth" });
+
 
 /**
  * Check rate limit for a given key (e.g., IP address for auth failures).
@@ -132,7 +125,4 @@ export async function checkRateLimit(key: string, windowMs: number, max: number)
   }
 }
 
-export function closeRateLimitRedis(): void {
-  redisAvailable = false;
-  // Redis connection is shared via queue.ts — shutdownQueue handles closure
-}
+

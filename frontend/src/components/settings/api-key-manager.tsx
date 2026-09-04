@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getAuthToken } from "@/services/api";
+import { apiGet, apiPost, apiDelete, getAuthToken } from "@/services/api";
 import { Key, Plus, Trash2, Copy, CheckCircle2, AlertTriangle } from "lucide-react";
 
 interface ApiKey {
@@ -34,14 +34,11 @@ export function ApiKeyManager() {
     }
 
     try {
-      const res = await fetch("/api/v1/auth/api-keys", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        setKeys(await res.json());
-      }
-    } catch {
-      // Silently fail
+      const data = await apiGet<unknown[]>("/api/v1/auth/api-keys");
+      setKeys(data as ApiKey[]);
+    } catch (err) {
+      console.error("[api-key-manager] Failed to load API keys:", err);
+      setError("Failed to load API keys");
     } finally {
       setLoading(false);
     }
@@ -55,20 +52,11 @@ export function ApiKeyManager() {
       const token = getAuthToken();
       if (!token) throw new Error("Sign in again before creating API keys");
 
-      const res = await fetch("/api/v1/auth/api-keys", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: newKeyName,
-          expiresAt: newKeyExpiry || null,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to create key");
+      const data = await apiPost<{ key: string; error?: string }>(
+        "/api/v1/auth/api-keys",
+        { name: newKeyName, expiresAt: newKeyExpiry || null },
+      );
+      if (data.error) throw new Error(data.error);
 
       setShowNewKey(data.key);
       setNewKeyName("");
@@ -84,13 +72,8 @@ export function ApiKeyManager() {
       const token = getAuthToken();
       if (!token) return;
 
-      const res = await fetch(`/api/v1/auth/api-keys/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        setKeys((prev) => prev.filter((k) => k.id !== id));
-      }
+      await apiDelete(`/api/v1/auth/api-keys/${id}`);
+      setKeys((prev) => prev.filter((k) => k.id !== id));
     } catch {
       // Silently fail
     }

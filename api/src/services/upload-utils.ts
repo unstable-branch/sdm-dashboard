@@ -1,10 +1,16 @@
-import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
-import { join, extname } from "path";
+import { mkdirSync, existsSync, writeFileSync, readFileSync, renameSync } from "fs";
+import { join, extname, resolve, sep, basename } from "path";
 import { randomUUID } from "crypto";
 import { encrypt, decrypt } from "./encryption.js";
 import { plumberClient } from "./plumber.js";
 
 export let UPLOAD_DIR = "";
+
+function writeAtomicSync(path: string, data: Buffer): void {
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, path);
+}
 
 export function setUploadDir(dir: string): void {
   UPLOAD_DIR = dir;
@@ -19,7 +25,7 @@ export function saveUploadEncrypted(buffer: Buffer, originalName: string): { enc
   const ext = extname(originalName) || ".csv";
   const encPath = join(UPLOAD_DIR, `${uuid}${ext}.enc`);
   const encrypted = encrypt(buffer);
-  writeFileSync(encPath, encrypted);
+  writeAtomicSync(encPath, encrypted);
   return { encPath, pipelineRunId };
 }
 
@@ -34,7 +40,7 @@ export function decryptToUploads(encPath: string): string | null {
   try {
     const ciphertext = readFileSync(encPath);
     const plaintext = decrypt(ciphertext);
-    writeFileSync(plaintextPath, plaintext);
+    writeAtomicSync(plaintextPath, plaintext);
     const lineCount = plaintext.toString().split("\n").filter((l) => l.trim().length > 0).length - 1;
     console.log(`[encrypt] Decrypted ${encPath} → ${plaintextPath} (${lineCount} lines)`);
     return plaintextPath;
@@ -44,13 +50,48 @@ export function decryptToUploads(encPath: string): string | null {
   }
 }
 
+/**
+ * Resolve a client-supplied file identifier to an on-disk path under UPLOAD_DIR,
+ * rejecting any path that escapes the upload directory.
+ *
+ * Allowed forms:
+ *   - a basename only (e.g. "abc-123.csv"), useful when UPLOAD_DIR is the cwd
+ *   - a path that, after normalization, has UPLOAD_DIR as an ancestor
+ *
+ * Rejected: empty, absolute, null-byte, parent-traversal (".."), or any path
+ * whose resolved form is outside UPLOAD_DIR.
+ */
 export function resolveFilePath(fileId: string): { path: string } {
-  const encPath = join(UPLOAD_DIR, fileId);
-  if (encPath.endsWith(".enc")) {
-    const decrypted = decryptToUploads(encPath);
-    return { path: decrypted ?? encPath };
+  if (!fileId || typeof fileId !== "string" || fileId.includes("\0")) {
+    return { path: "" };
   }
-  return { path: encPath };
+  if (fileId.includes("..")) {
+    const safe = basename(fileId);
+    if (!safe || safe === fileId) return { path: "" };
+    fileId = safe;
+  }
+  if (!UPLOAD_DIR) return { path: "" };
+
+  const root = resolve(UPLOAD_DIR);
+  const isAbsoluteInput = fileId.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(fileId);
+  const base = isAbsoluteInput ? fileId : join(root, fileId);
+  const normSafe = resolve(base);
+  if (normSafe !== root && !normSafe.startsWith(root + sep)) {
+    return { path: "" };
+  }
+
+  if (normSafe.endsWith(".enc")) {
+    const decrypted = decryptToUploads(normSafe);
+    if (decrypted) {
+      const normDec = resolve(decrypted);
+      if (normDec !== root && !normDec.startsWith(root + sep)) {
+        return { path: "" };
+      }
+      return { path: decrypted };
+    }
+    return { path: normSafe };
+  }
+  return { path: normSafe };
 }
 
 export async function pollPlumberJob(jobId: string, timeout?: number): Promise<Record<string, unknown>> {

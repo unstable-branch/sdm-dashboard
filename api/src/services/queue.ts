@@ -1,4 +1,5 @@
 import { Queue, Worker, Job } from "bullmq";
+import { createHash } from "crypto";
 import IORedis from "ioredis";
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
@@ -7,9 +8,8 @@ import { eq } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { handleModelJob } from "./queue-model-worker.js";
 import { handleCleanJob } from "./queue-clean-worker.js";
-import { handleClimateJob, handleCovariateJob } from "./queue-climate-worker.js";
+import { handleCovariateJob } from "./queue-climate-worker.js";
 
-let _connection: IORedis | null = null;
 let _bullmqConnection: IORedis | null = null;
 let _queue: Queue | null = null;
 let _worker: Worker<SdmJobData, SdmJobResult> | null = null;
@@ -25,15 +25,35 @@ function getReconnectDelay(): number {
 export const CLIMATE_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.CLIMATE_DOWNLOAD_TIMEOUT_MS || "1800000", 10);
 export const CLIMATE_DOWNLOAD_POLL_INTERVAL_MS = parseInt(process.env.CLIMATE_DOWNLOAD_POLL_INTERVAL_MS || "3000", 10);
 export const CLIMATE_DOWNLOAD_MAX_ATTEMPTS = Math.floor(CLIMATE_DOWNLOAD_TIMEOUT_MS / CLIMATE_DOWNLOAD_POLL_INTERVAL_MS);
+export const CLIMATE_DOWNLOAD_MAX_CONSECUTIVE_POLL_ERRORS = parseInt(process.env.CLIMATE_DOWNLOAD_MAX_CONSECUTIVE_POLL_ERRORS || "5", 10);
 
 export const MODEL_RUN_TIMEOUT_MS = parseInt(process.env.MODEL_RUN_TIMEOUT_MS || "7200000", 10);
 export const MODEL_RUN_POLL_INTERVAL_MS = parseInt(process.env.MODEL_RUN_POLL_INTERVAL_MS || "5000", 10);
 export const MODEL_RUN_MAX_ATTEMPTS = Math.floor(MODEL_RUN_TIMEOUT_MS / MODEL_RUN_POLL_INTERVAL_MS);
 
-export const REDIS_UNAVAILABLE_CODES = new Set([
-  "ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET",
-  "ENETUNREACH", "EHOSTUNREACH", "EPIPE",
+// Codes that imply Redis itself is genuinely down (port closed, DNS gone, host unreachable).
+// Only these trigger `disableRedis()` and the 5-minute cooldown. Transient socket errors
+// (ECONNRESET, EPIPE, ETIMEDOUT) are now treated as recoverable by the next operation.
+export const REDIS_DOWN_CODES = new Set([
+  "ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH",
 ]);
+
+// Codes we still recognise as "Redis had a problem" but do NOT disable on.
+export const REDIS_TRANSIENT_CODES = new Set([
+  "ETIMEDOUT", "ECONNRESET", "EPIPE",
+]);
+
+export const REDIS_UNAVAILABLE_CODES = new Set([
+  ...REDIS_DOWN_CODES,
+  ...REDIS_TRANSIENT_CODES,
+]);
+
+export function isRedisDownError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const msg = (err as { message?: string }).message ?? "";
+  if (REDIS_DOWN_CODES.has(msg)) return true;
+  return msg.includes("connect ECONNREFUSED");
+}
 
 export function isRedisUnavailableError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -53,7 +73,6 @@ function disableRedis() {
   _redisDisabled = true;
   _worker?.close();
   _worker = null;
-  _connection = null;
   _bullmqConnection = null;
   _queue = null;
 
@@ -77,22 +96,26 @@ export function resetRedis() {
     clearTimeout(_reconnectTimer);
     _reconnectTimer = null;
   }
-  _connection = null;
   _bullmqConnection = null;
   _queue = null;
   _worker = null;
   console.log("[Redis] Connection state reset by admin request.");
 }
 
-export function shutdownQueue() {
+export async function shutdownQueue() {
   if (_reconnectTimer) {
     clearTimeout(_reconnectTimer);
     _reconnectTimer = null;
   }
-  _worker?.close();
-  _queue?.close();
-  _bullmqConnection?.disconnect(false);
-  _connection = null;
+  try {
+    await _worker?.close();
+  } catch { /* best-effort */ }
+  try {
+    await _queue?.close();
+  } catch { /* best-effort */ }
+  try {
+    _bullmqConnection?.disconnect(false);
+  } catch { /* best-effort */ }
   _bullmqConnection = null;
   _queue = null;
   _worker = null;
@@ -127,8 +150,12 @@ function getBullMqConnection(): IORedis | null {
     _failCount = 0;
   });
   _bullmqConnection.on("error", (err) => {
-    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+    if (isRedisDownError(err)) {
       disableRedis();
+      return;
+    }
+    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+      console.warn("[ioredis] transient redis error (not disabling):", err instanceof Error ? err.message : err);
       return;
     }
     console.error("[ioredis] unexpected error:", err);
@@ -154,8 +181,12 @@ function getQueue(): Queue | null {
       },
     });
     _queue.on("error", (err) => {
-      if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+      if (isRedisDownError(err)) {
         disableRedis();
+        return;
+      }
+      if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+        console.warn("[queue] transient redis error (not disabling):", err instanceof Error ? err.message : err);
         return;
       }
       console.error("[queue] error:", err);
@@ -195,9 +226,6 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
           case "model":
             result = await handleModelJob(job, client, userId, cpuStart);
             break;
-          case "climate_download":
-            result = await handleClimateJob(job, client, userId);
-            break;
           case "covariate_download":
             result = await handleCovariateJob(job, client, userId);
             break;
@@ -222,7 +250,6 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
                 error: finalError,
                 completedAt: new Date(),
                 rCpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
-                peakMemoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
               })
               .where(eq(runs.id, runId));
           }
@@ -266,11 +293,6 @@ export function getJobQueue(): Queue | null {
   return getQueue();
 }
 
-export function getQueueClient(): IORedis | null {
-  if (_redisDisabled) return null;
-  return getConnection();
-}
-
 export function getSharedRedis(): IORedis | null {
   return getConnection();
 }
@@ -292,13 +314,13 @@ export function getRedisStatus(): {
 }
 
 export interface SdmJobData {
-  type: "clean" | "model" | "climate_download" | "covariate_download";
+  type: "clean" | "model" | "covariate_download";
   payload: Record<string, unknown>;
   userId?: string;
 }
 
 export interface SdmJobResult {
-  status: "success" | "error";
+  status: "success" | "partial_success" | "error";
   data?: Record<string, unknown>;
   error?: string;
   error_code?: string | null;
@@ -310,21 +332,54 @@ export async function enqueueSdmJob(data: SdmJobData, userId?: string): Promise<
   const q = getQueue();
   if (!q) throw new Error("Redis unavailable — cannot enqueue job");
   const jobData: SdmJobData = userId ? { ...data, userId } : data;
+
+  const jobId = computeJobId(jobData);
   try {
     const job = await q.add("sdm-task", jobData, {
+      jobId,
       attempts: 2,
       backoff: { type: "exponential", delay: 1000 },
       removeOnComplete: { age: 3600 },
       removeOnFail: { age: 86400 },
     });
-    return job.id ?? "";
+    return job.id ?? jobId;
   } catch (err) {
-    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+    if (isRedisDownError(err)) {
       disableRedis();
       throw new Error("Redis unavailable — cannot enqueue job");
     }
+    if (isMaxRetriesError(err)) {
+      disableRedis();
+      throw new Error("Redis unavailable — cannot enqueue job");
+    }
+    if (isRedisUnavailableError(err)) {
+      console.warn("[queue] transient redis error during enqueue (not disabling):", err instanceof Error ? err.message : err);
+      throw new Error("Redis enqueue failed (transient) — please retry");
+    }
+    if (isDuplicateJobError(err)) {
+      const existing = await q.getJob(jobId);
+      if (existing) return existing.id ?? jobId;
+    }
     throw err;
   }
+}
+
+function computeJobId(data: SdmJobData): string {
+  const payload = data.payload ?? {};
+  const species = typeof payload.species === "string" ? payload.species : "";
+  const modelId = typeof payload.modelId === "string" ? payload.modelId : "";
+  const occurrenceFileId = typeof payload.occurrenceFileId === "string" ? payload.occurrenceFileId : "";
+  const configHash = typeof payload.configHash === "string" ? payload.configHash : JSON.stringify(payload);
+  const raw = [species, modelId, occurrenceFileId, configHash, data.type].join("|");
+  return createHash("sha256").update(raw).digest("hex").slice(0, 32);
+}
+
+function isDuplicateJobError(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    return msg.includes("duplicate") || msg.includes("already exists") || msg.includes("e11000");
+  }
+  return false;
 }
 
 export async function getJobStatus(jobId: string) {
@@ -346,8 +401,16 @@ export async function getJobStatus(jobId: string) {
       failedReason: job.failedReason,
     };
   } catch (err) {
-    if (isRedisUnavailableError(err) || isMaxRetriesError(err)) {
+    if (isRedisDownError(err)) {
       disableRedis();
+      return null;
+    }
+    if (isMaxRetriesError(err)) {
+      disableRedis();
+      return null;
+    }
+    if (isRedisUnavailableError(err)) {
+      console.warn("[queue] transient redis error during getJobStatus (not disabling):", err instanceof Error ? err.message : err);
       return null;
     }
     throw err;

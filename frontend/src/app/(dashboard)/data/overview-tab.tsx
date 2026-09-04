@@ -6,6 +6,7 @@ import {
   Cloud, Globe, Map, Mountain, Upload, CheckCircle2, AlertTriangle, Loader2,
   ArrowRight, RefreshCw, FlaskConical, Sun, Leaf, Map as MapIcon, Footprints, Thermometer, BarChart3,
 } from "lucide-react";
+import type { ApiError } from "@/services/api";
 import type { UploadFile } from "@/services/types";
 
 interface ClimateScenario {
@@ -28,6 +29,8 @@ interface CovariateStatus {
   detail: string;
   file_count?: number;
   size_bytes?: number;
+  missing?: string[];
+  status?: "ok" | "warn" | "error";
 }
 
 interface CovariateCheckResponse {
@@ -120,11 +123,20 @@ export function OverviewTab({
   const [climateCheckLoading, setClimateCheckLoading] = useState(true);
   const [covariateStatus, setCovariateStatus] = useState<Record<string, CovariateStatus> | null>(null);
   const [covariateCheckLoading, setCovariateCheckLoading] = useState(true);
+  const [plumberDown, setPlumberDown] = useState(false);
 
   const fetchMountData = useCallback(() => {
     apiGet<{ scenarios: ClimateScenario[] }>("/api/v1/climate/scenarios")
-      .then((d) => setScenarios(d.scenarios || []))
-      .catch(() => {}).finally(() => setScenariosLoading(false));
+      .then((d) => {
+        setScenarios(d.scenarios || []);
+        setPlumberDown(false);
+      })
+      .catch((err) => {
+        if (err && typeof err === "object" && "status" in err && (err as ApiError).status === 502) {
+          setPlumberDown(true);
+        }
+      })
+      .finally(() => setScenariosLoading(false));
     apiGet<{ boundaries: BoundaryFile[] }>("/api/v1/data/boundary/list")
       .then((d) => setBoundaries(d.boundaries || []))
       .catch(() => {}).finally(() => setBoundariesLoading(false));
@@ -190,6 +202,12 @@ export function OverviewTab({
 
   return (
     <div className="space-y-6">
+      {plumberDown && (
+        <div className="flex items-center gap-2 rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>Plumber service is unreachable. Climate and covariate availability checks may show outdated or empty data.</span>
+        </div>
+      )}
       {/* Occurrence Data */}
       <div className="rounded-lg border border-sdm-border bg-sdm-surface p-5">
         <div className="flex items-center gap-3 mb-3">
@@ -310,7 +328,11 @@ export function OverviewTab({
                 <span className={`shrink-0 ${isAvailable ? "text-sdm-success" : "text-sdm-muted"}`}>{ct.icon}</span>
                 <span className="flex-1 truncate">{ct.label}</span>
                 {isAvailable ? (
-                  <span className="shrink-0 text-xs text-sdm-muted">{status?.file_count ?? ""}</span>
+                  <span className="shrink-0 text-xs text-sdm-muted">
+                    {status?.missing && status.missing.length > 0
+                      ? `${status.file_count}/${(status.file_count ?? 0) + status.missing.length}`
+                      : status?.file_count ?? ""}
+                  </span>
                 ) : (
                   <span className="text-xs text-sdm-muted/50">—</span>
                 )}

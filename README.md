@@ -74,7 +74,8 @@ pnpm install --frozen-lockfile
 Start backing services in Docker:
 
 ```bash
-docker compose -f docker-compose.yml up -d postgres redis garage plumber
+# See AGENTS.md "Boot-up process" for profiles and service options
+./scripts/dev-start.sh
 ```
 
 Run the API:

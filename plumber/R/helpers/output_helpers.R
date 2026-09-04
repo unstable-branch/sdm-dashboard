@@ -1,4 +1,9 @@
-handle_output_compare <- function(res, run_id1, run_id2, app_dir) {
+handle_output_compare <- function(req, res, run_id1, run_id2, app_dir) {
+  own_err <- sdm_verify_run_owner(req, res, run_id1, app_dir)
+  if (!is.null(own_err)) return(own_err)
+  own_err <- sdm_verify_run_owner(req, res, run_id2, app_dir)
+  if (!is.null(own_err)) return(own_err)
+
   load_result <- function(rid) {
     job_dir <- sdm_safe_job_dir(rid)
     if (is.null(job_dir)) return(NULL)
@@ -28,7 +33,10 @@ handle_output_compare <- function(res, run_id1, run_id2, app_dir) {
   })
 }
 
-handle_output_script <- function(res, run_id, app_dir, output_dir = NULL) {
+handle_output_script <- function(req, res, run_id, app_dir, output_dir = NULL) {
+  own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -60,7 +68,10 @@ handle_output_script <- function(res, run_id, app_dir, output_dir = NULL) {
   })
 }
 
-handle_output_manifest <- function(res, run_id, app_dir) {
+handle_output_manifest <- function(req, res, run_id, app_dir) {
+  own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
+
   job_dir <- sdm_safe_job_dir(run_id)
   if (is.null(job_dir)) { res$status <- 404L; return(list(error = "Run not found")) }
   meta_file <- file.path(job_dir, "meta.json")
@@ -154,9 +165,15 @@ sdm_transparent_tile_png <- function() {
 }
 
 tile_cog_cache <- new.env(parent = emptyenv())
-tile_cog_cache_max <- 20L
+tile_cog_cache_max <- 8L
 
-handle_tile_serve <- function(res, run_id, z, x, y, app_dir, band = NULL) {
+handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  } else if (!identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
+    res$status <- 401L; stop("Authentication required")
+  }
   z <- as.integer(z); x <- as.integer(x); y <- as.integer(y)
   if (is.na(z) || is.na(x) || is.na(y) || z < 0L || z > 20L) {
     res$status <- 400L; stop("Invalid tile coordinates")
@@ -221,8 +238,15 @@ handle_tile_serve <- function(res, run_id, z, x, y, app_dir, band = NULL) {
       rm(list = to_remove, envir = tile_cog_cache)
     }
     r_cog <- terra::rast(cog_path)
+    lock_dir <- file.path(tempdir(), "sdm_tile_cache_lock")
+    if (!dir.exists(lock_dir)) dir.create(lock_dir, showWarnings = FALSE)
+    lock_file <- file.path(lock_dir, "cache.lock")
+    lock_wait <- 0
+    while (file.exists(lock_file) && lock_wait < 1000) { Sys.sleep(0.01); lock_wait <- lock_wait + 1 }
+    writeLines(Sys.time(), lock_file)
     attr(r_cog, "accessed") <- Sys.time()
     tile_cog_cache[[cog_key]] <- r_cog
+    unlink(lock_file)
   } else {
     attr(r_cog, "accessed") <- Sys.time()
     tile_cog_cache[[cog_key]] <- r_cog
@@ -244,7 +268,6 @@ handle_tile_serve <- function(res, run_id, z, x, y, app_dir, band = NULL) {
   }
 
   cog_range <- terra::minmax(r_cog)
-  vr_min <- max(0, cog_range[1, 1])
   vr_min <- max(0, cog_range[1, 1])
   vr_max <- min(1, cog_range[2, 1])
   if (!is.finite(vr_min) || !is.finite(vr_max) || vr_max <= vr_min) {
@@ -276,7 +299,10 @@ handle_tile_serve <- function(res, run_id, z, x, y, app_dir, band = NULL) {
     cy <- (ymin + ymax) / 2
     pt <- terra::vect(data.frame(x = cx, y = cy), geom = c("x", "y"), crs = "EPSG:3857")
     center_val <- terra::extract(r_full %||% r_cog, pt)[1, 1]
-    if (is.na(center_val) || !is.finite(center_val)) { res$status <- 204L; return(sdm_transparent_tile_png()) }
+    if (is.na(center_val) || !is.finite(center_val)) {
+      message(paste("[tile]", run_id, "z=", z, "x=", x, "y=", y, "— raster does not cover tile, returning 204"))
+      res$status <- 204L; return(sdm_transparent_tile_png())
+    }
     vals <- rep(as.numeric(center_val), 65536)
     is_na <- rep(FALSE, 65536)
   } else {
@@ -285,10 +311,10 @@ handle_tile_serve <- function(res, run_id, z, x, y, app_dir, band = NULL) {
     resample_method <- if (has_na_edge) "near" else "bilinear"
     tile_256 <- tryCatch(terra::resample(tile_crop, template, method = resample_method),
       error = function(e) NULL)
-    if (is.null(tile_256)) { res$status <- 204L; return(sdm_transparent_tile_png()) }
+    if (is.null(tile_256)) { message(paste("[tile]", run_id, "z=", z, "x=", x, "y=", y, "— resample failed, returning 204")); res$status <- 204L; return(sdm_transparent_tile_png()) }
     vals <- terra::values(tile_256)
     is_na <- is.na(vals) | !is.finite(vals) | (vals <= -9998)
-    if (all(is_na)) { res$status <- 204L; return(sdm_transparent_tile_png()) }
+    if (all(is_na)) { message(paste("[tile]", run_id, "z=", z, "x=", x, "y=", y, "— all NA values, returning 204")); res$status <- 204L; return(sdm_transparent_tile_png()) }
   }
 
   palette <- sdm_suitability_palette
@@ -312,6 +338,68 @@ handle_tile_serve <- function(res, run_id, z, x, y, app_dir, band = NULL) {
   terra::writeRaster(tile_out, tmp_png, datatype = "INT1U", gdal = "ZLEVEL=6", overwrite = TRUE)
   raw_bytes <- readBin(tmp_png, "raw", n = file.info(tmp_png)$size)
   unlink(tmp_png)
-  res$setHeader("Cache-Control", "public, max-age=3600")
+  res$setHeader("Cache-Control", "private, max-age=3600")
+  res$setHeader("ETag", sprintf('"%d"', as.integer(cog_mtime)))
   raw_bytes
+}
+
+sdm_get_raster_path <- function(run_id, app_dir) {
+  job_dir <- sdm_safe_job_dir(run_id)
+  if (is.null(job_dir)) return(NULL)
+
+  cog_files <- list.files(job_dir, pattern = "_3857\\.tif$", full.names = TRUE)
+  if (length(cog_files) > 0L) return(cog_files[1L])
+
+  suit_files <- list.files(job_dir, pattern = "_suitability\\.tif$", full.names = TRUE)
+  if (length(suit_files) > 0L) {
+    fallback_path <- sub("_suitability\\.tif$", "_3857_fallback.tif", suit_files[1L])
+    if (file.exists(fallback_path)) return(fallback_path)
+  }
+  NULL
+}
+
+handle_suitability_value <- function(req, res, run_id, lat, lng, band = NULL, app_dir) {
+  if (!is.null(req$user_id)) {
+    own_err <- sdm_verify_run_owner(req, res, run_id, app_dir)
+    if (!is.null(own_err)) return(own_err)
+  } else if (!identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
+    res$status <- 401L; stop("Authentication required")
+  }
+
+  lat <- suppressWarnings(as.numeric(lat))
+  lng <- suppressWarnings(as.numeric(lng))
+  if (is.na(lat) || is.na(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    res$status <- 400L; stop("Invalid lat/lng coordinates")
+  }
+
+  raster_path <- sdm_get_raster_path(run_id, app_dir)
+  if (is.null(raster_path)) {
+    res$status <- 404L; stop("Raster not found for run")
+  }
+
+  tryCatch({
+    r <- terra::rast(raster_path)
+
+    if (!is.null(band) && nzchar(band) && terra::nlyr(r) > 1) {
+      band_idx <- suppressWarnings(as.integer(band))
+      if (is.na(band_idx) || band_idx < 1) {
+        band_idx <- which(names(r) == band)
+        if (length(band_idx) == 0) band_idx <- 1L
+      }
+      r <- r[[band_idx[1]]]
+    } else if (terra::nlyr(r) > 1) {
+      r <- r[[1L]]
+    }
+
+    pt <- terra::vect(data.frame(x = lng, y = lat), geom = c("x", "y"), crs = "EPSG:4326")
+    val <- terra::extract(r, pt)
+
+    if (is.null(val) || nrow(val) == 0 || is.na(val[1, 2]) || !is.finite(val[1, 2])) {
+      return(list(value = NA_real_))
+    }
+    list(value = as.numeric(val[1, 2]))
+  }, error = function(e) {
+    res$status <- 500L
+    stop(paste("Failed to extract suitability value:", e$message))
+  })
 }

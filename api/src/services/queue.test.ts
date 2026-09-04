@@ -25,7 +25,6 @@ const td = vi.hoisted(() => {
     mockRedisDisconnect: vi.fn(),
     mockHandleModelJob: vi.fn(),
     mockHandleCleanJob: vi.fn(),
-    mockHandleClimateJob: vi.fn(),
     mockHandleCovariateJob: vi.fn(),
     mockJobEventBusEmit: vi.fn(),
     mockDbUpdate: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn() })) })),
@@ -93,7 +92,6 @@ vi.mock("./queue-clean-worker.js", () => ({
 }));
 
 vi.mock("./queue-climate-worker.js", () => ({
-  handleClimateJob: td.mockHandleClimateJob,
   handleCovariateJob: td.mockHandleCovariateJob,
 }));
 
@@ -128,7 +126,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  queue.shutdownQueue();
+  await queue.shutdownQueue();
 });
 
 describe("isRedisUnavailableError", () => {
@@ -179,6 +177,46 @@ describe("isRedisUnavailableError", () => {
   });
 });
 
+describe("isRedisDownError", () => {
+  it("returns true for ECONNREFUSED message", () => {
+    expect(queue.isRedisDownError({ message: "ECONNREFUSED" })).toBe(true);
+  });
+
+  it("returns true for ENOTFOUND message", () => {
+    expect(queue.isRedisDownError({ message: "ENOTFOUND" })).toBe(true);
+  });
+
+  it("returns true for EHOSTUNREACH message", () => {
+    expect(queue.isRedisDownError({ message: "EHOSTUNREACH" })).toBe(true);
+  });
+
+  it("returns true for ENETUNREACH message", () => {
+    expect(queue.isRedisDownError({ message: "ENETUNREACH" })).toBe(true);
+  });
+
+  it("returns true for 'connect ECONNREFUSED' message", () => {
+    expect(queue.isRedisDownError({ message: "connect ECONNREFUSED" })).toBe(true);
+  });
+
+  it("returns false for ECONNRESET (transient)", () => {
+    expect(queue.isRedisDownError({ message: "ECONNRESET" })).toBe(false);
+  });
+
+  it("returns false for ETIMEDOUT (transient)", () => {
+    expect(queue.isRedisDownError({ message: "ETIMEDOUT" })).toBe(false);
+  });
+
+  it("returns false for EPIPE (transient)", () => {
+    expect(queue.isRedisDownError({ message: "EPIPE" })).toBe(false);
+  });
+
+  it("returns false for non-object or unrelated errors", () => {
+    expect(queue.isRedisDownError(null)).toBe(false);
+    expect(queue.isRedisDownError("ECONNREFUSED")).toBe(false);
+    expect(queue.isRedisDownError({ message: "SOMETHING_ELSE" })).toBe(false);
+  });
+});
+
 describe("getRedisStatus", () => {
   it("returns status object with connection state", () => {
     const status = queue.getRedisStatus();
@@ -201,8 +239,8 @@ describe("getJobQueue", () => {
     expect(q).not.toBeNull();
   });
 
-  it("returns null when redis is disabled", () => {
-    queue.shutdownQueue();
+  it("returns null when redis is disabled", async () => {
+    await queue.shutdownQueue();
     const q = queue.getJobQueue();
     expect(q).toBeNull();
   });
@@ -228,7 +266,7 @@ describe("enqueueSdmJob", () => {
   });
 
   it("throws when redis is unavailable", async () => {
-    queue.shutdownQueue();
+    await queue.shutdownQueue();
     await expect(queue.enqueueSdmJob({
       type: "model",
       payload: { runId: "run-1" },
@@ -242,6 +280,24 @@ describe("enqueueSdmJob", () => {
       payload: { runId: "run-1" },
     })).rejects.toThrow("Redis unavailable");
     expect(queue.getRedisStatus().disabled).toBe(true);
+  });
+
+  it("does NOT call disableRedis on transient ECONNRESET", async () => {
+    td.mockQueueAdd.mockRejectedValue({ message: "ECONNRESET" });
+    await expect(queue.enqueueSdmJob({
+      type: "model",
+      payload: { runId: "run-1" },
+    })).rejects.toThrow("Redis enqueue failed (transient)");
+    expect(queue.getRedisStatus().disabled).toBe(false);
+  });
+
+  it("does NOT call disableRedis on transient ETIMEDOUT", async () => {
+    td.mockQueueAdd.mockRejectedValue({ message: "ETIMEDOUT" });
+    await expect(queue.enqueueSdmJob({
+      type: "model",
+      payload: { runId: "run-1" },
+    })).rejects.toThrow("Redis enqueue failed (transient)");
+    expect(queue.getRedisStatus().disabled).toBe(false);
   });
 
   it("re-throws non-redis errors", async () => {
@@ -276,17 +332,6 @@ describe("ensureWorker", () => {
     await td.processorRef.current!(job);
 
     expect(td.mockHandleCleanJob).toHaveBeenCalledWith(job, expect.anything(), "user-2");
-  });
-
-  it("creates a Worker that dispatches climate_download jobs", async () => {
-    queue.ensureWorker();
-
-    const job = mockJob({ data: { type: "climate_download", payload: {} } });
-    td.mockHandleClimateJob.mockResolvedValue({ status: "success", data: {} });
-
-    await td.processorRef.current!(job);
-
-    expect(td.mockHandleClimateJob).toHaveBeenCalledWith(job, expect.anything(), undefined);
   });
 
   it("creates a Worker that dispatches covariate_download jobs", async () => {
@@ -383,7 +428,7 @@ describe("getJobStatus", () => {
   });
 
   it("returns null when redis is disabled", async () => {
-    queue.shutdownQueue();
+    await queue.shutdownQueue();
     const status = await queue.getJobStatus("job-1");
     expect(status).toBeNull();
   });
@@ -401,11 +446,11 @@ describe("getJobStatus", () => {
 });
 
 describe("shutdownQueue", () => {
-  it("closes all connections", () => {
+  it("closes all connections", async () => {
     queue.ensureWorker();
     queue.getJobQueue();
 
-    queue.shutdownQueue();
+    await queue.shutdownQueue();
 
     expect(td.mockWorkerClose).toHaveBeenCalled();
     expect(td.mockQueueClose).toHaveBeenCalled();
@@ -416,8 +461,8 @@ describe("shutdownQueue", () => {
 });
 
 describe("resetRedis", () => {
-  it("resets state and reconnects", () => {
-    queue.shutdownQueue();
+  it("resets state and reconnects", async () => {
+    await queue.shutdownQueue();
     expect(queue.getRedisStatus().disabled).toBe(true);
 
     queue.resetRedis();
@@ -432,8 +477,8 @@ describe("resetRedis", () => {
 });
 
 describe("Redis unavailable degradation", () => {
-  it("shutdown marks redis as disabled", () => {
-    queue.shutdownQueue();
+  it("shutdown marks redis as disabled", async () => {
+    await queue.shutdownQueue();
     expect(queue.getRedisStatus().disabled).toBe(true);
   });
 });

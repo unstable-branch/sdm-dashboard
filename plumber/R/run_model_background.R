@@ -133,10 +133,15 @@ source(file.path(app_dir, "R", "load_compute.R"))
 write_heartbeat("compute_modules_done")
 log_fun("All modules loaded successfully")
 
-# Periodic cancellation check helper
-# Sets the global option so internal check_cancelled() in run_fast_sdm() can detect it,
-# then writes the cancellation to meta.json and quits.
+# Periodic cancellation check and RSS sampling helper.
+# Checks Redis cancel flag; if set, writes meta.json and quits.
+# Also samples RSS via /proc/self/status (Linux) and tracks the peak.
 check_cancel_background <- function(job_id, log_fun) {
+  # Sample RSS and update peak
+  current_rss <- sdm_get_rss_mb()
+  if (is.finite(current_rss) && current_rss > 0) {
+    peak_rss_mb <<- max(peak_rss_mb, current_rss, na.rm = TRUE)
+  }
   if (!exists("sdm_redis_cancel_check", inherits = TRUE)) return(FALSE)
   if (sdm_redis_cancel_check(job_id)) {
     options(sdm_cancelled = TRUE)
@@ -152,6 +157,7 @@ check_cancel_background <- function(job_id, log_fun) {
 }
 
 job_id <- basename(job_dir)
+peak_rss_mb <- 0
 meta <- read_meta()
 meta$status <- "running"
 write_meta(meta)
@@ -209,7 +215,7 @@ tryCatch({
     aggregation_factor = as.integer(config$aggregation_factor %||% 1L),
     cv_folds = as.integer(config$cv_folds %||% sdm_default_cv_folds),
     n_cores = as.integer(config$n_cores %||% 8L),
-    allow_download = TRUE,
+    allow_download = isTRUE(config$auto_download_climate %||% TRUE),
     worldclim_res = as.numeric(config$worldclim_res %||% sdm_default_worldclim_res),
     cv_strategy = config$cv_strategy %||% sdm_default_cv_strategy,
     cv_block_size_km = if (!is.null(config$cv_block_size_km)) as.numeric(config$cv_block_size_km) else sdm_default_cv_block_size_km,
@@ -361,7 +367,7 @@ tryCatch({
     if (!is.null(rds_result$aoa) && inherits(rds_result$aoa, "SpatRaster")) {
       rds_result$aoa <- terra::wrap(rds_result$aoa)
     }
-    saveRDS(rds_result, result_rds_path)
+    sdm_atomic_saveRDS(rds_result, result_rds_path)
     rm(rds_result)
     log_fun("Saved result RDS to: ", result_rds_path)
   }, error = function(e) {
@@ -454,6 +460,14 @@ tryCatch({
     }
   }
   progress_fun(list(value = 0.995, detail = "Finalising persisted outputs", stage = "output"))
+  # Final RSS sample: capture peak one last time before writing meta
+  final_rss <- sdm_get_rss_mb()
+  if (is.finite(final_rss) && final_rss > 0) {
+    peak_rss_mb <<- max(peak_rss_mb, final_rss, na.rm = TRUE)
+  }
+  if (!is.null(meta$metrics) && is.list(meta$metrics)) {
+    meta$metrics$r_peak_memory_mb <- round(peak_rss_mb)
+  }
   write_meta(meta)
   progress_fun(list(value = 1.0, detail = "All outputs complete", stage = "complete"))
   gc(verbose = FALSE)
@@ -480,6 +494,10 @@ tryCatch({
     }, error = function(e) NULL)
   }
   meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+  # Record peak RSS even on failure
+  if (is.finite(peak_rss_mb) && peak_rss_mb > 0) {
+    meta$r_peak_memory_mb <- round(peak_rss_mb)
+  }
   write_meta(meta)
   cat("Run failed [", err_code, "]:", err_msg, "\n")
 })

@@ -84,7 +84,9 @@ get_sdm_model <- function(id = sdm_default_model_id) {
 fit_sdm_model <- function(model_id = sdm_default_model_id, ...) {
   model_id <- validate_sdm_model_id(model_id)
   spec <- get_sdm_model(model_id)
-  fit <- spec$fit_fun(...)
+  fit_fun <- spec$fit_fun
+  environment(fit_fun) <- environment()
+  fit <- fit_fun(...)
   if (!is.list(fit)) stop("Model backend did not return a list: ", model_id, call. = FALSE)
   fit$model_id <- model_id
   fit$model_label <- spec$label

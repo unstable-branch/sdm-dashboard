@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import { mkdirSync, existsSync, statSync, writeFileSync, readFileSync, rmSync, accessSync, constants, promises as fs } from "fs";
 import { join, resolve, dirname, extname } from "path";
 import { fileURLToPath } from "url";
-import { randomUUID, createDecipheriv } from "crypto";
+import { randomUUID } from "crypto";
 import { plumberClient } from "../services/plumber.js";
+import { writeAtomic } from "../services/storage.js";
 import { db } from "../db/index.js";
 import { species, occurrences, users, uploadedFiles, uploads } from "../db/schema.js";
 import { and, count, eq, inArray, sql } from "drizzle-orm";
@@ -14,6 +15,7 @@ import type { AppEnv } from "../middleware/auth.js";
 import { encrypt, decrypt } from "../services/encryption.js";
 import { setUploadDir, saveUploadEncrypted, decryptToUploads, resolveFilePath, pollPlumberJob } from "../services/upload-utils.js";
 import type { PlumberUploadResponse } from "@sdm/shared";
+import { logAction, extractClientInfo } from "../services/audit.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -28,7 +30,7 @@ async function saveUpload(buffer: Buffer, originalName: string): Promise<string>
   const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
   const ts = new Date().toISOString().replace(/[:.]/g, "").replace("T", "_").slice(0, 15);
   const destPath = join(UPLOAD_DIR, `${ts}_${safeName}`);
-  await fs.writeFile(destPath, buffer);
+  await writeAtomic(destPath, buffer);
   return destPath;
 }
 
@@ -70,14 +72,35 @@ dataRoutes.get("/occurrences/job/:jobId", async (c) => {
   }
 });
 
+async function assertUserOwnsUploadPath(userId: string, filePath: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: uploads.id })
+    .from(uploads)
+    .where(and(eq(uploads.filePath, filePath), eq(uploads.userId, userId)))
+    .limit(1);
+  if (row) return true;
+  const [uf] = await db
+    .select({ id: uploadedFiles.id })
+    .from(uploadedFiles)
+    .where(and(eq(uploadedFiles.filePath, filePath), eq(uploadedFiles.userId, userId)))
+    .limit(1);
+  return Boolean(uf);
+}
+
 dataRoutes.get("/occurrences/clean/result", async (c) => {
   try {
     const fileId = c.req.query("file_id");
     const cleanedFileId = c.req.query("cleaned_file_id");
     if (!fileId && !cleanedFileId) return c.json({ error: "file_id or cleaned_file_id is required" }, 400);
 
+    const user = c.get("user");
+
     if (cleanedFileId) {
       const resolved = resolveFilePath(cleanedFileId);
+      if (!resolved.path) return c.json({ error: "Invalid cleaned_file_id" }, 400);
+      if (!(await assertUserOwnsUploadPath(user.id, cleanedFileId))) {
+        return c.json({ error: "Cleaned file not found" }, 404);
+      }
       const result = readCleanResultFromFile(resolved.path);
       if (result) {
         return c.json({
@@ -92,6 +115,10 @@ dataRoutes.get("/occurrences/clean/result", async (c) => {
 
     if (fileId) {
       const resolved = resolveFilePath(fileId);
+      if (!resolved.path) return c.json({ error: "Invalid file_id" }, 400);
+      if (!(await assertUserOwnsUploadPath(user.id, fileId))) {
+        return c.json({ error: "File not found" }, 404);
+      }
       try {
         const uploadsList = await plumberClient.withUser(c.get("user").id).getUploads(200);
         const match = uploadsList.uploads.find(u => String(u.file_path || "") === resolved.path || String(u.file_id || "") === resolved.path);
@@ -117,7 +144,8 @@ dataRoutes.get("/occurrences/clean/result", async (c) => {
             original_rows: (match.cleaned_original_rows as number) || (match.n_rows as number) || 0,
           });
         }
-      } catch {
+      } catch (err) {
+        console.error("[occurrences] Failed to get upload metadata:", err);
       }
 
       const result = readCleanResultFromFile(resolved.path);
@@ -205,7 +233,7 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     return c.json(normalizedResult);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
-    const isPlumberDown = message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("connect");
+    const isPlumberDown = message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("connect") || message.includes("ENOTFOUND") || message.includes("ETIMEDOUT") || message.includes("ECONNRESET");
     return c.json({
       error: isPlumberDown
         ? "Upload failed: Plumber backend is not running. Start it with: docker compose -f docker-compose.dev.yml --profile computation up -d"
@@ -222,6 +250,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     const fileId = body.file_id || body.fileId;
     if (fileId) {
       const resolved = resolveFilePath(fileId);
+      if (!resolved.path) return c.json({ error: "Invalid file_id" }, 400);
       body.file_id = resolved.path;
     }
 
@@ -231,6 +260,17 @@ dataRoutes.post("/occurrences/clean", async (c) => {
     }
 
     const initial = await plumberClient.withUser(user.id).cleanOccurrences(body);
+
+    const { ipAddress, userAgent } = extractClientInfo(c);
+    await logAction({
+      userId: user.id,
+      action: "occurrence_cleaned",
+      entity: "occurrences",
+      entityId: null,
+      ipAddress,
+      userAgent,
+      details: { fileId: body.file_id ?? null, async: !!body.async },
+    });
 
     if (initial && typeof initial === "object" && "error" in initial) {
       return c.json(initial, 502);
@@ -288,7 +328,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
   }
 });
 
-const PLUMBER_MAGIC = Buffer.from([0x53, 0x44, 0x4d, 0x45, 0x4e, 0x43, 0x31, 0x0a]);
+const PLUMBER_MAGIC = Buffer.from("SDMENC1\n", "utf-8");
 
 function splitCsvLine(line: string): string[] {
   const result: string[] = [];
@@ -313,22 +353,11 @@ function decryptPlumberFile(encPath: string): string | null {
   if (!existsSync(encPath)) return null;
   try {
     const encrypted = readFileSync(encPath);
-    if (encrypted.length < PLUMBER_MAGIC.length + 12 + 1 || !PLUMBER_MAGIC.equals(encrypted.subarray(0, PLUMBER_MAGIC.length))) {
+    if (encrypted.length < PLUMBER_MAGIC.length + 12 + 16 ||
+        !PLUMBER_MAGIC.equals(encrypted.subarray(0, PLUMBER_MAGIC.length))) {
       return null;
     }
-    const keyHex = process.env.DATA_ENCRYPTION_KEY || process.env.SDM_ENCRYPTION_KEY || "";
-    if (!keyHex) return null;
-    const key = Buffer.from(keyHex, "hex");
-    if (key.length !== 32) return null;
-
-    const iv = encrypted.subarray(PLUMBER_MAGIC.length, PLUMBER_MAGIC.length + 12);
-    const payload = encrypted.subarray(PLUMBER_MAGIC.length + 12);
-    const tag = payload.subarray(payload.length - 16);
-    const ciphertext = payload.subarray(0, payload.length - 16);
-
-    const decipher = createDecipheriv("aes-256-gcm", key, iv);
-    decipher.setAuthTag(tag);
-    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const decrypted = decrypt(encrypted);
     const plainPath = encPath + ".decrypted";
     writeFileSync(plainPath, decrypted);
     return plainPath;
@@ -597,7 +626,7 @@ dataRoutes.patch("/uploads/:fileId", async (c) => {
       await db
         .update(uploads)
         .set(uploadUpdate)
-        .where(eq(uploads.filePath, fileId));
+        .where(and(eq(uploads.filePath, fileId), eq(uploads.userId, user.id)));
     }
 
     return c.json({ ok: true });
@@ -656,7 +685,7 @@ dataRoutes.delete("/uploads/:fileId", async (c) => {
         cleanedFilePath: uploads.cleanedFilePath,
       })
       .from(uploads)
-      .where(eq(uploads.filePath, fileId))
+      .where(and(eq(uploads.filePath, fileId), eq(uploads.userId, user.id)))
       .limit(1);
 
     if (!upRecord) {
@@ -664,7 +693,7 @@ dataRoutes.delete("/uploads/:fileId", async (c) => {
     }
 
     await deleteFilesFromDisk(upRecord.filePath, upRecord.cleanedFilePath);
-    await db.delete(uploads).where(eq(uploads.filePath, fileId));
+    await db.delete(uploads).where(and(eq(uploads.filePath, fileId), eq(uploads.userId, user.id)));
 
     return c.json({ ok: true, message: "Upload deleted" });
   } catch (err) {

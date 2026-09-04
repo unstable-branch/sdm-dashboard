@@ -14,7 +14,9 @@ function getCsrfSecret(): string {
 
 function validateToken(token: string): boolean {
   const secret = getCsrfSecret();
-  if (!secret) return true;
+  // If a token is supplied but the server has no secret configured, the
+  // token cannot be valid. Reject rather than silently accept.
+  if (!secret) return false;
   const parts = token.split(".");
   if (parts.length !== 2) return false;
   const payload = parts[0];
@@ -61,6 +63,25 @@ export const csrfMiddleware = createMiddleware(async (c, next) => {
       }
     } catch {
       return c.json({ error: "CSRF validation failed: invalid Origin" }, 403);
+    }
+  }
+
+  // Allow known frontend origins via Referer (Next.js proxy strips Origin header)
+  if (referer && !origin) {
+    let knownOrigins: string[];
+    try {
+      knownOrigins = getKnownOrigins().map(o => new URL(o).host);
+    } catch {
+      return c.json({ error: "CSRF validation failed: invalid origin configuration" }, 500);
+    }
+    try {
+      const refererHost = new URL(referer).host;
+      if (knownOrigins.includes(refererHost)) {
+        await next();
+        return;
+      }
+    } catch {
+      return c.json({ error: "CSRF validation failed: invalid Referer" }, 403);
     }
   }
 

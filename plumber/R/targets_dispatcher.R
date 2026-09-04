@@ -32,7 +32,7 @@ read_meta <- function() {
 }
 
 write_meta <- function(meta) {
-  writeLines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE, pretty = TRUE), meta_file)
+  sdm_atomic_write_lines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE, pretty = TRUE), meta_file)
 }
 
 write_heartbeat <- function(stage = "") {

@@ -136,16 +136,21 @@ services:
       - DATABASE_URL=${DATABASE_URL:?Database connection string is required}
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - PLUMBER_AUTH_DISABLED=false
-      - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
+      # Both DATA_ENCRYPTION_KEY (preferred) and SDM_ENCRYPTION_KEY (legacy
+      # fallback) are set to the same value so Plumber's crypto.R and the
+      # encrypt/decrypt helpers in TypeScript derive the identical AES key
+      # regardless of which env var name they honour.
+      - DATA_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY (or DATA_ENCRYPTION_KEY) is required}
+      - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY}
       - ALA_API_KEY=${ALA_API_KEY:-}
       - REDIS_URL=redis://redis:6379
     init: true
     healthcheck:
-      test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f --connect-timeout 5 http://localhost:8000/ready || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 180s
     networks:
       - sdm-network
     restart: unless-stopped

@@ -12,7 +12,9 @@ import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
-import { buildModelPayload, cleanupDecryptedFiles } from "../services/model-payload.js";
+import { buildModelPayload } from "../services/model-payload.js";
+import { canAccessRun } from "../services/access.js";
+import { logAction, extractClientInfo } from "../services/audit.js";
 
 async function plumberJobId(runId: string): Promise<string> {
   const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
@@ -28,6 +30,10 @@ function normalizeConfig(config: unknown): Record<string, unknown> | null {
   const rawExtent = normalized.projectionExtent ?? normalized.projection_extent;
   if (typeof rawExtent === "string") {
     normalized.projectionExtent = rawExtent.split(",").map(Number);
+  }
+  const rawTrainingExtent = normalized.trainingExtent ?? normalized.training_extent;
+  if (typeof rawTrainingExtent === "string") {
+    normalized.trainingExtent = rawTrainingExtent.split(",").map(Number);
   }
   return normalized;
 }
@@ -59,16 +65,17 @@ sdmRunRoutes.post("/run", async (c) => {
       const speciesName = config.species;
 
       try {
-        let [sp] = await db.select().from(species).where(and(eq(species.name, speciesName), eq(species.projectId, projectId))).limit(1);
+        let [sp] = await db
+          .insert(species)
+          .values({ name: speciesName, projectId, occurrenceCount: 0 })
+          .onConflictDoNothing()
+          .returning();
         if (!sp) {
-          [sp] = await db
-            .insert(species)
-            .values({ name: speciesName, projectId, occurrenceCount: 0 })
-            .returning();
+          [sp] = await db.select().from(species).where(and(eq(species.name, speciesName), eq(species.projectId, projectId))).limit(1);
         }
-        speciesId = sp.id;
+        speciesId = sp?.id;
       } catch (err) {
-        console.warn("[sdm] Species insert failed (best-effort):", err instanceof Error ? err.message : err);
+        console.warn("[sdm] Species upsert failed (best-effort):", err instanceof Error ? err.message : err);
       }
 
       let insertedRun: typeof runs.$inferSelect | null = null;
@@ -128,6 +135,16 @@ sdmRunRoutes.post("/run", async (c) => {
         logs: ["Model run queued..."],
       });
 
+      const client = extractClientInfo(c);
+      await logAction({
+        userId: user.id,
+        action: "model_run_created",
+        entity: "runs",
+        entityId: insertedRun.id,
+        ...client,
+        details: { modelId: config.modelId, species: config.species, async: true },
+      });
+
       return c.json({ jobId: insertedRun.id, queuedAt: new Date().toISOString() });
     }
 
@@ -168,6 +185,16 @@ sdmRunRoutes.post("/run", async (c) => {
       logs: ["Model run started (sync)..."],
     });
 
+    const client = extractClientInfo(c);
+    await logAction({
+      userId: user.id,
+      action: "model_run_created",
+      entity: "runs",
+      entityId: run.id,
+      ...client,
+      details: { modelId: config.modelId, species: config.species, async: false },
+    });
+
     return c.json({
       runId: run.id,
       jobId: plumberJobId,
@@ -180,7 +207,7 @@ sdmRunRoutes.post("/run", async (c) => {
     const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
     return c.json({ error: message }, isBusy ? 429 : 502);
   } finally {
-    cleanupDecryptedFiles();
+    // cleaned file paths are passed raw to Plumber; R handles decryption
   }
 });
 
@@ -223,37 +250,46 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
     let plumberProgressJson: unknown = null;
     let plumberProgressLog: string[] = [];
     let effectiveStatus = run.status;
-    if (run.status === "running" && run.jobId) {
-      try {
-        const plumberStatus = await plumberClient.getModelStatus(run.jobId, 8000);
-        const ps = plumberStatus as unknown as PlumberModelStatus;
-        plumberProgressJson = ps.progress_json ?? null;
-        plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log : [];
+    let isSyncing = false;
+    const SYNC_STALENESS_MS = 10_000;
+    const { getLastSyncAge, getLastSyncError } = await import("../services/plumber-sync.js");
+    const lastSyncAge = getLastSyncAge();
+    const shouldLivePoll = lastSyncAge > SYNC_STALENESS_MS || getLastSyncError() !== null;
 
-        const validStatuses = ["completed", "failed", "cancelled"];
-        if (ps.status && validStatuses.includes(ps.status)) {
-          const status = ps.status as "completed" | "failed" | "cancelled";
-          await db.update(runs).set({
-            status,
-            metrics: status === "completed" ? (ps.metrics ?? {}) : {},
-            outputFiles: status === "completed" ? (ps.output_files ?? {}) : {},
-            error: ps.error ? String(ps.error) : null,
-            errorCode: ps.error_code ? String(ps.error_code) : null,
-            errorHint: ps.error_hint ? String(ps.error_hint) : null,
-            progressLog: plumberProgressLog.length > 0 ? plumberProgressLog : undefined,
-            completedAt: new Date(),
-          }).where(and(eq(runs.id, jobId), inArray(runs.status, ["running", "queued"])));
-          jobEventBus.emitJobStatus({
-            jobId: run.id,
-            state: ps.status as string,
-            progress: ps.status === "completed" ? 100 : 0,
-            logs: plumberProgressLog,
-            result: ps.status === "completed" ? plumberStatus : undefined,
-            failedReason: ps.error as string | undefined,
-          });
+    if (run.status === "running" && run.jobId) {
+      if (shouldLivePoll) {
+        isSyncing = true;
+        try {
+          const plumberStatus = await plumberClient.getModelStatus(run.jobId, 8000);
+          const ps = plumberStatus as unknown as PlumberModelStatus;
+          plumberProgressJson = ps.progress_json ?? null;
+          plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log : [];
+
+          const validStatuses = ["completed", "failed", "cancelled"];
+          if (ps.status && validStatuses.includes(ps.status)) {
+            const status = ps.status as "completed" | "failed" | "cancelled";
+            await db.update(runs).set({
+              status,
+              metrics: status === "completed" ? (ps.metrics ?? {}) : {},
+              outputFiles: status === "completed" ? (ps.output_files ?? {}) : {},
+              error: ps.error ? String(ps.error) : null,
+              errorCode: ps.error_code ? String(ps.error_code) : null,
+              errorHint: ps.error_hint ? String(ps.error_hint) : null,
+              progressLog: plumberProgressLog.length > 0 ? plumberProgressLog : undefined,
+              completedAt: new Date(),
+            }).where(and(eq(runs.id, jobId), inArray(runs.status, ["running", "queued"])));
+            jobEventBus.emitJobStatus({
+              jobId: run.id,
+              state: ps.status as string,
+              progress: ps.status === "completed" ? 100 : 0,
+              logs: plumberProgressLog,
+              result: ps.status === "completed" ? plumberStatus : undefined,
+              failedReason: ps.error as string | undefined,
+            });
+          }
+        } catch (err) {
+          console.warn(`[sdm-status] Plumber poll failed for job ${run.jobId}:`, err instanceof Error ? err.message : String(err));
         }
-      } catch (err) {
-        console.warn(`[sdm-status] Plumber poll failed for job ${run.jobId}:`, err instanceof Error ? err.message : String(err));
       }
     } else if (run.status === "running" && !run.jobId && run.startedAt) {
       const orphanThreshold = 10 * 60 * 1000;
@@ -294,6 +330,7 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
       output_files: run.outputFiles ?? null,
       progress_log: plumberProgressLog.length > 0 ? plumberProgressLog : dbProgressLog,
       progress_json: plumberProgressJson ?? null,
+      syncing: isSyncing,
       config: normalizeConfig(run.config),
     });
   } catch (err) {
@@ -372,6 +409,14 @@ sdmRunRoutes.get("/compare/:runId1/:runId2", async (c) => {
   try {
     const runId1 = c.req.param("runId1");
     const runId2 = c.req.param("runId2");
+    const user = c.get("user");
+    const [canAccess1, canAccess2] = await Promise.all([
+      canAccessRun(user.id, user.role, runId1),
+      canAccessRun(user.id, user.role, runId2),
+    ]);
+    if (!canAccess1 || !canAccess2) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const jobId1 = await plumberJobId(runId1);
     const jobId2 = await plumberJobId(runId2);
     const data = await plumberClient.getRunComparison(jobId1, jobId2);
@@ -386,12 +431,14 @@ sdmRunRoutes.get("/future/scenarios", async (c) => {
   try {
     const scenarios = await plumberClient.getFutureScenarios();
     return c.json(scenarios);
-  } catch {
+  } catch (err) {
+    console.warn("[sdm/future/scenarios]", err instanceof Error ? err.message : String(err));
     return c.json({
       available_scenarios: [],
       gcm_choices: GCM_CHOICES,
       ssp_choices: SSP_CHOICES,
       period_choices: TIME_PERIOD_CHOICES,
+      code: "PLUMBER_UNAVAILABLE",
       message: "Plumber unavailable; returning static constants",
     });
   }

@@ -1,21 +1,38 @@
+import { randomBytes } from "crypto";
 import { db } from "../src/db/index.js";
 import { users, projects } from "../src/db/schema.js";
 import { eq } from "drizzle-orm";
 import { hash } from "bcrypt";
 
-const ADMIN_EMAIL = "admin@sdm.local";
-const ADMIN_PASSWORD = "Admin123!";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@sdm.local";
+const ADMIN_NAME = process.env.ADMIN_NAME || "Admin User";
 const ADMIN_ID = "00000000-0000-0000-0000-000000000001";
 const PROJECT_ID = "00000000-0000-0000-0000-000000000001";
 
+function resolvePassword(): string {
+  if (process.env.NODE_ENV === "production") {
+    const fromEnv = process.env.ADMIN_PASSWORD;
+    if (!fromEnv || fromEnv.length < 16) {
+      console.error("FATAL: ADMIN_PASSWORD (>=16 chars) must be set in production. Refusing to seed with a default.");
+      process.exit(1);
+    }
+    return fromEnv;
+  }
+  const fromEnv = process.env.ADMIN_PASSWORD;
+  if (fromEnv && fromEnv.length >= 12) return fromEnv;
+  const generated = `Admin-${randomBytes(12).toString("base64").replace(/[+/=]/g, "A")}!1`;
+  return generated;
+}
+
 async function seed() {
+  const ADMIN_PASSWORD = resolvePassword();
   const passwordHash = await hash(ADMIN_PASSWORD, 12);
 
   const existing = await db.select().from(users).where(eq(users.email, ADMIN_EMAIL)).limit(1);
 
   if (existing.length > 0) {
     await db.update(users)
-      .set({ passwordHash, name: "Admin User", role: "admin" })
+      .set({ passwordHash, name: ADMIN_NAME, role: "admin" })
       .where(eq(users.email, ADMIN_EMAIL));
     console.log(`Updated admin user ${ADMIN_EMAIL} with new password hash`);
   } else {
@@ -23,7 +40,7 @@ async function seed() {
       id: ADMIN_ID,
       email: ADMIN_EMAIL,
       passwordHash,
-      name: "Admin User",
+      name: ADMIN_NAME,
       role: "admin",
     });
     console.log(`Created admin user ${ADMIN_EMAIL}`);
@@ -44,7 +61,13 @@ async function seed() {
 
   console.log("Seed complete");
   console.log(`  Email: ${ADMIN_EMAIL}`);
-  console.log(`  Password: ${ADMIN_PASSWORD}`);
+  if (process.stdout.isTTY) {
+    // Only print the password to a real TTY (i.e. interactive shell) — in CI or
+    // pipe-to-log scenarios, the password is never printed.
+    console.log(`  Password: ${ADMIN_PASSWORD}${process.env.ADMIN_PASSWORD ? "" : " (generated; store this somewhere safe)"}`);
+  } else {
+    console.log("  Password: <hidden — set ADMIN_PASSWORD before running, or run interactively for a generated one>");
+  }
   process.exit(0);
 }
 
