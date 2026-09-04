@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `R/models/model_helpers.R` `compute_vif` now computes VIF on `env_train` only (the training fold), not the full dataset. This prevents information leakage from validation fold into covariate selection and gives honest collinearity estimates for block-CV folds.
 
+### Frontend
+
+- `frontend/src/lib/map-styles.ts`: basemap switched from CARTO raster PNG tiles to CARTO Streets v1 vector tiles (MVT) — sharper at all zoom levels, no API key required, same free CDN.
+
 ### Known limitations
 
 - 6 pre-existing R test failures (`test-run-sdm-stages.R` ×4, `test-v03-methods.R` ×2) trace to a `case_weight_sdm` scoping issue: `fit_fast_sdm` sets `environment(formula) <- baseenv()` before calling `glm()`, which prevents weight evaluation in the local scope. These are documented as accepted limitations pending a future scoping refactor.
