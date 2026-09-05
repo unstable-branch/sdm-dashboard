@@ -170,16 +170,24 @@ handle_model_run <- function(req, app_dir) {
     CUBLAS_WORKSPACE_CONFIG = ":4096:8"
   )
 
-  proc <- tryCatch({
-    callr::r_bg(function(script, job_dir, app_dir) {
-      source(script, local = TRUE)
-    }, args = list(script_path, job_dir, app_dir),
-    stdout = file.path(job_dir, "stdout.log"),
-    stderr = file.path(job_dir, "stderr.log"),
-    cmdargs = c("--no-save", "--no-restore"),
-    env = env,
-    r_limit_memory = sdm_vsize_to_bytes())
-  }, error = function(e) {
+  spawn_error <- NULL
+  proc <- tryCatch(
+    sdm_spawn_background(
+      function(script, job_dir, app_dir) {
+        source(script, local = TRUE)
+      },
+      args = list(script_path, job_dir, app_dir),
+      stdout = file.path(job_dir, "stdout.log"),
+      stderr = file.path(job_dir, "stderr.log"),
+      cmdargs = c("--no-save", "--no-restore"),
+      env = env
+    ),
+    error = function(e) {
+      spawn_error <<- conditionMessage(e)
+      NULL
+    }
+  )
+  if (is.null(proc)) {
     sdm_write_json(list(
       id = job_id,
       user_id = user_id,
@@ -187,12 +195,12 @@ handle_model_run <- function(req, app_dir) {
       started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
       config = as.list(body),
       output_dir = job_dir,
-      error = conditionMessage(e)
+      error = spawn_error
     ), file.path(job_dir, "meta.json"))
     return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
-      "Failed to start model run: ", conditionMessage(e)
+      "Failed to start model run: ", spawn_error
     )))
-  })
+  }
   device_tag <- if (is_gpu_model) gpu_backend else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
@@ -203,7 +211,7 @@ handle_model_run <- function(req, app_dir) {
     started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
     config = as.list(body),
     output_dir = job_dir,
-    process_pid = proc$get_pid()
+    process_pid = sdm_process_pid(proc)
   )
   job_meta_file <- file.path(job_dir, "meta.json")
   sdm_write_json(job_meta, job_meta_file)
@@ -495,14 +503,31 @@ handle_targets_run <- function(req, app_dir) {
     env_vars["SDM_MULTISPECIES"] <- "true"
   }
 
-  proc <- callr::r_bg(function(script, job_dir, app_dir) {
-    source(script, local = TRUE)
-  }, args = list(script_path, job_dir, app_dir),
-  stdout = file.path(job_dir, "stdout.log"),
-  stderr = file.path(job_dir, "stderr.log"),
-  cmdargs = c("--no-save", "--no-restore"),
-  env = env_vars,
-  r_limit_memory = sdm_vsize_to_bytes())
+  spawn_error <- NULL
+  proc <- tryCatch(
+    sdm_spawn_background(
+      function(script, job_dir, app_dir) {
+        source(script, local = TRUE)
+      },
+      args = list(script_path, job_dir, app_dir),
+      stdout = file.path(job_dir, "stdout.log"),
+      stderr = file.path(job_dir, "stderr.log"),
+      cmdargs = c("--no-save", "--no-restore"),
+      env = env_vars
+    ),
+    error = function(e) {
+      spawn_error <<- conditionMessage(e)
+      NULL
+    }
+  )
+  if (is.null(proc)) {
+    job_meta$status <- "failed"
+    job_meta$error <- paste0("Failed to start targets run: ", spawn_error)
+    sdm_write_json(job_meta, file.path(job_dir, "meta.json"))
+    return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
+      "Failed to start targets run: ", spawn_error
+    )))
+  }
   target_backends <- vapply(configs, function(c) {
     mid <- c$model_id %||% c[["modelId"]] %||% "glm"
     dev <- c$dnn_device %||% c[["dnnDevice"]] %||% "auto"
@@ -514,7 +539,7 @@ handle_targets_run <- function(req, app_dir) {
   device_tag <- if (length(gpu_backends) > 0) gpu_backends[[1]] else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
-  job_meta$process_pid <- proc$get_pid()
+  job_meta$process_pid <- sdm_process_pid(proc)
   job_meta$status <- "running"
   sdm_write_json(job_meta, file.path(job_dir, "meta.json"))
 
