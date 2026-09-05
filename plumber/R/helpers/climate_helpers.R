@@ -89,12 +89,34 @@ handle_climate_download <- function(req, app_dir) {
     stop("Climate download script not found at: ", script_path, call. = FALSE)
   }
 
-  proc <- callr::r_bg(function(script, job_dir, app_dir) {
-    source(script, local = TRUE)
-  }, args = list(script_path, job_dir, app_dir), stdout = file.path(job_dir, "stdout.log"), stderr = file.path(job_dir, "stderr.log"),
-  r_limit_memory = sdm_vsize_to_bytes())
+  spawn_error <- NULL
+  proc <- tryCatch(
+    sdm_spawn_background(
+      function(script, job_dir, app_dir) {
+        source(script, local = TRUE)
+      },
+      args = list(script_path, job_dir, app_dir),
+      stdout = file.path(job_dir, "stdout.log"),
+      stderr = file.path(job_dir, "stderr.log")
+    ),
+    error = function(e) {
+      spawn_error <<- conditionMessage(e)
+      NULL
+    }
+  )
+  if (is.null(proc)) {
+    job_meta$status <- "failed"
+    job_meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    job_meta$error <- paste0("Failed to start climate download: ", spawn_error)
+    sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
+    return(list(
+      job_id  = job_id,
+      status  = "failed",
+      error   = job_meta$error
+    ))
+  }
   sdm_process_registry[[job_id]] <- list(proc = proc, device = "cpu")
-  job_meta$process_pid <- proc$get_pid()
+  job_meta$process_pid <- sdm_process_pid(proc)
   sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
 
   list(
