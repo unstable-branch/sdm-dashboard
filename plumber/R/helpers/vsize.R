@@ -14,14 +14,53 @@
 #   so a resized limit is detected within a minute without restarting Plumber.
 # Convert sdm_detect_vsize() output ("16Gb") to bytes for callr r_limit_memory.
 # Returns NA_integer_ if conversion fails.
+# Note: the result is numeric, not integer — as.integer() overflows int32 for
+# any vsize >= 2Gb (as.integer(6 * 1024^3) is NA), which silently disabled the
+# child memory limit for typical configurations.
 sdm_vsize_to_bytes <- function(vsize_str = sdm_detect_vsize()) {
   if (is.null(vsize_str) || !nzchar(vsize_str)) return(NA_integer_)
   num_gb <- suppressWarnings(as.numeric(sub("[^0-9.]+", "", vsize_str, ignore.case = TRUE)))
   if (is.finite(num_gb) && num_gb > 0) {
-    as.integer(num_gb * 1024^3)
+    num_gb * 1024^3
   } else {
     NA_integer_
   }
+}
+
+# Spawn a background R process via callr::r_bg, passing r_limit_memory only
+# when the installed callr version supports it. callr 3.8.0 removed the
+# r_limit_memory parameter; forwarding it through ... makes the internal spawn
+# fail with "unused argument (r_limit_memory = ...)".
+# The R_MAX_VSIZE environment variable (set separately by each caller) still
+# caps the child's vector heap on callr versions without r_limit_memory.
+sdm_spawn_background <- function(fn, args = list(), stdout = NULL, stderr = NULL,
+                                 env = NULL, cmdargs = character(0)) {
+  # callr >= 3.8.0 validates env as a character vector; NULL (inherit parent)
+  # is no longer accepted. Pass the current environment explicitly so the
+  # inheritance behaviour matches what NULL gave on older callr.
+  if (is.null(env)) env <- Sys.getenv()
+  spawn_args <- list(
+    func = fn,
+    args = args,
+    stdout = stdout,
+    stderr = stderr,
+    cmdargs = cmdargs,
+    env = env
+  )
+  if ("r_limit_memory" %in% names(formals(callr::r_bg))) {
+    spawn_args$r_limit_memory <- sdm_vsize_to_bytes()
+  }
+  do.call(callr::r_bg, spawn_args)
+}
+
+# Safely read the child PID from a callr process object. Returns NA_integer_
+# when the process object is not a live callr handle (e.g. a spawn failure
+# was recorded instead), so callers never crash on proc$get_pid().
+sdm_process_pid <- function(proc) {
+  tryCatch(
+    as.integer(proc$get_pid()),
+    error = function(e) NA_integer_
+  )
 }
 
 sdm_detect_vsize <- local({
