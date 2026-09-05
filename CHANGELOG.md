@@ -54,6 +54,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `plumber/R/run_server.R`: restored `preroute` hook with `auth_fail()` and `get_hdr()` helpers from `abcd2432`. The `return(FALSE)` pattern for auth rejections avoids triggering a C++ serializer bug in Plumber 1.3.3's `invokeCppCallback`.
 - `tests/testthat/test-plumber-health.R`: regression test validating `handle_health()` result serializes to non-empty JSON. Full `plumber::pr()` + `pr$call` integration tested in CI (run 33886048533).
 
+### API queue correctness (Group Q: WORKER_ORPHAN from rCpuTimeMs integer parse)
+
+- `api/src/services/queue.ts:252` (catch block): `rCpuTimeMs` now uses `Math.round((cpuDelta.user + cpuDelta.system) / 1000)` instead of `(cpuDelta.user + cpuDelta.system) / 1000`. Without `Math.round()`, fractional millisecond values (e.g., `55.341` for fast GLM runs) were rejected by PostgreSQL's `integer` column, causing the catch-block DB update to throw, leaving the run in `status='running'` with `job_id=NULL until the 10-minute orphan check fired (`WORKER_ORPHAN`).
+- `api/src/services/queue.ts:246-254`: catch-block `db.update()` is now wrapped in an inner `try/catch` — a transient DB failure during the update no longer propagates out and leaves the run stranded.
+- `api/src/services/queue-model-worker.ts:272-294` (else branch): when Plumber returns a model result without `job_id`, `runs.status` is now transitioned to `'completed'` before returning — previously emitted SSE `'completed'` but left the row in `'running'` until the orphan check fired.
+- `api/drizzle/0036_orphan_cleanup.sql`: one-shot `UPDATE` to reconcile pre-fix orphan rows from Sep 3-5 2026.
+- `api/src/services/queue.test.ts`: regression test verifying catch block receives an integer `rCpuTimeMs` when `process.cpuUsage` returns fractional microseconds.
+
 ### Security (Group C: 12 ownership/authz holes closed)
 
 - `PATCH /uploads/:fileId` now requires `eq(uploads.userId, user.id)` — was rewriting other users' `is_cleaned` flag and `cleaned_file_path` by guessed `fileId`.

@@ -510,9 +510,10 @@ What changes in the app or outputs?
 ## Screenshots / outputs
 Attach if UI or report changed.
 
-## Project state (last refreshed after Group N — docs audit + accepted limitations)
+## Project state (last refreshed after Group Q — queue catch block rCpuTimeMs fix)
 
 - `dev` branch tip: `6a067689` (Group N, case_weight_sdm scoping fix + dead cluster_exports cleanup)
+- `fix/queue-catch-block-cputime-round` branch: pending PR to dev (Group Q)
 - `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
 - Test counts (post-campaign): 293 api tests + 65 frontend tests passing; R test suites (test-run-sdm-stages, test-v03-methods, test-gam-contract, test-model-registry, test-multi-ensemble, test-determinism, test-dnn, test-utils-sdm-atomic-writes) all pass with warnings/skips only.
 - All Groups A through N are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
@@ -537,6 +538,7 @@ Attach if UI or report changed.
 | M | `fix/perf-tier-d` | `9e67e081` | Performance fixes: O(n²)→O(n) outlier flagging, GBIF dedup cache, SpatExtent vs spatRaster crop, chunking loop materialization, weighted AOO, parallel CV error propagation |
 | N | `fix/r-case-weight-sdm-scope` | `6a067689` | 6 pre-existing R test failures from `case_weight_sdm` scoping in GLM/GAM fixed — `test-run-sdm-stages.R` ×3, `test-v03-methods.R` ×1 now pass |
 | O | `fix/rangebag-cv-correctness` | `77c13156` | Rangebag CV: bg_fold_id fix (was always 0L → now properly sampled); response_curves rangebag branch added; multi-ensemble test threshold updated |
+| Q | `fix/queue-catch-block-cputime-round` | pending | API queue catch block: `rCpuTimeMs` now rounded to integer (fixes `WORKER_ORPHAN` for fast GLM runs); else branch now transitions `runs.status` to `completed`; defensive inner try/catch; orphan reconciliation migration |
 
 ## Known limitations
 What should reviewers know?
