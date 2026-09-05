@@ -49,6 +49,8 @@ modules <- c(
   "community_matrix.R",
 
   # --- covariates ---
+  "match_climate_layers.R",
+  "climate_cache_manifest.R",
   "covariates_climate.R",
   "covariates_elevation.R",
   "covariates_soil.R",

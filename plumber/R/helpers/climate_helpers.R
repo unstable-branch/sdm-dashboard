@@ -345,20 +345,23 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
 }
 
 handle_climate_check <- function(res, app_dir, source = "worldclim", resolution = "10", biovars = "", gcm = "", ssp = "", period = "") {
+  # Hoisted so the error handler below can always report the request; the
+  # handler's frame does NOT see bindings made inside the tryCatch body.
+  requested <- integer(0)
   tryCatch({
     if (length(biovars) > 1) biovars <- paste(biovars, collapse = ",")
     requested <- as.integer(unlist(strsplit(as.character(biovars), ",")))
     requested <- unique(requested[!is.na(requested)])
 
+    # Matcher/manifest helpers are loaded at startup by R/engine_load.R (or
+    # R/load.R) and by tests/testthat/helper-load.R. Fail loudly if absent —
+    # a previous runtime-sourcing attempt via a non-existent source_local()
+    # helper crashed here and the silent fallback reported empty results.
     if (!exists("match_worldclim_biovars", inherits = TRUE)) {
-      source_local(file.path(app_dir, "R", "covariates", "match_climate_layers.R"), local = TRUE)
+      stop("match_worldclim_biovars not loaded: R/covariates/match_climate_layers.R is missing from the module loader", call. = FALSE)
     }
-    if (!exists("validate_geotiff", inherits = TRUE) && file.exists(file.path(app_dir, "R", "covariates", "covariates_climate.R"))) {
-      source_local(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
-    }
-    if (!exists("read_cache_manifest", inherits = TRUE) &&
-        file.exists(file.path(app_dir, "R", "covariates", "climate_cache_manifest.R"))) {
-      source_local(file.path(app_dir, "R", "covariates", "climate_cache_manifest.R"), local = TRUE)
+    if (!exists("check_manifest_for_biovars", inherits = TRUE)) {
+      stop("check_manifest_for_biovars not loaded: R/covariates/climate_cache_manifest.R is missing from the module loader", call. = FALSE)
     }
 
     existing_nums <- integer(0)
@@ -369,11 +372,9 @@ handle_climate_check <- function(res, app_dir, source = "worldclim", resolution 
       base_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
       all_tifs <- if (dir.exists(base_dir)) list.files(base_dir, pattern = "\\.tif$",
                                                       full.names = TRUE, recursive = TRUE) else character()
-      manifest_ok <- if (file.exists(file.path(app_dir, "R", "covariates", "climate_cache_manifest.R"))) {
-        tryCatch(check_manifest_for_biovars(base_dir, "worldclim", requested, names_fn = function(bv) {
-          paste0("wc2.1_", res_label, "_bio_", bv, ".tif")
-        }), error = function(e) NULL)
-      } else NULL
+      manifest_ok <- tryCatch(check_manifest_for_biovars(base_dir, "worldclim", requested, names_fn = function(bv) {
+        paste0("wc2.1_", res_label, "_bio_", bv, ".tif")
+      }), error = function(e) NULL)
       matched_worldclim <- match_worldclim_biovars(all_tifs, requested, res_label)
       existing_nums <- matched_worldclim$biovars
       if (!is.null(manifest_ok)) {
@@ -410,12 +411,12 @@ handle_climate_check <- function(res, app_dir, source = "worldclim", resolution 
       permission_issues = perm_issues
     )
   }, error = function(e) {
-    requested_safe <- if (exists("requested", inherits = FALSE)) requested else integer(0)
+    message("[climate-check] error: ", conditionMessage(e))
     list(
       source            = source,
       res               = resolution,
       available         = as.list(integer(0)),
-      missing           = as.list(requested_safe),
+      missing           = as.list(requested),
       permission_issues = list()
     )
   })
@@ -428,10 +429,7 @@ preflight_climate_download <- function(body, app_dir) {
   if (!type %in% c("worldclim", "chelsa")) return(NULL)
 
   if (!exists("match_worldclim_biovars", inherits = TRUE)) {
-    source_local(file.path(app_dir, "R", "covariates", "match_climate_layers.R"), local = TRUE)
-  }
-  if (!exists("validate_geotiff", inherits = TRUE) && file.exists(file.path(app_dir, "R", "covariates", "covariates_climate.R"))) {
-    source_local(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
+    stop("match_worldclim_biovars not loaded: R/covariates/match_climate_layers.R is missing from the module loader", call. = FALSE)
   }
 
   res_char <- as.character(body$res %||% "10")

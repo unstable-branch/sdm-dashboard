@@ -139,7 +139,11 @@ export class PlumberClient {
 
   private async _fetch(url: string, options?: RequestInit, timeoutMs?: number): Promise<Response> {
     const ms = timeoutMs ?? PLUMBER_DEFAULT_TIMEOUT_MS;
-    const opts = options ?? {};
+    const opts: RequestInit = { ...options };
+    // Default to internal-proxy headers so GET reads (climate check, config
+    // defaults, models, health) authenticate against the Plumber gate, which
+    // requires X-Hono-Internal even with PLUMBER_AUTH_DISABLED=true.
+    if (!opts.headers) opts.headers = this.headers();
     return plumberSemaphore(() => fetchWithRetry(url, opts, 2, ms));
   }
 

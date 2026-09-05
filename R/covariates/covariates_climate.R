@@ -1,20 +1,13 @@
 # WorldClim discovery, download, cropping, and scaling helpers.
 
-# Load the matcher module eagerly so callers don't need to source it manually.
-# helper-load.R also sources it for testthat; the exists() guard prevents double
-# loading under R CMD check. Note: do not use a `for` loop variable named `c`
-# below — it would shadow base::c and break do.call(c, rasters) in tests.
-if (!exists("match_worldclim_biovars", inherits = TRUE)) {
-  .match_climate_layers_path <- {
-    candidates <- c(file.path(dirname(sys.frame(1)$ofile %||% ""), "match_climate_layers.R"),
-                    file.path("R", "covariates", "match_climate_layers.R"))
-    for (cand in candidates) if (nzchar(cand) && file.exists(cand)) return(cand)
-    NA_character_
-  }
-  if (!is.na(.match_climate_layers_path)) {
-    tryCatch(source(.match_climate_layers_path, local = TRUE), error = function(e) NULL)
-  }
-}
+# The matcher module (match_climate_layers.R) and the cache manifest helpers
+# (climate_cache_manifest.R) are loaded by the module loaders (R/load.R,
+# R/engine_load.R) and by tests/testthat/helper-load.R. They are NOT sourced
+# here: a sys.frame(1)$ofile-based eager-load was unreliable under source()
+# (the frame's ofile can be numeric garbage inside source()'s eval frames)
+# and left the matchers undefined in the Plumber runtime. If this file is
+# sourced standalone without a loader, the matcher functions will be missing
+# — source match_climate_layers.R explicitly in that case.
 
 # Simple file-based lock for concurrent download protection.
 # timeout_sec MUST be >= stale_sec, otherwise a waiter can never reclaim
