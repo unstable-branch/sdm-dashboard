@@ -44,24 +44,17 @@ verify_worldclim_cache <- function(worldclim_dir = sdm_default_worldclim_dir, so
     recursive = TRUE, ignore.case = TRUE
   )
 
-  present <- character()
-  for (bio in selected_biovars) {
-    nm1 <- paste0("bio", bio)
-    nm2 <- if (bio < 10) paste0("bio0", bio) else paste0("bio", bio)
-    pat1 <- paste0("_(", nm1, ")($|[^0-9])")
-    pat2 <- paste0("_(", nm2, ")($|[^0-9])")
-    pat3 <- paste0("bio_", bio, "($|[^0-9])")
-    matched <- c(
-      all_files[grepl(pat1, basename(all_files), ignore.case = TRUE)],
-      all_files[grepl(pat2, basename(all_files), ignore.case = TRUE)],
-      all_files[grepl(pat3, basename(all_files), ignore.case = TRUE)]
-    )
-    valid <- matched[vapply(matched, is_valid_geotiff, logical(1), USE.NAMES = FALSE)]
-    if (length(valid) > 0) present <- c(present, paste0("bio", bio))
+  if (!exists("match_worldclim_biovars", inherits = TRUE)) {
+    matcher_path <- file.path(dirname(sys.frame(1)$ofile %||% "."), "match_climate_layers.R")
+    if (file.exists(matcher_path)) source(matcher_path, local = TRUE)
   }
 
-  present <- unique(present)
-  missing <- paste0("bio", selected_biovars)[!paste0("bio", selected_biovars) %in% present]
+  matcher <- if (source == "chelsa") match_chelsa_biovars else match_worldclim_biovars
+  matched_result <- matcher(all_files, as.integer(selected_biovars))
+  found <- matched_result$biovars
+  missing_bv <- as.integer(setdiff(as.integer(selected_biovars), found))
+  present <- if (length(found) > 0) paste0("bio", found) else character(0)
+  missing <- if (length(missing_bv) > 0) paste0("bio", missing_bv) else character(0)
   size_mb <- sum(file.size(all_files), na.rm = TRUE) / 1e6
 
   if (length(missing) == 0) {

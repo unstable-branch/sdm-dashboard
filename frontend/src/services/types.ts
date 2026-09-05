@@ -322,3 +322,17 @@ export interface BatchJob {
   status: string;
   metrics?: Record<string, unknown> | null;
 }
+
+// Response from GET /api/v1/climate/check
+export interface ClimateCheckResponse {
+  source: string;
+  res: string;
+  available: number[];
+  missing: number[];
+  permission_issues?: Array<{
+    dir: string;
+    sample_file?: string;
+    reason: string;
+    error?: string;
+  }>;
+}
