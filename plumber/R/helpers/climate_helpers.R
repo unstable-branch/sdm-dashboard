@@ -65,6 +65,25 @@ handle_climate_download <- function(req, app_dir) {
   )
   sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
 
+  # Pre-flight: if every requested layer for worldclim/chelsa is already on disk
+  # and verified, skip the callr::r_bg spawn entirely. Returns synchronously with
+  # cached = TRUE so the frontend's "Download N missing" button no longer
+  # appears to "re-download" files that already exist.
+  cached_preflight <- tryCatch(preflight_climate_download(body, app_dir),
+                               error = function(e) NULL)
+  if (isTRUE(cached_preflight$cached)) {
+    job_meta$status <- "completed"
+    job_meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    job_meta$cached <- TRUE
+    sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
+    return(list(
+      job_id  = job_id,
+      status  = "completed",
+      cached  = TRUE,
+      message = "All requested climate layers were already present; no download performed"
+    ))
+  }
+
   script_path <- file.path(app_dir, "plumber", "R", "climate_download.R")
   if (!file.exists(script_path)) {
     stop("Climate download script not found at: ", script_path, call. = FALSE)
@@ -331,45 +350,145 @@ handle_climate_check <- function(res, app_dir, source = "worldclim", resolution 
     requested <- as.integer(unlist(strsplit(as.character(biovars), ",")))
     requested <- unique(requested[!is.na(requested)])
 
+    if (!exists("match_worldclim_biovars", inherits = TRUE)) {
+      source_local(file.path(app_dir, "R", "covariates", "match_climate_layers.R"), local = TRUE)
+    }
+    if (!exists("validate_geotiff", inherits = TRUE) && file.exists(file.path(app_dir, "R", "covariates", "covariates_climate.R"))) {
+      source_local(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
+    }
+    if (!exists("read_cache_manifest", inherits = TRUE) &&
+        file.exists(file.path(app_dir, "R", "covariates", "climate_cache_manifest.R"))) {
+      source_local(file.path(app_dir, "R", "covariates", "climate_cache_manifest.R"), local = TRUE)
+    }
+
     existing_nums <- integer(0)
+    base_dir <- NULL
 
     if (source == "worldclim") {
       res_label <- sdm_worldclim_res_label(resolution)
-      pattern <- sprintf("wc2\\.1_%s_bio_\\d+\\.tif$", gsub("\\.", "\\\\.", res_label))
-      files <- list.files(sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir), pattern = pattern, recursive = TRUE)
-      existing_nums <- as.integer(gsub("^.*_bio_(\\d+)\\.tif$", "\\1", files))
+      base_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
+      all_tifs <- if (dir.exists(base_dir)) list.files(base_dir, pattern = "\\.tif$",
+                                                      full.names = TRUE, recursive = TRUE) else character()
+      manifest_ok <- if (file.exists(file.path(app_dir, "R", "covariates", "climate_cache_manifest.R"))) {
+        tryCatch(check_manifest_for_biovars(base_dir, "worldclim", requested, names_fn = function(bv) {
+          paste0("wc2.1_", res_label, "_bio_", bv, ".tif")
+        }), error = function(e) NULL)
+      } else NULL
+      matched_worldclim <- match_worldclim_biovars(all_tifs, requested, res_label)
+      existing_nums <- matched_worldclim$biovars
+      if (!is.null(manifest_ok)) {
+        existing_nums <- intersect(manifest_ok, existing_nums)
+      }
     } else if (source == "chelsa") {
-      files <- list.files(sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir), pattern = "CHELSA_bio\\d+_.*\\.tif$", recursive = TRUE)
-      existing_nums <- as.integer(gsub("^CHELSA_bio0*(\\d+)_.*$", "\\1", files))
+      base_dir <- sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir)
+      all_tifs <- if (dir.exists(base_dir)) list.files(base_dir, pattern = "\\.tif$",
+                                                      full.names = TRUE, recursive = TRUE) else character()
+      existing_nums <- match_chelsa_biovars(all_tifs, requested)$biovars
     } else if (source == "cmip6") {
       if (nzchar(gcm) && nzchar(ssp) && nzchar(period)) {
         if (grepl("(\\.\\./|\\.\\.\\\\|/)", paste(gcm, ssp, period))) {
           stop("Invalid climate path parameters", call. = FALSE)
         }
-        future_dir <- file.path(sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir), paste0(gcm, "_", ssp, "_", period))
-        if (dir.exists(future_dir)) {
-          files <- list.files(future_dir, pattern = "^bio\\d+\\.tif$")
-          existing_nums <- as.integer(gsub("^bio(\\d+)\\.tif$", "\\1", files))
-        }
+        base_dir <- file.path(sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir),
+                              paste0(gcm, "_", ssp, "_", period))
+        all_tifs <- if (dir.exists(base_dir)) list.files(base_dir, pattern = "\\.tif$",
+                                                         full.names = TRUE, recursive = TRUE) else character()
+        existing_nums <- match_cmip6_biovars(all_tifs, requested)$biovars
       }
     }
 
     available <- intersect(requested, existing_nums)
-    missing <- setdiff(requested, existing_nums)
+    missing   <- setdiff(requested, existing_nums)
+    perm_issues <- tryCatch(audit_climate_dir_permissions(app_dir),
+                           error = function(e) list())
 
     list(
-      source = source,
-      res = resolution,
-      available = as.list(available),
-      missing = as.list(missing)
+      source            = source,
+      res               = resolution,
+      available         = as.list(available),
+      missing           = as.list(missing),
+      permission_issues = perm_issues
     )
   }, error = function(e) {
     requested_safe <- if (exists("requested", inherits = FALSE)) requested else integer(0)
     list(
-      source = source,
-      res = resolution,
-      available = as.list(integer(0)),
-      missing = as.list(requested_safe)
+      source            = source,
+      res               = resolution,
+      available         = as.list(integer(0)),
+      missing           = as.list(requested_safe),
+      permission_issues = list()
     )
   })
 }
+
+# Pre-flight check: returns list(cached = TRUE) if every requested layer is
+# already on disk and verifies as a valid GeoTIFF. Otherwise NULL.
+preflight_climate_download <- function(body, app_dir) {
+  type <- tolower(as.character(body$type %||% "cmip6"))
+  if (!type %in% c("worldclim", "chelsa")) return(NULL)
+
+  if (!exists("match_worldclim_biovars", inherits = TRUE)) {
+    source_local(file.path(app_dir, "R", "covariates", "match_climate_layers.R"), local = TRUE)
+  }
+  if (!exists("validate_geotiff", inherits = TRUE) && file.exists(file.path(app_dir, "R", "covariates", "covariates_climate.R"))) {
+    source_local(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
+  }
+
+  res_char <- as.character(body$res %||% "10")
+  biovars <- as.integer(unlist(strsplit(as.character(body$biovars %||% ""), ",")))
+  biovars <- biovars[!is.na(biovars)]
+  if (length(biovars) == 0) return(NULL)
+
+  if (type == "worldclim") {
+    base_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
+    if (!dir.exists(base_dir)) return(NULL)
+    tifs <- list.files(base_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+    res_label <- sdm_worldclim_res_label(res_char)
+    found <- match_worldclim_biovars(tifs, biovars, res_label)$biovars
+    if (length(found) == length(biovars)) return(list(cached = TRUE, type = type))
+    return(NULL)
+  }
+  if (type == "chelsa") {
+    base_dir <- sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir)
+    if (!dir.exists(base_dir)) return(NULL)
+    tifs <- list.files(base_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+    found <- match_chelsa_biovars(tifs, biovars)$biovars
+    if (length(found) == length(biovars)) return(list(cached = TRUE, type = type))
+    return(NULL)
+  }
+  NULL
+}
+
+# Audit each known climate directory for unreadable files (often caused by
+# bind-mount uid mismatches). Returns a list of issue dicts suitable for JSON.
+audit_climate_dir_permissions <- function(app_dir) {
+  out <- list()
+  dirs <- c(
+    worldclim = sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir),
+    chelsa    = sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir),
+    future    = sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir)
+  )
+  for (nm in names(dirs)) {
+    d <- dirs[[nm]]
+    if (!dir.exists(d)) next
+    fts <- list.files(d, pattern = "\\.tif$", recursive = TRUE, full.names = TRUE)
+    if (length(fts) == 0) next
+    sample <- fts[1]
+    read_test <- tryCatch({
+      con <- file(sample, "rb")
+      on.exit(close(con), add = TRUE)
+      bytes <- readBin(con, "raw", n = 4)
+      isTRUE(length(bytes) >= 4)
+    }, error = function(e) FALSE, warning = function(w) FALSE)
+    if (!isTRUE(read_test)) {
+      out[[length(out) + 1L]] <- list(
+        dir         = d,
+        sample_file = sample,
+        reason      = "unreadable"
+      )
+      next
+    }
+  }
+  out
+}
+
