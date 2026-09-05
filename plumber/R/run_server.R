@@ -131,6 +131,13 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     return(auth_fail(res, 400L, '{"error":"Malformed request"}'))
   }
 
+  # Liveness/readiness probes are never authenticated: docker healthchecks and
+  # orchestrator probes have no API key. Matches the documented open endpoints
+  # (see AGENTS.md); they expose only status metadata, never computation.
+  if (path %in% c("/health", "/ready")) {
+    return(NULL)
+  }
+
   if (identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true")) {
     if (identical(Sys.getenv("NODE_ENV"), "production")) {
       cat("FATAL: PLUMBER_AUTH_DISABLED is set in production — refusing to start.\n")
