@@ -25,6 +25,11 @@ if (!exists("validate_geotiff")) {
   candidate <- file.path("R", "covariates", "covariates_climate.R")
   if (file.exists(candidate)) source(candidate, local = FALSE)
 }
+if (!exists("handle_climate_check")) {
+  candidate <- file.path("plumber", "R", "helpers", "climate_helpers.R")
+  if (!file.exists(candidate)) candidate <- file.path("..", "..", "plumber", "R", "helpers", "climate_helpers.R")
+  if (file.exists(candidate)) source(candidate, local = FALSE)
+}
 
 # Helper used to write a file with valid little-endian TIFF magic so that
 # validate_geotiff() accepts it as a real GeoTIFF.
@@ -148,4 +153,75 @@ test_that("match_cmip6_biovars handles bioc_<n>.tif naming", {
   all_tifs <- list.files(d, pattern = "\\.tif$", full.names = TRUE)
   result <- match_cmip6_biovars(all_tifs, c(7, 8, 19))
   expect_setequal(result$biovars, c(7, 8))
+})
+
+# ── handle_climate_check regression tests ─────────────────────────────────
+#
+# The live Plumber bug this guards against: the matcher and manifest modules
+# were absent from both module loaders, the handler's runtime-sourcing fallback
+# called a non-existent source_local() helper, and the tryCatch error handler
+# used exists("requested", inherits = FALSE) — which cannot see the tryCatch
+# body's frame — so it reported `available:[]` AND `missing:[]` simultaneously.
+# Symptom: the frontend Download button never enabled and every layer looked
+# perpetually unknown.
+
+test_that("handle_climate_check splits available/missing for worldclim", {
+  skip_if_not(exists("handle_climate_check"), "climate_helpers.R not sourced")
+  skip_if_not(exists("match_worldclim_biovars"), "matcher module not loaded")
+  skip_if_not(exists("check_manifest_for_biovars"), "manifest module not loaded")
+
+  d <- tempfile("worldclim-handler-")
+  dir.create(d)
+  on.exit(unlink(d, recursive = TRUE), add = TRUE)
+  for (bv in c(1, 4)) make_stub_geotiff(file.path(d, paste0("wc2.1_10m_bio_", bv, ".tif")))
+
+  old_dir <- if (exists("sdm_default_worldclim_dir", inherits = TRUE)) sdm_default_worldclim_dir else "Worldclim"
+  assign("sdm_default_worldclim_dir", d, envir = globalenv())
+  on.exit(assign("sdm_default_worldclim_dir", old_dir, envir = globalenv()), add = TRUE)
+
+  result <- handle_climate_check(NULL, ".", "worldclim", "10", "1,4,6,12")
+  expect_setequal(unlist(result$available), c(1, 4))
+  expect_setequal(unlist(result$missing), c(6, 12))
+  expect_equal(result$source, "worldclim")
+  expect_equal(result$res, "10")
+})
+
+test_that("handle_climate_check error handler preserves requested biovars", {
+  skip_if_not(exists("handle_climate_check"), "climate_helpers.R not sourced")
+  skip_if_not(exists("match_worldclim_biovars"), "matcher module not loaded")
+
+  old_dir <- if (exists("sdm_default_chelsa_dir", inherits = TRUE)) sdm_default_chelsa_dir else "chelsa"
+  assign("sdm_default_chelsa_dir", tempfile("chelsa-empty-"), envir = globalenv())
+  on.exit(assign("sdm_default_chelsa_dir", old_dir, envir = globalenv()), add = TRUE)
+
+  # chelsa against a non-existent directory exercises an internal failure via
+  # the manifest/matcher path; the handler must degrade to missing=requested,
+  # never to BOTH lists empty.
+  result <- handle_climate_check(NULL, ".", "chelsa", "10", "5,9")
+  expect_setequal(unlist(result$missing), c(5, 9))
+})
+
+test_that("handle_climate_check surfaces internal errors instead of swallowing", {
+  skip_if_not(exists("handle_climate_check"), "climate_helpers.R not sourced")
+
+  expect_message(
+    result <- handle_climate_check(NULL, ".", "cmip6", "10", "5,9", gcm = "../evil", ssp = "x", period = "y"),
+    "\\[climate-check\\] error"
+  )
+  expect_setequal(unlist(result$missing), c(5, 9))
+})
+
+test_that("matcher and manifest modules are registered in both module loaders", {
+  # The live Plumber runtime loads modules via engine_load.R; the Shiny app via
+  # load.R. If either omits the matcher/manifest modules the handler fails at
+  # runtime (this is exactly what shipped broken).
+  root <- if (exists("project_root")) project_root else normalizePath(file.path("..", ".."))
+  eng <- readLines(file.path(root, "R", "engine_load.R"))
+  ldr <- readLines(file.path(root, "R", "load.R"))
+  for (mod in c("match_climate_layers.R", "climate_cache_manifest.R")) {
+    expect_true(any(grepl(paste0('"', mod, '"'), eng, fixed = TRUE)),
+                info = paste("engine_load.R is missing", mod))
+    expect_true(any(grepl(paste0('"', mod, '"'), ldr, fixed = TRUE)),
+                info = paste("load.R is missing", mod))
+  }
 })

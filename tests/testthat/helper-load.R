@@ -24,3 +24,5 @@ source(file.path(project_root, "R", "core", "optimized_sdm.R"))
 # modern Plumber helpers). Loaded here so tests can source covariates_climate.R
 # and have the matchers available in the calling environment.
 source(file.path(project_root, "R", "covariates", "match_climate_layers.R"), local = FALSE)
+# Cache manifest helpers (sha256-verified invalidation used by handle_climate_check).
+source(file.path(project_root, "R", "covariates", "climate_cache_manifest.R"), local = FALSE)
