@@ -854,7 +854,7 @@ handle_diagnostics_data <- function(req, res, run_id, type, app_dir) {
     NULL
   )
   if (is.null(csv_data)) { res$status <- 404L; return(list(error = paste0("Data not available for type: ", type))) }
-  res$headers[["Content-Type"]] <- "text/csv"
+  res$headers[["Content-Type"]] <- "text/csv; charset=utf-8"
   res$headers[["Content-Disposition"]] <- paste0("attachment; filename=\"", type, "_", run_id, ".csv\"")
-  write.csv(csv_data, row.names = FALSE)
+  paste(capture.output(write.csv(csv_data, row.names = FALSE)), collapse = "\n")
 }
