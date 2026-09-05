@@ -105,6 +105,22 @@ fetch_cmip6_worldclim <- function(gcm = "UKESM1-0-LL", ssp = "SSP5-8.5", period 
              ". GCM: ", gcm, " SSP: ", ssp, " Period: ", period, call. = FALSE)
       }
 
+      cmip6_files <- list.files(cache_subdir, pattern = "\\.tif$", full.names = TRUE)
+      tryCatch({
+        if (!exists("write_cache_manifest", inherits = TRUE)) {
+          manifest_path <- file.path(dirname(sys.frame(1)$ofile %||% "."),
+                                     "climate_cache_manifest.R")
+          if (file.exists(manifest_path)) source(manifest_path, local = TRUE)
+        }
+        if (exists("write_cache_manifest", inherits = TRUE)) {
+          write_cache_manifest(cache_subdir, "cmip6", res = paste(gcm, ssp, period, sep = "_"),
+                               cmip6_files, log_fun = log_fun)
+        }
+      }, error = function(e) {
+        if (is.function(log_fun)) log_fun("[cache-manifest] cmip6 manifest write failed: ",
+                                         conditionMessage(e))
+      })
+
       list(dir = cache_subdir, cached = FALSE, raster = out)
     },
     error = function(e) {
