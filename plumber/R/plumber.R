@@ -292,6 +292,7 @@ function(req, res, run_id) handle_diagnostics_plots(req, res, run_id, app_dir)
 
 #* Download diagnostics data as CSV
 #* @get /api/v1/diagnostics/data/<run_id>/<type>
+#* @serializer text
 function(req, res, run_id, type) handle_diagnostics_data(req, res, run_id, type, app_dir)
 
 #* Check BIO variable availability
@@ -330,7 +331,6 @@ function(req, res, run_id, z, x, y, band = NULL) handle_tile_serve(req, res, run
 #* @param lng Longitude (-180 to 180)
 #* @param band Band name or index (optional)
 #* @get /api/v1/results/suitability-value
-#* @serializer contentType list(type="application/json")
 function(req, res, run_id, lat, lng, band = NULL)
   handle_suitability_value(req, res, run_id, lat, lng, band, app_dir)
 

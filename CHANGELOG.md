@@ -89,6 +89,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Frontend `_redirecting` window in `services/api.ts` tightened from 30 s to 5 s — was suppressing 401-driven `/login` redirects across all tabs for half a minute after the first one.
 - `register/page.tsx` no longer calls `setAuthToken` then `setAuth` (which briefly cleared localStorage/cookie between the two writes) — single source of truth via `setAuth`.
 
+### Plumber serializer overrides fixed (Group P)
+
+- `plumber/R/plumber.R` `/api/v1/results/suitability-value`: removed `@serializer contentType list(type="application/json")` annotation that was overriding the global `plumber::serializer_json(auto_unbox = TRUE, na = "null")` and causing httpuv to throw `"An exception occurred."` (VECSXP cannot be cast to RawVector) on the R list body. The route now correctly returns `{"value":0.7}` instead of a 500 error.
+- `plumber/R/plumber.R` `/api/v1/diagnostics/data/<run_id>/<type>`: added `@serializer text` so Plumber returns the CSV as a character body instead of passing through the global JSON serializer.
+- `plumber/R/helpers/diagnostics_helpers.R` `handle_diagnostics_data`: replaced `write.csv(csv_data, row.names = FALSE)` (which wrote to R's stdout and returned NULL → body `{}`) with `paste(capture.output(write.csv(csv_data, row.names = FALSE)), collapse = "\n")` so the function returns a length-1 character vector suitable for `@serializer text`.
+- `tests/testthat/test-suitability-value-serializer.R`: regression test validating `handle_suitability_value()` output serializes to non-empty JSON with a `value` key.
+- `tests/testthat/test-diagnostics-csv-serializer.R`: regression test validating the `capture.output() + paste(collapse="\n")` idiom produces valid RFC-4180 CSV.
+
 ### Robustness (Group B: Plumber outages, false-positive missing, Redis transients)
 
 - `services/api/src/routes/climate.ts` `GET /scenarios` and `GET /check` no longer swallow Plumber failures with HTTP 200 + empty payload — now return `502 + { code: "PLUMBER_UNAVAILABLE" }`. The compose-level `longCache` middleware was caching the empty payload for 3600 s on first failure.

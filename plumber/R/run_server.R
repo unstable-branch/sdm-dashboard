@@ -149,6 +149,12 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
       cat("  Set PLUMBER_INTERNAL_KEY in non-production environments to guard the internal proxy.\n")
       quit(status = 1)
     }
+    # When PLUMBER_AUTH_DISABLED=true, Hono proxies with X-Hono-Internal. But open
+    # endpoints (/health, /ready, etc.) are called directly by Docker healthchecks and
+    # load balancers without that header. Skip internal-token check for open endpoints.
+    if (!requires_auth(path)) {
+      return(NULL)
+    }
     hono_internal <- get_hdr(req, "x-hono-internal")
     if (is.null(hono_internal) || !identical(hono_internal, internal_key)) {
       return(auth_fail(res, 401L, '{"error":"Internal system token required. Direct access not allowed."}'))
