@@ -129,6 +129,7 @@ sdmRunRoutes.post("/run", async (c) => {
 
       jobEventBus.emitJobStatus({
         jobId: insertedRun.id,
+        runId: insertedRun.id,
         state: "queued",
         progress: 0,
         logs: ["Model run queued..."],
@@ -144,7 +145,7 @@ sdmRunRoutes.post("/run", async (c) => {
         details: { modelId: config.modelId, species: config.species, async: true },
       });
 
-      return c.json({ jobId: insertedRun.id, queuedAt: new Date().toISOString() });
+      return c.json({ runId: insertedRun.id, queuedAt: new Date().toISOString() });
     }
 
     const [maxRun] = await db
@@ -166,9 +167,27 @@ sdmRunRoutes.post("/run", async (c) => {
       })
       .returning();
 
-    const result = await plumberClient.runModel(buildModelPayload(config, run.id));
-
-    const plumberJobId = (result as { job_id?: string }).job_id;
+    let plumberJobId: string | undefined;
+    try {
+      const result = await plumberClient.runModel(buildModelPayload(config, run.id));
+      plumberJobId = (result as { job_id?: string }).job_id;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Model run failed";
+      console.error(`[sdm] Model run failed: ${message}`);
+      await db
+        .update(runs)
+        .set({ status: "failed", error: message, completedAt: new Date() })
+        .where(eq(runs.id, run.id));
+      jobEventBus.emitJobStatus({
+        jobId: run.id,
+        runId: run.id,
+        state: "failed",
+        progress: 0,
+        failedReason: message,
+      });
+      const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
+      return c.json({ error: message }, isBusy ? 429 : 502);
+    }
 
     if (plumberJobId) {
       await db
@@ -179,6 +198,7 @@ sdmRunRoutes.post("/run", async (c) => {
 
     jobEventBus.emitJobStatus({
       jobId: run.id,
+      runId: run.id,
       state: "running",
       progress: 0,
       logs: ["Model run started (sync)..."],

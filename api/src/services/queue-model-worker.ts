@@ -40,6 +40,7 @@ export async function handleModelJob(
     }
     jobEventBus.emitJobStatus({
       jobId: runId ?? job.id ?? "unknown",
+      runId: runId,
       state: "failed",
       progress: 0,
       failedReason: runErrMsg,
@@ -67,6 +68,7 @@ export async function handleModelJob(
     await job.updateProgress(35);
     jobEventBus.emitJobStatus({
       jobId: runId ?? job.id ?? "unknown",
+      runId: runId,
       state: "active",
       progress: 35,
       logs: ["Model run submitted to Plumber, waiting for completion..."],
@@ -104,6 +106,7 @@ export async function handleModelJob(
         if (pollState === "loading" || pollState === "pending") {
           jobEventBus.emitJobStatus({
             jobId: runId ?? job.id ?? "unknown",
+            runId: runId,
             state: pollState,
             progress: pollProgress ?? 5,
             logs,
@@ -118,6 +121,7 @@ export async function handleModelJob(
           await job.updateProgress(runningProgress);
           jobEventBus.emitJobStatus({
             jobId: runId ?? job.id ?? "unknown",
+            runId: runId,
             state: "active",
             progress: runningProgress,
             logs,
@@ -145,6 +149,7 @@ export async function handleModelJob(
             await job.updateProgress(99);
             jobEventBus.emitJobStatus({
               jobId: runId,
+              runId: runId,
               state: "active",
               progress: 99,
               logs: logs.concat(["Synchronising completed outputs..."]),
@@ -177,6 +182,7 @@ export async function handleModelJob(
           await job.updateProgress(100);
           jobEventBus.emitJobStatus({
             jobId: runId ?? job.id ?? "unknown",
+            runId: runId,
             state: "completed",
             progress: 100,
             logs: logs.concat(syncWarning ? [`Output sync warning: ${syncWarning}`, "Model run completed."] : ["Model run completed."]),
@@ -199,6 +205,7 @@ export async function handleModelJob(
           await job.updateProgress(cancelledProgress);
           jobEventBus.emitJobStatus({
             jobId: runId ?? job.id ?? "unknown",
+            runId: runId,
             state: "cancelled",
             progress: cancelledProgress,
             currentStage: null,
@@ -237,6 +244,7 @@ export async function handleModelJob(
           await job.updateProgress(failedProgress);
           jobEventBus.emitJobStatus({
             jobId: runId ?? job.id ?? "unknown",
+            runId: runId,
             state: "failed",
             progress: failedProgress,
             currentStage: null,
@@ -263,6 +271,7 @@ export async function handleModelJob(
       }
       jobEventBus.emitJobStatus({
         jobId: runId ?? job.id ?? "unknown",
+        runId: runId,
         state: "failed",
         progress: 0,
         failedReason: timeoutMsg,
@@ -285,6 +294,7 @@ export async function handleModelJob(
     await job.updateProgress(100);
     jobEventBus.emitJobStatus({
       jobId: runIdElse ?? job.id!,
+      runId: runIdElse,
       state: "completed",
       progress: 100,
       logs: syncWarning ? [`Output sync warning: ${syncWarning}`] : undefined,
