@@ -167,7 +167,10 @@ load_soil_covariate <- function(soil_path = NULL,
 
       if (file.exists(cached_file)) {
         log_message(log_fun, "Using cached SoilGrids layer: ", layer_name)
-        r <- terra::rast(cached_file)
+        r <- tryCatch(terra::rast(cached_file), error = function(e) {
+          log_message(log_fun, "  [soil] Failed to read cached file ", cached_file, ": ", conditionMessage(e))
+          NULL
+        })
       } else if (isTRUE(allow_download)) {
         r <- .download_soilgrids_layer(
           var = var, depth = depth, stat = soilgrids_stat,
@@ -194,8 +197,21 @@ load_soil_covariate <- function(soil_path = NULL,
     return(NULL)
   }
 
+  valid <- vapply(layers, function(x) {
+    inherits(x, "SpatRaster") && terra::nlyr(x) > 0L
+  }, logical(1))
+  if (!all(valid)) {
+    n_bad <- sum(!valid)
+    log_message(log_fun, "Dropping ", n_bad, " invalid SoilGrids layer(s): ", paste(names(layers)[!valid], collapse = ", "))
+    layers <- layers[valid]
+  }
+  if (length(layers) == 0) {
+    log_message(log_fun, "No valid SoilGrids layers after filtering.")
+    return(NULL)
+  }
+
   soil_raster <- do.call(c, layers)
-  methods <- rep("bilinear", terra::nlyr(soil_raster))
+  methods <- rep("bilinear", max(1L, terra::nlyr(soil_raster)))
   names(methods) <- names(soil_raster)
 
   log_message(log_fun, "Loaded ", terra::nlyr(soil_raster), " SoilGrids layer(s): ", paste(names(soil_raster), collapse = ", "))

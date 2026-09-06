@@ -92,7 +92,7 @@ summarise_suitability <- function(suitability, threshold = sdm_default_threshold
     log_message(log_fun, "WARNING: summarise_suitability mean_val failed: ", conditionMessage(e))
     NA_real_
   })
-  median_val <- tryCatch(as.numeric(terra::global(suitability, "median", na.rm = TRUE)[1, 1]), error = function(e) {
+  median_val <- tryCatch(as.numeric(stats::median(terra::values(suitability, na.rm = TRUE), na.rm = TRUE)), error = function(e) {
     log_message(log_fun, "WARNING: summarise_suitability median_val failed: ", conditionMessage(e))
     NA_real_
   })
