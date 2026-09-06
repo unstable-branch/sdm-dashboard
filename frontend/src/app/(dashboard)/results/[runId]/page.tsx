@@ -130,7 +130,7 @@ export default function ResultsPage() {
       changed = true;
     }
     if (changed) setRun(next);
-  }, [sseJob?._receivedAt, sseJob?.currentStage, run?.status]);
+  }, [sseJob, run]);
 
   const toggleErrorLogs = useCallback(async () => {
     if (showErrorLogs) { setShowErrorLogs(false); return; }

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { fetchWithAuth } from "@/services/api";
+import { useAuthStore } from "@/stores/auth-store";
 
 const API_BASE = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "";
 
@@ -10,9 +11,16 @@ const CLEANUP_INTERVAL_MS = 30_000;
 // After MAX_RECONNECT_ATTEMPTS failed attempts with exponential backoff, we
 // surface a "give up" state via `connectionGaveUp` so the UI can render a
 // reconnect button. We still attempt one more connection every 2 minutes
-// so a long-running backend outage eventually recovers.
+// so a long-running backend outage eventually recovers without the
+// user needing to refresh.
 const MAX_RECONNECT_ATTEMPTS = 20;
 const GAVE_UP_RETRY_INTERVAL_MS = 2 * 60 * 1000;
+// If the SSE connection fails repeatedly within this window (in ms), it
+// indicates an auth issue (401) rather than a transient network outage.
+// Auth errors cause EventSource to close immediately, so rapid failures
+// after brief connections are a reliable 401 signal.
+const AUTH_FAILURE_RAPID_WINDOW_MS = 3000;
+const AUTH_FAILURE_RAPID_THRESHOLD = 3;
 
 export interface ProgressStage {
   timestamp: string;
@@ -77,6 +85,11 @@ let subscriberCount = 0;
 let sharedHasActive = false;
 let sharedVersion = 0;
 const listeners = new Set<() => void>();
+// Track connection duration to detect auth (401) errors — a 401 causes
+// EventSource to close immediately, so brief connections that error quickly
+// are a strong auth-failure signal.
+let lastConnectedAt = 0;
+let rapidFailures = 0;
 
 function notifyListeners(): void {
   for (const fn of listeners) {
@@ -99,6 +112,8 @@ export function clearSharedJobs(): void {
   sharedGaveUp = false;
   sharedHasActive = false;
   sharedVersion++;
+  lastConnectedAt = 0;
+  rapidFailures = 0;
   notifyListeners();
 }
 
@@ -107,6 +122,15 @@ function openSharedConnection(): void {
 
   const es = new EventSource(`${API_BASE}/api/v1/jobs/sse`, { withCredentials: true });
   sharedEventSource = es;
+
+  // Track connection duration to detect auth (401) errors — a 401 causes
+  // EventSource to close immediately, so brief connections that error quickly
+  // are a strong auth-failure signal.
+  es.onopen = () => {
+    lastConnectedAt = Date.now();
+    rapidFailures = 0;
+    sharedConnected = true;
+  };
 
   es.addEventListener("job-update", (event) => {
     try {
@@ -182,6 +206,22 @@ function openSharedConnection(): void {
     sharedConnected = false;
     es.close();
     sharedEventSource = null;
+    // Detect auth (401) failures: a 401 causes EventSource to close immediately
+    // after opening. Rapid failures (< AUTH_FAILURE_RAPID_WINDOW_MS since open)
+    // are a reliable auth-failure signal even without HTTP status access.
+    const connectionDuration = Date.now() - lastConnectedAt;
+    if (lastConnectedAt > 0 && connectionDuration < AUTH_FAILURE_RAPID_WINDOW_MS) {
+      rapidFailures++;
+    } else {
+      rapidFailures = 0;
+    }
+    if (rapidFailures >= AUTH_FAILURE_RAPID_THRESHOLD) {
+      // Likely a 401 — stop retrying and force logout
+      rapidFailures = 0;
+      console.warn("[sse] Rapid SSE failures detected (probable auth error); clearing session");
+      try { useAuthStore.getState().clearAuth(); } catch { /* store may not be ready */ }
+      return;
+    }
     sharedReconnectAttempts++;
     if (sharedReconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
       // Surface the give-up state so the UI can render a reconnect button.

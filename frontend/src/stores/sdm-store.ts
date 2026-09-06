@@ -120,7 +120,6 @@ export const useSDMStore = create<SDMState>()(
   setError: (error) => set({ error }),
 
   reset: () => {
-    useSDMStore.persist.clearStorage();
     set({
       species: "Untitled species",
       occurrenceFilePath: null,
@@ -139,6 +138,7 @@ export const useSDMStore = create<SDMState>()(
       workspaceFiles: [],
       error: null,
     });
+    useSDMStore.persist.clearStorage();
   },
     }),
     {

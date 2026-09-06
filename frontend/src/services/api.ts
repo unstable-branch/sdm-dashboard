@@ -25,9 +25,11 @@ function validateResponse<T>(data: unknown, schema?: z.ZodType<unknown>): T {
   if (schema) {
     const result = schema.safeParse(data);
     if (!result.success) {
+      const msg = `[api] Response validation failed: ${result.error.format()}`;
       if (process.env.NODE_ENV === "development") {
-        console.warn("[api] Response validation failed:", result.error.format());
+        console.warn(msg);
       }
+      throw new ApiError(500, `Response validation failed: ${result.error.message}`);
     }
   }
   return data as T;
