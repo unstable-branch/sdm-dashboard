@@ -525,11 +525,11 @@ What changes in the app or outputs?
 ## Screenshots / outputs
 Attach if UI or report changed.
 
-## Project state (last refreshed after Group R — climate cache invalidation)
+## Project state (last refreshed after Group Q — queue catch block rCpuTimeMs fix + Group R — climate cache invalidation)
 
-- `dev` branch tip: `6a067689` (Group N, case_weight_sdm scoping fix + dead cluster_exports cleanup)
-- `fix/queue-catch-block-cputime-round` branch: pending PR to dev (Group Q)
-- `fix/climate-cache-invalidation` branch: pending PR to dev (Group R)
+- `dev` branch tip: `3bbaabb2` (after merging Groups Q, R, P fixes)
+- `fix/queue-catch-block-cputime-round` branch: merged as PR #78
+- `fix/climate-cache-invalidation` branch: merged as PR #79
 - `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
 - Test counts (post-campaign): 293 api tests + 65 frontend tests passing; R test suites (test-run-sdm-stages, test-v03-methods, test-gam-contract, test-model-registry, test-multi-ensemble, test-determinism, test-dnn, test-utils-sdm-atomic-writes) all pass with warnings/skips only.
 - All Groups A through N are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.

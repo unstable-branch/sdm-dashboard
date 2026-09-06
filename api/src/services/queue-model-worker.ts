@@ -291,6 +291,16 @@ export async function handleModelJob(
         console.warn(`[S3] Output sync failed for run ${runIdElse}:`, err);
       }
     }
+    if (runIdElse) {
+      await db
+        .update(runs)
+        .set({
+          status: "completed",
+          completedAt: new Date(),
+          error: null,
+        })
+        .where(and(eq(runs.id, runIdElse), inArray(runs.status, ["running", "queued"])));
+    }
     await job.updateProgress(100);
     jobEventBus.emitJobStatus({
       jobId: runIdElse ?? job.id!,
