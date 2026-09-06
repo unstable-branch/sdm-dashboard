@@ -8,7 +8,7 @@ import { runs, species } from "../db/schema.js";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 import { modelRateLimit } from "../middleware/rate-limit.js";
-import { authMiddleware, optionalAuth } from "../middleware/auth.js";
+import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
@@ -44,7 +44,6 @@ sdmRunRoutes.use("/run", modelRateLimit);
 sdmRunRoutes.use("/run", authMiddleware);
 sdmRunRoutes.use("/cancel/*", authMiddleware);
 sdmRunRoutes.use("/status/*", authMiddleware);
-sdmRunRoutes.use("*", optionalAuth);
 
 sdmRunRoutes.post("/run", async (c) => {
   try {
@@ -405,7 +404,7 @@ sdmRunRoutes.post("/cancel/:jobId", async (c) => {
   }
 });
 
-sdmRunRoutes.get("/compare/:runId1/:runId2", async (c) => {
+sdmRunRoutes.get("/compare/:runId1/:runId2", authMiddleware, async (c) => {
   try {
     const runId1 = c.req.param("runId1");
     const runId2 = c.req.param("runId2");
@@ -444,7 +443,7 @@ sdmRunRoutes.get("/future/scenarios", async (c) => {
   }
 });
 
-sdmRunRoutes.get("/logs/:jobId", async (c) => {
+sdmRunRoutes.get("/logs/:jobId", authMiddleware, async (c) => {
   try {
     const runId = c.req.param("jobId");
     const user = c.get("user");
