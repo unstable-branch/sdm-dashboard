@@ -104,6 +104,7 @@ async function syncRunningJobs() {
         .where(eq(runs.id, qr.id));
       jobEventBus.emitJobStatus({
         jobId: qr.id,
+        runId: qr.id,
         state: "failed",
         progress: 0,
         failedReason: "Model run was queued but never started — worker may be offline",
@@ -135,6 +136,7 @@ async function syncRunningJobs() {
 
           jobEventBus.emitJobStatus({
             jobId: run.id,
+            runId: run.id,
             state: "failed",
             progress: 0,
             failedReason: `Run timed out after ${Math.round(ageMs / 3600000)} hours with no completion`,
@@ -183,6 +185,7 @@ async function syncRunningJobs() {
 
           jobEventBus.emitJobStatus({
             jobId: run.id,
+            runId: run.id,
             state: "active",
             progress: pct ?? 50,
             logs,
@@ -200,6 +203,7 @@ async function syncRunningJobs() {
 
           jobEventBus.emitJobStatus({
             jobId: run.id,
+            runId: run.id,
             state: plumberStatus === "loading" ? "loading" : "pending",
             progress: 0,
             logs,
