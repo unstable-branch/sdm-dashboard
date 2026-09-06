@@ -15,7 +15,7 @@ sdm_force_cpu_runtime_config <- function(body) {
 
 handle_model_run <- function(req, app_dir) {
   body <- tryCatch(
-    jsonlite::fromJSON(req$postBody),
+    jsonlite::fromJSON(req$postBody, simplifyVector = FALSE),
     error = function(e) {
       cat("JSON parse error:", conditionMessage(e), "\n")
       NULL
@@ -426,7 +426,7 @@ normalize_targets_config <- function(cfg) {
 
 handle_targets_run <- function(req, app_dir) {
   body <- tryCatch(
-    jsonlite::fromJSON(req$postBody),
+    jsonlite::fromJSON(req$postBody, simplifyVector = FALSE),
     error = function(e) {
       sdm_log_error("Targets run JSON parse failed: %s", conditionMessage(e))
       NULL

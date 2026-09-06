@@ -3,7 +3,7 @@ handle_occurrences_upload <- function(req, app_dir) {
 
   tryCatch({
     if (is.null(uploaded)) {
-      post_body <- jsonlite::fromJSON(req$postBody)
+      post_body <- jsonlite::fromJSON(req$postBody, simplifyVector = FALSE)
       if (!is.null(post_body$file_path) && nzchar(post_body$file_path)) {
         safe_path <- sdm_safe_path(post_body$file_path, file.path(app_dir, "data", "uploads"))
         if (!is.null(safe_path)) {
