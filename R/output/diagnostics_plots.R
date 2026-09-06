@@ -114,7 +114,8 @@ save_diagnostic_plots <- function(result, job_dir, log_fun = NULL) {
     if (is.null(pres_suit) || is.null(bg_suit)) {
       NULL
     }
-    cbi_result <- continuous_boyce_index(pres_suit, bg_suit, n_bins = 51, win = 0.1)
+    cbi_result <- continuous_boyce_index(pres_suit, bg_suit,
+      n_bins = sdm_default_cbi_n_bins, win = sdm_default_cbi_win)
     if (!is.null(cbi_result) && is.data.frame(cbi_result$bins) && nrow(cbi_result$bins) > 0) {
       bins_df <- cbi_result$bins
       p_cbi <- ggplot2::ggplot(bins_df, ggplot2::aes(x = .data$bin_mid, y = .data$smoothed)) +
@@ -148,13 +149,19 @@ save_diagnostic_plots <- function(result, job_dir, log_fun = NULL) {
     if (!is.null(cv) && is.data.frame(cv$predictions) && nrow(cv$predictions) > 0) {
       preds <- cv$predictions
       n_bins <- 10
-      preds$bin <- cut(preds$predicted, breaks = seq(0, 1, length.out = n_bins + 1), include.lowest = TRUE)
-      cal_df <- aggregate(observed ~ bin, data = preds, FUN = function(x) c(mean = mean(x), count = length(x)))
-      cal_df <- do.call(data.frame, list(
-        bin_mid = sapply(cal_df$bin, function(b) mean(as.numeric(gsub("[\\[\\]()]", "", strsplit(as.character(b), ",")[[1]])))),
-        observed_freq = cal_df$observed[, "mean"],
-        count = as.integer(cal_df$observed[, "count"])
-      ))
+      # Clamp predictions to [0, 1] before binning to handle models that output
+      # unbounded scores (e.g. DNN logits, maxnet cloglog before transform).
+      pred_clamped <- pmin(pmax(preds$predicted, 0), 1)
+      breaks <- seq(0, 1, length.out = n_bins + 1)
+      bin_idx <- cut(pred_clamped, breaks = breaks, include.lowest = TRUE)
+      bin_counts <- table(bin_idx)
+      obs_by_bin <- tapply(preds$observed, bin_idx, mean, na.rm = TRUE)
+      bin_mids <- (breaks[-length(breaks)] + breaks[-1]) / 2
+      cal_df <- data.frame(
+        bin_mid = bin_mids[seq_along(bin_counts)],
+        observed_freq = as.numeric(obs_by_bin),
+        count = as.integer(bin_counts)
+      )
       cal_df <- cal_df[cal_df$count > 0, ]
       if (nrow(cal_df) > 0) {
         p_cal <- ggplot2::ggplot(cal_df, ggplot2::aes(x = .data$bin_mid, y = .data$observed_freq)) +

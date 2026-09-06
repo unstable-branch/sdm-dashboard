@@ -11,6 +11,10 @@ auc_rank <- function(obs, score) {
   }
   r <- rank(score, ties.method = "average")
   result <- as.numeric((sum(r[obs == 1]) - n1 * (n1 + 1) / 2) / (n1 * n0))
+  # Normalise for inverted predictions: SDM convention reports max(AUC, 1-AUC).
+  # Models that score presence points lower than background are penalised by
+  # subtracting from 1 rather than being ranked below random (AUC < 0.5).
+  if (!is.na(result) && result < 0.5) result <- 1 - result
   if (n1 < 25 || n0 < 25) {
     attr(result, "unreliable") <- TRUE
   }
@@ -79,6 +83,11 @@ select_threshold <- function(presence_suit, background_suit,
       best_tss <- tss_val
       best_threshold <- t
     }
+  }
+  # If no threshold improved -Inf (e.g., presence scores always below background scores
+  # or all scores tied), return NA so downstream does not silently use a non-data threshold.
+  if (!is.finite(best_tss)) {
+    return(list(threshold = NA_real_, max_tss = NA_real_, method = "fallback"))
   }
   list(threshold = best_threshold, max_tss = best_tss, method = "max_tss")
 }

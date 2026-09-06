@@ -424,7 +424,9 @@ handle_diagnostics_cbi <- function(req, res, run_id, app_dir) {
     }
 
     source(sdm_resolve_module("metrics_binary.R"), local = TRUE)
-    cbi_result <- continuous_boyce_index(pres_suit, bg_suit, n_bins = 51, win = 0.1)
+    source(sdm_resolve_module("core/config.R"), local = TRUE)
+    cbi_result <- continuous_boyce_index(pres_suit, bg_suit,
+      n_bins = sdm_default_cbi_n_bins, win = sdm_default_cbi_win)
 
     if (is.null(cbi_result) || !is.data.frame(cbi_result$bins)) {
       return(list(available = FALSE, message = "CBI computation returned no data"))
@@ -586,31 +588,48 @@ handle_diagnostics_roc <- function(req, res, run_id, app_dir) {
   tryCatch({
     result <- sdm_read_result(result_rds)
     cv <- result$cv
-    if (is.null(cv) || !is.data.frame(cv$fold_metrics) || nrow(cv$fold_metrics) == 0) {
-      return(list(available = FALSE, message = "CV fold metrics not available"))
+    if (is.null(cv) || !is.data.frame(cv$predictions) || nrow(cv$predictions) == 0) {
+      return(list(available = FALSE, message = "CV predictions not available — ROC requires out-of-fold scores"))
     }
-    fm <- cv$fold_metrics
-    mean_fpr <- seq(0, 1, length.out = 100)
-    tpr_list <- apply(fm[, c("tp", "fp", "tn", "fn")], 1, function(row) {
-      tp <- row["tp"]; fp <- row["fp"]; tn <- row["tn"]; fn <- row["fn"]
-      n_pos <- tp + fn; n_neg <- fp + tn
-      if (n_pos < 2 || n_neg < 2) return(rep(NA_real_, 100))
-      fpr_val <- seq(0, 1, length.out = 100)
-      tpr_val <- sapply(fpr_val, function(f) {
-        threshold <- f * max(c(1, sqrt(n_pos * n_neg))) / sqrt(n_pos * n_neg) + 0.5
-        tp_at_fpr <- tp - f * n_pos
-        max(0, min(1, (tp_at_fpr + tn) / (n_pos + n_neg)))
-      })
-      tpr_val
-    })
-    mean_tpr <- if (is.matrix(tpr_list)) rowMeans(tpr_list, na.rm = TRUE) else rep(0.5, 100)
-    list(
-      available = TRUE,
-      auc = cv$auc_mean %||% NA_real_,
-      auc_sd = cv$auc_sd %||% NA_real_,
-      fpr = as.list(mean_fpr),
-      tpr = as.list(mean_tpr)
-    )
+    source(sdm_resolve_module("metrics_binary.R"), local = TRUE)
+    preds_df <- cv$predictions
+    obs <- preds_df$observed
+    score <- preds_df$predicted
+    ok <- is.finite(obs) & is.finite(score)
+    obs <- as.integer(obs[ok])
+    score <- as.numeric(score[ok])
+    n_pos <- sum(obs == 1)
+    n_neg <- sum(obs == 0)
+    if (n_pos < 2 || n_neg < 2) {
+      return(list(available = FALSE, message = "Too few presence or background points for ROC"))
+    }
+    # Rank-based ROC sweep: sort by score descending, accumulate TPR and FPR.
+    o <- order(score, decreasing = TRUE)
+    obs_sorted <- obs[o]
+    cum_tpr <- cumsum(obs_sorted == 1)
+    cum_fpr <- cumsum(obs_sorted == 0)
+    tpr_curve <- cum_tpr / n_pos
+    fpr_curve <- cum_fpr / n_neg
+    # Add (0, 0) and (1, 1) anchors, then subsample to 100 points.
+    fpr_all <- c(0, fpr_curve, 1)
+    tpr_all <- c(0, tpr_curve, 1)
+    keep <- c(TRUE, head(fpr_curve, -1) != tail(fpr_curve, -1), TRUE)
+    fpr_unique <- fpr_all[keep]
+    tpr_unique <- tpr_all[keep]
+    n_pts <- length(fpr_unique)
+    if (n_pts <= 1) {
+      list(available = TRUE, auc = NA_real_, auc_sd = NA_real_,
+           fpr = list(0, 1), tpr = list(0, 1))
+    } else {
+      idx <- seq(1, n_pts, length.out = min(100, n_pts))
+      list(
+        available = TRUE,
+        auc = cv$auc_mean %||% NA_real_,
+        auc_sd = cv$auc_sd %||% NA_real_,
+        fpr = as.list(fpr_unique[idx]),
+        tpr = as.list(tpr_unique[idx])
+      )
+    }
   }, error = function(e) {
     list(error = paste("ROC computation failed:", conditionMessage(e)))
   })
@@ -635,24 +654,26 @@ handle_diagnostics_calibration <- function(req, res, run_id, app_dir) {
   tryCatch({
     result <- sdm_read_result(result_rds)
     cv <- result$cv
-    if (is.null(cv) || !is.data.frame(cv$predictions) || length(cv$predictions$predicted) == 0) {
+    if (is.null(cv) || !is.data.frame(cv$predictions) || nrow(cv$predictions) == 0) {
       return(list(available = FALSE, message = "CV predictions not available"))
     }
     preds <- cv$predictions
     n_bins <- 10
-    preds$bin <- cut(preds$predicted, breaks = seq(0, 1, length.out = n_bins + 1), include.lowest = TRUE)
-    cal_df <- aggregate(observed ~ bin, data = preds, FUN = function(x) c(mean = mean(x), count = length(x)))
-    cal_list <- lapply(seq_len(nrow(cal_df)), function(i) {
-      b <- cal_df$bin[i]
-      mid <- mean(as.numeric(gsub("[\\[\\]()]", "", strsplit(as.character(b), ",")[[1]])))
-      list(bin_mid = mid, observed_freq = cal_df$observed[i, "mean"], count = as.integer(cal_df$observed[i, "count"]))
+    breaks <- seq(0, 1, length.out = n_bins + 1)
+    # Clamp predictions to [0, 1] to handle out-of-range model outputs
+    # (e.g. DNN raw logits, maxnet cloglog before transform).
+    pred_clamped <- pmin(pmax(preds$predicted, 0), 1)
+    bin_idx <- cut(pred_clamped, breaks = breaks, include.lowest = TRUE)
+    bin_counts <- tapply(preds$observed, bin_idx, function(x) sum(!is.na(x)))
+    obs_freq <- tapply(preds$observed, bin_idx, mean, na.rm = TRUE)
+    bin_mids <- (breaks[-length(breaks)] + breaks[-1]) / 2
+    cal_list <- lapply(seq_along(bin_counts), function(i) {
+      list(bin_mid = bin_mids[i], observed_freq = obs_freq[i], count = as.integer(bin_counts[i]))
     })
+    cal_list <- cal_list[!sapply(cal_list, function(b) is.na(b$count) || b$count == 0)]
     list(available = TRUE, bins = cal_list)
   }, error = function(e) {
-    list(
-      error = paste("Calibration computation failed:", conditionMessage(e)),
-      error_stack = paste(capture.output(traceback(max.lines = 20L)), collapse = "\n")
-    )
+    list(error = paste("Calibration computation failed:", conditionMessage(e)))
   })
 }
 
@@ -718,23 +739,33 @@ handle_diagnostics_threshold <- function(req, res, run_id, app_dir) {
   if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
   tryCatch({
     result <- sdm_read_result(result_rds)
-    pres <- result$fit$presence_suit
-    bg <- result$fit$background_suit
-    if (is.null(pres) || is.null(bg)) {
-      return(list(available = FALSE, message = "Prediction data not available"))
+    cv <- result$cv
+    if (is.null(cv) || !is.data.frame(cv$predictions) || nrow(cv$predictions) == 0) {
+      return(list(available = FALSE, message = "CV predictions not available"))
+    }
+    source(sdm_resolve_module("metrics_binary.R"), local = TRUE)
+    preds_df <- cv$predictions
+    obs <- preds_df$observed
+    score <- preds_df$predicted
+    ok <- is.finite(obs) & is.finite(score)
+    obs <- as.integer(obs[ok])
+    score <- as.numeric(score[ok])
+    if (length(obs) == 0) {
+      return(list(available = FALSE, message = "No valid CV predictions"))
     }
     thresholds <- seq(0, 1, length.out = 100)
     threshold_list <- lapply(thresholds, function(t) {
-      tp <- sum(pres >= t, na.rm = TRUE)
-      fn <- sum(pres < t, na.rm = TRUE)
-      fp <- sum(bg >= t, na.rm = TRUE)
-      tn <- sum(bg < t, na.rm = TRUE)
+      pred_bin <- as.integer(score >= t)
+      tp <- sum(obs == 1 & pred_bin == 1)
+      fn <- sum(obs == 1 & pred_bin == 0)
+      fp <- sum(obs == 0 & pred_bin == 1)
+      tn <- sum(obs == 0 & pred_bin == 0)
       sensitivity <- if ((tp + fn) > 0) tp / (tp + fn) else NA_real_
       specificity <- if ((tn + fp) > 0) tn / (tn + fp) else NA_real_
       tss <- if (is.finite(sensitivity) && is.finite(specificity)) sensitivity + specificity - 1 else NA_real_
       list(threshold = t, sensitivity = sensitivity, specificity = specificity, tss = tss)
     })
-    list(available = TRUE, thresholds = threshold_list)
+    list(available = TRUE, source = "cv", thresholds = threshold_list)
   }, error = function(e) {
     list(error = paste("Threshold computation failed:", conditionMessage(e)))
   })
@@ -758,15 +789,23 @@ handle_diagnostics_density <- function(req, res, run_id, app_dir) {
   if (is.null(result_rds) || !file.exists(result_rds)) { res$status <- 404L; return(list(error = "Result file not found")) }
   tryCatch({
     result <- sdm_read_result(result_rds)
-    pres <- result$fit$presence_suit
-    bg <- result$fit$background_suit
-    if (is.null(pres) || is.null(bg)) {
-      return(list(available = FALSE, message = "Prediction data not available"))
+    cv <- result$cv
+    if (is.null(cv) || !is.data.frame(cv$predictions) || nrow(cv$predictions) == 0) {
+      return(list(available = FALSE, message = "CV predictions not available"))
+    }
+    preds_df <- cv$predictions
+    pres <- preds_df$predicted[preds_df$observed == 1]
+    bg <- preds_df$predicted[preds_df$observed == 0]
+    pres <- pres[is.finite(pres)]
+    bg <- bg[is.finite(bg)]
+    if (length(pres) < 2 || length(bg) < 2) {
+      return(list(available = FALSE, message = "Too few valid CV predictions for density"))
     }
     pres_d <- stats::density(pres, from = 0, to = 1, na.rm = TRUE)
     bg_d <- stats::density(bg, from = 0, to = 1, na.rm = TRUE)
     list(
       available = TRUE,
+      source = "cv",
       presence = list(x = as.list(pres_d$x), y = as.list(pres_d$y)),
       background = list(x = as.list(bg_d$x), y = as.list(bg_d$y))
     )

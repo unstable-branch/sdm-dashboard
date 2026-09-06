@@ -778,7 +778,7 @@ threshold <- tryCatch({
         pres_suit <- train_pred[fit$model_data$presence == 1]
         bg_suit <- train_pred[fit$model_data$presence == 0]
         opt <- select_threshold(pres_suit, bg_suit)
-        if (is.finite(opt$threshold) && opt$threshold >= 0 && opt$threshold <= 1) {
+        if (is.finite(opt$threshold) && is.finite(opt$max_tss) && opt$threshold >= 0 && opt$threshold <= 1) {
           log_message(log_fun, "Optimal threshold from max_tss [", backend_used, "]: ",
             sprintf("%.3f", opt$threshold),
             " (TSS=", sprintf("%.3f", opt$max_tss), ")"
