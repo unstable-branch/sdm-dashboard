@@ -243,7 +243,7 @@ handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
     lock_file <- file.path(lock_dir, "cache.lock")
     lock_wait <- 0
     while (file.exists(lock_file) && lock_wait < 1000) { Sys.sleep(0.01); lock_wait <- lock_wait + 1 }
-    writeLines(Sys.time(), lock_file)
+    writeLines(as.character(Sys.time()), lock_file)
     attr(r_cog, "accessed") <- Sys.time()
     tile_cog_cache[[cog_key]] <- r_cog
     unlink(lock_file)
