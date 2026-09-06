@@ -89,6 +89,7 @@ export default function MaplibreMap({
   const latestMousePointRef = useRef<{ x: number; y: number } | null>(null);
   const cursorRafRef = useRef<number | null>(null);
   const [tileErrors, setTileErrors] = useState(0);
+  const [lastTileError, setLastTileError] = useState<string | null>(null);
   const [tileAuthWarning, setTileAuthWarning] = useState(false);
   const [contextLost, setContextLost] = useState(false);
   const [currentZoom, setCurrentZoom] = useState<number | null>(null);
@@ -136,8 +137,9 @@ export default function MaplibreMap({
     [layerVisibility]
   );
 
-  const handleTileError = useCallback(() => {
+  const handleTileError = useCallback((reason?: string) => {
     setTileErrors((prev) => Math.min(prev + 1, 99));
+    if (reason) setLastTileError(reason);
   }, []);
 
   const handleTileAuthWarning = useCallback(() => {
@@ -146,6 +148,8 @@ export default function MaplibreMap({
 
   useEffect(() => {
     controlsAdded.current = false;
+    setTileErrors(0);
+    setLastTileError(null);
   }, [runId]);
 
   useEffect(() => {
@@ -286,17 +290,20 @@ export default function MaplibreMap({
 
   const handleMapError = useCallback(
     (e: ErrorEvent) => {
-      const err = e.error as { status?: number; name?: string; message?: string };
+      const err = e.error as { status?: number; name?: string; message?: string; url?: string };
       const status = err.status;
       if (status === 401) {
         handleTileAuthWarning();
         return;
       }
-      // Only HTTP-status-bearing errors count as tile errors. Plain Error
-      // objects (e.g. from setFeatureState misuse, source parse failures,
-      // style load errors) lack a `.status` and must not pollute the counter.
+      // Tile-source 4xx/5xx now flows upstream JSON {error, source: "plumber", upstream_status, ...}.
+      // MapLibre treats JSON body as a parse failure on the image source, so we surface the URL we tried.
       if (typeof status === "number" && status >= 400 && status < 600) {
-        handleTileError();
+        const reason =
+          status === 502
+            ? `Upstream tile service ${err.url ? `(for ${new URL(err.url, location.origin).pathname})` : ""}: HTTP ${status}`
+            : `Tile HTTP ${status}${err.url ? ` for ${new URL(err.url, location.origin).pathname}` : ""}`;
+        handleTileError(reason);
         return;
       }
       // eslint-disable-next-line no-console
@@ -705,9 +712,15 @@ export default function MaplibreMap({
         <div className="absolute bottom-16 left-3 z-10 flex items-center gap-1.5 rounded-md bg-sdm-warning/10 px-2.5 py-1.5 text-[11px] text-sdm-warning border border-sdm-warning/30">
           <AlertTriangle className="h-3 w-3" />
           <span>{tileErrors} tile errors</span>
+          {lastTileError && (
+            <span className="ml-1 text-sdm-warning/80 font-mono text-[10px] truncate max-w-[28rem]" title={lastTileError}>
+              {lastTileError}
+            </span>
+          )}
           <button
             onClick={() => {
               setTileErrors(0);
+              setLastTileError(null);
               mapRef.current?.getMap()?.triggerRepaint();
             }}
             className="ml-1 text-sdm-warning/70 hover:text-sdm-warning transition-colors bg-transparent border-none cursor-pointer text-[11px] underline"
@@ -716,7 +729,10 @@ export default function MaplibreMap({
             Retry
           </button>
           <button
-            onClick={() => setTileErrors(0)}
+            onClick={() => {
+              setTileErrors(0);
+              setLastTileError(null);
+            }}
             className="ml-1 text-sdm-warning/70 hover:text-sdm-warning transition-colors bg-transparent border-none cursor-pointer text-[11px]"
             aria-label="Dismiss tile errors"
           >
