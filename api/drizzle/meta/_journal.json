@@ -225,6 +225,41 @@
       "when": 1784441700000,
       "tag": "0031_add_run_error_diagnostics",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1784500000000,
+      "tag": "0032_add_api_key_preview",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1784600000000,
+      "tag": "0033_re_add_audit_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1784700000000,
+      "tag": "0034_add_runs_bullmq_id_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1784800000000,
+      "tag": "0035_add_species_unique_constraint",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1784900000000,
+      "tag": "0036_orphan_cleanup",
+      "breakpoints": true
     }
   ]
 }

@@ -374,6 +374,25 @@ describe("ensureWorker", () => {
     expect(result).toMatchObject({ status: "error", error: "Model failed" });
   });
 
+  it("rounds rCpuTimeMs to integer in catch block (regression test)", async () => {
+    queue.ensureWorker();
+
+    vi.spyOn(process, "cpuUsage").mockReturnValue({ user: 55341, system: 0 });
+
+    const setMock = vi.fn();
+    td.mockDbUpdate.mockReturnValue({ set: setMock.mockReturnValue({ where: vi.fn() }) });
+
+    const job = mockJob({ data: { type: "model", payload: { runId: "run-1" }, userId: "u-1" } });
+    td.mockHandleModelJob.mockRejectedValue(new Error("Model failed"));
+
+    await td.processorRef.current!(job);
+
+    expect(setMock).toHaveBeenCalled();
+    const callArg = setMock.mock.calls[0][0] as { rCpuTimeMs: number };
+    expect(callArg.rCpuTimeMs).toBe(55);
+    expect(Number.isInteger(callArg.rCpuTimeMs)).toBe(true);
+  });
+
   it("re-throws timeout-related errors", async () => {
     queue.ensureWorker();
 
