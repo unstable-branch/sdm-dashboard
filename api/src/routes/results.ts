@@ -95,6 +95,11 @@ function discoverOutputFiles(jobId: string): Record<string, string> | null {
     else if (file.endsWith("_report.txt")) outputFiles.report = path;
     else if (file === "odmap_report.md") outputFiles.odmap_report_md = path;
     else if (file === "odmap_report.csv") outputFiles.odmap_report_csv = path;
+    else if (file === "eoo_polygon.geojson") outputFiles.eoo_polygon = path;
+    else if (file === "aoo_grid.geojson") outputFiles.aoo_grid = path;
+    else if (file === "eoo_aoo.json") outputFiles.eoo_aoo_json = path;
+    else if (file === "niche_overlap.json") outputFiles.niche_overlap = path;
+    else if (file === "conservation_report.json") outputFiles.conservation_report = path;
     else if (file === "result.rds") outputFiles.result_rds = path;
   }
   return Object.keys(outputFiles).length > 0 ? outputFiles : null;
@@ -275,9 +280,13 @@ async function serveFileFromPath(c: any, filePath: string) {
 
   const user = c.get("user");
   let runRecord: { id: string; jobId: string | null; outputFiles: unknown } | null = null;
+  const failNotFound = (reason: string): Response => {
+    console.warn(`[results/file] 404 — runId=${resolved.runId} user=${user.id} reason=${reason}`);
+    return c.json({ error: "File not found" }, 404) as Response;
+  };
   try {
     if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
-      return c.json({ error: "File not found" }, 404);
+      return failNotFound("canAccessRun=false");
     }
     const idMatch = isUuid(resolved.runId)
       ? eq(runs.id, resolved.runId)
@@ -287,8 +296,9 @@ async function serveFileFromPath(c: any, filePath: string) {
       .from(runs)
       .where(idMatch)
       .limit(1);
-    if (!runRecord) return c.json({ error: "File not found" }, 404);
-  } catch {
+    if (!runRecord) return failNotFound("runRecord=null");
+  } catch (e) {
+    console.warn(`[results/file] DB error for runId=${resolved.runId}:`, e instanceof Error ? e.message : String(e));
     return c.json({ error: "File not found" }, 404);
   }
 
@@ -297,12 +307,14 @@ async function serveFileFromPath(c: any, filePath: string) {
   const storedOutputFiles = hasOutputFiles(runRecord.outputFiles)
     ? runRecord.outputFiles
     : discoverOutputFiles(runRecord.jobId ?? runRecord.id);
+  const usedDiscovery = !hasOutputFiles(runRecord.outputFiles);
   const allowedPaths = storedOutputFiles ? Object.values(storedOutputFiles) : [];
   const isAllowed = allowedPaths.some((allowed) => {
     const ar = resolve(allowed);
     return fullPath === ar || fullPath.startsWith(ar + "/");
   });
   if (!isAllowed && allowedPaths.length > 0) {
+    console.warn(`[results/file] 404 allowlist-miss — runId=${resolved.runId} fullPath=${fullPath} usedDiscovery=${usedDiscovery} outputKeys=${Object.keys(storedOutputFiles ?? {}).length}`);
     return c.json({ error: "File not found" }, 404);
   }
 

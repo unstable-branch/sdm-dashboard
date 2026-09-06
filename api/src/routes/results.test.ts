@@ -137,4 +137,122 @@ describe("results routes", () => {
     const res = await app.request("/api/v1/results/file/outputs%2Fjobs%2Frun-123%2Fsuitability.tif");
     expect(res.status).toBe(200);
   });
+
+  describe("discoverOutputFiles EOO/AOO coverage", () => {
+    it("GET /:id discovers eoo_polygon / aoo_grid / eoo_aoo_json when outputFiles is blank", async () => {
+      const { db } = await import("../db");
+      (db.select as any).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => [{
+              id: "run-123",
+              status: "completed",
+              speciesName: "Test species",
+              modelId: "glm",
+              startedAt: new Date("2026-01-01"),
+              completedAt: new Date("2026-01-01T00:01:00Z"),
+              metrics: {},
+              outputFiles: {},
+              jobId: "plumber-job-123",
+              provenance: null,
+              error: null,
+            }]),
+          })),
+        })),
+      });
+      const fs = await import("fs");
+      (fs.readdirSync as any).mockReturnValueOnce([
+        "Test_species_20260713_120000_suitability.tif",
+        "Test_species_20260713_120000_report.txt",
+        "odmap_report.md",
+        "odmap_report.csv",
+        "eoo_polygon.geojson",
+        "aoo_grid.geojson",
+        "eoo_aoo.json",
+        "niche_overlap.json",
+        "result.rds",
+      ]);
+
+      const res = await app.request("/api/v1/results/run-123");
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.output_files).not.toBeNull();
+      expect(data.output_files.eoo_polygon).toContain("eoo_polygon.geojson");
+      expect(data.output_files.aoo_grid).toContain("aoo_grid.geojson");
+      expect(data.output_files.eoo_aoo_json).toContain("eoo_aoo.json");
+      expect(data.output_files.niche_overlap).toContain("niche_overlap.json");
+      expect(data.output_files.odmap_report_md).toContain("odmap_report.md");
+      expect(data.output_files.odmap_report_csv).toContain("odmap_report.csv");
+      expect(data.output_files.report).toContain("_report.txt");
+      expect(data.output_files.tif).toContain("_suitability.tif");
+    });
+
+    it("GET /file/:filePath serves eoo_polygon.geojson after discovery fallback", async () => {
+      const { db } = await import("../db");
+      const eooRecord = [{
+        id: "run-123",
+        status: "completed",
+        speciesName: "Test species",
+        modelId: "glm",
+        startedAt: new Date("2026-01-01"),
+        completedAt: new Date("2026-01-01T00:01:00Z"),
+        metrics: {},
+        outputFiles: {},
+        jobId: "run-123",
+        provenance: null,
+        error: null,
+      }];
+      // Both canAccessRun and serveFileFromPath select from runs; mock impl so every call returns the same row.
+      (db.select as any).mockImplementation(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => eooRecord),
+          })),
+        })),
+      }));
+      const fs = await import("fs");
+      (fs.readdirSync as any).mockReturnValueOnce([
+        "eoo_polygon.geojson",
+        "aoo_grid.geojson",
+        "Test_species_20260713_120000_suitability.tif",
+      ]);
+      const res = await app.request(
+        "/api/v1/results/file/outputs%2Fjobs%2Frun-123%2Feoo_polygon.geojson",
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it("GET /file/:filePath serves aoo_grid.geojson after discovery fallback", async () => {
+      const { db } = await import("../db");
+      const aooRecord = [{
+        id: "run-123",
+        status: "completed",
+        speciesName: "Test species",
+        modelId: "glm",
+        startedAt: new Date("2026-01-01"),
+        completedAt: new Date("2026-01-01T00:01:00Z"),
+        metrics: {},
+        outputFiles: {},
+        jobId: "run-123",
+        provenance: null,
+        error: null,
+      }];
+      (db.select as any).mockImplementation(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => aooRecord),
+          })),
+        })),
+      }));
+      const fs = await import("fs");
+      (fs.readdirSync as any).mockReturnValueOnce([
+        "aoo_grid.geojson",
+        "Test_species_20260713_120000_suitability.tif",
+      ]);
+      const res = await app.request(
+        "/api/v1/results/file/outputs%2Fjobs%2Frun-123%2Faoo_grid.geojson",
+      );
+      expect(res.status).toBe(200);
+    });
+  });
 });
