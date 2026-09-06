@@ -76,8 +76,8 @@ async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
     return await fn();
   } finally {
     plumberActiveRequests--;
-    if (plumberQueue.length > 0) {
-      const next = plumberQueue.shift()!;
+    const next = plumberQueue.shift();
+    if (next !== undefined) {
       const tid = _resolverTimeouts.get(next);
       if (tid !== undefined) {
         clearTimeout(tid);
@@ -139,7 +139,11 @@ export class PlumberClient {
 
   private async _fetch(url: string, options?: RequestInit, timeoutMs?: number): Promise<Response> {
     const ms = timeoutMs ?? PLUMBER_DEFAULT_TIMEOUT_MS;
-    const opts = options ?? {};
+    const opts: RequestInit = { ...options };
+    // Default to internal-proxy headers so GET reads (climate check, config
+    // defaults, models, health) authenticate against the Plumber gate, which
+    // requires X-Hono-Internal even with PLUMBER_AUTH_DISABLED=true.
+    if (!opts.headers) opts.headers = this.headers();
     return plumberSemaphore(() => fetchWithRetry(url, opts, 2, ms));
   }
 

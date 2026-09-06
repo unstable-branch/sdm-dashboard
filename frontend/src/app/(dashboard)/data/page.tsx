@@ -12,7 +12,7 @@ import { ClimateTab } from "./climate-tab";
 import { CovariateTab } from "./covariate-tab";
 import { BoundaryTab } from "./boundary-tab";
 import { OverviewTab } from "./overview-tab";
-import type { UploadFile, ClimateScenarioResponse } from "@/services/types";
+import type { UploadFile, ClimateScenarioResponse, ClimateCheckResponse } from "@/services/types";
 import type { WorkspaceFile } from "./types";
 
 export default function DataPage() {
@@ -146,6 +146,9 @@ function DataPageContent() {
   const [climateBiovars, setClimateBiovars] = useState<number[]>([1, 4, 6, 12, 15, 18]);
   const [climateDownloadJob, setClimateDownloadJob] = useState<string | null>(null);
   const [availableBiovars, setAvailableBiovars] = useState<Set<number>>(new Set());
+  const [climatePermissionIssues, setClimatePermissionIssues] = useState<
+    ClimateCheckResponse["permission_issues"] | []
+  >([]);
   const [cmip6Gcm, setCmip6Gcm] = useState("UKESM1-0-LL");
   const [cmip6Ssp, setCmip6Ssp] = useState("SSP2-4.5");
   const [cmip6Period, setCmip6Period] = useState("2041-2060");
@@ -221,10 +224,12 @@ function DataPageContent() {
   const fetchAvailableBiovars = useCallback(async () => {
     const allBiovars = "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19";
     try {
-      const data = await apiGet<{ available: number[] }>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${encodeURIComponent(allBiovars)}`);
+      const data = await apiGet<ClimateCheckResponse>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${encodeURIComponent(allBiovars)}`);
       setAvailableBiovars(new Set(data.available || []));
+      setClimatePermissionIssues(data.permission_issues ?? []);
     } catch {
       setAvailableBiovars(new Set());
+      setClimatePermissionIssues([]);
     }
   }, [climateSource, climateRes]);
 
@@ -411,17 +416,35 @@ function DataPageContent() {
         )}
 
         {activeTab === "climate" && (
-          <ClimateTab climateSource={climateSource} climateRes={climateRes} climateBiovars={climateBiovars}
-            availableBiovars={availableBiovars} climateDownloadJob={climateDownloadJob}
-            cmip6Gcm={cmip6Gcm} cmip6Ssp={cmip6Ssp} cmip6Period={cmip6Period} cmip6DownloadJob={cmip6DownloadJob}
-            avgGcms={avgGcms} avgDownloadJob={avgDownloadJob} climateError={climateError}
-            scenarios={scenarios} scenariosLoading={scenariosLoading}
-            onSetClimateSource={setClimateSource} onSetClimateRes={setClimateRes}
-            onToggleClimateBiovar={toggleClimateBiovar} onClimateDownload={handleClimateDownload}
-            onSetCmip6Gcm={setCmip6Gcm} onSetCmip6Ssp={setCmip6Ssp} onSetCmip6Period={setCmip6Period}
-            onCmip6Download={handleCmip6Download} onToggleAvgGcm={toggleAvgGcm} onAvgDownload={handleAvgDownload}
-            onDownloadComplete={handleDownloadComplete} onDownloadFailed={handleDownloadFailed} onCancelDownload={handleCancelDownload}
-            onFetchScenarios={fetchScenarios} onDeleteScenario={handleDeleteScenario} />
+          <>
+            {climatePermissionIssues && climatePermissionIssues.length > 0 && (
+              <div
+                role="alert"
+                className="mb-4 flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+              >
+                <AlertTriangle className="h-5 w-5 flex-shrink-0" aria-hidden />
+                <div>
+                  <p className="font-medium">Climate directory unreadable</p>
+                  <p className="mt-1 text-xs">
+                    {climatePermissionIssues[0]?.reason === "unreadable"
+                      ? `The Plumber process cannot read files at ${climatePermissionIssues[0]?.dir}. This is usually a bind-mount uid/gid mismatch — run \`./scripts/dev-start.sh fix-perms\` or rebuild the Docker image so the file ownership matches the Plumber user.`
+                      : "Files exist on disk but are not readable by the Plumber process. Check bind-mount ownership."}
+                  </p>
+                </div>
+              </div>
+            )}
+            <ClimateTab climateSource={climateSource} climateRes={climateRes} climateBiovars={climateBiovars}
+              availableBiovars={availableBiovars} climateDownloadJob={climateDownloadJob}
+              cmip6Gcm={cmip6Gcm} cmip6Ssp={cmip6Ssp} cmip6Period={cmip6Period} cmip6DownloadJob={cmip6DownloadJob}
+              avgGcms={avgGcms} avgDownloadJob={avgDownloadJob} climateError={climateError}
+              scenarios={scenarios} scenariosLoading={scenariosLoading}
+              onSetClimateSource={setClimateSource} onSetClimateRes={setClimateRes}
+              onToggleClimateBiovar={toggleClimateBiovar} onClimateDownload={handleClimateDownload}
+              onSetCmip6Gcm={setCmip6Gcm} onSetCmip6Ssp={setCmip6Ssp} onSetCmip6Period={setCmip6Period}
+              onCmip6Download={handleCmip6Download} onToggleAvgGcm={toggleAvgGcm} onAvgDownload={handleAvgDownload}
+              onDownloadComplete={handleDownloadComplete} onDownloadFailed={handleDownloadFailed} onCancelDownload={handleCancelDownload}
+              onFetchScenarios={fetchScenarios} onDeleteScenario={handleDeleteScenario} />
+          </>
         )}
 
         {activeTab === "covariates" && <CovariateTab />}

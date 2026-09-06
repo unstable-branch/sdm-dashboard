@@ -260,6 +260,21 @@ Push a semver tag (`git tag v1.2.3 && git push --tags`) to trigger:
 - Real occurrence datasets, downloaded rasters, generated outputs, logs, API keys, and screenshots must not be committed.
 - `AGENTS.md` is allowed to be tracked, but release/source bundles must exclude it.
 
+### Climate cache invalidation
+
+The modern frontend's `/api/v1/climate/check` endpoint and the Shiny readiness panel both rely on `R/covariates/match_climate_layers.R` (single source of truth) for matching on-disk climate GeoTIFFs to requested biovars. To extend to a new climate source:
+
+1. Add a new matcher in `R/covariates/match_climate_layers.R` returning `list(biovars = integer(), files = named_character())`.
+2. Wire it into `handle_climate_check` in `plumber/R/helpers/climate_helpers.R`.
+3. Add a hook in `write_cache_manifest` to the new download path so subsequent checks use the sha256-verified manifest.
+
+The cache manifest lives at `<climate_dir>/.sdm-cache-manifest-v1.json` and contains per-file sha256/size/mtime. After any download succeeds, the manifest is written atomically. On read, `handle_climate_check` validates the manifest entry's `size` against the current file size; mismatch → that single biovar is forced into `missing` (surgical re-download). No-op downloads are short-circuited by `preflight_climate_download` before `callr::r_bg` spawns — if every requested layer is present and valid, the API returns `{status: "completed", cached: true}` synchronously without spawning a child process.
+
+If a user reports "the climate tab says 0 of N even though files are on disk", check:
+1. The Plumber container's uid vs the on-disk file uid (bind-mount mismatch — `audit_climate_dir_permissions` reports this).
+2. The manifest vs filesystem state (`Worldclim/.sdm-cache-manifest-v1.json` may need deletion to fall back to filename matching).
+3. The matcher's regex against the actual filenames on disk.
+
 ## Development priorities
 
 - Keep the app usable for local desktop work first. Web/deployment polish is secondary unless explicitly scoped.
@@ -510,13 +525,14 @@ What changes in the app or outputs?
 ## Screenshots / outputs
 Attach if UI or report changed.
 
-## Project state (last refreshed after Group P — plumber serializer overrides + auth guard)
+## Project state (last refreshed after Group R — climate cache invalidation)
 
-- `dev` branch tip: `71b17de1` (PR #60, /health regression test + Plumber Rcpp audit)
-- `fix/plumber-open-endpoint-auth` (PR #61) pending merge to `dev` — Group P: plumber auth guard + serializer override fixes; commit `7ac3a443`; CI: all 5 jobs green
+- `dev` branch tip: `6a067689` (Group N, case_weight_sdm scoping fix + dead cluster_exports cleanup)
+- `fix/queue-catch-block-cputime-round` branch: pending PR to dev (Group Q)
+- `fix/climate-cache-invalidation` branch: pending PR to dev (Group R)
 - `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
 - Test counts (post-campaign): 293 api tests + 65 frontend tests passing; R test suites (test-run-sdm-stages, test-v03-methods, test-gam-contract, test-model-registry, test-multi-ensemble, test-determinism, test-dnn, test-utils-sdm-atomic-writes) all pass with warnings/skips only.
-- All Groups A through P are landed (or pending merge) on `dev`; feature branches kept as breadcrumbs.
+- All Groups A through N are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
 - The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
 
 ## Group summary (for context when reading CHANGELOG)
@@ -538,7 +554,8 @@ Attach if UI or report changed.
 | M | `fix/perf-tier-d` | `9e67e081` | Performance fixes: O(n²)→O(n) outlier flagging, GBIF dedup cache, SpatExtent vs spatRaster crop, chunking loop materialization, weighted AOO, parallel CV error propagation |
 | N | `fix/r-case-weight-sdm-scope` | `6a067689` | 6 pre-existing R test failures from `case_weight_sdm` scoping in GLM/GAM fixed — `test-run-sdm-stages.R` ×3, `test-v03-methods.R` ×1 now pass |
 | O | `fix/rangebag-cv-correctness` | `77c13156` | Rangebag CV: bg_fold_id fix (was always 0L → now properly sampled); response_curves rangebag branch added; multi-ensemble test threshold updated |
-| P | `fix/plumber-open-endpoint-auth` | `7ac3a443` | Plumber preroute auth guard fix (open endpoints accessible without X-Hono-Internal when PLUMBER_AUTH_DISABLED=true); removed `@serializer contentType list(type="application/json")` override from suitability-value route (was causing httpuv VECSXP cast error on map click); CSV diagnostics endpoint body fixed from `{}` to valid CSV via `capture.output() + paste` |
+| Q | `fix/queue-catch-block-cputime-round` | pending | API queue catch block: `rCpuTimeMs` now rounded to integer (fixes `WORKER_ORPHAN` for fast GLM runs); else branch now transitions `runs.status` to `completed`; defensive inner try/catch; orphan reconciliation migration |
+| R | `fix/climate-cache-invalidation` | pending | Climate cache: broken regex in `handle_climate_check` fixed (geodata naming, `_bio_<n>` → `bio_<n>`); shared matcher module eliminates three-way drift; pre-spawn short-circuit avoids no-op callr::r_bg spawns; sha256 cache manifest for proper invalidation; permission/uid-mismatch audit; Group B amendment note |
 
 ## Known limitations
 What should reviewers know?

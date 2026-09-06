@@ -161,6 +161,7 @@ services:
       - "127.0.0.1:4000:4000"
     environment:
       - NODE_ENV=development
+      - SDM_PROJECT_ROOT=/app
       - PLUMBER_URL=http://plumber:8000
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-dev-plumber-key}
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:-sdm_dev_only_change_me}@postgres:5432/sdm_platform

@@ -1,5 +1,22 @@
 # Build the complete environmental covariate stack used by the model.
 
+safe_nlyr <- function(x) {
+  if (inherits(x, "SpatRaster")) terra::nlyr(x) else 0L
+}
+
+rast_append_flatten <- function(a, b) {
+  if (is.null(b)) return(a)
+  if (!inherits(b, "SpatRaster")) {
+    if (is.list(b) && length(b) > 0 && all(vapply(b, inherits, logical(1), "SpatRaster"))) {
+      b <- do.call(c, b)
+    } else {
+      return(a)
+    }
+  }
+  if (!inherits(b, "SpatRaster")) return(a)
+  terra::c(a, b)
+}
+
 align_covariate_to_template <- function(r, template, method = "bilinear", log_fun = NULL) {
   same_crs <- tryCatch(isTRUE(terra::same.crs(r, template)), error = function(e) FALSE)
   if (!same_crs) {
@@ -17,9 +34,13 @@ align_covariate_to_template <- function(r, template, method = "bilinear", log_fu
 
 align_covariate_stack <- function(source, template_train, template_project) {
   r <- source$raster
+  if (!inherits(r, "SpatRaster") || safe_nlyr(r) == 0L) {
+    return(list(train = NULL, project = NULL))
+  }
   methods <- source$methods
-  if (is.null(methods) || length(methods) == 0) methods <- rep("bilinear", terra::nlyr(r))
-  if (length(methods) == 1L) methods <- rep(methods, terra::nlyr(r))
+  n <- safe_nlyr(r)
+  if (is.null(methods) || length(methods) == 0) methods <- rep("bilinear", n)
+  if (length(methods) == 1L) methods <- rep(methods, n)
   names(methods) <- names(r)
 
   train_layers <- list()
@@ -234,8 +255,8 @@ load_environment <- function(worldclim_dir, selected_biovars, training_extent, p
     allow_download, log_fun
   )
   if (!is.null(extras$train)) {
-    env_train <- c(env_train, extras$train)
-    env_project <- c(env_project, extras$project)
+    env_train <- rast_append_flatten(env_train, extras$train)
+    env_project <- rast_append_flatten(env_project, extras$project)
     log_message(log_fun, "Added optional covariates: ", paste(names(extras$train), collapse = ", "))
   }
 

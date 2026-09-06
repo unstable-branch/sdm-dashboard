@@ -45,6 +45,13 @@ modules <- c(
   "community_matrix.R",
 
   # --- covariates ---
+  # Shared climate matchers/manifest must load before covariates_climate.R,
+  # which calls match_*_biovars() and write_cache_manifest() directly. This
+  # loader is used by background children (run_model_background, targets) that
+  # never load engine_load.R or load.R — missing it fails runs at the
+  # "Loading and scaling environmental covariates" stage.
+  "match_climate_layers.R",
+  "climate_cache_manifest.R",
   "covariates_climate.R",
   "covariates_elevation.R",
   "covariates_soil.R",

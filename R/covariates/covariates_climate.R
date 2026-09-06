@@ -1,5 +1,14 @@
 # WorldClim discovery, download, cropping, and scaling helpers.
 
+# The matcher module (match_climate_layers.R) and the cache manifest helpers
+# (climate_cache_manifest.R) are loaded by the module loaders (R/load.R,
+# R/engine_load.R) and by tests/testthat/helper-load.R. They are NOT sourced
+# here: a sys.frame(1)$ofile-based eager-load was unreliable under source()
+# (the frame's ofile can be numeric garbage inside source()'s eval frames)
+# and left the matchers undefined in the Plumber runtime. If this file is
+# sourced standalone without a loader, the matcher functions will be missing
+# — source match_climate_layers.R explicitly in that case.
+
 # Simple file-based lock for concurrent download protection.
 # timeout_sec MUST be >= stale_sec, otherwise a waiter can never reclaim
 # a stale lock left behind by a crashed process.
@@ -42,55 +51,43 @@ sdm_worldclim_res_label <- function(res) {
 
 find_worldclim_files <- function(worldclim_dir, selected_biovars, source = c("worldclim", "chelsa"), res = NULL) {
   source <- match.arg(source)
-  if (is.null(worldclim_dir) || length(worldclim_dir) == 0 || !nzchar(worldclim_dir)) {
-    return(setNames(rep(NA_character_, length(as.integer(selected_biovars))), as.character(as.integer(selected_biovars))))
-  }
-  pattern <- if (source == "worldclim" && !is.null(res)) {
-    sprintf("wc2\\.1_%s.*\\.tif$", sdm_worldclim_res_label(res))
-  } else {
-    "\\.tif$"
-  }
-  files <- if (dir.exists(worldclim_dir)) list.files(worldclim_dir, pattern = pattern, full.names = TRUE, recursive = TRUE) else character()
   selected_biovars <- as.integer(selected_biovars)
-  if (length(files) == 0 || length(selected_biovars) == 0) {
+  if (length(selected_biovars) == 0) {
+    return(setNames(character(0), character(0)))
+  }
+  if (is.null(worldclim_dir) || length(worldclim_dir) == 0 || !nzchar(worldclim_dir)) {
     return(setNames(rep(NA_character_, length(selected_biovars)), as.character(selected_biovars)))
+  }
+  res_label <- if (source == "worldclim" && !is.null(res)) sdm_worldclim_res_label(res) else NULL
+  pattern <- if (!is.null(res_label)) sprintf("wc2\\.1_%s.*\\.tif$", res_label) else "\\.tif$"
+  files <- if (dir.exists(worldclim_dir)) list.files(worldclim_dir, pattern = pattern, full.names = TRUE, recursive = TRUE) else character()
+  if (length(files) == 0) {
+    return(setNames(rep(NA_character_, length(selected_biovars)), as.character(selected_biovars)))
+  }
+
+  if (!exists("match_worldclim_biovars", inherits = TRUE)) {
+    matcher_path <- file.path(dirname(sys.frame(1)$ofile %||% ""),
+                             "match_climate_layers.R")
+    if (!file.exists(matcher_path) || !nzchar(matcher_path)) {
+      matcher_path <- file.path("R", "covariates", "match_climate_layers.R")
+    }
+    if (file.exists(matcher_path)) source(matcher_path, local = TRUE)
   }
 
   matched <- vapply(selected_biovars, function(bv) {
     if (source == "worldclim") {
-      nm1 <- paste0("bio", bv)
-      nm2 <- if (bv < 10) paste0("bio0", bv) else paste0("bio", bv)
-      pat1 <- paste0("_(", nm1, ")[^0-9]")
-      pat2 <- paste0("_(", nm2, ")[^0-9]")
-      pat3 <- paste0("bio_", bv, "($|[^0-9])")
-      hit <- unique(c(
-        files[grepl(pat1, basename(files), ignore.case = TRUE, perl = TRUE)],
-        files[grepl(pat2, basename(files), ignore.case = TRUE, perl = TRUE)],
-        files[grepl(pat3, basename(files), ignore.case = TRUE, perl = TRUE)]
-      ))
+      files_for_bv <- match_worldclim_biovars(files, bv, res_label)$files
     } else {
-      if (bv < 10) {
-        pattern1 <- sprintf("CHELSA_bio0%d_.*\\.tif$", bv)
-        pattern2 <- sprintf("CHELSA_bio%d_.*\\.tif$", bv)
-        hit <- files[grepl(pattern1, basename(files), ignore.case = TRUE)]
-        if (length(hit) == 0) hit <- files[grepl(pattern2, basename(files), ignore.case = TRUE)]
-      } else {
-        pattern1 <- sprintf("CHELSA_bio%d_.*\\.tif$", bv)
-        hit <- files[grepl(pattern1, basename(files), ignore.case = TRUE)]
-      }
+      files_for_bv <- match_chelsa_biovars(files, bv)$files
     }
-    # Drop any "matches" that aren't actually valid GeoTIFFs (e.g. an old HTML
-    # 404 page saved with a .tif extension). The model would otherwise
-    # silently read NaN from a corrupt raster.
-    if (length(hit) > 0) hit <- hit[vapply(hit, is_valid_geotiff, logical(1))]
-    if (length(hit) == 0) {
+    if (length(files_for_bv) == 0) {
       NA_character_
-    } else if (length(hit) > 1) {
-      sizes <- vapply(hit, function(f) as.numeric(file.info(f)$size), numeric(1))
+    } else if (length(files_for_bv) > 1) {
+      sizes <- vapply(files_for_bv, function(f) as.numeric(file.info(f)$size), numeric(1))
       idx <- which.max(sizes)
-      if (length(idx) == 0) NA_character_ else hit[idx]
+      if (length(idx) == 0) NA_character_ else as.character(files_for_bv[idx])
     } else {
-      hit[1]
+      as.character(files_for_bv[1])
     }
   }, character(1))
   names(matched) <- as.character(selected_biovars)
@@ -528,6 +525,21 @@ download_worldclim_bio <- function(worldclim_dir, selected_biovars, res = 10, lo
   }
   if (!is.null(archive) && !anyNA(files)) unlink(archive, force = TRUE)
   failed <- selected_biovars[is.na(files)]
+  manifest_files <- files[!is.na(files)]
+  tryCatch({
+    if (!exists("write_cache_manifest", inherits = TRUE)) {
+      manifest_path <- file.path(dirname(sys.frame(1)$ofile %||% "."),
+                                 "climate_cache_manifest.R")
+      if (file.exists(manifest_path)) source(manifest_path, local = TRUE)
+    }
+    if (exists("write_cache_manifest", inherits = TRUE)) {
+      write_cache_manifest(worldclim_dir, "worldclim", res, manifest_files,
+                           log_fun = log_fun)
+    }
+  }, error = function(e) {
+    log_message(log_fun, "[cache-manifest] worldclim manifest write failed: ",
+                conditionMessage(e))
+  })
   list(files = files, failed = failed, downloaded = files[!is.na(files)], cached = FALSE)
 }
 
@@ -570,6 +582,23 @@ download_chelsa_bio <- function(chelsa_dir, selected_biovars, log_fun = NULL, pr
   files <- find_worldclim_files(chelsa_dir, biovars, source = "chelsa")
   downloaded <- vapply(results[vapply(results, function(x) isTRUE(x$downloaded), logical(1))], `[[`, character(1), "file")
   if (length(failed_biovars) > 0) log_message(log_fun, "Warning: failed to download CHELSA BIO: ", paste(failed_biovars, collapse = ", "))
+  tryCatch({
+    if (!exists("write_cache_manifest", inherits = TRUE)) {
+      manifest_path <- file.path(dirname(sys.frame(1)$ofile %||% "."),
+                                 "climate_cache_manifest.R")
+      if (file.exists(manifest_path)) source(manifest_path, local = TRUE)
+    }
+    if (exists("write_cache_manifest", inherits = TRUE)) {
+      chelsa_files <- files[!is.na(files)]
+      if (length(chelsa_files) > 0) {
+        write_cache_manifest(chelsa_dir, "chelsa", res = "0.5", chelsa_files,
+                             log_fun = log_fun)
+      }
+    }
+  }, error = function(e) {
+    log_message(log_fun, "[cache-manifest] chelsa manifest write failed: ",
+                conditionMessage(e))
+  })
   list(files = files, failed = failed_biovars, downloaded = downloaded, cached = length(downloaded) == 0L)
 }
 

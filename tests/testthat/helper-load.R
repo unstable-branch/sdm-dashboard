@@ -19,3 +19,10 @@ project_root <- find_sdm_root()
 source(file.path(project_root, "R", "core", "bootstrap.R"))
 sdm_set_project_root(project_root)
 source(file.path(project_root, "R", "core", "optimized_sdm.R"))
+
+# Climate-layer matchers (shared module used by find_worldclim_files and the
+# modern Plumber helpers). Loaded here so tests can source covariates_climate.R
+# and have the matchers available in the calling environment.
+source(file.path(project_root, "R", "covariates", "match_climate_layers.R"), local = FALSE)
+# Cache manifest helpers (sha256-verified invalidation used by handle_climate_check).
+source(file.path(project_root, "R", "covariates", "climate_cache_manifest.R"), local = FALSE)

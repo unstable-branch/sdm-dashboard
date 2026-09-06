@@ -3,7 +3,7 @@ import { plumberClient } from "../services/plumber.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq, desc, count, and, inArray, sql } from "drizzle-orm";
-import { authMiddleware, optionalAuth } from "../middleware/auth.js";
+import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
@@ -16,7 +16,6 @@ sdmTargetsRoutes.use("/targets/run", authMiddleware);
 sdmTargetsRoutes.use("/targets/status/*", authMiddleware);
 sdmTargetsRoutes.use("/targets/results/*", authMiddleware);
 sdmTargetsRoutes.use("/runs", authMiddleware);
-sdmTargetsRoutes.use("*", optionalAuth);
 
 sdmTargetsRoutes.post("/targets/run", async (c) => {
   try {
