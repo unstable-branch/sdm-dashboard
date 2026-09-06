@@ -53,6 +53,7 @@ interface SDMState {
 
   modelJobId: string | null;
   setModelJobId: (id: string | null) => void;
+  clearModelJob: () => void;
 
   modelJobStartTime: string | null;
   setModelJobStartTime: (time: string | null) => void;
@@ -107,6 +108,7 @@ export const useSDMStore = create<SDMState>()(
 
   modelJobId: null,
   setModelJobId: (id) => set({ modelJobId: id }),
+  clearModelJob: () => set({ modelJobId: null, modelJobStartTime: null }),
 
   modelJobStartTime: null,
   setModelJobStartTime: (time) => set({ modelJobStartTime: time }),
