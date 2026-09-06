@@ -169,6 +169,9 @@ tryCatch({
 
   # Parse biovars and projection_extent from config (stored as strings by the handler)
   biovars <- as.integer(unlist(strsplit(as.character(config$biovars %||% "1,4,6,12,15,18"), ",")))
+  if (anyNA(biovars) || any(biovars < 1) || any(biovars > 19)) {
+    stop("biovars must be comma-separated integers from 1-19 (WorldClim 1-19)")
+  }
   projection_extent <- as.numeric(unlist(strsplit(as.character(config$projection_extent %||% "112,154,-44,-10"), ",")))
   if (length(projection_extent) != 4L || any(!is.finite(projection_extent))) {
     stop("projection_extent must have 4 numeric values: xmin, xmax, ymin, ymax")

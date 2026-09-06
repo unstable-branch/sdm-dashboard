@@ -60,7 +60,13 @@ sdm_redis_close <- function() {
 .redis_cmd <- function(fn, ...) {
   conn <- sdm_redis_connect()
   if (is.null(conn)) return(NULL)
-  tryCatch(fn(conn, ...), error = function(e) NULL)
+  tryCatch(
+    fn(conn, ...),
+    error = function(e) {
+      warning("Redis command failed: ", conditionMessage(e), call. = FALSE)
+      NULL
+    }
+  )
 }
 
 sdm_redis_progress_set <- function(job_id, entry_json) {
@@ -102,6 +108,10 @@ sdm_redis_cancel_set <- function(job_id) {
 sdm_redis_cancel_check <- function(job_id) {
   key <- .cancel_key(job_id)
   result <- .redis_cmd(function(conn) conn$EXISTS(key))
+  if (is.null(result)) {
+    warning("Redis cancel check for job ", job_id, " returned NULL (Redis unavailable); treating as not cancelled")
+    return(FALSE)
+  }
   identical(result, 1L) || identical(result, "1") || identical(result, TRUE)
 }
 

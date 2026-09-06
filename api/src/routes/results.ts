@@ -59,7 +59,7 @@ function parseRangeHeader(rangeHeader: string, fileSize: number): { start: numbe
 
 /**
  * Resolve the Plumber job ID from a run UUID.
- * Falls back to the UUID itself if no jobId is stored.
+ * Throws if the run has no Plumber job ID assigned yet.
  */
 async function plumberJobId(runId: string): Promise<string> {
   const [run] = await db
@@ -67,7 +67,10 @@ async function plumberJobId(runId: string): Promise<string> {
     .from(runs)
     .where(eq(runs.id, runId))
     .limit(1);
-  return run?.jobId ?? runId;
+  if (!run || run.jobId == null) {
+    throw new Error("Run has no Plumber job ID (not yet started): " + runId);
+  }
+  return run.jobId;
 }
 
 function discoverOutputFiles(jobId: string): Record<string, string> | null {
