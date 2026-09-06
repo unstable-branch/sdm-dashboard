@@ -108,28 +108,34 @@ export default function ResultsPage() {
   // Merge SSE job updates (logs + currentStage) into run state for live display
   const sseJob = connected ? getJob(runId) : undefined;
   useEffect(() => {
-    if (!sseJob || !run || run.status !== "running") return;
-    const logs = sseJob.logs;
-    const stage = sseJob.currentStage;
-    const sseProgressJson = sseJob.progressJson;
-    let changed = false;
-    const next = { ...run };
-    // Only merge SSE logs if they contain real data (not the synthetic bootstrap placeholder)
-    if (logs && logs.length > 0 && logs[0] !== "Model run in progress..." &&
-        (logs.length !== (run.progress_log?.length ?? 0) || logs[logs.length - 1] !== run.progress_log?.[run.progress_log.length - 1])) {
-      next.progress_log = logs;
-      changed = true;
+    if (!sseJob || !run) return;
+    // When run is still "running", merge SSE logs/stage/progressJson
+    if (run.status === "running") {
+      const logs = sseJob.logs;
+      const stage = sseJob.currentStage;
+      const sseProgressJson = sseJob.progressJson;
+      let changed = false;
+      const next = { ...run };
+      if (logs && logs.length > 0 && logs[0] !== "Model run in progress..." &&
+          (logs.length !== (run.progress_log?.length ?? 0) || logs[logs.length - 1] !== run.progress_log?.[run.progress_log.length - 1])) {
+        next.progress_log = logs;
+        changed = true;
+      }
+      if (stage && stage !== run.last_stage) {
+        next.last_stage = stage;
+        changed = true;
+      }
+      if (sseProgressJson && Array.isArray(sseProgressJson) && sseProgressJson.length > 0) {
+        (next as any).progress_json = sseProgressJson;
+        changed = true;
+      }
+      if (changed) setRun(next);
+      return;
     }
-    if (stage && stage !== run.last_stage) {
-      next.last_stage = stage;
-      changed = true;
+    // For terminal states, SSE is authoritative — apply failed/cancelled state immediately
+    if (sseJob.state && sseJob.state !== run.status) {
+      setRun((prev) => prev ? { ...prev, status: sseJob.state as typeof prev.status, error: sseJob.failedReason ?? prev.error } : prev);
     }
-    // Persist progressJson from SSE so stage chips render even when polling overwrites run
-    if (sseProgressJson && Array.isArray(sseProgressJson) && sseProgressJson.length > 0) {
-      (next as any).progress_json = sseProgressJson;
-      changed = true;
-    }
-    if (changed) setRun(next);
   }, [sseJob, run]);
 
   const toggleErrorLogs = useCallback(async () => {
