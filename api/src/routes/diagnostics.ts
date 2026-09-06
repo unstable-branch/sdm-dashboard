@@ -18,7 +18,10 @@ async function plumberJobId(runId: string): Promise<string> {
     .from(runs)
     .where(eq(runs.id, runId))
     .limit(1);
-  return run?.jobId ?? runId;
+  if (!run || run.jobId == null) {
+    throw new Error("Run has no Plumber job ID (not yet started): " + runId);
+  }
+  return run.jobId;
 }
 
 interface DiagEndpoint {
