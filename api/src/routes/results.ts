@@ -16,7 +16,7 @@ export const resultsRoutes = new Hono<AppEnv>();
 
 resultsRoutes.use("*", authMiddleware);
 
-const appDir = process.env.SDM_PROJECT_ROOT || resolve(process.cwd(), "..");
+const appDir = process.env.SDM_PROJECT_ROOT || "/app";
 const resultRoot = resolve(appDir, "outputs", "jobs");
 
 /**
@@ -59,7 +59,7 @@ function parseRangeHeader(rangeHeader: string, fileSize: number): { start: numbe
 
 /**
  * Resolve the Plumber job ID from a run UUID.
- * Falls back to the UUID itself if no jobId is stored.
+ * Throws if the run has no Plumber job ID assigned yet.
  */
 async function plumberJobId(runId: string): Promise<string> {
   const [run] = await db
@@ -67,7 +67,10 @@ async function plumberJobId(runId: string): Promise<string> {
     .from(runs)
     .where(eq(runs.id, runId))
     .limit(1);
-  return run?.jobId ?? runId;
+  if (!run || run.jobId == null) {
+    throw new Error("Run has no Plumber job ID (not yet started): " + runId);
+  }
+  return run.jobId;
 }
 
 function discoverOutputFiles(jobId: string): Record<string, string> | null {
@@ -92,6 +95,11 @@ function discoverOutputFiles(jobId: string): Record<string, string> | null {
     else if (file.endsWith("_report.txt")) outputFiles.report = path;
     else if (file === "odmap_report.md") outputFiles.odmap_report_md = path;
     else if (file === "odmap_report.csv") outputFiles.odmap_report_csv = path;
+    else if (file === "eoo_polygon.geojson") outputFiles.eoo_polygon = path;
+    else if (file === "aoo_grid.geojson") outputFiles.aoo_grid = path;
+    else if (file === "eoo_aoo.json") outputFiles.eoo_aoo_json = path;
+    else if (file === "niche_overlap.json") outputFiles.niche_overlap = path;
+    else if (file === "conservation_report.json") outputFiles.conservation_report = path;
     else if (file === "result.rds") outputFiles.result_rds = path;
   }
   return Object.keys(outputFiles).length > 0 ? outputFiles : null;
@@ -161,6 +169,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
       const plumberRes = await plumberClient.withUser(user.id).getTileCog(
         run.jobId ?? runId, String(z), String(x), String(y), band
       );
+      // 204 is a legitimate response — Plumber reports "raster does not cover this tile"; transparent placeholder.
       if (plumberRes.status === 204) {
         return c.body(null, 204);
       }
@@ -175,12 +184,52 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
         c.header("Cache-Control", "private, max-age=86400");
         return c.body(pngBuf);
       }
-      console.warn(`[tiles] Plumber tile error for ${runId}/${z}/${x}/${y}: ${plumberRes.status}`);
+      // Upstream returned a real error (401/403/404/5xx) — surface it instead of masquerading as 204.
+      // MapLibre otherwise treats the silent 204 as "tile is transparent" and the user sees blank map with no diagnostic.
+      const upstreamStatus = plumberRes.status;
+      let upstreamHint = "";
+      try {
+        const ct = plumberRes.headers.get("content-type") ?? "";
+        if (ct.includes("application/json")) {
+          const j = await plumberRes.clone().json();
+          if (j && typeof j === "object") {
+            upstreamHint = (j as { error?: string; hint?: string }).error ?? upstreamHint;
+          }
+        } else {
+          upstreamHint = (await plumberRes.clone().text()).slice(0, 200);
+        }
+      } catch {
+        // best-effort only
+      }
+      console.warn(`[tiles] Plumber tile upstream error for ${runId}/${z}/${x}/${y}: status=${upstreamStatus} hint=${upstreamHint}`);
+      return c.json(
+        {
+          error: `Upstream tile service returned ${upstreamStatus}`,
+          source: "plumber",
+          upstream_status: upstreamStatus,
+          upstream_hint: upstreamHint,
+          run_id: runId,
+          z, x, y, band,
+        },
+        502,
+      );
     } catch (e) {
       console.warn(`[tiles] Plumber tile proxy failed for ${runId}/${z}/${x}/${y}:`, e instanceof Error ? e.message : String(e));
+      return c.json(
+        {
+          error: "Tile service unreachable",
+          source: "plumber",
+          upstream_status: 0,
+          upstream_hint: e instanceof Error ? e.message : String(e),
+          run_id: runId,
+          z, x, y, band,
+        },
+        502,
+      );
     }
   }
 
+  // No plumberJobId on this run — keep silent 204 (the run was never submitted to Plumber; nothing to render).
   return c.body(null, 204);
 });
 
@@ -272,9 +321,13 @@ async function serveFileFromPath(c: any, filePath: string) {
 
   const user = c.get("user");
   let runRecord: { id: string; jobId: string | null; outputFiles: unknown } | null = null;
+  const failNotFound = (reason: string): Response => {
+    console.warn(`[results/file] 404 — runId=${resolved.runId} user=${user.id} reason=${reason}`);
+    return c.json({ error: "File not found" }, 404) as Response;
+  };
   try {
     if (!(await canAccessRun(user.id, user.role, resolved.runId))) {
-      return c.json({ error: "File not found" }, 404);
+      return failNotFound("canAccessRun=false");
     }
     const idMatch = isUuid(resolved.runId)
       ? eq(runs.id, resolved.runId)
@@ -284,8 +337,9 @@ async function serveFileFromPath(c: any, filePath: string) {
       .from(runs)
       .where(idMatch)
       .limit(1);
-    if (!runRecord) return c.json({ error: "File not found" }, 404);
-  } catch {
+    if (!runRecord) return failNotFound("runRecord=null");
+  } catch (e) {
+    console.warn(`[results/file] DB error for runId=${resolved.runId}:`, e instanceof Error ? e.message : String(e));
     return c.json({ error: "File not found" }, 404);
   }
 
@@ -294,12 +348,14 @@ async function serveFileFromPath(c: any, filePath: string) {
   const storedOutputFiles = hasOutputFiles(runRecord.outputFiles)
     ? runRecord.outputFiles
     : discoverOutputFiles(runRecord.jobId ?? runRecord.id);
+  const usedDiscovery = !hasOutputFiles(runRecord.outputFiles);
   const allowedPaths = storedOutputFiles ? Object.values(storedOutputFiles) : [];
   const isAllowed = allowedPaths.some((allowed) => {
     const ar = resolve(allowed);
     return fullPath === ar || fullPath.startsWith(ar + "/");
   });
   if (!isAllowed && allowedPaths.length > 0) {
+    console.warn(`[results/file] 404 allowlist-miss — runId=${resolved.runId} fullPath=${fullPath} usedDiscovery=${usedDiscovery} outputKeys=${Object.keys(storedOutputFiles ?? {}).length}`);
     return c.json({ error: "File not found" }, 404);
   }
 

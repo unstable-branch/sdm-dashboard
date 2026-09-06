@@ -127,7 +127,7 @@ sdm_apply_predict <- function(vals, covariates, predict_fn) {
   out <- rep(NA_real_, nrow(vals))
   if (nrow(vals) == 0L) return(out)
   ok <- apply(vals, 1, function(row) all(is.finite(row)))
-  if (!any(ok)) return(out)
+  if (all(!ok)) return(out)
   rows_ok <- which(ok)
   tryCatch({
     df <- as.data.frame(vals[rows_ok, , drop = FALSE], stringsAsFactors = FALSE)
