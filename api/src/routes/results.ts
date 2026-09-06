@@ -169,6 +169,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
       const plumberRes = await plumberClient.withUser(user.id).getTileCog(
         run.jobId ?? runId, String(z), String(x), String(y), band
       );
+      // 204 is a legitimate response — Plumber reports "raster does not cover this tile"; transparent placeholder.
       if (plumberRes.status === 204) {
         return c.body(null, 204);
       }
@@ -183,12 +184,52 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
         c.header("Cache-Control", "private, max-age=86400");
         return c.body(pngBuf);
       }
-      console.warn(`[tiles] Plumber tile error for ${runId}/${z}/${x}/${y}: ${plumberRes.status}`);
+      // Upstream returned a real error (401/403/404/5xx) — surface it instead of masquerading as 204.
+      // MapLibre otherwise treats the silent 204 as "tile is transparent" and the user sees blank map with no diagnostic.
+      const upstreamStatus = plumberRes.status;
+      let upstreamHint = "";
+      try {
+        const ct = plumberRes.headers.get("content-type") ?? "";
+        if (ct.includes("application/json")) {
+          const j = await plumberRes.clone().json();
+          if (j && typeof j === "object") {
+            upstreamHint = (j as { error?: string; hint?: string }).error ?? upstreamHint;
+          }
+        } else {
+          upstreamHint = (await plumberRes.clone().text()).slice(0, 200);
+        }
+      } catch {
+        // best-effort only
+      }
+      console.warn(`[tiles] Plumber tile upstream error for ${runId}/${z}/${x}/${y}: status=${upstreamStatus} hint=${upstreamHint}`);
+      return c.json(
+        {
+          error: `Upstream tile service returned ${upstreamStatus}`,
+          source: "plumber",
+          upstream_status: upstreamStatus,
+          upstream_hint: upstreamHint,
+          run_id: runId,
+          z, x, y, band,
+        },
+        502,
+      );
     } catch (e) {
       console.warn(`[tiles] Plumber tile proxy failed for ${runId}/${z}/${x}/${y}:`, e instanceof Error ? e.message : String(e));
+      return c.json(
+        {
+          error: "Tile service unreachable",
+          source: "plumber",
+          upstream_status: 0,
+          upstream_hint: e instanceof Error ? e.message : String(e),
+          run_id: runId,
+          z, x, y, band,
+        },
+        502,
+      );
     }
   }
 
+  // No plumberJobId on this run — keep silent 204 (the run was never submitted to Plumber; nothing to render).
   return c.body(null, 204);
 });
 
