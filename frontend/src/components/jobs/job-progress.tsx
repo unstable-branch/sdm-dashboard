@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useJobSSE } from "@/hooks/use-job-sse";
+import { useSDMStore } from "@/stores/sdm-store";
 import { cn } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, Clock, X, Ban } from "lucide-react";
 import { apiPost, apiGet } from "@/services/api";
@@ -163,9 +164,13 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
       completedRef.current = false;
       prevJobIdRef.current = jobId;
     }
-    if (effectiveJob?.state === "completed" && !completedRef.current) {
+    const terminalStates = ["completed", "failed", "cancelled"];
+    if (effectiveJob && terminalStates.includes(effectiveJob.state) && !completedRef.current) {
       completedRef.current = true;
-      onComplete?.(effectiveJob.result ?? {});
+      useSDMStore.getState().clearModelJob();
+      if (effectiveJob.state === "completed") {
+        onComplete?.(effectiveJob.result ?? {});
+      }
     }
   }, [effectiveJob?.state, effectiveJob?.result, onComplete, jobId]);
 
