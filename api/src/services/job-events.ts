@@ -3,6 +3,7 @@ import type IORedis from "ioredis";
 
 export interface JobStatusEvent {
   jobId: string;
+  runId?: string;
   state: string;
   progress: number;
   logs?: string[];

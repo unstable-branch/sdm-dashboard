@@ -1722,6 +1722,7 @@ sdm_stage_future <- function(cfg, fit, suit, env, output_dir, base_name, log_fun
     return(list(future = NULL))
   }
   log_message(log_fun, "Stage 4b: Projecting future climate scenario")
+  env_train_for_mess <- env$env_train
   future <- tryCatch(project_future_suitability(
     fit = fit, current_suitability = suit, env = env,
     future_worldclim_dir = cfg$future_worldclim_dir,
@@ -1733,7 +1734,7 @@ sdm_stage_future <- function(cfg, fit, suit, env, output_dir, base_name, log_fun
     n_cores = cfg$n_cores %||% 8L, log_fun = log_fun,
     mask_extrapolation = isTRUE(cfg$extrapolation_mask %||% TRUE),
     mess_threshold = cfg$mess_threshold %||% 0,
-    mess_train_data = env$env_train
+    mess_train_data = env_train_for_mess
   ), error = function(e) {
     stop("Stage 4b (future) failed: ", conditionMessage(e), call. = FALSE)
   })

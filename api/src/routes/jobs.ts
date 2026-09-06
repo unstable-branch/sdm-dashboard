@@ -56,14 +56,14 @@ app.get("/sse", async (c) => {
     // Listen to real-time events from plumber-sync and queue worker
     // Use a promise chain to process events sequentially (avoids pile-up from async handlers)
     let eventQueue = Promise.resolve();
-    const handler = (event: { jobId: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string; error_code?: string | null; error_hint?: string | null; currentStage?: string | null; progressJson?: unknown }) => {
+    const handler = (event: { jobId: string; runId?: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string; error_code?: string | null; error_hint?: string | null; currentStage?: string | null; progressJson?: unknown }) => {
       eventQueue = eventQueue.then(async () => {
         try {
           if (!(await isMyRun(event.jobId))) return;
           await stream.writeSSE({
             event: "job-update",
             data: JSON.stringify({
-              id: event.jobId,
+              id: event.runId ?? event.jobId,
               type: "sdm_model",
               state: event.state,
               progress: event.progress,
