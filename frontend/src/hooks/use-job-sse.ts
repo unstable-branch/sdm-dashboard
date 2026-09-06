@@ -123,13 +123,39 @@ function openSharedConnection(): void {
   const es = new EventSource(`${API_BASE}/api/v1/jobs/sse`, { withCredentials: true });
   sharedEventSource = es;
 
-  // Track connection duration to detect auth (401) errors — a 401 causes
-  // EventSource to close immediately, so brief connections that error quickly
-  // are a strong auth-failure signal.
   es.onopen = () => {
     lastConnectedAt = Date.now();
     rapidFailures = 0;
     sharedConnected = true;
+    sharedReconnectAttempts = 0;
+    sharedGaveUp = false;
+    notifyListeners();
+    fetchWithAuth(`${API_BASE}/api/v1/sdm/runs?status=running&limit=10`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.runs) {
+          const now = Date.now();
+          for (const run of data.runs) {
+            const existing = sharedJobs.get(run.id);
+            if (existing) {
+              if (existing.state !== "active" && existing.state !== run.status) {
+                sharedJobs.set(run.id, { ...existing, state: run.status === "running" ? "active" : run.status, _receivedAt: now });
+              }
+            } else {
+              sharedJobs.set(run.id, {
+                id: run.id,
+                state: "active",
+                progress: 0,
+                type: "sdm_model",
+                logs: ["Model run in progress..."],
+                _receivedAt: now,
+              });
+            }
+          }
+          notifyListeners();
+        }
+      })
+      .catch((e) => console.warn("[sse] Failed to fetch active runs:", e instanceof Error ? e.message : String(e)));
   };
 
   es.addEventListener("job-update", (event) => {
@@ -166,41 +192,6 @@ function openSharedConnection(): void {
       // Ignore parse errors
     }
   });
-
-  es.onopen = () => {
-    sharedConnected = true;
-    sharedReconnectAttempts = 0;
-    sharedGaveUp = false;
-    notifyListeners();
-    fetchWithAuth(`${API_BASE}/api/v1/sdm/runs?status=running&limit=10`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data?.runs) {
-          const now = Date.now();
-          for (const run of data.runs) {
-            const existing = sharedJobs.get(run.id);
-            if (existing) {
-              // Refresh existing entry with fresher API data — only update fields
-              // that have evolved (state, progress) while keeping SSE-only fields
-              if (existing.state !== "active" && existing.state !== run.status) {
-                sharedJobs.set(run.id, { ...existing, state: run.status === "running" ? "active" : run.status, _receivedAt: now });
-              }
-            } else {
-              sharedJobs.set(run.id, {
-                id: run.id,
-                state: "active",
-                progress: 0,
-                type: "sdm_model",
-                logs: ["Model run in progress..."],
-                _receivedAt: now,
-              });
-            }
-          }
-          notifyListeners();
-        }
-      })
-      .catch((e) => console.warn("[sse] Failed to fetch active runs:", e instanceof Error ? e.message : String(e)));
-  };
 
   es.onerror = () => {
     sharedConnected = false;
