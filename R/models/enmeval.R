@@ -28,7 +28,10 @@ dashboard_enmeval_user_eval <- function(e) {
     if (length(all_pred) == 0 || length(all_obs) == 0 || length(all_pred) != length(all_obs)) next
     metrics <- compute_binary_metrics(all_obs, all_pred, threshold = 0.5)
     tss_vals[i] <- metrics$tss
-    cbi_vals[i] <- metrics$cbi
+    # compute_binary_metrics does not return cbi — compute it explicitly.
+    pres_suit <- all_pred[all_obs == 1]
+    bg_suit <- all_pred[all_obs == 0]
+    cbi_vals[i] <- continuous_boyce_index(pres_suit, bg_suit)$cbi
   }
   data.frame(tss = tss_vals, cbi = cbi_vals, stringsAsFactors = FALSE)
 }
@@ -148,8 +151,21 @@ tune_enmeval <- function(occ, env_rasters, bg = NULL,
     selection_metric <- fallback %||% "auc.val.avg"
   }
 
-  results_sorted <- results_df[order(results_df[[selection_metric]],
-    decreasing = !grepl("diff|or\\.|AICc", selection_metric),
+  # Normalise auc.val.avg for inverted predictions: models scoring presence below
+  # background get AUC < 0.5. We report max(AUC, 1-AUC) per SDM convention so an
+  # inverted model is ranked by its complement rather than below random.
+  if (identical(selection_metric, "auc.val.avg") && "auc.val.avg" %in% names(results_df)) {
+    raw_auc <- results_df$auc.val.avg
+    adj_auc <- ifelse(!is.na(raw_auc) & raw_auc < 0.5, 1 - raw_auc, raw_auc)
+    order_col <- adj_auc
+    decreasing <- TRUE
+  } else {
+    order_col <- results_df[[selection_metric]]
+    decreasing <- !grepl("diff|or\\.|AICc", selection_metric)
+  }
+
+  results_sorted <- results_df[order(order_col,
+    decreasing = decreasing,
     na.last = TRUE), , drop = FALSE]
   best_row <- results_sorted[1, , drop = FALSE]
 
