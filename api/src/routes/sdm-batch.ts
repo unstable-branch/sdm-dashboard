@@ -6,7 +6,7 @@ import { db } from "../db/index.js";
 import { runs, batches, users, projects } from "../db/schema.js";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { modelRateLimit } from "../middleware/rate-limit.js";
-import { authMiddleware, optionalAuth } from "../middleware/auth.js";
+import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
@@ -22,7 +22,6 @@ sdmBatchRoutes.use("/cancel-all", authMiddleware);
 sdmBatchRoutes.use("/runs", authMiddleware);
 sdmBatchRoutes.use("/runs/delete/*", authMiddleware);
 sdmBatchRoutes.use("/runs/clear-all", authMiddleware);
-sdmBatchRoutes.use("*", optionalAuth);
 
 sdmBatchRoutes.get("/models", async (c) => {
   try {
