@@ -256,12 +256,16 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
         }
 
         const jobIdForEvent = type === "model" ? (payload.runId as string || job.id!) : job.id!;
-        jobEventBus.emitJobStatus({
-          jobId: jobIdForEvent,
-          state: "failed",
-          progress: 0,
-          failedReason: finalError,
-        });
+        if (jobIdForEvent) {
+          jobEventBus.emitJobStatus({
+            jobId: jobIdForEvent,
+            state: "failed",
+            progress: 0,
+            failedReason: finalError,
+          });
+        } else {
+          console.warn("[queue] No jobId available for job-status event", { type, payloadRunId: payload.runId, jobId: job.id });
+        }
 
         if (finalError.includes("timeout") || finalError.includes("ECONNREFUSED") || finalError.includes("ETIMEDOUT") || finalError.includes("500") || finalError.includes("502") || finalError.includes("503")) {
           throw err;

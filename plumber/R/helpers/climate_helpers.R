@@ -71,6 +71,9 @@ handle_climate_download <- function(req, app_dir) {
   # appears to "re-download" files that already exist.
   cached_preflight <- tryCatch(preflight_climate_download(body, app_dir),
                                error = function(e) NULL)
+  if (!is.null(cached_preflight$error)) {
+    return(list(error = cached_preflight$error, message = cached_preflight$message %||% "Climate preflight failed"))
+  }
   if (isTRUE(cached_preflight$cached)) {
     job_meta$status <- "completed"
     job_meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
@@ -448,7 +451,9 @@ handle_climate_check <- function(res, app_dir, source = "worldclim", resolution 
 # already on disk and verifies as a valid GeoTIFF. Otherwise NULL.
 preflight_climate_download <- function(body, app_dir) {
   type <- tolower(as.character(body$type %||% "cmip6"))
-  if (!type %in% c("worldclim", "chelsa")) return(NULL)
+  if (!type %in% c("worldclim", "chelsa")) {
+    return(list(error = "invalid_climate_type", message = paste0("type must be 'worldclim' or 'chelsa', got '", type, "'")))
+  }
 
   if (!exists("match_worldclim_biovars", inherits = TRUE)) {
     stop("match_worldclim_biovars not loaded: R/covariates/match_climate_layers.R is missing from the module loader", call. = FALSE)

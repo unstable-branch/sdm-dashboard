@@ -296,7 +296,9 @@ sdm_result_cache_mtime <- NA
 
 sdm_result_cache_key <- function(path) {
   if (!file.exists(path)) return(paste0("missing:", path))
-  as.numeric(file.info(path)$mtime)
+  info <- file.info(path)
+  if (is.na(info$mtime) || info$isdir) return(paste0("missing:", path))
+  as.numeric(info$mtime)
 }
 
 # Read saved result RDS and unwrap SpatRasters (single-entry cache by file path).

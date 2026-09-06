@@ -76,8 +76,8 @@ async function plumberSemaphore<T>(fn: () => Promise<T>): Promise<T> {
     return await fn();
   } finally {
     plumberActiveRequests--;
-    if (plumberQueue.length > 0) {
-      const next = plumberQueue.shift()!;
+    const next = plumberQueue.shift();
+    if (next !== undefined) {
       const tid = _resolverTimeouts.get(next);
       if (tid !== undefined) {
         clearTimeout(tid);

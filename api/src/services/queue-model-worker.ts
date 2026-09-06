@@ -22,7 +22,7 @@ export async function handleModelJob(
   if (runId) {
     await db
       .update(runs)
-      .set({ status: "running", startedAt: new Date(), bullmqId: job.id! })
+      .set({ status: "running", startedAt: new Date(), bullmqId: job.id ?? "unknown" })
       .where(and(eq(runs.id, runId), or(eq(runs.status, "queued"), eq(runs.status, "failed"))));
   }
 
@@ -39,7 +39,7 @@ export async function handleModelJob(
         .where(eq(runs.id, runId));
     }
     jobEventBus.emitJobStatus({
-      jobId: runId ?? job.id!,
+      jobId: runId ?? job.id ?? "unknown",
       state: "failed",
       progress: 0,
       failedReason: runErrMsg,
@@ -66,7 +66,7 @@ export async function handleModelJob(
   if (plumberJobId) {
     await job.updateProgress(35);
     jobEventBus.emitJobStatus({
-      jobId: runId ?? job.id!,
+      jobId: runId ?? job.id ?? "unknown",
       state: "active",
       progress: 35,
       logs: ["Model run submitted to Plumber, waiting for completion..."],
@@ -103,7 +103,7 @@ export async function handleModelJob(
 
         if (pollState === "loading" || pollState === "pending") {
           jobEventBus.emitJobStatus({
-            jobId: runId ?? job.id!,
+            jobId: runId ?? job.id ?? "unknown",
             state: pollState,
             progress: pollProgress ?? 5,
             logs,
@@ -117,7 +117,7 @@ export async function handleModelJob(
           const runningProgress = Math.min(99, pollProgress ?? Math.min(90, 35 + Math.round(modelAttempts * 0.5)));
           await job.updateProgress(runningProgress);
           jobEventBus.emitJobStatus({
-            jobId: runId ?? job.id!,
+            jobId: runId ?? job.id ?? "unknown",
             state: "active",
             progress: runningProgress,
             logs,
@@ -176,7 +176,7 @@ export async function handleModelJob(
 
           await job.updateProgress(100);
           jobEventBus.emitJobStatus({
-            jobId: runId ?? job.id!,
+            jobId: runId ?? job.id ?? "unknown",
             state: "completed",
             progress: 100,
             logs: logs.concat(syncWarning ? [`Output sync warning: ${syncWarning}`, "Model run completed."] : ["Model run completed."]),
@@ -198,7 +198,7 @@ export async function handleModelJob(
           const cancelledProgress = Math.min(99, pollProgress ?? 0);
           await job.updateProgress(cancelledProgress);
           jobEventBus.emitJobStatus({
-            jobId: runId ?? job.id!,
+            jobId: runId ?? job.id ?? "unknown",
             state: "cancelled",
             progress: cancelledProgress,
             currentStage: null,
@@ -236,7 +236,7 @@ export async function handleModelJob(
           const failedProgress = Math.min(99, pollProgress ?? 0);
           await job.updateProgress(failedProgress);
           jobEventBus.emitJobStatus({
-            jobId: runId ?? job.id!,
+            jobId: runId ?? job.id ?? "unknown",
             state: "failed",
             progress: failedProgress,
             currentStage: null,
@@ -262,7 +262,7 @@ export async function handleModelJob(
           .where(eq(runs.id, runId));
       }
       jobEventBus.emitJobStatus({
-        jobId: runId ?? job.id!,
+        jobId: runId ?? job.id ?? "unknown",
         state: "failed",
         progress: 0,
         failedReason: timeoutMsg,
