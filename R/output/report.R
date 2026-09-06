@@ -98,8 +98,16 @@ write_summary_report <- function(result, path) {
     paste0("- WorldClim directory: ", fmt_chr(result$config$worldclim_dir)),
     paste0("- BIO variables: ", fmt_chr(paste0("BIO", result$config$selected_biovars))),
     paste0("- Covariates used: ", fmt_chr(covariates, "none")),
-    paste0("- Elevation enabled: ", fmt_bool(result$config$use_elevation), if (isTRUE(result$config$use_elevation)) paste0(" (", fmt_chr(result$config$elevation_demtype), ")") else ""),
-    paste0("- Soil enabled: ", fmt_bool(result$config$use_soil), if (isTRUE(result$config$use_soil)) paste0(" (", fmt_chr(result$config$selected_soil_vars), " at ", fmt_chr(result$config$selected_soil_depths), ")") else ""),
+    paste0("- Elevation enabled: ", fmt_bool(result$config$use_elevation),
+      if (isTRUE(result$config$use_elevation)) {
+        elev_loaded <- "elevation_m" %in% covariates
+        if (!elev_loaded) " (requested but not loaded — check covariate cache)" else paste0(" (", fmt_chr(result$config$elevation_demtype), ")")
+      } else ""),
+    paste0("- Soil enabled: ", fmt_bool(result$config$use_soil),
+      if (isTRUE(result$config$use_soil)) {
+        soil_loaded <- any(grepl("^soil_", covariates))
+        if (!soil_loaded) " (requested but not loaded — check covariate cache)" else paste0(" (", fmt_chr(result$config$selected_soil_vars), " at ", fmt_chr(result$config$selected_soil_depths), ")")
+      } else ""),
     paste0("- Training extent: ", fmt_extent(result$config$training_extent)),
     paste0("- Projection extent: ", fmt_extent(result$config$projection_extent)),
     "", "Cleaned occurrence data",
