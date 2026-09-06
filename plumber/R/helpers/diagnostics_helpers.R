@@ -649,7 +649,10 @@ handle_diagnostics_calibration <- function(req, res, run_id, app_dir) {
     })
     list(available = TRUE, bins = cal_list)
   }, error = function(e) {
-    list(error = paste("Calibration computation failed:", conditionMessage(e)))
+    list(
+      error = paste("Calibration computation failed:", conditionMessage(e)),
+      error_stack = paste(capture.output(traceback(max.lines = 20L)), collapse = "\n")
+    )
   })
 }
 
@@ -690,7 +693,10 @@ handle_diagnostics_cv_folds <- function(req, res, run_id, app_dir) {
       folds = fold_list
     )
   }, error = function(e) {
-    list(error = paste("CV folds computation failed:", conditionMessage(e)))
+    list(
+      error = paste("CV folds computation failed:", conditionMessage(e)),
+      error_stack = paste(capture.output(traceback(max.lines = 20L)), collapse = "\n")
+    )
   })
 }
 
