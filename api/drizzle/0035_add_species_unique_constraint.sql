@@ -6,5 +6,13 @@
 -- With this constraint the second INSERT fails with a unique-violation
 -- which is handled gracefully by ON CONFLICT DO NOTHING in the API.
 
-ALTER TABLE "species" ADD CONSTRAINT "species_project_name_unique"
-  UNIQUE ("project_id", "name");
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'species_project_name_unique'
+  ) THEN
+    ALTER TABLE "species" ADD CONSTRAINT "species_project_name_unique"
+      UNIQUE ("project_id", "name");
+  END IF;
+END
+$$;

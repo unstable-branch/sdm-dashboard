@@ -243,15 +243,19 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
           const runId = payload.runId as string;
           if (runId) {
             const cpuDelta = cpuStart ? process.cpuUsage(cpuStart) : undefined;
-            await db
-              .update(runs)
-              .set({
-                status: "failed",
-                error: finalError,
-                completedAt: new Date(),
-                rCpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
-              })
-              .where(eq(runs.id, runId));
+            try {
+              await db
+                .update(runs)
+                .set({
+                  status: "failed",
+                  error: finalError,
+                  completedAt: new Date(),
+                  rCpuTimeMs: cpuDelta ? Math.round((cpuDelta.user + cpuDelta.system) / 1000) : null,
+                })
+                .where(eq(runs.id, runId));
+            } catch (dbErr) {
+              console.error(`[queue] failed to mark run ${runId} as failed:`, dbErr instanceof Error ? dbErr.message : String(dbErr));
+            }
           }
         }
 
