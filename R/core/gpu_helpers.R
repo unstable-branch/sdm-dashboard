@@ -1,25 +1,51 @@
 # Accelerator helpers. R torch exposes both NVIDIA CUDA and AMD ROCm through
 # device = "cuda"; keep the public backend label separate from that tensor name.
 
+# Session-level cache for accelerator capabilities (avoids repeated cuda_is_available probes)
+._gpu_caps_cache <- new.env(parent = emptyenv())
+
+.sdm_rocm_runtime_detected <- function() {
+  dlls <- tryCatch(getLoadedDLLs(), error = function(e) list())
+  rocm_dlls <- c("libamdhip64.so", "libhsa-runtime64.so", "libhsa-runtime.so")
+  any(rocm_dlls %in% names(dlls)) || any(grepl("amdhip|hsa-runtime", names(dlls), ignore.case = TRUE))
+}
+
 sdm_accelerator_capabilities <- function(capabilities = NULL) {
   if (!is.null(capabilities)) {
-    raw <- capabilities
-  } else {
+    .caps <- .compute_caps(capabilities)
+    assign("caps", .caps, envir = ._gpu_caps_cache)
+    return(.caps)
+  }
+  if (exists("caps", envir = ._gpu_caps_cache)) {
+    return(get("caps", envir = ._gpu_caps_cache))
+  }
+  .caps <- .compute_caps(NULL)
+  assign("caps", .caps, envir = ._gpu_caps_cache)
+  .caps
+}
+
+.compute_caps <- function(raw = NULL) {
+  if (is.null(raw)) {
     torch_ready <- requireNamespace("torch", quietly = TRUE) &&
       tryCatch(torch::torch_is_installed(), error = function(e) FALSE)
     torch_cuda <- torch_ready && tryCatch(torch::cuda_is_available(), error = function(e) FALSE)
     mps <- torch_ready && tryCatch(torch::mps_is_available(), error = function(e) FALSE)
-    # rocm-smi/environment are vendor labels only. They never make an R torch
-    # backend available without a successful CUDA-compatible torch probe.
-    rocm_hint <- nzchar(Sys.getenv("ROCM_HOME", "")) ||
-      nzchar(Sys.getenv("ROCM_PATH", "")) ||
-      nzchar(Sys.getenv("HIP_PATH", "")) ||
-      nzchar(Sys.which("rocm-smi")) || file.exists("/opt/rocm/bin/rocm-smi")
-    raw <- list(cuda = torch_cuda, cuda_compatible = torch_cuda, rocm = torch_cuda && rocm_hint, mps = mps)
+    raw <- list(cuda = torch_cuda, cuda_compatible = torch_cuda, mps = mps)
   }
 
   cuda_compatible <- isTRUE(raw$cuda_compatible %||% raw$cuda)
-  rocm <- isTRUE(raw$rocm) && cuda_compatible
+  if (!is.null(raw$rocm)) {
+    rocm <- isTRUE(raw$rocm) && cuda_compatible
+  } else {
+    rocm_runtime <- cuda_compatible && .sdm_rocm_runtime_detected()
+    rocm_env <- identical(tolower(Sys.getenv("SDM_ROCM", "")), "1")
+    rocm <- cuda_compatible && (rocm_runtime || rocm_env)
+    if (rocm_env && !rocm_runtime) {
+      message("SDM_ROCM=1 is set, but no ROCm runtime libraries detected. ",
+              "Training will proceed assuming ROCm backend. ",
+              "Unset SDM_ROCM if running on NVIDIA CUDA.")
+    }
+  }
   cuda <- isTRUE(raw$cuda) && !rocm
   mps <- isTRUE(raw$mps)
   list(
@@ -27,7 +53,6 @@ sdm_accelerator_capabilities <- function(capabilities = NULL) {
     rocm = rocm,
     mps = mps,
     cpu = TRUE,
-    # Keep this mapping internal: ROCm tensors still use the R torch "cuda" name.
     tensor_devices = c(cuda = "cuda", rocm = "cuda", mps = "mps", cpu = "cpu")
   )
 }
@@ -77,6 +102,11 @@ sdm_backend_device <- function(backend, capabilities = NULL) {
 
 sdm_is_cuda_backend <- function(backend = "auto", capabilities = NULL) {
   identical(sdm_resolve_backend(backend, capabilities = capabilities)$backend, "cuda")
+}
+
+sdm_device_is_cuda_tensor <- function(device) {
+  dev <- if (inherits(device, "torch_device")) device$type else as.character(device)
+  identical(dev, "cuda") || startsWith(dev, "cuda")
 }
 
 sdm_use_gpu <- function(capabilities = NULL) {

@@ -17,6 +17,8 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
                                       dnn_cuda_graphs = "auto",
                                       mc_samples = 0L,
                                       uncertainty_method = "none",
+                                      validation_frac = 0.3,
+                                      early_stopping_patience = 14L,
                                       ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages.", call. = FALSE)
@@ -177,9 +179,9 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
         dropout = arch$dropout,
         lambda = arch$lambda %||% 0.001,
         alpha = 1.0,
-        validation = 0.3,
+        validation = validation_frac,
         lr_scheduler = cito::config_lr_scheduler("reduce_on_plateau", patience = 7),
-        early_stopping = 14L,
+        early_stopping = early_stopping_patience,
         device = dnn_device,
         verbose = FALSE
       )
