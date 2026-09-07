@@ -71,7 +71,14 @@ makefile_lines <- gsub(
   paste0('-Wl,-rpath,', torch_lib, ':-Wl,-rpath,', torch_home_lib),
   makefile_lines
 )
-writeLines(makefile_lines, "Makefile")
+writeLines(makefile_lines, "Makefile.new")
+if (!file.exists("Makefile.new") || length(readLines("Makefile.new")) != length(makefile_lines)) {
+  unlink("Makefile.new")
+  stop("build_sdmtorch: Makefile.new write failed or produced wrong line count")
+}
+
+# Rename BEFORE make so make reads the rewritten Makefile.
+file.rename("Makefile.new", "Makefile")
 
 # Clean and build all targets
 cat("Building sdmtorch targets...\n")

@@ -192,7 +192,9 @@ test_that("predict_dnn_multispecies_suitability full integration with real cito 
     seed = 42,
     dnn_architecture = "DNN_Small",
     n_seeds = 1,
-    n_cores = 1
+    n_cores = 1,
+    validation_frac = 0.1,
+    early_stopping_patience = 5L
   )
 
   expect_true(is.list(fit))

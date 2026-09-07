@@ -48,6 +48,15 @@ gpu_profile_stop <- function(enabled) {
 
 # ABI compatibility check: verify .so was compiled against the same torch version
 # that is currently loaded. Prevents silent memory corruption from ABI mismatches.
+#' Verify ABI compatibility between a compiled C++ extension and the loaded torch.
+#' @param so_path Path to the compiled .so file.
+#' @param so_label Label for error messages.
+#' @details Uses stop() (not warning()) because an ABI mismatch means the extension was
+#'   compiled against a different torch major.minor version. Continuing with a mismatched
+#'   extension can produce silently wrong numerical results. The caller (train_model_fused)
+#'   wraps this in tryCatch — if stop() fires, training aborts immediately and the
+#'   caller falls back gracefully. Use stop(call.=FALSE) so the caller's tryCatch
+#'   catches the error rather than this function's own call site.
 sdm_check_so_abi <- function(so_path, so_label = "C++ extension") {
   if (!file.exists(so_path)) return(invisible(FALSE))
   if (!requireNamespace("torch", quietly = TRUE)) return(invisible(FALSE))
@@ -59,11 +68,10 @@ sdm_check_so_abi <- function(so_path, so_label = "C++ extension") {
   so_major <- strsplit(so_version, "\\.")[[1]][1:2]
   torch_major <- strsplit(torch_version, "\\.")[[1]][1:2]
   if (!identical(so_major, torch_major)) {
-    warning(sprintf(
-      "%s compiled against torch %s but running torch %s — ABI mismatch risk. Rebuild with: make -C sdmtorch clean all",
+    stop(sprintf(
+      "%s compiled against torch %s but running torch %s — ABI mismatch. Training cannot continue safely. Rebuild with: make -C sdmtorch clean all",
       so_label, so_version, torch_version
-    ))
-    return(invisible(FALSE))
+    ), call. = FALSE)
   }
   invisible(TRUE)
 }
@@ -226,6 +234,20 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   use_amp <- is_cuda_native && (identical(mp_setting, "auto") || isTRUE(mp_setting) || identical(mp_setting, "on"))
   use_cudagraphs <- is_cuda_native && (identical(cg_setting, "auto") || isTRUE(cg_setting) || identical(cg_setting, "on"))
 
+  if (use_amp) {
+    n_outputs <- if (!is.null(model$training_properties$embeddings)) {
+      length(model$training_properties$embeddings$dims %||% 1L)
+    } else if (!is.null(model$net$out_features)) {
+      model$net$out_features
+    } else {
+      1L
+    }
+    if (n_outputs > 1L) {
+      use_amp <- FALSE
+      if (isTRUE(verbose)) cat("[GPU] Multi-output model detected — AMP disabled to prevent scaler overflow\n")
+    }
+  }
+
   # Load CUDA Graphs .so if needed
   if (use_cudagraphs) {
     sdm_root <- if (exists("sdm_project_root", mode = "function")) sdm_project_root() else getwd()
@@ -284,7 +306,20 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
   start_epoch <- min(which(is.na(model$losses$train_l)))
 
   # Enable cuDNN autotuner for optimal kernel selection on cuDNN >= 7.6
+  # Save/restore both settings so they don't leak to other R torch sessions.
   if (is_cuda_native) {
+    prev_cudnn_benchmark <- tryCatch(torch::torch_backends_cudnn_benchmark(), error = function(e) NA)
+    prev_precision <- tryCatch({
+      if (exists("get_float32_matmul_precision", envir = asNamespace("torch"))) {
+        torch::get_float32_matmul_precision()
+      } else {
+        "highest"
+      }
+    }, error = function(e) "highest")
+    on.exit({
+      tryCatch(torch::torch_backends_cudnn_benchmark(prev_cudnn_benchmark), error = function(e) NULL)
+      tryCatch(torch::set_float32_matmul_precision(prev_precision), error = function(e) NULL)
+    }, add = TRUE)
     tryCatch(torch::torch_backends_cudnn_benchmark(TRUE), error = function(e) NULL)
     tryCatch(torch::set_float32_matmul_precision("high"), error = function(e) NULL)
   }
@@ -300,9 +335,18 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
       cg_stream_setup <- TRUE
     }, error = function(e) {
       cat("[GPU] CUDA Graph stream setup failed, disabling CUDA Graphs:", conditionMessage(e), "\n")
+      tryCatch({
+        if (is.loaded("cuda_graph_reset_stream", PACKAGE = "")) {
+          .Call("cuda_graph_reset_stream")
+        } else {
+          torch::cuda_synchronize()
+        }
+      }, error = function(e2) NULL)
       use_cudagraphs <<- FALSE
     })
   }
+
+  .nan_streak <- 0L
 
   for (epoch in start_epoch:(start_epoch + epochs - 1)) {
     epoch_start <- Sys.time()
@@ -320,6 +364,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
     cg_warmup <- 0L
     cg_captured <- FALSE
     cg_batches_this_epoch <- 0L
+    cg_capture_shape <- NULL
 
     for (batch_count in seq_len(n_batches)) {
       b <- train_batches[[batch_count]]
@@ -340,9 +385,17 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
       can_use_graph <- use_cudagraphs && !cg_captured && cg_warmup >= 3L &&
         batch_count %% acc_steps == 1L
       if (can_use_graph) {
-        torch::cuda_synchronize()
-        cg_captured <- TRUE
-        .Call("cuda_graph_begin", TRUE)
+        batch_shape <- dim(x_batch)
+        if (!is.null(cg_capture_shape) && !identical(batch_shape, cg_capture_shape)) {
+          if (isTRUE(verbose)) cat("[GPU] Skipping CUDA Graph capture — batch shape changed (expected ", paste(cg_capture_shape, collapse = "x"), ", got ", paste(batch_shape, collapse = "x"), ")\n", sep = "")
+          can_use_graph <- FALSE
+          use_cudagraphs <<- FALSE
+        } else {
+          torch::cuda_synchronize()
+          if (is.null(cg_capture_shape)) cg_capture_shape <<- batch_shape
+          cg_captured <- TRUE
+          .Call("cuda_graph_begin", TRUE)
+        }
       }
 
       if (use_amp && is_cuda_native) {
@@ -458,6 +511,17 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
       if (verbose) cat("Loss is NA. Bad training.\n")
       model$successfull <- 0L
       break
+    }
+
+    if (is.nan(last_loss_val)) {
+      .nan_streak <- .nan_streak + 1L
+      if (.nan_streak >= 2L && use_amp && !is.null(scaler)) {
+        cat("[GPU] Persistent NaN with AMP — disabling AMP and continuing in fp32\n")
+        scaler <- NULL
+        use_amp <<- FALSE
+      }
+    } else {
+      .nan_streak <- 0L
     }
 
     model$losses$train_l[epoch] <- mean(train_l_vec[seq_len(train_batch_idx)])
