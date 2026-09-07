@@ -5,6 +5,11 @@
 #include <cstring>
 #include <mutex>
 
+// dl_iterate_phdr requires _GNU_SOURCE on glibc; guard for non-linux platforms
+#ifdef __linux__
+#include <link.h>
+#endif
+
 // CUDA Graph capture/replay via ATen's CUDAGraph API.
 // Uses dlsym to load symbols from libtorch_cuda.so and libc10_cuda.so
 // to avoid compile-time dependency on CUDA headers.
@@ -59,24 +64,45 @@ static void* find_symbol(void* handle, const char* name, const char* label) {
 
 static void ensure_at_cuda() {
   std::call_once(at_cuda_init_flag, []() {
-    // Find libtorch_cuda.so from /proc/self/maps
-    FILE* maps = fopen("/proc/self/maps", "r");
-    char line[4096];
-    while (maps && fgets(line, sizeof(line), maps)) {
-      if (strstr(line, "libtorch_cuda.so")) {
-        char* path = strchr(line, '/');
-        if (path) {
-          char* nl = strchr(path, '\n');
-          if (nl) *nl = '\0';
-          size_t len = strlen(path);
-          if (len < sizeof(at_cu.torch_lib_path))
-            memcpy(at_cu.torch_lib_path, path, len + 1);
-          break;
+    // Cross-platform approach to find libtorch_cuda.so:
+    // 1. dl_iterate_phdr (Linux/glibc) — walks loaded shared objects
+    // 2. dlopen(RTLD_LAZY) fallback — tries common paths directly
+    bool found = false;
+
+#ifdef __linux__
+    struct FindCtx { char path[1024]; bool found; };
+    FindCtx ctx = {{0}, false};
+    auto callback = [](struct dl_phdr_info* info, size_t size, void* data) -> int {
+      FindCtx* c = static_cast<FindCtx*>(data);
+      if (info->dlpi_name && strstr(info->dlpi_name, "libtorch_cuda.so")) {
+        strncpy(c->path, info->dlpi_name, sizeof(c->path) - 1);
+        c->found = true;
+        return 1;
+      }
+      return 0;
+    };
+    dl_iterate_phdr(callback, &ctx);
+    if (ctx.found) {
+      strncpy(at_cu.torch_lib_path, ctx.path, sizeof(at_cu.torch_lib_path) - 1);
+      found = true;
+    }
+#endif
+
+    if (!found) {
+      // RTLD_LAZY: tries to load libtorch_cuda.so from paths dlopen already knows about
+      // (R torch loads it on package load; this just gets a handle to it)
+      void* h = dlopen("libtorch_cuda.so", RTLD_LAZY | RTLD_NOLOAD);
+      if (h) {
+        Dl_info info;
+        if (dladdr(reinterpret_cast<void*>(h), &info) && info.dli_fname) {
+          strncpy(at_cu.torch_lib_path, info.dli_fname, sizeof(at_cu.torch_lib_path) - 1);
+          found = true;
         }
+        dlclose(h);
       }
     }
-    if (maps) fclose(maps);
-    if (at_cu.torch_lib_path[0] == '\0')
+
+    if (!found)
       Rf_errorcall(R_NilValue, "Cannot find libtorch_cuda.so. Is torch loaded?");
 
     at_cu.torch_cuda_handle = dlopen(at_cu.torch_lib_path, RTLD_LAZY | RTLD_NOLOAD);
@@ -262,6 +288,20 @@ SEXP cuda_graph_cleanup(SEXP graph_xptr) {
   if (graph_xptr != R_NilValue && TYPEOF(graph_xptr) == EXTPTRSXP) {
     cudagraph_finalizer(graph_xptr);
   }
+  return R_NilValue;
+}
+
+// Reset CUDA stream to default (cudaStreamLegacy = 0) on the current device.
+// Called from R error handlers when cuda_setup_graph_stream fails and the
+// stream state may be inconsistent. Safe to call even if setup was never called.
+SEXP cuda_graph_reset_stream() {
+  ensure_at_cuda();
+  if (!at_cu.getCurrentCUDAStream || !at_cu.setCurrentCUDAStream) {
+    return R_NilValue;
+  }
+  // cudaStreamLegacy is represented as a null intrusive_ptr (all zeros, 8 bytes)
+  uint8_t default_stream[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+  at_cu.setCurrentCUDAStream(default_stream);
   return R_NilValue;
 }
 
