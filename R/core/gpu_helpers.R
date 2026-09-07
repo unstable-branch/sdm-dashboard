@@ -177,7 +177,7 @@ sdm_load_pinned_alloc <- function(backend = gpu_backend()) {
 raster_to_tensor_pinned <- function(rast, device = gpu_device(), backend = gpu_backend()) {
   if (!identical(backend, "cuda") || !sdm_load_pinned_alloc(backend) ||
       !is.loaded("pinned_alloc", PACKAGE = "pinned_alloc") ||
-      !is.loaded("pinned_to_gpu_tensor", PACKAGE = "pinned_alloc")) {
+      !is.loaded("pinned_to_gpu_tensor_sync", PACKAGE = "pinned_alloc")) {
     return(raster_to_tensor(rast, device))
   }
   vals <- terra::values(rast)
@@ -187,7 +187,7 @@ raster_to_tensor_pinned <- function(rast, device = gpu_device(), backend = gpu_b
   buf <- .Call("pinned_alloc", NROW(vals), n_vars)
   on.exit(tryCatch(.Call("pinned_free", buf), error = function(e) NULL), add = TRUE)
   .Call("pinned_fill", buf, vals)
-  tensor <- .Call("pinned_to_gpu_tensor", buf, device)
+  tensor <- .Call("pinned_to_gpu_tensor_sync", buf, device)
   tensor$view(c(NROW(vals), n_vars))
 }
 
