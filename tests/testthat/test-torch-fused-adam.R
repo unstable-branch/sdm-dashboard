@@ -20,6 +20,8 @@ test_that("sdm_check_so_abi returns FALSE for missing file", {
 })
 
 test_that("sdm_check_so_abi stop is caught by tryCatch", {
+  skip_if_no_torch()  # torch must be available for stop() to fire (version mismatch)
+
   # Create a garbage .so with wrong ABI marker
   tmp <- tempfile(fileext = ".so")
   on.exit(unlink(tmp), add = TRUE)
