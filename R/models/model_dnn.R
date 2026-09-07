@@ -1,32 +1,20 @@
-# VRAM-safe batch size: cap batch to avoid OOM on consumer GPUs
+# VRAM-safe batch size: cap batch to avoid OOM on consumer GPUs.
+# Delegates to sdm_gpu_available_vram() which contains the single VRAM probe implementation.
+#' @details Uses sdm_device_is_cuda_tensor() to check device type and delegates the
+#'   VRAM probe to sdm_gpu_available_vram() to avoid duplicate torch probes. If no GPU
+#'   is detected, falls back to a conservative batch size based on n_train / 10.
 .vram_safe_batchsize <- function(n_train, hidden_layers, device, max_batch = 512L) {
-  if (!identical(device, "cuda") && !startsWith(device, "cuda")) {
+  if (!sdm_device_is_cuda_tensor(device)) {
     return(min(max_batch, max(32L, floor(n_train / 10))))
   }
-  free_mib <- NA_real_
-  if (requireNamespace("torch", quietly = TRUE) && torch::torch_is_installed()) {
-    free_mib <- tryCatch(sdm_gpu_available_vram(), error = function(e) NA_real_)
-    if (!is.finite(free_mib)) {
-      # nvidia-smi unavailable inside container; attempt torch-level query as fallback
-      tryCatch({
-        stats <- torch::cuda_memory_stats()
-        # Use max_split_size as a proxy: if torch hasn't allocated yet, assume reasonable VRAM
-        allocated <- stats[["allocated_bytes"]][["current"]] %||% 0
-        total <- stats[["reserved_bytes"]][["all"]] %||% 0
-        if (total > 0) free_mib <- floor((total - allocated) / (1024 * 1024))
-      }, error = function(e) NULL)
-    }
-  }
+  free_mib <- tryCatch(sdm_gpu_available_vram(), error = function(e) NA_real_)
   if (!is.finite(free_mib) || free_mib < 128) {
     return(min(max_batch, max(32L, floor(n_train / 10))))
   }
-  # VRAM-tier max_batch override: larger GPUs handle bigger batches
   max_batch <- if (free_mib >= 24000) 8192L
     else if (free_mib >= 16000) 4096L
     else if (free_mib >= 8000) 2048L
     else 512L
-  # Rough per-sample cost estimate (MiB): parameters + activations + gradients + optim states
-  # Assumes ~4 bytes per float, ~8x overhead for activations + grads + Adam states + output layer
   max_hidden <- max(hidden_layers %||% 64L)
   per_sample_mib <- max_hidden * length(hidden_layers) * 4 * 8 / (1024 * 1024)
   if (per_sample_mib < 0.001) per_sample_mib <- 0.001
