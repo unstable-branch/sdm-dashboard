@@ -59,11 +59,10 @@ sdm_check_so_abi <- function(so_path, so_label = "C++ extension") {
   so_major <- strsplit(so_version, "\\.")[[1]][1:2]
   torch_major <- strsplit(torch_version, "\\.")[[1]][1:2]
   if (!identical(so_major, torch_major)) {
-    warning(sprintf(
-      "%s compiled against torch %s but running torch %s — ABI mismatch risk. Rebuild with: make -C sdmtorch clean all",
+    stop(sprintf(
+      "%s compiled against torch %s but running torch %s — ABI mismatch. Training cannot continue safely. Rebuild with: make -C sdmtorch clean all",
       so_label, so_version, torch_version
-    ))
-    return(invisible(FALSE))
+    ), call. = FALSE)
   }
   invisible(TRUE)
 }
