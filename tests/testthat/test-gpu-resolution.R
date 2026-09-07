@@ -33,8 +33,9 @@ test_that("SDM_ROCM=1 opt-in triggers message when no runtime detected", {
     rm("caps", envir = ._gpu_caps_cache)
   }
 
+  # cuda_compatible must be TRUE for rocm detection to fire; pass cuda=TRUE
   expect_message(
-    sdm_accelerator_capabilities(list(cuda = FALSE, rocm = FALSE, mps = FALSE)),
+    sdm_accelerator_capabilities(list(cuda = TRUE, rocm = FALSE, mps = FALSE)),
     "SDM_ROCM=1 is set, but no ROCm runtime"
   )
 })
