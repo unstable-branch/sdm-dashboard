@@ -4,12 +4,24 @@
 # Session-level cache for accelerator capabilities (avoids repeated cuda_is_available probes)
 ._gpu_caps_cache <- new.env(parent = emptyenv())
 
+#' Probe AMD ROCm runtime via loaded DLLs.
+#' @details Uses getLoadedDLLs() to check for libamdhip64.so and related ROCm
+#'   runtime libraries. This is a runtime probe (authoritative) vs the
+#'   SDM_ROCM=1 env-var which is an explicit opt-in with a warning message.
 .sdm_rocm_runtime_detected <- function() {
   dlls <- tryCatch(getLoadedDLLs(), error = function(e) list())
   rocm_dlls <- c("libamdhip64.so", "libhsa-runtime64.so", "libhsa-runtime.so")
   any(rocm_dlls %in% names(dlls)) || any(grepl("amdhip|hsa-runtime", names(dlls), ignore.case = TRUE))
 }
 
+#' Resolve accelerator capabilities for the current host.
+#' @param capabilities Optional named list with cuda/rocm/mps flags. When NULL
+#'   (default), probes the runtime. When provided (e.g., from python_torch_dnn
+#'   via python_capabilities), the explicit values are used directly.
+#' @details Results are cached per session in ._gpu_caps_cache. Pass an explicit
+#'   capabilities list to bypass the cache and force recomputation. ROCm
+#'   detection uses getLoadedDLLs() as the primary probe; set SDM_ROCM=1 for
+#'   an explicit opt-in (triggers a warning if no ROCm runtime is detected).
 sdm_accelerator_capabilities <- function(capabilities = NULL) {
   if (!is.null(capabilities)) {
     .caps <- .compute_caps(capabilities)
@@ -104,6 +116,11 @@ sdm_is_cuda_backend <- function(backend = "auto", capabilities = NULL) {
   identical(sdm_resolve_backend(backend, capabilities = capabilities)$backend, "cuda")
 }
 
+#' Check if a torch device is CUDA (NVIDIA or AMD ROCm).
+#' @param device A torch_device object or a character device string e.g. "cuda:0".
+#' @details Both NVIDIA CUDA and AMD ROCm tensors use the "cuda" device name in R torch.
+#'   This function returns TRUE for any device starting with "cuda" to cover both.
+#'   Use this instead of string comparisons like `startsWith(device, "cuda")`.
 sdm_device_is_cuda_tensor <- function(device) {
   dev <- if (inherits(device, "torch_device")) device$type else as.character(device)
   identical(dev, "cuda") || startsWith(dev, "cuda")
