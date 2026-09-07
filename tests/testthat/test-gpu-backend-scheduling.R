@@ -21,6 +21,21 @@ test_that("backend resolution preserves ROCm's internal torch device without ven
   expect_identical(sdm_resolve_backend("mps", list(cuda = FALSE, mps = TRUE))$backend, "mps")
 })
 
+test_that(".compute_caps honors explicit rocm capability input", {
+  explicit_rocm <- sdm_accelerator_capabilities(list(cuda = TRUE, rocm = TRUE, mps = FALSE))
+  expect_true(explicit_rocm$rocm)
+  expect_false(explicit_rocm$cuda)
+
+  explicit_cuda_only <- sdm_accelerator_capabilities(list(cuda = TRUE, rocm = FALSE, mps = FALSE))
+  expect_true(explicit_cuda_only$cuda)
+  expect_false(explicit_cuda_only$rocm)
+
+  no_gpu <- sdm_accelerator_capabilities(list(cuda = FALSE, rocm = FALSE, mps = FALSE))
+  expect_false(no_gpu$rocm)
+  expect_false(no_gpu$cuda)
+  expect_true(no_gpu$cpu)
+})
+
 test_that("GPU process counts include accelerator tags while CPU counts exclude them", {
   old_registry <- if (exists("sdm_process_registry", envir = .GlobalEnv, inherits = FALSE)) {
     get("sdm_process_registry", envir = .GlobalEnv)

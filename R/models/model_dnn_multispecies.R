@@ -17,6 +17,8 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
                                       dnn_cuda_graphs = "auto",
                                       mc_samples = 0L,
                                       uncertainty_method = "none",
+                                      validation_frac = 0.3,
+                                      early_stopping_patience = 14L,
                                       ...) {
   if (!requireNamespace("cito", quietly = TRUE) || !requireNamespace("torch", quietly = TRUE)) {
     stop("DNN backend requires cito and torch packages.", call. = FALSE)
@@ -177,9 +179,9 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
         dropout = arch$dropout,
         lambda = arch$lambda %||% 0.001,
         alpha = 1.0,
-        validation = 0.3,
+        validation = validation_frac,
         lr_scheduler = cito::config_lr_scheduler("reduce_on_plateau", patience = 7),
-        early_stopping = 14L,
+        early_stopping = early_stopping_patience,
         device = dnn_device,
         verbose = FALSE
       )
@@ -564,7 +566,14 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
       }
 
       pred[batch_idx, ] <- rowMeans(batch_pred[seq_len(batch_len), , seq_len(n_ok), drop = FALSE], dims = 2, na.rm = TRUE)
-      pred_sd[batch_idx, ] <- apply(batch_pred[seq_len(batch_len), , seq_len(n_ok), drop = FALSE], 1:2, stats::sd, na.rm = TRUE)
+      bp_slice <- batch_pred[seq_len(batch_len), , seq_len(n_ok), drop = FALSE]
+      pred_sd[batch_idx, ] <- apply(bp_slice, 1:2, function(x) {
+        x <- x[!is.na(x)]
+        n <- length(x)
+        if (n < 2L) return(0)
+        m <- sum(x) / n
+        sqrt(sum((x - m)^2) / (n - 1L))
+      })
     }
   }
 
