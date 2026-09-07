@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### GPU acceleration hardening (Groups Ph1–Ph4)
+
+#### Phase 1 — ABI contract, session cache, hybrid ROCm detection
+
+- `scripts/build_sdmtorch.R` now writes a `.sdmtorch-abi.json` manifest (torch version, compile date, arch) next to each `.so`. On load, `sdm_check_so_abi()` compares the runtime torch version against the manifest and calls `stop()` on mismatch — was previously a warning that was easy to miss. This prevents silent numerical corruption from ABI-incompatible torch/ compilation combos.
+- `.gpu_caps_cache` session-level cache added in `R/core/gpu_helpers.R`. `sdm_accelerator_capabilities()` now caches per session, avoiding repeated `cuda_is_available()` probes.
+- ROCm detection now uses `getLoadedDLLs()` as primary probe (libamdhip64.so, libhsa-runtime64.so). `SDM_ROCM=1` is an explicit opt-in with a warning if no ROCm runtime is found. Previously defaulted to CUDA unless `SDM_ROCM=1` was set, ignoring hardware-level detection.
+- `validation_fraction` and `early_stopping` DNN parameters now propagate correctly to multispecies models (`model_dnn_multispecies.R`). Previously silently dropped.
+
+#### Phase 2 — Precision, CUDNN state, NaN safety, multi-output AMP
+
+- All model runs (single and multispecies) save and restore `torch/getPrecision()` and `torch/backends/cudnn/benchmark` on entry/exit. Nested calls (e.g., predict then train) correctly restore inner state on exit.
+- Fused Adam optimizer now detects NaN streaks: if 2 consecutive epochs produce all-NA predictions, AMP is hard-disabled for that run and a `model$gpu_metrics$amp_disabled_reason` field records the trigger.
+- `sdmtorch/src/cuda_graph.cpp` exports `cuda_graph_reset_stream`, callable from R as `.Call("cuda_graph_reset_stream", stream_ptr)` to break stale CUDA Graph state on a given stream.
+- AMP is hard-disabled for multi-output models (DNN with >1 output tensor). Mixed-precision training on multi-output DNNs produces incorrect gradients; the code now detects this case and falls back to full-precision training without AMP.
+
+#### Phase 3 — VRAM dedup, vectorized SD, CUDA Graph assertions, RTLD_LAZY fallback
+
+- `sdm_gpu_available_vram()` deduplicates repeated `cudaMemGetInfo` calls within a session. Previously every call to `predict_model_dnn` triggered a fresh `cudaMemGetInfo` round-trip.
+- Per-species standard deviation in multispecies DNN training is now vectorized over species dim (no `apply(..., 1:2, sd)` loop). Speeds up large multispecies batches.
+- CUDA Graph shape assertion added: before capture, verifies input batch size ≤ 65536 and n_features is a valid covariate count. Fails fast with a descriptive message on invalid shapes.
+- `dl_iterate_phdr` resolution now falls back to `RTLD_LAZY` if the symbol is not found at build time. Previously threw an UnsatisfiedLinkError on systems where the symbol is not exported.
+
+#### Phase 4 — Test coverage, roxygen documentation
+
+- `tests/testthat/test-gpu-resolution.R`: 9 pure-R tests for GPU helper functions (no torch required): `sdm_accelerator_capabilities`, `sdm_backend_is_gpu`, `sdm_resolve_backend`, `sdm_device_is_cuda_tensor`, `sdm_check_so_abi`, `sdm_load_pinned_alloc`, `sdm_gpu_available_vram`, `sdm_amp_safe_for_model`, `sdm_nan_streak_disable_amp`.
+- `tests/testthat/test-torch-fused-adam.R`: 5 skip-if-no-torch tests covering fused Adam dispatch (ATen-op kernel vs libtorch kernel), NaN streak → AMP disable, stream reset, multi-output AMP guard, and precision save/restore.
+- roxygen `@details` added to 5 functions: `.sdm_rocm_runtime_detected`, `sdm_accelerator_capabilities`, `sdm_gpu_available_vram`, `sdm_amp_safe_for_model`, `fused_adam_step`.
+
 ### Scientific leakage remediation (Group S: S1, S2, S3, S5, S6, S7, S8, S9)
 
 Eliminated silent data leakage and mislabeled metrics across the SDM pipeline. These regressions previously caused optimistic AUC/TSS reporting and on-disagreement predictions across all model backends. S4 (proposed bioclim/rangebag arg-order swap) was investigated and confirmed to be a false alarm — `terra::predict(obj, model, fun, ...)` invokes `fun(model, data_block, ...)`, so the original `(model, values)` signature is correct.
