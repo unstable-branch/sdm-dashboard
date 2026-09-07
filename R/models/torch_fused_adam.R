@@ -244,6 +244,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
     }
     if (n_outputs > 1L) {
       use_amp <- FALSE
+      model$amp_disabled_reason <- "multi_output"
       if (isTRUE(verbose)) cat("[GPU] Multi-output model detected — AMP disabled to prevent scaler overflow\n")
     }
   }
@@ -326,6 +327,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
 
   # GPU metrics tracking
   model$gpu_metrics <- list()
+  model$amp_disabled_reason <- NULL
 
   # CUDA Graphs: setup non-default stream before epoch loop (required for graph capture)
   cg_stream_setup <- FALSE
@@ -519,6 +521,7 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
         cat("[GPU] Persistent NaN with AMP — disabling AMP and continuing in fp32\n")
         scaler <- NULL
         use_amp <<- FALSE
+        model$amp_disabled_reason <- "nan_streak"
       }
     } else {
       .nan_streak <- 0L
