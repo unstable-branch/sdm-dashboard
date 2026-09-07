@@ -290,8 +290,33 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
   _worker.on("stalled", (jobId: string) => {
     console.warn(`[Worker] Job stalled: ${jobId}`);
   });
-  _worker.on("failed", (job: Job | undefined, err: Error) => {
-    if (job) console.warn(`[Worker] Job ${job.id} failed after retries: ${err.message}`);
+  _worker.on("failed", async (job: Job | undefined, err: Error) => {
+    if (!job) return;
+    const runId = (job.data.payload as Record<string, unknown>)?.runId as string | undefined;
+    if (runId) {
+      try {
+        await db
+          .update(runs)
+          .set({
+            status: "failed",
+            completedAt: new Date(),
+            error: err.message || "Job failed after all retries exhausted",
+            errorCode: (err as unknown as Record<string, unknown>).error_code as string | null ?? "WORKER_FAILED",
+            errorHint: (err as unknown as Record<string, unknown>).error_hint as string | null ?? null,
+          })
+          .where(eq(runs.id, runId));
+      } catch (dbErr) {
+        console.error(`[queue] failed to mark run ${runId} as failed in failed event handler:`, dbErr instanceof Error ? dbErr.message : String(dbErr));
+      }
+    }
+    jobEventBus.emitJobStatus({
+      jobId: runId ?? job.id ?? "unknown",
+      runId: runId,
+      state: "failed",
+      progress: 0,
+      failedReason: err.message || "Job failed after all retries exhausted",
+    });
+    console.warn(`[Worker] Job ${job.id} failed after retries: ${err.message}`);
   });
 
   return _worker;
