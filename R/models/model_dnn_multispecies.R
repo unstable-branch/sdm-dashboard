@@ -567,9 +567,13 @@ predict_dnn_multispecies_suitability <- function(fit, env_project_scaled, output
 
       pred[batch_idx, ] <- rowMeans(batch_pred[seq_len(batch_len), , seq_len(n_ok), drop = FALSE], dims = 2, na.rm = TRUE)
       bp_slice <- batch_pred[seq_len(batch_len), , seq_len(n_ok), drop = FALSE]
-      mean_pred <- rowMeans(bp_slice, dims = 2, na.rm = TRUE)
-      ss <- rowSums((bp_slice - mean_pred)^2, dims = 2, na.rm = TRUE)
-      pred_sd[batch_idx, ] <- sqrt(ss / pmax(1L, n_ok - 1L))
+      pred_sd[batch_idx, ] <- apply(bp_slice, 1:2, function(x) {
+        x <- x[!is.na(x)]
+        n <- length(x)
+        if (n < 2L) return(0)
+        m <- sum(x) / n
+        sqrt(sum((x - m)^2) / (n - 1L))
+      })
     }
   }
 

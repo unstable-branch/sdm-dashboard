@@ -46,17 +46,17 @@ sdm_accelerator_capabilities <- function(capabilities = NULL) {
   }
 
   cuda_compatible <- isTRUE(raw$cuda_compatible %||% raw$cuda)
+  rocm_env <- identical(tolower(Sys.getenv("SDM_ROCM", "")), "1")
+  rocm_runtime <- cuda_compatible && .sdm_rocm_runtime_detected()
   if (!is.null(raw$rocm)) {
     rocm <- isTRUE(raw$rocm) && cuda_compatible
   } else {
-    rocm_runtime <- cuda_compatible && .sdm_rocm_runtime_detected()
-    rocm_env <- identical(tolower(Sys.getenv("SDM_ROCM", "")), "1")
     rocm <- cuda_compatible && (rocm_runtime || rocm_env)
-    if (rocm_env && !rocm_runtime) {
-      message("SDM_ROCM=1 is set, but no ROCm runtime libraries detected. ",
-              "Training will proceed assuming ROCm backend. ",
-              "Unset SDM_ROCM if running on NVIDIA CUDA.")
-    }
+  }
+  if (rocm_env && !rocm_runtime) {
+    message("SDM_ROCM=1 is set, but no ROCm runtime libraries detected. ",
+            "Training will proceed assuming ROCm backend. ",
+            "Unset SDM_ROCM if running on NVIDIA CUDA.")
   }
   cuda <- isTRUE(raw$cuda) && !rocm
   mps <- isTRUE(raw$mps)
@@ -122,8 +122,8 @@ sdm_is_cuda_backend <- function(backend = "auto", capabilities = NULL) {
 #'   This function returns TRUE for any device starting with "cuda" to cover both.
 #'   Use this instead of string comparisons like `startsWith(device, "cuda")`.
 sdm_device_is_cuda_tensor <- function(device) {
-  dev <- if (inherits(device, "torch_device")) device$type else as.character(device)
-  identical(dev, "cuda") || startsWith(dev, "cuda")
+  dev <- if (inherits(device, "torch_device")) device$type else as.character(device)[1]
+  isTRUE(identical(dev, "cuda") || grepl("^cuda", dev, fixed = FALSE))
 }
 
 sdm_use_gpu <- function(capabilities = NULL) {
