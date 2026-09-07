@@ -527,12 +527,12 @@ Attach if UI or report changed.
 
 ## Project state (last refreshed after Group Q — queue catch block rCpuTimeMs fix + Group R — climate cache invalidation)
 
-- `dev` branch tip: `3bbaabb2` (after merging Groups Q, R, P fixes)
+- `dev` branch tip: `3bd089a2` (PR #80 — Phase 1-4 GPU code-path hardening)
 - `fix/queue-catch-block-cputime-round` branch: merged as PR #78
 - `fix/climate-cache-invalidation` branch: merged as PR #79
 - `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
-- Test counts (post-campaign): 293 api tests + 65 frontend tests passing; R test suites (test-run-sdm-stages, test-v03-methods, test-gam-contract, test-model-registry, test-multi-ensemble, test-determinism, test-dnn, test-utils-sdm-atomic-writes) all pass with warnings/skips only.
-- All Groups A through N are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
+- Test counts (post-campaign): 293 api tests + 65 frontend tests passing; R test suites (test-run-sdm-stages, test-v03-methods, test-gam-contract, test-model-registry, test-multi-ensemble, test-determinism, test-dnn, test-utils-sdm-atomic-writes, test-gpu-resolution, test-torch-fused-adam) all pass with warnings/skips only.
+- All Groups A through N and Ph1-Ph4 are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
 - The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
 
 ## Group summary (for context when reading CHANGELOG)
@@ -556,6 +556,10 @@ Attach if UI or report changed.
 | O | `fix/rangebag-cv-correctness` | `77c13156` | Rangebag CV: bg_fold_id fix (was always 0L → now properly sampled); response_curves rangebag branch added; multi-ensemble test threshold updated |
 | Q | `fix/queue-catch-block-cputime-round` | pending | API queue catch block: `rCpuTimeMs` now rounded to integer (fixes `WORKER_ORPHAN` for fast GLM runs); else branch now transitions `runs.status` to `completed`; defensive inner try/catch; orphan reconciliation migration |
 | R | `fix/climate-cache-invalidation` | pending | Climate cache: broken regex in `handle_climate_check` fixed (geodata naming, `_bio_<n>` → `bio_<n>`); shared matcher module eliminates three-way drift; pre-spawn short-circuit avoids no-op callr::r_bg spawns; sha256 cache manifest for proper invalidation; permission/uid-mismatch audit; Group B amendment note |
+| Ph1 | `fix/gpu-code-path-hardening` | `4e4a9f94` | Phase 1: ABI manifest + stop on mismatch, session GPU caps cache, hybrid ROCm DLL-based detection, multispecies validation/early_stopping params propagation |
+| Ph2 | `fix/gpu-code-path-hardening` | `23464490` | Phase 2: precision + cuDNN benchmark save/restore on entry/exit, NaN streak → AMP disable, C++ cuda_graph_reset_stream entry point, multi-output AMP hard-disable |
+| Ph3 | `fix/gpu-code-path-hardening` | `23464490` | Phase 3: sdm_gpu_available_vram() VRAM dedup, vectorized per-species SD (no apply loop), CUDA Graph shape assertion, RTLD_LAZY fallback for dl_iterate_phdr |
+| Ph4 | `fix/gpu-code-path-hardening` | `67e4d865` | Phase 4: test-gpu-resolution.R (9 pure-R GPU helper tests), test-torch-fused-adam.R (5 torch tests), roxygen @details on 5 functions |
 
 ## Known limitations
 What should reviewers know?
