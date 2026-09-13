@@ -64,6 +64,19 @@ fit_dnn_multispecies_sdm <- function(occ, env_train_scaled, background_n = sdm_d
     warning("DNN: requested ", resolved_backend$requested, " backend is unavailable. Falling back to CPU.")
   }
 
+  # torch::cuda_is_available() can return TRUE even on CPU-only systems where
+  # libtorch was built with CUDA support but no GPU is present.  cito::dnn
+  # segfaults when passed device="cuda" on such systems.  Probe with a real
+  # tensor allocation before committing to the CUDA path; fall back to CPU if
+  # the probe fails.
+  if (identical(backend, "cuda") && !.sdm_cuda_actually_usable("cuda")) {
+    log_message(log_fun, "  WARNING: CUDA reported available but tensor allocation probe failed. ",
+      "Falling back to CPU. If a GPU is present, check NVIDIA driver status.")
+    backend <- "cpu"
+    dnn_device <- "cpu"
+    use_fused_adam <- "off"
+  }
+
   # Resolve fused Adam: "off" → no, "always"/"auto" → yes if torch is available
   # Uses custom ATen-op Adam kernel (train_step_adam.so) which works on CPU/CUDA/MPS.
   # Multi-output (multi-species) DNN on CUDA must disable fused Adam — the JIT
