@@ -7,7 +7,8 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
                                  fit_fun,
                                  fold_id = NULL,
                                  collect_predictions = FALSE,
-                                 log_fun = NULL) {
+                                 log_fun = NULL,
+                                 per_fold_preprocess = NULL) {
   if (is.null(model_data) || nrow(model_data) == 0) {
     return(list(
       k = 0, strategy = "none", auc_mean = NA_real_, auc_sd = NA_real_,
@@ -83,7 +84,26 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
   n_cores <- min(normalize_core_count(n_cores), k)
   fold_sizes <- summarise_cv_folds(fold_id, model_data$presence, block_id = block_id)
 
-  fit_one_fold <- function(i) fit_fun(i, model_data, fold_id, threshold)
+  # Group-S fix (S1 + S2): if the caller provided a per-fold preprocessing
+  # callback, prepare per-fold state ahead of time. The callback receives the
+  # fold index and the original `model_data` + `fold_id` and must return a
+  # list with:
+  #   fit_fun: a closure `function(i, threshold)` that replaces the original
+  #            fit_fun for this fold (typically pre-scaled and VIF-filtered)
+  #   metadata: optional list() with diagnostic info (e.g., dropped vars)
+  fold_states <- list()
+  if (is.function(per_fold_preprocess)) {
+    fold_states <- lapply(seq_len(k), function(i) {
+      per_fold_preprocess(i = i, model_data = model_data, fold_id = fold_id)
+    })
+  }
+
+  fit_one_fold <- function(i) {
+    if (length(fold_states) > 0 && !is.null(fold_states[[i]]$fit_fun)) {
+      return(fold_states[[i]]$fit_fun(i, threshold))
+    }
+    fit_fun(i, model_data, fold_id, threshold)
+  }
 
   run_single_core_cv <- function() run_folds()
 
@@ -140,6 +160,17 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
   fold_metrics <- fold_results$metrics
   fold_predictions <- fold_results$predictions %||% NULL
 
+  # Aggregate per-fold metadata: which variables were dropped per fold (Group S S2)
+  fold_dropped <- list()
+  if (length(fold_states) > 0) {
+    for (i in seq_along(fold_states)) {
+      st <- fold_states[[i]]
+      if (!is.null(st$metadata) && !is.null(st$metadata$dropped)) {
+        fold_dropped[[i]] <- st$metadata$dropped
+      }
+    }
+  }
+
   list(
     k = k,
     strategy = cv_strategy,
@@ -154,6 +185,7 @@ cross_validate_model <- function(model_data, k, seed, n_cores,
     sensitivity_mean = metric_mean(fold_metrics$sensitivity),
     specificity_mean = metric_mean(fold_metrics$specificity),
     fold_auc = fold_metrics$auc,
-    predictions = fold_predictions
+    predictions = fold_predictions,
+    per_fold_dropped_vars = fold_dropped
   )
 }

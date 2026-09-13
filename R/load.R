@@ -103,6 +103,7 @@ modules <- c(
   "torch_setup.R",
   "cv_folds.R",
   "cv_engine.R",
+  "per_fold_preprocessing.R",
   "blockcv.R",
   "importance.R",
   "calibration.R",
