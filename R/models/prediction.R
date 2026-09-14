@@ -32,8 +32,17 @@ predict_suitability <- function(model, env_project_scaled, output_tif = NULL, n_
     }
   }
 
+  # Group-S fix (S8): NA semantics for prediction.
+  # The trained model excludes any cell with non-finite covariates from training
+  # (complete.cases filter in prepare_sdm_data). A cell that has at least one
+  # non-finite covariate at projection time has covariate values outside the
+  # model's training distribution — the principled answer is NA, not a value
+  # interpolated from partial covariates. We disable terra::predict's
+  # na.rm = TRUE so that cells with at least one NA covariate return NA. The
+  # NODATA=-9999 GeoTIFF tag preserves the NA distinction in the output.
   predict_args <- list(
-    object = env_project_scaled, model = model, type = "response", na.rm = TRUE,
+    object = env_project_scaled, model = model, type = "response",
+    na.rm = FALSE,
     wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999"))
   )
   if (!is.null(output_tif)) {

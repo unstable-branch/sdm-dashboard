@@ -1,6 +1,7 @@
 permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NULL,
-                                   n_perm = 50, seed = 42, n_cores = 1,
-                                   use_held_out = TRUE) {
+                                    n_perm = 50, seed = 42, n_cores = 1,
+                                    use_held_out = FALSE,
+                                    cv_predictions = NULL) {
   if (is.null(metric_fun)) metric_fun <- auc_rank
   if (!is.function(predict_fun)) stop("predict_fun must be a function", call. = FALSE)
   if (!is.function(metric_fun)) stop("metric_fun must be a function", call. = FALSE)
@@ -11,8 +12,45 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
   n_cores <- as.integer(n_cores)[1]
   if (is.na(n_cores) || n_cores < 1) n_cores <- 1
 
-  eval_data <- model_data
-  if (isTRUE(use_held_out) && nrow(model_data) >= 50) {
+  # Group-S fix (S5): Prefer out-of-fold cross-validated predictions as the
+  # evaluation set. Using a 20% post-fit holdout ("use_held_out = TRUE") is a
+  # form of optimistic leakage because the model was fit on the same data,
+  # and using in-sample predictions also doesn't generalize. Out-of-fold
+  # CV predictions provide an honest generalization baseline.
+  # Fall back chain: cv_predictions -> use_held_out (with warning) -> model_data.
+  eval_data <- NULL
+  eval_obs <- NULL
+  eval_pred <- NULL
+  cv_baseline_used <- FALSE
+
+  if (!is.null(cv_predictions) && is.data.frame(cv_predictions) &&
+      nrow(cv_predictions) > 0 &&
+      all(c("observed", "predicted") %in% names(cv_predictions))) {
+    ok_eval <- is.finite(cv_predictions$observed) & is.finite(cv_predictions$predicted) &
+      (cv_predictions$observed == 0 | cv_predictions$observed == 1)
+    if (sum(ok_eval) >= 20) {
+      eval_obs <- as.numeric(cv_predictions$observed[ok_eval])
+      eval_pred <- as.numeric(cv_predictions$predicted[ok_eval])
+      # Build a synthetic eval_data that uses the original covariate values
+      # from model_data. Cross-validation predictions don't ship the covariate
+      # rows; we recover them by assuming cv_predictions is in the same order
+      # as model_data, which is the contract used by all backends that
+      # collect_predictions = TRUE today.
+      if (nrow(cv_predictions) == nrow(model_data)) {
+        eval_data <- model_data[ok_eval, , drop = FALSE]
+      } else {
+        # Fallback: build a minimal eval_data with the predicted/observed cols
+        # + the covariates columns from model_data. cov_cols extraction below
+        # falls back to model_data covariate names when this is the case.
+        eval_data <- as.data.frame(cbind(cv_predictions[ok_eval, c("observed", "predicted"),
+                                                          drop = FALSE]))
+      }
+      cv_baseline_used <- TRUE
+    }
+  }
+
+  # Legacy fallback: keep backward-compatible path only if no CV preds available
+  if (!cv_baseline_used && isTRUE(use_held_out) && nrow(model_data) >= 50) {
     set.seed(seed)
     hold_size <- max(20L, floor(nrow(model_data) * 0.2))
     hold_idx <- sample(seq_len(nrow(model_data)), size = hold_size, replace = FALSE)
@@ -20,10 +58,20 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
     eval_obs <- eval_data$presence
     if (!is.numeric(eval_obs)) eval_obs <- as.numeric(eval_obs)
     ok_eval <- is.finite(eval_obs) & (eval_obs == 0 | eval_obs == 1)
-    if (sum(ok_eval) < 20) eval_data <- model_data
+    if (sum(ok_eval) < 20) {
+      eval_data <- model_data
+      eval_obs <- eval_data$presence
+    }
   }
 
-  exclude_cols <- c("presence", ".x", ".y", "case_weight_sdm")
+  if (is.null(eval_data)) {
+    eval_data <- model_data
+  }
+  if (is.null(eval_obs) && !is.null(eval_data$presence)) {
+    eval_obs <- eval_data$presence
+  }
+
+  exclude_cols <- c("presence", ".x", ".y", "case_weight_sdm", "observed", "predicted", "fold")
   cov_cols <- setdiff(names(model_data), exclude_cols)
   cov_cols <- cov_cols[is.finite(match(cov_cols, names(model_data)))]
   if (length(cov_cols) == 0) {
@@ -33,7 +81,8 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
     ))
   }
 
-  obs <- eval_data$presence
+  obs <- eval_obs
+  if (is.null(obs)) obs <- numeric(0)
   if (!is.numeric(obs)) obs <- as.numeric(obs)
   ok_obs <- is.finite(obs) & (obs == 0 | obs == 1)
   if (sum(ok_obs) < 20) {
@@ -51,9 +100,15 @@ permutation_importance <- function(fit, model_data, predict_fun, metric_fun = NU
     ))
   }
 
-  set.seed(seed)
-  baseline_pred <- predict_fun(fit, eval_data)
-  if (!is.numeric(baseline_pred)) baseline_pred <- as.numeric(baseline_pred)
+  # When we have eval_pred from CV predictions we don't need to re-predict.
+  # Otherwise, compute baseline predictions on eval_data.
+  if (!is.null(eval_pred)) {
+    baseline_pred <- eval_pred
+  } else {
+    set.seed(seed)
+    baseline_pred <- predict_fun(fit, eval_data)
+    if (!is.numeric(baseline_pred)) baseline_pred <- as.numeric(baseline_pred)
+  }
   ok_pred <- is.finite(baseline_pred)
   ok_both <- ok_obs & ok_pred
   if (sum(ok_both) < 20) {

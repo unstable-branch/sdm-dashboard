@@ -433,10 +433,15 @@ run_fast_sdm <- function(...) {
     }
   }
 
-  # MESS and free unscaled raster copies early — not needed for model fitting
-  if (!is.null(env$env_train) && !is.null(env$env_project)) {
+  # MESS and free unscaled raster copies early — not needed for model fitting.
+  # Group-S fix (S6): MESS must be computed in the same feature space as the
+  # model — i.e., the *scaled* training raster vs the *scaled* projection
+  # raster — otherwise the "training envelope" is computed in raw units while
+  # the model predicts in scaled units, producing unreliable extrapolation
+  # flags for non-linear backends (GAM, DNN, MaxEnt with feature classes).
+  if (!is.null(env$env_train_scaled) && !is.null(env$env_project_scaled)) {
     mess_result <- tryCatch(
-      compute_mess(env$env_train, env$env_project),
+      compute_mess(env$env_train_scaled, env$env_project_scaled),
       error = function(e) {
         log_message(log_fun, "WARNING: MESS computation failed: ", conditionMessage(e))
         NULL
@@ -449,9 +454,9 @@ run_fast_sdm <- function(...) {
     }
   }
 
-  # Snapshot the training data before NULL-ing it; future_projection later
-  # needs it for MESS computation.
-  env_train_for_mess <- env$env_train
+  # Snapshot the SCALED training data before NULL-ing it; future_projection
+  # later needs it for MESS computation in feature space (matches the model).
+  env_train_for_mess <- env$env_train_scaled
   env$env_train <- NULL
   env$env_project <- NULL
 
@@ -728,11 +733,29 @@ run_fast_sdm <- function(...) {
   gc(verbose = FALSE)
 
   # Post-fit threshold optimization: when threshold is "max_tss" (NA), compute
-  # the TSS-maximizing threshold from training predictions and use it for all
-  # downstream binary classification (area calc, PNG, summary stats).
+  # the TSS-maximizing threshold from out-of-fold cross-validated predictions
+  # (Group-S fix S7) rather than from in-sample training predictions. In-sample
+  # thresholds are biased optimistically toward over-fit thresholds; using
+  # `cv$predictions` provides an honest generalization estimate. If CV
+  # predictions are unavailable (rare, e.g. k<2), fall back to the in-sample
+  # predictions and log a warning that the threshold is optimistic.
   if (is.na(threshold) && !is.null(fit$model_data) && "presence" %in% names(fit$model_data)) {
-threshold <- tryCatch({
-      # Attempt model-agnostic re-prediction on training data
+    cv_preds <- fit$cv$predictions %||% NULL
+    cv_used <- !is.null(cv_preds) && nrow(cv_preds) > 0 &&
+      all(c("observed", "predicted") %in% names(cv_preds)) &&
+      sum(is.finite(cv_preds$observed) & is.finite(cv_preds$predicted)) >= 6
+
+    if (cv_used) {
+      pres_suit <- cv_preds$predicted[cv_preds$observed == 1]
+      bg_suit <- cv_preds$predicted[cv_preds$observed == 0]
+      threshold_source <- "cv"
+    } else {
+      log_message(log_fun,
+        "WARN: 'max_tss' threshold falling back to in-sample predictions (",
+        "no out-of-fold CV predictions available). Downstream area/PNG ",
+        "stats may be optimistic.")
+      cv_preds <- NULL
+      # Only fall back to in-sample when CV didn't collect predictions
       train_pred <- NULL
       backend_used <- "unknown"
       if (inherits(fit$model, "xgb.Booster")) {
@@ -777,29 +800,32 @@ threshold <- tryCatch({
         train_pred <- suppressWarnings(as.numeric(train_pred))
         pres_suit <- train_pred[fit$model_data$presence == 1]
         bg_suit <- train_pred[fit$model_data$presence == 0]
+      }
+      threshold_source <- backend_used
+    }
+    if (exists("pres_suit") && exists("bg_suit") &&
+        length(pres_suit) > 0 && length(bg_suit) > 0) {
+      threshold <- tryCatch({
         opt <- select_threshold(pres_suit, bg_suit)
         if (is.finite(opt$threshold) && is.finite(opt$max_tss) && opt$threshold >= 0 && opt$threshold <= 1) {
-          log_message(log_fun, "Optimal threshold from max_tss [", backend_used, "]: ",
+          log_message(log_fun, "Optimal threshold from max_tss [", threshold_source, "]: ",
             sprintf("%.3f", opt$threshold),
             " (TSS=", sprintf("%.3f", opt$max_tss), ")"
           )
           opt$threshold
         } else {
           log_message(log_fun,
-            "WARN: max_tss could not be computed for backend '", backend_used,
+            "WARN: max_tss could not be computed from '", threshold_source,
             "' — leaving threshold as NA. Downstream area/PNG stats will be omitted.")
           NA_real_
         }
-      } else {
-        log_message(log_fun,
-          "WARN: max_tss could not be computed for backend '", backend_used,
-          "' (predict returned NULL) — leaving threshold as NA.")
+      }, error = function(e) {
+        log_message(log_fun, "Could not compute max_tss threshold: ", conditionMessage(e))
         NA_real_
-      }
-    }, error = function(e) {
-      log_message(log_fun, "Could not compute max_tss threshold: ", conditionMessage(e))
-      NA_real_
-    })
+      })
+    } else {
+      threshold <- NA_real_
+    }
   }
 
   importance_result <- NULL

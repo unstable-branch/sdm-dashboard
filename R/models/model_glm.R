@@ -154,37 +154,182 @@ make_sdm_formula <- function(covariates, include_quadratic = TRUE) {
 cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 1,
                                cv_strategy = sdm_default_cv_strategy, cv_block_size_km = sdm_default_cv_block_size_km,
                                threshold = sdm_default_threshold, collect_predictions = FALSE,
-                               log_fun = NULL) {
+                               log_fun = NULL, env_train_scaled = NULL,
+                               do_per_fold_scaling = TRUE, vif_threshold = NA_real_) {
+  exclude_cols <- c("presence", ".x", ".y", "case_weight_sdm")
+  cov_names <- setdiff(names(model_data), exclude_cols)
+
+  # Group-S fix (S1 + S2): pre-compute per-fold scalers and per-fold VIF
+  # selections using ONLY the fold's training rows. The wrapped fit_fun applies
+  # the fold-specific scaler to its train and test subsets, and the
+  # fold-specific VIF subset to the fold's data.
+  #
+  # This avoids the silent leakage where global scaling stats and global VIF
+  # selection are computed over the full dataset and then CV folds are
+  # generated from the already-transformed data (test fold contributes to the
+  # scaler / VIF selection that is then applied to it).
+  per_fold_preprocess_glm <- function(i, model_data_inner, fold_id_inner) {
+    if ((!isTRUE(do_per_fold_scaling) || is.null(env_train_scaled) || length(cov_names) == 0) &&
+        !isTRUE(is.finite(vif_threshold))) {
+      return(NULL)  # no-op
+    }
+    train_rows <- which(fold_id_inner != i)
+    test_rows  <- which(fold_id_inner == i)
+    train_md   <- model_data_inner[train_rows, , drop = FALSE]
+    test_md    <- model_data_inner[test_rows, , drop = FALSE]
+
+    # ---- per-fold scaling (S1)
+    if (isTRUE(do_per_fold_scaling) && !is.null(env_train_scaled)) {
+      # Identify the rows of `env_train_scaled` that correspond to `train_md`.
+      # The mapping is implicit: `model_data` was constructed in the same order
+      # as `pres_vals` followed by `bg_vals` (see prepare_sdm_data). We can't
+      # recover cell indices from the model_data row indices alone because the
+      # raster has many more cells than rows. The standard solution: refit the
+      # scaler using the model_data's own covariate values for the train fold.
+      # This still counts as "per-fold refit" because the validation rows are
+      # excluded from the scaler computation.
+      cov_vals_train <- as.matrix(train_md[, cov_names, drop = FALSE])
+      means <- colMeans(cov_vals_train, na.rm = TRUE)
+      sds <- apply(cov_vals_train, 2, stats::sd, na.rm = TRUE)
+      sds[!is.finite(sds) | sds <= 0] <- 1
+      train_md[, cov_names] <- sweep(sweep(cov_vals_train, 2, means, "-"), 2, sds, "/")
+      cov_vals_test <- as.matrix(test_md[, cov_names, drop = FALSE])
+      test_md[, cov_names] <- sweep(sweep(cov_vals_test, 2, means, "-"), 2, sds, "/")
+    }
+
+    # ---- per-fold VIF (S2)
+    dropped <- character(0)
+    if (isTRUE(is.finite(vif_threshold))) {
+      cov_for_vif <- train_md[, cov_names, drop = FALSE]
+      cov_for_vif <- cov_for_vif[stats::complete.cases(cov_for_vif), , drop = FALSE]
+      if (nrow(cov_for_vif) >= 100) {
+        sel <- apply_vif_selection(as.data.frame(cov_for_vif),
+                                  threshold = vif_threshold, log_fun = NULL)
+        kept <- intersect(sel$selected, cov_names)
+        dropped <- setdiff(cov_names, kept)
+        if (length(kept) >= 2 && length(kept) < length(cov_names)) {
+          # Drop folded-out variables from this fold's data only.
+          train_md <- train_md[, c("presence", kept, intersect(c(".x", ".y"), names(train_md))), drop = FALSE]
+          test_md  <- test_md[,  c("presence", kept, intersect(c(".x", ".y"), names(test_md))),  drop = FALSE]
+        }
+      }
+    }
+
+    fold_md <- rbind(train_md, test_md)
+    fold_md$.__fold__ <- c(rep(0L, nrow(train_md)), rep(i, nrow(test_md)))  # synthetic fold_id
+    train_index <- seq_len(nrow(train_md))
+    test_index  <- (nrow(train_md) + 1L):nrow(fold_md)
+
+    fit_for_fold <- function(fold_i, threshold, ...) {
+      stopifnot(fold_i == i)
+      train_model <- fold_md[fold_md$.__fold__ != i, , drop = FALSE]
+      test_model  <- fold_md[fold_md$.__fold__ == i, , drop = FALSE]
+      train_model$.__fold__ <- NULL
+      test_model$.__fold__  <- NULL
+
+      # Adjust formula to drop covariates that were dropped via VIF in this
+      # fold so the GLM formula doesn't reference missing columns.
+      fold_formula <- formula
+      if (length(dropped) > 0) {
+        term_labels <- attr(terms(formula), "term.labels")
+        if (!is.null(term_labels) && length(term_labels) > 0) {
+          keep_terms <- term_labels[!grepl("^presence$", term_labels)]
+          # Drop terms that reference any dropped variable name (incl. I(var^2) forms)
+          keep_terms <- keep_terms[!vapply(keep_terms, function(t) {
+            v <- all.vars(stats::as.formula(paste("~", t)))
+            any(v %in% dropped)
+          }, logical(1))]
+          if (length(keep_terms) == 0) {
+            keep_terms <- setdiff(intersect(cov_names, names(train_model)), dropped)
+          }
+          new_formula <- stats::as.formula(
+            paste("presence ~", paste(keep_terms, collapse = " + ")),
+            env = environment(formula)
+          )
+          fold_formula <- new_formula
+        }
+      }
+
+      # Attach weights as a column so R can find them via the formula's
+      # environment in the same way `fit_fast_sdm` does it (the formula has
+      # its environment set to baseenv() so non-data symbols must live in
+      # the data arg).
+      train_model$case_weight_sdm <- class_balance_weights(train_model$presence)
+      fit <- tryCatch(
+        suppressWarnings(stats::glm(fold_formula,
+          data = train_model, family = stats::binomial(),
+          weights = case_weight_sdm, control = stats::glm.control(maxit = 60)
+        )),
+        error = function(e) NULL
+      )
+      if (is.null(fit)) {
+        row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i)
+        if (local_collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
+      }
+      pred <- tryCatch(
+        stats::predict(fit, newdata = test_model, type = "response"),
+        error = function(e) rep(NA_real_, nrow(test_model))
+      )
+      if (all(is.na(pred))) {
+        row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i)
+        if (local_collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
+      }
+      row <- metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
+      if (local_collect_predictions) {
+        list(metrics = row, predictions = data.frame(observed = test_model$presence, predicted = pred))
+      } else {
+        row
+      }
+    }
+
+    list(
+      fit_fun = fit_for_fold,
+      metadata = list(dropped = dropped)
+    )
+  }
+
+  # Capture collect_predictions in the closure
+  local_collect_predictions <- collect_predictions
   fit_fun <- function(i, model_data, fold_id, threshold) {
-    train <- model_data[fold_id != i, , drop = FALSE]
-    test <- model_data[fold_id == i, , drop = FALSE]
-    train_model <- train[, !names(train) %in% c(".x", ".y"), drop = FALSE]
-    test_model <- test[, !names(test) %in% c(".x", ".y"), drop = FALSE]
-    train_model$case_weight_sdm <- class_balance_weights(train_model$presence)
-    fit <- tryCatch(
-      suppressWarnings(stats::glm(formula,
-        data = train_model, family = stats::binomial(),
-        weights = case_weight_sdm, control = stats::glm.control(maxit = 60)
-      )),
-      error = function(e) NULL
-    )
-    if (is.null(fit)) {
-      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i)
-      if (collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
-    }
-    pred <- tryCatch(
-      stats::predict(fit, newdata = test_model, type = "response"),
-      error = function(e) rep(NA_real_, nrow(test_model))
-    )
-    if (all(is.na(pred))) {
-      row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i)
-      if (collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
-    }
-    row <- metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
-    if (collect_predictions) {
-      list(metrics = row, predictions = data.frame(observed = test_model$presence, predicted = pred))
+    # Sentinel: this fit_fun is only called when per_fold_preprocess is
+    # inactive (the new code path overrides it via the closure). If we ever
+    # land here it means the preprocessing was skipped — fall back to
+    # legacy scaling (on-the-fly) for safety.
+    if ((!isTRUE(do_per_fold_scaling) || is.null(env_train_scaled)) &&
+        !isTRUE(is.finite(vif_threshold))) {
+      train <- model_data[fold_id != i, , drop = FALSE]
+      test <- model_data[fold_id == i, , drop = FALSE]
+      train_model <- train[, !names(train) %in% c(".x", ".y"), drop = FALSE]
+      test_model <- test[, !names(test) %in% c(".x", ".y"), drop = FALSE]
+      train_model$case_weight_sdm <- class_balance_weights(train_model$presence)
+      fit <- tryCatch(
+        suppressWarnings(stats::glm(formula,
+          data = train_model, family = stats::binomial(),
+          weights = case_weight_sdm, control = stats::glm.control(maxit = 60)
+        )),
+        error = function(e) NULL
+      )
+      if (is.null(fit)) {
+        row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i)
+        if (local_collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
+      }
+      pred <- tryCatch(
+        stats::predict(fit, newdata = test_model, type = "response"),
+        error = function(e) rep(NA_real_, nrow(test_model))
+      )
+      if (all(is.na(pred))) {
+        row <- metrics_list_to_row(list(auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_, threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L), fold = i)
+        if (local_collect_predictions) return(list(metrics = row, predictions = NULL)) else return(row)
+      }
+      row <- metrics_list_to_row(compute_binary_metrics(test_model$presence, pred, threshold = threshold), fold = i)
+      if (local_collect_predictions) {
+        list(metrics = row, predictions = data.frame(observed = test_model$presence, predicted = pred))
+      } else {
+        row
+      }
     } else {
-      row
+      # Should never be reached — preprocessing closure should have run.
+      stop("GLM CV: per-fold preprocessing was active but did not produce a fit_fun closure", call. = FALSE)
     }
   }
 
@@ -193,7 +338,11 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km,
     threshold = threshold, fit_fun = fit_fun,
     collect_predictions = collect_predictions,
-    log_fun = log_fun
+    log_fun = log_fun,
+    per_fold_preprocess = if (
+      (isTRUE(do_per_fold_scaling) && !is.null(env_train_scaled)) ||
+      isTRUE(is.finite(vif_threshold))
+    ) per_fold_preprocess_glm else NULL
   )
 }
 
@@ -246,7 +395,10 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   cv <- cross_validate_glm(model_data, formula,
     k = cv_folds, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km, threshold = threshold,
-    collect_predictions = TRUE
+    collect_predictions = TRUE,
+    env_train_scaled = env_train_scaled,
+    do_per_fold_scaling = TRUE,
+    vif_threshold = NA_real_
   )
   if (is.finite(cv$auc_mean)) {
     log_message(

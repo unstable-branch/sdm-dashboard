@@ -25,10 +25,14 @@ xai_importance <- function(fit, method = "auto", ...) {
     }
     pi_args <- list(...)
     pi_args$log_fun <- NULL
+    # Group-S fix (S5): prefer out-of-fold CV predictions as the evaluation
+    # set when available — gives honest generalization-based importance.
+    cv_preds <- fit$cv$predictions %||% NULL
     do.call(permutation_importance, c(
       list(fit = fit, model_data = fit$model_data,
            predict_fun = pred_fun, metric_fun = auc_rank,
-           n_perm = getOption("sdm.n_perm", sdm_default_n_perm)),
+           n_perm = getOption("sdm.n_perm", sdm_default_n_perm),
+           cv_predictions = cv_preds),
       pi_args
     ))
   }
