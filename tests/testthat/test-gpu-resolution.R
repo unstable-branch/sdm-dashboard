@@ -78,3 +78,19 @@ test_that("capabilities= argument always refreshes cache", {
   cached <- sdm_accelerator_capabilities()
   expect_true(cached$cuda)
 })
+
+test_that("sdm_accelerator_capabilities works inside future::future", {
+  skip_if_not_installed("future")
+  if (!exists("sdm_accelerator_capabilities", mode = "function")) {
+    source(file.path(project_root, "R", "core", "gpu_helpers.R"))
+  }
+
+  f <- future::future({
+    sdm_accelerator_capabilities(list(cuda = FALSE, rocm = FALSE, mps = FALSE))
+  }, seed = TRUE)
+  result <- future::value(f)
+  expect_type(result, "list")
+  expect_named(result, c("cuda", "rocm", "mps", "cpu", "tensor_devices"))
+  expect_false(result$cuda)
+  expect_true(result$cpu)
+})
