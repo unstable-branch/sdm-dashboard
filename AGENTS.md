@@ -525,14 +525,19 @@ What changes in the app or outputs?
 ## Screenshots / outputs
 Attach if UI or report changed.
 
-## Project state (last refreshed after Group Q — queue catch block rCpuTimeMs fix + Group R — climate cache invalidation)
+## Project state (last refreshed after Groups Q–V merged)
 
-- `dev` branch tip: `3bbaabb2` (after merging Groups Q, R, P fixes)
-- `fix/queue-catch-block-cputime-round` branch: merged as PR #78
-- `fix/climate-cache-invalidation` branch: merged as PR #79
+- `dev` branch tip: `5f3a26ea` (after merging Groups Q, R, S, T, U, V)
+- PR #78 (`fix/queue-catch-block-cputime-round`): merged
+- PR #79 (`fix/climate-cache-invalidation`): merged
+- PR #81 (`fix/r-scientific-leakage`): merged (Group S — R scientific leakage)
+- PR #82 (`fix/diagnostics-calibration-traceback`): merged (Group T)
+- PR #83 (`fix/libtorch-bridge-review`): merged (Group U)
+- PR #84 (`fix/dnn-multispecies-cpu-fallback`): merged (Group V)
 - `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
 - Test counts (post-campaign): 293 api tests + 65 frontend tests passing; R test suites (test-run-sdm-stages, test-v03-methods, test-gam-contract, test-model-registry, test-multi-ensemble, test-determinism, test-dnn, test-utils-sdm-atomic-writes) all pass with warnings/skips only.
-- All Groups A through N are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
+- Pre-existing failures: `test-dnn-multispecies-prediction.R:187` (fixed PR #84), `test-torch-fused-adam.R:35-37` (unrelated ABI checks, pre-existing)
+- All Groups A through V are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
 - The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
 
 ## Group summary (for context when reading CHANGELOG)
@@ -554,8 +559,12 @@ Attach if UI or report changed.
 | M | `fix/perf-tier-d` | `9e67e081` | Performance fixes: O(n²)→O(n) outlier flagging, GBIF dedup cache, SpatExtent vs spatRaster crop, chunking loop materialization, weighted AOO, parallel CV error propagation |
 | N | `fix/r-case-weight-sdm-scope` | `6a067689` | 6 pre-existing R test failures from `case_weight_sdm` scoping in GLM/GAM fixed — `test-run-sdm-stages.R` ×3, `test-v03-methods.R` ×1 now pass |
 | O | `fix/rangebag-cv-correctness` | `77c13156` | Rangebag CV: bg_fold_id fix (was always 0L → now properly sampled); response_curves rangebag branch added; multi-ensemble test threshold updated |
-| Q | `fix/queue-catch-block-cputime-round` | pending | API queue catch block: `rCpuTimeMs` now rounded to integer (fixes `WORKER_ORPHAN` for fast GLM runs); else branch now transitions `runs.status` to `completed`; defensive inner try/catch; orphan reconciliation migration |
-| R | `fix/climate-cache-invalidation` | pending | Climate cache: broken regex in `handle_climate_check` fixed (geodata naming, `_bio_<n>` → `bio_<n>`); shared matcher module eliminates three-way drift; pre-spawn short-circuit avoids no-op callr::r_bg spawns; sha256 cache manifest for proper invalidation; permission/uid-mismatch audit; Group B amendment note |
+| Q | `fix/queue-catch-block-cputime-round` | `648b1a79` | API queue catch block: `rCpuTimeMs` now rounded to integer (fixes `WORKER_ORPHAN` for fast GLM runs); else branch now transitions `runs.status` to `completed`; defensive inner try/catch; orphan reconciliation migration |
+| R | `fix/climate-cache-invalidation` | `163b7b2c` | Climate cache: broken regex in `handle_climate_check` fixed (geodata naming, `_bio_<n>` → `bio_<n>`); shared matcher module eliminates three-way drift; pre-spawn short-circuit avoids no-op callr::r_bg spawns; sha256 cache manifest for proper invalidation; permission/uid-mismatch audit |
+| S | `fix/r-scientific-leakage` | `d32a1df4` | R scientific leakage: per-fold scaling+VIF refit (S1+S2), DNN real k-fold CV (S3), permutation importance from OOF predictions (S5), MESS in scaled space (S6), threshold from CV preds (S7), na.rm=FALSE (S8), component-spread fields (S9). S4 was a false alarm (bioclim arg order confirmed correct). |
+| T | `fix/diagnostics-calibration-traceback` | `1de5d914` | Calibration error handler now returns `error_stack` field (matching the cv_folds handler already on dev) |
+| U | `fix/libtorch-bridge-review` | `5d68df75` | Critical libtorch bridge: XPtrTorch layout probe catches torch-upgrade mismatch with clear rebuild message; Blackwell CUDA kernel disabled by default (NaN on compute 12.0); `pinned_to_gpu_tensor` renamed `pinned_to_gpu_tensor_sync` |
+| V | `fix/dnn-multispecies-cpu-fallback` | `5f3a26ea` | DNN multispecies: defensive CPU fallback when `torch::cuda_is_available()` returns TRUE but CUDA is unusable (segfaults cito::dnn); explicit `dnn_device="cpu"` in integration test |
 
 ## Known limitations
 What should reviewers know?
