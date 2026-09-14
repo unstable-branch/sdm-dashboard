@@ -193,6 +193,7 @@ test_that("predict_dnn_multispecies_suitability full integration with real cito 
     dnn_architecture = "DNN_Small",
     n_seeds = 1,
     n_cores = 1,
+    dnn_device = "cpu",
     validation_frac = 0.1,
     early_stopping_patience = 5L
   )

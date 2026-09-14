@@ -77,6 +77,19 @@ sdm_backend_is_discrete_gpu <- function(backend) {
   tolower(as.character(backend %||% "cpu")[1]) %in% c("cuda", "rocm", "gpu")
 }
 
+# Probe whether a torch device can actually allocate a tensor.
+# torch::cuda_is_available() returns TRUE even when no GPU is present
+# (e.g. CPU-only builds with libtorch's CUDA stubs), causing cito::dnn
+# to segfault when passed device="cuda".  This function does a real
+# tensor allocation as a smoke test and returns TRUE only if it succeeds.
+.sdm_cuda_actually_usable <- function(device = "cuda") {
+  if (!requireNamespace("torch", quietly = TRUE)) return(FALSE)
+  tryCatch({
+    t <- torch::torch_tensor(1L, device = device)
+    TRUE
+  }, error = function(e) FALSE)
+}
+
 sdm_resolve_backend <- function(request = "auto", capabilities = NULL, fallback_cpu = TRUE) {
   caps <- sdm_accelerator_capabilities(capabilities)
   request <- tolower(as.character(request %||% "auto")[1])
