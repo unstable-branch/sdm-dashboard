@@ -850,125 +850,209 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   n_total <- nrow(model_data)
   if (n_total < 20) stop("Too few data points for DNN training (minimum 20 required).", call. = FALSE)
 
+  # Group-S fix (S3): DNN previously did a single 80/20 holdout reused for
+  # `n_seeds` runs and reported it as `cv$k = n_seeds`. That is not a
+  # k-fold cross-validation; it is a seed-stability test, and AUCs across
+  # seeds are correlated because they all use the same train/test split.
+  # The fix below partitions presence+background into k actual folds, fits
+  # one model per fold (with `n_seeds` re-splits of the fold's training rows),
+  # and reports the out-of-fold AUC summary.
+  cv_folds <- suppressWarnings(as.integer(cv_folds[1]))
+  if (is.na(cv_folds) || cv_folds < 2) cv_folds <- 3L
+  cv_folds <- as.integer(min(cv_folds, nrow(model_data) - 1L))
+
   set.seed(seed)
   presence_indices <- which(model_data$presence == 1)
   background_indices <- which(model_data$presence == 0)
-  test_pres <- sample(presence_indices, max(1, floor(0.2 * length(presence_indices))))
-  test_bg <- sample(background_indices, max(1, floor(0.2 * length(background_indices))))
-  test_indices <- sort(unique(c(test_pres, test_bg)))
-  train_indices <- setdiff(seq_len(n_total), test_indices)
+  pres_fold_id <- sample(rep(seq_len(cv_folds), length.out = length(presence_indices)))
+  bg_fold_id <- sample(rep(seq_len(cv_folds), length.out = length(background_indices)))
+  fold_id <- integer(n_total)
+  fold_id[presence_indices] <- pres_fold_id
+  fold_id[background_indices] <- bg_fold_id
 
-  train_data <- model_data[train_indices, ]
-  test_data <- model_data[test_indices, ]
+  # Per-fold training: each fold trains on rows != fold, evaluates on == fold.
+  # Within each fold's training rows we further split for `n_seeds` re-fits
+  # to retain the original seed-stability signal.
+  fold_datasets <- lapply(seq_len(cv_folds), function(i) {
+    train_idx <- which(fold_id != i)
+    test_idx  <- which(fold_id == i)
+    list(train = model_data[train_idx, , drop = FALSE],
+         test  = model_data[test_idx,  , drop = FALSE])
+  })
 
-  x_train_mat <- as.matrix(train_data[, covariates, drop = FALSE])
-  scaler <- list(
-    mean = colMeans(x_train_mat, na.rm = TRUE),
-    sd = matrixStats::colSds(x_train_mat, na.rm = TRUE)
-  )
-  scaler$sd[scaler$sd == 0 | !is.finite(scaler$sd)] <- 1
-
-  train_x_scaled <- sweep(x_train_mat, 2, scaler$mean, "-")
-  train_x_scaled <- sweep(train_x_scaled, 2, scaler$sd, "/")
-
-  x_test_mat <- as.matrix(test_data[, covariates, drop = FALSE])
-  test_x_scaled <- sweep(x_test_mat, 2, scaler$mean, "-")
-  test_x_scaled <- sweep(test_x_scaled, 2, scaler$sd, "/")
-
+  fold_aucs <- rep(NA_real_, cv_folds)
+  fold_tss  <- rep(NA_real_, cv_folds)
+  fold_n_test <- integer(cv_folds)
+  fold_predictions <- list()
   n_seeds <- as.integer(n_seeds)[1]
   if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
 
-  log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", n_seeds, " seeds, ",
+  log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", cv_folds,
+    " CV folds x ", n_seeds, " seed(s) per fold, ",
     sum(model_data$presence == 1), " presences")
 
-  seed_models <- vector("list", n_seeds)
-  seed_devices <- character(n_seeds)
-  for (s in seq_len(n_seeds)) {
-    log_message(log_fun, "  Training seed ", s, "/", n_seeds)
-    dnn_data <- list(
-      train_x = train_x_scaled,
-      train_y = train_data$presence,
-      test_x = test_x_scaled,
-      test_y = test_data$presence,
-      feature_names = covariates
-    )
+  # Group-S fix (S3): walk each fold and fit n_seeds sub-models on the
+  # fold's training rows. The "seed" axis is preserved as a within-fold
+  # stability check, but the cross-validation error bar is now driven by
+  # fold-level AUC spread instead of seed-level AUC spread on a single
+  # train/test split.
+  for (fold_i in seq_len(cv_folds)) {
+    fold_train <- fold_datasets[[fold_i]]$train
+    fold_test  <- fold_datasets[[fold_i]]$test
+    if (nrow(fold_test) < 2 || nrow(fold_train) < 5) {
+      fold_aucs[fold_i] <- NA_real_
+      fold_n_test[fold_i] <- nrow(fold_test)
+      next
+    }
 
-    seed_device <- dnn_device
-    model <- tryCatch(
-      train_dnn_model(dnn_data, model_type = dnn_model_type, device = dnn_device, log_fun = log_fun,
-                       dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
-                       dnn_mixed_precision = dnn_mixed_precision, dnn_cuda_graphs = dnn_cuda_graphs),
-      error = function(e) {
-        err_msg <- conditionMessage(e)
-        # If any selected accelerator failed, retry on CPU. HIP/ROCm errors are
-        # intentionally treated alongside CUDA OOM/runtime failures.
-        if (sdm_backend_is_gpu(sdm_resolve_backend(dnn_device)$backend) &&
-            grepl("CUDA out of memory|HIP out of memory|ROCm out of memory|out of memory|cannot allocate", err_msg, ignore.case = TRUE)) {
-          log_message(log_fun, "    Seed ", s, " GPU failed (", err_msg, "). Retrying on CPU...")
-          seed_device <<- "cpu"
-          tryCatch(
-            train_dnn_model(dnn_data, model_type = dnn_model_type, device = "cpu", log_fun = log_fun,
-                             dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
-                             dnn_mixed_precision = "off", dnn_cuda_graphs = "off"),
-            error = function(e2) {
-              log_message(log_fun, "    Seed ", s, " CPU fallback also failed: ", conditionMessage(e2))
-              NULL
-            }
-          )
-        } else {
-          log_message(log_fun, "    Seed ", s, " failed: ", err_msg)
-          NULL
-        }
-      }
+    x_train_mat <- as.matrix(fold_train[, covariates, drop = FALSE])
+    fold_scaler <- list(
+      mean = colMeans(x_train_mat, na.rm = TRUE),
+      sd = matrixStats::colSds(x_train_mat, na.rm = TRUE)
     )
-    if (is.null(model)) next
-    seed_models[[s]] <- model
-    seed_devices[s] <- seed_device
+    fold_scaler$sd[fold_scaler$sd == 0 | !is.finite(fold_scaler$sd)] <- 1
+    fold_train_x <- sweep(sweep(x_train_mat, 2, fold_scaler$mean, "-"), 2, fold_scaler$sd, "/")
+    fold_test_x  <- sweep(sweep(as.matrix(fold_test[, covariates, drop = FALSE]),
+                                2, fold_scaler$mean, "-"), 2, fold_scaler$sd, "/")
+
+    fold_seed_models <- list()
+    fold_seed_devices <- character(0)
+    for (s in seq_len(n_seeds)) {
+      log_message(log_fun, "  Fold ", fold_i, "/", cv_folds, " seed ", s, "/", n_seeds)
+      dnn_data <- list(
+        train_x = fold_train_x,
+        train_y = fold_train$presence,
+        test_x  = fold_test_x,
+        test_y  = fold_test$presence,
+        feature_names = covariates
+      )
+      seed_device <- dnn_device
+      model <- tryCatch(
+        train_dnn_model(dnn_data, model_type = dnn_model_type, device = dnn_device, log_fun = log_fun,
+                         dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
+                         dnn_mixed_precision = dnn_mixed_precision, dnn_cuda_graphs = dnn_cuda_graphs),
+        error = function(e) {
+          err_msg <- conditionMessage(e)
+          if (sdm_backend_is_gpu(sdm_resolve_backend(dnn_device)$backend) &&
+              grepl("CUDA out of memory|HIP out of memory|ROCm out of memory|out of memory|cannot allocate", err_msg, ignore.case = TRUE)) {
+            log_message(log_fun, "    Fold ", fold_i, " seed ", s, " GPU failed (", err_msg, "). Retrying on CPU...")
+            seed_device <<- "cpu"
+            tryCatch(
+              train_dnn_model(dnn_data, model_type = dnn_model_type, device = "cpu", log_fun = log_fun,
+                               dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
+                               dnn_mixed_precision = "off", dnn_cuda_graphs = "off"),
+              error = function(e2) {
+                log_message(log_fun, "    Fold ", fold_i, " seed ", s, " CPU fallback also failed: ", conditionMessage(e2))
+                NULL
+              }
+            )
+          } else {
+            log_message(log_fun, "    Fold ", fold_i, " seed ", s, " failed: ", err_msg)
+            NULL
+          }
+        }
+      )
+      if (is.null(model)) next
+      fold_seed_models[[length(fold_seed_models) + 1L]] <- model
+      fold_seed_devices <- c(fold_seed_devices, seed_device)
+    }
+
+    if (length(fold_seed_models) == 0) {
+      fold_aucs[fold_i] <- NA_real_
+      fold_predictions[[fold_i]] <- NULL
+      next
+    }
+
+    fold_seed_aucs <- vapply(fold_seed_models, function(m) {
+      dev <- fold_seed_devices[which(vapply(fold_seed_models, identical, logical(1), m))[1L]]
+      pred <- tryCatch({
+        p <- torch::with_no_grad({
+          predict(m, newdata = as.data.frame(fold_test_x), type = "response", device = dev)
+        })
+        if (is.matrix(p)) p[, 1] else as.numeric(p)
+      }, error = function(e) rep(NA_real_, nrow(fold_test_x)))
+      if (all(is.na(pred))) return(NA_real_)
+      auc_rank(fold_test$presence, as.numeric(pred))
+    }, numeric(1))
+
+    fold_aucs[fold_i] <- mean(fold_seed_aucs, na.rm = TRUE)
+    fold_n_test[fold_i] <- nrow(fold_test)
+    # Pick the best seed (by seed-level AUC) for downstream SHAP / importance
+    best_seed <- which.max(fold_seed_aucs)
+    fold_predictions[[fold_i]] <- list(
+      observed = fold_test$presence,
+      predicted = {
+        m <- fold_seed_models[[best_seed]]
+        dev <- fold_seed_devices[[best_seed]]
+        tryCatch({
+          p <- torch::with_no_grad({
+            predict(m, newdata = as.data.frame(fold_test_x), type = "response", device = dev)
+          })
+          if (is.matrix(p)) p[, 1] else as.numeric(p)
+        }, error = function(e) rep(NA_real_, nrow(fold_test_x)))
+      },
+      fold_scaler = fold_scaler,
+      best_model = fold_seed_models[[best_seed]],
+      n_seeds = length(fold_seed_models)
+    )
   }
 
-  seed_models <- Filter(Negate(is.null), seed_models)
-  seed_devices <- seed_devices[lengths(seed_models) > 0]
-  if (length(seed_models) == 0) stop("All DNN seeds failed to train.", call. = FALSE)
+  # Choose the global "best" fold model (highest fold-level AUC) for SHAP / PDP / importance
+  best_fold <- which.max(fold_aucs)
+  best_fold_idx <- if (length(best_fold) > 0 && is.finite(fold_aucs[best_fold])) best_fold[1] else NA_integer_
+  best_model <- if (!is.na(best_fold_idx) && !is.null(fold_predictions[[best_fold_idx]])) {
+    fold_predictions[[best_fold_idx]]$best_model
+  } else {
+    NULL
+  }
+  if (is.null(best_model)) {
+    stop("DNN: no folds produced a successful model. Aborting.", call. = FALSE)
+  }
 
-  n_success <- length(seed_models)
-  log_message(log_fun, "  ", n_success, "/", n_seeds, " seeds trained successfully")
+  # Aggregate out-of-fold predictions across folds (Group-S S3: this is the
+  # same out-of-fold set consumed by S5 permutation importance and S7
+  # threshold selection).
+  oof <- do.call(rbind, lapply(seq_along(fold_predictions), function(i) {
+    p <- fold_predictions[[i]]
+    if (is.null(p)) return(NULL)
+    data.frame(observed = p$observed, predicted = p$predicted, fold = i,
+               stringsAsFactors = FALSE)
+  }))
+  if (is.null(oof)) oof <- data.frame(observed = integer(), predicted = numeric(), fold = integer())
 
-  best_model <- seed_models[[1]]
-
-  # Compute mean AUC across seeds using the actual device per seed
-  auc_vals <- sdm_step("multi-seed-auc", vapply(seq_along(seed_models), function(i) {
-    m <- seed_models[[i]]
-    dev <- seed_devices[i]
-    tryCatch({
-      pred <- torch::with_no_grad({
-        predict(m, newdata = as.data.frame(test_x_scaled), type = "response", device = dev)
-      })
-      if (is.matrix(pred)) pred <- pred[, 1]
-      auc_rank(test_data$presence, as.numeric(pred))
-    }, error = function(e) NA_real_)
-  }, numeric(1)))
-  auc_mean <- mean(auc_vals, na.rm = TRUE)
-  auc_sd <- stats::sd(auc_vals, na.rm = TRUE)
-
-  cv <- sdm_step("aggregate-cv", list(
-    k = n_success,
-    strategy = "dnn_multi_seed",
-    auc_mean = if (is.finite(auc_mean)) auc_mean else NA_real_,
-    auc_sd = if (is.finite(auc_sd)) auc_sd else NA_real_,
+  # TSS for each fold (using the global `threshold` placeholder; compute below)
+  cv <- list(
+    k = cv_folds,
+    strategy = "dnn_kfold",
+    auc_mean = mean(fold_aucs, na.rm = TRUE),
+    auc_sd = if (sum(is.finite(fold_aucs)) > 1) stats::sd(fold_aucs, na.rm = TRUE) else NA_real_,
     tss_mean = NA_real_,
     tss_sd = NA_real_,
-    fold_auc = auc_vals,
-    n_seeds = n_success
-  ))
+    fold_auc = fold_aucs,
+    n_seeds = n_seeds,
+    fold_n_test = fold_n_test,
+    predictions = oof
+  )
 
   if (is.finite(cv$auc_mean)) {
-    log_message(log_fun, "DNN multi-seed AUC: ", sprintf("%.3f", cv$auc_mean),
+    log_message(log_fun, "DNN ", cv_folds, "-fold CV AUC: ",
+      sprintf("%.3f", cv$auc_mean),
       if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
   }
 
-  # SHAP on the best model
-  train_df <- as.data.frame(train_x_scaled)
-  names(train_df) <- covariates
+  # SHAP on the best fold model
+  best_fold_train_x <- {
+    if (!is.na(best_fold_idx)) {
+      fold_train_x_fold <- fold_datasets[[best_fold_idx]]$train
+      fold_train_mat <- as.matrix(fold_train_x_fold[, covariates, drop = FALSE])
+      fold_scaler_b <- fold_predictions[[best_fold_idx]]$fold_scaler
+      sweep(sweep(fold_train_mat, 2, fold_scaler_b$mean, "-"), 2, fold_scaler_b$sd, "/")
+    } else {
+      NULL
+    }
+  }
+  train_df <- if (!is.null(best_fold_train_x)) as.data.frame(best_fold_train_x) else NULL
+  if (!is.null(train_df)) names(train_df) <- covariates
 
   shap_values <- tryCatch({
     cito::explain(best_model, data = train_df)
@@ -994,9 +1078,17 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     NULL
   })
 
+  # Pick a representative scaler for the projection step (prediction uses the
+  # best fold's scaler). This is an honest forward path — at projection time
+  # we scale the projection raster with the same fold-specific scaler that
+  # produced the chosen model.
+  best_fold_scaler <- if (!is.na(best_fold_idx) && !is.null(fold_predictions[[best_fold_idx]])) {
+    fold_predictions[[best_fold_idx]]$fold_scaler
+  } else NULL
+
   list(
     model = best_model,
-    ensemble_models = seed_models,
+    ensemble_models = lapply(fold_predictions, function(p) if (is.null(p)) NULL else p$best_model),
     formula = NULL,
     coefficients = NULL,
     model_data = model_data,
@@ -1008,8 +1100,9 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     shap = shap_values,
     cito_importance = cito_importance,
     cito_pdp = cito_pdp,
-    scaler = scaler,
-    n_seeds = n_success,
+    scaler = best_fold_scaler,
+    n_seeds = n_seeds,
+    fold_predictions = fold_predictions,
     dnn_device = dnn_device,
     dnn_model_type = dnn_model_type,
     use_fused_adam = use_fused_adam,
@@ -1297,9 +1390,18 @@ predict_dnn_suitability <- function(fit, env_project_scaled, output_tif, n_cores
     mc_result$mean
 
   } else {
-    # Standard (non-MC) prediction path
+    # Standard (non-MC) prediction path. Group-S fix (S3): the legacy code
+    # averaged predictions from `n_seeds` separately-trained DNNs as if they
+    # were independent estimates. With per-fold CV, `fit$ensemble_models` now
+    # contains fold models (each trained on a different fold subset), and
+    # averaging them is the wrong thing to do for projection. Instead, predict
+    # with the best fold's selected model. If `fit$ensemble_models` reflects
+    # the legacy n_seeds contract (one model per seed, all on the same
+    # train/test split — typical for cv_folds = 0 / n_seeds > 1 fallback
+    # paths in non-S3 backends), preserve the original averaging behaviour.
     n_seeds <- length(fit$ensemble_models %||% list())
-    if (n_seeds > 1) {
+    full_data_refit <- !is.null(fit$fit_full_data_model)  # legacy contract
+    if (n_seeds > 1 && full_data_refit) {
       log_message(log_fun, "Predicting suitability raster with DNN ensemble (", n_seeds, " seeds, ", fit$dnn_model_type, ")")
 
       seed_preds <- vector("list", n_seeds)

@@ -47,8 +47,14 @@ predict_rangebag_bag <- function(bag, newdata) {
   inside
 }
 
-predict_rangebag_values <- function(model, data) {
-  data <- as.data.frame(data, check.names = FALSE)
+# Rangebag predict worker. terra::predict invokes `fun(model, data_block)`
+# where `model` is the first non-`...` argument supplied to terra::predict
+# (the rangebag fit object) and `data_block` is the data frame for the
+# current prediction chunk. We preserve the (model, values) signature so
+# callers can pass either the model first (terra::predict) or the data
+# first (direct call sites below).
+predict_rangebag_values <- function(model, values) {
+  data <- as.data.frame(values, check.names = FALSE)
   bags <- model$bags
   if (length(bags) < 1) {
     return(rep(NA_real_, nrow(data)))
