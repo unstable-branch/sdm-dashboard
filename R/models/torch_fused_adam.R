@@ -82,14 +82,8 @@ sdm_check_xptr_layout <- function() {
 #'   wraps this in tryCatch — if stop() fires, training aborts immediately and the
 #'   caller falls back gracefully. Use stop(call.=FALSE) so the caller's tryCatch
 #'   catches the error rather than this function's own call site.
-sdm_check_so_abi <- function(so_path, so_label = "C++ extension") {
-  if (!file.exists(so_path)) return(invisible(FALSE))
-  if (!requireNamespace("torch", quietly = TRUE)) return(invisible(FALSE))
-  # Get version from the .so — it should already be loaded
-  so_version <- tryCatch(.Call("sdmtorch_torch_version"), error = function(e) "unknown")
-  torch_version <- tryCatch(as.character(packageVersion("torch")), error = function(e) "unknown")
+sdm_check_abi_versions <- function(so_version, torch_version, so_label = "C++ extension") {
   if (identical(so_version, "unknown") || identical(torch_version, "unknown")) return(invisible(FALSE))
-  # Major.minor must match (patch can differ)
   so_major <- strsplit(so_version, "\\.")[[1]][1:2]
   torch_major <- strsplit(torch_version, "\\.")[[1]][1:2]
   if (!identical(so_major, torch_major)) {
@@ -99,6 +93,14 @@ sdm_check_so_abi <- function(so_path, so_label = "C++ extension") {
     ), call. = FALSE)
   }
   invisible(TRUE)
+}
+
+sdm_check_so_abi <- function(so_path, so_label = "C++ extension") {
+  if (!file.exists(so_path)) return(invisible(FALSE))
+  if (!requireNamespace("torch", quietly = TRUE)) return(invisible(FALSE))
+  so_version <- tryCatch(.Call("sdmtorch_torch_version"), error = function(e) "unknown")
+  torch_version <- tryCatch(as.character(packageVersion("torch")), error = function(e) "unknown")
+  sdm_check_abi_versions(so_version, torch_version, so_label)
 }
 
 # === Fused Elastic Net Regularization ===
