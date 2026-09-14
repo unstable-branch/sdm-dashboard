@@ -673,7 +673,10 @@ handle_diagnostics_calibration <- function(req, res, run_id, app_dir) {
     cal_list <- cal_list[!sapply(cal_list, function(b) is.na(b$count) || b$count == 0)]
     list(available = TRUE, bins = cal_list)
   }, error = function(e) {
-    list(error = paste("Calibration computation failed:", conditionMessage(e)))
+    list(
+      error = paste("Calibration computation failed:", conditionMessage(e)),
+      error_stack = paste(capture.output(traceback(max.lines = 20L)), collapse = "\n")
+    )
   })
 }
 
