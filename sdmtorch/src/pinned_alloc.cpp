@@ -101,11 +101,13 @@ SEXP pinned_free(SEXP buf_xp) {
   return R_NilValue;
 }
 
-// Async copy from pinned buffer to a new GPU tensor.
-// Returns an XPtrTorchTensor compatible with R's torch package.
-// Usage from R:
-//   tensor <- .Call("pinned_to_gpu_tensor", buf, "cuda")
-SEXP pinned_to_gpu_tensor(SEXP buf_xp, SEXP device_sexp) {
+// Synchronous copy from pinned buffer to a new GPU tensor.
+// This is the default and most reliable path. Uses cudaMemcpy (blocking).
+//
+// NOTE: An async variant (pinned_to_gpu_tensor_async) using cudaMemcpyAsync
+// would require a CUDA stream. This is deferred until a future torch R package
+// exposes stream external-pointer access safely.
+SEXP pinned_to_gpu_tensor_sync(SEXP buf_xp, SEXP device_sexp) {
   auto* buf = static_cast<PinnedBuffer*>(R_ExternalPtrAddr(buf_xp));
   if (!buf || !buf->cpu_ptr)
     Rcpp::stop("NULL pinned buffer");
@@ -113,7 +115,6 @@ SEXP pinned_to_gpu_tensor(SEXP buf_xp, SEXP device_sexp) {
   std::string device_str = Rcpp::as<std::string>(device_sexp);
   at::Device device(device_str);
 
-  // Allocate GPU tensor, immediately heap-wrap for XPtrTorchTensor
   auto* tensor_ptr = new at::Tensor(
     at::empty(
       {static_cast<int64_t>(buf->n_elements)},
@@ -121,7 +122,6 @@ SEXP pinned_to_gpu_tensor(SEXP buf_xp, SEXP device_sexp) {
     )
   );
 
-  // Sync H2D copy from pinned memory (caller expects usable tensor immediately)
   cudaError_t err = cudaMemcpy(
     tensor_ptr->data_ptr<float>(),
     buf->cpu_ptr,
@@ -130,7 +130,7 @@ SEXP pinned_to_gpu_tensor(SEXP buf_xp, SEXP device_sexp) {
   );
   if (err != cudaSuccess) {
     delete tensor_ptr;
-    Rcpp::stop("pinned_to_gpu_tensor: cudaMemcpy failed (%d): %s", err, cudaGetErrorString(err));
+    Rcpp::stop("pinned_to_gpu_tensor_sync: cudaMemcpy failed (%d): %s", err, cudaGetErrorString(err));
   }
 
   XPtrTorchTensor result(tensor_ptr);

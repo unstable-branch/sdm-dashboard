@@ -88,12 +88,20 @@ INCLUDES := $(TORCH_INC) $(TORCH_R_INC) $(RCPP_INC) $(R_INC)
 # developer explicitly opts in.
 SDMTORCH_ENABLE_PINNED_ALLOC ?= 0
 
-all: $(ADAM_OUT) $(LIBTORCH_OUT) $(TENSORVIEW_OUT)
+# The libtorch _fused_adam_ CUDA kernel produces NaN on Blackwell GPUs (compute 12.0).
+# It is disabled by default. Set SDMTORCH_ENABLE_LIBTORCH_KERNEL=1 to build and load it.
+SDMTORCH_ENABLE_LIBTORCH_KERNEL ?= 0
+
+all: $(ADAM_OUT) $(TENSORVIEW_OUT)
 	@if [ -n "$(TORCH_CUDA_LIBS)" ]; then $(MAKE) $(CUDAGRAPH_OUT); fi
 	@if [ "$(SDMTORCH_ENABLE_PINNED_ALLOC)" = "1" ]; then $(MAKE) $(PINNEDALLOC_OUT); fi
+	@if [ "$(SDMTORCH_ENABLE_LIBTORCH_KERNEL)" = "1" ]; then $(MAKE) $(LIBTORCH_OUT); fi
 
 adam: $(ADAM_OUT)
 
+# NOTE: train_step_libtorch.so uses the libtorch _fused_adam_ kernel.
+# It produces NaN on Blackwell GPUs (compute 12.0). Build only for CUDA < 12.0.
+# Use: SDMTORCH_ENABLE_LIBTORCH_KERNEL=1 make libtorch
 libtorch: $(LIBTORCH_OUT)
 
 cuda_graph: $(CUDAGRAPH_OUT)

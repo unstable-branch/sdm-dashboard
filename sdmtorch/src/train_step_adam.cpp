@@ -84,4 +84,43 @@ SEXP adam_step_direct(SEXP params_, SEXP grads_,
   return R_NilValue;
 }
 
+// Probe XPtrTorch tensor layout at runtime and validate it matches expectations.
+// Returns a list with layout_ok, first_word, torch_version, error_msg.
+SEXP sdmtorch_xptr_layout_check(SEXP probe) {
+  using Rcpp::List;
+  using Rcpp::Named;
+
+  bool layout_ok = true;
+  uintptr_t first_word = 0;
+  std::string error_msg = "";
+
+  if (TYPEOF(probe) != EXTPTRSXP) {
+    layout_ok = false;
+    error_msg = "probe is not an external pointer";
+  } else {
+    void* raw = R_ExternalPtrAddr(probe);
+    if (!raw) {
+      layout_ok = false;
+      error_msg = "probe external pointer is NULL";
+    } else {
+      first_word = *static_cast<uintptr_t*>(raw);
+      static constexpr uintptr_t XPTR_SENTINEL = 0x53444D544F524348ULL;
+      if (first_word == XPTR_SENTINEL) {
+        layout_ok = false;
+        error_msg = "sentinel found at offset 0 — shared_ptr::_M_ptr is NOT at offset 0 in this torch R package version. Rebuild sdmtorch: make -C sdmtorch clean all";
+      } else if ((first_word & 7ULL) != 0) {
+        layout_ok = false;
+        error_msg = "first_word at offset 0 is not 8-byte aligned — unexpected XPtrTorch layout";
+      }
+    }
+  }
+
+  return List::create(
+    Named("layout_ok") = layout_ok,
+    Named("first_word") = static_cast<double>(first_word),
+    Named("torch_version") = std::string(SDMTORCH_TORCH_VERSION),
+    Named("error_msg") = error_msg
+  );
+}
+
 } // extern "C"

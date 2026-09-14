@@ -46,6 +46,31 @@ gpu_profile_stop <- function(enabled) {
   invisible(TRUE)
 }
 
+# XPtrTorch layout validation: probe a live tensor to verify memory layout matches
+# what sdmtorch's common.h assumes. This is the most fragile part of the bridge — if
+# torch R upgrades and changes the shared_ptr<void> layout inside XPtrTorchTensor*, we
+# get silent memory corruption. The probe detects this and stops with a clear message.
+#
+# This function is called once per session at the first train_model_fused invocation.
+sdm_check_xptr_layout <- function() {
+  if (!requireNamespace("torch", quietly = TRUE)) return(invisible(TRUE))
+  if (!is.loaded("sdmtorch_xptr_layout_check", PACKAGE = "")) return(invisible(TRUE))
+  tryCatch({
+    probe <- torch::torch_tensor(1.0)  # simplest possible tensor
+    result <- .Call("sdmtorch_xptr_layout_check", probe)
+    if (!isTRUE(result$layout_ok)) {
+      stop(sprintf(
+        "XPtrTorch tensor layout mismatch detected.\n  torch version: %s\n  Error: %s\n  Fix: make -C sdmtorch clean all\n",
+        result$torch_version, result$error_msg
+      ), call. = FALSE)
+    }
+    invisible(TRUE)
+  }, error = function(e) {
+    message("[sdmtorch] XPtrTorch layout check skipped: ", conditionMessage(e))
+    invisible(TRUE)
+  })
+}
+
 # ABI compatibility check: verify .so was compiled against the same torch version
 # that is currently loaded. Prevents silent memory corruption from ABI mismatches.
 #' Verify ABI compatibility between a compiled C++ extension and the loaded torch.
@@ -128,19 +153,16 @@ fused_adam_step <- function(state, device = NULL) {
 
   for (j in seq_along(steps)) steps[[j]]$add_(1L)
 
-  # Custom Adam/AdamW kernel via ATen ops — works on CPU/CUDA/MPS (no NaN on Blackwell)
+  # Custom Adam/AdamW kernel via ATen ops — works on CPU/CUDA/MPS (no NaN on Blackwell).
+  # The libtorch _fused_adam_ kernel (fused_adam_step_direct) produces NaN on Blackwell
+  # GPUs (compute 12.0) and is NOT used as a fallback. Only the ATen-op kernel and
+  # torch's namespace fallback are available.
   if (is.loaded("adam_step_direct", PACKAGE = "")) {
     .Call("adam_step_direct",
       params, grads,
       state$exp_avgs, state$exp_avg_sqs, steps,
       state$lr, state$b1, state$b2, state$eps, state$weight_decay,
       isTRUE(state$use_adamw)
-    )
-  } else if (is.loaded("fused_adam_step_direct", PACKAGE = "")) {
-    .Call("fused_adam_step_direct",
-      params, grads,
-      state$exp_avgs, state$exp_avg_sqs, steps,
-      state$lr, state$b1, state$b2, state$eps, state$weight_decay
     )
   } else {
     fa <- get("torch__fused_adam_", envir = asNamespace("torch"))
@@ -162,6 +184,10 @@ train_model_fused <- function(model, epochs, device, train_dl, valid_dl = NULL,
                               verbose = TRUE,
                               accumulation_steps = 1L,
                               loss_record_interval = 10L) {
+  # Validate XPtrTorch tensor layout once per session before any GPU ops.
+  # This catches layout mismatches early and stops with a clear rebuild message.
+  sdm_check_xptr_layout()
+
   model$net$to(device = device)
   model$net$train()
   model$successfull <- 1L
