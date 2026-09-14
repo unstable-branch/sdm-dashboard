@@ -73,6 +73,13 @@ Eliminated silent data leakage and mislabeled metrics across the SDM pipeline. T
 
 - `frontend/src/lib/map-styles.ts`: basemap switched from CARTO raster PNG tiles to CARTO Streets v1 vector tiles (MVT) — sharper at all zoom levels, no API key required, same free CDN.
 
+### GPU backend detection (issue #33)
+
+- `R/core/gpu_helpers.R` `sdm_accelerator_capabilities()` now supports `SDM_ACCELERATOR` env var override (`auto`/`cpu`/`nvidia`/`amd`) to force a specific backend when automatic detection fails inside Docker or other container environments.
+- `sdm_docker_gpu_probe()`: live Docker GPU probe via `docker run --rm --gpus all nvidia/cuda:11.8.0-standalone nvidia-smi --query-gpu=name --format=csv,noheader` with a 5-second timeout. Returns GPU names or `character(0)` when Docker/nvidia-smi is unavailable.
+- When Docker GPU access is detected but torch's `cuda_is_available()` returns FALSE (e.g. missing `--gpus all` container flag), a warning is issued suggesting the env var or container GPU flags.
+- The `SDM_ACCELERATOR` override (set to `cpu`/`nvidia`/`amd`) bypasses automatic detection and forces the chosen backend, with appropriate warnings if the requested backend is unavailable.
+
 ### Plumber auth (revert d3b96e49)
 
 - `plumber/R/plumber.R`: removed `@filter Auth` block that was causing `/health` to return empty `{}` body in Plumber 1.3.3.
