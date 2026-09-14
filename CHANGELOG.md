@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Scientific leakage remediation (Group S: S1, S2, S3, S5, S6, S7, S8, S9)
+
+Eliminated silent data leakage and mislabeled metrics across the SDM pipeline. These regressions previously caused optimistic AUC/TSS reporting and on-disagreement predictions across all model backends. S4 (proposed bioclim/rangebag arg-order swap) was investigated and confirmed to be a false alarm — `terra::predict(obj, model, fun, ...)` invokes `fun(model, data_block, ...)`, so the original `(model, values)` signature is correct.
+
+- **S1 — Per-fold scaling refit.** `R/covariates/covariates_stack.R` still computes global means/SDs at fit time (kept for `terra::extract` compatibility), but `R/models/cv_engine.R` and `R/models/model_glm.R` `cross_validate_glm` now refit means and SDs inside each CV fold's training rows and apply them to the held-out validation rows via `fit_fold_scaler` / `apply_fold_scaler`. New helpers live in `R/models/per_fold_preprocessing.R`.
+- **S2 — Per-fold VIF refit.** `cross_validate_glm` accepts an optional `vif_threshold` and runs `apply_vif_selection` on each fold's training rows only (per-fold dropped variables recorded in `cv$per_fold_dropped_vars`). The legacy run-sdm-level VIF block is preserved for the final fit.
+- **S3 — DNN honors `cv_folds`.** `R/models/model_dnn.R` `fit_dnn_sdm` now partitions presence+background into k actual folds, fits `n_seeds` sub-models per fold's training rows, and reports the out-of-fold AUC summary (was: a single 80/20 holdout reused `n_seeds` times and reported as if it were a k-fold CV). The "best fold" model is selected for SHAP/importance/projection.
+- **S5 — Permutation importance baseline from out-of-fold predictions.** `R/models/importance.R` `permutation_importance` now uses `cv$predictions` (when supplied) as the evaluation set, replacing the 20%-post-fit holdout. Old behaviour remains as a fallback when no CV predictions are available. `R/xai/xai_methods.R` `xai_importance` automatically passes `fit$cv$predictions` through.
+- **S6 — MESS in scaled feature space.** `R/core/run_sdm.R` now computes the current MESS against `env$env_train_scaled` and `env$env_project_scaled` instead of the unscaled rasters, so the extrapolation envelope matches the model's feature space. The `mess_train_data` snapshot for future projections is also the *scaled* training raster.
+- **S7 — Post-fit threshold from out-of-fold predictions.** `R/core/run_sdm.R` `run_fast_sdm` now selects `max_tss` thresholds from `cv$predictions` when available, falling back to in-sample predictions (with a logged warning) only when CV predictions are absent. This prevents spuriously high thresholds driven by overfit training data.
+- **S8 — NA semantics consistency.** `R/models/prediction.R` `predict_suitability` and `R/models/model_bioclim.R` `predict_bioclim_suitability` no longer pass `na.rm = TRUE` to `terra::predict`. Cells with at least one non-finite covariate now return NA instead of being filled with a value computed from partial covariates — consistent with what complete-case training implies.
+- **S9 — Multi-ensemble cv SD semantic clarity.** `R/models/model_multi_ensemble.R` now exposes `cv$component_auc_spread` and `cv$component_tss_spread` alongside the existing `cv$auc_sd` / `cv$tss_sd`, which continue to hold the *component* (not per-fold) spread for backward compatibility. Plot labels should now use the explicit `component_*_spread` fields.
+
 ### Performance (Group M: D10, D7, D4, D9, D2, D5, D3)
 
 - `R/data/occurrences.R` `flag_geographic_outliers` now uses `data.table` for O(n) flagging instead of nested `lapply` O(n²) loop (D10).

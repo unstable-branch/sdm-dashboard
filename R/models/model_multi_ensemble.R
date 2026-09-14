@@ -660,6 +660,12 @@ fit_multi_model_ensemble <- function(occ, env_train_scaled,
       tss_sd = if (!is.null(component_metrics_df) && nrow(component_metrics_df) > 1 && "tss_mean" %in% names(component_metrics_df)) {
         sd(component_metrics_df$tss_mean, na.rm = TRUE)
       } else NA_real_,
+      # Group-S fix (S9): the per-component spread described above is across
+      # *components*, not across CV folds. Keep `auc_sd`/`tss_sd` for backward
+      # compatibility but expose explicit cross-component spread under clearer
+      # names so downstream plot labels and consumers can report honestly.
+      component_auc_spread = if (!is.null(component_metrics_df) && nrow(component_metrics_df) > 1) sd(component_metrics_df$auc_mean, na.rm = TRUE) else NA_real_,
+      component_tss_spread = if (!is.null(component_metrics_df) && nrow(component_metrics_df) > 1) sd(component_metrics_df$tss_mean, na.rm = TRUE) else NA_real_,
       component_metrics = component_metrics_df,
       component_cv = cv_list,
       component_k = component_k

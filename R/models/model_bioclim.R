@@ -149,7 +149,7 @@ predict_bioclim_suitability <- function(fit, env_project_scaled, output_tif, n_c
   log_message(log_fun, "Predicting BIOCLIM suitability over ", terra::ncol(env_project_scaled), "x", terra::nrow(env_project_scaled), " raster")
 
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
-  suit <- terra::predict(env_project_scaled, fit$model, fun = bioclim_predict_values, na.rm = TRUE, cores = n_cores, filename = output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+  suit <- terra::predict(env_project_scaled, fit$model, fun = bioclim_predict_values, na.rm = FALSE, cores = n_cores, filename = output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
   names(suit) <- "suitability"
   log_message(log_fun, "Suitability raster written to: ", output_tif)
   suit
