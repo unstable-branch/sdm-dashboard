@@ -4,6 +4,30 @@
 # Session-level cache for accelerator capabilities (avoids repeated cuda_is_available probes)
 ._gpu_caps_cache <- new.env(parent = emptyenv())
 
+#' Probe Docker for accessible GPU devices (NVIDIA/AMD).
+#' @details Runs `docker run --rm --gpus all nvidia/cuda:11.8.0-standalone nvidia-smi`
+#'   as a live probe. Returns a character vector of GPU names, or character(0) if
+#'   no GPU is accessible via Docker. Uses a 5-second shell-level timeout so it
+#'   does not block startup when Docker is slow or GPUs are unavailable.
+#' @examples
+#'   sdm_docker_gpu_probe()
+sdm_docker_gpu_probe <- function() {
+  result <- tryCatch(
+    suppressWarnings(
+      system2("sh", args = c("-c",
+        "timeout 5 docker run --rm --gpus all --network none nvidia/cuda:11.8.0-standalone nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null"
+      ), stdout = TRUE, stderr = FALSE),
+      classes = "simpleWarning"
+    ),
+    error = function(e) character(0)
+  )
+  if (is.integer(result) && length(result) == 1 && result[1] == 124) {
+    return(character(0))
+  }
+  result <- trimws(result)
+  result[nzchar(result)]
+}
+
 #' Probe AMD ROCm runtime via loaded DLLs.
 #' @details Uses getLoadedDLLs() to check for libamdhip64.so and related ROCm
 #'   runtime libraries. This is a runtime probe (authoritative) vs the
@@ -22,6 +46,11 @@
 #'   capabilities list to bypass the cache and force recomputation. ROCm
 #'   detection uses getLoadedDLLs() as the primary probe; set SDM_ROCM=1 for
 #'   an explicit opt-in (triggers a warning if no ROCm runtime is detected).
+#'
+#'   Accelerator override: set `SDM_ACCELERATOR` env var to `cpu`, `nvidia`, or
+#'   `amd` to force a specific backend. `auto` (default) uses automatic detection.
+#'   When Docker GPU access is detected but torch cannot see a GPU, a warning is
+#'   issued suggesting the env var or container GPU flags.
 sdm_accelerator_capabilities <- function(capabilities = NULL) {
   if (!is.null(capabilities)) {
     .caps <- .compute_caps(capabilities)
@@ -60,6 +89,47 @@ sdm_accelerator_capabilities <- function(capabilities = NULL) {
   }
   cuda <- isTRUE(raw$cuda) && !rocm
   mps <- isTRUE(raw$mps)
+
+  accelerator_override <- tolower(Sys.getenv("SDM_ACCELERATOR", "auto"))
+  if (accelerator_override != "auto") {
+    docker_gpus <- sdm_docker_gpu_probe()
+    if (accelerator_override == "cpu") {
+      if (cuda || rocm || mps) {
+        message("SDM_ACCELERATOR=cpu is set — forcing CPU backend. ",
+                "Unset SDM_ACCELERATOR to enable GPU acceleration.")
+      }
+      cuda <- FALSE
+      rocm <- FALSE
+      mps <- FALSE
+    } else if (accelerator_override == "nvidia") {
+      cuda <- cuda_compatible
+      rocm <- FALSE
+      mps <- FALSE
+      if (!cuda_compatible && length(docker_gpus) > 0) {
+        warning("SDM_ACCELERATOR=nvidia is set, but torch cannot see NVIDIA CUDA. ",
+                "Docker reports GPU(s): ", paste(docker_gpus, collapse = ", "), ". ",
+                "Ensure the container has --gpus all and nvidia-container-toolkit is installed.")
+      }
+    } else if (accelerator_override == "amd") {
+      rocm <- cuda_compatible && (rocm_runtime || rocm_env)
+      cuda <- FALSE
+      mps <- FALSE
+      if (!rocm && length(docker_gpus) > 0) {
+        warning("SDM_ACCELERATOR=amd is set, but no AMD ROCm runtime detected. ",
+                "Docker reports GPU(s): ", paste(docker_gpus, collapse = ", "), ". ",
+                "Set SDM_ACCELERATOR=nvidia if using NVIDIA GPUs.")
+      }
+    }
+  } else {
+    docker_gpus <- sdm_docker_gpu_probe()
+    if (length(docker_gpus) > 0 && !cuda && !rocm && !mps) {
+      message("[GPU] Docker reports GPU access but torch could not detect CUDA/ROCm/MPS. ",
+              "torch::cuda_is_available() returned FALSE. ",
+              "If running inside Docker, ensure --gpus all is passed and nvidia-container-toolkit is installed. ",
+              "To silence this message, set SDM_ACCELERATOR=cpu or SDM_ACCELERATOR=nvidia explicitly.")
+    }
+  }
+
   list(
     cuda = cuda,
     rocm = rocm,
