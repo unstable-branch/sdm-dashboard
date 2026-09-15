@@ -143,6 +143,61 @@ sdm_registry_count_if <- function(predicate) {
   count
 }
 
+# ── PID-first cancel ─────────────────────────────────────────────────────────
+# Shared cancel logic: tries to kill via registry process first (PID-first),
+# then falls back to PID from meta.json if registry miss.  Returns a list with
+# killed (logical), pid (integer-ish), and from_registry (logical).
+# Callers handle Redis cancel flag, registry removal, and meta.json updates.
+sdm_cancel_pid_first <- function(job_id, meta_file = NULL) {
+  result <- list(killed = FALSE, pid = NULL, from_registry = FALSE)
+
+  entry <- sdm_registry_get(job_id)
+  proc <- if (!is.null(entry)) sdm_registry_proc(entry) else NULL
+
+  if (!is.null(proc) && inherits(proc, "process") && tryCatch(proc$is_alive(), error = function(e) FALSE)) {
+    result$from_registry <- TRUE
+    proc$kill()
+    for (i in seq_len(30)) {
+      if (!tryCatch(proc$is_alive(), error = function(e) TRUE)) break
+      Sys.sleep(0.1)
+    }
+    if (tryCatch(proc$is_alive(), error = function(e) FALSE)) {
+      pid <- tryCatch(proc$get_pid(), error = function(e) NULL)
+      if (!is.null(pid)) {
+        result$pid <- pid
+        sdm_kill_pid(pid)
+      }
+    }
+    result$killed <- TRUE
+  }
+
+  if (!result$killed && !is.null(meta_file) && file.exists(meta_file)) {
+    meta <- sdm_read_meta_json(meta_file)
+    if (!is.null(meta) && !is.null(meta$process_pid)) {
+      pid <- as.integer(meta$process_pid)
+      if (is.finite(pid) && pid > 0) {
+        result$pid <- pid
+        result$killed <- sdm_kill_pid(pid)
+      }
+    }
+  }
+
+  result
+}
+
+sdm_kill_pid <- function(pid) {
+  killed <- FALSE
+  tryCatch({
+    if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
+      cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
+      if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
+    }
+    tools::pskill(pid, signal = 9)
+    killed <- TRUE
+  }, error = function(e) NULL)
+  killed
+}
+
 # Helper for error responses
 sdm_error <- function(req, status, message) {
   res <- tryCatch(req$res, error = function(e) NULL)

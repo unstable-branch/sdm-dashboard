@@ -1075,41 +1075,20 @@ handle_model_cancel <- function(req, res, job_id) {
     }
   }
 
-  entry <- sdm_process_registry[[job_id]]
-  proc <- sdm_registry_proc(entry)
-  killed <- FALSE
+  cancel_result <- sdm_cancel_pid_first(job_id, meta_file)
+  killed <- cancel_result$killed
 
-  if (!is.null(proc) && inherits(proc, "process")) {
-    if (proc$is_alive()) {
-      proc$kill()
-      killed <- TRUE
-      for (i in seq_len(30)) {
-        if (!proc$is_alive()) break
-        Sys.sleep(0.1)
-      }
-      if (proc$is_alive()) {
-        pid <- proc$get_pid()
-        tryCatch({
-          if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
-            cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
-            if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
-          }
-          tools::pskill(pid, signal = 9)
-        }, error = function(e) NULL)
-        for (i in seq_len(20)) {
-          if (!proc$is_alive()) break
-          Sys.sleep(0.1)
-        }
-      }
-    }
+  entry <- sdm_registry_get(job_id)
+  if (!is.null(entry) && killed) {
     device_tag <- if (is.list(entry)) entry$device else "cpu"
-    if (killed && sdm_backend_is_discrete_gpu(device_tag)) {
+    if (sdm_backend_is_discrete_gpu(device_tag)) {
+      proc <- sdm_registry_proc(entry)
       for (i in seq_len(20)) {
-        if (!proc$is_alive()) break
+        if (!tryCatch(proc$is_alive(), error = function(e) TRUE)) break
         Sys.sleep(0.1)
       }
     }
-    rm(list = job_id, envir = sdm_process_registry)
+    sdm_registry_remove(job_id, "cancelled")
   }
 
   progress_log <- file.path(job_dir, "progress.log")
@@ -1126,16 +1105,8 @@ handle_model_cancel <- function(req, res, job_id) {
       return(list(ok = TRUE, message = "Run already terminated"))
     }
 
-    if (!killed && !is.null(meta$process_pid)) {
-      pid <- meta$process_pid
-      tryCatch({
-        if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
-          cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
-          if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
-        }
-        tools::pskill(pid, signal = 9)
-        killed <- TRUE
-      }, error = function(e) NULL)
+    if (!killed) {
+      killed <- sdm_kill_pid(meta$process_pid)
     }
 
     meta$status <- "cancelled"
