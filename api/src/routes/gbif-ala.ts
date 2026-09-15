@@ -340,7 +340,7 @@ gbifAlaRoutes.post("/occurrences/dwca", async (c) => {
     const { encPath, pipelineRunId } = saveUploadEncrypted(buffer, file.name);
 
     const resolved = resolveFilePath(encPath);
-    const initial = await plumberClient.withUser(user.id).parseDwca({ file_id: resolved.path });
+    const initial = await plumberClient.withUser(user.id).withRole(user.role).parseDwca({ file_id: resolved.path });
 
     const jobId = initial?.job_id as string | undefined;
     const result = jobId ? await pollPlumberJob(jobId) : initial;
