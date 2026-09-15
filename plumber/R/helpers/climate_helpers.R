@@ -284,7 +284,11 @@ handle_climate_scenarios <- function(res, app_dir) {
   list(scenarios = scenarios)
 }
 
-handle_climate_delete <- function(res, scenario_id, app_dir) {
+handle_climate_delete <- function(req, res, scenario_id, app_dir) {
+  user_role <- req$user_role %||% get_hdr(req, "x-forwarded-role") %||% NULL
+  if (!isTRUE(user_role == "admin")) {
+    res$status <- 404L; return(list(error = "Scenario not found"))
+  }
   future_dir <- sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir)
   current_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
   chelsa_dir <- sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir)

@@ -183,7 +183,7 @@ function(res) handle_climate_scenarios(res, app_dir)
 
 #* Delete a climate scenario
 #* @post /api/v1/climate/delete/<scenario_id>
-function(res, scenario_id) handle_climate_delete(res, scenario_id, app_dir)
+function(req, res, scenario_id) handle_climate_delete(req, res, scenario_id, app_dir)
 
 #* Cancel a climate download
 #* @post /api/v1/climate/cancel/<job_id>
@@ -207,7 +207,7 @@ function(req, res, run_id) handle_ecology_report(req, res, run_id, app_dir)
 
 #* Compute niche overlap between two runs
 #* @post /api/v1/ecology/niche-overlap
-function(req) handle_ecology_niche_overlap(req, app_dir)
+function(req, res) handle_ecology_niche_overlap(req, res, app_dir)
 
 #* Get model config defaults
 #* @get /api/v1/config/defaults
@@ -350,7 +350,7 @@ function(req, res) handle_boundary_upload(req, res, app_dir)
 
 #* List custom boundaries
 #* @post /api/v1/data/boundary/list
-function(res) handle_boundary_list(res, app_dir)
+function(req, res) handle_boundary_list(req, res, app_dir)
 
 #* Delete a custom boundary
 #* @param file_path Path to the boundary file to delete
