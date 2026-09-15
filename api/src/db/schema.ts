@@ -18,6 +18,8 @@ export const users = pgTable("users", {
   lastLoginAt: timestamp("last_login_at"),
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
+  // Incrementing this invalidates every access JWT for the user.
+  authVersion: integer("auth_version").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -304,6 +306,7 @@ export const refreshTokens = pgTable("refresh_tokens", {
 }, (t) => [
   index("idx_refresh_tokens_user").on(t.userId),
   index("idx_refresh_tokens_hash").on(t.tokenHash),
+  uniqueIndex("refresh_tokens_token_hash_unique").on(t.tokenHash),
 ]);
 
 export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({

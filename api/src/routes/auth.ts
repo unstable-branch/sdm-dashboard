@@ -10,7 +10,13 @@ import { randomBytes, createHash, createHmac } from "crypto";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import { sendPasswordResetEmail, generateToken, hashToken } from "../services/email.js";
 import type { AppEnv } from "../middleware/auth.js";
-import { refreshTokens } from "../db/schema.js";
+import {
+  consumePasswordReset,
+  invalidateBrowserSessions,
+  issueBrowserSession,
+  rotateRefreshToken,
+  updatePasswordAndInvalidate,
+} from "../services/sessions.js";
 
 export const authRoutes = new Hono<AppEnv>();
 
@@ -20,7 +26,7 @@ authRoutes.onError((err, c) => {
 });
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_ISSUER = process.env.JWT_ISSUER || "sdm-dashboard";
+const JWT_ISSUER = process.env.JWT_ISSUER?.trim() || "sdm-dashboard";
 const BCRYPT_ROUNDS = 12;
 const ACCESS_TOKEN_EXPIRY_S = 900; // 15 minutes
 const REFRESH_TOKEN_EXPIRY_DAYS = 30;
@@ -31,15 +37,20 @@ function hashRefreshToken(token: string): string {
   return createHmac("sha256", JWT_SECRET).update(token).digest("hex");
 }
 
-async function issueRefreshToken(userId: string): Promise<string> {
-  const token = randomBytes(REFRESH_TOKEN_BYTES).toString("hex");
-  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 86400000);
-  await db.insert(refreshTokens).values({
-    userId,
-    tokenHash: hashRefreshToken(token),
-    expiresAt,
-  });
-  return token;
+function createRefreshToken() {
+  const raw = randomBytes(REFRESH_TOKEN_BYTES).toString("hex");
+  return {
+    raw,
+    hash: hashRefreshToken(raw),
+    expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 86400000),
+  };
+}
+
+async function issueAccessToken(user: { id: string; email: string; role: string; authVersion: number }): Promise<string> {
+  return sign(
+    { sub: user.id, email: user.email, role: user.role, av: user.authVersion, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
+    JWT_SECRET as string,
+  );
 }
 
 export function validatePassword(password: string): string | null {
@@ -115,11 +126,10 @@ authRoutes.post("/register", async (c) => {
       ...client,
     });
 
-    const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
-      JWT_SECRET as string
-    );
-    const refreshToken = await issueRefreshToken(user.id);
+    const session = await issueBrowserSession(user.id, passwordHash, issueAccessToken, createRefreshToken);
+    if (!session) return c.json({ error: "Registration failed" }, 500);
+    const token = session.accessToken;
+    const refreshToken = session.refreshToken;
 
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
@@ -216,25 +226,21 @@ authRoutes.post("/login", async (c) => {
 
     recordLoginAttempt(email, true);
 
-    await db
-      .update(users)
-      .set({ lastLoginAt: new Date() })
-      .where(eq(users.id, user.id));
+    const session = await issueBrowserSession(user.id, user.passwordHash, issueAccessToken, createRefreshToken);
+    if (!session) return c.json({ error: "Invalid credentials" }, 401);
+    const currentUser = session.user;
 
     const client = extractClientInfo(c);
     logAction({
-      userId: user.id,
+      userId: currentUser.id,
       action: "user_login",
       entity: "users",
-      entityId: user.id,
+      entityId: currentUser.id,
       ...client,
     });
 
-    const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
-      JWT_SECRET as string
-    );
-    const refreshToken = await issueRefreshToken(user.id);
+    const token = session.accessToken;
+    const refreshToken = session.refreshToken;
 
     const forwardedProto = c.req.header("X-Forwarded-Proto");
     const isSecure = process.env.NODE_ENV === "production" || forwardedProto === "https";
@@ -246,7 +252,7 @@ authRoutes.post("/login", async (c) => {
     }
 
     return c.json({
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: currentUser.id, email: currentUser.email, name: currentUser.name, role: currentUser.role },
       token,
       refresh_token: refreshToken,
     });
@@ -257,6 +263,9 @@ authRoutes.post("/login", async (c) => {
 });
 
 authRoutes.post("/refresh", rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "refresh" }), async (c) => {
+  if (!JWT_SECRET) {
+    return c.json({ error: "Authentication unavailable (server not configured)" }, 503);
+  }
   try {
     const body = await c.req.json();
     const { refresh_token } = body;
@@ -264,38 +273,15 @@ authRoutes.post("/refresh", rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "r
       return c.json({ error: "refresh_token is required" }, 400);
     }
 
-    const hashedToken = hashRefreshToken(refresh_token);
-    const [stored] = await db
-      .select({
-        id: refreshTokens.id,
-        userId: refreshTokens.userId,
-        expiresAt: refreshTokens.expiresAt,
-        revokedAt: refreshTokens.revokedAt,
-        userEmail: users.email,
-        userRole: users.role,
-      })
-      .from(refreshTokens)
-      .innerJoin(users, eq(users.id, refreshTokens.userId))
-      .where(eq(refreshTokens.tokenHash, hashedToken))
-      .limit(1);
-
-    if (!stored || stored.revokedAt) {
-      return c.json({ error: "Invalid or revoked refresh token" }, 401);
-    }
-    if (new Date(stored.expiresAt) < new Date()) {
-      return c.json({ error: "Refresh token expired" }, 401);
-    }
-
-    // Rotate: revoke old token, issue new pair
-    await db.update(refreshTokens).set({ revokedAt: new Date() }).where(eq(refreshTokens.id, stored.id));
-
-    const newToken = await sign(
-      { sub: stored.userId, email: stored.userEmail, role: stored.userRole, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
-      JWT_SECRET as string
+    const replacement = createRefreshToken();
+    const stored = await rotateRefreshToken(
+      hashRefreshToken(refresh_token),
+      replacement,
+      issueAccessToken,
     );
-    const newRefreshToken = await issueRefreshToken(stored.userId);
+    if (!stored) return c.json({ error: "Invalid or revoked refresh token" }, 401);
 
-    return c.json({ token: newToken, refresh_token: newRefreshToken });
+    return c.json({ token: stored.accessToken, refresh_token: stored.refreshToken });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Refresh failed";
     return c.json({ error: message }, 500);
@@ -304,9 +290,10 @@ authRoutes.post("/refresh", rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "r
 
 authRoutes.post("/revoke-all", authMiddleware, async (c) => {
   const user = c.get("user");
-  await db.update(refreshTokens).set({ revokedAt: new Date() }).where(
-    and(eq(refreshTokens.userId, user.id), eq(refreshTokens.revokedAt, null as unknown as Date))
-  );
+  await invalidateBrowserSessions(user.id);
+  const isSecure = process.env.NODE_ENV === "production" || c.req.header("X-Forwarded-Proto") === "https";
+  const cookieName = isSecure ? "__Host-sdm_token" : "sdm_token";
+  c.header("Set-Cookie", cookieName + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
   return c.json({ ok: true });
 });
 
@@ -407,10 +394,12 @@ authRoutes.post("/change-password", authMiddleware, rateLimit({ windowMs: 60_000
   }
 
   const newHash = await hash(newPassword, BCRYPT_ROUNDS);
-  await db
-    .update(users)
-    .set({ passwordHash: newHash, updatedAt: new Date() })
-    .where(eq(users.id, user.id));
+  const changed = await updatePasswordAndInvalidate(user.id, newHash, dbUser.passwordHash);
+  if (!changed) return c.json({ error: "Session changed; please sign in again" }, 401);
+
+  const isSecure = process.env.NODE_ENV === "production" || c.req.header("X-Forwarded-Proto") === "https";
+  const cookieName = isSecure ? "__Host-sdm_token" : "sdm_token";
+  c.header("Set-Cookie", cookieName + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
 
   const client = extractClientInfo(c);
   await logAction({
@@ -585,11 +574,8 @@ authRoutes.post("/reset-password", async (c) => {
   }
 
   const newHash = await hash(password, BCRYPT_ROUNDS);
-
-  await db
-    .update(users)
-    .set({ passwordHash: newHash, resetToken: null, resetTokenExpiry: null, updatedAt: new Date() })
-    .where(eq(users.id, user.id));
+  const reset = await consumePasswordReset(user.id, hashedToken, newHash);
+  if (!reset) return c.json({ error: "Invalid or expired reset token" }, 400);
 
   const client = extractClientInfo(c);
   await logAction({

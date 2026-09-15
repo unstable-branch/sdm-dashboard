@@ -13,6 +13,23 @@ const mockVerify = vi.hoisted(() => vi.fn());
 const mockCanAccessRun = vi.hoisted(() => vi.fn());
 const mockGetJobStatus = vi.hoisted(() => vi.fn());
 const mockJobEventBus = vi.hoisted(() => ({ on: vi.fn(), off: vi.fn() }));
+const wsDbState = vi.hoisted(() => ({ selectCalls: 0, deny: false, unavailable: false }));
+const mockDb = vi.hoisted(() => ({
+  select: vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({
+        limit: vi.fn(async () => {
+          if (wsDbState.unavailable) throw new Error("database unavailable");
+          if (wsDbState.deny) return [];
+          const phase = wsDbState.selectCalls++ % 3;
+          if (phase === 0) return [{ id: "run-1", projectId: "project-1" }];
+          if (phase === 1) return [];
+          return [{ id: "member-1" }];
+        }),
+      })),
+    })),
+  })),
+}));
 
 vi.mock("ws", () => ({
   WebSocketServer: vi.fn(function () {
@@ -34,6 +51,16 @@ vi.mock("hono/jwt", () => ({
   verify: mockVerify,
 }));
 
+vi.mock("./auth-principal.js", () => ({
+  AuthStorageUnavailable: class AuthStorageUnavailable extends Error {},
+  verifyCurrentJwt: async (token: string) => {
+    try {
+      const payload = await mockVerify(token, process.env.JWT_SECRET, "HS256");
+      return { id: payload.sub, email: payload.email ?? "test@example.com", role: payload.role, authVersion: payload.av ?? 0, source: "jwt" };
+    } catch { return null; }
+  },
+}));
+
 vi.mock("./job-events.js", () => ({
   jobEventBus: mockJobEventBus,
 }));
@@ -45,6 +72,8 @@ vi.mock("./access.js", () => ({
 vi.mock("./queue.js", () => ({
   getJobStatus: mockGetJobStatus,
 }));
+
+vi.mock("../db/index.js", () => ({ db: mockDb }));
 
 import { setupWebSocket, cleanupWebSocket } from "./websocket.js";
 
@@ -100,6 +129,9 @@ describe("WebSocket service", () => {
     mockGetJobStatus.mockReset();
     mockJobEventBus.on.mockReset();
     mockJobEventBus.off.mockReset();
+    wsDbState.selectCalls = 0;
+    wsDbState.deny = false;
+    wsDbState.unavailable = false;
     mockVerify.mockResolvedValue({ sub: "user-1", role: "user" });
     mockCanAccessRun.mockResolvedValue(true);
     mockGetJobStatus.mockResolvedValue(null);
@@ -197,10 +229,9 @@ describe("WebSocket service", () => {
       const ws = makeMockWs();
       await triggerConnection(ws, makeMockReq("/ws?token=valid"));
       await flush();
-      mockCanAccessRun.mockResolvedValue(true);
       triggerMessage(ws, JSON.stringify({ type: "subscribe", jobId: "job-1" }));
       await flush();
-      expect(mockCanAccessRun).toHaveBeenCalledWith("user-1", "user", "job-1");
+      expect(mockDb.select).toHaveBeenCalled();
     });
 
     it("sends error on subscribe when access denied", async () => {
@@ -208,7 +239,7 @@ describe("WebSocket service", () => {
       const ws = makeMockWs();
       await triggerConnection(ws, makeMockReq("/ws?token=valid"));
       await flush();
-      mockCanAccessRun.mockResolvedValue(false);
+      wsDbState.deny = true;
       triggerMessage(ws, JSON.stringify({ type: "subscribe", jobId: "job-1" }));
       await flush();
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "error", message: "Access denied" }));
@@ -323,6 +354,7 @@ describe("WebSocket service", () => {
         logs: ["step 1"],
         _receivedAt: Date.now(),
       });
+      await flush();
       expect(ws.send).toHaveBeenCalledWith(
         expect.stringContaining('"status":"running"')
       );
@@ -338,6 +370,7 @@ describe("WebSocket service", () => {
       await flush();
       ws.send.mockClear();
       broadcastProgress("job-1", { jobId: "job-1", progress: 75, message: "processing", timestamp: "t1" });
+      await flush();
       expect(ws.send).toHaveBeenCalledWith(
         expect.stringContaining('"progress":75')
       );
@@ -353,6 +386,7 @@ describe("WebSocket service", () => {
       await flush();
       ws.send.mockClear();
       broadcastStatus("job-1", "completed", { result: "ok" });
+      await flush();
       expect(ws.send).toHaveBeenCalledWith(
         expect.stringContaining('"status":"completed"')
       );
@@ -390,6 +424,39 @@ describe("WebSocket service", () => {
       statusHandler({ jobId: "job-1", state: "completed", progress: 100 });
       expect(ws.send).not.toHaveBeenCalled();
     });
+
+    it("closes an existing stream when current membership is revoked", async () => {
+      setupWebSocket(fakeServer);
+      const ws = makeMockWs();
+      await triggerConnection(ws, makeMockReq("/ws?token=valid"));
+      await flush();
+      triggerMessage(ws, JSON.stringify({ type: "subscribe", jobId: "bullmq-1" }));
+      await flush();
+      ws.send.mockClear();
+
+      // This must be a fresh authorization decision, not the cached project
+      // discovery result used by the general access helper.
+      wsDbState.deny = true;
+      const statusHandler = mockJobEventBus.on.mock.calls.find(
+        (call: any) => call[0] === "jobStatus"
+      )?.[1];
+      statusHandler({ jobId: "bullmq-1", state: "running", progress: 50 });
+      await flush();
+
+      expect(ws.close).toHaveBeenCalledWith(4001, "Authorization expired");
+      expect(ws.send).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when stream authorization storage is unavailable", async () => {
+      setupWebSocket(fakeServer);
+      const ws = makeMockWs();
+      await triggerConnection(ws, makeMockReq("/ws?token=valid"));
+      await flush();
+      wsDbState.unavailable = true;
+      triggerMessage(ws, JSON.stringify({ type: "subscribe", jobId: "job-1" }));
+      await flush();
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "error", message: "Access denied" }));
+    });
   });
 
   describe("deduplication", () => {
@@ -407,8 +474,10 @@ describe("WebSocket service", () => {
       )?.[1];
       const event = { jobId: "job-1", state: "running", progress: 50, logs: ["step"], _receivedAt: Date.now() };
       statusHandler(event);
+      await flush();
       expect(ws.send).toHaveBeenCalledTimes(1);
       statusHandler(event);
+      await flush();
       expect(ws.send).toHaveBeenCalledTimes(1);
     });
 
@@ -425,8 +494,10 @@ describe("WebSocket service", () => {
         (call: any) => call[0] === "jobStatus"
       )?.[1];
       statusHandler({ jobId: "job-1", state: "running", progress: 50, logs: [], _receivedAt: Date.now() });
+      await flush();
       expect(ws.send).toHaveBeenCalledTimes(1);
       statusHandler({ jobId: "job-1", state: "completed", progress: 100, logs: [], _receivedAt: Date.now() });
+      await flush();
       expect(ws.send).toHaveBeenCalledTimes(2);
     });
 
@@ -443,8 +514,10 @@ describe("WebSocket service", () => {
         (call: any) => call[0] === "jobStatus"
       )?.[1];
       statusHandler({ jobId: "job-1", state: "completed", progress: 100, logs: [], _receivedAt: Date.now() });
+      await flush();
       expect(ws.send).toHaveBeenCalledTimes(1);
       statusHandler({ jobId: "job-1", state: "completed", progress: 100, logs: [], _receivedAt: Date.now() });
+      await flush();
       expect(ws.send).toHaveBeenCalledTimes(2);
     });
   });
