@@ -22,6 +22,7 @@ runtime_packages <- c(
   "gbm", "maxnet", "nnet", "mgcv", "earth", "rpart", "mda", "gam",
   "xgboost", "ranger", "PresenceAbsence", "pROC", "ecospat",
   "marginaleffects", "plotrix", "ggplot2", "CAST", "blockCV",
+  "crew", "crew.cluster", "crew.aws.batch",
   "CoordinateCleaner", "rgbif", "finch", "future", "future.apply", "DBI",
   "RPostgres", "digest", "Rook", "openssl", "pool", "uuid", "targets",
   "tarchetypes", "geotargets"

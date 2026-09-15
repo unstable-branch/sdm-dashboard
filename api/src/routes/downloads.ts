@@ -50,7 +50,7 @@ downloadsRoutes.post("/cancel/:jobId", async (c) => {
     : `/api/v1/jobs/cancel/${jobId}`;
 
   try {
-    const result = await plumberClient.withUser(user.id).post(path, {});
+    const result = await plumberClient.withUser(user.id).withRole(user.role).post(path, {});
     const client = extractClientInfo(c);
     await logAction({
       userId: user.id,

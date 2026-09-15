@@ -119,6 +119,7 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
 export class PlumberClient {
   private baseUrl: string;
   private forwardedUser: string | null = null;
+  private forwardedRole: string | null = null;
 
   constructor(baseUrl: string = PLUMBER_URL) {
     this.baseUrl = baseUrl;
@@ -127,6 +128,14 @@ export class PlumberClient {
   withUser(userId: string): PlumberClient {
     const client = new PlumberClient(this.baseUrl);
     client.forwardedUser = userId;
+    client.forwardedRole = this.forwardedRole;
+    return client;
+  }
+
+  withRole(role: string): PlumberClient {
+    const client = new PlumberClient(this.baseUrl);
+    client.forwardedUser = this.forwardedUser;
+    client.forwardedRole = role;
     return client;
   }
 
@@ -134,6 +143,7 @@ export class PlumberClient {
     const h: Record<string, string> = {};
     if (PLUMBER_INTERNAL_KEY) h["X-Hono-Internal"] = PLUMBER_INTERNAL_KEY;
     if (this.forwardedUser) h["X-Forwarded-User"] = this.forwardedUser;
+    if (this.forwardedRole) h["X-Forwarded-Role"] = this.forwardedRole;
     return h;
   }
 

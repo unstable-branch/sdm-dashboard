@@ -45,7 +45,9 @@ export async function handleModelJob(
       progress: 0,
       failedReason: runErrMsg,
     });
-    return { status: "error", error: runErrMsg, error_code: "MODEL_RUN_FAILED" };
+    const err = new Error(runErrMsg);
+    (err as any).error_code = "MODEL_RUN_FAILED";
+    throw err;
   }
   const plumberJobId = modelRes.job_id as string | undefined;
 
@@ -215,6 +217,8 @@ export async function handleModelJob(
             progressJson: pollProgressJson ?? null,
           });
           return { status: "error", error: "Cancelled", error_code: "CANCELLED" };
+          // Note: returning error object (not throwing) so BullMQ does NOT retry a cancelled job.
+          // BullMQ treats returned { status: "error" } as a successful completion.
         } else if (pollState === "failed" || pollState === "error") {
           // Guard: skip if another process already transitioned this run
           if (runId) {
@@ -253,7 +257,10 @@ export async function handleModelJob(
             error_hint: errHint ?? null,
             progressJson: pollProgressJson ?? null,
           });
-          return { status: "error", error: errMsg, error_code: errCode ?? null, error_hint: errHint ?? null };
+          const failErr = new Error(errMsg);
+          (failErr as any).error_code = errCode ?? undefined;
+          (failErr as any).error_hint = errHint ?? undefined;
+          throw failErr;
         }
       } catch (pollErr) {
         const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr);
@@ -276,7 +283,9 @@ export async function handleModelJob(
         progress: 0,
         failedReason: timeoutMsg,
       });
-      return { status: "error", error: timeoutMsg, error_code: "PLUMBER_TIMEOUT" };
+      const err = new Error(timeoutMsg);
+      (err as any).error_code = "PLUMBER_TIMEOUT";
+      throw err;
     }
   } else {
     const runIdElse = (job.data.payload as Record<string, unknown>)?.runId as string | undefined;
@@ -313,5 +322,7 @@ export async function handleModelJob(
     return { status: "success", data: modelRes };
   }
 
-  return { status: "error", error: "Job processing failed" };
+  const err = new Error("Job processing failed");
+  (err as any).error_code = "INTERNAL_ERROR";
+  throw err;
 }

@@ -19,7 +19,7 @@ boundaryRoutes.get("/boundary/default", async (c) => {
     if (resolution) body.resolution = resolution;
     if (type) body.type = type;
     if (country) body.country = country;
-    const res = await plumberClient.withUser(user.id).post("/api/v1/data/boundary/default", body);
+    const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/default", body);
     return c.json(res);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch boundary";
@@ -37,7 +37,7 @@ boundaryRoutes.post("/boundary/upload", async (c) => {
     }
     const buffer = await file.arrayBuffer();
     const base64 = Buffer.from(buffer).toString("base64");
-    const res = await plumberClient.withUser(user.id).post("/api/v1/data/boundary/upload", {
+    const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/upload", {
       file_name: file.name,
       file_content: base64,
     });
@@ -62,7 +62,7 @@ boundaryRoutes.post("/boundary/upload", async (c) => {
 boundaryRoutes.get("/boundary/list", async (c) => {
   try {
     const user = c.get("user");
-    const res = await plumberClient.withUser(user.id).post("/api/v1/data/boundary/list", {});
+    const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/list", {});
     return c.json(res);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to list boundaries";
@@ -77,7 +77,7 @@ boundaryRoutes.post("/boundary/delete/:id", async (c) => {
     if (!filePath || typeof filePath !== "string" || filePath.includes("..") || filePath.startsWith("/")) {
       return c.json({ error: "Invalid file path" }, 400);
     }
-    const res = await plumberClient.withUser(user.id).post("/api/v1/data/boundary/delete", { file_path: filePath });
+    const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/delete", { file_path: filePath });
 
     const client = extractClientInfo(c);
     await logAction({
@@ -98,7 +98,7 @@ boundaryRoutes.post("/boundary/delete/:id", async (c) => {
 boundaryRoutes.get("/boundary/countries", async (c) => {
   try {
     const user = c.get("user");
-    const res = await plumberClient.withUser(user.id).post("/api/v1/data/boundary/countries", {});
+    const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/countries", {});
     return c.json(res);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch countries";
@@ -119,7 +119,7 @@ boundaryRoutes.get("/boundary/extent", async (c) => {
     if (type) body.type = type;
     if (resolution) body.resolution = resolution;
     if (country) body.country = country;
-    const res = await plumberClient.withUser(user.id).post("/api/v1/data/boundary/extent", body);
+    const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/extent", body);
     return c.json(res);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to compute extent";
@@ -131,7 +131,7 @@ boundaryRoutes.post("/boundary/download", async (c) => {
   try {
     const user = c.get("user");
     const body = await c.req.json();
-    const [status, data] = await plumberClient.withUser(user.id).postRaw("/api/v1/data/boundary/download", body);
+    const [status, data] = await plumberClient.withUser(user.id).withRole(user.role).postRaw("/api/v1/data/boundary/download", body);
     return c.json(data, status >= 400 ? (status as 400 | 404 | 500) : 200);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to download boundary";

@@ -43,7 +43,7 @@ dataRoutes.get("/occurrences/uploads", async (c) => {
   try {
     const limit = c.req.query("limit") || "50";
     const user = c.get("user");
-    const result = await plumberClient.withUser(user.id).getUploads(parseInt(limit, 10));
+    const result = await plumberClient.withUser(user.id).withRole(user.role).getUploads(parseInt(limit, 10));
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to list uploads";
@@ -120,7 +120,7 @@ dataRoutes.get("/occurrences/clean/result", async (c) => {
         return c.json({ error: "File not found" }, 404);
       }
       try {
-        const uploadsList = await plumberClient.withUser(c.get("user").id).getUploads(200);
+        const uploadsList = await plumberClient.withUser(c.get("user").id).withRole(c.get("user").role).getUploads(200);
         const match = uploadsList.uploads.find(u => String(u.file_path || "") === resolved.path || String(u.file_id || "") === resolved.path);
         if (match) {
           const cleanedPath = (match.cleaned_file_path as string) || (match.cleaned_file_id as string);
@@ -211,7 +211,7 @@ dataRoutes.post("/occurrences/upload", async (c) => {
     const buffer = Buffer.from(await file.arrayBuffer());
     const destPath = await saveUpload(buffer, file.name);
 
-    const result = await plumberClient.withUser(user.id).uploadOccurrence(destPath, file.name);
+    const result = await plumberClient.withUser(user.id).withRole(user.role).uploadOccurrence(destPath, file.name);
 
     if (result && typeof result === "object" && "error" in result) {
       const error = String(result.error || "Upload failed");
@@ -259,7 +259,7 @@ dataRoutes.post("/occurrences/clean", async (c) => {
       body.max_coordinate_uncertainty = maxCoordinateUncertainty;
     }
 
-    const initial = await plumberClient.withUser(user.id).cleanOccurrences(body);
+    const initial = await plumberClient.withUser(user.id).withRole(user.role).cleanOccurrences(body);
 
     const { ipAddress, userAgent } = extractClientInfo(c);
     await logAction({
@@ -740,7 +740,7 @@ dataRoutes.get("/jobs/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");
     const user = c.get("user");
-    const data = await plumberClient.withUser(user.id).getJobStatus(jobId);
+    const data = await plumberClient.withUser(user.id).withRole(user.role).getJobStatus(jobId);
     return c.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get job status";
@@ -753,7 +753,7 @@ dataRoutes.post("/occurrences/synthetic", async (c) => {
   try {
     const body = await c.req.json();
     const user = c.get("user");
-    const data = await plumberClient.withUser(user.id).generateSynthetic(body);
+    const data = await plumberClient.withUser(user.id).withRole(user.role).generateSynthetic(body);
     return c.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Synthetic data generation failed";

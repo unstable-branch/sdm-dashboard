@@ -63,6 +63,26 @@ docker compose -f docker-compose.yml --profile full down -v
 
 Synthetic examples are for smoke testing only. Do not interpret them as real occurrence evidence.
 
+## GPU Acceleration
+
+The DNN backend supports NVIDIA CUDA, AMD ROCm, and Apple MPS. Torch's `cuda_is_available()` probe is authoritative for NVIDIA; AMD ROCm is detected via loaded DLL names (`libamdhip64.so`, `libhsa-runtime64.so`).
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SDM_ROCM` | _(empty)_ | Set to `1` to force ROCm backend on AMD hardware. Triggers a warning if no ROCm runtime is detected. |
+| `SDM_ENABLE_LIBTORCH_KERNEL` | `0` | Set to `1` to also build and load the libtorch `_fused_adam_` CUDA kernel. **Default: disabled** — the kernel produces NaN on Blackwell GPUs (RTX 5060 Ti, compute 12.0). The ATen-op Adam kernel (`train_step_adam.so`) is used by default and works on all GPUs including Blackwell. |
+| `SDM_ENABLE_PINNED_ALLOC` | `0` | Set to `1` to build the experimental `pinned_alloc.so` extension for async H2D transfers. |
+
+### Troubleshooting
+
+See [`inst/TROUBLESHOOTING.md`](inst/TROUBLESHOOTING.md) for:
+- ABI mismatch between torch R package and sdmtorch `.so` files
+- Blackwell GPU NaN issue with the libtorch fused Adam kernel
+- CUDA Graph capture failures (`dl_iterate_phdr` not found)
+- XPtrTorch tensor layout coupling risks after torch R package upgrades
+
 ## Local Development
 
 Install workspace dependencies from the repository root:
