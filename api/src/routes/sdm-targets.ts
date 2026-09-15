@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { targetsRunRequestSchema } from "@sdm/shared";
 import { plumberClient } from "../services/plumber.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
@@ -7,6 +8,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds, canAccessRun } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
+import { projectSafeScienceConfig, publicConfigValidationError } from "../services/execution-config.js";
 
 const MAX_RUNS_LIMIT = 500;
 
@@ -21,8 +23,11 @@ sdmTargetsRoutes.post("/targets/run", async (c) => {
   try {
     const body = await c.req.json().catch(() => null);
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
+    const parsed = targetsRunRequestSchema.safeParse(body);
+    if (!parsed.success) return c.json(publicConfigValidationError(), 400);
+    const configs = parsed.data.configs.map((config) => projectSafeScienceConfig(config));
     const user = c.get("user");
-    const result = await plumberClient.targetsRun(body);
+    const result = await plumberClient.targetsRun({ configs });
 
     const client = extractClientInfo(c);
     await logAction({
@@ -31,7 +36,7 @@ sdmTargetsRoutes.post("/targets/run", async (c) => {
       entity: "runs",
       entityId: (result as Record<string, unknown>)?.job_id as string | null ?? null,
       ...client,
-      details: { configsCount: Array.isArray(body.configs) ? body.configs.length : 0 },
+      details: { configsCount: configs.length },
     });
 
     return c.json(result);
