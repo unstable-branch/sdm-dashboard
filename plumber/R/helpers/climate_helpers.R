@@ -129,7 +129,7 @@ handle_climate_download <- function(req, app_dir) {
   )
 }
 
-handle_climate_status <- function(res, job_id, app_dir) {
+handle_climate_status <- function(req, res, job_id, app_dir) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Invalid job ID"))
@@ -143,6 +143,9 @@ handle_climate_status <- function(res, job_id, app_dir) {
 
   meta <- sdm_read_meta_json(meta_file)
   if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
+
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
 
   if (identical(meta$status, "running")) {
     entry <- sdm_process_registry[[basename(job_id)]]

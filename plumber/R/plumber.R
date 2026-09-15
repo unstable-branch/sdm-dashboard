@@ -119,19 +119,19 @@ function(req) handle_targets_run(req, app_dir)
 
 #* Get targets pipeline status
 #* @get /api/v1/models/targets-status/<job_id>
-function(res, job_id) handle_targets_status(res, job_id)
+function(req, res, job_id) handle_targets_status(req, res, job_id)
 
 #* Get targets pipeline results
 #* @get /api/v1/models/targets-results/<job_id>
-function(res, job_id) handle_targets_results(res, job_id)
+function(req, res, job_id) handle_targets_results(req, res, job_id)
 
 #* Get job logs (stderr, stdout, progress)
 #* @get /api/v1/models/logs/<job_id>
-function(res, job_id) handle_model_logs(res, job_id)
+function(req, res, job_id) handle_model_logs(req, res, job_id)
 
 #* Get model run status
 #* @get /api/v1/models/status/<job_id>
-function(res, job_id) handle_model_status(res, job_id)
+function(req, res, job_id) handle_model_status(req, res, job_id)
 
 #* Cancel a running model run
 #* @post /api/v1/models/cancel/<job_id>
@@ -175,7 +175,7 @@ function(req) handle_climate_download(req, app_dir)
 
 #* Get climate download job status
 #* @get /api/v1/climate/status/<job_id>
-function(res, job_id) handle_climate_status(res, job_id, app_dir)
+function(req, res, job_id) handle_climate_status(req, res, job_id, app_dir)
 
 #* List downloaded climate scenarios
 #* @get /api/v1/climate/scenarios

@@ -551,7 +551,7 @@ handle_targets_run <- function(req, app_dir) {
   )
 }
 
-handle_targets_status <- function(res, job_id) {
+handle_targets_status <- function(req, res, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Invalid job ID"))
@@ -569,6 +569,9 @@ handle_targets_status <- function(res, job_id) {
     }
   )
   if (is.list(meta) && !is.null(meta$error)) return(meta)
+
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
 
   if (identical(meta$status, "running")) {
     entry <- sdm_process_registry[[job_id]]
@@ -693,7 +696,7 @@ handle_targets_status <- function(res, job_id) {
   )
 }
 
-handle_targets_results <- function(res, job_id) {
+handle_targets_results <- function(req, res, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Invalid job ID"))
@@ -705,6 +708,10 @@ handle_targets_results <- function(res, job_id) {
 
   meta <- sdm_read_meta_json(meta_file)
   if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
+
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
+
   store_path <- file.path(job_dir, "_targets")
 
   config_csv <- file.path(job_dir, "config.csv")
@@ -805,11 +812,14 @@ handle_targets_results <- function(res, job_id) {
   )
 }
 
-handle_model_logs <- function(res, job_id) {
+handle_model_logs <- function(req, res, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Invalid job ID"))
   }
+
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
 
   read_safe <- function(path, max_lines = 500) {
     if (!file.exists(path)) return("")
@@ -830,7 +840,7 @@ handle_model_logs <- function(res, job_id) {
   )
 }
 
-handle_model_status <- function(res, job_id) {
+handle_model_status <- function(req, res, job_id) {
   job_dir <- tryCatch(sdm_safe_job_dir(job_id), error = function(e) { NULL })
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Invalid job ID"))
@@ -851,6 +861,9 @@ handle_model_status <- function(res, job_id) {
     }
   )
   if (is.list(meta) && !is.null(meta$error)) return(meta)
+
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
 
   if (identical(meta$status, "running")) {
     entry <- sdm_process_registry[[job_id]]
