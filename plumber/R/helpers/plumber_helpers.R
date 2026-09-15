@@ -78,6 +78,126 @@ sdm_check_process_alive <- function(job_id, meta) {
   process_alive
 }
 
+# ── Process registry helpers ─────────────────────────────────────────────────
+# All registry keys are normalized via basename() so that job_id formats that
+# happen to contain "/" (e.g. "targets/targets-2024-12-16-001") are stored
+# with a consistent stripped key.  Every SET, GET, and REMOVE should go
+# through these helpers.
+
+sdm_registry_key <- function(job_id) {
+  basename(as.character(job_id)[1])
+}
+
+sdm_registry_set <- function(job_id, proc, device = "cpu", user_id = NULL,
+                             replica_id = NULL, type = NULL, spawned_at = NULL) {
+  key <- sdm_registry_key(job_id)
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(invisible(NULL))
+  entry <- list(
+    proc = proc,
+    device = as.character(device)[1] %||% "cpu",
+    user_id = if (!is.null(user_id)) as.character(user_id)[1] else NULL,
+    replica_id = if (!is.null(replica_id)) as.character(replica_id)[1] else NULL,
+    type = if (!is.null(type)) as.character(type)[1] else NULL,
+    spawned_at = if (!is.null(spawned_at)) spawned_at else format(Sys.time(), "%Y-%m-%dT%H:%M:%OS3"),
+    pid = tryCatch(proc$get_pid(), error = function(e) NULL)
+  )
+  reg[[key]] <- entry
+  invisible(key)
+}
+
+sdm_registry_get <- function(job_id) {
+  key <- sdm_registry_key(job_id)
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(NULL)
+  tryCatch(reg[[key]], error = function(e) NULL)
+}
+
+sdm_registry_remove <- function(job_id, reason = "done") {
+  key <- sdm_registry_key(job_id)
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(invisible(NULL))
+  if (exists(key, envir = reg, inherits = FALSE)) {
+    sdm_log_info("Registry remove %s [%s]", key, reason)
+    reg[[key]] <- NULL
+  }
+  invisible(NULL)
+}
+
+sdm_registry_keys <- function() {
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(character(0))
+  ls(envir = reg, all.names = FALSE)
+}
+
+sdm_registry_count_if <- function(predicate) {
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(0L)
+  count <- 0L
+  for (key in ls(envir = reg, all.names = FALSE)) {
+    entry <- tryCatch(reg[[key]], error = function(e) NULL)
+    if (!is.null(entry) && tryCatch(predicate(entry), error = function(e) FALSE)) {
+      count <- count + 1L
+    }
+  }
+  count
+}
+
+# ── PID-first cancel ─────────────────────────────────────────────────────────
+# Shared cancel logic: tries to kill via registry process first (PID-first),
+# then falls back to PID from meta.json if registry miss.  Returns a list with
+# killed (logical), pid (integer-ish), and from_registry (logical).
+# Callers handle Redis cancel flag, registry removal, and meta.json updates.
+sdm_cancel_pid_first <- function(job_id, meta_file = NULL) {
+  result <- list(killed = FALSE, pid = NULL, from_registry = FALSE)
+
+  entry <- sdm_registry_get(job_id)
+  proc <- if (!is.null(entry)) sdm_registry_proc(entry) else NULL
+
+  if (!is.null(proc) && inherits(proc, "process") && tryCatch(proc$is_alive(), error = function(e) FALSE)) {
+    result$from_registry <- TRUE
+    proc$kill()
+    for (i in seq_len(30)) {
+      if (!tryCatch(proc$is_alive(), error = function(e) TRUE)) break
+      Sys.sleep(0.1)
+    }
+    if (tryCatch(proc$is_alive(), error = function(e) FALSE)) {
+      pid <- tryCatch(proc$get_pid(), error = function(e) NULL)
+      if (!is.null(pid)) {
+        result$pid <- pid
+        sdm_kill_pid(pid)
+      }
+    }
+    result$killed <- TRUE
+  }
+
+  if (!result$killed && !is.null(meta_file) && file.exists(meta_file)) {
+    meta <- sdm_read_meta_json(meta_file)
+    if (!is.null(meta) && !is.null(meta$process_pid)) {
+      pid <- as.integer(meta$process_pid)
+      if (is.finite(pid) && pid > 0) {
+        result$pid <- pid
+        result$killed <- sdm_kill_pid(pid)
+      }
+    }
+  }
+
+  result
+}
+
+sdm_kill_pid <- function(pid) {
+  killed <- FALSE
+  tryCatch({
+    if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
+      cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
+      if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
+    }
+    tools::pskill(pid, signal = 9)
+    killed <- TRUE
+  }, error = function(e) NULL)
+  killed
+}
+
 # Helper for error responses
 sdm_error <- function(req, status, message) {
   res <- tryCatch(req$res, error = function(e) NULL)

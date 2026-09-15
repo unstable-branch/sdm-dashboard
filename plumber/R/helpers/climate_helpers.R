@@ -118,7 +118,7 @@ handle_climate_download <- function(req, app_dir) {
       error   = job_meta$error
     ))
   }
-  sdm_process_registry[[job_id]] <- list(proc = proc, device = "cpu")
+  sdm_registry_set(job_id, proc, device = "cpu")
   job_meta$process_pid <- sdm_process_pid(proc)
   sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
 
@@ -320,45 +320,20 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
 
   sdm_redis_cancel_set(basename(job_id))
 
-  entry <- sdm_process_registry[[basename(job_id)]]
-  proc <- sdm_registry_proc(entry)
-  killed <- FALSE
-  if (!is.null(proc) && inherits(proc, "process") && proc$is_alive()) {
-    proc$kill()
-    killed <- TRUE
-    for (i in seq_len(30)) {
-      if (!proc$is_alive()) break
-      Sys.sleep(0.1)
-    }
-    if (proc$is_alive()) {
-      pid <- proc$get_pid()
-      tryCatch({
-        if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
-          cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
-          if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
-        }
-        tools::pskill(pid, signal = 9)
-      }, error = function(e) NULL)
-    }
-    rm(list = basename(job_id), envir = sdm_process_registry)
+  cancel_result <- sdm_cancel_pid_first(basename(job_id), meta_file)
+  killed <- cancel_result$killed
+  if (cancel_result$from_registry) {
+    sdm_registry_remove(basename(job_id), "cancelled")
   }
 
   if (file.exists(meta_file)) {
     meta <- sdm_read_meta_json(meta_file)
-  if (is.null(meta)) return(list(error = "meta.json is unreadable; retry shortly"))
+    if (is.null(meta)) return(list(error = "meta.json is unreadable; retry shortly"))
     if (!is.null(meta$status) && meta$status %in% c("completed", "failed", "cancelled")) {
       return(list(ok = TRUE, message = "Download already terminated"))
     }
-    if (!killed && !is.null(meta$process_pid)) {
-      pid <- meta$process_pid
-      tryCatch({
-        if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
-          cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
-          if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
-        }
-        tools::pskill(pid, signal = 9)
-        killed <- TRUE
-      }, error = function(e) NULL)
+    if (!killed) {
+      killed <- sdm_kill_pid(meta$process_pid)
     }
     meta$status <- "cancelled"
     meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
