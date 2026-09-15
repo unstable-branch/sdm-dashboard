@@ -166,7 +166,7 @@ resultsRoutes.get("/tiles/:runId/:z/:x/:y", async (c) => {
   // Fallback: generate tile from COG on-the-fly via Plumber
   if (run.jobId) {
     try {
-      const plumberRes = await plumberClient.withUser(user.id).getTileCog(
+      const plumberRes = await plumberClient.withUser(user.id).withRole(user.role).getTileCog(
         run.jobId ?? runId, String(z), String(x), String(y), band
       );
       // 204 is a legitimate response — Plumber reports "raster does not cover this tile"; transparent placeholder.
@@ -305,7 +305,7 @@ resultsRoutes.get("/suitability-value/:runId", async (c) => {
   }
 
   try {
-    const result = await plumberClient.withUser(user.id).getSuitabilityValue(runId, parseFloat(lat), parseFloat(lng), band);
+    const result = await plumberClient.withUser(user.id).withRole(user.role).getSuitabilityValue(runId, parseFloat(lat), parseFloat(lng), band);
     return c.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Suitability value lookup failed";
@@ -568,7 +568,7 @@ resultsRoutes.get("/:id/script", async (c) => {
 
   const jobId = await plumberJobId(id);
   try {
-    const data = await plumberClient.withUser(user.id).getOutputScript(jobId);
+    const data = await plumberClient.withUser(user.id).withRole(user.role).getOutputScript(jobId);
 
     const scriptPath = data.script_path;
     if (!scriptPath) {
@@ -598,7 +598,7 @@ resultsRoutes.get("/:id/manifest", async (c) => {
 
   const jobId = await plumberJobId(id);
   try {
-    const data = await plumberClient.withUser(user.id).getOutputManifest(jobId);
+    const data = await plumberClient.withUser(user.id).withRole(user.role).getOutputManifest(jobId);
     return c.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Manifest generation failed";

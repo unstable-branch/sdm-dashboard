@@ -82,7 +82,7 @@ climateRoutes.post("/download", async (c) => {
       return c.json({ error: "Multi-GCM averaging requires at least 2 GCMs in gcm_list" }, 400);
     }
 
-    const plumberData = await plumberClient.withUser(user.id).downloadClimate(body as Record<string, unknown>);
+    const plumberData = await plumberClient.withUser(user.id).withRole(user.role).downloadClimate(body as Record<string, unknown>);
 
     const client = extractClientInfo(c);
     await logAction({

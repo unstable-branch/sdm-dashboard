@@ -160,8 +160,12 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
       return(auth_fail(res, 401L, '{"error":"Internal system token required. Direct access not allowed."}'))
     }
     fwd_user <- get_hdr(req, "x-forwarded-user")
+    fwd_role <- get_hdr(req, "x-forwarded-role")
     if (!is.null(fwd_user) && nzchar(fwd_user)) {
       req$user_id <- fwd_user
+    }
+    if (!is.null(fwd_role) && nzchar(fwd_role)) {
+      req$user_role <- fwd_role
     }
     return(NULL)
   }
@@ -174,8 +178,16 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     hono_internal <- get_hdr(req, "x-hono-internal")
     if (!is.null(hono_internal) && identical(hono_internal, internal_key)) {
       fwd_user <- get_hdr(req, "x-forwarded-user")
+      fwd_role <- get_hdr(req, "x-forwarded-role")
       if (!is.null(fwd_user) && nzchar(fwd_user)) {
         req$user_id <- fwd_user
+        return(NULL)
+      }
+      if (requires_auth(path)) {
+        return(auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}'))
+      }
+      if (!is.null(fwd_role) && nzchar(fwd_role)) {
+        req$user_role <- fwd_role
       }
       return(NULL)
     }
@@ -209,6 +221,24 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   }
 
   NULL
+})
+
+# postroute hook: stamp every response with replica identity header so Hono and
+# downstream observability tooling can attribute requests to a specific Plumber
+# replica (hostname + PID).  This is the lightweight groundwork for multi-replica
+# debugging — it does NOT enable multi-replica operation, it only makes it
+# observable when it does become multi-replica time.
+sdm_replica_id <- NULL  # lazy-initialized on first use
+plumber::pr_hook(pr, "postroute", function(data, req, res) {
+  if (is.null(sdm_replica_id)) {
+    host <- Sys.getenv("SDM_REPLICA_HOST", "")
+    if (!nzchar(host)) {
+      host <- tryCatch(Sys.info()[["nodename"]], error = function(e) "unknown")
+    }
+    pid <- Sys.getpid()
+    sdm_replica_id <<- paste0(host, "-", pid)
+  }
+  res$setHeader("X-SDM-Replica-Id", sdm_replica_id)
 })
 
 # Now source the plumber routes - they register with global `pr`

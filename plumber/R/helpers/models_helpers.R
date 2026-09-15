@@ -551,7 +551,7 @@ handle_targets_run <- function(req, app_dir) {
   )
 }
 
-handle_targets_status <- function(res, job_id) {
+handle_targets_status <- function(req, res, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Invalid job ID"))
@@ -569,6 +569,9 @@ handle_targets_status <- function(res, job_id) {
     }
   )
   if (is.list(meta) && !is.null(meta$error)) return(meta)
+
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
 
   if (identical(meta$status, "running")) {
     entry <- sdm_process_registry[[job_id]]
@@ -693,7 +696,7 @@ handle_targets_status <- function(res, job_id) {
   )
 }
 
-handle_targets_results <- function(res, job_id) {
+handle_targets_results <- function(req, res, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Invalid job ID"))
@@ -705,6 +708,10 @@ handle_targets_results <- function(res, job_id) {
 
   meta <- sdm_read_meta_json(meta_file)
   if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
+
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
+
   store_path <- file.path(job_dir, "_targets")
 
   config_csv <- file.path(job_dir, "config.csv")
@@ -805,11 +812,14 @@ handle_targets_results <- function(res, job_id) {
   )
 }
 
-handle_model_logs <- function(res, job_id) {
+handle_model_logs <- function(req, res, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Invalid job ID"))
   }
+
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
 
   read_safe <- function(path, max_lines = 500) {
     if (!file.exists(path)) return("")
@@ -830,7 +840,7 @@ handle_model_logs <- function(res, job_id) {
   )
 }
 
-handle_model_status <- function(res, job_id) {
+handle_model_status <- function(req, res, job_id) {
   job_dir <- tryCatch(sdm_safe_job_dir(job_id), error = function(e) { NULL })
   if (is.null(job_dir)) {
     res$status <- 404L; return(list(error = "Invalid job ID"))
@@ -851,6 +861,9 @@ handle_model_status <- function(res, job_id) {
     }
   )
   if (is.list(meta) && !is.null(meta$error)) return(meta)
+
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
 
   if (identical(meta$status, "running")) {
     entry <- sdm_process_registry[[job_id]]
@@ -1075,41 +1088,20 @@ handle_model_cancel <- function(req, res, job_id) {
     }
   }
 
-  entry <- sdm_process_registry[[job_id]]
-  proc <- sdm_registry_proc(entry)
-  killed <- FALSE
+  cancel_result <- sdm_cancel_pid_first(job_id, meta_file)
+  killed <- cancel_result$killed
 
-  if (!is.null(proc) && inherits(proc, "process")) {
-    if (proc$is_alive()) {
-      proc$kill()
-      killed <- TRUE
-      for (i in seq_len(30)) {
-        if (!proc$is_alive()) break
-        Sys.sleep(0.1)
-      }
-      if (proc$is_alive()) {
-        pid <- proc$get_pid()
-        tryCatch({
-          if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
-            cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
-            if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
-          }
-          tools::pskill(pid, signal = 9)
-        }, error = function(e) NULL)
-        for (i in seq_len(20)) {
-          if (!proc$is_alive()) break
-          Sys.sleep(0.1)
-        }
-      }
-    }
+  entry <- sdm_registry_get(job_id)
+  if (!is.null(entry) && killed) {
     device_tag <- if (is.list(entry)) entry$device else "cpu"
-    if (killed && sdm_backend_is_discrete_gpu(device_tag)) {
+    if (sdm_backend_is_discrete_gpu(device_tag)) {
+      proc <- sdm_registry_proc(entry)
       for (i in seq_len(20)) {
-        if (!proc$is_alive()) break
+        if (!tryCatch(proc$is_alive(), error = function(e) TRUE)) break
         Sys.sleep(0.1)
       }
     }
-    rm(list = job_id, envir = sdm_process_registry)
+    sdm_registry_remove(job_id, "cancelled")
   }
 
   progress_log <- file.path(job_dir, "progress.log")
@@ -1126,16 +1118,8 @@ handle_model_cancel <- function(req, res, job_id) {
       return(list(ok = TRUE, message = "Run already terminated"))
     }
 
-    if (!killed && !is.null(meta$process_pid)) {
-      pid <- meta$process_pid
-      tryCatch({
-        if (file.exists("/proc") && !is.na(suppressWarnings(as.numeric(pid)))) {
-          cmdline <- tryCatch(readLines(file.path("/proc", pid, "cmdline"), warn = FALSE), error = function(e) "")
-          if (length(cmdline) == 0 || identical(cmdline, "")) stop("PID not found")
-        }
-        tools::pskill(pid, signal = 9)
-        killed <- TRUE
-      }, error = function(e) NULL)
+    if (!killed) {
+      killed <- sdm_kill_pid(meta$process_pid)
     }
 
     meta$status <- "cancelled"

@@ -193,7 +193,7 @@ handle_ecology_report <- function(req, res, run_id, app_dir) {
   paste(lines, collapse = "\n")
 }
 
-handle_ecology_niche_overlap <- function(req, app_dir) {
+handle_ecology_niche_overlap <- function(req, res, app_dir) {
   body <- tryCatch(jsonlite::fromJSON(req$postBody), error = function(e) NULL)
   if (is.null(body)) return(sdm_error(req, 400, "Invalid JSON body"))
 
@@ -214,6 +214,12 @@ handle_ecology_niche_overlap <- function(req, app_dir) {
   if (!file.exists(meta_file_1) || !file.exists(meta_file_2)) {
     return(sdm_error(req, 404, "One or both runs not found"))
   }
+
+  own_err_1 <- sdm_verify_run_owner(req, res, run_id_1, app_dir)
+  if (!is.null(own_err_1)) return(own_err_1)
+
+  own_err_2 <- sdm_verify_run_owner(req, res, run_id_2, app_dir)
+  if (!is.null(own_err_2)) return(own_err_2)
 
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 

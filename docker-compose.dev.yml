@@ -68,7 +68,11 @@ services:
     profiles: ["storage", "all"]
     image: dxflrs/garage:v2.3.0
     command: ["/garage", "server", "--single-node", "--default-bucket"]
-    ports:
+    # !override replaces the base file's "3900:3900" list instead of merging
+    # with it — a plain merge produces duplicate bindings for the same port
+    # (0.0.0.0 + 127.0.0.1) and dockerd fails the bind with "address already
+    # in use" against itself.
+    ports: !override
       - "127.0.0.1:3900:3900"
       - "127.0.0.1:3901:3901"
       - "127.0.0.1:3902:3902"
@@ -100,7 +104,10 @@ services:
     build:
       context: .
       dockerfile: plumber/Dockerfile
-    ports:
+    # !override replaces the base file's "8000:8000" — merging both yields
+    # duplicate 8000 bindings (0.0.0.0 + 127.0.0.1) and dockerd fails the
+    # bind with "address already in use" against itself.
+    ports: !override
       - "127.0.0.1:8000:8000"
     volumes:
       - ./R:/app/R:ro
@@ -154,6 +161,9 @@ services:
 
   api:
     profiles: ["monitoring", "all"]
+    # Pin the same tag as docker-compose.yml — without it Compose derives
+    # <project>-api and recreates can silently fall back to a stale image.
+    image: sdm-dashboard-api:latest
     build:
       context: .
       dockerfile: Dockerfile.api
