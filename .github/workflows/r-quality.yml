@@ -80,6 +80,8 @@ jobs:
 
       - name: Run backend determinism tests
         run: |
+          # R's $ column syntax must remain literal inside the shell string.
+          # shellcheck disable=SC2016
           Rscript -e '
             library(testthat)
             source("R/core/bootstrap.R")
@@ -134,7 +136,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d8 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up R
         uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
@@ -172,6 +174,8 @@ jobs:
 
       - name: Run GPU resolution tests
         run: |
+          # R's $ column syntax must remain literal inside the shell string.
+          # shellcheck disable=SC2016
           Rscript -e '
             library(testthat)
             source("tests/testthat/helper-fixtures.R")
@@ -186,6 +190,8 @@ jobs:
 
       - name: Run torch fused Adam tests
         run: |
+          # R's $ column syntax must remain literal inside the shell string.
+          # shellcheck disable=SC2016
           Rscript -e '
             library(testthat)
             source("tests/testthat/helper-fixtures.R")

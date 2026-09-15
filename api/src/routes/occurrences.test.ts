@@ -52,17 +52,22 @@ vi.mock("../db/schema.js", () => ({
   apiKeys: {},
 }));
 
-vi.mock("../services/plumber", () => ({
-  plumberClient: {
-    withUser: vi.fn(function(this: any) {
-      return this;
-    }),
+vi.mock("../services/plumber", () => {
+  const authenticatedClient = {
     uploadOccurrence: vi.fn(() => Promise.resolve({ file_id: "/tmp/test.csv", n_rows: 10 })),
     cleanOccurrences: vi.fn(() => Promise.resolve({ cleaned_id: "/tmp/test.csv", valid_records: 8 })),
     searchGbif: vi.fn(() => Promise.resolve({ n_records: 50 })),
     searchAla: vi.fn(() => Promise.resolve({ n_records: 30 })),
-  },
-}));
+  };
+  const withRole = vi.fn(() => authenticatedClient);
+  return {
+    plumberClient: {
+      withUser: vi.fn(() => ({ withRole })),
+      withRole,
+      ...authenticatedClient,
+    },
+  };
+});
 
 vi.mock("../services/queue", () => ({
   enqueueSdmJob: vi.fn(() => Promise.resolve("job-123")),
@@ -165,6 +170,7 @@ describe("data routes", () => {
       });
 
       expect(res.status, await res.clone().text()).toBe(200);
+      expect(plumberClient.withRole).toHaveBeenCalledWith("admin");
       const data = await res.json();
       expect(data.file_id).toBe("/app/data/uploads/test.csv");
       expect(data.file_path).toBe("/app/data/uploads/test.csv");
