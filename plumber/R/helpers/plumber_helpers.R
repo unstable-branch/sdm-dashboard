@@ -78,6 +78,71 @@ sdm_check_process_alive <- function(job_id, meta) {
   process_alive
 }
 
+# ── Process registry helpers ─────────────────────────────────────────────────
+# All registry keys are normalized via basename() so that job_id formats that
+# happen to contain "/" (e.g. "targets/targets-2024-12-16-001") are stored
+# with a consistent stripped key.  Every SET, GET, and REMOVE should go
+# through these helpers.
+
+sdm_registry_key <- function(job_id) {
+  basename(as.character(job_id)[1])
+}
+
+sdm_registry_set <- function(job_id, proc, device = "cpu", user_id = NULL,
+                             replica_id = NULL, type = NULL, spawned_at = NULL) {
+  key <- sdm_registry_key(job_id)
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(invisible(NULL))
+  entry <- list(
+    proc = proc,
+    device = as.character(device)[1] %||% "cpu",
+    user_id = if (!is.null(user_id)) as.character(user_id)[1] else NULL,
+    replica_id = if (!is.null(replica_id)) as.character(replica_id)[1] else NULL,
+    type = if (!is.null(type)) as.character(type)[1] else NULL,
+    spawned_at = if (!is.null(spawned_at)) spawned_at else format(Sys.time(), "%Y-%m-%dT%H:%M:%OS3"),
+    pid = tryCatch(proc$get_pid(), error = function(e) NULL)
+  )
+  reg[[key]] <- entry
+  invisible(key)
+}
+
+sdm_registry_get <- function(job_id) {
+  key <- sdm_registry_key(job_id)
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(NULL)
+  tryCatch(reg[[key]], error = function(e) NULL)
+}
+
+sdm_registry_remove <- function(job_id, reason = "done") {
+  key <- sdm_registry_key(job_id)
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(invisible(NULL))
+  if (exists(key, envir = reg, inherits = FALSE)) {
+    sdm_log_info("Registry remove %s [%s]", key, reason)
+    reg[[key]] <- NULL
+  }
+  invisible(NULL)
+}
+
+sdm_registry_keys <- function() {
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(character(0))
+  ls(envir = reg, all.names = FALSE)
+}
+
+sdm_registry_count_if <- function(predicate) {
+  reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
+  if (!is.environment(reg)) return(0L)
+  count <- 0L
+  for (key in ls(envir = reg, all.names = FALSE)) {
+    entry <- tryCatch(reg[[key]], error = function(e) NULL)
+    if (!is.null(entry) && tryCatch(predicate(entry), error = function(e) FALSE)) {
+      count <- count + 1L
+    }
+  }
+  count
+}
+
 # Helper for error responses
 sdm_error <- function(req, status, message) {
   res <- tryCatch(req$res, error = function(e) NULL)

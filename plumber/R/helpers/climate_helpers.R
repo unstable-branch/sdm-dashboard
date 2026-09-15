@@ -118,7 +118,7 @@ handle_climate_download <- function(req, app_dir) {
       error   = job_meta$error
     ))
   }
-  sdm_process_registry[[job_id]] <- list(proc = proc, device = "cpu")
+  sdm_registry_set(job_id, proc, device = "cpu")
   job_meta$process_pid <- sdm_process_pid(proc)
   sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
 
