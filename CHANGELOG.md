@@ -36,6 +36,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/testthat/test-torch-fused-adam.R`: 5 skip-if-no-torch tests covering fused Adam dispatch (ATen-op kernel vs libtorch kernel), NaN streak → AMP disable, stream reset, multi-output AMP guard, and precision save/restore.
 - roxygen `@details` added to 5 functions: `.sdm_rocm_runtime_detected`, `sdm_accelerator_capabilities`, `sdm_gpu_available_vram`, `sdm_amp_safe_for_model`, `fused_adam_step`.
 
+## [2.0.0-beta.7] - 2026-09-15
+
+### GPU backend detection (Group W: issue #33)
+
+- `R/core/gpu_helpers.R` `sdm_accelerator_capabilities()` now supports `SDM_ACCELERATOR` env var override (`auto`/`cpu`/`nvidia`/`amd`) to force a specific backend when automatic detection fails inside Docker or other container environments.
+- `sdm_docker_gpu_probe()`: live Docker GPU probe via `docker run --rm --gpus all nvidia/cuda:11.8.0-standalone nvidia-smi --query-gpu=name --format=csv,noheader` with a 5-second timeout. Returns GPU names or `character(0)` when Docker/nvidia-smi is unavailable.
+- When Docker GPU access is detected but torch's `cuda_is_available()` returns FALSE (e.g. missing `--gpus all` container flag), a warning is issued suggesting the env var or container GPU flags.
+- The `SDM_ACCELERATOR` override (set to `cpu`/`nvidia`/`amd`) bypasses automatic detection and forces the chosen backend, with appropriate warnings if the requested backend is unavailable.
+
+### GPU telemetry
+
+- `train_model_fused` now sets `model$amp_disabled_reason` to `"nan_streak"` (AMP produces NaN for 2+ consecutive epochs) or `"multi_output"` (multispecies DNN with >1 output), accessible in the returned model object.
+- `sdm_accelerator_capabilities()` session cache (`.gpu_caps_cache`) is now fork-safe across `future::future` multisession workers.
+
 ### Scientific leakage remediation (Group S: S1, S2, S3, S5, S6, S7, S8, S9)
 
 Eliminated silent data leakage and mislabeled metrics across the SDM pipeline. These regressions previously caused optimistic AUC/TSS reporting and on-disagreement predictions across all model backends. S4 (proposed bioclim/rangebag arg-order swap) was investigated and confirmed to be a false alarm — `terra::predict(obj, model, fun, ...)` invokes `fun(model, data_block, ...)`, so the original `(model, values)` signature is correct.
