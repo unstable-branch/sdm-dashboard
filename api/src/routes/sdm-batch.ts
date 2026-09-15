@@ -13,6 +13,7 @@ import { jobEventBus } from "../services/job-events.js";
 import { buildModelPayload, type ModelConfigRecord } from "../services/model-payload.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
+import { projectSafeScienceConfig, revalidateHistoricalConfig, publicConfigValidationError, UnsafeExecutionConfigError, findForbiddenConfigKey } from "../services/execution-config.js";
 
 export const sdmBatchRoutes = new Hono<AppEnv>();
 
@@ -183,9 +184,9 @@ sdmBatchRoutes.post("/batch", async (c) => {
   try {
     const body = await c.req.json().catch(() => null);
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
+    if (findForbiddenConfigKey(body)) return c.json(publicConfigValidationError(), 400);
     const { configs, name } = body;
     const user = c.get("user");
-    const projectId = await ensureDefaultProject(user);
 
     if (!Array.isArray(configs) || configs.length === 0) {
       return c.json({ error: "configs must be a non-empty array" }, 400);
@@ -195,11 +196,18 @@ sdmBatchRoutes.post("/batch", async (c) => {
       return c.json({ error: "Batch limited to 50 configs per request" }, 400);
     }
 
-    const parsedConfigs = configs.map((config) => {
-      const parsed = modelConfigSchema.safeParse(config);
-      if (!parsed.success) throw new Error(`Invalid config: ${parsed.error.message}`);
-      return parsed;
-    });
+    let parsedConfigs;
+    try {
+      parsedConfigs = configs.map((config) => {
+        const parsed = modelConfigSchema.safeParse(config);
+        if (!parsed.success) throw new UnsafeExecutionConfigError();
+        return parsed;
+      });
+    } catch {
+      return c.json(publicConfigValidationError(), 400);
+    }
+    const safeConfigs = parsedConfigs.map((parsed) => projectSafeScienceConfig(parsed.data));
+    const projectId = await ensureDefaultProject(user);
 
     const [batch] = await db
       .insert(batches)
@@ -212,7 +220,7 @@ sdmBatchRoutes.post("/batch", async (c) => {
       })
       .returning();
 
-    const plumberPayload = await plumberClient.targetsRun({ configs: parsedConfigs.map(p => p.data) });
+    const plumberPayload = await plumberClient.targetsRun({ configs: safeConfigs });
 
     const targetsJobId = plumberPayload.job_id as string | undefined;
 
@@ -221,12 +229,12 @@ sdmBatchRoutes.post("/batch", async (c) => {
     }
 
     // Create per-species run records so batch status/cancel/retry can work
-    const runRecords = parsedConfigs.map((p) => ({
+    const runRecords = safeConfigs.map((config) => ({
       projectId,
       parentRunId: batch.id,
-      speciesName: p.data.species,
-      modelId: p.data.modelId,
-      config: p.data as unknown as Record<string, unknown>,
+      speciesName: config.species as string,
+      modelId: config.modelId as string,
+      config,
       status: "queued" as const,
       jobId: targetsJobId,
     }));
@@ -247,7 +255,7 @@ sdmBatchRoutes.post("/batch", async (c) => {
       entity: "batches",
       entityId: batch.id,
       ...client,
-      details: { name: name || `Batch ${new Date().toLocaleDateString()}`, totalJobs: configs.length },
+      details: { name: name || `Batch ${new Date().toLocaleDateString()}`, totalJobs: safeConfigs.length },
     });
 
     return c.json({
@@ -390,6 +398,15 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
       return c.json({ ok: true, retried: 0, message: "No failed runs to retry" });
     }
 
+    // Re-parse every historical config before any cancellation, state update, or enqueue.
+    // This prevents old secret-bearing/unsupported JSON from being replayed.
+    let retryConfigs: Record<string, unknown>[];
+    try {
+      retryConfigs = failedRuns.map((run) => revalidateHistoricalConfig(run.config));
+    } catch {
+      return c.json({ error: "Stored execution configuration is not safe to retry" }, 409);
+    }
+
     // Check if this batch was a targets pipeline batch (all runs share the same jobId)
     const targetsJobId = batch.jobId;
     const isTargetsBatch = targetsJobId != null && targetsJobId.startsWith("targets-");
@@ -406,7 +423,7 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
       }
 
       // For targets batches, re-submit all failed configs as a new targets run
-      const configs = failedRuns.map((r) => (r.config as unknown as ModelConfigRecord));
+      const configs = retryConfigs;
 
       const plumberPayload = await plumberClient.targetsRun({ configs });
       const newTargetsJobId = plumberPayload.job_id as string | undefined;
@@ -442,9 +459,9 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
     const retriedIds = failedRuns.map((r) => r.id);
     const bullmqIds = new Map<string, string>();
     await db.update(runs).set({ status: "queued", error: null, jobId: null, bullmqId: null }).where(inArray(runs.id, retriedIds));
-    for (const r of failedRuns) {
+    for (const [index, r] of failedRuns.entries()) {
       const queuedJobId = await enqueueSdmJob(
-        { type: "model", payload: buildModelPayload((r.config as unknown as ModelConfigRecord), r.id) },
+        { type: "model", payload: buildModelPayload(retryConfigs[index] as ModelConfigRecord, r.id) },
         user.id,
       );
       if (queuedJobId) {

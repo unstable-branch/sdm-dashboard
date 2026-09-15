@@ -129,6 +129,7 @@ vi.mock("../services/plumber", () => ({
     getModelStatus: vi.fn(),
     runModel: vi.fn(async () => ({ job_id: "plumber-job-1" })),
     targetsRun: vi.fn(async () => ({ job_id: "targets-job-1" })),
+    cancelModel: vi.fn(async () => ({ ok: true })),
   },
 }));
 
@@ -620,5 +621,84 @@ describe("SDM routes", () => {
       const data = await res.json();
       expect(data.total).toBe(50);
     });
+  });
+
+  describe("historical retry config validation", () => {
+    it("denies a stored credential before cancellation, update, or enqueue", async () => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+      const { enqueueSdmJob } = await import("../services/queue");
+      (db.select as any)
+        .mockReturnValueOnce({ from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([{ id: "batch-secret", projectId: "proj-1", jobId: "targets-old" }])) })) })
+        .mockReturnValueOnce({ from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([{
+          id: "run-secret", status: "failed", config: { species: "Stored", modelId: "glm", biovars: [1, 4, 6], opentopo_api_key: "synthetic-opentopo-sentinel" },
+        }])) })) });
+      (db.update as any).mockClear();
+      (plumberClient.cancelModel as any).mockClear();
+      (plumberClient.targetsRun as any).mockClear();
+      (enqueueSdmJob as any).mockClear();
+
+      const res = await app.request("/api/v1/sdm/batch/batch-secret/retry", { method: "POST" });
+      expect(res.status).toBe(409);
+      expect(await res.text()).not.toContain("synthetic-opentopo-sentinel");
+      expect(db.update).not.toHaveBeenCalled();
+      expect(plumberClient.cancelModel).not.toHaveBeenCalled();
+      expect(plumberClient.targetsRun).not.toHaveBeenCalled();
+      expect(enqueueSdmJob).not.toHaveBeenCalled();
+    });
+  });
+});
+
+
+describe("secret-free execution ingress", () => {
+  const securityApp = new Hono().route("/", sdmRunRoutes).route("/", sdmBatchRoutes).route("/", sdmTargetsRoutes);
+  const sentinel = "synthetic-opentopo-sentinel";
+
+  it("rejects a single-run credential before DB persistence or Plumber", async () => {
+    const { db } = await import("../db");
+    const { plumberClient } = await import("../services/plumber");
+    (db.insert as any).mockClear();
+    (plumberClient.runModel as any).mockClear();
+    const res = await securityApp.request("/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...buildRunPayloadConfig, opentopo_api_key: sentinel, async: true }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.text()).not.toContain(sentinel);
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(plumberClient.runModel).not.toHaveBeenCalled();
+  });
+
+  it("rejects nested targets credentials before forwarding", async () => {
+    const { plumberClient } = await import("../services/plumber");
+    (plumberClient.targetsRun as any).mockClear();
+    const res = await securityApp.request("/targets/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ configs: [{ species: "Test", modelId: "glm", biovars: [1, 4, 6], enmevalTuneArgs: { api_key: sentinel } }] }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.text()).not.toContain(sentinel);
+    expect(plumberClient.targetsRun).not.toHaveBeenCalled();
+  });
+
+  it("rejects a credential in one batch member before creating the batch", async () => {
+    const { db } = await import("../db");
+    const { plumberClient } = await import("../services/plumber");
+    (db.insert as any).mockClear();
+    (plumberClient.targetsRun as any).mockClear();
+    const res = await securityApp.request("/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ configs: [
+        { ...buildRunPayloadConfig, species: "safe" },
+        { ...buildRunPayloadConfig, species: "unsafe", open_topography_api_key: sentinel },
+      ] }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.text()).not.toContain(sentinel);
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(plumberClient.targetsRun).not.toHaveBeenCalled();
   });
 });

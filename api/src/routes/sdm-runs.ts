@@ -13,6 +13,7 @@ import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
 import { buildModelPayload } from "../services/model-payload.js";
+import { projectSafeScienceConfig, sanitizeStoredConfig, publicConfigValidationError, canonicalizeExecutionConfig } from "../services/execution-config.js";
 import { canAccessRun } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 
@@ -25,17 +26,18 @@ async function plumberJobId(runId: string): Promise<string> {
 }
 
 function normalizeConfig(config: unknown): Record<string, unknown> | null {
-  if (!config || typeof config !== "object") return null;
-  const normalized = { ...(config as Record<string, unknown>) };
-  const rawExtent = normalized.projectionExtent ?? normalized.projection_extent;
-  if (typeof rawExtent === "string") {
-    normalized.projectionExtent = rawExtent.split(",").map(Number);
+  try {
+    const normalized = canonicalizeExecutionConfig(config);
+    for (const key of ["projectionExtent", "trainingExtent"]) {
+      if (typeof normalized[key] === "string") {
+        normalized[key] = normalized[key].split(",").map(Number);
+      }
+    }
+    return sanitizeStoredConfig(normalized);
+  } catch {
+    // Old secret-bearing or malformed records must not be exported.
+    return null;
   }
-  const rawTrainingExtent = normalized.trainingExtent ?? normalized.training_extent;
-  if (typeof rawTrainingExtent === "string") {
-    normalized.trainingExtent = rawTrainingExtent.split(",").map(Number);
-  }
-  return normalized;
 }
 
 export const sdmRunRoutes = new Hono<AppEnv>();
@@ -51,10 +53,11 @@ sdmRunRoutes.post("/run", async (c) => {
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
     const parsed = modelConfigSchema.safeParse(body);
     if (!parsed.success) {
-      return c.json({ error: parsed.error.flatten() }, 400);
+      return c.json(publicConfigValidationError(), 400);
     }
 
     const config = parsed.data;
+    const safeConfig = projectSafeScienceConfig(config);
     const async = body.async === true;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
@@ -98,9 +101,9 @@ sdmRunRoutes.post("/run", async (c) => {
               modelId: config.modelId,
               status: "queued",
               startedAt: new Date(),
-              config,
+              config: safeConfig,
               jobId: null,
-              pipelineRunId: (config as Record<string, unknown>).pipelineRunId as string || null,
+              pipelineRunId: null,
               runNumber: maxRun.maxNum + 1,
             })
             .returning())[0];
@@ -118,7 +121,7 @@ sdmRunRoutes.post("/run", async (c) => {
       }
 
       const jobId = await enqueueSdmJob(
-        { type: "model", payload: { ...buildModelPayload(config, insertedRun.id), runId: insertedRun.id } },
+        { type: "model", payload: { ...buildModelPayload(safeConfig, insertedRun.id), runId: insertedRun.id } },
         user.id,
       );
 
@@ -161,15 +164,15 @@ sdmRunRoutes.post("/run", async (c) => {
         speciesName: config.species ?? null,
         status: "running",
         startedAt: new Date(),
-        config,
-        pipelineRunId: (config as Record<string, unknown>).pipelineRunId as string || null,
+        config: safeConfig,
+        pipelineRunId: null,
         runNumber: maxRun.maxNum + 1,
       })
       .returning();
 
     let plumberJobId: string | undefined;
     try {
-      const result = await plumberClient.runModel(buildModelPayload(config, run.id));
+      const result = await plumberClient.runModel(buildModelPayload(safeConfig, run.id));
       plumberJobId = (result as { job_id?: string }).job_id;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Model run failed";

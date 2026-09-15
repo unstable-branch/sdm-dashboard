@@ -33,7 +33,6 @@ const validFull = {
   includeQuadratic: true,
   useElevation: true,
   elevationDemtype: "COP90",
-  opentopoApiKey: "key-123",
   useSoil: true,
   soilVars: ["sand", "clay", "silt"],
   soilDepths: ["0-5cm", "30-60cm", "60-100cm"],
@@ -154,6 +153,34 @@ describe("modelConfigSchema", () => {
     it("accepts full config with all model backends", () => {
       const result = modelConfigSchema.safeParse(validFull);
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe("secret-free execution ingress", () => {
+    it("rejects the legacy camelCase OpenTopography key without echoing its value", () => {
+      const result = modelConfigSchema.safeParse({ ...validMinimal, opentopoApiKey: "synthetic-sentinel" });
+      expect(result.success).toBe(false);
+      expect(result.error?.message).not.toContain("synthetic-sentinel");
+    });
+
+    it("rejects snake_case and nested credential aliases", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        nested: { open_topography_api_key: "synthetic-sentinel" },
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.message).not.toContain("synthetic-sentinel");
+    });
+
+    it("bounds enmeval tuning arguments and rejects unknown nested keys", () => {
+      expect(modelConfigSchema.safeParse({
+        ...validMinimal,
+        enmevalTuneArgs: { fc: ["L", "LQH"], rm: [0.5, 1, 2] },
+      }).success).toBe(true);
+      expect(modelConfigSchema.safeParse({
+        ...validMinimal,
+        enmevalTuneArgs: { api_key: "synthetic-sentinel" },
+      }).success).toBe(false);
     });
   });
 

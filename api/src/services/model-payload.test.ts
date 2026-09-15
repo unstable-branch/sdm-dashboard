@@ -13,7 +13,7 @@ describe("buildModelPayload", () => {
       multiEnsembleBiomod2: ["Biomod2"],
       biomod2Models: ["Biomod2", "Biomod2_maxent"],
       xgbNrounds: 15,
-      xgbNRounds: 22,
+      xgbNRounds: 50,
       biovars: [1, 4, 6, 12],
       projectionExtent: [-180, 180, -90, 90],
     }, "run-1");
@@ -24,7 +24,7 @@ describe("buildModelPayload", () => {
       dnn_multispecies_architecture: "DNN_Large",
       dnn_multispecies_n_seeds: 4,
       biomod2_models: ["Biomod2", "Biomod2_maxent"],
-      xgb_nrounds: 22,
+      xgb_nrounds: 50,
       biovars: "1,4,6,12",
       projection_extent: "-180,180,-90,90",
       output_dir: "outputs/jobs/run-1",
@@ -58,15 +58,17 @@ describe("buildModelPayload", () => {
     });
   });
 
-  it("keeps unknown keys as-is and preserves output_dir shape", () => {
+  it("drops unknown keys and preserves output_dir shape", () => {
     const payload = buildModelPayload({
       species: "Test species",
       modelId: "glm",
       analysisCrs: "EPSG:4326",
+      untrustedOption: "synthetic-sentinel",
       biovars: [3, 6],
     }, "run-2");
 
     expect(payload.analysis_crs).toBe("EPSG:4326");
+    expect(payload.untrustedOption).toBeUndefined();
     expect(payload.biovars).toBe("3,6");
     expect(payload.output_dir).toBe("outputs/jobs/run-2");
   });
@@ -109,5 +111,21 @@ describe("buildModelPayload", () => {
     }, "run-004");
     expect(payload.occurrence_file).toBeNull();
     expect(payload.cleaned_file_id).toBeUndefined();
+  });
+});
+
+
+describe("secret-free model payloads", () => {
+  it("rejects every OpenTopography alias before payload construction", () => {
+    for (const key of ["opentopoApiKey", "opentopo_api_key", "open_topography_api_key", "opentopographyApiKey"]) {
+      expect(() => buildModelPayload({ species: "Test", modelId: "glm", [key]: "synthetic-sentinel" }, "run-secret"))
+        .toThrow();
+    }
+  });
+
+  it("does not forward credential aliases hidden in nested unknown objects", () => {
+    expect(() => buildModelPayload({
+      species: "Test", modelId: "glm", nested: { api_key: "synthetic-sentinel" },
+    }, "run-nested-secret")).toThrow();
   });
 });
