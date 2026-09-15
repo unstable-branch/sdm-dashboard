@@ -527,21 +527,17 @@ Attach if UI or report changed.
 
 ## Project state (last refreshed after PRs #85 and #86)
 
-<<<<<<< HEAD
-- `dev` branch tip: `7098a44` (after merging Groups Q–V, PRs #81–85)
-- PR #78 (`fix/queue-catch-block-cputime-round`): merged
-- PR #79 (`fix/climate-cache-invalidation`): merged
-- PR #81 (`fix/r-scientific-leakage`): merged (Group S — R scientific leakage)
-- PR #82 (`fix/diagnostics-calibration-traceback`): merged (Group T)
-- PR #83 (`fix/libtorch-bridge-review`): merged (Group U)
-- PR #84 (`fix/dnn-multispecies-cpu-fallback`): merged (Group V)
-- PR #85 (`fix/torch-abi-version-testability`): merged (torch ABI test refactor)
-- PR #86 (`fix/issue-33-gpu-runtime-review`): open (SDM_ACCELERATOR env override + Docker GPU probe)
-- `main` branch tip: `ee0a4561` (PR #31, predates the audit campaign)
-- Test counts (post-campaign): 293 api tests + 65 frontend tests passing; all R test suites pass with warnings/skips only.
-- Pre-existing failures: zero (all test failures resolved — `test-dnn-multispecies.R:187` fixed PR #84, `test-torch-fused-adam.R:35-37` fixed PR #85)
-- All Groups A through V are landed on `dev` via fast-forward merges; feature branches kept as breadcrumbs.
-- The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
+- `dev` branch tip: `f9efc147` (PRs #88–92 merged: compose port-fix, docs gpu-changelog, repo-hygiene, gpu-ci-runner, queue error-throwing)
+ - PR #88 (`fix/compose-dev-port-duplicates`): merged
+ - PR #89 (`docs/gpu-changelog`): merged
+ - PR #90 (`chore/repo-hygiene`): merged
+ - PR #91 (`chore/gpu-ci-runner`): merged
+ - PR #92 (`audit/issue-36-job-reconciliation`): merged
+ - `main` branch tip: `c216c068` (v2.0.0-beta.7 release)
+ - Test counts: 293 api tests + 65 frontend tests passing; all R test suites pass with warnings/skips only.
+ - Pre-existing failures: zero
+ - All Groups A through W, Ph1–Ph4 landed on `dev`; feature branches kept as breadcrumbs.
+ - The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
 
 ## Group summary (for context when reading CHANGELOG)
 
@@ -562,18 +558,17 @@ Attach if UI or report changed.
 | M | `fix/perf-tier-d` | `9e67e081` | Performance fixes: O(n²)→O(n) outlier flagging, GBIF dedup cache, SpatExtent vs spatRaster crop, chunking loop materialization, weighted AOO, parallel CV error propagation |
 | N | `fix/r-case-weight-sdm-scope` | `6a067689` | 6 pre-existing R test failures from `case_weight_sdm` scoping in GLM/GAM fixed — `test-run-sdm-stages.R` ×3, `test-v03-methods.R` ×1 now pass |
 | O | `fix/rangebag-cv-correctness` | `77c13156` | Rangebag CV: bg_fold_id fix (was always 0L → now properly sampled); response_curves rangebag branch added; multi-ensemble test threshold updated |
-<<<<<<< HEAD
-| Q | `fix/queue-catch-block-cputime-round` | `648b1a79` | API queue catch block: `rCpuTimeMs` now rounded to integer (fixes `WORKER_ORPHAN` for fast GLM runs); else branch now transitions `runs.status` to `completed`; defensive inner try/catch; orphan reconciliation migration |
-| R | `fix/climate-cache-invalidation` | `163b7b2c` | Climate cache: broken regex in `handle_climate_check` fixed (geodata naming, `_bio_<n>` → `bio_<n>`); shared matcher module eliminates three-way drift; pre-spawn short-circuit avoids no-op callr::r_bg spawns; sha256 cache manifest for proper invalidation; permission/uid-mismatch audit |
-| S | `fix/r-scientific-leakage` | `d32a1df4` | R scientific leakage: per-fold scaling+VIF refit (S1+S2), DNN real k-fold CV (S3), permutation importance from OOF predictions (S5), MESS in scaled space (S6), threshold from CV preds (S7), na.rm=FALSE (S8), component-spread fields (S9). S4 was a false alarm (bioclim arg order confirmed correct). |
-| T | `fix/diagnostics-calibration-traceback` | `1de5d914` | Calibration error handler now returns `error_stack` field (matching the cv_folds handler already on dev) |
-| U | `fix/libtorch-bridge-review` | `5d68df75` | Critical libtorch bridge: XPtrTorch layout probe catches torch-upgrade mismatch with clear rebuild message; Blackwell CUDA kernel disabled by default (NaN on compute 12.0); `pinned_to_gpu_tensor` renamed `pinned_to_gpu_tensor_sync` |
-| V | `fix/dnn-multispecies-cpu-fallback` | `5f3a26ea` | DNN multispecies: defensive CPU fallback when `torch::cuda_is_available()` returns TRUE but CUDA is unusable (segfaults cito::dnn); explicit `dnn_device="cpu"` in integration test |
-| W | `fix/issue-33-gpu-runtime-detection` | `ac5f1a92` | GPU backend detection: `SDM_ACCELERATOR` env override (auto/cpu/nvidia/amd); `sdm_docker_gpu_probe()` live Docker GPU probe; warning when Docker GPU access detected but torch cannot see CUDA/ROCm/MPS |
-| Ph1 | `fix/gpu-code-path-hardening` | `4e4a9f94` | Phase 1: ABI manifest + stop on mismatch, session GPU caps cache, hybrid ROCm DLL-based detection, multispecies validation/early_stopping params propagation |
-| Ph2 | `fix/gpu-code-path-hardening` | `23464490` | Phase 2: precision + cuDNN benchmark save/restore on entry/exit, NaN streak → AMP disable, C++ cuda_graph_reset_stream entry point, multi-output AMP hard-disable |
-| Ph3 | `fix/gpu-code-path-hardening` | `23464490` | Phase 3: sdm_gpu_available_vram() VRAM dedup, vectorized per-species SD (no apply loop), CUDA Graph shape assertion, RTLD_LAZY fallback for dl_iterate_phdr |
-| Ph4 | `fix/gpu-code-path-hardening` | `67e4d865` | Phase 4: test-gpu-resolution.R (9 pure-R GPU helper tests), test-torch-fused-adam.R (5 torch tests), roxygen @details on 5 functions |
+ | Q | `fix/queue-catch-block-cputime-round` | `648b1a79` | API queue catch block: `rCpuTimeMs` now rounded to integer (fixes `WORKER_ORPHAN` for fast GLM runs); else branch now transitions `runs.status` to `completed`; defensive inner try/catch; orphan reconciliation migration |
+ | R | `fix/climate-cache-invalidation` | `163b7b2c` | Climate cache: broken regex in `handle_climate_check` fixed (geodata naming, `_bio_<n>` → `bio_<n>`); shared matcher module eliminates three-way drift; pre-spawn short-circuit avoids no-op callr::r_bg spawns; sha256 cache manifest for proper invalidation; permission/uid-mismatch audit |
+ | S | `fix/r-scientific-leakage` | `d32a1df4` | R scientific leakage: per-fold scaling+VIF refit (S1+S2), DNN real k-fold CV (S3), permutation importance from OOF predictions (S5), MESS in scaled space (S6), threshold from CV preds (S7), na.rm=FALSE (S8), component-spread fields (S9). S4 was a false alarm (bioclim arg order confirmed correct). |
+ | T | `fix/diagnostics-calibration-traceback` | `1de5d914` | Calibration error handler now returns `error_stack` field (matching the cv_folds handler already on dev) |
+ | U | `fix/libtorch-bridge-review` | `5d68df75` | Critical libtorch bridge: XPtrTorch layout probe catches torch-upgrade mismatch with clear rebuild message; Blackwell CUDA kernel disabled by default (NaN on compute 12.0); `pinned_to_gpu_tensor` renamed `pinned_to_gpu_tensor_sync` |
+ | V | `fix/dnn-multispecies-cpu-fallback` | `5f3a26ea` | DNN multispecies: defensive CPU fallback when `torch::cuda_is_available()` returns TRUE but CUDA is unusable (segfaults cito::dnn); explicit `dnn_device="cpu"` in integration test |
+ | W | `fix/issue-33-gpu-runtime-detection` | `ac5f1a92` | GPU backend detection: `SDM_ACCELERATOR` env override (auto/cpu/nvidia/amd); `sdm_docker_gpu_probe()` live Docker GPU probe; warning when Docker GPU access detected but torch cannot see CUDA/ROCm/MPS |
+ | Ph1 | `fix/gpu-code-path-hardening` | `4e4a9f94` | Phase 1: ABI manifest + stop on mismatch, session GPU caps cache, hybrid ROCm DLL-based detection, multispecies validation/early_stopping params propagation |
+ | Ph2 | `fix/gpu-code-path-hardening` | `23464490` | Phase 2: precision + cuDNN benchmark save/restore on entry/exit, NaN streak → AMP disable, C++ cuda_graph_reset_stream entry point, multi-output AMP hard-disable |
+ | Ph3 | `fix/gpu-code-path-hardening` | `23464490` | Phase 3: sdm_gpu_available_vram() VRAM dedup, vectorized per-species SD (no apply loop), CUDA Graph shape assertion, RTLD_LAZY fallback for dl_iterate_phdr |
+ | Ph4 | `fix/gpu-code-path-hardening` | `67e4d865` | Phase 4: test-gpu-resolution.R (9 pure-R GPU helper tests), test-torch-fused-adam.R (5 torch tests), roxygen @details on 5 functions |
 
 ## Known limitations
 What should reviewers know?
