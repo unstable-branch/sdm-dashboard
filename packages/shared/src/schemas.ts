@@ -1,6 +1,72 @@
 import { z } from "zod";
 
-export const modelConfigSchema = z.object({
+const FORBIDDEN_EXECUTION_KEY_NAMES = new Set([
+  "apiKey", "api_key", "apikey", "accessKey", "access_key",
+  "token", "accessToken", "access_token", "secret", "password",
+  "credential", "credentials",
+  "opentopoApiKey", "opentopo_api_key", "openTopographyApiKey",
+  "open_topography_api_key", "opentopographyApiKey", "opentopography_api_key",
+  "opentopoKey", "opentopo_key", "openTopographyKey", "open_topography_key",
+  "opentopographyKey", "opentopography_key", "opentopoToken", "opentopo_token",
+  "elevationApiKey", "elevation_api_key", "demApiKey", "dem_api_key",
+]);
+
+function normalizedExecutionKey(key: string): string {
+  return key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+}
+
+const FORBIDDEN_NORMALIZED_EXECUTION_KEYS = new Set(
+  [...FORBIDDEN_EXECUTION_KEY_NAMES].map(normalizedExecutionKey),
+);
+
+function isForbiddenExecutionKey(key: string): boolean {
+  return FORBIDDEN_NORMALIZED_EXECUTION_KEYS.has(key)
+    || key.endsWith("apikey")
+    || key.endsWith("apitoken")
+    || key.includes("secret")
+    || key.includes("credential");
+}
+
+function findForbiddenExecutionKey(value: unknown, path: Array<string | number> = []): Array<string | number> | null {
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const found = findForbiddenExecutionKey(value[index], [...path, index]);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!value || typeof value !== "object") return null;
+  for (const [key, child] of Object.entries(value)) {
+    if (isForbiddenExecutionKey(normalizedExecutionKey(key))) {
+      return [...path, key];
+    }
+    const found = findForbiddenExecutionKey(child, [...path, key]);
+    if (found) return found;
+  }
+  return null;
+}
+
+function rejectForbiddenExecutionKeys(input: unknown, ctx: z.RefinementCtx): unknown {
+  const path = findForbiddenExecutionKey(input);
+  if (path) {
+    // Do not include the submitted key value in a validation issue.
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path,
+      message: "Credential fields are not accepted in execution configuration",
+    });
+    return z.NEVER;
+  }
+  return input;
+}
+
+export const enmevalTuneArgsSchema = z.object({
+  // These are the only MaxEnt tuning dimensions supported by the UI/backend.
+  fc: z.array(z.string().regex(/^[LQHP]{1,5}$/)).min(1).max(20).optional(),
+  rm: z.array(z.number().finite().min(0.01).max(20)).min(1).max(20).optional(),
+}).strict();
+
+const modelConfigObjectSchema = z.object({
   species: z.string().min(1),
   speciesFilter: z.string().optional(),
   modelId: z.string().min(1),
@@ -25,6 +91,7 @@ export const modelConfigSchema = z.object({
   cvFolds: z.number().int().min(0).max(10).default(3),
   cvStrategy: z.enum(["random", "spatial_blocks"]).default("random"),
   cvBlockSizeKm: z.number().min(1).max(500).optional(),
+  autoDownloadClimate: z.boolean().default(true),
   threshold: z.number().min(0.05).max(0.95).default(0.5),
   generateTiles: z.boolean().default(true),
   generateCog: z.boolean().default(true),
@@ -38,7 +105,6 @@ export const modelConfigSchema = z.object({
   includeQuadratic: z.boolean().default(true),
   useElevation: z.boolean().default(false),
   elevationDemtype: z.string().default("COP90"),
-  opentopoApiKey: z.string().optional(),
   useSoil: z.boolean().default(false),
   soilVars: z.array(z.string()).default(["sand", "clay", "phh2o"]),
   soilDepths: z.array(z.string()).default(["0-5cm", "30-60cm"]),
@@ -78,12 +144,22 @@ export const modelConfigSchema = z.object({
   enmevalAlgorithm: z.enum(["maxnet", "bioclim"]).default("maxnet").optional(),
   enmevalPartitions: z.enum(["block", "checkerboard1", "checkerboard2", "randomkfold"]).default("block").optional(),
   enmevalSelectionMetric: z.enum(["auc.val.avg", "delta.AICc", "auc.diff.avg"]).default("auc.val.avg").optional(),
-  enmevalTuneArgs: z.record(z.unknown()).default({}).optional(),
+  enmevalTuneArgs: enmevalTuneArgsSchema.default({}).optional(),
   enmevalCategoricals: z.array(z.string()).optional(),
   enmevalNullIterations: z.number().int().min(10).max(1000).default(100).optional(),
   dnnArchitecture: z.enum(["DNN_Small", "DNN_Medium", "DNN_Large"]).default("DNN_Medium"),
   dnnNSeeds: z.number().int().min(1).max(20).default(5),
   dnnDevice: z.enum(["auto", "cpu", "gpu"]).default("auto"),
+  hiddenLayers: z.array(z.number().int().min(1).max(4096)).min(1).max(10).optional(),
+  batchSize: z.number().int().min(1).max(65536).optional(),
+  predictBatchSize: z.number().int().min(1).max(262144).optional(),
+  learningRate: z.number().finite().positive().max(1).optional(),
+  pythonDevice: z.enum(["auto", "cpu", "cuda", "rocm", "mps"]).optional(),
+  earlyStoppingPatience: z.number().int().min(0).max(1000).optional(),
+  validationFraction: z.number().finite().min(0).max(0.9).optional(),
+  nEstimators: z.number().int().min(1).max(10000).optional(),
+  maxDepth: z.number().int().min(1).max(100).optional(),
+  maxIterations: z.number().int().min(1).max(100000).optional(),
   dnnFusedAdam: z.enum(["auto", "always", "off"]).default("auto").optional(),
   brtNTrees: z.number().int().min(100).max(10000).default(2000),
   brtInteractionDepth: z.number().int().min(1).max(10).default(3),
@@ -165,7 +241,15 @@ export const modelConfigSchema = z.object({
   gllvmLvCorr: z.boolean().default(false),
 });
 
+export const modelConfigSchema = z.preprocess(rejectForbiddenExecutionKeys, modelConfigObjectSchema);
+
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
+
+/** Optional-field variant for internal payload projection of already-partial callers. */
+export const modelConfigPartialSchema = z.preprocess(
+  rejectForbiddenExecutionKeys,
+  modelConfigObjectSchema.partial(),
+);
 
 export const modelRunSchema = z.object({
   id: z.string(),
@@ -203,22 +287,22 @@ export const occurrenceUploadSchema = z.object({
   maxCoordinateUncertainty: z.number().optional(),
 });
 
-export const targetsConfigSchema = z.object({
+const targetsConfigObjectSchema = modelConfigObjectSchema.partial().extend({
   species: z.string().min(1),
-  speciesFilter: z.string().optional(),
   modelId: z.string().min(1),
-  occurrenceFile: z.string().optional(),
-  cleanedFilePath: z.string().optional(),
-  biovars: z.array(z.number().int().min(1).max(19)).optional(),
-  projectionExtent: z.array(z.number()).optional(),
-  backgroundN: z.number().int().optional(),
-  cvFolds: z.number().int().optional(),
-  threshold: z.number().optional(),
 });
 
-export const targetsRunRequestSchema = z.object({
-  configs: z.array(targetsConfigSchema).min(1).max(50),
-});
+export const targetsConfigSchema = z.preprocess(
+  rejectForbiddenExecutionKeys,
+  targetsConfigObjectSchema,
+);
+
+export const targetsRunRequestSchema = z.preprocess(
+  rejectForbiddenExecutionKeys,
+  z.object({
+    configs: z.array(targetsConfigSchema).min(1).max(50),
+  }),
+);
 
 export const targetsStatusResponseSchema = z.object({
   id: z.string(),
