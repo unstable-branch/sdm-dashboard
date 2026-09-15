@@ -5,7 +5,7 @@ import { runs } from "../db/schema.js";
 import { eq, desc, count, and, inArray, sql } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
-import { getUserProjectIds } from "../services/access.js";
+import { getUserProjectIds, canAccessRun } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 
 const MAX_RUNS_LIMIT = 500;
@@ -43,7 +43,11 @@ sdmTargetsRoutes.post("/targets/run", async (c) => {
 
 sdmTargetsRoutes.get("/targets/status/:jobId", async (c) => {
   try {
+    const user = c.get("user");
     const jobId = c.req.param("jobId");
+    if (!(await canAccessRun(user.id, user.role, jobId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const result = await plumberClient.targetsStatus(jobId);
     return c.json(result);
   } catch (err) {
@@ -54,7 +58,11 @@ sdmTargetsRoutes.get("/targets/status/:jobId", async (c) => {
 
 sdmTargetsRoutes.get("/targets/results/:jobId", async (c) => {
   try {
+    const user = c.get("user");
     const jobId = c.req.param("jobId");
+    if (!(await canAccessRun(user.id, user.role, jobId))) {
+      return c.json({ error: "Run not found" }, 404);
+    }
     const result = await plumberClient.targetsResults(jobId);
     return c.json(result);
   } catch (err) {

@@ -7,6 +7,7 @@ import { bodyLimit } from "hono/body-limit";
 import { plumberClient } from "./services/plumber.js";
 import { ensureBuckets } from "./services/storage.js";
 import { getRedisStatus, ensureWorker, shutdownQueue } from "./services/queue.js";
+import { startJobEventSubscriber, stopJobEventSubscriber } from "./services/job-events-subscriber.js";
 import { startPlumberSync, stopPlumberSync } from "./services/plumber-sync.js";
 import { setupWebSocket, cleanupWebSocket } from "./services/websocket.js";
 
@@ -305,6 +306,13 @@ setTimeout(() => {
   startRetentionPrune();
 }, 5000);
 
+// Start Redis eventbus subscriber — cross-replica job-status relay.
+// Disabled by default (SDM_ENABLE_EVENTBUS_SUBSCRIBE=false). Set to "true"
+// on each Plumber replica when multi-replica deployment is active.
+setTimeout(() => {
+  startJobEventSubscriber();
+}, 4000);
+
 // Flush stale cache after restart so old data from previous Plumber sessions
 // (e.g. broken endpoints returning empty results) is not served to users
 setTimeout(async () => {
@@ -324,6 +332,7 @@ async function shutdown() {
   stopPlumberSync();
   stopMemoryMonitor();
   cleanupWebSocket();
+  await stopJobEventSubscriber();
   await shutdownQueue();
   await shutdownAudit();
   try {

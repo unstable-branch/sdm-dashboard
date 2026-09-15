@@ -104,13 +104,13 @@ handle_boundary_upload <- function(req, res, app_dir) {
   )
 }
 
-handle_boundary_list <- function(res, app_dir) {
+handle_boundary_list <- function(req, res, app_dir) {
   custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
   if (!dir.exists(custom_dir)) {
     return(list(boundaries = list()))
   }
-  user_id <- res$user_id %||% NULL
-  is_admin <- isTRUE(res$user_role == "admin")
+  user_id <- req$user_id %||% NULL
+  is_admin <- isTRUE(req$user_role == "admin")
   files <- list.files(custom_dir, pattern = "\\.geojson$", full.names = TRUE)
   boundaries <- lapply(files, function(f) {
     if (!is.null(user_id) && !is_admin && !sdm_boundary_owned_by(f, user_id)) return(NULL)
@@ -160,7 +160,7 @@ sdm_write_boundary_owner <- function(boundary_path, user_id) {
 
 sdm_boundary_owned_by <- function(boundary_path, user_id) {
   sidecar <- paste0(boundary_path, ".owner")
-  if (!file.exists(sidecar)) return(TRUE)
+  if (!file.exists(sidecar)) return(FALSE)
   owner <- tryCatch(readLines(sidecar, warn = FALSE)[1], error = function(e) NULL)
   !is.null(owner) && nzchar(owner) && owner == user_id
 }

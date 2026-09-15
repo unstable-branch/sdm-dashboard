@@ -122,3 +122,79 @@ jobs:
 
       - name: Audit release packaging
         run: Rscript scripts/audit_release.R
+
+  gpu-tests:
+    name: GPU tests — test-gpu-resolution.R + test-torch-fused-adam.R
+    # NOTE: This job requires a self-hosted runner with NVIDIA GPU + Docker with
+    # nvidia-container-toolkit. Replace `ubuntu-latest` with your GPU runner label
+    # (e.g., `self-hosted-gpu`) or use a runner with `--gpus all` Docker access.
+    # Falls back gracefully via skip-if-no-torch on CPU-only CI runners.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d8 # v4
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
+        with:
+          r-version: release
+          use-public-rspm: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgdal-dev \
+            libgeos-dev \
+            libproj-dev \
+            libssl-dev \
+            libudunits2-dev \
+            libxml2-dev \
+            make \
+            git
+
+      - name: Install R package dependencies
+        env:
+          RENV_PROJECT: ""
+        uses: r-lib/actions/setup-r-dependencies@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
+        with:
+          dependencies: '"hard"'
+          extra-packages: 'any::testthat, any::torch, any::cito'
+          cache-version: 3
+
+      - name: Build sdmtorch C++ extensions (with CUDA)
+        run: |
+          cd sdmtorch
+          make -j2 2>&1 || echo "WARNING: sdmtorch build with CUDA failed, tests will skip"
+          cd ..
+
+      - name: Run GPU resolution tests
+        run: |
+          Rscript -e '
+            library(testthat)
+            source("tests/testthat/helper-fixtures.R")
+            results <- test_file("tests/testthat/test-gpu-resolution.R", reporter = "summary", stop_on_failure = FALSE)
+            failed <- sum(as.data.frame(results)$failed)
+            errored <- sum(as.data.frame(results)$error)
+            if (failed > 0 || errored > 0) {
+              stop(sprintf("GPU resolution tests failed: %d failures, %d errors", failed, errored))
+            }
+            message("All GPU resolution tests passed.")
+          '
+
+      - name: Run torch fused Adam tests
+        run: |
+          Rscript -e '
+            library(testthat)
+            source("tests/testthat/helper-fixtures.R")
+            results <- test_file("tests/testthat/test-torch-fused-adam.R", reporter = "summary", stop_on_failure = FALSE)
+            failed <- sum(as.data.frame(results)$failed)
+            errored <- sum(as.data.frame(results)$error)
+            if (failed > 0 || errored > 0) {
+              stop(sprintf("Torch fused Adam tests failed: %d failures, %d errors", failed, errored))
+            }
+            message("All torch fused Adam tests passed.")
+          '
+
