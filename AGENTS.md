@@ -572,4 +572,8 @@ Attach if UI or report changed.
 
 ## Known limitations
 What should reviewers know?
+
+- Plumber auth path is preroute-hook only (`pr$registerHook("preroute", ...)`) — we do not use
+  `#* @filter Auth` because that path triggers an empty/false body bug in Plumber 1.3.0–1.3.3 with
+  `serializer_json(auto_unbox=TRUE)`; see [rstudio/plumber#1022](https://github.com/rstudio/plumber/issues/1022).
 ```
