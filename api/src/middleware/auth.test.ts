@@ -19,6 +19,24 @@ vi.mock("hono/jwt", () => ({
   verify: mockVerify,
 }));
 
+// Middleware delegates trust decisions to the shared current-principal verifier.
+vi.mock("../services/auth-principal.js", () => ({
+  AuthStorageUnavailable: class AuthStorageUnavailable extends Error {},
+  verifyCurrentJwt: async (token: string) => {
+    try {
+      const payload = await (mockVerify as unknown as (token: string, secret: string | undefined, algorithm: string) => Promise<any>)(token, process.env.JWT_SECRET, "HS256");
+      if (payload.iss !== (process.env.JWT_ISSUER || "sdm-dashboard")) return null;
+      return { id: payload.sub, email: payload.email, role: payload.role, authVersion: payload.av ?? 0, source: "jwt" };
+    } catch { return null; }
+  },
+  verifyCurrentApiKey: async () => {
+    const key = nextDbResult.next()[0];
+    if (!key || (key.expiresAt && key.expiresAt <= new Date())) return null;
+    const user = nextDbResult.next()[0];
+    return user ? { ...user, authVersion: user.authVersion ?? 0, source: "api-key" } : null;
+  },
+}));
+
 vi.mock("../db", () => ({
   db: {
     select: vi.fn(() => ({
@@ -44,6 +62,7 @@ vi.mock("./csrf", () => ({}));
 
 process.env.JWT_SECRET = "test-secret";
 process.env.JWT_ISSUER = "sdm-dashboard";
+beforeEach(() => { process.env.JWT_SECRET = "test-secret"; });
 
 const { authMiddleware, optionalAuth, requireRole, requireProjectAccess } = await import("./auth");
 
@@ -90,13 +109,12 @@ describe("authMiddleware", () => {
       expect(res.status).toBe(401);
     });
 
-    it("returns 401 when JWT_SECRET is not configured", async () => {
+    it("returns 503 when JWT_SECRET is not configured", async () => {
       delete process.env.JWT_SECRET;
       const res = await app.request("/test", {
         headers: { Authorization: "Bearer some.jwt.token" },
       });
-      expect(res.status).toBe(401);
-      process.env.JWT_SECRET = "test-secret";
+      expect(res.status).toBe(503);
     });
 
     it("returns 401 when JWT issuer does not match", async () => {
@@ -231,7 +249,7 @@ describe("optionalAuth", () => {
     });
     expect(res.status).toBe(200);
     const data = await res.json() as any;
-    expect(data.user).toEqual({ id: "user-1", email: "user@test.com", role: "viewer" });
+    expect(data.user).toMatchObject({ id: "user-1", email: "user@test.com", role: "viewer" });
   });
 
   it("sets user with valid API key", async () => {
@@ -242,7 +260,7 @@ describe("optionalAuth", () => {
     });
     expect(res.status).toBe(200);
     const data = await res.json() as any;
-    expect(data.user).toEqual({ id: "user-1", email: "user@test.com", role: "viewer" });
+    expect(data.user).toMatchObject({ id: "user-1", email: "user@test.com", role: "viewer" });
   });
 
   it("does not fail with an invalid JWT", async () => {
