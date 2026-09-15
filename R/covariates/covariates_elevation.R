@@ -41,10 +41,20 @@ opentopo_tile_size_degrees <- function(demtype) {
 }
 
 opentopo_api_key <- function(api_key = NULL) {
-  if (!is.null(api_key) && length(api_key) > 0 && nzchar(trimws(api_key[1]))) {
-    return(trimws(api_key[1]))
-  }
+  # The argument is retained for call compatibility but deliberately ignored.
+  # Provider credentials are resolved only from server-owned environment state.
   Sys.getenv("OPENTOPOGRAPHY_API_KEY", unset = "")
+}
+
+sdm_redact_opentopo_error <- function(value) {
+  text <- unname(paste(as.character(value %||% ""), collapse = " "))
+  key <- Sys.getenv("OPENTOPOGRAPHY_API_KEY", unset = "")
+  if (nzchar(key)) text <- gsub(key, "[redacted]", text, fixed = TRUE)
+  text <- gsub("(?i)(api[_-]?key|access[_-]?token|token|secret|credential)([=:][^&[:space:]]+)",
+               "\\1=[redacted]", text, perl = TRUE)
+  text <- gsub("(?i)https?://[^[:space:]]*opentopography[^[:space:]]*",
+               "OpenTopography provider request", text, perl = TRUE)
+  text
 }
 
 opentopo_globaldem_url <- function(extent_vec, demtype = sdm_default_elevation_demtype, api_key = NULL) {
@@ -111,7 +121,7 @@ download_opentopo_tile <- function(tile_extent, demtype, api_key, destfile, max_
       html_check <- suppressWarnings(readLines(destfile, n = 5, warn = FALSE))
       is_html <- any(grepl("<!DOCTYPE|<html|<head|<body|</html>", html_check, ignore.case = TRUE))
       if (is_html) {
-        last_error <- "OpenTopography API returned an HTML error page — check your API key, quota, and registered email. See https://portal.opentopography.org"
+        last_error <- "provider returned an HTML error page"
       } else if (file.info(destfile)$size <= 1024) {
         last_error <- "received a small/empty file (possible rate limit or API outage)"
       } else {
@@ -123,12 +133,13 @@ download_opentopo_tile <- function(tile_extent, demtype, api_key, destfile, max_
     }
     if (attempt < max_retries) Sys.sleep(2^attempt)
   }
-  stop("OpenTopography download failed after ", max_retries, " attempts: ", last_error, ". Verify your API key at https://portal.opentopography.org and check your quota.", call. = FALSE)
+  stop("OpenTopography provider download failed after ", max_retries, " attempts: ",
+       sdm_redact_opentopo_error(last_error), call. = FALSE)
 }
 
 download_opentopo_dem <- function(extent_vec, demtype, cache_file, api_key = NULL, log_fun = NULL) {
-  key <- opentopo_api_key(api_key)
-  if (!nzchar(key)) stop("Elevation selected but no OpenTopography API key was provided.", call. = FALSE)
+  key <- opentopo_api_key()
+  if (!nzchar(key)) stop("Elevation provider unavailable: no server-owned provider credential is configured.", call. = FALSE)
   dir.create(dirname(cache_file), recursive = TRUE, showWarnings = FALSE)
 
   # Validate extent size before attempting download
@@ -186,15 +197,15 @@ load_elevation_covariate <- function(training_extent, projection_extent, cache_d
       log_message(log_fun, "Elevation selected but cached DEM is missing and downloads are disabled: ", cache_file)
       return(NULL)
     }
-    key <- opentopo_api_key(api_key)
+    key <- opentopo_api_key()
     if (!nzchar(key)) {
-      log_message(log_fun, "Elevation selected but no OpenTopography API key was provided. Set OPENTOPOGRAPHY_API_KEY or enter a key in the app.")
+      log_message(log_fun, "Elevation selected but provider capability is unavailable: no server-owned credential is configured.")
       return(NULL)
     }
     downloaded <- tryCatch(
       download_opentopo_dem(extent_vec, demtype, cache_file, key, log_fun),
       error = function(e) {
-        log_message(log_fun, "Elevation download failed: ", conditionMessage(e))
+        log_message(log_fun, "Elevation provider download failed: ", sdm_redact_opentopo_error(conditionMessage(e)))
         NULL
       }
     )

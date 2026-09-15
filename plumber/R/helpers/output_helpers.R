@@ -1,3 +1,29 @@
+
+
+sdm_safe_result_config_for_export <- function(config) {
+  if (!is.list(config)) return(NULL)
+  forbidden_key <- if (exists("sdm_execution_forbidden_key", mode = "function")) {
+    sdm_execution_forbidden_key
+  } else {
+    function(name) grepl("api[_-]?key|token|secret|credential|password", name, ignore.case = TRUE)
+  }
+  contains_forbidden <- function(value) {
+    if (!is.list(value)) return(FALSE)
+    child_names <- names(value)
+    if (!is.null(child_names) && any(vapply(child_names, forbidden_key, logical(1)))) return(TRUE)
+    any(vapply(value, contains_forbidden, logical(1)))
+  }
+  if (contains_forbidden(config)) return(NULL)
+  keep <- c(
+    "species", "model_id", "occurrence_file", "worldclim_dir", "selected_biovars",
+    "projection_extent", "threshold", "background_n", "cv_folds", "aggregation_factor",
+    "climate_source", "source", "cv_strategy", "bias_method", "n_cores",
+    "multi_ensemble_models", "multi_ensemble_weighting", "multi_ensemble_power",
+    "maxnet_features", "maxnet_regmult", "future_label"
+  )
+  config[intersect(names(config), keep)]
+}
+
 handle_output_compare <- function(req, res, run_id1, run_id2, app_dir) {
   own_err <- sdm_verify_run_owner(req, res, run_id1, app_dir)
   if (!is.null(own_err)) return(own_err)
@@ -29,7 +55,7 @@ handle_output_compare <- function(req, res, run_id1, run_id2, app_dir) {
     comp$report_text <- format_comparison_text(comp)
     comp
   }, error = function(e) {
-    list(error = paste("Comparison failed:", conditionMessage(e)))
+    list(error = paste("Comparison failed:", sdm_redact_sensitive_text(conditionMessage(e))))
   })
 }
 
@@ -59,12 +85,18 @@ handle_output_script <- function(req, res, run_id, app_dir, output_dir = NULL) {
 
   tryCatch({
     result <- sdm_read_result(result_rds)
+    safe_result_config <- sdm_safe_result_config_for_export(result$config)
+    if (is.null(safe_result_config)) {
+      res$status <- 409L
+      return(list(error = "Script export unavailable for legacy execution configuration"))
+    }
+    result$config <- safe_result_config
     script_path <- file.path(job_dir, "reproducible_run.R")
     source(sdm_resolve_module("script_export.R"), local = TRUE)
     export_run_script(result, script_path)
     list(ok = TRUE, script_path = script_path)
   }, error = function(e) {
-    list(error = paste("Script export failed:", conditionMessage(e)))
+    list(error = paste("Script export failed:", sdm_redact_sensitive_text(conditionMessage(e))))
   })
 }
 
@@ -81,9 +113,13 @@ handle_output_manifest <- function(req, res, run_id, app_dir) {
   }
 
   meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-  config <- meta$config %||% list()
-  metrics <- meta$metrics %||% list()
-  output_files <- meta$output_files %||% list()
+  config <- sdm_safe_historical_config(meta$config %||% list())
+  if (is.null(config)) {
+    res$status <- 409L
+    return(list(error = "Manifest unavailable for legacy execution configuration"))
+  }
+  metrics <- sdm_sanitize_status_value(meta$metrics %||% list())
+  output_files <- sdm_sanitize_status_value(meta$output_files %||% list())
 
   git_sha <- tryCatch(
     system("git rev-parse HEAD", intern = TRUE, ignore.stderr = TRUE),

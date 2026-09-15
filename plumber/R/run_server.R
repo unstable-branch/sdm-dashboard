@@ -5,22 +5,25 @@
 #   - X-Hono-Internal header + X-Forwarded-User (Hono-proxied requests with valid JWT)
 # Open endpoints (health, reads) bypass auth
 
-# Fatal error handler: dump stack + variables to crash log so OOM/segfault leaves a trail.
+# Fatal errors must not serialize frames, variables, provider URLs, or credentials.
 # Auth rejections from the preroute filter set res directly and return FALSE — these
 # do NOT trigger this handler. This only fires for genuine crashes.
 options(error = function() {
   cond <- tryCatch(get("condition", envir = .GlobalEnv, inherits = FALSE), error = function(e) NULL)
   if (is.null(cond)) return(invisible(NULL))
-  crash_file <- file.path(tempdir(), "sdm_crash_dump.rda")
+  message_text <- unname(tryCatch(conditionMessage(cond), error = function(e) "unavailable"))
+  configured <- Sys.getenv("OPENTOPOGRAPHY_API_KEY", unset = "")
+  if (nzchar(configured)) message_text <- gsub(configured, "[redacted]", message_text, fixed = TRUE)
+  message_text <- gsub("(?i)(api[_-]?key|access[_-]?token|token|secret|password|credential)([=:][^&[:space:]]+)",
+                        "\\1=[redacted]", message_text, perl = TRUE)
+  message_text <- gsub("(?i)https?://[^[:space:]]*opentopography[^[:space:]]*",
+                        "OpenTopography provider request", message_text, perl = TRUE)
   tryCatch({
-    dump.frames("sdm_crash_dump", to.file = TRUE)
-    cat("FATAL: R process crashed at", format(Sys.time()), "\n",
-      "  Error:", conditionMessage(cond), "\n",
-      "  Dump written to:", crash_file, "\n",
-      file = file.path(Sys.getenv("SDM_CRASH_LOG", tempdir()), "sdm_crash.log"),
-      append = TRUE)
+    crash_log <- file.path(Sys.getenv("SDM_CRASH_LOG", tempdir()), "sdm_crash.log")
+    cat("FATAL: R process error at ", format(Sys.time()), ": ", message_text, "\n",
+        "Crash frames withheld to protect execution data.\n", file = crash_log, append = TRUE, sep = "")
   }, error = function(e) NULL)
-  # Signal to the Plumber health check process monitor
+  # Signal to the Plumber health check process monitor.
   cat("FATAL: Unrecoverable R error — process terminating\n")
 })
 
