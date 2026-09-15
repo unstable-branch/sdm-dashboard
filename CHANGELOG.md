@@ -27,14 +27,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `sdm_gpu_available_vram()` deduplicates repeated `cudaMemGetInfo` calls within a session. Previously every call to `predict_model_dnn` triggered a fresh `cudaMemGetInfo` round-trip.
 - Per-species standard deviation in multispecies DNN training is now vectorized over species dim (no `apply(..., 1:2, sd)` loop). Speeds up large multispecies batches.
-- CUDA Graph shape assertion added: before capture, verifies input batch size ≤ 65536 and n_features is a valid covariate count. Fails fast with a descriptive message on invalid shapes.
-- `dl_iterate_phdr` resolution now falls back to `RTLD_LAZY` if the symbol is not found at build time. Previously threw an UnsatisfiedLinkError on systems where the symbol is not exported.
+- `sdmtorch/src/cuda_graph.cpp` asserts CUDA Graph shape consistency on submission: if an attempt is made to replay a captured graph on differently-shaped tensors, a informative error is thrown rather than CUDA crashing.
+- `sdm_load_pinned_alloc()` falls back to `RTLD_LAZY` when `RTLD_NOLOAD` returns NULL (handles torch upgrade scenarios where the .so was previously loaded with a different flags). Previously would error if .so was already loaded.
 
-#### Phase 4 — Test coverage, roxygen documentation
+#### Phase 4 — GPU helper tests, roxygen details
 
 - `tests/testthat/test-gpu-resolution.R`: 9 pure-R tests for GPU helper functions (no torch required): `sdm_accelerator_capabilities`, `sdm_backend_is_gpu`, `sdm_resolve_backend`, `sdm_device_is_cuda_tensor`, `sdm_check_so_abi`, `sdm_load_pinned_alloc`, `sdm_gpu_available_vram`, `sdm_amp_safe_for_model`, `sdm_nan_streak_disable_amp`.
 - `tests/testthat/test-torch-fused-adam.R`: 5 skip-if-no-torch tests covering fused Adam dispatch (ATen-op kernel vs libtorch kernel), NaN streak → AMP disable, stream reset, multi-output AMP guard, and precision save/restore.
 - roxygen `@details` added to 5 functions: `.sdm_rocm_runtime_detected`, `sdm_accelerator_capabilities`, `sdm_gpu_available_vram`, `sdm_amp_safe_for_model`, `fused_adam_step`.
+
+## [2.0.0-beta.7] - 2026-09-15
+
+### GPU backend detection (Group W: issue #33)
+
+- `R/core/gpu_helpers.R` `sdm_accelerator_capabilities()` now supports `SDM_ACCELERATOR` env var override (`auto`/`cpu`/`nvidia`/`amd`) to force a specific backend when automatic detection fails inside Docker or other container environments.
+- `sdm_docker_gpu_probe()`: live Docker GPU probe via `docker run --rm --gpus all nvidia/cuda:11.8.0-standalone nvidia-smi --query-gpu=name --format=csv,noheader` with a 5-second timeout. Returns GPU names or `character(0)` when Docker/nvidia-smi is unavailable.
+- When Docker GPU access is detected but torch's `cuda_is_available()` returns FALSE (e.g. missing `--gpus all` container flag), a warning is issued suggesting the env var or container GPU flags.
+- The `SDM_ACCELERATOR` override (set to `cpu`/`nvidia`/`amd`) bypasses automatic detection and forces the chosen backend, with appropriate warnings if the requested backend is unavailable.
+
+### GPU telemetry
+
+- `train_model_fused` now sets `model$amp_disabled_reason` to `"nan_streak"` (AMP produces NaN for 2+ consecutive epochs) or `"multi_output"` (multispecies DNN with >1 output), accessible in the returned model object.
+- `sdm_accelerator_capabilities()` session cache (`.gpu_caps_cache`) is now fork-safe across `future::future` multisession workers.
 
 ### Scientific leakage remediation (Group S: S1, S2, S3, S5, S6, S7, S8, S9)
 
