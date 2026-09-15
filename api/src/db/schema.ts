@@ -1,8 +1,12 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex, check, AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { relations } from "drizzle-orm";
 
 const statusEnum = pgEnum("run_status", ["queued", "running", "completed", "failed", "cancelled"]);
 const roleEnum = pgEnum("user_role", ["admin", "editor", "viewer"]);
+export const inputAssetScopeEnum = pgEnum("input_asset_scope", ["private", "project", "system"]);
+export const inputAssetKindEnum = pgEnum("input_asset_kind", ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group"]);
+export const inputAssetStateEnum = pgEnum("input_asset_state", ["ready", "deleted", "quarantined"]);
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -239,12 +243,69 @@ export const uploads = pgTable("uploads", {
   index("idx_uploads_created").on(t.createdAt),
 ]);
 
+/** Canonical input resources; legacy tables are compatibility metadata only. */
+export const inputAssets = pgTable("input_assets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  creatorUserId: uuid("creator_user_id").references(() => users.id, { onDelete: "restrict" }).notNull(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "restrict" }),
+  scope: inputAssetScopeEnum("scope").notNull(),
+  kind: inputAssetKindEnum("kind").notNull(),
+  storageLocator: text("storage_locator").notNull(),
+  parentAssetId: uuid("parent_asset_id").references((): AnyPgColumn => inputAssets.id, { onDelete: "restrict" }),
+  state: inputAssetStateEnum("state").notNull().default("ready"),
+  contentSha256: varchar("content_sha256", { length: 64 }),
+  contentSize: bigint("content_size", { mode: "number" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+  quarantinedAt: timestamp("quarantined_at"),
+}, (t) => [
+  uniqueIndex("input_assets_storage_locator_unique").on(t.storageLocator),
+  index("input_assets_creator_idx").on(t.creatorUserId),
+  index("input_assets_project_idx").on(t.projectId),
+  index("input_assets_scope_state_idx").on(t.scope, t.state),
+  index("input_assets_kind_state_idx").on(t.kind, t.state),
+  index("input_assets_parent_idx").on(t.parentAssetId),
+  check("input_assets_scope_project_ck", sql`("scope" = 'private' AND "project_id" IS NULL) OR ("scope" = 'project' AND "project_id" IS NOT NULL) OR ("scope" = 'system' AND "project_id" IS NULL)`),
+  check("input_assets_locator_nonempty_ck", sql`length(btrim("storage_locator")) > 0`),
+  check("input_assets_hash_ck", sql`"content_sha256" IS NULL OR "content_sha256" ~ '^[0-9a-fA-F]{64}$'`),
+  check("input_assets_size_ck", sql`"content_size" IS NULL OR "content_size" >= 0`),
+  check("input_assets_deleted_time_ck", sql`"state" <> 'deleted' OR "deleted_at" IS NOT NULL`),
+  check("input_assets_quarantined_time_ck", sql`"state" <> 'quarantined' OR "quarantined_at" IS NOT NULL`),
+]);
+
+/** Unmapped or quarantined legacy rows can never be used as path aliases. */
+export const inputAssetLegacyMappings = pgTable("input_asset_legacy_mappings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  legacyTable: varchar("legacy_table", { length: 32 }).notNull(),
+  legacyRowId: uuid("legacy_row_id").notNull(),
+  legacyLocator: text("legacy_locator").notNull(),
+  legacyUserId: uuid("legacy_user_id").references(() => users.id, { onDelete: "set null" }),
+  legacyProjectId: uuid("legacy_project_id").references(() => projects.id, { onDelete: "set null" }),
+  inputAssetId: uuid("input_asset_id").references(() => inputAssets.id, { onDelete: "restrict" }),
+  mappingState: varchar("mapping_state", { length: 20 }).notNull().default("quarantined"),
+  quarantineReason: text("quarantine_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("input_asset_legacy_source_unique").on(t.legacyTable, t.legacyRowId),
+  index("input_asset_legacy_locator_idx").on(t.legacyLocator),
+  index("input_asset_legacy_asset_idx").on(t.inputAssetId),
+  index("input_asset_legacy_state_idx").on(t.mappingState),
+  check("input_asset_legacy_table_ck", sql`"legacy_table" IN ('uploads', 'uploaded_files')`),
+  check("input_asset_legacy_locator_ck", sql`length(btrim("legacy_locator")) > 0`),
+  check("input_asset_legacy_state_ck", sql`"mapping_state" IN ('verified', 'quarantined')`),
+  check("input_asset_legacy_verified_ck", sql`"mapping_state" <> 'verified' OR "input_asset_id" IS NOT NULL`),
+]);
+
 export const usersRelations = relations(users, ({ many }) => ({
   projects: many(projects),
   apiKeys: many(apiKeys),
   settings: many(userSettings),
   species: many(species),
   occurrences: many(occurrences),
+  inputAssets: many(inputAssets),
+  legacyInputAssetMappings: many(inputAssetLegacyMappings),
 }));
 
 export const userSettingsRelations = relations(userSettings, ({ one }) => ({
@@ -256,6 +317,8 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   members: many(projectMembers),
   species: many(species),
   runs: many(runs),
+  inputAssets: many(inputAssets),
+  legacyInputAssetMappings: many(inputAssetLegacyMappings),
 }));
 
 export const speciesRelations = relations(species, ({ one, many }) => ({
@@ -290,6 +353,20 @@ export const uploadedFiles = pgTable("uploaded_files", {
 export const uploadedFilesRelations = relations(uploadedFiles, ({ one }) => ({
   user: one(users, { fields: [uploadedFiles.userId], references: [users.id] }),
   project: one(projects, { fields: [uploadedFiles.projectId], references: [projects.id] }),
+}));
+
+export const inputAssetsRelations = relations(inputAssets, ({ one, many }) => ({
+  creator: one(users, { fields: [inputAssets.creatorUserId], references: [users.id] }),
+  project: one(projects, { fields: [inputAssets.projectId], references: [projects.id] }),
+  parent: one(inputAssets, { fields: [inputAssets.parentAssetId], references: [inputAssets.id], relationName: "input_asset_parent" }),
+  children: many(inputAssets, { relationName: "input_asset_parent" }),
+  legacyMappings: many(inputAssetLegacyMappings),
+}));
+
+export const inputAssetLegacyMappingsRelations = relations(inputAssetLegacyMappings, ({ one }) => ({
+  asset: one(inputAssets, { fields: [inputAssetLegacyMappings.inputAssetId], references: [inputAssets.id] }),
+  legacyUser: one(users, { fields: [inputAssetLegacyMappings.legacyUserId], references: [users.id] }),
+  legacyProject: one(projects, { fields: [inputAssetLegacyMappings.legacyProjectId], references: [projects.id] }),
 }));
 
 export const systemSettingsRelations = relations(systemSettings, ({ one }) => ({
