@@ -46,6 +46,8 @@ source(file.path(app_dir, "plumber", "R", "redis.R"))
 # Bootstrap must load before write_meta (which uses sdm_safe_rename)
 source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
+# Reuse the Plumber allowlist in the worker before reading historical config.
+source(file.path(app_dir, "plumber", "R", "helpers", "models_helpers.R"), local = FALSE)
 
 meta_file <- file.path(job_dir, "meta.json")
 progress_file <- file.path(job_dir, "progress.log")
@@ -57,7 +59,7 @@ write_heartbeat <- function(stage) {
 }
 
 log_fun <- function(...) {
-  msg <- paste0(format(Sys.time(), "%H:%M:%S"), " ", ...)
+  msg <- sdm_redact_sensitive_text(paste0(format(Sys.time(), "%H:%M:%S"), " ", ...))
   cat(msg, "\n")
   cat(msg, "\n", file = progress_file, append = TRUE)
 }
@@ -65,6 +67,7 @@ log_fun <- function(...) {
 progress_fun <- function(x) {
   pct <- if (is.list(x)) x$value else x
   detail <- if (is.list(x)) x$detail else NULL
+  if (!is.null(detail)) detail <- sdm_redact_sensitive_text(detail)
   pct_num <- as.numeric(pct)
   if (!is.finite(pct_num)) pct_num <- 0
   log_line <- paste0(format(Sys.time(), "%H:%M:%S"), " [", sprintf("%.0f", pct_num * 100), "%] ", detail %||% "")
@@ -111,6 +114,17 @@ write_meta <- function(meta) {
 
 # Write initial status before module loading (catches OOM during source)
 meta <- read_meta()
+safe_config <- sdm_safe_historical_config(meta$config %||% list())
+if (is.null(safe_config)) {
+  meta$config <- list()
+  meta$status <- "failed"
+  meta$error <- "Stored execution configuration is unavailable for safe execution"
+  meta$error_code <- "UNSAFE_EXECUTION_CONFIG"
+  meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+  write_meta(meta)
+  quit(save = "no", status = 1, runLast = TRUE)
+}
+meta$config <- safe_config
 meta$status <- "loading"
 write_meta(meta)
 write_heartbeat("loading_start")
@@ -165,6 +179,7 @@ write_meta(meta)
 # Wrap main execution in tryCatch so failures set meta.json to "failed"
 tryCatch({
   config <- meta$config %||% list()
+  config <- sdm_project_safe_execution_config(config)
   config <- sdm_normalize_model_payload(config)
 
   # Parse biovars and projection_extent from config (stored as strings by the handler)
@@ -224,7 +239,8 @@ tryCatch({
     cv_block_size_km = if (!is.null(config$cv_block_size_km)) as.numeric(config$cv_block_size_km) else sdm_default_cv_block_size_km,
     use_elevation = isTRUE(config$use_elevation),
     elevation_demtype = config$elevation_demtype %||% sdm_default_elevation_demtype,
-    opentopo_api_key = config$opentopo_api_key,
+    # Provider credentials are resolved inside the server-owned elevation hook.
+    opentopo_api_key = NULL,
     use_soil = isTRUE(config$use_soil),
     selected_soil_vars = config$soil_vars %||% sdm_default_soil_vars,
     selected_soil_depths = config$soil_depths %||% sdm_default_soil_depths,
@@ -387,8 +403,9 @@ tryCatch({
       diag_files <- save_diagnostic_plots(result, job_dir, log_fun = log_fun)
     }
   }, error = function(e) {
-    cat("Diagnostic plots failed:", conditionMessage(e), "\n")
-    cat(conditionMessage(e), "\n", file = progress_file, append = TRUE)
+    safe_msg <- sdm_redact_sensitive_text(conditionMessage(e))
+    cat("Diagnostic plots failed:", safe_msg, "\n")
+    cat(safe_msg, "\n", file = progress_file, append = TRUE)
   })
 
   progress_fun(list(value = 0.99, detail = "Generating ODMAP report", stage = "output"))
@@ -402,8 +419,9 @@ tryCatch({
     diag_files$odmap_report_csv <- odmap_csv
     diag_files$odmap_report_md <- odmap_md
   }, error = function(e) {
-    cat("ODMAP report failed:", conditionMessage(e), "\n")
-    cat(conditionMessage(e), "\n", file = progress_file, append = TRUE)
+    safe_msg <- sdm_redact_sensitive_text(conditionMessage(e))
+    cat("ODMAP report failed:", safe_msg, "\n")
+    cat(safe_msg, "\n", file = progress_file, append = TRUE)
   })
 
   meta$status <- "completed"
@@ -458,7 +476,7 @@ tryCatch({
         )
         log_fun("Wrote EOO/AOO JSON: ", eoo_aoo_path)
       }, error = function(e) {
-        log_fun("Failed to write EOO/AOO JSON: ", conditionMessage(e))
+        log_fun("Failed to write EOO/AOO JSON: ", sdm_redact_sensitive_text(conditionMessage(e)))
       })
     }
   }
@@ -478,10 +496,11 @@ tryCatch({
   meta$status <- "failed"
   err_msg <- conditionMessage(e)
   err_code <- tryCatch(sdm_classify_error(err_msg), error = function(ee) "INTERNAL_ERROR")
-  meta$error <- err_msg
+  safe_err <- sdm_redact_sensitive_text(err_msg)
+  meta$error <- safe_err
   meta$error_code <- err_code
-  meta$error_hint <- tryCatch(SDM_ERR_CODES[[err_code]]$hint, error = function(ee) NA_character_)
-  meta$error_traceback <- paste(utils::tail(traceback(), 10), collapse = "\n")
+  meta$error_hint <- tryCatch(sdm_redact_sensitive_text(SDM_ERR_CODES[[err_code]]$hint), error = function(ee) NA_character_)
+  meta$error_traceback <- NULL
   # Capture GPU memory snapshot on CUDA/HIP/ROCm memory and runtime failures.
   if (grepl("CUDA|cuda|HIP|hip|ROCm|rocm|HSA|out of memory|OOM", err_msg, ignore.case = TRUE)) {
     tryCatch({
@@ -502,5 +521,5 @@ tryCatch({
     meta$r_peak_memory_mb <- round(peak_rss_mb)
   }
   write_meta(meta)
-  cat("Run failed [", err_code, "]:", err_msg, "\n")
+  cat("Run failed [", err_code, "]:", safe_err, "\n")
 })
