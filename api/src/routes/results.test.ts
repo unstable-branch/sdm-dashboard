@@ -50,7 +50,9 @@ vi.mock("../middleware/auth", () => ({
 vi.mock("../services/plumber.js", () => ({
   plumberClient: {
     withUser: vi.fn(() => ({
-      getTileCog: vi.fn(),
+      withRole: vi.fn(() => ({
+        getTileCog: vi.fn(),
+      })),
     })),
   },
 }));
@@ -293,7 +295,9 @@ describe("results routes", () => {
     async function mockPlumberTile(handler: (z: string, x: string, y: string, band: string) => Promise<Response>) {
       const { plumberClient } = await import("../services/plumber.js");
       const getTileCog = vi.fn((_jobId: string, z: string, x: string, y: string, band: string) => handler(z, x, y, band));
-      (plumberClient.withUser as any).mockReturnValue({ getTileCog });
+      (plumberClient.withUser as any).mockReturnValue({
+        withRole: vi.fn(() => ({ getTileCog })),
+      });
       return getTileCog;
     }
     async function disableMapTiles() {
