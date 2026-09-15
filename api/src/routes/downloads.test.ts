@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getJobStatus: vi.fn(),
   post: vi.fn(),
   withUser: vi.fn(),
+  withRole: vi.fn(),
 }));
 
 vi.mock("../services/plumber.js", () => ({
@@ -14,6 +15,7 @@ vi.mock("../services/plumber.js", () => ({
     get: mocks.getJobStatus,
     post: mocks.post,
     withUser: mocks.withUser,
+    withRole: mocks.withRole,
   },
 }));
 vi.mock("../middleware/rate-limit.js", () => ({
@@ -44,10 +46,15 @@ describe("downloads dispatch routes", () => {
     mocks.getJobStatus.mockReset();
     mocks.post.mockReset();
     mocks.withUser.mockReset();
+    mocks.withRole.mockReset();
     mocks.withUser.mockImplementation((uid: string) => ({
+      withRole: mocks.withRole,
+      _userId: uid,
+    }));
+    mocks.withRole.mockImplementation((role: string) => ({
       get: mocks.getJobStatus,
       post: mocks.post,
-      _userId: uid,
+      _role: role,
     }));
   });
 
@@ -88,6 +95,7 @@ describe("downloads dispatch routes", () => {
       const res = await testApp().request("/downloads/cancel/climate_20240101_abcd12", { method: "POST" });
       expect(res.status).toBe(200);
       expect(mocks.withUser).toHaveBeenCalledWith("user-1");
+      expect(mocks.withRole).toHaveBeenCalledWith("user");
       expect(mocks.post).toHaveBeenCalledWith("/api/v1/climate/cancel/climate_20240101_abcd12", {});
     });
 
