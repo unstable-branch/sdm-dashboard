@@ -138,3 +138,28 @@ make_on_land_multi_species_occurrence <- function(path = NULL, n_per_species = 2
   if (!is.null(path)) utils::write.csv(occ, path, row.names = FALSE)
   occ
 }
+
+# ── Auth test helpers ─────────────────────────────────────────────────────────
+
+make_auth_req <- function(user_id = "test-user", role = "user", path = "/api/v1/test") {
+  list(
+    PATH = path,
+    PATH_INFO = path,
+    user_id = user_id,
+    user_role = role,
+    HEADERS = c(
+      "x-forwarded-user" = user_id,
+      "x-forwarded-role" = role
+    )
+  )
+}
+
+make_mock_res <- function() {
+  list(
+    status = 200L,
+    setHeader = function(name, value) NULL,
+    body = NULL
+  )
+}
+
+stub_db_conn <- function() NULL

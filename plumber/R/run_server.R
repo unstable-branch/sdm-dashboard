@@ -181,6 +181,10 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
       fwd_role <- get_hdr(req, "x-forwarded-role")
       if (!is.null(fwd_user) && nzchar(fwd_user)) {
         req$user_id <- fwd_user
+        return(NULL)
+      }
+      if (requires_auth(path)) {
+        return(auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}'))
       }
       if (!is.null(fwd_role) && nzchar(fwd_role)) {
         req$user_role <- fwd_role

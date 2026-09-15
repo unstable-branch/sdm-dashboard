@@ -236,6 +236,11 @@ handle_occurrences_clean <- function(req, app_dir, file_id, min_source_records =
     return(sdm_error(req, 400, "Invalid file_id"))
   }
 
+  caller_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
+  if (!sdm_uploads_owned_by(safe_path, caller_id, req)) {
+    return(sdm_error(req, 403, "You do not have permission to clean this file"))
+  }
+
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 
   job_id <- sdm_submit_async_job(req, app_dir, "clean", list(
@@ -361,6 +366,11 @@ handle_occurrences_dwca <- function(req, app_dir, file_id, species_filter = NULL
   safe_path <- sdm_safe_path(file_id, file.path(app_dir, "data", "uploads"))
   if (is.null(safe_path)) {
     return(sdm_error(req, 400, "Invalid file_id"))
+  }
+
+  caller_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
+  if (!sdm_uploads_owned_by(safe_path, caller_id, req)) {
+    return(sdm_error(req, 403, "You do not have permission to parse this file"))
   }
 
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"

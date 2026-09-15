@@ -408,6 +408,43 @@ db_insert_upload <- function(con, user_id, file_path, filename, file_size, forma
   }, error = function(e) message("Failed to record upload: ", conditionMessage(e)))
 }
 
+# Ownership check for uploaded occurrence files. Checks both the legacy `uploads` table
+# (Plumber-side, user_id may be NULL for old rows) and the newer `uploaded_files`
+# table (API-side, user_id is NOT NULL).
+# Returns TRUE if the user owns the file, FALSE otherwise. Fails closed (FALSE)
+# when DB is unavailable or no matching row exists. An admin role always bypasses.
+sdm_uploads_owned_by <- function(safe_path, user_id, req = NULL) {
+  if (!is.null(req$user_role) && identical(req$user_role, "admin")) return(TRUE)
+  if (is.null(user_id) || !nzchar(user_id %||% "")) return(FALSE)
+  con <- db_conn()
+  if (is.null(con)) return(FALSE)
+  on.exit(db_release(con), add = TRUE)
+  tryCatch({
+    safe_path_val <- as.character(safe_path)[1]
+    bn <- basename(safe_path_val)
+    rows <- DBI::dbGetQuery(con,
+      "SELECT user_id FROM uploads WHERE file_path = $1 UNION ALL
+       SELECT user_id FROM uploaded_files WHERE file_path = $1 LIMIT 1",
+      params = list(safe_path_val)
+    )
+    if (nrow(rows) > 0 && !is.null(rows$user_id[1]) && nzchar(rows$user_id[1])) {
+      return(identical(as.character(rows$user_id[1]), as.character(user_id)))
+    }
+    rows2 <- DBI::dbGetQuery(con,
+      "SELECT user_id FROM uploads WHERE file_path = $1 UNION ALL
+       SELECT user_id FROM uploaded_files WHERE file_path = $1 LIMIT 1",
+      params = list(bn)
+    )
+    if (nrow(rows2) > 0 && !is.null(rows2$user_id[1]) && nzchar(rows2$user_id[1])) {
+      return(identical(as.character(rows2$user_id[1]), as.character(user_id)))
+    }
+    FALSE
+  }, error = function(e) {
+    sdm_log_warn("sdm_uploads_owned_by DB error: %s", conditionMessage(e))
+    FALSE
+  })
+}
+
 # Single-entry cache for deserialized result.rds.
 # Only one result is ever held unwrapped in memory at a time.
 # Keyed by path+mtime so a re-run that overwrites the file is detected.
