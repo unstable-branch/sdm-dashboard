@@ -73,6 +73,10 @@ if (!is.null(db_pool)) {
 # Create plumber router (this sets global `pr`)
 pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 
+# NOTE: We use pr$registerHook("preroute", ...) for the auth gate (see run_server.R
+# preroute hook), NOT #* @filter Auth. The @filter path triggers an empty/false body bug
+# in Plumber 1.3.0–1.3.3 with serializer_json(auto_unbox=TRUE); see rstudio/plumber#1022.
+
 # Unbox single-element vectors so JSON primitives are returned instead of arrays
 # e.g. "file_path" remains string, "n_rows" remains number, not [value]
 # na="null" preserves NA values as JSON null instead of omitting them
