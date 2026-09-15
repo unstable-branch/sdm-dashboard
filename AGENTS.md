@@ -527,6 +527,7 @@ Attach if UI or report changed.
 
 ## Project state (last refreshed after PRs #85 and #86)
 
+<<<<<<< HEAD
 - `dev` branch tip: `7098a44` (after merging Groups Q–V, PRs #81–85)
 - PR #78 (`fix/queue-catch-block-cputime-round`): merged
 - PR #79 (`fix/climate-cache-invalidation`): merged
@@ -561,6 +562,7 @@ Attach if UI or report changed.
 | M | `fix/perf-tier-d` | `9e67e081` | Performance fixes: O(n²)→O(n) outlier flagging, GBIF dedup cache, SpatExtent vs spatRaster crop, chunking loop materialization, weighted AOO, parallel CV error propagation |
 | N | `fix/r-case-weight-sdm-scope` | `6a067689` | 6 pre-existing R test failures from `case_weight_sdm` scoping in GLM/GAM fixed — `test-run-sdm-stages.R` ×3, `test-v03-methods.R` ×1 now pass |
 | O | `fix/rangebag-cv-correctness` | `77c13156` | Rangebag CV: bg_fold_id fix (was always 0L → now properly sampled); response_curves rangebag branch added; multi-ensemble test threshold updated |
+<<<<<<< HEAD
 | Q | `fix/queue-catch-block-cputime-round` | `648b1a79` | API queue catch block: `rCpuTimeMs` now rounded to integer (fixes `WORKER_ORPHAN` for fast GLM runs); else branch now transitions `runs.status` to `completed`; defensive inner try/catch; orphan reconciliation migration |
 | R | `fix/climate-cache-invalidation` | `163b7b2c` | Climate cache: broken regex in `handle_climate_check` fixed (geodata naming, `_bio_<n>` → `bio_<n>`); shared matcher module eliminates three-way drift; pre-spawn short-circuit avoids no-op callr::r_bg spawns; sha256 cache manifest for proper invalidation; permission/uid-mismatch audit |
 | S | `fix/r-scientific-leakage` | `d32a1df4` | R scientific leakage: per-fold scaling+VIF refit (S1+S2), DNN real k-fold CV (S3), permutation importance from OOF predictions (S5), MESS in scaled space (S6), threshold from CV preds (S7), na.rm=FALSE (S8), component-spread fields (S9). S4 was a false alarm (bioclim arg order confirmed correct). |
@@ -568,6 +570,10 @@ Attach if UI or report changed.
 | U | `fix/libtorch-bridge-review` | `5d68df75` | Critical libtorch bridge: XPtrTorch layout probe catches torch-upgrade mismatch with clear rebuild message; Blackwell CUDA kernel disabled by default (NaN on compute 12.0); `pinned_to_gpu_tensor` renamed `pinned_to_gpu_tensor_sync` |
 | V | `fix/dnn-multispecies-cpu-fallback` | `5f3a26ea` | DNN multispecies: defensive CPU fallback when `torch::cuda_is_available()` returns TRUE but CUDA is unusable (segfaults cito::dnn); explicit `dnn_device="cpu"` in integration test |
 | W | `fix/issue-33-gpu-runtime-detection` | `ac5f1a92` | GPU backend detection: `SDM_ACCELERATOR` env override (auto/cpu/nvidia/amd); `sdm_docker_gpu_probe()` live Docker GPU probe; warning when Docker GPU access detected but torch cannot see CUDA/ROCm/MPS |
+| Ph1 | `fix/gpu-code-path-hardening` | `4e4a9f94` | Phase 1: ABI manifest + stop on mismatch, session GPU caps cache, hybrid ROCm DLL-based detection, multispecies validation/early_stopping params propagation |
+| Ph2 | `fix/gpu-code-path-hardening` | `23464490` | Phase 2: precision + cuDNN benchmark save/restore on entry/exit, NaN streak → AMP disable, C++ cuda_graph_reset_stream entry point, multi-output AMP hard-disable |
+| Ph3 | `fix/gpu-code-path-hardening` | `23464490` | Phase 3: sdm_gpu_available_vram() VRAM dedup, vectorized per-species SD (no apply loop), CUDA Graph shape assertion, RTLD_LAZY fallback for dl_iterate_phdr |
+| Ph4 | `fix/gpu-code-path-hardening` | `67e4d865` | Phase 4: test-gpu-resolution.R (9 pure-R GPU helper tests), test-torch-fused-adam.R (5 torch tests), roxygen @details on 5 functions |
 
 ## Known limitations
 What should reviewers know?
