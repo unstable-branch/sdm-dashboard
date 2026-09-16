@@ -30,7 +30,7 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   # supplies a scaled training snapshot; its names are the authoritative model
   # feature names, so dropped predictors cannot leak back into this projection.
   mess_input <- if (!is.null(mess_train_data)) mess_train_data else if (!is.null(env$env_train_scaled)) env$env_train_scaled else if (!is.null(env$env_train)) {
-    env$env_train
+    scale_raster_stack(env$env_train, env$means[names(env$env_train)], env$sds[names(env$env_train)])
   } else stop("MESS training predictors are unavailable; future projection cannot continue", call. = FALSE)
   required_names <- names(mess_input)
   if (length(required_names) == 0L) stop("MESS training predictors have no names", call. = FALSE)
