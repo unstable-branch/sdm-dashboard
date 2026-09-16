@@ -45,6 +45,8 @@ export function SyntheticExamplesPanel({ onAddToWorkspace, reloadTrigger }: Synt
     try {
       const result = await apiPost<Record<string, unknown>>("/api/v1/data/examples/load", { name });
       const fileId = (result.file_id as string) || (result.file_path as string) || "";
+      const rawAssetId = (result.rawAssetId || result.raw_asset_id) as string | undefined;
+      if (!rawAssetId) throw new Error("Example producer returned no canonical rawAssetId");
       const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
       const speciesDetected = (result.species_detected as string) || null;
       const speciesNames = (result.species_names as string[]) || [];
@@ -54,6 +56,7 @@ export function SyntheticExamplesPanel({ onAddToWorkspace, reloadTrigger }: Synt
 
       const file: UploadFile = {
         file_id: fileId,
+        rawAssetId,
         file_name: `${name}.csv`,
         file_size: 0,
         n_rows: nRows,

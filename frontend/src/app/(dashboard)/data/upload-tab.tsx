@@ -15,7 +15,7 @@ import { GbifSearch } from "@/components/data/gbif-search";
 import { AlaSearch } from "@/components/data/ala-search";
 import { SyntheticExamplesPanel } from "@/components/data/synthetic-examples-panel";
 import { SyntheticStressPanel } from "@/components/data/synthetic-stress-panel";
-import { apiPost, apiGet, apiPatch } from "@/services/api";
+import { apiPost, apiGet } from "@/services/api";
 import type { UploadFile } from "@/services/types";
 import type { WorkspaceFile, OccurrencePoint } from "./types";
 
@@ -96,15 +96,15 @@ export function UploadTab({
     if (!gbifResult) return;
     setGbifSaving(true);
     try {
-      const filePath = gbifResult.file_path as string | undefined;
       const nRecords = Number(gbifResult.n_records || 0);
-      const result = filePath
-        ? await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", { file_path: filePath, n_rows: nRecords })
-        : await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", {
-            taxon: gbifResult.taxon, country: gbifResult.country, max_records: gbifResult.max_records,
-          });
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", {
+        taxon: gbifResult.taxon, country: gbifResult.country, max_records: gbifResult.max_records,
+      });
+      const rawAssetId = (result.rawAssetId || result.raw_asset_id) as string | undefined;
+      if (!rawAssetId) throw new Error("GBIF save completed without a canonical rawAssetId");
       const fakeFile: UploadFile = {
-        file_id: result.file_path as string,
+        file_id: rawAssetId,
+        rawAssetId,
         file_name: `GBIF-${String(gbifResult.taxon || "search")}.csv`,
         file_size: 0,
         n_rows: nRecords,
@@ -166,15 +166,15 @@ export function UploadTab({
     if (!alaResult) return;
     setAlaSaving(true);
     try {
-      const filePath = alaResult.file_path as string | undefined;
       const nRecords = Number(alaResult.n_records || 0);
-      const result = filePath
-        ? await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/ala/save", { file_path: filePath, n_rows: nRecords })
-        : await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/ala/save", {
-            taxon: alaResult.taxon, country: alaResult.country, max_records: alaResult.max_records,
-          });
+      const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/ala/save", {
+        taxon: alaResult.taxon, country: alaResult.country, max_records: alaResult.max_records,
+      });
+      const rawAssetId = (result.rawAssetId || result.raw_asset_id) as string | undefined;
+      if (!rawAssetId) throw new Error("ALA save completed without a canonical rawAssetId");
       const fakeFile: UploadFile = {
-        file_id: result.file_path as string,
+        file_id: rawAssetId,
+        rawAssetId,
         file_name: `ALA-${String(alaResult.taxon || "search")}.csv`,
         file_size: 0,
         n_rows: nRecords,
@@ -220,6 +220,7 @@ export function UploadTab({
       try {
         const payload = JSON.parse(raw) as {
           file_id: string; file_name?: string; n_rows?: number;
+          rawAssetId?: string; raw_asset_id?: string;
           species?: string; format?: string; in_workspace?: boolean;
         };
         if (payload.in_workspace) return;
@@ -232,6 +233,7 @@ export function UploadTab({
           // Construct from drag data (e.g., synthetic stress files)
           const file: UploadFile = {
             file_id: payload.file_id,
+            rawAssetId: payload.rawAssetId || payload.raw_asset_id,
             file_name: payload.file_name,
             file_size: 0,
             n_rows: payload.n_rows || 0,
@@ -249,6 +251,8 @@ export function UploadTab({
       apiPost<Record<string, unknown>>("/api/v1/data/examples/load", { name }).then((result) => {
         if (!result) return;
         const fileId = (result.file_id as string) || (result.file_path as string) || "";
+        const rawAssetId = (result.rawAssetId || result.raw_asset_id) as string | undefined;
+        if (!rawAssetId) return;
         const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
         const speciesDetected = (result.species_detected as string) || null;
         const speciesNames = (result.species_names as string[]) || [];
@@ -257,6 +261,7 @@ export function UploadTab({
           : speciesDetected || undefined;
         const file: UploadFile = {
           file_id: fileId,
+          rawAssetId,
           file_name: `${name}.csv`,
           file_size: 0,
           n_rows: nRows,
@@ -345,18 +350,22 @@ export function UploadTab({
 
   // ── Per-card cleaning ───────────────────────────────────────
   const cleanRunning = workspaceFiles.some(f => f.cleanLoading);
-  const cleanAllCount = workspaceFiles.filter(f => !f.cleanedFileId && !f.cleanLoading).length;
+  const cleanAllCount = workspaceFiles.filter(f => !f.cleanedAssetId && !f.cleanLoading).length;
   const cleanActiveCount = workspaceFiles.filter(f => f.cleanLoading).length;
 
   const handleCleanCard = async (cardId: string) => {
     const card = workspaceFiles.find(f => f.id === cardId);
     if (!card || card.cleanLoading) return;
+    if (!card.rawAssetId) {
+      onWorkspaceUpdate(cardId, { cleanLoading: false, cleanError: "This saved upload has no canonical asset ID. Please re-upload it." });
+      return;
+    }
     onWorkspaceUpdate(cardId, { cleanLoading: true, cleanError: null });
     const controller = new AbortController();
     abortRef.current = controller;
     try {
       const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/clean", {
-        file_id: card.fileId,
+        rawAssetId: card.rawAssetId,
         species: card.selectedSpecies[0] || "",
         min_source_records: cleaningDefaults.min_source_records,
         merge_small_sources: cleaningDefaults.merge_small_sources,
@@ -382,8 +391,9 @@ export function UploadTab({
           const s = status?.status as string | undefined;
           if (s === "completed" || s === "success") {
             const resultData = (status.result as Record<string, unknown> | undefined) || status;
-            const cleanedFileId = (resultData.cleaned_file_id || resultData.cleaned_file_path) as string | undefined;
-            if (!cleanedFileId) throw new Error("API returned no cleaned file ID");
+            const cleanedAssetId = (resultData.cleanedAssetId || resultData.cleaned_asset_id) as string | undefined;
+            if (!cleanedAssetId) throw new Error("API returned no canonical cleanedAssetId");
+            const cleanedFileId = resultData.cleaned_file_id as string | undefined;
             const validRecords = (resultData.valid_records as number) || 0;
             const originalRows = (resultData.original_rows as number) || 0;
             const sourceCounts = (resultData.source_counts as Record<string, number>) || undefined;
@@ -392,17 +402,13 @@ export function UploadTab({
             onWorkspaceUpdate(cardId, {
               cleanLoading: false,
               cleanedFileId,
+              cleanedAssetId,
               cleanValidRecords: validRecords,
               cleanOriginalRows: originalRows,
               cleanSourceCounts: sourceCounts,
               cleanCcLog: ccLog,
               cleanRecords: records,
             });
-            apiPatch(`/api/v1/data/uploads/${encodeURIComponent(card.fileId)}`, {
-              cleaned: true,
-              cleaned_file_path: cleanedFileId,
-              cleaned_valid_records: validRecords,
-            }).catch(() => {});
             onRefreshUploads?.();
             return;
           }
@@ -427,7 +433,7 @@ export function UploadTab({
   };
 
   const handleCleanAll = async () => {
-    const toClean = workspaceFiles.filter(f => !f.cleanedFileId && !f.cleanLoading);
+    const toClean = workspaceFiles.filter(f => !f.cleanedAssetId && !f.cleanLoading);
     for (let i = 0; i < toClean.length; i += 3) {
       await Promise.allSettled(toClean.slice(i, i + 3).map(f => handleCleanCard(f.id)));
     }
@@ -462,8 +468,13 @@ export function UploadTab({
 
     setReviewLoading(true);
     try {
-      const params = new URLSearchParams({ file_id: card.fileId });
-      if (card.cleanedFileId) params.set("cleaned_file_id", card.cleanedFileId);
+      if (!card.rawAssetId) {
+        setReviewError("This saved upload has no canonical asset ID. Please re-upload it.");
+        setReviewLoading(false);
+        return;
+      }
+      const params = new URLSearchParams({ raw_asset_id: card.rawAssetId });
+      if (card.cleanedAssetId) params.set("cleaned_asset_id", card.cleanedAssetId);
       const result = await apiGet<Record<string, unknown>>(`/api/v1/data/occurrences/clean/result?${params}`);
       const apiRecords = (result.cleaned_records || []) as OccurrencePoint[];
       const apiSourceCounts = (result.source_counts || {}) as Record<string, number>;
@@ -471,7 +482,7 @@ export function UploadTab({
       const apiValidRecords = (result.valid_records as number) || 0;
 
       // If API returned empty but card is known cleaned, use card summary counts
-      if (apiValidRecords === 0 && card.cleanedFileId && card.cleanValidRecords) {
+      if (apiValidRecords === 0 && card.cleanedAssetId && card.cleanValidRecords) {
         setReviewData({
           records: apiRecords,
           sourceCounts: apiSourceCounts,
@@ -490,7 +501,7 @@ export function UploadTab({
       }
     } catch (err) {
       // If file was cleaned, show summary counts even if detailed data unavailable
-      if (card.cleanedFileId) {
+      if (card.cleanedAssetId) {
         setReviewData({
           records: [],
           sourceCounts: {},
@@ -722,7 +733,7 @@ export function UploadTab({
                 <WorkspaceSourceCard key={f.id || f.file_id} file={f}
                   disabled={workspaceFiles.some(w => w.fileId === f.file_id)}
                   onAddToWorkspace={() => onWorkspaceAdd(f)}
-                  onDelete={onDelete} />
+                  onDelete={(assetId) => onDelete(assetId)} />
               ))}
             </div>
           )}

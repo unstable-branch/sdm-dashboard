@@ -260,6 +260,27 @@
       "when": 1784900000000,
       "tag": "0036_orphan_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789477900000,
+      "tag": "0037_auth_version_session_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1789510080000,
+      "tag": "0038_input_assets",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1789518300000,
+      "tag": "0039_occurrence_clean_jobs",
+      "breakpoints": true
     }
   ]
 }

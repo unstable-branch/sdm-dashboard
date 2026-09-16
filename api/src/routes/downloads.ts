@@ -29,8 +29,8 @@ downloadsRoutes.get("/status/:jobId", async (c) => {
 
   try {
     const result = isClimateJobId(jobId)
-      ? await plumberClient.getClimateStatus(jobId)
-      : await plumberClient.get(`/api/v1/jobs/status/${jobId}`);
+      ? await plumberClient.withUser(c.get("user").id).withRole(c.get("user").role).getClimateStatus(jobId)
+      : await plumberClient.withUser(c.get("user").id).withRole(c.get("user").role).get(`/api/v1/jobs/status/${jobId}`);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get status";

@@ -52,16 +52,45 @@ vi.mock("../db/schema.js", () => ({
   apiKeys: {},
 }));
 
-vi.mock("../services/plumber", () => ({
-  plumberClient: {
-    withUser: vi.fn(function(this: any) {
-      return this;
-    }),
+vi.mock("../services/plumber", () => {
+  const authenticatedClient = {
     uploadOccurrence: vi.fn(() => Promise.resolve({ file_id: "/tmp/test.csv", n_rows: 10 })),
     cleanOccurrences: vi.fn(() => Promise.resolve({ cleaned_id: "/tmp/test.csv", valid_records: 8 })),
     searchGbif: vi.fn(() => Promise.resolve({ n_records: 50 })),
     searchAla: vi.fn(() => Promise.resolve({ n_records: 30 })),
-  },
+  };
+  const withRole = vi.fn(() => authenticatedClient);
+  return {
+    plumberClient: {
+      withUser: vi.fn(() => ({ withRole })),
+      withRole,
+      ...authenticatedClient,
+    },
+  };
+});
+
+vi.mock("../services/input-assets.js", () => ({
+  InputAssetRegistrationError: class InputAssetRegistrationError extends Error {},
+  registerInputAssetFromServerPath: vi.fn(async (input: { creatorUserId: string; absolutePath: string }) => ({
+    id: "11111111-1111-4111-8111-111111111111",
+    creatorUserId: input.creatorUserId,
+    projectId: null,
+    scope: "private",
+    kind: "raw_occurrence",
+    storageLocator: "uploads/test.csv",
+    parentAssetId: null,
+    state: "ready",
+    contentSha256: null,
+    contentSize: 100,
+  })),
+  registerDerivedInputAssetFromServerPath: vi.fn(),
+  resolveInputAsset: vi.fn(async (input: { assetId: string }) => ({
+    ok: true,
+    asset: { id: input.assetId, creatorUserId: "user-1", projectId: null, scope: "private", kind: "raw_occurrence", state: "ready", parentAssetId: null },
+    absolutePath: "/safe/test.csv",
+    adminAccess: true,
+  })),
+  updateInputAssetState: vi.fn(async () => true),
 }));
 
 vi.mock("../services/queue", () => ({
@@ -139,7 +168,7 @@ describe("data routes", () => {
   });
 
   describe("POST /occurrences/upload", () => {
-    it("normalizes Plumber upload file_id into file_path for the frontend", async () => {
+    it("returns only the opaque canonical asset ID to the frontend", async () => {
       const { db } = await import("../db");
       const { plumberClient } = await import("../services/plumber");
       (db.select as any).mockReturnValueOnce({
@@ -165,9 +194,11 @@ describe("data routes", () => {
       });
 
       expect(res.status, await res.clone().text()).toBe(200);
+      expect(plumberClient.withRole).toHaveBeenCalledWith("admin");
       const data = await res.json();
-      expect(data.file_id).toBe("/app/data/uploads/test.csv");
-      expect(data.file_path).toBe("/app/data/uploads/test.csv");
+      expect(data.file_id).toBe("11111111-1111-4111-8111-111111111111");
+      expect(data).not.toHaveProperty("file_path");
+      expect(data.rawAssetId).toBe("11111111-1111-4111-8111-111111111111");
     });
 
     it("returns Plumber upload errors without counting storage usage", async () => {
@@ -379,8 +410,10 @@ describe("data routes", () => {
       });
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.file_path).toBeTruthy();
+      expect(data.file_id).toBe("11111111-1111-4111-8111-111111111111");
+      expect(data).not.toHaveProperty("file_path");
       expect(data.n_rows).toBe(30);
+      expect(data.rawAssetId).toBe("11111111-1111-4111-8111-111111111111");
     });
   });
 });

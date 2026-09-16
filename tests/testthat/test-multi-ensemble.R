@@ -165,6 +165,17 @@ test_that("compute_multi_ensemble_weights with AUC, TSS, and equal", {
   expect_true(w_tss[[1]] > w_tss[[2]])
 })
 
+test_that("AUC ensemble weights do not reward an inverted component", {
+  cv_list <- list(
+    good = list(auc_mean = 1, tss_mean = 1),
+    inverted = list(auc_mean = 0, tss_mean = 0)
+  )
+
+  weights <- compute_multi_ensemble_weights(cv_list, "auc", power = 2)
+  expect_equal(unname(weights), c(1, 0))
+  expect_equal(names(weights), c("good", "inverted"))
+})
+
 test_that("Multi-model ensemble with 3+ models", {
   if (!requireNamespace("terra", quietly = TRUE)) return(invisible(NULL))
 

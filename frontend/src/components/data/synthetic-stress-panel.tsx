@@ -13,6 +13,8 @@ interface SyntheticStressPanelProps {
 interface GenerationResult {
   file_id: string;
   file_path: string;
+  rawAssetId?: string;
+  raw_asset_id?: string;
   file_name: string;
   n_species: number;
   n_records: number;
@@ -56,10 +58,13 @@ export function SyntheticStressPanel({ onAddToWorkspace, onSavedExample }: Synth
         body.n_occ = customOcc;
       }
       const data = await apiPost<GenerationResult>("/api/v1/data/occurrences/synthetic", body);
+      const rawAssetId = data.rawAssetId || data.raw_asset_id;
+      if (!rawAssetId) throw new Error("Synthetic producer returned no canonical rawAssetId");
       setResult(data);
 
       const file: UploadFile = {
         file_id: data.file_id,
+        rawAssetId,
         file_name: data.file_name,
         file_size: 0,
         n_rows: data.n_records,
@@ -84,7 +89,7 @@ export function SyntheticStressPanel({ onAddToWorkspace, onSavedExample }: Synth
     setSavedExampleName(null);
     try {
       const res = await apiPost<{ name: string }>("/api/v1/data/examples/save", {
-        file_id: result.file_id,
+        rawAssetId: result.rawAssetId || result.raw_asset_id,
         metadata: {
           n_species: result.n_species,
           n_records: result.n_records,
@@ -219,6 +224,8 @@ export function SyntheticStressPanel({ onAddToWorkspace, onSavedExample }: Synth
           onDragStart={(e) => {
             const payload = JSON.stringify({
               file_id: result.file_id,
+              rawAssetId: result.rawAssetId,
+              raw_asset_id: result.raw_asset_id,
               file_name: result.file_name,
               n_rows: result.n_records,
               species: Array.isArray(result.species_names) ? result.species_names.join(", ") : "",

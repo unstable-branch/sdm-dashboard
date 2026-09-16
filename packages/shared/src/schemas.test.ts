@@ -6,7 +6,7 @@ const validMinimal = {
   modelId: "glm",
   biovars: [1, 4, 6],
   projectionExtent: [-180, 180, -90, 90],
-  occurrenceFile: "/data/occurrences.csv",
+  occurrenceAssetId: "11111111-1111-1111-1111-111111111111",
 };
 
 const validFull = {
@@ -33,7 +33,6 @@ const validFull = {
   includeQuadratic: true,
   useElevation: true,
   elevationDemtype: "COP90",
-  opentopoApiKey: "key-123",
   useSoil: true,
   soilVars: ["sand", "clay", "silt"],
   soilDepths: ["0-5cm", "30-60cm", "60-100cm"],
@@ -124,13 +123,12 @@ const validFull = {
   aggregationFactor: 2,
   nCores: 8,
   seed: 123,
-  occurrenceFile: "/data/occurrences.csv",
+  occurrenceAssetId: "11111111-1111-1111-1111-111111111111",
   worldclimDir: "Worldclim",
   worldclimRes: 10,
   source: "chelsa",
   analysisCrs: "EPSG:4326",
   chelsaExtras: ["gdd5", "gsl"],
-  cleanedFilePath: "/data/cleaned.csv",
   multiEnsembleExport: true,
   multiEnsembleUncertainty: true,
   biomod2Models: ["Biomod2", "Biomod2_maxent"],
@@ -154,6 +152,34 @@ describe("modelConfigSchema", () => {
     it("accepts full config with all model backends", () => {
       const result = modelConfigSchema.safeParse(validFull);
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe("secret-free execution ingress", () => {
+    it("rejects the legacy camelCase OpenTopography key without echoing its value", () => {
+      const result = modelConfigSchema.safeParse({ ...validMinimal, opentopoApiKey: "synthetic-sentinel" });
+      expect(result.success).toBe(false);
+      expect(result.error?.message).not.toContain("synthetic-sentinel");
+    });
+
+    it("rejects snake_case and nested credential aliases", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        nested: { open_topography_api_key: "synthetic-sentinel" },
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.message).not.toContain("synthetic-sentinel");
+    });
+
+    it("bounds enmeval tuning arguments and rejects unknown nested keys", () => {
+      expect(modelConfigSchema.safeParse({
+        ...validMinimal,
+        enmevalTuneArgs: { fc: ["L", "LQH"], rm: [0.5, 1, 2] },
+      }).success).toBe(true);
+      expect(modelConfigSchema.safeParse({
+        ...validMinimal,
+        enmevalTuneArgs: { api_key: "synthetic-sentinel" },
+      }).success).toBe(false);
     });
   });
 
@@ -182,10 +208,10 @@ describe("modelConfigSchema", () => {
       expect(result.success).toBe(true);
     });
 
-    it("accepts missing occurrenceFile (can use cleanedFilePath instead)", () => {
-      const { occurrenceFile, ...rest } = validMinimal;
+    it("rejects missing occurrenceAssetId", () => {
+      const { occurrenceAssetId, ...rest } = validMinimal;
       const result = modelConfigSchema.safeParse(rest);
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
     });
   });
 
@@ -775,9 +801,11 @@ describe("modelConfigSchema", () => {
       expect(result.success).toBe(false);
     });
 
-    it("rejects empty string for occurrenceFile", () => {
-      const result = modelConfigSchema.safeParse({ ...validMinimal, occurrenceFile: "" });
-      expect(result.success).toBe(false);
+    it("rejects client occurrence path aliases", () => {
+      for (const key of ["occurrenceFile", "cleanedFilePath", "cleanedFileId", "occurrence_file"]) {
+        const result = modelConfigSchema.safeParse({ ...validMinimal, [key]: "/client/path.csv" });
+        expect(result.success).toBe(false);
+      }
     });
 
     it("rejects null for required fields", () => {
