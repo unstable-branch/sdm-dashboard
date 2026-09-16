@@ -41,6 +41,8 @@ function DataPageContent() {
   const activeTab = searchParams.get("tab") || "upload";
 
   const setOccurrenceFilePath = useSDMStore((s) => s.setOccurrenceFilePath);
+  const setRawAssetId = useSDMStore((s) => s.setRawAssetId);
+  const setCleanedAssetId = useSDMStore((s) => s.setCleanedAssetId);
   const setRecordCount = useSDMStore((s) => s.setRecordCount);
   const setCleanedOccurrence = useSDMStore((s) => s.setCleanedOccurrence);
   const setPipelineRunId = useSDMStore((s) => s.setPipelineRunId);
@@ -75,14 +77,17 @@ function DataPageContent() {
   const setWorkspaceFiles = useSDMStore((s) => s.setWorkspaceFiles);
 
   const handleWorkspaceAdd = useCallback((file: UploadFile, speciesOverride?: string) => {
+    const rawAssetId = file.rawAssetId || file.raw_asset_id;
+    if (!rawAssetId) return;
     const allSpecies = (speciesOverride || file.species)
       ? (speciesOverride || file.species || "")
           .split(",").map((s: string) => s.trim()).filter(Boolean)
       : [];
     setWorkspaceFiles((prev) => {
-      if (prev.some(f => f.fileId === file.file_id)) return prev;
+      if (prev.some(f => f.rawAssetId === rawAssetId || f.fileId === file.file_id)) return prev;
       return [...prev, {
         id: crypto.randomUUID(),
+        rawAssetId,
         fileId: file.file_id,
         fileName: file.file_name,
         filePath: file.file_id,
@@ -91,6 +96,7 @@ function DataPageContent() {
         fileCleaned: file.cleaned,
         fileCleanedFileId: file.cleaned_file_id,
         cleanedFileId: file.cleaned_file_id,
+        cleanedAssetId: file.cleanedAssetId || file.cleaned_asset_id,
         cleanValidRecords: file.cleaned_valid_records,
         selectedSpecies: allSpecies,
         cleanLoading: false,
@@ -120,19 +126,25 @@ function DataPageContent() {
     if (!card) return;
     const store = useSDMStore.getState();
     store.setOccurrenceFilePath(card.filePath);
+    store.setRawAssetId(card.rawAssetId || null);
+    store.setCleanedAssetId(card.cleanedAssetId || null);
     store.setSpecies(card.selectedSpecies[0] || "Untitled species");
     store.setDetectedSpecies(card.selectedSpecies);
     store.setRecordCount(card.fileRows);
     store.setUploadResult({
       file_id: card.fileId,
+      rawAssetId: card.rawAssetId,
+      raw_asset_id: card.rawAssetId,
       n_rows: card.fileRows,
-      cleaned: card.cleanedFileId ? true : false,
+      cleaned: Boolean(card.cleanedAssetId),
       cleaned_file_id: card.cleanedFileId,
+      cleanedAssetId: card.cleanedAssetId,
+      cleaned_asset_id: card.cleanedAssetId,
       cleaned_valid_records: card.cleanValidRecords,
     });
-    if (card.cleanedFileId) {
+    if (card.cleanedAssetId) {
       store.setCleanedOccurrence({
-        filePath: card.cleanedFileId, df: [], sourceCounts: {},
+        filePath: card.cleanedFileId || "", cleanedAssetId: card.cleanedAssetId, df: [], sourceCounts: {},
         nAbsentExcluded: 0, originalRows: card.fileRows,
         validRecords: card.cleanValidRecords || card.fileRows,
       });
@@ -261,14 +273,18 @@ function DataPageContent() {
       const data = await apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/occurrences/uploads");
       const mapped = (data.uploads || []).map((u) => ({
         id: u.id,
-        file_id: u.file_path,
+        rawAssetId: u.rawAssetId,
+        raw_asset_id: u.raw_asset_id,
+        file_id: u.rawAssetId || u.raw_asset_id,
         file_name: u.filename,
         file_size: u.file_size,
         n_rows: u.n_rows,
         species: u.species,
-        modified_at: u.created_at,
-        cleaned: u.is_cleaned,
-        cleaned_file_id: u.cleaned_file_path,
+        modified_at: u.modified_at,
+        cleaned: Boolean(u.cleanedAssetId || u.cleaned_asset_id),
+        cleaned_file_id: u.cleanedAssetId || u.cleaned_asset_id,
+        cleanedAssetId: u.cleanedAssetId,
+        cleaned_asset_id: u.cleaned_asset_id,
         cleaned_valid_records: u.cleaned_valid_records,
         format: u.format,
       }));
@@ -289,10 +305,12 @@ function DataPageContent() {
         "/api/v1/data/occurrences/upload", file, undefined, 600000
       );
       const fileId = (result.file_id as string) || null;
+      const rawAssetId = (result.rawAssetId || result.raw_asset_id) as string | undefined;
+      if (!rawAssetId) throw new Error("Upload completed without a canonical rawAssetId; please retry.");
       const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
       const detectedSpecies = (result.species_detected as string) || null;
       const pipelineRunId = (result.pipelineRunId as string) || null;
-      setUploadResult(result); setPipelineRunId(pipelineRunId);
+      setUploadResult(result); setPipelineRunId(pipelineRunId); setRawAssetId(rawAssetId); setCleanedAssetId(null);
       if (fileId) {
         setOccurrenceFilePath(fileId);
         setRecordCount(nRows);
@@ -305,6 +323,7 @@ function DataPageContent() {
         }
         const fakeFile: UploadFile = {
           file_id: fileId,
+          rawAssetId,
           file_name: file.name,
           file_size: file.size,
           n_rows: nRows,
@@ -326,7 +345,7 @@ function DataPageContent() {
   const handleDeleteUpload = async (fileId: string) => {
     try {
       await apiDelete(`/api/v1/data/uploads/${encodeURIComponent(fileId)}`);
-      setWorkspaceFiles((prev) => prev.filter(f => f.fileId !== fileId));
+      setWorkspaceFiles((prev) => prev.filter(f => f.fileId !== fileId && f.rawAssetId !== fileId));
       fetchUploads();
     } catch (err) {
       console.error("[data] Failed to delete upload:", err);

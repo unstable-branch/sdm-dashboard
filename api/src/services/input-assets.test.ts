@@ -9,6 +9,8 @@ import {
   resolveInputAssetStorage,
   resolveLegacyInputAsset,
   registerInputAsset,
+  registerDerivedInputAsset,
+  registerSystemInputAsset,
   makeInputAssetLocator,
   InputAssetRegistrationError,
 } from "./input-assets.js";
@@ -230,7 +232,7 @@ describe("server-only registration", () => {
     const inserted: Record<string, unknown>[] = [];
     const database = {
       select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
-      insert: () => ({ values: (value: Record<string, unknown>) => ({ returning: async () => { inserted.push(value); return [value]; } }) }),
+      insert: () => ({ values: (value: Record<string, unknown>) => ({ onConflictDoNothing: () => ({ returning: async () => { inserted.push(value); return [value]; } }) }) }),
     } as unknown as InputAssetDependencies["database"];
     const registered = await registerInputAsset({ creatorUserId: A, scope: "private", kind: "raw_occurrence", root: "uploads", relativePath: "asset.csv" }, { roots: roots(), database });
     expect(registered.storageLocator).toBe("uploads/asset.csv");
@@ -239,10 +241,44 @@ describe("server-only registration", () => {
     await expect(registerInputAsset({ creatorUserId: A, scope: "system", kind: "raw_occurrence", root: "system", relativePath: "asset.csv" } as never, { roots: roots(), database })).rejects.toBeInstanceOf(InputAssetRegistrationError);
   });
 
+  it("permits an active editor to derive a project asset without forging the parent creator", async () => {
+    const parent = asset(RAW, { creatorUserId: A, scope: "project", projectId: P, storageLocator: "uploads/raw.csv" });
+    const created = asset(CHILD, { creatorUserId: B, scope: "project", projectId: P, kind: "cleaned_occurrence", parentAssetId: RAW, storageLocator: "uploads/clean.csv", contentSize: 5 });
+    const database = {
+      select: () => ({ from: (table: unknown) => ({ where: () => ({ limit: async () => table === inputAssets ? [parent] : table === projectMembers ? [{ role: "editor" }] : [] }) }) }),
+      insert: () => ({ values: () => ({ onConflictDoNothing: () => ({ returning: async () => [created] }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+    await expect(registerDerivedInputAsset({
+      creatorUserId: B, actorUserId: B, scope: "project", projectId: P, kind: "cleaned_occurrence",
+      parentAssetId: RAW, root: "uploads", relativePath: "clean.csv",
+    }, { roots: roots(), database })).resolves.toMatchObject({ creatorUserId: B, parentAssetId: RAW });
+
+    await expect(registerDerivedInputAsset({
+      creatorUserId: B, actorUserId: B, scope: "private", kind: "cleaned_occurrence",
+      parentAssetId: RAW, root: "uploads", relativePath: "clean.csv",
+    }, { roots: roots(), database: fakeDatabase({ assets: [asset(RAW, { creatorUserId: A })] }) })).rejects.toThrow("Private parent asset");
+  });
+
+  it("binds system assets to the configured system root", async () => {
+    await expect(registerSystemInputAsset({
+      creatorUserId: A, kind: "raw_occurrence", root: "uploads", relativePath: "asset.csv",
+    }, { roots: roots(), database: fakeDatabase() })).rejects.toThrow("configured system root");
+  });
+
+  it("returns an exact existing registration after a safe locator race", async () => {
+    const existing = asset(RAW, { contentSha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", contentSize: 3 });
+    const database = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [existing] }) }) }),
+      insert: () => ({ values: () => ({ onConflictDoNothing: () => ({ returning: async () => [] }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+    await expect(registerInputAsset({ creatorUserId: A, scope: "private", kind: "raw_occurrence", root: "uploads", relativePath: "asset.csv" }, { roots: roots(), database }))
+      .resolves.toMatchObject({ id: RAW, storageLocator: "uploads/asset.csv" });
+  });
+
   it("requires editor or admin membership to register project inputs", async () => {
     const makeRegistrationDatabase = (membershipRole: "admin" | "editor" | "viewer") => ({
       select: () => ({ from: (table: unknown) => ({ where: () => ({ limit: async () => table === projectMembers ? [{ role: membershipRole }] : [] }) }) }),
-      insert: () => ({ values: (value: Record<string, unknown>) => ({ returning: async () => [value] }) }),
+      insert: () => ({ values: (value: Record<string, unknown>) => ({ onConflictDoNothing: () => ({ returning: async () => [value] }) }) }),
     }) as unknown as InputAssetDependencies["database"];
 
     await expect(registerInputAsset({ creatorUserId: A, scope: "project", projectId: P, kind: "raw_occurrence", root: "uploads", relativePath: "asset.csv" }, {
