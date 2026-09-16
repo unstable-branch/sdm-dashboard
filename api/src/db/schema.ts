@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex, check, AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, bytea, pgEnum, index, uniqueIndex, primaryKey, check, AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { relations } from "drizzle-orm";
 
@@ -132,6 +132,154 @@ export const runs = pgTable("runs", {
   index("idx_runs_status_created").on(t.status, t.createdAt),
   index("idx_runs_bullmq_id").on(t.bullmqId),
 ]);
+
+export const executions = pgTable("executions", {
+  executionId: uuid("execution_id").primaryKey().defaultRandom(),
+  creatorPrincipalId: uuid("creator_principal_id").references(() => users.id, { onDelete: "restrict" }).notNull(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "restrict" }),
+  executionKind: varchar("execution_kind", { length: 32 }).notNull(),
+  authorizationPolicyVersion: varchar("authorization_policy_version", { length: 64 }).notNull(),
+  authorizationBasis: varchar("authorization_basis", { length: 64 }).notNull(),
+  specificationSetSha256: varchar("specification_set_sha256", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("executions_creator_idx").on(t.creatorPrincipalId), index("executions_project_idx").on(t.projectId), index("executions_created_idx").on(t.createdAt)]);
+
+export const runSpecifications = pgTable("run_specifications", {
+  runId: uuid("run_id").references(() => runs.id, { onDelete: "restrict" }).primaryKey(),
+  canonicalBytes: bytea("canonical_bytes").notNull(),
+  specificationSha256: varchar("specification_sha256", { length: 64 }).notNull(),
+  schemaVersion: varchar("schema_version", { length: 32 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const executionMembers = pgTable("execution_members", {
+  executionId: uuid("execution_id").references(() => executions.executionId, { onDelete: "restrict" }).notNull(),
+  runId: uuid("run_id").references(() => runs.id, { onDelete: "restrict" }).notNull(),
+  memberOrdinal: integer("member_ordinal").notNull(),
+  specificationSha256: varchar("specification_sha256", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.executionId, t.runId] }), index("execution_members_run_idx").on(t.runId), uniqueIndex("execution_members_execution_run_unique").on(t.runId), uniqueIndex("execution_members_execution_ordinal_unique").on(t.executionId, t.memberOrdinal)]);
+
+export const executionAttempts = pgTable("execution_attempts", {
+  attemptId: uuid("attempt_id").primaryKey().defaultRandom(),
+  executionId: uuid("execution_id").references(() => executions.executionId, { onDelete: "restrict" }).notNull(),
+  ordinal: integer("ordinal").notNull(),
+  retryOfAttemptId: uuid("retry_of_attempt_id"),
+  attemptRequestSha256: varchar("attempt_request_sha256", { length: 64 }).notNull(),
+  specificationSetSha256: varchar("specification_set_sha256", { length: 64 }).notNull(),
+  actorPrincipalId: uuid("actor_principal_id").references(() => users.id, { onDelete: "restrict" }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("execution_attempts_execution_idx").on(t.executionId), index("execution_attempts_retry_idx").on(t.retryOfAttemptId), uniqueIndex("execution_attempts_execution_ordinal_unique").on(t.executionId, t.ordinal)]);
+
+export const executionAttemptMembers = pgTable("execution_attempt_members", {
+  attemptId: uuid("attempt_id").references(() => executionAttempts.attemptId, { onDelete: "restrict" }).notNull(),
+  executionId: uuid("execution_id").notNull(),
+  runId: uuid("run_id").notNull(),
+}, (t) => [primaryKey({ columns: [t.attemptId, t.runId] }), uniqueIndex("execution_attempt_members_attempt_execution_run_unique").on(t.attemptId, t.executionId, t.runId), index("execution_attempt_members_execution_idx").on(t.executionId)]);
+
+export const attemptEvents = pgTable("attempt_events", {
+  eventId: uuid("event_id").primaryKey().defaultRandom(),
+  attemptId: uuid("attempt_id").references(() => executionAttempts.attemptId, { onDelete: "restrict" }).notNull(),
+  sequence: bigint("sequence", { mode: "number" }).notNull(),
+  eventType: varchar("event_type", { length: 32 }).notNull(),
+  eventSha256: varchar("event_sha256", { length: 64 }).notNull(),
+  evidenceSha256: varchar("evidence_sha256", { length: 64 }),
+  payloadBytes: bytea("payload_bytes").notNull().default(sql.raw("''::bytea")),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("attempt_events_attempt_idx").on(t.attemptId, t.sequence), uniqueIndex("attempt_events_attempt_sequence_unique").on(t.attemptId, t.sequence)]);
+
+export const attemptState = pgTable("attempt_state", {
+  attemptId: uuid("attempt_id").references(() => executionAttempts.attemptId, { onDelete: "restrict" }).primaryKey(),
+  executionId: uuid("execution_id").notNull(),
+  currentState: varchar("current_state", { length: 24 }).notNull(),
+  stateVersion: bigint("state_version", { mode: "number" }).notNull().default(0),
+  dispatchFence: uuid("dispatch_fence").defaultRandom().notNull(),
+  lastEventSequence: bigint("last_event_sequence", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("attempt_state_execution_idx").on(t.executionId)]);
+
+export const attemptJobs = pgTable("attempt_jobs", {
+  attemptId: uuid("attempt_id").references(() => executionAttempts.attemptId, { onDelete: "restrict" }).primaryKey(),
+  backendInstanceNamespace: varchar("backend_instance_namespace", { length: 128 }).notNull(),
+  backendJobId: varchar("backend_job_id", { length: 255 }).notNull(),
+  reservedAt: timestamp("reserved_at").defaultNow().notNull(),
+}, (t) => [uniqueIndex("attempt_jobs_backend_binding_unique").on(t.backendInstanceNamespace, t.backendJobId)]);
+
+export const attemptRunResults = pgTable("attempt_run_results", {
+  attemptId: uuid("attempt_id").notNull(),
+  executionId: uuid("execution_id").notNull(),
+  runId: uuid("run_id").notNull(),
+  outcome: varchar("outcome", { length: 24 }).notNull(),
+  metricsArtifactSha256: varchar("metrics_artifact_sha256", { length: 64 }),
+  manifestSha256: varchar("manifest_sha256", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.attemptId, t.runId] }), index("attempt_run_results_execution_idx").on(t.executionId)]);
+
+export const attemptProvenance = pgTable("attempt_provenance", {
+  attemptId: uuid("attempt_id").references(() => executionAttempts.attemptId, { onDelete: "restrict" }).primaryKey(),
+  specificationSetSha256: varchar("specification_set_sha256", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const attemptStartAttestations = pgTable("attempt_start_attestations", {
+  attemptId: uuid("attempt_id").references(() => executionAttempts.attemptId, { onDelete: "restrict" }).primaryKey(),
+  startAttestationSha256: varchar("start_attestation_sha256", { length: 64 }).notNull(),
+  canonicalBytes: bytea("canonical_bytes").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const attemptFinalManifests = pgTable("attempt_final_manifests", {
+  attemptId: uuid("attempt_id").references(() => executionAttempts.attemptId, { onDelete: "restrict" }).primaryKey(),
+  finalManifestSha256: varchar("final_manifest_sha256", { length: 64 }).notNull(),
+  canonicalBytes: bytea("canonical_bytes").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const operationKeys = pgTable("operation_keys", {
+  operationKeyId: uuid("operation_key_id").primaryKey().defaultRandom(),
+  principalId: uuid("principal_id").references(() => users.id, { onDelete: "restrict" }).notNull(),
+  scopeKind: varchar("scope_kind", { length: 16 }).notNull(),
+  scopeNamespace: varchar("scope_namespace", { length: 128 }).notNull(),
+  scopeProjectId: uuid("scope_project_id").references(() => projects.id, { onDelete: "restrict" }),
+  semanticOperation: varchar("semantic_operation", { length: 64 }).notNull(),
+  targetId: uuid("target_id").notNull(),
+  clientKey: varchar("client_key", { length: 128 }).notNull(),
+  requestSha256: varchar("request_sha256", { length: 64 }).notNull(),
+  executionId: uuid("execution_id").references(() => executions.executionId, { onDelete: "restrict" }).notNull(),
+  attemptId: uuid("attempt_id").references(() => executionAttempts.attemptId, { onDelete: "restrict" }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("operation_keys_execution_idx").on(t.executionId), index("operation_keys_attempt_idx").on(t.attemptId), uniqueIndex("operation_keys_scope_tuple_unique").on(t.principalId, t.scopeKind, t.scopeNamespace, t.scopeProjectId, t.semanticOperation, t.targetId, t.clientKey)]);
+
+export const dispatchOutbox = pgTable("dispatch_outbox", {
+  outboxId: uuid("outbox_id").primaryKey().defaultRandom(),
+  attemptId: uuid("attempt_id").references(() => executionAttempts.attemptId, { onDelete: "restrict" }).notNull(),
+  eventType: varchar("event_type", { length: 32 }).notNull(),
+  eventVersion: integer("event_version").notNull().default(1),
+  payloadBytes: bytea("payload_bytes").notNull().default(sql.raw("''::bytea")),
+  deliveryState: varchar("delivery_state", { length: 16 }).notNull().default("pending"),
+  availableAt: timestamp("available_at").defaultNow().notNull(),
+  deliveredAt: timestamp("delivered_at"),
+}, (t) => [uniqueIndex("dispatch_outbox_attempt_event_unique").on(t.attemptId, t.eventType, t.eventVersion), index("dispatch_outbox_pending_idx").on(t.deliveryState, t.availableAt)]);
+
+export const notificationOutbox = pgTable("notification_outbox", {
+  outboxId: uuid("outbox_id").primaryKey().defaultRandom(),
+  attemptId: uuid("attempt_id").references(() => executionAttempts.attemptId, { onDelete: "restrict" }).notNull(),
+  eventType: varchar("event_type", { length: 32 }).notNull(),
+  eventVersion: integer("event_version").notNull().default(1),
+  payloadBytes: bytea("payload_bytes").notNull().default(sql.raw("''::bytea")),
+  deliveryState: varchar("delivery_state", { length: 16 }).notNull().default("pending"),
+  availableAt: timestamp("available_at").defaultNow().notNull(),
+  deliveredAt: timestamp("delivered_at"),
+}, (t) => [uniqueIndex("notification_outbox_attempt_event_unique").on(t.attemptId, t.eventType, t.eventVersion), index("notification_outbox_pending_idx").on(t.deliveryState, t.availableAt)]);
+
+export const integrityObservations = pgTable("integrity_observations", {
+  observationId: uuid("observation_id").primaryKey().defaultRandom(),
+  attemptId: uuid("attempt_id").references(() => executionAttempts.attemptId, { onDelete: "restrict" }).notNull(),
+  artifactSha256: varchar("artifact_sha256", { length: 64 }),
+  manifestSha256: varchar("manifest_sha256", { length: 64 }),
+  observationKind: varchar("observation_kind", { length: 32 }).notNull(),
+  observedAt: timestamp("observed_at").defaultNow().notNull(),
+}, (t) => [index("integrity_observations_attempt_idx").on(t.attemptId, t.observedAt)]);
 
 export const occurrences = pgTable("occurrences", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -281,6 +281,13 @@
       "when": 1789518300000,
       "tag": "0039_occurrence_clean_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1789591860000,
+      "tag": "0040_execution_attempt_foundation",
+      "breakpoints": true
     }
   ]
 }
