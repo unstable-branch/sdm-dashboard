@@ -547,12 +547,14 @@ async function authorizeAsset(
   if ((asset.scope === "private" || asset.scope === "system") && asset.projectId !== null) return { allowed: false, adminAccess: false };
   if (asset.scope === "project" && !isUuid(asset.projectId)) return { allowed: false, adminAccess: false };
   if (destinationProjectId !== null && !isUuid(destinationProjectId)) return { allowed: false, adminAccess: false };
-  if (destinationProjectId !== null && asset.scope === "private") return { allowed: false, adminAccess: false };
   if (destinationProjectId !== null && asset.scope === "project" && asset.projectId !== destinationProjectId) return { allowed: false, adminAccess: false };
+
+  // Private assets are never implicitly shared, including with admins: only
+  // the immutable creator identity may read or use them.
+  if (asset.scope === "private") return { allowed: asset.creatorUserId === principal.id, adminAccess: false };
 
   const adminAccess = principal.role === "admin";
   if (adminAccess) return { allowed: true, adminAccess: true };
-  if (asset.scope === "private") return { allowed: asset.creatorUserId === principal.id, adminAccess: false };
   if (asset.scope === "system" && destinationProjectId === null) return { allowed: true, adminAccess: false };
 
   // Project assets are governed by their own project. System assets used in a

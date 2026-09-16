@@ -12,7 +12,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
-import { buildModelPayload } from "../services/model-payload.js";
+import { buildModelPayload, resolveModelInputAsset, ModelInputAssetError } from "../services/model-payload.js";
 import { projectSafeScienceConfig, sanitizeStoredConfig, publicConfigValidationError, canonicalizeExecutionConfig } from "../services/execution-config.js";
 import { canAccessRun } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
@@ -61,6 +61,9 @@ sdmRunRoutes.post("/run", async (c) => {
     const async = body.async === true;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
+    // Preflight before persistence; dispatch below resolves again to avoid
+    // using a path after an intervening asset state/storage change.
+    await resolveModelInputAsset(safeConfig, { id: user.id, role: user.role }, projectId);
 
     if (async) {
       let speciesId: string | undefined;
@@ -121,7 +124,7 @@ sdmRunRoutes.post("/run", async (c) => {
       }
 
       const jobId = await enqueueSdmJob(
-        { type: "model", payload: { ...buildModelPayload(safeConfig, insertedRun.id), runId: insertedRun.id } },
+        { type: "model", payload: { runId: insertedRun.id, projectId, config: safeConfig } },
         user.id,
       );
 
@@ -172,7 +175,10 @@ sdmRunRoutes.post("/run", async (c) => {
 
     let plumberJobId: string | undefined;
     try {
-      const result = await plumberClient.runModel(buildModelPayload(safeConfig, run.id));
+      const latestInput = await resolveModelInputAsset(
+        safeConfig, { id: user.id, role: user.role }, projectId,
+      );
+      const result = await plumberClient.runModel(buildModelPayload(safeConfig, run.id, latestInput.absolutePath));
       plumberJobId = (result as { job_id?: string }).job_id;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Model run failed";
@@ -188,6 +194,10 @@ sdmRunRoutes.post("/run", async (c) => {
         progress: 0,
         failedReason: message,
       });
+      if (err instanceof ModelInputAssetError) {
+        const unavailable = err.reason === "unavailable";
+        return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+      }
       const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
       return c.json({ error: message }, isBusy ? 429 : 502);
     }
@@ -224,12 +234,14 @@ sdmRunRoutes.post("/run", async (c) => {
       message: "Model run started. Track progress via /runs or SSE.",
     });
   } catch (err) {
+    if (err instanceof ModelInputAssetError) {
+      const unavailable = err.reason === "unavailable";
+      return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+    }
     const message = err instanceof Error ? err.message : "Model run failed";
     console.error(`[sdm] Model run failed: ${message}`);
     const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
     return c.json({ error: message }, isBusy ? 429 : 502);
-  } finally {
-    // cleaned file paths are passed raw to Plumber; R handles decryption
   }
 });
 

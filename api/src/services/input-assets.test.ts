@@ -126,8 +126,8 @@ describe("canonical input asset authorization", () => {
     const admin = await resolveInputAsset({ assetId: RAW, principal: principal(G, "admin"), action: "use" }, {
       roots: roots(), database: fakeDatabase({ assets: [privateAsset] }), auditAdminAccess: audit,
     });
-    expect(admin.ok).toBe(true);
-    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ principalId: G, assetId: RAW, action: "use" }));
+    expect(admin).toMatchObject({ ok: false, reason: "not_authorized" });
+    expect(audit).not.toHaveBeenCalled();
   });
 
   it("requires current membership for project assets and distinguishes read from use", async () => {
@@ -177,10 +177,10 @@ describe("canonical input asset authorization", () => {
       });
       expect(result.ok).toBe(false);
     }
-    const implicitShare = await resolveInputAsset({ assetId: RAW, principal: principal(A), action: "use", destinationProjectId: P }, {
+    const creatorUseInProject = await resolveInputAsset({ assetId: RAW, principal: principal(A), action: "use", destinationProjectId: P }, {
       roots: roots(), database: fakeDatabase({ assets: [asset(RAW)] }),
     });
-    expect(implicitShare).toMatchObject({ ok: false, reason: "not_authorized" });
+    expect(creatorUseInProject.ok).toBe(true);
   });
 
   it("requires an exact, ready parent for cleaned assets", async () => {
