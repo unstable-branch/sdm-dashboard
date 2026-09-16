@@ -457,6 +457,7 @@ run_fast_sdm <- function(...) {
   # Snapshot the SCALED training data before NULL-ing it; future_projection
   # later needs it for MESS computation in feature space (matches the model).
   env_train_for_mess <- env$env_train_scaled
+  env$env_project_for_future <- env$env_project
   env$env_train <- NULL
   env$env_project <- NULL
 
@@ -1499,6 +1500,7 @@ run_fast_sdm <- function(...) {
       vif_reduction = isTRUE(vif_reduction), vif_threshold = vif_threshold,
       future_projection = isTRUE(future_projection), future_worldclim_dir = future_worldclim_dir,
       future_label = future_label,
+      extrapolation_mask = isTRUE(cfg$extrapolation_mask %||% TRUE), mess_threshold = cfg$mess_threshold %||% 0,
       bias_method = bias_method, thickening_distance_km = thickening_distance_km,
       gbif_doi = dwca_doi %||% gbif_doi, climate_source = source,
       overlap_warn = isTRUE(overlap_warn),
@@ -1748,7 +1750,8 @@ sdm_stage_future <- function(cfg, fit, suit, env, output_dir, base_name, log_fun
     return(list(future = NULL))
   }
   log_message(log_fun, "Stage 4b: Projecting future climate scenario")
-  env_train_for_mess <- env$env_train
+  env_train_for_mess <- env$env_train_scaled
+  env$env_project_for_future <- env$env_project
   future <- tryCatch(project_future_suitability(
     fit = fit, current_suitability = suit, env = env,
     future_worldclim_dir = cfg$future_worldclim_dir,

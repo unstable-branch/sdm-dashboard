@@ -1,4 +1,12 @@
 mod_results_server <- function(id, rv, input) {
+resolve_mess_raster <- function(x) {
+  if (inherits(x, "SpatRaster")) return(x)
+  if (is.list(x) && inherits(x$mess, "SpatRaster")) return(x$mess)
+  candidate <- if (is.list(x)) x$paths$mess_tif else x
+  if (is.character(candidate) && length(candidate) == 1L && file.exists(candidate)) return(terra::rast(candidate))
+  NULL
+}
+
   moduleServer(id, function(input, output, session) {
 
     # --- Run comparison table ---
@@ -58,7 +66,7 @@ mod_results_server <- function(id, rv, input) {
         suitability_raster = terra::rast(r$paths$tif),
         presence_df = r$occurrence_used %||% r$occurrence,
         background_df = r$background_used %||% NULL,
-        mess_raster = if (!is.null(r$mess)) terra::rast(r$mess) else NULL,
+        mess_raster = resolve_mess_raster(r$mess),
         threshold = r$config$threshold %||% 0.5,
         show_mess = isTRUE(input$show_mess)
       )
@@ -82,9 +90,8 @@ mod_results_server <- function(id, rv, input) {
       r <- rv$result
       map <- leaflet::leafletProxy("suitability_map")
       if (isTRUE(input$show_mess)) {
-        mess_src <- tryCatch(terra::sources(r$mess), error = function(e) NULL)
-        if (!is.null(r$mess) && !is.null(mess_src) && length(mess_src) > 0 && any(nzchar(mess_src))) {
-          mess_raster <- terra::rast(r$mess)
+        mess_raster <- resolve_mess_raster(r$mess)
+        if (!is.null(mess_raster) && inherits(mess_raster, "SpatRaster")) {
           r_mess <- tryCatch(terra::project(mess_raster, "EPSG:4326"),
                              error = function(e) { showNotification(paste("MESS projection failed:", e$message), type = "warning"); NULL })
           if (is.null(r_mess)) {
