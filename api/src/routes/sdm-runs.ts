@@ -46,6 +46,7 @@ sdmRunRoutes.use("/run", modelRateLimit);
 sdmRunRoutes.use("/run", authMiddleware);
 sdmRunRoutes.use("/cancel/*", authMiddleware);
 sdmRunRoutes.use("/status/*", authMiddleware);
+sdmRunRoutes.use("/gpu/status", authMiddleware);
 
 sdmRunRoutes.post("/run", async (c) => {
   try {
@@ -178,7 +179,7 @@ sdmRunRoutes.post("/run", async (c) => {
       const latestInput = await resolveModelInputAsset(
         safeConfig, { id: user.id, role: user.role }, projectId,
       );
-      const result = await plumberClient.runModel(buildModelPayload(safeConfig, run.id, latestInput.absolutePath));
+      const result = await plumberClient.withUser(user.id).withRole(user.role).runModel(buildModelPayload(safeConfig, run.id, latestInput.absolutePath));
       plumberJobId = (result as { job_id?: string }).job_id;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Model run failed";
@@ -294,7 +295,7 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
       if (shouldLivePoll) {
         isSyncing = true;
         try {
-          const plumberStatus = await plumberClient.getModelStatus(run.jobId, 8000);
+          const plumberStatus = await plumberClient.withUser(user.id).withRole(user.role).getModelStatus(run.jobId, 8000);
           const ps = plumberStatus as unknown as PlumberModelStatus;
           plumberProgressJson = ps.progress_json ?? null;
           plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log : [];
@@ -414,7 +415,7 @@ sdmRunRoutes.post("/cancel/:jobId", async (c) => {
     }
 
     if (run.jobId) {
-      const result = await plumberClient.cancelModel(run.jobId);
+      const result = await plumberClient.withUser(user.id).withRole(user.role).cancelModel(run.jobId);
       await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(and(eq(runs.id, jobId), inArray(runs.status, ["queued", "running"])));
       jobEventBus.emitJobStatus({
         jobId: run.id,
@@ -453,7 +454,7 @@ sdmRunRoutes.get("/compare/:runId1/:runId2", authMiddleware, async (c) => {
     }
     const jobId1 = await plumberJobId(runId1);
     const jobId2 = await plumberJobId(runId2);
-    const data = await plumberClient.getRunComparison(jobId1, jobId2);
+    const data = await plumberClient.withUser(user.id).withRole(user.role).getRunComparison(jobId1, jobId2);
     return c.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Comparison unavailable";
@@ -496,7 +497,7 @@ sdmRunRoutes.get("/logs/:jobId", authMiddleware, async (c) => {
     if (!run) return c.json({ error: "Run not found" }, 404);
     if (!run.jobId) return c.json({ id: runId, stderr: "", stdout: "", progress_log: "" });
 
-    const result = await plumberClient.getModelLogs(run.jobId);
+    const result = await plumberClient.withUser(user.id).withRole(user.role).getModelLogs(run.jobId);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get logs";
@@ -505,20 +506,11 @@ sdmRunRoutes.get("/logs/:jobId", authMiddleware, async (c) => {
 });
 
 sdmRunRoutes.get("/gpu/status", async (c) => {
+  const user = c.get("user");
   try {
-    const status = await plumberClient.getGpuStatus();
+    const status = await plumberClient.withUser(user.id).withRole(user.role).getGpuStatus();
     return c.json(status);
   } catch {
-    try {
-      const viaNvsmi = await fetch(`${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/gpu/status`, {
-        headers: { "X-Hono-Internal": process.env.PLUMBER_INTERNAL_KEY || "" },
-        signal: AbortSignal.timeout(5000),
-      });
-      if (viaNvsmi.ok) {
-        const data = await viaNvsmi.json();
-        return c.json({ ...data, proxied: true });
-      }
-    } catch { /* fall through */ }
     return c.json({ available: false, message: "GPU status unavailable" });
   }
 });

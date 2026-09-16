@@ -1,5 +1,4 @@
 import * as prom from "prom-client";
-import { plumberClient } from "./plumber.js";
 
 let _registry: prom.Registry | null = null;
 
@@ -142,54 +141,20 @@ export function decActiveRequests(): number {
 
 export async function collectGpuMetrics(): Promise<void> {
   if (!_registry) return;
-  try {
-    const status = await plumberClient.getGpuStatus() as Record<string, unknown>;
-    const freeVram = status.vram_free_mib;
-    if (typeof freeVram === "number" && isFinite(freeVram)) {
-      gpuFreeVramMiB.set(freeVram);
-    }
-    const totalVram = status.vram_total_mib;
-    if (typeof totalVram === "number" && isFinite(totalVram)) {
-      gpuTotalVramMiB.set(totalVram);
-    }
-    const usedVram = status.vram_used_mib;
-    if (typeof usedVram === "number" && isFinite(usedVram)) {
-      gpuUsedVramMiB.set(usedVram);
-    }
-    const utilPct = status.gpu_utilization_pct;
-    if (typeof utilPct === "number" && isFinite(utilPct)) {
-      gpuUtilizationPct.set(utilPct);
-    }
-    const tempC = status.temperature_c;
-    if (typeof tempC === "number" && isFinite(tempC)) {
-      gpuTemperatureC.set(tempC);
-    }
-    const canary = status.canary as Record<string, unknown> | undefined;
-    if (canary) {
-      gpuCanaryOk.set(canary.ok === true ? 1 : 0);
-      if (typeof canary.elapsed_ms === "number" && isFinite(canary.elapsed_ms)) {
-        gpuCanaryElapsedMs.set(canary.elapsed_ms);
-      }
-    } else {
-      gpuCanaryOk.set(0);
-    }
-    const leak = status.leak_check as Record<string, unknown> | undefined;
-    if (leak) {
-      gpuVramLeakFlag.set(leak.leak === true ? 1 : 0);
-    } else {
-      gpuVramLeakFlag.set(0);
-    }
-    const rMemory = status.r_memory_gb;
-    if (typeof rMemory === "number" && isFinite(rMemory)) {
-      gpuRMemoryGb.set(rMemory);
-    }
-    const activeRuns = status.active_gpu_runs;
-    if (typeof activeRuns === "number" && isFinite(activeRuns)) {
-      gpuModelRunsActive.set(activeRuns);
-    }
-  } catch (err) {
-    console.warn("[metrics] GPU metrics collection failed:", err instanceof Error ? err.message : String(err));
-  }
+  // This background task has no verified request principal. Plumber GPU status
+  // is protected, so expose explicit NaN values instead of bypassing auth or
+  // silently presenting missing telemetry as zero.
+  const unavailable = Number.NaN;
+  gpuFreeVramMiB.set(unavailable);
+  gpuTotalVramMiB.set(unavailable);
+  gpuUsedVramMiB.set(unavailable);
+  gpuUtilizationPct.set(unavailable);
+  gpuTemperatureC.set(unavailable);
+  gpuCanaryOk.set(unavailable);
+  gpuCanaryElapsedMs.set(unavailable);
+  gpuVramLeakFlag.set(unavailable);
+  gpuRMemoryGb.set(unavailable);
+  gpuModelRunsActive.set(unavailable);
 }
 
 export function initMetrics(): void {

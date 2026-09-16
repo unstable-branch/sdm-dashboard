@@ -1,7 +1,8 @@
 import { Queue, Worker, Job } from "bullmq";
 import { createHash } from "crypto";
 import IORedis from "ioredis";
-import { PlumberClient } from "./plumber.js";
+import { plumberForPrincipal, type PlumberClient } from "./plumber.js";
+import { resolveCurrentPrincipal } from "./auth-principal.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -204,10 +205,12 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
     "sdm-jobs",
     async (job: Job<SdmJobData, SdmJobResult>) => {
       const { type, payload, userId } = job.data;
-      let client = new PlumberClient(process.env.PLUMBER_URL || "http://localhost:8000");
-      if (userId) {
-        client = client.withUser(userId);
-      }
+      const currentClient = async (): Promise<PlumberClient> => {
+        if (!userId) throw new Error("Queued job has no authenticated principal");
+        const principal = await resolveCurrentPrincipal(userId);
+        if (!principal) throw new Error("Queued job principal is no longer valid");
+        return plumberForPrincipal(principal);
+      };
 
       await job.updateProgress(10);
 
@@ -217,6 +220,10 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
       if (type === "model") {
         cpuStart = process.cpuUsage();
       }
+
+      // Resolve the live principal outside the result-converting catch. A missing
+      // or invalid principal must reject the processor so BullMQ marks the job failed.
+      const client = await currentClient();
 
       try {
         switch (type) {

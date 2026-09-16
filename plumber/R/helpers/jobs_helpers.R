@@ -1,4 +1,6 @@
 handle_job_status <- function(req, res, job_id, app_dir) {
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
   job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
   meta_file <- file.path(job_dir, "meta.json")
   if (file.exists(meta_file)) {
@@ -19,6 +21,8 @@ handle_job_status <- function(req, res, job_id, app_dir) {
 }
 
 handle_job_cancel <- function(req, res, job_id, app_dir) {
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
   job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
   meta_file <- file.path(job_dir, "meta.json")
 
