@@ -164,12 +164,17 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     }
     fwd_user <- get_hdr(req, "x-forwarded-user")
     fwd_role <- get_hdr(req, "x-forwarded-role")
-    if (!is.null(fwd_user) && nzchar(fwd_user)) {
-      req$user_id <- fwd_user
+    if (is.null(fwd_user) || !nzchar(fwd_user)) {
+      return(auth_fail(res, 401L, '{"error":"Forwarded user required."}'))
     }
-    if (!is.null(fwd_role) && nzchar(fwd_role)) {
-      req$user_role <- fwd_role
+    if (is.null(fwd_role) || !nzchar(fwd_role)) {
+      return(auth_fail(res, 401L, '{"error":"Forwarded role required."}'))
     }
+    if (!fwd_role %in% c("admin", "editor", "viewer")) {
+      return(auth_fail(res, 401L, '{"error":"Invalid forwarded principal."}'))
+    }
+    req$user_role <- fwd_role
+    req$user_id <- fwd_user
     return(NULL)
   }
 
@@ -182,16 +187,17 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     if (!is.null(hono_internal) && identical(hono_internal, internal_key)) {
       fwd_user <- get_hdr(req, "x-forwarded-user")
       fwd_role <- get_hdr(req, "x-forwarded-role")
-      if (!is.null(fwd_user) && nzchar(fwd_user)) {
-        req$user_id <- fwd_user
-        return(NULL)
+      if (is.null(fwd_user) || !nzchar(fwd_user)) {
+        return(auth_fail(res, 401L, '{"error":"Forwarded user required."}'))
       }
-      if (requires_auth(path)) {
-        return(auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}'))
+      if (is.null(fwd_role) || !nzchar(fwd_role)) {
+        return(auth_fail(res, 401L, '{"error":"Forwarded role required."}'))
       }
-      if (!is.null(fwd_role) && nzchar(fwd_role)) {
-        req$user_role <- fwd_role
+      if (!fwd_role %in% c("admin", "editor", "viewer")) {
+        return(auth_fail(res, 401L, '{"error":"Invalid forwarded principal."}'))
       }
+      req$user_role <- fwd_role
+      req$user_id <- fwd_user
       return(NULL)
     }
   }

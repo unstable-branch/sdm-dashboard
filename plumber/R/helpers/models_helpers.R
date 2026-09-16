@@ -1248,21 +1248,15 @@ handle_model_status <- function(req, res, job_id) {
 }
 
 handle_model_cancel <- function(req, res, job_id) {
-  job_dir <- sdm_safe_job_dir(job_id)
+  auth <- sdm_load_authorized_job(req, res, job_id,
+                                  if (exists("app_dir", inherits = TRUE)) get("app_dir", inherits = TRUE) else NULL)
+  if (!isTRUE(auth$ok)) return(list(error = auth$error))
+  job_dir <- auth$job_dir
   if (is.null(job_dir)) {
     return(list(ok = FALSE, message = "Invalid job ID"))
   }
-  meta_file <- file.path(job_dir, "meta.json")
-
-  if (file.exists(meta_file)) {
-    meta <- sdm_read_meta_json(meta_file)
-    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this run"))
-      }
-    }
-  }
+  meta_file <- auth$meta_file
+  meta <- auth$meta
 
   cancel_result <- sdm_cancel_pid_first(job_id, meta_file)
   killed <- cancel_result$killed
@@ -1282,11 +1276,10 @@ handle_model_cancel <- function(req, res, job_id) {
 
   progress_log <- file.path(job_dir, "progress.log")
 
-  if (file.exists(meta_file)) {
-    # Set Redis cancel flag BEFORE writing meta.json so the child process
-    # exits gracefully on its next poll rather than writing a "completed" status.
-    sdm_redis_cancel_set(job_id)
+  # Set Redis cancel flag only after resource authorization and metadata validation.
+  sdm_redis_cancel_set(job_id)
 
+  if (file.exists(meta_file)) {
     # Re-read meta to detect if child already wrote a terminal status.
     meta <- sdm_read_meta_json(meta_file)
     if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
@@ -1316,22 +1309,13 @@ handle_model_cancel <- function(req, res, job_id) {
 }
 
 handle_model_delete <- function(req, res, job_id) {
-  job_dir <- sdm_safe_job_dir(job_id)
+  auth <- sdm_load_authorized_job(req, res, job_id,
+                                  if (exists("app_dir", inherits = TRUE)) get("app_dir", inherits = TRUE) else NULL)
+  if (!isTRUE(auth$ok)) return(list(error = auth$error))
+  job_dir <- auth$job_dir
   if (is.null(job_dir)) {
     return(list(ok = TRUE, message = "Invalid job ID", deleted = FALSE))
   }
-  meta_file <- file.path(job_dir, "meta.json")
-
-  if (file.exists(meta_file)) {
-    meta <- sdm_read_meta_json(meta_file)
-    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to delete this run"))
-      }
-    }
-  }
-
   if (!dir.exists(job_dir)) {
     return(list(ok = TRUE, message = "Run directory not found (already deleted)", deleted = FALSE))
   }

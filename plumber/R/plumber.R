@@ -187,7 +187,7 @@ function(req, res, scenario_id) handle_climate_delete(req, res, scenario_id, app
 
 #* Cancel a climate download
 #* @post /api/v1/climate/cancel/<job_id>
-function(req, job_id) handle_climate_cancel(req, job_id, app_dir)
+function(req, res, job_id) handle_climate_cancel(req, res, job_id, app_dir)
 
 #* Get ecology data for a run
 #* @get /api/v1/ecology/<run_id>

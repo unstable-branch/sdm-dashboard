@@ -156,7 +156,7 @@ sdmBatchRoutes.post("/cancel-all", async (c) => {
         } catch { /* best effort */ }
       }
       if (run.jobId) {
-        await       plumberClient.cancelModel(run.jobId).catch((e: unknown) =>
+        await       plumberClient.withUser(user.id).withRole(user.role).cancelModel(run.jobId).catch((e: unknown) =>
         console.warn(`[batch] Cancel model run ${run.jobId} failed:`, e instanceof Error ? e.message : String(e))
       );
       }
@@ -237,7 +237,7 @@ sdmBatchRoutes.post("/batch", async (c) => {
     }));
     if (runRecords.length > 0) await db.insert(runs).values(runRecords);
 
-    const plumberPayload = await plumberClient.targetsRun({
+    const plumberPayload = await plumberClient.withUser(user.id).withRole(user.role).targetsRun({
       configs: await resolveTargetsConfigs(safeConfigs, { id: user.id, role: user.role }, projectId),
     });
     const targetsJobId = plumberPayload.job_id as string | undefined;
@@ -360,7 +360,7 @@ sdmBatchRoutes.post("/batch/:batchId/cancel", async (c) => {
     await Promise.allSettled(cancellable.map(async (r) => {
       if (r.bullmqId && queue) await queue.remove(r.bullmqId).catch((e: unknown) =>
         console.warn(`[batch] Remove queue job ${r.bullmqId} failed:`, e instanceof Error ? e.message : String(e)));
-      if (r.jobId) await plumberClient.cancelModel(r.jobId).catch((e: unknown) =>
+      if (r.jobId) await plumberClient.withUser(user.id).withRole(user.role).cancelModel(r.jobId).catch((e: unknown) =>
         console.warn(`[batch] Cancel model run ${r.jobId} failed:`, e instanceof Error ? e.message : String(e)));
       jobEventBus.emitJobStatus({
         jobId: r.id,
@@ -440,7 +440,7 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
       // Cancel any still-running old targets job before starting a new one
       if (targetsJobId && targetsJobId !== "targets-none") {
         try {
-          await plumberClient.cancelModel(targetsJobId);
+          await plumberClient.withUser(user.id).withRole(user.role).cancelModel(targetsJobId);
         } catch (e: unknown) {
           console.warn(`[batch-retry] Cancel old targets job ${targetsJobId}:`,
             e instanceof Error ? e.message : String(e));
@@ -450,7 +450,7 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
       // For targets batches, re-submit all failed configs as a new targets run
       const configs = await resolveTargetsConfigs(retryConfigs, { id: user.id, role: user.role }, batch.projectId);
 
-      const plumberPayload = await plumberClient.targetsRun({ configs });
+      const plumberPayload = await plumberClient.withUser(user.id).withRole(user.role).targetsRun({ configs });
       const newTargetsJobId = plumberPayload.job_id as string | undefined;
       if (!newTargetsJobId) throw new Error("Targets pipeline did not return a job ID");
 
@@ -550,7 +550,7 @@ sdmBatchRoutes.delete("/runs/delete/:runId", async (c) => {
     }
 
     if (run.jobId) {
-      await plumberClient.deleteModelOutputs(run.jobId).catch(() => console.warn("[sdm] Failed to delete Plumber outputs for run", run.jobId));
+      await plumberClient.withUser(user.id).withRole(user.role).deleteModelOutputs(run.jobId).catch(() => console.warn("[sdm] Failed to delete Plumber outputs for run", run.jobId));
     }
 
     await db.delete(runs).where(eq(runs.id, runId));
@@ -614,7 +614,7 @@ sdmBatchRoutes.post("/runs/clear-all", async (c) => {
       await Promise.allSettled(
         runsToDelete.map((run) =>
           run.jobId
-            ? plumberClient.deleteModelOutputs(run.jobId).catch((e: unknown) =>
+            ? plumberClient.withUser(user.id).withRole(user.role).deleteModelOutputs(run.jobId).catch((e: unknown) =>
               console.warn(`[batch] Delete outputs for ${run.jobId} failed:`, e instanceof Error ? e.message : String(e)))
             : Promise.resolve()
         )

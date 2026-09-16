@@ -53,6 +53,7 @@ describe("downloads dispatch routes", () => {
     }));
     mocks.withRole.mockImplementation((role: string) => ({
       get: mocks.getJobStatus,
+      getClimateStatus: mocks.getClimateStatus,
       post: mocks.post,
       _role: role,
     }));

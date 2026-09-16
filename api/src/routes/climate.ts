@@ -16,6 +16,7 @@ export const climateRoutes = new Hono<AppEnv>();
 climateRoutes.use("*", climateRateLimit);
 climateRoutes.use("/download", authMiddleware);
 climateRoutes.use("/delete/*", authMiddleware);
+climateRoutes.use("/status/*", authMiddleware);
 climateRoutes.use("*", optionalAuth);
 
 climateRoutes.get("/scenarios", longCache, async (c) => {
@@ -125,7 +126,7 @@ climateRoutes.post("/delete/:scenarioId", async (c) => {
       }
     }
 
-    const result = await plumberClient.deleteClimateScenario(scenarioId);
+    const result = await plumberClient.withUser(user.id).withRole(user.role).deleteClimateScenario(scenarioId);
 
     const client = extractClientInfo(c);
     await logAction({
@@ -154,7 +155,7 @@ climateRoutes.post("/delete/:scenarioId", async (c) => {
 climateRoutes.get("/status/:jobId", async (c) => {
   try {
     const jobId = c.req.param("jobId");
-    const result = await plumberClient.getClimateStatus(jobId);
+    const result = await plumberClient.withUser(c.get("user").id).withRole(c.get("user").role).getClimateStatus(jobId);
     return c.json(result);
   } catch {
     return c.json({ status: "unknown" }, 502);
