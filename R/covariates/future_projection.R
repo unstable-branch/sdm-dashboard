@@ -14,44 +14,61 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
                                        output_future_tif, output_delta_tif, n_cores = 1,
                                        log_fun = NULL, mask_extrapolation = TRUE,
                                        mess_threshold = 0, mess_train_data = NULL) {
-  future_worldclim_dir <- sdm_resolve_project_path(future_worldclim_dir)
-  if (!dir.exists(future_worldclim_dir)) {
-    stop("Future WorldClim/CMIP6 folder does not exist: ", future_worldclim_dir, call. = FALSE)
+  if (length(mess_threshold) != 1L || !is.numeric(mess_threshold) || !is.finite(mess_threshold)) {
+    stop("mess_threshold must be one finite numeric value", call. = FALSE)
   }
+  future_worldclim_dir <- sdm_resolve_project_path(future_worldclim_dir)
+  if (!dir.exists(future_worldclim_dir)) stop("Future WorldClim/CMIP6 folder does not exist: ", future_worldclim_dir, call. = FALSE)
   selected_biovars <- validate_biovars(selected_biovars)
   future_files <- future_projection_files(future_worldclim_dir, selected_biovars)
   if (any(is.na(future_files))) {
     missing <- selected_biovars[is.na(future_files)]
-    stop("Missing future climate layer(s): ", paste(paste0("BIO", missing), collapse = ", "),
-      ". Add matching future/CMIP6 BIO GeoTIFFs or turn future projection off.",
-      call. = FALSE
-    )
+    stop("Missing future climate layer(s): ", paste(paste0("BIO", missing), collapse = ", "), ". Add matching future/CMIP6 BIO GeoTIFFs or turn future projection off.", call. = FALSE)
   }
+
+  # MESS and prediction must use the exact post-VIF feature set. The caller
+  # supplies a scaled training snapshot; its names are the authoritative model
+  # feature names, so dropped predictors cannot leak back into this projection.
+  mess_input <- if (!is.null(mess_train_data)) mess_train_data else if (!is.null(env$env_train_scaled)) env$env_train_scaled else if (!is.null(env$env_train)) {
+    env$env_train
+  } else stop("MESS training predictors are unavailable; future projection cannot continue", call. = FALSE)
+  required_names <- names(mess_input)
+  if (length(required_names) == 0L) stop("MESS training predictors have no names", call. = FALSE)
+  env_project_raw <- env$env_project %||% env$env_project_for_future
+  if (is.null(env_project_raw)) stop("Current projection predictors are unavailable; future projection cannot continue", call. = FALSE)
 
   log_message(log_fun, "Loading future climate layers from ", future_worldclim_dir)
   future_climate <- cmip6_load_future_covariates(
-    cmip6_dir = future_worldclim_dir,
-    selected_biovars = selected_biovars,
-    training_extent = projection_extent,
-    projection_extent = projection_extent,
-    aggregation_factor = aggregation_factor,
-    log_fun = log_fun
+    cmip6_dir = future_worldclim_dir, selected_biovars = selected_biovars,
+    training_extent = projection_extent, projection_extent = projection_extent,
+    aggregation_factor = aggregation_factor, log_fun = log_fun
   )
-
   future_project <- future_climate$env_future
-  static_names <- setdiff(names(env$env_project), names(future_project))
-  if (length(static_names) > 0) {
+  static_names <- setdiff(required_names, names(future_project))
+  if (length(static_names) > 0L) {
+    missing_static <- setdiff(static_names, names(env_project_raw))
+    if (length(missing_static) > 0L) stop("Future projection is missing static covariate layer(s): ", paste(missing_static, collapse = ", "), call. = FALSE)
     log_message(log_fun, "Reusing current static covariates for future projection: ", paste(static_names, collapse = ", "))
-    future_project <- c(future_project, env$env_project[[static_names]])
+    future_project <- c(future_project, env_project_raw[[static_names]])
   }
-
-  required_names <- names(env$env_project)
   missing_names <- setdiff(required_names, names(future_project))
-  if (length(missing_names) > 0) {
-    stop("Future projection is missing covariate layer(s): ", paste(missing_names, collapse = ", "), call. = FALSE)
-  }
+  if (length(missing_names) > 0L) stop("Future projection is missing covariate layer(s): ", paste(missing_names, collapse = ", "), call. = FALSE)
   future_project <- future_project[[required_names]]
+
+  # The future climate is raw; transform it with the same training means and
+  # sds used by the fitted model before both prediction and MESS.
   future_scaled <- scale_raster_stack(future_project, env$means[required_names], env$sds[required_names])
+  if (!identical(sort(names(mess_input)), sort(names(future_scaled)))) stop("MESS training and future predictors have incompatible names", call. = FALSE)
+  mess_result <- compute_mess(mess_input, future_scaled)
+
+  output_stem <- sub("\\.tif$", "", output_future_tif)
+  output_stem <- sub("_suitability$", "", output_stem)
+  output_mess_tif <- paste0(output_stem, "_mess.tif")
+  output_mod_tif <- paste0(output_stem, "_mod.tif")
+  terra::writeRaster(mess_result$mess, output_mess_tif, overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+  terra::writeRaster(compute_mod(mess_result$per_variable), output_mod_tif, overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"), datatype = "INT1U"))
 
   if (!is.null(fit$model$components) && length(fit$model$components) >= 2) {
     log_message(log_fun, "Using multi-model ensemble prediction for future projection")
@@ -59,52 +76,35 @@ project_future_suitability <- function(fit, current_suitability, env, future_wor
   } else {
     future_suitability <- predict_sdm_model(fit, future_scaled, output_future_tif, n_cores, log_fun)
   }
+
+  mask_applied <- isTRUE(mask_extrapolation)
+  masked_cells <- 0L
+  if (mask_applied) {
+    mask <- mess_result$mess < mess_threshold
+    masked_count <- terra::global(mask, "sum", na.rm = TRUE)[1, 1]
+    if (is.finite(masked_count)) masked_cells <- as.integer(masked_count)
+    future_suitability <- terra::ifel(mask, NA, future_suitability)
+    names(future_suitability) <- "suitability"
+  }
   delta <- future_suitability - current_suitability
   names(delta) <- "suitability_delta"
-  terra::writeRaster(delta, output_delta_tif,
-    overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999"))
-  )
-
-  log_message(log_fun, "Computing MESS extrapolation surface")
-  # Use the explicitly-passed mess_train_data snapshot when available; fall back
-  # to env$env_train for backwards compatibility. Caller is responsible for taking
-  # the snapshot before NULL-ing env$env_train downstream.
-  mess_input <- if (!is.null(mess_train_data)) mess_train_data else env$env_train
-  mess_result <- compute_mess(mess_input, future_project)
-
-  output_mess_tif <- sub("_future_suitability\\.tif$", "_future_mess.tif", output_future_tif)
-  output_mod_tif <- sub("_future_suitability\\.tif$", "_future_mod.tif", output_future_tif)
-
-  terra::writeRaster(mess_result$mess, output_mess_tif,
-    overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999"))
-  )
-
-  mod_raster <- compute_mod(mess_result$per_variable)
-  terra::writeRaster(mod_raster, output_mod_tif,
-    overwrite = TRUE,
-    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES"), datatype = "INT1U")
-  )
+  terra::writeRaster(future_suitability, output_future_tif, overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
+  terra::writeRaster(delta, output_delta_tif, overwrite = TRUE,
+    wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
 
   log_message(log_fun, sprintf("MESS: %.1f%% of cells extrapolate beyond training envelope", mess_result$pct_extrapolation * 100))
-
+  if (mask_applied) log_message(log_fun, "MESS mask applied at threshold ", mess_threshold, ": ", masked_cells, " cell(s) masked")
+  else log_message(log_fun, "MESS mask disabled; no extrapolation cells were masked")
   gc(verbose = FALSE)
 
   list(
-    suitability = future_suitability,
-    delta = delta,
-    summary = sdm_step("summarise-future",
-      summarise_suitability(future_suitability, log_fun = log_fun)
-    ),
+    suitability = future_suitability, delta = delta,
+    summary = sdm_step("summarise-future", summarise_suitability(future_suitability, log_fun = log_fun)),
     files = future_files,
-    paths = list(
-      future_tif = output_future_tif, delta_tif = output_delta_tif,
-      mess_tif = output_mess_tif, mod_tif = output_mod_tif
-    ),
-    mess = list(
-      pct_extrapolation = mess_result$pct_extrapolation
-    )
+    paths = list(future_tif = output_future_tif, delta_tif = output_delta_tif, mess_tif = output_mess_tif, mod_tif = output_mod_tif),
+    mess = list(pct_extrapolation = mess_result$pct_extrapolation, mask_applied = mask_applied,
+                mask_threshold = mess_threshold, masked_cells = masked_cells)
   )
 }
 
