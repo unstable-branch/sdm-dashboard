@@ -101,7 +101,6 @@ test_that("compute_mess handles constant predictors and missing multivariate cel
   result <- compute_mess(train, proj)
   expect_equal(as.numeric(terra::values(result$per_variable$constant)), c(100, -100, NA_real_), tolerance = 1e-8)
   expect_equal(as.numeric(terra::values(result$mess)), c(200 / 3, -100, 200 / 3), tolerance = 1e-8)
-  expect_true(all(is.na(terra::values(result$mess)[2])))
 })
 
 test_that("future projection masks exported suitability and delta at strict MESS threshold", {
@@ -122,7 +121,7 @@ test_that("future projection masks exported suitability and delta at strict MESS
   cmip6_load_future_covariates <<- function(...) {
     r <- terra::rast(nrows = 1, ncols = 3)
     names(r) <- "bio1"
-    terra::values(r) <- c(-1, 5, 11)
+    terra::values(r) <- c(-5, 5, 11)
     list(env_future = r)
   }
   predict_sdm_model <<- function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
