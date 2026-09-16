@@ -99,7 +99,7 @@ test_that("compute_mess handles constant predictors and missing multivariate cel
   terra::values(proj) <- cbind(c(5, 6, 5), c(10, NA, 15))
 
   result <- compute_mess(train, proj)
-  expect_equal(as.numeric(terra::values(result$per_variable$constant)), c(100, -100, NA_real_), tolerance = 1e-8)
+  expect_equal(as.numeric(terra::values(result$per_variable$constant)), c(100, -100, 100), tolerance = 1e-8)
   expect_equal(as.numeric(terra::values(result$mess)), c(200 / 3, -100, 200 / 3), tolerance = 1e-8)
 })
 
@@ -267,8 +267,8 @@ test_that("MESS and MOD exports remain distinct for both future scenarios", {
     output_future_tif = file.path(out, "sp_future2_suitability.tif"),
     output_delta_tif = file.path(out, "sp_future2_delta.tif"), mask_extrapolation = FALSE,
     mess_train_data = train)
-  expect_match(first$paths$mess_tif, "sp_future_mess\\\\.tif$")
-  expect_match(second$paths$mess_tif, "sp_future2_mess\\\\.tif$")
+  expect_match(first$paths$mess_tif, "sp_future_mess\\.tif$")
+  expect_match(second$paths$mess_tif, "sp_future2_mess\\.tif$")
   expect_false(identical(first$paths$mess_tif, second$paths$mess_tif))
   expect_true(file.exists(first$paths$mess_tif))
   expect_true(file.exists(first$paths$mod_tif))
