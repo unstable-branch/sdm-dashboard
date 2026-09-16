@@ -21,8 +21,15 @@ ensemble_model_weights <- function(glm_fit, rangebag_fit, weighting = sdm_defaul
     value <- suppressWarnings(as.numeric(fit$cv[[name]][1]))
     if (is.finite(value) && value > 0) value else fallback
   }
+  auc_evidence <- function(fit) {
+    value <- suppressWarnings(as.numeric(fit$cv$auc_mean[1]))
+    if (!is.finite(value)) return(0)
+    # Match multi-ensemble semantics: only fixed-direction discrimination
+    # above random contributes evidence. Never use 1 - AUC for reversal.
+    max(min(value, 1) - 0.5, 0)
+  }
   raw <- if (identical(weighting, "auc")) {
-    c(glm = metric(glm_fit, "auc_mean"), rangebag = metric(rangebag_fit, "auc_mean"))
+    c(glm = auc_evidence(glm_fit), rangebag = auc_evidence(rangebag_fit))
   } else {
     c(glm = max(metric(glm_fit, "tss_mean", 0), 0), rangebag = max(metric(rangebag_fit, "tss_mean", 0), 0))
   }
