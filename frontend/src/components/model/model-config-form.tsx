@@ -35,6 +35,8 @@ interface ModelConfigFormProps {
 export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence, onSubmit, loading }: ModelConfigFormProps) {
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>(MODEL_BACKENDS);
   const species = useSDMStore((s) => s.species) || "Untitled species";
+  const rawAssetId = useSDMStore((s) => s.rawAssetId);
+  const cleanedAssetId = useSDMStore((s) => s.cleanedAssetId);
   const setSpecies = useSDMStore((s) => s.setSpecies);
   const storeDetectedSpecies = useSDMStore((s) => s.detectedSpecies);
   const workspaceFiles = useSDMStore((s) => s.workspaceFiles);
@@ -379,8 +381,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     if (cleanedOccurrence && cleanedOccurrence.validRecords === 0) { setError("Cleaned data has 0 valid records. Cannot run model."); return; }
     const extent = extentPreset === "custom" ? customExtent : EXTENT_PRESETS[extentPreset]?.extent;
     if (!extent) { setError("Invalid extent preset"); return; }
-    const useCleaned = cleanedOccurrence && cleanedOccurrence.filePath;
-
+    const occurrenceAssetId = cleanedAssetId || rawAssetId;
+    if (!occurrenceAssetId) { setError("Select a canonical occurrence asset before running the model."); return; }
     // For multi-species models, join species names with comma
     let speciesText = multispeciesText;
     if (!speciesText.trim()) {
@@ -473,8 +475,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       aggregationFactor,
       nCores,
       seed,
-      occurrenceFile: useCleaned ? cleanedOccurrence!.filePath : (occurrenceFile || undefined),
-      cleanedFilePath: useCleaned ? cleanedOccurrence!.filePath : undefined,
+      occurrenceAssetId,
       source: climateSource,
       worldclimRes: climateRes,
       autoDownloadClimate,
@@ -1051,7 +1052,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
       <button
         onClick={handleSubmit}
-        disabled={loading || !(occurrenceFile || cleanedOccurrence?.filePath) || biovars.length < 2}
+        disabled={loading || !(cleanedAssetId || rawAssetId) || biovars.length < 2}
         className="w-full rounded-md bg-sdm-accent px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading

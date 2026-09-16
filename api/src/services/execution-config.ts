@@ -57,6 +57,7 @@ export class UnsafeExecutionConfigError extends Error {
 
 export const CAMEL_TO_SNAKE: Record<string, string> = {
   modelId: "model_id",
+  occurrenceAssetId: "occurrence_asset_id",
   threshold: "threshold",
   source: "source",
   seed: "seed",
@@ -114,8 +115,6 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   maxnetFeatures: "maxnet_features",
   maxnetRegmult: "maxnet_regmult",
   aggregationFactor: "aggregation_factor",
-  occurrenceFile: "occurrence_file",
-  cleanedFilePath: "cleaned_file_path",
   extrapolationMask: "extrapolation_mask",
   messThreshold: "mess_threshold",
   dnnArchitecture: "dnn_model_type",
@@ -217,7 +216,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
 
 /** Explicitly persisted/executed model configuration keys. */
 export const SAFE_MODEL_CONFIG_KEYS = new Set<string>([
-  "species", "speciesFilter", "modelId", "biovars", "projectionExtent", "trainingExtent",
+  "species", "speciesFilter", "modelId", "occurrenceAssetId", "biovars", "projectionExtent", "trainingExtent",
   "threshold", "source", "seed",
   ...Object.keys(CAMEL_TO_SNAKE),
 ]);

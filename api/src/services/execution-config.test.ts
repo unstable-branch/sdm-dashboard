@@ -42,11 +42,11 @@ describe("execution config boundary", () => {
 
   it("revalidates historical configs before retry and preserves bounded tuning", () => {
     expect(revalidateHistoricalConfig({
-      species: "Test species", model_id: "glm", biovars: "1,4,6", threshold: 0.5,
+      species: "Test species", model_id: "glm", biovars: "1,4,6", occurrence_asset_id: "00000000-0000-0000-0000-000000000101", threshold: 0.5,
       enmeval_tune_args: { fc: ["L"], rm: [1] },
     })).toMatchObject({ modelId: "glm", biovars: [1, 4, 6], enmevalTuneArgs: { fc: ["L"], rm: [1] } });
     expect(() => revalidateHistoricalConfig({
-      species: "Test species", model_id: "glm", biovars: [1, 4, 6],
+      species: "Test species", model_id: "glm", biovars: [1, 4, 6], occurrence_asset_id: "00000000-0000-0000-0000-000000000101",
       enmeval_tune_args: { api_key: "synthetic-sentinel" },
     })).toThrow();
   });

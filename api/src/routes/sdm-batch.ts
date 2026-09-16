@@ -10,7 +10,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
-import { buildModelPayload, type ModelConfigRecord } from "../services/model-payload.js";
+import { resolveModelInputAsset, resolveTargetsConfigs, ModelInputAssetError } from "../services/model-payload.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import { projectSafeScienceConfig, revalidateHistoricalConfig, publicConfigValidationError, UnsafeExecutionConfigError, findForbiddenConfigKey } from "../services/execution-config.js";
@@ -181,6 +181,7 @@ sdmBatchRoutes.post("/cancel-all", async (c) => {
 });
 
 sdmBatchRoutes.post("/batch", async (c) => {
+  let createdBatchId: string | null = null;
   try {
     const body = await c.req.json().catch(() => null);
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
@@ -208,6 +209,9 @@ sdmBatchRoutes.post("/batch", async (c) => {
     }
     const safeConfigs = parsedConfigs.map((parsed) => projectSafeScienceConfig(parsed.data));
     const projectId = await ensureDefaultProject(user);
+    // Preflight before persistence; dispatch below resolves again so no stale
+    // server path survives an intervening asset change.
+    await resolveTargetsConfigs(safeConfigs, { id: user.id, role: user.role }, projectId);
 
     const [batch] = await db
       .insert(batches)
@@ -219,16 +223,9 @@ sdmBatchRoutes.post("/batch", async (c) => {
         status: "running",
       })
       .returning();
+    createdBatchId = batch.id;
 
-    const plumberPayload = await plumberClient.targetsRun({ configs: safeConfigs });
-
-    const targetsJobId = plumberPayload.job_id as string | undefined;
-
-    if (!targetsJobId) {
-      throw new Error("Targets pipeline did not return a job ID");
-    }
-
-    // Create per-species run records so batch status/cancel/retry can work
+    // Persist recoverable child lifecycle records before external dispatch.
     const runRecords = safeConfigs.map((config) => ({
       projectId,
       parentRunId: batch.id,
@@ -236,17 +233,18 @@ sdmBatchRoutes.post("/batch", async (c) => {
       modelId: config.modelId as string,
       config,
       status: "queued" as const,
-      jobId: targetsJobId,
+      jobId: null,
     }));
+    if (runRecords.length > 0) await db.insert(runs).values(runRecords);
 
-    if (runRecords.length > 0) {
-      await db.insert(runs).values(runRecords);
-    }
+    const plumberPayload = await plumberClient.targetsRun({
+      configs: await resolveTargetsConfigs(safeConfigs, { id: user.id, role: user.role }, projectId),
+    });
+    const targetsJobId = plumberPayload.job_id as string | undefined;
+    if (!targetsJobId) throw new Error("Targets pipeline did not return a job ID");
 
-    await db
-      .update(batches)
-      .set({ jobId: targetsJobId })
-      .where(eq(batches.id, batch.id));
+    await db.update(runs).set({ jobId: targetsJobId }).where(eq(runs.parentRunId, batch.id));
+    await db.update(batches).set({ jobId: targetsJobId }).where(eq(batches.id, batch.id));
 
     const client = extractClientInfo(c);
     await logAction({
@@ -265,6 +263,19 @@ sdmBatchRoutes.post("/batch", async (c) => {
       message: `Batch of ${configs.length} configs started via targets pipeline`,
     });
   } catch (err) {
+    if (createdBatchId) {
+      try {
+        await db.update(batches).set({ status: "failed", completedAt: new Date() }).where(eq(batches.id, createdBatchId));
+        await db.update(runs).set({ status: "failed", completedAt: new Date(), error: "Batch dispatch failed" })
+          .where(eq(runs.parentRunId, createdBatchId));
+      } catch {
+        // The request still denies closed if lifecycle repair is unavailable.
+      }
+    }
+    if (err instanceof ModelInputAssetError) {
+      const unavailable = err.reason === "unavailable";
+      return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+    }
     const message = err instanceof Error ? err.message : "Batch run failed";
     return c.json({ error: message }, 500);
   }
@@ -407,6 +418,20 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
       return c.json({ error: "Stored execution configuration is not safe to retry" }, 409);
     }
 
+    // Preflight current principal and canonical assets before cancellation or
+    // run-state mutation. The worker repeats this check at dispatch time,
+    // because queued authorization can change while waiting.
+    try {
+      await Promise.all(retryConfigs.map((config) =>
+        resolveModelInputAsset(config, { id: user.id, role: user.role }, batch.projectId)));
+    } catch (err) {
+      if (err instanceof ModelInputAssetError) {
+        const unavailable = err.reason === "unavailable";
+        return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+      }
+      return c.json({ error: "Input asset not found" }, 404);
+    }
+
     // Check if this batch was a targets pipeline batch (all runs share the same jobId)
     const targetsJobId = batch.jobId;
     const isTargetsBatch = targetsJobId != null && targetsJobId.startsWith("targets-");
@@ -423,7 +448,7 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
       }
 
       // For targets batches, re-submit all failed configs as a new targets run
-      const configs = retryConfigs;
+      const configs = await resolveTargetsConfigs(retryConfigs, { id: user.id, role: user.role }, batch.projectId);
 
       const plumberPayload = await plumberClient.targetsRun({ configs });
       const newTargetsJobId = plumberPayload.job_id as string | undefined;
@@ -461,7 +486,7 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
     await db.update(runs).set({ status: "queued", error: null, jobId: null, bullmqId: null }).where(inArray(runs.id, retriedIds));
     for (const [index, r] of failedRuns.entries()) {
       const queuedJobId = await enqueueSdmJob(
-        { type: "model", payload: buildModelPayload(retryConfigs[index] as ModelConfigRecord, r.id) },
+        { type: "model", payload: { runId: r.id, projectId: batch.projectId, config: retryConfigs[index] } },
         user.id,
       );
       if (queuedJobId) {
@@ -487,6 +512,10 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
 
     return c.json({ ok: true, retried: retriedIds.length, job_ids: retriedIds });
   } catch (err) {
+    if (err instanceof ModelInputAssetError) {
+      const unavailable = err.reason === "unavailable";
+      return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+    }
     const message = err instanceof Error ? err.message : "Batch retry failed";
     return c.json({ error: message }, 500);
   }
