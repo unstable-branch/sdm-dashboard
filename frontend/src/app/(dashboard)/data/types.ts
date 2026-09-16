@@ -8,6 +8,7 @@ export interface OccurrencePoint {
 
 export interface WorkspaceFile {
   id: string;
+  rawAssetId?: string;
   fileId: string;
   fileName: string;
   filePath: string;
@@ -17,6 +18,7 @@ export interface WorkspaceFile {
   fileCleanedFileId?: string;
   selectedSpecies: string[];
   cleanedFileId?: string;
+  cleanedAssetId?: string;
   cleanValidRecords?: number;
   cleanOriginalRows?: number;
   cleanSourceCounts?: Record<string, number>;
