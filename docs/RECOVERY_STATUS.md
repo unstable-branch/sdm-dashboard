@@ -66,3 +66,53 @@ This branch is intentionally not presented as a finished security milestone yet.
 ## Review guidance
 
 Review the commits in order. Each commit is intended to establish one contract and remain understandable independently. Please treat missing integration as an open slice rather than filling it with a permissive compatibility fallback. In particular, do not restore client-controlled paths, stale JWT authority, raw credential fields, ownerless legacy access, or unaudited administrator bypasses.
+
+## Initial recovery checkpoint — 2026-09-16
+
+The first reviewable checkpoint now reaches canonical occurrence upload and cleaning integration. The exact local implementation tip before this documentation update is `97310b3ccac4c40d959b26c9615b3e1db05c3944`. No recovery commits have been pushed at the time of writing.
+
+### Included commits
+
+- `3f16d7a` ci: restore trustworthy baseline checks
+- `a1c8607` fix: enforce current session principals
+- `6af5de5` fix: reject secrets from execution config
+- `1c01369` fix: contain execution credentials in R runtime
+- `e0f30b4` feat: establish canonical input assets
+- `f52efca` docs: record recovery direction and checkpoint
+- `97310b3` security: bind occurrence flows to canonical assets
+
+### What this checkpoint establishes
+
+- deterministic baseline and release hygiene
+- hardened sessions, authentication and current-principal checks
+- secret-free TypeScript and R/Plumber ingress, persistence and egress
+- canonical UUID input assets with scope, state, immutable identity and lineage
+- occurrence uploads, generated data and cleaning jobs using opaque canonical asset IDs
+- durable async cleaning ownership and canonical cleaned-asset finalization
+- fail-closed project membership, storage containment, deletion quarantine and failed-output cleanup
+- frontend state migrated away from raw server filesystem locators for occurrence workflows
+
+### Verification
+
+- complete Node gate passed: shared build; API/frontend typecheck, lint, tests and production builds
+- API: 34 files / 347 tests passed after final lifecycle/accounting repair
+- frontend: 27 files / 209 tests passed
+- shared contracts: 152 tests passed
+- focused canonical occurrence/asset regressions: 36 tests passed
+- PostgreSQL 17: migrations 0038 and 0039 applied successfully and 0039 replayed idempotently
+- diff hygiene and production raw-path exposure scans passed
+- lint exits successfully with pre-existing warning debt
+- full locked R verification remains unavailable because the local `renv` library is missing required packages; focused R security and release gates are recorded separately and this limitation is not represented as a passing full-suite result
+
+### Collaboration and integration
+
+Jacob's current work is distributed across separate branches and `dev` is the intended integration line. This recovery branch must be published in isolation, reviewed against the live branch inventory, and proposed as a draft PR to `dev` only after active Jacob branches and any required non-force dev reconciliation are confirmed. Do not reset, overwrite, force-push or delete those branches. `main` remains a later stable-release destination.
+
+### Still open after this checkpoint
+
+- replace remaining model and targets path-based consumers with canonical asset IDs
+- finish execution authorization across all consumers and workers
+- repair and verify scientific correctness findings
+- implement immutable provenance and tamper-evident run identity
+- finish lifecycle, retention, scale and operational acceptance
+- restore the locked R environment and run the complete R suite
