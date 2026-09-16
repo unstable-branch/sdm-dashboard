@@ -26,6 +26,10 @@ compute_multi_ensemble_weights <- function(cv_list, weighting = "auc", power = 2
     v <- suppressWarnings(as.numeric(x[[metric]][1]))
     if (is.finite(v)) v else 0.5
   }, numeric(1))
+  # AUC has a fixed model direction. Only discrimination above random may
+  # contribute to AUC weights; in particular, an inverted component (AUC <
+  # 0.5, including AUC = 0) must never be promoted by taking 1 - AUC.
+  vals <- pmin(pmax(vals, 0), 1)
   vals[vals < 0.5] <- 0.5
   if (identical(weighting, "auc")) {
     vals <- vals - 0.5
