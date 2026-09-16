@@ -10,7 +10,12 @@
 // ── Plumber upload response (hand-written; consumed by api/src/routes/occurrences.ts + examples.ts) ─
 // If Plumber's @response shape changes, update this to match.
 export interface PlumberUploadResponse {
+  /** Opaque canonical raw asset ID assigned by the API after durable registration. */
+  rawAssetId?: string;
+  raw_asset_id?: string;
+  /** @deprecated Compatibility-only path. Never use as canonical identity. */
   file_id: string;
+  /** @deprecated Compatibility-only path. Never use as canonical identity. */
   file_path: string;
   filename: string;
   format: string;

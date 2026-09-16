@@ -9,6 +9,9 @@ interface SDMState {
   occurrenceFilePath: string | null;
   setOccurrenceFilePath: (path: string | null) => void;
 
+  rawAssetId: string | null;
+  setRawAssetId: (id: string | null) => void;
+
   recordCount: number;
   setRecordCount: (count: number) => void;
 
@@ -17,6 +20,7 @@ interface SDMState {
 
   cleanedOccurrence: {
     filePath: string;
+    cleanedAssetId?: string;
     df: Record<string, unknown>[];
     sourceCounts: Record<string, number>;
     nAbsentExcluded: number;
@@ -24,6 +28,9 @@ interface SDMState {
     validRecords: number;
   } | null;
   setCleanedOccurrence: (data: SDMState["cleanedOccurrence"]) => void;
+
+  cleanedAssetId: string | null;
+  setCleanedAssetId: (id: string | null) => void;
 
   occurrenceData: Record<string, unknown>[] | null;
   setOccurrenceData: (data: Record<string, unknown>[] | null) => void;
@@ -76,6 +83,9 @@ export const useSDMStore = create<SDMState>()(
   occurrenceFilePath: null,
   setOccurrenceFilePath: (path) => set({ occurrenceFilePath: path }),
 
+  rawAssetId: null,
+  setRawAssetId: (id) => set({ rawAssetId: id }),
+
   recordCount: 0,
   setRecordCount: (count) => set({ recordCount: count }),
 
@@ -84,6 +94,9 @@ export const useSDMStore = create<SDMState>()(
 
   cleanedOccurrence: null,
   setCleanedOccurrence: (data) => set({ cleanedOccurrence: data }),
+
+  cleanedAssetId: null,
+  setCleanedAssetId: (id) => set({ cleanedAssetId: id }),
 
   occurrenceData: null,
   setOccurrenceData: (data) => set({ occurrenceData: data }),
@@ -125,9 +138,11 @@ export const useSDMStore = create<SDMState>()(
     set({
       species: "Untitled species",
       occurrenceFilePath: null,
+      rawAssetId: null,
       recordCount: 0,
       pipelineRunId: null,
       cleanedOccurrence: null,
+      cleanedAssetId: null,
       occurrenceData: null,
       uploadResult: null,
       cleanResult: null,
@@ -145,10 +160,31 @@ export const useSDMStore = create<SDMState>()(
     }),
     {
       name: "sdm-store",
+      version: 2,
+      migrate: (persisted: unknown, version: number) => {
+        const state = (persisted || {}) as Record<string, unknown>;
+        if (version < 2) {
+          // Path-only selections cannot be safely reassigned to a canonical
+          // owner after logout/session recovery. Force a fresh upload.
+          return {
+            ...state,
+            occurrenceFilePath: null,
+            rawAssetId: null,
+            cleanedOccurrence: null,
+            cleanedAssetId: null,
+            uploadResult: null,
+            cleanResult: null,
+            workspaceFiles: [],
+          };
+        }
+        return state;
+      },
       partialize: (state) => ({
         species: state.species,
         detectedSpecies: state.detectedSpecies,
         occurrenceFilePath: state.occurrenceFilePath,
+        rawAssetId: state.rawAssetId,
+        cleanedAssetId: state.cleanedAssetId,
         recordCount: state.recordCount,
         uploadResult: state.uploadResult,
         pipelineRunId: state.pipelineRunId,

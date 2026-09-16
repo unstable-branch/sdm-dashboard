@@ -274,6 +274,20 @@ export const inputAssets = pgTable("input_assets", {
   check("input_assets_quarantined_time_ck", sql`"state" <> 'quarantined' OR "quarantined_at" IS NOT NULL`),
 ]);
 
+/** Durable binding between a Plumber clean job and its canonical raw/derived assets. */
+export const occurrenceCleanJobs = pgTable("occurrence_clean_jobs", {
+  jobId: varchar("job_id", { length: 255 }).primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "restrict" }).notNull(),
+  rawAssetId: uuid("raw_asset_id").references(() => inputAssets.id, { onDelete: "restrict" }).notNull(),
+  cleanedAssetId: uuid("cleaned_asset_id").references(() => inputAssets.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("occurrence_clean_jobs_user_idx").on(t.userId),
+  index("occurrence_clean_jobs_raw_asset_idx").on(t.rawAssetId),
+  index("occurrence_clean_jobs_cleaned_asset_idx").on(t.cleanedAssetId),
+]);
+
 /** Unmapped or quarantined legacy rows can never be used as path aliases. */
 export const inputAssetLegacyMappings = pgTable("input_asset_legacy_mappings", {
   id: uuid("id").primaryKey().defaultRandom(),

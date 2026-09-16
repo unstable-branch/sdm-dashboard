@@ -1,10 +1,42 @@
 import { Job } from "bullmq";
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
-import { species, occurrences, projectMembers } from "../db/schema.js";
+import { species, occurrences, users } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
+import { lstat, unlink } from "node:fs/promises";
+import { dirname, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { jobEventBus } from "./job-events.js";
 import { CLIMATE_DOWNLOAD_POLL_INTERVAL_MS, CLIMATE_DOWNLOAD_MAX_ATTEMPTS, SdmJobData, SdmJobResult } from "./queue.js";
+import { InputAssetRegistrationError, registerDerivedInputAssetFromServerPath, resolveInputAsset } from "./input-assets.js";
+
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const UPLOAD_ROOT = resolve(process.env.SDM_INPUT_ASSET_UPLOAD_ROOT || resolve(PROJECT_ROOT, "data", "uploads"));
+
+async function removeCleanerOutput(path: unknown): Promise<void> {
+  if (typeof path !== "string" || !path.startsWith("/")) return;
+  const candidate = resolve(path);
+  if (candidate === UPLOAD_ROOT || !candidate.startsWith(UPLOAD_ROOT + sep)) return;
+  try {
+    const stat = await lstat(candidate);
+    if (!stat.isSymbolicLink() && stat.isFile()) await unlink(candidate);
+  } catch {
+    // The job remains failed; cleanup is best-effort and never follows links.
+  }
+}
+
+async function resolveWorkerRawAsset(rawAssetId: string, userId: string) {
+  const [user] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!user || typeof user.role !== "string") throw new InputAssetRegistrationError("Cleaning principal is unavailable");
+  const resolved = await resolveInputAsset({
+    assetId: rawAssetId,
+    principal: { id: userId, role: user.role },
+    action: "use",
+    expectedKind: "raw_occurrence",
+  });
+  if (!resolved.ok) throw new InputAssetRegistrationError("Raw occurrence asset is unavailable");
+  return resolved;
+}
 
 export async function handleCleanJob(
   job: Job<SdmJobData, SdmJobResult>,
@@ -12,6 +44,15 @@ export async function handleCleanJob(
   userId: string | undefined,
 ): Promise<SdmJobResult> {
   const { payload } = job.data;
+  if (!userId) throw new InputAssetRegistrationError("Cleaning principal is unavailable");
+  const rawAssetId = typeof payload.rawAssetId === "string"
+    ? payload.rawAssetId
+    : typeof payload.raw_asset_id === "string" ? payload.raw_asset_id : null;
+  if (!rawAssetId) throw new InputAssetRegistrationError("Canonical rawAssetId is required for clean jobs");
+  if (typeof payload.file_id === "string" || typeof payload.file_path === "string") {
+    throw new InputAssetRegistrationError("Path-based clean jobs are no longer supported");
+  }
+  const rawAsset = await resolveWorkerRawAsset(rawAssetId, userId);
 
   await job.updateProgress(20);
   jobEventBus.emitJobStatus({
@@ -21,7 +62,7 @@ export async function handleCleanJob(
   });
 
   const cleanRes = await client.cleanOccurrences({
-    file_id: payload.file_id as string,
+    file_id: rawAsset.absolutePath,
     min_source_records: Number(payload.min_source_records) || 15,
     merge_small_sources: payload.merge_small_sources !== false,
     use_cc: Boolean(payload.use_cc),
@@ -53,77 +94,101 @@ export async function handleCleanJob(
         if (runStatus === "completed") {
           cleanCompleted = true;
           const cleanResult = cleanStatus.result as Record<string, unknown> | undefined;
+          let finalizedResult: Record<string, unknown> = cleanStatus;
 
           if (cleanResult) {
-            const speciesName = (payload.species as string) || "Untitled species";
-            const pipelineRunId = (payload.pipelineRunId as string) || null;
+            const cleanedPath = cleanResult.cleaned_file_id;
+            if (typeof cleanedPath !== "string" || !cleanedPath.startsWith("/")) {
+              throw new InputAssetRegistrationError("Cleaner returned no server-owned output");
+            }
+            let cleanedAsset;
+            try {
+              cleanedAsset = await registerDerivedInputAssetFromServerPath({
+                creatorUserId: userId,
+                actorUserId: userId,
+                scope: rawAsset.asset.scope === "project" ? "project" : "private",
+                projectId: rawAsset.asset.projectId,
+                kind: "cleaned_occurrence",
+                parentAssetId: rawAssetId,
+                absolutePath: cleanedPath,
+              });
+            } catch (error) {
+              await removeCleanerOutput(cleanedPath);
+              throw error;
+            }
+            const publicCleanResult = { ...cleanResult };
+            delete publicCleanResult.file_id;
+            delete publicCleanResult.file_path;
+            delete publicCleanResult.cleaned_file_id;
+            delete publicCleanResult.cleaned_file_path;
+            finalizedResult = {
+              ...publicCleanResult,
+              rawAssetId,
+              raw_asset_id: rawAssetId,
+              cleanedAssetId: cleanedAsset.id,
+              cleaned_asset_id: cleanedAsset.id,
+            };
 
-            if (userId) {
-              const [membership] = await db
-                .select({ projectId: projectMembers.projectId })
-                .from(projectMembers)
-                .where(eq(projectMembers.userId, userId))
+            // Private assets intentionally remain outside project occurrence
+            // tables. Project rows are written only for an explicitly
+            // project-scoped parent, never by selecting a user's first project.
+            const projectId = rawAsset.asset.scope === "project" ? rawAsset.asset.projectId : null;
+            if (projectId) {
+              const speciesName = (payload.species as string) || "Untitled species";
+              const pipelineRunId = (payload.pipelineRunId as string) || null;
+              let [sp] = await db
+                .select()
+                .from(species)
+                .where(and(eq(species.name, speciesName), eq(species.projectId, projectId)))
                 .limit(1);
 
-              const projectId = membership?.projectId;
+              if (!sp) {
+                [sp] = await db
+                  .insert(species)
+                  .values({ name: speciesName, projectId, occurrenceCount: 0, userId })
+                  .returning();
+              }
 
-              if (projectId) {
-                let [sp] = await db
-                  .select()
-                  .from(species)
-                  .where(and(eq(species.name, speciesName), eq(species.projectId, projectId)))
-                  .limit(1);
+              const cleanedRecords = finalizedResult.cleaned_records as Array<Record<string, unknown>> | undefined;
+              const validRecords = (cleanedRecords || []).filter(
+                (r) => typeof r.longitude === "number" && typeof r.latitude === "number" && isFinite(r.longitude) && isFinite(r.latitude)
+              );
 
-                if (!sp) {
-                  [sp] = await db
-                    .insert(species)
-                    .values({ name: speciesName, projectId, occurrenceCount: 0, userId })
-                    .returning();
+              if (sp && validRecords.length > 0) {
+                const recordsToInsert = validRecords.map((row) => ({
+                  speciesId: sp.id,
+                  projectId,
+                  userId,
+                  filePath: cleanedPath,
+                  pipelineRunId,
+                  longitude: Number(row.longitude),
+                  latitude: Number(row.latitude),
+                  source: (row.source as string) || null,
+                  flagged: Boolean((row as { flagged?: unknown }).flagged || (row as { cc_flag?: unknown }).cc_flag),
+                  cleaned: true,
+                  raw: row,
+                }));
+
+                const BATCH_SIZE = 500;
+                for (let i = 0; i < recordsToInsert.length; i += BATCH_SIZE) {
+                  await db.insert(occurrences).values(recordsToInsert.slice(i, i + BATCH_SIZE));
                 }
 
-                const cleanedRecords = cleanResult.cleaned_records as Array<Record<string, unknown>> | undefined;
-                const validRecords = (cleanedRecords || []).filter(
-                  (r) => typeof r.longitude === "number" && typeof r.latitude === "number" && isFinite(r.longitude) && isFinite(r.latitude)
-                );
-
-                if (validRecords.length > 0) {
-                  const recordsToInsert = validRecords.map((row) => ({
-                    speciesId: sp.id,
-                    projectId,
-                    userId,
-                    filePath: (cleanResult.cleaned_file_id as string) || null,
-                    pipelineRunId,
-                    longitude: Number(row.longitude),
-                    latitude: Number(row.latitude),
-                    source: (row.source as string) || null,
-                    flagged: Boolean((row as { flagged?: unknown }).flagged || (row as { cc_flag?: unknown }).cc_flag),
-                    cleaned: true,
-                    raw: row,
-                  }));
-
-                  const BATCH_SIZE = 500;
-                  for (let i = 0; i < recordsToInsert.length; i += BATCH_SIZE) {
-                    const batch = recordsToInsert.slice(i, i + BATCH_SIZE);
-                    await db.insert(occurrences).values(batch);
-                  }
-
-                  await db
-                    .update(species)
-                    .set({ occurrenceCount: (sp.occurrenceCount || 0) + recordsToInsert.length })
-                    .where(eq(species.id, sp.id));
-                }
+                await db
+                  .update(species)
+                  .set({ occurrenceCount: (sp.occurrenceCount || 0) + recordsToInsert.length })
+                  .where(eq(species.id, sp.id));
               }
             }
           }
-
           await job.updateProgress(100);
           jobEventBus.emitJobStatus({
             jobId: job.id!,
             state: "completed",
             progress: 100,
-            result: cleanResult || cleanStatus,
+            result: finalizedResult,
           });
-          return { status: "success", data: cleanResult || cleanStatus };
+          return { status: "success", data: finalizedResult };
         } else if (runStatus === "failed") {
           cleanCompleted = true;
           const cleanError = (cleanStatus.error as string) || "Clean job failed";
@@ -139,6 +204,7 @@ export async function handleCleanJob(
           return { status: "error", error: cleanError, error_code: cleanErrCode ?? null, error_hint: cleanErrHint ?? null };
         }
       } catch (pollErr) {
+        if (pollErr instanceof InputAssetRegistrationError) throw pollErr;
         const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr);
         console.warn(`[queue] Polling error for clean job ${job.id}: ${pollMsg}`);
       }

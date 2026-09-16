@@ -38,6 +38,10 @@ vi.mock("fs", () => ({
 vi.mock("fs/promises", () => ({
   stat: vi.fn(() => Promise.resolve({ size: 1024, mtimeMs: 123456789 })),
   readFile: vi.fn(() => Promise.resolve(Buffer.from("test content"))),
+  // Keep the mock compatible with the canonical input-asset resolver, which
+  // is imported transitively by queue workers during the full test run.
+  lstat: vi.fn(() => Promise.resolve({ isSymbolicLink: () => false, isFile: () => true })),
+  realpath: vi.fn((path: string) => Promise.resolve(path)),
 }));
 
 vi.mock("../middleware/auth", () => ({

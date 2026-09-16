@@ -32,7 +32,7 @@ export function WorkspaceCard({
     transition,
   };
 
-  const isCleaned = !!item.cleanedFileId;
+  const isCleaned = !!item.cleanedAssetId;
   const [savingExample, setSavingExample] = useState(false);
   const [savedExampleName, setSavedExampleName] = useState<string | null>(null);
 
@@ -41,8 +41,8 @@ export function WorkspaceCard({
     setSavedExampleName(null);
     try {
       const res = await apiPost<{ name: string }>("/api/v1/data/examples/save", {
-        file_id: item.fileId,
-        cleaned_file_id: item.cleanedFileId || undefined,
+        rawAssetId: item.rawAssetId,
+        cleanedAssetId: item.cleanedAssetId,
         metadata: {
           n_species: item.selectedSpecies.length,
           n_records: item.fileRows,

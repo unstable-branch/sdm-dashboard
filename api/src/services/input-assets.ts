@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -100,6 +100,22 @@ export interface RegisterSystemInputAssetInput {
 
 export interface RegisterDerivedInputAssetInput extends RegisterInputAssetInput {
   parentAssetId: string;
+  /** Principal performing the derivation; distinct from immutable child creator metadata. */
+  actorUserId?: string;
+}
+
+export interface RegisterServerPathInput {
+  creatorUserId: string;
+  scope: Exclude<InputAssetScope, "system">;
+  kind: InputAssetKind;
+  projectId?: string | null;
+  absolutePath: string;
+  contentSha256?: string;
+}
+
+export interface RegisterDerivedServerPathInput extends RegisterServerPathInput {
+  parentAssetId: string;
+  actorUserId?: string;
 }
 
 export interface ResolveInputAssetOptions {
@@ -227,8 +243,13 @@ async function assertRegistrationParent(
 ): Promise<void> {
   if (!isUuid(input.parentAssetId)) throw new InputAssetRegistrationError("Invalid parent asset");
   const [parent] = await database.select().from(inputAssets).where(eq(inputAssets.id, input.parentAssetId)).limit(1);
-  if (!parent || parent.state !== "ready" || parent.creatorUserId !== input.creatorUserId) {
+  if (!parent || parent.state !== "ready") {
     throw new InputAssetRegistrationError("Parent asset is not available");
+  }
+  const actorUserId = input.actorUserId || input.creatorUserId;
+  if (!isUuid(actorUserId)) throw new InputAssetRegistrationError("Invalid derivative actor");
+  if (parent.scope === "private" && (parent.creatorUserId !== actorUserId || input.creatorUserId !== actorUserId)) {
+    throw new InputAssetRegistrationError("Private parent asset is not available to this actor");
   }
   if (input.scope !== parent.scope || (input.projectId ?? null) !== (parent.projectId ?? null)) {
     throw new InputAssetRegistrationError("Derived asset scope does not match its parent");
@@ -252,6 +273,9 @@ async function register(
   if (scope !== "project" && scopedInput.projectId != null) throw new InputAssetRegistrationError("Private/system assets cannot name a project");
 
   const roots = dependencies.roots || defaultRoots();
+  if (scope === "system" && input.root !== "system") {
+    throw new InputAssetRegistrationError("System assets must use the configured system root");
+  }
   const locator = makeInputAssetLocator(input.root, input.relativePath, roots);
   if (!locator) throw new InputAssetRegistrationError("Invalid server-owned storage locator");
   const fs = dependencies.fs || fileSystem;
@@ -274,9 +298,12 @@ async function register(
       await assertRegistrationParent(database, { ...scopedInput, parentAssetId });
     }
     if (scope === "project") {
+      const authorizationUserId = parentAssetId && "actorUserId" in input && typeof input.actorUserId === "string"
+        ? input.actorUserId
+        : input.creatorUserId;
       const [membership] = await database.select({ role: projectMembers.role })
         .from(projectMembers)
-        .where(and(eq(projectMembers.projectId, projectId as string), eq(projectMembers.userId, input.creatorUserId)))
+        .where(and(eq(projectMembers.projectId, projectId as string), eq(projectMembers.userId, authorizationUserId)))
         .limit(1);
       if (!membership || !["editor", "admin"].includes(membership.role)) {
         throw new InputAssetRegistrationError("Asset creator cannot add project inputs");
@@ -299,9 +326,25 @@ async function register(
       contentSha256: identity.contentSha256,
       contentSize: identity.contentSize,
     };
-    const [asset] = await database.insert(inputAssets).values(values).returning();
-    if (!asset) throw new InputAssetRegistrationError("Input asset was not registered");
-    return asset;
+    const [asset] = await database.insert(inputAssets).values(values)
+      .onConflictDoNothing({ target: inputAssets.storageLocator })
+      .returning();
+    if (asset) return asset;
+
+    const [existing] = await database.select().from(inputAssets)
+      .where(eq(inputAssets.storageLocator, locator)).limit(1);
+    if (!existing
+      || existing.state !== "ready"
+      || existing.creatorUserId !== values.creatorUserId
+      || existing.scope !== values.scope
+      || existing.kind !== values.kind
+      || existing.projectId !== values.projectId
+      || existing.parentAssetId !== values.parentAssetId
+      || existing.contentSha256 !== values.contentSha256
+      || existing.contentSize !== values.contentSize) {
+      throw new InputAssetRegistrationError("Input asset locator is already registered with different identity");
+    }
+    return existing;
   } catch (error) {
     if (error instanceof InputAssetRegistrationError) throw error;
     throw new InputAssetRegistrationError("Input asset registration failed");
@@ -316,6 +359,84 @@ export async function registerInputAsset(input: RegisterInputAssetInput, depende
 /** Register a derivative after verifying its immutable parent and scope. */
 export async function registerDerivedInputAsset(input: RegisterDerivedInputAssetInput, dependencies: InputAssetDependencies = {}): Promise<InputAssetRow> {
   return register(input, dependencies, false, input.parentAssetId);
+}
+
+/**
+ * Translate a path produced by this server (or its colocated Plumber worker)
+ * into a canonical root/relative locator.  This is intentionally separate
+ * from the HTTP request shape: callers must obtain the path from a server
+ * producer, never from a client field.  The registration path re-checks the
+ * realpath, every component, and the content identity before inserting.
+ */
+export async function registerInputAssetFromServerPath(
+  input: RegisterServerPathInput,
+  dependencies: InputAssetDependencies = {},
+): Promise<InputAssetRow> {
+  if (typeof input.absolutePath !== "string" || !input.absolutePath.startsWith("/")) {
+    throw new InputAssetRegistrationError("Server producer returned an invalid storage path");
+  }
+  const roots = dependencies.roots || defaultRoots();
+  const fs = dependencies.fs || fileSystem;
+  let producerPath = resolve(input.absolutePath);
+  // Docker's colocated services use /app while local API tests use the
+  // checkout root.  This translation is only for an internal producer path.
+  const configuredProjectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  if (producerPath.startsWith("/app/") && configuredProjectRoot !== "/app") {
+    producerPath = resolve(configuredProjectRoot, producerPath.slice("/app/".length));
+  }
+
+  let pathParts: { root: string; relativePath: string } | null = null;
+  try {
+    const actualProducerPath = await fs.realpath(producerPath);
+    for (const [rootName, configuredRoot] of Object.entries(roots)) {
+      if (typeof configuredRoot !== "string" || configuredRoot.length === 0) continue;
+      const actualRoot = await fs.realpath(resolve(configuredRoot));
+      const rel = relative(actualRoot, actualProducerPath);
+      if (rel && !rel.startsWith("..") && !rel.includes(".." + sep) && !rel.startsWith(sep)) {
+        pathParts = { root: rootName, relativePath: rel.split(sep).join("/") };
+        break;
+      }
+    }
+  } catch {
+    // The common registration path below turns this into a stable denial.
+  }
+  if (!pathParts) throw new InputAssetRegistrationError("Server producer output is unavailable or unsafe");
+
+  return register({ ...input, root: pathParts.root, relativePath: pathParts.relativePath }, dependencies, false, null);
+}
+
+/** Register a cleaner output while enforcing immutable raw-parent lineage. */
+export async function registerDerivedInputAssetFromServerPath(
+  input: RegisterDerivedServerPathInput,
+  dependencies: InputAssetDependencies = {},
+): Promise<InputAssetRow> {
+  if (typeof input.absolutePath !== "string" || !input.absolutePath.startsWith("/")) {
+    throw new InputAssetRegistrationError("Cleaner returned an invalid storage path");
+  }
+  const roots = dependencies.roots || defaultRoots();
+  const fs = dependencies.fs || fileSystem;
+  const producerPath = resolve(input.absolutePath);
+  const configuredProjectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  const translatedPath = producerPath.startsWith("/app/") && configuredProjectRoot !== "/app"
+    ? resolve(configuredProjectRoot, producerPath.slice("/app/".length))
+    : producerPath;
+  let pathParts: { root: string; relativePath: string } | null = null;
+  try {
+    const actualProducerPath = await fs.realpath(translatedPath);
+    for (const [rootName, configuredRoot] of Object.entries(roots)) {
+      if (typeof configuredRoot !== "string" || configuredRoot.length === 0) continue;
+      const actualRoot = await fs.realpath(resolve(configuredRoot));
+      const rel = relative(actualRoot, actualProducerPath);
+      if (rel && !rel.startsWith("..") && !rel.includes(".." + sep) && !rel.startsWith(sep)) {
+        pathParts = { root: rootName, relativePath: rel.split(sep).join("/") };
+        break;
+      }
+    }
+  } catch {
+    // Stable fail-closed error below.
+  }
+  if (!pathParts) throw new InputAssetRegistrationError("Cleaner output is unavailable or unsafe");
+  return registerDerivedInputAsset({ ...input, root: pathParts.root, relativePath: pathParts.relativePath }, dependencies);
 }
 
 /** System scope is intentionally exposed as a separate server-only function. */
@@ -484,7 +605,8 @@ async function resolveInternal(
         action,
         destinationProjectId: options.destinationProjectId,
       }, dependencies, depth + 1);
-      if (!parent.ok || parent.asset.creatorUserId !== asset.creatorUserId || parent.asset.projectId !== asset.projectId || parent.asset.scope !== asset.scope) {
+      if (!parent.ok || parent.asset.projectId !== asset.projectId || parent.asset.scope !== asset.scope
+        || (asset.scope === "private" && parent.asset.creatorUserId !== asset.creatorUserId)) {
         return { ok: false, reason: "invalid_lineage" };
       }
       if (asset.kind === "cleaned_occurrence" && parent.asset.kind !== "raw_occurrence") return { ok: false, reason: "invalid_lineage" };
