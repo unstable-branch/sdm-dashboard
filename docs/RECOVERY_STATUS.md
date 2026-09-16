@@ -23,10 +23,11 @@ This branch is a staged recovery of the reviewed `main` snapshot. The architectu
    - Historical retries are revalidated instead of replaying arbitrary JSON.
    - R workers, targets CSVs, metadata, status, logs, manifests, scripts, and provider-error paths apply the same containment rules.
 
-4. **Canonical input-asset foundation**
+4. **Canonical input assets and protected execution**
    - Added an additive canonical asset registry with opaque IDs, immutable content identity, scope, kind, lifecycle state, and derivative lineage.
-   - Added fail-closed storage containment, symlink/traversal protection, current project-membership checks, and quarantined legacy mappings.
-   - This is foundation code only until the upload, cleaning, boundary, model, targets, and frontend routes are migrated to asset IDs.
+   - Occurrence upload, generation, cleaning, frontend state, synchronous and queued model execution, targets, batch and retry paths now resolve current asset authority before use.
+   - Protected Hono-to-Plumber calls carry immutable current-principal clients; direct R status, cancellation and deletion authorization denies missing, corrupt, ownerless and unauthorized metadata before side effects.
+   - Boundary, mask, target-group and climate-directory inputs still require canonical-asset cutover.
 
 ## Security policy being implemented
 
@@ -39,29 +40,30 @@ This branch is a staged recovery of the reviewed `main` snapshot. The architectu
 
 ## Current milestone
 
-**Milestone 2: security boundaries** is active. The next coherent slices are:
+**Milestone 2: security boundaries** remains active. The next coherent slices are:
 
-1. Migrate upload, cleaning, boundary, model, targets, batch, and saved frontend state from client-supplied paths to canonical asset IDs.
-2. Add durable execution ownership and action-specific run authorization.
-3. Bind every protected Hono-to-Plumber call to the verified principal and remove bare protected clients.
-4. Revalidate current account/project authority for open SSE and WebSocket delivery.
-5. Run the two-user, project-member, revoked-member, administrator, API-key, direct-Plumber, and failure-path acceptance matrix.
+1. Canonicalize boundary, mask, target-group and climate-directory inputs.
+2. Add durable execution ownership for standalone runs and targets so restart reconciliation never invents creator authority.
+3. Revalidate current account/project authority for open SSE and WebSocket delivery.
+4. Run the auth-enabled two-user, project-member, revoked-member, administrator, API-key, direct-Plumber and failure-path acceptance matrix.
+5. Preserve unavailable monitoring as unavailable until an explicitly authorized service-metrics path exists.
 
 This branch is intentionally not presented as a finished security milestone yet. The completed commits are independently tested foundations for the remaining cutover.
 
 ## Later milestones
 
-- **Scientific correctness:** directional AUC and downstream rankings, honest ensemble metrics, MESS scaling/masking, VIF methodology, and known-answer tests.
+- **Scientific correctness:** fixed-direction AUC, ENMeval/ensemble ranking and empirical-percentile MESS with exported masking are repaired; fold-local VIF, remaining ensemble semantics and broader known-answer/image gates remain.
 - **Immutable provenance:** sealed effective configuration, canonical input and artifact hashes, runtime/package/code identity, metric semantics version, and honest reproducibility claims.
 - **Lifecycle and scale:** packaged Targets execution, idempotent submission, restart reconciliation, truthful cancellation, and explicit single-replica limits until ownership is safe.
 - **Interface acceptance:** narrow visual and human-flow testing after the underlying contracts are stable.
 
 ## Known limitations at this checkpoint
 
-- Canonical assets are not yet wired into public submission routes.
+- Boundary, mask, target-group and climate-directory inputs are not yet canonicalized.
+- Standalone run and standalone Targets restart reconciliation is deliberately blocked until durable execution ownership exists.
 - Existing path-based historical records are not automatically trusted or reassigned.
-- The monolithic local R test environment is not restored in this worktree; focused R tests, fast smoke, and release audit pass, while the lockfile-backed full suite still needs a complete CI-equivalent environment.
-- The remote tag, branch workflow, protection settings, and stale branch cleanup are deliberately unchanged pending an explicit reviewed remote-operation plan.
+- The lockfile-backed full R suite is not available locally because required packages such as `data.table`, ENMeval and torch are absent. Fast smoke, focused changed-path tests and release audit pass; the attempted broad system-library suite fails on missing dependencies and is not represented as green.
+- The remote tag, branch workflow, protection settings, stale branch cleanup and recreation of `dev` are deliberately unchanged pending explicit remote-operation approval.
 
 ## Review guidance
 
@@ -106,13 +108,37 @@ The first reviewable checkpoint now reaches canonical occurrence upload and clea
 
 ### Collaboration and integration
 
-Jacob's current work is distributed across separate branches and `dev` is the intended integration line. This recovery branch must be published in isolation, reviewed against the live branch inventory, and proposed as a draft PR to `dev` only after active Jacob branches and any required non-force dev reconciliation are confirmed. Do not reset, overwrite, force-push or delete those branches. `main` remains a later stable-release destination.
+The live branch inventory has been reconciled: PR #94's final `dev` tree is identical to current `main`, while the remote `dev` ref no longer exists. Publish this recovery branch in isolation first. Recreating `dev` at the reviewed `main` SHA and proposing recovery into it are later explicit remote operations. Do not reset, overwrite, force-push or delete contributor branches. `main` remains a later stable-release destination.
 
 ### Still open after this checkpoint
 
-- replace remaining model and targets path-based consumers with canonical asset IDs
-- finish execution authorization across all consumers and workers
-- repair and verify scientific correctness findings
+- canonicalize remaining boundary, mask, target-group and climate-directory inputs
+- add durable standalone execution ownership and finish restart/event authorization
+- repair and verify remaining scientific correctness findings beyond AUC and MESS
 - implement immutable provenance and tamper-evident run identity
 - finish lifecycle, retention, scale and operational acceptance
 - restore the locked R environment and run the complete R suite
+
+## First remote-candidate checkpoint — 2026-09-16
+
+The exact implementation tip before this documentation update is `cc65d5dd9eda2ee7c04ad97488ea62e3866b18bf`, fifteen commits ahead of reviewed `main`. It adds the protected-current-principal seam plus independently reviewed fixed-direction AUC and reference-correct MESS/masking repairs. The separate execution/attempt schema proposal is intentionally excluded after independent review found integrity and migration-contract defects.
+
+### Added since the initial checkpoint
+
+- canonical occurrence assets are resolved again immediately before synchronous, queued, targets, batch and retry execution
+- protected TypeScript-to-Plumber calls require immutable current principals and roles
+- direct R status/cancel/delete authorization fails closed before side effects, including for administrators with malformed or ownerless resources
+- niche-overlap authorizes both source runs
+- AUC remains directional across metrics, ENMeval and two- and multi-component ensemble weighting
+- MESS uses empirical percentile ranks with negative lower and upper tails, consistent transformed units, VIF-retained predictor names, distinct multi-scenario exports and actual suitability/delta masking
+
+### Candidate evidence
+
+- full Node gate passes after an offline frozen dependency install: shared build, API/frontend typecheck, lint, 368 API tests, 209 frontend tests and both production builds
+- compose matrix, CUDA/ROCm accelerator contracts, Python release audit and R release audit pass
+- fast R smoke passes
+- integrated changed-path science tests pass: binary metrics, ENMeval ranking, ensemble contract and 33 MESS assertions; optional-package cases remain skipped explicitly
+- focused Plumber principal and destructive-authorization contract passes 24 assertions
+- full local R suite was attempted and is blocked by absent locked dependencies, beginning with `data.table`; this is an environment gate, not a passing result
+
+No remote write, PR, release, tag, branch deletion or settings change is part of this checkpoint.
