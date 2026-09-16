@@ -401,9 +401,10 @@ function computeJobId(data: SdmJobData): string {
   const payload = data.payload ?? {};
   const species = typeof payload.species === "string" ? payload.species : "";
   const modelId = typeof payload.modelId === "string" ? payload.modelId : "";
-  const occurrenceFileId = typeof payload.occurrenceFileId === "string" ? payload.occurrenceFileId : "";
+  const config = payload.config && typeof payload.config === "object" ? payload.config as Record<string, unknown> : payload;
+  const occurrenceAssetId = typeof config.occurrenceAssetId === "string" ? config.occurrenceAssetId : "";
   const configHash = typeof payload.configHash === "string" ? payload.configHash : JSON.stringify(payload);
-  const raw = [species, modelId, occurrenceFileId, configHash, data.type].join("|");
+  const raw = [species, modelId, occurrenceAssetId, configHash, data.type].join("|");
   return createHash("sha256").update(raw).digest("hex").slice(0, 32);
 }
 

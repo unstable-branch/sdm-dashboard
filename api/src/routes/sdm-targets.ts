@@ -6,9 +6,10 @@ import { runs } from "../db/schema.js";
 import { eq, desc, count, and, inArray, sql } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
-import { getUserProjectIds, canAccessRun } from "../services/access.js";
+import { ensureDefaultProject, getUserProjectIds, canAccessRun } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import { projectSafeScienceConfig, publicConfigValidationError } from "../services/execution-config.js";
+import { resolveTargetsConfigs, ModelInputAssetError } from "../services/model-payload.js";
 
 const MAX_RUNS_LIMIT = 500;
 
@@ -25,8 +26,10 @@ sdmTargetsRoutes.post("/targets/run", async (c) => {
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
     const parsed = targetsRunRequestSchema.safeParse(body);
     if (!parsed.success) return c.json(publicConfigValidationError(), 400);
-    const configs = parsed.data.configs.map((config) => projectSafeScienceConfig(config));
+    const safeConfigs = parsed.data.configs.map((config) => projectSafeScienceConfig(config));
     const user = c.get("user");
+    const projectId = await ensureDefaultProject(user);
+    const configs = await resolveTargetsConfigs(safeConfigs, { id: user.id, role: user.role }, projectId);
     const result = await plumberClient.targetsRun({ configs });
 
     const client = extractClientInfo(c);
@@ -41,6 +44,10 @@ sdmTargetsRoutes.post("/targets/run", async (c) => {
 
     return c.json(result);
   } catch (err) {
+    if (err instanceof ModelInputAssetError) {
+      const unavailable = err.reason === "unavailable";
+      return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+    }
     const message = err instanceof Error ? err.message : "Targets run failed";
     return c.json({ error: message }, 502);
   }

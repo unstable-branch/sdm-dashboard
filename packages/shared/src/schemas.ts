@@ -19,6 +19,11 @@ const FORBIDDEN_NORMALIZED_EXECUTION_KEYS = new Set(
   [...FORBIDDEN_EXECUTION_KEY_NAMES].map(normalizedExecutionKey),
 );
 
+const FORBIDDEN_CLIENT_PATH_KEYS = new Set([
+  "occurrencefile", "occurrencefilepath", "occurrence_file", "occurrence_file_path",
+  "cleanedfilepath", "cleaned_file_path", "cleanedfileid", "cleaned_file_id",
+]);
+
 function isForbiddenExecutionKey(key: string): boolean {
   return FORBIDDEN_NORMALIZED_EXECUTION_KEYS.has(key)
     || key.endsWith("apikey")
@@ -27,26 +32,35 @@ function isForbiddenExecutionKey(key: string): boolean {
     || key.includes("credential");
 }
 
-function findForbiddenExecutionKey(value: unknown, path: Array<string | number> = []): Array<string | number> | null {
+function findForbiddenExecutionKey(
+  value: unknown,
+  path: Array<string | number> = [],
+  forbidden: (key: string) => boolean = (key) => isForbiddenExecutionKey(normalizedExecutionKey(key)),
+): Array<string | number> | null {
   if (Array.isArray(value)) {
     for (let index = 0; index < value.length; index += 1) {
-      const found = findForbiddenExecutionKey(value[index], [...path, index]);
+      const found = findForbiddenExecutionKey(value[index], [...path, index], forbidden);
       if (found) return found;
     }
     return null;
   }
   if (!value || typeof value !== "object") return null;
   for (const [key, child] of Object.entries(value)) {
-    if (isForbiddenExecutionKey(normalizedExecutionKey(key))) {
+    if (forbidden(key)) {
       return [...path, key];
     }
-    const found = findForbiddenExecutionKey(child, [...path, key]);
+    const found = findForbiddenExecutionKey(child, [...path, key], forbidden);
     if (found) return found;
   }
   return null;
 }
 
 function rejectForbiddenExecutionKeys(input: unknown, ctx: z.RefinementCtx): unknown {
+  const clientPath = findForbiddenExecutionKey(input, [], (key) => FORBIDDEN_CLIENT_PATH_KEYS.has(normalizedExecutionKey(key)));
+  if (clientPath) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: clientPath, message: "Client filesystem paths are not accepted in execution configuration" });
+    return z.NEVER;
+  }
   const path = findForbiddenExecutionKey(input);
   if (path) {
     // Do not include the submitted key value in a validation issue.
@@ -216,13 +230,12 @@ const modelConfigObjectSchema = z.object({
   aggregationFactor: z.number().int().min(1).max(8).default(1),
   nCores: z.number().int().min(1).max(64).default(1),
   seed: z.number().int().default(42),
-  occurrenceFile: z.string().min(1).optional(),
+  occurrenceAssetId: z.string().uuid(),
   worldclimDir: z.string().default("Worldclim"),
   worldclimRes: z.number().default(10),
   source: z.enum(["worldclim", "chelsa"]).default("worldclim"),
   analysisCrs: z.string().default("auto"),
   chelsaExtras: z.array(z.string()).default([]),
-  cleanedFilePath: z.string().min(1).optional(),
   multiEnsembleExport: z.boolean().default(true).optional(),
   multiEnsembleUncertainty: z.boolean().default(true).optional(),
   biomod2Models: z.array(z.string()).optional(),
@@ -290,6 +303,7 @@ export const occurrenceUploadSchema = z.object({
 const targetsConfigObjectSchema = modelConfigObjectSchema.partial().extend({
   species: z.string().min(1),
   modelId: z.string().min(1),
+  occurrenceAssetId: z.string().uuid(),
 });
 
 export const targetsConfigSchema = z.preprocess(

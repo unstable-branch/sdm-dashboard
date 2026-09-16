@@ -112,7 +112,7 @@ const buildRunPayloadConfig = {
   dnnL2Lambda: 0.001,
   dnnMultispeciesArchitecture: "DNN_Large",
   dnnMultispeciesNSeeds: 4,
-  occurrenceFile: "/tmp/occurrences.csv",
+  occurrenceAssetId: "11111111-1111-1111-1111-111111111111",
 };
 
 vi.mock("../db", () => ({
@@ -122,6 +122,19 @@ vi.mock("../db", () => ({
     update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => [{}]) })) })),
   },
 }));
+
+vi.mock("../services/model-payload", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/model-payload.js")>();
+  return {
+    ...actual,
+    resolveModelInputAsset: vi.fn(async () => ({ absolutePath: "/srv/inputs/authorized.csv", kind: "cleaned_occurrence" })),
+    resolveTargetsConfigs: vi.fn(async (configs: Record<string, unknown>[]) => configs.map((config) => {
+      const resolved = { ...config };
+      delete resolved.occurrenceAssetId;
+      return { ...resolved, occurrenceFile: "/srv/inputs/authorized.csv" };
+    })),
+  };
+});
 
 vi.mock("../services/plumber", () => ({
   PlumberClient: class { },
@@ -352,17 +365,22 @@ describe("SDM routes", () => {
       const payload = (enqueueSdmJob as any).mock.calls[0][0].payload as Record<string, unknown>;
       expect(payload).toMatchObject({
         runId: "run-1",
-        multi_ensemble_models: buildRunPayloadConfig.multiEnsembleModels,
-        biomod2_models: buildRunPayloadConfig.biomod2Models,
-        dnn_model_type: buildRunPayloadConfig.dnnArchitecture,
-        dnn_lambda: buildRunPayloadConfig.dnnL2Lambda,
-        dnn_multispecies_architecture: buildRunPayloadConfig.dnnMultispeciesArchitecture,
-        dnn_multispecies_n_seeds: buildRunPayloadConfig.dnnMultispeciesNSeeds,
-        xgb_nrounds: buildRunPayloadConfig.xgbNRounds,
-        projection_extent: "-180,180,-90,90",
+        projectId: "proj-1",
+        config: expect.objectContaining({
+          occurrenceAssetId: buildRunPayloadConfig.occurrenceAssetId,
+          multiEnsembleModels: buildRunPayloadConfig.multiEnsembleModels,
+          biomod2Models: buildRunPayloadConfig.biomod2Models,
+          dnnArchitecture: buildRunPayloadConfig.dnnArchitecture,
+          dnnL2Lambda: buildRunPayloadConfig.dnnL2Lambda,
+          dnnMultispeciesArchitecture: buildRunPayloadConfig.dnnMultispeciesArchitecture,
+          dnnMultispeciesNSeeds: buildRunPayloadConfig.dnnMultispeciesNSeeds,
+          xgbNRounds: buildRunPayloadConfig.xgbNRounds,
+        }),
       });
-      expect(payload.biovars).toBe("1,4,6,12");
-      expect(payload.dnn_l2_lambda).toBeUndefined();
+      expect(payload).not.toHaveProperty("occurrenceFile");
+      expect(payload).not.toHaveProperty("cleanedFilePath");
+      expect(payload.config).not.toHaveProperty("occurrenceFile");
+      expect(payload.config).not.toHaveProperty("cleanedFilePath");
       expect(plumberClient.runModel).not.toHaveBeenCalled();
     });
 
@@ -700,5 +718,93 @@ describe("secret-free execution ingress", () => {
     expect(await res.text()).not.toContain(sentinel);
     expect(db.insert).not.toHaveBeenCalled();
     expect(plumberClient.targetsRun).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("canonical asset execution boundary", () => {
+  const boundaryApp = new Hono().route("/", sdmRunRoutes).route("/", sdmBatchRoutes).route("/", sdmTargetsRoutes);
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const modelPayload = await import("../services/model-payload");
+    vi.mocked(modelPayload.resolveModelInputAsset).mockResolvedValue({
+      absolutePath: "/srv/inputs/authorized.csv",
+      kind: "cleaned_occurrence",
+    });
+    vi.mocked(modelPayload.resolveTargetsConfigs).mockImplementation(async (configs) =>
+      configs.map((config) => {
+        const resolved = { ...config };
+        delete resolved.occurrenceAssetId;
+        return { ...resolved, occurrenceFile: "/srv/inputs/authorized.csv" };
+      }),
+    );
+  });
+
+  it.each(["occurrenceFile", "cleanedFilePath", "cleanedFileId", "occurrence_file"])(
+    "rejects legacy client path alias %s across sync, async, and targets ingress",
+    async (key) => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+      const { enqueueSdmJob } = await import("../services/queue");
+      const { resolveModelInputAsset, resolveTargetsConfigs } = await import("../services/model-payload");
+      for (const request of [
+        { path: "/run", body: { ...buildRunPayloadConfig, [key]: "/client/escape.csv" } },
+        { path: "/run", body: { ...buildRunPayloadConfig, async: true, [key]: "/client/escape.csv" } },
+        { path: "/targets/run", body: { configs: [{ ...buildRunPayloadConfig, [key]: "/client/escape.csv" }] } },
+      ]) {
+        vi.clearAllMocks();
+        const res = await boundaryApp.request(request.path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.body),
+        });
+        expect(res.status).toBe(400);
+        expect(await res.text()).not.toContain("/client/escape.csv");
+        expect(db.insert).not.toHaveBeenCalled();
+        expect(plumberClient.runModel).not.toHaveBeenCalled();
+        expect(plumberClient.targetsRun).not.toHaveBeenCalled();
+        expect(enqueueSdmJob).not.toHaveBeenCalled();
+        expect(resolveModelInputAsset).not.toHaveBeenCalled();
+        expect(resolveTargetsConfigs).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each([
+    ["foreign", "not_authorized"],
+    ["viewer", "not_authorized"],
+    ["revoked", "not_authorized"],
+    ["deleted", "not_found"],
+    ["quarantined", "not_authorized"],
+    ["unsafe", "unsafe_storage"],
+  ] as const)("denies %s assets before sync, async, or targets dispatch", async (_label, reason) => {
+    const { db } = await import("../db");
+    const { plumberClient } = await import("../services/plumber");
+    const { enqueueSdmJob } = await import("../services/queue");
+    const modelPayload = await import("../services/model-payload");
+
+    for (const request of [
+      { path: "/run", body: buildRunPayloadConfig, targets: false },
+      { path: "/run", body: { ...buildRunPayloadConfig, async: true }, targets: false },
+      { path: "/targets/run", body: { configs: [buildRunPayloadConfig] }, targets: true },
+    ]) {
+      vi.clearAllMocks();
+      const error = new modelPayload.ModelInputAssetError(reason);
+      if (request.targets) vi.mocked(modelPayload.resolveTargetsConfigs).mockRejectedValueOnce(error);
+      else vi.mocked(modelPayload.resolveModelInputAsset).mockRejectedValueOnce(error);
+
+      const res = await boundaryApp.request(request.path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request.body),
+      });
+      expect(res.status).toBe(404);
+      expect(await res.text()).not.toContain(reason);
+      expect(db.insert).not.toHaveBeenCalled();
+      expect(plumberClient.runModel).not.toHaveBeenCalled();
+      expect(plumberClient.targetsRun).not.toHaveBeenCalled();
+      expect(enqueueSdmJob).not.toHaveBeenCalled();
+    }
   });
 });

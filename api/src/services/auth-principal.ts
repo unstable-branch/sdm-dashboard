@@ -43,6 +43,12 @@ async function currentUser(userId: string, source: Principal["source"]): Promise
   }
 }
 
+/** Resolve a queued/internal principal from current storage; missing or malformed identities deny closed. */
+export async function resolveCurrentPrincipal(userId: string): Promise<Principal | null> {
+  if (!UUID_RE.test(userId)) return null;
+  return currentUser(userId, "jwt");
+}
+
 /** Verifies a JWT and resolves its principal from current auth storage. */
 export async function verifyCurrentJwt(token: string): Promise<Principal | null> {
   const secret = process.env.JWT_SECRET?.trim();
