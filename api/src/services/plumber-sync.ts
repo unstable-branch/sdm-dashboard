@@ -1,4 +1,5 @@
-import { PlumberClient, type PlumberJobStatus, type PlumberModelStatus } from "./plumber.js";
+import { plumberForPrincipal, type PlumberClient, type PlumberJobStatus, type PlumberModelStatus } from "./plumber.js";
+import { resolveCurrentPrincipal } from "./auth-principal.js";
 export type { PlumberModelStatus } from "./plumber.js";
 import { db } from "../db/index.js";
 import { runs, projects, users, batches } from "../db/schema.js";
@@ -16,7 +17,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, "../../..");
 
-const client = new PlumberClient();
 let _syncInterval: ReturnType<typeof setInterval> | null = null;
 let _running = false;
 let _lastSyncTimestamp = 0;
@@ -113,7 +113,7 @@ async function syncRunningJobs() {
     }
 
     const activeRuns = await db
-      .select({ id: runs.id, jobId: runs.jobId, status: runs.status, startedAt: runs.startedAt, projectId: runs.projectId })
+      .select({ id: runs.id, jobId: runs.jobId, status: runs.status, startedAt: runs.startedAt, projectId: runs.projectId, parentRunId: runs.parentRunId })
       .from(runs)
       .where(and(eq(runs.status, "running")));
 
@@ -144,6 +144,21 @@ async function syncRunningJobs() {
           consecutive404s.delete(run.id);
           continue;
         }
+      }
+
+      let client: PlumberClient;
+      try {
+        // Standalone historical runs have no durable creator binding yet. Do not
+        // impersonate the project owner or admin; leave them as a maintenance blocker.
+        if (!run.parentRunId) continue;
+        const [batch] = await db.select({ userId: batches.userId })
+          .from(batches).where(eq(batches.id, run.parentRunId)).limit(1);
+        if (!batch) continue;
+        const principal = await resolveCurrentPrincipal(batch.userId);
+        if (!principal) continue;
+        client = plumberForPrincipal(principal);
+      } catch {
+        continue;
       }
 
       try {
@@ -222,18 +237,8 @@ async function syncRunningJobs() {
           // Fetch provenance manifest from Plumber
           let provenance = null;
           try {
-            const manifestRes = await fetch(
-              `${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/output/manifest/${run.jobId}`,
-              {
-                headers: {
-                  ...(process.env.PLUMBER_INTERNAL_KEY ? { "X-Hono-Internal": process.env.PLUMBER_INTERNAL_KEY } : {}),
-                },
-              },
-            );
-            if (manifestRes.ok) {
-              const manifestData = await manifestRes.json();
-              provenance = manifestData.manifest || null;
-            }
+            const manifestData = await client.getOutputManifest(run.jobId);
+            provenance = manifestData.manifest || null;
           } catch {
             // Manifest fetch is best-effort
           }
@@ -461,18 +466,10 @@ async function syncRunningJobs() {
                 const delay = Math.min(5000 * Math.pow(2, attempt), 8000) + Math.random() * 1000;
                 await new Promise((r) => setTimeout(r, delay));
               }
-              const probeRes = await fetch(
-                `${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/models/status/${run.jobId}`,
-                {
-                  headers: { "X-Hono-Internal": process.env.PLUMBER_INTERNAL_KEY || "" },
-                  signal: AbortSignal.timeout(3000),
-                },
-              );
-              const probeBody = await probeRes.text().catch(() => "");
-              plumberErrorDetail = `probe_status=${probeRes.status} body=${probeBody.slice(0, 500)}`;
-              // Try to parse probe response — if Plumber reports a terminal state, use it
-              if (probeRes.ok) {
-                const probeJson = JSON.parse(probeBody);
+              const probeJson = await client.getModelStatus(run.jobId, 3000);
+              plumberErrorDetail = "probe_status=200";
+              // Try the scoped probe response — if Plumber reports a terminal state, use it
+              {
                 const ps = probeJson.status as string;
                 if (["completed", "failed", "cancelled"].includes(ps)) {
                   finalPlumberStatus = ps;
@@ -500,10 +497,8 @@ async function syncRunningJobs() {
                   break;
                 }
               }
-              // 500 error with retries left — continue the loop
-              if (probeRes.status === 500 && attempt < MAX_500_RETRIES) {
-                continue;
-              }
+              // A scoped client retry is safe; continue the loop after a transient failure.
+              if (attempt < MAX_500_RETRIES) continue;
             } catch (probeErr) {
               plumberErrorDetail = `probe_failed=${probeErr instanceof Error ? probeErr.message.slice(0, 200) : "unknown"}`;
             }
@@ -517,7 +512,7 @@ async function syncRunningJobs() {
             `[plumber-sync] Marking run ${run.id} as failed: ` +
             `consecutive_404s=${existing.count}, ` +
             `time_since_first=${Math.round(timeSinceFirst / 1000)}s, ` +
-            `plumber_url=${process.env.PLUMBER_URL || "http://localhost:8000"}, ` +
+            `plumber_backend=unavailable, ` +
             plumberErrorDetail
           );
 

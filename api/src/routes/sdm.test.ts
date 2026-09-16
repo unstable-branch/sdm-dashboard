@@ -140,6 +140,8 @@ vi.mock("../services/plumber", () => ({
   PlumberClient: class { },
   plumberClient: {
     getModelStatus: vi.fn(),
+    withUser: vi.fn(function(this: any) { return this; }),
+    withRole: vi.fn(function(this: any) { return this; }),
     runModel: vi.fn(async () => ({ job_id: "plumber-job-1" })),
     targetsRun: vi.fn(async () => ({ job_id: "targets-job-1" })),
     cancelModel: vi.fn(async () => ({ ok: true })),

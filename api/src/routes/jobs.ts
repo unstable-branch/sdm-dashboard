@@ -7,6 +7,7 @@ import { getUserProjectIds } from "../services/access.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
+import { plumberClient } from "../services/plumber.js";
 
 const app = new Hono<AppEnv>();
 
@@ -202,21 +203,13 @@ app.get("/:jobId", async (c) => {
 
   // Plumber uses its own job ID, which differs from the persisted run UUID.
   const plumberJobId = persistedRun?.jobId || jobId;
-  const plumberUrl = process.env.PLUMBER_URL || "http://localhost:8000";
-  const internalKey = process.env.PLUMBER_INTERNAL_KEY || "";
+  const client = plumberClient.withUser(user.id).withRole(user.role);
   try {
     const plumberStatusPath = persistedRun
       ? "models/status"
       : jobId.startsWith("climate_") ? "climate/status" : "jobs/status";
-    const res = await fetch(`${plumberUrl}/api/v1/${plumberStatusPath}/${plumberJobId}`, {
-      headers: {
-        ...(internalKey ? { "X-Hono-Internal": internalKey } : {}),
-        "X-Forwarded-User": user.id,
-      },
-    });
-    if (res.ok) {
-      const plumberStatus = await res.json() as Record<string, unknown>;
-      return c.json({
+    const plumberStatus = await client.get(`/api/v1/${plumberStatusPath}/${plumberJobId}`);
+    return c.json({
         id: jobId,
         state: plumberStatus.status || "unknown",
         progress: plumberStatus.progress ?? 0,
@@ -226,8 +219,7 @@ app.get("/:jobId", async (c) => {
         failedReason: plumberStatus.error || null,
         error_code: plumberStatus.error_code || null,
         error_hint: plumberStatus.error_hint || null,
-      });
-    }
+    });
   } catch {
     // Fall through to the durable DB status for model runs.
   }

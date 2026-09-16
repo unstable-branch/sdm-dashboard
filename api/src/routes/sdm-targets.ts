@@ -30,7 +30,7 @@ sdmTargetsRoutes.post("/targets/run", async (c) => {
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
     const configs = await resolveTargetsConfigs(safeConfigs, { id: user.id, role: user.role }, projectId);
-    const result = await plumberClient.targetsRun({ configs });
+    const result = await plumberClient.withUser(user.id).withRole(user.role).targetsRun({ configs });
 
     const client = extractClientInfo(c);
     await logAction({
@@ -60,7 +60,7 @@ sdmTargetsRoutes.get("/targets/status/:jobId", async (c) => {
     if (!(await canAccessRun(user.id, user.role, jobId))) {
       return c.json({ error: "Run not found" }, 404);
     }
-    const result = await plumberClient.targetsStatus(jobId);
+    const result = await plumberClient.withUser(user.id).withRole(user.role).targetsStatus(jobId);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Targets status failed";
@@ -75,7 +75,7 @@ sdmTargetsRoutes.get("/targets/results/:jobId", async (c) => {
     if (!(await canAccessRun(user.id, user.role, jobId))) {
       return c.json({ error: "Run not found" }, 404);
     }
-    const result = await plumberClient.targetsResults(jobId);
+    const result = await plumberClient.withUser(user.id).withRole(user.role).targetsResults(jobId);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Targets results failed";
