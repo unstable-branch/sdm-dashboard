@@ -1,3 +1,24 @@
+# Rank ENMeval candidates using the reported metric direction. This helper
+# remains available when ENMeval is not installed so ranking semantics can be
+# tested independently.
+rank_enmeval_results <- function(results_df, selection_metric = "auc.val.avg", log_fun = NULL) {
+  valid_metrics <- c("auc.val.avg", "auc.diff.avg", "or.mtp.avg", "or.10p.avg", "delta.AICc")
+  if (!selection_metric %in% names(results_df)) {
+    fallback <- intersect(valid_metrics, names(results_df))[1]
+    log_message(log_fun, "Selection metric '", selection_metric, "' not available; falling back to '", fallback, "'")
+    selection_metric <- fallback %||% "auc.val.avg"
+  }
+
+  # AUC is directional: rank the reported value directly and never replace
+  # below-random values with their complements.
+  order_col <- results_df[[selection_metric]]
+  decreasing <- !grepl("diff|or\\.|AICc", selection_metric)
+  list(
+    results = results_df[order(order_col, decreasing = decreasing, na.last = TRUE), , drop = FALSE],
+    selection_metric = selection_metric
+  )
+}
+
 if (!requireNamespace("ENMeval", quietly = TRUE)) {
   if (interactive()) {
     message(
@@ -144,29 +165,9 @@ tune_enmeval <- function(occ, env_rasters, bg = NULL,
     results_df$regmult <- NA_real_
   }
 
-  valid_metrics <- c("auc.val.avg", "auc.diff.avg", "or.mtp.avg", "or.10p.avg", "delta.AICc")
-  if (!selection_metric %in% names(results_df)) {
-    fallback <- intersect(valid_metrics, names(results_df))[1]
-    log_message(log_fun, "Selection metric '", selection_metric, "' not available; falling back to '", fallback, "'")
-    selection_metric <- fallback %||% "auc.val.avg"
-  }
-
-  # Normalise auc.val.avg for inverted predictions: models scoring presence below
-  # background get AUC < 0.5. We report max(AUC, 1-AUC) per SDM convention so an
-  # inverted model is ranked by its complement rather than below random.
-  if (identical(selection_metric, "auc.val.avg") && "auc.val.avg" %in% names(results_df)) {
-    raw_auc <- results_df$auc.val.avg
-    adj_auc <- ifelse(!is.na(raw_auc) & raw_auc < 0.5, 1 - raw_auc, raw_auc)
-    order_col <- adj_auc
-    decreasing <- TRUE
-  } else {
-    order_col <- results_df[[selection_metric]]
-    decreasing <- !grepl("diff|or\\.|AICc", selection_metric)
-  }
-
-  results_sorted <- results_df[order(order_col,
-    decreasing = decreasing,
-    na.last = TRUE), , drop = FALSE]
+  ranking <- rank_enmeval_results(results_df, selection_metric = selection_metric, log_fun = log_fun)
+  selection_metric <- ranking$selection_metric
+  results_sorted <- ranking$results
   best_row <- results_sorted[1, , drop = FALSE]
 
   best_params <- list(

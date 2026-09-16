@@ -1,3 +1,18 @@
+test_that("two-component AUC weights give no evidence to reversal", {
+  glm_fit <- list(cv = list(auc_mean = 0.9))
+  rangebag_fit <- list(cv = list(auc_mean = 0.4))
+
+  weights <- ensemble_model_weights(glm_fit, rangebag_fit, weighting = "auc")
+  expect_equal(weights, c(glm = 1, rangebag = 0))
+
+  inverted <- ensemble_model_weights(
+    list(cv = list(auc_mean = 0)),
+    list(cv = list(auc_mean = 1)),
+    weighting = "auc"
+  )
+  expect_equal(inverted, c(glm = 0, rangebag = 1))
+})
+
 test_that("GLM + Rangebag ensemble fits and writes component rasters", {
   if (!requireNamespace("terra", quietly = TRUE)) {
     message("Skipping ensemble backend test because terra is not installed")
