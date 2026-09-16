@@ -130,22 +130,14 @@ handle_climate_download <- function(req, app_dir) {
 }
 
 handle_climate_status <- function(req, res, job_id, app_dir) {
-  job_dir <- sdm_safe_job_dir(job_id)
-  if (is.null(job_dir)) {
-    res$status <- 404L; return(list(error = "Invalid job ID"))
-  }
-  meta_file <- file.path(job_dir, "meta.json")
+  # The loader validates the principal, resource, owner, and metadata before
+  # this handler parses or exposes any metadata-derived status.
+  auth <- sdm_load_authorized_job(req, res, job_id, app_dir)
+  if (!isTRUE(auth$ok)) return(list(error = auth$error))
+  job_dir <- auth$job_dir
+  meta_file <- auth$meta_file
   progress_file <- file.path(job_dir, "progress.log")
-
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Download job not found"))
-  }
-
-  meta <- sdm_read_meta_json(meta_file)
-  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
-
-  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
-  if (!is.null(own_err)) return(own_err)
+  meta <- auth$meta
 
   if (identical(meta$status, "running")) {
     entry <- sdm_process_registry[[basename(job_id)]]
@@ -311,20 +303,14 @@ handle_climate_delete <- function(req, res, scenario_id, app_dir) {
   list(ok = TRUE, message = paste("Scenario deleted:", scenario_id))
 }
 
-handle_climate_cancel <- function(req, job_id, app_dir) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
-  meta_file <- file.path(job_dir, "meta.json")
+handle_climate_cancel <- function(req, res, job_id, app_dir) {
+  auth <- sdm_load_authorized_job(req, res, job_id, app_dir)
+  if (!isTRUE(auth$ok)) return(list(error = auth$error))
+  job_dir <- auth$job_dir
+  meta_file <- auth$meta_file
+  meta <- auth$meta
 
-  if (file.exists(meta_file)) {
-    meta <- sdm_read_meta_json(meta_file)
-  if (is.null(meta)) return(list(error = "meta.json is unreadable; retry shortly"))
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this download"))
-      }
-    }
-  }
-
+  # Cancellation side effects occur only after resource authorization and metadata validation.
   sdm_redis_cancel_set(basename(job_id))
 
   cancel_result <- sdm_cancel_pid_first(basename(job_id), meta_file)
@@ -335,7 +321,7 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
 
   if (file.exists(meta_file)) {
     meta <- sdm_read_meta_json(meta_file)
-    if (is.null(meta)) return(list(error = "meta.json is unreadable; retry shortly"))
+    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$status) && meta$status %in% c("completed", "failed", "cancelled")) {
       return(list(ok = TRUE, message = "Download already terminated"))
     }

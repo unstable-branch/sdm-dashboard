@@ -30,6 +30,11 @@ export interface PlumberModelStatus {
   completed_at?: string;
 }
 
+export type PlumberPrincipal = Readonly<{
+  id: string;
+  role: "admin" | "editor" | "viewer";
+}>;
+
 export interface PlumberModelStatus {
   status: string;
   progress_log?: string[];
@@ -45,6 +50,9 @@ export interface PlumberModelStatus {
 }
 
 const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
+const PUBLIC_GET_PATHS = new Set([
+  "/api/v1/covariates/check",
+]);
 const PLUMBER_INTERNAL_KEY = process.env.PLUMBER_INTERNAL_KEY || "";
 const PLUMBER_MAX_CONCURRENT = parseInt(process.env.PLUMBER_MAX_CONCURRENT || "8", 10);
 const PLUMBER_DEFAULT_TIMEOUT_MS = parseInt(process.env.PLUMBER_TIMEOUT_MS || "30000", 10);
@@ -118,36 +126,48 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
 
 export class PlumberClient {
   private baseUrl: string;
-  private forwardedUser: string | null = null;
-  private forwardedRole: string | null = null;
+  private readonly principal: { id: string; role: PlumberPrincipal["role"] | null } | null;
 
-  constructor(baseUrl: string = PLUMBER_URL) {
+  constructor(baseUrl: string = PLUMBER_URL, principal: { id: string; role: PlumberPrincipal["role"] | null } | null = null) {
     this.baseUrl = baseUrl;
+    this.principal = principal;
   }
 
   withUser(userId: string): PlumberClient {
-    const client = new PlumberClient(this.baseUrl);
-    client.forwardedUser = userId;
-    client.forwardedRole = this.forwardedRole;
-    return client;
+    if (this.principal?.id && this.principal.id !== userId) {
+      return new PlumberClient(this.baseUrl, null);
+    }
+    return new PlumberClient(this.baseUrl, this.principal
+      ? { ...this.principal, id: userId }
+      : { id: userId, role: null });
   }
 
   withRole(role: string): PlumberClient {
-    const client = new PlumberClient(this.baseUrl);
-    client.forwardedUser = this.forwardedUser;
-    client.forwardedRole = role;
-    return client;
+    if (!this.principal || (this.principal.role && this.principal.role !== role)) {
+      return new PlumberClient(this.baseUrl, null);
+    }
+    if (role !== "admin" && role !== "editor" && role !== "viewer") {
+      return new PlumberClient(this.baseUrl, null);
+    }
+    return new PlumberClient(this.baseUrl, { ...this.principal, role });
   }
 
   private headers(): Record<string, string> {
     const h: Record<string, string> = {};
     if (PLUMBER_INTERNAL_KEY) h["X-Hono-Internal"] = PLUMBER_INTERNAL_KEY;
-    if (this.forwardedUser) h["X-Forwarded-User"] = this.forwardedUser;
-    if (this.forwardedRole) h["X-Forwarded-Role"] = this.forwardedRole;
+    if (this.principal?.id) h["X-Forwarded-User"] = this.principal.id;
+    if (this.principal?.role) h["X-Forwarded-Role"] = this.principal.role;
     return h;
   }
 
-  private async _fetch(url: string, options?: RequestInit, timeoutMs?: number): Promise<Response> {
+  private requirePrincipal(): void {
+    if (!this.principal?.id || !this.principal.role) {
+      throw new Error("Verified Plumber principal required for protected operation");
+    }
+  }
+
+  private async _fetch(url: string, options?: RequestInit, timeoutMs?: number, protectedRequest = true): Promise<Response> {
+    if (protectedRequest) this.requirePrincipal();
     const ms = timeoutMs ?? PLUMBER_DEFAULT_TIMEOUT_MS;
     const opts: RequestInit = { ...options };
     // Default to internal-proxy headers so GET reads (climate check, config
@@ -158,19 +178,19 @@ export class PlumberClient {
   }
 
   async healthCheck(): Promise<{ status: string; r_version: string; timestamp: string }> {
-    const res = await this._fetch(`${this.baseUrl}/health`);
+    const res = await this._fetch(`${this.baseUrl}/health`, undefined, undefined, false);
     if (!res.ok) throw new Error(`Plumber health check failed: ${res.status}`);
     return res.json();
   }
 
   async getConfigDefaults(): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/config/defaults`);
+    const res = await this._fetch(`${this.baseUrl}/api/v1/config/defaults`, undefined, undefined, false);
     if (!res.ok) throw new Error(`Failed to get config defaults: ${res.status}`);
     return res.json();
   }
 
   async getModels(): Promise<Array<{ id: string; label: string }>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models`);
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models`, undefined, undefined, false);
     if (!res.ok) throw new Error(`Failed to get models: ${res.status}`);
     return res.json();
   }
@@ -326,13 +346,13 @@ export class PlumberClient {
   }
 
   async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; base_directory: string; message?: string }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`);
+    const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`, undefined, undefined, false);
     if (!res.ok) throw new Error(`Failed to get future scenarios: ${res.status}`);
     return res.json();
   }
 
   async getClimateScenarios(): Promise<{ scenarios: Array<Record<string, unknown>> }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/scenarios`);
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/scenarios`, undefined, undefined, false);
     if (!res.ok) throw new Error(`Failed to get climate scenarios: ${res.status}`);
     return res.json();
   }
@@ -504,9 +524,10 @@ export class PlumberClient {
   }
 
   async get(path: string): Promise<Record<string, unknown>> {
+    const publicRead = PUBLIC_GET_PATHS.has(path.split("?", 1)[0]);
     const res = await this._fetch(`${this.baseUrl}${path}`, {
       headers: this.headers(),
-    });
+    }, undefined, !publicRead);
     if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
     return res.json();
   }
@@ -579,7 +600,7 @@ export class PlumberClient {
 
   async getClimateCheck(params: Record<string, string>): Promise<Record<string, unknown>> {
     const qs = new URLSearchParams(params).toString();
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/check?${qs}`);
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/check?${qs}`, undefined, undefined, false);
     if (!res.ok) throw new Error(`Failed to check climate: ${res.status}`);
     return res.json();
   }
@@ -643,6 +664,16 @@ export class PlumberClient {
     }
     return res.json() as Promise<{ value: number | null }>;
   }
+}
+
+export function plumberForPrincipal(principal: PlumberPrincipal, baseUrl: string = PLUMBER_URL): PlumberClient {
+  if (!principal || typeof principal.id !== "string" || principal.id.trim() === "") {
+    throw new Error("Verified Plumber principal required");
+  }
+  if (principal.role !== "admin" && principal.role !== "editor" && principal.role !== "viewer") {
+    throw new Error("Verified Plumber principal role required");
+  }
+  return new PlumberClient(baseUrl, Object.freeze({ id: principal.id, role: principal.role }));
 }
 
 export const plumberClient = new PlumberClient();

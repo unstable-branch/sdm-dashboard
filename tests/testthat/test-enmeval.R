@@ -1,3 +1,16 @@
+test_that("ENMeval ranking keeps fixed-direction AUC ordering", {
+  results <- data.frame(
+    auc.val.avg = c(0.4, 0.6),
+    features = c("inverted", "directional"),
+    regmult = c(1, 1),
+    stringsAsFactors = FALSE
+  )
+
+  ranked <- rank_enmeval_results(results)
+  expect_equal(ranked$results$features, c("directional", "inverted"))
+  expect_equal(ranked$results$auc.val.avg, c(0.6, 0.4))
+})
+
 test_that("build_enmeval_grid produces correct combinations", {
   skip_if_not_installed("ENMeval")
   grid <- build_enmeval_grid(fc = c("L", "LQ"), rm = c(1, 2))

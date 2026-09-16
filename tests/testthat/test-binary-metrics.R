@@ -1,5 +1,5 @@
 # Tests for binary classification metrics (auc_rank, compute_binary_metrics,
-# select_threshold) and the auc_rank inversion correction.
+# select_threshold) and fixed-direction AUC semantics.
 # helper-load.R and helper-fixtures.R are auto-sourced by testthat.
 
 # ---- auc_rank ---------------------------------------------------------------
@@ -14,23 +14,23 @@ test_that("auc_rank returns 1 for perfect separation (presence higher)", {
   expect_true(isTRUE(attr(val, "unreliable")))
 })
 
-test_that("auc_rank inverts when presences score lower (model is reversed)", {
+test_that("auc_rank returns 0 when presences score lower (fixed direction)", {
   # Presences (1) score in [0.1, 0.2], backgrounds (0) score in [0.8, 0.9].
-  # Raw AUC ~ 0; after inversion = 1. With n=2 each group, unreliable is TRUE.
+  # The model direction is fixed, so the perfectly inverted ordering scores 0.
   obs <- c(1, 1, 0, 0)
   score <- c(0.1, 0.2, 0.8, 0.9)
   val <- auc_rank(obs, score)
-  expect_equal(as.numeric(val), 1)
+  expect_equal(as.numeric(val), 0)
   expect_true(isTRUE(attr(val, "unreliable")))
 })
 
-test_that("auc_rank inverts AUC < 0.5 for unequal groups", {
+test_that("auc_rank preserves below-random ordering for unequal groups", {
   # With unequal groups, a reverse-ordered model produces raw AUC < 0.5.
   obs <- c(rep(1, 8), rep(0, 2))
   score <- c(seq(0.1, 0.8, length.out = 8), 0.9, 1.0)
-  # Raw AUC would be < 0.5; after inversion should be > 0.5.
+  # Do not flip the raw AUC using held-out labels.
   val <- auc_rank(obs, score)
-  expect_gte(val, 0.5)
+  expect_equal(as.numeric(val), 0)
 })
 
 test_that("auc_rank handles all-positive obs and returns NA", {
@@ -45,6 +45,12 @@ test_that("auc_rank handles all-negative obs and returns NA", {
   expect_equal(auc_rank(obs, score), NA_real_)
 })
 
+test_that("auc_rank returns 0.5 for random pair ordering", {
+  # One pair wins, one loses, and two pairs tie.
+  val <- auc_rank(c(1, 1, 0, 0), c(0.2, 0.8, 0.8, 0.2))
+  expect_equal(as.numeric(val), 0.5)
+})
+
 test_that("auc_rank handles tied scores correctly", {
   # Two presences and two backgrounds, all with identical scores within class.
   # n_pos=2, n0=2 → unreliable flag is set.
@@ -55,13 +61,13 @@ test_that("auc_rank handles tied scores correctly", {
   expect_true(isTRUE(attr(val, "unreliable")))
 })
 
-test_that("auc_rank inverts AUC < 0.5 (negative correlation)", {
+test_that("auc_rank preserves AUC < 0.5 (negative correlation)", {
   # With 15 presences scoring lower than 5 backgrounds, raw AUC < 0.5,
-  # inverted to 1 - raw_AUC > 0.5.
+  # and the fixed-direction AUC remains below random.
   obs <- c(rep(1L, 15), rep(0L, 5))
   score <- c(seq(0.1, 0.4, length.out = 15), seq(0.6, 1.0, length.out = 5))
   val <- auc_rank(obs, score)
-  expect_gte(val, 0.5)
+  expect_equal(as.numeric(val), 0)
 })
 
 test_that("auc_rank marks unreliable for n_pos < 25", {
@@ -95,16 +101,22 @@ test_that("auc_rank filters NA obs and NA scores", {
   expect_true(isTRUE(attr(val, "unreliable")))
 })
 
-test_that("auc_rank is symmetric: swapping presence/background inverts score", {
+test_that("auc_rank is directional: swapping score ordering complements AUC", {
   obs_a <- c(rep(1, 10), rep(0, 10))
   score_a <- c(runif(10, 0.6, 0.9), runif(10, 0.1, 0.4))
   obs_b <- c(rep(1, 10), rep(0, 10))
   score_b <- 1 - score_a  # perfectly inverted
-  # After inversion correction, both should give the same result.
-  expect_equal(auc_rank(obs_a, score_a), auc_rank(obs_b, score_b))
+  # Fixed-direction AUCs are complementary, rather than normalised to match.
+  expect_equal(as.numeric(auc_rank(obs_a, score_a)) +
+                 as.numeric(auc_rank(obs_b, score_b)), 1)
 })
 
 # ---- compute_binary_metrics -------------------------------------------------
+
+test_that("compute_binary_metrics reports 0 AUC for inverted predictions", {
+  m <- compute_binary_metrics(c(1, 1, 0, 0), c(0.1, 0.2, 0.8, 0.9), threshold = 0.5)
+  expect_equal(m$auc, 0)
+})
 
 test_that("compute_binary_metrics computes correct confusion matrix at threshold 0.5", {
   m <- compute_binary_metrics(c(1, 1, 0, 0), c(0.9, 0.8, 0.2, 0.1), threshold = 0.5)

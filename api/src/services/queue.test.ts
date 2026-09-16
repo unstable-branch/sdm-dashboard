@@ -26,6 +26,7 @@ const td = vi.hoisted(() => {
     mockHandleModelJob: vi.fn(),
     mockHandleCleanJob: vi.fn(),
     mockHandleCovariateJob: vi.fn(),
+    mockResolveCurrentPrincipal: vi.fn(async (userId: string): Promise<{ id: string; role: string } | null> => ({ id: userId, role: "viewer" })),
     mockJobEventBusEmit: vi.fn(),
     mockDbUpdate: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn() })) })),
     mockEq: vi.fn(),
@@ -64,8 +65,15 @@ vi.mock("./plumber.js", () => {
     getJobStatus = vi.fn();
     getClimateStatus = vi.fn();
   }
-  return { PlumberClient: MockPlumberClient };
+  return {
+    PlumberClient: MockPlumberClient,
+    plumberForPrincipal: vi.fn(() => new MockPlumberClient()),
+  };
 });
+
+vi.mock("./auth-principal.js", () => ({
+  resolveCurrentPrincipal: td.mockResolveCurrentPrincipal,
+}));
 
 vi.mock("../db/index.js", () => ({
   db: { update: td.mockDbUpdate },
@@ -100,8 +108,10 @@ const mockJob = (overrides: Record<string, unknown> = {}) => ({
   data: {
     type: "model",
     payload: { runId: "run-1" },
-    userId: "user-1",
     ...(overrides.data || {}),
+    userId: Object.prototype.hasOwnProperty.call(overrides.data || {}, "userId")
+      ? (overrides.data as { userId?: string } | undefined)?.userId
+      : "user-1",
   } as { type: string; payload: Record<string, unknown>; userId?: string },
   progress: 0,
   returnvalue: null,
@@ -337,12 +347,12 @@ describe("ensureWorker", () => {
   it("creates a Worker that dispatches covariate_download jobs", async () => {
     queue.ensureWorker();
 
-    const job = mockJob({ data: { type: "covariate_download", payload: {} } });
+    const job = mockJob({ data: { type: "covariate_download", payload: {}, userId: "user-1" } });
     td.mockHandleCovariateJob.mockResolvedValue({ status: "success", data: {} });
 
     await td.processorRef.current!(job);
 
-    expect(td.mockHandleCovariateJob).toHaveBeenCalledWith(job, expect.anything(), undefined);
+    expect(td.mockHandleCovariateJob).toHaveBeenCalledWith(job, expect.anything(), "user-1");
   });
 
   it("returns existing worker on subsequent calls", () => {
@@ -351,10 +361,25 @@ describe("ensureWorker", () => {
     expect(w1).toBe(w2);
   });
 
+  it("rejects a job without a principal", async () => {
+    queue.ensureWorker();
+    const job = mockJob({ data: { type: "clean", payload: {}, userId: null } });
+    await expect(td.processorRef.current!(job)).rejects.toThrow("authenticated principal");
+    expect(td.mockHandleCleanJob).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the queued principal is no longer valid", async () => {
+    queue.ensureWorker();
+    td.mockResolveCurrentPrincipal.mockResolvedValueOnce(null);
+    const job = mockJob({ data: { type: "clean", payload: {}, userId: "deleted-user" } });
+    await expect(td.processorRef.current!(job)).rejects.toThrow("principal is no longer valid");
+    expect(td.mockHandleCleanJob).not.toHaveBeenCalled();
+  });
+
   it("handles unknown job type", async () => {
     queue.ensureWorker();
 
-    const job = mockJob({ data: { type: "unknown_type", payload: {} } });
+    const job = mockJob({ data: { type: "unknown_type", payload: {}, userId: "user-1" } });
     const result = await td.processorRef.current!(job);
 
     expect(result).toMatchObject({ status: "error", error: "Unknown job type: unknown_type" });
@@ -396,7 +421,7 @@ describe("ensureWorker", () => {
   it("re-throws timeout-related errors", async () => {
     queue.ensureWorker();
 
-    const job = mockJob({ data: { type: "clean", payload: {} } });
+    const job = mockJob({ data: { type: "clean", payload: {}, userId: "user-1" } });
     td.mockHandleCleanJob.mockRejectedValue(new Error("timeout"));
 
     await expect(td.processorRef.current!(job)).rejects.toThrow("timeout");
@@ -405,7 +430,7 @@ describe("ensureWorker", () => {
   it("re-throws ECONNREFUSED errors", async () => {
     queue.ensureWorker();
 
-    const job = mockJob({ data: { type: "clean", payload: {} } });
+    const job = mockJob({ data: { type: "clean", payload: {}, userId: "user-1" } });
     td.mockHandleCleanJob.mockRejectedValue(new Error("ECONNREFUSED"));
 
     await expect(td.processorRef.current!(job)).rejects.toThrow("ECONNREFUSED");
@@ -414,7 +439,7 @@ describe("ensureWorker", () => {
   it("re-throws 500 errors", async () => {
     queue.ensureWorker();
 
-    const job = mockJob({ data: { type: "clean", payload: {} } });
+    const job = mockJob({ data: { type: "clean", payload: {}, userId: "user-1" } });
     td.mockHandleCleanJob.mockRejectedValue(new Error("500"));
 
     await expect(td.processorRef.current!(job)).rejects.toThrow("500");

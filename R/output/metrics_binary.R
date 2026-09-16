@@ -11,10 +11,10 @@ auc_rank <- function(obs, score) {
   }
   r <- rank(score, ties.method = "average")
   result <- as.numeric((sum(r[obs == 1]) - n1 * (n1 + 1) / 2) / (n1 * n0))
-  # Normalise for inverted predictions: SDM convention reports max(AUC, 1-AUC).
-  # Models that score presence points lower than background are penalised by
-  # subtracting from 1 rather than being ranked below random (AUC < 0.5).
-  if (!is.na(result) && result < 0.5) result <- 1 - result
+  # Keep the ROC direction fixed: larger suitability scores must indicate
+  # greater support for presence. Never use the observed labels to reverse
+  # the prediction direction. Consequently, an inverted model scores below
+  # random (and a perfectly inverted model scores 0), while ties score 0.5.
   if (n1 < 25 || n0 < 25) {
     attr(result, "unreliable") <- TRUE
   }

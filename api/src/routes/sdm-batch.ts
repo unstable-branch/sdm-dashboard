@@ -10,9 +10,10 @@ import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
-import { buildModelPayload, type ModelConfigRecord } from "../services/model-payload.js";
+import { resolveModelInputAsset, resolveTargetsConfigs, ModelInputAssetError } from "../services/model-payload.js";
 import { enqueueSdmJob } from "../services/queue.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
+import { projectSafeScienceConfig, revalidateHistoricalConfig, publicConfigValidationError, UnsafeExecutionConfigError, findForbiddenConfigKey } from "../services/execution-config.js";
 
 export const sdmBatchRoutes = new Hono<AppEnv>();
 
@@ -155,7 +156,7 @@ sdmBatchRoutes.post("/cancel-all", async (c) => {
         } catch { /* best effort */ }
       }
       if (run.jobId) {
-        await       plumberClient.cancelModel(run.jobId).catch((e: unknown) =>
+        await       plumberClient.withUser(user.id).withRole(user.role).cancelModel(run.jobId).catch((e: unknown) =>
         console.warn(`[batch] Cancel model run ${run.jobId} failed:`, e instanceof Error ? e.message : String(e))
       );
       }
@@ -180,12 +181,13 @@ sdmBatchRoutes.post("/cancel-all", async (c) => {
 });
 
 sdmBatchRoutes.post("/batch", async (c) => {
+  let createdBatchId: string | null = null;
   try {
     const body = await c.req.json().catch(() => null);
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
+    if (findForbiddenConfigKey(body)) return c.json(publicConfigValidationError(), 400);
     const { configs, name } = body;
     const user = c.get("user");
-    const projectId = await ensureDefaultProject(user);
 
     if (!Array.isArray(configs) || configs.length === 0) {
       return c.json({ error: "configs must be a non-empty array" }, 400);
@@ -195,11 +197,21 @@ sdmBatchRoutes.post("/batch", async (c) => {
       return c.json({ error: "Batch limited to 50 configs per request" }, 400);
     }
 
-    const parsedConfigs = configs.map((config) => {
-      const parsed = modelConfigSchema.safeParse(config);
-      if (!parsed.success) throw new Error(`Invalid config: ${parsed.error.message}`);
-      return parsed;
-    });
+    let parsedConfigs;
+    try {
+      parsedConfigs = configs.map((config) => {
+        const parsed = modelConfigSchema.safeParse(config);
+        if (!parsed.success) throw new UnsafeExecutionConfigError();
+        return parsed;
+      });
+    } catch {
+      return c.json(publicConfigValidationError(), 400);
+    }
+    const safeConfigs = parsedConfigs.map((parsed) => projectSafeScienceConfig(parsed.data));
+    const projectId = await ensureDefaultProject(user);
+    // Preflight before persistence; dispatch below resolves again so no stale
+    // server path survives an intervening asset change.
+    await resolveTargetsConfigs(safeConfigs, { id: user.id, role: user.role }, projectId);
 
     const [batch] = await db
       .insert(batches)
@@ -211,34 +223,28 @@ sdmBatchRoutes.post("/batch", async (c) => {
         status: "running",
       })
       .returning();
+    createdBatchId = batch.id;
 
-    const plumberPayload = await plumberClient.targetsRun({ configs: parsedConfigs.map(p => p.data) });
-
-    const targetsJobId = plumberPayload.job_id as string | undefined;
-
-    if (!targetsJobId) {
-      throw new Error("Targets pipeline did not return a job ID");
-    }
-
-    // Create per-species run records so batch status/cancel/retry can work
-    const runRecords = parsedConfigs.map((p) => ({
+    // Persist recoverable child lifecycle records before external dispatch.
+    const runRecords = safeConfigs.map((config) => ({
       projectId,
       parentRunId: batch.id,
-      speciesName: p.data.species,
-      modelId: p.data.modelId,
-      config: p.data as unknown as Record<string, unknown>,
+      speciesName: config.species as string,
+      modelId: config.modelId as string,
+      config,
       status: "queued" as const,
-      jobId: targetsJobId,
+      jobId: null,
     }));
+    if (runRecords.length > 0) await db.insert(runs).values(runRecords);
 
-    if (runRecords.length > 0) {
-      await db.insert(runs).values(runRecords);
-    }
+    const plumberPayload = await plumberClient.withUser(user.id).withRole(user.role).targetsRun({
+      configs: await resolveTargetsConfigs(safeConfigs, { id: user.id, role: user.role }, projectId),
+    });
+    const targetsJobId = plumberPayload.job_id as string | undefined;
+    if (!targetsJobId) throw new Error("Targets pipeline did not return a job ID");
 
-    await db
-      .update(batches)
-      .set({ jobId: targetsJobId })
-      .where(eq(batches.id, batch.id));
+    await db.update(runs).set({ jobId: targetsJobId }).where(eq(runs.parentRunId, batch.id));
+    await db.update(batches).set({ jobId: targetsJobId }).where(eq(batches.id, batch.id));
 
     const client = extractClientInfo(c);
     await logAction({
@@ -247,7 +253,7 @@ sdmBatchRoutes.post("/batch", async (c) => {
       entity: "batches",
       entityId: batch.id,
       ...client,
-      details: { name: name || `Batch ${new Date().toLocaleDateString()}`, totalJobs: configs.length },
+      details: { name: name || `Batch ${new Date().toLocaleDateString()}`, totalJobs: safeConfigs.length },
     });
 
     return c.json({
@@ -257,6 +263,19 @@ sdmBatchRoutes.post("/batch", async (c) => {
       message: `Batch of ${configs.length} configs started via targets pipeline`,
     });
   } catch (err) {
+    if (createdBatchId) {
+      try {
+        await db.update(batches).set({ status: "failed", completedAt: new Date() }).where(eq(batches.id, createdBatchId));
+        await db.update(runs).set({ status: "failed", completedAt: new Date(), error: "Batch dispatch failed" })
+          .where(eq(runs.parentRunId, createdBatchId));
+      } catch {
+        // The request still denies closed if lifecycle repair is unavailable.
+      }
+    }
+    if (err instanceof ModelInputAssetError) {
+      const unavailable = err.reason === "unavailable";
+      return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+    }
     const message = err instanceof Error ? err.message : "Batch run failed";
     return c.json({ error: message }, 500);
   }
@@ -341,7 +360,7 @@ sdmBatchRoutes.post("/batch/:batchId/cancel", async (c) => {
     await Promise.allSettled(cancellable.map(async (r) => {
       if (r.bullmqId && queue) await queue.remove(r.bullmqId).catch((e: unknown) =>
         console.warn(`[batch] Remove queue job ${r.bullmqId} failed:`, e instanceof Error ? e.message : String(e)));
-      if (r.jobId) await plumberClient.cancelModel(r.jobId).catch((e: unknown) =>
+      if (r.jobId) await plumberClient.withUser(user.id).withRole(user.role).cancelModel(r.jobId).catch((e: unknown) =>
         console.warn(`[batch] Cancel model run ${r.jobId} failed:`, e instanceof Error ? e.message : String(e)));
       jobEventBus.emitJobStatus({
         jobId: r.id,
@@ -390,6 +409,29 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
       return c.json({ ok: true, retried: 0, message: "No failed runs to retry" });
     }
 
+    // Re-parse every historical config before any cancellation, state update, or enqueue.
+    // This prevents old secret-bearing/unsupported JSON from being replayed.
+    let retryConfigs: Record<string, unknown>[];
+    try {
+      retryConfigs = failedRuns.map((run) => revalidateHistoricalConfig(run.config));
+    } catch {
+      return c.json({ error: "Stored execution configuration is not safe to retry" }, 409);
+    }
+
+    // Preflight current principal and canonical assets before cancellation or
+    // run-state mutation. The worker repeats this check at dispatch time,
+    // because queued authorization can change while waiting.
+    try {
+      await Promise.all(retryConfigs.map((config) =>
+        resolveModelInputAsset(config, { id: user.id, role: user.role }, batch.projectId)));
+    } catch (err) {
+      if (err instanceof ModelInputAssetError) {
+        const unavailable = err.reason === "unavailable";
+        return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+      }
+      return c.json({ error: "Input asset not found" }, 404);
+    }
+
     // Check if this batch was a targets pipeline batch (all runs share the same jobId)
     const targetsJobId = batch.jobId;
     const isTargetsBatch = targetsJobId != null && targetsJobId.startsWith("targets-");
@@ -398,7 +440,7 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
       // Cancel any still-running old targets job before starting a new one
       if (targetsJobId && targetsJobId !== "targets-none") {
         try {
-          await plumberClient.cancelModel(targetsJobId);
+          await plumberClient.withUser(user.id).withRole(user.role).cancelModel(targetsJobId);
         } catch (e: unknown) {
           console.warn(`[batch-retry] Cancel old targets job ${targetsJobId}:`,
             e instanceof Error ? e.message : String(e));
@@ -406,9 +448,9 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
       }
 
       // For targets batches, re-submit all failed configs as a new targets run
-      const configs = failedRuns.map((r) => (r.config as unknown as ModelConfigRecord));
+      const configs = await resolveTargetsConfigs(retryConfigs, { id: user.id, role: user.role }, batch.projectId);
 
-      const plumberPayload = await plumberClient.targetsRun({ configs });
+      const plumberPayload = await plumberClient.withUser(user.id).withRole(user.role).targetsRun({ configs });
       const newTargetsJobId = plumberPayload.job_id as string | undefined;
       if (!newTargetsJobId) throw new Error("Targets pipeline did not return a job ID");
 
@@ -442,9 +484,9 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
     const retriedIds = failedRuns.map((r) => r.id);
     const bullmqIds = new Map<string, string>();
     await db.update(runs).set({ status: "queued", error: null, jobId: null, bullmqId: null }).where(inArray(runs.id, retriedIds));
-    for (const r of failedRuns) {
+    for (const [index, r] of failedRuns.entries()) {
       const queuedJobId = await enqueueSdmJob(
-        { type: "model", payload: buildModelPayload((r.config as unknown as ModelConfigRecord), r.id) },
+        { type: "model", payload: { runId: r.id, projectId: batch.projectId, config: retryConfigs[index] } },
         user.id,
       );
       if (queuedJobId) {
@@ -470,6 +512,10 @@ sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
 
     return c.json({ ok: true, retried: retriedIds.length, job_ids: retriedIds });
   } catch (err) {
+    if (err instanceof ModelInputAssetError) {
+      const unavailable = err.reason === "unavailable";
+      return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+    }
     const message = err instanceof Error ? err.message : "Batch retry failed";
     return c.json({ error: message }, 500);
   }
@@ -504,7 +550,7 @@ sdmBatchRoutes.delete("/runs/delete/:runId", async (c) => {
     }
 
     if (run.jobId) {
-      await plumberClient.deleteModelOutputs(run.jobId).catch(() => console.warn("[sdm] Failed to delete Plumber outputs for run", run.jobId));
+      await plumberClient.withUser(user.id).withRole(user.role).deleteModelOutputs(run.jobId).catch(() => console.warn("[sdm] Failed to delete Plumber outputs for run", run.jobId));
     }
 
     await db.delete(runs).where(eq(runs.id, runId));
@@ -568,7 +614,7 @@ sdmBatchRoutes.post("/runs/clear-all", async (c) => {
       await Promise.allSettled(
         runsToDelete.map((run) =>
           run.jobId
-            ? plumberClient.deleteModelOutputs(run.jobId).catch((e: unknown) =>
+            ? plumberClient.withUser(user.id).withRole(user.role).deleteModelOutputs(run.jobId).catch((e: unknown) =>
               console.warn(`[batch] Delete outputs for ${run.jobId} failed:`, e instanceof Error ? e.message : String(e)))
             : Promise.resolve()
         )

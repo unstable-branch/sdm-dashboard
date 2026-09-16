@@ -1,11 +1,11 @@
 import { createMiddleware } from "hono/factory";
-import { verify } from "hono/jwt";
 import { createHash } from "crypto";
 import { db } from "../db/index.js";
-import { users, apiKeys, projectMembers, projects } from "../db/schema.js";
+import { apiKeys, projectMembers, projects } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { checkRateLimit } from "./rate-limit.js";
 import { getClientIp } from "./client-ip.js";
+import { AuthStorageUnavailable, verifyCurrentApiKey, verifyCurrentJwt } from "../services/auth-principal.js";
 
 // Batch lastUsedAt updates — flush every 30s or after 100 queued writes
 const lastUsedBatch = new Map<string, number>();
@@ -49,6 +49,8 @@ export type AppEnv = {
       id: string;
       email: string;
       role: string;
+      authVersion?: number;
+      source?: "jwt" | "api-key";
     };
     requestId: string;
   };
@@ -72,13 +74,6 @@ function getCookieToken(cookieHeader: string | undefined): string | null {
 }
 
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
-  // If optionalAuth already verified identity, skip re-verification
-  const existingUser = c.get("user");
-  if (existingUser?.id) {
-    await next();
-    return;
-  }
-
   const authHeader = c.req.header("Authorization");
   const apiKeyHeader = c.req.header("X-API-Key");
 
@@ -97,26 +92,10 @@ const ip = getClientIp(c);
       }
 
       const keyHash = createHash("sha256").update(apiKeyHeader).digest("hex");
-      const [key] = await db
-        .select({ userId: apiKeys.userId, expiresAt: apiKeys.expiresAt })
-        .from(apiKeys)
-        .where(and(eq(apiKeys.keyHash, keyHash)))
-        .limit(1);
-
-      if (!key || (key.expiresAt && key.expiresAt <= new Date())) {
+      const user = await verifyCurrentApiKey(apiKeyHeader);
+      if (!user) {
         console.warn(`[audit] API key auth FAILED (expired/missing) from ${ip}`);
         return c.json({ error: "Invalid API key" }, 401);
-      }
-
-      const [user] = await db
-        .select({ id: users.id, email: users.email, role: users.role })
-        .from(users)
-        .where(eq(users.id, key.userId))
-        .limit(1);
-
-      if (!user) {
-        console.warn(`[audit] API key auth FAILED (orphaned key userId=${key.userId}) from ${ip}`);
-        return c.json({ error: "User not found" }, 401);
       }
 
       console.info(`[audit] API key auth OK: user=${user.id} role=${user.role} from ${ip}`);
@@ -141,25 +120,18 @@ const ip = getClientIp(c);
   const secret = process.env.JWT_SECRET?.trim();
   if (!secret) {
     console.warn("[audit] JWT_SECRET not configured");
-    return c.json({ error: "Authentication unavailable (server not configured)" }, 401);
+    return c.json({ error: "Authentication unavailable (server not configured)" }, 503);
   }
 
   try {
-    const payload = await verify(token, secret, "HS256");
-    const expectedIss = process.env.JWT_ISSUER || "sdm-dashboard";
-    if (payload.iss !== expectedIss) {
-      console.warn(`[audit] JWT issuer mismatch: expected ${expectedIss}, got ${payload.iss} for sub=${payload.sub}`);
-      return c.json({ error: "Invalid token issuer" }, 401);
-    }
+    const user = await verifyCurrentJwt(token);
+    if (!user) return c.json({ error: "Invalid token" }, 401);
     const ip = getClientIp(c);
-    console.info(`[audit] JWT auth OK: user=${payload.sub} role=${payload.role} from ${ip}`);
-    c.set("user", {
-      id: payload.sub as string,
-      email: payload.email as string,
-      role: payload.role as string,
-    });
+    console.info(`[audit] JWT auth OK: user=${user.id} role=${user.role} from ${ip}`);
+    c.set("user", user);
     await next();
   } catch (err) {
+    if (err instanceof AuthStorageUnavailable) return c.json({ error: "Authentication service unavailable" }, 503);
     const ip = getClientIp(c);
     console.warn(`[audit] JWT auth FAILED from ${ip}: ${err instanceof Error ? err.message : "token verification error"}`);
     return c.json({ error: "Invalid token" }, 401);
@@ -172,26 +144,10 @@ export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
 
   if (apiKeyHeader) {
     try {
-      const keyHash = createHash("sha256").update(apiKeyHeader).digest("hex");
-      const [key] = await db
-        .select({ userId: apiKeys.userId, expiresAt: apiKeys.expiresAt })
-        .from(apiKeys)
-        .where(eq(apiKeys.keyHash, keyHash))
-        .limit(1);
-
-      if (key && (!key.expiresAt || key.expiresAt > new Date())) {
-        const [user] = await db
-          .select({ id: users.id, email: users.email, role: users.role })
-          .from(users)
-          .where(eq(users.id, key.userId))
-          .limit(1);
-
-        if (user) {
-          c.set("user", user);
-        }
-      }
-    } catch {
-      // Silently fail for optional auth
+      const user = await verifyCurrentApiKey(apiKeyHeader);
+      if (user) c.set("user", user);
+    } catch (error) {
+      if (error instanceof AuthStorageUnavailable) return c.json({ error: "Authentication service unavailable" }, 503);
     }
   } else {
     try {
@@ -204,18 +160,11 @@ export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
       }
       const secret = process.env.JWT_SECRET;
       if (secret) {
-        const payload = await verify(token, secret, "HS256");
-        const expectedIss = process.env.JWT_ISSUER || "sdm-dashboard";
-        if (payload.iss === expectedIss) {
-          c.set("user", {
-            id: payload.sub as string,
-            email: payload.email as string,
-            role: payload.role as string,
-          });
-        }
+        const user = await verifyCurrentJwt(token);
+        if (user) c.set("user", user);
       }
-    } catch {
-      // Silently fail for optional auth
+    } catch (error) {
+      if (error instanceof AuthStorageUnavailable) return c.json({ error: "Authentication service unavailable" }, 503);
     }
   }
 

@@ -26,23 +26,23 @@ async function plumberJobId(runId: string): Promise<string> {
 
 interface DiagEndpoint {
   errorMsg: string;
-  fetch: (jobId: string) => Promise<unknown>;
+  fetch: (client: typeof plumberClient, jobId: string) => Promise<unknown>;
 }
 
 const DIAG_ENDPOINTS: Record<string, DiagEndpoint> = {
-  vif:               { errorMsg: "VIF diagnostics unavailable",           fetch: (j) => plumberClient.getDiagnosticsVif(j) },
-  ale:               { errorMsg: "ALE data unavailable",                 fetch: (j) => plumberClient.getDiagnosticsAle(j) },
-  "climate-drivers": { errorMsg: "Climate driver data unavailable",       fetch: (j) => plumberClient.getDiagnosticsClimateDrivers(j) },
-  "response-curves":  { errorMsg: "Response curves unavailable",           fetch: (j) => plumberClient.getDiagnosticsResponseCurves(j) },
-  importance:         { errorMsg: "Variable importance unavailable",        fetch: (j) => plumberClient.getDiagnosticsImportance(j) },
-  cbi:               { errorMsg: "CBI diagnostics unavailable",             fetch: (j) => plumberClient.getDiagnosticsCbi(j) },
-  mess:              { errorMsg: "MESS diagnostics unavailable",             fetch: (j) => plumberClient.getDiagnosticsMess(j) },
-  roc:               { errorMsg: "ROC data unavailable",                    fetch: (j) => plumberClient.getDiagnosticsRoc(j) },
-  calibration:        { errorMsg: "Calibration data unavailable",            fetch: (j) => plumberClient.getDiagnosticsCalibration(j) },
-  "cv-folds":        { errorMsg: "CV folds data unavailable",             fetch: (j) => plumberClient.getDiagnosticsCvFolds(j) },
-  threshold:         { errorMsg: "Threshold data unavailable",             fetch: (j) => plumberClient.getDiagnosticsThreshold(j) },
-  density:           { errorMsg: "Density data unavailable",               fetch: (j) => plumberClient.getDiagnosticsDensity(j) },
-  summary:           { errorMsg: "Diagnostics summary unavailable",       fetch: (j) => plumberClient.getDiagnosticsSummary(j) },
+  vif:               { errorMsg: "VIF diagnostics unavailable",           fetch: (client, j) => client.getDiagnosticsVif(j) },
+  ale:               { errorMsg: "ALE data unavailable",                 fetch: (client, j) => client.getDiagnosticsAle(j) },
+  "climate-drivers": { errorMsg: "Climate driver data unavailable",       fetch: (client, j) => client.getDiagnosticsClimateDrivers(j) },
+  "response-curves":  { errorMsg: "Response curves unavailable",           fetch: (client, j) => client.getDiagnosticsResponseCurves(j) },
+  importance:         { errorMsg: "Variable importance unavailable",        fetch: (client, j) => client.getDiagnosticsImportance(j) },
+  cbi:               { errorMsg: "CBI diagnostics unavailable",             fetch: (client, j) => client.getDiagnosticsCbi(j) },
+  mess:              { errorMsg: "MESS diagnostics unavailable",             fetch: (client, j) => client.getDiagnosticsMess(j) },
+  roc:               { errorMsg: "ROC data unavailable",                    fetch: (client, j) => client.getDiagnosticsRoc(j) },
+  calibration:        { errorMsg: "Calibration data unavailable",            fetch: (client, j) => client.getDiagnosticsCalibration(j) },
+  "cv-folds":        { errorMsg: "CV folds data unavailable",             fetch: (client, j) => client.getDiagnosticsCvFolds(j) },
+  threshold:         { errorMsg: "Threshold data unavailable",             fetch: (client, j) => client.getDiagnosticsThreshold(j) },
+  density:           { errorMsg: "Density data unavailable",               fetch: (client, j) => client.getDiagnosticsDensity(j) },
+  summary:           { errorMsg: "Diagnostics summary unavailable",       fetch: (client, j) => client.getDiagnosticsSummary(j) },
 };
 
 for (const [path, { errorMsg, fetch }] of Object.entries(DIAG_ENDPOINTS)) {
@@ -54,7 +54,8 @@ for (const [path, { errorMsg, fetch }] of Object.entries(DIAG_ENDPOINTS)) {
     }
     try {
       const jobId = await plumberJobId(runId);
-      return c.json(await fetch(jobId));
+      const client = plumberClient.withUser(user.id).withRole(user.role);
+      return c.json(await fetch(client, jobId));
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : errorMsg }, 502);
     }
@@ -70,7 +71,7 @@ diagnosticsRoutes.post("/ensemble-rasters/:runId", async (c) => {
   }
   try {
     const jobId = await plumberJobId(runId);
-    const result = await plumberClient.generateEnsembleRasters(jobId);
+    const result = await plumberClient.withUser(user.id).withRole(user.role).generateEnsembleRasters(jobId);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Ensemble raster generation failed";
@@ -96,7 +97,7 @@ diagnosticsRoutes.post("/shap/cell", async (c) => {
       return c.json({ error: "Run not found" }, 404);
     }
     const jobId = await plumberJobId(runId);
-    const data = await plumberClient.postDiagnosticsShapCell(jobId, longitude, latitude);
+    const data = await plumberClient.withUser(user.id).withRole(user.role).postDiagnosticsShapCell(jobId, longitude, latitude);
     return c.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "SHAP cell explanation unavailable";
@@ -114,7 +115,7 @@ diagnosticsRoutes.get("/data/:runId/:type", async (c) => {
   }
   try {
     const jobId = await plumberJobId(runId);
-    const csvRes = await plumberClient.getDiagnosticDataCsv(jobId, type);
+    const csvRes = await plumberClient.withUser(user.id).withRole(user.role).getDiagnosticDataCsv(jobId, type);
     if (!csvRes.ok) {
       return c.json({ error: `Plumber returned ${csvRes.status}` }, 502);
     }

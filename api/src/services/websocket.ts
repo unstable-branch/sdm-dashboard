@@ -1,4 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
+import { and, eq, or } from "drizzle-orm";
+import { db } from "../db/index.js";
+import { projectMembers, projects, runs } from "../db/schema.js";
 
 // Augment ws WebSocket to track _isAlive for heartbeat management
 declare module "ws" {
@@ -6,16 +9,16 @@ declare module "ws" {
     _isAlive?: boolean;
   }
 }
-import { verify } from "hono/jwt";
 import type { ServerType } from "@hono/node-server";
 import { jobEventBus } from "./job-events.js";
-import { canAccessRun } from "./access.js";
 import { getJobStatus } from "./queue.js";
+import { AuthStorageUnavailable, verifyCurrentJwt } from "./auth-principal.js";
 
 interface Client {
   ws: WebSocket;
   userId: string;
   userRole: string;
+  token: string;
   subscriptions: Set<string>;
 }
 
@@ -28,7 +31,7 @@ let _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 const HEARTBEAT_INTERVAL = 30_000;
 const MAX_CLIENTS = 1000;
 const MAX_EVENT_AGE_MS = 3600000; // 1 hour
-const JWT_SECRET = process.env.JWT_SECRET || "";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const _lastSentEvent = new Map<string, { state: string; progress: number; _receivedAt: number; logsKey: string }>();
 
 function cleanupStaleEvents() {
@@ -67,16 +70,78 @@ function heartbeat() {
   cleanupStaleEvents();
 }
 
-async function verifyWsToken(url: string): Promise<{ userId: string; role: string } | null> {
+async function verifyWsToken(url: string): Promise<{ userId: string; role: string; token: string } | null> {
   try {
     const parsed = new URL(url, "http://localhost");
     const token = parsed.searchParams.get("token");
-    if (!token || !JWT_SECRET) return null;
-    const payload = await verify(token, JWT_SECRET, "HS256");
-    return { userId: payload.sub as string, role: payload.role as string };
+    if (!token) return null;
+    const principal = await verifyCurrentJwt(token);
+    return principal ? { userId: principal.id, role: principal.role, token } : null;
   } catch {
     return null;
   }
+}
+
+async function canDeliver(client: Client, jobId: string): Promise<boolean> {
+  if (typeof jobId !== "string" || jobId.length === 0 || jobId.length > 255) return false;
+  try {
+    const principal = await verifyCurrentJwt(client.token);
+    if (!principal) return false;
+
+    // Resolve the externally supplied identifier to one durable run before
+    // authorizing it. Events may carry the run UUID, Plumber job ID, or BullMQ
+    // ID; treating all non-UUID values as runs.job_id both missed valid events
+    // and made the resource mapping ambiguous.
+    const idMatch = UUID_RE.test(jobId)
+      ? or(eq(runs.id, jobId), eq(runs.jobId, jobId), eq(runs.bullmqId, jobId))
+      : or(eq(runs.jobId, jobId), eq(runs.bullmqId, jobId));
+    const [run] = await db
+      .select({ id: runs.id, projectId: runs.projectId })
+      .from(runs)
+      .where(idMatch)
+      .limit(1);
+    if (!run) return false;
+
+    // Admins still need a real run row, but do not need project membership.
+    // For every other role query current ownership/membership directly rather
+    // than using the 60-second discovery cache in access.ts. This makes a
+    // committed membership removal effective for already-open streams.
+    if (principal.role === "admin") return true;
+    if (!run.projectId) return false;
+
+    const [owner] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, run.projectId), eq(projects.ownerId, principal.id)))
+      .limit(1);
+    if (owner) return true;
+
+    const [member] = await db
+      .select({ id: projectMembers.id })
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, run.projectId), eq(projectMembers.userId, principal.id)))
+      .limit(1);
+    return Boolean(member);
+  } catch (error) {
+    if (!(error instanceof AuthStorageUnavailable)) console.warn("[ws] authorization check failed");
+    return false;
+  }
+}
+
+async function sendAuthorized(clientId: string, jobId: string, payload: string) {
+  const client = clients.get(clientId);
+  if (!client || client.ws.readyState !== WebSocket.OPEN) return;
+  if (!await canDeliver(client, jobId)) {
+    client.ws.close(4001, "Authorization expired");
+    cleanupClient(clientId);
+    return;
+  }
+  // Authorization is asynchronous. Re-check identity, socket state and the
+  // subscription after it completes so an unsubscribe/close cannot be followed
+  // by a stale replay or event write.
+  const current = clients.get(clientId);
+  if (current !== client || current.ws.readyState !== WebSocket.OPEN || !current.subscriptions.has(jobId)) return;
+  current.ws.send(payload);
 }
 
 export function setupWebSocket(server: ServerType) {
@@ -107,7 +172,7 @@ export function setupWebSocket(server: ServerType) {
     ws.on("pong", () => { ws._isAlive = true; });
 
     const clientId = crypto.randomUUID();
-    clients.set(clientId, { ws, userId: userInfo.userId, userRole: userInfo.role, subscriptions: new Set() });
+    clients.set(clientId, { ws, userId: userInfo.userId, userRole: userInfo.role, token: userInfo.token, subscriptions: new Set() });
 
     ws.on("message", async (data) => {
       try {
@@ -118,7 +183,7 @@ export function setupWebSocket(server: ServerType) {
           if (!client) return;
 
           // Verify user has access to this job's run
-          const hasAccess = await canAccessRun(userInfo.userId, userInfo.role, jobId);
+          const hasAccess = await canDeliver(client, jobId);
           if (!hasAccess) {
             ws.send(JSON.stringify({ type: "error", message: "Access denied" }));
             return;
@@ -132,10 +197,11 @@ export function setupWebSocket(server: ServerType) {
 
           // Send current job status immediately to prevent race where
           // the job completed before the WebSocket subscribed
-          getJobStatus(jobId).then((status) => {
-            if (!status || !ws || ws.readyState !== WebSocket.OPEN) return;
+          getJobStatus(jobId).then(async (status) => {
+            const current = clients.get(clientId);
+            if (!status || current !== client || ws.readyState !== WebSocket.OPEN || !client.subscriptions.has(jobId)) return;
             if (status.state === "completed" || status.state === "failed") {
-              ws.send(JSON.stringify({
+              await sendAuthorized(clientId, jobId, JSON.stringify({
                 type: "status",
                 jobId,
                 status: status.state,
@@ -151,7 +217,9 @@ export function setupWebSocket(server: ServerType) {
         } else if (msg.type === "unsubscribe") {
           const jobId = msg.jobId;
           clients.get(clientId)?.subscriptions.delete(jobId);
-          subscriptions.get(jobId)?.delete(clientId);
+          const subscribers = subscriptions.get(jobId);
+          subscribers?.delete(clientId);
+          if (subscribers?.size === 0) subscriptions.delete(jobId);
         }
       } catch {
         ws.send(JSON.stringify({ type: "error", message: "Invalid message" }));
@@ -193,12 +261,7 @@ export function setupWebSocket(server: ServerType) {
         currentStage: event.currentStage ?? null,
         progressJson: event.progressJson ?? null,
       });
-      for (const clientId of subscribers) {
-        const client = clients.get(clientId);
-        if (client?.ws.readyState === WebSocket.OPEN) {
-          client.ws.send(payload);
-        }
-      }
+      for (const clientId of subscribers) void sendAuthorized(clientId, event.jobId, payload);
     }
   };
   jobEventBus.on("jobStatus", _jobStatusHandler);
@@ -208,24 +271,14 @@ export function setupWebSocket(server: ServerType) {
       const subscribers = subscriptions.get(jobId);
       if (subscribers) {
         const data = JSON.stringify({ type: "progress", ...progress });
-        for (const clientId of subscribers) {
-          const client = clients.get(clientId);
-          if (client?.ws.readyState === WebSocket.OPEN) {
-            client.ws.send(data);
-          }
-        }
+        for (const clientId of subscribers) void sendAuthorized(clientId, jobId, data);
       }
     },
     broadcastStatus: (jobId: string, status: string, data?: Record<string, unknown>) => {
       const subscribers = subscriptions.get(jobId);
       if (subscribers) {
         const payload = JSON.stringify({ type: "status", jobId, status, ...data });
-        for (const clientId of subscribers) {
-          const client = clients.get(clientId);
-          if (client?.ws.readyState === WebSocket.OPEN) {
-            client.ws.send(payload);
-          }
-        }
+        for (const clientId of subscribers) void sendAuthorized(clientId, jobId, payload);
       }
     },
   };

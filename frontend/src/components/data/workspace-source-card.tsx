@@ -39,6 +39,8 @@ export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace, onDelete
       onDragStart={(e) => {
         e.dataTransfer.setData("application/x-sdm-file", JSON.stringify({
           file_id: file.file_id,
+          rawAssetId: file.rawAssetId,
+          raw_asset_id: file.raw_asset_id,
           file_name: file.file_name,
           n_rows: file.n_rows,
           species: file.species,
@@ -93,9 +95,9 @@ export function WorkspaceSourceCard({ file, disabled, onAddToWorkspace, onDelete
       {disabled && (
         <span className="shrink-0 text-xs text-sdm-accent">In workspace</span>
       )}
-      {onDelete && !disabled && (
+      {onDelete && file.rawAssetId && !disabled && (
         <button
-          onClick={(e) => { e.stopPropagation(); onDelete(file.file_id); }}
+          onClick={(e) => { e.stopPropagation(); onDelete(file.rawAssetId!); }}
           className="flex shrink-0 items-center gap-1 rounded p-1 text-sdm-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
           title="Delete from history"
         >
