@@ -144,6 +144,7 @@ vi.mock("../services/plumber", () => ({
     runModel: vi.fn(async () => ({ job_id: "plumber-job-1" })),
     targetsRun: vi.fn(async () => ({ job_id: "targets-job-1" })),
     cancelModel: vi.fn(async () => ({ ok: true })),
+    getFutureScenarios: vi.fn(async () => ({ available_scenarios: [] })),
   },
 }));
 
@@ -207,6 +208,39 @@ describe("SDM routes", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("redacts future climate manifest and directory paths from public listing", async () => {
+    const { plumberClient } = await import("../services/plumber");
+    (plumberClient.getFutureScenarios as any).mockResolvedValue({
+      available_scenarios: [{
+        id: "UKESM1-0-LL_SSP2-4.5_2041-2060",
+        type: "future",
+        gcm: "UKESM1-0-LL",
+        ssp: "SSP2-4.5",
+        period: "2041-2060",
+        file_count: 19,
+        size_bytes: 123,
+        is_averaged: false,
+        manifest_path: "/app/Worldclim_future/climate_collection_v1_deadbeef.json",
+        path: "/app/Worldclim_future/UKESM1-0-LL_SSP2-4.5_2041-2060",
+      }],
+      base_directory: "/app/Worldclim_future",
+    });
+    const res = await app.request("/api/v1/sdm/future/scenarios");
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      available_scenarios: [{
+        id: "UKESM1-0-LL_SSP2-4.5_2041-2060",
+        type: "future",
+        gcm: "UKESM1-0-LL",
+        ssp: "SSP2-4.5",
+        period: "2041-2060",
+        file_count: 19,
+        size_bytes: 123,
+        is_averaged: false,
+      }],
+    });
   });
 
   describe("GET /config/defaults", () => {
