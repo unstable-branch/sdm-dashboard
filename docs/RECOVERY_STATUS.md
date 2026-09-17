@@ -143,8 +143,10 @@ The exact implementation tip before this documentation update is `cc65d5dd9eda2e
 
 No remote write, PR, release, tag, branch deletion or settings change is part of this checkpoint.
 
-## Local promotion preparation — 2026-09-17
+## Promotion and branch reconciliation — 2026-09-17
 
-The reviewed candidate is `f05af652b640ec5f0f45b1034e2a9557f29cf929`. The isolated three-file documentation/workspace patch from `b959faa858480920fbaf5d3f01e83f94d8e3e325` was applied locally as a new commit candidate, rather than cherry-picking its stale branch history. The R execution-security test now resolves the repository through canonical `project_root` when the full suite is launched from the repository root.
+The reviewed recovery line through `f05af652b640ec5f0f45b1034e2a9557f29cf929` was promoted to remote `dev` through candidate `b025dea8c779c9ddc23ee7c324bc51cb60a1517f`. That candidate also applies the isolated three-file documentation/workspace patch from `b959faa858480920fbaf5d3f01e83f94d8e3e325` without importing its stale branch history, and corrects the R execution-security test to resolve the repository through canonical `project_root`.
 
-Remote refs, PRs, settings, services, and cleanup remain unchanged. This is local promotion preparation only; it does not claim that remote `dev` recreation or stale-branch cleanup is complete. Full locked R verification and live migration/runtime-auth evidence remain open.
+After the promoted `dev` ref was read back successfully, all superseded remote branches were removed. The remaining remote heads are `main` at `b39f3a4ef88c7551df29f1f7b3e93d4b32034cec` and `dev` containing `b025dea8c779c9ddc23ee7c324bc51cb60a1517f` plus this status update; release tags were retained.
+
+R parse, fast smoke, release audit, Compose validation, and accelerator-contract gates passed for the promoted tree. The full locked R suite remains blocked by missing local dependencies, and the Node aggregate reached the frontend production build before external Google Fonts retrieval failed. Live migration/runtime-auth evidence remains open and is not claimed by this reconciliation.
