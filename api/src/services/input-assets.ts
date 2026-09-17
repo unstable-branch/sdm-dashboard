@@ -7,12 +7,31 @@ import { db } from "../db/index.js";
 import { auditLogs, inputAssetLegacyMappings, inputAssets, projectMembers, uploadedFiles, uploads } from "../db/schema.js";
 
 export const INPUT_ASSET_SCOPES = ["private", "project", "system"] as const;
-export const INPUT_ASSET_KINDS = ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group"] as const;
+export const INPUT_ASSET_KINDS = ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group", "climate_collection"] as const;
 export const INPUT_ASSET_STATES = ["ready", "deleted", "quarantined"] as const;
 export type InputAssetScope = (typeof INPUT_ASSET_SCOPES)[number];
 export type InputAssetKind = (typeof INPUT_ASSET_KINDS)[number];
 export type InputAssetState = (typeof INPUT_ASSET_STATES)[number];
 export type InputAssetAction = "read" | "use";
+
+export const CLIMATE_COLLECTION_MANIFEST_VERSION = 1 as const;
+
+/** A v1 climate collection is an immutable JSON manifest, not a directory alias. */
+export interface ClimateCollectionManifestMember {
+  locator: string;
+  sha256: string;
+  size: number;
+  metadata: Record<string, string | number | boolean | null>;
+}
+
+export interface ClimateCollectionManifestV1 {
+  version: typeof CLIMATE_COLLECTION_MANIFEST_VERSION;
+  metadata: Record<string, string | number | boolean | null>;
+  members: ClimateCollectionManifestMember[];
+}
+
+export type ClimateCollectionManifest = ClimateCollectionManifestV1;
+export type ClimateManifestMember = ClimateCollectionManifestMember;
 
 export interface InputAssetPrincipal {
   id: string;
@@ -237,6 +256,82 @@ async function matchesContentIdentity(asset: InputAssetRow, path: string, fs: As
   return asset.contentSha256 == null || identity.contentSha256 === asset.contentSha256.toLowerCase();
 }
 
+function isSafeManifestMetadata(value: unknown): value is Record<string, string | number | boolean | null> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.entries(value).every(([key, child]) =>
+    key.length > 0 && key.length <= 128 && /^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(key)
+    && (child === null || typeof child === "string" || typeof child === "boolean"
+      || (typeof child === "number" && Number.isFinite(child))),
+  );
+}
+
+function parseClimateCollectionManifest(value: unknown): ClimateCollectionManifestV1 | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const manifest = value as Record<string, unknown>;
+  if (manifest.version !== CLIMATE_COLLECTION_MANIFEST_VERSION
+    || !Array.isArray(manifest.members)
+    || manifest.members.length === 0) return null;
+  const manifestMetadata = manifest.metadata === undefined ? {} : manifest.metadata;
+  if (!isSafeManifestMetadata(manifestMetadata)) return null;
+  const members: ClimateCollectionManifestMember[] = [];
+  for (const memberValue of manifest.members) {
+    if (!memberValue || typeof memberValue !== "object" || Array.isArray(memberValue)) return null;
+    const member = memberValue as Record<string, unknown>;
+    const locator = typeof member.locator === "string" ? member.locator : member.storageLocator;
+    const sha256 = typeof member.sha256 === "string" ? member.sha256 : member.contentSha256;
+    const size = typeof member.size === "number" ? member.size : member.contentSize;
+    if (typeof locator !== "string" || locator.length === 0 || locator.length > 2048
+      || !HASH_RE.test(typeof sha256 === "string" ? sha256 : "")
+      || typeof size !== "number" || !Number.isSafeInteger(size) || size < 0
+      || !isSafeManifestMetadata(member.metadata)) return null;
+    members.push({
+      locator,
+      sha256: sha256 as string,
+      size,
+      metadata: member.metadata,
+    });
+  }
+  return { version: CLIMATE_COLLECTION_MANIFEST_VERSION, metadata: manifestMetadata, members };
+}
+
+async function verifyClimateCollectionManifest(
+  manifestPath: string,
+  roots: InputAssetRootMap,
+  fs: AssetFileSystem,
+): Promise<ClimateCollectionManifestV1 | null> {
+  let manifest: ClimateCollectionManifestV1 | null;
+  try {
+    const raw = await fs.readFile(manifestPath);
+    manifest = parseClimateCollectionManifest(JSON.parse(raw.toString("utf8")));
+  } catch {
+    return null;
+  }
+  if (!manifest) return null;
+
+  for (const member of manifest.members) {
+    const storage = await resolveInputAssetStorage(member.locator, roots, fs);
+    if (!storage) return null;
+    try {
+      const stat = await fs.lstat(storage.absolutePath);
+      if (stat.isSymbolicLink() || !stat.isFile()) return null;
+      const identity = await computeIdentity(storage.absolutePath, fs);
+      if (identity.contentSize !== member.size || identity.contentSha256 !== member.sha256.toLowerCase()) return null;
+    } catch {
+      return null;
+    }
+  }
+  return manifest;
+}
+
+/** Validate a server-owned manifest file and all of its referenced members. */
+export async function validateClimateCollectionManifest(
+  manifestPath: string,
+  roots: InputAssetRootMap = defaultRoots(),
+  fs: AssetFileSystem = fileSystem,
+): Promise<boolean> {
+  return Boolean(await verifyClimateCollectionManifest(manifestPath, roots, fs));
+}
+
 async function assertRegistrationParent(
   database: Database,
   input: RegisterDerivedInputAssetInput,
@@ -290,6 +385,10 @@ async function register(
   }
   if (input.contentSha256 && input.contentSha256.toLowerCase() !== identity.contentSha256) {
     throw new InputAssetRegistrationError("Input asset content identity mismatch");
+  }
+  if (input.kind === "climate_collection"
+    && !(await verifyClimateCollectionManifest(resolved.absolutePath, roots, fs))) {
+    throw new InputAssetRegistrationError("Climate collection manifest is invalid or its members are unavailable");
   }
 
   const database = dependencies.database || db;
@@ -404,6 +503,17 @@ export async function registerInputAssetFromServerPath(
 
   return register({ ...input, root: pathParts.root, relativePath: pathParts.relativePath }, dependencies, false, null);
 }
+
+/** Register a server-generated v1 climate manifest as the canonical collection ID. */
+export async function registerClimateCollectionFromServerPath(
+  input: Omit<RegisterServerPathInput, "kind">,
+  dependencies: InputAssetDependencies = {},
+): Promise<InputAssetRow> {
+  return registerInputAssetFromServerPath({ ...input, kind: "climate_collection" }, dependencies);
+}
+
+/** Descriptive alias for callers that name the server-produced JSON artifact. */
+export const registerClimateCollectionManifest = registerClimateCollectionFromServerPath;
 
 /** Register a cleaner output while enforcing immutable raw-parent lineage. */
 export async function registerDerivedInputAssetFromServerPath(
@@ -616,7 +726,14 @@ async function resolveInternal(
 
     const storage = await resolveInputAssetStorage(asset.storageLocator, dependencies.roots || defaultRoots(), dependencies.fs || fileSystem);
     if (!storage) return { ok: false, reason: "unsafe_storage" };
+    if (asset.kind === "climate_collection" && (asset.contentSha256 == null || asset.contentSize == null)) {
+      return { ok: false, reason: "unsafe_storage" };
+    }
     if (!(await matchesContentIdentity(asset, storage.absolutePath, dependencies.fs || fileSystem))) return { ok: false, reason: "unsafe_storage" };
+    if (asset.kind === "climate_collection"
+      && !(await verifyClimateCollectionManifest(storage.absolutePath, dependencies.roots || defaultRoots(), dependencies.fs || fileSystem))) {
+      return { ok: false, reason: "unsafe_storage" };
+    }
 
     if (auth.adminAccess) {
       try {

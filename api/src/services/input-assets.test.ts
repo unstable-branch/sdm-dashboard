@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type InputAssetDependencies,
@@ -11,6 +12,7 @@ import {
   registerInputAsset,
   registerDerivedInputAsset,
   registerSystemInputAsset,
+  registerClimateCollectionFromServerPath,
   makeInputAssetLocator,
   InputAssetRegistrationError,
 } from "./input-assets.js";
@@ -22,6 +24,7 @@ const G = "00000000-0000-0000-0000-000000000003";
 const P = "00000000-0000-0000-0000-000000000010";
 const RAW = "00000000-0000-0000-0000-000000000101";
 const CHILD = "00000000-0000-0000-0000-000000000102";
+const CLIMATE = "00000000-0000-0000-0000-000000000103";
 const LEGACY = "00000000-0000-0000-0000-000000000201";
 
 type RowOverrides = Partial<InputAssetRow>;
@@ -89,6 +92,11 @@ beforeEach(async () => {
   await writeFile(join(root, "asset.csv"), "abc");
   await writeFile(join(root, "raw.csv"), "raw");
   await writeFile(join(root, "clean.csv"), "clean");
+  await writeFile(join(root, "climate.tif"), "climate");
+  await writeFile(join(root, "climate.json"), JSON.stringify({
+    version: 1, metadata: { source: "synthetic", resolution: 10 },
+    members: [{ locator: "uploads/climate.tif", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: { variable: "bio1" } }],
+  }));
 });
 
 afterEach(async () => {
@@ -112,6 +120,54 @@ describe("canonical input asset storage containment", () => {
     }
     expect(makeInputAssetLocator("uploads", "../asset.csv", roots())).toBeNull();
     expect(makeInputAssetLocator("uploads", "/etc/passwd", roots())).toBeNull();
+  });
+});
+
+describe("canonical climate collection manifests", () => {
+  it("registers a server-produced v1 manifest only when every member identity is valid", async () => {
+    const database = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+      insert: () => ({ values: (value: Record<string, unknown>) => ({ onConflictDoNothing: () => ({ returning: async () => [asset(CLIMATE, { ...value, id: CLIMATE, kind: "climate_collection", storageLocator: "uploads/climate.json" } as Partial<InputAssetRow>) ] }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+    await expect(registerClimateCollectionFromServerPath({
+      creatorUserId: A, scope: "private", absolutePath: join(root, "climate.json"),
+    }, { roots: roots(), database })).resolves.toMatchObject({ kind: "climate_collection" });
+
+    await writeFile(join(root, "climate.tif"), "tampered");
+    await expect(registerClimateCollectionFromServerPath({
+      creatorUserId: A, scope: "private", absolutePath: join(root, "climate.json"),
+    }, { roots: roots(), database })).rejects.toThrow("manifest");
+  });
+
+  it("rechecks the manifest and every member before use", async () => {
+    const manifestContent = await readFile(join(root, "climate.json"));
+    const climate = asset(CLIMATE, { kind: "climate_collection", storageLocator: "uploads/climate.json", contentSha256: createHash("sha256").update(manifestContent).digest("hex"), contentSize: manifestContent.length });
+    const resolved = await resolveInputAsset({ assetId: CLIMATE, principal: principal(A), action: "use" }, {
+      roots: roots(), database: fakeDatabase({ assets: [climate] }),
+    });
+    expect(resolved).toMatchObject({ ok: true, absolutePath: join(root, "climate.json") });
+
+    await writeFile(join(root, "climate.tif"), "tampered");
+    const denied = await resolveInputAsset({ assetId: CLIMATE, principal: principal(A), action: "use" }, {
+      roots: roots(), database: fakeDatabase({ assets: [climate] }),
+    });
+    expect(denied).toMatchObject({ ok: false, reason: "unsafe_storage" });
+  });
+
+  it("rejects directory and absolute-path member locators", async () => {
+    await writeFile(join(root, "climate.json"), JSON.stringify({ version: 1, metadata: {}, members: [
+      { locator: "/tmp/member.tif", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: {} },
+    ] }));
+    await expect(registerClimateCollectionFromServerPath({
+      creatorUserId: A, scope: "private", absolutePath: join(root, "climate.json"),
+    }, { roots: roots(), database: fakeDatabase() })).rejects.toThrow("manifest");
+
+    await writeFile(join(root, "climate.json"), JSON.stringify({ version: 1, metadata: {}, members: [
+      { locator: "uploads", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: {} },
+    ] }));
+    await expect(registerClimateCollectionFromServerPath({
+      creatorUserId: A, scope: "private", absolutePath: join(root, "climate.json"),
+    }, { roots: roots(), database: fakeDatabase() })).rejects.toThrow("manifest");
   });
 });
 
