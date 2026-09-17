@@ -26,7 +26,7 @@ This is a dated status snapshot. SHAs, CI results, dependency availability, and 
 - SSE/WebSocket replay and delivery need current-authority checks through revocation, reconnect, and replica boundaries.
 - Fold-local VIF at the actual fit entrypoint, aligned out-of-fold ensemble metrics, script export replay, immutable worker-authored provenance, and content-based cache verification remain open.
 - PID-based cancellation and multi-replica event identity are not safe. Keep compute topology explicitly single-replica until proven otherwise.
-- The full locked-R dependency gate is blocked at this snapshot. A local `renv::restore()` attempt could not retrieve the lockfile versions of cito, torch, and safetensors from the configured repositories; pandoc is also absent for paws.common. The system-library suite therefore remains non-authoritative and fails where data.table is unavailable. Fast smoke, focused checks, parse/release checks, and any Node/Compose results must not be described as a passing complete R gate. Re-run the complete lockfile-backed suite in an authoritative environment with the archived sources and required system tools available.
+- The full locked-R dependency gate is blocked at this snapshot. Local `renv::restore()` attempts could not retrieve pinned cito, torch, safetensors, and later cli sources from the configured repositories; pandoc is also absent for paws.common. The system-library suite therefore remains non-authoritative and fails where data.table is unavailable. Fast smoke, focused checks, parse/release checks, and Node/Compose results must not be described as a passing complete R gate. Re-run the complete lockfile-backed suite in an authoritative environment with the archived sources and required system tools available.
 - Remote governance, branch protection, release version alignment, deployment, cleanup, and public tag policy remain separate decisions. No remote write, deployment, or release publication is implied here.
 
 ## Evidence recorded for this snapshot
@@ -34,6 +34,14 @@ This is a dated status snapshot. SHAs, CI results, dependency availability, and 
 The accepted recovery line is represented through the live dev baseline. Accepted local commit `6df341a` makes R quality tests resolve project root and runtime helper dependencies independently of test order. The live baseline and local stabilization line must be checked again before integration or publication.
 
 Required full gates for a release review are pnpm run check:node, pnpm run check:compose, the complete lockfile-backed R suite, R smoke, release audit, affected accelerator contracts, and git diff --check. A passing focused gate cannot substitute for a missing full gate. Exact results belong in a refreshed dated status entry, not in AGENTS.md.
+
+### Phase 1 gate evidence at implementation SHA `671571c24838149c851d4b5406946afae87c31b7`
+
+- Focused R Quality, strict-auth coupling, and changed-working-directory tests passed; 244 R files parsed.
+- `pnpm run check:node` passed as an aggregate: shared/API/frontend typechecks and builds, API 37 files / 372 tests, and frontend 27 files / 209 tests. Existing lint warnings remain non-fatal.
+- `pnpm run check:compose`, `pnpm run check:accelerators`, `Rscript --no-init-file scripts/smoke_test.R --tags=fast`, `Rscript --no-init-file scripts/audit_release.R`, and `pnpm run check:release` passed.
+- The smoke gate reported optional maxnet and ranger backends unavailable and skipped their contracts.
+- The complete lockfile-backed R gate did not run because restore failed as recorded above. A system-library `tests/testthat.R` run reached the repaired tests but failed on missing data.table and is not accepted as the locked gate.
 
 ## Release posture
 
