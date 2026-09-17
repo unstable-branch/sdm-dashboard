@@ -7,7 +7,6 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { inputAssets } from "../db/schema.js";
-import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import {
   InputAssetRegistrationError,
