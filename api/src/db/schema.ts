@@ -5,7 +5,7 @@ import { relations } from "drizzle-orm";
 const statusEnum = pgEnum("run_status", ["queued", "running", "completed", "failed", "cancelled"]);
 const roleEnum = pgEnum("user_role", ["admin", "editor", "viewer"]);
 export const inputAssetScopeEnum = pgEnum("input_asset_scope", ["private", "project", "system"]);
-export const inputAssetKindEnum = pgEnum("input_asset_kind", ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group"]);
+export const inputAssetKindEnum = pgEnum("input_asset_kind", ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group", "climate_collection"]);
 export const inputAssetStateEnum = pgEnum("input_asset_state", ["ready", "deleted", "quarantined"]);
 
 export const users = pgTable("users", {
