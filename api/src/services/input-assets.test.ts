@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type InputAssetDependencies,
@@ -152,6 +152,26 @@ describe("canonical climate collection manifests", () => {
       roots: roots(), database: fakeDatabase({ assets: [climate] }),
     });
     expect(denied).toMatchObject({ ok: false, reason: "unsafe_storage" });
+  });
+
+  it("binds climate members to exact source roots instead of a broad data root", async () => {
+    const climateRoot = join(root, "Worldclim");
+    await mkdir(climateRoot, { recursive: true });
+    await writeFile(join(climateRoot, "bio1.tif"), "climate");
+    const manifestPath = join(climateRoot, "collection.json");
+    await writeFile(manifestPath, JSON.stringify({
+      version: 1,
+      metadata: { source: "worldclim" },
+      members: [{ locator: "worldclim/bio1.tif", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: { variable: "bio1" } }],
+    }));
+    const climateRoots = { worldclim: climateRoot, chelsa: join(root, "chelsa"), future_worldclim: join(root, "Worldclim_future") };
+    const database = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+      insert: () => ({ values: (value: Record<string, unknown>) => ({ onConflictDoNothing: () => ({ returning: async () => [asset(CLIMATE, { ...value, id: CLIMATE, kind: "climate_collection" } as Partial<InputAssetRow>) ] }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+    await expect(registerClimateCollectionFromServerPath({
+      creatorUserId: A, scope: "private", absolutePath: manifestPath,
+    }, { roots: climateRoots, database })).resolves.toMatchObject({ kind: "climate_collection" });
   });
 
   it("rejects directory and absolute-path member locators", async () => {
