@@ -1,6 +1,6 @@
 # Recovery status and direction
 
-_Last updated: 2026-09-16_
+_Last updated: 2026-09-17_
 
 This branch is a staged recovery of the reviewed `main` snapshot. The architecture is being retained: the work is repairing contracts between Next.js, Hono, Plumber, PostgreSQL, queues, and the R modelling pipeline rather than replacing them.
 
@@ -48,7 +48,7 @@ This branch is a staged recovery of the reviewed `main` snapshot. The architectu
 4. Run the auth-enabled two-user, project-member, revoked-member, administrator, API-key, direct-Plumber and failure-path acceptance matrix.
 5. Preserve unavailable monitoring as unavailable until an explicitly authorized service-metrics path exists.
 
-This branch is intentionally not presented as a finished security milestone yet. The completed commits are independently tested foundations for the remaining cutover.
+This branch is intentionally not presented as a finished security milestone yet. The reviewed local candidate also carries the isolated Plumber workaround documentation and a full-suite path correction; these do not close the remaining security or environment gates.
 
 ## Later milestones
 
@@ -142,3 +142,9 @@ The exact implementation tip before this documentation update is `cc65d5dd9eda2e
 - full local R suite was attempted and is blocked by absent locked dependencies, beginning with `data.table`; this is an environment gate, not a passing result
 
 No remote write, PR, release, tag, branch deletion or settings change is part of this checkpoint.
+
+## Local promotion preparation — 2026-09-17
+
+The reviewed candidate is `f05af652b640ec5f0f45b1034e2a9557f29cf929`. The isolated three-file documentation/workspace patch from `b959faa858480920fbaf5d3f01e83f94d8e3e325` was applied locally as a new commit candidate, rather than cherry-picking its stale branch history. The R execution-security test now resolves the repository through canonical `project_root` when the full suite is launched from the repository root.
+
+Remote refs, PRs, settings, services, and cleanup remain unchanged. This is local promotion preparation only; it does not claim that remote `dev` recreation or stale-branch cleanup is complete. Full locked R verification and live migration/runtime-auth evidence remain open.
