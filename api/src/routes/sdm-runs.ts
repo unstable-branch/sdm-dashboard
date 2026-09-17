@@ -464,8 +464,18 @@ sdmRunRoutes.get("/compare/:runId1/:runId2", authMiddleware, async (c) => {
 
 sdmRunRoutes.get("/future/scenarios", async (c) => {
   try {
-    const scenarios = await plumberClient.getFutureScenarios();
-    return c.json(scenarios);
+    const response = await plumberClient.getFutureScenarios();
+    const allowedKeys = ["id", "type", "gcm", "ssp", "period", "file_count", "size_bytes", "is_averaged", "status"];
+    const available_scenarios = (response.available_scenarios || []).map((scenario) => {
+      const publicScenario: Record<string, unknown> = {};
+      for (const key of allowedKeys) {
+        if (scenario[key] !== undefined && (typeof scenario[key] === "string" || typeof scenario[key] === "number" || typeof scenario[key] === "boolean")) {
+          publicScenario[key] = scenario[key];
+        }
+      }
+      return publicScenario;
+    });
+    return c.json({ available_scenarios, ...(response.message ? { message: response.message } : {}) });
   } catch (err) {
     console.warn("[sdm/future/scenarios]", err instanceof Error ? err.message : String(err));
     return c.json({
