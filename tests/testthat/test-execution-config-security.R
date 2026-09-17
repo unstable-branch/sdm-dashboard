@@ -1,13 +1,13 @@
 # Synthetic sentinel tests for the R/Plumber execution boundary.
 # No provider credential or live network operation is used.
 
-root <- normalizePath(file.path("..", ".."), winslash = "/")
+project_root <- normalizePath(getwd(), winslash = "/")
 security_env <- new.env(parent = globalenv())
-sys.source(file.path(root, "plumber", "R", "helpers", "models_helpers.R"), envir = security_env)
+sys.source(file.path(project_root, "plumber", "R", "helpers", "models_helpers.R"), envir = security_env)
 output_env <- new.env(parent = security_env)
-sys.source(file.path(root, "plumber", "R", "helpers", "output_helpers.R"), envir = output_env)
+sys.source(file.path(project_root, "plumber", "R", "helpers", "output_helpers.R"), envir = output_env)
 elevation_env <- new.env(parent = globalenv())
-sys.source(file.path(root, "R", "covariates", "covariates_elevation.R"), envir = elevation_env)
+sys.source(file.path(project_root, "R", "covariates", "covariates_elevation.R"), envir = elevation_env)
 
 sentinel <- "synthetic-opentopo-sentinel"
 
@@ -139,7 +139,7 @@ test_that("failed status is authorized before returning redacted metadata", {
     }
     NULL
   }
-  security_env$app_dir <- root
+  security_env$app_dir <- project_root
   security_env$sdm_redis_progress_clear <- function(...) invisible(NULL)
   security_env$sdm_redis_cancel_clear <- function(...) invisible(NULL)
 
@@ -169,12 +169,12 @@ test_that("provider resolution ignores request-supplied key and reports unavaila
 
 test_that("owned R sources parse after secret containment changes", {
   files <- c(
-    file.path(root, "plumber", "R", "helpers", "models_helpers.R"),
-    file.path(root, "plumber", "R", "run_model_background.R"),
-    file.path(root, "plumber", "R", "targets_dispatcher.R"),
-    file.path(root, "plumber", "R", "helpers", "output_helpers.R"),
-    file.path(root, "R", "covariates", "covariates_elevation.R"),
-    file.path(root, "plumber", "R", "run_server.R")
+    file.path(project_root, "plumber", "R", "helpers", "models_helpers.R"),
+    file.path(project_root, "plumber", "R", "run_model_background.R"),
+    file.path(project_root, "plumber", "R", "targets_dispatcher.R"),
+    file.path(project_root, "plumber", "R", "helpers", "output_helpers.R"),
+    file.path(project_root, "R", "covariates", "covariates_elevation.R"),
+    file.path(project_root, "plumber", "R", "run_server.R")
   )
   for (file in files) expect_true(length(parse(file = file)) > 0)
 })
