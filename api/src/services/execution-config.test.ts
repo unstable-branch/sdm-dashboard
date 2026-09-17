@@ -40,13 +40,28 @@ describe("execution config boundary", () => {
     expect(() => canonicalizeExecutionConfig({ modelId: "glm", model_id: "rf" })).toThrow();
   });
 
+  it("projects opaque input IDs and rejects path aliases", () => {
+    const projected = projectSafeScienceConfig({
+      ...valid,
+      maskAssetId: "11111111-1111-4111-8111-111111111111",
+      targetGroupAssetId: "22222222-2222-4222-8222-222222222222",
+      currentClimateAssetId: "33333333-3333-4333-8333-333333333333",
+      futureClimateAssetId: "44444444-4444-4444-8444-444444444444",
+      futureClimateAssetId2: "55555555-5555-4555-8555-555555555555",
+    });
+    expect(projected).toMatchObject({ maskAssetId: "11111111-1111-4111-8111-111111111111", currentClimateAssetId: "33333333-3333-4333-8333-333333333333" });
+    for (const key of ["maskFile", "targetGroupFile", "worldclimDir", "futureWorldclimDir", "futureWorldclimDir2", "occurrenceFile"]) {
+      expect(() => projectSafeScienceConfig({ ...valid, [key]: "/client/path" })).toThrow();
+    }
+  });
+
   it("revalidates historical configs before retry and preserves bounded tuning", () => {
     expect(revalidateHistoricalConfig({
-      species: "Test species", model_id: "glm", biovars: "1,4,6", occurrence_asset_id: "00000000-0000-0000-0000-000000000101", threshold: 0.5,
+      species: "Test species", model_id: "glm", biovars: "1,4,6", occurrence_asset_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", threshold: 0.5,
       enmeval_tune_args: { fc: ["L"], rm: [1] },
     })).toMatchObject({ modelId: "glm", biovars: [1, 4, 6], enmevalTuneArgs: { fc: ["L"], rm: [1] } });
     expect(() => revalidateHistoricalConfig({
-      species: "Test species", model_id: "glm", biovars: [1, 4, 6], occurrence_asset_id: "00000000-0000-0000-0000-000000000101",
+      species: "Test species", model_id: "glm", biovars: [1, 4, 6], occurrence_asset_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       enmeval_tune_args: { api_key: "synthetic-sentinel" },
     })).toThrow();
   });
