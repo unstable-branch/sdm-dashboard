@@ -157,10 +157,21 @@ function isOneOf<T extends string>(value: unknown, values: readonly T[]): value 
 
 function defaultRoots(): InputAssetRootMap {
   const projectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  const configuredClimateRoot = (environmentName: string, defaultRelative: string): string => {
+    const configured = process.env[environmentName];
+    return resolve(projectRoot, configured || defaultRelative);
+  };
   return {
     uploads: process.env.SDM_INPUT_ASSET_UPLOAD_ROOT || join(projectRoot, "data", "uploads"),
     boundaries: process.env.SDM_INPUT_ASSET_BOUNDARY_ROOT || join(projectRoot, "data", "uploads"),
     system: process.env.SDM_INPUT_ASSET_SYSTEM_ROOT || join(projectRoot, "data", "system"),
+    // Climate collections are rooted by source/scenario, not by a broad
+    // project/data directory. These names are shared with the Plumber
+    // producer's manifest locators and may be overridden for a colocated
+    // volume layout without changing client-visible contracts.
+    worldclim: configuredClimateRoot("SDM_INPUT_ASSET_WORLDCLIM_ROOT", process.env.SDM_WORLDCLIM_DIR || "Worldclim"),
+    chelsa: configuredClimateRoot("SDM_INPUT_ASSET_CHELSA_ROOT", process.env.SDM_CHELSA_DIR || "chelsa"),
+    future_worldclim: configuredClimateRoot("SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT", process.env.SDM_FUTURE_WORLDCLIM_DIR || "Worldclim_future"),
   };
 }
 

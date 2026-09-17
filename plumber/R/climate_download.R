@@ -95,6 +95,10 @@ tryCatch({
   source(file.path(app_dir, "R", "core", "bootstrap.R"))
   sdm_set_project_root(app_dir)
   source(file.path(app_dir, "R", "engine_load.R"))
+  climate_helper_r <- file.path(app_dir, "plumber", "R", "helpers", "climate_helpers.R")
+  if (file.exists(climate_helper_r) && !exists("sdm_publish_climate_directory_manifest", inherits = TRUE)) {
+    source(climate_helper_r, local = TRUE)
+  }
   # Source Redis helpers for background progress reporting
   redis_r <- file.path(app_dir, "plumber", "R", "redis.R")
   if (file.exists(redis_r)) source(redis_r, local = TRUE)
@@ -109,18 +113,30 @@ tryCatch({
       progress_fun(10, "Downloading CMIP6")
       log_fun("Scenario: ", gcm, " / ", ssp, " / ", period, " (", res, "m)")
       source(file.path(app_dir, "R", "covariates", "covariates_climate_future.R"), local = TRUE)
-      fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res,
-                            out_dir = sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir),
-                            quiet = FALSE, log_fun = log_fun)
+      cmip6_result <- fetch_cmip6_worldclim(gcm = gcm, ssp = ssp, period = period, var = "bioc", res = res,
+                                            out_dir = sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir),
+                                            quiet = FALSE, log_fun = log_fun)
+      manifest_directory <- cmip6_result$dir %||% file.path(
+        sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir),
+        paste(gcm, ssp, period, sep = "_")
+      )
+      manifest_source <- "cmip6"
+      manifest_metadata <- list(gcm = gcm, ssp = ssp, period = period, resolution = as.character(res))
       progress_fun(90, "CMIP6 download complete")
     } else {
       gcm_list <- config$gcm_list %||% character(0)
       progress_fun(10, "Averaging CMIP6 GCMs")
       log_fun("GCMs: ", paste(gcm_list, collapse = ", "), " / ", ssp, " / ", period)
       source(file.path(app_dir, "R", "covariates", "covariates_climate_future.R"), local = TRUE)
-      average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res,
-                         out_dir = sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir),
-                         quiet = FALSE, log_fun = log_fun, progress_fun = progress_fun)
+      average_result <- average_cmip6_gcms(gcm_list = gcm_list, ssp = ssp, period = period, var = "bioc", res = res,
+                                           out_dir = sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir),
+                                           quiet = FALSE, log_fun = log_fun, progress_fun = progress_fun)
+      manifest_directory <- average_result$dir %||% file.path(
+        sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir),
+        paste("averaged", paste(gcm_list, collapse = "_"), gsub("-", "_", ssp), period, sep = "_")
+      )
+      manifest_source <- "cmip6"
+      manifest_metadata <- list(gcm_list = paste(gcm_list, collapse = ","), ssp = ssp, period = period, resolution = as.character(res), is_averaged = TRUE)
       progress_fun(90, "GCM averaging complete")
     }
   } else if (download_type == "worldclim") {
@@ -134,6 +150,9 @@ tryCatch({
     result <- download_worldclim_bio(worldclim_dir = worldclim_dir, selected_biovars = biovars,
       res = climate_res, log_fun = log_fun, progress_fun = progress_fun)
     created_files <- result$downloaded %||% character()
+    manifest_directory <- worldclim_dir
+    manifest_source <- "worldclim"
+    manifest_metadata <- list(resolution = as.character(climate_res))
     if (length(result$failed) > 0) {
       meta$failed_vars <- result$failed
       meta$status <- "partial"
@@ -152,6 +171,9 @@ tryCatch({
     source(file.path(app_dir, "R", "covariates", "covariates_climate.R"), local = TRUE)
     result <- download_chelsa_bio(chelsa_dir = chelsa_dir, selected_biovars = biovars, log_fun = log_fun, progress_fun = progress_fun)
     created_files <- result$downloaded %||% character()
+    manifest_directory <- chelsa_dir
+    manifest_source <- "chelsa"
+    manifest_metadata <- list(resolution = "0.5")
     if (length(result$failed) > 0) {
       meta$failed_vars <- result$failed
       meta$status <- "partial"
@@ -168,6 +190,20 @@ tryCatch({
   progress_fun(95, "Finalizing persisted climate cache")
   if (is.null(meta$status) || meta$status == "running") {
     meta$status <- "completed"
+  }
+  # A manifest is published only after the producer has finished and all
+  # members have been revalidated. Partial, failed, or cancelled jobs never
+  # receive a manifest_path, even if a provider left usable-looking files.
+  if (identical(meta$status, "completed")) {
+    manifest_path <- tryCatch(
+      sdm_publish_climate_directory_manifest(
+        manifest_directory, app_dir, source = manifest_source, metadata = manifest_metadata
+      ),
+      error = function(e) stop("Climate output verification failed: ", conditionMessage(e), call. = FALSE)
+    )
+    meta$manifest_path <- manifest_path
+  } else {
+    meta$manifest_path <- NULL
   }
   meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
   write_meta(meta)
